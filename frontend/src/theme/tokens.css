@@ -1,0 +1,215 @@
+/*
+ * Neon Command design tokens — the ONLY file allowed to contain raw colour values (enforced by tokens.test.ts).
+ * Layer 1: `--nc-*` palette (Neon Command core hexes + derived steps). Layer 2: semantic roles (`--color-*`, …)
+ * that components use. Dark is the authored theme; light is a conservative semantic derivation.
+ * Documented in doc/design/design-system.md.
+ */
+
+:root {
+  /* Neon Command core palette (doc/design/design-system.md) */
+  --nc-void: #0A0B0D;
+  --nc-charcoal: #1B2329;
+  --nc-slate: #2E3A40;
+  --nc-viper-green: #00E676;
+  --nc-teal: #00C2B8;
+  --nc-ice: #EAF2F1;
+  --nc-deep-emerald: #10261F;
+
+  /* Derived dark steps */
+  --nc-graphite: #11171B;
+  --nc-charcoal-high: #222C33;
+  --nc-slate-strong: #56676E;
+  --nc-mist: #9AA8AD;
+  --nc-viper-green-bright: #4DF09F;
+
+  /* Derived light steps */
+  --nc-paper: #F4F7F7;
+  --nc-white: #FFFFFF;
+  --nc-ink: #0F1A1F;
+  --nc-ink-muted: #4E5E65;
+  --nc-line: #D5DEE0;
+  --nc-line-strong: #7C8C92;
+  --nc-viper-green-deep: #007A45;
+  --nc-viper-green-mist: #E3F6EC;
+  --nc-viper-green-press: #00CF6A;
+  --nc-teal-deep: #00756F;
+
+  /* Status palette — warning = verification yellow/orange, danger = destructive / do-not-contact */
+  --nc-amber: #FFB547;
+  --nc-amber-night: #241C0E;
+  --nc-amber-deep: #8A5A00;
+  --nc-amber-mist: #FFF4DC;
+  --nc-red: #FF7A7A;
+  --nc-red-solid: #F0564F;
+  --nc-red-night: #2A1416;
+  --nc-red-deep: #B42318;
+  --nc-red-strong: #C0362C;
+  --nc-red-mist: #FDECEA;
+  --nc-mint: #7FD1AE;
+  --nc-mint-night: #0E231B;
+  --nc-mint-deep: #1D6E4B;
+  --nc-mint-mist: #E6F5EE;
+  --nc-sky: #6CB6FF;
+  --nc-sky-night: #0F1D2B;
+  --nc-sky-deep: #1F5FAD;
+  --nc-sky-mist: #E8F1FC;
+  --nc-fog: #C3CED1;
+  --nc-fog-night: #232D33;
+  --nc-fog-deep: #3E4D54;
+  --nc-fog-mist: #E9EEEF;
+
+  /* Typography */
+  --font-sans: 'Inter Variable', Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Code', 'SF Mono', Consolas, monospace;
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-md: 0.875rem;
+  --text-lg: 1rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.625rem;
+  --text-3xl: 2rem;
+  --leading-tight: 1.25;
+  --leading-normal: 1.5;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --tracking-tight: -0.015em;
+  --tracking-label: 0.08em;
+
+  /* Spacing — 4 px base */
+  --space-0: 0;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+
+  /* Shape */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-full: 999px;
+  --border-width: 1px;
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
+
+  /* Sizing */
+  --control-sm: 2rem;
+  --control-md: 2.5rem;
+  --sidebar-width: 16rem;
+  --sidebar-width-collapsed: 4.5rem;
+  --header-height: 4rem;
+  --page-padding: var(--space-10);
+
+  /* Layers */
+  --z-sticky: 10;
+  --z-sidebar: 20;
+  --z-header: 30;
+  --z-overlay: 100;
+
+  /* Motion — restrained; zeroed under prefers-reduced-motion */
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-base: 0ms;
+  }
+}
+
+/* Dark — primary authored theme (also the default when no data-theme is set) */
+:root,
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --color-canvas: var(--nc-void);
+  --color-surface: var(--nc-graphite);
+  --color-surface-raised: var(--nc-charcoal);
+  --color-surface-hover: var(--nc-charcoal);
+  --color-field: var(--nc-void);
+  --color-border: var(--nc-slate);
+  --color-border-strong: var(--nc-slate-strong);
+
+  --color-text: var(--nc-ice);
+  --color-text-muted: var(--nc-mist);
+
+  --color-accent: var(--nc-viper-green);
+  --color-accent-hover: var(--nc-viper-green-bright);
+  --color-on-accent: var(--nc-void);
+  --color-accent-fg: var(--nc-viper-green);
+  --color-accent-soft: var(--nc-deep-emerald);
+  --color-accent-2: var(--nc-teal);
+  --color-accent-2-fg: var(--nc-teal);
+  --color-focus: var(--nc-viper-green);
+
+  --color-warning-fg: var(--nc-amber);
+  --color-warning-soft: var(--nc-amber-night);
+  --color-danger: var(--nc-red-solid);
+  --color-on-danger: var(--nc-void);
+  --color-danger-fg: var(--nc-red);
+  --color-danger-soft: var(--nc-red-night);
+  --color-success-fg: var(--nc-mint);
+  --color-success-soft: var(--nc-mint-night);
+  --color-info-fg: var(--nc-sky);
+  --color-info-soft: var(--nc-sky-night);
+  --color-neutral-fg: var(--nc-fog);
+  --color-neutral-soft: var(--nc-fog-night);
+
+  --color-scrim: color-mix(in srgb, var(--nc-void) 72%, transparent);
+  --shadow-sm: 0 1px 2px color-mix(in srgb, var(--nc-void) 60%, transparent);
+  --shadow-overlay: 0 24px 64px color-mix(in srgb, var(--nc-void) 70%, transparent);
+  --shadow-glow: 0 0 0 1px color-mix(in srgb, var(--nc-viper-green) 22%, transparent),
+    0 0 24px color-mix(in srgb, var(--nc-viper-green) 14%, transparent);
+}
+
+/* Light — conservative derivation: off-white canvas, dark slate text, same accents at accessible contrast */
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --color-canvas: var(--nc-paper);
+  --color-surface: var(--nc-white);
+  --color-surface-raised: var(--nc-white);
+  --color-surface-hover: var(--nc-ice);
+  --color-field: var(--nc-white);
+  --color-border: var(--nc-line);
+  --color-border-strong: var(--nc-line-strong);
+
+  --color-text: var(--nc-ink);
+  --color-text-muted: var(--nc-ink-muted);
+
+  --color-accent: var(--nc-viper-green);
+  --color-accent-hover: var(--nc-viper-green-press);
+  --color-on-accent: var(--nc-void);
+  --color-accent-fg: var(--nc-viper-green-deep);
+  --color-accent-soft: var(--nc-viper-green-mist);
+  --color-accent-2: var(--nc-teal);
+  --color-accent-2-fg: var(--nc-teal-deep);
+  --color-focus: var(--nc-viper-green-deep);
+
+  --color-warning-fg: var(--nc-amber-deep);
+  --color-warning-soft: var(--nc-amber-mist);
+  --color-danger: var(--nc-red-strong);
+  --color-on-danger: var(--nc-white);
+  --color-danger-fg: var(--nc-red-deep);
+  --color-danger-soft: var(--nc-red-mist);
+  --color-success-fg: var(--nc-mint-deep);
+  --color-success-soft: var(--nc-mint-mist);
+  --color-info-fg: var(--nc-sky-deep);
+  --color-info-soft: var(--nc-sky-mist);
+  --color-neutral-fg: var(--nc-fog-deep);
+  --color-neutral-soft: var(--nc-fog-mist);
+
+  --color-scrim: color-mix(in srgb, var(--nc-ink) 40%, transparent);
+  --shadow-sm: 0 1px 2px color-mix(in srgb, var(--nc-ink) 8%, transparent);
+  --shadow-overlay: 0 24px 64px color-mix(in srgb, var(--nc-ink) 18%, transparent);
+  --shadow-glow: 0 0 0 1px color-mix(in srgb, var(--nc-viper-green-deep) 20%, transparent);
+}

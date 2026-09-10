@@ -46,7 +46,8 @@ npm ci                             # or `npm install` when changing dependencies
 npm run dev                        # http://localhost:5173 ; /api is proxied to 127.0.0.1:8042
 ```
 
-The left navigation shows `API : connectée` when the backend and database answer.
+The left navigation shows `API : connectée` when the backend and database answer. With the dev server running,
+<http://localhost:5173/_dev/ui> shows the design-system component showcase (not part of production builds).
 
 ## 4. Quality gates
 
@@ -67,7 +68,8 @@ Individually:
 | `frontend/` | `npm run lint` · `npm run typecheck` | ESLint (type-aware) · `tsc -b` |
 | `frontend/` | `npm test` (`npm run test:watch`) | Vitest component/unit tests |
 | `frontend/` | `npm run build` | typecheck + production bundle in `frontend/dist/` |
-| `frontend/` | `npx playwright install chromium` once, then `npm run e2e` | Playwright smoke; starts Vite itself (reuses a running one locally) |
+| `frontend/` | `npx playwright install chromium` once, then `npm run e2e` | Playwright smoke + design checks; starts Vite itself (reuses a running one locally); writes review screenshots of both themes to `frontend/test-results/screenshots/` (git-ignored) |
+| `frontend/` | `npm run brand:assets` | regenerate the web-sized logos and favicons from the handoff originals (only when a logo changes; see `doc/design/visual-manifest.md`) |
 
 ## 5. Migrations
 
