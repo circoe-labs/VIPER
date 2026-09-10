@@ -74,7 +74,8 @@ describe('Prospection page', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Prospection' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Entreprises' })).toHaveAttribute('href', '/prospection/companies')
     expect(screen.getByRole('link', { name: 'Importer Excel' })).toHaveAttribute('href', '/prospection/import')
-    expect(screen.getByRole('link', { name: 'Exporter Excel' })).toHaveAttribute('href', '/api/exports/workbook')
+    // The full-database export of Task 10 (downloads through `ExportWorkbookButton`, tested there).
+    expect(screen.getByRole('button', { name: 'Exporter Excel' })).toBeEnabled()
     const add = screen.getByRole('button', { name: 'Ajouter un prospect' })
     expect(add).toHaveAttribute('aria-disabled', 'true')
     expect(add).toHaveAccessibleDescription('Disponible avec l’éditeur de prospect')

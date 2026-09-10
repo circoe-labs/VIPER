@@ -51,6 +51,10 @@ The import engine (Task 08, [ADR-0007](../adr/0007-import-engine.md)) is `app/se
 adds the pure review (`review.py`, `decisions.py`: groups, defaults, validated plan) and the commit service
 `app/services/import_commit.py`, which writes through the domain services in one savepoint
 ([ADR-0012](../adr/0012-stateless-import-review.md)).
+The export (Task 10, [ADR-0013](../adr/0013-normalized-excel-export.md)) mirrors it: `app/services/exports/spec.py`
+is the only module knowing the exported sheets and columns, `projection.py` reads the domain (SELECTs through
+`app/repositories/exports.py`) and `workbook.py` writes the XLSX; `app/services/excel_export.py` (ExcelExportService)
+builds and audits the download.
 
 ### Auth + actor context
 The pilot is single-user, but it must be securely authenticated. Application user identity is distinct from `internal_referents`. All mutations receive an actor context.

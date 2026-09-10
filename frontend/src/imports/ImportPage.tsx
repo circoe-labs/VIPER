@@ -3,6 +3,7 @@ import { useReducer, useRef } from 'react'
 import { Link } from 'react-router'
 
 import { type CommitResult, importKeys, previewImport } from '../api/imports'
+import { ExportWorkbookButton } from '../exports/ExportWorkbookButton'
 import { Button } from '../ui/Button'
 import { AlertIcon, ArrowLeftIcon } from '../ui/icons'
 import { PageHeader } from '../ui/PageHeader'
@@ -80,15 +81,18 @@ export function ImportPage() {
         title="Importer un fichier Excel"
         description="Analysez le fichier, vérifiez ce qui doit l’être puis confirmez : rien n’est enregistré avant votre confirmation, et tout import reste tracé."
         actions={
-          step !== 'idle' && step !== 'analyzing' ? (
-            <Button
-              onClick={() => {
-                dispatch({ type: 'reset' })
-              }}
-            >
-              Nouvel import
-            </Button>
-          ) : undefined
+          <>
+            {step !== 'idle' && step !== 'analyzing' && (
+              <Button
+                onClick={() => {
+                  dispatch({ type: 'reset' })
+                }}
+              >
+                Nouvel import
+              </Button>
+            )}
+            <ExportWorkbookButton />
+          </>
         }
       />
       <ol className="import-steps" aria-label="Étapes de l’import">

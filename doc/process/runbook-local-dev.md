@@ -180,6 +180,15 @@ VIPER_PRIVATE_WORKBOOK='C:\Projects\VIPER\tasks\viper_v1_implementation_handoff_
 Never commit the real workbook into the dev database you keep: if you do it by hand for a check, reset that database
 afterwards (`alembic downgrade base`).
 
+### Excel export (Task 10)
+
+« Exporter Excel » (Entreprises and Import headers) downloads `GET /api/exports/workbook` — the whole database of
+the backend you run. For a manual look at the layout, import a synthetic workbook (section above) and export. A
+private check against the real workbook must follow the Task 09 rule: import it only into a throwaway worktree
+database, build the export in memory, print aggregate counts only (rows per sheet, non-empty `Référent` cells, legacy
+entries vs stored row metadata, formula cells), never save the exported file inside a repository, then reset that
+database (`alembic downgrade base` + `alembic upgrade head`).
+
 ## 5. Migrations
 
 Run from `backend/` with the venv active. `-x db=test` targets `VIPER_TEST_DATABASE_URL` instead of the dev DB.

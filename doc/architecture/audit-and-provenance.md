@@ -102,6 +102,7 @@ raises `UnattributedMutationError` and the transaction rolls back.
 | `import_batch.started` / `.committed` / `.failed` / `.cancelled` | `import_batches.start_batch` / `finish_batch` | file name, sheets, fingerprint, status, counts |
 | `auth.login` / `auth.logout` | `auth.open_session` / `auth.sign_out` | who and when only — no token, session id, IP or user agent; failed sign-ins are not audited (I-30) |
 | `auth.user_created` / `auth.password_reset` | `auth.create_or_reset_user` (CLI) | no field values |
+| `export.generated` | `GET /api/exports/workbook` (Task 10) | entity `excel_export` (no id); `<sheet>_rows` per sheet and `size_bytes` — never a value (ADR-0013) |
 | `explorer.sql_executed` | `POST /api/explorer/sql` (Task 13) | entity `sql_query`; `query_sha256`, `query_length`, `outcome`, and `row_count` / `truncated` / `duration_ms` when it ran — never the query text (I-67) |
 | `<taxonomy>.renamed` / `.deactivated` / `.reactivated` (`role`, `commercial_segment`, `activity_category`) and `internal_referent.deactivated` / `.reactivated` | `taxonomies.rename_value` / `set_value_active`, `referents.set_referent_active` (Task 06, `SettingsChange`) | label or `active` before/after; creation, referent edits and deletion use the generic lifecycle actions |
 

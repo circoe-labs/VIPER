@@ -10,6 +10,7 @@ import {
   useProspectionCounters,
   useProspectPage,
 } from '../api/prospection'
+import { ExportWorkbookButton } from '../exports/ExportWorkbookButton'
 import { useDebouncedValue } from '../settings/shared'
 import { Button } from '../ui/Button'
 import { EmptyState } from '../ui/EmptyState'
@@ -27,7 +28,6 @@ import { PageHeader } from '../ui/PageHeader'
 import { SearchField } from '../ui/SearchField'
 import { CounterCards } from './CounterCards'
 import { DEFAULT_VIEW, hasFilters, parseView, type ProspectionView, serializeView } from './criteria'
-import { ExportWorkbookButton } from './ExportWorkbookButton'
 import { SEGMENT_INFO } from './labels'
 import { ProspectionFilters } from './ProspectionFilters'
 import { ProspectList } from './ProspectList'

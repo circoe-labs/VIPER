@@ -123,6 +123,14 @@
   `test_import_reference_loader.py` (snapshot from the real test database, SELECT-only). The private smoke
   `test_import_private_workbook.py` (marker `private`) is skipped unless `VIPER_PRIVATE_WORKBOOK` is set and prints
   counts per diagnostic code only.
+- Excel export (Task 10): `test_excel_export.py` (real test database: sheets and headers equal the specification,
+  frozen header, autofilter, widths; typed dates in Europe/Paris, text phones/SIREN/postal codes with leading zeros;
+  company/person ordering and companies without prospects; round trip synthetic import → service and explorer edits
+  → API download with the corrected semantics, complete aliases and every legacy value; byte-identical exports;
+  formula-free cells with `quotePrefix`; audited attachment with counts only; 401; 3 000 synthetic prospects in
+  < 45 s). Frontend: `ExportWorkbookButton.test.tsx` (progress, file name, fallback name, French error and retry,
+  presence in both headers), `client.test.ts` (`apiDownload`). Playwright `e2e/export.spec.ts` downloads the workbook
+  and reads its zip entries with Node's zlib (sheet names, a company the test created).
 - Excel import review and commit (Task 09): `test_import_commit.py` (real test database: default commit with
   normalized entities, provenance, row metadata and import-actor audit; defaults never apply suggestions nor invent a
   year; grouped role mapping; explicit role/category creation audited as the user; referent/civility/week/inactive

@@ -131,13 +131,13 @@ test('counters narrow the list to the right people, kept in the URL; a person op
   await expect(people(page).getByRole('listitem')).toHaveCount(2)
 })
 
-test('Add waits for the prospect editor; import and export entry points are wired', async ({ page }) => {
+test('Add waits for the prospect editor; import and export entry points are there', async ({ page }) => {
   await page.goto('/prospection')
 
   const add = page.getByRole('button', { name: 'Ajouter un prospect' })
   await expect(add).toHaveAttribute('aria-disabled', 'true')
   await expect(add).toHaveAttribute('title', 'Disponible avec l’éditeur de prospect')
-  await expect(page.getByRole('link', { name: 'Exporter Excel' })).toHaveAttribute('href', '/api/exports/workbook')
+  await expect(page.getByRole('button', { name: 'Exporter Excel' })).toBeEnabled()
   await page.getByRole('link', { name: 'Importer Excel' }).click()
   await expect(page.getByRole('heading', { level: 1, name: 'Importer un fichier Excel' })).toBeVisible()
 })

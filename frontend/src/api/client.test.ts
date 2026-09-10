@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { stubFetchJson } from '../test/render'
-import { ApiError, apiGet, apiRequest, onUnauthorized, setCsrfToken } from './client'
+import { ApiError, apiDownload, apiGet, apiRequest, onUnauthorized, setCsrfToken } from './client'
 
 describe('apiGet', () => {
   it('prefixes the path with /api and returns the parsed JSON body', async () => {
@@ -87,6 +87,37 @@ describe('apiRequest', () => {
     await expect(apiRequest('POST', '/auth/login', { anonymous: true })).rejects.toMatchObject({ status: 401 })
     unsubscribe()
     await expect(apiRequest('GET', '/things')).rejects.toMatchObject({ status: 401 })
+
+    expect(listener).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('apiDownload', () => {
+  it('returns the body and the file name of the Content-Disposition header', async () => {
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(
+        new Response('contenu', {
+          status: 200,
+          headers: { 'Content-Disposition': 'attachment; filename="VIPER_export_2026-09-10.xlsx"' },
+        }),
+      ),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const file = await apiDownload('/exports/workbook')
+
+    expect(file.filename).toBe('VIPER_export_2026-09-10.xlsx')
+    await expect(file.blob.text()).resolves.toBe('contenu')
+    expect(fetchMock).toHaveBeenCalledWith('/api/exports/workbook', { signal: undefined })
+  })
+
+  it('reports an expired session like any authenticated call', async () => {
+    const listener = vi.fn()
+    const unsubscribe = onUnauthorized(listener)
+    stubFetchJson(401, { detail: 'Not authenticated.' })
+
+    await expect(apiDownload('/exports/workbook')).rejects.toMatchObject({ status: 401 })
+    unsubscribe()
 
     expect(listener).toHaveBeenCalledTimes(1)
   })
