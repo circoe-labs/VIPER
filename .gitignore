@@ -1,0 +1,14 @@
+node_modules/
+dist/
+dist-server/
+data/
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite3
+sources/
+BASE_CLIENT.xlsx
+**/BASE_CLIENT.xlsx
+coverage/
+.DS_Store
