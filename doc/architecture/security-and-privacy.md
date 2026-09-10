@@ -119,6 +119,15 @@ under a future retention policy requires an explicit, reviewed migration. Erasin
 `subject_id`, which is what such a redaction would target. Import batches store metadata and an optional SHA-256
 fingerprint, never workbook bytes.
 
+## Excel export (Task 10)
+`GET /api/exports/workbook` returns the whole normalized database — personal data — as one XLSX
+([ADR-0013](../adr/0013-normalized-excel-export.md)): session required (like every route), built in memory and never
+stored server-side, `Cache-Control: no-store`, and each download audited as `export.generated` with the signed-in user
+and counts only. Cells are formula-free: every text is a string cell and a formula-like text also carries Excel's
+`quotePrefix` (the explorer CSV's detection rule, shared in `app/core/spreadsheet.py`). openpyxl's write-only mode
+streams the sheets through temporary files, deleted when the workbook is saved. The private compatibility check never
+writes the exported real workbook to disk.
+
 ## Excel import uploads (Task 09)
 The review is stateless (ADR-0012): the workbook stays in the browser and is re-sent for each analysis and for the
 commit; nothing is stored server-side. Upload bodies are parsed only after the session and CSRF checks and a
