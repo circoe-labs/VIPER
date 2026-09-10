@@ -14,6 +14,8 @@ from sqlalchemy.orm import Session
 from app.core.actor import ActorContext
 from app.models.contact_tracking import ContactTracking, ContactTrackingStatusHistory
 from app.models.enums import ContactTrackingStatus
+from app.services import audit
+from app.services.audit import AuditAction
 from app.services.prospects import get_prospect
 
 
@@ -29,15 +31,24 @@ class ContactTrackingInput:
 def save_contact_tracking(
     session: Session, actor: ActorContext, prospect_id: uuid.UUID, data: ContactTrackingInput
 ) -> ContactTracking:
-    """Create or replace the prospect's current tracking; log a history row on status change."""
+    """Create or replace the prospect's current tracking; log a history row on status change.
+
+    Audit: `contact_tracking.created`, `contact_tracking.status_changed` when the stage moves, or
+    `contact_tracking.updated` when only dates/referent change (no event when nothing changes).
+    """
     prospect = get_prospect(session, prospect_id)
     tracking = prospect.contact_tracking
     previous_status = None
     if tracking is None:
         tracking = ContactTracking()
+        audit.annotate(session, actor, tracking)
         prospect.contact_tracking = tracking
     else:
         previous_status = tracking.status
+        moved = previous_status != data.status
+        audit.annotate(
+            session, actor, tracking, AuditAction.CONTACT_TRACKING_STATUS_CHANGED if moved else None
+        )
     tracking.status = data.status
     tracking.planned_contact_at = data.planned_contact_at
     tracking.referent_id = data.referent_id

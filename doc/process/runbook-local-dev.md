@@ -128,7 +128,8 @@ running. Playwright starts its own backend (`uvicorn` on **8044**, database **`v
 proxying `/api` to 8044) — it never touches the dev servers or the dev database — and stops them at the end (locally
 it reuses servers already listening on those ports). Global setup (`frontend/e2e/global-setup.ts`) rebuilds
 `viper_e2e` through the migrations (`alembic downgrade base` + `upgrade head`; it refuses a database whose name does
-not end in `_e2e`), loads the synthetic explorer dataset (`python -m tests.e2e_data`, same guard) and creates the
+not end in `_e2e`), loads the synthetic explorer dataset (`python -m tests.e2e_data`, same guard; written through
+`audit.attributed_unit_of_work` with a system actor, so `audit_log` holds its creation events) and creates the
 synthetic account `pilote.e2e@example.com` with `python -m app.cli create-user --password-stdin` and a random password
 generated for the run. Every spec signs in through `signIn` (`frontend/e2e/session.ts`); `auth.spec.ts` drives the
 real form. Overrides: `VIPER_E2E_DATABASE_URL`, `VIPER_E2E_WEB_PORT`, `VIPER_E2E_API_PORT`, `VIPER_E2E_PYTHON`

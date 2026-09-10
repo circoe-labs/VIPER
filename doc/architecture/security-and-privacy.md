@@ -48,8 +48,38 @@ Implemented in Task 04 — design and rationale in [ADR-0004](../adr/0004-authen
 ## Provenance
 Every contact/prospect should be able to retain source, date added and legal-basis/collection-context metadata even when initially unknown. Import origin should include workbook/sheet/row references without exposing them publicly.
 
+Implemented in Task 05 (`ProvenanceService`, [audit-and-provenance.md](audit-and-provenance.md#provenance)):
+`prospect_sources` rows with source type, reference, `collected_at`, legal basis / collection context and the actor
+snapshot; import sources point to their batch and to a `file / sheet / ligne n` reference. Raw legacy values stay
+in `import_row_metadata` (deleted with the prospect), never in the audit log.
+
 ## Audit
 Meaningful mutations from human/import/Database Explorer must be auditable. Actor model must support future agent/system actors.
+
+Implemented in Task 05 — [audit-and-provenance.md](audit-and-provenance.md), [ADR-0006](../adr/0006-audit-integration.md):
+
+- **Attribution from the server only**: `require_session` binds the signed-in user to the request's database session;
+  every audited row change of a signed-in request is recorded with that actor, whatever the payload says (tested
+  with a forged actor). Imports record `import` actors on behalf of the confirming user; CLI commands a `system`
+  actor. It fails closed: a write to an audited table without an actor raises and rolls back (I-31).
+- **Append-only and atomic**: events are written in the same transaction as the change (a rolled-back change
+  leaves no event); database triggers reject `UPDATE`/`DELETE`/`TRUNCATE` on `audit_log`.
+- **Security trail**: `auth.login`, `auth.logout`, `auth.user_created`, `auth.password_reset` — who and when only.
+  No token, token hash, CSRF token, session id, IP address or user agent is stored: the pilot has one account and
+  throttling already works from in-memory counters; an IP is personal data with no use for the operator yet.
+  Failed sign-ins are not audited (no authenticated actor, and the typed identifier could be a mistyped password).
+- **Payload policy** (`app/core/audit_policy.py`, one place): login accounts and sessions never contribute field
+  values; secret-looking fields are dropped at any depth; `legacy_metadata` is masked; audit payloads are never
+  written to application logs.
+- **Contact personal data in audit (decision I-27)**: V1 stores prospect names, email addresses, phone numbers and
+  source references **in full** in `changes`, so the history can say "email changed from X to Y" and old values are
+  preserved as the company-change rule requires (overview, rule 5). The audit log is read by the same single operator
+  who already sees the current values, through the same authenticated API; it is not exported or logged. Because the
+  log is append-only and retention is undecided (open question #2), this is **one switch**
+  (`POLICY.personal_values`: `full` → `masked` → `omitted`) to tighten before production if the retention policy
+  requires it; events already written would then need a subject-scoped redaction migration. Free-text reasons
+  (`context.reason`, e.g. why an opposition was lifted) are kept as written: the UI should ask for reasons without
+  unnecessary personal detail.
 
 ## Do-not-contact
 Opposition is durable and distinct from non-interest. Import/merge/new contact tracking must not silently reactivate blocked prospects.
@@ -71,5 +101,7 @@ Exact retention, anonymization, hosting and backup requirements remain product/o
 Current deletion rules (Task 03): taxonomy/referent/company references are RESTRICT (deactivate instead of delete);
 deleting a prospect cascades to its own personal data (emails, phones, tracking, sources, import row metadata);
 `audit_log` has no FKs and is append-only (UPDATE/DELETE/TRUNCATE rejected by triggers), so purging or redacting it
-under a future retention policy requires an explicit, reviewed migration. Import batches store metadata and an
-optional SHA-256 fingerprint, never workbook bytes.
+under a future retention policy requires an explicit, reviewed migration. Erasing a prospect keeps its audit events
+(with full contact values under decision I-27); they are all findable by `subject_type = 'prospect'` and
+`subject_id`, which is what such a redaction would target. Import batches store metadata and an optional SHA-256
+fingerprint, never workbook bytes.

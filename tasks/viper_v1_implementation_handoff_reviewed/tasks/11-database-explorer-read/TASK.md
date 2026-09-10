@@ -160,3 +160,16 @@ security & privacy.
   `signIn` (`e2e/session.ts`); `openDatabase` only navigates.
 - `VIPER_E2E_DATABASE_URL=…/viper_wt_e2e VIPER_E2E_WEB_PORT=5174 VIPER_E2E_API_PORT=8043 python scripts/verify.py
   --e2e` → all green: **pytest 195**, **vitest 274** (19 files), **Playwright 18**, lint/types/build clean.
+
+### Merge with Task 05 (`da73bf8`, `9c60488`)
+- Conflicts: `api/router.py` (audit and explorer routers both on `api_router`), `tests/conftest.py` (Task 05's
+  `FIXTURE_ACTOR` binding kept with the shared reset helpers), decision log (I-26…I-31 kept with I-23…I-25 and
+  I-40…I-46).
+- Fail-closed audit respected: `tests.e2e_data` loads the dataset in `audit.attributed_unit_of_work` with a
+  `SYSTEM` actor (`tests.e2e_data`); the dataset no longer inserts hand-made `audit_log` rows — the real creation
+  events fill it. New tests: the dataset under `FIXTURE_ACTOR` yields one `prospect` creation event per prospect,
+  and loading it without an actor raises `UnattributedMutationError`. The row-count test now compares the
+  `audit_log` count with the database instead of assuming 0.
+- E2E: new scenario opening `audit_log` filtered on company events: the cut `changes` preview opens complete and
+  pretty-printed in the value viewer (screenshot `database-audit-changes.png`).
+- `python scripts/verify.py --e2e` (worktree overrides) → green: **pytest 245**, **vitest 274**, **Playwright 19**.

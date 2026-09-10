@@ -42,7 +42,10 @@ Single source: `backend/app/services/explorer/policy.py`.
 - **Columns.** `HIDDEN`: absent from metadata, values, search, filters, sort and export. `MASKED`: listed (marked
   `masquée`) but never read (selected as `NULL`), not searchable, filterable or sortable, exported empty. Primary
   keys cannot be hidden or masked. No column is hidden or masked today.
-- Task 12 adds per-column editability to the same `ColumnPolicy`.
+- `audit_log` is exposed read-only (Task 05 writes it; its payload policy is applied before storage): its `changes`
+  and `context` JSONB open pretty-printed in the value viewer, complete even when the page preview is cut.
+- Task 12 adds per-column editability to the same `ColumnPolicy`. The explorer's exposure policy is a separate axis
+  from Task 05's audit classification (`AUDITED_ENTITIES` / `NOT_AUDITED_TABLES`); both are test-enforced.
 
 ## API (read-only, `GET` only)
 

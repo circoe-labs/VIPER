@@ -15,8 +15,9 @@ from app.core.security import csrf_token
 from app.db.session import create_db_engine, unit_of_work
 from app.main import create_app
 from app.models import User
+from app.services import audit
 from app.services.auth import SessionPolicy, open_session
-from tests.builders import add_user
+from tests.builders import FIXTURE_ACTOR, add_user
 from tests.support import (
     TEST_BASE_URL,
     require_test_database,
@@ -50,7 +51,10 @@ def session_factory(engine: Engine) -> Iterator[sessionmaker[Session]]:
 
 @pytest.fixture
 def db_session(session_factory: sessionmaker[Session]) -> Iterator[Session]:
+    """Test session whose direct ORM writes are attributed to `FIXTURE_ACTOR` (audited tables
+    refuse unattributed writes); tests rebind it, e.g. with `bind_operator`."""
     with session_factory() as session:
+        audit.bind(session, FIXTURE_ACTOR)
         yield session
 
 

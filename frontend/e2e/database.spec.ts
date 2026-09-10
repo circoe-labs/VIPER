@@ -90,6 +90,22 @@ test('keyboard: move between cells and open the context menu with Shift+F10', as
   await expect(companies.getByRole('gridcell', { name: 'Logistique Exemple SAS' })).toBeFocused()
 })
 
+test('audit events are read-only rows whose JSON changes open pretty-printed', async ({ page }) => {
+  const companyEvents = encodeURIComponent(JSON.stringify([{ column: 'entity_type', operator: 'eq', value: 'company' }]))
+  await page.goto(`/database/audit_log?filters=${companyEvents}`)
+  const events = grid(page, 'audit_log')
+  await expect(status(page)).toContainText('Lignes 1–36 sur 36 (filtrées parmi')
+
+  // A company creation lists every field: its `changes` preview is cut and the viewer loads the full JSONB value.
+  await events.locator('td[data-kind="json"]').first().dblclick()
+  const viewer = page.getByRole('dialog', { name: 'changes' })
+  const value = viewer.getByLabel('Valeur de changes')
+  await expect(value).toContainText('"display_name": {')
+  await expect(value).toContainText('"before": null')
+  await expect(viewer).toContainText('JSON mis en forme')
+  await page.screenshot({ path: `${SCREENSHOTS}/database-audit-changes.png`, animations: 'disabled' })
+})
+
 test('wide tables scroll inside the grid, never the page, at 1280 px', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 })
   await openDatabase(page, 'prospects')

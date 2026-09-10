@@ -5,6 +5,8 @@
 - Deciders: Task 03 (core schema), for orchestrator review
 - Related: `doc/architecture/data-model.md` (physical schema + ERD), `doc/product/decision-log.md` (I-09…I-16),
   ADR-0001, migration `backend/migrations/versions/0002_core_schema.py`
+- Amended: 2026-09-10 by Task 05 ([ADR-0006](0006-audit-integration.md)) — `audit_log` gains `subject_type` /
+  `subject_id` (migration 0004); the do-not-contact clearing reason is kept by the audit event.
 
 ## Context
 

@@ -16,9 +16,18 @@ from app.main import create_app
 from app.models import ContactTracking, Prospect, Role
 from app.models.enums import ContactabilityStatus, ContactTrackingStatus
 from app.repositories.prospects import CONTACTABILITY_CLEAR_SETTING
+from app.services import audit
 from app.services import prospects as prospect_service
+from app.services.audit import attributed_unit_of_work
 from app.services.contact_tracking import ContactTrackingInput, save_contact_tracking
-from tests.builders import DNC_GUARD_MESSAGE, OPERATOR, add_company, add_prospect, rejected
+from tests.builders import (
+    DNC_GUARD_MESSAGE,
+    FIXTURE_ACTOR,
+    OPERATOR,
+    add_company,
+    add_prospect,
+    rejected,
+)
 
 RESET_ALL_CONTACTABILITY = text(
     "UPDATE prospects SET contactability_status = 'contactable', "
@@ -40,7 +49,7 @@ def contactability(session: Session, prospect_id: uuid.UUID) -> ContactabilitySt
 
 
 def test_unit_of_work_commits_on_success(session_factory: sessionmaker[Session]) -> None:
-    with unit_of_work(session_factory) as session:
+    with attributed_unit_of_work(session_factory, FIXTURE_ACTOR) as session:
         prospect_id = add_prospect(session).id
 
     with session_factory() as session:
@@ -50,7 +59,7 @@ def test_unit_of_work_commits_on_success(session_factory: sessionmaker[Session])
 def test_service_calls_in_one_unit_of_work_are_atomic(
     session_factory: sessionmaker[Session],
 ) -> None:
-    with unit_of_work(session_factory) as session:
+    with attributed_unit_of_work(session_factory, FIXTURE_ACTOR) as session:
         prospect_id = add_prospect(session).id
 
     with pytest.raises(IntegrityError), unit_of_work(session_factory) as session:
@@ -68,7 +77,7 @@ def test_service_calls_in_one_unit_of_work_are_atomic(
 def test_clear_inside_a_larger_transaction_keeps_later_statements_guarded(
     session_factory: sessionmaker[Session],
 ) -> None:
-    with unit_of_work(session_factory) as session:
+    with attributed_unit_of_work(session_factory, FIXTURE_ACTOR) as session:
         cleared_id = add_prospect(session).id
         blocked_id = add_prospect(session, first_name="Marie").id
         for prospect_id in (cleared_id, blocked_id):
@@ -120,6 +129,8 @@ def test_request_commits_on_success_and_rolls_back_on_error(
 
     @app.post("/api/test-roles/{slug}")
     def create_role(slug: str, session: SessionDep, fail: bool = False) -> None:
+        # An unauthenticated route has no bound actor: attribute the write explicitly.
+        audit.bind(session, FIXTURE_ACTOR)
         session.add(Role(slug=slug, label=slug))
         session.flush()
         if fail:

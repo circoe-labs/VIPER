@@ -9,10 +9,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.cli import main
+from app.core.actor import ActorType
 from app.core.security import verify_password
 from app.models import User, UserSession
 from app.services.auth import SessionPolicy, open_session, resolve_session
-from tests.builders import PILOT_EMAIL, PILOT_PASSWORD
+from tests.builders import PILOT_EMAIL, PILOT_PASSWORD, audit_events
 
 NEW_PASSWORD = "nouveau-mot-de-passe-synthetique"
 POLICY = SessionPolicy(idle_timeout=timedelta(hours=2), absolute_timeout=timedelta(hours=12))
@@ -58,6 +59,13 @@ def test_create_user_stores_only_an_argon2id_hash(
     assert user.password_hash.startswith("$argon2id$")
     assert verify_password(user.password_hash, NEW_PASSWORD)
     assert NEW_PASSWORD not in user.password_hash + output
+    [event] = audit_events(db_session)
+    assert (event.action, event.entity_id, event.changes) == ("auth.user_created", user.id, {})
+    assert (event.actor_type, event.actor_display, event.context) == (
+        ActorType.SYSTEM,
+        "Ligne de commande",
+        {"source": "cli"},
+    )
 
 
 def test_create_user_on_an_existing_email_resets_the_password_and_signs_out(
@@ -78,6 +86,10 @@ def test_create_user_on_an_existing_email_resets_the_password_and_signs_out(
     assert not verify_password(user.password_hash, PILOT_PASSWORD)
     assert resolve_session(db_session, token, POLICY) is None
     assert db_session.execute(select(UserSession.revoked_at)).scalar_one() is not None
+    assert [event.action for event in audit_events(db_session)] == [
+        "auth.login",
+        "auth.password_reset",
+    ]
 
 
 def test_create_user_prompts_twice_and_rejects_a_mismatch(

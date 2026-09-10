@@ -2,7 +2,8 @@
 
 Sessions are rows in `user_sessions`, looked up by the SHA-256 of the cookie token. They end on
 logout (revoked), after `idle_timeout` without requests, or `absolute_timeout` after sign-in.
-Operations flush; the caller (request or CLI unit of work) commits.
+Sign-in, sign-out and account creation/reset are audited (security trail). Operations flush; the
+caller (request or CLI unit of work) commits.
 """
 
 import re
@@ -23,9 +24,13 @@ from app.core.security import (
 )
 from app.models.users import User, UserSession
 from app.repositories import users as user_repository
+from app.services import audit
+from app.services.audit import AuditAction
 from app.services.errors import DomainError
 
 MIN_PASSWORD_LENGTH = 12
+# `entity_type` of account events; `users`/`user_sessions` field values are never audited.
+USER_ENTITY = "user"
 # Same rule as the `ck_users_email_format` CHECK.
 EMAIL_PATTERN = re.compile(r"[^@\s]+@[^@\s]+")
 # `last_seen_at` is only rewritten when older than this: one write per minute, not per request.
@@ -72,10 +77,18 @@ def authenticate(session: Session, email: str, password: str) -> User | None:
     return user
 
 
+def _record_account_event(session: Session, actor: ActorContext, action: str, user: User) -> None:
+    # Who and when only: no token, session id, address or user agent (decision I-30).
+    audit.record_event(session, actor, action, entity_type=USER_ENTITY, entity_id=user.id)
+
+
 def open_session(
     session: Session, user: User, policy: SessionPolicy, *, now: datetime | None = None
 ) -> OpenedSession:
-    """Start a new session with a fresh random token (never reuses one the client sent)."""
+    """Start a new session with a fresh random token (never reuses one the client sent).
+
+    Audited as `auth.login` by the signed-in user.
+    """
     now = now or datetime.now(UTC)
     user_repository.delete_dead_sessions(
         session, user.id, now=now, idle_since=now - policy.idle_timeout
@@ -89,6 +102,7 @@ def open_session(
     )
     session.add(record)
     session.flush()
+    _record_account_event(session, actor_for(user), AuditAction.AUTH_LOGIN, user)
     return OpenedSession(token=token, record=record)
 
 
@@ -117,6 +131,13 @@ def revoke_session(session: Session, record: UserSession) -> None:
         session.flush()
 
 
+def sign_out(session: Session, record: UserSession) -> None:
+    """End the session on the user's request; audited as `auth.logout`."""
+    if record.revoked_at is None:
+        revoke_session(session, record)
+        _record_account_event(session, actor_for(record.user), AuditAction.AUTH_LOGOUT, record.user)
+
+
 def revoke_token(session: Session, token: str) -> None:
     """Revoke the session behind `token`, if any (e.g. the previous cookie at sign-in)."""
     record = user_repository.get_session_by_token_hash(session, session_token_hash(token))
@@ -132,12 +153,17 @@ def validate_new_password(password: str) -> None:
 
 
 def create_or_reset_user(
-    session: Session, email: str, password: str, display_name: str | None = None
+    session: Session,
+    actor: ActorContext,
+    email: str,
+    password: str,
+    display_name: str | None = None,
 ) -> tuple[User, bool]:
     """Create the account, or reset its password when the email exists; returns (user, created).
 
     A reset signs out every session of the account. `display_name` is required to create and
-    optional to reset (kept when omitted).
+    optional to reset (kept when omitted). Audited as `auth.user_created` / `auth.password_reset`
+    (no field values: account rows never enter the audit log).
     """
     validate_new_password(password)
     email = normalize_email(email)
@@ -157,4 +183,6 @@ def create_or_reset_user(
             user.display_name = name
         user_repository.revoke_user_sessions(session, user.id, now=datetime.now(UTC))
     session.flush()
+    action = AuditAction.AUTH_USER_CREATED if created else AuditAction.AUTH_PASSWORD_RESET
+    _record_account_event(session, actor, action, user)
     return user, created

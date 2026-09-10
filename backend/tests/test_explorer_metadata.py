@@ -3,8 +3,10 @@
 from typing import Any
 
 from fastapi.testclient import TestClient
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.models import AuditLogEntry
 from app.models.enums import ActivityStatus
 from tests.builders import add_company, add_prospect, add_role
 from tests.explorer_helpers import API
@@ -90,5 +92,8 @@ def test_row_counts_are_exact(client: TestClient, db_session: Session) -> None:
     counts = {table["name"]: table["row_count"] for table in client.get(API).json()}
 
     assert (counts["companies"], counts["prospects"], counts["roles"]) == (2, 1, 1)
-    assert counts["audit_log"] == 0
+    # Each audited insert above logged an event (plus the pilot's sign-in): counted like any table.
+    logged = db_session.scalar(select(func.count()).select_from(AuditLogEntry))
+    assert counts["audit_log"] == logged
+    assert logged is not None and logged >= 4
     assert client.get(f"{API}/companies").json()["row_count"] == 2

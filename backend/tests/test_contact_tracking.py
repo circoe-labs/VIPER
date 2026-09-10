@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.models import ContactTracking, ContactTrackingStatusHistory, InternalReferent
 from app.models.enums import ContactTrackingStatus
 from app.services.contact_tracking import ContactTrackingInput, save_contact_tracking
-from tests.builders import OPERATOR, add_prospect
+from tests.builders import OPERATOR, add_prospect, audit_events
 
 PLANNED = datetime(2026, 9, 14, 9, 0, tzinfo=UTC)
 RESPONSE = datetime(2026, 9, 16, 15, 30, tzinfo=UTC)
@@ -106,3 +106,49 @@ def test_saving_the_same_status_adds_no_history(db_session: Session) -> None:
 
     assert tracking.planned_contact_at == PLANNED
     assert history(db_session, tracking) == [(None, "contacted")]
+
+
+def test_tracking_changes_are_audited_by_kind(db_session: Session) -> None:
+    prospect = add_prospect(db_session)
+    first = ContactTrackingInput(
+        status=ContactTrackingStatus.TO_CONTACT, planned_contact_at=PLANNED
+    )
+
+    tracking = save_contact_tracking(db_session, OPERATOR, prospect.id, first)
+    save_contact_tracking(db_session, OPERATOR, prospect.id, first)
+    save_contact_tracking(
+        db_session,
+        OPERATOR,
+        prospect.id,
+        ContactTrackingInput(
+            status=ContactTrackingStatus.RESPONSE_RECEIVED,
+            planned_contact_at=PLANNED,
+            response_received_at=RESPONSE,
+        ),
+    )
+    save_contact_tracking(
+        db_session,
+        OPERATOR,
+        prospect.id,
+        ContactTrackingInput(
+            status=ContactTrackingStatus.RESPONSE_RECEIVED,
+            planned_contact_at=PLANNED,
+            response_received_at=RESPONSE,
+            appointment_at=APPOINTMENT,
+        ),
+    )
+
+    created, moved, dated = audit_events(db_session)
+    assert (created.action, created.entity_id) == ("contact_tracking.created", tracking.id)
+    assert created.changes["status"] == {"before": None, "after": "to_contact"}
+    assert created.changes["planned_contact_at"] == {"before": None, "after": PLANNED.isoformat()}
+    assert created.changes["prospect_id"] == {"before": None, "after": str(prospect.id)}
+    assert moved.action == "contact_tracking.status_changed"
+    assert moved.changes == {
+        "status": {"before": "to_contact", "after": "response_received"},
+        "response_received_at": {"before": None, "after": RESPONSE.isoformat()},
+    }
+    assert dated.action == "contact_tracking.updated"
+    assert dated.changes == {"appointment_at": {"before": None, "after": APPOINTMENT.isoformat()}}
+    for entry in (created, moved, dated):
+        assert (entry.subject_type, entry.subject_id) == ("prospect", prospect.id)

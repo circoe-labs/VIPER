@@ -1,8 +1,10 @@
 """Deterministic synthetic dataset for Database Explorer tests and the Playwright backend.
 
-Every value is invented: `example.com` addresses, `+331000…` numbers, zero-padded SIREN/SIRET that
-no real company carries, fictitious names. Enough rows for several grid pages and every column
-kind (text, enum, integer, boolean, timestamps, UUID keys and FKs, JSONB, text arrays).
+The caller binds an actor (audited tables refuse unattributed writes), so `audit_log` fills with
+the real creation events of these rows. Every value is invented: `example.com` addresses,
+`+331000…` numbers, zero-padded SIREN/SIRET that no real company carries, fictitious names. Enough
+rows for several grid pages and every column kind (text, enum, integer, boolean, timestamps, UUID
+keys and FKs, JSONB, text arrays).
 """
 
 from dataclasses import dataclass
@@ -13,7 +15,6 @@ from sqlalchemy.orm import Session
 
 from app.core.actor import ActorContext, ActorType
 from app.models import (
-    AuditLogEntry,
     CommercialSegment,
     Company,
     Email,
@@ -201,20 +202,6 @@ def seed_explorer_dataset(session: Session) -> ExplorerDataset:
                 legacy_metadata={
                     "Colonne inconnue": f"valeur fictive {i + 1}",
                     "Remarques": LONG_APPROACH if i == 0 else "RAS",
-                },
-            )
-        )
-    for i, company in enumerate(companies[:5]):
-        session.add(
-            AuditLogEntry(
-                actor_type=ActorType.HUMAN,
-                actor_id="test-user",
-                actor_display=OPERATOR.display,
-                entity_type="company",
-                entity_id=company.id,
-                action="update",
-                changes={
-                    "display_name": {"before": f"Ancien nom {i + 1}", "after": company.display_name}
                 },
             )
         )

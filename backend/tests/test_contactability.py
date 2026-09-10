@@ -11,7 +11,15 @@ from app.models.enums import ContactabilityStatus, ContactTrackingStatus
 from app.services import prospects as prospect_service
 from app.services.contact_tracking import ContactTrackingInput, save_contact_tracking
 from app.services.errors import DomainError, NotFoundError
-from tests.builders import DNC_GUARD_MESSAGE, OPERATOR, add_prospect, rejected
+from tests.builders import (
+    DNC_GUARD_MESSAGE,
+    OPERATOR,
+    REQUEST_ID,
+    add_prospect,
+    audit_events,
+    bind_operator,
+    rejected,
+)
 
 
 def stored_contactability(session: Session, prospect: Prospect) -> ContactabilityStatus:
@@ -22,7 +30,9 @@ def stored_contactability(session: Session, prospect: Prospect) -> Contactabilit
 
 
 def blocked_prospect(session: Session) -> Prospect:
+    """A prospect (fixture data) that the operator then blocks, as in a signed-in request."""
     prospect = add_prospect(session)
+    bind_operator(session)
     return prospect_service.mark_do_not_contact(
         session, OPERATOR, prospect.id, reason="  Opposition exprimée par téléphone  "
     )
@@ -134,3 +144,76 @@ def test_tracking_updates_never_change_contactability(
 def test_unknown_prospect_is_reported(db_session: Session) -> None:
     with pytest.raises(NotFoundError):
         prospect_service.mark_do_not_contact(db_session, OPERATOR, uuid.uuid4())
+
+
+# --- audit -------------------------------------------------------------------------------------
+
+
+def test_blocking_is_audited_with_its_reason(db_session: Session) -> None:
+    prospect = blocked_prospect(db_session)
+    blocked_at = prospect.do_not_contact_at
+    assert blocked_at is not None
+
+    [entry] = audit_events(db_session)
+    assert (entry.action, entry.entity_type, entry.entity_id) == (
+        "prospect.do_not_contact.set",
+        "prospect",
+        prospect.id,
+    )
+    assert (entry.actor_type, entry.actor_id, entry.actor_display) == (
+        OPERATOR.type,
+        OPERATOR.id,
+        OPERATOR.display,
+    )
+    assert entry.changes == {
+        "contactability_status": {"before": "contactable", "after": "do_not_contact"},
+        "do_not_contact_at": {"before": None, "after": blocked_at.isoformat()},
+        "do_not_contact_reason": {"before": None, "after": "Opposition exprimée par téléphone"},
+    }
+    assert entry.context == {
+        "source": "ui",
+        "request_id": REQUEST_ID,
+        "reason": "Opposition exprimée par téléphone",
+    }
+
+    prospect_service.mark_do_not_contact(db_session, OPERATOR, prospect.id, reason="Autre")
+    assert len(audit_events(db_session)) == 1
+
+
+def test_clearing_persists_its_reason_in_the_audit_log(db_session: Session) -> None:
+    prospect = blocked_prospect(db_session)
+
+    prospect_service.clear_do_not_contact(
+        db_session, OPERATOR, prospect.id, reason="  Consentement écrit reçu  "
+    )
+
+    entry = audit_events(db_session)[-1]
+    assert entry.action == "prospect.do_not_contact.cleared"
+    assert entry.context == {
+        "source": "ui",
+        "request_id": REQUEST_ID,
+        "reason": "Consentement écrit reçu",
+    }
+    assert entry.changes["contactability_status"] == {
+        "before": "do_not_contact",
+        "after": "contactable",
+    }
+    assert entry.changes["do_not_contact_reason"] == {
+        "before": "Opposition exprimée par téléphone",
+        "after": None,
+    }
+    assert [event.action for event in audit_events(db_session)] == [
+        "prospect.do_not_contact.set",
+        "prospect.do_not_contact.cleared",
+    ]
+
+
+def test_a_refused_clear_leaves_no_audit_event(db_session: Session) -> None:
+    contactable = add_prospect(db_session, first_name="Marie")
+    prospect = blocked_prospect(db_session)
+
+    with pytest.raises(DomainError):
+        prospect_service.clear_do_not_contact(db_session, OPERATOR, prospect.id, reason=" ")
+    prospect_service.clear_do_not_contact(db_session, OPERATOR, contactable.id, reason="Rien")
+
+    assert [event.action for event in audit_events(db_session)] == ["prospect.do_not_contact.set"]

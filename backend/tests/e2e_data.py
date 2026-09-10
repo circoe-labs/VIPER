@@ -9,9 +9,16 @@ import sys
 
 from sqlalchemy import make_url
 
+from app.core.actor import ActorContext, ActorType
 from app.core.config import Settings
-from app.db.session import create_db_engine, create_session_factory, unit_of_work
+from app.db.session import create_db_engine, create_session_factory
+from app.services import audit
 from tests.fixtures.synthetic.explorer_dataset import seed_explorer_dataset
+
+# Every synthetic row is audited as created by this system actor.
+LOADER_ACTOR = ActorContext(
+    type=ActorType.SYSTEM, display="Jeu de données synthétique", id="tests.e2e_data"
+)
 
 
 def main() -> int:
@@ -22,7 +29,7 @@ def main() -> int:
         return 1
     engine = create_db_engine(url)
     try:
-        with unit_of_work(create_session_factory(engine)) as session:
+        with audit.attributed_unit_of_work(create_session_factory(engine), LOADER_ACTOR) as session:
             seed_explorer_dataset(session)
     finally:
         engine.dispose()
