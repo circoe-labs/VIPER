@@ -52,8 +52,9 @@ bookmarkable exports. Everything not exposed answers 404; invalid queries 422.
 
 ## Consequences
 
-- New tables are invisible until someone classifies them; Task 04's `users`/`sessions` tables must be added to
-  `UNEXPOSED_TABLES` on merge (the classification test fails until then — intended).
+- New tables are invisible until someone classifies them (the classification test fails until then — intended);
+  Task 04's `users` and `user_sessions` are withheld in `UNEXPOSED_TABLES`. The routes are on the session-protected
+  `api_router` (ADR-0004).
 - The explorer does not use `app/repositories` (it has no domain entities); it is the only place building generic
   table queries, and it only accepts validated query objects.
 - Task 12 extends `ColumnPolicy` (editability) and adds a separate write path through validated services; Task 13
@@ -64,8 +65,9 @@ bookmarkable exports. Everything not exposed answers 404; invalid queries 422.
   scaling limits.
 - Two small runtime dependencies (the production bundle grew from 111 kB to 146 kB gzip with the whole explorer).
   The grid styling is ours, so it follows the design system in both themes without fighting a vendor theme.
-- Playwright now needs the API: it starts `python -m tests.e2e_server` (synthetic dataset in the `*_test` database)
-  and its own Vite on dedicated ports; the CI e2e job gained a Postgres service and Python.
+- Explorer E2E scenarios need data: the full-stack Playwright setup of Task 04 (own backend and Vite on dedicated
+  ports, `viper_e2e` database) also loads the synthetic explorer dataset in its global setup
+  (`python -m tests.e2e_data`).
 
 ## Alternatives considered
 

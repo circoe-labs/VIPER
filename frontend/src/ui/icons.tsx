@@ -131,6 +131,14 @@ export const PanelLeftIcon = (props: IconProps) => (
   </Svg>
 )
 
+export const LogOutIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M9.5 20.5H6a2 2 0 0 1-2-2v-13a2 2 0 0 1 2-2h3.5" />
+    <path d="M15.5 16.5 20 12l-4.5-4.5" />
+    <path d="M20 12H9.5" />
+  </Svg>
+)
+
 export const CloseIcon = (props: IconProps) => (
   <Svg {...props}>
     <path d="M6 6l12 12M18 6 6 18" />

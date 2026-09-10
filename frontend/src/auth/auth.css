@@ -1,0 +1,110 @@
+/* Sign-in page and the session loading/error screen shown by RequireAuth. */
+
+.login-page {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: var(--space-16) var(--space-6);
+  /* One restrained neon halo behind the card — the page's only glow. */
+  background:
+    radial-gradient(ellipse 60% 45% at 50% 0%, color-mix(in srgb, var(--color-accent) 9%, transparent), transparent),
+    var(--color-canvas);
+}
+
+.login-page__theme {
+  position: absolute;
+  top: var(--space-6);
+  right: var(--space-6);
+}
+
+.login-card {
+  display: grid;
+  gap: var(--space-6);
+  width: min(100%, 27rem);
+  padding: var(--space-10) var(--space-8) var(--space-8);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-overlay);
+}
+
+.login-card__logo {
+  justify-self: center;
+}
+
+.login-card__heading {
+  display: grid;
+  gap: var(--space-2);
+  text-align: center;
+}
+
+.login-card__title {
+  font-size: var(--text-2xl);
+}
+
+.login-card__lead {
+  color: var(--color-text-muted);
+}
+
+.login-card__message {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+  font-weight: var(--weight-medium);
+}
+
+.login-card__message svg {
+  flex: none;
+  margin-top: 0.0625rem;
+}
+
+.login-card__message--error {
+  background: var(--color-danger-soft);
+  color: var(--color-danger-fg);
+}
+
+.login-card__message--info {
+  background: var(--color-info-soft);
+  color: var(--color-info-fg);
+}
+
+.login-card__form {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.login-card__submit {
+  width: 100%;
+  margin-top: var(--space-1);
+}
+
+.auth-status {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: var(--space-4);
+  min-height: 100vh;
+  padding: var(--space-8);
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.auth-status__spinner {
+  color: var(--color-accent-fg);
+  animation: auth-spin 0.8s linear infinite;
+}
+
+@keyframes auth-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-status__spinner {
+    animation-duration: 2.4s;
+  }
+}

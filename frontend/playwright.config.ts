@@ -1,37 +1,28 @@
-import { existsSync } from 'node:fs'
-import { join } from 'node:path'
-
 import { defineConfig, devices } from '@playwright/test'
 
-// Playwright runs its own Vite (proxying /api to its own backend) on dedicated ports, so a dev server left
-// running on 5173/8042 is never mistaken for the test stack. The backend (`python -m tests.e2e_server`) resets
-// the `*_test` database and loads the synthetic explorer dataset. Overridable for parallel checkouts.
-const WEB_PORT = process.env.VIPER_E2E_WEB_PORT ?? '5180'
-const API_PORT = process.env.VIPER_E2E_API_PORT ?? '8180'
-const BASE_URL = `http://localhost:${WEB_PORT}`
-const API_URL = `http://127.0.0.1:${API_PORT}`
+import { BACKEND_DIR, E2E_API_PORT, E2E_DATABASE_URL, E2E_WEB_PORT, PYTHON } from './e2e/env'
 
-// Relative to backend/ (the API server's working directory); CI installs the requirements globally instead.
-const VENV_PYTHON = process.platform === 'win32' ? join('.venv', 'Scripts', 'python.exe') : join('.venv', 'bin', 'python')
-const PYTHON = process.env.VIPER_E2E_PYTHON ?? (existsSync(`../backend/${VENV_PYTHON}`) ? VENV_PYTHON : 'python')
+const BASE_URL = `http://localhost:${String(E2E_WEB_PORT)}`
 
+// Full stack: the real backend on the dedicated `viper_e2e` database, behind a Vite dev server, both on their own
+// ports (e2e/env.ts). Global setup migrates the database and creates the E2E account. Needs PostgreSQL running.
 export default defineConfig({
   testDir: './e2e',
   forbidOnly: Boolean(process.env.CI),
   reporter: 'list',
+  globalSetup: './e2e/global-setup.ts',
   use: { baseURL: BASE_URL, trace: 'retain-on-failure' },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: [
     {
-      command: `${PYTHON} -m tests.e2e_server --port ${API_PORT}`,
-      cwd: '../backend',
-      url: `${API_URL}/api/health`,
+      command: `"${PYTHON}" -m uvicorn app.main:create_app --factory --host 127.0.0.1 --port ${String(E2E_API_PORT)}`,
+      cwd: BACKEND_DIR,
+      env: { VIPER_DATABASE_URL: E2E_DATABASE_URL },
+      url: `http://127.0.0.1:${String(E2E_API_PORT)}/api/health`,
       reuseExistingServer: !process.env.CI,
-      timeout: 120_000,
     },
     {
-      command: 'npm run dev',
-      env: { VIPER_WEB_PORT: WEB_PORT, VIPER_API_TARGET: API_URL },
+      command: 'npx vite --config e2e/vite.config.e2e.ts',
       url: BASE_URL,
       reuseExistingServer: !process.env.CI,
     },

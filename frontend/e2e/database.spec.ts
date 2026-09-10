@@ -1,10 +1,15 @@
 import { expect, type Page, test } from '@playwright/test'
 
 import { openDatabase, SCREENSHOTS, useTheme } from './helpers'
+import { signIn } from './session'
 
-// Runs against the synthetic dataset loaded by `python -m tests.e2e_server` (backend/tests/fixtures/synthetic/).
+// Runs against the synthetic dataset loaded by global setup (backend/tests/fixtures/synthetic/explorer_dataset.py).
 
 test.use({ viewport: { width: 1440, height: 900 } })
+
+test.beforeEach(async ({ page }) => {
+  await signIn(page)
+})
 
 function grid(page: Page, table: string) {
   return page.getByRole('grid', { name: `Lignes de ${table}` })

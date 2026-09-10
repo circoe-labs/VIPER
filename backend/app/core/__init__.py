@@ -1,1 +1,1 @@
-"""Cross-cutting infrastructure: configuration."""
+"""Cross-cutting infrastructure: configuration, actor identity and credential primitives."""

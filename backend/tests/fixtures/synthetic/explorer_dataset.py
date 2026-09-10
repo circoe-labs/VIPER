@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.actor import ActorType
+from app.core.actor import ActorContext, ActorType
 from app.models import (
     AuditLogEntry,
     CommercialSegment,
@@ -38,8 +38,9 @@ from app.models.enums import (
 )
 from app.seed import seed_taxonomies
 from app.services.contact_tracking import ContactTrackingInput, save_contact_tracking
-from tests.builders import OPERATOR
 
+# Local actor (not tests.builders): the E2E setup loads this module without pytest installed.
+OPERATOR = ActorContext(type=ActorType.HUMAN, display="Opératrice Test", id="test-user")
 COMPANY_COUNT = 36
 PROSPECT_COUNT = 240
 ACTIVITIES = ("Transports", "Logistique", "Messagerie", "Entrepôts", "Fret", "Affrètement")

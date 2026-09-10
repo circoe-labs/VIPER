@@ -12,25 +12,25 @@ import {
   prospectsTable,
   TABLES,
 } from '../test/explorerFixtures'
-import { renderApp, Reply, stubApi } from '../test/render'
+import { renderApp, stubApi } from '../test/render'
 
 const API = '/api/explorer/tables'
 
 function stubExplorer() {
   return stubApi({
-    '/api/health': { status: 'ok', database: 'ok' },
-    [API]: TABLES,
-    [`${API}/companies`]: companiesTable,
-    [`${API}/prospects`]: prospectsTable,
-    [`${API}/companies/rows`]: (url: URL) => {
+    'GET /api/health': [200, { status: 'ok', database: 'ok' }],
+    [`GET ${API}`]: [200, TABLES],
+    [`GET ${API}/companies`]: [200, companiesTable],
+    [`GET ${API}/prospects`]: [200, prospectsTable],
+    [`GET ${API}/companies/rows`]: (url) => {
       const filter = url.searchParams.get('filter')
-      return page(filter?.includes(String(COMPANY_IDS[1])) ? companyRows.slice(1) : companyRows)
+      return [200, page(filter?.includes(String(COMPANY_IDS[1])) ? companyRows.slice(1) : companyRows)]
     },
-    [`${API}/prospects/rows`]: page(prospectRows),
-    [`${API}/companies/record`]: (url: URL) =>
+    [`GET ${API}/prospects/rows`]: [200, page(prospectRows)],
+    [`GET ${API}/companies/record`]: (url) =>
       url.searchParams.get('key')?.includes(String(COMPANY_IDS[0]))
-        ? { values: { ...companyRows[0]?.values, client_approach: LONG_TEXT } }
-        : new Reply(404, { detail: 'missing' }),
+        ? [200, { values: { ...companyRows[0]?.values, client_approach: LONG_TEXT } }]
+        : [404, { detail: 'missing' }],
   })
 }
 

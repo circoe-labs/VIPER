@@ -34,8 +34,9 @@ Single source: `backend/app/services/explorer/policy.py`.
 - **Tables — default deny.** Exposed: `activity_categories`, `audit_log`, `commercial_segments`, `companies`,
   `company_activity_categories`, `contact_tracking`, `contact_tracking_status_history`, `emails`, `establishments`,
   `import_batches`, `import_row_metadata`, `internal_referents`, `phones`, `prospect_sources`, `prospects`, `roles`.
-  Every other ORM table must be listed in `UNEXPOSED_TABLES` with a reason — authentication tables (users, sessions,
-  password/token hashes) belong there. Anything outside the ORM (`alembic_version`, catalogs, views, ad-hoc tables)
+  Every other ORM table must be listed in `UNEXPOSED_TABLES` with a reason: today the authentication tables
+  `users` (argon2 password hashes) and `user_sessions` (session token hashes) — never listed, readable, exported, or
+  disclosed as FK targets or references (tested). Anything outside the ORM (`alembic_version`, catalogs, views, ad-hoc tables)
   is unreachable. Not exposed = HTTP 404 everywhere (list, metadata, rows, record, export), and FK targets pointing
   to a hidden table are not disclosed.
 - **Columns.** `HIDDEN`: absent from metadata, values, search, filters, sort and export. `MASKED`: listed (marked
@@ -54,7 +55,8 @@ Single source: `backend/app/services/explorer/policy.py`.
 | `/api/explorer/tables/{table}/export.csv?q&sort&filter` | streamed CSV of all matching rows |
 
 Errors: 404 for unknown/unexposed tables or missing records; 422 for invalid parameters (unknown column, operator not
-allowed for the kind, wrong value type, limits exceeded). Task 04 protects the whole `/api` router.
+allowed for the kind, wrong value type, limits exceeded). The routes sit on the protected `api_router`: without a
+live session every explorer endpoint answers 401 (ADR-0004; pinned by `tests/test_route_protection.py`).
 
 ### Filter AST
 

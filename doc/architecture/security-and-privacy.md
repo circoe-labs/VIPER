@@ -13,6 +13,38 @@ Implementation rules:
 ## Authentication
 The functional source requires a single securely authenticated commercial user for the pilot. Implement one-user authentication/session without building a permissions matrix. Internal referents are domain records, not login accounts.
 
+Implemented in Task 04 — design and rationale in [ADR-0004](../adr/0004-authentication-sessions.md):
+
+- **Accounts**: table `users` (email, display name, argon2id hash). No roles; not linked to `internal_referents`.
+  Actor identity for mutations = `ActorContext(HUMAN, users.id, display_name)`, built server-side from the session
+  (`CurrentActor`), never from a request payload.
+- **Sessions**: server-side rows in `user_sessions`, looked up by the SHA-256 of the cookie token; idle timeout
+  120 min, absolute 12 h (settings); revoked on logout; token rotated at every sign-in; password reset revokes all.
+- **Cookie** `viper_session`: HttpOnly, Secure (default), SameSite=Strict, Path=/api.
+- **CSRF**: `X-CSRF-Token` (HMAC of the session token) required on POST/PUT/PATCH/DELETE; sign-in accepts JSON only.
+- **Sign-in**: one generic error for unknown email and wrong password (same argon2 cost); 5 failures per email / 20 per
+  client address in 15 min → 429 (in-process, single instance).
+- **Protected by default**: every `/api/*` route requires a session except `GET /api/health` and
+  `POST /api/auth/login` (plus the OpenAPI schema/docs, which expose no data). New routers go into `api_router` and
+  inherit the guard; a test walks all routes. The SPA redirects anonymous visitors to `/login` (the API is the real
+  boundary).
+
+### Secret handling
+- Nothing secret is committed: no default account, no default password, no signing key (none is needed — CSRF tokens
+  derive from the session token). `backend/.env.example` holds only non-secret settings; `.env` is git-ignored.
+- Passwords exist only as argon2id hashes; the hash is never returned by the API nor logged (tested). Session tokens
+  exist only in the browser cookie; the database holds their SHA-256.
+- The CLI reads the password from an interactive prompt or stdin, never from arguments.
+- Test and E2E accounts are synthetic (`@example.com`); the E2E password is random per run and lives only in the
+  Playwright process environment.
+
+### Local/admin setup
+- Create or reset the login account (from `backend/`, venv active; targets `VIPER_DATABASE_URL`):
+  `python -m app.cli create-user --email <email> --display-name "<Prénom Nom>"` — prompts twice for the password
+  (12–1024 characters). Re-running it for an existing email resets the password and signs out every session;
+  `--password-stdin` reads one line from stdin for automation.
+- Production requirements (HTTPS, proxy headers, single process, timeouts): ADR-0004, *What production must configure*.
+
 ## Provenance
 Every contact/prospect should be able to retain source, date added and legal-basis/collection-context metadata even when initially unknown. Import origin should include workbook/sheet/row references without exposing them publicly.
 
@@ -27,9 +59,9 @@ contactability status, never a contact-tracking stage; a database trigger reject
 dedicated `clear_do_not_contact` operation (mandatory reason) and rejects deleting a blocked prospect.
 
 ## Database Explorer exposure
-The explorer shows only allowlisted domain tables (`app/services/explorer/policy.py`); every other table — in
-particular authentication users/sessions with password or token hashes — must be explicitly withheld, and objects
-outside the ORM are unreachable. Columns can be hidden or masked centrally. Queries are validated against metadata
+The explorer shows only allowlisted domain tables (`app/services/explorer/policy.py`); every other table must be
+explicitly withheld — `users` (password hashes) and `user_sessions` (token hashes) are — and objects outside the ORM
+are unreachable. Its routes require a session like every non-public route. Columns can be hidden or masked centrally. Queries are validated against metadata
 and bound as parameters; the read API has no write method; CSV exports neutralize spreadsheet formulas. Details:
 [database-explorer.md](../features/database-explorer.md).
 

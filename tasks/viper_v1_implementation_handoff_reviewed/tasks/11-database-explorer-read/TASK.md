@@ -95,15 +95,15 @@ Design and trade-offs: `doc/adr/0005-database-explorer-grid.md`; user-facing beh
   unknown-table states. View state (search/sort/filters/page) in the URL. New accessible primitives `Menu` and
   `Popover` (+ 17 icons), added to the `/_dev/ui` showcase. No write affordance.
 - **Test/dev infrastructure** — synthetic dataset `backend/tests/fixtures/synthetic/explorer_dataset.py`;
-  `python -m tests.e2e_server --port N` (resets the `*_test` DB, seeds, serves the API); Playwright starts it plus
-  its own Vite on 5180/8180 (`VIPER_E2E_*` overridable); Vite ports env-configurable (`VIPER_WEB_PORT`,
+  loaded into the Playwright database by global setup (`python -m tests.e2e_data`, see *Merge with Task 04* below);
+  Vite ports env-configurable (`VIPER_WEB_PORT`,
   `VIPER_API_TARGET`); CI e2e job gained Postgres + Python; `stubApi` routed fetch stub for component tests; shared
   `reset_database` / `require_test_database` helpers in `tests/support.py`.
 
 ### Files
 Backend: `app/services/explorer/{__init__,policy,metadata,query,statements,reads}.py`, `app/api/routes/explorer.py`,
 `app/api/router.py`, `app/services/errors.py` (`InvalidInputError`); tests `tests/test_explorer_{policy,metadata,reads,
-export,performance}.py`, `tests/explorer_helpers.py`, `tests/e2e_server.py`, `tests/fixtures/synthetic/`,
+export,performance}.py`, `tests/explorer_helpers.py`, `tests/e2e_data.py`, `tests/fixtures/synthetic/`,
 `tests/support.py`, `tests/conftest.py`.
 Frontend: `src/database/*` (page, rail, workspace, grid, header, filter editor, columns panel, value viewer,
 structure, view/filter/column-state/cell/navigation/catalog logic + tests, `database.css`), `src/api/explorer.ts`,
@@ -132,15 +132,31 @@ security & privacy.
 - I-40 … I-46 (policy, adapter building its own Core statements instead of `app/repositories`, filter semantics and
   exact counts, CSV format and formula neutralization, truncation, URL/localStorage state, TanStack 8 + env ports +
   Playwright full stack).
-- The handoff's "column state persisted" is per browser (`localStorage`), not per user account (no accounts yet).
+- The handoff's "column state persisted" is per browser (`localStorage`), not per user account.
 
 ### Open points / risks
-- **Merge with Task 04**: add the authentication tables (e.g. `users`, `sessions`) to `UNEXPOSED_TABLES` with their
-  reason — `test_every_orm_table_is_explicitly_exposed_or_withheld` fails until then (by design). Add the login step
-  to `frontend/e2e/helpers.ts::openDatabase` (and to the explorer screenshots) once the API requires a session; the
-  Playwright webServer config may need to merge with whatever Task 04 adds.
 - Keyboard: each header exposes sort, filter, menu and resize controls as separate tab stops (many stops on wide
   tables); cells use roving focus. A composite header navigation could reduce tab stops later.
 - Copying a truncated cell copies the preview (labelled); the value viewer copies the full value.
 - Scaling limits: exact counts, offset paging, unindexed substring search (Task 17 decides on `pg_trgm`).
-- The E2E API server resets the `*_test` database: never run it concurrently with pytest on the same database.
+- The E2E global setup rebuilds its `*_e2e` database on every run (separate from pytest's `*_test`).
+
+### Merge with Task 04 (after orchestrator acceptance of `f578f13`)
+- `git merge claude` (Task 04 `4fbb0ae`). Conflicts resolved: `api/router.py` (explorer router on the protected
+  `api_router`), `tests/conftest.py` (Task 04 signed-in `client` / `anonymous_client` + the shared
+  `reset_database` helper), `routes.tsx` (`/login` + `RequireAuth` around the shell, `PAGES` override for
+  `/database/:table?`), `test/render.tsx` (one `stubApi`: `"METHOD /path"` keys matched without the query string,
+  `[status, body]` or a function of the URL), `playwright.config.ts`, CI e2e job, runbook, design system (icons),
+  decision log (I-23…I-25 and I-40…I-46 kept).
+- Security: `users` and `user_sessions` in `UNEXPOSED_TABLES`; tests prove 404 on every explorer endpoint, absence
+  from the list and from FK/reference metadata, FK non-disclosure towards a withheld table, and 401 on every explorer
+  endpoint without a session (Task 04's route walk covers them too). Explorer API tests run with the signed-in
+  `client` fixture.
+- One E2E infrastructure: Task 04's (uvicorn + Vite on dedicated ports, `viper_e2e`, global setup migrating and
+  creating the E2E user through the CLI); its global setup now also runs `python -m tests.e2e_data` (synthetic
+  explorer dataset, refuses non-`_e2e` databases; the dataset no longer imports pytest, so CI keeps
+  `requirements.txt`). `tests/e2e_server.py` and the 8180 port are gone; ports are env-configurable in `e2e/env.ts`
+  (`VIPER_E2E_WEB_PORT` 5180, `VIPER_E2E_API_PORT` 8044, `VIPER_E2E_DATABASE_URL`). Every spec signs in through
+  `signIn` (`e2e/session.ts`); `openDatabase` only navigates.
+- `VIPER_E2E_DATABASE_URL=…/viper_wt_e2e VIPER_E2E_WEB_PORT=5174 VIPER_E2E_API_PORT=8043 python scripts/verify.py
+  --e2e` → all green: **pytest 195**, **vitest 274** (19 files), **Playwright 18**, lint/types/build clean.

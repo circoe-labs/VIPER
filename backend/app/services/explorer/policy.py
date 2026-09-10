@@ -69,8 +69,11 @@ EXPOSED_TABLES: Mapping[str, TablePolicy] = {
     )
 }
 
-# ORM tables deliberately kept out of the explorer, with the reason. Authentication tables (Task 04)
-# belong here: credentials, password hashes and session tokens must never be listed or read.
-UNEXPOSED_TABLES: Mapping[str, str] = {}
+# ORM tables deliberately kept out of the explorer, with the reason. Never exposed: they are not
+# listed, readable, exported, nor disclosed as foreign-key targets.
+UNEXPOSED_TABLES: Mapping[str, str] = {
+    "users": "Login accounts (ADR-0004): argon2 password hashes; managed only through app.cli.",
+    "user_sessions": "Live sign-in sessions (ADR-0004): token hashes and account activity.",
+}
 
 DEFAULT_POLICY = ExposurePolicy(tables=EXPOSED_TABLES)

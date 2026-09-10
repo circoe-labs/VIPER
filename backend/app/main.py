@@ -5,9 +5,10 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.api.router import api_router
+from app.api.router import api_router, public_router
 from app.core.config import Settings, get_settings
 from app.db.session import create_db_engine, create_session_factory
+from app.services.login_throttle import LoginThrottle
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -24,8 +25,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
         docs_url="/api/docs",
         redoc_url=None,
+        swagger_ui_oauth2_redirect_url=None,
         openapi_url="/api/openapi.json",
     )
+    app.state.settings = settings
     app.state.session_factory = create_session_factory(engine)
+    app.state.login_throttle = LoginThrottle()
+    app.include_router(public_router, prefix="/api")
     app.include_router(api_router, prefix="/api")
     return app

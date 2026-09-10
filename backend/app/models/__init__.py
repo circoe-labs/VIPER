@@ -6,6 +6,7 @@ from app.models.contact_tracking import ContactTracking, ContactTrackingStatusHi
 from app.models.imports import ImportBatch, ImportRowMetadata
 from app.models.prospects import Email, Phone, Prospect, ProspectSource
 from app.models.taxonomies import ActivityCategory, CommercialSegment, InternalReferent, Role
+from app.models.users import User, UserSession
 
 __all__ = [
     "ActivityCategory",
@@ -23,5 +24,7 @@ __all__ = [
     "Prospect",
     "ProspectSource",
     "Role",
+    "User",
+    "UserSession",
     "company_activity_categories",
 ]

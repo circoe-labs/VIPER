@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react'
 import { Navigate, type RouteObject } from 'react-router'
 
+import { LoginPage } from './auth/LoginPage'
+import { RequireAuth } from './auth/RequireAuth'
 import { DatabasePage } from './database/DatabasePage'
 import { AppShell } from './shell/AppShell'
 import { NAVIGATION } from './shell/navigation'
@@ -23,9 +25,15 @@ const PAGES: Record<string, { path: string; element: ReactNode }> = {
   '/database': { path: '/database/:table?', element: <DatabasePage /> },
 }
 
+// Everything but /login requires a session (RequireAuth); the API enforces the same rule server-side.
 export const routes: RouteObject[] = [
+  { path: '/login', element: <LoginPage /> },
   {
-    element: <AppShell />,
+    element: (
+      <RequireAuth>
+        <AppShell />
+      </RequireAuth>
+    ),
     children: [
       ...NAVIGATION.map(
         ({ path, label, icon }) => PAGES[path] ?? { path, element: <PlaceholderPage title={label} icon={icon} /> },

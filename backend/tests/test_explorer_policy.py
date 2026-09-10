@@ -11,6 +11,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.db.base import Base
+from app.models import User
 from app.services.errors import NotFoundError
 from app.services.explorer.metadata import describe_table
 from app.services.explorer.policy import (
@@ -51,6 +52,50 @@ def test_every_orm_table_is_explicitly_exposed_or_withheld() -> None:
 def test_every_exposed_table_can_be_described() -> None:
     for name in EXPOSED_TABLES:
         assert describe_table(DEFAULT_POLICY, name).columns
+
+
+AUTH_TABLES = {"users", "user_sessions"}
+
+
+def test_authentication_tables_are_withheld_everywhere(
+    client: TestClient, pilot_user: User
+) -> None:
+    assert set(UNEXPOSED_TABLES) >= AUTH_TABLES
+    names = {table["name"] for table in client.get(API).json()}
+    assert not names & AUTH_TABLES
+    key = quote(f'{{"id": "{pilot_user.id}"}}')
+    for table in AUTH_TABLES:
+        for path in ("", "/rows", "/export.csv", f"/record?key={key}"):
+            assert client.get(f"{API}/{table}{path}").status_code == 404, (table, path)
+    # Never disclosed through metadata either: no FK target, no incoming reference.
+    for name in names:
+        detail = client.get(f"{API}/{name}").json()
+        targets = {
+            column["foreign_key"]["table"] for column in detail["columns"] if column["foreign_key"]
+        }
+        referencing = {reference["table"] for reference in detail["referenced_by"]}
+        assert not (targets | referencing) & AUTH_TABLES, name
+
+
+def test_a_foreign_key_to_a_withheld_table_is_not_disclosed() -> None:
+    # Even a (hypothetical) policy exposing sessions would not reveal that they point at `users`.
+    policy = ExposurePolicy(tables={"user_sessions": TablePolicy()})
+
+    user_id = describe_table(policy, "user_sessions").column("user_id")
+
+    assert user_id is not None
+    assert user_id.foreign_key is None
+
+
+def test_the_explorer_requires_a_session(anonymous_client: TestClient) -> None:
+    for path in (
+        "",
+        "/companies",
+        "/companies/rows",
+        "/companies/export.csv",
+        "/companies/record?key=%7B%7D",
+    ):
+        assert anonymous_client.get(f"{API}{path}").status_code == 401, path
 
 
 def test_listing_shows_exactly_the_exposed_tables(client: TestClient) -> None:

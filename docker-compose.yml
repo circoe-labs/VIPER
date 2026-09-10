@@ -13,7 +13,7 @@ services:
       - "127.0.0.1:5442:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      # Runs only when the volume is first initialised: creates the `viper_test` database.
+      # Runs only when the volume is first initialised: creates the `viper_test` and `viper_e2e` databases.
       - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U viper -d viper"]

@@ -9,10 +9,9 @@ from sqlalchemy import CheckConstraint, Index, String, text, true
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
-from app.models.common import TimestampMixin, UUIDPrimaryKeyMixin
+from app.models.common import EMAIL_FORMAT, TimestampMixin, UUIDPrimaryKeyMixin
 
 SLUG_FORMAT = "slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$'"
-EMAIL_FORMAT = "email = lower(email) AND email ~ '^[^@\\s]+@[^@\\s]+$'"
 
 
 def taxonomy_table_args(table: str) -> tuple[Any, ...]:

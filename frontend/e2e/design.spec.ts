@@ -1,9 +1,15 @@
 import { expect, type Page, test } from '@playwright/test'
 
+import { signIn } from './session'
+
 // Screenshots for design review land in the git-ignored test-results/ folder (recreated on every run).
 const SCREENSHOTS = 'test-results/screenshots'
 
 test.use({ viewport: { width: 1440, height: 900 } })
+
+test.beforeEach(async ({ page }) => {
+  await signIn(page)
+})
 
 const CANVAS = { dark: 'rgb(10, 11, 13)', light: 'rgb(244, 247, 247)' }
 

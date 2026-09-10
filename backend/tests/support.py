@@ -10,6 +10,8 @@ from sqlalchemy import Engine, make_url, text
 from sqlalchemy.orm import Session, sessionmaker
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
+# API test clients use HTTPS: the session cookie is `Secure` by default.
+TEST_BASE_URL = "https://testserver"
 
 
 def alembic_config(database_url: str) -> Config:

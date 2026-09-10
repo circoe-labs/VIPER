@@ -4,6 +4,7 @@ import { Outlet } from 'react-router'
 import { readStorage, writeStorage } from '../lib/storage'
 import { ThemeSwitch } from '../theme/ThemeSwitch'
 import { Sidebar } from './Sidebar'
+import { UserMenu } from './UserMenu'
 import './shell.css'
 
 const SIDEBAR_STORAGE_KEY = 'viper.sidebar'
@@ -28,7 +29,7 @@ export function AppShell() {
           <div className="app-header__search" />
           <div className="app-header__actions">
             <ThemeSwitch />
-            {/* Authenticated user menu lands here with Task 04. */}
+            <UserMenu />
           </div>
         </header>
         <main id="main-content" className="app-shell__main" tabIndex={-1}>
