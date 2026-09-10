@@ -5,6 +5,7 @@ import { LoginPage } from './auth/LoginPage'
 import { RequireAuth } from './auth/RequireAuth'
 import { DatabasePage } from './database/DatabasePage'
 import { AppShell } from './shell/AppShell'
+import { SettingsPage } from './settings/SettingsPage'
 import { NAVIGATION } from './shell/navigation'
 import { PlaceholderPage } from './shell/PlaceholderPage'
 
@@ -23,6 +24,7 @@ const devRoutes: RouteObject[] = import.meta.env.DEV
 // Sections that have been built; the others keep their "Bientôt disponible" placeholder.
 const PAGES: Record<string, { path: string; element: ReactNode }> = {
   '/database': { path: '/database/:table?', element: <DatabasePage /> },
+  '/settings': { path: '/settings/:section?', element: <SettingsPage /> },
 }
 
 // Everything but /login requires a session (RequireAuth); the API enforces the same rule server-side.

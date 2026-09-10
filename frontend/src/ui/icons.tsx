@@ -151,6 +151,31 @@ export const PlusIcon = (props: IconProps) => (
   </Svg>
 )
 
+export const CheckIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="m5 12.5 4.5 4.5L19 7.5" />
+  </Svg>
+)
+
+export const ChevronDownIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="m6 9.5 6 6 6-6" />
+  </Svg>
+)
+
+export const PencilIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M4.5 19.5 5.3 15.8 15.6 5.5a1.8 1.8 0 0 1 2.5 0l.4.4a1.8 1.8 0 0 1 0 2.5L8.2 18.7z" />
+    <path d="m13.5 7.5 3 3" />
+  </Svg>
+)
+
+export const TrashIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 12.5h9l1-12.5M10.5 11v5M13.5 11v5" />
+  </Svg>
+)
+
 export const SpinnerIcon = (props: IconProps) => (
   <Svg {...props}>
     <circle cx="12" cy="12" r="9" opacity="0.25" />

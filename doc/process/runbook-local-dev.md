@@ -153,6 +153,8 @@ After `--autogenerate`, review the file, then `ruff format migrations`. Every ne
 [ADR-0002](../adr/0002-data-schema-conventions.md) — in particular, write enum value lists as literals (never import
 app code into a migration), add the `set_updated_at` trigger to any new table with `updated_at`, and index every FK;
 `tests/test_migrations.py` checks all three because autogenerate ignores CHECKs and triggers.
+Migration `0005` creates the `unaccent` extension (shipped with the `postgres:16-alpine` image; any hosting database
+must allow it) and the `label_key` function used by the Settings uniqueness indexes ([ADR-0009](../adr/0009-settings-value-uniqueness.md)).
 
 Seed data is separate from migrations: `python -m app.seed` (dev) or `python -m app.seed --db test` inserts the
 suggested taxonomy values that are missing and never modifies existing rows, so it is safe to re-run. Full wipe of

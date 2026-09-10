@@ -23,7 +23,8 @@ Styling approach and rationale: [ADR-0003](../adr/0003-styling-and-theming.md).
 | Primitives + icons | `src/ui/*` (each component imports its own CSS file) |
 | App shell | `src/shell/AppShell.tsx`, `Sidebar.tsx`, `ApiStatus.tsx`, `UserMenu.tsx`, `shell.css` |
 | Sign-in page, session guard | `src/auth/LoginPage.tsx`, `RequireAuth.tsx`, `auth.css` |
-| Component showcase (dev server only) | `/_dev/ui` → `src/dev/Showcase.tsx`; excluded from production builds |
+| Component showcase (dev server only) | `/_dev/ui` → `src/dev/Showcase.tsx`; excluded from production builds (its *Sélecteurs de paramètres* card is wired to the API) |
+| Settings page and pickers (Task 06) | `src/settings/*` (`settings.css`), `src/ui/Combobox.tsx` + `combobox.css` |
 | Font | `@fontsource-variable/inter` (self-hosted Inter Variable, imported in `src/main.tsx`; no CDN) |
 
 ## Tokens
@@ -121,7 +122,8 @@ explorer; Prospection lists stay `comfortable` and people-oriented.
 Minimal geometric line icons (`src/ui/icons.tsx`): 24 px grid, 1.75 stroke, round caps/joins, `currentColor`,
 `aria-hidden` (the accessible name always comes from text or the control label). Geometric shapes only — no snakes.
 Set: navigation (`Home`, `Users`, `Bolt`, `Database`, `Sliders`), status (`CheckCircle`, `Alert`, `Ban`, `Info`,
-`Clock`, `MinusCircle`), interface (`Sun`, `Moon`, `PanelLeft`, `LogOut`, `Close`, `Plus`, `Spinner`), data/explorer
+`Clock`, `MinusCircle`), interface (`Sun`, `Moon`, `PanelLeft`, `LogOut`, `Close`, `Plus`, `Check`, `ChevronDown`, `Pencil`,
+`Trash`, `Spinner`), data/explorer
 (`Search`, `Refresh`, `Download`, `Filter`, `Key`, `Link`, `ArrowUp/Down/Left`, `ChevronLeft/Right`, `Columns`, `Pin`,
 `More`, `Copy`, `Expand`, `Table`). Add icons in the same file and style.
 
@@ -142,6 +144,7 @@ Set: navigation (`Home`, `Users`, `Bolt`, `Database`, `Sliders`), status (`Check
 | `Modal` / `Drawer` | `open`, `onClose`, `title`, `description?`, `footer?`, `initialFocusRef?`, `size` (modal sm/md/lg, drawer md/lg/xl) | Portal, `role="dialog"` + `aria-modal` + labelled/described; focus moves in (dialog or `initialFocusRef`), Tab/Shift+Tab trapped, Esc / backdrop / close button call `onClose`, focus restored to the trigger, body scroll locked. Nested dialogs close one at a time. Guard unsaved changes inside `onClose`. Drawer = editors that keep the list in context (Prospect, Company). |
 | `Menu` | `label`, `position` (viewport point), `alignRight?`, `sections` (`label?`, `items`: `id`, `label`, `icon?`, `hint?`, `disabled?`, `onSelect`), `onClose` | Context/action menu (WAI-ARIA menu): portal, first item focused, ↑/↓/Home/End skip disabled items and wrap, Enter/Space select (menu closes first, then the action runs), Esc/Tab/outside press close; focus returns to the trigger; clamped inside the viewport. Mounted only while open. |
 | `Popover` | `anchor`, `label`, `onClose`, `alignRight?` | Small **non-modal** dialog under a control (filter editor, column chooser): first field focused, Esc/outside press close, focus restored, Tab not trapped. |
+| `Combobox` | `label`, `options` (`id`, `label`, `hint?`, `inactive?`), `value`/`onChange` (single) or `multiple` + `value[]`, `status`, `create?` (`run`, `label?`, `refuse?`), `hint`, `error`, `required` | Searchable picker (WAI-ARIA combobox + listbox, Task 06): filtering ignores case and accents, ↓/↑/Enter/Esc/Tab, Backspace removes the last chip; inactive options appear only while selected (*Inactif* tag); `create` adds a « Créer « … » » option whose failure shows as the field error. Domain pickers on top of it: `TaxonomySelect`, `TaxonomyMultiSelect`, `ReferentSelect` (`src/settings/selectors.tsx`, see `doc/features/settings-taxonomies.md`). |
 
 ## Database explorer grid
 Denser than Prospection but legible: 13 px data on 36 px rows, 56 px two-line headers (name + SQL type), subtle

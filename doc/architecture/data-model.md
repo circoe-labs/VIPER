@@ -265,8 +265,8 @@ on purpose.
 
 | Table | Columns (beyond `id` and timestamps) | Constraints / indexes |
 |---|---|---|
-| `roles`, `commercial_segments`, `activity_categories` | `label varchar(255)`, `slug varchar(100)`, `active bool DEFAULT true` | `uq_<t>_slug`; `uq_<t>_lower_label` on `lower(label)`; CHECK slug `^[a-z0-9]+(-[a-z0-9]+)*$`, label not blank |
-| `internal_referents` | `first_name`, `last_name varchar(100)`, `email varchar(320) NULL`, `active bool` | names not blank; email lowercase `x@y`. Not login accounts |
+| `roles`, `commercial_segments`, `activity_categories` | `label varchar(255)`, `slug varchar(100)`, `active bool DEFAULT true` | `uq_<t>_slug`; `uq_<t>_label_key` on `label_key(label)` (migration 0005: case, accents and spacing ignored); CHECK slug `^[a-z0-9]+(-[a-z0-9]+)*$`, label not blank |
+| `internal_referents` | `first_name`, `last_name varchar(100)`, `email varchar(320) NULL`, `active bool` | names not blank; email lowercase `x@y`; `uq_internal_referents_name_key` on `(label_key(first_name), label_key(last_name))`, `uq_internal_referents_email` (migration 0005). Not login accounts |
 | `companies` | `display_name varchar(255)`, `legal_name`, `siren varchar(9)`, `website_url text`, `email_domain varchar(253)`, `size_label varchar(100)`, `commercial_segment_id`, `project_done_with_circoe`, `project_type`, `circoe_references`, `client_approach` (text, legacy context) | `uq_companies_siren`; CHECK siren digits, email_domain lowercase `a.b`, display_name not blank; `ix_companies_email_domain`, `ix_companies_lower_display_name` |
 | `company_activity_categories` | `company_id`, `activity_category_id` | composite PK; `ix_…_activity_category_id` |
 | `establishments` | `company_id`, `name`, `siret varchar(14)`, `address_line1/2`, `postal_code`, `city`, `country`, `kind varchar(100)` (free text: siège, agence, entrepôt…), `is_primary bool DEFAULT false` | `uq_establishments_siret`; `uq_establishments_company_id_primary` (partial `WHERE is_primary`); CHECK siret digits |
@@ -282,6 +282,11 @@ on purpose.
 
 Every FK column is the leading column of a non-partial index (checked by a test). Substring search indexes
 (`pg_trgm`) are left to Task 17.
+
+`label_key(text)` (migration 0005, [ADR-0009](../adr/0009-settings-value-uniqueness.md)) is an immutable SQL function
+over the `unaccent` extension: trimmed, whitespace collapsed, unaccented, lowercase. Settings services compare and
+search labels through it; behaviour of the Settings values (stable slug, deactivation, delete-if-unused):
+[settings-taxonomies.md](../features/settings-taxonomies.md).
 
 ### Fixed value sets (`varchar(32)` + CHECK `ck_<table>_<column>`)
 

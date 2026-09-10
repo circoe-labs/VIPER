@@ -158,11 +158,37 @@ def lifecycle_action(entity_type: str, lifecycle: Lifecycle) -> str:
     return f"{entity_type}.{lifecycle}"
 
 
-ACTIONS = frozenset(AuditAction) | {
-    lifecycle_action(entity.entity_type, lifecycle)
-    for entity in AUDITED_ENTITIES.values()
-    for lifecycle in Lifecycle
-}
+class SettingsChange(StrEnum):
+    """Semantic changes of Settings values (Task 06): `<entity_type>.<change>`. Taxonomies are
+    renamed; taxonomies and referents are deactivated/reactivated (never deleted while in use)."""
+
+    RENAMED = "renamed"
+    DEACTIVATED = "deactivated"
+    REACTIVATED = "reactivated"
+
+
+TAXONOMY_ENTITY_TYPES = ("role", "commercial_segment", "activity_category")
+SETTINGS_ENTITY_TYPES = (*TAXONOMY_ENTITY_TYPES, "internal_referent")
+
+
+def settings_action(entity_type: str, change: SettingsChange) -> str:
+    return f"{entity_type}.{change}"
+
+
+ACTIONS = (
+    frozenset(AuditAction)
+    | {
+        lifecycle_action(entity.entity_type, lifecycle)
+        for entity in AUDITED_ENTITIES.values()
+        for lifecycle in Lifecycle
+    }
+    | {settings_action(taxonomy, SettingsChange.RENAMED) for taxonomy in TAXONOMY_ENTITY_TYPES}
+    | {
+        settings_action(entity_type, change)
+        for entity_type in SETTINGS_ENTITY_TYPES
+        for change in (SettingsChange.DEACTIVATED, SettingsChange.REACTIVATED)
+    }
+)
 ACTION_FORMAT = re.compile(r"[a-z_]+(\.[a-z_]+)+")
 
 

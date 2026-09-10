@@ -11,7 +11,7 @@ Use explicit service boundaries rather than UI-to-ORM coupling:
 - CompanyService
 - ContactChannelService
 - ContactTrackingService
-- TaxonomyService
+- TaxonomyService (Task 06: `app/services/taxonomies.py`; internal referents in `app/services/referents.py` — [settings-taxonomies.md](../features/settings-taxonomies.md))
 - ImportPreviewService / ImportCommitService
 - ExcelExportService
 - DatabaseExplorerService

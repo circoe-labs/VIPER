@@ -9,15 +9,15 @@ interface FieldProps {
   error?: ReactNode
 }
 
-interface ControlA11y {
+export interface ControlA11y {
   id: string
   'aria-invalid': true | undefined
   'aria-describedby': string | undefined
 }
 
 // Shared frame: visible label bound to the control, hint and error linked through aria-describedby.
-// The error carries an icon and text — never colour alone.
-function FieldFrame({
+// The error carries an icon and text — never colour alone. Exported for composite controls (Combobox).
+export function FieldFrame({
   label,
   hint,
   error,

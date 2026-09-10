@@ -95,3 +95,10 @@ Coming soon only. No fake agent controls, drafts, messages or metrics.
 
 ## Settings
 Manage Roles, Activity Categories, Commercial Segments and Internal Referents: search/list/add/rename/deactivate. Inline creation from forms should use the same services. Do not merge internal referents with login users.
+
+Implemented by Task 06 — behaviour, API and pickers: [settings-taxonomies.md](settings-taxonomies.md). `/settings`
+shows a tab bar of the four sections (`/settings/roles`, `/settings/activity-categories`,
+`/settings/commercial-segments`, `/settings/referents`) above one panel: add, search, *Tous/Actifs/Inactifs* filter,
+usage count, status badge, inline rename, deactivate/reactivate, delete only when unused (otherwise deactivation is
+proposed). Record editors pick values with `TaxonomySelect`, `TaxonomyMultiSelect` and `ReferentSelect`, which offer
+« Créer « … » » through the same audited API.
