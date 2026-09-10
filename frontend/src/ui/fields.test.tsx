@@ -23,6 +23,18 @@ describe('fields', () => {
     expect(screen.getByText('Adresse e-mail invalide.')).toBeVisible()
   })
 
+  it('shows a warning without marking the control invalid, and an error instead of it', () => {
+    const { rerender } = render(<TextField label="SIRET" warning="Ne commence pas par le SIREN." />)
+
+    const input = screen.getByRole('textbox', { name: 'SIRET' })
+    expect(input).not.toHaveAttribute('aria-invalid')
+    expect(input).toHaveAccessibleDescription('Ne commence pas par le SIREN.')
+
+    rerender(<TextField label="SIRET" warning="Ne commence pas par le SIREN." error="14 chiffres." />)
+    expect(input).toHaveAccessibleDescription('14 chiffres.')
+    expect(screen.queryByText('Ne commence pas par le SIREN.')).not.toBeInTheDocument()
+  })
+
   it('keeps a caller-provided description id', () => {
     render(
       <>

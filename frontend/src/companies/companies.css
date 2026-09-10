@@ -1,0 +1,332 @@
+/* Entreprises page and Company editor (Task 07). */
+
+.companies-page__back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  text-decoration: none;
+}
+
+.companies-page__back:hover {
+  color: var(--color-accent-fg);
+}
+
+.companies-page__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.companies-page__toolbar .search-field {
+  width: min(30rem, 100%);
+}
+
+.companies-page__count {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.companies-page__pager {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.companies-table__open {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-text);
+  font-weight: var(--weight-semibold);
+  text-align: left;
+  cursor: pointer;
+}
+
+.companies-table__open:hover {
+  color: var(--color-accent-fg);
+  text-decoration: underline;
+}
+
+.companies-table__id {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.companies-table__legal {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+/* --- Company editor (drawer) --- */
+
+.company-editor {
+  display: grid;
+  gap: var(--space-8);
+}
+
+.company-editor__state {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-4) 0;
+  color: var(--color-text-muted);
+}
+
+.company-editor__state--error {
+  color: var(--color-danger-fg);
+}
+
+.company-editor__section {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.company-editor__section + .company-editor__section {
+  padding-top: var(--space-8);
+  border-top: var(--border-width) solid var(--color-border);
+}
+
+.company-editor__section-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-lg);
+}
+
+.company-editor__count {
+  min-width: 1.5rem;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-neutral-soft);
+  color: var(--color-neutral-fg);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.375rem;
+  text-align: center;
+}
+
+.company-editor__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-5) var(--space-6);
+  align-items: start;
+}
+
+.company-editor__stack {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+}
+
+.company-editor__stack > .field {
+  justify-self: stretch;
+}
+
+.company-editor__muted {
+  color: var(--color-text-muted);
+}
+
+.company-editor__dialog {
+  display: grid;
+  gap: var(--space-4);
+}
+
+/* Footer: status on the left, actions on the right. */
+.company-editor__bar {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.company-editor__bar-status {
+  flex: 1;
+  min-width: 12rem;
+}
+
+.company-editor__status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.company-editor__status svg {
+  flex: none;
+}
+
+.company-editor__status--dirty {
+  color: var(--color-warning-fg);
+}
+
+.company-editor__status--saved {
+  color: var(--color-success-fg);
+}
+
+.company-editor__status--error {
+  color: var(--color-danger-fg);
+}
+
+.company-editor__dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: var(--radius-full);
+  background: currentcolor;
+}
+
+/* Similar companies notice (new company only). */
+.company-similar {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-md);
+  background: var(--color-info-soft);
+}
+
+.company-similar__title {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  color: var(--color-info-fg);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.company-similar__title svg {
+  flex: none;
+}
+
+.company-similar__list {
+  display: grid;
+  gap: var(--space-2);
+  padding: 0;
+  list-style: none;
+}
+
+.company-similar__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+/* Establishments repeater. */
+.establishments {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.establishment-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-4);
+  min-width: 0;
+  margin: 0;
+  padding: var(--space-5) var(--space-6);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.establishment-card[data-primary] {
+  border-color: color-mix(in srgb, var(--color-accent-fg) 45%, var(--color-border));
+}
+
+.establishment-card__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.establishment-card__title {
+  overflow: hidden;
+  font-weight: var(--weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.establishment-card__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.establishment-card__primary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.establishment-card__primary input {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+
+.establishment-card__grid {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4) var(--space-5);
+  align-items: start;
+}
+
+.establishment-card__wide {
+  grid-column: span 2;
+}
+
+/* Associated prospects: a plain, readable list. */
+.company-prospects {
+  display: grid;
+  padding: 0;
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  list-style: none;
+}
+
+.company-prospects__item {
+  display: grid;
+  grid-template-columns: minmax(10rem, 1fr) minmax(0, 1.5fr) auto;
+  gap: var(--space-4);
+  align-items: center;
+  padding: var(--space-3) var(--space-4);
+}
+
+.company-prospects__item + .company-prospects__item {
+  border-top: var(--border-width) solid var(--color-border);
+}
+
+.company-prospects__name {
+  font-weight: var(--weight-medium);
+}
+
+.company-prospects__role {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.company-prospects__badges {
+  display: flex;
+  gap: var(--space-2);
+}

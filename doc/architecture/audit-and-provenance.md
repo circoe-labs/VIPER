@@ -32,7 +32,8 @@ occurred_at)`.
 `{"field": {"before": <value>, "after": <value>}}` with only the fields whose value changed:
 
 - **updated** rows: previous and new value of each changed column (exact even if the old value was not loaded);
-- **created** rows: every non-null column as `after` (database defaults included), `before` null;
+- **created** rows: every non-null column as `after` (database defaults included), `before` null — plus loaded,
+  non-empty many-to-many collections (a company created with its categories, Task 07);
 - **deleted** rows: every non-null column as `before`, `after` null;
 - many-to-many collections as sorted id lists under `<relationship>_ids` (e.g. `activity_categories_ids`);
 - `id`, `created_at`, `updated_at` are never included;

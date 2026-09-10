@@ -78,6 +78,10 @@
   synthetic dataset loaded by the E2E global setup (`python -m tests.e2e_data` into `viper_e2e`; table pick, sort, filter, search, value viewer, FK hop
   and back, keyboard grid + context menu, no page overflow at 1280 px, screenshots in both themes); the navigation
   entry point is `e2e/helpers.ts` (`openDatabase`), where the login step goes once authentication exists.
+- Company editor (Task 07): `test_companies.py` / `test_companies_api.py` (identifier rules, uniqueness naming the
+  holder, establishments and primary switching, deletion refusal, search, similar companies, audit, 401/403),
+  `src/companies/*.test.ts(x)` against the in-memory `src/test/companiesApi.ts`, Playwright `e2e/companies.spec.ts`
+  with editor screenshots in both themes — details in `doc/features/company-editor.md`.
 - Excel import engine (Task 08): synthetic workbooks generated in memory by
   `tests/fixtures/synthetic/legacy_workbook.py` (the 24-column historical layout, an `actualité` sheet, one row per
   compatibility case below, a fake reference snapshot). `test_import_workbook.py` (XLSX typed values, cached values

@@ -3,6 +3,8 @@
   inset: 0;
   z-index: var(--z-overlay);
   display: grid;
+  /* One row bounded by the viewport, so a tall dialog scrolls its body instead of growing past the screen. */
+  grid-template-rows: minmax(0, 1fr);
 }
 
 .dialog-layer--modal {

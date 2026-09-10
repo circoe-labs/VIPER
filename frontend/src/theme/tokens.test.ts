@@ -63,6 +63,9 @@ const TEXT_PAIRS: [string, string][] = [
   ['accent-fg', 'accent-soft'],
   ['accent-2-fg', 'surface'],
   ['warning-fg', 'surface'],
+  // Field warnings and editor status text sit on drawers (Company editor, Task 07).
+  ['warning-fg', 'surface-raised'],
+  ['success-fg', 'surface-raised'],
   ['on-accent', 'accent'],
   ['on-accent', 'accent-hover'],
   ['on-danger', 'danger'],

@@ -74,6 +74,13 @@ Lightweight data-maintenance UI, **not** a CRM company dossier. Create/edit:
 
 Accessible from Prospect editor, global search and optionally Database/Prospection context.
 
+Implemented by Task 07 — fields, rules, API and behaviour: [company-editor.md](company-editor.md). One wide drawer for
+the whole app, opened with `useCompanyEditor()` (Prospect editor, global search); a compact **Entreprises** list at
+`/prospection/companies`, a secondary page of Prospection (no sixth navigation section; the Prospection placeholder
+links to it until Task 14). Sections *Identité*, *Classification*, *Établissements* (repeater, exactly one primary),
+*Contexte Circoe*, *Prospects associés* (count + list); dirty-state footer, save keeps the drawer open, Ctrl+S / Enter
+save, closing with changes asks first; delete only without prospects.
+
 ## Database
 
 ### Left rail

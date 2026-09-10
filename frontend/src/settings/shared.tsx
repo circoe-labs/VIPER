@@ -4,7 +4,8 @@ import type { ActiveFilter } from '../api/settings'
 import { StatusBadge } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { Modal } from '../ui/Dialog'
-import { AlertIcon, CheckCircleIcon, SearchIcon } from '../ui/icons'
+import { AlertIcon, CheckCircleIcon } from '../ui/icons'
+import { SearchField } from '../ui/SearchField'
 import { settingsErrorMessage, usageText } from './messages'
 
 // Building blocks shared by the taxonomy and referent sections of the Settings page.
@@ -41,18 +42,7 @@ interface ListToolbarProps {
 export function ListToolbar({ searchLabel, search, onSearch, active, onActive, count }: ListToolbarProps) {
   return (
     <div className="settings-toolbar">
-      <label className="settings-search">
-        <SearchIcon size={16} />
-        <span className="visually-hidden">{searchLabel}</span>
-        <input
-          type="search"
-          placeholder={searchLabel}
-          value={search}
-          onChange={(event) => {
-            onSearch(event.target.value)
-          }}
-        />
-      </label>
+      <SearchField label={searchLabel} value={search} onChange={onSearch} />
       <fieldset className="segmented">
         <legend className="visually-hidden">Filtrer par statut</legend>
         {ACTIVE_FILTERS.map((filter) => (

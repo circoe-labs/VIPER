@@ -8,7 +8,7 @@ allowlist of routes reachable without a session; `tests/test_route_protection.py
 from fastapi import APIRouter, Depends
 
 from app.api.dependencies import require_session
-from app.api.routes import audit, auth, explorer, health, settings
+from app.api.routes import audit, auth, companies, explorer, health, settings
 
 public_router = APIRouter()
 public_router.include_router(health.router)
@@ -17,5 +17,6 @@ public_router.include_router(auth.public_router)
 api_router = APIRouter(dependencies=[Depends(require_session)])
 api_router.include_router(auth.router)
 api_router.include_router(audit.router)
+api_router.include_router(companies.router)
 api_router.include_router(explorer.router)
 api_router.include_router(settings.router)

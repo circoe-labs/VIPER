@@ -325,6 +325,11 @@ tracking and its history, sources, import row metadata) and for a batch's row me
   `prospect.company_changed` with both company ids and names; each re-verified channel as `email/phone.updated`.
 - **Contact tracking** (`save_contact_tracking`): creates or replaces the single current row and appends a
   status-history row (with the actor snapshot) whenever the status changes.
+- **Companies** (Task 07, `app/services/companies.py`, [company-editor.md](../features/company-editor.md)): SIREN/SIRET
+  stored as digits with a valid Luhn key when entered or changed (La Poste SIRETs by digit sum; unchanged imported
+  values are not re-checked), unique with a 409 naming the holding company; `email_domain` lowercase without `@`,
+  scheme or `www.`, webmail domains refused; establishments saved with their company as a full list with exactly one
+  primary when any; a company is deleted only without prospects, its establishments first (each audited).
 - **Audit and provenance** (Task 05): every service annotates the rows it changes and one flush hook writes the
   `audit_log` events; `prospect_sources` and import batches are written through `ProvenanceService` /
   `import_batches` — see [audit-and-provenance.md](audit-and-provenance.md). The do-not-contact clearing reason is

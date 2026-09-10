@@ -293,3 +293,13 @@ export const TableIcon = (props: IconProps) => (
     <path d="M3.5 9.5h17M3.5 14.5h17M9.5 9.5v10" />
   </Svg>
 )
+
+// Companies (Task 07)
+export const BuildingIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M4.5 20.5v-15l8-2v17" />
+    <path d="M12.5 8.5l7 2v10" />
+    <path d="M3 20.5h18" />
+    <path d="M7.5 8.5h2M7.5 12h2M7.5 15.5h2M15.5 13h1.5M15.5 16.5h1.5" />
+  </Svg>
+)

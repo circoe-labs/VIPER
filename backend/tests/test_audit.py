@@ -279,6 +279,20 @@ def test_many_to_many_changes_are_recorded_as_id_lists(db_session: Session) -> N
     }
 
 
+def test_a_row_created_with_a_many_to_many_collection_records_its_ids(db_session: Session) -> None:
+    road = ActivityCategory(slug="route", label="Route")
+    db_session.add(road)
+    db_session.flush()
+    bind_operator(db_session)
+
+    company = Company(display_name="Transports Exemple SARL", activity_categories=[road])
+    db_session.add(company)
+    db_session.flush()
+
+    [entry] = audit_events(db_session, entity_type="company")
+    assert entry.changes["activity_categories_ids"] == {"before": None, "after": [str(road.id)]}
+
+
 def test_a_service_annotation_is_not_logged_twice_by_the_safety_net(db_session: Session) -> None:
     prospect = add_prospect(db_session)
     bind_operator(db_session)

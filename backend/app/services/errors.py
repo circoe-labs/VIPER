@@ -22,11 +22,16 @@ class InvalidInputError(DomainError):
 
 
 class InvalidFieldError(InvalidInputError):
-    """One named field has an unacceptable value (blank label, malformed e-mail…)."""
+    """One named field has an unacceptable value (blank label, malformed e-mail…).
 
-    def __init__(self, field: str, message: str) -> None:
+    `field` may be a path into a nested payload (`establishments.1.siret`); `reason` is an
+    optional stable code when one field can fail in several ways (`format`, `checksum`…).
+    """
+
+    def __init__(self, field: str, message: str, reason: str | None = None) -> None:
         super().__init__(message)
         self.field = field
+        self.reason = reason
 
 
 @dataclass(frozen=True, slots=True)

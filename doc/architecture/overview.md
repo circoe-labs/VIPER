@@ -8,7 +8,7 @@ Routes: Home, Prospection, Exploitation, Database, Settings. Global shell provid
 ### Application services
 Use explicit service boundaries rather than UI-to-ORM coupling:
 - ProspectService
-- CompanyService
+- CompanyService (Task 07: `app/services/companies.py` — [company-editor.md](../features/company-editor.md))
 - ContactChannelService
 - ContactTrackingService
 - TaxonomyService (Task 06: `app/services/taxonomies.py`; internal referents in `app/services/referents.py` — [settings-taxonomies.md](../features/settings-taxonomies.md))

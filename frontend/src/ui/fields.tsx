@@ -7,6 +7,8 @@ interface FieldProps {
   label: string
   hint?: ReactNode
   error?: ReactNode
+  // Non-blocking remark (a value to double-check); shown with a warning glyph, never instead of an error.
+  warning?: ReactNode
 }
 
 export interface ControlA11y {
@@ -15,12 +17,13 @@ export interface ControlA11y {
   'aria-describedby': string | undefined
 }
 
-// Shared frame: visible label bound to the control, hint and error linked through aria-describedby.
-// The error carries an icon and text — never colour alone. Exported for composite controls (Combobox).
+// Shared frame: visible label bound to the control, hint, error and warning linked through aria-describedby.
+// Error and warning carry an icon and text — never colour alone. Exported for composite controls (Combobox).
 export function FieldFrame({
   label,
   hint,
   error,
+  warning,
   id: providedId,
   required,
   describedBy,
@@ -35,7 +38,8 @@ export function FieldFrame({
   const id = providedId ?? generatedId
   const hintId = hint ? `${id}-hint` : undefined
   const errorId = error ? `${id}-error` : undefined
-  const describedByIds = [describedBy, hintId, errorId].filter(Boolean).join(' ') || undefined
+  const warningId = warning && !error ? `${id}-warning` : undefined
+  const describedByIds = [describedBy, hintId, errorId, warningId].filter(Boolean).join(' ') || undefined
   return (
     <div className="field" data-invalid={error ? '' : undefined}>
       <label className="field__label" htmlFor={id}>
@@ -58,14 +62,20 @@ export function FieldFrame({
           {error}
         </p>
       )}
+      {warningId && (
+        <p id={warningId} className="field__warning">
+          <AlertIcon size={16} />
+          {warning}
+        </p>
+      )}
     </div>
   )
 }
 
 export type TextFieldProps = FieldProps & Omit<ComponentProps<'input'>, 'aria-invalid'>
 
-export function TextField({ label, hint, error, id, required, className, ...props }: TextFieldProps) {
-  const frame = { label, hint, error, id, required, describedBy: props['aria-describedby'] }
+export function TextField({ label, hint, error, warning, id, required, className, ...props }: TextFieldProps) {
+  const frame = { label, hint, error, warning, id, required, describedBy: props['aria-describedby'] }
   return (
     <FieldFrame {...frame}>
       {(a11y) => (
@@ -77,8 +87,8 @@ export function TextField({ label, hint, error, id, required, className, ...prop
 
 export type TextAreaFieldProps = FieldProps & Omit<ComponentProps<'textarea'>, 'aria-invalid'>
 
-export function TextAreaField({ label, hint, error, id, required, className, ...props }: TextAreaFieldProps) {
-  const frame = { label, hint, error, id, required, describedBy: props['aria-describedby'] }
+export function TextAreaField({ label, hint, error, warning, id, required, className, ...props }: TextAreaFieldProps) {
+  const frame = { label, hint, error, warning, id, required, describedBy: props['aria-describedby'] }
   return (
     <FieldFrame {...frame}>
       {(a11y) => (
@@ -90,8 +100,8 @@ export function TextAreaField({ label, hint, error, id, required, className, ...
 
 export type SelectFieldProps = FieldProps & Omit<ComponentProps<'select'>, 'aria-invalid'>
 
-export function SelectField({ label, hint, error, id, required, className, ...props }: SelectFieldProps) {
-  const frame = { label, hint, error, id, required, describedBy: props['aria-describedby'] }
+export function SelectField({ label, hint, error, warning, id, required, className, ...props }: SelectFieldProps) {
+  const frame = { label, hint, error, warning, id, required, describedBy: props['aria-describedby'] }
   return (
     <FieldFrame {...frame}>
       {(a11y) => (

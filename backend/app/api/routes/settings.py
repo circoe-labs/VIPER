@@ -2,28 +2,21 @@
 
 `/settings/referents` for the Circoe referents, `/settings/{taxonomy}` for `roles`,
 `activity-categories` and `commercial-segments`. Business refusals answer with a stable `code` the
-UI turns into French copy: 409 `duplicate` (with the existing value, which may be inactive) and
-409 `in_use` (with usage counts), 422 `invalid` (with the field), 404 `not_found`.
+UI turns into French copy (`app.api.errors`): 409 `duplicate` (with the existing value, which may
+be inactive) and 409 `in_use` (with usage counts), 422 `invalid` (with the field), 404 `not_found`.
 """
 
 import uuid
-from collections.abc import Iterator
-from contextlib import contextmanager
 from datetime import datetime
 from enum import StrEnum
-from typing import Annotated, Any, Self
+from typing import Annotated, Self
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Query, status
 from pydantic import BaseModel, StringConstraints, model_validator
 
 from app.api.dependencies import CurrentActor, SessionDep
+from app.api.errors import business_errors
 from app.services import referents, taxonomies
-from app.services.errors import (
-    DuplicateValueError,
-    InUseError,
-    InvalidFieldError,
-    NotFoundError,
-)
 from app.services.referents import ReferentInput, ReferentValue
 from app.services.taxonomies import Taxonomy, TaxonomyValue
 
@@ -103,36 +96,6 @@ def taxonomy_out(value: TaxonomyValue) -> TaxonomyValueOut:
 
 def referent_out(value: ReferentValue) -> ReferentOut:
     return ReferentOut.model_validate(value, from_attributes=True)
-
-
-def refusal(status_code: int, code: str, message: str, **details: Any) -> HTTPException:
-    return HTTPException(status_code, {"code": code, "message": message, **details})
-
-
-@contextmanager
-def business_errors() -> Iterator[None]:
-    """Service refusals → HTTP answers with a stable `code` (the transaction rolls back)."""
-    try:
-        yield
-    except NotFoundError as error:
-        raise refusal(status.HTTP_404_NOT_FOUND, "not_found", str(error)) from error
-    except InvalidFieldError as error:
-        raise refusal(
-            status.HTTP_422_UNPROCESSABLE_CONTENT, "invalid", str(error), field=error.field
-        ) from error
-    except DuplicateValueError as error:
-        existing = error.existing
-        raise refusal(
-            status.HTTP_409_CONFLICT,
-            "duplicate",
-            str(error),
-            field=error.field,
-            existing=None
-            if existing is None
-            else {"id": str(existing.id), "label": existing.label, "active": existing.active},
-        ) from error
-    except InUseError as error:
-        raise refusal(status.HTTP_409_CONFLICT, "in_use", str(error), usage=error.usage) from error
 
 
 # Referent routes come first: `/settings/referents` must not be read as a taxonomy path.

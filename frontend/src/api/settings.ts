@@ -48,10 +48,13 @@ export interface ListFilters {
 // The unfiltered list: shared by the Settings page (empty search) and every picker.
 export const ALL_VALUES: ListFilters = { search: '', active: 'all' }
 
-// Business refusal from the API (`detail` of a 404/409/422), turned into French copy by `settings/messages.ts`.
+// Business refusal from the API (`detail` of a 404/409/422, backend/app/api/errors.py — shared by the Settings and
+// Companies APIs), turned into French copy by `settings/messages.ts` and `companies/messages.ts`.
 export interface SettingsRefusal {
   code: 'duplicate' | 'in_use' | 'invalid' | 'not_found'
   field?: string
+  // Why an `invalid` field was refused when it can fail in several ways (`format`, `checksum`, `webmail`…).
+  reason?: string
   existing?: { id: string; label: string; active: boolean } | null
   // e.g. `{ prospects: 3 }`, `{ companies: 1 }`, `{ contact_trackings: 2 }`.
   usage?: Record<string, number>

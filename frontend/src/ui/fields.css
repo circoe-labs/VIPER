@@ -74,8 +74,21 @@
   color: var(--color-danger-fg);
 }
 
-.field__error svg {
+.field__error svg,
+.field__warning svg {
   flex: none;
+}
+
+.field__warning {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--color-warning-fg);
+}
+
+.field__warning svg {
+  margin-top: 0.125rem;
 }
 
 /* Checkbox & switch */

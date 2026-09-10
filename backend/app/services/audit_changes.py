@@ -57,13 +57,18 @@ def _collection_ids(items: list[Any]) -> list[Any]:
 
 
 def snapshot(instance: object) -> dict[str, Any]:
-    """Loaded, non-null column values of `instance` (a created or deleted row)."""
+    """Loaded, non-null column values of `instance` (a created or deleted row), plus its loaded,
+    non-empty many-to-many collections as id lists (a company created with its categories)."""
     state = instance_state(instance)
-    return {
+    values = {
         attr.key: to_json(state.dict[attr.key])
         for attr in state.mapper.column_attrs
         if attr.key not in TECHNICAL_FIELDS and state.dict.get(attr.key) is not None
     }
+    for relationship in state.mapper.relationships:
+        if relationship.secondary is not None and state.dict.get(relationship.key):
+            values[f"{relationship.key}_ids"] = _collection_ids(state.dict[relationship.key])
+    return values
 
 
 def pending_changes(instance: object) -> ChangeSet:
