@@ -60,12 +60,22 @@
   Vite dev server (port 5180) proxying to it; global setup rebuilds `viper_e2e` through the migrations and creates the
   E2E account with the real CLI and a random password. `auth.spec.ts` covers sign-in failure/success, reload, sign-out
   (server-side revocation), deep link and the cookie flags; the shell/design specs sign in through the API first.
+  **All specs share the one E2E database, in a single Playwright project and in any order** (decision I-80): a spec
+  that writes uses its own invented rows (names ending in `E2E`, or a synthetic row it owns), and no spec asserts a
+  global row count another spec can change — assert on known synthetic rows, on filters (e.g. audit events of the
+  dataset loader, `actor_id = tests.e2e_data`), or on a count read from the API first.
 - Design system (Task 02): `src/theme/tokens.test.ts` parses `tokens.css` and asserts WCAG contrast of the key
   token pairs in both themes (text ≥ 4.5:1, focus/field boundaries ≥ 3:1) and that no raw colour literal exists
   outside the token file; `src/brand/assets.test.ts` decodes the six logo PNGs (RGBA, transparent edge, real
   artwork); primitives have accessibility tests (labels, descriptions, `aria-invalid`, dialog focus trap / Esc /
   focus restore, badges never colour-only). `e2e/design.spec.ts` renders the shell in dark and light at 1440×900,
   checks persistence, logo transparency on a canvas, Inter loading, favicons and no overflow at 1280 px.
+- Database Explorer staged editing and SQL console (Tasks 12/13): `test_explorer_writes.py`,
+  `test_explorer_editability.py` (policy, change sets, French errors, delete diagnostics, audit) and
+  `test_explorer_sql.py` (reader role and grants == exposure policy, security regression suite on raw reader
+  connections and through the endpoint); `staging.test.ts`, `editing.test.ts`, `TableEditing.test.tsx`,
+  `SqlConsole.test.tsx`; Playwright `database-edit.spec.ts`, `database-sql.spec.ts` — details in
+  `doc/features/database-explorer.md`.
 - Database Explorer (Task 11): `test_explorer_policy.py` (every ORM table classified; `users` / `user_sessions`
   never listed, readable or disclosed as FK targets/references; 401 without a session; unexposed/unknown/injected
   table names → 404 on every endpoint, hidden/masked columns never returned, searched, filtered, sorted or

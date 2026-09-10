@@ -35,6 +35,11 @@ test('a read shows its rows, row count and duration', async ({ page }) => {
 
 test('hidden tables and writes are refused by the database, nothing changes', async ({ page }) => {
   const panel = await openConsole(page)
+  const result = panel.getByRole('region', { name: 'Résultat de la requête' })
+  // Other specs may add companies: compare with the count read first.
+  await runQuery(page, 'SELECT count(*) AS companies FROM companies')
+  await expect(result.getByRole('status')).toContainText('1 ligne')
+  const before = await result.getByRole('cell').first().innerText()
 
   await runQuery(page, 'SELECT email, password_hash FROM users')
   await expect(panel.getByRole('alert')).toContainText('Table non accessible')
@@ -47,7 +52,7 @@ test('hidden tables and writes are refused by the database, nothing changes', as
   await expect(panel.getByRole('alert')).toContainText('non prise en charge')
 
   await runQuery(page, 'SELECT count(*) AS companies FROM companies')
-  await expect(panel.getByRole('region', { name: 'Résultat de la requête' }).getByRole('cell', { name: '36' })).toBeVisible()
+  await expect(result.getByRole('cell').first()).toHaveText(before)
 })
 
 test('a large result is cut at the row limit', async ({ page }) => {
