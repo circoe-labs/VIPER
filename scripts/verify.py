@@ -1,6 +1,7 @@
 """Run every local quality gate, in CI order. Usage: `python scripts/verify.py [--e2e]`.
 
-Needs the backend venv (`backend/.venv`), `npm ci` in `frontend/` and the Docker database running.
+Needs the backend venv (`backend/.venv`), `npm ci` in `frontend/` and the Docker database running
+(`--e2e` also uses the `viper_e2e` database and ports 8044/5180; see runbook-local-dev.md).
 """
 
 import os

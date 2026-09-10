@@ -47,6 +47,11 @@ Legacy file names/columns are adapter concerns. Domain services must not depend 
 ### Auth + actor context
 The pilot is single-user, but it must be securely authenticated. Application user identity is distinct from `internal_referents`. All mutations receive an actor context.
 
+Implemented by Task 04 ([ADR-0004](../adr/0004-authentication-sessions.md)): server-side sessions (`users`,
+`user_sessions`), `app/api/router.py` splits `public_router` (health, sign-in) from `api_router`, whose dependency
+`require_session` protects **every** feature router included in it (session + CSRF on unsafe methods). Mutation
+routes declare `actor: CurrentActor` and pass it to services; the frontend wraps the shell in `RequireAuth`.
+
 ### Provenance + audit
 Provenance answers **where a prospect/contact datum came from**; audit answers **who changed what and when**. Keep them separate.
 

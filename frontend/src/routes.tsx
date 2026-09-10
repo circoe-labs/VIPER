@@ -1,5 +1,7 @@
 import { Navigate, type RouteObject } from 'react-router'
 
+import { LoginPage } from './auth/LoginPage'
+import { RequireAuth } from './auth/RequireAuth'
 import { AppShell } from './shell/AppShell'
 import { NAVIGATION } from './shell/navigation'
 import { PlaceholderPage } from './shell/PlaceholderPage'
@@ -16,9 +18,15 @@ const devRoutes: RouteObject[] = import.meta.env.DEV
     ]
   : []
 
+// Everything but /login requires a session (RequireAuth); the API enforces the same rule server-side.
 export const routes: RouteObject[] = [
+  { path: '/login', element: <LoginPage /> },
   {
-    element: <AppShell />,
+    element: (
+      <RequireAuth>
+        <AppShell />
+      </RequireAuth>
+    ),
     children: [
       ...NAVIGATION.map(({ path, label, icon }) => ({
         path,

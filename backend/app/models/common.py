@@ -8,6 +8,8 @@ from sqlalchemy import DateTime, Enum, FetchedValue, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 ENUM_LENGTH = 32
+# CHECK for an `email` column: stored lowercase, one `@` between non-blank parts.
+EMAIL_FORMAT = "email = lower(email) AND email ~ '^[^@\\s]+@[^@\\s]+$'"
 
 
 def text_enum(enum_cls: type[StrEnum], name: str) -> Enum:

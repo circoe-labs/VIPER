@@ -326,3 +326,18 @@ label exists and never modifies existing rows: roles *Dirigeant*, *Responsable l
 d'exploitation*, *Responsable transport*; segments *Transporteur*, *Logisticien*, *Chargeur*; activity categories
 *Transport routier de marchandises*, *Entreposage et stockage*, *Messagerie et fret express*, *Affrètement et
 commission de transport*. No companies, prospects or referents are seeded.
+
+---
+
+## Authentication tables (Task 04, migration `0003`)
+
+Not part of the domain model: login accounts and their sessions ([ADR-0004](../adr/0004-authentication-sessions.md)).
+`users` has no relationship with `internal_referents` (Circoe people named on dossiers) in either direction.
+
+| Table | Columns (beyond `id`) | Constraints / indexes |
+|---|---|---|
+| `users` | `email varchar(320)`, `display_name varchar(255)`, `password_hash varchar(255)` (argon2id PHC string), `created_at`, `updated_at` (trigger) | `uq_users_email`; CHECK email lowercase `x@y`, display name not blank |
+| `user_sessions` | `user_id` → `users` ON DELETE CASCADE, `token_hash varchar(64)` (SHA-256 hex of the cookie token), `created_at`, `last_seen_at`, `expires_at` (absolute limit), `revoked_at NULL` | `uq_user_sessions_token_hash`; `ix_user_sessions_user_id`; CHECK token hash `^[0-9a-f]{64}$`; no `updated_at` |
+
+Actor snapshots elsewhere (`actor_id`) hold `users.id` as text for human actors; they are not foreign keys
+(ADR-0002), so deleting an account never rewrites history.

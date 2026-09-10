@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 
+from pydantic import PositiveInt
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LOCAL_DATABASE = "postgresql+psycopg://viper:viper@127.0.0.1:5442"
@@ -12,6 +13,14 @@ class Settings(BaseSettings):
 
     database_url: str = f"{LOCAL_DATABASE}/viper"
     test_database_url: str = f"{LOCAL_DATABASE}/viper_test"
+
+    # Authentication (ADR-0004). Browsers accept `Secure` cookies from http://localhost, so the flag
+    # stays on by default; turn it off only to reach a dev server over plain HTTP by another name.
+    session_cookie_secure: bool = True
+    # A session ends after this long without any authenticated request…
+    session_idle_timeout_minutes: PositiveInt = 120
+    # …and in any case this long after sign-in.
+    session_absolute_timeout_hours: PositiveInt = 12
 
 
 @lru_cache

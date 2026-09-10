@@ -1,6 +1,18 @@
-from fastapi import APIRouter
+"""API routers, both mounted under `/api` by `create_app`.
 
-from app.api.routes import health
+Protected by default: include every new feature router in `api_router`, whose dependency requires
+a live session (and a CSRF token on unsafe methods). `public_router` is the explicit, minimal
+allowlist of routes reachable without a session; `tests/test_route_protection.py` pins it.
+"""
 
-api_router = APIRouter()
-api_router.include_router(health.router)
+from fastapi import APIRouter, Depends
+
+from app.api.dependencies import require_session
+from app.api.routes import auth, health
+
+public_router = APIRouter()
+public_router.include_router(health.router)
+public_router.include_router(auth.public_router)
+
+api_router = APIRouter(dependencies=[Depends(require_session)])
+api_router.include_router(auth.router)

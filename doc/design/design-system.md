@@ -21,7 +21,8 @@ Styling approach and rationale: [ADR-0003](../adr/0003-styling-and-theming.md).
 | Theme state / hook / switch | `src/theme/ThemeProvider.tsx`, `src/theme/theme.ts` (`useTheme`), `src/theme/ThemeSwitch.tsx` |
 | Logo helper | `src/brand/BrandLogo.tsx`, selection rule in `src/brand/logos.ts` |
 | Primitives + icons | `src/ui/*` (each component imports its own CSS file) |
-| App shell | `src/shell/AppShell.tsx`, `Sidebar.tsx`, `ApiStatus.tsx`, `shell.css` |
+| App shell | `src/shell/AppShell.tsx`, `Sidebar.tsx`, `ApiStatus.tsx`, `UserMenu.tsx`, `shell.css` |
+| Sign-in page, session guard | `src/auth/LoginPage.tsx`, `RequireAuth.tsx`, `auth.css` |
 | Component showcase (dev server only) | `/_dev/ui` → `src/dev/Showcase.tsx`; excluded from production builds |
 | Font | `@fontsource-variable/inter` (self-hosted Inter Variable, imported in `src/main.tsx`; no CDN) |
 
@@ -120,7 +121,7 @@ explorer; Prospection lists stay `comfortable` and people-oriented.
 Minimal geometric line icons (`src/ui/icons.tsx`): 24 px grid, 1.75 stroke, round caps/joins, `currentColor`,
 `aria-hidden` (the accessible name always comes from text or the control label). Geometric shapes only — no snakes.
 Set: navigation (`Home`, `Users`, `Bolt`, `Database`, `Sliders`), status (`CheckCircle`, `Alert`, `Ban`, `Info`,
-`Clock`, `MinusCircle`), interface (`Sun`, `Moon`, `PanelLeft`, `Close`, `Plus`, `Spinner`). Add icons in the same
+`Clock`, `MinusCircle`), interface (`Sun`, `Moon`, `PanelLeft`, `LogOut`, `Close`, `Plus`, `Spinner`). Add icons in the same
 file and style.
 
 ## Primitives catalogue (`src/ui/`)
@@ -143,8 +144,23 @@ file and style.
 Left sidebar: lockup (expanded) or mark (collapsed), the five sections with icons, active item = accent-soft
 background + accent-fg text + neon left marker (`aria-current="page"`); footer = API status (glyph + text) and the
 collapse toggle (`aria-expanded`/`aria-controls`). Collapsed labels stay in the accessible name and as tooltips.
-Header: left zone reserved for global search (Task 17), right zone = theme switch, then the authenticated user
-(Task 04). Skip link "Aller au contenu". Desktop-first; verified at 1280–1920 px (no horizontal overflow at 1280).
+Header: left zone reserved for global search (Task 17), right zone = theme switch, then the user zone
+(`src/shell/UserMenu.tsx`, Task 04): initials avatar (decorative), display name (e-mail as tooltip, "Connecté :" for
+screen readers) and the `Se déconnecter` icon button, separated by a thin left border. Skip link "Aller au contenu".
+Desktop-first; verified at 1280–1920 px (no horizontal overflow at 1280).
+
+## Sign-in and session screens (Task 04)
+`/login` (`src/auth/LoginPage.tsx`, `auth.css`): canvas with one soft accent halo at the top (the page's only glow), a
+centred surface card (radius lg, overlay shadow) with the **lockup** through `BrandLogo` (white on dark, black on
+light), `<h1>` "Connexion", a muted lead sentence, then `Adresse e-mail` / `Mot de passe` fields (`TextField`,
+`autocomplete` username / current-password, e-mail focused on load) and a full-width primary `Se connecter` button
+(`Connexion…` + spinner while pending). Theme switch top-right. Messages: field errors in French under each field
+(custom validation, `noValidate`); a server refusal is one generic alert (danger-soft background, danger-fg text,
+icon) — "Adresse e-mail ou mot de passe incorrect.", throttling "Trop de tentatives de connexion…", network failure;
+after a refusal the password is cleared and focused. Info notices (info-soft / info-fg, `role="status"`): "Votre
+session a expiré. Reconnectez-vous pour continuer." and "Vous êtes déconnecté.". While the session is being checked
+at load, `RequireAuth` shows a centred spinner "Chargement de votre session…"; if the server is unreachable, an alert
+with a `Réessayer` button.
 
 ## VIPER logo usage
 Always through `BrandLogo` (`variant` + `height`, `decorative` when adjacent text already says VIPER); it picks the

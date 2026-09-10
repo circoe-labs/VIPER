@@ -8,6 +8,9 @@
 - Amended: 2026-09-10 by decision I-17 — services no longer call `session.commit()`; they flush and the caller's
   unit of work (`SessionDep` per request, `unit_of_work` for CLI/jobs) owns the transaction
   (`doc/architecture/overview.md`, *Transaction boundaries*).
+- Amended: 2026-09-10 by Task 04 (decision I-25, [ADR-0004](0004-authentication-sessions.md)) — Playwright runs full
+  stack (real backend on the `viper_e2e` database, ports 8044/5180), locally and in CI; the CI `e2e` job has a
+  PostgreSQL service. Dependency added: `argon2-cffi` 25.1.0.
 
 ## Context
 

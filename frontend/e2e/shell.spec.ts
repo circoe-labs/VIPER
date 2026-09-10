@@ -1,7 +1,14 @@
 import { expect, test } from '@playwright/test'
 
-test('app shell boots with the five French sections', async ({ page }) => {
+import { signIn } from './session'
+
+test.beforeEach(async ({ page }) => {
+  await signIn(page)
+})
+
+test('app shell boots with the five French sections and a connected API', async ({ page }) => {
   await page.goto('/')
+  await expect(page.getByText('API : connectée')).toBeVisible()
 
   const navigation = page.getByRole('navigation', { name: 'Navigation principale' })
   await expect(navigation.getByRole('link')).toHaveText([
