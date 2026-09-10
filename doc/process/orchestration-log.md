@@ -180,3 +180,34 @@ found, what was sent back for rework, and the verification evidence accepted. Ta
   every row accounted for).
 - Next wave: Task 10 (export, worktree `task-10-export`) ∥ Task 14 (Prospection, worktree `task-14-prospection`);
   the E2E-isolation fix continues in parallel.
+
+### E2E isolation + Dialog/Combobox fixes (2026-09-11) — ACCEPTED
+
+- Branch `fix-e2e-isolation` (`d76f326`, `8635cf9`, `32b34e2`, merge `7784f89`), merged as `3998d0d`. Playwright
+  `fullyParallel: true`; `frontend/e2e/data.ts` (`uniqueSuffix`, synthetic SIREN/SIRET, `createCompany`,
+  `createReferent`); every spec owns its data or asserts on marker-pinned synthetic subsets; I-81 amends I-80.
+  Evidence: 6 consecutive full runs (10 workers), 2 runs at 12 workers, 3× `--repeat-each=3` batches — all green.
+- Dialog keeps focus / handles Esc when the focused control is disabled or removed (tests fail on old code).
+- Side fix accepted: the Combobox offered only "Créer « … »" while its list was loading, so Enter created
+  near-duplicates; creation is now offered only after load (I-82).
+- Carried to Task 20 (hardening): stale search response can overwrite the company list after a save under a slow
+  server; `provision-sql-reader` can race across concurrent checkouts ("tuple concurrently updated") — add a lock;
+  16-worker stress shows backend single-process timeouts (no wrong data).
+- Orchestrator note: a first verification run on `claude` failed 12 import API tests — root cause was the
+  orchestrator's own venv missing the new `python-multipart` dependency (not a code defect); fixed by re-installing.
+  `CompanyEditor.test.tsx` timed out under concurrent load (tests ~4.9 s vs 5 s limit).
+
+### Task 10 — Normalized Excel export (2026-09-11) — ACCEPTED
+
+- Commit `783511a`, merged as `7c703df`. Single column spec (`app/services/exports/spec.py`), default order from the
+  grill priority (Référent first … ids last), seven sheets (Prospects, Entreprises, Établissements, E-mails,
+  Téléphones, Provenance, Données d'origine) so nothing is silently dropped; real dates, text-typed phones/SIREN,
+  formula-injection guard shared with the explorer CSV (quote-prefix style, value unchanged), byte-identical output
+  for identical data; `GET /api/exports/workbook` audited as `export.generated` (counts only); reusable
+  `ExportWorkbookButton`. ADR-0013, I-83..I-89; open question #7 resolved, #6 narrowed.
+- Private check (aggregates only, DB reset afterwards): Prospects 324 rows × 38 cols, 7 sheets, 1 145 legacy values
+  exported == 1 145 stored, 0 formula cells, 0 legacy markers in Référent.
+- The agent raised `CompanyEditor.test.tsx`'s timeout to 15 s after diagnosing that the timed-out test kept typing
+  into following tests. Accepted as a stop-gap; splitting the long interaction tests is carried to Task 20.
+- Orchestrator verification on `claude` @ `7c703df`: `verify.py --e2e` → pytest 755 (+2 private skipped), vitest 471,
+  Playwright 52 — all green.

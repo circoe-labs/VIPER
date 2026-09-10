@@ -27,7 +27,7 @@ VIPER V1 is a database-first human dashboard for maintaining prospect/company/co
 - [x] **07** `07-company-editor` — lightweight company/establishment maintenance
 - [x] **08** `08-excel-import-core` — deterministic parser/mapping/diagnostics
 - [x] **09** `09-excel-import-review` — preview/correction/dedup/transactional commit
-- [~] **10** `10-excel-export` — normalized configurable Excel export
+- [x] **10** `10-excel-export` — normalized configurable Excel export
 - [x] **11** `11-database-explorer-read` — tables/metadata/grid/read ergonomics
 - [x] **12** `12-database-explorer-edit` — staged edit/delete/audit
 - [x] **13** `13-database-explorer-sql` — backend-enforced read-only SQL
