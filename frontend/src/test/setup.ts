@@ -5,4 +5,7 @@ import { afterEach, vi } from 'vitest'
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+  window.localStorage.clear()
+  delete document.documentElement.dataset.theme
 })

@@ -4,14 +4,17 @@ import { createMemoryRouter, RouterProvider } from 'react-router'
 import { vi } from 'vitest'
 
 import { routes } from '../routes'
+import { ThemeProvider } from '../theme/ThemeProvider'
 
 export function renderApp(path = '/') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const router = createMemoryRouter(routes, { initialEntries: [path] })
   return render(
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>,
+    <ThemeProvider>
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    </ThemeProvider>,
   )
 }
 

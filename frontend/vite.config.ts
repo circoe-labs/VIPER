@@ -15,5 +15,7 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.test.{ts,tsx}'],
+    // Vitest blanks CSS by default; `?raw` imports must see the real file (token contrast + colour guard tests).
+    css: { include: [/\.css\?raw$/] },
   },
 })

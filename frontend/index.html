@@ -3,7 +3,16 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Browser chrome follows the OS scheme: white mark on dark tab strips, black mark on light ones. -->
+    <link rel="icon" type="image/png" href="/favicon-dark.png" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" type="image/png" href="/favicon-light.png" media="(prefers-color-scheme: light)" />
     <title>VIPER</title>
+    <script>
+      // Apply the stored theme before first paint (key mirrors THEME_STORAGE_KEY in src/theme/theme.ts).
+      try {
+        if (localStorage.getItem('viper.theme') === 'light') document.documentElement.dataset.theme = 'light'
+      } catch {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

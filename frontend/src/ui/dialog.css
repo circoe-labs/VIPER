@@ -1,0 +1,129 @@
+.dialog-layer {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay);
+  display: grid;
+}
+
+.dialog-layer--modal {
+  place-items: center;
+  padding: var(--space-8);
+}
+
+.dialog-layer--drawer {
+  justify-items: end;
+}
+
+.dialog-backdrop {
+  position: absolute;
+  inset: 0;
+  background: var(--color-scrim);
+  animation: dialog-fade var(--duration-base) var(--ease-standard);
+}
+
+.dialog {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  max-height: 100%;
+  border: var(--border-width) solid var(--color-border);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-overlay);
+}
+
+.dialog:focus-visible {
+  outline: none;
+}
+
+.dialog--modal {
+  width: 100%;
+  border-radius: var(--radius-lg);
+  animation: dialog-rise var(--duration-base) var(--ease-standard);
+}
+
+.dialog--modal.dialog--sm {
+  max-width: 26rem;
+}
+
+.dialog--modal.dialog--md {
+  max-width: 36rem;
+}
+
+.dialog--modal.dialog--lg {
+  max-width: 48rem;
+}
+
+.dialog--drawer {
+  height: 100%;
+  border-width: 0 0 0 var(--border-width);
+  animation: dialog-slide var(--duration-base) var(--ease-standard);
+}
+
+.dialog--drawer.dialog--md {
+  width: min(100%, 32rem);
+}
+
+.dialog--drawer.dialog--lg {
+  width: min(100%, 48rem);
+}
+
+.dialog--drawer.dialog--xl {
+  width: min(100%, 64rem);
+}
+
+.dialog__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-6) var(--space-6) var(--space-4) var(--space-8);
+  border-bottom: var(--border-width) solid var(--color-border);
+}
+
+.dialog__heading {
+  display: grid;
+  gap: var(--space-1);
+  padding-top: var(--space-2);
+}
+
+.dialog__title {
+  font-size: var(--text-xl);
+}
+
+.dialog__description {
+  color: var(--color-text-muted);
+}
+
+.dialog__body {
+  flex: 1;
+  overflow: auto;
+  padding: var(--space-6) var(--space-8);
+}
+
+.dialog__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-8);
+  border-top: var(--border-width) solid var(--color-border);
+}
+
+@keyframes dialog-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes dialog-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@keyframes dialog-slide {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+}

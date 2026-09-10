@@ -35,6 +35,12 @@
   Synthetic builders and the `rejected(session, "<constraint>")` helper live in `backend/tests/builders.py`.
 - Frontend: Vitest + Testing Library (`renderApp(path)` / `stubFetchJson` helpers in `frontend/src/test/`);
   Playwright E2E in `frontend/e2e/`.
+- Design system (Task 02): `src/theme/tokens.test.ts` parses `tokens.css` and asserts WCAG contrast of the key
+  token pairs in both themes (text ≥ 4.5:1, focus/field boundaries ≥ 3:1) and that no raw colour literal exists
+  outside the token file; `src/brand/assets.test.ts` decodes the six logo PNGs (RGBA, transparent edge, real
+  artwork); primitives have accessibility tests (labels, descriptions, `aria-invalid`, dialog focus trap / Esc /
+  focus restore, badges never colour-only). `e2e/design.spec.ts` renders the shell in dark and light at 1440×900,
+  checks persistence, logo transparency on a canvas, Inter loading, favicons and no overflow at 1280 px.
 - Privacy: `scripts/check_private_data.py` in CI; synthetic fixtures only under `*/tests/fixtures/synthetic/`.
 - Commands: `doc/process/runbook-local-dev.md`.
 

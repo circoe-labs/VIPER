@@ -62,4 +62,42 @@ describe('AppShell', () => {
 
     expect(await screen.findByText('API : indisponible')).toBeInTheDocument()
   })
+
+  it('shows the lockup, then the mark once the sidebar is collapsed, and remembers it', async () => {
+    stubFetchJson(200, { status: 'ok', database: 'ok' })
+    const { unmount } = renderApp('/database')
+
+    expect(screen.getByRole('img', { name: 'VIPER' })).toHaveAttribute('src', expect.stringMatching(/viper-lockup-white/))
+    const toggle = screen.getByRole('button', { name: 'Réduire la navigation' })
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+
+    await userEvent.click(toggle)
+
+    expect(screen.getByRole('img', { name: 'VIPER' })).toHaveAttribute('src', expect.stringMatching(/viper-mark-white/))
+    expect(screen.getByRole('button', { name: 'Déplier la navigation' })).toHaveAttribute('aria-expanded', 'false')
+    const links = within(navigation()).getAllByRole('link')
+    expect(links.map((link) => link.textContent)).toEqual(LABELS)
+    expect(within(navigation()).getByRole('link', { name: 'Base de données' })).toHaveAttribute('aria-current', 'page')
+
+    unmount()
+    renderApp('/database')
+    expect(screen.getByRole('button', { name: 'Déplier la navigation' })).toBeInTheDocument()
+  })
+
+  it('switches the logo to the dark-on-light variant with the light theme', async () => {
+    stubFetchJson(200, { status: 'ok', database: 'ok' })
+    renderApp()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Passer au thème clair' }))
+
+    expect(screen.getByRole('img', { name: 'VIPER' })).toHaveAttribute('src', expect.stringMatching(/viper-lockup-black/))
+  })
+
+  it('renders placeholder pages without data', () => {
+    stubFetchJson(200, { status: 'ok', database: 'ok' })
+    renderApp('/exploitation')
+
+    expect(screen.getByRole('heading', { level: 2, name: 'Bientôt disponible' })).toBeInTheDocument()
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+  })
 })
