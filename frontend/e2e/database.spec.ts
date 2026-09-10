@@ -43,6 +43,15 @@ interface RowPage {
   rows: unknown[]
 }
 
+// Adds a column filter through the column header's filter editor.
+async function addFilter(page: Page, table: string, column: string, operator: 'contains' | 'starts_with', value: string) {
+  await grid(page, table).getByRole('button', { name: `Filtrer ${column}` }).click()
+  const editor = page.getByRole('dialog', { name: `Filtrer ${column}` })
+  await editor.getByLabel('Condition').selectOption(operator)
+  await editor.getByLabel('Valeur').fill(value)
+  await editor.getByRole('button', { name: 'Ajouter le filtre' }).click()
+}
+
 // Status line of the first page of `answer`.
 function range({ total, rows }: RowPage): string {
   return `Lignes 1–${COUNT.format(rows.length)} sur ${COUNT.format(total)}`
@@ -60,13 +69,13 @@ test('pick a table, filter, sort and read a long value', async ({ page }) => {
   await expect(companies.getByRole('gridcell', { name: 'Transports Exemple SARL' })).toBeVisible()
   await expect(status(page)).toHaveText(range(firstPage))
 
-  await companies.getByRole('button', { name: 'Filtrer display_name' }).click()
-  const editor = page.getByRole('dialog', { name: 'Filtrer display_name' })
-  await editor.getByLabel('Condition').selectOption('contains')
-  await editor.getByLabel('Valeur').fill('fret')
-  await editor.getByRole('button', { name: 'Ajouter le filtre' }).click()
-  await expect(page.getByRole('group', { name: 'Critères actifs' })).toContainText('display_name contient « fret »')
-  // The six synthetic "Fret …" companies.
+  // The six synthetic "Fret …" companies: other tests may create companies named "Fret …" too, so the second filter
+  // keeps the synthetic dataset only (its e-mail domains).
+  await addFilter(page, 'companies', 'display_name', 'contains', 'fret')
+  await addFilter(page, 'companies', 'email_domain', 'starts_with', 'societe')
+  const criteria = page.getByRole('group', { name: 'Critères actifs' })
+  await expect(criteria).toContainText('display_name contient « fret »')
+  await expect(criteria).toContainText('email_domain commence par « societe »')
   await expect(status(page)).toHaveText(new RegExp(`^Lignes 1–6 sur 6 ${AMONG_ALL}$`))
 
   await companies.getByRole('button', { name: 'display_name, non trié' }).click()

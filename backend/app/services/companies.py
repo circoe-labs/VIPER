@@ -700,6 +700,81 @@ def update_company(
     return get_company(session, company.id)
 
 
+@dataclass(frozen=True, slots=True)
+class CompanyCompletion:
+    """Values from another source (an import row) for an existing company: they only fill what
+    is empty, never replace what is there."""
+
+    email_domain: str | None = None
+    commercial_segment_id: uuid.UUID | None = None
+    activity_category_ids: Sequence[uuid.UUID] = ()
+    project_done_with_circoe: str | None = None
+    project_type: str | None = None
+    circoe_references: str | None = None
+    client_approach: str | None = None
+    establishment: EstablishmentInput | None = None
+
+
+COMPLETED_TEXTS = (
+    "project_done_with_circoe",
+    "project_type",
+    "circoe_references",
+    "client_approach",
+)
+
+
+def complete_company(
+    session: Session, actor: ActorContext, company_id: uuid.UUID, data: CompanyCompletion
+) -> CompanyDetail:
+    """Fill the company's empty fields (e-mail domain, segment, Circoe context texts), add the
+    missing activity categories and — when the company has no establishment at all — the given
+    one as primary. Existing values are never replaced; only the incoming values are validated,
+    so a stored value the editor would refuse today does not block the completion. One audit
+    event per changed row (`company.updated`, `establishment.created`)."""
+    company = _company(session, company_id)
+    segment = None
+    if data.commercial_segment_id is not None and company.commercial_segment_id is None:
+        segment = repository.get_segment(session, data.commercial_segment_id)
+        if segment is None:
+            raise InvalidFieldError(
+                "commercial_segment_id", "Unknown commercial segment.", "unknown"
+            )
+    wanted = list(dict.fromkeys(data.activity_category_ids))
+    found = {row.id: row for row in repository.categories(session, wanted)}
+    if len(found) != len(wanted):
+        raise InvalidFieldError("activity_category_ids", "Unknown activity category.", "unknown")
+    current = {row.id for row in company.activity_categories}
+    missing = [found[id_] for id_ in wanted if id_ not in current]
+    fills: dict[str, object] = {}
+    if company.email_domain is None and (domain := normalize_email_domain(data.email_domain)):
+        fills["email_domain"] = domain
+    if segment is not None:
+        fills["commercial_segment_id"] = segment.id
+    for name in COMPLETED_TEXTS:
+        if getattr(company, name) is None and (text := _paragraphs(name, getattr(data, name))):
+            fills[name] = text
+    new_site = None
+    if data.establishment is not None and not company.establishments:
+        new_site = replace(_cleaned_establishment(0, data.establishment, None), is_primary=True)
+        with_site = CompanyInput(company.display_name, establishments=[new_site])
+        _refuse_taken_identifiers(session, with_site, company)
+    if fills or missing:
+        labels = _segment_labels(session, company, segment) if segment else None
+        audit.annotate(session, actor, company, labels=labels)
+        if missing:
+            company.activity_categories = [*company.activity_categories, *missing]
+        for name, value in fills.items():
+            setattr(company, name, value)
+        session.flush()
+    if new_site is not None:
+        row = Establishment()
+        _apply_establishment(row, new_site)
+        audit.annotate(session, actor, row)
+        company.establishments.append(row)
+        session.flush()
+    return get_company(session, company.id)
+
+
 def delete_company(session: Session, actor: ActorContext, company_id: uuid.UUID) -> None:
     """Delete a company no prospect references (else `InUseError` with the count). Its
     establishments are deleted first, each with its own audit event."""

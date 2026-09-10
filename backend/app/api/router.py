@@ -16,6 +16,7 @@ from app.api.routes import (
     explorer_sql,
     explorer_writes,
     health,
+    imports,
     settings,
 )
 
@@ -30,4 +31,5 @@ api_router.include_router(companies.router)
 api_router.include_router(explorer.router)
 api_router.include_router(explorer_writes.router)
 api_router.include_router(explorer_sql.router)
+api_router.include_router(imports.router)
 api_router.include_router(settings.router)

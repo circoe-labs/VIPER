@@ -125,7 +125,7 @@ no event; a save that changes nothing writes nothing.
 
 | Layer | Where |
 |---|---|
-| Service | `backend/app/services/companies.py` (normalization, identifier rules, `create_company`, `update_company`, `delete_company`, `get_company`, `list_companies`, `find_similar`) |
+| Service | `backend/app/services/companies.py` (normalization, identifier rules, `create_company`, `update_company`, `complete_company` — fill-empty enrichment used by the Excel import, Task 09 — `delete_company`, `get_company`, `list_companies`, `find_similar`) |
 | Repository | `backend/app/repositories/companies.py` |
 | Router | `backend/app/api/routes/companies.py`; refusals `backend/app/api/errors.py` |
 | Frontend | `frontend/src/companies/` (`CompaniesPage`, `CompanyEditor`, `CompanyEditorParts`, `EstablishmentsEditor`, `CompanyEditorProvider`, `companyForm.ts`, `messages.ts`, `companies.css`), API hooks `frontend/src/api/companies.ts` |

@@ -6,6 +6,7 @@ import { RequireAuth } from './auth/RequireAuth'
 import { CompaniesPage } from './companies/CompaniesPage'
 import { DatabasePage } from './database/DatabasePage'
 import { ExploitationPage } from './exploitation/ExploitationPage'
+import { ImportPage } from './imports/ImportPage'
 import { AppShell } from './shell/AppShell'
 import { SettingsPage } from './settings/SettingsPage'
 import { NAVIGATION } from './shell/navigation'
@@ -33,11 +34,16 @@ const PAGES: Record<string, { path: string; element: ReactNode }> = {
       <PlaceholderPage
         title="Prospection"
         icon={UsersIcon}
-        description="La liste des prospects sera construite dans une prochaine étape. Les fiches entreprises sont déjà disponibles."
+        description="La liste des prospects sera construite dans une prochaine étape. L’import Excel et les fiches entreprises sont déjà disponibles."
         action={
-          <Link to="/prospection/companies" className="btn btn--secondary btn--md">
-            Gérer les entreprises
-          </Link>
+          <div className="placeholder-actions">
+            <Link to="/prospection/import" className="btn btn--primary btn--md">
+              Importer Excel
+            </Link>
+            <Link to="/prospection/companies" className="btn btn--secondary btn--md">
+              Gérer les entreprises
+            </Link>
+          </div>
         }
       />
     ),
@@ -49,7 +55,10 @@ const PAGES: Record<string, { path: string; element: ReactNode }> = {
 }
 
 // Secondary pages inside a section (the section's navigation item stays current).
-const SUBPAGES: RouteObject[] = [{ path: '/prospection/companies', element: <CompaniesPage /> }]
+const SUBPAGES: RouteObject[] = [
+  { path: '/prospection/companies', element: <CompaniesPage /> },
+  { path: '/prospection/import', element: <ImportPage /> },
+]
 
 // Everything but /login requires a session (RequireAuth); the API enforces the same rule server-side.
 export const routes: RouteObject[] = [

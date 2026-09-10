@@ -151,6 +151,28 @@ It prints counts per diagnostic code only and asserts the known structure; witho
 Import bounds are settings: `VIPER_IMPORT_MAX_FILE_MB` (10), `VIPER_IMPORT_MAX_ROWS` (5000), `VIPER_IMPORT_MAX_COLUMNS`
 (100).
 
+### Excel import review and commit (Task 09)
+
+The page is `/prospection/import` (« Importer Excel » on the Prospection placeholder and the Entreprises page). For a
+manual check use a **synthetic** workbook, e.g. generated from the test fixtures (from `backend/`, written outside the
+repository):
+
+```bash
+python -c "from tests.fixtures.synthetic.legacy_workbook import SAMPLE_ROWS, legacy_xlsx; open('/tmp/base_synthetique.xlsx','wb').write(legacy_xlsx(SAMPLE_ROWS))"
+```
+
+Uploads go through `python-multipart` (in `requirements.txt`). The private end-to-end check (preview **and commit** of
+the real workbook with the default decisions, rows without any name excluded) runs inside the test database's
+rolled-back transaction, so no real row survives it; it prints aggregate counts and invariant checks only:
+
+```bash
+VIPER_PRIVATE_WORKBOOK='C:\Projects\VIPER\tasks\viper_v1_implementation_handoff_reviewed\sources\BASE_CLIENT.xlsx' \
+  python -m pytest tests/test_import_private_commit.py -m private -s -p no:cacheprovider
+```
+
+Never commit the real workbook into the dev database you keep: if you do it by hand for a check, reset that database
+afterwards (`alembic downgrade base`).
+
 ## 5. Migrations
 
 Run from `backend/` with the venv active. `-x db=test` targets `VIPER_TEST_DATABASE_URL` instead of the dev DB.

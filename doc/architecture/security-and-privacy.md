@@ -118,3 +118,9 @@ under a future retention policy requires an explicit, reviewed migration. Erasin
 (with full contact values under decision I-27); they are all findable by `subject_type = 'prospect'` and
 `subject_id`, which is what such a redaction would target. Import batches store metadata and an optional SHA-256
 fingerprint, never workbook bytes.
+
+## Excel import uploads (Task 09)
+The review is stateless (ADR-0012): the workbook stays in the browser and is re-sent for each analysis and for the
+commit; nothing is stored server-side. Upload bodies are parsed only after the session and CSRF checks and a
+`Content-Length` bound (file limit + 2 MiB); the engine enforces the exact limits (ADR-0007). Refusals never echo
+submitted values, and a failed commit logs only the exception class and the row number.

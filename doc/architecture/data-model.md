@@ -276,7 +276,7 @@ on purpose.
 | `contact_tracking` | `prospect_id`, `planned_contact_at`, `status DEFAULT 'to_contact'`, `referent_id NULL`, `response_received_at`, `appointment_at` | `uq_contact_tracking_prospect_id` (one current row per prospect); `ix_contact_tracking_referent_id` |
 | `contact_tracking_status_history` | `contact_tracking_id`, `from_status NULL` (initial), `to_status`, `changed_at DEFAULT clock_timestamp()`, `actor_type`, `actor_id`, `actor_display` | CHECK `from_status IS DISTINCT FROM to_status`; index `(contact_tracking_id, changed_at)`; no `updated_at` |
 | `prospect_sources` | `prospect_id`, `source_type`, `source_reference text`, `import_batch_id NULL`, `collected_at DEFAULT now()`, `legal_basis_or_collection_context text`, `actor_type/actor_id/actor_display NULL`, `notes text` | FK indexes |
-| `import_batches` | `filename`, `sheet_names text[] DEFAULT '{}'`, `file_fingerprint varchar(64) NULL`, `status DEFAULT 'pending'`, `rows_total/rows_imported/rows_skipped int DEFAULT 0`, `committed_at NULL`, `actor_type/actor_id/actor_display` | CHECK fingerprint `^[0-9a-f]{64}$`, counts ≥ 0, `committed` ⇔ `committed_at`. No workbook bytes |
+| `import_batches` | `filename`, `sheet_names text[] DEFAULT '{}'`, `file_fingerprint varchar(64) NULL`, `status DEFAULT 'pending'`, `rows_total/rows_imported/rows_skipped int DEFAULT 0`, `committed_at NULL`, `legal_basis_or_collection_context text NULL`, `source_reference text NULL` (migration 0006, Task 09), `actor_type/actor_id/actor_display` | CHECK fingerprint `^[0-9a-f]{64}$`, counts ≥ 0, `committed` ⇔ `committed_at`. No workbook bytes |
 | `import_row_metadata` | `import_batch_id`, `source_sheet`, `source_row_number int`, `prospect_id NULL`, `company_id NULL`, `legacy_metadata jsonb DEFAULT '{}'`, `created_at` only | `uq_import_row_metadata_batch_sheet_row`; CHECK row number > 0 |
 | `audit_log` | `occurred_at DEFAULT clock_timestamp()`, `actor_type`, `actor_id varchar(128) NULL`, `actor_display`, `entity_type varchar(64)`, `entity_id uuid NULL`, `subject_type varchar(64) NULL`, `subject_id uuid NULL` (migration 0004), `action varchar(64)`, `changes jsonb DEFAULT '{}'`, `context jsonb DEFAULT '{}'` | triggers `append_only` (UPDATE/DELETE) and `no_truncate`; indexes `occurred_at`, `(entity_type, entity_id, occurred_at)`, `(subject_type, subject_id, occurred_at)`; no FKs. Event schema, vocabulary and payload policy: [audit-and-provenance.md](audit-and-provenance.md) |
 
@@ -330,6 +330,11 @@ tracking and its history, sources, import row metadata) and for a batch's row me
   values are not re-checked), unique with a 409 naming the holding company; `email_domain` lowercase without `@`,
   scheme or `www.`, webmail domains refused; establishments saved with their company as a full list with exactly one
   primary when any; a company is deleted only without prospects, its establishments first (each audited).
+- **Import commit** (Task 09, `app/services/import_commit.py`, [excel-import-export.md](../features/excel-import-export.md)):
+  one savepoint per commit; prospects created through `prospects.create_prospect` (channels `imported`,
+  `unverified`, employment never verified) or completed with fill-empty merge rules (`add_channels`,
+  `change_company` only when the prospect has no company); existing companies completed through
+  `companies.complete_company`; a failed commit leaves only a `failed` batch.
 - **Audit and provenance** (Task 05): every service annotates the rows it changes and one flush hook writes the
   `audit_log` events; `prospect_sources` and import batches are written through `ProvenanceService` /
   `import_batches` — see [audit-and-provenance.md](audit-and-provenance.md). The do-not-contact clearing reason is

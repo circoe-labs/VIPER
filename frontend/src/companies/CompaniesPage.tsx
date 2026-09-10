@@ -5,7 +5,15 @@ import { COMPANY_PAGE_SIZE, useCompanies } from '../api/companies'
 import { useDebouncedValue } from '../settings/shared'
 import { Button } from '../ui/Button'
 import { EmptyState } from '../ui/EmptyState'
-import { AlertIcon, ArrowLeftIcon, BuildingIcon, ChevronLeftIcon, ChevronRightIcon, PlusIcon } from '../ui/icons'
+import {
+  AlertIcon,
+  ArrowLeftIcon,
+  BuildingIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  PlusIcon,
+  UploadIcon,
+} from '../ui/icons'
 import { PageHeader } from '../ui/PageHeader'
 import { SearchField } from '../ui/SearchField'
 import { Table } from '../ui/Table'
@@ -34,15 +42,21 @@ export function CompaniesPage() {
         title="Entreprises"
         description="Contexte des prospects : identité, SIREN, classification et établissements. Une fiche légère, pas un dossier commercial."
         actions={
-          <Button
-            variant="primary"
-            icon={PlusIcon}
-            onClick={() => {
-              openEditor('new')
-            }}
-          >
-            Nouvelle entreprise
-          </Button>
+          <>
+            <Link to="/prospection/import" className="btn btn--secondary btn--md">
+              <UploadIcon size={18} />
+              Importer Excel
+            </Link>
+            <Button
+              variant="primary"
+              icon={PlusIcon}
+              onClick={() => {
+                openEditor('new')
+              }}
+            >
+              Nouvelle entreprise
+            </Button>
+          </>
         }
       />
       <div className="companies-page__toolbar">

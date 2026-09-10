@@ -65,15 +65,17 @@
   other, in any order, repeatable (`--repeat-each`). Rules for every spec:
   - the synthetic dataset loaded by global setup is read-only: an edit of one of its rows may be staged, then must
     be cancelled or refused, never saved;
-  - a test that writes creates its own rows (through the UI, or the audited API with `createCompany` /
-    `createReferent` from `e2e/data.ts`), invented, with `E2E` and `uniqueSuffix()` in their names (and
-    `syntheticSiren`/`syntheticSiret` for identifiers), and reaches them by a filter or a search — never by "the
-    first row" or a name another test could also create;
-  - exact counts and orders are asserted only on owned rows or on synthetic subsets no test changes (a filter such
-    as `display_name contient « fret »`, the loader's audit events `actor_id = tests.e2e_data`, the SQL console's
-    `email_domain LIKE 'societe%.example.com'`); a whole-table count is compared with the API answer the page
-    displays (the captured response), never with a number known in advance or read at another moment (a count read
-    first and compared later still races with concurrent inserts);
+  - a test that writes creates its own rows (through the UI, an import of its own synthetic workbook, or the audited
+    API with `createCompany` / `createReferent` from `e2e/data.ts`), with invented names carrying a run-unique suffix
+    — `uniqueSuffix()` (and `syntheticSiren`/`syntheticSiret` for identifiers), or a random hex one where the app
+    compares names by similarity (`import.spec.ts`) — and reaches them by a filter or a search, never by "the first
+    row" or a name another test could also create;
+  - exact counts and orders are asserted only on owned rows or on synthetic subsets no test changes, pinned by a
+    marker of the synthetic dataset that created rows cannot carry (its `societeN.example.com` e-mail domains, the
+    loader's audit events `actor_id = tests.e2e_data`) — a name filter alone is not enough (`Fret Import …` also
+    contains « fret »); a whole-table count is compared with the API answer the page displays (the captured
+    response), never with a number known in advance or read at another moment (a count read first and compared
+    later still races with concurrent inserts);
   - rows added by tests come after the synthetic ones in the default primary-key order (UUIDv7), so the first
     synthetic rows of a page stay in place.
 - Design system (Task 02): `src/theme/tokens.test.ts` parses `tokens.css` and asserts WCAG contrast of the key
@@ -121,6 +123,18 @@
   `test_import_reference_loader.py` (snapshot from the real test database, SELECT-only). The private smoke
   `test_import_private_workbook.py` (marker `private`) is skipped unless `VIPER_PRIVATE_WORKBOOK` is set and prints
   counts per diagnostic code only.
+- Excel import review and commit (Task 09): `test_import_commit.py` (real test database: default commit with
+  normalized entities, provenance, row metadata and import-actor audit; defaults never apply suggestions nor invent a
+  year; grouped role mapping; explicit role/category creation audited as the user; referent/civility/week/inactive
+  decisions and week 53; do-not-contact never recreated nor reactivated; attach/merge/exclude and merge rules;
+  corrections re-analysed with the original kept; lossless row metadata; stale file/preview; re-import
+  acknowledgement; mid-commit failure rolled back with a failed batch), `test_imports_api.py` (401/403, upload bounds
+  before and after parsing, refusals without echoed values, commit/history/detail, failed batch persisted). Frontend:
+  `src/imports/importPlan.test.ts`, `importFlow.test.ts` (state machine), `ImportPage.test.tsx` (flow, grouped
+  mapping, exclusion, correction, commit summary, opposition, re-import, stale review). Playwright
+  `e2e/import.spec.ts` (synthetic workbook generated in memory, resolve, exclude, commit, history, explorer, both
+  themes' screenshots). Private `test_import_private_commit.py` commits the real workbook inside the rolled-back test
+  transaction and prints aggregates only.
 - Privacy: `scripts/check_private_data.py` in CI; synthetic fixtures only under `*/tests/fixtures/synthetic/`.
 - Commands: `doc/process/runbook-local-dev.md`.
 

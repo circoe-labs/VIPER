@@ -47,6 +47,7 @@ export function onUnauthorized(listener: () => void): () => void {
 }
 
 export interface RequestOptions {
+  // JSON-encoded, except FormData (multipart uploads) which is sent as is.
   body?: unknown
   signal?: AbortSignal
   // The caller handles 401 itself (sign-in, session probe): no "session expired" notification.
@@ -60,12 +61,14 @@ export async function apiRequest<T>(
 ): Promise<T> {
   const url = `/api${path}`
   const headers: Record<string, string> = { Accept: 'application/json' }
-  if (body !== undefined) headers['Content-Type'] = 'application/json'
+  const multipart = body instanceof FormData
+  // The browser sets the multipart Content-Type (with its boundary) itself.
+  if (body !== undefined && !multipart) headers['Content-Type'] = 'application/json'
   if (method !== 'GET' && csrfToken) headers[CSRF_HEADER] = csrfToken
   const response = await fetch(url, {
     method,
     headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body: body === undefined ? undefined : multipart ? body : JSON.stringify(body),
     signal,
   })
   if (!response.ok) {
