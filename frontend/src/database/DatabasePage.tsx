@@ -11,7 +11,7 @@ import { TableRail } from './TableRail'
 import { TableWorkspace } from './TableWorkspace'
 import './database.css'
 
-// Database Explorer (read-only, Task 11): table rail + data grid. Writes arrive with Task 12, SQL with Task 13.
+// Database Explorer: table rail + data grid (reads: Task 11, staged edits: Task 12). SQL console: Task 13.
 export function DatabasePage() {
   const { table } = useParams()
   const location = useLocation()
@@ -35,7 +35,10 @@ export function DatabasePage() {
 
   return (
     <div className="explorer-page">
-      <PageHeader title="Base de données" description="Exploration en lecture seule des tables de VIPER." />
+      <PageHeader
+        title="Base de données"
+        description="Exploration des tables de VIPER ; les modifications restent en attente jusqu’à « Enregistrer »."
+      />
       <div className="explorer">
         <TableRail tables={tables.data} loading={tables.isPending} failed={tables.isError} selected={table} />
         {table ? (

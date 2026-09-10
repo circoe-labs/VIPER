@@ -1,4 +1,5 @@
-"""Database Explorer read API (`/api/explorer`). GET only: this router has no write path."""
+"""Database Explorer read API (`/api/explorer`). GET only: staged writes live in
+`explorer_writes.py`, a separate router."""
 
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -62,6 +63,10 @@ class ColumnOut(BaseModel):
     filter_operators: list[str]
     sortable: bool
     searchable: bool
+    updatable: bool
+    insertable: bool
+    read_only_reason: str | None
+    required_on_insert: bool
 
 
 class ReferenceOut(BaseModel):
@@ -79,6 +84,13 @@ class TableOut(TableSummaryOut):
     primary_key: list[str]
     columns: list[ColumnOut]
     referenced_by: list[ReferenceOut]
+    # Staged writes: None when allowed, else why not (French).
+    update_refused: str | None
+    insert_refused: str | None
+    delete_refused: str | None
+    bulk_delete: bool
+    version_column: str | None
+    label_columns: list[str]
 
 
 class RowOut(BaseModel):
@@ -98,7 +110,7 @@ class RecordOut(BaseModel):
 
 
 @contextmanager
-def _http_errors() -> Iterator[None]:
+def http_errors() -> Iterator[None]:
     try:
         yield
     except NotFoundError as error:
@@ -107,15 +119,15 @@ def _http_errors() -> Iterator[None]:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from error
 
 
-def _table(policy: ExposurePolicy, name: str) -> TableInfo:
-    with _http_errors():
+def table_or_404(policy: ExposurePolicy, name: str) -> TableInfo:
+    with http_errors():
         return describe_table(policy, name)
 
 
 def _query(
     table: TableInfo, search: str | None, sort: list[str] | None, raw_filter: str | None
 ) -> ReadQuery:
-    with _http_errors():
+    with http_errors():
         return validate_query(table, filter_node=parse_filter(raw_filter), search=search, sort=sort)
 
 
@@ -136,6 +148,10 @@ def _column_out(column: ColumnInfo) -> ColumnOut:
         filter_operators=[operator.value for operator in column.operators],
         sortable=column.sortable,
         searchable=column.searchable,
+        updatable=column.updatable,
+        insertable=column.insertable,
+        read_only_reason=column.read_only_reason,
+        required_on_insert=column.required_on_insert,
     )
 
 
@@ -149,7 +165,8 @@ def list_tables(session: SessionDep, policy: PolicyDep) -> list[TableSummaryOut]
 
 @router.get("/tables/{table_name}")
 def get_table(session: SessionDep, policy: PolicyDep, table_name: TableName) -> TableOut:
-    table = _table(policy, table_name)
+    table = table_or_404(policy, table_name)
+    version = table.version_column
     return TableOut(
         name=table.name,
         row_count=reads.count_table_rows(session, table),
@@ -161,6 +178,12 @@ def get_table(session: SessionDep, policy: PolicyDep, table_name: TableName) -> 
             )
             for ref in table.referenced_by
         ],
+        update_refused=table.writes.update,
+        insert_refused=table.writes.insert,
+        delete_refused=table.writes.delete,
+        bulk_delete=table.bulk_delete,
+        version_column=version.name if version else None,
+        label_columns=list(table.label_columns),
     )
 
 
@@ -175,7 +198,7 @@ def read_rows(
     offset: Annotated[int, Query(ge=0, le=10_000_000)] = 0,
     limit: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 100,
 ) -> RowPageOut:
-    query = _query(_table(policy, table_name), search, sort, raw_filter)
+    query = _query(table_or_404(policy, table_name), search, sort, raw_filter)
     page = reads.read_page(session, query, offset=offset, limit=limit)
     return RowPageOut(
         total=page.total,
@@ -192,8 +215,8 @@ def read_record(
     table_name: TableName,
     key: Annotated[str, Query(max_length=2000, description="JSON object of primary-key values.")],
 ) -> RecordOut:
-    table = _table(policy, table_name)
-    with _http_errors():
+    table = table_or_404(policy, table_name)
+    with http_errors():
         return RecordOut(values=reads.read_record(session, table, parse_record_key(table, key)))
 
 
@@ -210,7 +233,7 @@ def export_csv(
     sort: Sort = None,
     raw_filter: Filter = None,
 ) -> StreamingResponse:
-    query = _query(_table(policy, table_name), search, sort, raw_filter)
+    query = _query(table_or_404(policy, table_name), search, sort, raw_filter)
     session_factory: sessionmaker[Session] = request.app.state.session_factory
 
     # The body is produced after the route returns, so it owns its own (read) transaction.

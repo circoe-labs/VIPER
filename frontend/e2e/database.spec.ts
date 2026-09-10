@@ -47,7 +47,8 @@ test('pick a table, sort, filter and read a long value', async ({ page }) => {
   // Global search reaches long text columns too.
   await page.getByRole('searchbox', { name: 'Rechercher dans companies' }).fill('PARAGRAPHE fictif 8')
   await expect(status(page)).toHaveText('Lignes 1–1 sur 1 (filtrées parmi 36)')
-  await companies.getByRole('gridcell', { name: /^Paragraphe fictif 1/ }).dblclick()
+  // Double-click edits an editable cell (Task 12): the cell's expand button opens the full value.
+  await companies.getByRole('gridcell', { name: /^Paragraphe fictif 1/ }).getByRole('button', { name: 'Voir la valeur complète' }).click()
   const viewer = page.getByRole('dialog', { name: 'client_approach' })
   await expect(viewer.getByLabel('Valeur de client_approach')).toContainText('Paragraphe fictif 8')
   await page.keyboard.press('Escape')
@@ -136,7 +137,10 @@ for (const theme of ['dark', 'light'] as const) {
     await page.keyboard.press('Escape')
 
     await openDatabase(page, 'companies')
-    await grid(page, 'companies').getByRole('gridcell', { name: /^Paragraphe fictif 1/ }).dblclick()
+    await grid(page, 'companies')
+      .getByRole('gridcell', { name: /^Paragraphe fictif 1/ })
+      .getByRole('button', { name: 'Voir la valeur complète' })
+      .click()
     await expect(page.getByRole('dialog', { name: 'client_approach' })).toContainText('Paragraphe fictif 8')
     await page.screenshot({ path: `${SCREENSHOTS}/database-viewer-${theme}.png`, animations: 'disabled' })
   })

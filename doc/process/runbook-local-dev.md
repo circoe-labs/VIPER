@@ -118,7 +118,7 @@ Individually:
 | `frontend/` | `npm run lint` · `npm run typecheck` | ESLint (type-aware) · `tsc -b` |
 | `frontend/` | `npm test` (`npm run test:watch`) | Vitest component/unit tests |
 | `frontend/` | `npm run build` | typecheck + production bundle in `frontend/dist/` |
-| `frontend/` | `npx playwright install chromium` once, then `npm run e2e` | Full-stack Playwright (auth flows, shell, design checks, Database explorer): see *End-to-end tests* below; writes review screenshots of both themes to `frontend/test-results/screenshots/` (git-ignored) |
+| `frontend/` | `npx playwright install chromium` once, then `npm run e2e` | Full-stack Playwright (auth flows, shell, design checks, Database explorer reads and staged editing): see *End-to-end tests* below; writes review screenshots of both themes to `frontend/test-results/screenshots/` (git-ignored) |
 | `frontend/` | `npm run brand:assets` | regenerate the web-sized logos and favicons from the handoff originals (only when a logo changes; see `doc/design/visual-manifest.md`) |
 
 ### End-to-end tests

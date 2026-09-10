@@ -12,6 +12,7 @@ import type { ExplorerColumn, ExplorerRow, ExplorerTable } from '../api/explorer
 import { Menu, type MenuItem, type MenuSection } from '../ui/Menu'
 import { Popover } from '../ui/Popover'
 import {
+  AlertIcon,
   ArrowDownIcon,
   ArrowUpIcon,
   ChevronLeftIcon,
@@ -20,20 +21,26 @@ import {
   FilterIcon,
   LinkIcon,
   MinusCircleIcon,
+  PencilIcon,
   PinIcon,
+  PlusIcon,
+  TrashIcon,
 } from '../ui/icons'
 import type { Point } from '../ui/floating'
+import { CellEditor, type EditorMove } from './CellEditor'
 import { compactUuid, displayValue, isNumericKind } from './cells'
 import { buildCellMenu } from './cellMenu'
 import { ColumnFilterEditor } from './ColumnFilterEditor'
 import { type ColumnAction, type ColumnState, defaultWidth, displayOrder, MAX_WIDTH, MIN_WIDTH } from './columnState'
+import { type Editability, isTypedKind } from './editing'
 import { type ColumnFilter, nextSort, type SortKey } from './explorerView'
 import { GridHeader } from './GridHeader'
 import { referencedRowHref } from './navigation'
+import type { RowStatus, StagedError } from './staging'
 
 const ROW_HEIGHT = 36
 const ROW_NUMBER_ID = '__row'
-const ROW_NUMBER_WIDTH = 64
+const ROW_NUMBER_WIDTH = 72
 const PAGE_STEP = 10
 // Below this width a UUID cell shows its compact form.
 const UUID_FULL_WIDTH = 290
@@ -43,10 +50,37 @@ export interface CellPosition {
   column: string
 }
 
+// Staged-editing state of a displayed row (aligned with `rows`).
+export interface RowMeta {
+  id: string
+  status: RowStatus
+  // 1-based number in the filtered result; null for a new, unsaved row.
+  number: number | null
+  // Columns holding a staged value, with the value before the edit.
+  staged: ReadonlyMap<string, unknown>
+  errors: StagedError[]
+}
+
+// Editing hooks supplied by the workspace (which owns the staged changes).
+export interface GridEditing {
+  rows: RowMeta[]
+  editability: (row: number, column: ExplorerColumn) => Editability
+  edit: (row: number, column: string, value: unknown) => void
+  revertCell: (row: number, column: string) => void
+  deleteRows: (rows: number[]) => void
+  restoreRow: (row: number) => void
+  // Rows can be deleted from this table; `bulk`: several at once.
+  canDelete: boolean
+  bulk: boolean
+  selected: ReadonlySet<string>
+  toggleSelected: (row: number, additive: boolean) => void
+}
+
 interface ExplorerGridProps {
   meta: ExplorerTable
   rows: ExplorerRow[]
-  // 1-based number of rows[0] in the filtered result (page offset + 1).
+  editing: GridEditing
+  // 1-based number of the first existing row in the filtered result (page offset + 1).
   firstRowNumber: number
   total: number
   columnState: ColumnState
@@ -59,9 +93,19 @@ interface ExplorerGridProps {
   onViewValue: (cell: CellPosition) => void
   onNavigate: (href: string) => void
   onCopy: (text: string, message: string) => void
+  onAnnounce: (message: string) => void
   onActiveCellChange: (cell: CellPosition | null) => void
+  // Open the editor on this cell (e.g. the first column of a row just added), until `onEditRequestDone`.
+  editRequest: { row: string; column: string } | null
+  onEditRequestDone: () => void
   busy: boolean
   empty: ReactNode
+}
+
+interface EditingCell {
+  row: number
+  col: number
+  initialText?: string
 }
 
 type Floating =
@@ -74,6 +118,7 @@ type Floating =
 export function ExplorerGrid({
   meta,
   rows,
+  editing,
   firstRowNumber,
   total,
   columnState,
@@ -86,12 +131,16 @@ export function ExplorerGrid({
   onViewValue,
   onNavigate,
   onCopy,
+  onAnnounce,
   onActiveCellChange,
+  editRequest,
+  onEditRequestDone,
   busy,
   empty,
 }: ExplorerGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [active, setActive] = useState<{ row: number; col: number }>({ row: 0, col: 0 })
+  const [openedCell, setOpenedCell] = useState<EditingCell | null>(null)
   const [floating, setFloating] = useState<Floating | null>(null)
   const [dragging, setDragging] = useState<string | null>(null)
   const byName = useMemo(() => new Map(meta.columns.map((column) => [column.name, column])), [meta.columns])
@@ -120,6 +169,8 @@ export function ExplorerGrid({
     data: rows,
     columns,
     getCoreRowModel: getCoreRowModel(),
+    // Stable keys across added/removed staged rows, so an open editor is not remounted.
+    getRowId: (_, index) => editing.rows[index]?.id ?? String(index),
     columnResizeMode: 'onChange',
     state: {
       columnOrder: [ROW_NUMBER_ID, ...order],
@@ -139,6 +190,19 @@ export function ExplorerGrid({
     overscan: 12,
     initialRect: { width: 1200, height: 720 },
   })
+
+  const requestedRow = editRequest ? editing.rows.findIndex((row) => row.id === editRequest.row) : -1
+  const requestedCol = editRequest ? order.indexOf(editRequest.column) : -1
+  const editingCell = openedCell ?? (requestedRow >= 0 && requestedCol >= 0 ? { row: requestedRow, col: requestedCol } : null)
+
+  useEffect(() => {
+    if (requestedRow >= 0) virtualizer.scrollToIndex(requestedRow)
+  }, [requestedRow, virtualizer])
+
+  function setEditingCell(cell: EditingCell | null) {
+    setOpenedCell(cell)
+    if (editRequest) onEditRequestDone()
+  }
 
   // Keep the active cell inside the data when the page, filters or columns change.
   const activeRow = Math.min(active.row, Math.max(rows.length - 1, 0))
@@ -169,7 +233,48 @@ export function ExplorerGrid({
     if (cell) setFloating({ kind: 'cell', cell, point })
   }
 
+  // Opens the editor on a cell when it is editable; otherwise says why (unless `quiet`). Returns whether it opened.
+  function startEdit(row: number, col: number, initialText?: string, quiet = false): boolean {
+    const column = byName.get(order[col] ?? '')
+    if (!column || !rows[row]) return false
+    const editability = editing.editability(row, column)
+    if (!editability.editable) {
+      if (!quiet) onAnnounce(`Lecture seule : ${editability.reason}`)
+      return false
+    }
+    setActive({ row, col })
+    setEditingCell({ row, col, initialText })
+    return true
+  }
+
+  function commitEdit(value: unknown, move: EditorMove) {
+    if (!editingCell) return
+    const { row, col } = editingCell
+    setEditingCell(null)
+    const column = order[col]
+    if (column) editing.edit(row, column, value)
+    if (move !== null) focusCell(row, col + move)
+  }
+
+  function cancelEdit(refocus: boolean) {
+    if (!editingCell) return
+    setEditingCell(null)
+    if (refocus) focusCell(editingCell.row, editingCell.col)
+  }
+
+  // The selected rows when `row` is one of them, else `row` alone.
+  function targetRows(row: number): number[] {
+    const id = editing.rows[row]?.id
+    if (!id || !editing.selected.has(id)) return [row]
+    return editing.rows.flatMap((meta, index) => (editing.selected.has(meta.id) ? [index] : []))
+  }
+
   function handleGridKeyDown(event: KeyboardEvent<HTMLTableSectionElement>) {
+    if (event.key === 'Escape' && editingCell) {
+      // The editor may still be loading the full value.
+      cancelEdit(true)
+      return
+    }
     const target = event.target
     if (!(target instanceof HTMLElement) || !target.dataset.cell) return
     const [row = 0, col = 0] = target.dataset.cell.split(':').map(Number)
@@ -192,8 +297,15 @@ export function ExplorerGrid({
     const cell = cellAt(row, col)
     if (!cell) return
     if (event.key === 'Enter') {
+      // Editable cell: edit it; otherwise show its full value.
       event.preventDefault()
-      onViewValue(cell)
+      if (!startEdit(row, col, undefined, true)) onViewValue(cell)
+    } else if (event.key === 'F2') {
+      event.preventDefault()
+      startEdit(row, col)
+    } else if (event.key === ' ' && event.shiftKey && selectable) {
+      event.preventDefault()
+      editing.toggleSelected(row, event.ctrlKey || event.metaKey)
     } else if ((event.key === 'F10' && event.shiftKey) || event.key === 'ContextMenu') {
       event.preventDefault()
       const rect = target.getBoundingClientRect()
@@ -204,21 +316,54 @@ export function ExplorerGrid({
         .flatMap((section) => section.items)
         .find((item) => item.id === 'copy-cell')
       if (copy && !copy.disabled) copy.onSelect()
+    } else if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      // Typing on a text-like cell starts editing with that character.
+      const column = byName.get(cell.column)
+      if (column && isTypedKind(column) && startEdit(row, col, event.key, true)) event.preventDefault()
     }
   }
 
   function cellMenu(cell: CellPosition): MenuSection[] {
     const column = byName.get(cell.column)
     const row = rows[cell.row]
-    if (!column || !row) return []
+    const rowMeta = editing.rows[cell.row]
+    if (!column || !row || !rowMeta) return []
+    const col = order.indexOf(cell.column)
     return buildCellMenu(
-      { column, row, columns: order, referencedBy: meta.referenced_by },
+      {
+        column,
+        row,
+        columns: order,
+        referencedBy: meta.referenced_by,
+        editing: {
+          editability: editing.editability(cell.row, column),
+          dirty: rowMeta.staged.has(column.name),
+          status: rowMeta.status,
+          canDelete: editing.canDelete,
+          selectedCount: targetRows(cell.row).length,
+        },
+      },
       {
         copy: onCopy,
         addFilter: onAddFilter,
         navigate: onNavigate,
         viewValue: () => {
           onViewValue(cell)
+        },
+        edit: () => {
+          startEdit(cell.row, col)
+        },
+        setNull: () => {
+          editing.edit(cell.row, column.name, null)
+        },
+        revertCell: () => {
+          editing.revertCell(cell.row, column.name)
+        },
+        deleteRows: () => {
+          editing.deleteRows(targetRows(cell.row))
+        },
+        restoreRow: () => {
+          editing.restoreRow(cell.row)
         },
       },
     )
@@ -330,14 +475,25 @@ export function ExplorerGrid({
   const headerGroup = table.getHeaderGroups()[0]
   const totalWidth = table.getTotalSize()
   const tableRows = table.getRowModel().rows
+  // Rows are selected (checkboxes, Shift+Space) only where several can be deleted at once; one row is deleted from
+  // its context menu.
+  const selectable = editing.canDelete && editing.bulk
+  // Some write is possible here: read-only cells then say why.
+  const tableWritable = meta.update_refused === null || meta.insert_refused === null
 
   return (
-    <div className="explorer-grid" ref={scrollRef} data-busy={busy ? '' : undefined}>
+    <div
+      className="explorer-grid"
+      ref={scrollRef}
+      data-busy={busy ? '' : undefined}
+      style={{ scrollPaddingLeft: table.getLeftTotalSize() }}
+    >
       {busy && <div className="explorer-grid__progress" role="progressbar" aria-label="Chargement des lignes" />}
       <table
         role="grid"
         aria-label={`Lignes de ${meta.name}`}
-        aria-rowcount={total + 1}
+        aria-rowcount={total + editing.rows.filter((row) => row.status === 'new').length + 1}
+        aria-multiselectable={selectable ? true : undefined}
         aria-colcount={order.length + 1}
         aria-busy={busy}
         className="grid"
@@ -362,6 +518,7 @@ export function ExplorerGrid({
                   key={header.id}
                   header={header}
                   column={column}
+                  lockReason={tableWritable && !column.updatable ? (column.read_only_reason ?? meta.update_refused) : null}
                   style={style}
                   sort={sort}
                   filterCount={columnFilters.length}
@@ -401,29 +558,48 @@ export function ExplorerGrid({
         <tbody className="grid__body" style={{ height: virtualizer.getTotalSize() }} onKeyDown={handleGridKeyDown}>
           {virtualizer.getVirtualItems().map((item) => {
             const row = tableRows[item.index]
-            if (!row) return null
+            const rowMeta = editing.rows[item.index]
+            if (!row || !rowMeta) return null
+            const selected = editing.selected.has(rowMeta.id)
+            const rowErrors = rowMeta.errors.filter((error) => error.column === null || !byName.has(error.column))
             return (
               <tr
                 key={row.id}
                 className="grid__row"
                 aria-rowindex={firstRowNumber + item.index + 1}
+                aria-selected={selectable ? selected : undefined}
                 data-active={item.index === activeRow ? '' : undefined}
                 data-even={item.index % 2 === 1 ? '' : undefined}
+                data-status={rowMeta.status ?? undefined}
+                data-editing={editingCell?.row === item.index ? '' : undefined}
                 style={{ transform: `translateY(${String(item.start)}px)`, height: ROW_HEIGHT }}
               >
                 {row.getVisibleCells().map((cell) => {
                   const style: CSSProperties = { width: cell.column.getSize(), ...pinnedStyle(cell.column) }
                   if (cell.column.id === ROW_NUMBER_ID) {
                     return (
-                      <th key={cell.id} scope="row" role="rowheader" className="grid__cell grid__cell--number" style={style} data-pinned="">
-                        {firstRowNumber + item.index}
-                      </th>
+                      <RowHeader
+                        key={cell.id}
+                        style={style}
+                        meta={rowMeta}
+                        errors={rowErrors}
+                        selectable={selectable && rowMeta.status !== 'new'}
+                        selected={selected}
+                        onToggle={() => {
+                          editing.toggleSelected(item.index, true)
+                        }}
+                      />
                     )
                   }
                   const column = byName.get(cell.column.id)
                   if (!column) return null
                   const col = order.indexOf(column.name)
                   const isActive = item.index === activeRow && col === activeCol
+                  const editability = editing.editability(item.index, column)
+                  const staged = rowMeta.staged.has(column.name)
+                  const errors = rowMeta.errors.filter((error) => error.column === column.name)
+                  const truncated = row.original.truncated.includes(column.name)
+                  const isEditing = editingCell?.row === item.index && editingCell.col === col
                   return (
                     <td
                       key={cell.id}
@@ -431,11 +607,15 @@ export function ExplorerGrid({
                       className="grid__cell"
                       style={style}
                       tabIndex={isActive ? 0 : -1}
+                      title={tableWritable && !editability.editable ? `Lecture seule : ${editability.reason}` : undefined}
                       data-cell={`${String(item.index)}:${String(col)}`}
                       data-kind={column.kind}
                       data-pinned={cell.column.getIsPinned() ? '' : undefined}
                       data-last-pinned={cell.column.getIsLastColumn('left') ? '' : undefined}
                       data-active={isActive ? '' : undefined}
+                      data-dirty={staged ? '' : undefined}
+                      data-invalid={errors.length > 0 ? '' : undefined}
+                      data-editing={isEditing ? '' : undefined}
                       onFocus={() => {
                         setActive({ row: item.index, col })
                       }}
@@ -443,24 +623,60 @@ export function ExplorerGrid({
                         setActive({ row: item.index, col })
                       }}
                       onDoubleClick={() => {
-                        onViewValue({ row: item.index, column: column.name })
+                        if (!isEditing && !startEdit(item.index, col, undefined, true)) {
+                          onViewValue({ row: item.index, column: column.name })
+                        }
                       }}
                       onContextMenu={(event) => {
+                        if (isEditing) return
                         event.preventDefault()
                         setActive({ row: item.index, col })
                         openCellMenu(item.index, col, { x: event.clientX, y: event.clientY })
                       }}
                     >
-                      <CellContent
-                        column={column}
-                        value={row.original.values[column.name]}
-                        truncated={row.original.truncated.includes(column.name)}
-                        width={cell.column.getSize()}
-                        onNavigate={onNavigate}
-                        onExpand={() => {
-                          onViewValue({ row: item.index, column: column.name })
-                        }}
-                      />
+                      {isEditing ? (
+                        <CellEditor
+                          table={meta.name}
+                          column={column}
+                          value={row.original.values[column.name]}
+                          recordKey={
+                            truncated && rowMeta.status !== 'new'
+                              ? Object.fromEntries(meta.primary_key.map((name) => [name, row.original.values[name]]))
+                              : null
+                          }
+                          initialText={editingCell.initialText}
+                          onCommit={commitEdit}
+                          onCancel={cancelEdit}
+                        />
+                      ) : (
+                        <>
+                          {staged && (
+                            <span
+                              className="cell__marker cell__marker--dirty"
+                              title={`Modifiée, non enregistrée · valeur d’origine : ${originalText(rowMeta.staged.get(column.name), column)}`}
+                            >
+                              <PencilIcon size={12} />
+                              <span className="visually-hidden">Modifiée : </span>
+                            </span>
+                          )}
+                          {errors.length > 0 && (
+                            <span className="cell__marker cell__marker--error" title={errors.map((error) => error.message).join('\n')}>
+                              <AlertIcon size={14} />
+                              <span className="visually-hidden">Erreur : {errors.map((error) => error.message).join(' ')} — </span>
+                            </span>
+                          )}
+                          <CellContent
+                            column={column}
+                            value={row.original.values[column.name]}
+                            truncated={truncated}
+                            width={cell.column.getSize()}
+                            onNavigate={onNavigate}
+                            onExpand={() => {
+                              onViewValue({ row: item.index, column: column.name })
+                            }}
+                          />
+                        </>
+                      )}
                     </td>
                   )
                 })}
@@ -515,6 +731,59 @@ export function ExplorerGrid({
         </Popover>
       )}
     </div>
+  )
+}
+
+function originalText(value: unknown, column: ExplorerColumn): string {
+  const text = displayValue(value, column.kind)
+  return text.length > 80 ? `${text.slice(0, 80)}…` : text
+}
+
+interface RowHeaderProps {
+  style: CSSProperties
+  meta: RowMeta
+  // Errors of the whole row (or of columns not displayed).
+  errors: StagedError[]
+  selectable: boolean
+  selected: boolean
+  onToggle: () => void
+}
+
+// Row number, selection box and the row's staged status (new / deleted / refused): shape + text, never colour alone.
+function RowHeader({ style, meta, errors, selectable, selected, onToggle }: RowHeaderProps) {
+  const name = meta.number === null ? 'la nouvelle ligne' : `la ligne ${String(meta.number)}`
+  return (
+    <th scope="row" role="rowheader" className="grid__cell grid__cell--number" style={style} data-pinned="">
+      {selectable && (
+        <input
+          type="checkbox"
+          className="grid__select"
+          tabIndex={-1}
+          checked={selected}
+          aria-label={`Sélectionner ${name}`}
+          onChange={onToggle}
+        />
+      )}
+      {errors.length > 0 && (
+        <span className="row-marker row-marker--error" title={errors.map((error) => error.message).join('\n')}>
+          <AlertIcon size={14} />
+          <span className="visually-hidden">Erreur : {errors.map((error) => error.message).join(' ')}</span>
+        </span>
+      )}
+      {meta.status === 'new' && (
+        <span className="row-marker row-marker--new" title="Nouvelle ligne, ajoutée à l’enregistrement">
+          <PlusIcon size={14} />
+          <span className="visually-hidden">Nouvelle ligne</span>
+        </span>
+      )}
+      {meta.status === 'deleted' && (
+        <span className="row-marker row-marker--deleted" title="Supprimée à l’enregistrement">
+          <TrashIcon size={14} />
+          <span className="visually-hidden">Suppression en attente, ligne</span>
+        </span>
+      )}
+      <span className="grid__row-number">{meta.number ?? ''}</span>
+    </th>
   )
 }
 

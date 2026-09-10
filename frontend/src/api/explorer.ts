@@ -1,8 +1,8 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 
-import { apiGet } from './client'
+import { apiGet, apiRequest } from './client'
 
-// Mirrors backend/app/api/routes/explorer.py (read-only Database Explorer API).
+// Mirrors backend/app/api/routes/explorer.py (reads) and explorer_writes.py (staged change sets, delete checks).
 
 export type ColumnKind = 'text' | 'enum' | 'integer' | 'number' | 'boolean' | 'datetime' | 'date' | 'uuid' | 'json' | 'array'
 
@@ -34,6 +34,11 @@ export interface ExplorerColumn {
   filter_operators: FilterOperator[]
   sortable: boolean
   searchable: boolean
+  // Staged writes: may change on an existing row / be given on a new row; the reason explains a refusal.
+  updatable: boolean
+  insertable: boolean
+  read_only_reason: string | null
+  required_on_insert: boolean
 }
 
 export interface ExplorerReference {
@@ -51,6 +56,16 @@ export interface ExplorerTable extends ExplorerTableSummary {
   primary_key: string[]
   columns: ExplorerColumn[]
   referenced_by: ExplorerReference[]
+  // null when the operation is allowed, else why not (French, shown to the user).
+  update_refused: string | null
+  insert_refused: string | null
+  delete_refused: string | null
+  // Several rows may be deleted at once (no deletion cascades from this table).
+  bulk_delete: boolean
+  // Column holding the row version sent back with updates and deletes (optimistic concurrency).
+  version_column: string | null
+  // Columns naming a row for people (foreign-key pickers).
+  label_columns: string[]
 }
 
 export type RowValues = Record<string, unknown>
@@ -91,12 +106,48 @@ export interface RowsQuery {
   limit: number
 }
 
+// A staged change set for one table (POST /changes). Values are JSON scalars; datetimes are ISO 8601 with offset.
+export interface ChangeSet {
+  updates: { key: RowValues; version: string | null; values: RowValues }[]
+  inserts: { values: RowValues }[]
+  deletes: { key: RowValues; version: string | null }[]
+}
+
+export type ChangeOperation = 'update' | 'insert' | 'delete'
+
+// One refused change: `index` points into the matching list of the change set; `column` null = the whole row.
+export interface ChangeError {
+  operation: ChangeOperation
+  index: number
+  column: string | null
+  code: string
+  message: string
+}
+
+export interface ChangeSetResult {
+  updated: number
+  inserted: number
+  deleted: number
+  inserted_keys: RowValues[]
+}
+
+export type DeleteAction = 'restrict' | 'cascade' | 'set_null'
+
+export interface DeleteCheck {
+  rows: number
+  allowed: boolean
+  blockers: string[]
+  // `table`/`column` are null for data the explorer does not expose.
+  effects: { table: string | null; column: string | null; action: DeleteAction; count: number; depth: number }[]
+}
+
 export const explorerKeys = {
   all: ['explorer'] as const,
   tables: ['explorer', 'tables'] as const,
   table: (name: string) => ['explorer', 'table', name] as const,
   rows: (name: string, query: RowsQuery) => ['explorer', 'rows', name, query] as const,
   record: (name: string, key: RowValues) => ['explorer', 'record', name, key] as const,
+  deleteCheck: (name: string, keys: RowValues[]) => ['explorer', 'delete-check', name, keys] as const,
 }
 
 function tablePath(name: string): `/${string}` {
@@ -142,6 +193,31 @@ export function useExplorerRows(name: string, query: RowsQuery, enabled: boolean
     enabled,
     // Keep the current page on screen while the next one (sort, filter, page) loads.
     placeholderData: keepPreviousData,
+  })
+}
+
+// Applies the change set all or nothing. A refusal is an ApiError (422, or 409 when a row changed meanwhile) whose
+// detail carries every error (`changeErrors`).
+export function saveChanges(name: string, changes: ChangeSet): Promise<ChangeSetResult> {
+  return apiRequest<ChangeSetResult>('POST', `${tablePath(name)}/changes`, { body: changes })
+}
+
+export function changeErrors(detail: unknown): ChangeError[] | null {
+  if (typeof detail !== 'object' || detail === null || !('errors' in detail) || !Array.isArray(detail.errors)) {
+    return null
+  }
+  return detail.errors as ChangeError[]
+}
+
+export function useDeleteCheck(name: string, keys: RowValues[]) {
+  return useQuery({
+    queryKey: explorerKeys.deleteCheck(name, keys),
+    queryFn: ({ signal }) => {
+      const params = new URLSearchParams(keys.map((key) => ['key', JSON.stringify(key)]))
+      return apiGet<DeleteCheck>(`${tablePath(name)}/delete-check?${params.toString()}`, signal)
+    },
+    // Always fresh: the answer depends on rows that may have changed since the last check.
+    gcTime: 0,
   })
 }
 

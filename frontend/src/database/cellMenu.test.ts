@@ -9,13 +9,32 @@ import {
   prospectsTable,
 } from '../test/explorerFixtures'
 import type { MenuItem } from '../ui/Menu'
-import { buildCellMenu, type CellEffects } from './cellMenu'
+import { buildCellMenu, type CellEditingContext, type CellEffects } from './cellMenu'
 import { parseView } from './explorerView'
 import { readOrigin, referencedRowHref, referencingRowsHref } from './navigation'
 
 function effects(): CellEffects {
-  return { copy: vi.fn(), addFilter: vi.fn(), navigate: vi.fn(), viewValue: vi.fn() }
+  return {
+    copy: vi.fn(),
+    addFilter: vi.fn(),
+    navigate: vi.fn(),
+    viewValue: vi.fn(),
+    edit: vi.fn(),
+    setNull: vi.fn(),
+    revertCell: vi.fn(),
+    deleteRows: vi.fn(),
+    restoreRow: vi.fn(),
+  }
 }
+
+const READ_ONLY: CellEditingContext = {
+  editability: { editable: false, reason: 'Table en lecture seule.' },
+  dirty: false,
+  status: null,
+  canDelete: false,
+  selectedCount: 0,
+}
+const EDITABLE: CellEditingContext = { ...READ_ONLY, editability: { editable: true }, canDelete: true, selectedCount: 1 }
 
 function items(sections: ReturnType<typeof buildCellMenu>): Record<string, MenuItem> {
   return Object.fromEntries(sections.flatMap((section) => section.items).map((item) => [item.id, item]))
@@ -66,10 +85,20 @@ describe('buildCellMenu', () => {
     if (!row || !companyId) throw new Error('fixture')
     const fx = effects()
     const menu = items(
-      buildCellMenu({ column: companyId, row, columns: ['id', 'company_id'], referencedBy: [] }, fx),
+      buildCellMenu({ column: companyId, row, columns: ['id', 'company_id'], referencedBy: [], editing: READ_ONLY }, fx),
     )
 
-    expect(Object.keys(menu)).toEqual(['copy-cell', 'view-value', 'copy-row-tsv', 'copy-row-json', 'filter-value', 'exclude-value', 'open-reference'])
+    expect(Object.keys(menu)).toEqual([
+      'copy-cell',
+      'view-value',
+      'read-only',
+      'copy-row-tsv',
+      'copy-row-json',
+      'filter-value',
+      'exclude-value',
+      'open-reference',
+    ])
+    expect(menu['read-only']).toMatchObject({ disabled: true, title: 'Table en lecture seule.' })
     menu['copy-cell']?.onSelect()
     expect(fx.copy).toHaveBeenCalledWith(COMPANY_IDS[1], 'Valeur copiée')
     menu['copy-row-tsv']?.onSelect()
@@ -85,7 +114,10 @@ describe('buildCellMenu', () => {
     const row = companyRows[0]
     if (!row || !sizeLabel) throw new Error('fixture')
     const menu = items(
-      buildCellMenu({ column: sizeLabel, row, columns: companyColumns, referencedBy: companiesTable.referenced_by }, effects()),
+      buildCellMenu(
+        { column: sizeLabel, row, columns: companyColumns, referencedBy: companiesTable.referenced_by, editing: READ_ONLY },
+        effects(),
+      ),
     )
 
     expect(menu['filter-value']?.label).toBe('Filtrer sur les valeurs vides')
@@ -98,12 +130,42 @@ describe('buildCellMenu', () => {
     const row = companyRows[0]
     if (!row || !clientApproach) throw new Error('fixture')
     const fx = effects()
-    const menu = items(buildCellMenu({ column: clientApproach, row, columns: companyColumns, referencedBy: [] }, fx))
+    const menu = items(buildCellMenu({ column: clientApproach, row, columns: companyColumns, referencedBy: [], editing: READ_ONLY }, fx))
 
     expect(menu['filter-value']).toBeUndefined()
     expect(menu['exclude-value']).toBeUndefined()
     expect(menu['copy-cell']?.label).toBe('Copier l’aperçu tronqué')
     menu['view-value']?.onSelect()
     expect(fx.viewValue).toHaveBeenCalled()
+  })
+
+  it('offers editing, NULL, revert and deletion on an editable, modified cell', () => {
+    const row = companyRows[1]
+    if (!row || !sizeLabel) throw new Error('fixture')
+    const fx = effects()
+    const menu = items(
+      buildCellMenu({ column: sizeLabel, row, columns: companyColumns, referencedBy: [], editing: { ...EDITABLE, dirty: true } }, fx),
+    )
+
+    expect(menu['edit-cell']).toMatchObject({ label: 'Modifier la cellule', hint: 'F2' })
+    expect(menu['read-only']).toBeUndefined()
+    menu['set-null']?.onSelect()
+    expect(fx.setNull).toHaveBeenCalled()
+    menu['revert-cell']?.onSelect()
+    expect(fx.revertCell).toHaveBeenCalled()
+    expect(menu['delete-rows']).toMatchObject({ label: 'Supprimer la ligne…', danger: true })
+  })
+
+  it('names the selection, and restores deleted or new rows instead of deleting them', () => {
+    const row = companyRows[0]
+    if (!row || !idColumn) throw new Error('fixture')
+    const menu = (editing: CellEditingContext) =>
+      items(buildCellMenu({ column: idColumn, row, columns: companyColumns, referencedBy: [], editing }, effects()))
+
+    expect(menu({ ...EDITABLE, selectedCount: 3 })['delete-rows']?.label).toBe('Supprimer les 3 lignes sélectionnées…')
+    expect(menu({ ...EDITABLE, status: 'deleted' })['restore-row']?.label).toBe('Annuler la suppression')
+    expect(menu({ ...EDITABLE, status: 'new' })['remove-new']?.label).toBe('Retirer la nouvelle ligne')
+    expect(menu({ ...EDITABLE, canDelete: false })['delete-rows']).toBeUndefined()
+    expect(menu({ ...EDITABLE, editability: { editable: true } })['set-null']).toBeUndefined()
   })
 })

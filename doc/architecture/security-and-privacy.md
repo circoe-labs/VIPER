@@ -92,8 +92,11 @@ dedicated `clear_do_not_contact` operation (mandatory reason) and rejects deleti
 The explorer shows only allowlisted domain tables (`app/services/explorer/policy.py`); every other table must be
 explicitly withheld — `users` (password hashes) and `user_sessions` (token hashes) are — and objects outside the ORM
 are unreachable. Its routes require a session like every non-public route. Columns can be hidden or masked centrally. Queries are validated against metadata
-and bound as parameters; the read API has no write method; CSV exports neutralize spreadsheet formulas. Details:
-[database-explorer.md](../features/database-explorer.md).
+and bound as parameters; the read API has no write method; CSV exports neutralize spreadsheet formulas. Staged writes
+(Task 12) go through one separate CSRF-protected endpoint, a default-deny editability policy (opposition columns,
+provenance traces, import traces and the audit log are read-only) and the ORM, so every change is audited with the
+server-side actor. Details: [database-explorer.md](../features/database-explorer.md),
+[ADR-0008](../adr/0008-explorer-staged-writes.md).
 
 ## Retention/backup/deletion
 Exact retention, anonymization, hosting and backup requirements remain product/ops/legal decisions. The implementation should centralize configuration and avoid destructive cascade defaults that make later compliance impossible.

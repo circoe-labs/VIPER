@@ -85,6 +85,17 @@
   color: var(--color-text-muted);
 }
 
+.menu__item--danger,
+.menu__item--danger .menu__icon {
+  color: var(--color-danger-fg);
+}
+
+.menu__item--danger:hover:not(:disabled),
+.menu__item--danger:focus-visible {
+  background: var(--color-danger-soft);
+  color: var(--color-danger-fg);
+}
+
 @keyframes menu-in {
   from {
     opacity: 0;

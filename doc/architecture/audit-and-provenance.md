@@ -83,8 +83,9 @@ Not audited as rows — `NOT_AUDITED_TABLES`, each with its reason: `users`, `us
 instead), `import_row_metadata` (write-once import trace; legacy values must not be copied into an undeletable log),
 `contact_tracking_status_history` (derived history of an audited change), `company_activity_categories` (recorded on
 the company as `activity_categories_ids`) and `audit_log`. A test requires every table to be audited or listed there.
-The Database Explorer (Task 12) must keep the unaudited tables read-only, or move them to the registry through a
-reviewed change.
+The Database Explorer (Task 12) keeps the unaudited tables read-only; the one exception, `company_activity_categories`,
+is written through `Company.activity_categories` and so recorded as `company.updated` (`writes.LINK_TABLES`, enforced by
+`tests/test_explorer_editability.py`). Explorer writes carry `context.source = database_explorer`.
 
 **Fail closed** (I-31): a flush that changes a row of an audited table with neither an annotation nor a bound actor
 raises `UnattributedMutationError` and the transaction rolls back.

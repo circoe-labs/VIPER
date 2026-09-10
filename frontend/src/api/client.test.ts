@@ -19,7 +19,13 @@ describe('apiGet', () => {
     const error: unknown = await apiGet('/health').catch((caught: unknown) => caught)
 
     expect(error).toBeInstanceOf(ApiError)
-    expect(error).toMatchObject({ status: 503 })
+    expect(error).toMatchObject({ status: 503, detail: undefined })
+  })
+
+  it('keeps the detail of a JSON error body', async () => {
+    stubFetchJson(422, { detail: { message: 'Refusé', errors: [] } })
+
+    await expect(apiGet('/things')).rejects.toMatchObject({ status: 422, detail: { message: 'Refusé', errors: [] } })
   })
 
   it('never sends the CSRF header on reads', async () => {

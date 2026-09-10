@@ -11,7 +11,10 @@ export interface MenuItem {
   icon?: IconComponent
   // Secondary text on the right (keyboard shortcut, target table…).
   hint?: string
+  // Tooltip, e.g. the full reason of a disabled action.
+  title?: string
   disabled?: boolean
+  danger?: boolean
   onSelect: () => void
 }
 
@@ -95,13 +98,14 @@ export function Menu({ label, position, alignRight = false, sections, onClose }:
               {section.label}
             </p>
           )}
-          {section.items.map(({ id, label: itemLabel, icon: Icon, hint, disabled, onSelect }) => (
+          {section.items.map(({ id, label: itemLabel, icon: Icon, hint, title, disabled, danger, onSelect }) => (
             <button
               key={id}
               type="button"
               role="menuitem"
               tabIndex={-1}
-              className="menu__item"
+              className={danger ? 'menu__item menu__item--danger' : 'menu__item'}
+              title={title}
               disabled={disabled}
               onClick={() => {
                 onClose()

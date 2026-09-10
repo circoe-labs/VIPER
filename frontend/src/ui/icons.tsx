@@ -262,6 +262,41 @@ export const ExpandIcon = (props: IconProps) => (
   </Svg>
 )
 
+// Editing
+export const PencilIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M15.5 5.5 18.5 8.5M4.5 19.5l1-4.2L16.3 4.5a1.4 1.4 0 0 1 2 0l1.2 1.2a1.4 1.4 0 0 1 0 2L8.7 18.5z" />
+  </Svg>
+)
+
+export const TrashIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l.8 12.5h9.4L17.5 7" />
+    <path d="M10 11v5M14 11v5" />
+  </Svg>
+)
+
+export const UndoIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M9 14.5 4.5 10 9 5.5" />
+    <path d="M4.5 10h9.5a5.5 5.5 0 0 1 0 11h-3" />
+  </Svg>
+)
+
+export const LockIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <rect x="5" y="10.5" width="14" height="10" rx="2" />
+    <path d="M8.5 10.5V7.5a3.5 3.5 0 0 1 7 0v3" />
+  </Svg>
+)
+
+export const SaveIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M5.5 4.5h10l3 3v12h-13z" />
+    <path d="M8.5 4.5v4h6v-4M8.5 19.5v-5h7v5" />
+  </Svg>
+)
+
 export const TableIcon = (props: IconProps) => (
   <Svg {...props}>
     <rect x="3.5" y="4.5" width="17" height="15" rx="2" />

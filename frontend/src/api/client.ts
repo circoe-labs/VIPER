@@ -4,11 +4,23 @@
 
 export class ApiError extends Error {
   readonly status: number
+  // The `detail` of a JSON error body (FastAPI), when there is one: a message or structured errors.
+  readonly detail: unknown
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, detail?: unknown) {
     super(message)
     this.name = 'ApiError'
     this.status = status
+    this.detail = detail
+  }
+}
+
+async function errorDetail(response: Response): Promise<unknown> {
+  try {
+    const body: unknown = await response.json()
+    return typeof body === 'object' && body !== null && 'detail' in body ? body.detail : undefined
+  } catch {
+    return undefined
   }
 }
 
@@ -60,7 +72,11 @@ export async function apiRequest<T>(
     if (response.status === 401 && !anonymous) {
       for (const listener of unauthorizedListeners) listener()
     }
-    throw new ApiError(response.status, `${method} ${url} failed with HTTP ${String(response.status)}`)
+    throw new ApiError(
+      response.status,
+      `${method} ${url} failed with HTTP ${String(response.status)}`,
+      await errorDetail(response),
+    )
   }
   return (response.status === 204 ? undefined : await response.json()) as T
 }

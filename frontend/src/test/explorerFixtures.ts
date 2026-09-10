@@ -18,9 +18,24 @@ export function column(name: string, overrides: Partial<ExplorerColumn> = {}): E
     filter_operators: TEXT_OPS,
     sortable: true,
     searchable: true,
+    updatable: true,
+    insertable: true,
+    read_only_reason: null,
+    required_on_insert: false,
     ...overrides,
   }
 }
+
+// Editing metadata of a writable table (overridable per fixture). Row values carry `updated_at` (the version) even
+// where the fixture lists fewer columns.
+export const WRITABLE = {
+  update_refused: null,
+  insert_refused: null,
+  delete_refused: null,
+  bulk_delete: true,
+  version_column: 'updated_at',
+  label_columns: [],
+} satisfies Partial<ExplorerTable>
 
 export const idColumn = column('id', {
   sql_type: 'uuid',
@@ -29,7 +44,11 @@ export const idColumn = column('id', {
   default: 'gen_random_uuid()',
   primary_key: true,
   filter_operators: UUID_OPS,
+  updatable: false,
+  insertable: false,
+  read_only_reason: 'Clé primaire générée à la création.',
 })
+
 
 export const COMPANY_IDS = ['01a00000-0000-7000-8000-000000000001', '01a00000-0000-7000-8000-000000000002']
 export const PROSPECT_ID = '01a00000-0000-7000-8000-0000000000a1'
@@ -41,12 +60,15 @@ export const companiesTable: ExplorerTable = {
   primary_key: ['id'],
   columns: [
     idColumn,
-    column('display_name', { nullable: false }),
+    column('display_name', { nullable: false, required_on_insert: true }),
     column('size_label', { sql_type: 'varchar(100)' }),
     column('client_approach', { sql_type: 'text' }),
     column('rows_total', { sql_type: 'integer', kind: 'integer', filter_operators: ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'in', 'is_null', 'not_null'] }),
   ],
   referenced_by: [{ table: 'prospects', column: 'company_id', referenced_column: 'id' }],
+  ...WRITABLE,
+  bulk_delete: false,
+  label_columns: ['display_name'],
 }
 
 export const prospectsTable: ExplorerTable = {
@@ -64,9 +86,19 @@ export const prospectsTable: ExplorerTable = {
       allowed_values: ['active', 'inactive', 'unknown'],
       filter_operators: ['eq', 'neq', 'in', 'is_null', 'not_null'],
     }),
-    column('legacy_metadata', { sql_type: 'jsonb', kind: 'json', filter_operators: ['contains', 'is_null', 'not_null'] }),
+    column('legacy_metadata', {
+      sql_type: 'jsonb',
+      kind: 'json',
+      filter_operators: ['contains', 'is_null', 'not_null'],
+      updatable: false,
+      insertable: false,
+      read_only_reason: 'Valeur structurée (JSON ou liste) : lecture seule.',
+    }),
   ],
   referenced_by: [],
+  ...WRITABLE,
+  insert_refused: 'Créez les prospects depuis Prospection, qui enregistre leur provenance.',
+  version_column: null,
 }
 
 export const TABLES: ExplorerTableSummary[] = [
@@ -83,11 +115,19 @@ export const companyRows: ExplorerRow[] = [
       size_label: null,
       client_approach: LONG_TEXT.slice(0, 240),
       rows_total: 12,
+      updated_at: '2026-09-01T09:30:00Z',
     },
     truncated: ['client_approach'],
   },
   {
-    values: { id: COMPANY_IDS[1], display_name: 'Logistique Démo SAS', size_label: '10-49', client_approach: null, rows_total: 3 },
+    values: {
+      id: COMPANY_IDS[1],
+      display_name: 'Logistique Démo SAS',
+      size_label: '10-49',
+      client_approach: null,
+      rows_total: 3,
+      updated_at: '2026-09-02T09:30:00Z',
+    },
     truncated: [],
   },
 ]

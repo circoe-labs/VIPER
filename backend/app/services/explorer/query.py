@@ -7,6 +7,7 @@ other than as a bound parameter.
 """
 
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -239,6 +240,11 @@ def parse_record_key(table: TableInfo, raw: str) -> dict[str, object]:
         key = TypeAdapter(dict[str, Scalar]).validate_json(raw)
     except PydanticValidationError as error:
         raise InvalidInputError("The record key must be a JSON object.") from error
+    return record_key(table, key)
+
+
+def record_key(table: TableInfo, key: Mapping[str, Scalar]) -> dict[str, object]:
+    """Primary-key values of one row, parsed to the key columns' Python types."""
     names = [column.name for column in table.primary_key]
     if sorted(key) != sorted(names):
         raise InvalidInputError(f"The record key must contain exactly: {', '.join(names)}.")
