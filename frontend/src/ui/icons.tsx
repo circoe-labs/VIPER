@@ -157,3 +157,114 @@ export const SpinnerIcon = (props: IconProps) => (
     <path d="M21 12a9 9 0 0 0-9-9" />
   </Svg>
 )
+
+// Data / explorer
+export const SearchIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <circle cx="11" cy="11" r="6.5" />
+    <path d="m20 20-4.4-4.4" />
+  </Svg>
+)
+
+export const RefreshIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M20 11.5A8 8 0 0 0 5.6 7M4 12.5A8 8 0 0 0 18.4 17" />
+    <path d="M5 3.5V7.5h4M19 20.5v-4h-4" />
+  </Svg>
+)
+
+export const DownloadIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M12 4v11M7.5 10.5 12 15l4.5-4.5" />
+    <path d="M4.5 19.5h15" />
+  </Svg>
+)
+
+export const FilterIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M4 5.5h16l-6.2 7.3v5.4l-3.6 1.8v-7.2z" />
+  </Svg>
+)
+
+export const KeyIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <circle cx="8" cy="15" r="4" />
+    <path d="m10.9 12.1 8.6-8.6M16.5 6.5l2.5 2.5M14 9l2 2" />
+  </Svg>
+)
+
+export const LinkIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M9 15 19 5M11 5h8v8" />
+    <path d="M17 15.5V19H5V7h3.5" />
+  </Svg>
+)
+
+export const ArrowUpIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M12 19V5M6 11l6-6 6 6" />
+  </Svg>
+)
+
+export const ArrowDownIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M12 5v14M6 13l6 6 6-6" />
+  </Svg>
+)
+
+export const ArrowLeftIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M19 12H5M11 6l-6 6 6 6" />
+  </Svg>
+)
+
+export const ChevronLeftIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="m14.5 6-6 6 6 6" />
+  </Svg>
+)
+
+export const ChevronRightIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="m9.5 6 6 6-6 6" />
+  </Svg>
+)
+
+export const ColumnsIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+    <path d="M9.2 4.5v15M14.8 4.5v15" />
+  </Svg>
+)
+
+export const PinIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M9 3.5h6M10 3.5v5.2L7 12.5h10l-3-3.8V3.5M12 12.5v8" />
+  </Svg>
+)
+
+export const MoreIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M5.5 12h.01M12 12h.01M18.5 12h.01" strokeWidth={2.75} />
+  </Svg>
+)
+
+export const CopyIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <rect x="8.5" y="8.5" width="11" height="11" rx="2" />
+    <path d="M15.5 8.5v-2a2 2 0 0 0-2-2h-7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2" />
+  </Svg>
+)
+
+export const ExpandIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M14 4.5h5.5V10M10 19.5H4.5V14M19.5 4.5 13.5 10.5M4.5 19.5l6-6" />
+  </Svg>
+)
+
+export const TableIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+    <path d="M3.5 9.5h17M3.5 14.5h17M9.5 9.5v10" />
+  </Svg>
+)

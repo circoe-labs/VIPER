@@ -2,9 +2,10 @@ import { existsSync } from 'node:fs'
 import path from 'node:path'
 
 // Full-stack E2E settings, shared by playwright.config.ts, the E2E Vite config, global setup and the specs.
-// Dedicated ports: a run never reuses the dev servers (Vite 5173 → backend 8042 → dev database).
-export const E2E_WEB_PORT = 5180
-export const E2E_API_PORT = 8044
+// Dedicated ports: a run never reuses the dev servers (Vite 5173 → backend 8042 → dev database). Every value is
+// overridable, so a second checkout (git worktree) can run its own stack on other ports and another `*_e2e` DB.
+export const E2E_WEB_PORT = Number(process.env.VIPER_E2E_WEB_PORT ?? 5180)
+export const E2E_API_PORT = Number(process.env.VIPER_E2E_API_PORT ?? 8044)
 export const E2E_DATABASE_URL =
   process.env.VIPER_E2E_DATABASE_URL ?? 'postgresql+psycopg://viper:viper@127.0.0.1:5442/viper_e2e'
 

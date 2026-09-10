@@ -66,6 +66,18 @@
   artwork); primitives have accessibility tests (labels, descriptions, `aria-invalid`, dialog focus trap / Esc /
   focus restore, badges never colour-only). `e2e/design.spec.ts` renders the shell in dark and light at 1440×900,
   checks persistence, logo transparency on a canvas, Inter loading, favicons and no overflow at 1280 px.
+- Database Explorer (Task 11): `test_explorer_policy.py` (every ORM table classified; `users` / `user_sessions`
+  never listed, readable or disclosed as FK targets/references; 401 without a session; unexposed/unknown/injected
+  table names → 404 on every endpoint, hidden/masked columns never returned, searched, filtered, sorted or
+  exported), `test_explorer_metadata.py`, `test_explorer_reads.py` (paging, multi-sort, search escaping, every
+  operator per kind, type validation, AST limits, SQL-injection payloads as plain values, truncation/records, GET-only
+  API), `test_explorer_export.py` (CSV format, formula neutralization), `test_explorer_performance.py` (50k synthetic
+  rows: filtered, sorted deep page < 2 s; streamed export). Frontend: column-state reducer/persistence, URL view
+  state, filter building, context-menu rules, FK links (`src/database/*.test.ts`), page-level component tests with a
+  routed fetch stub (`stubApi`), `Menu`/`Popover` accessibility. Playwright `e2e/database.spec.ts` runs against the
+  synthetic dataset loaded by the E2E global setup (`python -m tests.e2e_data` into `viper_e2e`; table pick, sort, filter, search, value viewer, FK hop
+  and back, keyboard grid + context menu, no page overflow at 1280 px, screenshots in both themes); the navigation
+  entry point is `e2e/helpers.ts` (`openDatabase`), where the login step goes once authentication exists.
 - Privacy: `scripts/check_private_data.py` in CI; synthetic fixtures only under `*/tests/fixtures/synthetic/`.
 - Commands: `doc/process/runbook-local-dev.md`.
 

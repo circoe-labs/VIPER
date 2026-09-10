@@ -119,5 +119,6 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       # Full stack: Playwright starts uvicorn on `viper_e2e` (port 8044) and Vite (5180); global setup migrates the
-      # database and creates the E2E account with a random password (frontend/e2e/global-setup.ts).
+      # database, loads the synthetic explorer dataset and creates the E2E account with a random password
+      # (frontend/e2e/global-setup.ts).
       - run: npm run e2e

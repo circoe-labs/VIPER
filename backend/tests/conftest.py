@@ -4,10 +4,9 @@ clients — `client` signed in as the pilot user (default), `anonymous_client` w
 from collections.abc import Iterator
 
 import pytest
-from alembic import command
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import Engine, make_url, text
+from sqlalchemy import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.session_cookie import CSRF_HEADER, SESSION_COOKIE
@@ -19,27 +18,26 @@ from app.models import User
 from app.services import audit
 from app.services.auth import SessionPolicy, open_session
 from tests.builders import FIXTURE_ACTOR, add_user
-from tests.support import TEST_BASE_URL, alembic_config, rolled_back_session_factory
+from tests.support import (
+    TEST_BASE_URL,
+    require_test_database,
+    reset_database,
+    rolled_back_session_factory,
+)
 
 
 @pytest.fixture(scope="session")
 def test_database_url() -> str:
-    url = Settings().test_database_url
-    database = make_url(url).database or ""
-    if not database.endswith("_test"):
-        raise pytest.UsageError(
-            f"Refusing to run tests against database {database!r}: its name must end with '_test'."
-        )
-    return url
+    try:
+        return require_test_database(Settings().test_database_url)
+    except ValueError as error:
+        raise pytest.UsageError(str(error)) from error
 
 
 @pytest.fixture(scope="session")
 def engine(test_database_url: str) -> Iterator[Engine]:
     engine = create_db_engine(test_database_url)
-    with engine.begin() as connection:
-        connection.execute(text("DROP SCHEMA public CASCADE"))
-        connection.execute(text("CREATE SCHEMA public"))
-    command.upgrade(alembic_config(test_database_url), "head")
+    reset_database(engine, test_database_url)
     yield engine
     engine.dispose()
 

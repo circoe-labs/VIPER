@@ -1,13 +1,15 @@
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vitest/config'
 
-// Backend dev server (uvicorn) — see doc/process/runbook-local-dev.md.
-const API_TARGET = 'http://127.0.0.1:8042'
+// Ports are overridable so several checkouts (git worktrees) can run side by side — see
+// doc/process/runbook-local-dev.md. Defaults: Vite 5173, proxying /api to the uvicorn dev server on 8042.
+const WEB_PORT = Number(process.env.VIPER_WEB_PORT ?? 5173)
+const API_TARGET = process.env.VIPER_API_TARGET ?? 'http://127.0.0.1:8042'
 
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 5173,
+    port: WEB_PORT,
     strictPort: true,
     proxy: { '/api': API_TARGET },
   },

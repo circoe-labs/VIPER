@@ -86,4 +86,7 @@ When a Prospect changes company:
 
 ## Database Explorer safety
 
-Read path, staged edit path and SQL path are separate. SQL is SELECT/read-only in V1 and backend-enforced. Grid writes use validated services/transactions, generate audit events, and respect referential integrity/contact-suppression rules.
+Read path, staged edit path and SQL path are separate. The read path (Task 11) is `app/services/explorer/`: a
+default-deny exposure policy, metadata from the ORM, a validated filter AST compiled to Core statements with bound
+parameters, GET-only routes under `/api/explorer` ([ADR-0005](../adr/0005-database-explorer-grid.md),
+[database-explorer.md](../features/database-explorer.md)). SQL is SELECT/read-only in V1 and backend-enforced. Grid writes use validated services/transactions, generate audit events, and respect referential integrity/contact-suppression rules.

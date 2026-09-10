@@ -3,8 +3,9 @@ import { randomBytes } from 'node:crypto'
 
 import { BACKEND_DIR, E2E_DATABASE_URL, E2E_USER, PASSWORD_ENV, PYTHON } from './env'
 
-// Once per run: rebuild the dedicated E2E database through the migrations, then create the pilot account with the
-// real bootstrap CLI and a random password that reaches the specs through the environment (workers inherit it).
+// Once per run: rebuild the dedicated E2E database through the migrations, load the synthetic explorer dataset
+// (backend/tests/fixtures/synthetic/), then create the pilot account with the real bootstrap CLI and a random
+// password that reaches the specs through the environment (workers inherit it).
 export default function globalSetup() {
   const database = new URL(E2E_DATABASE_URL.replace(/^[\w+]+:/, 'postgres:')).pathname.slice(1)
   if (!database.endsWith('_e2e')) {
@@ -20,6 +21,7 @@ export default function globalSetup() {
 
   run(['-m', 'alembic', 'downgrade', 'base'])
   run(['-m', 'alembic', 'upgrade', 'head'])
+  run(['-m', 'tests.e2e_data'])
   const password = randomBytes(24).toString('base64url')
   const createUser = ['--email', E2E_USER.email, '--display-name', E2E_USER.displayName, '--password-stdin']
   run(['-m', 'app.cli', 'create-user', ...createUser], `${password}\n`)

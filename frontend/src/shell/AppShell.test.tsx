@@ -2,9 +2,11 @@ import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
-import { renderApp, stubFetchJson } from '../test/render'
+import { renderApp, stubApi, stubFetchJson } from '../test/render'
 
 const LABELS = ['Accueil', 'Prospection', 'Exploitation', 'Base de données', 'Paramètres']
+// The Database page lists its tables on load.
+const DATABASE_API = { 'GET /api/health': [200, { status: 'ok', database: 'ok' }], 'GET /api/explorer/tables': [200, []] } as const
 
 function navigation() {
   return screen.getByRole('navigation', { name: 'Navigation principale' })
@@ -20,7 +22,7 @@ describe('AppShell', () => {
   })
 
   it('renders the requested route and marks it as current', () => {
-    stubFetchJson(200, { status: 'ok', database: 'ok' })
+    stubApi(DATABASE_API)
     renderApp('/database')
 
     expect(screen.getByRole('heading', { level: 1, name: 'Base de données' })).toBeInTheDocument()
@@ -64,7 +66,7 @@ describe('AppShell', () => {
   })
 
   it('shows the lockup, then the mark once the sidebar is collapsed, and remembers it', async () => {
-    stubFetchJson(200, { status: 'ok', database: 'ok' })
+    stubApi(DATABASE_API)
     const { unmount } = renderApp('/database')
 
     expect(screen.getByRole('img', { name: 'VIPER' })).toHaveAttribute('src', expect.stringMatching(/viper-lockup-white/))

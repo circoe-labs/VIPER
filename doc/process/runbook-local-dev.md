@@ -65,6 +65,40 @@ for. The header shows your name and `Se déconnecter`; the left navigation shows
 and database answer. With the dev server running, <http://localhost:5173/_dev/ui> shows the design-system component
 showcase (not part of production builds; sign in first).
 
+### Ports and parallel checkouts
+
+Every port is overridable, so a second checkout (e.g. a `git worktree`) can run beside the first one:
+
+| Variable | Default | Used by |
+|---|---|---|
+| `VIPER_WEB_PORT` | `5173` | `npm run dev` (Vite, `strictPort`) |
+| `VIPER_API_TARGET` | `http://127.0.0.1:8042` | Vite's `/api` proxy target |
+| `VIPER_E2E_WEB_PORT` / `VIPER_E2E_API_PORT` | `5180` / `8044` | Playwright's own Vite and API |
+| `VIPER_E2E_DATABASE_URL` | `…/viper_e2e` | Playwright's database (name must end in `_e2e`) |
+| `VIPER_E2E_PYTHON` | `backend/.venv` Python, else `python` | interpreter for the Playwright API server and setup |
+
+Worktree example (Git Bash): `backend/.env` with its own `VIPER_DATABASE_URL=…/viper_wt` and
+`VIPER_TEST_DATABASE_URL=…/viper_wt_test`, an own E2E database (`CREATE DATABASE viper_wt_e2e OWNER viper`), then
+`uvicorn … --port 8043`, `VIPER_WEB_PORT=5174 VIPER_API_TARGET=http://127.0.0.1:8043 npm run dev`, and
+`VIPER_E2E_DATABASE_URL=…/viper_wt_e2e VIPER_E2E_WEB_PORT=5174 VIPER_E2E_API_PORT=8043 python scripts/verify.py --e2e`
+(with those dev servers stopped).
+
+### Synthetic data for manual checks
+
+The synthetic explorer dataset (`backend/tests/fixtures/synthetic/explorer_dataset.py`: 36 companies, 240
+prospects, emails, phones, tracking, an import batch, audit entries — all invented) can be loaded into any empty,
+migrated `*_e2e` database — never the dev database — from `backend/`:
+
+```bash
+export VIPER_DATABASE_URL=postgresql+psycopg://viper:viper@127.0.0.1:5442/viper_e2e
+alembic downgrade base && alembic upgrade head
+python -m tests.e2e_data                      # refuses a database whose name does not end in _e2e
+python -m app.cli create-user --email pilote.local@example.com --display-name "Pilote Local"
+uvicorn app.main:create_app --factory --port 8044
+```
+
+then point a Vite at it (`VIPER_API_TARGET=http://127.0.0.1:8044`). A Playwright run rebuilds that database again.
+
 ## 4. Quality gates
 
 All gates, CI order (needs the venv, `npm ci` and the database up):
@@ -84,7 +118,7 @@ Individually:
 | `frontend/` | `npm run lint` · `npm run typecheck` | ESLint (type-aware) · `tsc -b` |
 | `frontend/` | `npm test` (`npm run test:watch`) | Vitest component/unit tests |
 | `frontend/` | `npm run build` | typecheck + production bundle in `frontend/dist/` |
-| `frontend/` | `npx playwright install chromium` once, then `npm run e2e` | Full-stack Playwright (auth flows, shell, design checks): see *End-to-end tests* below; writes review screenshots of both themes to `frontend/test-results/screenshots/` (git-ignored) |
+| `frontend/` | `npx playwright install chromium` once, then `npm run e2e` | Full-stack Playwright (auth flows, shell, design checks, Database explorer): see *End-to-end tests* below; writes review screenshots of both themes to `frontend/test-results/screenshots/` (git-ignored) |
 | `frontend/` | `npm run brand:assets` | regenerate the web-sized logos and favicons from the handoff originals (only when a logo changes; see `doc/design/visual-manifest.md`) |
 
 ### End-to-end tests
@@ -94,9 +128,12 @@ running. Playwright starts its own backend (`uvicorn` on **8044**, database **`v
 proxying `/api` to 8044) — it never touches the dev servers or the dev database — and stops them at the end (locally
 it reuses servers already listening on those ports). Global setup (`frontend/e2e/global-setup.ts`) rebuilds
 `viper_e2e` through the migrations (`alembic downgrade base` + `upgrade head`; it refuses a database whose name does
-not end in `_e2e`) and creates the synthetic account `pilote.e2e@example.com` with `python -m app.cli create-user
---password-stdin` and a random password generated for the run. Overrides: `VIPER_E2E_DATABASE_URL`,
-`VIPER_E2E_PYTHON` (defaults: local `viper_e2e`, `backend/.venv` interpreter, else `python` on PATH).
+not end in `_e2e`), loads the synthetic explorer dataset (`python -m tests.e2e_data`, same guard; written through
+`audit.attributed_unit_of_work` with a system actor, so `audit_log` holds its creation events) and creates the
+synthetic account `pilote.e2e@example.com` with `python -m app.cli create-user --password-stdin` and a random password
+generated for the run. Every spec signs in through `signIn` (`frontend/e2e/session.ts`); `auth.spec.ts` drives the
+real form. Overrides: `VIPER_E2E_DATABASE_URL`, `VIPER_E2E_WEB_PORT`, `VIPER_E2E_API_PORT`, `VIPER_E2E_PYTHON`
+(defaults: local `viper_e2e`, 5180, 8044, `backend/.venv` interpreter, else `python` on PATH).
 
 ## 5. Migrations
 
@@ -137,8 +174,9 @@ printing paths only. Only synthetic fixtures under `backend/tests/fixtures/synth
 
 ## Troubleshooting
 
-- `Port 5173 is already in use` — Vite uses `strictPort`; stop the other dev server rather than drifting to 5174
-  (the dev proxy assumes 5173). Playwright uses 5180 and 8044 the same way.
+- `Port 5173 is already in use` — Vite uses `strictPort`; stop the other dev server, or give this checkout its own
+  ports (`VIPER_WEB_PORT`, see *Ports and parallel checkouts*). Playwright uses 5180 and 8044 the same way
+  (`VIPER_E2E_WEB_PORT` / `VIPER_E2E_API_PORT`).
 - Sign-in says `Adresse e-mail ou mot de passe incorrect.` — no account yet in this database, or a wrong password:
   (re)run `python -m app.cli create-user --email …`. `Trop de tentatives…` — 5 failures for one e-mail (20 in total)
   within 15 min from your address; wait, or restart the backend (the counter is in memory).

@@ -50,14 +50,25 @@ export function stubFetchJson(status: number, body: unknown) {
   return fetchMock
 }
 
-export type ApiReply = readonly [status: number, body?: unknown] | (() => Promise<Response>)
+// `[status, body]`, or a function of the request URL (query string included) returning one — or a pending/custom
+// `Promise<Response>`.
+export type ApiReply = readonly [status: number, body?: unknown] | ((url: URL) => ApiReply | Promise<Response>)
 
-// Routes requests by "METHOD /api/path" (e.g. 'POST /api/auth/login'); anything else answers 404.
+function answer(reply: ApiReply | undefined, url: URL): Promise<Response> {
+  if (reply === undefined) return Promise.resolve(jsonResponse(404, { detail: 'Not Found' }))
+  if (typeof reply === 'function') {
+    const result = reply(url)
+    return result instanceof Promise ? result : answer(result, url)
+  }
+  return Promise.resolve(jsonResponse(reply[0], reply[1]))
+}
+
+// Routes requests by "METHOD /api/path" (e.g. 'POST /api/auth/login'), matched without the query string; anything
+// else answers 404.
 export function stubApi(replies: Record<string, ApiReply>) {
-  const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-    const reply = replies[`${init?.method ?? 'GET'} ${url}`]
-    if (typeof reply === 'function') return reply()
-    return Promise.resolve(reply ? jsonResponse(reply[0], reply[1]) : jsonResponse(404, { detail: 'Not Found' }))
+  const fetchMock = vi.fn((input: string, init?: RequestInit) => {
+    const url = new URL(input, 'http://localhost')
+    return answer(replies[`${init?.method ?? 'GET'} ${url.pathname}`], url)
   })
   vi.stubGlobal('fetch', fetchMock)
   return fetchMock
