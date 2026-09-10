@@ -5,6 +5,7 @@ import { LoginPage } from './auth/LoginPage'
 import { RequireAuth } from './auth/RequireAuth'
 import { CompaniesPage } from './companies/CompaniesPage'
 import { DatabasePage } from './database/DatabasePage'
+import { ExploitationPage } from './exploitation/ExploitationPage'
 import { AppShell } from './shell/AppShell'
 import { SettingsPage } from './settings/SettingsPage'
 import { NAVIGATION } from './shell/navigation'
@@ -41,6 +42,8 @@ const PAGES: Record<string, { path: string; element: ReactNode }> = {
       />
     ),
   },
+  // Coming soon on purpose (Task 18): no fake operational feature.
+  '/exploitation': { path: '/exploitation', element: <ExploitationPage /> },
   '/database': { path: '/database/:table?', element: <DatabasePage /> },
   '/settings': { path: '/settings/:section?', element: <SettingsPage /> },
 }

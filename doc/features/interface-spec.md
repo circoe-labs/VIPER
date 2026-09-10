@@ -100,6 +100,26 @@ Compact read-only SQL console. Backend must enforce read-only/SELECT behavior; t
 ## Exploitation
 Coming soon only. No fake agent controls, drafts, messages or metrics.
 
+Implemented by Task 18: `/exploitation` renders `frontend/src/exploitation/ExploitationPage.tsx` — the page `<h1>`
+*Exploitation*, then one empty-state block (`<h2>` *Bientôt disponible*) saying the area will later host the
+exploitation of the prospect base by future agents, that nothing is active (VIPER launches no action and sends no
+message) and that the base is maintained from Prospection and Base de données. No button, link, form, list, table,
+figure or date; the navigation item is current. Replace the component when the area is built.
+
+## Route map
+
+| Path | Page | Navigation item |
+|---|---|---|
+| `/login` | Connexion (public) | — |
+| `/` | Accueil (placeholder until Task 16) | Accueil |
+| `/prospection` | Prospection (placeholder until Task 14, links to Entreprises) | Prospection |
+| `/prospection/companies` | Entreprises list + Company editor (Task 07) | Prospection |
+| `/exploitation` | Exploitation — Bientôt disponible (Task 18) | Exploitation |
+| `/database/:table?` | Base de données (Task 11) | Base de données |
+| `/settings/:section?` | Paramètres (Task 06) | Paramètres |
+| `/_dev/ui` | Component showcase (development server only) | — |
+| anything else | redirect to `/` | — |
+
 ## Settings
 Manage Roles, Activity Categories, Commercial Segments and Internal Referents: search/list/add/rename/deactivate. Inline creation from forms should use the same services. Do not merge internal referents with login users.
 

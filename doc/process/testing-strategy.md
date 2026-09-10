@@ -82,6 +82,9 @@
   holder, establishments and primary switching, deletion refusal, search, similar companies, audit, 401/403),
   `src/companies/*.test.ts(x)` against the in-memory `src/test/companiesApi.ts`, Playwright `e2e/companies.spec.ts`
   with editor screenshots in both themes — details in `doc/features/company-editor.md`.
+- Exploitation (Task 18): `src/exploitation/ExploitationPage.test.tsx` (navigation state, heading structure, coming-soon
+  copy, and no button/link/control/list/table/figure/digit in the page) and `e2e/exploitation.spec.ts` (same smoke
+  against the real stack, screenshots in both themes).
 - Excel import engine (Task 08): synthetic workbooks generated in memory by
   `tests/fixtures/synthetic/legacy_workbook.py` (the 24-column historical layout, an `actualité` sheet, one row per
   compatibility case below, a fake reference snapshot). `test_import_workbook.py` (XLSX typed values, cached values
