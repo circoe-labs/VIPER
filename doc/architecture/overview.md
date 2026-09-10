@@ -92,4 +92,12 @@ When a Prospect changes company:
 Read path, staged edit path and SQL path are separate. The read path (Task 11) is `app/services/explorer/`: a
 default-deny exposure policy, metadata from the ORM, a validated filter AST compiled to Core statements with bound
 parameters, GET-only routes under `/api/explorer` ([ADR-0005](../adr/0005-database-explorer-grid.md),
-[database-explorer.md](../features/database-explorer.md)). SQL is SELECT/read-only in V1 and backend-enforced. Grid writes use validated services/transactions, generate audit events, and respect referential integrity/contact-suppression rules.
+[database-explorer.md](../features/database-explorer.md)). The staged edit path (Task 12,
+[ADR-0008](../adr/0008-explorer-staged-writes.md)) is a separate router: one change set per table, validated against
+the same metadata plus a default-deny editability policy, applied all or nothing through the ORM in the request's
+transaction (audited as `database_explorer`), delegating to `ProspectService` / `ContactTrackingService` where they
+own the rule, with optimistic row versions (`updated_at`) and server-side delete diagnostics. Opposition columns stay
+read-only (the do-not-contact trigger backs it). The SQL path (Task 13,
+[ADR-0011](../adr/0011-read-only-sql-console.md)) runs one read statement per request as a dedicated read-only
+database role whose privileges are derived from the same exposure policy; the database, not a parser, refuses
+writes and hidden tables.

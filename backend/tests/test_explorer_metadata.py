@@ -35,6 +35,10 @@ def test_columns_describe_type_nullability_default_and_keys(client: TestClient) 
         "filter_operators": None,
         "sortable": True,
         "searchable": True,
+        "updatable": False,
+        "insertable": False,
+        "read_only_reason": "Clé primaire générée à la création.",
+        "required_on_insert": False,
     }
     assert columns["role_id"]["foreign_key"] == {"table": "roles", "column": "id"}
     status = columns["activity_status"]

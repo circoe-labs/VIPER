@@ -98,6 +98,8 @@
 
 .dialog__body {
   flex: 1;
+  /* Shrinks below its content so a long body scrolls and the footer stays in view. */
+  min-height: 0;
   overflow: auto;
   padding: var(--space-6) var(--space-8);
 }

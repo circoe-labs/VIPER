@@ -439,13 +439,17 @@ def test_record_lookup_by_composite_key_and_key_validation(
     assert record("companies", json.dumps({"id": str(uuid.uuid4())})) == 404
 
 
-def test_the_explorer_api_has_no_write_method(client: TestClient) -> None:
+def test_the_only_explorer_posts_are_the_change_set_and_the_sql_console(
+    client: TestClient,
+) -> None:
     paths = client.get("/api/openapi.json").json()["paths"]
     explorer = {
         path: set(methods) for path, methods in paths.items() if path.startswith("/api/explorer")
     }
 
-    assert len(explorer) == 5
+    assert len(explorer) == 8
+    assert explorer.pop("/api/explorer/tables/{table_name}/changes") == {"post"}
+    assert explorer.pop("/api/explorer/sql") == {"post"}
     assert all(methods == {"get"} for methods in explorer.values())
     for method in ("post", "put", "patch", "delete"):
         assert client.request(method, f"{API}/companies/rows").status_code == 405

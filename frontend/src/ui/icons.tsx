@@ -287,6 +287,35 @@ export const ExpandIcon = (props: IconProps) => (
   </Svg>
 )
 
+// Editing (PencilIcon and TrashIcon are defined with the interface icons above)
+export const UndoIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M9 14.5 4.5 10 9 5.5" />
+    <path d="M4.5 10h9.5a5.5 5.5 0 0 1 0 11h-3" />
+  </Svg>
+)
+
+export const LockIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <rect x="5" y="10.5" width="14" height="10" rx="2" />
+    <path d="M8.5 10.5V7.5a3.5 3.5 0 0 1 7 0v3" />
+  </Svg>
+)
+
+export const SaveIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M5.5 4.5h10l3 3v12h-13z" />
+    <path d="M8.5 4.5v4h6v-4M8.5 19.5v-5h7v5" />
+  </Svg>
+)
+
+export const TerminalIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+    <path d="m7.5 9.5 3 2.5-3 2.5M12.5 15h4" />
+  </Svg>
+)
+
 export const TableIcon = (props: IconProps) => (
   <Svg {...props}>
     <rect x="3.5" y="4.5" width="17" height="15" rx="2" />

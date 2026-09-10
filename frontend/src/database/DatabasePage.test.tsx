@@ -166,7 +166,8 @@ describe('Database page', () => {
     const cell = (await within(grid).findAllByRole('gridcell')).find((item) => item.dataset.cell === '0:3')
     if (!cell) throw new Error('client_approach cell not rendered')
 
-    await userEvent.dblClick(cell)
+    // Double-click edits an editable cell: the expand button opens the viewer.
+    await userEvent.click(within(cell).getByRole('button', { name: 'Voir la valeur complète' }))
 
     const viewer = screen.getByRole('dialog', { name: 'client_approach' })
     expect(await within(viewer).findByLabelText('Valeur de client_approach')).toHaveTextContent(LONG_TEXT.trim())

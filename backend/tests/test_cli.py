@@ -133,3 +133,16 @@ def test_create_user_refuses_invalid_input(
     assert code == 1
     assert message in output
     assert users(db_session) == []
+
+
+def test_provision_sql_reader_aligns_the_role_and_its_grants(
+    session_factory: sessionmaker[Session], capsys: pytest.CaptureFixture[str]
+) -> None:
+    code = main(["provision-sql-reader"], session_factory=session_factory)
+
+    output = capsys.readouterr().out
+    assert code == 0
+    assert output.startswith("Created role viper_sql_reader") or output.startswith(
+        "Updated role viper_sql_reader"
+    )
+    assert output.rstrip().endswith("SELECT on 16 exposed tables.")

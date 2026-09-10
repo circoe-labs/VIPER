@@ -5,6 +5,11 @@
 - Deciders: Task 11 (Database Explorer read), for orchestrator review
 - Related: `doc/features/database-explorer.md`, `doc/product/decision-log.md` (I-40 … I-46), ADR-0001 (stack),
   ADR-0003 (styling), Tasks 12 (staged edits) and 13 (read-only SQL console)
+- Amended: 2026-09-10 by Task 12 ([ADR-0008](0008-explorer-staged-writes.md)) — `ColumnPolicy` gains editability and
+  `TablePolicy` a default-deny `TableWrites`; staged writes use a separate router (`explorer_writes.py`); the read
+  routes stay GET-only.
+- Amended: 2026-09-10 by Task 13 ([ADR-0011](0011-read-only-sql-console.md)) — the SQL console's database role gets
+  column `SELECT` grants derived from this exposure policy.
 
 ## Context
 

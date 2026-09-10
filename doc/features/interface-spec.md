@@ -94,8 +94,12 @@ Large usable canvas; sticky headers; horizontal/vertical scrolling; pagination/v
 ### Editing
 Inline edit with staged pending changes, Save/Cancel bar, add row where safe, delete with confirmation and FK diagnostics, multi-select only for safe operations, audit all mutations. Never bypass durable do-not-contact protections via casual row replacement/import behavior.
 
+As implemented (Task 12): [database-explorer.md](database-explorer.md#staged-editing-task-12).
+
 ### SQL
 Compact read-only SQL console. Backend must enforce read-only/SELECT behavior; this is not a full SQL IDE or migration tool.
+
+As implemented (Task 13): [database-explorer.md](database-explorer.md#sql-console-task-13).
 
 ## Exploitation
 Coming soon only. No fake agent controls, drafts, messages or metrics.

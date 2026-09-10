@@ -4,6 +4,8 @@ import { openDatabase, SCREENSHOTS, useTheme } from './helpers'
 import { signIn } from './session'
 
 // Runs against the synthetic dataset loaded by global setup (backend/tests/fixtures/synthetic/explorer_dataset.py).
+// Other specs add rows (companies, referents, audit events): assertions rely on known synthetic rows and on counts
+// read from the API, never on global row counts.
 
 test.use({ viewport: { width: 1440, height: 900 } })
 
@@ -19,15 +21,29 @@ function status(page: Page) {
   return page.locator('.explorer-status__range')
 }
 
+const COUNT = new Intl.NumberFormat('fr-FR')
+
+// Current number of rows of a table, as the explorer API reports it.
+async function rowCount(page: Page, table: string): Promise<number> {
+  const response = await page.request.get(`/api/explorer/tables/${table}`)
+  expect(response.ok()).toBe(true)
+  const body = (await response.json()) as { row_count: number }
+  return body.row_count
+}
+
+// "(filtrées parmi N)" with any N: the total depends on what other specs created.
+const AMONG_ALL = String.raw`\(filtrées parmi [\d\s\u202f]+\)`
+
 test('pick a table, sort, filter and read a long value', async ({ page }) => {
   await openDatabase(page)
   const rail = page.getByRole('navigation', { name: 'Tables' })
-  await expect(rail.getByRole('link', { name: /^companies/ })).toContainText('36')
+  const total = COUNT.format(await rowCount(page, 'companies'))
+  await expect(rail.getByRole('link', { name: /^companies/ })).toContainText(total)
 
   await rail.getByRole('link', { name: /^companies/ }).click()
   const companies = grid(page, 'companies')
   await expect(companies.getByRole('gridcell', { name: 'Transports Exemple SARL' })).toBeVisible()
-  await expect(status(page)).toHaveText('Lignes 1–36 sur 36')
+  await expect(status(page)).toHaveText(`Lignes 1–${total} sur ${total}`)
 
   await companies.getByRole('button', { name: 'display_name, non trié' }).click()
   await expect(page).toHaveURL(/sort=display_name/)
@@ -39,15 +55,17 @@ test('pick a table, sort, filter and read a long value', async ({ page }) => {
   await editor.getByLabel('Valeur').fill('fret')
   await editor.getByRole('button', { name: 'Ajouter le filtre' }).click()
   await expect(page.getByRole('group', { name: 'Critères actifs' })).toContainText('display_name contient « fret »')
-  await expect(status(page)).toHaveText('Lignes 1–6 sur 6 (filtrées parmi 36)')
+  // The six synthetic "Fret …" companies.
+  await expect(status(page)).toHaveText(new RegExp(`^Lignes 1–6 sur 6 ${AMONG_ALL}$`))
 
   await page.getByRole('button', { name: 'Effacer les filtres' }).click()
-  await expect(status(page)).toHaveText('Lignes 1–36 sur 36')
+  await expect(status(page)).toHaveText(`Lignes 1–${total} sur ${total}`)
 
   // Global search reaches long text columns too.
   await page.getByRole('searchbox', { name: 'Rechercher dans companies' }).fill('PARAGRAPHE fictif 8')
-  await expect(status(page)).toHaveText('Lignes 1–1 sur 1 (filtrées parmi 36)')
-  await companies.getByRole('gridcell', { name: /^Paragraphe fictif 1/ }).dblclick()
+  await expect(status(page)).toHaveText(new RegExp(`^Lignes 1–1 sur 1 ${AMONG_ALL}$`))
+  // Double-click edits an editable cell (Task 12): the cell's expand button opens the full value.
+  await companies.getByRole('gridcell', { name: /^Paragraphe fictif 1/ }).getByRole('button', { name: 'Voir la valeur complète' }).click()
   const viewer = page.getByRole('dialog', { name: 'client_approach' })
   await expect(viewer.getByLabel('Valeur de client_approach')).toContainText('Paragraphe fictif 8')
   await page.keyboard.press('Escape')
@@ -66,7 +84,7 @@ test('follow a foreign key from the context menu and come back', async ({ page }
 
   await expect(page).toHaveURL(/\/database\/companies\?filters=/)
   const companies = grid(page, 'companies')
-  await expect(status(page)).toHaveText('Lignes 1–1 sur 1 (filtrées parmi 36)')
+  await expect(status(page)).toHaveText(new RegExp(`^Lignes 1–1 sur 1 ${AMONG_ALL}$`))
   await expect(companies.getByRole('gridcell', { name: 'Transports Exemple SARL' })).toBeVisible()
 
   await page.getByRole('button', { name: 'Retour à prospects' }).click()
@@ -91,7 +109,13 @@ test('keyboard: move between cells and open the context menu with Shift+F10', as
 })
 
 test('audit events are read-only rows whose JSON changes open pretty-printed', async ({ page }) => {
-  const companyEvents = encodeURIComponent(JSON.stringify([{ column: 'entity_type', operator: 'eq', value: 'company' }]))
+  // The creation events of the 36 synthetic companies, written by the dataset loader (other specs add their own).
+  const companyEvents = encodeURIComponent(
+    JSON.stringify([
+      { column: 'entity_type', operator: 'eq', value: 'company' },
+      { column: 'actor_id', operator: 'eq', value: 'tests.e2e_data' },
+    ]),
+  )
   await page.goto(`/database/audit_log?filters=${companyEvents}`)
   const events = grid(page, 'audit_log')
   await expect(status(page)).toContainText('Lignes 1–36 sur 36 (filtrées parmi')
@@ -136,7 +160,10 @@ for (const theme of ['dark', 'light'] as const) {
     await page.keyboard.press('Escape')
 
     await openDatabase(page, 'companies')
-    await grid(page, 'companies').getByRole('gridcell', { name: /^Paragraphe fictif 1/ }).dblclick()
+    await grid(page, 'companies')
+      .getByRole('gridcell', { name: /^Paragraphe fictif 1/ })
+      .getByRole('button', { name: 'Voir la valeur complète' })
+      .click()
     await expect(page.getByRole('dialog', { name: 'client_approach' })).toContainText('Paragraphe fictif 8')
     await page.screenshot({ path: `${SCREENSHOTS}/database-viewer-${theme}.png`, animations: 'disabled' })
   })

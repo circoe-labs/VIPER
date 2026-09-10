@@ -84,8 +84,9 @@ Not audited as rows — `NOT_AUDITED_TABLES`, each with its reason: `users`, `us
 instead), `import_row_metadata` (write-once import trace; legacy values must not be copied into an undeletable log),
 `contact_tracking_status_history` (derived history of an audited change), `company_activity_categories` (recorded on
 the company as `activity_categories_ids`) and `audit_log`. A test requires every table to be audited or listed there.
-The Database Explorer (Task 12) must keep the unaudited tables read-only, or move them to the registry through a
-reviewed change.
+The Database Explorer (Task 12) keeps the unaudited tables read-only; the one exception, `company_activity_categories`,
+is written through `Company.activity_categories` and so recorded as `company.updated` (`writes.LINK_TABLES`, enforced by
+`tests/test_explorer_editability.py`). Explorer writes carry `context.source = database_explorer`.
 
 **Fail closed** (I-31): a flush that changes a row of an audited table with neither an annotation nor a bound actor
 raises `UnattributedMutationError` and the transaction rolls back.
@@ -101,6 +102,7 @@ raises `UnattributedMutationError` and the transaction rolls back.
 | `import_batch.started` / `.committed` / `.failed` / `.cancelled` | `import_batches.start_batch` / `finish_batch` | file name, sheets, fingerprint, status, counts |
 | `auth.login` / `auth.logout` | `auth.open_session` / `auth.sign_out` | who and when only — no token, session id, IP or user agent; failed sign-ins are not audited (I-30) |
 | `auth.user_created` / `auth.password_reset` | `auth.create_or_reset_user` (CLI) | no field values |
+| `explorer.sql_executed` | `POST /api/explorer/sql` (Task 13) | entity `sql_query`; `query_sha256`, `query_length`, `outcome`, and `row_count` / `truncated` / `duration_ms` when it ran — never the query text (I-67) |
 | `<taxonomy>.renamed` / `.deactivated` / `.reactivated` (`role`, `commercial_segment`, `activity_category`) and `internal_referent.deactivated` / `.reactivated` | `taxonomies.rename_value` / `set_value_active`, `referents.set_referent_active` (Task 06, `SettingsChange`) | label or `active` before/after; creation, referent edits and deletion use the generic lifecycle actions |
 
 ## Payload policy (`app/core/audit_policy.py`)

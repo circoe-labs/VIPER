@@ -2,11 +2,24 @@
 // effects, so the rules — which action appears when — are unit-tested.
 import type { ExplorerColumn, ExplorerReference, ExplorerRow } from '../api/explorer'
 import type { MenuItem, MenuSection } from '../ui/Menu'
-import { CopyIcon, ExpandIcon, FilterIcon, LinkIcon, MinusCircleIcon } from '../ui/icons'
+import {
+  BuildingIcon,
+  CopyIcon,
+  ExpandIcon,
+  FilterIcon,
+  LinkIcon,
+  LockIcon,
+  MinusCircleIcon,
+  PencilIcon,
+  TrashIcon,
+  UndoIcon,
+} from '../ui/icons'
 import { clipboardValue, rowToJson, rowToTsv } from './cells'
+import type { Editability } from './editing'
 import type { ColumnFilter } from './explorerView'
 import { filterForValue } from './filters'
 import { referencedRowHref, referencingRowsHref } from './navigation'
+import type { RowStatus } from './staging'
 
 export interface CellContext {
   column: ExplorerColumn
@@ -14,6 +27,18 @@ export interface CellContext {
   // Displayed columns, in display order (row copies follow what the user sees).
   columns: string[]
   referencedBy: ExplorerReference[]
+  editing: CellEditingContext
+}
+
+// What the staged-editing layer allows on this cell and its row.
+export interface CellEditingContext {
+  editability: Editability
+  // The cell holds a staged (unsaved) value.
+  dirty: boolean
+  status: RowStatus
+  // Rows can be deleted from this table; `selectedCount` rows are selected (the clicked one included).
+  canDelete: boolean
+  selectedCount: number
 }
 
 export interface CellEffects {
@@ -21,9 +46,51 @@ export interface CellEffects {
   addFilter: (filter: ColumnFilter) => void
   navigate: (href: string) => void
   viewValue: () => void
+  edit: () => void
+  setNull: () => void
+  revertCell: () => void
+  deleteRows: () => void
+  restoreRow: () => void
+  // The row has a dedicated editor (e.g. companies → the Company editor, Task 07).
+  openEditor?: () => void
 }
 
-export function buildCellMenu({ column, row, columns, referencedBy }: CellContext, effects: CellEffects): MenuSection[] {
+function editItems(column: ExplorerColumn, value: unknown, editing: CellEditingContext, effects: CellEffects): MenuItem[] {
+  const { editability } = editing
+  const items: MenuItem[] = editability.editable
+    ? [{ id: 'edit-cell', label: 'Modifier la cellule', icon: PencilIcon, hint: 'F2', onSelect: effects.edit }]
+    : [
+        {
+          id: 'read-only',
+          label: `Lecture seule : ${editability.reason}`,
+          title: editability.reason,
+          icon: LockIcon,
+          disabled: true,
+          onSelect: () => undefined,
+        },
+      ]
+  if (editability.editable && column.nullable && value !== null) {
+    items.push({ id: 'set-null', label: 'Mettre à NULL', icon: MinusCircleIcon, onSelect: effects.setNull })
+  }
+  if (editing.dirty) {
+    items.push({ id: 'revert-cell', label: 'Annuler la modification', icon: UndoIcon, onSelect: effects.revertCell })
+  }
+  return items
+}
+
+function rowEditItems({ status, canDelete, selectedCount }: CellEditingContext, effects: CellEffects): MenuItem[] {
+  if (status === 'new') {
+    return [{ id: 'remove-new', label: 'Retirer la nouvelle ligne', icon: TrashIcon, onSelect: effects.restoreRow }]
+  }
+  if (status === 'deleted') {
+    return [{ id: 'restore-row', label: 'Annuler la suppression', icon: UndoIcon, onSelect: effects.restoreRow }]
+  }
+  if (!canDelete) return []
+  const label = selectedCount > 1 ? `Supprimer les ${String(selectedCount)} lignes sélectionnées…` : 'Supprimer la ligne…'
+  return [{ id: 'delete-rows', label, icon: TrashIcon, danger: true, onSelect: effects.deleteRows }]
+}
+
+export function buildCellMenu({ column, row, columns, referencedBy, editing }: CellContext, effects: CellEffects): MenuSection[] {
   const value = row.values[column.name]
   const truncated = row.truncated.includes(column.name)
   // A truncated preview is not the stored value: it cannot be copied or filtered on as such.
@@ -125,8 +192,17 @@ export function buildCellMenu({ column, row, columns, referencedBy }: CellContex
   }
 
   return [
-    { label: 'Cellule', items: cell },
-    { label: 'Ligne', items: rowItems },
+    { label: 'Cellule', items: [...cell, ...editItems(column, value, editing, effects)] },
+    {
+      label: 'Ligne',
+      items: [
+        ...(effects.openEditor
+          ? [{ id: 'open-editor', label: 'Ouvrir dans l’éditeur', icon: BuildingIcon, onSelect: effects.openEditor }]
+          : []),
+        ...rowItems,
+        ...rowEditItems(editing, effects),
+      ],
+    },
     { label: 'Filtre', items: filters },
     { label: 'Relations', items: links },
   ].filter((section) => section.items.length > 0)

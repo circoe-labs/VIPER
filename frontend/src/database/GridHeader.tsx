@@ -3,7 +3,7 @@ import { type CSSProperties, type DragEvent, type KeyboardEvent, useState } from
 
 import type { ExplorerColumn, ExplorerRow } from '../api/explorer'
 import { IconButton } from '../ui/Button'
-import { ArrowDownIcon, ArrowUpIcon, FilterIcon, KeyIcon, LinkIcon, MoreIcon } from '../ui/icons'
+import { ArrowDownIcon, ArrowUpIcon, FilterIcon, KeyIcon, LinkIcon, LockIcon, MoreIcon } from '../ui/icons'
 import { MAX_WIDTH, MIN_WIDTH } from './columnState'
 import type { SortKey } from './explorerView'
 
@@ -12,6 +12,8 @@ const RESIZE_STEP = 16
 interface GridHeaderProps {
   header: Header<ExplorerRow, unknown>
   column: ExplorerColumn
+  // Why the column cannot be edited, in a table that can be (null: editable, or nothing is editable here).
+  lockReason: string | null
   style: CSSProperties
   sort: SortKey[]
   filterCount: number
@@ -34,6 +36,7 @@ const SORT_LABELS = { asc: 'tri croissant', desc: 'tri décroissant' }
 export function GridHeader({
   header,
   column,
+  lockReason,
   style,
   sort,
   filterCount,
@@ -116,6 +119,12 @@ export function GridHeader({
           {column.primary_key && <KeyIcon size={14} className="grid__header-key" aria-hidden="true" />}
           {column.foreign_key && <LinkIcon size={14} className="grid__header-fk" aria-hidden="true" />}
           <span className="grid__header-text">{column.name}</span>
+          {lockReason && (
+            <span className="grid__header-lock" title={`Lecture seule : ${lockReason}`}>
+              <LockIcon size={12} />
+              <span className="visually-hidden">(lecture seule)</span>
+            </span>
+          )}
           {direction && (
             <span className="grid__header-sorted" aria-hidden="true">
               <SortIcon size={14} />
