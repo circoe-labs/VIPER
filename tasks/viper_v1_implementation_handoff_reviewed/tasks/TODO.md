@@ -23,13 +23,13 @@ VIPER V1 is a database-first human dashboard for maintaining prospect/company/co
 - [x] **03** `03-data-schema` — reviewed relational model + migrations
 - [x] **04** `04-authentication-actor` — secure single-user auth + actor context
 - [x] **05** `05-audit-provenance-core` — audit/provenance foundation before feature mutations
-- [ ] **06** `06-settings-taxonomies` — roles/categories/segments/referents
-- [ ] **07** `07-company-editor` — lightweight company/establishment maintenance
-- [ ] **08** `08-excel-import-core` — deterministic parser/mapping/diagnostics
+- [x] **06** `06-settings-taxonomies` — roles/categories/segments/referents
+- [~] **07** `07-company-editor` — lightweight company/establishment maintenance
+- [x] **08** `08-excel-import-core` — deterministic parser/mapping/diagnostics
 - [ ] **09** `09-excel-import-review` — preview/correction/dedup/transactional commit
 - [ ] **10** `10-excel-export` — normalized configurable Excel export
-- [~] **11** `11-database-explorer-read` — tables/metadata/grid/read ergonomics
-- [ ] **12** `12-database-explorer-edit` — staged edit/delete/audit
+- [x] **11** `11-database-explorer-read` — tables/metadata/grid/read ergonomics
+- [~] **12** `12-database-explorer-edit` — staged edit/delete/audit
 - [ ] **13** `13-database-explorer-sql` — backend-enforced read-only SQL
 - [ ] **14** `14-prospection-workspace` — actionable counters/filters/people list
 - [ ] **15** `15-prospect-editor` — create/edit/verification/contact aliases/Save & Next
