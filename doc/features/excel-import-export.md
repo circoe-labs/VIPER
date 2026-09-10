@@ -349,7 +349,7 @@ unaccounted cell, determinism) and prints counts per diagnostic code only. Comma
 ## Import review and commit — as implemented (Task 09)
 
 Page **Importer un fichier Excel**, `/prospection/import` (secondary page of Prospection; entry points « Importer
-Excel » on the Prospection placeholder and the Entreprises header until Task 14 places the final button). Design:
+Excel » in the Prospection header (Task 14) and the Entreprises header). Design:
 [ADR-0012](../adr/0012-stateless-import-review.md); decisions I-72 … I-79. Code: `backend/app/services/imports/`
 (`review.py`, `decisions.py`), `backend/app/services/import_commit.py`, `backend/app/api/routes/imports.py`,
 `frontend/src/imports/`.

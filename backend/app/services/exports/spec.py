@@ -17,6 +17,7 @@ from datetime import date, datetime
 from enum import StrEnum
 from typing import Any, Protocol
 
+from app.core.business_time import BUSINESS_TIMEZONE
 from app.models.enums import (
     ActivityStatus,
     Civility,
@@ -38,7 +39,6 @@ from app.services.exports.projection import (
     ProspectRecord,
     SourceRecord,
 )
-from app.services.import_commit import BUSINESS_TIMEZONE
 from app.services.imports.models import LegacyReason
 
 type Value = str | int | float | bool | date | datetime | None

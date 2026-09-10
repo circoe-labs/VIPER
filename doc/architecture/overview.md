@@ -11,6 +11,8 @@ Use explicit service boundaries rather than UI-to-ORM coupling:
 - CompanyService (Task 07: `app/services/companies.py` — [company-editor.md](../features/company-editor.md))
 - ContactChannelService
 - ContactTrackingService
+- ProspectQueryService (Task 14: `app/services/prospection/` — canonical segments + counters/list, read-only,
+  [prospection-kpis.md](../features/prospection-kpis.md), [ADR-0014](../adr/0014-canonical-prospect-segments.md))
 - TaxonomyService (Task 06: `app/services/taxonomies.py`; internal referents in `app/services/referents.py` — [settings-taxonomies.md](../features/settings-taxonomies.md))
 - ImportPreviewService / ImportCommitService
 - ExcelExportService

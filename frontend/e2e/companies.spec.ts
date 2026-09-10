@@ -30,7 +30,7 @@ function establishment(page: Page, index: number) {
 
 async function openCompanies(page: Page) {
   await page.goto('/prospection')
-  await page.getByRole('link', { name: 'Gérer les entreprises' }).click()
+  await page.getByRole('link', { name: 'Entreprises', exact: true }).click()
   await expect(page.getByRole('heading', { level: 1, name: 'Entreprises' })).toBeVisible()
   const navigation = page.getByRole('navigation', { name: 'Navigation principale' })
   await expect(navigation.getByRole('link', { name: 'Prospection' })).toHaveAttribute('aria-current', 'page')

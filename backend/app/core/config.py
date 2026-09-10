@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     import_max_rows: PositiveInt = 5000
     import_max_columns: PositiveInt = 100
 
+    # Prospection (Task 14): an employment verification older than this many days needs a re-check.
+    # Unset by default — product has not chosen the age threshold (open question #9).
+    verification_stale_days: PositiveInt | None = None
+
     @property
     def sql_reader_url(self) -> str:
         """The application database, reached as the SQL console's role."""

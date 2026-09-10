@@ -26,6 +26,7 @@ Styling approach and rationale: [ADR-0003](../adr/0003-styling-and-theming.md).
 | Component showcase (dev server only) | `/_dev/ui` → `src/dev/Showcase.tsx`; excluded from production builds (its *Sélecteurs de paramètres* card is wired to the API) |
 | Settings page and pickers (Task 06) | `src/settings/*` (`settings.css`), `src/ui/Combobox.tsx` + `combobox.css` |
 | Entreprises page and Company editor drawer (Task 07) | `src/companies/*` (`companies.css`), `src/ui/SearchField.tsx` + `search-field.css` |
+| Prospection page: counter cards, toolbar, people cards (Task 14) | `src/prospection/*` (`prospection.css`) — see *Prospection people list* below |
 | Font | `@fontsource-variable/inter` (self-hosted Inter Variable, imported in `src/main.tsx`; no CDN) |
 
 ## Tokens
@@ -132,7 +133,7 @@ Set: navigation (`Home`, `Users`, `Bolt`, `Database`, `Sliders`), status (`Check
 
 | Component | API essentials | Rules |
 |---|---|---|
-| `Button` | `variant` primary \| secondary (default) \| ghost \| danger, `size` sm \| md, `icon`, `loading` | `type="button"` unless `type="submit"` is passed. `loading` disables + `aria-busy`. One primary per view area. |
+| `Button` | `variant` primary \| secondary (default) \| ghost \| danger, `size` sm \| md, `icon`, `loading` | `type="button"` unless `type="submit"` is passed. `loading` disables + `aria-busy`. One primary per view area. A link styled `btn btn--…` is not underlined; `aria-disabled="true"` looks disabled but stays focusable (keeps its tooltip/description, e.g. *+ Ajouter un prospect* before Task 15). |
 | `IconButton` | `icon`, `label` (required → `aria-label` + tooltip), `variant` ghost \| secondary, `size` | Never icon-only without `label`. |
 | `TextField` / `TextAreaField` / `SelectField` | `label` (required), `hint`, `error`, `warning`, native props | Label bound via id; hint + error (or warning) linked by `aria-describedby`; `error` sets `aria-invalid` and shows icon + text in `danger-fg`. `warning` (Task 07) is a non-blocking remark — alert icon + text in `warning-fg`, no `aria-invalid`, hidden while an error shows (e.g. a SIRET that does not start with the SIREN). `required` adds a visual `*`. |
 | `SearchField` | `label` (accessible name + placeholder), `value`, `onChange` | List-toolbar search box (`type="search"`, magnifier glyph, visually hidden label), shared by Paramètres and Entreprises. |
@@ -155,6 +156,15 @@ header tint with a stronger edge after the last pinned column, active cell outli
 in `--color-accent-2-fg` (teal), NULL as small italic muted `NULL`. The explorer page fills the viewport so the grid,
 not the page, scrolls; toolbar labels collapse to icons through a container query when the workspace is narrow.
 Styles: `frontend/src/database/database.css` (feature doc: `doc/features/database-explorer.md`).
+
+## Prospection people list
+Counters: three eyebrow-labelled groups of six-column toggle cards (label with a 14 px glyph, 20 px tabular count);
+the active card uses accent-soft + accent-fg outline + a check mark (not colour alone). Toolbar in one bordered
+surface: search, *Filtres* disclosure (accent count badge), inline *Trier par*. People are cards, not table rows:
+40 px initials avatar, 16 px semibold name (the card's stretched link; focus ring on the whole card), role · title in
+muted text, then status badges; do-not-contact adds a 3 px danger edge on top of its badge. Three columns (identity
+and states / company and contacts / follow-up); a container query drops to two then one column. Styles:
+`frontend/src/prospection/prospection.css` (feature doc: `doc/features/prospection-kpis.md`).
 
 ## App shell
 Left sidebar: lockup (expanded) or mark (collapsed), the five sections with icons, active item = accent-soft

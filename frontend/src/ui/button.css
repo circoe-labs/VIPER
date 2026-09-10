@@ -10,6 +10,7 @@
   font-size: var(--text-md);
   font-weight: var(--weight-medium);
   line-height: 1;
+  text-decoration: none;
   white-space: nowrap;
   cursor: pointer;
   transition:
@@ -69,6 +70,17 @@
 .btn:disabled {
   cursor: not-allowed;
   opacity: 0.5;
+}
+
+/* Focusable but unavailable (keeps its tooltip and description, e.g. a feature that arrives later). */
+.btn[aria-disabled='true'] {
+  cursor: not-allowed;
+  opacity: 0.5;
+  box-shadow: none;
+}
+
+.btn--primary[aria-disabled='true']:hover {
+  background: var(--color-accent);
 }
 
 .btn[aria-busy='true'] {
