@@ -3,14 +3,15 @@
 How a mutation gets audited — services never write audit rows for row changes themselves:
 
 1. The caller binds the server-side actor and context to the session: every protected HTTP
-   request does it in `require_session`; imports use `import_batches.importing`; CLI/jobs call
-   `bound(...)` themselves.
+   request does it in `require_session`; imports use `import_batches.importing`; CLI, seed, jobs
+   and agents open `attributed_unit_of_work(session_factory, actor)`.
 2. A service that changes an audited row calls `annotate(session, actor, row, action, reason=…)`
    *before* the flush that writes the change, to say who does it and what it means.
 3. At flush, one hook writes exactly one event per changed audited row, in the same transaction:
    the annotated action, or `<entity>.created|updated|deleted` with the bound actor when nobody
-   annotated the row (the safety net for generic writes such as Database Explorer edits). A row
-   changed with neither an annotation nor a binding is not audited.
+   annotated the row (the safety net for generic writes such as Database Explorer edits). It
+   fails closed: an audited row changed with neither an annotation nor a binding raises
+   `UnattributedMutationError` and the transaction rolls back.
 
 Events that are not row changes (sign-in, bulk inserts) use `record_event`. Change sets hold only
 changed fields and pass through the payload policy (`app.core.audit_policy`) before storage.
@@ -25,11 +26,12 @@ from enum import StrEnum
 from typing import Any
 
 from sqlalchemy import event, inspect
-from sqlalchemy.orm import Session, SessionTransaction, UOWTransaction
+from sqlalchemy.orm import Session, SessionTransaction, UOWTransaction, sessionmaker
 from sqlalchemy.orm.attributes import instance_state
 
 from app.core import audit_policy
 from app.core.actor import ActorContext, ActorType
+from app.db.session import unit_of_work
 from app.models import (
     ActivityCategory,
     CommercialSegment,
@@ -116,9 +118,9 @@ class AuditedEntity:
     subject_key: str = "id"
 
 
-# The audited tables, in the order events of one flush are written (parents first). Tables left
-# out are never audited as rows: login accounts/sessions (secrets; auth events instead),
-# `import_row_metadata` (write-once import trace), status history and the audit log itself.
+# The audited tables, in the order events of one flush are written (parents first). A change to
+# one of them needs an actor (annotation or binding), else the flush fails. Every other table is
+# listed in NOT_AUDITED_TABLES with its reason; a test requires each table to be in one of the two.
 AUDITED_ENTITIES: dict[type[Any], AuditedEntity] = {
     Company: AuditedEntity("company", "company"),
     Establishment: AuditedEntity("establishment", "company", "company_id"),
@@ -134,6 +136,22 @@ AUDITED_ENTITIES: dict[type[Any], AuditedEntity] = {
     ImportBatch: AuditedEntity("import_batch", "import_batch"),
 }
 ENTITY_ORDER = {model: position for position, model in enumerate(AUDITED_ENTITIES)}
+NOT_AUDITED_TABLES = {
+    "users": "login accounts hold secrets; auth.* events are recorded instead",
+    "user_sessions": "session tokens; auth.login/auth.logout are recorded instead",
+    "import_row_metadata": "write-once import trace; legacy values stay out of the log (I-29)",
+    "contact_tracking_status_history": "derived from the audited contact_tracking change",
+    "company_activity_categories": "link table; recorded on the company as activity_categories_ids",
+    "audit_log": "the audit log itself",
+}
+
+
+class UnattributedMutationError(RuntimeError):
+    """An audited row changed with no actor: nobody annotated it and the session has no binding.
+
+    Bind one (`require_session` does it for HTTP; `attributed_unit_of_work` or `bound` elsewhere)
+    or annotate the row. The flush fails, so the transaction rolls back.
+    """
 
 
 def lifecycle_action(entity_type: str, lifecycle: Lifecycle) -> str:
@@ -180,9 +198,16 @@ def _session_audit(session: Session) -> _SessionAudit:
     return state
 
 
-def bind(session: Session, actor: ActorContext, context: AuditContext) -> None:
-    """Attribute every audited change of this session to `actor` unless annotated otherwise."""
-    _session_audit(session).binding = (actor, context)
+def _default_context(actor: ActorContext) -> AuditContext:
+    return AuditContext(source=DEFAULT_SOURCES[actor.type])
+
+
+def bind(session: Session, actor: ActorContext, context: AuditContext | None = None) -> None:
+    """Attribute every audited change of this session to `actor` unless annotated otherwise.
+
+    The context defaults from the actor type (e.g. a system actor → `source=cli`).
+    """
+    _session_audit(session).binding = (actor, context or _default_context(actor))
 
 
 def binding(session: Session) -> tuple[ActorContext, AuditContext] | None:
@@ -190,14 +215,30 @@ def binding(session: Session) -> tuple[ActorContext, AuditContext] | None:
 
 
 @contextmanager
-def bound(session: Session, actor: ActorContext, context: AuditContext) -> Iterator[None]:
+def bound(
+    session: Session, actor: ActorContext, context: AuditContext | None = None
+) -> Iterator[None]:
     """`bind` for the duration of the block, then restore the previous binding."""
     state = _session_audit(session)
-    previous, state.binding = state.binding, (actor, context)
+    previous = state.binding
+    bind(session, actor, context)
     try:
         yield
     finally:
         state.binding = previous
+
+
+@contextmanager
+def attributed_unit_of_work(
+    session_factory: sessionmaker[Session],
+    actor: ActorContext,
+    context: AuditContext | None = None,
+) -> Iterator[Session]:
+    """`unit_of_work` for code outside HTTP requests (CLI, seed, jobs, future agents): every
+    audited write inside is attributed to `actor`, e.g. a `SYSTEM` actor naming the command."""
+    with unit_of_work(session_factory) as session:
+        bind(session, actor, context)
+        yield session
 
 
 def annotate(
@@ -267,7 +308,7 @@ def record_event(
 
 def _context_for(session: Session, actor: ActorContext) -> AuditContext:
     current = binding(session)
-    return current[1] if current else AuditContext(source=DEFAULT_SOURCES[actor.type])
+    return current[1] if current else _default_context(actor)
 
 
 def _actor_json(actor: ActorContext) -> dict[str, Any]:
@@ -331,10 +372,12 @@ def _with_labels(changes: ChangeSet, annotation: Annotation | None) -> ChangeSet
 
 @event.listens_for(Session, "after_flush")
 def _record_flushed_changes(session: Session, _: UOWTransaction) -> None:
-    """One event per changed audited row; runs with the flush's history still available."""
-    state: _SessionAudit | None = session.info.get(_INFO_KEY)
-    if state is None:
-        return
+    """One event per changed audited row; runs with the flush's history still available.
+
+    Fails closed: a changed audited row without an actor raises `UnattributedMutationError`,
+    which aborts the flush and its transaction.
+    """
+    state: _SessionAudit = session.info.get(_INFO_KEY) or _SessionAudit()
     rows = []
     groups = (
         (Lifecycle.CREATED, session.new),
@@ -343,20 +386,22 @@ def _record_flushed_changes(session: Session, _: UOWTransaction) -> None:
     )
     for lifecycle, instances in groups:
         for instance in _audited_in(instances):
-            annotation = state.annotations.get(instance)
+            changes = CAPTURE[lifecycle](instance)
+            if not changes:
+                continue
+            entity = AUDITED_ENTITIES[type(instance)]
+            values = instance_state(instance).dict
+            annotation = state.annotations.pop(instance, None)
             if annotation is not None:
                 actor = annotation.actor
             elif state.binding is not None:
                 actor = state.binding[0]
             else:
-                continue
-            changes = CAPTURE[lifecycle](instance)
-            if not changes:
-                continue
-            state.annotations.pop(instance, None)
-            entity = AUDITED_ENTITIES[type(instance)]
+                raise UnattributedMutationError(
+                    f"{entity.entity_type} {values.get('id')} was {lifecycle} without an actor: "
+                    "bind one (attributed_unit_of_work / bound) or annotate the row."
+                )
             action = annotation.action if annotation else None
-            values = instance_state(instance).dict
             rows.append(
                 _row(
                     actor,

@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.core.actor import ActorContext, ActorType
 from app.core.config import get_settings
-from app.db.session import create_db_engine, create_session_factory, unit_of_work
+from app.db.session import create_db_engine, create_session_factory
 from app.models.taxonomies import ActivityCategory, CommercialSegment, Role
 from app.repositories import taxonomies
 from app.repositories.taxonomies import TaxonomyModel
@@ -69,7 +69,7 @@ def main(argv: list[str] | None = None) -> None:
         settings.test_database_url if args.db == "test" else settings.database_url
     )
     try:
-        with unit_of_work(create_session_factory(engine)) as session:
+        with audit.attributed_unit_of_work(create_session_factory(engine), SEED_ACTOR) as session:
             inserted = seed_taxonomies(session)
     finally:
         engine.dispose()

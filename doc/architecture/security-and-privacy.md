@@ -61,7 +61,7 @@ Implemented in Task 05 — [audit-and-provenance.md](audit-and-provenance.md), [
 - **Attribution from the server only**: `require_session` binds the signed-in user to the request's database session;
   every audited row change of a signed-in request is recorded with that actor, whatever the payload says (tested
   with a forged actor). Imports record `import` actors on behalf of the confirming user; CLI commands a `system`
-  actor.
+  actor. It fails closed: a write to an audited table without an actor raises and rolls back (I-31).
 - **Append-only and atomic**: events are written in the same transaction as the change (a rolled-back change
   leaves no event); database triggers reject `UPDATE`/`DELETE`/`TRUNCATE` on `audit_log`.
 - **Security trail**: `auth.login`, `auth.logout`, `auth.user_created`, `auth.password_reset` — who and when only.

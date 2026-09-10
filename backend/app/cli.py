@@ -16,7 +16,8 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.actor import ActorContext, ActorType
 from app.core.config import get_settings
-from app.db.session import create_db_engine, create_session_factory, unit_of_work
+from app.db.session import create_db_engine, create_session_factory
+from app.services.audit import attributed_unit_of_work
 from app.services.auth import create_or_reset_user
 from app.services.errors import DomainError
 
@@ -36,7 +37,7 @@ def read_password(from_stdin: bool) -> str:
 def create_user(
     session_factory: sessionmaker[Session], args: argparse.Namespace, password: str
 ) -> str:
-    with unit_of_work(session_factory) as session:
+    with attributed_unit_of_work(session_factory, CLI_ACTOR) as session:
         user, created = create_or_reset_user(
             session, CLI_ACTOR, args.email, password, args.display_name
         )

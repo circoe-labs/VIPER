@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 from fastapi import APIRouter, Depends
 from fastapi.testclient import TestClient
-from sqlalchemy import delete, insert, select, text, update
+from sqlalchemy import Engine, delete, insert, inspect, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -18,19 +18,35 @@ from app.api.dependencies import CurrentActor, SessionDep, audit_source
 from app.core import audit_policy
 from app.core.actor import ActorContext, ActorType
 from app.core.audit_policy import PersonalValues
+from app.db.base import Base
 from app.db.session import unit_of_work
-from app.models import ActivityCategory, AuditLogEntry, ContactTracking, Prospect, User
+from app.models import (
+    ActivityCategory,
+    AuditLogEntry,
+    Company,
+    ContactTracking,
+    Prospect,
+    User,
+)
 from app.models.enums import ContactabilityStatus, ContactTrackingStatus
 from app.services import audit
 from app.services import prospects as prospect_service
-from app.services.audit import AuditAction, AuditContext, AuditSource
+from app.services.audit import (
+    AuditAction,
+    AuditContext,
+    AuditSource,
+    UnattributedMutationError,
+    attributed_unit_of_work,
+)
 from app.services.contact_tracking import ContactTrackingInput, save_contact_tracking
 from tests.builders import (
+    FIXTURE_ACTOR,
     OPERATOR,
     REQUEST_ID,
     add_company,
     add_email,
     add_prospect,
+    add_user,
     audit_events,
     bind_operator,
     rejected,
@@ -103,24 +119,89 @@ def test_a_router_can_record_its_writes_under_the_database_explorer_source(
     assert entry.changes == {"first_name": {"before": "Jean", "after": "Jeanne"}}
 
 
-def test_annotated_writes_use_the_annotation_actor_even_without_a_binding(
-    db_session: Session,
-) -> None:
-    prospect = add_prospect(db_session)
+def test_annotated_writes_need_no_binding(session_factory: sessionmaker[Session]) -> None:
+    with attributed_unit_of_work(session_factory, FIXTURE_ACTOR) as session:
+        prospect_id = add_prospect(session).id
 
-    prospect_service.mark_do_not_contact(db_session, OPERATOR, prospect.id)
+    with unit_of_work(session_factory) as session:
+        prospect_service.mark_do_not_contact(session, OPERATOR, prospect_id)
 
-    [entry] = audit_events(db_session)
+    with session_factory() as session:
+        [entry] = audit_events(session)
     assert actor_of(entry) == EXPECTED_OPERATOR
     assert entry.context == {"source": "ui"}
 
 
-def test_rows_changed_with_neither_annotation_nor_binding_are_not_audited(
-    db_session: Session,
+def test_an_unattributed_write_to_an_audited_table_fails_and_rolls_back(
+    session_factory: sessionmaker[Session],
 ) -> None:
-    add_email(db_session, add_prospect(db_session), "jean.test@example.com")
+    with attributed_unit_of_work(session_factory, FIXTURE_ACTOR) as session:
+        prospect_id = add_prospect(session).id
 
+    with (
+        pytest.raises(UnattributedMutationError) as updated,
+        unit_of_work(session_factory) as session,
+    ):
+        session.get_one(Prospect, prospect_id).exact_job_title = "Gérant"
+    with pytest.raises(UnattributedMutationError) as created, unit_of_work(session_factory) as s:
+        add_company(s)
+
+    assert str(updated.value).startswith(f"prospect {prospect_id} was updated without an actor")
+    assert str(created.value).startswith("company ")
+    assert " was created without an actor" in str(created.value)
+
+    with session_factory() as session:
+        assert session.get_one(Prospect, prospect_id).exact_job_title is None
+        assert session.execute(select(Company)).first() is None
+        assert audit_events(session) == []
+
+
+def test_tables_outside_the_audit_accept_writes_without_an_actor(
+    session_factory: sessionmaker[Session],
+) -> None:
+    with unit_of_work(session_factory) as session:
+        add_user(session, email="autre.test@example.com")
+
+    with session_factory() as session:
+        assert session.execute(select(User.email)).scalar_one() == "autre.test@example.com"
+
+
+def test_a_bound_system_actor_attributes_writes_outside_http(
+    session_factory: sessionmaker[Session],
+) -> None:
+    job = ActorContext(type=ActorType.SYSTEM, display="Tâche de test", id="tests.job")
+
+    with attributed_unit_of_work(session_factory, job) as session:
+        company_id = add_company(session).id
+
+    with session_factory() as session:
+        [entry] = audit_events(session)
+    assert (entry.action, entry.entity_id) == ("company.created", company_id)
+    assert (entry.actor_type, entry.actor_id, entry.actor_display) == (
+        ActorType.SYSTEM,
+        "tests.job",
+        "Tâche de test",
+    )
+    assert entry.context == {"source": "cli"}
+
+
+def test_fixture_writes_are_attributed_to_the_fixture_actor(db_session: Session) -> None:
+    prospect = add_prospect(db_session)
+
+    entry = db_session.execute(select(AuditLogEntry)).scalar_one()
+    assert (entry.action, entry.entity_id) == ("prospect.created", prospect.id)
+    assert (entry.actor_type, entry.actor_id) == (ActorType.SYSTEM, FIXTURE_ACTOR.id)
     assert audit_events(db_session) == []
+
+
+def test_every_table_is_either_audited_or_explicitly_not(engine: Engine) -> None:
+    audited = {model.__tablename__ for model in audit.AUDITED_ENTITIES}
+    not_audited = set(audit.NOT_AUDITED_TABLES)
+    with engine.connect() as connection:
+        database_tables = set(inspect(connection).get_table_names()) - {"alembic_version"}
+
+    assert not audited & not_audited
+    assert audited | not_audited == set(Base.metadata.tables) == database_tables
 
 
 # --- one event per changed row -----------------------------------------------------------------
@@ -380,7 +461,7 @@ def test_events_written_by_the_service_cannot_be_altered_or_deleted(db_session: 
 def test_a_failed_audited_mutation_rolls_back_its_events(
     session_factory: sessionmaker[Session],
 ) -> None:
-    with unit_of_work(session_factory) as session:
+    with attributed_unit_of_work(session_factory, FIXTURE_ACTOR) as session:
         prospect_id = add_prospect(session).id
 
     with pytest.raises(IntegrityError), unit_of_work(session_factory) as session:
@@ -418,13 +499,22 @@ def test_recent_activity_api_lists_events_newest_first(
     client: TestClient, db_session: Session
 ) -> None:
     prospect = add_prospect(db_session)
+    bind_operator(db_session)
     prospect_service.mark_do_not_contact(db_session, OPERATOR, prospect.id, reason="Opposition")
 
     events = client.get("/api/audit/recent", params={"limit": 2}).json()
 
-    assert [event["action"] for event in events] == ["prospect.do_not_contact.set", "auth.login"]
+    # The prospect itself was created by the test fixture.
+    assert [event["action"] for event in events] == [
+        "prospect.do_not_contact.set",
+        "prospect.created",
+    ]
     assert events[0]["actor"] == {"type": "human", "id": OPERATOR.id, "display": OPERATOR.display}
     assert events[0]["subject_id"] == str(prospect.id)
-    assert events[0]["context"] == {"source": "ui", "reason": "Opposition"}
+    assert events[0]["context"] == {
+        "source": "ui",
+        "request_id": REQUEST_ID,
+        "reason": "Opposition",
+    }
     for limit in (0, 101):
         assert client.get("/api/audit/recent", params={"limit": limit}).status_code == 422

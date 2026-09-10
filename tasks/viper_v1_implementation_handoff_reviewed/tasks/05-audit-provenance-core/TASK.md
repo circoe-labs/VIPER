@@ -128,6 +128,28 @@ docs `security-and-privacy.md`, `data-model.md`, `overview.md`, `agent-brief.md`
 - Core bulk statements, raw SQL and database-level cascades are not captured by the hook (documented; code using
   them must call `record_event`). Task 12 must write through the ORM and keep non-audited tables
   (`users`, `user_sessions`, `import_row_metadata`, status history, `audit_log`) read-only.
-- Writes in a session with neither binding nor annotation are not audited (CLI/jobs must bind — documented).
+- ~~Writes in a session with neither binding nor annotation are not audited~~ — superseded by the rework below:
+  such writes now fail.
 - Personal values in audit are full until the retention decision (open question #2); redaction of existing events
   would need a reviewed migration targeting `subject_id`.
+
+### Rework after orchestrator review (fail closed, decision I-31)
+
+- The flush hook now **raises `UnattributedMutationError`** when an audited row changes with neither an annotation
+  nor a bound actor; the flush fails and the transaction rolls back. Tables outside the audit are listed with their
+  reason in `NOT_AUDITED_TABLES` (`users`, `user_sessions`, `import_row_metadata`,
+  `contact_tracking_status_history`, `company_activity_categories`, `audit_log`); a test requires every ORM/database
+  table to be audited or listed.
+- Greppable binding for non-HTTP code: `audit.attributed_unit_of_work(session_factory, actor)`; `app/cli.py` and
+  `app/seed.py` use it. `audit.bind`/`bound` take an optional context (defaults from the actor type).
+- Tests: the `db_session` fixture binds `FIXTURE_ACTOR` (system actor for setup data); other test transactions use
+  `attributed_unit_of_work(..., FIXTURE_ACTOR)`; the unauthenticated test route in `test_transactions.py` binds
+  explicitly. `audit_events` leaves out fixture writes; a dedicated test shows they are attributed. New tests:
+  unattributed write raises and rolls back (update and create), unaudited tables accept unattributed writes, bound
+  system actor, annotation without binding, fixture attribution, table classification. DNC/API tests now bind the
+  operator like a signed-in request.
+- Docs: ADR-0006 (amended), `audit-and-provenance.md` ("bind an actor or your write fails"), decision log I-31,
+  security and testing pages.
+- `python scripts/verify.py --e2e` → all green: pytest **163 passed**, vitest 207 passed, Playwright 12 passed;
+  ruff/format/mypy/eslint/tsc/build OK. `python -m app.seed --db test` smoke: seeded rows audited by
+  `Suggestions VIPER` with `source=cli`.

@@ -7,6 +7,8 @@
   `doc/product/decision-log.md` (I-26 … I-30), ADR-0002 (append-only `audit_log`, actor snapshot),
   ADR-0004 (`require_session`, `CurrentActor`), migration `backend/migrations/versions/0004_audit_subject.py`
 - Number: 0005 is reserved by the Database Explorer branch (Task 11).
+- Amended: 2026-09-10 by the orchestrator review of Task 05 (decision I-31) — the hook **fails closed**: an audited
+  row changed without an actor raises instead of going unaudited.
 
 ## Context
 
@@ -43,8 +45,13 @@ Options considered for *where* events are produced:
   session (`session.info`). Any audited write in a signed-in request is therefore attributed to the server-side user,
   even a generic write that no service annotated. Routers override the source with
   `Depends(audit_source(AuditSource.DATABASE_EXPLORER))`. Imports bind the import actor with
-  `import_batches.importing(...)`; CLI/jobs call `audit.bound(...)`. A write with neither annotation nor binding (test
-  builders, raw maintenance) is not audited.
+  `import_batches.importing(...)`; CLI, seed, jobs and future agents open
+  `audit.attributed_unit_of_work(session_factory, actor)` (greppable; `audit.bound(...)` for a narrower block).
+- **Fail closed** (I-31): when a flush changes a row of an audited table and that row has neither an annotation nor
+  a bound actor, the hook raises `UnattributedMutationError`; the flush fails and the transaction rolls back. A
+  forgotten binding in a new CLI command, job, agent or generic write is a loud error in its first test, never a
+  silent audit gap. Tables deliberately outside the audit are listed with their reason in `NOT_AUDITED_TABLES`; a
+  test requires every table to be either audited or listed there.
 - **Exact "before" values**: every column of an audited model gets a no-op `set` listener with
   `active_history=True`, so SQLAlchemy loads the previous value when an unloaded attribute is replaced.
 - **Non-row events** (sign-in/out, account creation, bulk Core inserts such as the seed) use
@@ -52,8 +59,9 @@ Options considered for *where* events are produced:
 - **Subject columns** (`subject_type`, `subject_id`, migration 0004): `entity_*` is the changed row (an email),
   `subject_*` the record whose history shows it (the email's prospect). Task 19 reads a prospect's timeline — its
   emails, phones, tracking and sources included, even deleted ones — with one indexed query.
-- **Registry**: `AUDITED_ENTITIES` lists the audited ORM models with their entity type and subject. Login
-  accounts/sessions, `import_row_metadata`, status history and `audit_log` are deliberately absent.
+- **Registry**: `AUDITED_ENTITIES` lists the audited ORM models with their entity type and subject;
+  `NOT_AUDITED_TABLES` lists the others (login accounts/sessions, `import_row_metadata`, status history, the
+  company-category link table recorded on the company, `audit_log`) with the reason for each.
 - **Vocabulary**: actions are validated — the generic lifecycle actions of registered entities plus the short
   `AuditAction` list. Adding one is a reviewed code change.
 - **Payload policy** centralised in `app/core/audit_policy.py` and applied to every event at storage time (secrets
@@ -64,6 +72,8 @@ Options considered for *where* events are produced:
 - A new mutation service needs one line per changed row (`audit.annotate(...)`) and no diff code; forgetting it in
   a signed-in request still yields a generic event with the right actor. Database Explorer writes (Task 12) are
   audited as long as they go through the ORM, even without annotations.
+- Code that writes audited rows outside a request must attribute them, or it fails. Test setup follows the same
+  rule: the `db_session` fixture binds a `FIXTURE_ACTOR`, other test units of work use `attributed_unit_of_work`.
 - Events are atomic with the change: a rolled-back transaction leaves no event (tested).
 - **Core/bulk statements and raw SQL are invisible to the hook** (`session.execute(update(...))`, `insert(...)`):
   code using them must call `record_event` for the affected rows. Database-level `ON DELETE CASCADE` deletions are

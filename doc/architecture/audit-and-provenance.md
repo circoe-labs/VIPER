@@ -50,8 +50,8 @@ occurred_at)`.
 | `on_behalf_of` | import (future agents) | `{type, id, display}` of the human who confirmed the automated work |
 | `reason` | when given | Free-text justification, e.g. why a do-not-contact restriction was lifted. Never masked: write reasons without unnecessary personal detail |
 
-Without a binding (a service called outside a request), the source defaults from the actor type: human → `ui`,
-import → `import`, system → `cli`, agent → `agent`.
+When the session has no binding (an annotated write outside a request) or a binding was made without a context, the
+source defaults from the actor type: human → `ui`, import → `import`, system → `cli`, agent → `agent`.
 
 ### Actors
 
@@ -79,10 +79,15 @@ Small on purpose (Task 19: "no infinite event taxonomy"); the service rejects an
 | `role`, `commercial_segment`, `activity_category`, `internal_referent` | taxonomy/referent tables | itself |
 | `import_batch` | `import_batches` | itself |
 
-Not audited as rows: `users`, `user_sessions` (secrets — auth events instead), `import_row_metadata` (write-once
-import trace; legacy values must not be copied into an undeletable log), `contact_tracking_status_history` (derived
-history of an audited change) and `audit_log`. The Database Explorer (Task 12) must keep those tables read-only, or
-add them to the registry through a reviewed change.
+Not audited as rows — `NOT_AUDITED_TABLES`, each with its reason: `users`, `user_sessions` (secrets — auth events
+instead), `import_row_metadata` (write-once import trace; legacy values must not be copied into an undeletable log),
+`contact_tracking_status_history` (derived history of an audited change), `company_activity_categories` (recorded on
+the company as `activity_categories_ids`) and `audit_log`. A test requires every table to be audited or listed there.
+The Database Explorer (Task 12) must keep the unaudited tables read-only, or move them to the registry through a
+reviewed change.
+
+**Fail closed** (I-31): a flush that changes a row of an audited table with neither an annotation nor a bound actor
+raises `UnattributedMutationError` and the transaction rolls back.
 
 **Semantic actions** (`AuditAction`):
 
@@ -113,6 +118,9 @@ Audit payloads are never written to application logs (tested).
 
 ## How a mutation integrates — the recipe
 
+**Bind an actor or your write fails**: every change to an audited table needs an actor, from an annotation or from
+the session binding; otherwise the flush raises `UnattributedMutationError`.
+
 1. **Route**: include the router in `api_router`, declare `actor: CurrentActor` and pass it to the service. The
    request's session is already bound to the signed-in user (`source=ui`, `request_id`). A Database Explorer router
    adds `dependencies=[Depends(audit_source(AuditSource.DATABASE_EXPLORER))]`.
@@ -122,14 +130,18 @@ Audit payloads are never written to application logs (tested).
    insert `AuditLogEntry` rows yourself. Annotate only when you are about to change the row.
 3. **Bulk Core statements / raw SQL** are invisible to the flush hook: prefer the ORM; otherwise call
    `audit.record_event(...)` for each affected row (see `app/seed.py`).
-4. **Outside HTTP** (CLI, jobs): inside `unit_of_work`, wrap the work in
-   `audit.bound(session, actor, AuditContext(source=AuditSource.CLI))`. **Imports** use
+4. **Outside HTTP** (CLI, seed, jobs, future agents): open the transaction with
+   `audit.attributed_unit_of_work(session_factory, actor)` instead of `unit_of_work` — e.g.
+   `ActorContext(type=ActorType.SYSTEM, display="…", id="app.<command>")` as in `app/cli.py` and `app/seed.py`
+   (`audit.bound(session, actor)` narrows it to a block). **Imports** use
    `import_batches.importing(session, batch, confirmed_by=human)` and pass the yielded import actor to services.
-5. **New table**: add the model to `AUDITED_ENTITIES` (entity type + subject) or document why it is not audited;
-   add personal/secret/masked fields to the policy.
+5. **New table**: add the model to `AUDITED_ENTITIES` (entity type + subject) or to `NOT_AUDITED_TABLES` with the
+   reason (the classification test fails otherwise); add personal/secret/masked fields to the policy.
 6. **New semantic action**: add it to `AuditAction` and to the table above — sparingly; prefer the generic action.
-7. **Tests**: assert the event (action, actor, changes, context) with `tests.builders.audit_events`; a signed-in
-   `client` request is bound automatically, service tests can call `bind_operator(session)`.
+7. **Tests**: assert the event (action, actor, changes, context) with `tests.builders.audit_events`, which leaves
+   out setup writes. `db_session` is bound to `FIXTURE_ACTOR`; call `bind_operator(session)` to act as a signed-in
+   user; a signed-in `client` request is bound automatically; other test transactions use
+   `attributed_unit_of_work(session_factory, FIXTURE_ACTOR)`.
 
 ## Reads
 
@@ -177,7 +189,5 @@ start_batch(human)  ─► pending ── importing(batch, confirmed_by=human) �
 
 - Writes that bypass the ORM unit of work (Core bulk statements, raw SQL, `ON DELETE CASCADE`) are not captured
   automatically (see recipe step 3).
-- A write with neither an annotation nor a bound session is not audited: every HTTP request and import is bound;
-  CLI/jobs must bind.
 - Retention and erasure of audit events are undecided (open question #2): erasing a prospect keeps its events;
   redaction by `subject_id` needs an explicit, reviewed migration or maintenance role.

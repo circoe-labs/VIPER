@@ -18,6 +18,8 @@ from app.services import audit
 from app.services.audit import AuditContext, AuditSource
 
 OPERATOR = ActorContext(type=ActorType.HUMAN, display="Opératrice Test", id="test-user")
+# Attribution of test setup data written directly through the ORM (fixtures, builders).
+FIXTURE_ACTOR = ActorContext(type=ActorType.SYSTEM, display="Données de test", id="tests.fixtures")
 # Message of the `guard_do_not_contact` trigger when a generic write tries to reset the status.
 DNC_GUARD_MESSAGE = "is do_not_contact; use the clear operation"
 REQUEST_ID = "test-request"
@@ -31,8 +33,13 @@ def bind_operator(session: Session) -> None:
 def audit_events(
     session: Session, *, action: str | None = None, entity_type: str | None = None
 ) -> list[AuditLogEntry]:
-    """Audit entries, oldest first, optionally filtered."""
-    statement = select(AuditLogEntry).order_by(AuditLogEntry.occurred_at, AuditLogEntry.id)
+    """Audit entries of the code under test, oldest first: setup writes by `FIXTURE_ACTOR` are
+    left out (`test_fixture_writes_are_attributed_to_the_fixture_actor` covers them)."""
+    statement = (
+        select(AuditLogEntry)
+        .where(AuditLogEntry.actor_id.is_distinct_from(FIXTURE_ACTOR.id))
+        .order_by(AuditLogEntry.occurred_at, AuditLogEntry.id)
+    )
     if action is not None:
         statement = statement.where(AuditLogEntry.action == action)
     if entity_type is not None:

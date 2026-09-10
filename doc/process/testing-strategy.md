@@ -51,7 +51,10 @@
   rollback removes events, `GET /api/audit/recent`), `test_audit_payload.py` (JSON-safe values, diff, payload
   policy), `test_provenance.py` (sources, import batch lifecycle with the import actor, failed import after
   rollback); the existing contactability, company-change, contact-tracking, auth, CLI and seed tests assert their
-  audit events. Helpers: `audit_events(session, action=, entity_type=)` and `bind_operator(session)` in
+  audit events; unattributed writes to audited tables fail and roll back, and every table must be classified audited
+  or not. The `db_session` fixture binds `FIXTURE_ACTOR` (setup data is attributed, never silent); other test
+  transactions use `attributed_unit_of_work(session_factory, FIXTURE_ACTOR)`. Helpers:
+  `audit_events(session, action=, entity_type=)` (leaves out fixture writes) and `bind_operator(session)` in
   `tests/builders.py`.
 - Full-stack E2E (Task 04): `npm run e2e` starts the real backend (uvicorn, port 8044, database `viper_e2e`) and a
   Vite dev server (port 5180) proxying to it; global setup rebuilds `viper_e2e` through the migrations and creates the
