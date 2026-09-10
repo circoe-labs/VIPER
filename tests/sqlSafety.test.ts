@@ -1,0 +1,2 @@
+import{describe,it,expect}from'vitest';import{isReadOnlySql}from'../src/server/sqlSafety.js';
+describe('read-only SQL',()=>{it('accepts select and safe pragma',()=>{expect(isReadOnlySql('SELECT * FROM prospects')).toBe(true);expect(isReadOnlySql('PRAGMA table_info(prospects)')).toBe(true)});it('rejects mutation and disguised write',()=>{for(const q of ['DELETE FROM prospects','UPDATE prospects SET last_name=\'x\'','DROP TABLE prospects','WITH x AS (SELECT 1) DELETE FROM prospects'])expect(isReadOnlySql(q)).toBe(false)})});

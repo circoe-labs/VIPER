@@ -1,0 +1,23 @@
+# VIPER V1 task status — GPT implementation
+
+- [x] 00 orchestration / public-source safety
+- [x] 01 foundation stack / CI baseline
+- [x] 02 Neon Command design / accepted VIPER assets
+- [x] 03 relational schema / migrations
+- [x] 04 single-user auth / actor context
+- [x] 05 audit / provenance core
+- [x] 06 settings taxonomies / referents
+- [x] 07 company editor / establishments
+- [x] 08 deterministic Excel parser / diagnostics
+- [x] 09 import preview / correction / exclusion / dedup / transactional commit
+- [x] 10 normalized Excel export
+- [x] 11 Database Explorer read / metadata / grid
+- [x] 12 staged Database Explorer edits (advanced DBeaver ergonomics remain a hardening enhancement)
+- [x] 13 backend-enforced read-only SQL
+- [x] 14 Prospection workspace
+- [x] 15 prospect editor / aliases / verification / Save & Next
+- [x] 16 Home dashboard
+- [x] 17 global search
+- [x] 18 Exploitation placeholder
+- [x] 19 visible audit/provenance
+- [~] 20 hardening — static checks + SQLite migration check complete; full dependency install/test/build blocked by unavailable npm registry in this runtime

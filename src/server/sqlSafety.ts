@@ -1,0 +1,1 @@
+export function isReadOnlySql(input:string){const q=input.trim().replace(/;\s*$/,'');if(!/^(select|with|pragma\s+(table_info|foreign_key_list|index_list)\b)/i.test(q))return false;return !/\b(insert|update|delete|drop|alter|create|replace|attach|detach|vacuum|reindex)\b/i.test(q);}
