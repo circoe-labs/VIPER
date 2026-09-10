@@ -93,7 +93,8 @@ Common props: `hint`, `error`, `required`, `disabled`, `placeholder`, `allowCrea
 - Active values only; an **inactive value appears only while it is selected** (marked *Inactif*). Typing the exact label
   of an inactive value explains that it exists but is deactivated (reactivate it in Paramètres).
 - **Inline creation** — the grill's "inline extensibility from forms": when no value carries the typed text, the last
-  option is *Créer « … »*. It calls the same audited `POST /api/settings/…` as the Settings page, adds the new value to
+  option is *Créer « … »* — once the list has loaded (while it loads, Enter could create a value that already
+  exists, I-82). It calls the same audited `POST /api/settings/…` as the Settings page, adds the new value to
   the cached list and selects it; a refusal (e.g. a duplicate created meanwhile) is shown under the field. For
   referents the text is split on its first space (`Jean-Marc De La Test` → first name `Jean-Marc`, last name
   `De La Test`); a single word is refused with a hint. The e-mail can be added later in Paramètres.

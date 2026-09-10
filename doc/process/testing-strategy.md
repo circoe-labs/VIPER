@@ -60,15 +60,29 @@
   Vite dev server (port 5180) proxying to it; global setup rebuilds `viper_e2e` through the migrations and creates the
   E2E account with the real CLI and a random password. `auth.spec.ts` covers sign-in failure/success, reload, sign-out
   (server-side revocation), deep link and the cookie flags; the shell/design specs sign in through the API first.
-  **All specs share the one E2E database, in a single Playwright project and in any order** (decision I-80): a spec
-  that writes uses its own invented rows (names ending in `E2E`, or a synthetic row it owns), and no spec asserts a
-  global row count another spec can change — assert on known synthetic rows, on filters (e.g. audit events of the
-  dataset loader, `actor_id = tests.e2e_data`), or on a count read from the API first.
+  **Specs own their data; never assert global counts** (decisions I-80, I-81). All tests share the one E2E
+  database, in a single Playwright project, `fullyParallel` with the default workers — every test alongside any
+  other, in any order, repeatable (`--repeat-each`). Rules for every spec:
+  - the synthetic dataset loaded by global setup is read-only: an edit of one of its rows may be staged, then must
+    be cancelled or refused, never saved;
+  - a test that writes creates its own rows (through the UI, an import of its own synthetic workbook, or the audited
+    API with `createCompany` / `createReferent` from `e2e/data.ts`), with invented names carrying a run-unique suffix
+    — `uniqueSuffix()` (and `syntheticSiren`/`syntheticSiret` for identifiers), or a random hex one where the app
+    compares names by similarity (`import.spec.ts`) — and reaches them by a filter or a search, never by "the first
+    row" or a name another test could also create;
+  - exact counts and orders are asserted only on owned rows or on synthetic subsets no test changes, pinned by a
+    marker of the synthetic dataset that created rows cannot carry (its `societeN.example.com` e-mail domains, the
+    loader's audit events `actor_id = tests.e2e_data`) — a name filter alone is not enough (`Fret Import …` also
+    contains « fret »); a whole-table count is compared with the API answer the page displays (the captured
+    response), never with a number known in advance or read at another moment (a count read first and compared
+    later still races with concurrent inserts);
+  - rows added by tests come after the synthetic ones in the default primary-key order (UUIDv7), so the first
+    synthetic rows of a page stay in place.
 - Design system (Task 02): `src/theme/tokens.test.ts` parses `tokens.css` and asserts WCAG contrast of the key
   token pairs in both themes (text ≥ 4.5:1, focus/field boundaries ≥ 3:1) and that no raw colour literal exists
   outside the token file; `src/brand/assets.test.ts` decodes the six logo PNGs (RGBA, transparent edge, real
   artwork); primitives have accessibility tests (labels, descriptions, `aria-invalid`, dialog focus trap / Esc /
-  focus restore, badges never colour-only). `e2e/design.spec.ts` renders the shell in dark and light at 1440×900,
+  focus restore / focus kept when the focused control is disabled or removed, badges never colour-only). `e2e/design.spec.ts` renders the shell in dark and light at 1440×900,
   checks persistence, logo transparency on a canvas, Inter loading, favicons and no overflow at 1280 px.
 - Database Explorer staged editing and SQL console (Tasks 12/13): `test_explorer_writes.py`,
   `test_explorer_editability.py` (policy, change sets, French errors, delete diagnostics, audit) and

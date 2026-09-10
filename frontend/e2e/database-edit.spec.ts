@@ -1,10 +1,11 @@
 import { expect, type Page, test } from '@playwright/test'
 
+import { createCompany, createReferent, uniqueSuffix } from './data'
 import { openDatabase, SCREENSHOTS, useTheme } from './helpers'
 import { signIn } from './session'
 
-// Staged editing against the synthetic dataset. Only tables that no other spec counts are changed (internal
-// referents, activity categories), so specs stay independent.
+// Staged editing against the synthetic dataset, which stays read-only: edits of its rows are only staged, then
+// cancelled or refused. Every saved change targets a row the test created itself (data.ts), shown through a filter.
 
 test.use({ viewport: { width: 1440, height: 900 } })
 
@@ -14,6 +15,13 @@ test.beforeEach(async ({ page }) => {
 
 function grid(page: Page, table: string) {
   return page.getByRole('grid', { name: `Lignes de ${table}` })
+}
+
+// The explorer on `table`, filtered on `column` (URL view state, as a shared link would open it).
+async function openFiltered(page: Page, table: string, column: string, operator: 'eq' | 'contains', value: string) {
+  const filters = encodeURIComponent(JSON.stringify([{ column, operator, value }]))
+  await page.goto(`/database/${table}?filters=${filters}`)
+  await expect(page.getByRole('heading', { level: 1, name: 'Base de données' })).toBeVisible()
 }
 
 function pendingBar(page: Page) {
@@ -42,18 +50,23 @@ test('an edit stays pending until saved, and Cancel restores the original value'
 })
 
 test('a saved edit is persisted and recorded in the audit log', async ({ page }) => {
-  await openDatabase(page, 'internal_referents')
-  await editCell(page, 'internal_referents', 'Référente', 'last_name', 'Référente-Test')
+  const suffix = uniqueSuffix()
+  const lastName = `Témoin E2E ${suffix}`
+  const edited = `Témoin modifié E2E ${suffix}`
+  await createReferent(page, { first_name: 'Dominique', last_name: lastName, email: null })
+  // Filtered on the suffix, so the row stays in view once renamed.
+  await openFiltered(page, 'internal_referents', 'last_name', 'contains', suffix)
+  await editCell(page, 'internal_referents', lastName, 'last_name', edited)
   await pendingBar(page).getByRole('button', { name: 'Enregistrer' }).click()
   await expect(pendingBar(page)).toBeHidden()
 
   await page.reload()
-  await expect(grid(page, 'internal_referents').getByRole('gridcell', { name: 'Référente-Test', exact: true })).toBeVisible()
+  await expect(grid(page, 'internal_referents').getByRole('gridcell', { name: edited, exact: true })).toBeVisible()
 
   const updates = encodeURIComponent(
     JSON.stringify([
       { column: 'action', operator: 'eq', value: 'internal_referent.updated' },
-      { column: 'changes', operator: 'contains', value: 'Référente-Test' },
+      { column: 'changes', operator: 'contains', value: edited },
     ]),
   )
   await page.goto(`/database/audit_log?filters=${updates}`)
@@ -62,7 +75,7 @@ test('a saved edit is persisted and recorded in the audit log', async ({ page })
   const event = events.locator('tbody tr').first()
   await expect(event).toContainText('Pilote E2E')
   await expect(event).toContainText('database_explorer')
-  await expect(event).toContainText('Référente-Test')
+  await expect(event).toContainText(edited)
 })
 
 test('leaving the table with pending changes asks first', async ({ page }) => {
@@ -84,21 +97,24 @@ test('leaving the table with pending changes asks first', async ({ page }) => {
 })
 
 test('add a row, save it, then delete it after the confirmation', async ({ page }) => {
-  await openDatabase(page, 'activity_categories')
+  const suffix = uniqueSuffix()
+  const name = `Catégorie E2E ${suffix}`
+  // Only this test's categories are in view: the new row, once saved, matches the filter.
+  await openFiltered(page, 'activity_categories', 'label', 'contains', suffix)
   const categories = grid(page, 'activity_categories')
 
   await page.getByRole('button', { name: 'Ajouter une ligne' }).click()
   const label = page.getByRole('textbox', { name: 'Nouvelle valeur de label' })
-  await label.fill('Catégorie E2E')
+  await label.fill(name)
   await label.press('Tab')
   await page.keyboard.press('Enter')
   const slug = page.getByRole('textbox', { name: 'Nouvelle valeur de slug' })
-  await slug.fill('categorie-e2e')
+  await slug.fill(`categorie-e2e-${suffix}`)
   await slug.press('Enter')
   await expect(pendingBar(page)).toContainText('1 ligne ajoutée')
   await pendingBar(page).getByRole('button', { name: 'Enregistrer' }).click()
   await expect(pendingBar(page)).toBeHidden()
-  const created = categories.getByRole('gridcell', { name: 'Catégorie E2E', exact: true })
+  const created = categories.getByRole('gridcell', { name, exact: true })
   await expect(created).toBeVisible()
 
   await created.click({ button: 'right' })
@@ -110,7 +126,7 @@ test('add a row, save it, then delete it after the confirmation', async ({ page 
   await expect(created.locator('xpath=ancestor::tr')).toHaveAttribute('data-status', 'deleted')
   await pendingBar(page).getByRole('button', { name: 'Enregistrer' }).click()
   await expect(pendingBar(page)).toBeHidden()
-  await expect(categories.getByRole('gridcell', { name: 'Catégorie E2E', exact: true })).toHaveCount(0)
+  await expect(categories.getByRole('gridcell', { name, exact: true })).toHaveCount(0)
 })
 
 test('a prospect deletion lists its cascades and a used company cannot be deleted', async ({ page }) => {
@@ -133,19 +149,23 @@ test('a prospect deletion lists its cascades and a used company cannot be delete
 })
 
 test('a company row opens in the Company editor and the grid shows the saved value', async ({ page }) => {
-  await openDatabase(page, 'companies')
+  const suffix = uniqueSuffix()
+  const name = `Entreprise explorateur E2E ${suffix}`
+  const size = `Taille E2E ${suffix}`
+  await createCompany(page, { display_name: name })
+  await openFiltered(page, 'companies', 'display_name', 'eq', name)
   const companies = grid(page, 'companies')
-  await companies.getByRole('gridcell', { name: 'Transports Exemple SARL' }).click({ button: 'right' })
+  await companies.getByRole('gridcell', { name, exact: true }).click({ button: 'right' })
   await page.getByRole('menuitem', { name: 'Ouvrir dans l’éditeur' }).click()
 
-  const editor = page.getByRole('dialog', { name: 'Transports Exemple SARL' })
-  await editor.getByRole('textbox', { name: 'Taille' }).fill('Taille E2E')
+  const editor = page.getByRole('dialog', { name })
+  await editor.getByRole('textbox', { name: 'Taille' }).fill(size)
   await editor.getByRole('button', { name: 'Enregistrer' }).click()
   await expect(page.getByRole('status').filter({ hasText: 'Entreprise enregistrée.' })).toBeVisible()
   await editor.getByRole('button', { name: 'Fermer' }).first().click()
   await expect(editor).toBeHidden()
 
-  await expect(companies.getByRole('gridcell', { name: 'Taille E2E', exact: true })).toBeVisible()
+  await expect(companies.getByRole('gridcell', { name: size, exact: true })).toBeVisible()
 })
 
 for (const theme of ['dark', 'light'] as const) {

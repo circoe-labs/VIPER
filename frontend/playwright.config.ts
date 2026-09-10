@@ -12,7 +12,9 @@ export default defineConfig({
   reporter: 'list',
   globalSetup: './e2e/global-setup.ts',
   use: { baseURL: BASE_URL, trace: 'retain-on-failure' },
-  // One project, any order: specs share the database but never assert global row counts that others change.
+  // Every test runs on its own, in any order and alongside any other, on the one shared database: the synthetic
+  // dataset is read-only and each test writes only rows it owns (e2e/data.ts, decision I-81).
+  fullyParallel: true,
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: [
     {

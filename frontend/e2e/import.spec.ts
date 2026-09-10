@@ -9,7 +9,9 @@ import { signIn } from './session'
 
 // Excel import review and commit (Task 09) against the real backend. The workbook is synthetic, generated in memory
 // by the backend fixture (tests/fixtures/synthetic/legacy_workbook.py: the legacy layout with an `actualité` sheet);
-// every name carries a per-run suffix, so the spec owns its rows in the shared E2E database (I-80).
+// every name carries a random suffix drawn by the test, so each test owns its rows in the shared E2E database
+// (I-81). A random hex suffix rather than `uniqueSuffix()`: the import compares company names by similarity, and
+// suffixes from one worker differ only in their last digits.
 
 test.use({ viewport: { width: 1440, height: 900 } })
 

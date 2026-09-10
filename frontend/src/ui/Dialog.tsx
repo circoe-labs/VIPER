@@ -26,6 +26,9 @@ interface DialogProps {
   children: ReactNode
 }
 
+// Open dialogs, the last opened on top (a dialog opened from inside another one opens after it).
+const openDialogs: HTMLElement[] = []
+
 export type ModalProps = DialogProps & { size?: 'sm' | 'md' | 'lg' }
 export type DrawerProps = DialogProps & { size?: 'md' | 'lg' | 'xl' }
 
@@ -52,6 +55,10 @@ function OpenDialog({
   const dialogRef = useRef<HTMLDivElement>(null)
   const titleId = useId()
   const descriptionId = useId()
+  const onCloseRef = useRef(onClose)
+  useEffect(() => {
+    onCloseRef.current = onClose
+  })
 
   useEffect(() => {
     const previouslyFocused = document.activeElement
@@ -63,6 +70,33 @@ function OpenDialog({
       if (previouslyFocused instanceof HTMLElement && previouslyFocused.isConnected) previouslyFocused.focus()
     }
   }, [initialFocusRef])
+
+  // Focus must stay inside the top dialog. A focused control that gets disabled (a save button while saving) or
+  // removed drops it to <body>, where neither Esc nor the Tab trap reach the dialog: the dialog takes it back. Should
+  // focus still end up outside every dialog, Esc closes the top one.
+  useEffect(() => {
+    const dialog = dialogRef.current
+    if (!dialog) return
+    openDialogs.push(dialog)
+    const isTop = () => openDialogs.at(-1) === dialog
+    const observer = new MutationObserver(() => {
+      const active = document.activeElement
+      const lost = active === null || active === document.body || (dialog.contains(active) && active.matches(':disabled'))
+      if (lost && isTop()) dialog.focus()
+    })
+    observer.observe(dialog, { subtree: true, childList: true, attributes: true, attributeFilter: ['disabled'] })
+    function closeOnStrayEscape(event: globalThis.KeyboardEvent) {
+      const target = event.target instanceof Node ? event.target : null
+      const outside = !openDialogs.some((open) => open.contains(target))
+      if (event.key === 'Escape' && !event.defaultPrevented && outside && isTop()) onCloseRef.current()
+    }
+    document.addEventListener('keydown', closeOnStrayEscape)
+    return () => {
+      observer.disconnect()
+      document.removeEventListener('keydown', closeOnStrayEscape)
+      openDialogs.splice(openDialogs.indexOf(dialog), 1)
+    }
+  }, [])
 
   // Events stop here so a dialog opened from inside another one (portal events bubble through React) closes alone.
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {

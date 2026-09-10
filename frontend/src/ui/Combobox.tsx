@@ -69,7 +69,8 @@ export function Combobox(props: ComboboxProps) {
   const hiddenInactive = same?.inactive && !selectedIds.includes(same.id) ? same : undefined
   const refusal = create && typed && !same ? (create.refuse?.(typed) ?? null) : null
   const items: Item[] = offered.map((option) => ({ kind: 'option', option }))
-  if (create && typed && !same && !refusal) items.push({ kind: 'create', text: typed })
+  // Only once the list is known: while it loads, Enter would create a value that may already exist.
+  if (create && typed && !same && !refusal && status === 'ready') items.push({ kind: 'create', text: typed })
   const active = Math.min(activeIndex, items.length - 1)
 
   const selectedLabel = props.multiple || !props.value ? '' : (byId.get(props.value)?.label ?? '')

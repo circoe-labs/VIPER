@@ -3,9 +3,11 @@ import { expect, type Page, test } from '@playwright/test'
 import { openDatabase, SCREENSHOTS, useTheme } from './helpers'
 import { signIn } from './session'
 
-// Runs against the synthetic dataset loaded by global setup (backend/tests/fixtures/synthetic/explorer_dataset.py).
-// Other specs add rows (companies, referents, audit events): assertions rely on known synthetic rows and on counts
-// read from the API, never on global row counts.
+// Runs against the synthetic dataset loaded by global setup (backend/tests/fixtures/synthetic/explorer_dataset.py),
+// read-only for every spec. Other tests add rows at the same time (companies, referents, audit events), after the
+// synthetic ones in primary-key order: exact counts and orderings are asserted on synthetic subsets picked by a filter
+// or a search; the count of a whole table is compared with the API answer the page displays, never with a number
+// known in advance or read at another moment.
 
 test.use({ viewport: { width: 1440, height: 900 } })
 
@@ -23,43 +25,70 @@ function status(page: Page) {
 
 const COUNT = new Intl.NumberFormat('fr-FR')
 
-// Current number of rows of a table, as the explorer API reports it.
-async function rowCount(page: Page, table: string): Promise<number> {
-  const response = await page.request.get(`/api/explorer/tables/${table}`)
-  expect(response.ok()).toBe(true)
-  const body = (await response.json()) as { row_count: number }
-  return body.row_count
-}
-
-// "(filtrées parmi N)" with any N: the total depends on what other specs created.
+// "(filtrées parmi N)" with any N: the total depends on what other tests created.
 const AMONG_ALL = String.raw`\(filtrées parmi [\d\s\u202f]+\)`
 
-test('pick a table, sort, filter and read a long value', async ({ page }) => {
-  await openDatabase(page)
-  const rail = page.getByRole('navigation', { name: 'Tables' })
-  const total = COUNT.format(await rowCount(page, 'companies'))
-  await expect(rail.getByRole('link', { name: /^companies/ })).toContainText(total)
+// The JSON answer to the GET of `path` (any query string) that `action` makes the page send: what it then displays.
+async function answer<T>(page: Page, path: string, action: () => Promise<unknown>): Promise<T> {
+  const [response] = await Promise.all([
+    page.waitForResponse((candidate) => candidate.request().method() === 'GET' && new URL(candidate.url()).pathname === path),
+    action(),
+  ])
+  expect(response.ok()).toBe(true)
+  return (await response.json()) as T
+}
 
-  await rail.getByRole('link', { name: /^companies/ }).click()
+interface RowPage {
+  total: number
+  rows: unknown[]
+}
+
+// Adds a column filter through the column header's filter editor.
+async function addFilter(page: Page, table: string, column: string, operator: 'contains' | 'starts_with', value: string) {
+  await grid(page, table).getByRole('button', { name: `Filtrer ${column}` }).click()
+  const editor = page.getByRole('dialog', { name: `Filtrer ${column}` })
+  await editor.getByLabel('Condition').selectOption(operator)
+  await editor.getByLabel('Valeur').fill(value)
+  await editor.getByRole('button', { name: 'Ajouter le filtre' }).click()
+}
+
+// Status line of the first page of `answer`.
+function range({ total, rows }: RowPage): string {
+  return `Lignes 1–${COUNT.format(rows.length)} sur ${COUNT.format(total)}`
+}
+
+test('pick a table, filter, sort and read a long value', async ({ page }) => {
+  const tables = await answer<{ name: string; row_count: number }[]>(page, '/api/explorer/tables', () => openDatabase(page))
+  const rail = page.getByRole('navigation', { name: 'Tables' })
+  const listed = tables.find((table) => table.name === 'companies')
+  await expect(rail.getByRole('link', { name: /^companies/ })).toContainText(COUNT.format(listed?.row_count ?? -1))
+
+  const rowsPath = '/api/explorer/tables/companies/rows'
+  const firstPage = await answer<RowPage>(page, rowsPath, () => rail.getByRole('link', { name: /^companies/ }).click())
   const companies = grid(page, 'companies')
   await expect(companies.getByRole('gridcell', { name: 'Transports Exemple SARL' })).toBeVisible()
-  await expect(status(page)).toHaveText(`Lignes 1–${total} sur ${total}`)
+  await expect(status(page)).toHaveText(range(firstPage))
+
+  // The six synthetic "Fret …" companies: other tests may create companies named "Fret …" too, so the second filter
+  // keeps the synthetic dataset only (its e-mail domains).
+  await addFilter(page, 'companies', 'display_name', 'contains', 'fret')
+  await addFilter(page, 'companies', 'email_domain', 'starts_with', 'societe')
+  const criteria = page.getByRole('group', { name: 'Critères actifs' })
+  await expect(criteria).toContainText('display_name contient « fret »')
+  await expect(criteria).toContainText('email_domain commence par « societe »')
+  await expect(status(page)).toHaveText(new RegExp(`^Lignes 1–6 sur 6 ${AMONG_ALL}$`))
 
   await companies.getByRole('button', { name: 'display_name, non trié' }).click()
   await expect(page).toHaveURL(/sort=display_name/)
-  await expect(companies.locator('tbody tr').first()).toContainText('Affrètement Démo SA')
+  const sorted = ['Fret Démo SAS', 'Fret Essai SAS', 'Fret Exemple SAS', 'Fret Fictif SAS', 'Fret Modèle SAS', 'Fret Test SAS']
+  const rows = companies.locator('tbody tr')
+  await expect(rows).toHaveCount(sorted.length)
+  for (const [index, name] of sorted.entries()) {
+    await expect(rows.nth(index).getByRole('gridcell', { name, exact: true })).toBeVisible()
+  }
 
-  await companies.getByRole('button', { name: 'Filtrer display_name' }).click()
-  const editor = page.getByRole('dialog', { name: 'Filtrer display_name' })
-  await editor.getByLabel('Condition').selectOption('contains')
-  await editor.getByLabel('Valeur').fill('fret')
-  await editor.getByRole('button', { name: 'Ajouter le filtre' }).click()
-  await expect(page.getByRole('group', { name: 'Critères actifs' })).toContainText('display_name contient « fret »')
-  // The six synthetic "Fret …" companies.
-  await expect(status(page)).toHaveText(new RegExp(`^Lignes 1–6 sur 6 ${AMONG_ALL}$`))
-
-  await page.getByRole('button', { name: 'Effacer les filtres' }).click()
-  await expect(status(page)).toHaveText(`Lignes 1–${total} sur ${total}`)
+  const cleared = await answer<RowPage>(page, rowsPath, () => page.getByRole('button', { name: 'Effacer les filtres' }).click())
+  await expect(status(page)).toHaveText(range(cleared))
 
   // Global search reaches long text columns too.
   await page.getByRole('searchbox', { name: 'Rechercher dans companies' }).fill('PARAGRAPHE fictif 8')
