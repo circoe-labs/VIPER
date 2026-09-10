@@ -91,6 +91,8 @@ class AuditAction(StrEnum):
     AUTH_PASSWORD_RESET = "auth.password_reset"
     # A query of the read-only SQL console: hash and length of the text, never the text (I-67).
     EXPLORER_SQL_EXECUTED = "explorer.sql_executed"
+    # A downloaded Excel export (Task 10): rows per sheet and size, never a value.
+    EXPORT_GENERATED = "export.generated"
 
 
 @dataclass(frozen=True, slots=True)

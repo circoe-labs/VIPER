@@ -77,7 +77,7 @@ Export is rebuilt from the normalized DB and must correct legacy semantic mistak
 - export primary email/phone in compatibility columns and define a deterministic way to include aliases (additional alias sheet or explicit extra columns);
 - preserve relevant opaque legacy metadata without silently dropping it.
 
-The grill established a **priority order** rather than a final immutable column list: Referent first, then company/contact-planning context, communication/classification, identity/role, then tracking/outcome fields. Because verification/status fields were added later and legacy booleans were consolidated, exact final ordering remains configurable in one centralized export specification.
+The grill established a **priority order** rather than a final immutable column list: Referent first, then company/contact-planning context, communication/classification, identity/role, then tracking/outcome fields. Because verification/status fields were added later and legacy booleans were consolidated, exact final ordering remains configurable in one centralized export specification. The shipped default order, sheets and alias shape: [Export — as implemented](#export--as-implemented-task-10).
 
 ## Round-trip meaning
 
@@ -469,3 +469,138 @@ Commit: 328 rows imported, 11 excluded, 324 prospects, 247 companies, 233 e-mail
 metadata, 0 contact tracking (weeks left without year, no referent recognised); invariants checked (no opposition
 touched, every row imported or excluded, one row metadata and one source per imported row, channels imported and
 unverified, no employment verified).
+
+---
+
+## Export — as implemented (Task 10)
+
+Design: [ADR-0013](../adr/0013-normalized-excel-export.md); decisions I-83 … I-89. Code:
+`backend/app/services/exports/` (`spec.py` — the **only** module knowing the layout —, `projection.py`,
+`workbook.py`), `backend/app/services/excel_export.py`, `backend/app/api/routes/exports.py`,
+`frontend/src/exports/ExportWorkbookButton.tsx`.
+
+### Download
+
+« Exporter Excel » (`ExportWorkbookButton`, in the headers of `/prospection/companies` and `/prospection/import`;
+Task 14 reuses it in the Prospection header) calls `GET /api/exports/workbook`: the **whole database**, no filter,
+generated in memory and downloaded as `VIPER_export_YYYY-MM-DD.xlsx` (date in Europe/Paris). The button shows
+« Export en cours… » while the server builds the file and « L’export Excel a échoué. Réessayez. » on failure. The
+route requires the session (a GET: no CSRF token, no domain write), answers `Cache-Control: no-store`, stores nothing
+and records one audit event `export.generated` (signed-in user, `source=ui`; changes = rows per sheet
+`<sheet>_rows` and `size_bytes`, never a value). Without a session: 401.
+
+### Workbook
+
+Seven sheets, in this order. Every sheet: bold header row, frozen panes under it, autofilter over the data, column
+widths from the specification. Row order is deterministic (texts compared folded — case, accents, punctuation
+ignored — and the id as last tie-breaker).
+
+| Sheet | One row per | Order |
+|---|---|---|
+| `Prospects` | prospect | company name, last name, first name (prospects without company last) |
+| `Entreprises` | company (with or without prospects) | name |
+| `Établissements` | establishment | company, primary first, then oldest |
+| `E-mails` | e-mail address (active or not) | prospect order, primary first, active first, address |
+| `Téléphones` | phone number (active or not) | prospect order, primary first, active first, number |
+| `Provenance` | provenance source | prospect order, oldest first |
+| `Données d'origine` | preserved legacy value of an imported row | import, sheet, source row, source column, key |
+
+**Default column order of `Prospects`** (grill section C priorities; change it in `spec.py` only, no migration):
+
+| # | Header | Content | Cell |
+|---|---|---|---|
+| 1 | Référent | internal referent of the contact tracking, `Prénom Nom` — **never** a legacy marker, note, week or e-mail | text |
+| 2 | Date de contact prévue | planned contact | date |
+| 3 | Semaine | ISO week of that date, `S37 2026` (week-numbering year) | text |
+| 4 | Entreprise | company display name | text |
+| 5 | Segment commercial | | text |
+| 6 | Catégories d'activité | labels joined by `; `, alphabetical | text |
+| 7 | Civilité | `M.` / `Mme` | text |
+| 8–9 | Nom · Prénom | | text |
+| 10 | Rôle | normalized role | text |
+| 11 | Intitulé exact | exact job title (legacy `Fonction`) | text |
+| 12 | Statut activité | `Actif` / `Inactif` / `Inconnu` | text |
+| 13 | Date de vérification | employment verification date (blank = never verified) | date |
+| 14 | E-mail | **primary** e-mail (compatibility column) | text |
+| 15 | Téléphone | **primary** phone (compatibility column) | code |
+| 16 | Type de téléphone | `Mobile` / `Fixe` / `Autre` | text |
+| 17–19 | Adresse · Code postal · Ville | primary establishment of the company (address lines joined by `, `) | text · code · text |
+| 20 | SIREN | | code |
+| 21–22 | Site web · Domaine e-mail | | text |
+| 23–26 | Projet déjà réalisé avec l'entreprise · Type de projet · Références Circoe · Approche client | company Circoe context | text |
+| 27 | Suivi de contact | one status label: `À contacter`, `Contacté`, `Relance 1`, `Relance 2`, `Réponse reçue`, `RDV obtenu`, `Devis envoyé`, `Suivi du devis`, `Gagné`, `Non intéressé`; blank without tracking | text |
+| 28 | Statut depuis le | when the current status was reached (latest status-history row) | date |
+| 29 | Date de réponse | | date |
+| 30 | Date de rendez-vous | date and time (shown as a date when at midnight) | date/time |
+| 31 | Ne pas contacter | `Oui` / `Non` — the durable opposition, **distinct** from `Non intéressé` | text |
+| 32–33 | Date d'opposition · Motif d'opposition | | date · text |
+| 34–36 | Origine · Collecté le · Base légale ou contexte de collecte | the prospect's **oldest** source (all of them in `Provenance`) | text · date · text |
+| 37 | ID VIPER | prospect id — key of `E-mails`, `Téléphones`, `Provenance`, `Données d'origine` | code |
+| 38 | ID entreprise | company id — key of `Entreprises`, `Établissements` | code |
+
+The five legacy stage booleans are not exported (the status and its dates replace them).
+
+**Other sheets** (each starts with its key, then readable names):
+
+- `Entreprises`: ID entreprise, Entreprise, Raison sociale, SIREN, Segment commercial, Catégories d'activité,
+  Taille, Site web, Domaine e-mail, Adresse, Code postal, Ville, Pays (primary establishment), Établissements (count),
+  Prospects (count), the four Circoe context texts.
+- `Établissements`: ID entreprise, Entreprise, Établissement, Principal, Type, SIRET, Adresse ligne 1, Adresse
+  ligne 2, Code postal, Ville, Pays, ID établissement.
+- `E-mails`: ID VIPER, Nom, Prénom, Entreprise, E-mail, Principal, Actif, Vérification (`Non vérifié`, `Vérifié`,
+  `Invalide`, `Inconnu`), Vérifié le, Origine (`Import`, `Saisie manuelle`, `Source publique`, `Déduction`, `Autre`),
+  Référence de la source.
+- `Téléphones`: the same, with Numéro and Type after the names.
+- `Provenance`: ID VIPER, Nom, Prénom, Entreprise, Origine (`Import Excel`, `Saisie manuelle`, `Agent`, `Autre`),
+  Collecté le, Base légale ou contexte de collecte, Référence de la source, Fichier importé, Enregistré par, Notes.
+- `Données d'origine`: ID VIPER, Nom, Prénom, Fichier importé, Importé le, Feuille, Ligne, Colonne, En-tête
+  d'origine, Champ (the metadata key, e.g. `contact_mode`, `referent`, `column_X`), Valeur d'origine (as stored:
+  text, number or boolean), Motif (`Conservée telle quelle`, `Colonne non reconnue`, `Non reprise telle quelle`,
+  `Valeur d'origine, corrigée`).
+
+### Alias policy (open question #7, resolved)
+
+The main sheet carries the **primary** e-mail and phone only (compatibility columns; blank when the prospect has no
+primary). **Every** e-mail and phone record — primary or not, active or former — is one row of `E-mails` /
+`Téléphones` with its primary/active flags, verification status and date, origin and source reference, keyed by
+`ID VIPER`. The shape never depends on the data (no `E-mail 2`, `E-mail 3` columns).
+
+### Legacy metadata policy
+
+Every key of every `import_row_metadata.legacy_metadata` becomes one row of `Données d'origine`, with the batch file,
+import date, source sheet, row and column, the original header, the raw value and the reason — so the sheet has
+exactly as many data rows as stored legacy entries (the private check compares both). Rows of a prospect deleted
+since the import are gone with it (`ON DELETE CASCADE`); a value stored in another shape is exported as its JSON text.
+`Mode de contact` and the second `A contacter` therefore appear there, never as a segment or a status.
+
+### Cell types and safety
+
+- Dates are real Excel dates on the Europe/Paris calendar (`dd/mm/yyyy`; `dd/mm/yyyy hh:mm` for a non-midnight
+  appointment); counts and row numbers are numbers.
+- `code` cells (phones, SIREN, SIRET, postal codes, ids) are text with the Text format: leading zeros and `+` stay.
+- Every text is a string cell, never a formula nor an error value. A text starting with `=`, `+`, `-`, `@`, tab or
+  CR that is not a signed number (the explorer CSV's rule, `app/core/spreadsheet.py`) also gets Excel's
+  `quotePrefix`, so it stays text when edited; its value is unchanged (a phone `+33…` is a signed number: untouched).
+- XML-illegal control characters are dropped and a text is cut at 32 767 characters (Excel's cell limit).
+- Deterministic: the generation date is an input (document properties and zip entry dates); two exports of the same
+  data at the same date are byte-identical.
+
+### Round-trip meaning, as tested
+
+`tests/test_excel_export.py` imports the synthetic legacy workbook through the Task 09 commit service, edits it
+through the services (company change, alias e-mail, tracking status, response and appointment, referent, opposition,
+non-interest) and the Database Explorer (activity + employment verification), downloads the export through the API
+and checks that the edits are in it with the corrected semantics: Référent holds only internal referents (the `xxx`
+marker is only in `Données d'origine`), the week is derived from the real date, one status label, opposition
+distinct from non-interest, employment verification cleared by the company change, aliases complete and keyed,
+every legacy value present. The workbook is not meant to be re-imported (no live synchronization in V1).
+
+### Private compatibility check (Task 10, manual)
+
+Real workbook committed into the throwaway worktree database with the default decisions (the 11 rows without any
+name excluded), exported in memory (never written to disk), aggregate facts only, database reset afterwards: 339 rows
+→ 328 imported, 324 prospects, 247 companies, 233 e-mails, 213 phones. Export: `Prospects` 324 rows × 38 columns,
+`Entreprises` 247 × 19, `Établissements` 0, `E-mails` 233, `Téléphones` 213, `Provenance` 328, `Données d'origine`
+1 145 rows = the 1 145 legacy entries stored in the 328 row metadata; 0 non-empty `Référent` cells (no referent
+recognised in an empty Settings base, markers kept out), 0 planned dates (weeks without year), 0 formula cells,
+1 quote-prefixed text; about 0.2 MB.

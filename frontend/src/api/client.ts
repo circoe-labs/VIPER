@@ -71,14 +71,32 @@ export async function apiRequest<T>(
     body: body === undefined ? undefined : multipart ? body : JSON.stringify(body),
     signal,
   })
-  if (!response.ok) {
-    if (response.status === 401 && !anonymous) {
-      for (const listener of unauthorizedListeners) listener()
-    }
-    const message = `${method} ${url} failed with HTTP ${String(response.status)}`
-    throw new ApiError(response.status, message, await errorDetail(response))
-  }
+  if (!response.ok) throw await failure(method, url, response, anonymous)
   return (response.status === 204 ? undefined : await response.json()) as T
+}
+
+async function failure(method: HttpMethod, url: string, response: Response, anonymous: boolean): Promise<ApiError> {
+  if (response.status === 401 && !anonymous) {
+    for (const listener of unauthorizedListeners) listener()
+  }
+  const message = `${method} ${url} failed with HTTP ${String(response.status)}`
+  return new ApiError(response.status, message, await errorDetail(response))
+}
+
+export interface DownloadedFile {
+  blob: Blob
+  // From the response's Content-Disposition; null when the server named none.
+  filename: string | null
+}
+
+// A file download (GET, the session cookie authenticates it): the body as a Blob and its file name.
+export async function apiDownload(path: `/${string}`, signal?: AbortSignal): Promise<DownloadedFile> {
+  const url = `/api${path}`
+  const response = await fetch(url, { signal })
+  if (!response.ok) throw await failure('GET', url, response, false)
+  const disposition = response.headers.get('Content-Disposition') ?? ''
+  const filename = /filename="([^"]+)"/.exec(disposition)?.[1] ?? null
+  return { blob: await response.blob(), filename }
 }
 
 export function apiGet<T>(path: `/${string}`, signal?: AbortSignal): Promise<T> {

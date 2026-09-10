@@ -62,7 +62,9 @@ function lastBody(api: ReturnType<typeof stubCompaniesApi>, method: string): Com
   return request?.body as CompanyInput
 }
 
-describe('Company editor', () => {
+// Long user flows through the whole drawer (the establishments one takes ~5 s on a loaded machine): past Vitest's 5 s
+// default a timed-out test keeps typing into the next one's DOM, so give them room instead.
+describe('Company editor', { timeout: 15_000 }, () => {
   it('creates a company: the name is required, the payload is normalized, the drawer stays on the saved company', async () => {
     const segment = taxonomyValue('Transporteur')
     const road = taxonomyValue('Transport routier')

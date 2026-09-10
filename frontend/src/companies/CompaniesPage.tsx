@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router'
 
 import { COMPANY_PAGE_SIZE, useCompanies } from '../api/companies'
+import { ExportWorkbookButton } from '../exports/ExportWorkbookButton'
 import { useDebouncedValue } from '../settings/shared'
 import { Button } from '../ui/Button'
 import { EmptyState } from '../ui/EmptyState'
@@ -47,6 +48,7 @@ export function CompaniesPage() {
               <UploadIcon size={18} />
               Importer Excel
             </Link>
+            <ExportWorkbookButton />
             <Button
               variant="primary"
               icon={PlusIcon}

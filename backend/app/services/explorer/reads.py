@@ -6,7 +6,6 @@ Read-only by construction: nothing here adds, flushes or deletes ORM objects.
 import csv
 import io
 import json
-import re
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -15,6 +14,7 @@ from typing import Any
 from sqlalchemy import RowMapping
 from sqlalchemy.orm import Session
 
+from app.core.spreadsheet import looks_like_formula
 from app.db.base import Base
 from app.services.errors import NotFoundError
 from app.services.explorer import statements
@@ -27,9 +27,6 @@ LIST_VALUE_MAX_CHARS = 240
 CSV_DELIMITER = ";"  # French-locale Excel splits on semicolons
 CSV_ROWS_PER_CHUNK = 500
 BOM = "\ufeff"  # lets Excel detect UTF-8
-# Cells Excel would evaluate as a formula (CSV injection). A signed plain number stays untouched.
-_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
-_SIGNED_NUMBER = re.compile(r"[+-][0-9][0-9 .,]*")
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,6 +130,4 @@ def _csv_cell(value: object) -> str:
 
 
 def _neutralize(text: str) -> str:
-    if text.startswith(_FORMULA_PREFIXES) and not _SIGNED_NUMBER.fullmatch(text):
-        return "'" + text
-    return text
+    return "'" + text if looks_like_formula(text) else text
