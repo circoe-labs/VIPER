@@ -24,3 +24,18 @@ found, what was sent back for rework, and the verification evidence accepted. Ta
 - `doc/` living documentation created from handoff docs; orchestrator decisions I-01…I-07 recorded in
   `doc/product/decision-log.md`.
 - Task plan reconciled with repo reality: no dependency contradictions found; next task = **01 foundation-stack**.
+
+### Task 01 — Foundation stack (2026-09-10) — ACCEPTED
+
+- Dispatched to one sub-agent; commit `5c701a3`.
+- Review: layered backend (`api/services/repositories/models/db/core`), thin router, typed settings, Alembic baseline,
+  test fixtures that refuse any DB not ending in `_test` and roll back per test; frontend shell with the five French
+  sections and no fake data; CI with a privacy guard job; ADR-0001 + local-dev runbook.
+- Orchestrator re-run: `python scripts/verify.py` → privacy guard OK, ruff/mypy OK, pytest 20 passed, eslint/tsc OK,
+  vitest 8 passed, build OK. Playwright smoke reported green by the agent.
+- Accepted deviations: `httpx2` test client (Starlette 1.6), TypeScript 6.0 (typescript-eslint constraint),
+  decision I-08 (English URL paths, French labels; backend 8042 / Vite 5173).
+- Watch-points carried forward: `/api/health` must stay public when Task 04 protects the API; CI never ran on GitHub
+  (nothing pushed).
+- Next: Tasks 02 (frontend-only, separate worktree `task-02-design`) and 03 (backend-only, main worktree) run in
+  parallel because they touch disjoint code.

@@ -18,7 +18,7 @@ VIPER V1 is a database-first human dashboard for maintaining prospect/company/co
 
 ## Ordered tasks
 - [x] **00** `00-orchestrator` — repo/source safety + plan control
-- [ ] **01** `01-foundation-stack` — choose stack, scaffold, CI, private-data guardrails
+- [x] **01** `01-foundation-stack` — choose stack, scaffold, CI, private-data guardrails
 - [ ] **02** `02-design-system-brand` — Neon Command + all accepted VIPER assets/themes
 - [ ] **03** `03-data-schema` — reviewed relational model + migrations
 - [ ] **04** `04-authentication-actor` — secure single-user auth + actor context
