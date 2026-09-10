@@ -117,3 +117,31 @@ found, what was sent back for rework, and the verification evidence accepted. Ta
 - Orchestrator verification after merging 06 + 08: `verify.py --e2e` → pytest 506 (+1 private skipped), vitest 318,
   Playwright 26, all green.
 - Next: Task 07 (+ trivial Task 18 as a separate commit) on `claude` while Task 12 finishes.
+
+### Tasks 12 + 13 — Explorer staged edits / read-only SQL (2026-09-10) — ACCEPTED
+
+- **Task 12** (`06f1743`, branch `task-12-explorer-edit`): centralized editability policy (read-only by default,
+  French reasons), all-or-nothing change sets through the ORM (audited `database_explorer` + signed-in actor),
+  optimistic concurrency on `updated_at`, domain rules reused (company change, tracking history), delete diagnostics
+  listing blockers and cascades, DNC columns read-only, dirty-navigation guard. ADR-0008, I-60..I-66.
+- **Task 13** (`ce992b6`, same branch, dispatched to the same agent because it knew the explorer code): the database
+  is the security boundary — dedicated `viper_sql_reader` role with column-level SELECT grants derived from the
+  exposure policy (test asserts grants == policy), read-only defaults and timeouts, one connection per query,
+  server-side cursor with row cap, audit stores only SHA-256/length of the query (never the text). Attack suite
+  (writable CTE, `set_config`, `COPY TO PROGRAM`, `pg_read_file`, hidden tables, `SET ROLE`…) all refused or harmless.
+  Provisioning is an explicit CLI command (`provision-sql-reader`, re-run after migrations). ADR-0011, I-67..I-69.
+
+### Tasks 07 + 18 — Company editor / Exploitation placeholder (2026-09-10) — ACCEPTED
+
+- **Task 07** (`2dbb963`): CompanyService (SIREN/SIRET Luhn incl. La Poste rule, conflicts named, domain
+  normalization, webmail domains refused, establishments with safe primary switching, delete refused with prospects),
+  `/api/companies`, reusable `useCompanyEditor()` drawer, entry point `/prospection/companies` (I-37: no sixth nav
+  section). I-37..I-39, I-70, I-71.
+- **Task 18** (`1745514`): honest "Bientôt disponible" Exploitation page, tests assert no fake widgets.
+- **Critique carried into the explorer integration**: `database.spec.ts` hard-coded global row counts, forcing a
+  Playwright project-ordering workaround in Task 07. Tests must assert filtered/relative facts instead.
+- Process change from here: all implementation agents work in worktrees; the main checkout is reserved for the
+  orchestrator's merges and verification (avoids agents' `git add -A` picking up orchestrator edits and merges
+  happening under a working agent).
+- Next: Task 12/13 branch integrates `claude` (+ E2E decoupling, "Ouvrir dans l'éditeur" on companies rows);
+  Task 09 (import review/commit) in worktree `task-09-import-review`.
