@@ -1,0 +1,55 @@
+# 01 — Decision Log
+
+## Locked by the grill session
+
+| # | Decision | Notes |
+|---|---|---|
+| 1 | V1 prioritizes database + interface + Excel/CSV round-trip | Automated prospecting/exploitation is explicitly postponed. |
+| 2 | Excel is an import/export contract, not the internal schema | Normalize internally; do not reproduce legacy semantic mistakes. |
+| 3 | Prospect = individual person; Company = employer/context | A company may have multiple prospects. |
+| 4 | Referent and verification are separate concepts | `Référent` must only contain an internal Circoe person. |
+| 5 | Prospect activity = `Active / Inactive / Unknown` | Separate from whether the information was verified. |
+| 6 | Verification uses a nullable date | No date means never verified. |
+| 7 | Company/employment verification and contact-channel verification are separate | Avoid one overloaded verification flag. |
+| 8 | Emails use a separate alias table | Multiple emails, one active primary, own verification/source metadata. |
+| 9 | Phones use the same separate-record pattern | Type, primary flag, verification/source metadata. |
+|10 | `Fonction` becomes UI label `Rôle` | Role is an administrable taxonomy, with exact job title preserved separately. |
+|11 | Unknown roles are suggested, not silently created on import | User can map/create/leave unclassified. |
+|12 | Company supports one commercial segment and multiple activity categories | Both are distinct dimensions; taxonomies are administrable. |
+|13 | SIREN/SIRET are supported from V1 and optional | Stable business identifiers when available. |
+|14 | Company and Establishment are separate | Prospect is not directly linked to an establishment in V1. |
+|15 | Legacy week codes become a real planned-contact date | Week number is derived for display; ambiguous year must not be invented. |
+|16 | Legacy RDV/devis/suivi/relance booleans collapse to lightweight contact-tracking state | Preserve transition history; no rich CRM dossier. |
+|17 | Technical object is `prospection`/contact tracking; UI wording is `Suivi de contact` | It exists before an appointment exists. |
+|18 | Referent is nullable and relevant once a meeting is obtained/taken over | Future Calendly may set it automatically; V1 is manual. |
+|19 | Home is a global dashboard, not merely an inbox | It still surfaces next actions. |
+|20 | Prospection is a readable people list, not a dense spreadsheet | Counters act as filters; prospect opens in a large editor drawer/modal. |
+|21 | Database is a genuine advanced data explorer | DBeaver-like inspection/editing is a core requirement. |
+|22 | Exploitation route exists as Coming soon only | No fake IContact features. |
+|23 | UI must give strong visual feedback for imported/unverified/stale dynamic information | Prefilled fields and minimal-effort manual verification are central. |
+|24 | Same form component handles add/edit; Save & Next is desired | Preserve active queue/filter context. |
+|25 | DA = Neon Command | Modern, dark-first, spacious, clean, neon accents used selectively. |
+|26 | Selected VIPER identity = geometric V/viper mark | Keep all accepted black/white/neon mark/lockup variants for contrast/theme use. |
+
+## Requirements retained from the source-of-truth for VIPER V1 foundation
+
+These were not contradicted by the grill and must be preserved in the implementation foundation:
+
+- controlled CSV/XLSX import with preview, incomplete-row handling, correction/exclusion and dedup;
+- source/date and legal-basis or collection-context provenance for contacts;
+- durable do-not-contact/opposition state, distinct from non-interest;
+- audit of imports and meaningful mutations;
+- one securely authenticated commercial user for the pilot, without overbuilding RBAC;
+- a shared-data contract able to serve future IProspect/IContact;
+- Home/reporting can show monthly contacted/appointment progress from manual data, but must not fake future agent/email integrations.
+
+## Deferred / unresolved
+
+- exact frontend/backend/database stack;
+- exact hosting, backup policy and retention/anonymization duration;
+- exact final export column order, although the grill established a priority ordering and semantic corrections;
+- exact semantics of legacy `Mode de contact` values (`Auto`, `Commercial`, `Commerciale`); preserve raw until mapped;
+- conversion of legacy `S37/S39` without a known year;
+- multiple independent historical contact cycles per prospect; V1 defaults to one current tracking record + transition history;
+- pixel-perfect light-theme art direction; derive it conservatively from Neon Command;
+- future mail/Calendly/agent contracts beyond the extension points needed by V1.

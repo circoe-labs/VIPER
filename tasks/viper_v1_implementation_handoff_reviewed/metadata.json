@@ -1,0 +1,12 @@
+{
+  "title": "VIPER V1 database dashboard implementation handoff — reviewed",
+  "created_at": "2026-09-10T11:42:00+02:00",
+  "reviewed_at": "2026-09-10",
+  "source": "Full VIPER grill/design conversation + VIPER source-of-truth + brainstorming + private BASE CLIENT.xlsx profile + selected visual assets",
+  "task_count": 21,
+  "repository": "circoe-labs/VIPER",
+  "repository_visibility_at_review": "public",
+  "design_direction": "Neon Command",
+  "design_maturity": "brand direction/logo family selected; functional UI specified; no pixel-perfect screen set",
+  "revision": "critical review pass 2"
+}

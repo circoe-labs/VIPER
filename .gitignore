@@ -1,0 +1,53 @@
+# ---------------------------------------------------------------------------
+# PRIVATE DATA GUARDRAIL — the GitHub repository circoe-labs/VIPER is PUBLIC.
+# The handoff `sources/` folder contains a real client workbook (PII) and
+# private business documents. It must never be committed.
+# ---------------------------------------------------------------------------
+tasks/**/sources/
+**/BASE_CLIENT*.xlsx
+# Any spreadsheet is private by default; only synthetic fixtures are allowed.
+*.xlsx
+*.xls
+*.xlsm
+*.csv
+!backend/tests/fixtures/synthetic/**
+!frontend/tests/fixtures/synthetic/**
+# Local private working copies (e.g. for compatibility smoke tests)
+private/
+.private/
+
+# Secrets / local env
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+*.egg-info/
+
+# Node / frontend
+node_modules/
+dist/
+*.tsbuildinfo
+coverage/
+playwright-report/
+test-results/
+blob-report/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local runtime data
+logs/
+*.log
