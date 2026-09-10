@@ -1,5 +1,5 @@
 // Development-only catalogue of the design-system primitives (route /_dev/ui, excluded from production builds).
-// Content is generic placeholder text: no business data.
+// Content is generic placeholder text: no business data — except the Settings pickers, which are wired to the API.
 import { useRef, useState } from 'react'
 
 import { BrandLogo } from '../brand/BrandLogo'
@@ -14,6 +14,7 @@ import { Menu } from '../ui/Menu'
 import * as icons from '../ui/icons'
 import { PageHeader } from '../ui/PageHeader'
 import { Table } from '../ui/Table'
+import { ReferentSelect, TaxonomyMultiSelect, TaxonomySelect } from '../settings/selectors'
 import './showcase.css'
 
 const SWATCHES = [
@@ -44,6 +45,10 @@ export function Showcase() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
   const firstFieldRef = useRef<HTMLInputElement>(null)
+  const [role, setRole] = useState<string | null>(null)
+  const [segment, setSegment] = useState<string | null>(null)
+  const [categories, setCategories] = useState<string[]>([])
+  const [referent, setReferent] = useState<string | null>(null)
 
   return (
     <>
@@ -127,6 +132,29 @@ export function Showcase() {
             <TextAreaField label="Note" placeholder="Texte libre" />
             <Checkbox label="Case à cocher" defaultChecked />
             <Switch label="Interrupteur" hint="S’applique immédiatement." defaultChecked />
+          </div>
+        </Card>
+
+        <Card title="Sélecteurs de paramètres">
+          <p className="showcase__note">
+            Branchés sur l’API Paramètres : les valeurs listées sont celles de la base, et « Créer « … » » crée
+            réellement une valeur (auditée).
+          </p>
+          <div className="showcase__grid">
+            <TaxonomySelect kind="roles" label="Rôle" value={role} onChange={setRole} />
+            <TaxonomySelect
+              kind="commercial-segments"
+              label="Segment commercial"
+              value={segment}
+              onChange={setSegment}
+            />
+            <TaxonomyMultiSelect
+              kind="activity-categories"
+              label="Catégories d’activité"
+              value={categories}
+              onChange={setCategories}
+            />
+            <ReferentSelect label="Référent" value={referent} onChange={setReferent} />
           </div>
         </Card>
 

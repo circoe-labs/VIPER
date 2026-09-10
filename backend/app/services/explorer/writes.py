@@ -320,10 +320,10 @@ _EMAIL = "Adresse e-mail invalide : minuscules, sans espace, au format nom@domai
 def _taxonomy_messages(table: str) -> dict[str, tuple[str | None, str]]:
     return {
         f"uq_{table}_slug": ("slug", "Cette clé (slug) est déjà utilisée."),
-        f"uq_{table}_lower_label": (
+        f"uq_{table}_label_key": (
             "label",
-            "Ce libellé existe déjà (majuscules ignorées), peut-être désactivé : réactivez-le"
-            " plutôt.",
+            "Ce libellé existe déjà (majuscules, accents et espaces ignorés), peut-être désactivé :"
+            " réactivez-le plutôt.",
         ),
         f"ck_{table}_slug_format": ("slug", _SLUG),
         f"ck_{table}_label_not_blank": ("label", "Le libellé ne peut pas être vide."),
@@ -339,6 +339,11 @@ CONSTRAINT_MESSAGES: Mapping[str, tuple[str | None, str]] = {
     **_taxonomy_messages("activity_categories"),
     "ck_internal_referents_name_not_blank": (None, "Le prénom et le nom sont obligatoires."),
     "ck_internal_referents_email_format": ("email", _EMAIL),
+    "uq_internal_referents_email": ("email", "Cette adresse e-mail est déjà celle d’un référent."),
+    "uq_internal_referents_name_key": (
+        "last_name",
+        "Un référent porte déjà ce prénom et ce nom (majuscules et accents ignorés).",
+    ),
     "uq_companies_siren": ("siren", "Ce SIREN est déjà utilisé par une autre entreprise."),
     "ck_companies_siren_format": ("siren", "Le SIREN compte exactement 9 chiffres."),
     "ck_companies_display_name_not_blank": ("display_name", "Le nom ne peut pas être vide."),

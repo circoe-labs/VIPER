@@ -3,7 +3,7 @@
   inset: 0;
   z-index: var(--z-overlay);
   display: grid;
-  /* One row exactly as tall as the layer: a tall dialog is capped (max-height: 100%) and its body scrolls. */
+  /* One row bounded by the viewport, so a tall dialog scrolls its body instead of growing past the screen. */
   grid-template-rows: minmax(0, 1fr);
 }
 

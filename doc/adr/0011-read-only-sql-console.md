@@ -6,7 +6,7 @@
 - Related: [ADR-0005](0005-database-explorer-grid.md) (exposure policy), [ADR-0008](0008-explorer-staged-writes.md)
   (write path), [ADR-0006](0006-audit-integration.md) (audit), `doc/features/database-explorer.md` (*SQL console*),
   decision log I-67 … I-69
-- Numbers 0009 and 0010 are left to parallel branches.
+- Number: 0009 is Task 06 (settings), 0010 is unused.
 
 ## Context
 

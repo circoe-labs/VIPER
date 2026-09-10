@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     sql_statement_timeout_ms: PositiveInt = 5000
     sql_max_rows: PositiveInt = 1000
 
+    # Excel/CSV import bounds (ADR-0007): uploads above them are refused with a clear message.
+    import_max_file_mb: PositiveInt = 10
+    import_max_rows: PositiveInt = 5000
+    import_max_columns: PositiveInt = 100
+
     @property
     def sql_reader_url(self) -> str:
         """The application database, reached as the SQL console's role."""

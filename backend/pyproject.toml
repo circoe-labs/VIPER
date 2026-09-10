@@ -2,6 +2,9 @@
 pythonpath = ["."]
 testpaths = ["tests"]
 addopts = "-q --strict-markers"
+markers = [
+    "private: compatibility smoke on the real, git-ignored workbook (needs VIPER_PRIVATE_WORKBOOK; never in CI)",
+]
 
 [tool.ruff]
 line-length = 100

@@ -97,7 +97,7 @@ describe('AppShell', () => {
 
   it('renders placeholder pages without data', () => {
     stubFetchJson(200, { status: 'ok', database: 'ok' })
-    renderApp('/exploitation')
+    renderApp('/')
 
     expect(screen.getByRole('heading', { level: 2, name: 'Bientôt disponible' })).toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()

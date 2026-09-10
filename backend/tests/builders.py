@@ -16,6 +16,7 @@ from app.models import AuditLogEntry, Company, Email, Phone, Prospect, Role, Use
 from app.models.enums import OriginType, PhoneType
 from app.services import audit
 from app.services.audit import AuditContext, AuditSource
+from app.services.companies import luhn_valid
 
 OPERATOR = ActorContext(type=ActorType.HUMAN, display="Opératrice Test", id="test-user")
 # Attribution of test setup data written directly through the ORM (fixtures, builders).
@@ -57,6 +58,20 @@ def rejected(session: Session, match: str) -> Iterator[None]:
         yield
         session.flush()
     assert match in str(caught.value.orig)
+
+
+def with_key(prefix: str) -> str:
+    """`prefix` completed with the digit that makes it pass the Luhn check (SIREN/SIRET)."""
+    return next(f"{prefix}{digit}" for digit in "0123456789" if luhn_valid(f"{prefix}{digit}"))
+
+
+# Invented identifiers passing their check digit.
+SIREN = with_key("12345678")
+OTHER_SIREN = with_key("98765432")
+SIRET = with_key(f"{SIREN}0001")
+SIRET_2 = with_key(f"{SIREN}0002")
+# SIRET with a wrong last digit.
+BAD_SIRET = SIRET[:-1] + str((int(SIRET[-1]) + 1) % 10)
 
 
 def add_company(

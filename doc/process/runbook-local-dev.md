@@ -136,6 +136,19 @@ generated for the run. Every spec signs in through `signIn` (`frontend/e2e/sessi
 real form. Overrides: `VIPER_E2E_DATABASE_URL`, `VIPER_E2E_WEB_PORT`, `VIPER_E2E_API_PORT`, `VIPER_E2E_PYTHON`
 (defaults: local `viper_e2e`, 5180, 8044, `backend/.venv` interpreter, else `python` on PATH).
 
+### Private workbook compatibility smoke (Task 08)
+
+Only on a machine that has the private workbook (never in CI, never copied into the repository). From `backend/`:
+
+```bash
+VIPER_PRIVATE_WORKBOOK='C:\Projects\VIPER\tasks\viper_v1_implementation_handoff_reviewed\sources\BASE_CLIENT.xlsx' \
+  python -m pytest tests/test_import_private_workbook.py -m private -s -p no:cacheprovider
+```
+
+It prints counts per diagnostic code only and asserts the known structure; without the variable it is skipped.
+Import bounds are settings: `VIPER_IMPORT_MAX_FILE_MB` (10), `VIPER_IMPORT_MAX_ROWS` (5000), `VIPER_IMPORT_MAX_COLUMNS`
+(100).
+
 ## 5. Migrations
 
 Run from `backend/` with the venv active. `-x db=test` targets `VIPER_TEST_DATABASE_URL` instead of the dev DB.
@@ -160,6 +173,8 @@ After `--autogenerate`, review the file, then `ruff format migrations`. Every ne
 [ADR-0002](../adr/0002-data-schema-conventions.md) — in particular, write enum value lists as literals (never import
 app code into a migration), add the `set_updated_at` trigger to any new table with `updated_at`, and index every FK;
 `tests/test_migrations.py` checks all three because autogenerate ignores CHECKs and triggers.
+Migration `0005` creates the `unaccent` extension (shipped with the `postgres:16-alpine` image; any hosting database
+must allow it) and the `label_key` function used by the Settings uniqueness indexes ([ADR-0009](../adr/0009-settings-value-uniqueness.md)).
 
 Seed data is separate from migrations: `python -m app.seed` (dev) or `python -m app.seed --db test` inserts the
 suggested taxonomy values that are missing and never modifies existing rows, so it is safe to re-run. Full wipe of

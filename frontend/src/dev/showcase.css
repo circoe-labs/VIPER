@@ -56,3 +56,8 @@
   border-radius: var(--radius-sm);
   color: var(--color-text-muted);
 }
+
+.showcase__note {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}

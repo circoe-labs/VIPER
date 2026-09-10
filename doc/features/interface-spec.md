@@ -74,6 +74,13 @@ Lightweight data-maintenance UI, **not** a CRM company dossier. Create/edit:
 
 Accessible from Prospect editor, global search and optionally Database/Prospection context.
 
+Implemented by Task 07 — fields, rules, API and behaviour: [company-editor.md](company-editor.md). One wide drawer for
+the whole app, opened with `useCompanyEditor()` (Prospect editor, global search); a compact **Entreprises** list at
+`/prospection/companies`, a secondary page of Prospection (no sixth navigation section; the Prospection placeholder
+links to it until Task 14). Sections *Identité*, *Classification*, *Établissements* (repeater, exactly one primary),
+*Contexte Circoe*, *Prospects associés* (count + list); dirty-state footer, save keeps the drawer open, Ctrl+S / Enter
+save, closing with changes asks first; delete only without prospects.
+
 ## Database
 
 ### Left rail
@@ -97,5 +104,32 @@ As implemented (Task 13): [database-explorer.md](database-explorer.md#sql-consol
 ## Exploitation
 Coming soon only. No fake agent controls, drafts, messages or metrics.
 
+Implemented by Task 18: `/exploitation` renders `frontend/src/exploitation/ExploitationPage.tsx` — the page `<h1>`
+*Exploitation*, then one empty-state block (`<h2>` *Bientôt disponible*) saying the area will later host the
+exploitation of the prospect base by future agents, that nothing is active (VIPER launches no action and sends no
+message) and that the base is maintained from Prospection and Base de données. No button, link, form, list, table,
+figure or date; the navigation item is current. Replace the component when the area is built.
+
+## Route map
+
+| Path | Page | Navigation item |
+|---|---|---|
+| `/login` | Connexion (public) | — |
+| `/` | Accueil (placeholder until Task 16) | Accueil |
+| `/prospection` | Prospection (placeholder until Task 14, links to Entreprises) | Prospection |
+| `/prospection/companies` | Entreprises list + Company editor (Task 07) | Prospection |
+| `/exploitation` | Exploitation — Bientôt disponible (Task 18) | Exploitation |
+| `/database/:table?` | Base de données (Task 11) | Base de données |
+| `/settings/:section?` | Paramètres (Task 06) | Paramètres |
+| `/_dev/ui` | Component showcase (development server only) | — |
+| anything else | redirect to `/` | — |
+
 ## Settings
 Manage Roles, Activity Categories, Commercial Segments and Internal Referents: search/list/add/rename/deactivate. Inline creation from forms should use the same services. Do not merge internal referents with login users.
+
+Implemented by Task 06 — behaviour, API and pickers: [settings-taxonomies.md](settings-taxonomies.md). `/settings`
+shows a tab bar of the four sections (`/settings/roles`, `/settings/activity-categories`,
+`/settings/commercial-segments`, `/settings/referents`) above one panel: add, search, *Tous/Actifs/Inactifs* filter,
+usage count, status badge, inline rename, deactivate/reactivate, delete only when unused (otherwise deactivation is
+proposed). Record editors pick values with `TaxonomySelect`, `TaxonomyMultiSelect` and `ReferentSelect`, which offer
+« Créer « … » » through the same audited API.

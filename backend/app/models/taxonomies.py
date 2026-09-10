@@ -1,6 +1,8 @@
 """Administrable taxonomies and Circoe internal referents (Settings, Task 06).
 
 Rows are never deleted while referenced (FKs use RESTRICT); deactivate with `active = false`.
+Uniqueness compares values through the SQL function `label_key` (trimmed, whitespace collapsed,
+unaccented, lowercase; migration 0005), inactive rows included: reactivate, don't duplicate.
 """
 
 from typing import Any
@@ -18,8 +20,7 @@ def taxonomy_table_args(table: str) -> tuple[Any, ...]:
     return (
         CheckConstraint("btrim(label) <> ''", name="label_not_blank"),
         CheckConstraint(SLUG_FORMAT, name="slug_format"),
-        # Case-insensitive label uniqueness, inactive rows included (reactivate, don't duplicate).
-        Index(f"uq_{table}_lower_label", text("lower(label)"), unique=True),
+        Index(f"uq_{table}_label_key", text("label_key(label)"), unique=True),
     )
 
 
@@ -54,9 +55,16 @@ class InternalReferent(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "btrim(first_name) <> '' AND btrim(last_name) <> ''", name="name_not_blank"
         ),
         CheckConstraint(EMAIL_FORMAT, name="email_format"),
+        # Homonyms would be indistinguishable in the referent selectors.
+        Index(
+            "uq_internal_referents_name_key",
+            text("label_key(first_name)"),
+            text("label_key(last_name)"),
+            unique=True,
+        ),
     )
 
     first_name: Mapped[str] = mapped_column(String(100))
     last_name: Mapped[str] = mapped_column(String(100))
-    email: Mapped[str | None] = mapped_column(String(320))
+    email: Mapped[str | None] = mapped_column(String(320), unique=True)
     active: Mapped[bool] = mapped_column(server_default=true())

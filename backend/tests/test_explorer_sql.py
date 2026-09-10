@@ -154,6 +154,25 @@ def test_the_reader_grants_are_exactly_the_exposure_policy(
     assert table_privileges(engine, role) == set()
 
 
+def test_no_function_of_the_application_schema_runs_with_its_owner_privileges(
+    engine: Engine, client: TestClient
+) -> None:
+    # EXECUTE on public functions comes from PostgreSQL's PUBLIC default: harmless only while
+    # none is SECURITY DEFINER (e.g. `label_key` and `unaccent` from migration 0005 are not).
+    with engine.connect() as connection:
+        definers = connection.scalars(
+            sa.text(
+                "SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace"
+                " WHERE n.nspname = 'public' AND p.prosecdef"
+            )
+        ).all()
+
+    assert definers == []
+    assert run(client, "SELECT label_key('  Évènement  Test ')").json()["rows"] == [
+        ["evenement test"]
+    ]
+
+
 def test_provisioning_revokes_any_other_grant_and_is_idempotent(
     engine: Engine, settings: Settings
 ) -> None:

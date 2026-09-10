@@ -78,6 +78,27 @@
   synthetic dataset loaded by the E2E global setup (`python -m tests.e2e_data` into `viper_e2e`; table pick, sort, filter, search, value viewer, FK hop
   and back, keyboard grid + context menu, no page overflow at 1280 px, screenshots in both themes); the navigation
   entry point is `e2e/helpers.ts` (`openDatabase`), where the login step goes once authentication exists.
+- Company editor (Task 07): `test_companies.py` / `test_companies_api.py` (identifier rules, uniqueness naming the
+  holder, establishments and primary switching, deletion refusal, search, similar companies, audit, 401/403),
+  `src/companies/*.test.ts(x)` against the in-memory `src/test/companiesApi.ts`, Playwright `e2e/companies.spec.ts`
+  with editor screenshots in both themes — details in `doc/features/company-editor.md`.
+- Exploitation (Task 18): `src/exploitation/ExploitationPage.test.tsx` (navigation state, heading structure, coming-soon
+  copy, and no button/link/control/list/table/figure/digit in the page) and `e2e/exploitation.spec.ts` (same smoke
+  against the real stack, screenshots in both themes).
+- Excel import engine (Task 08): synthetic workbooks generated in memory by
+  `tests/fixtures/synthetic/legacy_workbook.py` (the 24-column historical layout, an `actualité` sheet, one row per
+  compatibility case below, a fake reference snapshot). `test_import_workbook.py` (XLSX typed values, cached values
+  not formulas, merged cells, CSV UTF-8/UTF-16/Windows-1252, delimiter sniffing, quoted fields, size/row/column and
+  zip-bomb limits, encrypted/legacy/corrupt files), `test_import_layout.py` (sheet fingerprint, skip notices,
+  folded headers, repeated `A contacter`, unknown/duplicate/unnamed/missing columns, user overrides),
+  `test_import_normalize.py` and `test_import_matching.py` (every normalizer and anomaly code),
+  `test_import_dedup.py` (in-file and existing duplicates, company candidates, do-not-contact blocking),
+  `test_import_preview.py` (every compatibility case end to end, determinism with a reordered reference, run with
+  sockets disabled, no database import in engine modules, JSON round trip, CSV and merged-cell flows, catalogue
+  documented, and a seeded property test that every non-empty cell is mapped or preserved),
+  `test_import_reference_loader.py` (snapshot from the real test database, SELECT-only). The private smoke
+  `test_import_private_workbook.py` (marker `private`) is skipped unless `VIPER_PRIVATE_WORKBOOK` is set and prints
+  counts per diagnostic code only.
 - Privacy: `scripts/check_private_data.py` in CI; synthetic fixtures only under `*/tests/fixtures/synthetic/`.
 - Commands: `doc/process/runbook-local-dev.md`.
 

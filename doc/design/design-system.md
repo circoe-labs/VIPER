@@ -23,7 +23,9 @@ Styling approach and rationale: [ADR-0003](../adr/0003-styling-and-theming.md).
 | Primitives + icons | `src/ui/*` (each component imports its own CSS file) |
 | App shell | `src/shell/AppShell.tsx`, `Sidebar.tsx`, `ApiStatus.tsx`, `UserMenu.tsx`, `shell.css` |
 | Sign-in page, session guard | `src/auth/LoginPage.tsx`, `RequireAuth.tsx`, `auth.css` |
-| Component showcase (dev server only) | `/_dev/ui` → `src/dev/Showcase.tsx`; excluded from production builds |
+| Component showcase (dev server only) | `/_dev/ui` → `src/dev/Showcase.tsx`; excluded from production builds (its *Sélecteurs de paramètres* card is wired to the API) |
+| Settings page and pickers (Task 06) | `src/settings/*` (`settings.css`), `src/ui/Combobox.tsx` + `combobox.css` |
+| Entreprises page and Company editor drawer (Task 07) | `src/companies/*` (`companies.css`), `src/ui/SearchField.tsx` + `search-field.css` |
 | Font | `@fontsource-variable/inter` (self-hosted Inter Variable, imported in `src/main.tsx`; no CDN) |
 
 ## Tokens
@@ -121,9 +123,10 @@ explorer; Prospection lists stay `comfortable` and people-oriented.
 Minimal geometric line icons (`src/ui/icons.tsx`): 24 px grid, 1.75 stroke, round caps/joins, `currentColor`,
 `aria-hidden` (the accessible name always comes from text or the control label). Geometric shapes only — no snakes.
 Set: navigation (`Home`, `Users`, `Bolt`, `Database`, `Sliders`), status (`CheckCircle`, `Alert`, `Ban`, `Info`,
-`Clock`, `MinusCircle`), interface (`Sun`, `Moon`, `PanelLeft`, `LogOut`, `Close`, `Plus`, `Spinner`), data/explorer
+`Clock`, `MinusCircle`), interface (`Sun`, `Moon`, `PanelLeft`, `LogOut`, `Close`, `Plus`, `Check`, `ChevronDown`, `Pencil`,
+`Trash`, `Spinner`), data/explorer
 (`Search`, `Refresh`, `Download`, `Filter`, `Key`, `Link`, `ArrowUp/Down/Left`, `ChevronLeft/Right`, `Columns`, `Pin`,
-`More`, `Copy`, `Expand`, `Table`). Add icons in the same file and style.
+`More`, `Copy`, `Expand`, `Table`), companies (`Building`). Add icons in the same file and style.
 
 ## Primitives catalogue (`src/ui/`)
 
@@ -131,7 +134,8 @@ Set: navigation (`Home`, `Users`, `Bolt`, `Database`, `Sliders`), status (`Check
 |---|---|---|
 | `Button` | `variant` primary \| secondary (default) \| ghost \| danger, `size` sm \| md, `icon`, `loading` | `type="button"` unless `type="submit"` is passed. `loading` disables + `aria-busy`. One primary per view area. |
 | `IconButton` | `icon`, `label` (required → `aria-label` + tooltip), `variant` ghost \| secondary, `size` | Never icon-only without `label`. |
-| `TextField` / `TextAreaField` / `SelectField` | `label` (required), `hint`, `error`, native props | Label bound via id; hint + error linked by `aria-describedby`; `error` sets `aria-invalid` and shows icon + text. `required` adds a visual `*`. |
+| `TextField` / `TextAreaField` / `SelectField` | `label` (required), `hint`, `error`, `warning`, native props | Label bound via id; hint + error (or warning) linked by `aria-describedby`; `error` sets `aria-invalid` and shows icon + text in `danger-fg`. `warning` (Task 07) is a non-blocking remark — alert icon + text in `warning-fg`, no `aria-invalid`, hidden while an error shows (e.g. a SIRET that does not start with the SIREN). `required` adds a visual `*`. |
+| `SearchField` | `label` (accessible name + placeholder), `value`, `onChange` | List-toolbar search box (`type="search"`, magnifier glyph, visually hidden label), shared by Paramètres and Entreprises. |
 | `Checkbox` / `Switch` | `label`, `hint`, native checkbox props | `Switch` has `role="switch"` and is for settings applied immediately; form values use `Checkbox`. |
 | `Card` | `title?`, `actions?` | With a title it is a named `region` (`<section>` + `<h2>`). |
 | `StatusBadge` | `tone` success \| warning \| danger \| info \| neutral, `icon?`, text children | Always glyph + text (never colour alone). success = verified/positive (mint, not brand green), warning = unverified/stale, danger = do-not-contact/destructive, neutral = unknown/inactive. |
@@ -139,9 +143,10 @@ Set: navigation (`Home`, `Users`, `Bolt`, `Database`, `Sliders`), status (`Check
 | `Table` | `caption` (required), `density` comfortable \| compact; children `<thead>/<tbody>` | Focusable named scroll region, sticky header, `.table__numeric` for numbers/dates. |
 | `EmptyState` | `icon`, `title`, `description?`, `action?` | Honest absence of data + next action. |
 | `PageHeader` | `title` (the page `<h1>`), `description?`, `actions?` | One per routed page. |
-| `Modal` / `Drawer` | `open`, `onClose`, `title`, `description?`, `footer?`, `initialFocusRef?`, `size` (modal sm/md/lg, drawer md/lg/xl) | Portal, `role="dialog"` + `aria-modal` + labelled/described; focus moves in (dialog or `initialFocusRef`), Tab/Shift+Tab trapped, Esc / backdrop / close button call `onClose`, focus restored to the trigger, body scroll locked. Nested dialogs close one at a time. Guard unsaved changes inside `onClose`. Drawer = editors that keep the list in context (Prospect, Company). |
+| `Modal` / `Drawer` | `open`, `onClose`, `title`, `description?`, `footer?`, `initialFocusRef?`, `size` (modal sm/md/lg, drawer md/lg/xl) | Portal, `role="dialog"` + `aria-modal` + labelled/described; focus moves in (dialog or `initialFocusRef`), Tab/Shift+Tab trapped, Esc / backdrop / close button call `onClose`, focus restored to the trigger, body scroll locked. Nested dialogs close one at a time. Guard unsaved changes inside `onClose`. Drawer = editors that keep the list in context (Prospect, Company). The layer's single grid row is bounded by the viewport, so a tall dialog scrolls its body while header and footer stay visible (Task 07). |
 | `Menu` | `label`, `position` (viewport point), `alignRight?`, `sections` (`label?`, `items`: `id`, `label`, `icon?`, `hint?`, `disabled?`, `onSelect`), `onClose` | Context/action menu (WAI-ARIA menu): portal, first item focused, ↑/↓/Home/End skip disabled items and wrap, Enter/Space select (menu closes first, then the action runs), Esc/Tab/outside press close; focus returns to the trigger; clamped inside the viewport. Mounted only while open. |
 | `Popover` | `anchor`, `label`, `onClose`, `alignRight?` | Small **non-modal** dialog under a control (filter editor, column chooser): first field focused, Esc/outside press close, focus restored, Tab not trapped. |
+| `Combobox` | `label`, `options` (`id`, `label`, `hint?`, `inactive?`), `value`/`onChange` (single) or `multiple` + `value[]`, `status`, `create?` (`run`, `label?`, `refuse?`), `hint`, `error`, `required` | Searchable picker (WAI-ARIA combobox + listbox, Task 06): filtering ignores case and accents, ↓/↑/Enter/Esc/Tab, Backspace removes the last chip; inactive options appear only while selected (*Inactif* tag); `create` adds a « Créer « … » » option whose failure shows as the field error. Domain pickers on top of it: `TaxonomySelect`, `TaxonomyMultiSelect`, `ReferentSelect` (`src/settings/selectors.tsx`, see `doc/features/settings-taxonomies.md`). |
 
 ## Database explorer grid
 Denser than Prospection but legible: 13 px data on 36 px rows, 56 px two-line headers (name + SQL type), subtle

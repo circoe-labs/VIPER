@@ -93,4 +93,27 @@ found, what was sent back for rework, and the verification evidence accepted. Ta
   TanStack grid, pin/hide/reorder/resize persisted per table, context menu, FK navigation with URL state, structure
   drawer. ADR-0005, I-40..I-46. Screenshots reviewed by the orchestrator: DBeaver-grade ergonomics in Neon Command.
 - Integration delegated to the Task 11 agent inside its worktree: merged `claude` with Task 04 (`382d7dc`: auth tables
-  withheld from the explorer with tests, explorer routes protected, single E2E infrastructure), then Task 05.
+  withheld from the explorer with tests, explorer routes protected, single E2E infrastructure), then Task 05
+  (`2786a2f`: E2E dataset loaded under an attributed unit of work). Merged into `claude` as `61ff0dc`.
+- Orchestrator verification on `claude`: `verify.py --e2e` → pytest 245, vitest 274, Playwright 19, all green.
+
+### Wave 06 ∥ 08 ∥ 12 (2026-09-10)
+
+- Three agents in parallel: Task 06 on `claude`, Task 08 in worktree `task-08-import-core`, Task 12 in worktree
+  `task-12-explorer-edit`, each with its own databases/ports. All three were interrupted by an API session limit
+  (reset 19:00) and resumed from their uncommitted working trees without loss.
+- **Task 06 — Settings — ACCEPTED** (`e6104ed`): taxonomy + referent services (rename keeps id and slug,
+  delete-only-if-unused with usage counts, deactivate/reactivate), DB-enforced accent/case-insensitive uniqueness via
+  `unaccent` + `label_key()` (migration 0005, ADR-0009), audited mutations, `/api/settings/*`, tabbed Settings page,
+  reusable `TaxonomySelect` / `TaxonomyMultiSelect` / `ReferentSelect` with inline creation. I-32..I-36. Screenshots
+  reviewed. Watch-point: production Postgres must allow the `unaccent` extension.
+- **Task 08 — Import engine — ACCEPTED** (`452d609`, merged `claude`): pure deterministic `build_preview` (no DB,
+  clock, randomness or network — enforced by tests), XLSX/CSV adapters with limits, header-fingerprint sheet
+  detection, positional disambiguation of the duplicate `A contacter`, 71 diagnostic codes with French messages that
+  never embed cell values, lossless legacy metadata (property test), dedup candidates, DNC blocking. ADR-0007,
+  I-50..I-59.
+  - Private compatibility smoke re-run by the orchestrator on `claude`: output is aggregate-only (339 rows,
+    `actualité` skipped with notice, 3 duplicate-email groups, anomaly code counts) — matches the handoff profile.
+- Orchestrator verification after merging 06 + 08: `verify.py --e2e` → pytest 506 (+1 private skipped), vitest 318,
+  Playwright 26, all green.
+- Next: Task 07 (+ trivial Task 18 as a separate commit) on `claude` while Task 12 finishes.

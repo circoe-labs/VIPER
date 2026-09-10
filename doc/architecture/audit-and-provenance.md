@@ -32,7 +32,8 @@ occurred_at)`.
 `{"field": {"before": <value>, "after": <value>}}` with only the fields whose value changed:
 
 - **updated** rows: previous and new value of each changed column (exact even if the old value was not loaded);
-- **created** rows: every non-null column as `after` (database defaults included), `before` null;
+- **created** rows: every non-null column as `after` (database defaults included), `before` null — plus loaded,
+  non-empty many-to-many collections (a company created with its categories, Task 07);
 - **deleted** rows: every non-null column as `before`, `after` null;
 - many-to-many collections as sorted id lists under `<relationship>_ids` (e.g. `activity_categories_ids`);
 - `id`, `created_at`, `updated_at` are never included;
@@ -102,6 +103,7 @@ raises `UnattributedMutationError` and the transaction rolls back.
 | `auth.login` / `auth.logout` | `auth.open_session` / `auth.sign_out` | who and when only — no token, session id, IP or user agent; failed sign-ins are not audited (I-30) |
 | `auth.user_created` / `auth.password_reset` | `auth.create_or_reset_user` (CLI) | no field values |
 | `explorer.sql_executed` | `POST /api/explorer/sql` (Task 13) | entity `sql_query`; `query_sha256`, `query_length`, `outcome`, and `row_count` / `truncated` / `duration_ms` when it ran — never the query text (I-67) |
+| `<taxonomy>.renamed` / `.deactivated` / `.reactivated` (`role`, `commercial_segment`, `activity_category`) and `internal_referent.deactivated` / `.reactivated` | `taxonomies.rename_value` / `set_value_active`, `referents.set_referent_active` (Task 06, `SettingsChange`) | label or `active` before/after; creation, referent edits and deletion use the generic lifecycle actions |
 
 ## Payload policy (`app/core/audit_policy.py`)
 

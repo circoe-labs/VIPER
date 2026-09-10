@@ -22,10 +22,13 @@ describe('apiGet', () => {
     expect(error).toMatchObject({ status: 503, detail: undefined })
   })
 
-  it('keeps the detail of a JSON error body', async () => {
-    stubFetchJson(422, { detail: { message: 'Refusé', errors: [] } })
+  it('keeps the JSON detail of a refusal for the caller', async () => {
+    stubFetchJson(409, { detail: { code: 'duplicate', field: 'label' } })
 
-    await expect(apiGet('/things')).rejects.toMatchObject({ status: 422, detail: { message: 'Refusé', errors: [] } })
+    await expect(apiRequest('POST', '/things')).rejects.toMatchObject({
+      status: 409,
+      detail: { code: 'duplicate', field: 'label' },
+    })
   })
 
   it('never sends the CSRF header on reads', async () => {

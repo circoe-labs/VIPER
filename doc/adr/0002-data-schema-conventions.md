@@ -7,6 +7,9 @@
   ADR-0001, migration `backend/migrations/versions/0002_core_schema.py`
 - Amended: 2026-09-10 by Task 05 ([ADR-0006](0006-audit-integration.md)) — `audit_log` gains `subject_type` /
   `subject_id` (migration 0004); the do-not-contact clearing reason is kept by the audit event.
+- Amended: 2026-09-10 by Task 06 ([ADR-0009](0009-settings-value-uniqueness.md), decision I-34) — taxonomy labels are
+  unique on `label_key(label)` (case, accents and spacing ignored; migration 0005) instead of `lower(label)`;
+  internal referents are unique on full name (same key) and e-mail.
 
 ## Context
 
