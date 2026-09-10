@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     # …and in any case this long after sign-in.
     session_absolute_timeout_hours: PositiveInt = 12
 
+    # Excel/CSV import bounds (ADR-0007): uploads above them are refused with a clear message.
+    import_max_file_mb: PositiveInt = 10
+    import_max_rows: PositiveInt = 5000
+    import_max_columns: PositiveInt = 100
+
 
 @lru_cache
 def get_settings() -> Settings:

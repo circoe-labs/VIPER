@@ -135,6 +135,19 @@ generated for the run. Every spec signs in through `signIn` (`frontend/e2e/sessi
 real form. Overrides: `VIPER_E2E_DATABASE_URL`, `VIPER_E2E_WEB_PORT`, `VIPER_E2E_API_PORT`, `VIPER_E2E_PYTHON`
 (defaults: local `viper_e2e`, 5180, 8044, `backend/.venv` interpreter, else `python` on PATH).
 
+### Private workbook compatibility smoke (Task 08)
+
+Only on a machine that has the private workbook (never in CI, never copied into the repository). From `backend/`:
+
+```bash
+VIPER_PRIVATE_WORKBOOK='C:\Projects\VIPER\tasks\viper_v1_implementation_handoff_reviewed\sources\BASE_CLIENT.xlsx' \
+  python -m pytest tests/test_import_private_workbook.py -m private -s -p no:cacheprovider
+```
+
+It prints counts per diagnostic code only and asserts the known structure; without the variable it is skipped.
+Import bounds are settings: `VIPER_IMPORT_MAX_FILE_MB` (10), `VIPER_IMPORT_MAX_ROWS` (5000), `VIPER_IMPORT_MAX_COLUMNS`
+(100).
+
 ## 5. Migrations
 
 Run from `backend/` with the venv active. `-x db=test` targets `VIPER_TEST_DATABASE_URL` instead of the dev DB.
