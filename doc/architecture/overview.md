@@ -55,6 +55,11 @@ routes declare `actor: CurrentActor` and pass it to services; the frontend wraps
 ### Provenance + audit
 Provenance answers **where a prospect/contact datum came from**; audit answers **who changed what and when**. Keep them separate.
 
+Implemented by Task 05 ([ADR-0006](../adr/0006-audit-integration.md), [audit-and-provenance.md](audit-and-provenance.md)):
+services annotate the rows they change (`audit.annotate`), a flush hook writes one event per changed row in the same
+transaction, and `require_session` binds the signed-in user to the request's session so even generic writes are
+attributed server-side. Every new mutation follows the recipe in that page.
+
 ## Key boundaries
 
 - Prospection UI ≠ raw Database Explorer.

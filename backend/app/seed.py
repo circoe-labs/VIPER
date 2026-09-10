@@ -1,18 +1,24 @@
 """Seed suggested taxonomy values. Run from `backend/`: `python -m app.seed [--db test]`.
 
 Seeds are editable suggestions, not product truth. Idempotent: a value whose slug or label already
-exists is skipped and existing rows are never touched. No companies, prospects or referents.
+exists is skipped and existing rows are never touched. No companies, prospects or referents. Each
+inserted value is audited as `<taxonomy>.created` by the system actor below.
 """
 
 import argparse
 
 from sqlalchemy.orm import Session
 
+from app.core.actor import ActorContext, ActorType
 from app.core.config import get_settings
 from app.db.session import create_db_engine, create_session_factory, unit_of_work
 from app.models.taxonomies import ActivityCategory, CommercialSegment, Role
 from app.repositories import taxonomies
 from app.repositories.taxonomies import TaxonomyModel
+from app.services import audit
+from app.services.audit_changes import diff
+
+SEED_ACTOR = ActorContext(type=ActorType.SYSTEM, display="Suggestions VIPER", id="app.seed")
 
 SUGGESTIONS: dict[TaxonomyModel, tuple[tuple[str, str], ...]] = {
     Role: (
@@ -37,10 +43,21 @@ SUGGESTIONS: dict[TaxonomyModel, tuple[tuple[str, str], ...]] = {
 
 def seed_taxonomies(session: Session) -> dict[str, int]:
     """Insert missing suggestions; returns inserted counts per table. The caller commits."""
-    return {
-        model.__tablename__: taxonomies.insert_missing(session, model, values)
-        for model, values in SUGGESTIONS.items()
-    }
+    inserted: dict[str, int] = {}
+    for model, values in SUGGESTIONS.items():
+        rows = taxonomies.insert_missing(session, model, values)
+        entity_type = audit.AUDITED_ENTITIES[model].entity_type
+        for row_id, slug, label in rows:
+            audit.record_event(
+                session,
+                SEED_ACTOR,
+                audit.lifecycle_action(entity_type, audit.Lifecycle.CREATED),
+                entity_type=entity_type,
+                entity_id=row_id,
+                changes=diff({}, {"slug": slug, "label": label}),
+            )
+        inserted[model.__tablename__] = len(rows)
+    return inserted
 
 
 def main(argv: list[str] | None = None) -> None:

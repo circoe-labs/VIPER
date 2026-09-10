@@ -45,6 +45,14 @@
   seeds a signed-in session by default (`'fetch'` asks the stubbed API; `stubApi({'METHOD /api/path': [status,
   body]})` routes replies); tests cover the login form, the guard redirect and deep link, global 401 handling,
   sign-out and the CSRF header.
+- Audit and provenance (Task 05): `test_audit.py` (attribution from the session even with a forged payload actor,
+  Database Explorer source, one event per changed row / no double logging, exact before values, many-to-many,
+  secrets never stored, personal-value switch, nothing logged, newest-first ordering with id tie-break, append-only,
+  rollback removes events, `GET /api/audit/recent`), `test_audit_payload.py` (JSON-safe values, diff, payload
+  policy), `test_provenance.py` (sources, import batch lifecycle with the import actor, failed import after
+  rollback); the existing contactability, company-change, contact-tracking, auth, CLI and seed tests assert their
+  audit events. Helpers: `audit_events(session, action=, entity_type=)` and `bind_operator(session)` in
+  `tests/builders.py`.
 - Full-stack E2E (Task 04): `npm run e2e` starts the real backend (uvicorn, port 8044, database `viper_e2e`) and a
   Vite dev server (port 5180) proxying to it; global setup rebuilds `viper_e2e` through the migrations and creates the
   E2E account with the real CLI and a random password. `auth.spec.ts` covers sign-in failure/success, reload, sign-out

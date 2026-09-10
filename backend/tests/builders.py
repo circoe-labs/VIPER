@@ -6,17 +6,38 @@ from functools import cache
 from typing import Any
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.actor import ActorContext, ActorType
 from app.core.security import hash_password
-from app.models import Company, Email, Phone, Prospect, Role, User
+from app.models import AuditLogEntry, Company, Email, Phone, Prospect, Role, User
 from app.models.enums import OriginType, PhoneType
+from app.services import audit
+from app.services.audit import AuditContext, AuditSource
 
 OPERATOR = ActorContext(type=ActorType.HUMAN, display="Opératrice Test", id="test-user")
 # Message of the `guard_do_not_contact` trigger when a generic write tries to reset the status.
 DNC_GUARD_MESSAGE = "is do_not_contact; use the clear operation"
+REQUEST_ID = "test-request"
+
+
+def bind_operator(session: Session) -> None:
+    """Bind `OPERATOR` as a signed-in request would (`require_session`)."""
+    audit.bind(session, OPERATOR, AuditContext(source=AuditSource.UI, request_id=REQUEST_ID))
+
+
+def audit_events(
+    session: Session, *, action: str | None = None, entity_type: str | None = None
+) -> list[AuditLogEntry]:
+    """Audit entries, oldest first, optionally filtered."""
+    statement = select(AuditLogEntry).order_by(AuditLogEntry.occurred_at, AuditLogEntry.id)
+    if action is not None:
+        statement = statement.where(AuditLogEntry.action == action)
+    if entity_type is not None:
+        statement = statement.where(AuditLogEntry.entity_type == entity_type)
+    return list(session.scalars(statement))
 
 
 @contextmanager

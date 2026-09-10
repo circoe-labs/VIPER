@@ -1,7 +1,8 @@
 """FastAPI dependencies shared by routers."""
 
-from collections.abc import Iterator
-from dataclasses import dataclass
+import uuid
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass, replace
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
@@ -13,6 +14,7 @@ from app.core.config import Settings
 from app.core.security import csrf_token_matches
 from app.db.session import unit_of_work
 from app.models.users import User, UserSession
+from app.services import audit
 from app.services.auth import SessionPolicy, actor_for, resolve_session
 
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
@@ -68,6 +70,12 @@ def require_session(request: Request, session: SessionDep, settings: SettingsDep
         token, request.headers.get(CSRF_HEADER, "")
     ):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Missing or invalid CSRF token.")
+    # Every audited change of this request is attributed to the signed-in user (ADR-0006).
+    audit.bind(
+        session,
+        actor_for(record.user),
+        audit.AuditContext(source=audit.AuditSource.UI, request_id=str(uuid.uuid7())),
+    )
     return Authenticated(record=record, token=token)
 
 
@@ -81,3 +89,15 @@ def get_current_actor(auth: AuthDep) -> ActorContext:
 
 # Mutation routes pass this to services as their `actor` argument.
 CurrentActor = Annotated[ActorContext, Depends(get_current_actor)]
+
+
+def audit_source(source: audit.AuditSource) -> Callable[[Authenticated, Session], None]:
+    """Router dependency recording the request's audit events under another source, e.g.
+    `APIRouter(dependencies=[Depends(audit_source(AuditSource.DATABASE_EXPLORER))])`."""
+
+    def use_source(auth: AuthDep, session: SessionDep) -> None:
+        current = audit.binding(session)
+        if current is not None:
+            audit.bind(session, current[0], replace(current[1], source=source))
+
+    return use_source

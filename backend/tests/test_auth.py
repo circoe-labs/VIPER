@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.dependencies import require_session
 from app.api.session_cookie import CSRF_HEADER, SESSION_COOKIE
+from app.core.actor import ActorType
 from app.core.config import Settings
 from app.core.security import (
     csrf_token,
@@ -26,7 +27,7 @@ from app.core.security import (
 )
 from app.main import create_app
 from app.models import User, UserSession
-from tests.builders import PILOT_EMAIL, PILOT_PASSWORD
+from tests.builders import PILOT_EMAIL, PILOT_PASSWORD, audit_events
 from tests.support import TEST_BASE_URL
 
 LOGIN = "/api/auth/login"
@@ -341,3 +342,41 @@ def test_password_and_hash_are_never_serialized_or_logged(
 
     for secret in (PILOT_PASSWORD, WRONG_PASSWORD, pilot_user.password_hash, "argon2"):
         assert secret not in exposed
+
+
+# --- security trail --------------------------------------------------------------------------
+
+
+def test_sign_in_and_sign_out_are_audited_without_credentials_or_client_details(
+    anonymous_client: TestClient, pilot_user: User, db_session: Session
+) -> None:
+    assert login(anonymous_client, password=WRONG_PASSWORD).status_code == 401
+    assert login(anonymous_client, email="inconnu.test@example.com").status_code == 401
+    assert audit_events(db_session) == []
+
+    csrf = login(anonymous_client).json()["csrf_token"]
+    token = anonymous_client.cookies[SESSION_COOKIE]
+    assert anonymous_client.post(LOGOUT, headers={CSRF_HEADER: csrf}).status_code == 204
+
+    signed_in, signed_out = audit_events(db_session)
+    assert [signed_in.action, signed_out.action] == ["auth.login", "auth.logout"]
+    for entry in (signed_in, signed_out):
+        assert (entry.actor_type, entry.actor_id, entry.actor_display) == (
+            ActorType.HUMAN,
+            str(pilot_user.id),
+            "Pilote Test",
+        )
+        assert (entry.entity_type, entry.entity_id) == ("user", pilot_user.id)
+        assert entry.changes == {}
+    assert signed_in.context == {"source": "ui"}
+    assert set(signed_out.context) == {"source", "request_id"}
+    stored = str([(entry.changes, entry.context) for entry in (signed_in, signed_out)])
+    for leaked in (
+        token,
+        csrf,
+        session_token_hash(token),
+        PILOT_PASSWORD,
+        PILOT_EMAIL,
+        "testclient",
+    ):
+        assert leaked not in stored

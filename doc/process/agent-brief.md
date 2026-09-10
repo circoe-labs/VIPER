@@ -46,8 +46,9 @@ machine, so these rules replace them.)
 - Strict typing (mypy/pyright-friendly Python type hints; TypeScript `strict`).
 - Respect service boundaries from `doc/architecture/overview.md`: UI → HTTP API → application services →
   repositories/ORM. UI never touches SQL; routers stay thin; domain services don't know Excel column names.
-- Every mutation goes through a service that receives the server-side `ActorContext` and emits audit events
-  (after Task 05 exists).
+- Every mutation goes through a service that receives the server-side `ActorContext` and emits audit events:
+  follow the recipe in `doc/architecture/audit-and-provenance.md` (*How a mutation integrates*) —
+  `audit.annotate(session, actor, row, …)` before changing each audited row, never hand-written audit rows.
 - Services flush, callers commit: services/repositories never call `commit()`/`rollback()`; the transaction is
   owned by `SessionDep` (one request = one transaction) or by `unit_of_work(...)` for CLI/jobs
   (`doc/architecture/overview.md`, *Transaction boundaries*).

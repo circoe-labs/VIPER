@@ -92,5 +92,5 @@ def get_current_session(auth: AuthDep) -> SessionResponse:
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 def logout(auth: AuthDep, session: SessionDep, settings: SettingsDep, response: Response) -> None:
-    auth_service.revoke_session(session, auth.record)
+    auth_service.sign_out(session, auth.record)
     clear_session_cookie(response, settings)

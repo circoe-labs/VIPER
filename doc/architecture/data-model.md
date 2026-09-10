@@ -252,6 +252,8 @@ erDiagram
         varchar actor_type
         varchar entity_type
         uuid entity_id "no FK"
+        varchar subject_type
+        uuid subject_id "no FK"
         jsonb changes
     }
 ```
@@ -276,7 +278,7 @@ on purpose.
 | `prospect_sources` | `prospect_id`, `source_type`, `source_reference text`, `import_batch_id NULL`, `collected_at DEFAULT now()`, `legal_basis_or_collection_context text`, `actor_type/actor_id/actor_display NULL`, `notes text` | FK indexes |
 | `import_batches` | `filename`, `sheet_names text[] DEFAULT '{}'`, `file_fingerprint varchar(64) NULL`, `status DEFAULT 'pending'`, `rows_total/rows_imported/rows_skipped int DEFAULT 0`, `committed_at NULL`, `actor_type/actor_id/actor_display` | CHECK fingerprint `^[0-9a-f]{64}$`, counts ≥ 0, `committed` ⇔ `committed_at`. No workbook bytes |
 | `import_row_metadata` | `import_batch_id`, `source_sheet`, `source_row_number int`, `prospect_id NULL`, `company_id NULL`, `legacy_metadata jsonb DEFAULT '{}'`, `created_at` only | `uq_import_row_metadata_batch_sheet_row`; CHECK row number > 0 |
-| `audit_log` | `occurred_at DEFAULT clock_timestamp()`, `actor_type`, `actor_id varchar(128) NULL`, `actor_display`, `entity_type varchar(64)`, `entity_id uuid NULL`, `action varchar(64)`, `changes jsonb DEFAULT '{}'`, `context jsonb DEFAULT '{}'` | triggers `append_only` (UPDATE/DELETE) and `no_truncate`; indexes `occurred_at`, `(entity_type, entity_id, occurred_at)`; no FKs |
+| `audit_log` | `occurred_at DEFAULT clock_timestamp()`, `actor_type`, `actor_id varchar(128) NULL`, `actor_display`, `entity_type varchar(64)`, `entity_id uuid NULL`, `subject_type varchar(64) NULL`, `subject_id uuid NULL` (migration 0004), `action varchar(64)`, `changes jsonb DEFAULT '{}'`, `context jsonb DEFAULT '{}'` | triggers `append_only` (UPDATE/DELETE) and `no_truncate`; indexes `occurred_at`, `(entity_type, entity_id, occurred_at)`, `(subject_type, subject_id, occurred_at)`; no FKs. Event schema, vocabulary and payload policy: [audit-and-provenance.md](audit-and-provenance.md) |
 
 Every FK column is the leading column of a non-partial index (checked by a test). Substring search indexes
 (`pg_trgm`) are left to Task 17.
@@ -314,10 +316,14 @@ tracking and its history, sources, import row metadata) and for a batch's row me
 - **Company change** (`change_company`): sets the new company, clears `employment_verified_at` (NULL = current
   employment context not verified) and moves every **active** email/phone from `verified` to `unverified`, keeping
   `last_verified_at`; `invalid`/`unknown` and inactive (former) channels are left as they are; nothing is deleted.
-  In V1 every active channel counts as company-dependent (B2B contact base). Old/new company reach the audit log
-  once Task 05 wires it.
+  In V1 every active channel counts as company-dependent (B2B contact base). Audited as
+  `prospect.company_changed` with both company ids and names; each re-verified channel as `email/phone.updated`.
 - **Contact tracking** (`save_contact_tracking`): creates or replaces the single current row and appends a
   status-history row (with the actor snapshot) whenever the status changes.
+- **Audit and provenance** (Task 05): every service annotates the rows it changes and one flush hook writes the
+  `audit_log` events; `prospect_sources` and import batches are written through `ProvenanceService` /
+  `import_batches` — see [audit-and-provenance.md](audit-and-provenance.md). The do-not-contact clearing reason is
+  kept in the `prospect.do_not_contact.cleared` event (`context.reason`).
 
 ### Seeds
 
