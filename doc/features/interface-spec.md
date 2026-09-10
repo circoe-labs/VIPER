@@ -79,6 +79,8 @@ Accessible from Prospect editor, global search and optionally Database/Prospecti
 ### Left rail
 Table list + search + selected state + row counts.
 
+Read features, exposure policy, filter operators, limits and export as implemented: [database-explorer.md](database-explorer.md).
+
 ### Grid/read ergonomics
 Large usable canvas; sticky headers; horizontal/vertical scrolling; pagination/virtualization; search; per-column filters; multi-column sort; hide/show/reorder/resize/pin; visible row/PK context; long text truncation; full-value viewer; copy cell/row; filter-by-value; FK navigation; refresh; filtered export; column metadata/types/nullability/PK/FK.
 

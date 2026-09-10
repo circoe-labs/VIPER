@@ -1,0 +1,24 @@
+.popover {
+  position: fixed;
+  z-index: var(--z-overlay);
+  width: min(24rem, calc(100vw - var(--space-4)));
+  max-height: min(32rem, calc(100vh - var(--space-8)));
+  overflow: auto;
+  padding: var(--space-4);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-overlay);
+  animation: popover-in var(--duration-fast) var(--ease-standard);
+}
+
+.popover:focus-visible {
+  outline: none;
+}
+
+@keyframes popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}

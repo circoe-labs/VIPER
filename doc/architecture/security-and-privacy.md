@@ -26,6 +26,13 @@ Implemented in the schema (Task 03, [ADR-0002](../adr/0002-data-schema-conventio
 contactability status, never a contact-tracking stage; a database trigger rejects any write that resets it except the
 dedicated `clear_do_not_contact` operation (mandatory reason) and rejects deleting a blocked prospect.
 
+## Database Explorer exposure
+The explorer shows only allowlisted domain tables (`app/services/explorer/policy.py`); every other table — in
+particular authentication users/sessions with password or token hashes — must be explicitly withheld, and objects
+outside the ORM are unreachable. Columns can be hidden or masked centrally. Queries are validated against metadata
+and bound as parameters; the read API has no write method; CSV exports neutralize spreadsheet formulas. Details:
+[database-explorer.md](../features/database-explorer.md).
+
 ## Retention/backup/deletion
 Exact retention, anonymization, hosting and backup requirements remain product/ops/legal decisions. The implementation should centralize configuration and avoid destructive cascade defaults that make later compliance impossible.
 

@@ -10,6 +10,7 @@ import { Card } from '../ui/Card'
 import { Drawer, Modal } from '../ui/Dialog'
 import { EmptyState } from '../ui/EmptyState'
 import { Checkbox, SelectField, Switch, TextAreaField, TextField } from '../ui/fields'
+import { Menu } from '../ui/Menu'
 import * as icons from '../ui/icons'
 import { PageHeader } from '../ui/PageHeader'
 import { Table } from '../ui/Table'
@@ -41,6 +42,7 @@ const ROWS = [1, 2, 3, 4].map((n) => ({ id: n, name: `Élément ${String(n)}`, u
 export function Showcase() {
   const [modalOpen, setModalOpen] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
   const firstFieldRef = useRef<HTMLInputElement>(null)
 
   return (
@@ -187,7 +189,41 @@ export function Showcase() {
             >
               Ouvrir un panneau
             </Button>
+            <Button
+              icon={icons.MoreIcon}
+              onClick={(event) => {
+                const rect = event.currentTarget.getBoundingClientRect()
+                setMenuAt({ x: rect.left, y: rect.bottom + 4 })
+              }}
+            >
+              Ouvrir un menu
+            </Button>
           </div>
+          {menuAt && (
+            <Menu
+              label="Actions"
+              position={menuAt}
+              onClose={() => {
+                setMenuAt(null)
+              }}
+              sections={[
+                {
+                  label: 'Cellule',
+                  items: [
+                    { id: 'copy', label: 'Copier la valeur', icon: icons.CopyIcon, hint: 'Ctrl+C', onSelect: () => undefined },
+                    { id: 'view', label: 'Voir la valeur complète', icon: icons.ExpandIcon, onSelect: () => undefined },
+                  ],
+                },
+                {
+                  label: 'Filtre',
+                  items: [
+                    { id: 'filter', label: 'Filtrer sur cette valeur', icon: icons.FilterIcon, onSelect: () => undefined },
+                    { id: 'off', label: 'Action indisponible', disabled: true, onSelect: () => undefined },
+                  ],
+                },
+              ]}
+            />
+          )}
           <EmptyState
             icon={icons.DatabaseIcon}
             title="Aucun élément"

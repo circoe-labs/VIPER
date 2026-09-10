@@ -7,3 +7,7 @@ class DomainError(Exception):
 
 class NotFoundError(DomainError):
     """The targeted entity does not exist."""
+
+
+class InvalidInputError(DomainError):
+    """Well-formed request whose values do not fit the target (unknown column, wrong type)."""

@@ -120,8 +120,9 @@ explorer; Prospection lists stay `comfortable` and people-oriented.
 Minimal geometric line icons (`src/ui/icons.tsx`): 24 px grid, 1.75 stroke, round caps/joins, `currentColor`,
 `aria-hidden` (the accessible name always comes from text or the control label). Geometric shapes only — no snakes.
 Set: navigation (`Home`, `Users`, `Bolt`, `Database`, `Sliders`), status (`CheckCircle`, `Alert`, `Ban`, `Info`,
-`Clock`, `MinusCircle`), interface (`Sun`, `Moon`, `PanelLeft`, `Close`, `Plus`, `Spinner`). Add icons in the same
-file and style.
+`Clock`, `MinusCircle`), interface (`Sun`, `Moon`, `PanelLeft`, `Close`, `Plus`, `Spinner`), data/explorer (`Search`,
+`Refresh`, `Download`, `Filter`, `Key`, `Link`, `ArrowUp/Down/Left`, `ChevronLeft/Right`, `Columns`, `Pin`, `More`,
+`Copy`, `Expand`, `Table`). Add icons in the same file and style.
 
 ## Primitives catalogue (`src/ui/`)
 
@@ -138,6 +139,16 @@ file and style.
 | `EmptyState` | `icon`, `title`, `description?`, `action?` | Honest absence of data + next action. |
 | `PageHeader` | `title` (the page `<h1>`), `description?`, `actions?` | One per routed page. |
 | `Modal` / `Drawer` | `open`, `onClose`, `title`, `description?`, `footer?`, `initialFocusRef?`, `size` (modal sm/md/lg, drawer md/lg/xl) | Portal, `role="dialog"` + `aria-modal` + labelled/described; focus moves in (dialog or `initialFocusRef`), Tab/Shift+Tab trapped, Esc / backdrop / close button call `onClose`, focus restored to the trigger, body scroll locked. Nested dialogs close one at a time. Guard unsaved changes inside `onClose`. Drawer = editors that keep the list in context (Prospect, Company). |
+| `Menu` | `label`, `position` (viewport point), `alignRight?`, `sections` (`label?`, `items`: `id`, `label`, `icon?`, `hint?`, `disabled?`, `onSelect`), `onClose` | Context/action menu (WAI-ARIA menu): portal, first item focused, ↑/↓/Home/End skip disabled items and wrap, Enter/Space select (menu closes first, then the action runs), Esc/Tab/outside press close; focus returns to the trigger; clamped inside the viewport. Mounted only while open. |
+| `Popover` | `anchor`, `label`, `onClose`, `alignRight?` | Small **non-modal** dialog under a control (filter editor, column chooser): first field focused, Esc/outside press close, focus restored, Tab not trapped. |
+
+## Database explorer grid
+Denser than Prospection but legible: 13 px data on 36 px rows, 56 px two-line headers (name + SQL type), subtle
+zebra and grid lines derived with `color-mix()` from surface/border tokens, row numbers and pinned columns on the
+header tint with a stronger edge after the last pinned column, active cell outlined with the focus colour, FK values
+in `--color-accent-2-fg` (teal), NULL as small italic muted `NULL`. The explorer page fills the viewport so the grid,
+not the page, scrolls; toolbar labels collapse to icons through a container query when the workspace is narrow.
+Styles: `frontend/src/database/database.css` (feature doc: `doc/features/database-explorer.md`).
 
 ## App shell
 Left sidebar: lockup (expanded) or mark (collapsed), the five sections with icons, active item = accent-soft

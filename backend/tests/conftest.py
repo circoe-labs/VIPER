@@ -3,35 +3,28 @@
 from collections.abc import Iterator
 
 import pytest
-from alembic import command
 from fastapi.testclient import TestClient
-from sqlalchemy import Engine, make_url, text
+from sqlalchemy import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import Settings
 from app.db.session import create_db_engine
 from app.main import create_app
-from tests.support import alembic_config, rolled_back_session_factory
+from tests.support import require_test_database, reset_database, rolled_back_session_factory
 
 
 @pytest.fixture(scope="session")
 def test_database_url() -> str:
-    url = Settings().test_database_url
-    database = make_url(url).database or ""
-    if not database.endswith("_test"):
-        raise pytest.UsageError(
-            f"Refusing to run tests against database {database!r}: its name must end with '_test'."
-        )
-    return url
+    try:
+        return require_test_database(Settings().test_database_url)
+    except ValueError as error:
+        raise pytest.UsageError(str(error)) from error
 
 
 @pytest.fixture(scope="session")
 def engine(test_database_url: str) -> Iterator[Engine]:
     engine = create_db_engine(test_database_url)
-    with engine.begin() as connection:
-        connection.execute(text("DROP SCHEMA public CASCADE"))
-        connection.execute(text("CREATE SCHEMA public"))
-    command.upgrade(alembic_config(test_database_url), "head")
+    reset_database(engine, test_database_url)
     yield engine
     engine.dispose()
 

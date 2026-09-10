@@ -6,8 +6,8 @@ differences are noted. Stack and versions: `doc/adr/0001-stack.md`.
 ## Prerequisites
 
 - Docker Desktop, Python 3.14 (`python --version`), Node 24 + npm (`node --version`), Git.
-- Free local ports: **5442** (PostgreSQL), **8042** (backend), **5173** (Vite). Ports 5432/8000 belong to other
-  projects — never stop their containers.
+- Free local ports: **5442** (PostgreSQL), **8042** (backend), **5173** (Vite), **8180** / **5180** (Playwright's own
+  API and Vite). Ports 5432/8000 belong to other projects — never stop their containers.
 
 ## 1. Database (PostgreSQL 16 in Docker)
 
@@ -50,6 +50,29 @@ npm run dev                        # http://localhost:5173 ; /api is proxied to 
 The left navigation shows `API : connectée` when the backend and database answer. With the dev server running,
 <http://localhost:5173/_dev/ui> shows the design-system component showcase (not part of production builds).
 
+### Ports and parallel checkouts
+
+Every port is overridable, so a second checkout (e.g. a `git worktree`) can run beside the first one:
+
+| Variable | Default | Used by |
+|---|---|---|
+| `VIPER_WEB_PORT` | `5173` | `npm run dev` (Vite, `strictPort`) |
+| `VIPER_API_TARGET` | `http://127.0.0.1:8042` | Vite's `/api` proxy target |
+| `VIPER_E2E_WEB_PORT` / `VIPER_E2E_API_PORT` | `5180` / `8180` | Playwright's own Vite and API |
+| `VIPER_E2E_PYTHON` | `backend/.venv` Python, else `python` | interpreter for the Playwright API server |
+
+Worktree example (Git Bash): `backend/.env` with its own `VIPER_DATABASE_URL=…/viper_wt` and
+`VIPER_TEST_DATABASE_URL=…/viper_wt_test`, then `uvicorn … --port 8043`,
+`VIPER_WEB_PORT=5174 VIPER_API_TARGET=http://127.0.0.1:8043 npm run dev`, and
+`VIPER_E2E_WEB_PORT=5174 VIPER_E2E_API_PORT=8043 python scripts/verify.py --e2e` (with those servers stopped).
+
+### Synthetic data for manual checks
+
+`python -m tests.e2e_server --port 8043` (from `backend/`) **resets the `*_test` database**, loads the synthetic
+explorer dataset (`tests/fixtures/synthetic/explorer_dataset.py`: 36 companies, 240 prospects, emails, phones,
+tracking, an import batch, audit entries — all invented) and serves the API; point a Vite at it with
+`VIPER_API_TARGET`. Never run it while pytest uses the same database.
+
 ## 4. Quality gates
 
 All gates, CI order (needs the venv, `npm ci` and the database up):
@@ -69,7 +92,7 @@ Individually:
 | `frontend/` | `npm run lint` · `npm run typecheck` | ESLint (type-aware) · `tsc -b` |
 | `frontend/` | `npm test` (`npm run test:watch`) | Vitest component/unit tests |
 | `frontend/` | `npm run build` | typecheck + production bundle in `frontend/dist/` |
-| `frontend/` | `npx playwright install chromium` once, then `npm run e2e` | Playwright smoke + design checks; starts Vite itself (reuses a running one locally); writes review screenshots of both themes to `frontend/test-results/screenshots/` (git-ignored) |
+| `frontend/` | `npx playwright install chromium` once, then `npm run e2e` | Playwright shell, design and Database explorer flows; starts its own API (`python -m tests.e2e_server`: resets the `*_test` database and loads the synthetic dataset) and Vite on 8180/5180 (reused if already running locally); writes review screenshots of both themes to `frontend/test-results/screenshots/` (git-ignored) |
 | `frontend/` | `npm run brand:assets` | regenerate the web-sized logos and favicons from the handoff originals (only when a logo changes; see `doc/design/visual-manifest.md`) |
 
 ## 5. Migrations
@@ -111,7 +134,9 @@ printing paths only. Only synthetic fixtures under `backend/tests/fixtures/synth
 
 ## Troubleshooting
 
-- `Port 5173 is already in use` — Vite uses `strictPort`; stop the other dev server rather than drifting to 5174
-  (the Playwright config and proxy assume 5173).
+- `Port 5173 is already in use` — Vite uses `strictPort`; stop the other dev server, or give this checkout its own
+  ports (`VIPER_WEB_PORT`, see *Ports and parallel checkouts*).
+- Playwright fails on explorer data after pytest ran — a reused E2E API server lost its data when pytest reset the
+  `*_test` database; stop it and let Playwright start a fresh one.
 - `Refusing to run tests against database …` — `VIPER_TEST_DATABASE_URL` must name a database ending in `_test`.
 - Health returns 503 after ~5 s — PostgreSQL is not reachable on 5442 (`docker compose ps`).
