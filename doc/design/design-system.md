@@ -12,7 +12,7 @@ Modern AI/tech, premium, controlled, spacious, dark-first. Clean rather than gam
 
 ## Implementation map (Task 02)
 
-Styling approach and rationale: [ADR-0002](../adr/0002-styling-and-theming.md).
+Styling approach and rationale: [ADR-0003](../adr/0003-styling-and-theming.md).
 
 | What | Where (`frontend/`) |
 |---|---|
@@ -101,7 +101,7 @@ background/fill, `accent-fg` for anything that must be read.
 - The theme lives on `<html data-theme="dark|light">`; `tokens.css` keys off it (`:root` alone = dark).
 - `ThemeSwitch` (header, right) toggles it. An **explicit choice** is stored in `localStorage["viper.theme"]` and
   restored on the next visit; an inline script in `index.html` applies it before first paint (no flash).
-- Without a stored choice the app is dark regardless of the OS `prefers-color-scheme` (decision I-09). The OS
+- Without a stored choice the app is dark regardless of the OS `prefers-color-scheme` (decision I-20). The OS
   preference only drives the favicon, because the browser tab strip follows the OS, not the app.
 - The sidebar collapsed state is remembered the same way (`localStorage["viper.sidebar"]`). Storage failures
   (private mode) fall back to in-memory state (`src/lib/storage.ts`).

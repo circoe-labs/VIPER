@@ -1,10 +1,10 @@
-# ADR-0002 — Styling and theming: plain CSS with semantic custom properties
+# ADR-0003 — Styling and theming: plain CSS with semantic custom properties
 
 - Status: accepted
 - Date: 2026-09-10
 - Deciders: Task 02 (design system), reviewed by the orchestrator
 - Related: [ADR-0001](0001-stack.md) (no UI kit / no Tailwind), `doc/design/design-system.md`,
-  `doc/product/decision-log.md` (I-09, I-10)
+  `doc/product/decision-log.md` (I-20, I-21)
 
 ## Context
 
@@ -52,5 +52,5 @@ Vite 8 + React 19, tests in Vitest/jsdom.
   runtime) against the "don't add dependencies casually" rule, for little benefit over custom properties.
 - **Tokens in a TS/JSON file generating CSS** — makes tokens importable in TS, but needs a generation step or runtime
   injection (flash of unstyled content); parsing the CSS in the test gives the same guarantee with one source.
-- **Follow `prefers-color-scheme` by default** — rejected for the in-app theme (decision I-09): dark is the authored
+- **Follow `prefers-color-scheme` by default** — rejected for the in-app theme (decision I-20): dark is the authored
   identity; the OS preference is used only for the favicon.

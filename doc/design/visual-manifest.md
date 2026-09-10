@@ -71,4 +71,4 @@ Selection in code: `frontend/src/brand/logos.ts` + `BrandLogo` (rule table in `d
 
 All six logo variants were explicitly retained by the user for contrast/theme contexts. Do not substitute the literal
 snake illustration from the moodboard for the selected geometric mark. Note: the logos' neon is a yellow-green lime,
-while the UI accent token is Viper Green `#00E676` from the board; both are kept as delivered (see decision I-10).
+while the UI accent token is Viper Green `#00E676` from the board; both are kept as delivered (see decision I-21).

@@ -75,7 +75,7 @@ Implemented on branch `task-02-design` (worktree `C:\Projects\VIPER-wt-design`),
 - **Typography** — Inter Variable self-hosted via `@fontsource-variable/inter@5.3.0` (pinned).
 - **Theme** — `ThemeProvider` + `useTheme` + `ThemeSwitch`; `<html data-theme>`; default dark; explicit choice
   persisted in `localStorage["viper.theme"]` and applied pre-paint by an inline script; OS preference not followed
-  (decision I-09).
+  (decision I-20).
 - **Brand helper** — `BrandLogo variant="mark|lockup|accent"` picks the file from the active theme (`logos.ts`).
 - **Primitives** (`frontend/src/ui/`) — Button, IconButton, TextField / TextAreaField / SelectField (label + hint +
   error, aria wiring), Checkbox, Switch, Card, StatusBadge (glyph + text) / Badge, Table (comfortable / compact),
@@ -92,7 +92,7 @@ Implemented on branch `task-02-design` (worktree `C:\Projects\VIPER-wt-design`),
 `frontend/src/brand/{logos.ts,BrandLogo.tsx}`, `frontend/src/ui/*`, `frontend/src/shell/{AppShell,Sidebar,ApiStatus,PlaceholderPage}.tsx`,
 `frontend/src/shell/shell.css`, `frontend/src/lib/storage.ts`, `frontend/src/dev/Showcase.tsx`,
 `frontend/scripts/optimize-brand-assets.js`, `frontend/index.html`, `frontend/e2e/design.spec.ts`,
-`doc/design/design-system.md`, `doc/design/visual-manifest.md`, `doc/adr/0002-styling-and-theming.md`.
+`doc/design/design-system.md`, `doc/design/visual-manifest.md`, `doc/adr/0003-styling-and-theming.md`.
 
 ### Tests run (all green)
 - `python scripts/check_private_data.py` — OK (129 tracked files).
@@ -113,9 +113,9 @@ Implemented on branch `task-02-design` (worktree `C:\Projects\VIPER-wt-design`),
   screenshots taken with animations disabled.
 
 ### Deviations / decisions
-- I-09 (dark by default, OS preference only for the favicon), I-10 (derived logo copies; logo lime `#79FA03` vs UI
-  Viper Green `#00E676` kept as delivered), I-11 (mint success tone; dev showcase route) — decision log.
-- ADR-0002: plain co-located CSS + custom properties, attribute theming, tests parse the real CSS.
+- I-20 (dark by default, OS preference only for the favicon), I-21 (derived logo copies; logo lime `#79FA03` vs UI
+  Viper Green `#00E676` kept as delivered), I-22 (mint success tone; dev showcase route) — decision log.
+- ADR-0003: plain co-located CSS + custom properties, attribute theming, tests parse the real CSS.
 - `tsconfig.node.json` gains the `DOM` lib (Playwright `evaluate` callbacks); `vite.config.ts` lets Vitest process
   `?raw` CSS imports only.
 - `@fontsource-variable/inter` added (pinned, OFL-1.1).
