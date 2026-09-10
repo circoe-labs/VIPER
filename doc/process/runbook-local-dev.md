@@ -133,8 +133,10 @@ not end in `_e2e`), provisions the SQL console's reader role (`python -m app.cli
 `audit.attributed_unit_of_work` with a system actor, so `audit_log` holds its creation events) and creates the
 synthetic account `pilote.e2e@example.com` with `python -m app.cli create-user --password-stdin` and a random password
 generated for the run. Every spec signs in through `signIn` (`frontend/e2e/session.ts`); `auth.spec.ts` drives the
-real form. Overrides: `VIPER_E2E_DATABASE_URL`, `VIPER_E2E_WEB_PORT`, `VIPER_E2E_API_PORT`, `VIPER_E2E_PYTHON`
-(defaults: local `viper_e2e`, 5180, 8044, `backend/.venv` interpreter, else `python` on PATH).
+real form. Tests run fully parallel with the default workers, in any order: each owns the data it writes (rules in
+`testing-strategy.md`, decision I-81). Overrides: `VIPER_E2E_DATABASE_URL`, `VIPER_E2E_WEB_PORT`,
+`VIPER_E2E_API_PORT`, `VIPER_E2E_PYTHON` (defaults: local `viper_e2e`, 5180, 8044, `backend/.venv` interpreter, else
+`python` on PATH).
 
 ### Private workbook compatibility smoke (Task 08)
 

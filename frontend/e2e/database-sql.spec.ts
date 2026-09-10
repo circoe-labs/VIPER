@@ -3,7 +3,10 @@ import { expect, type Page, test } from '@playwright/test'
 import { openDatabase, SCREENSHOTS, useTheme } from './helpers'
 import { signIn } from './session'
 
-// Read-only SQL console against the synthetic dataset, as the provisioned reader role (global setup).
+// Read-only SQL console against the synthetic dataset, as the provisioned reader role (global setup). Other tests add
+// companies at the same time: queries whose result is asserted read only the 36 synthetic companies, recognisable by
+// their e-mail domain (backend/tests/fixtures/synthetic/explorer_dataset.py), which no test changes.
+const SYNTHETIC_COMPANIES = "email_domain LIKE 'societe%.example.com'"
 
 test.use({ viewport: { width: 1440, height: 900 } })
 
@@ -25,21 +28,21 @@ async function runQuery(page: Page, sql: string) {
 
 test('a read shows its rows, row count and duration', async ({ page }) => {
   const panel = await openConsole(page)
-  await runQuery(page, 'SELECT display_name, siren FROM companies ORDER BY display_name LIMIT 5')
+  await runQuery(page, `SELECT display_name, siren FROM companies WHERE ${SYNTHETIC_COMPANIES} ORDER BY display_name LIMIT 5`)
 
   const result = panel.getByRole('region', { name: 'Résultat de la requête' })
   await expect(result.getByRole('status')).toContainText('5 lignes')
-  await expect(result.getByRole('cell', { name: 'Affrètement Démo SA' })).toBeVisible()
+  await expect(result.getByRole('cell').first()).toHaveText('Affrètement Démo SA')
   await expect(result.getByRole('columnheader', { name: /siren/ })).toBeVisible()
 })
 
 test('hidden tables and writes are refused by the database, nothing changes', async ({ page }) => {
   const panel = await openConsole(page)
   const result = panel.getByRole('region', { name: 'Résultat de la requête' })
-  // Other specs may add companies: compare with the count read first.
-  await runQuery(page, 'SELECT count(*) AS companies FROM companies')
+  const countSynthetic = `SELECT count(*) AS companies FROM companies WHERE ${SYNTHETIC_COMPANIES}`
+  await runQuery(page, countSynthetic)
   await expect(result.getByRole('status')).toContainText('1 ligne')
-  const before = await result.getByRole('cell').first().innerText()
+  await expect(result.getByRole('cell').first()).toHaveText('36')
 
   await runQuery(page, 'SELECT email, password_hash FROM users')
   await expect(panel.getByRole('alert')).toContainText('Table non accessible')
@@ -51,8 +54,10 @@ test('hidden tables and writes are refused by the database, nothing changes', as
   await runQuery(page, 'WITH gone AS (DELETE FROM companies RETURNING id) SELECT count(*) FROM gone')
   await expect(panel.getByRole('alert')).toContainText('non prise en charge')
 
-  await runQuery(page, 'SELECT count(*) AS companies FROM companies')
-  await expect(result.getByRole('cell').first()).toHaveText(before)
+  // Every company would be gone: the synthetic ones are all still there.
+  await runQuery(page, countSynthetic)
+  await expect(result.getByRole('status')).toContainText('1 ligne')
+  await expect(result.getByRole('cell').first()).toHaveText('36')
 })
 
 test('a large result is cut at the row limit', async ({ page }) => {
