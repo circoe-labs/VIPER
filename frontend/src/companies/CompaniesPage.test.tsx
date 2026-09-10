@@ -11,11 +11,11 @@ function table() {
 }
 
 describe('Companies page', () => {
-  it('is a secondary page of Prospection, reachable from its placeholder', async () => {
+  it('is a secondary page of Prospection, reachable from its header', async () => {
     stubCompaniesApi({ companies: [company('Transports Exemple')] })
     renderApp('/prospection')
 
-    await userEvent.click(screen.getByRole('link', { name: 'Gérer les entreprises' }))
+    await userEvent.click(screen.getByRole('link', { name: 'Entreprises' }))
 
     expect(screen.getByRole('heading', { level: 1, name: 'Entreprises' })).toBeInTheDocument()
     const navigation = screen.getByRole('navigation', { name: 'Navigation principale' })

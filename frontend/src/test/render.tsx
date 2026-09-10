@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render } from '@testing-library/react'
+import type { ReactNode } from 'react'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import { vi } from 'vitest'
 
@@ -19,9 +20,14 @@ export const TEST_CSRF_TOKEN = 'csrf-token-de-test'
 interface RenderAppOptions {
   // Seeded session state (signed in as TEST_USER by default); 'fetch' asks the (stubbed) API like the real app.
   session?: SessionState | 'fetch'
+  // Extra providers around the router (e.g. a Prospect editor implementation).
+  wrap?: (app: ReactNode) => ReactNode
 }
 
-export function renderApp(path = '/', { session = { status: 'authenticated', user: TEST_USER } }: RenderAppOptions = {}) {
+export function renderApp(
+  path = '/',
+  { session = { status: 'authenticated', user: TEST_USER }, wrap = (app) => app }: RenderAppOptions = {},
+) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   if (session !== 'fetch') {
     queryClient.setQueryData(SESSION_QUERY_KEY, session)
@@ -30,9 +36,7 @@ export function renderApp(path = '/', { session = { status: 'authenticated', use
   const router = createMemoryRouter(routes, { initialEntries: [path] })
   const view = render(
     <ThemeProvider>
-      <QueryClientProvider client={queryClient}>
-        <RouterProvider router={router} />
-      </QueryClientProvider>
+      <QueryClientProvider client={queryClient}>{wrap(<RouterProvider router={router} />)}</QueryClientProvider>
     </ThemeProvider>,
   )
   return { ...view, router, queryClient }

@@ -151,9 +151,16 @@ It prints counts per diagnostic code only and asserts the known structure; witho
 Import bounds are settings: `VIPER_IMPORT_MAX_FILE_MB` (10), `VIPER_IMPORT_MAX_ROWS` (5000), `VIPER_IMPORT_MAX_COLUMNS`
 (100).
 
+### Prospection (Task 14)
+
+`/prospection` reads `GET /api/prospection/counters` and `/prospects` (definitions: `doc/features/prospection-kpis.md`).
+To see it with data, load the synthetic explorer dataset into an `_e2e` database (above) or import a synthetic
+workbook (below). `VIPER_VERIFICATION_STALE_DAYS=<days>` (unset by default, open question #9) makes verifications older
+than that count as « À revérifier ».
+
 ### Excel import review and commit (Task 09)
 
-The page is `/prospection/import` (« Importer Excel » on the Prospection placeholder and the Entreprises page). For a
+The page is `/prospection/import` (« Importer Excel » in the Prospection and Entreprises headers). For a
 manual check use a **synthetic** workbook, e.g. generated from the test fixtures (from `backend/`, written outside the
 repository):
 

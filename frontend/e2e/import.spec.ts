@@ -1,9 +1,8 @@
-import { execFileSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 
 import { expect, type Page, test } from '@playwright/test'
 
-import { BACKEND_DIR, PYTHON } from './env'
+import { syntheticWorkbook } from './data'
 import { SCREENSHOTS, useTheme } from './helpers'
 import { signIn } from './session'
 
@@ -32,17 +31,6 @@ function syntheticRows(suffix: string) {
   ]
 }
 
-// The synthetic workbook as bytes, from the backend fixture (never written to disk).
-function syntheticWorkbook(suffix: string): Buffer {
-  const script = [
-    'import base64, json, sys',
-    'from tests.fixtures.synthetic.legacy_workbook import legacy_xlsx',
-    'sys.stdout.write(base64.b64encode(legacy_xlsx(json.loads(sys.argv[1]))).decode())',
-  ].join('\n')
-  const output = execFileSync(PYTHON, ['-c', script, JSON.stringify(syntheticRows(suffix))], { cwd: BACKEND_DIR })
-  return Buffer.from(output.toString(), 'base64')
-}
-
 async function uploadWorkbook(page: Page, suffix: string) {
   await page.goto('/prospection')
   await page.getByRole('link', { name: 'Importer Excel' }).click()
@@ -50,7 +38,7 @@ async function uploadWorkbook(page: Page, suffix: string) {
   await page.getByLabel('Fichier à importer').setInputFiles({
     name: `base-e2e-${suffix}.xlsx`,
     mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    buffer: syntheticWorkbook(suffix),
+    buffer: syntheticWorkbook(syntheticRows(suffix)),
   })
   await expect(page.getByText(/Feuille des prospects détectée/)).toContainText('« Base client')
   await expect(page.getByRole('list', { name: 'Feuilles ignorées' })).toContainText('Feuille « actualité » ignorée')

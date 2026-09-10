@@ -51,7 +51,7 @@ async function uploadAndConfirm() {
 }
 
 describe('Excel import page', () => {
-  it('is a sub-page of Prospection, reachable from its placeholder', async () => {
+  it('is a sub-page of Prospection, reachable from its header', async () => {
     stubImports()
     renderApp('/prospection')
 

@@ -112,7 +112,7 @@ export const COMPANY_PAGE_SIZE = 50
 
 export const companyKeys = {
   all: ['companies'] as const,
-  list: (search: string, offset: number) => ['companies', 'list', search, offset] as const,
+  list: (search: string, offset: number, limit: number) => ['companies', 'list', search, offset, limit] as const,
   detail: (id: string) => ['companies', 'detail', id] as const,
   similar: (name: string, domain: string, exclude: string | null) => ['companies', 'similar', name, domain, exclude] as const,
 }
@@ -121,11 +121,12 @@ function companyPath(id: string): `/${string}` {
   return `/companies/${encodeURIComponent(id)}`
 }
 
-export function useCompanies(search: string, offset = 0) {
+// `limit` up to 200 (the API's maximum), e.g. for a company picker.
+export function useCompanies(search: string, offset = 0, limit = COMPANY_PAGE_SIZE) {
   return useQuery({
-    queryKey: companyKeys.list(search, offset),
+    queryKey: companyKeys.list(search, offset, limit),
     queryFn: ({ signal }) => {
-      const params = new URLSearchParams({ limit: String(COMPANY_PAGE_SIZE), offset: String(offset) })
+      const params = new URLSearchParams({ limit: String(limit), offset: String(offset) })
       if (search) params.set('q', search)
       return apiGet<CompanyPage>(`/companies?${params.toString()}`, signal)
     },

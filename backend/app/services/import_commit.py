@@ -25,11 +25,11 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from functools import partial
-from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
 from app.core.actor import ActorContext
+from app.core.business_time import BUSINESS_TIMEZONE
 from app.models.enums import (
     ActivityStatus,
     ContactabilityStatus,
@@ -72,8 +72,6 @@ from app.services.imports.text import fold
 from app.services.imports.workbook import ImportLimits
 
 logger = logging.getLogger(__name__)
-# Dates without time (planned contact, appointment) are stored at midnight, Circoe's time zone.
-BUSINESS_TIMEZONE = ZoneInfo("Europe/Paris")
 TRACKING_FIELDS = (
     ImportField.STAGE_APPOINTMENT,
     ImportField.STAGE_QUOTE_SENT,

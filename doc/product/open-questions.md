@@ -10,6 +10,6 @@ These do not justify blocking the whole V1. Resolve at the earliest task that tr
 6. **Exact export order** — semantic priority is known, final normalized column order remains configurable.
 7. **Alias export shape** — decide whether secondary emails/phones go to extra columns or an alias sheet. No silent omission.
 8. **Multiple independent contact cycles** — default V1: one current contact tracking + status history.
-9. **Stale threshold** — UI can show never verified immediately; do not hardcode “stale after N months” until product chooses N.
+9. **Stale threshold** — UI can show never verified immediately; do not hardcode “stale after N months” until product chooses N. *Task 14:* `VIPER_VERIFICATION_STALE_DAYS` (unset by default) turns it on in « À revérifier » once chosen (I-91).
 10. **Light-theme pixel polish** — derive conservatively from Neon Command; dark theme is authored reference.
 11. **Company aliases/merge history** — optional technical enhancement if import dedup needs persistent alias names; do not add unless it materially simplifies real duplicate handling.

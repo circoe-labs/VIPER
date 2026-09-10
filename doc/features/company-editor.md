@@ -13,7 +13,7 @@ Decisions: I-37, I-38, I-39, I-70, I-71 in the decision log. Schema: `companies`
 | Where | How |
 |---|---|
 | **Entreprises** page, `/prospection/companies` | Secondary page of Prospection (the *Prospection* navigation item stays current). Search box (name, legal name, e-mail domain, website, SIREN/SIRET digits), table (*Entreprise* + legal name, SIREN, e-mail domain, primary establishment city, segment, establishment and prospect counts), 50 rows per page with *Précédentes/Suivantes*, *Nouvelle entreprise*. The name opens the editor. |
-| Prospection page (`/prospection`) | Until Task 14 builds the people list, its placeholder links to *Gérer les entreprises*. Task 14 keeps a link to the Entreprises page in the Prospection header. |
+| Prospection page (`/prospection`) | *Entreprises* in the page header (Task 14). |
 | Anywhere in the signed-in app | `useCompanyEditor()` (`frontend/src/companies/CompanyEditorProvider.tsx`, mounted by `AppShell`): `openCompanyEditor('new' \| id, { initialName?, onSaved?, onDeleted? })`. Intended for the Prospect editor's company selector (Task 15, inline creation with `initialName`) and global search (Task 17). |
 | Database Explorer | Context menu of a `companies` row → *Ouvrir dans l’éditeur* (row section); the grid reloads after a save or a deletion. |
 

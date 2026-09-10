@@ -223,11 +223,3 @@
   font-size: var(--text-sm);
   color: var(--color-danger-fg);
 }
-
-/* Actions offered by a section placeholder (e.g. Prospection → Importer Excel, Gérer les entreprises). */
-.placeholder-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: var(--space-3);
-}

@@ -323,6 +323,9 @@ tracking and its history, sources, import row metadata) and for a batch's row me
   `last_verified_at`; `invalid`/`unknown` and inactive (former) channels are left as they are; nothing is deleted.
   In V1 every active channel counts as company-dependent (B2B contact base). Audited as
   `prospect.company_changed` with both company ids and names; each re-verified channel as `email/phone.updated`.
+- **Prospection segments** (Task 14, `app/services/prospection/segments.py`): the canonical reading of these columns —
+  never verified, re-check, due, contacted, no response, responses, appointments, e-mail states — used by the
+  Prospection counters and list and by Home ([prospection-kpis.md](../features/prospection-kpis.md)).
 - **Contact tracking** (`save_contact_tracking`): creates or replaces the single current row and appends a
   status-history row (with the actor snapshot) whenever the status changes.
 - **Companies** (Task 07, `app/services/companies.py`, [company-editor.md](../features/company-editor.md)): SIREN/SIRET

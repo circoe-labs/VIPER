@@ -38,6 +38,15 @@ Counter clicks immediately filter the list. Include coherent subsets such as tot
 ### Prospect list
 People-oriented readable rows/cards, not a raw table. Show: identity, Role/exact title, company, activity status, employment verification date, primary email state, planned contact date, contact-tracking status, referent when relevant.
 
+### As implemented (Task 14)
+Segments, counters, criteria, URL and open-editor contract: [prospection-kpis.md](prospection-kpis.md). Header
+*Entreprises*, *Importer Excel*, *Exporter Excel*, *+ Ajouter un prospect* (disabled until Task 15); 16 counter cards
+in three groups (*Base*, *Vérification*, *Suivi de contact*) that toggle the list's segment; search, *Filtres* (role,
+activity, contact stage, referent, company, import) and sort; one card per person (identity, role · exact title,
+activity and verification badges, company, primary e-mail state, phone, stage, planned date + week, due, referent,
+do-not-contact). All state in the URL (`?segment=due&q=…&page=2`); opening a person sets `?prospect=<id>` — until Task
+15 it opens their row in the Database Explorer.
+
 ### Prospect editor
 Wide drawer/modal preserving current filtered queue. Reuse same component for create/edit.
 
@@ -76,8 +85,8 @@ Accessible from Prospect editor, global search and optionally Database/Prospecti
 
 Implemented by Task 07 — fields, rules, API and behaviour: [company-editor.md](company-editor.md). One wide drawer for
 the whole app, opened with `useCompanyEditor()` (Prospect editor, global search); a compact **Entreprises** list at
-`/prospection/companies`, a secondary page of Prospection (no sixth navigation section; the Prospection placeholder
-links to it until Task 14). Sections *Identité*, *Classification*, *Établissements* (repeater, exactly one primary),
+`/prospection/companies`, a secondary page of Prospection (no sixth navigation section; linked from the Prospection
+header). Sections *Identité*, *Classification*, *Établissements* (repeater, exactly one primary),
 *Contexte Circoe*, *Prospects associés* (count + list); dirty-state footer, save keeps the drawer open, Ctrl+S / Enter
 save, closing with changes asks first; delete only without prospects.
 
@@ -116,7 +125,7 @@ figure or date; the navigation item is current. Replace the component when the a
 |---|---|---|
 | `/login` | Connexion (public) | — |
 | `/` | Accueil (placeholder until Task 16) | Accueil |
-| `/prospection` | Prospection (placeholder until Task 14, links to Entreprises) | Prospection |
+| `/prospection` | Prospection: counters, filters and people list (Task 14) | Prospection |
 | `/prospection/companies` | Entreprises list + Company editor (Task 07) | Prospection |
 | `/exploitation` | Exploitation — Bientôt disponible (Task 18) | Exploitation |
 | `/database/:table?` | Base de données (Task 11) | Base de données |

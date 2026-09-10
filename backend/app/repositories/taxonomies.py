@@ -26,7 +26,7 @@ USAGE: dict[TaxonomyModel, tuple[SQLColumnExpression[uuid.UUID | None], str]] = 
 }
 
 
-def label_key(value: SQLColumnExpression[str] | str) -> ColumnElement[str]:
+def label_key(value: SQLColumnExpression[str | None] | str) -> ColumnElement[str]:
     return func.label_key(value)
 
 
