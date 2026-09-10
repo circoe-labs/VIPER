@@ -156,6 +156,22 @@ describe('buildCellMenu', () => {
     expect(menu['delete-rows']).toMatchObject({ label: 'Supprimer la ligne…', danger: true })
   })
 
+  it('offers the dedicated editor of a row when the table has one', () => {
+    const row = companyRows[0]
+    if (!row || !idColumn) throw new Error('fixture')
+    const openEditor = vi.fn()
+    const context = { column: idColumn, row, columns: companyColumns, referencedBy: [], editing: READ_ONLY }
+    const withEditor = buildCellMenu(context, { ...effects(), openEditor })
+
+    expect(withEditor.find((section) => section.label === 'Ligne')?.items[0]).toMatchObject({
+      id: 'open-editor',
+      label: 'Ouvrir dans l’éditeur',
+    })
+    items(withEditor)['open-editor']?.onSelect()
+    expect(openEditor).toHaveBeenCalled()
+    expect(items(buildCellMenu(context, effects()))['open-editor']).toBeUndefined()
+  })
+
   it('names the selection, and restores deleted or new rows instead of deleting them', () => {
     const row = companyRows[0]
     if (!row || !idColumn) throw new Error('fixture')

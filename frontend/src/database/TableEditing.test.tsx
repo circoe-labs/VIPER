@@ -12,6 +12,7 @@ import {
   prospectsTable,
   TABLES,
 } from '../test/explorerFixtures'
+import { company, stubCompaniesApi } from '../test/companiesApi'
 import { type ApiReply, renderApp, stubApi } from '../test/render'
 
 const API = '/api/explorer/tables'
@@ -239,6 +240,33 @@ describe('Database explorer editing', { timeout: 15_000 }, () => {
 
     expect(within(pendingBar()).getByText('1 ligne ajoutée')).toBeInTheDocument()
     expect(screen.getAllByRole('rowheader')[0]).toHaveTextContent('Nouvelle ligne')
+  })
+
+  it('opens a company row in the Company editor and reloads the grid after saving', async () => {
+    const companies = stubCompaniesApi({ companies: [company('Logistique Démo SAS', { id: String(COMPANY_IDS[1]) })] })
+    const companiesFetch = globalThis.fetch
+    const explorerFetch = stubExplorer()
+    vi.stubGlobal('fetch', (input: string, init?: RequestInit) =>
+      new URL(input, 'http://localhost').pathname.startsWith('/api/companies')
+        ? companiesFetch(input, init)
+        : explorerFetch(input, init),
+    )
+    renderApp('/database/companies')
+    const cell = await cellOf('companies', '1:1')
+    const rowLoads = () => explorerFetch.mock.calls.filter(([input]) => input.startsWith(`${API}/companies/rows`)).length
+    const loadsBefore = rowLoads()
+
+    await userEvent.pointer({ keys: '[MouseRight]', target: cell })
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Ouvrir dans l’éditeur' }))
+    const editor = await screen.findByRole('dialog', { name: 'Logistique Démo SAS' })
+    await userEvent.type(within(editor).getByRole('textbox', { name: 'Taille' }), '10-49')
+    await userEvent.click(within(editor).getByRole('button', { name: 'Enregistrer' }))
+
+    expect(await screen.findByText('Entreprise enregistrée.')).toBeInTheDocument()
+    expect(companies.requests.some((request) => request.method === 'PUT')).toBe(true)
+    await waitFor(() => {
+      expect(rowLoads()).toBeGreaterThan(loadsBefore)
+    })
   })
 
   it('picks a foreign-key target by its label', async () => {

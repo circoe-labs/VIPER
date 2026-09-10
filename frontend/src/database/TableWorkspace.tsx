@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'r
 import { Link, useNavigate } from 'react-router'
 
 import { ApiError } from '../api/client'
+import { useCompanyEditor } from '../companies/CompanyEditorProvider'
 import {
   changeErrors,
   type ExplorerColumn,
@@ -183,9 +184,13 @@ interface ShownRow {
   row: ExplorerRow
 }
 
+// Tables whose rows open in a dedicated editor, from the context menu (the grid reloads after a save).
+const RECORD_EDITORS = new Set(['companies'])
+
 function Workspace({ meta, view, onViewChange, origin, rows, columnState, onColumnAction, onRefresh, onNavigate }: WorkspaceProps) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const openCompanyEditor = useCompanyEditor()
   const [searchText, setSearchText] = useState(view.search)
   const [status, setStatus] = useState('')
   const [activeCell, setActiveCell] = useState<CellPosition | null>(null)
@@ -323,6 +328,12 @@ function Workspace({ meta, view, onViewChange, origin, rows, columnState, onColu
       else next.add(id)
       setSelection({ page: pageKey, ids: next })
     },
+  }
+
+  function openRecordEditor(index: number) {
+    const id = displayRows[index]?.values.id
+    if (typeof id !== 'string') return
+    openCompanyEditor(id, { onSaved: onRefresh, onDeleted: onRefresh })
   }
 
   function addRow() {
@@ -618,6 +629,7 @@ function Workspace({ meta, view, onViewChange, origin, rows, columnState, onColu
         onEditRequestDone={() => {
           setEditRequest(null)
         }}
+        onOpenEditor={RECORD_EDITORS.has(meta.name) ? openRecordEditor : undefined}
         busy={rows.isFetching}
         empty={empty}
       />

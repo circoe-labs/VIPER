@@ -98,6 +98,8 @@ interface ExplorerGridProps {
   // Open the editor on this cell (e.g. the first column of a row just added), until `onEditRequestDone`.
   editRequest: { row: string; column: string } | null
   onEditRequestDone: () => void
+  // Opens the row in its dedicated editor, when the table has one.
+  onOpenEditor?: (row: number) => void
   busy: boolean
   empty: ReactNode
 }
@@ -135,6 +137,7 @@ export function ExplorerGrid({
   onActiveCellChange,
   editRequest,
   onEditRequestDone,
+  onOpenEditor,
   busy,
   empty,
 }: ExplorerGridProps) {
@@ -365,6 +368,12 @@ export function ExplorerGrid({
         restoreRow: () => {
           editing.restoreRow(cell.row)
         },
+        openEditor:
+          onOpenEditor && rowMeta.status !== 'new'
+            ? () => {
+                onOpenEditor(cell.row)
+              }
+            : undefined,
       },
     )
   }

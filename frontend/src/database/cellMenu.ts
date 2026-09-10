@@ -3,6 +3,7 @@
 import type { ExplorerColumn, ExplorerReference, ExplorerRow } from '../api/explorer'
 import type { MenuItem, MenuSection } from '../ui/Menu'
 import {
+  BuildingIcon,
   CopyIcon,
   ExpandIcon,
   FilterIcon,
@@ -50,6 +51,8 @@ export interface CellEffects {
   revertCell: () => void
   deleteRows: () => void
   restoreRow: () => void
+  // The row has a dedicated editor (e.g. companies → the Company editor, Task 07).
+  openEditor?: () => void
 }
 
 function editItems(column: ExplorerColumn, value: unknown, editing: CellEditingContext, effects: CellEffects): MenuItem[] {
@@ -190,7 +193,16 @@ export function buildCellMenu({ column, row, columns, referencedBy, editing }: C
 
   return [
     { label: 'Cellule', items: [...cell, ...editItems(column, value, editing, effects)] },
-    { label: 'Ligne', items: [...rowItems, ...rowEditItems(editing, effects)] },
+    {
+      label: 'Ligne',
+      items: [
+        ...(effects.openEditor
+          ? [{ id: 'open-editor', label: 'Ouvrir dans l’éditeur', icon: BuildingIcon, onSelect: effects.openEditor }]
+          : []),
+        ...rowItems,
+        ...rowEditItems(editing, effects),
+      ],
+    },
     { label: 'Filtre', items: filters },
     { label: 'Relations', items: links },
   ].filter((section) => section.items.length > 0)

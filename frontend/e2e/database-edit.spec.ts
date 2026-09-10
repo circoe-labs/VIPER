@@ -50,7 +50,12 @@ test('a saved edit is persisted and recorded in the audit log', async ({ page })
   await page.reload()
   await expect(grid(page, 'internal_referents').getByRole('gridcell', { name: 'Référente-Test', exact: true })).toBeVisible()
 
-  const updates = encodeURIComponent(JSON.stringify([{ column: 'action', operator: 'eq', value: 'internal_referent.updated' }]))
+  const updates = encodeURIComponent(
+    JSON.stringify([
+      { column: 'action', operator: 'eq', value: 'internal_referent.updated' },
+      { column: 'changes', operator: 'contains', value: 'Référente-Test' },
+    ]),
+  )
   await page.goto(`/database/audit_log?filters=${updates}`)
   const events = grid(page, 'audit_log')
   await expect(page.locator('.explorer-status__range')).toContainText('Lignes 1–1 sur 1')
@@ -125,6 +130,22 @@ test('a prospect deletion lists its cascades and a used company cannot be delete
   await expect(cascade.getByRole('button', { name: 'Supprimer avec les lignes liées' })).toBeEnabled()
   await cascade.getByRole('button', { name: 'Annuler' }).click()
   await expect(pendingBar(page)).toBeHidden()
+})
+
+test('a company row opens in the Company editor and the grid shows the saved value', async ({ page }) => {
+  await openDatabase(page, 'companies')
+  const companies = grid(page, 'companies')
+  await companies.getByRole('gridcell', { name: 'Transports Exemple SARL' }).click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'Ouvrir dans l’éditeur' }).click()
+
+  const editor = page.getByRole('dialog', { name: 'Transports Exemple SARL' })
+  await editor.getByRole('textbox', { name: 'Taille' }).fill('Taille E2E')
+  await editor.getByRole('button', { name: 'Enregistrer' }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Entreprise enregistrée.' })).toBeVisible()
+  await editor.getByRole('button', { name: 'Fermer' }).first().click()
+  await expect(editor).toBeHidden()
+
+  await expect(companies.getByRole('gridcell', { name: 'Taille E2E', exact: true })).toBeVisible()
 })
 
 for (const theme of ['dark', 'light'] as const) {
