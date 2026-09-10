@@ -129,6 +129,19 @@ describe('Combobox', () => {
     expect(optionNames()).toEqual(['Dirigeant'])
   })
 
+  it('offers no creation while the list is loading, so Enter cannot duplicate a value not yet shown', async () => {
+    const run = vi.fn()
+    const { rerender } = render(<Combobox label="Rôle" options={[]} status="loading" value={null} create={{ run }} onChange={vi.fn()} />)
+
+    await userEvent.type(input(), 'dirig{Enter}')
+
+    expect(screen.queryByRole('option')).not.toBeInTheDocument()
+    expect(screen.getByText('Chargement…')).toBeInTheDocument()
+    expect(run).not.toHaveBeenCalled()
+    rerender(<Combobox label="Rôle" options={OPTIONS} status="ready" value={null} create={{ run }} onChange={vi.fn()} />)
+    expect(optionNames()).toEqual(['Dirigeant', 'Créer « dirig »'])
+  })
+
   it('shows why a creation failed under the field', async () => {
     const run = vi.fn(() => Promise.reject(new Error('« Directeur » existe déjà.')))
     render(<Single create={{ run }} />)
