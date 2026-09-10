@@ -6,10 +6,17 @@ input always yields the same JSON. Reference data comes in as a snapshot
 """
 
 from collections import Counter
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 from app.services.imports.dedup import annotate_duplicates
-from app.services.imports.diagnostics import Diagnostic, Severity
+from app.services.imports.diagnostics import (
+    Diagnostic,
+    DiagnosticCode,
+    ImportRejectedError,
+    Severity,
+)
+from app.services.imports.fields import CORRECTABLE_FIELDS, SPECS, ImportField
 from app.services.imports.layout import ImportMapping, Layout, resolve_layout
 from app.services.imports.models import (
     ImportPreview,
@@ -32,31 +39,57 @@ class ImportFile:
     content: bytes
 
 
+# Source row number → field → the text the user typed instead of the cell (None clears it).
+type ImportCorrections = Mapping[int, Mapping[ImportField, str | None]]
+
+
 def build_preview(
     file: ImportFile,
     reference: ImportReferenceData = EMPTY_REFERENCE,
     mapping: ImportMapping | None = None,
+    corrections: ImportCorrections | None = None,
     *,
     limits: ImportLimits = DEFAULT_LIMITS,
 ) -> ImportPreview:
     """Parse, map, normalize and check `file` without side effects.
 
+    `corrections` replace single cells before any rule runs (the originals stay in legacy
+    metadata), so a corrected row is normalized, matched and checked for duplicates exactly like
+    a source row.
+
     Raises `ImportRejectedError` when the file cannot be read at all (format, size, encryption,
-    corruption, limits) or when `mapping` names an unknown sheet/column or maps a field twice.
+    corruption, limits), when `mapping` names an unknown sheet/column or maps a field twice, or
+    when `corrections` name a row outside the sheet's data or a field that cannot be corrected.
     """
     workbook = read_workbook(file.filename, file.content, limits)
     layout = resolve_layout(workbook, mapping)
+    corrections = corrections or {}
     drafts = []
     if layout.sheet is not None and layout.header is not None:
         header_number = layout.header.number
+        data = [row for row in layout.sheet.rows if row.number > header_number]
+        check_corrections(corrections, {row.number for row in data}, layout)
         drafts = [
-            RowBuilder(row, layout.columns, reference).build()
-            for row in layout.sheet.rows
-            if row.number > header_number
+            RowBuilder(row, layout.columns, reference, corrections.get(row.number)).build()
+            for row in data
         ]
+    else:
+        check_corrections(corrections, set(), layout)
     email_groups = annotate_duplicates(drafts, reference)
     rows = [draft.finish() for draft in drafts]
     return ImportPreview(summary=summarize(workbook, layout, rows, email_groups), rows=rows)
+
+
+def check_corrections(corrections: ImportCorrections, rows: set[int], layout: Layout) -> None:
+    mapped = {column.field for column in layout.columns if column.field is not None}
+    for number in sorted(corrections):
+        if number not in rows:
+            raise ImportRejectedError(DiagnosticCode.MAPPING_UNKNOWN_ROW, row=number)
+        for field in sorted(corrections[number]):
+            if field not in CORRECTABLE_FIELDS or field not in mapped:
+                raise ImportRejectedError(
+                    DiagnosticCode.MAPPING_UNCORRECTABLE_FIELD, row=number, label=SPECS[field].label
+                )
 
 
 def summarize(

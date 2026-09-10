@@ -66,6 +66,21 @@ def get_batch(session: Session, batch_id: uuid.UUID) -> ImportBatch:
     return batch
 
 
+def list_batches(session: Session, *, limit: int = 50) -> list[ImportBatch]:
+    """Import history, newest first."""
+    return provenance_repository.list_batches(session, limit=limit)
+
+
+def committed_with_fingerprint(session: Session, fingerprint: str) -> list[ImportBatch]:
+    """Committed imports of the same file (same SHA-256), newest first: a re-import warning."""
+    return provenance_repository.committed_batches(session, fingerprint)
+
+
+def batch_counts(session: Session, batch_id: uuid.UUID) -> tuple[int, int, int]:
+    """(rows traced, distinct prospects, distinct companies) of a batch's row metadata."""
+    return provenance_repository.batch_row_counts(session, batch_id)
+
+
 def start_batch(
     session: Session,
     actor: ActorContext,
@@ -73,6 +88,8 @@ def start_batch(
     filename: str,
     sheet_names: Collection[str],
     file_fingerprint: str | None = None,
+    legal_basis_or_collection_context: str | None = None,
+    source_reference: str | None = None,
 ) -> ImportBatch:
     """Open a `pending` batch for an uploaded file (metadata and optional SHA-256 only)."""
     if not filename.strip():
@@ -81,6 +98,8 @@ def start_batch(
         filename=filename.strip(),
         sheet_names=list(sheet_names),
         file_fingerprint=file_fingerprint,
+        legal_basis_or_collection_context=(legal_basis_or_collection_context or "").strip() or None,
+        source_reference=(source_reference or "").strip() or None,
         status=ImportBatchStatus.PENDING,
         actor_type=actor.type,
         actor_id=actor.id,

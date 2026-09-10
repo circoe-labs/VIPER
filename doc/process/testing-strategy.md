@@ -109,6 +109,18 @@
   `test_import_reference_loader.py` (snapshot from the real test database, SELECT-only). The private smoke
   `test_import_private_workbook.py` (marker `private`) is skipped unless `VIPER_PRIVATE_WORKBOOK` is set and prints
   counts per diagnostic code only.
+- Excel import review and commit (Task 09): `test_import_commit.py` (real test database: default commit with
+  normalized entities, provenance, row metadata and import-actor audit; defaults never apply suggestions nor invent a
+  year; grouped role mapping; explicit role/category creation audited as the user; referent/civility/week/inactive
+  decisions and week 53; do-not-contact never recreated nor reactivated; attach/merge/exclude and merge rules;
+  corrections re-analysed with the original kept; lossless row metadata; stale file/preview; re-import
+  acknowledgement; mid-commit failure rolled back with a failed batch), `test_imports_api.py` (401/403, upload bounds
+  before and after parsing, refusals without echoed values, commit/history/detail, failed batch persisted). Frontend:
+  `src/imports/importPlan.test.ts`, `importFlow.test.ts` (state machine), `ImportPage.test.tsx` (flow, grouped
+  mapping, exclusion, correction, commit summary, opposition, re-import, stale review). Playwright
+  `e2e/import.spec.ts` (synthetic workbook generated in memory, resolve, exclude, commit, history, explorer, both
+  themes' screenshots). Private `test_import_private_commit.py` commits the real workbook inside the rolled-back test
+  transaction and prints aggregates only.
 - Privacy: `scripts/check_private_data.py` in CI; synthetic fixtures only under `*/tests/fixtures/synthetic/`.
 - Commands: `doc/process/runbook-local-dev.md`.
 

@@ -36,8 +36,10 @@ test('a read shows its rows, row count and duration', async ({ page }) => {
 test('hidden tables and writes are refused by the database, nothing changes', async ({ page }) => {
   const panel = await openConsole(page)
   const result = panel.getByRole('region', { name: 'Résultat de la requête' })
-  // Other specs may add companies: compare with the count read first.
-  await runQuery(page, 'SELECT count(*) AS companies FROM companies')
+  // Specs run in parallel and add companies: count only the synthetic dataset's own (zero-padded SIRENs), which no
+  // spec changes (I-80).
+  const fixtureCount = "SELECT count(*) AS companies FROM companies WHERE siren LIKE '0%'"
+  await runQuery(page, fixtureCount)
   await expect(result.getByRole('status')).toContainText('1 ligne')
   const before = await result.getByRole('cell').first().innerText()
 
@@ -51,7 +53,7 @@ test('hidden tables and writes are refused by the database, nothing changes', as
   await runQuery(page, 'WITH gone AS (DELETE FROM companies RETURNING id) SELECT count(*) FROM gone')
   await expect(panel.getByRole('alert')).toContainText('non prise en charge')
 
-  await runQuery(page, 'SELECT count(*) AS companies FROM companies')
+  await runQuery(page, fixtureCount)
   await expect(result.getByRole('cell').first()).toHaveText(before)
 })
 

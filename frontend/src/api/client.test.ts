@@ -58,6 +58,20 @@ describe('apiRequest', () => {
     }))
   })
 
+  it('sends FormData as is, letting the browser set the multipart content type', async () => {
+    setCsrfToken('jeton')
+    const fetchMock = stubFetchJson(200, {})
+    const form = new FormData()
+    form.append('file', new Blob(['a;b']), 'fichier.csv')
+
+    await apiRequest('POST', '/imports/preview', { body: form })
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/imports/preview', expect.objectContaining({
+      body: form,
+      headers: { Accept: 'application/json', 'X-CSRF-Token': 'jeton' },
+    }))
+  })
+
   it('resolves to undefined on 204 No Content', async () => {
     stubFetchJson(204, null)
 

@@ -133,3 +133,17 @@ STAGE_FIELDS: tuple[ImportField, ...] = (
     ImportField.STAGE_FOLLOW_UP_1,
     ImportField.STAGE_FOLLOW_UP_2,
 )
+# Fields the import review lets the user retype for one row (Task 09). Values mapped through
+# grouped decisions (role, category, referent) or kept raw by design are not among them.
+CORRECTABLE_FIELDS: tuple[ImportField, ...] = (
+    ImportField.COMPANY_NAME,
+    ImportField.CIVILITY,
+    ImportField.LAST_NAME,
+    ImportField.FIRST_NAME,
+    ImportField.JOB_TITLE,
+    ImportField.EMAIL,
+    ImportField.PHONE,
+    ImportField.MOBILE,
+    ImportField.ADDRESS,
+    ImportField.PLANNED_CONTACT,
+)

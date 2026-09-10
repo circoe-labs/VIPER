@@ -186,8 +186,14 @@ start_batch(human)  ─► pending ── importing(batch, confirmed_by=human) �
 - `record_row(session, batch, *, sheet, row_number, legacy_metadata, prospect_id, company_id)` — write-once
   `import_row_metadata` with JSON-safe legacy values; no audit event per row (I-29).
 - `finish_batch(session, actor, batch, status, *, rows_total, rows_imported, rows_skipped)` — only from `pending`;
-  sets `committed_at` for `committed`. A failed commit rolls back with its transaction: record `failed` in a new unit
-  of work (`get_batch(session, batch_id)`).
+  sets `committed_at` for `committed`.
+- `list_batches`, `committed_with_fingerprint`, `batch_counts` — history, re-import warning, detail counts.
+
+The Excel import commit (Task 09, `app/services/import_commit.py`, ADR-0012) follows this cycle inside one savepoint:
+`start_batch` (with the batch's legal basis and source reference) by the user → `importing(...)` → companies,
+prospects, tracking, `add_import_source` + `record_row` per imported row → `finish_batch(committed)`. Settings values
+the user chose to create are created before `importing`, so their events are by the user (`source=ui`). On failure the
+savepoint rolls back and `start_batch` + `finish_batch(failed)` are recorded in the same request transaction.
 
 ## Known limits
 
