@@ -1,8 +1,5 @@
-import { v4 as uuid } from 'uuid'; import { db, migrate } from './db.js';
-migrate();
-const slug=(s:string)=>s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'');
-const insert=(table:string,label:string)=>db.prepare(`INSERT OR IGNORE INTO ${table}(id,label,slug) VALUES(?,?,?)`).run(uuid(),label,slug(label));
-['Dirigeant','Responsable logistique','Responsable exploitation','DSI / IT','Commercial'].forEach(x=>insert('roles',x));
-['Transport','Logistique','Industrie','Services'].forEach(x=>insert('activity_categories',x));
-['Prospect','Client','Partenaire'].forEach(x=>insert('commercial_segments',x));
-console.log('VIPER seed complete');
+import { randomUUID } from 'node:crypto'; import { db,migrate } from './db.js'; migrate();
+for(const label of ['Direction','Logistique','Exploitation','Commercial','Achats']) db.prepare('INSERT OR IGNORE INTO roles(id,label,slug) VALUES(?,?,?)').run(randomUUID(),label,label.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu,'').replace(/\s+/g,'-'));
+for(const label of ['Transport','Logistique','Industrie']) db.prepare('INSERT OR IGNORE INTO activity_categories(id,label) VALUES(?,?)').run(randomUUID(),label);
+for(const label of ['Prospect','Client','Partenaire']) db.prepare('INSERT OR IGNORE INTO commercial_segments(id,label) VALUES(?,?)').run(randomUUID(),label);
+console.log('Synthetic reference taxonomies seeded; no private workbook data used.');

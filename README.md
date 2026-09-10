@@ -1,10 +1,13 @@
-# VIPER
+# VIPER V1 — branche GPT
 
-**Validation Interface for Prospecting, Execution & Revenue** — V1 database-first, human-in-the-loop.
+Implémentation V1 orientée **base de données + interface humaine**, conforme au handoff revu du 10 septembre 2026.
 
-VIPER V1 provides a secure interface for maintaining companies/prospects, provenance and verification state, controlled Excel import/export, lightweight contact tracking, an operational dashboard, settings taxonomies and a technical database explorer. IProspect, IContact, automatic email sending and Calendly sync are intentionally not implemented.
+## Inclus
+Authentification mono-utilisateur, base SQLite normalisée, audit/provenance, Home, Prospection, édition prospect, suivi de contact, import XLSX contrôlé, export normalisé, Database Explorer, SQL read-only côté serveur, Settings, recherche globale et Exploitation en placeholder explicite.
 
-## Local setup
+Aucun IProspect/IContact, envoi email, synchronisation Calendly ou CRM riche n'est simulé.
+
+## Démarrage
 
 ```bash
 cp .env.example .env
@@ -14,18 +17,10 @@ npm run seed
 npm run dev
 ```
 
-The API defaults to `http://localhost:3001` and Vite to `http://localhost:5173`. In development only, if `.env` is absent, login is `admin` / `viper`. Production requires `VIPER_PASSWORD` and `VIPER_SESSION_SECRET`.
+Identifiants de développement par défaut : `commercial@example.test` / `change-me-now`. À remplacer hors développement.
 
-## Safety
+## Données privées
+Le classeur réel `BASE_CLIENT.xlsx` n'est jamais commité. `.gitignore` et la CI bloquent explicitement sa publication. Les tests n'emploient que des données synthétiques.
 
-The public repository must never contain the real `BASE_CLIENT.xlsx`, raw contact rows or the handoff `sources/` directory. `.gitignore` and CI enforce this. Committed tests use synthetic values only.
-
-## Main routes
-
-- `/` — Home dashboard from real database/manual tracking data
-- `/prospection` — people-oriented prospect verification/contact workspace + import/export
-- `/exploitation` — explicit Coming soon placeholder only
-- `/database` — technical table explorer + backend-enforced read-only SQL
-- `/settings` — roles, activity categories, segments and internal referents
-
-See `docs/ADR-001-stack.md` and `docs/IMPLEMENTATION_REPORT.md` for architecture and remaining open decisions.
+## Limite explicitement non masquée
+Le Database Explorer propose la lecture technique et la console SQL read-only ; le niveau DBeaver complet pour les mutations génériques avancées reste partiel et est marqué comme tel dans `tasks-status.md` et `docs/IMPLEMENTATION_REPORT.md`.

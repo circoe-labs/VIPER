@@ -6,11 +6,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: npm }
+        with:
+          node-version: 22
       - run: npm install
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
-      - name: Reject private workbook artifacts
-        run: |
-          if find . -type f \( -name 'BASE_CLIENT.xlsx' -o -path '*/sources/*' \) | grep .; then exit 1; fi
+      - name: Block private workbook leakage
+        run: '! git ls-files | grep -E "(^|/)BASE_CLIENT\\.xlsx$|(^|/)sources/"'

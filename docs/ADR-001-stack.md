@@ -1,7 +1,11 @@
-# ADR-001 — Stack VIPER V1
+# ADR-001 — V1 stack
 
-Status: accepted for V1 implementation.
+Status: accepted for the GPT implementation branch.
 
-VIPER uses React + TypeScript + Vite for the UI, an Express + TypeScript API, and SQLite through better-sqlite3 for the pilot relational store. XLSX import/export uses SheetJS. Authentication is a signed HttpOnly cookie session backed by one configured pilot account.
+- Frontend: React + TypeScript + Vite.
+- Backend: Express + TypeScript.
+- Database: SQLite via better-sqlite3 for the single-user pilot.
+- Excel: SheetJS/xlsx.
+- Validation/testing: TypeScript, Vitest, ESLint, GitHub Actions.
 
-Rationale: the repository had no existing conventions, so V1 favors a small typed stack, deterministic migrations, easy local deployment and future replacement of persistence behind service boundaries. UI never accesses SQL directly.
+Rationale: minimal operational surface for a single-user pilot, deterministic local relational database, low migration cost, clear service boundary for later replacement by a networked shared database. This is an implementation choice for the branch, not a change to the broader IProspect/VIPER/IContact functional separation.
