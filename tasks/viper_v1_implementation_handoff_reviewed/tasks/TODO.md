@@ -21,8 +21,8 @@ VIPER V1 is a database-first human dashboard for maintaining prospect/company/co
 - [x] **01** `01-foundation-stack` — choose stack, scaffold, CI, private-data guardrails
 - [x] **02** `02-design-system-brand` — Neon Command + all accepted VIPER assets/themes
 - [x] **03** `03-data-schema` — reviewed relational model + migrations
-- [~] **04** `04-authentication-actor` — secure single-user auth + actor context
-- [ ] **05** `05-audit-provenance-core` — audit/provenance foundation before feature mutations
+- [x] **04** `04-authentication-actor` — secure single-user auth + actor context
+- [x] **05** `05-audit-provenance-core` — audit/provenance foundation before feature mutations
 - [ ] **06** `06-settings-taxonomies` — roles/categories/segments/referents
 - [ ] **07** `07-company-editor` — lightweight company/establishment maintenance
 - [ ] **08** `08-excel-import-core` — deterministic parser/mapping/diagnostics

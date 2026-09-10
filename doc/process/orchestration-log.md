@@ -62,3 +62,35 @@ found, what was sent back for rework, and the verification evidence accepted. Ta
   (I-21).
 - Next wave in parallel: Task 04 (auth, `claude`) and Task 11 (Database Explorer read, worktree `task-11-explorer`),
   since Task 11 only depends on 02–03. Task 04 protects the whole API router so Task 11 routes are covered on merge.
+
+### Task 04 — Authentication & actor (2026-09-10) — ACCEPTED
+
+- Commit `4fbb0ae`. Server-side sessions (only SHA-256 of the token stored), argon2id (RFC 9106 low-memory),
+  identical response/time for unknown user vs bad password, in-process throttling (documented single-instance limit),
+  cookie HttpOnly + Secure (configurable) + SameSite=Strict scoped to `/api`, session-bound HMAC CSRF token required
+  on unsafe methods, protected-by-default `api_router` + public allowlist pinned by a route-walk test, `CurrentActor`
+  from the session only, CLI `create-user` (no default password), French login page + guard + 401 handling,
+  full-stack Playwright on `viper_e2e`. ADR-0004, I-23..I-25.
+- Review: no rework needed. Watch-point: throttle is per-process (fine for the single-instance pilot, ADR-0004).
+
+### Task 05 — Audit & provenance core (2026-09-10) — ACCEPTED after rework
+
+- Commit `da73bf8`: `audit.annotate` + a single `after_flush` writer (one event per changed row, same transaction),
+  change capture from ORM history, centralized payload policy (secrets never, PII behind one switch — full in V1,
+  I-27), `subject_id` so a prospect's history includes its channels/tracking/sources, DNC clear reason persisted
+  (closes I-12 gap), provenance + import-batch helpers, `GET /api/audit/recent`. ADR-0006, I-26..I-30.
+- **Rework requested**: unattributed writes to audited tables were silently skipped (fail-open). Future writers
+  (CLI, jobs, agents, Explorer edits) must not be able to create untraced changes. Fixed in `9c60488`:
+  `UnattributedMutationError`, exhaustive audited/not-audited table classification test, `attributed_unit_of_work`
+  for non-HTTP code, fixtures bind an explicit test actor (I-31).
+- Agent-reported gates: pytest 163, vitest 207, Playwright 12 — all green.
+
+### Task 11 — Database Explorer read (2026-09-10) — ACCEPTED, integration in progress
+
+- Commit `f578f13` on `task-11-explorer`: default-deny table exposure policy (exhaustive test), metadata incl. CHECK
+  values and incoming references, typed filter AST compiled with bound params, multi-sort with PK tiebreak, escaped
+  search, truncation + full-record endpoint, streamed CSV export (BOM, `;`, formula-injection guard), virtualized
+  TanStack grid, pin/hide/reorder/resize persisted per table, context menu, FK navigation with URL state, structure
+  drawer. ADR-0005, I-40..I-46. Screenshots reviewed by the orchestrator: DBeaver-grade ergonomics in Neon Command.
+- Integration delegated to the Task 11 agent inside its worktree: merged `claude` with Task 04 (`382d7dc`: auth tables
+  withheld from the explorer with tests, explorer routes protected, single E2E infrastructure), then Task 05.
