@@ -1,6 +1,9 @@
-# Data Model — V1 logical contract (reviewed)
+# Data Model — V1 logical contract (reviewed) and shipped physical schema
 
-> Physical names are indicative. Preserve semantics even if ORM naming differs.
+> The first part is the reviewed **logical** contract (semantics to preserve). The
+> [physical schema](#physical-schema-shipped-in-task-03) at the end describes what migration `0002` actually
+> creates; conventions and their rationale are in [ADR-0002](../adr/0002-data-schema-conventions.md), deviations
+> in the decision log (I-09 … I-16).
 
 ## `companies`
 - `id` stable UUID/ID PK
@@ -140,3 +143,186 @@ Avoid a generic field-metadata system unless implementation proves necessary. Us
 - imported dynamic values with no corresponding verification date render as warning/unverified.
 
 This is sufficient for the requested yellow-field/section feedback while keeping the schema understandable.
+
+---
+
+## Physical schema (shipped in Task 03)
+
+PostgreSQL 16, migration `backend/migrations/versions/0002_core_schema.py`, ORM models in `backend/app/models/`.
+Conventions (UUID keys, `timestamptz`, text + CHECK enums, naming, deletion rules, triggers):
+[ADR-0002](../adr/0002-data-schema-conventions.md).
+
+Common to all tables unless stated: `id uuid` PK (UUIDv7 from the app, `gen_random_uuid()` fallback);
+`created_at` / `updated_at timestamptz NOT NULL DEFAULT now()`, `updated_at` bumped by the `set_updated_at` trigger.
+
+### ERD
+
+```mermaid
+erDiagram
+    commercial_segments |o--o{ companies : "segment RESTRICT"
+    companies ||--o{ company_activity_categories : "CASCADE"
+    activity_categories ||--o{ company_activity_categories : "RESTRICT"
+    companies ||--o{ establishments : "CASCADE"
+    companies |o--o{ prospects : "RESTRICT"
+    roles |o--o{ prospects : "RESTRICT"
+    prospects ||--o{ emails : "CASCADE"
+    prospects ||--o{ phones : "CASCADE"
+    prospects ||--o| contact_tracking : "CASCADE"
+    internal_referents |o--o{ contact_tracking : "referent RESTRICT"
+    contact_tracking ||--o{ contact_tracking_status_history : "CASCADE"
+    prospects ||--o{ prospect_sources : "CASCADE"
+    import_batches |o--o{ prospect_sources : "RESTRICT"
+    import_batches ||--o{ import_row_metadata : "CASCADE"
+    prospects |o--o{ import_row_metadata : "CASCADE"
+    companies |o--o{ import_row_metadata : "SET NULL"
+
+    companies {
+        uuid id PK
+        varchar display_name
+        varchar siren UK "9 digits, NULLs allowed"
+        varchar email_domain "lowercase, indexed"
+        uuid commercial_segment_id FK
+    }
+    establishments {
+        uuid id PK
+        uuid company_id FK
+        varchar siret UK "14 digits, NULLs allowed"
+        bool is_primary "one per company"
+    }
+    prospects {
+        uuid id PK
+        uuid company_id FK
+        uuid role_id FK
+        varchar activity_status "active, inactive, unknown"
+        timestamptz employment_verified_at
+        varchar contactability_status "contactable, do_not_contact"
+        timestamptz do_not_contact_at
+    }
+    emails {
+        uuid id PK
+        uuid prospect_id FK
+        varchar address "lowercase"
+        bool is_primary "one per prospect"
+        varchar verification_status
+    }
+    phones {
+        uuid id PK
+        uuid prospect_id FK
+        varchar number "digits, optional +"
+        varchar type "mobile, landline, other"
+        bool is_primary "one per prospect"
+    }
+    contact_tracking {
+        uuid id PK
+        uuid prospect_id FK, UK
+        varchar status
+        uuid referent_id FK
+        timestamptz response_received_at
+        timestamptz appointment_at
+    }
+    contact_tracking_status_history {
+        uuid id PK
+        uuid contact_tracking_id FK
+        varchar from_status
+        varchar to_status
+        timestamptz changed_at
+    }
+    prospect_sources {
+        uuid id PK
+        uuid prospect_id FK
+        varchar source_type
+        uuid import_batch_id FK
+        text legal_basis_or_collection_context
+    }
+    import_batches {
+        uuid id PK
+        varchar filename
+        varchar status
+        varchar file_fingerprint "sha256 hex, optional"
+    }
+    import_row_metadata {
+        uuid id PK
+        uuid import_batch_id FK
+        int source_row_number
+        jsonb legacy_metadata
+    }
+    audit_log {
+        uuid id PK
+        timestamptz occurred_at
+        varchar actor_type
+        varchar entity_type
+        uuid entity_id "no FK"
+        jsonb changes
+    }
+```
+
+`roles`, `commercial_segments`, `activity_categories` share one shape (below); `audit_log` has no relationships
+on purpose.
+
+### Tables
+
+| Table | Columns (beyond `id` and timestamps) | Constraints / indexes |
+|---|---|---|
+| `roles`, `commercial_segments`, `activity_categories` | `label varchar(255)`, `slug varchar(100)`, `active bool DEFAULT true` | `uq_<t>_slug`; `uq_<t>_lower_label` on `lower(label)`; CHECK slug `^[a-z0-9]+(-[a-z0-9]+)*$`, label not blank |
+| `internal_referents` | `first_name`, `last_name varchar(100)`, `email varchar(320) NULL`, `active bool` | names not blank; email lowercase `x@y`. Not login accounts |
+| `companies` | `display_name varchar(255)`, `legal_name`, `siren varchar(9)`, `website_url text`, `email_domain varchar(253)`, `size_label varchar(100)`, `commercial_segment_id`, `project_done_with_circoe`, `project_type`, `circoe_references`, `client_approach` (text, legacy context) | `uq_companies_siren`; CHECK siren digits, email_domain lowercase `a.b`, display_name not blank; `ix_companies_email_domain`, `ix_companies_lower_display_name` |
+| `company_activity_categories` | `company_id`, `activity_category_id` | composite PK; `ix_…_activity_category_id` |
+| `establishments` | `company_id`, `name`, `siret varchar(14)`, `address_line1/2`, `postal_code`, `city`, `country`, `kind varchar(100)` (free text: siège, agence, entrepôt…), `is_primary bool DEFAULT false` | `uq_establishments_siret`; `uq_establishments_company_id_primary` (partial `WHERE is_primary`); CHECK siret digits |
+| `prospects` | `company_id NULL`, `civility (mr/ms) NULL`, `first_name`, `last_name varchar(100) NULL`, `role_id NULL`, `exact_job_title varchar(255)`, `activity_status DEFAULT 'unknown'`, `employment_verified_at NULL`, `contactability_status DEFAULT 'contactable'`, `do_not_contact_at`, `do_not_contact_reason text` | CHECK `has_name` (at least one non-blank name); CHECK `do_not_contact_consistency`; trigger `guard_do_not_contact`; `ix_prospects_lower_last_name_first_name` |
+| `emails` | `prospect_id`, `address varchar(320)`, `is_primary DEFAULT false`, `is_active DEFAULT true`, `verification_status DEFAULT 'unverified'`, `origin_type` (no default), `last_verified_at`, `source_reference text` | `uq_emails_prospect_id_address`; `uq_emails_prospect_id_primary` (partial); CHECK address lowercase `x@y`, primary ⇒ active; `ix_emails_address` |
+| `phones` | as `emails`, with `number varchar(21)` and `type` | `uq_phones_prospect_id_number`; `uq_phones_prospect_id_primary` (partial); CHECK number `^\+?[0-9]{4,20}$`, primary ⇒ active; `ix_phones_number` |
+| `contact_tracking` | `prospect_id`, `planned_contact_at`, `status DEFAULT 'to_contact'`, `referent_id NULL`, `response_received_at`, `appointment_at` | `uq_contact_tracking_prospect_id` (one current row per prospect); `ix_contact_tracking_referent_id` |
+| `contact_tracking_status_history` | `contact_tracking_id`, `from_status NULL` (initial), `to_status`, `changed_at DEFAULT clock_timestamp()`, `actor_type`, `actor_id`, `actor_display` | CHECK `from_status IS DISTINCT FROM to_status`; index `(contact_tracking_id, changed_at)`; no `updated_at` |
+| `prospect_sources` | `prospect_id`, `source_type`, `source_reference text`, `import_batch_id NULL`, `collected_at DEFAULT now()`, `legal_basis_or_collection_context text`, `actor_type/actor_id/actor_display NULL`, `notes text` | FK indexes |
+| `import_batches` | `filename`, `sheet_names text[] DEFAULT '{}'`, `file_fingerprint varchar(64) NULL`, `status DEFAULT 'pending'`, `rows_total/rows_imported/rows_skipped int DEFAULT 0`, `committed_at NULL`, `actor_type/actor_id/actor_display` | CHECK fingerprint `^[0-9a-f]{64}$`, counts ≥ 0, `committed` ⇔ `committed_at`. No workbook bytes |
+| `import_row_metadata` | `import_batch_id`, `source_sheet`, `source_row_number int`, `prospect_id NULL`, `company_id NULL`, `legacy_metadata jsonb DEFAULT '{}'`, `created_at` only | `uq_import_row_metadata_batch_sheet_row`; CHECK row number > 0 |
+| `audit_log` | `occurred_at DEFAULT clock_timestamp()`, `actor_type`, `actor_id varchar(128) NULL`, `actor_display`, `entity_type varchar(64)`, `entity_id uuid NULL`, `action varchar(64)`, `changes jsonb DEFAULT '{}'`, `context jsonb DEFAULT '{}'` | triggers `append_only` (UPDATE/DELETE) and `no_truncate`; indexes `occurred_at`, `(entity_type, entity_id, occurred_at)`; no FKs |
+
+Every FK column is the leading column of a non-partial index (checked by a test). Substring search indexes
+(`pg_trgm`) are left to Task 17.
+
+### Fixed value sets (`varchar(32)` + CHECK `ck_<table>_<column>`)
+
+| Column(s) | Values |
+|---|---|
+| `prospects.civility` | `mr`, `ms` (UI `M.`, `Mme`) |
+| `prospects.activity_status` | `active`, `inactive`, `unknown` |
+| `prospects.contactability_status` | `contactable`, `do_not_contact` |
+| `emails/phones.verification_status` | `unverified`, `verified`, `invalid`, `unknown` |
+| `emails/phones.origin_type` | `imported`, `manual`, `published`, `inferred`, `other` |
+| `phones.type` | `mobile`, `landline`, `other` |
+| `contact_tracking.status`, history `from_status` / `to_status` | `to_contact`, `contacted`, `follow_up_1`, `follow_up_2`, `response_received`, `appointment_obtained`, `quote_sent`, `quote_follow_up`, `won`, `not_interested` — **no `do_not_contact`** |
+| `prospect_sources.source_type` | `excel_import`, `manual`, `future_agent`, `other` |
+| `import_batches.status` | `pending`, `committed`, `failed`, `cancelled` |
+| `*.actor_type` | `human`, `import`, `system`, `agent` |
+
+Python source of truth: `backend/app/models/enums.py` and `backend/app/core/actor.py` (`ActorType`).
+
+### Deletion rules
+
+RESTRICT for every taxonomy/referent reference, company → prospects and import batch → prospect sources; CASCADE
+for a company's establishments and category links, for everything owned by a prospect (emails, phones, contact
+tracking and its history, sources, import row metadata) and for a batch's row metadata; SET NULL for
+`import_row_metadata.company_id`. A `do_not_contact` prospect cannot be deleted. Rationale: ADR-0002.
+
+### Domain rules at the service boundary
+
+- **Contactability** (`app/services/prospects.py`): `mark_do_not_contact` (idempotent, keeps the first date) and
+  `clear_do_not_contact` (mandatory reason; the only path the `guard_do_not_contact` trigger accepts). Contact
+  tracking (`app/services/contact_tracking.py`) never reads or writes contactability; `not_interested` is an outcome,
+  not an opposition.
+- **Company change** (`change_company`): sets the new company, clears `employment_verified_at` (NULL = current
+  employment context not verified) and moves every **active** email/phone from `verified` to `unverified`, keeping
+  `last_verified_at`; `invalid`/`unknown` and inactive (former) channels are left as they are; nothing is deleted.
+  In V1 every active channel counts as company-dependent (B2B contact base). Old/new company reach the audit log
+  once Task 05 wires it.
+- **Contact tracking** (`save_contact_tracking`): creates or replaces the single current row and appends a
+  status-history row (with the actor snapshot) whenever the status changes.
+
+### Seeds
+
+`python -m app.seed [--db test]` (from `backend/`) inserts suggested values only when neither their slug nor their
+label exists and never modifies existing rows: roles *Dirigeant*, *Responsable logistique*, *Responsable
+d'exploitation*, *Responsable transport*; segments *Transporteur*, *Logisticien*, *Chargeur*; activity categories
+*Transport routier de marchandises*, *Entreposage et stockage*, *Messagerie et fret express*, *Affrètement et
+commission de transport*. No companies, prospects or referents are seeded.

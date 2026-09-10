@@ -57,11 +57,13 @@ jobs:
       - run: ruff check . ../scripts
       - run: ruff format --check . ../scripts
       - run: mypy
-      - name: Migration CLI smoke (upgrade / downgrade / upgrade)
+      - name: Migration CLI smoke (upgrade / downgrade / upgrade) and idempotent seed
         run: |
           alembic -x db=test upgrade head
           alembic -x db=test downgrade base
           alembic -x db=test upgrade head
+          python -m app.seed --db test
+          python -m app.seed --db test
       - run: pytest
 
   frontend:

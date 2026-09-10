@@ -22,5 +22,15 @@ Meaningful mutations from human/import/Database Explorer must be auditable. Acto
 ## Do-not-contact
 Opposition is durable and distinct from non-interest. Import/merge/new contact tracking must not silently reactivate blocked prospects.
 
+Implemented in the schema (Task 03, [ADR-0002](../adr/0002-data-schema-conventions.md)): `do_not_contact` is a prospect
+contactability status, never a contact-tracking stage; a database trigger rejects any write that resets it except the
+dedicated `clear_do_not_contact` operation (mandatory reason) and rejects deleting a blocked prospect.
+
 ## Retention/backup/deletion
 Exact retention, anonymization, hosting and backup requirements remain product/ops/legal decisions. The implementation should centralize configuration and avoid destructive cascade defaults that make later compliance impossible.
+
+Current deletion rules (Task 03): taxonomy/referent/company references are RESTRICT (deactivate instead of delete);
+deleting a prospect cascades to its own personal data (emails, phones, tracking, sources, import row metadata);
+`audit_log` has no FKs and is append-only (UPDATE/DELETE/TRUNCATE rejected by triggers), so purging or redacting it
+under a future retention policy requires an explicit, reviewed migration. Import batches store metadata and an
+optional SHA-256 fingerprint, never workbook bytes.

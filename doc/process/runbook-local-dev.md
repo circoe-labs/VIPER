@@ -28,6 +28,7 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1        # Git Bash: source .venv/Scripts/activate
 pip install -r requirements-dev.txt
 alembic upgrade head               # migrate the dev database
+python -m app.seed                 # suggested roles/segments/categories (idempotent, optional)
 uvicorn app.main:create_app --factory --reload --port 8042
 ```
 
@@ -83,7 +84,14 @@ alembic revision --autogenerate --rev-id 0002 -m "short description"   # new rev
 ```
 
 After `--autogenerate`, review the file, then `ruff format migrations`. Every new model module must be imported in
-`app/models/__init__.py` (the migration test fails if models and migrations drift). Full wipe of local data:
+`app/models/__init__.py` (the migration test fails if models and migrations drift). Conventions:
+[ADR-0002](../adr/0002-data-schema-conventions.md) — in particular, write enum value lists as literals (never import
+app code into a migration), add the `set_updated_at` trigger to any new table with `updated_at`, and index every FK;
+`tests/test_migrations.py` checks all three because autogenerate ignores CHECKs and triggers.
+
+Seed data is separate from migrations: `python -m app.seed` (dev) or `python -m app.seed --db test` inserts the
+suggested taxonomy values that are missing and never modifies existing rows, so it is safe to re-run. Full wipe of
+local data:
 `docker compose down -v` then `docker compose up -d --wait` (destroys the `viper_pgdata` volume — VIPER only).
 
 ## 6. Stopping

@@ -25,6 +25,11 @@
 - Backend: pytest against the real PostgreSQL `viper_test` database — schema reset + `alembic upgrade head` once per
   session, one rolled-back transaction per test (`db_session`, `client` fixtures in `backend/tests/conftest.py`);
   a migration test checks upgrade/downgrade and that migrations match the ORM models.
+- Schema (Task 03): `test_migrations.py` also compares CHECK constraint names and enum value lists with the ORM,
+  requires the `updated_at` trigger on every timestamped table and an index behind every FK;
+  `test_schema_constraints.py` exercises each invariant (uniqueness, partial indexes, CHECKs, deletion rules,
+  append-only audit); service tests cover contactability, contact tracking, company change and the seed.
+  Synthetic builders and the `rejected(session, "<constraint>")` helper live in `backend/tests/builders.py`.
 - Frontend: Vitest + Testing Library (`renderApp(path)` / `stubFetchJson` helpers in `frontend/src/test/`);
   Playwright E2E in `frontend/e2e/`.
 - Privacy: `scripts/check_private_data.py` in CI; synthetic fixtures only under `*/tests/fixtures/synthetic/`.
