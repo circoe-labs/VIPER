@@ -57,6 +57,7 @@ class LegacyReason(StrEnum):
     UNMAPPED_COLUMN = "unmapped_column"  # unknown, unnamed, repeated or user-unmapped column
     OPAQUE_FIELD = "opaque_field"  # known column kept raw by design (meaning not confirmed)
     NOT_MAPPED_VALUE = "not_mapped_value"  # mapped column whose value was not (fully) converted
+    CORRECTED = "corrected"  # original value replaced by the user during the review (Task 09)
 
 
 class LegacyValue(Frozen):
@@ -74,9 +75,13 @@ class SourceCell(Frozen):
     mapped: bool
     preserved: bool
     copied_from_merge: bool = False
+    # Replaced by a user correction: `value` is the original, kept in legacy metadata.
+    corrected: bool = False
 
 
 class EstablishmentProposal(Frozen):
+    model_config = ConfigDict(frozen=True, extra="forbid")  # a misnamed field must fail loudly
+
     address_line1: str | None = None
     address_line2: str | None = None
     postal_code: str | None = None

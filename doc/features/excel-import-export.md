@@ -280,6 +280,8 @@ table lists every code).
 | `mapping.invalid_header_row` | error | La ligne {row} ne peut pas servir de ligne d'en-têtes (vide ou hors de la feuille). |
 | `mapping.unknown_column` | error | Colonne {column} inexistante. |
 | `mapping.duplicate_field` | error | Le champ « {label} » est associé à plusieurs colonnes. |
+| `mapping.unknown_row` | error | La ligne {row} ne fait pas partie des lignes importées de la feuille. |
+| `mapping.uncorrectable_field` | error | Le champ « {label} » ne peut pas être corrigé : il n'est associé à aucune colonne ou se règle par une association groupée. |
 | `column.unmapped` | info | Colonne {column} « {header} » non reconnue : ses valeurs sont conservées telles quelles. |
 | `column.unnamed` | info | Colonne {column} sans en-tête : ses valeurs éventuelles sont conservées telles quelles. |
 | `column.duplicate_header` | warning | Colonne {column} « {header} » en double : ses valeurs sont conservées telles quelles, à réaffecter si besoin. |
@@ -341,3 +343,129 @@ table lists every code).
 the real workbook, never in CI) asserts the structure (prospect sheet, 339 rows, 3 blank rows, `actualité`
 skipped, 24 columns with W by position and X unnamed, 3 duplicate-email groups, expected anomaly codes, no
 unaccounted cell, determinism) and prints counts per diagnostic code only. Command in the runbook.
+
+---
+
+## Import review and commit — as implemented (Task 09)
+
+Page **Importer un fichier Excel**, `/prospection/import` (secondary page of Prospection; entry points « Importer
+Excel » on the Prospection placeholder and the Entreprises header until Task 14 places the final button). Design:
+[ADR-0012](../adr/0012-stateless-import-review.md); decisions I-72 … I-79. Code: `backend/app/services/imports/`
+(`review.py`, `decisions.py`), `backend/app/services/import_commit.py`, `backend/app/api/routes/imports.py`,
+`frontend/src/imports/`.
+
+### Workflow
+
+1. **Fichier** — drag and drop or « Choisir un fichier » (`.xlsx`, `.xlsm`, `.csv`, 10 Mo). The file stays in the
+   browser: it is sent for analysis (and again at commit), never stored.
+2. **Feuille** — detected prospect sheet (rows, header row, blank rows), every skipped sheet with the engine's reason
+   (`actualité` → « … ne fait pas partie du modèle d'import des prospects »), the column correspondence, a sheet
+   picker (re-analysis) and the **re-import warning** when a committed batch has the same SHA-256.
+3. **Vérification** — summary tiles (Lignes, Sans remarque, À vérifier, En erreur, Exclues) and one chip per row-level
+   diagnostic code with its count; tiles and chips filter the row table. Two tabs:
+   - **À résoudre** — sections *Erreurs à traiter* (no name, merge into an excluded row: « Corriger », « Exclure », bulk
+     exclusion), *Opposition « Ne pas contacter »*, *Doublons* (rows with candidates, companies with existing
+     candidates), *Rôles non reconnus*, *Catégories d'activité*, *Référents*, *Semaines sans année*, *Civilités non
+     reconnues*, *Activité (retraite, départ…)*. One control per raw value, applied to every row carrying it.
+   - **Lignes** — search (row number, names, company, e-mail), status filter, remark filter, 25 rows per page; a row
+     opens on its remarks, what will be imported, its duplicate choice, the correction form (« Appliquer et relancer
+     l'analyse ») and its preserved original values.
+   A sticky bar shows how many rows will be imported/excluded and blocks « Importer… » while an error is unresolved
+   (warnings never block).
+4. **Import** — confirmation dialog: prospects created, rows completing existing prospects, merged rows, companies
+   created/completed, roles and categories created, weeks dated/undated, rows excluded; the **legal basis or
+   collection context** (required, prefilled « Fichier historique Circoe — prospection B2B ») and an optional
+   **source reference**; the re-import acknowledgement when needed. Then the result (counts, links to the batch's
+   sources and traced rows in the Database Explorer) and the history (last 20 batches: date, file, user,
+   imported/total, excluded, status).
+
+### Decisions model (`decisions.ImportDecisions`, all overrides of the review's defaults)
+
+| Decision | Keyed by | Values | Default |
+|---|---|---|---|
+| Corrections | row → field | text replacing the cell (`null` clears it); fields `company_name`, `civility`, `last_name`, `first_name`, `job_title`, `email`, `phone`, `mobile`, `address`, `planned_contact` | none |
+| Role | folded job title | `none` · `existing(role_id)` · `create(label)` | the exact active role, else none (suggestions only offered) |
+| Category | folded category token | `ignore` · `existing(category_ids)` · `create(label)` · `segment(segment_id)` | the exact active category, else ignore |
+| Referent | folded raw value | `ignore` · `existing(referent_id)` | the exact active referent, else ignore (markers, notes, e-mails, partial/ambiguous/inactive matches) |
+| Civility | folded invalid value | `mr` · `ms` · `null` | `null` |
+| Week year | batch `week_year`, per week `weeks[n]` | a year (2000–2100) or `null` | no year → no date (never guessed) |
+| Company | company key | `create` · `link(company_id)` | link to the single best existing company with the same key, else create |
+| Row resolution | row | `create` · `attach(prospect_id)` · `attach_row(row)` · `exclude` | do-not-contact match → exclude; same e-mail or same names + company as an existing prospect → attach to the best one; same names + company as an earlier row → merge into it; else create |
+| Inactive | row | `true` confirms the engine's `inactive` suggestion | `false` |
+| Provenance | batch | `legal_basis_or_collection_context` (required), `source_reference` | — |
+| Re-import | batch | `acknowledge_reimport` | `false` |
+
+Validation (`review.plan_import`, 422 `invalid_decisions` with `{code, row, group, key}`): `unknown_row`,
+`unknown_key`, `unknown_value` (id not in the snapshot), `invalid_week_year` (week 53), `inactive_not_suggested`,
+`missing_name` (create without any name), `blocked_by_do_not_contact` (a blocked row may only be excluded or attached
+to the blocked prospect), `not_a_candidate` (attach target not among the row's candidates), `attached_to_excluded`,
+`attach_cycle`, `nothing_to_import`. A role or category to create whose label already exists → 409 `duplicate`.
+
+### Merge rules (attach to an existing prospect, or merge into another row's prospect)
+
+- Identity fields (civility, first/last name, exact job title, role) are **filled only when empty**; a different
+  value is never written and stays in the row's legacy metadata.
+- Company: set only when the prospect has none (through `prospects.change_company`, so employment verification is
+  cleared and verified channels are re-flagged, I-13); a prospect's company is never replaced.
+- E-mails and phones: added when the prospect does not have them (same address/number, active or not, is left as it
+  is — never reactivated), `origin_type=imported`, `verification_status=unverified`, source reference
+  `file / sheet / ligne n`; a new one becomes primary only when the prospect has no primary of that kind.
+- Activity: `inactive` only when confirmed and the prospect's activity is `unknown`.
+- Contact tracking: created when absent; an existing tracking keeps its stage and only gets empty dates/referent
+  filled. A do-not-contact prospect gets no tracking from an import. Contactability is never read or written.
+- Existing company (link): `companies.complete_company` fills empty e-mail domain, segment and Circoe texts, adds
+  missing categories, and adds the address as primary establishment only when the company has none.
+
+### Commit semantics
+
+One savepoint of the request's transaction (ADR-0012): Settings values to create (by the user, `source=ui`) → batch
+`pending` (by the user) → inside `import_batches.importing` (import actor on behalf of the user, I-29): companies
+(+ establishment from the address) → prospects (+ channels, `employment_verified_at` NULL) or merges → contact
+tracking through `save_contact_tracking` (status history) → per imported row an `excel_import` source (legal basis,
+`file / sheet / ligne n`) and an `import_row_metadata` row (lossless legacy metadata, prospect and company ids) →
+batch `committed` with `rows_total`, `rows_imported`, `rows_skipped` (+ the batch's legal basis and source reference,
+migration 0006). A contact tracking is created only when a legacy stage, a dated planned contact or a referent is
+applied. Dates without time (planned contact, appointment) are stored at midnight Europe/Paris.
+
+Losslessness at commit: besides the engine's legacy metadata, a row keeps the raw value of anything the commit does
+not apply — another spelling of its company, a company text that differs from the stored one, a second address, an
+ignored exact category or referent, a value an existing prospect already holds differently, tracking values an
+existing tracking or an opposition prevents. Every source row is either imported (created, attached or merged; one
+row metadata each) or excluded (counted in `rows_skipped`, nothing written).
+
+Failure: any exception rolls the savepoint back and records a `failed` batch (started/failed events, counts 0) that
+the request commits; the API answers 500 `commit_failed` (422 when a value was refused) with the batch id and row.
+
+### API — `/api/imports` (session + CSRF)
+
+| Method & path | Body | Answer |
+|---|---|---|
+| `POST /imports/preview` | multipart `file`, optional `options` (JSON `{mapping, corrections}`) | `{review: {preview, digest, roles, categories, referents, weeks, civilities, companies, prospects, rows}, previous_imports}` |
+| `POST /imports/commit` | multipart `file`, `decisions` (JSON `ImportDecisions`) | `{batch, counts}` (`prospects_created`, `prospects_attached`, `rows_merged`, `companies_created`, `companies_linked`, `emails_added`, `phones_added`, `trackings_created`, `roles_created`, `categories_created`, `rows_*`) |
+| `GET /imports?limit=1..200` | — | batches, newest first (metadata only) |
+| `GET /imports/{id}` | — | batch + `rows_traced`, `prospect_count`, `company_count` |
+
+Refusals: `file_rejected` (422, or 413 when `Content-Length` exceeds the file limit + 2 MiB; carries the engine's
+French `diagnostic`), `length_required` (411), `invalid_request` (422; schema errors with locations and types only,
+never the submitted values), `file_changed` / `preview_outdated` / `reimport_not_acknowledged` (409),
+`invalid_decisions` (422), `duplicate` (409), `commit_failed` (500/422), `not_found` (404). The body is parsed after
+the session/CSRF guard.
+
+### Engine additions (Task 09)
+
+- `build_preview(..., corrections)` — per-cell corrections for the fields above; a row outside the data or a field
+  without column → `mapping.unknown_row` / `mapping.uncorrectable_field`. `SourceCell.corrected` marks them and the
+  original is kept as `<field>_original` with reason `corrected`.
+- Fixed: a structured address lost its street line (`EstablishmentProposal` now forbids unknown fields).
+
+### Private compatibility run (Task 09, manual)
+
+Preview then commit of the real workbook into the throwaway worktree database with default decisions (the 11 rows
+without any name excluded), aggregate output only, database reset afterwards: 339 rows (ok 3, warning 325, error 11),
+groups to resolve — roles 117 (108 unknown, 8 suggested, 1 exact against the seeded roles), categories 12 (all
+unknown), referents 12 (3 unknown names, 3 markers, 2 notes, 4 e-mail-like), 2 weeks without year, 1 invalid
+civility, 253 companies (no existing candidate in an empty base); defaults 335 create, 4 merge into an earlier row.
+Commit: 328 rows imported, 11 excluded, 324 prospects, 247 companies, 233 e-mails, 213 phones, 328 sources and row
+metadata, 0 contact tracking (weeks left without year, no referent recognised); invariants checked (no opposition
+touched, every row imported or excluded, one row metadata and one source per imported row, channels imported and
+unverified, no employment verified).

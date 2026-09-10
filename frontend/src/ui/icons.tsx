@@ -323,6 +323,21 @@ export const TableIcon = (props: IconProps) => (
   </Svg>
 )
 
+// Excel import (Task 09)
+export const UploadIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M12 15.5v-11M7.5 9 12 4.5 16.5 9" />
+    <path d="M4.5 14.5v3a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-3" />
+  </Svg>
+)
+
+export const SpreadsheetIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M14 3.5H7a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8.5z" />
+    <path d="M14 3.5v5h5M8.5 12.5h7M8.5 16h7M12 12.5V19" />
+  </Svg>
+)
+
 // Companies (Task 07)
 export const BuildingIcon = (props: IconProps) => (
   <Svg {...props}>

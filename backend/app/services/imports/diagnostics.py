@@ -41,6 +41,8 @@ class DiagnosticCode(StrEnum):
     MAPPING_INVALID_HEADER_ROW = "mapping.invalid_header_row"
     MAPPING_UNKNOWN_COLUMN = "mapping.unknown_column"
     MAPPING_DUPLICATE_FIELD = "mapping.duplicate_field"
+    MAPPING_UNKNOWN_ROW = "mapping.unknown_row"
+    MAPPING_UNCORRECTABLE_FIELD = "mapping.uncorrectable_field"
     COLUMN_UNMAPPED = "column.unmapped"
     COLUMN_UNNAMED = "column.unnamed"
     COLUMN_DUPLICATE_HEADER = "column.duplicate_header"
@@ -157,6 +159,14 @@ CATALOGUE: dict[DiagnosticCode, CodeSpec] = {
     DiagnosticCode.MAPPING_UNKNOWN_COLUMN: CodeSpec(ERROR, "Colonne {column} inexistante."),
     DiagnosticCode.MAPPING_DUPLICATE_FIELD: CodeSpec(
         ERROR, "Le champ « {label} » est associé à plusieurs colonnes."
+    ),
+    DiagnosticCode.MAPPING_UNKNOWN_ROW: CodeSpec(
+        ERROR, "La ligne {row} ne fait pas partie des lignes importées de la feuille."
+    ),
+    DiagnosticCode.MAPPING_UNCORRECTABLE_FIELD: CodeSpec(
+        ERROR,
+        "Le champ « {label} » ne peut pas être corrigé : il n'est associé à aucune colonne ou se"
+        " règle par une association groupée.",
     ),
     DiagnosticCode.COLUMN_UNMAPPED: CodeSpec(
         INFO,

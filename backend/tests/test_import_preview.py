@@ -225,7 +225,12 @@ def test_unknown_columns_and_opaque_fields_are_preserved(preview: ImportPreview)
         "reason": "unmapped_column",
     }
     assert eighth.company is not None and eighth.company.establishment is not None
-    assert eighth.company.establishment.postal_code == "69000"
+    establishment = eighth.company.establishment
+    assert (establishment.address_line1, establishment.postal_code, establishment.city) == (
+        "12 rue de l'Exemple",
+        "69000",
+        "Lyon",
+    )
 
 
 def test_do_not_contact_match_blocks_the_row(preview: ImportPreview) -> None:

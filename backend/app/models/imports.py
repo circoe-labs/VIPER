@@ -47,6 +47,9 @@ class ImportBatch(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     rows_imported: Mapped[int] = mapped_column(Integer, server_default=text("0"))
     rows_skipped: Mapped[int] = mapped_column(Integer, server_default=text("0"))
     committed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Batch-level provenance given at commit (Task 09); every source of the batch repeats the basis.
+    legal_basis_or_collection_context: Mapped[str | None] = mapped_column(Text)
+    source_reference: Mapped[str | None] = mapped_column(Text)
     actor_type: Mapped[ActorType] = mapped_column(text_enum(ActorType, "actor_type"))
     actor_id: Mapped[str | None] = mapped_column(String(128))
     actor_display: Mapped[str] = mapped_column(String(255))

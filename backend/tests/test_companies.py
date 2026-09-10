@@ -650,3 +650,42 @@ def test_similar_companies_ignore_legal_forms_and_match_the_domain(db_session: S
         == close.id
     )
     assert companies.find_similar(db_session, name=" ", email_domain="pas un domaine") == []
+
+
+def test_completing_a_company_fills_empty_values_only(db_session: Session) -> None:
+    bind_operator(db_session)
+    road = taxonomy(db_session, ActivityCategory, "Transport routier")
+    storage = taxonomy(db_session, ActivityCategory, "Entreposage")
+    carrier = taxonomy(db_session, CommercialSegment, "Transporteur")
+    company_id = create(db_session, project_type="Étude existante", activity_category_ids=[road.id])
+    completion = companies.CompanyCompletion(
+        email_domain="Exemple.FR",
+        commercial_segment_id=carrier.id,
+        activity_category_ids=[road.id, storage.id],
+        project_type="Autre étude",
+        client_approach="Approche importée",
+        establishment=site(None, address_line1="1 rue Fictive", city="Lyon"),  # type: ignore[arg-type]
+    )
+
+    detail = companies.complete_company(db_session, OPERATOR, company_id, completion)
+
+    assert (detail.email_domain, detail.project_type, detail.client_approach) == (
+        "exemple.fr",
+        "Étude existante",
+        "Approche importée",
+    )
+    assert detail.commercial_segment is not None and detail.commercial_segment.id == carrier.id
+    assert {ref.id for ref in detail.activity_categories} == {road.id, storage.id}
+    assert [(row.city, row.is_primary) for row in detail.establishments] == [("Lyon", True)]
+    again = companies.complete_company(
+        db_session,
+        OPERATOR,
+        company_id,
+        replace(completion, establishment=site(None, city="Nantes")),  # type: ignore[arg-type]
+    )
+    assert [row.city for row in again.establishments] == ["Lyon"]  # a company with a site keeps it
+    actions = [event.action for event in audit_events(db_session) if event.entity_type == "company"]
+    assert actions == [
+        "company.created",
+        "company.updated",
+    ]  # the second completion changed nothing

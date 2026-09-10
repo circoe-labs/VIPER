@@ -7,8 +7,8 @@ rule consumed, so nothing is ever dropped silently.
 """
 
 import uuid
-from collections.abc import Sequence
-from dataclasses import asdict, dataclass, field
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 
 from app.models.enums import ActivityStatus, ContactabilityStatus, ContactTrackingStatus, PhoneType
 from app.services.imports.diagnostics import Diagnostic, DiagnosticCode, Severity, with_params
@@ -193,12 +193,19 @@ class RowDraft:
 
 class RowBuilder:
     def __init__(
-        self, row: SheetRow, columns: Sequence[ColumnMapping], reference: ImportReferenceData
+        self,
+        row: SheetRow,
+        columns: Sequence[ColumnMapping],
+        reference: ImportReferenceData,
+        corrections: Mapping[ImportField, str | None] | None = None,
     ) -> None:
         self.row = row
         self.columns = columns
         self.by_field = {column.field: column for column in columns if column.field is not None}
         self.reference = reference
+        # User corrections (Task 09 review): the typed text replaces the cell, the original value
+        # is kept in legacy metadata, and every rule below runs on the corrected value.
+        self.corrections = corrections or {}
         self.diagnostics: list[Diagnostic] = []
         self.legacy: dict[str, LegacyValue] = {}
         self.mapped: set[str] = set()
@@ -207,11 +214,16 @@ class RowBuilder:
 
     # --- bookkeeping ---
 
+    def value(self, column: ColumnMapping) -> CellValue:
+        if column.field is not None and column.field in self.corrections:
+            return self.corrections[column.field]
+        return self.row.value(column.index)
+
     def cell(self, field: ImportField) -> tuple[ColumnMapping, CellValue] | None:
         column = self.by_field.get(field)
         if column is None:
             return None
-        value = self.row.value(column.index)
+        value = self.value(column)
         return None if is_blank(value) else (column, value)
 
     def flag(
@@ -283,6 +295,7 @@ class RowBuilder:
     # --- entities ---
 
     def build(self) -> RowDraft:
+        self.corrected_originals()
         self.unmapped_and_opaque()
         company = self.company()
         prospect = self.prospect()
@@ -314,6 +327,21 @@ class RowBuilder:
             cells=self.source_cells(),
         )
 
+    def corrected_originals(self) -> None:
+        """A corrected cell's original value stays in legacy metadata (`<field>_original`)."""
+        for corrected in self.corrections:
+            column = self.by_field[corrected]
+            original = self.row.value(column.index)
+            if is_blank(original):
+                continue
+            self.legacy[f"{corrected.value}_original"] = LegacyValue(
+                column=column.column,
+                header=column.header,
+                value=json_value(original),
+                reason=LegacyReason.CORRECTED,
+            )
+            self.preserved.add(column.column)
+
     def unmapped_and_opaque(self) -> None:
         for column in self.columns:
             value = self.row.value(column.index)
@@ -339,6 +367,7 @@ class RowBuilder:
                     mapped=column.column in self.mapped,
                     preserved=column.column in self.preserved,
                     copied_from_merge=column.index in self.row.copied,
+                    corrected=column.field in self.corrections,
                 )
             )
         return cells
@@ -402,7 +431,16 @@ class RowBuilder:
         if DiagnosticCode.VALUE_TOO_LONG in outcome.codes:
             self.flag(DiagnosticCode.VALUE_TOO_LONG, column, value, label="Adresse", limit=255)
         self.settle(column, value, codes, keep=outcome.keep_raw, mapped=outcome.value is not None)
-        return EstablishmentProposal(**asdict(outcome.value)) if outcome.value else None
+        if outcome.value is None:
+            return None
+        address = outcome.value
+        return EstablishmentProposal(
+            address_line1=address.line1,
+            address_line2=address.line2,
+            postal_code=address.postal_code,
+            city=address.city,
+            country=address.country,
+        )
 
     def prospect(self) -> ProspectProposal:
         civility = None
@@ -423,7 +461,7 @@ class RowBuilder:
             column = self.by_field[ImportField.JOB_TITLE]
             roles, codes = match_role(title, self.reference.roles)
             for code in codes:
-                self.flag(code, column, self.row.value(column.index))
+                self.flag(code, column, self.value(column))
         return ProspectProposal(
             civility=civility,
             first_name=normalize_name(first_name) if first_name else None,

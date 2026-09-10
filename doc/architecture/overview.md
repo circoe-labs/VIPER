@@ -45,7 +45,10 @@ queries) → `app/models` / `app/db`. The frontend reaches data only through `/a
 Legacy file names/columns are adapter concerns. Domain services must not depend on Excel column names.
 The import engine (Task 08, [ADR-0007](../adr/0007-import-engine.md)) is `app/services/imports/`: a pure
 `build_preview(file, reference, mapping)` producing a typed `ImportPreview`; legacy headers live only in its
-`fields.py`, and only `reference_loader.py` reads the database (SELECTs, to build the reference snapshot).
+`fields.py`, and only `reference_loader.py` reads the database (SELECTs, to build the reference snapshot). Task 09
+adds the pure review (`review.py`, `decisions.py`: groups, defaults, validated plan) and the commit service
+`app/services/import_commit.py`, which writes through the domain services in one savepoint
+([ADR-0012](../adr/0012-stateless-import-review.md)).
 
 ### Auth + actor context
 The pilot is single-user, but it must be securely authenticated. Application user identity is distinct from `internal_referents`. All mutations receive an actor context.
