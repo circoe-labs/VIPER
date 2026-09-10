@@ -6,10 +6,14 @@
 tasks/**/sources/
 **/BASE_CLIENT*.xlsx
 # Any spreadsheet is private by default; only synthetic fixtures are allowed.
+# Enforced in CI by scripts/check_private_data.py (keep both lists in sync).
 *.xlsx
 *.xls
 *.xlsm
+*.xlsb
+*.ods
 *.csv
+*.tsv
 !backend/tests/fixtures/synthetic/**
 !frontend/tests/fixtures/synthetic/**
 # Local private working copies (e.g. for compatibility smoke tests)

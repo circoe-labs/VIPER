@@ -49,7 +49,7 @@ These were not contradicted by the grill and must be preserved in the implementa
 
 ## Deferred / unresolved
 
-- exact frontend/backend/database stack;
+- ~~exact frontend/backend/database stack~~ — resolved by I-01, see [ADR-0001](../adr/0001-stack.md);
 - exact hosting, backup policy and retention/anonymization duration;
 - exact final export column order, although the grill established a priority ordering and semantic corrections;
 - exact semantics of legacy `Mode de contact` values (`Auto`, `Commercial`, `Commerciale`); preserve raw until mapped;
@@ -69,3 +69,4 @@ These were not contradicted by the grill and must be preserved in the implementa
 | I-05 | 2026-09-10 | Orchestrator (Task 00) | The `/caveman` and `/coding-guideline` skills required by the handoff are not installed on this machine; `doc/process/agent-brief.md` provides the equivalent coding rules. | Unblock implementation while keeping explicit guidelines. |
 | I-06 | 2026-09-10 | Orchestrator (Task 00) | Local Postgres for VIPER is exposed on host port **5442**. | Port 5432 is already used by another local project. |
 | I-07 | 2026-09-10 | Orchestrator (Task 00) | Work happens on local branch `claude`; nothing is pushed to the public remote without explicit user approval. | Outward-facing action on a public repo. |
+| I-08 | 2026-09-10 | Task 01 | Frontend URL paths use English segments (`/`, `/prospection`, `/exploitation`, `/database`, `/settings`); only visible labels are French (`Accueil`, `Base de données`, `Paramètres`). Backend dev port **8042**, Vite **5173**. | Paths are identifiers (I-04: code in English); ports 8000/5432 are used by other local projects. |

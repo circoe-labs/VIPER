@@ -2,7 +2,9 @@
 
 ## Global shell
 
-Left navigation: Home, Prospection, Exploitation, Database, Settings. Desktop-first and spacious. Global search is compact. Theme switch may select dark/light; use accepted logo variant automatically by contrast. Authenticated user context appears separately from Circoe referent selectors.
+Left navigation: Home, Prospection, Exploitation, Database, Settings — French labels and routes `Accueil` (`/`),
+`Prospection` (`/prospection`), `Exploitation` (`/exploitation`), `Base de données` (`/database`), `Paramètres`
+(`/settings`); unknown paths redirect to `/` (decision I-08). Desktop-first and spacious. Global search is compact. Theme switch may select dark/light; use accepted logo variant automatically by contrast. Authenticated user context appears separately from Circoe referent selectors.
 
 ## Home
 

@@ -20,6 +20,16 @@
 - desktop/laptop layouts use space well without dense clutter;
 - no fake IProspect/IContact/email/Calendly data.
 
+## Test infrastructure (Task 01)
+
+- Backend: pytest against the real PostgreSQL `viper_test` database — schema reset + `alembic upgrade head` once per
+  session, one rolled-back transaction per test (`db_session`, `client` fixtures in `backend/tests/conftest.py`);
+  a migration test checks upgrade/downgrade and that migrations match the ORM models.
+- Frontend: Vitest + Testing Library (`renderApp(path)` / `stubFetchJson` helpers in `frontend/src/test/`);
+  Playwright E2E in `frontend/e2e/`.
+- Privacy: `scripts/check_private_data.py` in CI; synthetic fixtures only under `*/tests/fixtures/synthetic/`.
+- Commands: `doc/process/runbook-local-dev.md`.
+
 ## Legacy workbook compatibility cases
 
 Synthetic committed fixtures must cover:

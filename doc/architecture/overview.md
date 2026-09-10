@@ -20,7 +20,11 @@ Use explicit service boundaries rather than UI-to-ORM coupling:
 - Auth/ActorContext
 
 ### Persistence
-Relational transactional database, versioned migrations, stable IDs, FK constraints, indexes and explicit deletion rules. Exact technology is selected in Task 01.
+Relational transactional database, versioned migrations, stable IDs, FK constraints, indexes and explicit deletion rules. Technology: PostgreSQL 16 + SQLAlchemy 2 + Alembic ([ADR-0001](../adr/0001-stack.md)).
+
+### Code layout (backend)
+`app/api` (thin routers) → `app/services` (rules, transaction boundaries) → `app/repositories` (ORM/SQL queries) →
+`app/models` / `app/db`. The frontend reaches data only through `/api/*` via `frontend/src/api/client.ts`.
 
 ### Import/export adapters
 Legacy file names/columns are adapter concerns. Domain services must not depend on Excel column names.

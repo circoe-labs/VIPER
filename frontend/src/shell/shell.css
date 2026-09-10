@@ -1,0 +1,16 @@
+/* Structural layout only; visual design (Neon Command tokens) arrives in Task 02. */
+.app-shell {
+  display: flex;
+  min-height: 100vh;
+}
+
+.app-shell__nav {
+  flex: 0 0 14rem;
+  padding: 1rem;
+  border-right: 1px solid;
+}
+
+.app-shell__main {
+  flex: 1;
+  padding: 1rem 2rem;
+}

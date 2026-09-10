@@ -25,9 +25,9 @@ and honest reporting — not for volume.
 
 ## Stack & environment
 
-- Stack: see `doc/adr/0001-stack.md` (once written by Task 01). Summary: Python FastAPI + SQLAlchemy 2 + Alembic
-  + PostgreSQL 16 backend in `backend/`; React + TypeScript + Vite frontend in `frontend/`; pytest, Vitest,
-  Playwright.
+- Stack: see `doc/adr/0001-stack.md`. Summary: Python FastAPI + SQLAlchemy 2 + Alembic + PostgreSQL 16 backend in
+  `backend/`; React + TypeScript + Vite frontend in `frontend/`; pytest, Vitest, Playwright. Setup and every
+  command: `doc/process/runbook-local-dev.md`; all gates at once: `python scripts/verify.py [--e2e]`.
 - Machine: Windows 11. Shells: PowerShell 5.1 and Git Bash. Node 24 / npm 12, Python 3.14, Docker Desktop.
 - Local Postgres runs in Docker on host port **5442** (5432 is used by another project). Do not stop or touch
   other projects' containers.
