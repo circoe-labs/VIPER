@@ -19,16 +19,16 @@ VIPER V1 is a database-first human dashboard for maintaining prospect/company/co
 ## Ordered tasks
 - [x] **00** `00-orchestrator` — repo/source safety + plan control
 - [x] **01** `01-foundation-stack` — choose stack, scaffold, CI, private-data guardrails
-- [ ] **02** `02-design-system-brand` — Neon Command + all accepted VIPER assets/themes
-- [ ] **03** `03-data-schema` — reviewed relational model + migrations
-- [ ] **04** `04-authentication-actor` — secure single-user auth + actor context
+- [x] **02** `02-design-system-brand` — Neon Command + all accepted VIPER assets/themes
+- [x] **03** `03-data-schema` — reviewed relational model + migrations
+- [~] **04** `04-authentication-actor` — secure single-user auth + actor context
 - [ ] **05** `05-audit-provenance-core` — audit/provenance foundation before feature mutations
 - [ ] **06** `06-settings-taxonomies` — roles/categories/segments/referents
 - [ ] **07** `07-company-editor` — lightweight company/establishment maintenance
 - [ ] **08** `08-excel-import-core` — deterministic parser/mapping/diagnostics
 - [ ] **09** `09-excel-import-review` — preview/correction/dedup/transactional commit
 - [ ] **10** `10-excel-export` — normalized configurable Excel export
-- [ ] **11** `11-database-explorer-read` — tables/metadata/grid/read ergonomics
+- [~] **11** `11-database-explorer-read` — tables/metadata/grid/read ergonomics
 - [ ] **12** `12-database-explorer-edit` — staged edit/delete/audit
 - [ ] **13** `13-database-explorer-sql` — backend-enforced read-only SQL
 - [ ] **14** `14-prospection-workspace` — actionable counters/filters/people list

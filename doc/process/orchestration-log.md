@@ -39,3 +39,26 @@ found, what was sent back for rework, and the verification evidence accepted. Ta
   (nothing pushed).
 - Next: Tasks 02 (frontend-only, separate worktree `task-02-design`) and 03 (backend-only, main worktree) run in
   parallel because they touch disjoint code.
+
+### Tasks 02 + 03 — Design system / Data schema (2026-09-10) — ACCEPTED
+
+- Run in parallel: Task 02 in worktree branch `task-02-design` (frontend only), Task 03 on `claude` (backend only).
+- **Task 03** (`ce5f2dd`): 16 tables, hand-written migration 0002, UUIDv7, CHECK-constrained value sets, partial unique
+  indexes (one active primary email/phone/establishment), DB trigger guarding do-not-contact (no silent reset, no
+  delete), append-only `audit_log`, drift tests covering CHECKs/triggers/FK indexes, idempotent taxonomy seed.
+  - **Rework requested**: services called `session.commit()` themselves, which would make the atomic Prospect-editor
+    save (Task 15), transactional import (Task 09) and staged Explorer writes (Task 12) impossible. Fixed in `4de6d59`:
+    services flush, `unit_of_work` owns the transaction, one request = one transaction (decision I-17), atomicity
+    tests added.
+- **Task 02** (`e93ba46`, `e220f97`): semantic tokens in one file with a WCAG contrast test and a no-raw-colour
+  guard, Inter self-hosted, dark default / light derivation, six optimised logos with alpha verified, `BrandLogo`,
+  primitives (Button, fields, StatusBadge with glyph+text, Table, Modal/Drawer with focus trap), collapsible sidebar,
+  dev-only showcase `/_dev/ui`. ADR renumbered 0003 to avoid a clash with Task 03's ADR-0002.
+- Merge `52ba0b3` (decision-log conflict resolved by keeping both sides).
+- Orchestrator verification: `python scripts/verify.py --e2e` → all gates green (pytest 75, vitest 179, Playwright 7).
+  Claude in Chrome on the running app (backend 8042 + Vite 5173): shell renders in Neon Command, sidebar sticky full
+  height, API status "connectée", badges carry icon + text.
+- Open brand question for the product owner: logo neon is lime `#79FA03` while UI accent is Viper Green `#00E676`
+  (I-21).
+- Next wave in parallel: Task 04 (auth, `claude`) and Task 11 (Database Explorer read, worktree `task-11-explorer`),
+  since Task 11 only depends on 02–03. Task 04 protects the whole API router so Task 11 routes are covered on merge.
