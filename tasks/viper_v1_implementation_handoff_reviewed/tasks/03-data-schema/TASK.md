@@ -127,3 +127,20 @@ Date: 2026-09-10 · Branch `claude` · Backend only (frontend untouched).
 - Substring search indexes (`pg_trgm`) deferred to Task 17; company alias table not added (see handoff note).
 - `import_batches.status` values may be refined by Task 09 (CHECK migration).
 - The CI change was not run on GitHub (nothing pushed); the Mermaid ERD was not rendered locally.
+
+### Rework after orchestrator review — transaction boundaries (decision I-17)
+- Services (`prospects`, `contact_tracking`) and the seed no longer commit: they flush; the caller owns the
+  transaction. New `app.db.session.unit_of_work(session_factory)` (commit on success, rollback on exception);
+  `SessionDep` now wraps each request in it with `Depends(scope="function")` so the commit happens before the
+  response is sent; `python -m app.seed` uses it too.
+- `write_cleared_contactability` resets the clearing flag in a `finally` while the transaction is usable; after a
+  failed flush the aborted transaction/savepoint rollback discards it (a reset there would mask the error — verified
+  by a mutation check).
+- Tests: `session_factory` fixture (sessions share the per-test transaction; commits are savepoint releases); the API
+  `client` fixture now runs the real per-request unit of work. New `test_transactions.py` (5 tests): unit of work
+  commits; two service calls in one unit of work are atomic (second fails on an FK → first rolled back); a clear
+  inside a larger transaction leaves the flag `off` and later generic resets rejected; the flag does not outlive a
+  failed clear; request commits on success and rolls back on `HTTPException`.
+- Docs: overview *Transaction boundaries*, agent-brief bullet, decision I-17, amendment note on ADR-0001, testing
+  strategy. ADR-0002 does not mention commits (unchanged).
+- `python scripts/verify.py` → all green; pytest **75 passed**, vitest 8 passed.

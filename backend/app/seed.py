@@ -9,7 +9,7 @@ import argparse
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.db.session import create_db_engine, create_session_factory
+from app.db.session import create_db_engine, create_session_factory, unit_of_work
 from app.models.taxonomies import ActivityCategory, CommercialSegment, Role
 from app.repositories import taxonomies
 from app.repositories.taxonomies import TaxonomyModel
@@ -36,13 +36,11 @@ SUGGESTIONS: dict[TaxonomyModel, tuple[tuple[str, str], ...]] = {
 
 
 def seed_taxonomies(session: Session) -> dict[str, int]:
-    """Insert missing suggestions and commit; returns inserted counts per table."""
-    inserted = {
+    """Insert missing suggestions; returns inserted counts per table. The caller commits."""
+    return {
         model.__tablename__: taxonomies.insert_missing(session, model, values)
         for model, values in SUGGESTIONS.items()
     }
-    session.commit()
-    return inserted
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -54,11 +52,12 @@ def main(argv: list[str] | None = None) -> None:
         settings.test_database_url if args.db == "test" else settings.database_url
     )
     try:
-        with create_session_factory(engine)() as session:
-            for table, count in seed_taxonomies(session).items():
-                print(f"{table}: {count} inserted")
+        with unit_of_work(create_session_factory(engine)) as session:
+            inserted = seed_taxonomies(session)
     finally:
         engine.dispose()
+    for table, count in inserted.items():
+        print(f"{table}: {count} inserted")
 
 
 if __name__ == "__main__":

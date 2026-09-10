@@ -13,6 +13,8 @@ from app.models import Company, Email, Phone, Prospect, Role
 from app.models.enums import OriginType, PhoneType
 
 OPERATOR = ActorContext(type=ActorType.HUMAN, display="Opératrice Test", id="test-user")
+# Message of the `guard_do_not_contact` trigger when a generic write tries to reset the status.
+DNC_GUARD_MESSAGE = "is do_not_contact; use the clear operation"
 
 
 @contextmanager

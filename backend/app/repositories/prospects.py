@@ -16,15 +16,24 @@ def get_prospect(session: Session, prospect_id: uuid.UUID) -> Prospect | None:
     return session.get(Prospect, prospect_id)
 
 
+def set_contactability_clear_flag(session: Session, enabled: bool) -> None:
+    value = "on" if enabled else "off"
+    session.execute(select(func.set_config(CONTACTABILITY_CLEAR_SETTING, value, True)))
+
+
 def write_cleared_contactability(session: Session, prospect: Prospect) -> None:
     """Flush `prospect` back to contactable while the trigger's clearing flag is on.
 
-    The flag is transaction-local and switched off right after; a failed flush rolls it back
-    with the transaction.
+    The flag is transaction-local and switched off again before returning, so later statements of
+    the caller's transaction stay guarded. If the flush fails, the transaction (or savepoint) is
+    aborted and its rollback discards the flag; resetting it then would mask the original error.
     """
-    session.execute(select(func.set_config(CONTACTABILITY_CLEAR_SETTING, "on", True)))
-    prospect.contactability_status = ContactabilityStatus.CONTACTABLE
-    prospect.do_not_contact_at = None
-    prospect.do_not_contact_reason = None
-    session.flush()
-    session.execute(select(func.set_config(CONTACTABILITY_CLEAR_SETTING, "off", True)))
+    set_contactability_clear_flag(session, True)
+    try:
+        prospect.contactability_status = ContactabilityStatus.CONTACTABLE
+        prospect.do_not_contact_at = None
+        prospect.do_not_contact_reason = None
+        session.flush()
+    finally:
+        if session.is_active:
+            set_contactability_clear_flag(session, False)

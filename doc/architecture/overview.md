@@ -23,8 +23,23 @@ Use explicit service boundaries rather than UI-to-ORM coupling:
 Relational transactional database, versioned migrations, stable IDs, FK constraints, indexes and explicit deletion rules. Technology: PostgreSQL 16 + SQLAlchemy 2 + Alembic ([ADR-0001](../adr/0001-stack.md)).
 
 ### Code layout (backend)
-`app/api` (thin routers) → `app/services` (rules, transaction boundaries) → `app/repositories` (ORM/SQL queries) →
-`app/models` / `app/db`. The frontend reaches data only through `/api/*` via `frontend/src/api/client.ts`.
+`app/api` (thin routers) → `app/services` (business rules; flush, never commit) → `app/repositories` (ORM/SQL
+queries) → `app/models` / `app/db`. The frontend reaches data only through `/api/*` via `frontend/src/api/client.ts`.
+
+### Transaction boundaries
+**Services flush, callers commit; one request = one transaction.**
+- Services and repositories mutate the session and `flush()` when they need database-generated values or an early
+  constraint check. They never call `commit()` or `rollback()`, so several service calls compose into one atomic
+  operation (Prospect editor save, import commit, staged Database Explorer changes).
+- The transaction is owned by the caller through the unit of work `app.db.session.unit_of_work(session_factory)`:
+  it commits once when the block succeeds and rolls back if it raises.
+- HTTP: routers receive `SessionDep` (`app/api/dependencies.py`), a request-scoped unit of work declared with
+  `Depends(..., scope="function")` — committed after the route returns and **before** the response is sent (a failed
+  commit fails the request), rolled back on any exception, `HTTPException` included.
+- Non-HTTP callers (CLI such as `python -m app.seed`, future import jobs) wrap their whole operation in
+  `unit_of_work` themselves.
+- Transaction-local database state set by a service (e.g. the do-not-contact clearing flag) is reset before the
+  service returns, so later statements of the same transaction stay guarded.
 
 ### Import/export adapters
 Legacy file names/columns are adapter concerns. Domain services must not depend on Excel column names.

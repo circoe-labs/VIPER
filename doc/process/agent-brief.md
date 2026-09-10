@@ -48,6 +48,9 @@ machine, so these rules replace them.)
   repositories/ORM. UI never touches SQL; routers stay thin; domain services don't know Excel column names.
 - Every mutation goes through a service that receives the server-side `ActorContext` and emits audit events
   (after Task 05 exists).
+- Services flush, callers commit: services/repositories never call `commit()`/`rollback()`; the transaction is
+  owned by `SessionDep` (one request = one transaction) or by `unit_of_work(...)` for CLI/jobs
+  (`doc/architecture/overview.md`, *Transaction boundaries*).
 - No fake data, no mocked IProspect/IContact/email/Calendly features, no CRM overreach.
 - Don't add dependencies casually; prefer the standard library and what is already installed. Pin versions.
 

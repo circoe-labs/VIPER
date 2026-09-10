@@ -5,6 +5,9 @@
 - Deciders: orchestrator (decision I-01), implemented by Task 01
 - Related: `doc/product/decision-log.md` (I-01, I-06), `doc/architecture/overview.md`,
   `doc/process/runbook-local-dev.md`
+- Amended: 2026-09-10 by decision I-17 — services no longer call `session.commit()`; they flush and the caller's
+  unit of work (`SessionDep` per request, `unit_of_work` for CLI/jobs) owns the transaction
+  (`doc/architecture/overview.md`, *Transaction boundaries*).
 
 ## Context
 

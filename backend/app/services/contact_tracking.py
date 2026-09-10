@@ -1,7 +1,8 @@
 """Contact tracking (`Suivi de contact`): the current row per prospect and its status history.
 
 Tracking never reads or writes prospect contactability: a do-not-contact restriction is durable and
-independent of the stage (`not_interested` is an outcome, not an opposition).
+independent of the stage (`not_interested` is an outcome, not an opposition). Operations flush; the
+caller owns the transaction.
 """
 
 import uuid
@@ -52,5 +53,5 @@ def save_contact_tracking(
                 actor_display=actor.display,
             )
         )
-    session.commit()
+    session.flush()
     return tracking

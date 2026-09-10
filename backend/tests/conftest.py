@@ -6,13 +6,12 @@ import pytest
 from alembic import command
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine, make_url, text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
-from app.api.dependencies import get_session
 from app.core.config import Settings
 from app.db.session import create_db_engine
 from app.main import create_app
-from tests.support import alembic_config, transactional_session
+from tests.support import alembic_config, rolled_back_session_factory
 
 
 @pytest.fixture(scope="session")
@@ -38,14 +37,22 @@ def engine(test_database_url: str) -> Iterator[Engine]:
 
 
 @pytest.fixture
-def db_session(engine: Engine) -> Iterator[Session]:
-    with transactional_session(engine) as session:
+def session_factory(engine: Engine) -> Iterator[sessionmaker[Session]]:
+    """Sessions sharing one per-test transaction that is rolled back at teardown."""
+    with rolled_back_session_factory(engine) as factory:
+        yield factory
+
+
+@pytest.fixture
+def db_session(session_factory: sessionmaker[Session]) -> Iterator[Session]:
+    with session_factory() as session:
         yield session
 
 
 @pytest.fixture
-def client(test_database_url: str, db_session: Session) -> Iterator[TestClient]:
+def client(test_database_url: str, session_factory: sessionmaker[Session]) -> Iterator[TestClient]:
+    """API client using the real per-request unit of work, inside the per-test transaction."""
     app = create_app(Settings(database_url=test_database_url))
-    app.dependency_overrides[get_session] = lambda: db_session
+    app.state.session_factory = session_factory
     with TestClient(app) as test_client:
         yield test_client

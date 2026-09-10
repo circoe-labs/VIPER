@@ -1,6 +1,7 @@
 """Prospect domain rules: durable contactability and company change.
 
-Every operation receives the server-side `ActorContext`; Task 05 emits audit events from here.
+Every operation receives the server-side `ActorContext` (Task 05 emits audit events from here) and
+flushes; the caller owns the transaction and commits (see overview, "Transaction boundaries").
 """
 
 import uuid
@@ -33,7 +34,7 @@ def mark_do_not_contact(
     prospect.contactability_status = ContactabilityStatus.DO_NOT_CONTACT
     prospect.do_not_contact_at = datetime.now(UTC)
     prospect.do_not_contact_reason = (reason or "").strip() or None
-    session.commit()
+    session.flush()
     return prospect
 
 
@@ -51,7 +52,6 @@ def clear_do_not_contact(
     if prospect.contactability_status is ContactabilityStatus.CONTACTABLE:
         return prospect
     prospect_repository.write_cleared_contactability(session, prospect)
-    session.commit()
     return prospect
 
 
@@ -74,5 +74,5 @@ def change_company(
     for channel in [*prospect.emails, *prospect.phones]:
         if channel.is_active and channel.verification_status is VerificationStatus.VERIFIED:
             channel.verification_status = VerificationStatus.UNVERIFIED
-    session.commit()
+    session.flush()
     return prospect

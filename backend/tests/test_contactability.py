@@ -11,9 +11,7 @@ from app.models.enums import ContactabilityStatus, ContactTrackingStatus
 from app.services import prospects as prospect_service
 from app.services.contact_tracking import ContactTrackingInput, save_contact_tracking
 from app.services.errors import DomainError, NotFoundError
-from tests.builders import OPERATOR, add_prospect, rejected
-
-GUARD_MESSAGE = "is do_not_contact; use the clear operation"
+from tests.builders import DNC_GUARD_MESSAGE, OPERATOR, add_prospect, rejected
 
 
 def stored_contactability(session: Session, prospect: Prospect) -> ContactabilityStatus:
@@ -57,11 +55,11 @@ def test_generic_writes_cannot_reactivate_a_blocked_prospect(db_session: Session
     prospect = blocked_prospect(db_session)
 
     # What an import merge or a Database Explorer edit would do without the dedicated operation.
-    with rejected(db_session, GUARD_MESSAGE):
+    with rejected(db_session, DNC_GUARD_MESSAGE):
         prospect.contactability_status = ContactabilityStatus.CONTACTABLE
         prospect.do_not_contact_at = None
         prospect.do_not_contact_reason = None
-    with rejected(db_session, GUARD_MESSAGE):
+    with rejected(db_session, DNC_GUARD_MESSAGE):
         db_session.execute(
             text(
                 "UPDATE prospects SET contactability_status = 'contactable', "
@@ -109,7 +107,7 @@ def test_dedicated_operation_clears_and_the_guard_rearms(db_session: Session) ->
     assert (cleared.do_not_contact_at, cleared.do_not_contact_reason) == (None, None)
 
     reblocked = prospect_service.mark_do_not_contact(db_session, OPERATOR, prospect.id)
-    with rejected(db_session, GUARD_MESSAGE):
+    with rejected(db_session, DNC_GUARD_MESSAGE):
         reblocked.contactability_status = ContactabilityStatus.CONTACTABLE
         reblocked.do_not_contact_at = None
 

@@ -25,6 +25,9 @@
 - Backend: pytest against the real PostgreSQL `viper_test` database — schema reset + `alembic upgrade head` once per
   session, one rolled-back transaction per test (`db_session`, `client` fixtures in `backend/tests/conftest.py`);
   a migration test checks upgrade/downgrade and that migrations match the ORM models.
+- Transactions: the `session_factory` fixture hands out sessions sharing the per-test transaction, where a commit
+  is a savepoint release — so `unit_of_work` and the API client (which runs the real per-request `SessionDep`) can be
+  tested for commit/rollback without leaking data (`test_transactions.py`).
 - Schema (Task 03): `test_migrations.py` also compares CHECK constraint names and enum value lists with the ORM,
   requires the `updated_at` trigger on every timestamped table and an index behind every FK;
   `test_schema_constraints.py` exercises each invariant (uniqueness, partial indexes, CHECKs, deletion rules,

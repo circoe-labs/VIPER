@@ -1,1 +1,1 @@
-"""Application services: business rules and transaction boundaries, called by the API layer."""
+"""Application services: business rules. They flush, never commit: callers own the transaction."""

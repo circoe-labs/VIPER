@@ -6,7 +6,7 @@ from pathlib import Path
 
 from alembic.config import Config
 from sqlalchemy import Engine
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 
@@ -18,12 +18,25 @@ def alembic_config(database_url: str) -> Config:
 
 
 @contextmanager
-def transactional_session(engine: Engine) -> Iterator[Session]:
-    """Session whose work, even `commit()`ed, is rolled back on exit (commits become savepoints)."""
+def rolled_back_session_factory(engine: Engine) -> Iterator[sessionmaker[Session]]:
+    """Session factory on one connection whose outer transaction is rolled back on exit.
+
+    Sessions from it turn `commit()` (e.g. a unit of work) into a savepoint release, so tests can
+    exercise real commit/rollback behaviour without leaking data. Same options as production
+    (`create_session_factory`).
+    """
     with engine.connect() as connection:
         transaction = connection.begin()
         try:
-            with Session(bind=connection, join_transaction_mode="create_savepoint") as session:
-                yield session
+            yield sessionmaker(
+                bind=connection, join_transaction_mode="create_savepoint", expire_on_commit=False
+            )
         finally:
             transaction.rollback()
+
+
+@contextmanager
+def transactional_session(engine: Engine) -> Iterator[Session]:
+    """Session whose work, even `commit()`ed, is rolled back on exit (commits become savepoints)."""
+    with rolled_back_session_factory(engine) as session_factory, session_factory() as session:
+        yield session
