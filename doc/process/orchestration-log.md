@@ -145,3 +145,38 @@ found, what was sent back for rework, and the verification evidence accepted. Ta
   happening under a working agent).
 - Next: Task 12/13 branch integrates `claude` (+ E2E decoupling, "Ouvrir dans l'éditeur" on companies rows);
   Task 09 (import review/commit) in worktree `task-09-import-review`.
+
+### Integration of 12/13 and E2E flakiness (2026-09-10)
+
+- Explorer branch integrated `claude` (`ce23fa5`), removed the Playwright ordering hack (`ed82ab4`, I-80) and added
+  "Ouvrir dans l'éditeur" on companies rows (`19a5076`). Merged into `claude` as `d93da1c`.
+- **Orchestrator verification found a regression**: under default parallel workers, `database.spec.ts` and
+  `database-sql.spec.ts` still failed intermittently (expected 36 companies, got 37) — the "read count first" fix was
+  still racy; the agent had validated with sequential runs only. Sent to a fresh agent (branch `fix-e2e-isolation`)
+  with the rule "specs own their data; never assert global counts", proof required by repeated full-parallel runs.
+  Same agent fixes the Drawer/Esc focus bug reported during integration (Esc stopped closing a drawer after a
+  mouse-click save disabled the focused button).
+
+### Infrastructure incident — Docker engine hang (2026-09-10)
+
+- The Docker Desktop Linux engine hung (API 500s, Postgres on 5442 unreachable). The orchestrator restarted Docker
+  Desktop; all containers stopped. Restarting other projects' containers was (rightly) outside this session's
+  permissions and was left to the user; `viper-db-1` was restarted (same volume) and all 9 VIPER databases were intact.
+  No data loss.
+
+### Task 09 — Import review & transactional commit (2026-09-10) — ACCEPTED
+
+- Commit `0e7c2e0`, merged as `b214be8`. Stateless review (ADR-0012): the browser re-sends the file; the server re-runs
+  the deterministic engine and checks file fingerprint + preview digest (409 `file_changed` / `preview_outdated`);
+  re-import of a committed fingerprint needs explicit acknowledgement. Typed decisions (grouped by raw value: roles,
+  categories, referents, civilities, weeks with an explicit year, `retraité` confirmation; dedup link/create/attach/
+  merge/exclude; required legal basis). Merge rules fill empty fields only; DNC prospects never touched. Commit in one
+  transaction attributed to the import actor on behalf of the user; failures recorded as `failed` batches.
+  Migration 0006. I-72..I-79. Screenshots reviewed ("À résoudre" grouped by raw value, row detail with preserved
+  values).
+- Private run (aggregates only, throwaway DB reset afterwards): 339 rows → 328 imported, 11 excluded (no name);
+  324 prospects, 247 companies, 233 emails, 213 phones, 328 sources, 328 row-metadata rows; 0 tracking because the
+  stage columns are empty and the two week codes need a year chosen by the user. Invariants held (no DNC touched,
+  every row accounted for).
+- Next wave: Task 10 (export, worktree `task-10-export`) ∥ Task 14 (Prospection, worktree `task-14-prospection`);
+  the E2E-isolation fix continues in parallel.
