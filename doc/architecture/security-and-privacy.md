@@ -98,6 +98,16 @@ provenance traces, import traces and the audit log are read-only) and the ORM, s
 server-side actor. Details: [database-explorer.md](../features/database-explorer.md),
 [ADR-0008](../adr/0008-explorer-staged-writes.md).
 
+### SQL console (Task 13)
+Read-only by construction, enforced by PostgreSQL ([ADR-0011](../adr/0011-read-only-sql-console.md)): queries run as
+the dedicated login role `viper_sql_reader` — no attribute beyond LOGIN, no role membership, `SELECT` granted only on
+the visible, unmasked columns of the exposed tables (test-compared with the exposure policy), read-only default
+transaction and timeouts — each on its own connection, in a `READ ONLY` transaction, as a prepared statement through a
+server-side cursor (bounded rows). `users`, `user_sessions`, `alembic_version` and administrative functions are
+refused by the database. The password comes from `VIPER_SQL_READER_PASSWORD` (the default is a local-development
+value, like `viper`/`viper`; set a real secret anywhere else, never commit it). Every query is audited by hash and
+length, never by text (it may carry personal literals). Catalog object names remain readable, as for any role.
+
 ## Retention/backup/deletion
 Exact retention, anonymization, hosting and backup requirements remain product/ops/legal decisions. The implementation should centralize configuration and avoid destructive cascade defaults that make later compliance impossible.
 

@@ -94,4 +94,7 @@ parameters, GET-only routes under `/api/explorer` ([ADR-0005](../adr/0005-databa
 the same metadata plus a default-deny editability policy, applied all or nothing through the ORM in the request's
 transaction (audited as `database_explorer`), delegating to `ProspectService` / `ContactTrackingService` where they
 own the rule, with optimistic row versions (`updated_at`) and server-side delete diagnostics. Opposition columns stay
-read-only (the do-not-contact trigger backs it). SQL is SELECT/read-only in V1 and backend-enforced.
+read-only (the do-not-contact trigger backs it). The SQL path (Task 13,
+[ADR-0011](../adr/0011-read-only-sql-console.md)) runs one read statement per request as a dedicated read-only
+database role whose privileges are derived from the same exposure policy; the database, not a parser, refuses
+writes and hidden tables.

@@ -92,6 +92,8 @@ As implemented (Task 12): [database-explorer.md](database-explorer.md#staged-edi
 ### SQL
 Compact read-only SQL console. Backend must enforce read-only/SELECT behavior; this is not a full SQL IDE or migration tool.
 
+As implemented (Task 13): [database-explorer.md](database-explorer.md#sql-console-task-13).
+
 ## Exploitation
 Coming soon only. No fake agent controls, drafts, messages or metrics.
 

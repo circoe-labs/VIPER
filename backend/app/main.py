@@ -8,17 +8,21 @@ from fastapi import FastAPI
 from app.api.router import api_router, public_router
 from app.core.config import Settings, get_settings
 from app.db.session import create_db_engine, create_session_factory
+from app.services.explorer.sql_console import create_reader_engine
 from app.services.login_throttle import LoginThrottle
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     engine = create_db_engine(settings.database_url)
+    # The SQL console's own engine, logged in as the read-only reader role (ADR-0011).
+    sql_engine = create_reader_engine(settings.sql_reader_url)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         yield
         engine.dispose()
+        sql_engine.dispose()
 
     app = FastAPI(
         title="VIPER API",
@@ -30,6 +34,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = settings
     app.state.session_factory = create_session_factory(engine)
+    app.state.sql_engine = sql_engine
     app.state.login_throttle = LoginThrottle()
     app.include_router(public_router, prefix="/api")
     app.include_router(api_router, prefix="/api")

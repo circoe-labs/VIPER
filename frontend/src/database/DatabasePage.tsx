@@ -1,17 +1,20 @@
-import { useCallback, useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useLocation, useParams, useSearchParams } from 'react-router'
 
 import { useExplorerTables } from '../api/explorer'
+import { Button } from '../ui/Button'
 import { EmptyState } from '../ui/EmptyState'
-import { DatabaseIcon } from '../ui/icons'
+import { DatabaseIcon, TerminalIcon } from '../ui/icons'
 import { PageHeader } from '../ui/PageHeader'
 import { type ExplorerView, parseView, serializeView } from './explorerView'
 import { readOrigin } from './navigation'
+import { SqlConsole } from './SqlConsole'
 import { TableRail } from './TableRail'
 import { TableWorkspace } from './TableWorkspace'
 import './database.css'
 
-// Database Explorer: table rail + data grid (reads: Task 11, staged edits: Task 12). SQL console: Task 13.
+// Database Explorer: table rail + data grid (reads: Task 11, staged edits: Task 12) and the read-only SQL console
+// (Task 13), opened from the page header.
 export function DatabasePage() {
   const { table } = useParams()
   const location = useLocation()
@@ -20,6 +23,8 @@ export function DatabasePage() {
   const view = useMemo(() => parseView(searchParams), [searchParams])
   const origin = readOrigin(location.state)
   const locationState: unknown = location.state
+  const [sqlOpen, setSqlOpen] = useState(false)
+  const [sqlText, setSqlText] = useState('')
 
   // Grid criteria replace the current history entry (Back returns to the previous table, not the previous
   // keystroke) and keep its state, so "Retour à …" survives filtering after a relationship hop.
@@ -38,6 +43,19 @@ export function DatabasePage() {
       <PageHeader
         title="Base de données"
         description="Exploration des tables de VIPER ; les modifications restent en attente jusqu’à « Enregistrer »."
+        actions={
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={TerminalIcon}
+            aria-haspopup="dialog"
+            onClick={() => {
+              setSqlOpen(true)
+            }}
+          >
+            Console SQL
+          </Button>
+        }
       />
       <div className="explorer">
         <TableRail tables={tables.data} loading={tables.isPending} failed={tables.isError} selected={table} />
@@ -53,6 +71,15 @@ export function DatabasePage() {
           </section>
         )}
       </div>
+      {sqlOpen && (
+        <SqlConsole
+          text={sqlText}
+          onTextChange={setSqlText}
+          onClose={() => {
+            setSqlOpen(false)
+          }}
+        />
+      )}
     </div>
   )
 }

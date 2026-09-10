@@ -30,6 +30,7 @@ pip install -r requirements-dev.txt
 alembic upgrade head               # migrate the dev database
 python -m app.seed                 # suggested roles/segments/categories (idempotent, optional)
 python -m app.cli create-user --email vous@example.com --display-name "Prénom Nom"   # prompts for the password
+python -m app.cli provision-sql-reader   # read-only role of the SQL console + its grants (again after each migration)
 uvicorn app.main:create_app --factory --reload --port 8042
 ```
 
@@ -128,7 +129,7 @@ running. Playwright starts its own backend (`uvicorn` on **8044**, database **`v
 proxying `/api` to 8044) — it never touches the dev servers or the dev database — and stops them at the end (locally
 it reuses servers already listening on those ports). Global setup (`frontend/e2e/global-setup.ts`) rebuilds
 `viper_e2e` through the migrations (`alembic downgrade base` + `upgrade head`; it refuses a database whose name does
-not end in `_e2e`), loads the synthetic explorer dataset (`python -m tests.e2e_data`, same guard; written through
+not end in `_e2e`), provisions the SQL console's reader role (`python -m app.cli provision-sql-reader`), loads the synthetic explorer dataset (`python -m tests.e2e_data`, same guard; written through
 `audit.attributed_unit_of_work` with a system actor, so `audit_log` holds its creation events) and creates the
 synthetic account `pilote.e2e@example.com` with `python -m app.cli create-user --password-stdin` and a random password
 generated for the run. Every spec signs in through `signIn` (`frontend/e2e/session.ts`); `auth.spec.ts` drives the
@@ -147,6 +148,12 @@ alembic downgrade base ; alembic upgrade head     # reset the dev schema through
 alembic -x db=test upgrade head                   # same commands on viper_test
 alembic revision --autogenerate --rev-id 0002 -m "short description"   # new revision from ORM models
 ```
+
+After a migration, re-run `python -m app.cli provision-sql-reader`: the SQL console's read-only role
+(`viper_sql_reader`, ADR-0011) holds column grants on the exposed tables, which new columns or tables do not inherit.
+Without it the console answers « Table non accessible » for them (or « Console SQL indisponible » if the role does not
+exist yet); it never exposes more. The command needs CREATEROLE to create the role (the local `viper` user has it);
+otherwise it prints the SQL for an administrator.
 
 After `--autogenerate`, review the file, then `ruff format migrations`. Every new model module must be imported in
 `app/models/__init__.py` (the migration test fails if models and migrations drift). Conventions:

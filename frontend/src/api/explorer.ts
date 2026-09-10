@@ -196,6 +196,36 @@ export function useExplorerRows(name: string, query: RowsQuery, enabled: boolean
   })
 }
 
+// Read-only SQL console (POST /explorer/sql). Values are JSON-safe (timestamps as ISO text, big integers as text).
+export interface SqlResult {
+  columns: { name: string; type: string }[]
+  rows: unknown[][]
+  // [row, column] of the cells cut by the server.
+  truncated_cells: [number, number][]
+  row_count: number
+  // More rows exist than `max_rows`.
+  truncated: boolean
+  max_rows: number
+  duration_ms: number
+}
+
+// `detail` of a refused query: French message, PostgreSQL's own message, 1-based position in the query.
+export interface SqlError {
+  code: string
+  message: string
+  detail: string | null
+  position: number | null
+}
+
+export function runSql(sql: string): Promise<SqlResult> {
+  return apiRequest<SqlResult>('POST', '/explorer/sql', { body: { sql } })
+}
+
+export function sqlError(detail: unknown): SqlError | null {
+  if (typeof detail !== 'object' || detail === null || !('code' in detail) || !('message' in detail)) return null
+  return detail as SqlError
+}
+
 // Applies the change set all or nothing. A refusal is an ApiError (422, or 409 when a row changed meanwhile) whose
 // detail carries every error (`changeErrors`).
 export function saveChanges(name: string, changes: ChangeSet): Promise<ChangeSetResult> {

@@ -297,6 +297,13 @@ export const SaveIcon = (props: IconProps) => (
   </Svg>
 )
 
+export const TerminalIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+    <path d="m7.5 9.5 3 2.5-3 2.5M12.5 15h4" />
+  </Svg>
+)
+
 export const TableIcon = (props: IconProps) => (
   <Svg {...props}>
     <rect x="3.5" y="4.5" width="17" height="15" rx="2" />

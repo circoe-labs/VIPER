@@ -1,9 +1,10 @@
-# Database Explorer — read features (Task 11) and staged editing (Task 12)
+# Database Explorer — reads (Task 11), staged editing (Task 12), read-only SQL console (Task 13)
 
 Route `/database` (`Base de données`). A DBeaver-inspired explorer of VIPER's domain tables: reading (Task 11) and
-staged, audited editing (Task 12, section [Staged editing](#staged-editing-task-12)); the read-only SQL console
-arrives with Task 13. Design and trade-offs: [ADR-0005](../adr/0005-database-explorer-grid.md) (read path),
-[ADR-0008](../adr/0008-explorer-staged-writes.md) (write path, concurrency).
+staged, audited editing (Task 12, section [Staged editing](#staged-editing-task-12)) and a discreet read-only SQL
+console (Task 13, section [SQL console](#sql-console-task-13)). Design and trade-offs:
+[ADR-0005](../adr/0005-database-explorer-grid.md) (read path), [ADR-0008](../adr/0008-explorer-staged-writes.md)
+(write path, concurrency), [ADR-0011](../adr/0011-read-only-sql-console.md) (SQL console).
 
 ## What the user can do
 
@@ -184,7 +185,53 @@ CASCADE` are not audited one by one (the deleted parent is; ADR-0006) — the co
   "fill down" or paste of several cells; JSON/array values are read-only; no value normalization (an e-mail with
   capitals is refused with the CHECK message rather than lower-cased); a new row appears in its sorted place only
   after saving; the row selection is per page.
-- No SQL, no schema editing (Task 13 adds the read-only console).
+- No schema editing; the SQL console is read-only (below).
+
+## SQL console (Task 13)
+
+`Console SQL` (page header of `/database`) opens a drawer: a monospace query field, `Exécuter` or **Ctrl+Entrée**,
+then the result table (column names and PostgreSQL types, NULL shown as such, numbers right-aligned, row count and
+duration) or the error (French message, PostgreSQL's own message, and the faulty position selected in the query).
+The query text is kept while the page stays open. No tabs, history or autocompletion.
+
+| Capability / limit | Value |
+|---|---|
+| Statements | one `SELECT`, `WITH … SELECT`, `VALUES`, `TABLE` or `EXPLAIN` (a trailing `;` is fine) |
+| Data | committed rows of the **exposed tables only**, visible and unmasked columns only; never `users`, `user_sessions`, `alembic_version`; catalog *names* stay readable |
+| Rows | first 1 000 (`VIPER_SQL_MAX_ROWS`) — « Résultat tronqué » beyond; the server never sends more |
+| Cells | 500 characters, then cut and flagged (`…`) |
+| Time | 5 s per query (`VIPER_SQL_STATEMENT_TIMEOUT_MS`; the role's own default is 10 s) |
+| Query text | 20 000 characters |
+| Writes | impossible: the reader role has no write privilege, the transaction is read-only, data-modifying CTEs are refused by the cursor, several statements by the protocol |
+
+**Security boundary** — the database role `viper_sql_reader` (ADR-0011): login only, no membership, read-only
+default transaction, statement/idle/lock timeouts, column-level `SELECT` on exactly the exposed columns (a test
+compares its privileges with the exposure policy). Each query runs on its own connection (closed afterwards), in a
+`READ ONLY` transaction with `SET LOCAL statement_timeout`, as a prepared statement through a server-side cursor.
+The early checks (empty text, several statements, not a read) only produce clearer messages.
+
+**Errors** — « Saisissez une requête SQL. », « Une seule instruction à la fois… », « La console est en lecture
+seule : SELECT, WITH, VALUES, TABLE ou EXPLAIN uniquement. », « Erreur de syntaxe à la position N. », « Table non
+accessible : la console ne lit que les tables exposées de l’explorateur. », « Accès refusé : fonction ou opération
+réservée à l’administration de la base. », « Écriture refusée : la console est en lecture seule. », « Requête
+interrompue : elle a dépassé 5 s. », « Table inconnue. » / « Colonne inconnue. » / « Fonction inconnue… »;
+« Console SQL indisponible… » (HTTP 503) when the reader role is missing or its password is wrong.
+
+**API** — `POST /api/explorer/sql` `{sql}` → `200 {columns: [{name, type}], rows, truncated_cells, row_count,
+truncated, max_rows, duration_ms}`; `422 {"detail": {code, message, detail, position}}`; `503` when unavailable;
+session and CSRF token required. Values are JSON-safe: timestamps ISO 8601, integers beyond 2^53 and numerics as
+text, `bytea` as hexadecimal text, JSON as text.
+
+**Audit** — every attempt, accepted or refused, is an `explorer.sql_executed` event (source `database_explorer`,
+signed-in actor) with `query_sha256`, `query_length`, `outcome` (`ok` or the error code) and, when it ran,
+`row_count`, `truncated`, `duration_ms`. The query text itself is **not** stored (it may contain personal values;
+decision I-67).
+
+**Provisioning** — `python -m app.cli provision-sql-reader` (from `backend/`, targets `VIPER_DATABASE_URL`) creates or
+aligns the role and resets its grants; idempotent; **run it after every migration** (grants follow the tables). It
+needs `CREATEROLE` to create the role; without it, the command prints the SQL an administrator must run (password
+elided) and, once the role exists, applies the grants (the application role owns the tables). The test suite and the
+Playwright setup provision their databases themselves.
 
 ## Code map
 
@@ -195,6 +242,8 @@ CASCADE` are not audited one by one (the deleted parent is; ADR-0006) — the co
 | Change sets (model, validation) | `backend/app/services/explorer/changes.py` |
 | Applying writes, French error messages | `backend/app/services/explorer/writes.py` |
 | Delete diagnostics | `backend/app/services/explorer/deletion.py` |
+| SQL console: reader role and grants, execution, route | `backend/app/services/explorer/sql_reader.py`, `sql_console.py`, `backend/app/api/routes/explorer_sql.py`, `app/cli.py` (`provision-sql-reader`) |
+| SQL console UI | `frontend/src/database/SqlConsole.tsx` |
 | Write routes | `backend/app/api/routes/explorer_writes.py` |
 | Staged changes (store), editing rules | `frontend/src/database/staging.ts`, `editing.ts` |
 | Editors, pending bar, delete dialog, leave guard | `frontend/src/database/CellEditor.tsx`, `PendingChanges.tsx`, `DeleteRowsDialog.tsx`, `UnsavedChangesGuard.tsx` |
@@ -206,4 +255,4 @@ CASCADE` are not audited one by one (the deleted parent is; ADR-0006) — the co
 | Grid, header, menus | `frontend/src/database/ExplorerGrid.tsx`, `GridHeader.tsx`, `cellMenu.ts`, `src/ui/Menu.tsx`, `src/ui/Popover.tsx` |
 | View/URL state, filters, column layout | `frontend/src/database/explorerView.ts`, `filters.ts`, `columnState.ts` |
 | API client | `frontend/src/api/explorer.ts` |
-| Tests | `backend/tests/test_explorer_*.py` (writes: `test_explorer_writes.py`, `test_explorer_editability.py`); `frontend/src/database/*.test.ts(x)` (editing: `staging.test.ts`, `editing.test.ts`, `TableEditing.test.tsx`); `frontend/e2e/database.spec.ts`, `database-edit.spec.ts` (synthetic dataset `backend/tests/fixtures/synthetic/explorer_dataset.py`) |
+| Tests | `backend/tests/test_explorer_*.py` (writes: `test_explorer_writes.py`, `test_explorer_editability.py`); `frontend/src/database/*.test.ts(x)` (editing: `staging.test.ts`, `editing.test.ts`, `TableEditing.test.tsx`; SQL: `SqlConsole.test.tsx`), `backend/tests/test_explorer_sql.py` (reader role, grants, security regression suite); `frontend/e2e/database.spec.ts`, `database-edit.spec.ts`, `database-sql.spec.ts` (synthetic dataset `backend/tests/fixtures/synthetic/explorer_dataset.py`) |

@@ -89,6 +89,8 @@ class AuditAction(StrEnum):
     AUTH_LOGOUT = "auth.logout"
     AUTH_USER_CREATED = "auth.user_created"
     AUTH_PASSWORD_RESET = "auth.password_reset"
+    # A query of the read-only SQL console: hash and length of the text, never the text (I-67).
+    EXPLORER_SQL_EXECUTED = "explorer.sql_executed"
 
 
 @dataclass(frozen=True, slots=True)

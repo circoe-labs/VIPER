@@ -1,11 +1,16 @@
 """Operator commands. Run from `backend/`:
 
     python -m app.cli create-user --email pilot@example.com --display-name "Prénom Nom"
+    python -m app.cli provision-sql-reader
 
 `create-user` creates the login account, or — when the email already exists — resets its password
 and signs out all its sessions. The password is prompted twice, or read from the first line of
 stdin with `--password-stdin` (automation). It is never a command-line argument, so it cannot end
-up in shell history or process listings. Target database: `VIPER_DATABASE_URL`.
+up in shell history or process listings.
+
+`provision-sql-reader` creates or aligns the SQL console's read-only role (`VIPER_SQL_READER_ROLE`,
+password `VIPER_SQL_READER_PASSWORD`) and resets its grants to the explorer's exposed tables. Run it
+after every migration. Target database of both: `VIPER_DATABASE_URL`.
 """
 
 import argparse
@@ -15,11 +20,12 @@ import sys
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.actor import ActorContext, ActorType
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.db.session import create_db_engine, create_session_factory
 from app.services.audit import attributed_unit_of_work
 from app.services.auth import create_or_reset_user
 from app.services.errors import DomainError
+from app.services.explorer.sql_reader import provision_sql_reader
 
 # Whoever runs the command on the server; the OS account is not known to VIPER.
 CLI_ACTOR = ActorContext(type=ActorType.SYSTEM, display="Ligne de commande", id="app.cli")
@@ -44,6 +50,17 @@ def create_user(
         return f"{'Created' if created else 'Password reset for'} user {user.email}."
 
 
+def provision_reader(session_factory: sessionmaker[Session], settings: Settings) -> str:
+    with session_factory.begin() as session:
+        report = provision_sql_reader(
+            session.connection(),
+            settings.sql_reader_role,
+            settings.sql_reader_password.get_secret_value(),
+        )
+    action = "Created" if report.created else "Updated"
+    return f"{action} role {settings.sql_reader_role}: SELECT on {report.tables} exposed tables."
+
+
 def main(
     argv: list[str] | None = None, session_factory: sessionmaker[Session] | None = None
 ) -> int:
@@ -55,14 +72,21 @@ def main(
     create.add_argument(
         "--password-stdin", action="store_true", help="read the password from stdin"
     )
+    commands.add_parser(
+        "provision-sql-reader", help="create/align the SQL console's read-only role and its grants"
+    )
     args = parser.parse_args(argv)
 
+    settings = get_settings()
     engine = None
     if session_factory is None:
-        engine = create_db_engine(get_settings().database_url)
+        engine = create_db_engine(settings.database_url)
         session_factory = create_session_factory(engine)
     try:
-        print(create_user(session_factory, args, read_password(args.password_stdin)))
+        if args.command == "provision-sql-reader":
+            print(provision_reader(session_factory, settings))
+        else:
+            print(create_user(session_factory, args, read_password(args.password_stdin)))
     except DomainError as error:
         print(f"Error: {error}", file=sys.stderr)
         return 1

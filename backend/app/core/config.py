@@ -1,11 +1,14 @@
 """Typed runtime configuration read from `VIPER_*` environment variables and `backend/.env`."""
 
 from functools import lru_cache
+from typing import Annotated
 
-from pydantic import PositiveInt
+from pydantic import Field, PositiveInt, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy import make_url
 
 LOCAL_DATABASE = "postgresql+psycopg://viper:viper@127.0.0.1:5442"
+RoleName = Annotated[str, Field(pattern=r"^[a-z_][a-z0-9_]{0,62}$")]
 
 
 class Settings(BaseSettings):
@@ -21,6 +24,22 @@ class Settings(BaseSettings):
     session_idle_timeout_minutes: PositiveInt = 120
     # …and in any case this long after sign-in.
     session_absolute_timeout_hours: PositiveInt = 12
+
+    # Read-only SQL console (ADR-0011): queries run as this login role, which may only SELECT the
+    # explorer's exposed tables (`python -m app.cli provision-sql-reader`). The password default is
+    # a local-development value like `viper`/`viper`; set `VIPER_SQL_READER_PASSWORD` elsewhere.
+    sql_reader_role: RoleName = "viper_sql_reader"
+    sql_reader_password: SecretStr = SecretStr("viper_sql_reader")
+    sql_statement_timeout_ms: PositiveInt = 5000
+    sql_max_rows: PositiveInt = 1000
+
+    @property
+    def sql_reader_url(self) -> str:
+        """The application database, reached as the SQL console's role."""
+        url = make_url(self.database_url).set(
+            username=self.sql_reader_role, password=self.sql_reader_password.get_secret_value()
+        )
+        return url.render_as_string(hide_password=False)
 
 
 @lru_cache
