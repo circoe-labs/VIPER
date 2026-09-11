@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import { useLocation, useParams, useSearchParams } from 'react-router'
 
+import { apiRequest } from '../api/client'
 import { useExplorerTables } from '../api/explorer'
 import { Button } from '../ui/Button'
 import { EmptyState } from '../ui/EmptyState'
@@ -13,8 +14,12 @@ import { TableRail } from './TableRail'
 import { TableWorkspace } from './TableWorkspace'
 import './database.css'
 
-// Database Explorer: table rail + data grid (reads: Task 11, staged edits: Task 12) and the read-only SQL console
-// (Task 13), opened from the page header.
+interface ResetResult {
+  prospects_deleted: number
+  prospects_preserved_do_not_contact: number
+  companies_deleted: number
+}
+
 export function DatabasePage() {
   const { table } = useParams()
   const location = useLocation()
@@ -25,9 +30,8 @@ export function DatabasePage() {
   const locationState: unknown = location.state
   const [sqlOpen, setSqlOpen] = useState(false)
   const [sqlText, setSqlText] = useState('')
+  const [resetting, setResetting] = useState(false)
 
-  // Grid criteria replace the current history entry (Back returns to the previous table, not the previous
-  // keystroke) and keep its state, so "Retour à …" survives filtering after a relationship hop.
   const changeView = useCallback(
     (patch: Partial<ExplorerView>) => {
       setSearchParams((current) => serializeView({ ...parseView(current), ...patch }), {
@@ -38,23 +42,52 @@ export function DatabasePage() {
     [setSearchParams, locationState],
   )
 
+  const resetProspecting = useCallback(async () => {
+    const confirmed = window.confirm(
+      'Réinitialiser les données de prospection avant un nouvel import Excel ?\n\nLes oppositions / « à ne plus contacter », l’audit, l’historique des imports et les référentiels seront conservés.',
+    )
+    if (!confirmed) return
+    setResetting(true)
+    try {
+      const result = await apiRequest<ResetResult>('POST', '/database/reset-prospecting', {
+        body: { confirmation: 'RESET_PROSPECTING_DATA' },
+      })
+      window.alert(
+        `Base de prospection réinitialisée : ${String(result.prospects_deleted)} prospect(s) supprimé(s), ${String(result.prospects_preserved_do_not_contact)} opposition(s) conservée(s).`,
+      )
+      window.location.reload()
+    } finally {
+      setResetting(false)
+    }
+  }, [])
+
   return (
     <div className="explorer-page">
       <PageHeader
         title="Base de données"
         description="Exploration des tables de VIPER ; les modifications restent en attente jusqu’à « Enregistrer »."
         actions={
-          <Button
-            variant="ghost"
-            size="sm"
-            icon={TerminalIcon}
-            aria-haspopup="dialog"
-            onClick={() => {
-              setSqlOpen(true)
-            }}
-          >
-            Console SQL
-          </Button>
+          <>
+            <Button
+              variant="danger"
+              size="sm"
+              loading={resetting}
+              onClick={() => void resetProspecting()}
+            >
+              Réinitialiser la prospection
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={TerminalIcon}
+              aria-haspopup="dialog"
+              onClick={() => {
+                setSqlOpen(true)
+              }}
+            >
+              Console SQL
+            </Button>
+          </>
         }
       />
       <div className="explorer">

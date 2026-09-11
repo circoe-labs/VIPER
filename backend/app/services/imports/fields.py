@@ -13,6 +13,7 @@ from app.services.imports.text import fold
 class ImportField(StrEnum):
     """A target of the column mapping. Values are stable keys (API, legacy metadata)."""
 
+    VERIFICATION_STATUS = "verification_status"
     REFERENT = "referent"
     PLANNED_CONTACT = "planned_contact"
     COMPANY_NAME = "company_name"
@@ -41,17 +42,23 @@ class ImportField(StrEnum):
 @dataclass(frozen=True, slots=True)
 class FieldSpec:
     field: ImportField
-    header: str  # as written in the historical workbook (trailing spaces included)
-    label: str  # French label for messages
-    aliases: tuple[str, ...] = ()  # other accepted headers, compared folded
-    key: bool = False  # a missing column is a warning, not just a notice
-    opaque: bool = False  # kept raw in legacy metadata by design (meaning not confirmed)
-    repeat: ImportField | None = None  # target of a second column with the same header
-    max_length: int | None = None  # database column length
+    header: str
+    label: str
+    aliases: tuple[str, ...] = ()
+    key: bool = False
+    opaque: bool = False
+    repeat: ImportField | None = None
+    max_length: int | None = None
 
 
-# The 23 named historical columns, in workbook order (the 24th is unnamed and empty).
 LEGACY_LAYOUT: tuple[FieldSpec, ...] = (
+    FieldSpec(
+        ImportField.VERIFICATION_STATUS,
+        "Statut_verification",
+        "Statut de vérification",
+        ("Statut vérification", "Statut verification"),
+        opaque=True,
+    ),
     FieldSpec(ImportField.REFERENT, "Référent", "Référent", ("referents",)),
     FieldSpec(
         ImportField.PLANNED_CONTACT,
@@ -119,7 +126,6 @@ LEGACY_LAYOUT: tuple[FieldSpec, ...] = (
 )
 
 SPECS: dict[ImportField, FieldSpec] = {spec.field: spec for spec in LEGACY_LAYOUT}
-# Folded header → field. Fields reached only through `repeat` have no header of their own.
 FIELD_BY_HEADER: dict[str, ImportField] = {
     fold(name): spec.field
     for spec in LEGACY_LAYOUT
@@ -133,8 +139,6 @@ STAGE_FIELDS: tuple[ImportField, ...] = (
     ImportField.STAGE_FOLLOW_UP_1,
     ImportField.STAGE_FOLLOW_UP_2,
 )
-# Fields the import review lets the user retype for one row (Task 09). Values mapped through
-# grouped decisions (role, category, referent) or kept raw by design are not among them.
 CORRECTABLE_FIELDS: tuple[ImportField, ...] = (
     ImportField.COMPANY_NAME,
     ImportField.CIVILITY,
