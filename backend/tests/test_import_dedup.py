@@ -1,13 +1,19 @@
 """Duplicate candidates (in file and against reference data) and do-not-contact blocking."""
 
 import dataclasses
+import uuid
 from typing import Any
 
 from app.models.enums import ContactabilityStatus
 from app.services.imports.diagnostics import DiagnosticCode as Code
 from app.services.imports.models import CandidateKind, ImportPreview, MatchReason, PreviewRow
 from app.services.imports.preview import ImportFile, build_preview
-from app.services.imports.reference import EMPTY_REFERENCE, ImportReferenceData, ReferenceCompany
+from app.services.imports.reference import (
+    EMPTY_REFERENCE,
+    ImportReferenceData,
+    ReferenceCompany,
+    ReferenceProspect,
+)
 from tests.fixtures.synthetic.legacy_workbook import ID, REFERENCE, legacy_xlsx
 
 
@@ -56,6 +62,55 @@ def test_same_person_in_file_needs_names_and_company() -> None:
     assert [(d.row, d.reasons) for d in first.duplicates] == [(3, [MatchReason.SAME_PERSON])]
     assert Code.DUPLICATE_PERSON_IN_FILE in codes(second)
     assert other_company.duplicates == [] and no_company.duplicates == []
+
+
+def test_in_file_rows_known_by_one_name_part_link_on_the_same_company() -> None:
+    result = preview_of(
+        [
+            person("", "Unique", "Transports Exemple SARL"),
+            person("", "UNIQUE", "TRANSPORTS EXEMPLE"),
+            person("Jean", "Unique", "Transports Exemple SARL"),
+            person("", "Unique", "Fret Modèle"),
+        ],
+        EMPTY_REFERENCE,
+    )
+
+    first, second, full_name, other_company = result.rows
+    assert [(d.row, d.reasons) for d in first.duplicates] == [(3, [MatchReason.SAME_PERSON])]
+    assert Code.DUPLICATE_PERSON_IN_FILE in codes(second)
+    assert full_name.duplicates == [] and other_company.duplicates == []
+
+
+def test_an_existing_person_known_by_one_name_part_matches_only_with_the_same_company() -> None:
+    blocked_id, known_id = uuid.uuid4(), uuid.uuid4()
+    reference = dataclasses.replace(
+        REFERENCE,
+        prospects=(
+            *REFERENCE.prospects,
+            ReferenceProspect(
+                blocked_id, None, "Opposé", ID["company-demo"], ContactabilityStatus.DO_NOT_CONTACT
+            ),
+            ReferenceProspect(known_id, "Seule", None, ID["company-demo"]),
+        ),
+    )
+    result = preview_of(
+        [
+            person("", "OPPOSÉ", "Logistique Démo SAS"),
+            person("seule", "", "Logistique Démo"),
+            person("", "Opposé", "Autre Société"),
+        ],
+        reference,
+    )
+
+    blocked, same_person, elsewhere = result.rows
+    # A re-import can no longer bring back an opposed person as a new, contactable prospect.
+    assert blocked.blocked_by_do_not_contact
+    assert Code.CONTACTABILITY_DO_NOT_CONTACT in codes(blocked)
+    assert [(d.prospect_id, d.reasons, d.confidence) for d in same_person.duplicates] == [
+        (known_id, [MatchReason.SAME_PERSON], 0.9)
+    ]
+    # One name part alone is too common to be a candidate.
+    assert elsewhere.duplicates == [] and not elsewhere.blocked_by_do_not_contact
 
 
 def test_company_variants_and_conflicting_company_values() -> None:

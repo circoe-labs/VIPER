@@ -744,6 +744,19 @@ def test_a_committed_file_can_be_imported_again_only_knowingly(
     assert count(db_session, ImportBatch, ImportBatch.status == ImportBatchStatus.COMMITTED) == 2
 
 
+def test_a_reimport_attaches_a_person_known_by_one_name_part_instead_of_duplicating_them(
+    db_session: Session, ids: dict[str, uuid.UUID]
+) -> None:
+    file = upload([PERSON])  # a last name and a company, no first name, no e-mail
+    commit(db_session, file, review_of(db_session, file))
+
+    review = review_of(db_session, file)
+    assert review.rows[0].default_resolution.action == "attach"
+    commit(db_session, file, review, acknowledge_reimport=True)
+
+    assert count(db_session, Prospect, Prospect.last_name == "Essai") == 1
+
+
 def test_a_failure_while_writing_leaves_no_partial_data(
     db_session: Session, ids: dict[str, uuid.UUID], monkeypatch: pytest.MonkeyPatch
 ) -> None:

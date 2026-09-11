@@ -1,7 +1,9 @@
 """Duplicate candidates (in the file and against the database snapshot) and contactability.
 
 Candidates only, never decisions. People: same normalized email (confidence 1.0), same folded
-first + last name and company key (0.9), same name elsewhere (0.5, existing prospects only).
+first + last name and company key (0.9), same name elsewhere (0.5, existing prospects only). A
+person known by one name part (the schema allows it, I-10) matches only with the same company key:
+one name part alone is too common to be a candidate.
 Companies: same company key (0.9, 1.0 when the folded display name is identical), same
 non-webmail email domain (0.7), close spelling of the key (0.6). A row matching a `do_not_contact`
 prospect by email or by name + company is blocked (error): Task 09 may only skip it or attach it to
@@ -25,10 +27,14 @@ COMPANY_SIMILARITY = 0.85
 PERSON_REASONS = frozenset({MatchReason.SAME_EMAIL, MatchReason.SAME_PERSON})
 
 
+def name_key(first_name: str | None, last_name: str | None) -> tuple[str, str] | None:
+    """Folded (first, last); one part may be empty."""
+    first, last = fold(first_name or ""), fold(last_name or "")
+    return (first, last) if first or last else None
+
+
 def person_key(draft: RowDraft) -> tuple[str, str] | None:
-    first = fold(draft.prospect.first_name or "")
-    last = fold(draft.prospect.last_name or "")
-    return (first, last) if first and last else None
+    return name_key(draft.prospect.first_name, draft.prospect.last_name)
 
 
 def annotate_duplicates(drafts: Sequence[RowDraft], reference: ImportReferenceData) -> int:
@@ -108,9 +114,8 @@ def existing_people(drafts: Sequence[RowDraft], reference: ImportReferenceData) 
     for prospect in reference.prospects:
         for address in prospect.emails:
             by_email[address].append(prospect.id)
-        first, last = fold(prospect.first_name or ""), fold(prospect.last_name or "")
-        if first and last:
-            by_name[(first, last)].append(prospect.id)
+        if key := name_key(prospect.first_name, prospect.last_name):
+            by_name[key].append(prospect.id)
     for draft in drafts:
         matches = draft.existing_matches
         for email in draft.emails:
@@ -124,8 +129,10 @@ def existing_people(drafts: Sequence[RowDraft], reference: ImportReferenceData) 
                     and company_id is not None
                     and company_keys.get(company_id) == draft.company.match_key
                 )
-                reason = MatchReason.SAME_PERSON if same_company else MatchReason.SAME_NAME
-                matches.setdefault(prospect_id, set()).add(reason)
+                if same_company:
+                    matches.setdefault(prospect_id, set()).add(MatchReason.SAME_PERSON)
+                elif all(key):
+                    matches.setdefault(prospect_id, set()).add(MatchReason.SAME_NAME)
         if not matches:
             continue
         draft.contactability = {pid: prospects[pid].contactability_status for pid in matches}

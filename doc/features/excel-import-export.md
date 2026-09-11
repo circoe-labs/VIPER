@@ -229,6 +229,11 @@ Candidates only, never decisions (`PreviewRow.duplicates`, `CompanyProposal.cand
 | Existing company | same non-webmail email domain | 0.7 | `company.likely_match` |
 | Existing company | key spelling ratio ≥ 0.85 | 0.6 | `company.likely_match` |
 
+"Names" are the folded first and last name; a person known by **one name part** only (allowed by the schema, I-10)
+is a candidate only with the same company key (0.9, `same_person`) — never on that one name elsewhere, which is too
+common (Task 20, I-157). Without it, an acknowledged re-import duplicated such people and could bring back an opposed
+one as a new, contactable prospect.
+
 The **company key** folds the name, drops dots, reads `&` as `et` and removes legal forms (`SARL`, `SAS`, `SASU`,
 `SA`, `EURL`, `SNC`, `SCI`, `SCOP`, `GIE`, `SELARL`, `Sté`, `Société`, `GmbH`, `Ltd`…): rows sharing it are one
 company in the file (`company.variant_in_file` when spelled differently, `company.field_conflict` when their
