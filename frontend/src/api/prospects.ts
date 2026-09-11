@@ -4,6 +4,7 @@ import { companyKeys } from './companies'
 import { apiGet, apiRequest } from './client'
 import { type HistoryActor, historyKeys } from './history'
 import { type ActivityStatus, type ChannelVerification, prospectionKeys, type TrackingStatus, type VerificationState } from './prospection'
+import { refreshAfterWrite } from './refresh'
 import { settingsKeys } from './settings'
 
 // Mirrors backend/app/api/routes/prospects.py: the Prospect editor's view model and writes (Task 15). Rules:
@@ -185,11 +186,11 @@ export function useProspectMutations() {
   const queryClient = useQueryClient()
   const saved = (prospect: Prospect) => {
     queryClient.setQueryData(prospectKeys.detail(prospect.id), prospect)
-    void Promise.all([
-      queryClient.invalidateQueries({ queryKey: prospectionKeys.all }),
-      queryClient.invalidateQueries({ queryKey: companyKeys.all }),
-      queryClient.invalidateQueries({ queryKey: settingsKeys.all }),
-      queryClient.invalidateQueries({ queryKey: historyKeys.subject('prospects', prospect.id) }),
+    void refreshAfterWrite(queryClient, [
+      prospectionKeys.all,
+      companyKeys.all,
+      settingsKeys.all,
+      historyKeys.subject('prospects', prospect.id),
     ])
   }
   return {
@@ -212,10 +213,7 @@ export function useProspectMutations() {
         apiRequest<undefined>('DELETE', `${prospectPath(id)}?version=${encodeURIComponent(version)}`),
       onSuccess: (_, { id }) => {
         queryClient.removeQueries({ queryKey: prospectKeys.detail(id) })
-        void Promise.all([
-          queryClient.invalidateQueries({ queryKey: prospectionKeys.all }),
-          queryClient.invalidateQueries({ queryKey: companyKeys.all }),
-        ])
+        void refreshAfterWrite(queryClient, [prospectionKeys.all, companyKeys.all])
       },
     }),
   }

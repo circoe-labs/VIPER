@@ -1,7 +1,8 @@
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, type QueryKey, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiGet, apiRequest } from './client'
 import { historyKeys } from './history'
+import { refreshAfterWrite } from './refresh'
 
 // Mirrors backend/app/api/routes/companies.py: the lightweight Company editor and its list (Task 07).
 
@@ -161,16 +162,10 @@ export function useSimilarCompanies(name: string, emailDomain: string, exclude: 
 // counts in Paramètres change too, so their caches are refreshed as well.
 export function useCompanyMutations() {
   const queryClient = useQueryClient()
-  const refresh = async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: companyKeys.all }),
-      queryClient.invalidateQueries({ queryKey: ['settings'] }),
-    ])
-  }
+  const refresh = (...keys: QueryKey[]) => refreshAfterWrite(queryClient, [companyKeys.all, ['settings'], ...keys])
   const saved = (company: Company) => {
     queryClient.setQueryData(companyKeys.detail(company.id), company)
-    void refresh()
-    void queryClient.invalidateQueries({ queryKey: historyKeys.subject('companies', company.id) })
+    void refresh(historyKeys.subject('companies', company.id))
   }
   return {
     create: useMutation({

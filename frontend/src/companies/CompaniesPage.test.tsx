@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { company, establishment, stubCompaniesApi } from '../test/companiesApi'
 import { renderApp } from '../test/render'
@@ -114,5 +114,41 @@ describe('Companies page', () => {
     await waitFor(() => {
       expect(within(table()).getByRole('button', { name: 'Transports Exemple Nord' })).toBeInTheDocument()
     })
+  })
+
+  it('never shows a search answer read before a save, even when it arrives after it', async () => {
+    const api = stubCompaniesApi({ companies: [company('Transports Exemple')] })
+    // A slow server: the first search request reads the companies at once but answers only when released.
+    const held: (() => void)[] = []
+    vi.stubGlobal('fetch', (input: string, init?: RequestInit) => {
+      const answer = api.fetchMock(input, init)
+      if (held.length > 0 || !new URL(input, 'http://localhost').searchParams.has('q')) return answer
+      return new Promise<Response>((resolve) => {
+        held.push(() => {
+          void answer.then(resolve)
+        })
+      })
+    })
+    renderApp('/prospection/companies')
+    await screen.findByRole('button', { name: 'Transports Exemple' })
+    await userEvent.type(screen.getByRole('searchbox'), 'Exemple')
+    await waitFor(() => {
+      expect(held).toHaveLength(1)
+    })
+
+    // The previous list stays on screen while the search loads: open the company from it and rename it.
+    await userEvent.click(within(table()).getByRole('button', { name: 'Transports Exemple' }))
+    const name = await screen.findByRole('textbox', { name: /Nom de l’entreprise/ })
+    await waitFor(() => {
+      expect(name).toHaveValue('Transports Exemple')
+    })
+    await userEvent.type(name, ' Nord{Enter}')
+    await screen.findByText('Entreprise enregistrée.')
+    held[0]?.()
+
+    await waitFor(() => {
+      expect(within(table()).getByRole('button', { name: 'Transports Exemple Nord' })).toBeInTheDocument()
+    })
+    expect(within(table()).queryByRole('button', { name: 'Transports Exemple' })).not.toBeInTheDocument()
   })
 })

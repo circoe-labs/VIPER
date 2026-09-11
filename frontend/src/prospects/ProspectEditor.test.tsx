@@ -161,7 +161,9 @@ describe('Prospect editor', () => {
     const body = lastBody(api.requests, 'PUT') as ProspectInput & { version: string }
     expect(body).toMatchObject({ version: 'v1', first_name: 'Jeanne', employment_verification: { action: 'keep', day: null } })
     expect(body.emails[0]).toMatchObject({ id: 'e1', verified_now: true, verification_status: 'verified' })
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['prospection'] })
+    await waitFor(() => {
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ['prospection'] })
+    })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['history', 'prospects', detail.id] })
     expect(region('E-mails')).toHaveTextContent('Vérifié le 11 sept. 2026')
   })

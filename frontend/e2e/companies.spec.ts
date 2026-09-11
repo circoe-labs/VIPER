@@ -95,7 +95,7 @@ test('a company is created with two establishments and categories, then edited',
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog')).toHaveCount(0)
 
-  // The search by SIREN finds this company alone (waiting for it also keeps its request from racing the next save).
+  // The search by SIREN finds this company alone.
   await page.getByRole('searchbox').fill(siren)
   const companies = page.getByRole('table', { name: 'Liste des entreprises' })
   await expect(companies.getByRole('row')).toHaveCount(2)
