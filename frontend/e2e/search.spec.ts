@@ -115,17 +115,19 @@ test('Ctrl+K finds the test’s prospects, company and establishments; each open
   await expect(editor).toBeHidden()
   await expect(field(page)).toBeFocused()
 
-  // A prospect opens `/prospection?prospect=<id>` (the Prospect editor contract).
+  // A prospect opens `/prospection?prospect=<id>`: the Prospect editor over the Prospection list.
   const solene = answer.groups.find((found) => found.type === 'prospect')?.items.find((item) => item.label.startsWith('Solène'))
   expect(solene).toBeDefined()
-  const visited: string[] = []
-  page.on('framenavigated', (frame) => {
-    if (frame === page.mainFrame()) visited.push(frame.url())
-  })
   await search(page, seeded.tag)
   await people.nth(2).click()
-  await expect.poll(() => visited.some((url) => url.endsWith(`/prospection?prospect=${solene?.id ?? ''}`))).toBe(true)
+  await expect(page).toHaveURL(new RegExp(`/prospection\\?prospect=${solene?.id ?? 'missing'}$`))
+  const prospect = page.getByRole('dialog', { name: `Mme Solène ${seeded.tag}` })
+  await expect(prospect).toBeVisible()
+  await expect(prospect.getByRole('textbox', { name: 'Prénom' })).toHaveValue('Solène')
   await expect(field(page)).toHaveValue('')
+  // Back closes the editor and returns to the page the search was used on.
+  await page.goBack()
+  await expect(prospect).toBeHidden()
 })
 
 test('a phone number, a SIREN and a SIRET find the test’s rows; Shift+Enter opens the explorer row', async ({ page }) => {

@@ -353,27 +353,25 @@ export function GlobalSearch() {
           </kbd>
         )}
       </div>
-      <div id={`${id}-popup`} className="global-search__popup" hidden={!visible}>
-        {visible && (
-          <>
-            {body}
-            <p className="global-search__hints" aria-hidden="true">
-              <span>
-                <kbd>↑</kbd> <kbd>↓</kbd> naviguer
-              </span>
-              <span>
-                <kbd>Entrée</kbd> ouvrir
-              </span>
-              <span>
-                <kbd>Maj</kbd>+<kbd>Entrée</kbd> base de données
-              </span>
-              <span>
-                <kbd>Échap</kbd> fermer
-              </span>
-            </p>
-          </>
-        )}
-      </div>
+      {visible && (
+        <div className="global-search__popup">
+          {body}
+          <p className="global-search__hints" aria-hidden="true">
+            <span>
+              <kbd>↑</kbd> <kbd>↓</kbd> naviguer
+            </span>
+            <span>
+              <kbd>Entrée</kbd> ouvrir
+            </span>
+            <span>
+              <kbd>Maj</kbd>+<kbd>Entrée</kbd> base de données
+            </span>
+            <span>
+              <kbd>Échap</kbd> fermer
+            </span>
+          </p>
+        </div>
+      )}
       <p className="visually-hidden" role="status">
         {status}
       </p>
