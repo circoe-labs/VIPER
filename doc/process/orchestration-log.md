@@ -285,3 +285,24 @@ found, what was sent back for rework, and the verification evidence accepted. Ta
   lines under concurrent writes. Review polish done: empty Rôle/Intitulé/Entreprise now show actionable empty states.
 - Data point for the perf investigation: on the Task 19 worktree test DB the 20k Home test passes alone (5.7 s)
   after merging 33fc7c3 → the 277–308 s case looks database-state specific; forwarded to the perf agent.
+
+### Home/Prospection query-plan fix (2026-09-11) — ACCEPTED
+
+- Branch `fix-home-performance` (`5b4f34b`), merged as `01fa1d2`. **Root cause**: an autovacuum pass running while
+  a bulk seed was still uncommitted recorded `reltuples = 0` for tables holding hundreds of pages; the planner then
+  estimated 1 row everywhere and chose nested loops scanning the inner index per outer row (EXPLAIN: 400 M + 168 M rows
+  removed by join filter, 569 M buffer hits, 122.8 s for the segment counters; action groups 86.6 s / 185.9 s).
+  Migration 0007 was **not** involved (same failure after downgrading to 0006).
+- **Fix** (ADR-0019, I-140/I-141): `whole_base_plan(session)` scopes `enable_nestloop=off` + `jit=off` (SET LOCAL) to
+  the whole-base prospect statements (segment counters, Prospection page/total, Home action groups) so they stay
+  linear whatever the statistics say; results unchanged (Home == Prospection counter tests pass). The perf test now
+  measures three planner states (no stats, after a concurrent VACUUM, analyzed) — and it fails on the pre-fix code.
+  After: Home ≈ 0.16–0.18 s in all three states.
+- **Correction of an earlier orchestrator conclusion**: the 20k-test overruns logged under Task 15 (and seen by the
+  Task 17 agent) were attributed to "contention with another agent's load tests". That was wrong or at best partial —
+  the same autovacuum/statistics race explains them. The orchestrator accepted a plausible explanation after a
+  single passing re-run; a performance anomaly of that magnitude should have been investigated immediately.
+- Remaining exposure noted for Task 20: export and Database Explorer multi-table reads are not guarded and rely on
+  statistics; consider `ANALYZE` of touched tables at the end of an import commit.
+- Orchestrator verification on `claude` @ `01fa1d2`: pytest 948 (+2 private skipped), vitest 598, Playwright 74 —
+  all green.
