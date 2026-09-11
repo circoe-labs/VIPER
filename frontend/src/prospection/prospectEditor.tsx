@@ -1,7 +1,7 @@
 import { type ComponentType, createContext, useContext, useEffect } from 'react'
 import { useNavigate } from 'react-router'
 
-import { viewHref } from '../database/explorerView'
+import { recordHref } from '../database/explorerView'
 import type { ProspectQueue } from './queue'
 
 // Open-editor contract between the Prospection list (Task 14) and the Prospect editor (Task 15).
@@ -33,7 +33,7 @@ export interface ProspectEditorImplementation {
 
 // The prospect's row in the Database Explorer (`prospects` filtered on its id).
 export function prospectRecordHref(id: string): string {
-  return viewHref('prospects', { filters: [{ column: 'id', operator: 'eq', value: id }] })
+  return recordHref('prospects', id)
 }
 
 // Replaces the `?prospect=` history entry by the explorer, so Back returns to the list as it was.

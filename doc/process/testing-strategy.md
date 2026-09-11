@@ -153,6 +153,11 @@
   `test_prospection_api.py`, `test_prospection_performance.py` (20 000 prospects); `src/prospection/*.test.ts(x)`
   against `src/test/prospectionApi.ts`; Playwright `e2e/prospection.spec.ts` creates its people through the import API
   (`importProspects`, `e2e/data.ts`) and narrows to their unique tag — details in `doc/features/prospection-kpis.md`.
+- Global search (Task 17): `test_search.py` (matching per field, accents/case, word starts, ranking, limits, badges,
+  targets, 3 statements, literal wildcards), `test_search_api.py`, `test_search_performance.py` (20 000 prospects and
+  p95 < 150 ms locally; with `CI` set 2 000 prospects and 500 ms); `src/shell/GlobalSearch.test.tsx` (debounce, late
+  answers, keyboard, shortcuts, states); Playwright `e2e/search.spec.ts` on the test's own tagged rows — details in
+  `doc/features/global-search.md`.
 - Privacy: `scripts/check_private_data.py` in CI; synthetic fixtures only under `*/tests/fixtures/synthetic/`.
 - Commands: `doc/process/runbook-local-dev.md`.
 

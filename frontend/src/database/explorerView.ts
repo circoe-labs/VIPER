@@ -100,6 +100,11 @@ export function viewHref(table: string, view: Partial<ExplorerView> = {}): strin
   return `/database/${encodeURIComponent(table)}${params ? `?${params}` : ''}`
 }
 
+// One row of `table` by its `id` (Prospection's fallback editor, global search).
+export function recordHref(table: string, id: string): string {
+  return viewHref(table, { filters: [{ column: 'id', operator: 'eq', value: id }] })
+}
+
 function sortKeyParam({ column, desc }: SortKey): string {
   return desc ? `-${column}` : column
 }

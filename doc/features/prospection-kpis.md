@@ -79,7 +79,9 @@ Both endpoints take the same **criteria**, so a counter always equals the total 
   `appointment_at`, `referent_id`, `referent_name`, `contactability_status`, `do_not_contact_at`, `updated_at`.
 
 No index was added: on 20 000 synthetic prospects the counters answer in ≈ 0.25 s and a deep page in ≈ 0.15 s
-locally (`tests/test_prospection_performance.py`, budget 2 s). Trigram indexes for search stay with Task 17.
+locally (`tests/test_prospection_performance.py`, budget 2 s). The `q` search keeps its `label_key`/`strpos`
+semantics; the trigram indexes of Task 17 serve the global search ([global-search.md](global-search.md)), not this
+criterion.
 
 ## Page
 
