@@ -176,7 +176,9 @@
   save; values as stored under a masked policy, secrets/masked/structured values never shown; every audited column
   labelled or deliberately hidden), `test_history_api.py` (401, bounds, an editor save read back as one entry by the
   signed-in user, opposition reason, company pages); `src/history/*.test.ts(x)`; Playwright `e2e/history.spec.ts`
-  (own imported person and company) — details in `doc/architecture/audit-and-provenance.md`.
+  (own imported person and company; Home's feed keeps only the 8 latest saves of the shared base, so the spec reads
+  `/api/home` right after its save, requires its save there as one entry, and has the Home page render that captured
+  answer — I-153) — details in `doc/architecture/audit-and-provenance.md`.
 - Privacy: `scripts/check_private_data.py` in CI; synthetic fixtures only under `*/tests/fixtures/synthetic/`.
 - Commands: `doc/process/runbook-local-dev.md`.
 
