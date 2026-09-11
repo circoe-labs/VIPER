@@ -17,6 +17,7 @@ import argparse
 import getpass
 import sys
 
+import sqlalchemy as sa
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.actor import ActorContext, ActorType
@@ -25,7 +26,7 @@ from app.db.session import create_db_engine, create_session_factory
 from app.services.audit import attributed_unit_of_work
 from app.services.auth import create_or_reset_user
 from app.services.errors import DomainError
-from app.services.explorer.sql_reader import provision_sql_reader
+from app.services.explorer.sql_reader import provision_sql_reader, provisioning_lock
 
 # Whoever runs the command on the server; the OS account is not known to VIPER.
 CLI_ACTOR = ActorContext(type=ActorType.SYSTEM, display="Ligne de commande", id="app.cli")
@@ -51,7 +52,10 @@ def create_user(
 
 
 def provision_reader(session_factory: sessionmaker[Session], settings: Settings) -> str:
-    with session_factory.begin() as session:
+    with (
+        provisioning_lock(sa.make_url(settings.database_url)),
+        session_factory.begin() as session,
+    ):
         report = provision_sql_reader(
             session.connection(),
             settings.sql_reader_role,

@@ -233,7 +233,11 @@ decision I-67).
 aligns the role and resets its grants; idempotent; **run it after every migration** (grants follow the tables). It
 needs `CREATEROLE` to create the role; without it, the command prints the SQL an administrator must run (password
 elided) and, once the role exists, applies the grants (the application role owns the tables). The test suite and the
-Playwright setup provision their databases themselves.
+Playwright setup provision their databases themselves. The role is shared by every database of the PostgreSQL
+cluster, so runs are serialized by `provisioning_lock`: an advisory lock held in the `postgres` maintenance database
+(advisory locks are per database) until the provisioning transaction has committed, or in the target database when
+the role may not connect to `postgres` (decision I-151). Parallel checkouts, pytest and the E2E setup can therefore
+provision at the same time without « tuple concurrently updated ».
 
 ## Code map
 

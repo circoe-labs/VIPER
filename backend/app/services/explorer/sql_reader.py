@@ -6,12 +6,13 @@ attribute beyond LOGIN, reads with `default_transaction_read_only` and a stateme
 authentication tables, `alembic_version`, writes of any kind — is refused by PostgreSQL itself.
 
 `provision_sql_reader` is idempotent and run by `python -m app.cli provision-sql-reader` (after
-every migration, since grants follow the tables), by the test fixtures and by the E2E setup.
-Creating or altering the role needs CREATEROLE; granting only needs to own the tables (the
-application role).
+every migration, since grants follow the tables), by the test fixtures and by the E2E setup, each
+inside `provisioning_lock`. Creating or altering the role needs CREATEROLE; granting only needs to
+own the tables (the application role).
 """
 
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 import psycopg
@@ -33,6 +34,42 @@ ROLE_SETTINGS: Mapping[str, str] = {
     "lock_timeout": "2s",
     "search_path": "public",
 }
+
+
+# Advisory lock taken by every provisioning run ("VIPR").
+PROVISIONING_LOCK_KEY = 0x56495052
+# Advisory locks belong to one database, while the role lives in catalogs shared by the cluster: the
+# lock is taken in the database every cluster has.
+MAINTENANCE_DATABASE = "postgres"
+
+
+@contextmanager
+def provisioning_lock(url: sa.URL) -> Iterator[None]:
+    """Serialize provisioning runs across the cluster; wrap the whole provisioning transaction.
+
+    The role, its password and settings are rows of shared catalogs: two runs at once from different
+    databases of one cluster (parallel checkouts, pytest beside the E2E setup) fail with "tuple
+    concurrently updated", and two runs on one database also collide on the grants. The lock is held
+    on its own connection to the maintenance database until the block ends, so the next run starts
+    after this one has committed. A role that may not connect there locks in `url`'s database, which
+    still serializes the runs of that database.
+    """
+    engine = sa.create_engine(
+        url.set(database=MAINTENANCE_DATABASE), poolclass=sa.NullPool, isolation_level="AUTOCOMMIT"
+    )
+    try:
+        connection = engine.connect()
+    except sa.exc.OperationalError:
+        engine.dispose()
+        engine = sa.create_engine(url, poolclass=sa.NullPool, isolation_level="AUTOCOMMIT")
+        connection = engine.connect()
+    try:
+        connection.execute(sa.text("SELECT pg_advisory_lock(:key)"), {"key": PROVISIONING_LOCK_KEY})
+        yield
+    finally:
+        # Ending the session releases its advisory lock.
+        connection.close()
+        engine.dispose()
 
 
 class SqlReaderProvisioningError(DomainError):
