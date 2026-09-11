@@ -105,6 +105,30 @@ def test_create_user_on_an_existing_email_resets_the_password_and_signs_out(
     ]
 
 
+def test_a_password_piped_by_windows_powershell_loses_its_byte_order_mark(
+    session_factory: sessionmaker[Session],
+    db_session: Session,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # `"…" | python -m app.cli create-user --password-stdin` in Windows PowerShell 5.1 sends a UTF-8
+    # BOM first: kept, it became an invisible first character and the password never matched.
+    code, _ = run(
+        session_factory,
+        capsys,
+        monkeypatch,
+        "--email",
+        "pilote.bom@example.com",
+        "--display-name",
+        "Pilote BOM",
+        stdin=f"\ufeff{NEW_PASSWORD}\r\n",
+    )
+
+    assert code == 0
+    [user] = users(db_session)
+    assert verify_password(user.password_hash, NEW_PASSWORD)
+
+
 def test_create_user_prompts_twice_and_rejects_a_mismatch(
     session_factory: sessionmaker[Session],
     db_session: Session,

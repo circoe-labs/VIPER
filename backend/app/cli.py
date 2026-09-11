@@ -34,7 +34,8 @@ CLI_ACTOR = ActorContext(type=ActorType.SYSTEM, display="Ligne de commande", id=
 
 def read_password(from_stdin: bool) -> str:
     if from_stdin:
-        return sys.stdin.readline().rstrip("\r\n")
+        # Windows PowerShell 5.1 pipes a UTF-8 byte-order mark before the text.
+        return sys.stdin.readline().removeprefix("\ufeff").rstrip("\r\n")
     password = getpass.getpass("Password: ")
     if getpass.getpass("Repeat password: ") != password:
         raise DomainError("The passwords do not match.")
