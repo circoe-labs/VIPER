@@ -15,7 +15,7 @@ from enum import StrEnum
 from app.models.enums import ActivityStatus, VerificationStatus
 from app.services.imports.fields import ImportField
 from app.services.imports.models import PreviewRow
-from app.services.imports.text import fold, render
+from app.services.imports.text import CellValue, fold, render
 
 
 class ExcelVerificationOutcome(StrEnum):
@@ -30,16 +30,8 @@ INACTIVE_VALUES = frozenset({"inactif", "inactive"})
 UNKNOWN_VALUES = frozenset({"inconnu", "inconnus", "unknown"})
 
 
-def row_verification(row: PreviewRow) -> ExcelVerificationOutcome:
-    """Read the normalized operational outcome from a preview row.
-
-    The import engine preserves fields it does not otherwise materialize in ``legacy_metadata``;
-    using the stable field key here keeps the workbook adapter isolated from domain services.
-    """
-    value = row.legacy_metadata.get(ImportField.VERIFICATION_STATUS.value)
-    if value is None:
-        return ExcelVerificationOutcome.UNVERIFIED
-    key = fold(render(value.value))
+def verification_value(value: CellValue) -> ExcelVerificationOutcome:
+    key = fold(render(value))
     if key in VERIFIED_VALUES:
         return ExcelVerificationOutcome.VERIFIED
     if key in INACTIVE_VALUES:
@@ -47,6 +39,16 @@ def row_verification(row: PreviewRow) -> ExcelVerificationOutcome:
     if key in UNKNOWN_VALUES:
         return ExcelVerificationOutcome.UNKNOWN
     return ExcelVerificationOutcome.UNVERIFIED
+
+
+def row_verification(row: PreviewRow) -> ExcelVerificationOutcome:
+    """Read the normalized operational outcome from a preview row.
+
+    The import engine preserves fields it does not otherwise materialize in ``legacy_metadata``;
+    using the stable field key here keeps the workbook adapter isolated from domain services.
+    """
+    value = row.legacy_metadata.get(ImportField.VERIFICATION_STATUS.value)
+    return verification_value(value.value if value is not None else None)
 
 
 def was_checked(outcome: ExcelVerificationOutcome) -> bool:
