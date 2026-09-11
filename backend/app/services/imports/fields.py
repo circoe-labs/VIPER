@@ -13,6 +13,7 @@ from app.services.imports.text import fold
 class ImportField(StrEnum):
     """A target of the column mapping. Values are stable keys (API, legacy metadata)."""
 
+    VERIFICATION_STATUS = "verification_status"
     REFERENT = "referent"
     PLANNED_CONTACT = "planned_contact"
     COMPANY_NAME = "company_name"
@@ -50,8 +51,15 @@ class FieldSpec:
     max_length: int | None = None  # database column length
 
 
-# The 23 named historical columns, in workbook order (the 24th is unnamed and empty).
+# Historical columns, in workbook order. `Statut_verification` was added before `Référent` in the
+# current operational workbook; header-based mapping keeps older workbooks without that column valid.
 LEGACY_LAYOUT: tuple[FieldSpec, ...] = (
+    FieldSpec(
+        ImportField.VERIFICATION_STATUS,
+        "Statut_verification",
+        "Statut de vérification",
+        ("Statut vérification", "Statut verification"),
+    ),
     FieldSpec(ImportField.REFERENT, "Référent", "Référent", ("referents",)),
     FieldSpec(
         ImportField.PLANNED_CONTACT,
