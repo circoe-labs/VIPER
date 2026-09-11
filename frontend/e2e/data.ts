@@ -91,6 +91,8 @@ interface ImportReviewAnswer {
 
 // Imports prospects through the real import API (preview, then commit with the default decisions), giving every
 // week written without a year (`S37`) its year from `weekYears` (week number → year). Returns the batch id.
+// A company another test creates meanwhile with a close name is a new candidate that outdates the review (409
+// `preview_outdated`, the server is right): like « Relancer l'analyse » in the UI, the file is analysed again.
 export async function importProspects(
   page: Page,
   name: string,
@@ -100,19 +102,23 @@ export async function importProspects(
   const mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
   const file = { name, mimeType, buffer: syntheticWorkbook(rows) }
   const headers = { 'X-CSRF-Token': await csrfToken(page) }
-  const preview = await page.request.post('/api/imports/preview', { multipart: { file }, headers })
-  expect(preview.ok(), await preview.text()).toBe(true)
-  const { review } = (await preview.json()) as ImportReviewAnswer
-  const decisions = {
-    file_fingerprint: review.preview.summary.file_fingerprint,
-    preview_digest: review.digest,
-    legal_basis_or_collection_context: 'Données synthétiques de test E2E',
-    weeks: Object.fromEntries(review.weeks.map((group) => [group.key, weekYears[group.week] ?? null])),
+  for (let attempt = 1; ; attempt += 1) {
+    const preview = await page.request.post('/api/imports/preview', { multipart: { file }, headers })
+    expect(preview.ok(), await preview.text()).toBe(true)
+    const { review } = (await preview.json()) as ImportReviewAnswer
+    const decisions = {
+      file_fingerprint: review.preview.summary.file_fingerprint,
+      preview_digest: review.digest,
+      legal_basis_or_collection_context: 'Données synthétiques de test E2E',
+      weeks: Object.fromEntries(review.weeks.map((group) => [group.key, weekYears[group.week] ?? null])),
+    }
+    const commit = await page.request.post('/api/imports/commit', {
+      multipart: { file, decisions: JSON.stringify(decisions) },
+      headers,
+    })
+    const answer = await commit.text()
+    if (commit.status() === 409 && answer.includes('preview_outdated') && attempt < 3) continue
+    expect(commit.ok(), answer).toBe(true)
+    return (JSON.parse(answer) as { batch: { id: string } }).batch.id
   }
-  const commit = await page.request.post('/api/imports/commit', {
-    multipart: { file, decisions: JSON.stringify(decisions) },
-    headers,
-  })
-  expect(commit.ok(), await commit.text()).toBe(true)
-  return ((await commit.json()) as { batch: { id: string } }).batch.id
 }
