@@ -6,6 +6,13 @@ Left navigation: Home, Prospection, Exploitation, Database, Settings — French 
 `Prospection` (`/prospection`), `Exploitation` (`/exploitation`), `Base de données` (`/database`), `Paramètres`
 (`/settings`); unknown paths redirect to `/` (decision I-08). Desktop-first and spacious. Global search is compact. Theme switch may select dark/light; use accepted logo variant automatically by contrast. Authenticated user context appears separately from Circoe referent selectors.
 
+### Global search — as implemented (Task 17)
+One field on the left of the header (placeholder « Rechercher un prospect, une entreprise, un SIREN… »), reached with
+**Ctrl+K** or **/**. Results grouped *Prospects* / *Entreprises* / *Établissements* (5 each, best group first) with
+their context and badges (*Ne pas contacter*, *Inactif*, *Principal*); ↑/↓, Enter opens (a prospect
+`/prospection?prospect=<id>`, a company or an establishment the Company editor), Shift+Enter opens the row in Base de
+données, Esc closes then clears. Fields, matching, ranking and API: [global-search.md](global-search.md).
+
 ## Home
 
 Purpose: **global view of database health and contact activity**, not an action-only inbox.

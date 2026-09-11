@@ -141,7 +141,7 @@ class ProspectPage:
 # --- conditions --------------------------------------------------------------------------------
 
 
-def _phone_needle(search: str) -> str | None:
+def phone_needle(search: str) -> str | None:
     """Digits of a number-like query (`06 12 34`, `+33 6…`), in the stored `+33…` form's terms:
     a national leading 0 is dropped so it matches inside `+336…`."""
     if not all(char.isdigit() or char in " +.-()" for char in search):
@@ -169,7 +169,7 @@ def search_condition(search: str) -> ColumnElement[bool]:
         for word in search.split()
     ]
     condition: ColumnElement[bool] = and_(*words)
-    needle = _phone_needle(search)
+    needle = phone_needle(search)
     if needle is not None:
         condition = or_(
             condition,

@@ -27,14 +27,16 @@ test('sign in opens the shell, a reload keeps the session, sign out returns to t
 
   await submitLoginForm(page, E2E_USER.email, e2ePassword())
 
+  // The header's user zone — Home's activity feed can name the same user when other specs edit data.
+  const signedInUser = page.getByRole('banner').getByText(`Connecté : ${E2E_USER.displayName}`)
   await expect(page.getByRole('heading', { level: 1, name: 'Accueil' })).toBeVisible()
-  await expect(page.getByText(E2E_USER.displayName)).toBeVisible()
+  await expect(signedInUser).toBeVisible()
   await expect(page.getByText('API : connectée')).toBeVisible()
   await page.screenshot({ path: `${SCREENSHOTS}/shell-signed-in.png` })
 
   await page.reload()
   await expect(page.getByRole('heading', { level: 1, name: 'Accueil' })).toBeVisible()
-  await expect(page.getByText(E2E_USER.displayName)).toBeVisible()
+  await expect(signedInUser).toBeVisible()
 
   await page.getByRole('button', { name: 'Se déconnecter' }).click()
   await expect(page).toHaveURL(/\/login$/)

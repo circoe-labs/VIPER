@@ -20,7 +20,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.actor import ActorType
 from app.db.base import Base
-from app.models.common import TimestampMixin, UUIDPrimaryKeyMixin, text_enum
+from app.models.common import TimestampMixin, UUIDPrimaryKeyMixin, text_enum, trigram_index
 from app.models.enums import (
     ActivityStatus,
     Civility,
@@ -53,6 +53,9 @@ class Prospect(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "ix_prospects_lower_last_name_first_name",
             text("lower(last_name)"),
             text("lower(first_name)"),
+        ),
+        trigram_index(
+            "ix_prospects_person_search_key_trgm", "person_search_key(first_name, last_name)"
         ),
     )
 
@@ -122,6 +125,7 @@ class Email(ContactChannelMixin, Base):
             unique=True,
             postgresql_where=text("is_primary"),
         ),
+        trigram_index("ix_emails_address_trgm", "address"),
     )
 
     address: Mapped[str] = mapped_column(String(320), index=True)
@@ -142,6 +146,7 @@ class Phone(ContactChannelMixin, Base):
             unique=True,
             postgresql_where=text("is_primary"),
         ),
+        trigram_index("ix_phones_number_trgm", "number"),
     )
 
     number: Mapped[str] = mapped_column(String(21), index=True)

@@ -6,7 +6,7 @@ from functools import cache
 from typing import Any
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import event, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -58,6 +58,22 @@ def rejected(session: Session, match: str) -> Iterator[None]:
         yield
         session.flush()
     assert match in str(caught.value.orig)
+
+
+@contextmanager
+def statements(session: Session) -> Iterator[list[str]]:
+    """SQL statements the block sends through `session`'s connection."""
+    executed: list[str] = []
+    connection = session.connection()
+
+    def record(*args: object) -> None:
+        executed.append(str(args[2]))
+
+    event.listen(connection, "before_cursor_execute", record)
+    try:
+        yield executed
+    finally:
+        event.remove(connection, "before_cursor_execute", record)
 
 
 def with_key(prefix: str) -> str:

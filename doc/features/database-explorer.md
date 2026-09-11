@@ -179,7 +179,8 @@ CASCADE` are not audited one by one (the deleted parent is; ADR-0006) — the co
 
 - Totals use exact `count(*)` — right for V1 volumes (a 50k-row filtered, sorted deep page stays well under 2 s in
   tests); very large tables would need estimates or keyset paging.
-- Offset paging; substring search is not indexed yet (Task 17 decides on `pg_trgm`).
+- Offset paging; the explorer's substring search (`ILIKE` on raw columns) has no index of its own — the trigram
+  indexes of Task 17 serve the global search's folded keys ([ADR-0017](../adr/0017-global-search-trigram-indexes.md)).
 - The column chooser and menus are keyboard-operable; drag-and-drop reorder has menu equivalents.
 - Copying a truncated cell copies the preview (labelled as such); the value viewer copies the full value.
 - Editing: one table at a time (staged changes are dropped when leaving the table after confirmation); no bulk

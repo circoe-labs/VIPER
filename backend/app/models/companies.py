@@ -16,7 +16,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
-from app.models.common import TimestampMixin, UUIDPrimaryKeyMixin
+from app.models.common import TimestampMixin, UUIDPrimaryKeyMixin, trigram_index
 from app.models.taxonomies import ActivityCategory
 
 company_activity_categories = Table(
@@ -47,6 +47,8 @@ class Company(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         ),
         # Exact case-insensitive name lookups (import dedup candidates, Task 08/09).
         Index("ix_companies_lower_display_name", text("lower(display_name)")),
+        trigram_index("ix_companies_display_name_search_key_trgm", "search_key(display_name)"),
+        trigram_index("ix_companies_legal_name_search_key_trgm", "search_key(legal_name)"),
     )
 
     display_name: Mapped[str] = mapped_column(String(255))
@@ -84,6 +86,8 @@ class Establishment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             unique=True,
             postgresql_where=text("is_primary"),
         ),
+        trigram_index("ix_establishments_name_search_key_trgm", "search_key(name)"),
+        trigram_index("ix_establishments_city_search_key_trgm", "search_key(city)"),
     )
 
     company_id: Mapped[uuid.UUID] = mapped_column(
