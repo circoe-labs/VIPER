@@ -16,9 +16,9 @@ export interface ComboboxOption {
 }
 
 export interface ComboboxCreate {
-  // Creates a value from the typed text and resolves to its option, which is then selected. Rejects with an Error
-  // whose message is shown under the field.
-  run: (text: string) => Promise<ComboboxOption>
+  // Creates a value from the typed text and resolves to its option, which is then selected — or to null when the user
+  // gave up (e.g. closed the editor the creation opened). Rejects with an Error whose message is shown under the field.
+  run: (text: string) => Promise<ComboboxOption | null>
   // Text of the creation option (default « Créer « text » »).
   label?: (text: string) => string
   // Why `text` cannot be created as typed (shown instead of the option), or null.
@@ -28,14 +28,20 @@ export interface ComboboxCreate {
 interface BaseProps {
   label: string
   options: readonly ComboboxOption[]
+  // Id of the input (e.g. to focus it after a refused save).
+  id?: string
   hint?: ReactNode
   error?: ReactNode
+  // Non-blocking remark (a value to double-check), like FieldFrame's.
+  warning?: ReactNode
   required?: boolean
   disabled?: boolean
   placeholder?: string
   status?: 'ready' | 'loading' | 'error'
   // Inline creation ("Créer « … »") when no option carries the typed text.
   create?: ComboboxCreate
+  // The text being typed ('' once the list closes), for pickers whose options come from a server search.
+  onQueryChange?: (text: string) => void
 }
 
 export type ComboboxProps =
@@ -48,7 +54,8 @@ type Item = { kind: 'option'; option: ComboboxOption } | { kind: 'create'; text:
 // ↓/↑ open and move, Enter picks, Esc closes, Backspace in an empty multi picker removes the last value. Inactive
 // values only appear while selected. With `create`, an unmatched text becomes a « Créer « … » » option.
 export function Combobox(props: ComboboxProps) {
-  const { label, options, hint, error, required, disabled, placeholder, status = 'ready', create } = props
+  const { label, options, id, hint, error, warning, required, disabled, placeholder, status = 'ready', create, onQueryChange } =
+    props
   const listId = useId()
   const rootRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -85,6 +92,7 @@ export function Combobox(props: ComboboxProps) {
     setOpen(false)
     setQuery(null)
     setActiveIndex(0)
+    onQueryChange?.('')
   }
 
   function select(id: string) {
@@ -103,6 +111,7 @@ export function Combobox(props: ComboboxProps) {
     setCreateError(null)
     try {
       const option = await create.run(text)
+      if (option === null) return
       if (props.multiple) {
         props.onChange([...props.value.filter((value) => value !== option.id), option.id])
         setQuery('')
@@ -169,7 +178,7 @@ export function Combobox(props: ComboboxProps) {
   const activeItem = open ? items[active] : undefined
 
   return (
-    <FieldFrame label={label} hint={hint} error={createError ?? error} required={required}>
+    <FieldFrame id={id} label={label} hint={hint} error={createError ?? error} warning={warning} required={required}>
       {(a11y) => (
         <div ref={rootRef} className="combobox" onBlur={handleBlur}>
           <div className="combobox__control" data-disabled={disabled ? '' : undefined}>
@@ -216,6 +225,7 @@ export function Combobox(props: ComboboxProps) {
                 setOpen(true)
                 setActiveIndex(0)
                 setCreateError(null)
+                onQueryChange?.(event.target.value)
               }}
               onClick={() => {
                 if (!open) openList()

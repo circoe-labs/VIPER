@@ -20,6 +20,7 @@ from app.api.routes import (
     home,
     imports,
     prospection,
+    prospects,
     settings,
 )
 
@@ -38,4 +39,5 @@ api_router.include_router(exports.router)
 api_router.include_router(home.router)
 api_router.include_router(imports.router)
 api_router.include_router(prospection.router)
+api_router.include_router(prospects.router)
 api_router.include_router(settings.router)

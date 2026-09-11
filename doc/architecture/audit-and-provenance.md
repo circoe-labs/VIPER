@@ -166,7 +166,9 @@ the session binding; otherwise the flush raises `UnattributedMutationError`.
   — `source_type` `excel_import | manual | future_agent | other`; an `excel_import` source requires its batch and
   only it may have one; `collected_at` (timezone-aware) defaults to the database transaction time; the actor snapshot
   is stored on the row.
-- `add_manual_source(...)` — typical hand-entered prospect: `manual`, collected now.
+- `add_manual_source(...)` — typical hand-entered prospect: `manual`, collected now. The Prospect editor (Task 15)
+  records one with every prospect it creates, with the collection context the user confirmed (default « Saisie
+  manuelle — prospection B2B ») and an optional reference (where the contact was found).
 - `add_import_source(session, actor, prospect_id, batch, *, sheet, row_number, legal_basis_or_collection_context)`
   — `excel_import` with the batch and a readable `"<file> / <sheet> / ligne <n>"` reference; collected at import
   time (the original collection date of legacy rows is unknown, I-15).

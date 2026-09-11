@@ -153,6 +153,13 @@
   `test_prospection_api.py`, `test_prospection_performance.py` (20 000 prospects); `src/prospection/*.test.ts(x)`
   against `src/test/prospectionApi.ts`; Playwright `e2e/prospection.spec.ts` creates its people through the import API
   (`importProspects`, `e2e/data.ts`) and narrows to their unique tag — details in `doc/features/prospection-kpis.md`.
+- Prospect editor (Task 15): `test_prospect_editor.py` (service: every save step, verification action, alias rule,
+  company change, tracking, opposition, stale version, deletion and the view model) and `test_prospects_api.py`
+  (401/403, attribution, contactability refused in the save, a failing alias rolling back the whole save, refusal
+  codes, 409); `src/prospects/*.test.ts(x)` against `src/test/prospectsApi.ts` with the editor rendered alone
+  (`src/test/renderProspectEditor.tsx`, a fake queue) — interaction tests kept short, one behaviour each, so the 5 s
+  Vitest limit holds under a parallel run; Playwright `e2e/prospect-editor.spec.ts` imports or creates its own people
+  and narrows Prospection to their tag — details in `doc/features/prospect-editor.md`.
 - Privacy: `scripts/check_private_data.py` in CI; synthetic fixtures only under `*/tests/fixtures/synthetic/`.
 - Commands: `doc/process/runbook-local-dev.md`.
 

@@ -8,6 +8,8 @@ export interface OpenCompanyEditorOptions {
   initialName?: string
   onSaved?: (company: Company) => void
   onDeleted?: (id: string) => void
+  // Once the editor is closed (saved or not).
+  onClosed?: () => void
 }
 
 // `target`: a company id, or 'new'.
@@ -43,10 +45,11 @@ export function CompanyEditorProvider({ children }: { children: ReactNode }) {
           onSaved={target.onSaved}
           onDeleted={target.onDeleted}
           onClose={() => {
+            target.onClosed?.()
             setTarget(null)
           }}
           onOpenCompany={(id) => {
-            open(id, { onSaved: target.onSaved, onDeleted: target.onDeleted })
+            open(id, { onSaved: target.onSaved, onDeleted: target.onDeleted, onClosed: target.onClosed })
           }}
         />
       )}

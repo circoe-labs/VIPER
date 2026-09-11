@@ -27,7 +27,7 @@ function Single({
     ...create,
     run: async (text: string) => {
       const option = await create.run(text)
-      setOptions((current) => [...current, option])
+      if (option) setOptions((current) => [...current, option])
       return option
     },
   }

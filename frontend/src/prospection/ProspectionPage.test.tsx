@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import { taxonomyValue } from '../test/settingsApi'
 import { lastParams, prospect, stubProspectionApi } from '../test/prospectionApi'
+import { prospectDetail, stubProspectsApi } from '../test/prospectsApi'
 import { renderApp } from '../test/render'
 import { type ProspectEditorProps, ProspectEditorContext } from './prospectEditor'
 
@@ -67,19 +68,23 @@ function card(name: RegExp) {
 }
 
 describe('Prospection page', () => {
-  it('offers the section’s entry points; Add waits for the prospect editor', async () => {
+  it('offers the section’s entry points; Add opens the prospect editor on a new person', async () => {
     stubProspectionApi({ prospects: people() })
-    renderApp('/prospection')
+    const { router } = renderApp('/prospection')
 
     expect(screen.getByRole('heading', { level: 1, name: 'Prospection' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Entreprises' })).toHaveAttribute('href', '/prospection/companies')
     expect(screen.getByRole('link', { name: 'Importer Excel' })).toHaveAttribute('href', '/prospection/import')
     // The full-database export of Task 10 (downloads through `ExportWorkbookButton`, tested there).
     expect(screen.getByRole('button', { name: 'Exporter Excel' })).toBeEnabled()
-    const add = screen.getByRole('button', { name: 'Ajouter un prospect' })
-    expect(add).toHaveAttribute('aria-disabled', 'true')
-    expect(add).toHaveAccessibleDescription('Disponible avec l’éditeur de prospect')
     await within(await screen.findByRole('list', { name: 'Prospects' })).findByRole('link', { name: 'Jean Exemple' })
+    const add = screen.getByRole('button', { name: 'Ajouter un prospect' })
+    expect(add).not.toHaveAttribute('aria-disabled', 'true')
+
+    await userEvent.click(add)
+
+    expect(new URLSearchParams(router.state.location.search).get('prospect')).toBe('new')
+    expect(await screen.findByRole('dialog', { name: 'Nouveau prospect' })).toBeInTheDocument()
   })
 
   it('shows every counter and filters the list with a click, in the URL', async () => {
@@ -190,9 +195,9 @@ describe('Prospection page', () => {
     }
   })
 
-  it('moves between people with the arrow keys and opens one with Enter (explorer fallback)', async () => {
+  it('moves between people with the arrow keys and opens one with Enter in the prospect editor', async () => {
     const rows = people()
-    stubProspectionApi({ prospects: rows })
+    stubProspectsApi({ rows, details: rows.map((row) => prospectDetail({ id: row.id, first_name: row.first_name, last_name: row.last_name })) })
     const { router } = renderApp('/prospection?segment=all&q=')
     const first = await within(await screen.findByRole('list', { name: 'Prospects' })).findByRole('link', {
       name: 'Jean Exemple',
@@ -210,13 +215,11 @@ describe('Prospection page', () => {
 
     await userEvent.keyboard('{Enter}')
 
-    // Without the Task 15 editor, the person opens in the Database Explorer, replacing the `?prospect=` entry.
-    await waitFor(() => {
-      expect(router.state.location.pathname).toBe('/database/prospects')
-    })
-    const filters = new URLSearchParams(router.state.location.search).get('filters')
-    expect(JSON.parse(filters ?? '[]')).toEqual([{ column: 'id', operator: 'eq', value: rows[0]?.id }])
-    expect(screen.getByRole('heading', { level: 1, name: 'Base de données' })).toBeInTheDocument()
+    // The editor opens over the list, which keeps its criteria behind it (`?prospect=` pushed).
+    expect(await screen.findByRole('dialog', { name: 'Jean Exemple' })).toBeInTheDocument()
+    expect(router.state.location.pathname).toBe('/prospection')
+    expect(new URLSearchParams(router.state.location.search).get('prospect')).toBe(rows[0]?.id)
+    expect(screen.getByRole('heading', { level: 1, name: 'Prospection' })).toBeInTheDocument()
   })
 
   it('hands the prospect, the list queue and navigation to the editor implementation', async () => {

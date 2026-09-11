@@ -36,7 +36,7 @@ function people(page: Page) {
 
 test.use({ viewport: { width: 1440, height: 900 } })
 
-test('counters narrow the list to the right people, kept in the URL; a person opens in the explorer', async ({
+test('counters narrow the list to the right people, kept in the URL; a person opens in the editor', async ({
   page,
 }) => {
   const suffix = uniqueSuffix()
@@ -110,7 +110,7 @@ test('counters narrow the list to the right people, kept in the URL; a person op
   await page.getByRole('searchbox', { name: /Rechercher/ }).fill(tag)
   await expectCount(page, 'Tous', 5)
 
-  // Keyboard: ↓ to the second person, Enter opens them (in the explorer until the prospect editor exists).
+  // Keyboard: ↓ to the second person, Enter opens them in the prospect editor over the list.
   await card(page, 'Contactés').click()
   await expect(people(page).getByRole('listitem')).toHaveCount(2)
   const links = people(page).getByRole('link')
@@ -119,24 +119,25 @@ test('counters narrow the list to the right people, kept in the URL; a person op
   await expect(links.nth(1)).toBeFocused()
   const second = (await links.nth(1).textContent()) ?? ''
   await page.keyboard.press('Enter')
-  await expect(page).toHaveURL(/\/database\/prospects\?/)
-  await expect(page.getByRole('heading', { level: 1, name: 'Base de données' })).toBeVisible()
-  const lastName = second.split(' ').at(-1) ?? ''
-  await expect(page.getByRole('row', { name: new RegExp(lastName) })).toBeVisible()
+  await expect(page).toHaveURL(/prospect=/)
+  await expect(page.getByRole('dialog', { name: second })).toBeVisible()
 
-  // Back returns to the list exactly as it was.
+  // Back closes the editor and returns to the list exactly as it was.
   await page.goBack()
+  await expect(page.getByRole('dialog')).toBeHidden()
   await expect(page).toHaveURL(/\/prospection\?/)
   await expect(card(page, 'Contactés')).toHaveAttribute('aria-pressed', 'true')
   await expect(people(page).getByRole('listitem')).toHaveCount(2)
 })
 
-test('Add waits for the prospect editor; import and export entry points are there', async ({ page }) => {
+test('Add opens the prospect editor; import and export entry points are there', async ({ page }) => {
   await page.goto('/prospection')
 
-  const add = page.getByRole('button', { name: 'Ajouter un prospect' })
-  await expect(add).toHaveAttribute('aria-disabled', 'true')
-  await expect(add).toHaveAttribute('title', 'Disponible avec l’éditeur de prospect')
+  await page.getByRole('button', { name: 'Ajouter un prospect' }).click()
+  await expect(page).toHaveURL(/prospect=new/)
+  await expect(page.getByRole('dialog', { name: 'Nouveau prospect' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog')).toBeHidden()
   await expect(page.getByRole('button', { name: 'Exporter Excel' })).toBeEnabled()
   await page.getByRole('link', { name: 'Importer Excel' }).click()
   await expect(page.getByRole('heading', { level: 1, name: 'Importer un fichier Excel' })).toBeVisible()

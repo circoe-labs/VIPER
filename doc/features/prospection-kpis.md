@@ -113,7 +113,7 @@ locally (`tests/test_prospection_performance.py`, budget 2 s). Trigram indexes f
 default). Criteria changes **replace** the history entry (Back leaves the page; returning restores it as it was);
 opening a prospect **pushes** one. Other pages link in with `prospectionHref({ segment: 'due' })` (Home's cards).
 
-## Open-editor contract (for Task 15)
+## Open-editor contract
 
 `frontend/src/prospection/prospectEditor.tsx`:
 
@@ -127,11 +127,13 @@ opening a prospect **pushes** one. Other pages link in with `prospectionHref({ s
   (a verified one leaves *Jamais vérifiés*) never makes Save & Next skip anyone.
 - `onNavigate(id, { page })` replaces the open prospect (Save & Next); `onNavigate(null)` closes the editor.
 - After a write, invalidate `prospectionKeys.all` (`frontend/src/api/prospection.ts`): counters and pages refresh.
-- Task 15 mounts `<ProspectEditorContext.Provider value={{ canCreate: true, Editor }}>` (e.g. in `AppShell`, beside
-  `CompanyEditorProvider`). Until then the default (`EXPLORER_FALLBACK`) is honest: opening a person **replaces** the
-  `?prospect=` entry with their row in the Database Explorer (`/database/prospects?filters=[id = …]`), so Back returns
-  to the list as it was; *+ Ajouter un prospect* is `aria-disabled` with the tooltip and description « Disponible avec
-  l'éditeur de prospect ».
+- Implemented by Task 15: the default of `ProspectEditorContext` is `{ canCreate: true, Editor: ProspectEditor }` (the
+  drawer of [prospect-editor.md](prospect-editor.md)); the Task 14 explorer fallback is removed. A test may still
+  provide another implementation with `<ProspectEditorContext.Provider value={{ canCreate, Editor }}>`; with
+  `canCreate: false`, *+ Ajouter un prospect* is `aria-disabled` (« Disponible avec l'éditeur de prospect ») and Home
+  hides its *Ajouter un prospect* link.
+- The editor shows the queue position (*Prospect 2 sur 3 · Jamais vérifiés*): the order when the editor opened, so a
+  person saved out of the segment keeps its rank until the queue re-reads the list at the end of a page.
 
 ## Code and tests
 
@@ -152,9 +154,9 @@ opening a prospect **pushes** one. Other pages link in with `prospectionHref({ s
   `none` and 422 validation, stale setting, read-only), `tests/test_prospection_performance.py`.
 - Frontend: `criteria.test.ts`, `queue.test.ts` (page walk, next page, people leaving the segment, end),
   `ProspectionPage.test.tsx` (entry points, counter click → URL + list, search and reset, URL restore and page reset,
-  row states as text + glyph, keyboard and explorer fallback, editor contract with a custom implementation and Save &
-  Next, empty base, errors) against `src/test/prospectionApi.ts`.
+  row states as text + glyph, keyboard open in the editor, Add opening the editor on a new person, editor contract with
+  a custom implementation and Save & Next, empty base, errors) against `src/test/prospectionApi.ts`.
 - Playwright `e2e/prospection.spec.ts`: imports its own synthetic people through the import API (`importProspects` in
   `e2e/data.ts`), searches their unique tag, checks every counter, clicks *Échus* / *Sans réponse* / *Rendez-vous*,
-  reload, a filter, keyboard open in the explorer and Back; screenshots dark/light at 1440×900 and 1280×800 with no
+  reload, a filter, keyboard open in the prospect editor and Back; screenshots dark/light at 1440×900 and 1280×800 with no
   horizontal overflow.

@@ -60,6 +60,14 @@ class InUseError(DomainError):
         self.usage = dict(usage)
 
 
+class ConflictError(DomainError):
+    """The record changed since the client read it (optimistic concurrency): reload, then redo."""
+
+
+class DoNotContactError(DomainError):
+    """The operation would erase a durable do-not-contact restriction (e.g. deleting the person)."""
+
+
 def violated_constraint(error: IntegrityError) -> str | None:
     """Name of the constraint or index a database write violated (ADR-0002 naming)."""
     diagnostics = getattr(error.orig, "diag", None)

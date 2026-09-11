@@ -132,7 +132,7 @@ export function stubProspectionApi(options: ProspectionStubOptions = {}) {
     return settings.fetchMock(input, init)
   })
   vi.stubGlobal('fetch', fetchMock)
-  return { requests, prospects }
+  return { requests, prospects, fetchMock }
 }
 
 // The query parameters of the last request to `path` (e.g. '/api/prospection/prospects').

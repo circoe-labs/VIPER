@@ -49,6 +49,8 @@ class ProspectInput:
     role_id: uuid.UUID | None = None
     exact_job_title: str | None = None
     activity_status: ActivityStatus = ActivityStatus.UNKNOWN
+    # Set only when the person creating the prospect verified the employment context (editor).
+    employment_verified_at: datetime | None = None
     emails: Sequence[ChannelInput] = ()
     phones: Sequence[ChannelInput] = ()
 
@@ -62,8 +64,9 @@ def get_prospect(session: Session, prospect_id: uuid.UUID) -> Prospect:
 
 def create_prospect(session: Session, actor: ActorContext, data: ProspectInput) -> Prospect:
     """A new contactable prospect with its e-mails and phones, in one flush. Channels start
-    `unverified` and the employment context is not verified (NULL): nothing is verified by
-    creating it. One audit event per row (`prospect.created`, `email.created`, `phone.created`)."""
+    `unverified` and the employment context is not verified (NULL) unless `data` says when its
+    creator verified it: nothing is verified by merely creating it. One audit event per row
+    (`prospect.created`, `email.created`, `phone.created`)."""
     if not (data.first_name or "").strip() and not (data.last_name or "").strip():
         raise DomainError("A prospect needs a first or a last name.")
     prospect = Prospect(
@@ -74,6 +77,7 @@ def create_prospect(session: Session, actor: ActorContext, data: ProspectInput) 
         role_id=data.role_id,
         exact_job_title=data.exact_job_title,
         activity_status=data.activity_status,
+        employment_verified_at=data.employment_verified_at,
     )
     audit.annotate(session, actor, prospect)
     session.add(prospect)
