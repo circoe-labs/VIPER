@@ -184,8 +184,11 @@
   WCAG 2.1 A/AA rules) on the sign-in page, Home, Prospection, the Prospect editor, Entreprises with the Company
   editor, an import review of its own synthetic workbook, the Database grid, the SQL console with a result, Paramètres
   and Exploitation, in both themes at 1440×900; a serious or critical violation fails, others become annotations
-  (none today). Keyboard behaviour stays covered by the component tests and the feature specs (grid, menus, editors,
-  dialogs).
+  (none today). `e2e/keyboard.spec.ts` is a whole working session with keys only — sign-in, skip link, Prospection
+  search, editor verification and Ctrl+Entrée (Save & Next), Entreprises and Ctrl+S, Database header row → rows →
+  context menu → staged edit cancelled, Paramètres — and requires a visible focus change at every stop (the element or
+  its `:focus-within` frame, compared focused vs blurred under reduced motion). Finer keyboard behaviour stays covered
+  by the component tests and the feature specs (grid, menus, editors, dialogs).
 - Privacy: `scripts/check_private_data.py` in CI; synthetic fixtures only under `*/tests/fixtures/synthetic/`.
 - Commands: `doc/process/runbook-local-dev.md`.
 

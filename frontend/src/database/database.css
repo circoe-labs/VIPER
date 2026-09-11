@@ -551,15 +551,10 @@
 }
 
 .grid__resizer:hover::after,
-.grid__resizer:focus-visible::after,
 .grid__resizer[data-resizing]::after {
   top: 0;
   bottom: 0;
   background: var(--color-accent);
-}
-
-.grid__resizer:focus-visible {
-  outline: none;
 }
 
 .grid__cell {
