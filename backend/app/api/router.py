@@ -12,6 +12,7 @@ from app.api.routes import (
     audit,
     auth,
     companies,
+    database_reset,
     explorer,
     explorer_sql,
     explorer_writes,
@@ -33,6 +34,7 @@ api_router = APIRouter(dependencies=[Depends(require_session)])
 api_router.include_router(auth.router)
 api_router.include_router(audit.router)
 api_router.include_router(companies.router)
+api_router.include_router(database_reset.router)
 api_router.include_router(explorer.router)
 api_router.include_router(explorer_writes.router)
 api_router.include_router(explorer_sql.router)
