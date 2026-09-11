@@ -112,6 +112,43 @@ describe('Database page', () => {
     expect(sorted.closest('th')).toHaveAttribute('aria-sort', 'ascending')
   })
 
+  it('makes the header row a single tab stop whose actions are keys', async () => {
+    const fetchMock = stubExplorer()
+    renderApp('/database/companies')
+    const grid = await screen.findByRole('grid', { name: 'Lignes de companies' })
+    await within(grid).findByText('Transports Exemple SARL')
+    const head = grid.querySelector('thead') as HTMLElement
+    const tabStops = () => [...head.querySelectorAll<HTMLElement>('button, [tabindex]')].filter((element) => element.tabIndex >= 0)
+    expect(tabStops()).toHaveLength(1)
+
+    tabStops()[0]?.focus()
+    await userEvent.keyboard('{ArrowRight}')
+    const name = within(grid).getByRole('button', { name: 'display_name, non trié' })
+    expect(name).toHaveFocus()
+    expect(tabStops()).toEqual([name])
+    expect(name).toHaveAccessibleDescription(/Alt\+Flèche bas : options et filtres de la colonne/)
+
+    await userEvent.keyboard('{Enter}')
+    await waitFor(() => {
+      expect(lastRowRequest(fetchMock, 'companies').searchParams.getAll('sort')).toEqual(['display_name'])
+    })
+    await userEvent.keyboard('{Shift>}{ArrowRight}{/Shift}')
+    expect(await screen.findByText(/^Largeur de display_name : \d+ px$/)).toBeInTheDocument()
+
+    await userEvent.keyboard('{Alt>}{ArrowDown}{/Alt}')
+    const menu = screen.getByRole('menu', { name: 'Options de la colonne display_name' })
+    expect(within(menu).getByRole('menuitem', { name: 'Filtrer…' })).toBeInTheDocument()
+    await userEvent.keyboard('{Escape}')
+    expect(within(grid).getByRole('button', { name: /^display_name,/ })).toHaveFocus()
+
+    await userEvent.keyboard('{ArrowDown}')
+    await waitFor(() => {
+      expect(document.activeElement).toHaveAttribute('data-cell', '0:1')
+    })
+    await userEvent.keyboard('{ArrowUp}')
+    expect(within(grid).getByRole('button', { name: /^display_name,/ })).toHaveFocus()
+  })
+
   it('filters by a cell value from the keyboard context menu', async () => {
     const fetchMock = stubExplorer()
     renderApp('/database/companies')
