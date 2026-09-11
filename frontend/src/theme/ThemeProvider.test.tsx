@@ -2,11 +2,12 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
-import { renderApp, stubFetchJson } from '../test/render'
+import { SHELL_API } from '../test/homeApi'
+import { renderApp, stubApi } from '../test/render'
 import { THEME_STORAGE_KEY, useTheme } from './theme'
 
 function renderShell() {
-  stubFetchJson(200, { status: 'ok', database: 'ok' })
+  stubApi(SHELL_API)
   return renderApp()
 }
 

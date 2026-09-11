@@ -2,6 +2,7 @@ import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
+import { SHELL_API } from '../test/homeApi'
 import { renderApp, stubApi, stubFetchJson } from '../test/render'
 
 const LABELS = ['Accueil', 'Prospection', 'Exploitation', 'Base de données', 'Paramètres']
@@ -14,7 +15,7 @@ function navigation() {
 
 describe('AppShell', () => {
   it('lists the five sections in French, in order', () => {
-    stubFetchJson(200, { status: 'ok', database: 'ok' })
+    stubApi(SHELL_API)
     renderApp()
 
     const links = within(navigation()).getAllByRole('link')
@@ -36,7 +37,7 @@ describe('AppShell', () => {
   })
 
   it('navigates between sections from the left navigation', async () => {
-    stubFetchJson(200, { status: 'ok', database: 'ok' })
+    stubApi(SHELL_API)
     renderApp()
 
     await userEvent.click(within(navigation()).getByRole('link', { name: 'Paramètres' }))
@@ -45,14 +46,14 @@ describe('AppShell', () => {
   })
 
   it('redirects unknown paths to Accueil', () => {
-    stubFetchJson(200, { status: 'ok', database: 'ok' })
+    stubApi(SHELL_API)
     renderApp('/nope')
 
     expect(screen.getByRole('heading', { level: 1, name: 'Accueil' })).toBeInTheDocument()
   })
 
   it('shows the API as connected when the health probe succeeds', async () => {
-    stubFetchJson(200, { status: 'ok', database: 'ok' })
+    stubApi(SHELL_API)
     renderApp()
 
     expect(await screen.findByText('API : connectée')).toBeInTheDocument()
@@ -87,19 +88,11 @@ describe('AppShell', () => {
   })
 
   it('switches the logo to the dark-on-light variant with the light theme', async () => {
-    stubFetchJson(200, { status: 'ok', database: 'ok' })
+    stubApi(SHELL_API)
     renderApp()
 
     await userEvent.click(screen.getByRole('button', { name: 'Passer au thème clair' }))
 
     expect(screen.getByRole('img', { name: 'VIPER' })).toHaveAttribute('src', expect.stringMatching(/viper-lockup-black/))
-  })
-
-  it('renders placeholder pages without data', () => {
-    stubFetchJson(200, { status: 'ok', database: 'ok' })
-    renderApp('/')
-
-    expect(screen.getByRole('heading', { level: 2, name: 'Bientôt disponible' })).toBeInTheDocument()
-    expect(screen.queryByRole('table')).not.toBeInTheDocument()
   })
 })

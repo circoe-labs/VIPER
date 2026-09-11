@@ -42,6 +42,11 @@ class Settings(BaseSettings):
     # Unset by default — product has not chosen the age threshold (open question #9).
     verification_stale_days: PositiveInt | None = None
 
+    # Home (Task 16): informative monthly targets — prospects newly contacted and appointments
+    # obtained per month (source requirement "100 contacts / 10 rendez-vous").
+    monthly_contact_target: PositiveInt = 100
+    monthly_appointment_target: PositiveInt = 10
+
     @property
     def sql_reader_url(self) -> str:
         """The application database, reached as the SQL console's role."""

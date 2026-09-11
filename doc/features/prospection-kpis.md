@@ -38,6 +38,11 @@ and its primary e-mail (at most one, always active). Terms used below:
 | `responses` | Réponses | A response date, an appointment date, or a stage reached only after an answer: `response_received`, `appointment_obtained`, `quote_sent`, `quote_follow_up`, `won`, `not_interested` (a negative answer is an answer). |
 | `appointments` | Rendez-vous | An appointment date, or stage `appointment_obtained`, `quote_sent`, `quote_follow_up` or `won`. |
 
+**Home (Task 16)** shows these same counts (`count_segments` without criteria), each card linking to
+`/prospection?segment=<key>`; its own additions — current commercial stages, monthly progress from the status history,
+next actions — are defined in [home-dashboard.md](home-dashboard.md) on top of these predicates (`actionable`,
+`responded`, `has_appointment`, `CONTACTED_STAGES`, `APPOINTMENT_STAGES`).
+
 Invariants (tested): `appointments ⊆ responses ⊆ contacted`; `due ⊆ to_contact`; `to_contact` and `contacted` never
 overlap; a do-not-contact person is never in `to_contact`, `due` or `no_response`; `never_verified` and
 `needs_recheck` never overlap. Outcome segments (`contacted`, `responses`, `appointments`) keep opposed and inactive

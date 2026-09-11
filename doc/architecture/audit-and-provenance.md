@@ -152,7 +152,9 @@ the session binding; otherwise the flush raises `UnattributedMutationError`.
 
 - `audit.history(session, subject_type, subject_id, limit=50)` — a prospect's/company's timeline, child rows
   included, newest first (`occurred_at`, then `id`, descending).
-- `audit.recent_activity(session, limit=50, subject_types=None)` — global feed (Home, Task 16).
+- `audit.recent_activity(session, limit=50, subject_types=None, actor_types=None)` — global feed. Home (Task 16)
+  reads the human events on `prospect` / `company` subjects and turns them into structured lines without field values
+  (`app/services/home.py`, `recent_edits`; wording in `frontend/src/home/activity.ts`).
 - `GET /api/audit/recent?limit=1..100` — raw events for the signed-in user (no UI yet; Task 19 formats them and keeps
   raw JSON out of normal screens).
 
