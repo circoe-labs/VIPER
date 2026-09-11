@@ -33,7 +33,7 @@ from app.api.errors import business_errors, refusal
 from app.core.actor import ActorType
 from app.models.enums import ImportBatchStatus
 from app.models.imports import ImportBatch
-from app.services import import_batches, import_commit
+from app.services import import_batches, import_commit, operational_import
 from app.services.imports.decisions import ImportDecisions, PreviewOptions
 from app.services.imports.diagnostics import DiagnosticCode, ImportRejectedError
 from app.services.imports.preview import ImportFile
@@ -162,7 +162,7 @@ async def commit_import(
     try:
         with business_errors():
             result = await run_in_threadpool(
-                import_commit.commit_import, session, actor, file, decisions, limits
+                operational_import.commit_import, session, actor, file, decisions, limits
             )
     except ImportRejectedError as error:
         raise file_refusal(error) from None
