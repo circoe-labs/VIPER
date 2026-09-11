@@ -11,7 +11,7 @@ export type PreviewRow = {
 };
 
 const knownHeaderKeys = new Set([
-  'referent', 'a contacter', 'entreprise', 'rdv obtenu', 'rendez vous obtenu', 'devis envoye', 'suivi',
+  'statut verification', 'referent', 'a contacter', 'entreprise', 'rdv obtenu', 'rendez vous obtenu', 'devis envoye', 'suivi',
   'relance 1', 'relance 2', 'mode de contact', 'categorie', 'civilite', 'nom', 'prenom', 'fonction', 'mail',
   'email', 'telephone', 'mobile', 'adresse', 'projet deja realise avec l entreprise', 'type de projet',
   'liste des fiches projets references circoe csv', 'references circoe', 'approche client', 'verification',
@@ -104,12 +104,59 @@ function verificationFrom(value: unknown, importedAt: Date) {
   return { verified: false, verifiedAt: null, raw: text(value), unknown: true };
 }
 
+type StatusVerification = {
+  state: 'verified' | 'inactive' | 'unknown' | 'unverified';
+  verifiedAt: string | null;
+  activityStatus: 'active' | 'inactive' | 'unknown' | '';
+  emailStatus: 'verified' | 'invalid' | 'unknown' | 'unverified';
+  emailVerifiedAt: string | null;
+  raw: string;
+  unknown?: boolean;
+};
+
+function statusVerificationFrom(value: unknown, importedAt: Date): StatusVerification {
+  const raw = text(value);
+  const normalized = key(value);
+  if (!normalized) return { state: 'unverified', verifiedAt: null, activityStatus: '', emailStatus: 'unverified', emailVerifiedAt: null, raw };
+  if (verifiedTokens.has(normalized)) {
+    return {
+      state: 'verified',
+      verifiedAt: importedAt.toISOString(),
+      activityStatus: 'active',
+      emailStatus: 'verified',
+      emailVerifiedAt: importedAt.toISOString(),
+      raw
+    };
+  }
+  if (normalized === 'inactif' || normalized === 'inactive') {
+    return {
+      state: 'inactive',
+      verifiedAt: importedAt.toISOString(),
+      activityStatus: 'inactive',
+      emailStatus: 'invalid',
+      emailVerifiedAt: null,
+      raw
+    };
+  }
+  if (normalized === 'inconnu' || normalized === 'inconnus' || normalized === 'unknown') {
+    return {
+      state: 'unknown',
+      verifiedAt: importedAt.toISOString(),
+      activityStatus: 'unknown',
+      emailStatus: 'unknown',
+      emailVerifiedAt: null,
+      raw
+    };
+  }
+  return { state: 'unverified', verifiedAt: null, activityStatus: '', emailStatus: 'unverified', emailVerifiedAt: null, raw, unknown: true };
+}
+
 function truthyLegacy(value: unknown) {
   const s = key(value);
   return Boolean(s) && !['non', 'no', '0', 'false', 'n a'].includes(s);
 }
 
-function trackingFromLegacy(raw: Record<string, unknown>) {
+function explicitTrackingFromLegacy(raw: Record<string, unknown>) {
   const suivi = key(read(raw, ['Suivi']));
   const labels: [string, string[]][] = [
     ['won', ['commande passee', 'gagne', 'gagnee', 'won']],
@@ -126,7 +173,19 @@ function trackingFromLegacy(raw: Record<string, unknown>) {
   if (truthyLegacy(read(raw, ['rdv obtenu', 'RDV obtenu', 'Rendez-vous obtenu']))) return 'appointment_obtained';
   if (truthyLegacy(read(raw, ['relance 2', 'Relance 2']))) return 'follow_up_2';
   if (truthyLegacy(read(raw, ['Relance 1', 'relance 1']))) return 'follow_up_1';
-  return 'to_contact';
+  return null;
+}
+
+function trackingFromLegacy(raw: Record<string, unknown>, plannedContactAt: string | null, verificationState: string, referenceDate: Date) {
+  const explicit = explicitTrackingFromLegacy(raw);
+  if (explicit) return explicit;
+  const today = isoDate(referenceDate);
+  if (plannedContactAt) {
+    if (plannedContactAt < today) return 'contacted';
+    if (plannedContactAt > today) return 'to_contact';
+    return verificationState === 'verified' ? 'contacted' : 'to_contact';
+  }
+  return verificationState === 'verified' ? 'contacted' : 'to_contact';
 }
 
 function normalizeCategory(value: unknown) {
@@ -148,14 +207,31 @@ function isReferentName(value: string) {
 }
 
 function verificationAliases() {
-  return ['Vérification', 'Verification', 'Vérifié', 'Verifie', 'Vérifié ?', 'Verifie ?', 'Vérification emploi', 'Verification emploi', 'Vérification contact'];
+  return [
+    'Statut_verification', 'Statut vérification', 'Statut verification',
+    'Vérification', 'Verification', 'Vérifié', 'Verifie', 'Vérifié ?', 'Verifie ?',
+    'Vérification emploi', 'Verification emploi', 'Vérification contact'
+  ];
+}
+
+function hasProspectHeaders(sheet: any) {
+  const ref = sheet?.['!ref'];
+  if (!ref) return false;
+  const range = XLSX.utils.decode_range(ref);
+  const headers = new Set<string>();
+  for (let c = range.s.c; c <= range.e.c; c++) {
+    const cell = sheet[XLSX.utils.encode_cell({ r: range.s.r, c })];
+    const normalized = key(cell?.v);
+    if (normalized) headers.add(normalized);
+  }
+  return headers.has('entreprise') && (headers.has('nom') || headers.has('prenom') || headers.has('mail') || headers.has('email'));
 }
 
 export function parseWorkbook(buffer: Buffer, filename = 'import.xlsx', referenceDate = new Date()) {
   const importedAt = new Date(referenceDate);
   const wb = XLSX.read(buffer, { type: 'buffer', cellDates: true });
-  const sheets = wb.SheetNames.filter(n => key(n) !== 'actualite');
-  const skippedSheets = wb.SheetNames.filter(n => key(n) === 'actualite');
+  const sheets = wb.SheetNames.filter(n => key(n) !== 'actualite' && hasProspectHeaders(wb.Sheets[n]));
+  const skippedSheets = wb.SheetNames.filter(n => !sheets.includes(n));
   const rows: PreviewRow[] = [];
 
   for (const sheet of sheets) {
@@ -169,14 +245,19 @@ export function parseWorkbook(buffer: Buffer, filename = 'import.xlsx', referenc
       const civRaw = text(read(raw, ['Civilité ', 'Civilité', 'Civilite']));
       const civ = civMap[key(civRaw)] || civRaw;
       const referentRaw = text(read(raw, ['Référent', 'Referent']));
-      const explicitVerification = hasHeader(raw, verificationAliases());
-      const verificationRaw = explicitVerification ? read(raw, verificationAliases()) : undefined;
+      const verificationHeader = findKey(raw, verificationAliases());
+      const explicitVerification = verificationHeader != null;
+      const statusVerificationColumn = verificationHeader != null && key(verificationHeader) === 'statut verification';
+      const verificationRaw = verificationHeader == null ? undefined : raw[verificationHeader];
       const legacyVerificationMarker = !explicitVerification && key(referentRaw) === 'v';
-      const verification = explicitVerification
+      const statusVerification = statusVerificationColumn ? statusVerificationFrom(verificationRaw, importedAt) : null;
+      const legacyVerification = explicitVerification && !statusVerificationColumn
         ? verificationFrom(verificationRaw, importedAt)
         : legacyVerificationMarker
           ? { verified: true, verifiedAt: importedAt.toISOString(), raw: referentRaw }
           : { verified: false, verifiedAt: null, raw: '' };
+      const verificationState = statusVerification?.state || (legacyVerification.verified ? 'verified' : 'unverified');
+      const employmentVerifiedAt = statusVerification?.verifiedAt || legacyVerification.verifiedAt;
 
       const legacyPlannedRaw = Object.prototype.hasOwnProperty.call(raw, 'A contacter ') ? text(raw['A contacter ']) : '';
       const plannedRaw = legacyPlannedRaw || text(read(raw, ['Contact planifié', 'Contact planifie', 'Date contact', 'Date de contact']));
@@ -185,17 +266,28 @@ export function parseWorkbook(buffer: Buffer, filename = 'import.xlsx', referenc
       const plannedContactAt = plannedWeek?.date || (plannedDate ? isoDate(plannedDate) : null);
       const categoryRaw = text(read(raw, ['Catégorie', 'Categorie']));
       const category = normalizeCategory(categoryRaw);
-      const emailVerificationRaw = read(raw, ['Email vérifié', 'Email verifie', 'Vérification email', 'Verification email']);
-      const emailVerification = hasHeader(raw, ['Email vérifié', 'Email verifie', 'Vérification email', 'Verification email'])
+      const emailVerificationAliases = ['Email vérifié', 'Email verifie', 'Vérification email', 'Verification email'];
+      const explicitEmailVerification = hasHeader(raw, emailVerificationAliases);
+      const emailVerificationRaw = read(raw, emailVerificationAliases);
+      const emailVerification = explicitEmailVerification
         ? verificationFrom(emailVerificationRaw, importedAt)
         : { verified: false, verifiedAt: null, raw: '' };
+      const emailVerificationStatus = explicitEmailVerification
+        ? (emailVerification.verified ? 'verified' : 'unverified')
+        : statusVerification?.emailStatus || 'unverified';
+      const emailVerifiedAt = explicitEmailVerification
+        ? emailVerification.verifiedAt
+        : statusVerification?.emailVerifiedAt || null;
+      const trackingStatus = trackingFromLegacy(raw, plannedContactAt, verificationState, importedAt);
+      const statusActivity = statusVerification?.activityStatus || '';
+      const activityStatusSuggestion = statusActivity || (/retrait/i.test(plannedRaw) ? 'inactive' : '');
 
       if (!company) diagnostics.push({ code: 'missing_company', level: 'error', message: 'Entreprise manquante' });
       if (!first && !last) diagnostics.push({ code: 'missing_identity', level: 'error', message: 'Identité manquante' });
       if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) diagnostics.push({ code: 'invalid_email', level: 'warning', message: 'Email à vérifier' });
       if (civRaw && civ === civRaw && !['M.', 'Mme', 'Mlle'].includes(civ)) diagnostics.push({ code: 'unknown_civility', level: 'warning', message: `Civilité non reconnue: ${civRaw}` });
       if (categoryRaw && !category) diagnostics.push({ code: 'invalid_category', level: 'warning', message: `Catégorie à vérifier: ${categoryRaw}` });
-      if (explicitVerification && (verification as any).unknown) diagnostics.push({ code: 'unknown_verification', level: 'warning', message: `Valeur de vérification non reconnue: ${text(verificationRaw)}` });
+      if (statusVerification?.unknown || (!statusVerificationColumn && explicitVerification && (legacyVerification as any).unknown)) diagnostics.push({ code: 'unknown_verification', level: 'warning', message: `Valeur de vérification non reconnue: ${text(verificationRaw)}` });
       if (plannedWeek) diagnostics.push({ code: 'planned_week_resolved', level: 'info', message: `S${plannedWeek.week} interprétée au lundi ${plannedWeek.date}` });
       else if (/^s\d{1,2}$/i.test(plannedRaw)) diagnostics.push({ code: 'invalid_week', level: 'warning', message: `Semaine invalide: ${plannedRaw}` });
       if (/retrait/i.test(plannedRaw)) diagnostics.push({ code: 'legacy_anomaly', level: 'warning', message: 'Valeur retraité détectée : activité suggérée inactive' });
@@ -219,8 +311,8 @@ export function parseWorkbook(buffer: Buffer, filename = 'import.xlsx', referenc
           civility: civ,
           job_title: text(read(raw, ['Fonction'])),
           email,
-          email_verification_status: emailVerification.verified ? 'verified' : 'unverified',
-          email_verified_at: emailVerification.verifiedAt,
+          email_verification_status: emailVerificationStatus,
+          email_verified_at: emailVerifiedAt,
           phone: text(read(raw, ['Téléphone', 'Telephone'])),
           mobile: text(read(raw, ['Mobile'])),
           address: text(read(raw, ['Adresse ', 'Adresse'])),
@@ -228,13 +320,13 @@ export function parseWorkbook(buffer: Buffer, filename = 'import.xlsx', referenc
           category_raw: categoryRaw,
           referent: isReferentName(referentRaw) ? referentRaw : '',
           referent_raw: referentRaw,
-          verification_state: verification.verified ? 'verified' : 'unverified',
-          employment_verified_at: verification.verifiedAt,
-          verification_source: explicitVerification ? 'excel_column' : legacyVerificationMarker ? 'legacy_marker' : 'none',
+          verification_state: verificationState,
+          employment_verified_at: employmentVerifiedAt,
+          verification_source: statusVerificationColumn ? 'excel_status_column' : explicitVerification ? 'excel_column' : legacyVerificationMarker ? 'legacy_marker' : 'none',
           planned_contact_raw: plannedRaw,
           planned_contact_at: plannedContactAt,
-          tracking_status: trackingFromLegacy(raw),
-          activity_status_suggestion: /retrait/i.test(plannedRaw) ? 'inactive' : '',
+          tracking_status: trackingStatus,
+          activity_status_suggestion: activityStatusSuggestion,
           project_done_with_circoe: text(read(raw, ["Projet déjà réalisé avec l'entreprise", "Projet deja realise avec l'entreprise"])),
           project_type: text(read(raw, ['Type de projet'])),
           circoe_references: text(read(raw, ['Liste des fiches projets_references_CIRCOE.csv', 'Références Circoe', 'References Circoe'])),
