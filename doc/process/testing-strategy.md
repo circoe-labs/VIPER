@@ -106,6 +106,11 @@
   holder, establishments and primary switching, deletion refusal, search, similar companies, audit, 401/403),
   `src/companies/*.test.ts(x)` against the in-memory `src/test/companiesApi.ts`, Playwright `e2e/companies.spec.ts`
   with editor screenshots in both themes — details in `doc/features/company-editor.md`.
+- Home (Task 16): `test_home.py` / `test_home_api.py` (every count equals the Prospection counter, monthly first
+  contact / first appointment from the status history with imports excluded and Paris month boundaries, next-action
+  groups and order, recent edits without values, 9 statements whatever the size), `src/home/*.test.ts(x)`, Playwright
+  `e2e/home.spec.ts` (figures compared with the captured `/api/home` answer, drill-down checked on its own imported
+  people) — details in `doc/features/home-dashboard.md`.
 - Exploitation (Task 18): `src/exploitation/ExploitationPage.test.tsx` (navigation state, heading structure, coming-soon
   copy, and no button/link/control/list/table/figure/digit in the page) and `e2e/exploitation.spec.ts` (same smoke
   against the real stack, screenshots in both themes).

@@ -158,6 +158,13 @@ To see it with data, load the synthetic explorer dataset into an `_e2e` database
 workbook (below). `VIPER_VERIFICATION_STALE_DAYS=<days>` (unset by default, open question #9) makes verifications older
 than that count as « À revérifier ».
 
+### Home (Task 16)
+
+`/` reads `GET /api/home` (definitions: `doc/features/home-dashboard.md`). With an empty database it invites to import;
+load the synthetic dataset or import a synthetic workbook to see figures. The informative monthly targets are settings:
+`VIPER_MONTHLY_CONTACT_TARGET` (100) and `VIPER_MONTHLY_APPOINTMENT_TARGET` (10). Monthly figures come from the
+contact-tracking status history, so stages imported from a workbook never count as this month's contacts.
+
 ### Excel import review and commit (Task 09)
 
 The page is `/prospection/import` (« Importer Excel » in the Prospection and Entreprises headers). For a

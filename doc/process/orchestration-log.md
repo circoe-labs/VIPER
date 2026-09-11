@@ -211,3 +211,33 @@ found, what was sent back for rework, and the verification evidence accepted. Ta
   into following tests. Accepted as a stop-gap; splitting the long interaction tests is carried to Task 20.
 - Orchestrator verification on `claude` @ `7c703df`: `verify.py --e2e` → pytest 755 (+2 private skipped), vitest 471,
   Playwright 52 — all green.
+
+### Task 14 — Prospection workspace (2026-09-11) — ACCEPTED
+
+- Commits `e2616c3`, `4dc64d1`, `165e78a`, `c165834`; merged as `d818cc4`. One canonical segments module
+  (`app/services/prospection/segments.py`, ADR-0014) drives 16 counters (single aggregate query) and the list
+  filter, so a counter always equals the list it opens; people-card list (not a spreadsheet), counters as filters
+  with a non-colour active mark, URL state, keyboard navigation, open-editor/queue contract for Task 15
+  (`?prospect=<id|new>`, `ProspectEditorContext`, `ProspectQueue.next()`), honest fallback (opens the row in the
+  Database Explorer; "+ Ajouter" disabled until the editor exists). Stale threshold only if
+  `VIPER_VERIFICATION_STALE_DAYS` is configured (open question #9 untouched). I-90..I-98.
+- Screenshots reviewed (dark/light, 1440/1280). 20 000-prospect perf: counters ≈0.25 s, deep page ≈0.15 s.
+- Orchestrator verification on `claude` @ `d818cc4`: pytest 813, vitest 503, Playwright 58 — all green.
+- Next: Task 15 (Prospect editor, worktree `task-15-prospect-editor`) ∥ Task 16 (Home, worktree `task-16-home`).
+  Parallelism capped at two agents after the Docker memory incident.
+
+### Task 16 — Home dashboard (2026-09-11) — ACCEPTED after correction
+
+- Commits `dcd1921`, `203b5f2`, `0637546`, `a669bd7`; merged as `8d95ef6`. `GET /api/home` (9 queries, ≈0.25 s on
+  20 000 prospects) reusing the canonical segments (Home card == Prospection counter, tested), monthly progress over
+  6 months in Europe/Paris with informative configurable targets (100/10), next actions (appointments ≤ 7 days, due
+  contacts, responses without appointment), recent imports + grouped manual edits without field values. I-110..I-117.
+  - "Appointments this month" = first entry into an appointment-or-later stage (not `appointment_at`, which is the
+    meeting date); imported stages excluded from monthly figures.
+- **Correction requested**: the agent documented a false limitation ("Database Explorer stage changes write no
+  history"). The orchestrator checked `explorer/writes.py`: it routes through `save_contact_tracking`. Fixed in
+  `a669bd7` with a test proving explorer changes count in the month; docs and I-113 corrected.
+- Orchestrator verification after merge: pytest 839, vitest 522, Playwright 63/64 then 64/64 — flake identified by
+  repeated runs: `auth.spec.ts` asserted `getByText('Pilote E2E')`, which Home's activity feed now also renders
+  (strict-mode violation). Fix assigned as the first commit of Task 17.
+- Next: Task 17 (global search, worktree `task-17-global-search`) while Task 15 continues.

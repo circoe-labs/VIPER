@@ -7,6 +7,7 @@ from typing import Any
 from sqlalchemy import Select, insert, select
 from sqlalchemy.orm import Session
 
+from app.core.actor import ActorType
 from app.models.audit import AuditLogEntry
 
 
@@ -37,9 +38,15 @@ def subject_history(
 
 
 def recent(
-    session: Session, *, limit: int, subject_types: Collection[str] | None = None
+    session: Session,
+    *,
+    limit: int,
+    subject_types: Collection[str] | None = None,
+    actor_types: Collection[ActorType] | None = None,
 ) -> list[AuditLogEntry]:
     statement = select(AuditLogEntry)
     if subject_types is not None:
         statement = statement.where(AuditLogEntry.subject_type.in_(subject_types))
+    if actor_types is not None:
+        statement = statement.where(AuditLogEntry.actor_type.in_(actor_types))
     return _newest_first(session, statement, limit)

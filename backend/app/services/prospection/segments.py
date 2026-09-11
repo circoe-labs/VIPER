@@ -8,14 +8,14 @@ rationale: doc/features/prospection-kpis.md (decisions I-90 … I-93).
 """
 
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
 from sqlalchemy import ColumnElement, Label, Select, and_, case, exists, false, func, or_, true
 from sqlalchemy.orm import aliased
 
-from app.core.business_time import BUSINESS_TIMEZONE
+from app.core.business_time import BUSINESS_TIMEZONE, start_of_day
 from app.models import Company, ContactTracking, Email, Phone, Prospect
 from app.models.enums import (
     ActivityStatus,
@@ -104,18 +104,14 @@ class SegmentContext:
     @property
     def due_before(self) -> datetime:
         """Start of tomorrow (business time): a contact planned before it is due."""
-        return _midnight(self.today + timedelta(days=1))
+        return start_of_day(self.today + timedelta(days=1))
 
     @property
     def stale_before(self) -> datetime | None:
         """Start of the day `stale_days` ago: a verification before it is stale."""
         if self.stale_days is None:
             return None
-        return _midnight(self.today - timedelta(days=self.stale_days))
-
-
-def _midnight(day: date) -> datetime:
-    return datetime.combine(day, time(), tzinfo=BUSINESS_TIMEZONE)
+        return start_of_day(self.today - timedelta(days=self.stale_days))
 
 
 def join_segment_sources[T: tuple[Any, ...]](statement: Select[T]) -> Select[T]:

@@ -28,7 +28,7 @@ from enum import StrEnum
 from sqlalchemy.orm import Session
 
 from app.core.actor import ActorContext
-from app.core.business_time import BUSINESS_TIMEZONE, business_day, business_moment
+from app.core.business_time import BUSINESS_TIMEZONE, business_day, business_moment, start_of_day
 from app.models import ContactTracking, Email, Phone, Prospect, Role
 from app.models.enums import (
     ActivityStatus,
@@ -502,7 +502,7 @@ def _employment_verified_at(
                     "A verification cannot be in the future.",
                     "future",
                 )
-            return clock.now if day == today else business_moment(day)
+            return clock.now if day == today else start_of_day(day)
 
 
 def _kept_day(stored: datetime | None, day: date | None) -> datetime | None:
@@ -511,7 +511,7 @@ def _kept_day(stored: datetime | None, day: date | None) -> datetime | None:
         return None
     if stored is not None and business_day(stored) == day:
         return stored
-    return business_moment(day)
+    return start_of_day(day)
 
 
 def _kept_moment(stored: datetime | None, day: date | None, at: time | None) -> datetime | None:
@@ -519,7 +519,7 @@ def _kept_moment(stored: datetime | None, day: date | None, at: time | None) -> 
         return None
     if stored is not None and _local_parts(stored) == (day, at):
         return stored
-    return business_moment(day, at)
+    return start_of_day(day) if at is None else business_moment(day, at)
 
 
 # --- writes ------------------------------------------------------------------------------------

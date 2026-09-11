@@ -2,9 +2,10 @@ import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
+import { SHELL_API } from '../test/homeApi'
 import { type ApiReply, renderApp, stubApi, TEST_CSRF_TOKEN, TEST_USER } from '../test/render'
 
-const HEALTHY: Record<string, ApiReply> = { 'GET /api/health': [200, { status: 'ok', database: 'ok' }] }
+const HEALTHY: Record<string, ApiReply> = SHELL_API
 
 describe('UserMenu', () => {
   it('shows who is signed in', () => {

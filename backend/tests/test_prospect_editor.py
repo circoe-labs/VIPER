@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.core.business_time import business_moment
+from app.core.business_time import business_moment, start_of_day
 from app.models import (
     ContactTrackingStatusHistory,
     Email,
@@ -311,7 +311,7 @@ def test_a_new_role_matching_an_existing_one_is_refused(db_session: Session) -> 
         (EmploymentVerification(VerificationAction.VERIFIED_NOW), NOW),
         (
             EmploymentVerification(VerificationAction.VERIFIED_ON, date(2026, 9, 2)),
-            business_moment(date(2026, 9, 2)),
+            start_of_day(date(2026, 9, 2)),
         ),
         (EmploymentVerification(VerificationAction.VERIFIED_ON, date(2026, 9, 11)), NOW),
         (EmploymentVerification(VerificationAction.CLEAR), None),
@@ -673,7 +673,7 @@ def test_tracking_records_dates_in_business_time_referent_and_history(db_session
     assert tracking.referent is not None and tracking.referent.label == "Claire Référente"
     row = prospect.contact_tracking
     assert row is not None
-    assert row.planned_contact_at == business_moment(date(2026, 9, 14))
+    assert row.planned_contact_at == start_of_day(date(2026, 9, 14))
     assert row.appointment_at == business_moment(date(2026, 9, 22), time(10, 30))
     transitions = db_session.execute(
         select(ContactTrackingStatusHistory.from_status, ContactTrackingStatusHistory.to_status)
