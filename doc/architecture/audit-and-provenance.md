@@ -167,7 +167,9 @@ What people read is built by **one formatter**, `app/services/history.py` (decis
 - **Grouping** (`group_events`): consecutive events (newest first) with the same subject, actor, source and
   `request_id` form one entry — one Prospect editor save, one company save, one import of a row. Events without a
   request id (CLI, seed, jobs, older fixtures) group when consecutive with the same actor and source and less than
-  5 s apart (`UNBOUND_GAP`).
+  5 s apart (`UNBOUND_GAP`). Home's feed reads events across records, where concurrent saves on different records
+  interleave: there a request's events on one record are joined wherever they fall (`across_records=True`); one
+  record's history keeps consecutive runs, so its pages always cut between entries.
 - **Entry** (`HistoryEntry`): `id` and `occurred_at` of its newest event; `actor {kind, label, id, on_behalf_of}` —
   `kind` is the actor type (`human`, `import`, `system`, `agent`: a future agent is representable today), `label` the
   display snapshot (an import's **file name**, without the `Import ` prefix), `on_behalf_of` the person who confirmed

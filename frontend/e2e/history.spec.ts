@@ -22,12 +22,14 @@ function entries(editor: Locator) {
   return editor.getByRole('list', { name: 'Historique du prospect' }).locator(':scope > li')
 }
 
-async function screenshots(page: Page, name: string, target: () => Locator) {
+// Both themes at 1440×900, once `ready` shows the loaded content, with `target` scrolled into view.
+async function screenshots(page: Page, name: string, target: () => Locator, ready: () => Locator) {
   for (const theme of ['dark', 'light'] as const) {
     await page.evaluate((value) => {
       window.localStorage.setItem('viper.theme', value)
     }, theme)
     await page.reload()
+    await expect(ready()).toBeVisible()
     await target().scrollIntoViewIfNeeded()
     await page.mouse.move(0, 0)
     await page.screenshot({ path: `${SCREENSHOTS}/${name}-${theme}-1440.png`, animations: 'disabled' })
@@ -78,7 +80,8 @@ test('an editor save reads back in the prospect history and on Home', async ({ p
   await expect(line).toContainText('Changement d’entreprise · E-mail principal modifié · E-mail ajouté · Suivi : Contacté')
   await expect(line).toContainText('Pilote E2E')
   await expect(line).not.toContainText(domain)
-  await screenshots(page, 'history-home-feed', () => feed)
+  // Other specs keep saving: after a reload this line may have left the latest saves, so wait for any line.
+  await screenshots(page, 'history-home-feed', () => feed, () => feed.getByRole('listitem').first())
 
   await page.goBack()
   await expect(entries(editor)).toHaveCount(2)
@@ -90,5 +93,11 @@ test('an editor save reads back in the prospect history and on Home', async ({ p
   await expect(saved).toContainText(`E-mail principal : paul@${domain} → p.histoire@${domain}`)
   await expect(saved).toContainText('Étape : Contacté')
 
-  await screenshots(page, 'history-prospect-editor', () => region(page.getByRole('dialog').first(), 'Historique'))
+  const reopened = () => page.getByRole('dialog').first()
+  await screenshots(
+    page,
+    'history-prospect-editor',
+    () => region(reopened(), 'Historique'),
+    () => entries(reopened()).nth(1),
+  )
 })

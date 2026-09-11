@@ -16,6 +16,7 @@ from app.models import ContactTracking, ContactTrackingStatusHistory, ImportBatc
 from app.models.enums import ContactTrackingStatus, ImportBatchStatus
 from app.services import audit, home
 from app.services import prospects as prospect_service
+from app.services.audit import AuditContext, AuditSource
 from app.services.contact_tracking import ContactTrackingInput, save_contact_tracking
 from app.services.home import home_summary, month_start, monthly_progress, next_actions
 from app.services.prospection.query import ProspectFilters, count_segments
@@ -338,6 +339,8 @@ def test_recent_edits_group_one_save_and_leave_values_out(db_session: Session) -
     save_contact_tracking(
         db_session, OPERATOR, prospect.id, ContactTrackingInput(status=S.CONTACTED)
     )
+    # The next saves are other requests (each request has its own id).
+    audit.bind(db_session, OPERATOR, AuditContext(source=AuditSource.UI, request_id="save-2"))
     audit.annotate(db_session, OPERATOR, company)
     company.display_name = "Transports Exemple Renommée SARL"
     db_session.flush()

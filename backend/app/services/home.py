@@ -304,8 +304,8 @@ def recent_edits(session: Session) -> list[EditItem]:
         subject_types=EDIT_SUBJECT_TYPES,
         actor_types=EDIT_ACTOR_TYPES,
     )
-    entries = [history.describe(group, NO_LOOKUPS) for group in history.group_events(events)]
-    entries = entries[:EDIT_LIMIT]
+    groups = history.group_events(events, across_records=True)[:EDIT_LIMIT]
+    entries = [history.describe(group, NO_LOOKUPS) for group in groups]
     labels = _subject_labels(session, {(entry.subject_type, entry.subject_id) for entry in entries})
     return [
         EditItem(

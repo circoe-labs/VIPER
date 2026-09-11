@@ -373,27 +373,47 @@ def _source(event: AuditLogEntry) -> AuditSource | None:
     return AuditSource(source) if isinstance(source, str) and source in AuditSource else None
 
 
+def _origin(event: AuditLogEntry) -> tuple[Any, ...]:
+    """Events of one save share this: subject, actor, source and request id."""
+    context = event.context
+    return (
+        event.subject_type,
+        event.subject_id,
+        event.actor_type,
+        event.actor_id,
+        context.get("source"),
+        context.get("request_id"),
+    )
+
+
 def _same_entry(newer: AuditLogEntry, event: AuditLogEntry) -> bool:
-    request = event.context.get("request_id")
-    same_origin = (
-        (newer.subject_type, newer.subject_id) == (event.subject_type, event.subject_id)
-        and (newer.actor_type, newer.actor_id) == (event.actor_type, event.actor_id)
-        and newer.context.get("source") == event.context.get("source")
-        and newer.context.get("request_id") == request
-    )
-    return same_origin and (
-        request is not None or newer.occurred_at - event.occurred_at < UNBOUND_GAP
+    return _origin(newer) == _origin(event) and (
+        event.context.get("request_id") is not None
+        or newer.occurred_at - event.occurred_at < UNBOUND_GAP
     )
 
 
-def group_events(events: Iterable[AuditLogEntry]) -> list[list[AuditLogEntry]]:
-    """Newest-first events → entries, newest first, each the run of events of one save."""
+def group_events(
+    events: Iterable[AuditLogEntry], *, across_records: bool = False
+) -> list[list[AuditLogEntry]]:
+    """Newest-first events → entries, newest first, each the events of one save.
+
+    One record's history groups consecutive events (its saves follow one another; pages cut
+    between entries). A feed across records (`across_records`, Home) interleaves concurrent saves
+    on different records, so it also joins a request's events on one record wherever they fall.
+    """
     groups: list[list[AuditLogEntry]] = []
+    by_request: dict[tuple[Any, ...], list[AuditLogEntry]] = {}
     for event in events:
-        if groups and _same_entry(groups[-1][-1], event):
+        joined = by_request.get(_origin(event)) if across_records else None
+        if joined is not None:
+            joined.append(event)
+        elif groups and _same_entry(groups[-1][-1], event):
             groups[-1].append(event)
         else:
             groups.append([event])
+            if event.context.get("request_id") is not None:
+                by_request[_origin(event)] = groups[-1]
     return groups
 
 

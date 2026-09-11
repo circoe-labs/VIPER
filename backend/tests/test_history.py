@@ -391,6 +391,9 @@ def test_one_entry_per_save_and_a_new_one_for_the_next_save(db_session: Session)
     assert second.occurred_at > first.occurred_at
 
 
+SUBJECT = uuid.UUID("00000000-0000-7000-8000-000000000001")
+
+
 def event(
     *,
     at: datetime,
@@ -398,9 +401,9 @@ def event(
     changes: dict[str, Any] | None = None,
     context: dict[str, Any] | None = None,
     actor: ActorContext = CLI,
+    subject: uuid.UUID = SUBJECT,
 ) -> AuditLogEntry:
     """An event as stored, without the database (pure formatter tests)."""
-    subject = uuid.UUID("00000000-0000-7000-8000-000000000001")
     return AuditLogEntry(
         id=uuid.uuid7(),
         occurred_at=at,
@@ -425,6 +428,21 @@ def test_events_outside_a_request_group_only_when_close_together() -> None:
     ]
 
     assert [len(group) for group in history.group_events(newest_first)] == [1, 2]
+
+
+def test_a_feed_across_records_joins_each_save_despite_concurrent_saves() -> None:
+    other = uuid.uuid7()
+    saves = [("r1", SUBJECT), ("r2", other), ("r1", SUBJECT), ("r2", other)]
+    newest_first = [
+        event(at=AT + timedelta(seconds=n), context={"source": "ui", "request_id": r}, subject=s)
+        for n, (r, s) in enumerate(saves)
+    ][::-1]
+
+    # One record's history keeps consecutive runs (its pages cut between entries)…
+    assert [len(group) for group in history.group_events(newest_first)] == [1, 1, 1, 1]
+    # …Home's feed across records joins a request's events on one record wherever they fall.
+    feed = history.group_events(newest_first, across_records=True)
+    assert [(group[0].subject_id, len(group)) for group in feed] == [(other, 2), (SUBJECT, 2)]
 
 
 def test_pages_follow_the_cursor_without_cutting_a_save(

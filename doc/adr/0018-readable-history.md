@@ -27,7 +27,8 @@ entry is, and how a long history is paged.
    dates entries relatively.
 2. **One entry per save**: consecutive events with the same subject, actor, source and request id (ADR-0006 binds one
    per HTTP request); events without a request id group when consecutive with the same actor and source and under 5 s
-   apart. Within an entry, a primary flag moving from one row to another reads as one line.
+   apart. Home's feed across records also joins a request's events on one record when concurrent saves on other
+   records interleave with them. Within an entry, a primary flag moving from one row to another reads as one line.
 3. **Cursor pages of entries**: `GET /api/{prospects|companies}/{id}/history?limit=&before=`; the server reads events
    in blocks until one more entry starts, so an entry is never split, and returns the id of the page's last event as
    `next_cursor` (order `occurred_at`, `id` — deterministic).
