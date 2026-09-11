@@ -26,8 +26,17 @@ Implemented in Task 04 — design and rationale in [ADR-0004](../adr/0004-authen
   client address in 15 min → 429 (in-process, single instance).
 - **Protected by default**: every `/api/*` route requires a session except `GET /api/health` and
   `POST /api/auth/login` (plus the OpenAPI schema/docs, which expose no data). New routers go into `api_router` and
-  inherit the guard; a test walks all routes. The SPA redirects anonymous visitors to `/login` (the API is the real
-  boundary).
+  inherit the guard; a test walks all routes (401 without a session) and every unsafe route (403 for a signed-in
+  request without the CSRF token). The SPA redirects anonymous visitors to `/login` (the API is the real boundary).
+- **Response headers** (Task 20, `app/api/security_headers.py`): every API response carries
+  `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'`,
+  `Referrer-Policy: no-referrer` and `Cache-Control: no-store` (a response may set its own). The SPA's HTML/assets and
+  HSTS belong to the production reverse proxy ([runbook-production.md](../process/runbook-production.md)).
+- **Logs** (Task 20): the application logs exception classes and row numbers only; the database engine hides bound
+  values from exception messages (`hide_parameters`), so a traceback does not list the names or addresses a statement
+  carried. Two residual sources remain and are production concerns: PostgreSQL error *details* can quote a value
+  (e.g. a unique violation), and access logs record query strings (`/api/search?q=…`) — run uvicorn without access
+  logs or strip query strings at the proxy, and treat server logs as personal data (runbook-production.md).
 
 ### Secret handling
 - Nothing secret is committed: no default account, no default password, no signing key (none is needed — CSRF tokens

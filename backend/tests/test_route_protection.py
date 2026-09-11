@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.api import router as api_routers
 from app.api.dependencies import CurrentActor, SessionDep
+from app.api.session_cookie import CSRF_HEADER
 from app.core.actor import ActorType
 from app.models import ContactTrackingStatusHistory, User
 from app.models.enums import ContactTrackingStatus
@@ -53,6 +54,26 @@ def test_only_allowlisted_routes_answer_without_a_session(
     }
 
     assert reachable == PUBLIC_ROUTES
+
+
+def test_every_unsafe_route_refuses_a_signed_in_request_without_the_csrf_token(
+    app: FastAPI, client: TestClient
+) -> None:
+    del client.headers[CSRF_HEADER]
+    unsafe = [
+        (method, path)
+        for method, path in api_routes(app)
+        if method in {"POST", "PUT", "PATCH", "DELETE"} and (method, path) not in PUBLIC_ROUTES
+    ]
+    assert len(unsafe) >= 19
+
+    accepted = {
+        (method, path)
+        for method, path in unsafe
+        if client.request(method, concrete(path), json={}).status_code != 403
+    }
+
+    assert accepted == set()
 
 
 def test_the_only_other_routes_are_the_api_documentation(app: FastAPI) -> None:

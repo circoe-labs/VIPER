@@ -14,6 +14,9 @@ def create_db_engine(database_url: str) -> Engine:
         database_url,
         pool_pre_ping=True,
         connect_args={"connect_timeout": CONNECT_TIMEOUT_SECONDS},
+        # Bound values (names, e-mail addresses…) never appear in exception messages, hence in
+        # tracebacks and logs.
+        hide_parameters=True,
     )
 
 
