@@ -259,3 +259,15 @@ found, what was sent back for rework, and the verification evidence accepted. Ta
   own 20k load tests on the same Postgres server at that moment (whole suite 8 min instead of ~1); re-run alone:
   both pass (10 s total). Not a regression; CI runs in isolation.
 - Next: Task 19 (history/provenance UI, worktree `task-19-history`) while Task 17 continues.
+
+### Task 17 — Global search (2026-09-11) — ACCEPTED; Home performance regression found
+
+- Commits `f6f9367` (auth.spec flake fix, scoped to the header), `12ba8b6`, `0d094fd`, `f72e3fb`; merged as
+  `33fc7c3`. `GET /api/search` (prospects by name/any email/phone digits, companies by name/legal name/SIREN/domain/
+  website, establishments by SIRET/name/city; typed grouped results with match kind and badges), accent/case folding,
+  short-word prefix rule, `pg_trgm` GIN indexes (migration 0007, ADR-0017; p95 ≈ 40–57 ms on 20 000 prospects), shell
+  search with Ctrl+K and `/`, stale-response protection, keyboard navigation. I-120..I-129. Screenshots reviewed.
+- **Regression found by the orchestrator's verification**: after the merge, `test_home_on_20k_prospects` takes
+  277–308 s run alone (budget 2 s), while it passed alone before the Task 17 merge. Not contention. Dispatched a
+  dedicated diagnosis agent (branch `fix-home-performance`) to find the root cause with EXPLAIN ANALYZE and fix it
+  robustly (query/index), not by raising the budget.
