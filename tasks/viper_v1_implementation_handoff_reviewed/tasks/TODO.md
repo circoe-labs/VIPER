@@ -31,9 +31,9 @@ VIPER V1 is a database-first human dashboard for maintaining prospect/company/co
 - [x] **11** `11-database-explorer-read` — tables/metadata/grid/read ergonomics
 - [x] **12** `12-database-explorer-edit` — staged edit/delete/audit
 - [x] **13** `13-database-explorer-sql` — backend-enforced read-only SQL
-- [~] **14** `14-prospection-workspace` — actionable counters/filters/people list
-- [ ] **15** `15-prospect-editor` — create/edit/verification/contact aliases/Save & Next
-- [ ] **16** `16-home-dashboard` — global activity/database-health dashboard
+- [x] **14** `14-prospection-workspace` — actionable counters/filters/people list
+- [~] **15** `15-prospect-editor` — create/edit/verification/contact aliases/Save & Next
+- [~] **16** `16-home-dashboard` — global activity/database-health dashboard
 - [ ] **17** `17-global-search` — cross-entity quick search (explicitly defer only if necessary)
 - [x] **18** `18-exploitation-placeholder` — Coming soon only
 - [ ] **19** `19-audit-history-ui` — focused visible history/provenance
