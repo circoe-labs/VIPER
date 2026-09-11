@@ -32,6 +32,9 @@ Implemented in Task 04 — design and rationale in [ADR-0004](../adr/0004-authen
   `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'`,
   `Referrer-Policy: no-referrer` and `Cache-Control: no-store` (a response may set its own). The SPA's HTML/assets and
   HSTS belong to the production reverse proxy ([runbook-production.md](../process/runbook-production.md)).
+- **Refusals** (Task 20): a malformed request gets FastAPI's 422 shape without its `input` field, so no refusal
+  echoes a submitted password, name or address (`app/api/errors.validation_refused`); service refusals carry codes
+  and field paths, never values.
 - **Logs** (Task 20): the application logs exception classes and row numbers only; the database engine hides bound
   values from exception messages (`hide_parameters`), so a traceback does not list the names or addresses a statement
   carried. Two residual sources remain and are production concerns: PostgreSQL error *details* can quote a value

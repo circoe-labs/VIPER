@@ -1,4 +1,5 @@
-"""Security headers on every API response; no bound value in database error messages (Task 20)."""
+"""Security headers on every API response; no submitted or bound value echoed in a refusal or in a
+database error message (Task 20)."""
 
 import pytest
 from fastapi.testclient import TestClient
@@ -50,3 +51,19 @@ def test_database_errors_do_not_quote_the_bound_values(db_session: Session) -> N
 
     assert "division by zero" in str(error.value)
     assert SYNTHETIC_ADDRESS not in str(error.value)
+
+
+def test_a_malformed_request_is_refused_without_echoing_what_was_sent(
+    anonymous_client: TestClient, client: TestClient
+) -> None:
+    password = {"valeur": "mot-de-passe-synthetique-secret"}
+    login = anonymous_client.post(
+        "/api/auth/login", json={"email": SYNTHETIC_ADDRESS, "password": password}
+    )
+    create = client.post("/api/companies", json={"display_name": {"nom": "Transports Secret"}})
+
+    for response in (login, create):
+        assert response.status_code == 422
+        assert all("input" not in error and error["loc"] for error in response.json()["detail"])
+    assert "mot-de-passe-synthetique-secret" not in login.text
+    assert "Transports Secret" not in create.text
