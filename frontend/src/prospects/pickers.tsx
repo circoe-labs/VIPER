@@ -44,8 +44,7 @@ export function CompanyPicker({ id, value, selectedLabel, error, warning, onChan
       id={id}
       label="Entreprise"
       required
-      placeholder="Rechercher une entreprise"
-      hint="Recherche sur le nom ; créez-la si elle n’existe pas encore."
+      placeholder="Rechercher ou créer une entreprise"
       options={options}
       status={results.isError ? 'error' : settled ? 'ready' : 'loading'}
       value={value}
@@ -96,11 +95,7 @@ export function RolePicker({ id, roleId, roleLabel, error, warning, onChange }: 
       id={id}
       label="Rôle"
       placeholder="Choisir ou créer un rôle"
-      hint={
-        roleLabel
-          ? `« ${roleLabel} » sera ajouté aux rôles à l’enregistrement, pour tous les prospects.`
-          : 'Classification normalisée, utilisée par les filtres.'
-      }
+      hint={roleLabel ? `« ${roleLabel} » sera ajouté aux rôles à l’enregistrement, pour tous les prospects.` : undefined}
       options={options}
       status={roles.isError ? 'error' : roles.isPending ? 'loading' : 'ready'}
       value={roleLabel ? NEW_ROLE : roleId}

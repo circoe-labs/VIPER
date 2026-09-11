@@ -181,7 +181,9 @@ export function AliasList({ kind, aliases, onChange, errors, fieldId, companyMov
                 <StatusBadge tone={state.tone} icon={state.icon}>
                   {state.text}
                 </StatusBadge>
-                <span className="prospect-alias__origin">{originLabel(kind, alias)}</span>
+                <span className="prospect-alias__origin" title={originLabel(kind, alias)}>
+                  {originLabel(kind, alias)}
+                </span>
                 <span className="prospect-alias__actions">
                   <Button
                     size="sm"

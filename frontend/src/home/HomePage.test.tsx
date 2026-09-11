@@ -258,19 +258,21 @@ describe('Home page', () => {
     expect(await screen.findByRole('heading', { level: 2, name: 'La base est vide' })).toBeInTheDocument()
     const main = screen.getByRole('main')
     expect(within(main).getAllByRole('link', { name: 'Importer Excel' })).toHaveLength(2)
-    expect(within(main).queryByRole('link', { name: 'Ajouter un prospect' })).not.toBeInTheDocument()
+    // The Prospect editor (Task 15) can create a person: the empty base also offers to add one by hand.
+    expect(within(main).getByRole('link', { name: 'Ajouter un prospect' })).toHaveAttribute('href', '/prospection?prospect=new')
     expect(screen.queryByRole('heading', { name: 'État de la base' })).not.toBeInTheDocument()
     expect(screen.queryByRole('meter')).not.toBeInTheDocument()
     expect(screen.getByText('Aucun import pour l’instant.')).toBeInTheDocument()
     expect(screen.getByText('Aucune modification manuelle pour l’instant.')).toBeInTheDocument()
   })
 
-  it('offers to add a prospect when the prospect editor can create one', async () => {
+  it('does not offer to add a prospect when the prospect editor cannot create one', async () => {
     renderHome(homeData(), {
-      wrap: (app) => <ProspectEditorContext.Provider value={{ canCreate: true, Editor: () => null }}>{app}</ProspectEditorContext.Provider>,
+      wrap: (app) => <ProspectEditorContext.Provider value={{ canCreate: false, Editor: () => null }}>{app}</ProspectEditorContext.Provider>,
     })
 
-    expect(await screen.findByRole('link', { name: 'Ajouter un prospect' })).toHaveAttribute('href', '/prospection?prospect=new')
+    expect(await screen.findByRole('heading', { level: 2, name: 'La base est vide' })).toBeInTheDocument()
+    expect(within(screen.getByRole('main')).queryByRole('link', { name: 'Ajouter un prospect' })).not.toBeInTheDocument()
   })
 
   it('says honestly what V1 does not show, and mocks no agent, e-mail or Calendly figure', async () => {

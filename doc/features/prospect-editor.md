@@ -73,7 +73,7 @@ phone** (own status and date). Identity fields are not re-verified individually.
 
 | Situation | Treatment |
 |---|---|
-| Imported values never verified | Emploi and Vérification sections get a warning edge; Entreprise, Rôle, Intitulé exact get a warning outline and the text *Valeur importée, jamais vérifiée : confirmez-la.*; the Activité choice a warning outline. Aliases: warning edge + *Importé, jamais vérifié*. Sections show counts (*1 à vérifier*). |
+| Imported values never verified | Emploi and Vérification sections get a warning edge; Entreprise, Rôle, Intitulé exact get a warning outline and the text *Importé, à confirmer* (*Nouvelle entreprise, à confirmer* after a company change); the Activité choice a warning outline. Aliases: warning edge + *Importé, jamais vérifié*. Sections show counts (*1 à vérifier*). |
 | Verified | Subtle success badge with the date (*Vérifié le 3 sept. 2026*) — the mint success colour, not the brand green. |
 | Stale | Only when the threshold is configured: *Vérifié le … · ancien* (warning, clock glyph), for the employment and the aliases. |
 | Missing | Actionable empty states: *Aucune adresse. Ajoutez…*, *Aucune entreprise choisie*, *Pas encore vérifié*; a new form starts with one empty e-mail and phone line. |

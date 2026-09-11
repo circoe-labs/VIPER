@@ -94,6 +94,10 @@
   grid-template-columns: minmax(0, 1fr);
 }
 
+.prospect-editor__wide {
+  grid-column: 1 / -1;
+}
+
 .prospect-editor__identity {
   display: grid;
   grid-template-columns: 6.5rem repeat(2, minmax(0, 1fr));
@@ -176,6 +180,7 @@
 
 .prospect-segmented__options {
   display: flex;
+  justify-self: start;
   border: var(--border-width) solid var(--color-border-strong);
   border-radius: var(--radius-sm);
   overflow: hidden;
@@ -187,12 +192,10 @@
 
 .prospect-segmented__option {
   display: flex;
-  flex: 1;
   align-items: center;
-  justify-content: center;
   gap: var(--space-2);
   min-height: var(--control-md);
-  padding: 0 var(--space-3);
+  padding: 0 var(--space-4);
   background: var(--color-field);
   font-size: var(--text-md);
   cursor: pointer;

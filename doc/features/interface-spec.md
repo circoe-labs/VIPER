@@ -53,12 +53,12 @@ People-oriented readable rows/cards, not a raw table. Show: identity, Role/exact
 
 ### As implemented (Task 14)
 Segments, counters, criteria, URL and open-editor contract: [prospection-kpis.md](prospection-kpis.md). Header
-*Entreprises*, *Importer Excel*, *Exporter Excel*, *+ Ajouter un prospect* (disabled until Task 15); 16 counter cards
+*Entreprises*, *Importer Excel*, *Exporter Excel*, *+ Ajouter un prospect* (opens the Prospect editor, Task 15); 16 counter cards
 in three groups (*Base*, *Vérification*, *Suivi de contact*) that toggle the list's segment; search, *Filtres* (role,
 activity, contact stage, referent, company, import) and sort; one card per person (identity, role · exact title,
 activity and verification badges, company, primary e-mail state, phone, stage, planned date + week, due, referent,
-do-not-contact). All state in the URL (`?segment=due&q=…&page=2`); opening a person sets `?prospect=<id>` — until Task
-15 it opens their row in the Database Explorer.
+do-not-contact). All state in the URL (`?segment=due&q=…&page=2`); opening a person sets `?prospect=<id>` and opens the
+Prospect editor over the list (Task 15).
 
 ### Prospect editor
 Wide drawer/modal preserving current filtered queue. Reuse same component for create/edit.
@@ -83,6 +83,16 @@ Visual feedback:
 - unsaved changes: dirty-state bar.
 
 Actions: Save, Cancel, Delete if safe/authorized, Save & Next.
+
+Implemented by Task 15 — fields, rules, API and behaviour: [prospect-editor.md](prospect-editor.md). A 64 rem drawer in
+two columns (person: *Identité*, *Emploi*, *Vérification de l'emploi*, *E-mails*, *Téléphones*; context: *Opposition*,
+*Suivi de contact*, *Entreprise*, *Provenance*), the same for `?prospect=new`. Imported values never verified carry a
+warning edge, outline and « Importé, à confirmer »; verifications a success badge with the date (stale only with
+`VIPER_VERIFICATION_STALE_DAYS`); every state is glyph + text. *Vérifié aujourd'hui* and the one-click *Vérifié* of
+each alias are explicit actions; a company change shows its re-verification effect before saving. The opposition is set
+and lifted through confirmation dialogs with a reason, apart from the save. Dirty-state footer with *Supprimer* (refused
+for an opposed person), *Annuler les modifications* / *Fermer*, *Enregistrer*, *Enregistrer et suivant* (the list's
+queue; *Enregistrer et nouveau* for a new person, keeping the company); Ctrl+S, Ctrl+Entrée, Échap (guarded).
 
 ## Company editor
 
@@ -138,7 +148,7 @@ figure or date; the navigation item is current. Replace the component when the a
 |---|---|---|
 | `/login` | Connexion (public) | — |
 | `/` | Accueil: global dashboard (Task 16) | Accueil |
-| `/prospection` | Prospection: counters, filters and people list (Task 14) | Prospection |
+| `/prospection` | Prospection: counters, filters and people list (Task 14); `?prospect=<id\|new>` opens the Prospect editor (Task 15) | Prospection |
 | `/prospection/companies` | Entreprises list + Company editor (Task 07) | Prospection |
 | `/exploitation` | Exploitation — Bientôt disponible (Task 18) | Exploitation |
 | `/database/:table?` | Base de données (Task 11) | Base de données |

@@ -17,8 +17,8 @@ export interface SectionProps {
   onChange: (patch: Partial<ProspectDraft>) => void
 }
 
-const IMPORTED_HINT = 'Valeur importée, jamais vérifiée : confirmez-la.'
-const MOVED_HINT = 'Nouvelle entreprise : à confirmer.'
+const IMPORTED_HINT = 'Importé, à confirmer'
+const MOVED_HINT = 'Nouvelle entreprise, à confirmer'
 
 export function IdentitySection({ draft, errors, fieldId, onChange, firstFieldRef }: SectionProps & { firstFieldRef: RefObject<HTMLInputElement | null> }) {
   return (
@@ -107,18 +107,20 @@ export function EmploymentSection({ draft, errors, fieldId, onChange, prospect, 
           warning={warning}
           onChange={onChange}
         />
-        <TextField
-          id={fieldId('exact_job_title')}
-          label="Intitulé exact"
-          hint="Le libellé de poste tel que la personne l’emploie."
-          value={draft.exact_job_title}
-          error={errors.exact_job_title}
-          warning={warning}
-          onChange={(event) => {
-            onChange({ exact_job_title: event.target.value })
-          }}
-        />
-        <fieldset className="prospect-segmented" data-warning={warning ? '' : undefined}>
+        <div className="prospect-editor__wide">
+          <TextField
+            id={fieldId('exact_job_title')}
+            label="Intitulé exact"
+            placeholder="Le libellé de poste tel que la personne l’emploie"
+            value={draft.exact_job_title}
+            error={errors.exact_job_title}
+            warning={warning}
+            onChange={(event) => {
+              onChange({ exact_job_title: event.target.value })
+            }}
+          />
+        </div>
+        <fieldset className="prospect-segmented prospect-editor__wide" data-warning={warning ? '' : undefined}>
           <legend className="field__label">Activité</legend>
           <div className="prospect-segmented__options">
             {ACTIVITIES.map((activity) => (
@@ -136,7 +138,7 @@ export function EmploymentSection({ draft, errors, fieldId, onChange, prospect, 
               </label>
             ))}
           </div>
-          <p className="field__hint">En poste, parti, ou pas encore déterminé. Sans lien avec l’opposition.</p>
+          <p className="field__hint">En poste, parti, ou pas encore déterminé.</p>
         </fieldset>
       </div>
     </EditorSection>
@@ -157,7 +159,7 @@ export function VerificationSection({ draft, errors, fieldId, onChange, prospect
   return (
     <EditorSection title="Vérification de l’emploi" state={state} tone={state.tone === 'warning' ? 'warning' : undefined}>
       <p className="prospect-editor__muted">
-        Confirme l’entreprise, le rôle, l’intitulé et l’activité. Les e-mails et téléphones ont chacun leur vérification.
+        Couvre l’entreprise, le rôle, l’intitulé et l’activité ; e-mails et téléphones ont leur propre vérification.
       </p>
       <div className="prospect-verify">
         <Button

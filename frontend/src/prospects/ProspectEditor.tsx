@@ -491,8 +491,7 @@ function EditorStatus({ dirty, notice, errorCount, refusal, segment }: EditorSta
   }
   return (
     <span className="prospect-editor__keys">
-      <kbd>Ctrl</kbd>+<kbd>S</kbd> enregistrer · <kbd>Ctrl</kbd>+<kbd>Entrée</kbd> enregistrer et suivant · <kbd>Échap</kbd>{' '}
-      fermer
+      <kbd>Ctrl</kbd>+<kbd>S</kbd> enregistrer · <kbd>Ctrl</kbd>+<kbd>Entrée</kbd> suivant · <kbd>Échap</kbd> fermer
     </span>
   )
 }

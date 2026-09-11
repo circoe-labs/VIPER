@@ -158,6 +158,13 @@ To see it with data, load the synthetic explorer dataset into an `_e2e` database
 workbook (below). `VIPER_VERIFICATION_STALE_DAYS=<days>` (unset by default, open question #9) makes verifications older
 than that count as « À revérifier ».
 
+### Prospect editor (Task 15)
+
+A person of the Prospection list opens in the Prospect editor (`?prospect=<id>`; *+ Ajouter un prospect* is
+`?prospect=new`), backed by `/api/prospects` (`doc/features/prospect-editor.md`). After a synthetic
+import, the imported people show the « à confirmer » warning states; `VIPER_VERIFICATION_STALE_DAYS` also
+marks old alias verifications as « ancien ».
+
 ### Home (Task 16)
 
 `/` reads `GET /api/home` (definitions: `doc/features/home-dashboard.md`). With an empty database it invites to import;

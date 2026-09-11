@@ -87,16 +87,14 @@ describe('Prospect editor', () => {
     const verification = region('Vérification de l’emploi')
     const badge = within(verification).getByText('Valeurs importées, jamais vérifiées')
     expect(badge.closest('.badge')?.querySelector('svg')).not.toBeNull()
-    expect(screen.getByRole('textbox', { name: 'Intitulé exact' })).toHaveAccessibleDescription(
-      /Valeur importée, jamais vérifiée : confirmez-la\./,
-    )
+    expect(screen.getByRole('textbox', { name: 'Intitulé exact' })).toHaveAccessibleDescription('Importé, à confirmer')
     expect(region('E-mails')).toHaveTextContent('1 à vérifier')
     expect(region('E-mails')).toHaveTextContent('Importé, jamais vérifié')
 
     await userEvent.click(within(verification).getByRole('button', { name: 'Vérifié aujourd’hui' }))
 
     expect(verification).toHaveTextContent('Vérifié aujourd’hui — à enregistrer')
-    expect(screen.getByRole('textbox', { name: 'Intitulé exact' })).not.toHaveAccessibleDescription(/importée/)
+    expect(screen.getByRole('textbox', { name: 'Intitulé exact' })).not.toHaveAccessibleDescription(/Importé/)
     expect(screen.getByRole('status')).toHaveTextContent('Modifications non enregistrées')
   })
 
@@ -110,7 +108,7 @@ describe('Prospect editor', () => {
     )
 
     expect(region('Vérification de l’emploi')).toHaveTextContent('Vérifié le 3 sept. 2026')
-    expect(screen.getByRole('textbox', { name: 'Intitulé exact' })).not.toHaveAccessibleDescription(/importée/)
+    expect(screen.getByRole('textbox', { name: 'Intitulé exact' })).not.toHaveAccessibleDescription(/Importé/)
   })
 
   it('saves the whole form in one request, then refreshes the Prospection list', async () => {
