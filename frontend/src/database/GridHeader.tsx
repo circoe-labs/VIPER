@@ -12,12 +12,19 @@ const RESIZE_STEP = 16
 interface GridHeaderProps {
   header: Header<ExplorerRow, unknown>
   column: ExplorerColumn
+  // Position among the displayed columns (`data-header`, for the header row's arrow-key navigation).
+  index: number
+  // The header row is one tab stop: only the active column's header is in the tab order.
+  tabbable: boolean
+  // Id of the element describing the header's keyboard shortcuts.
+  hintId: string
   // Why the column cannot be edited, in a table that can be (null: editable, or nothing is editable here).
   lockReason: string | null
   style: CSSProperties
   sort: SortKey[]
   filterCount: number
   dragging: string | null
+  onFocus: () => void
   onSort: (additive: boolean) => void
   onOpenFilter: (anchor: HTMLElement) => void
   onOpenMenu: (anchor: HTMLElement) => void
@@ -31,16 +38,22 @@ interface GridHeaderProps {
 
 const SORT_LABELS = { asc: 'tri croissant', desc: 'tri décroissant' }
 
-// Column header: sort (click, Shift+click to add), drag to reorder, filter popover, options menu, and a resize
-// handle that also works with the keyboard (focus it, then ← / →).
+// Column header: sort (click, Shift+click to add), drag to reorder, filter popover, options menu and a resize handle
+// for the mouse. From the keyboard the header is one focus stop (the grid moves between headers with ← / →) whose
+// actions are keys: Enter sorts, Shift+Enter adds to the sort, Alt+↓ (or Shift+F10) opens the options menu — filter
+// included —, Shift+← / Shift+→ resize.
 export function GridHeader({
   header,
   column,
+  index,
+  tabbable,
+  hintId,
   lockReason,
   style,
   sort,
   filterCount,
   dragging,
+  onFocus,
   onSort,
   onOpenFilter,
   onOpenMenu,
@@ -64,11 +77,20 @@ export function GridHeader({
     setDropSide(event.clientX > left + cellWidth / 2 ? 'after' : 'before')
   }
 
-  function resizeWithKeyboard(event: KeyboardEvent<HTMLDivElement>) {
-    const delta = event.key === 'ArrowLeft' ? -RESIZE_STEP : event.key === 'ArrowRight' ? RESIZE_STEP : 0
-    if (!delta) return
+  // The header's own keys; the grid handles the others (moving between headers, down into the rows).
+  function headerKeys(event: KeyboardEvent<HTMLButtonElement>) {
+    const resize = event.shiftKey && !event.altKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')
+    if (resize) {
+      const delta = event.key === 'ArrowLeft' ? -RESIZE_STEP : RESIZE_STEP
+      onResize(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, width + delta)))
+    } else if ((event.altKey && event.key === 'ArrowDown') || (event.shiftKey && event.key === 'F10') || event.key === 'ContextMenu') {
+      onOpenMenu(event.currentTarget)
+    } else if (event.key === 'Enter' && event.shiftKey) {
+      onSort(true)
+    } else {
+      return
+    }
     event.preventDefault()
-    onResize(width + delta)
   }
 
   const stateLabel = direction
@@ -103,8 +125,13 @@ export function GridHeader({
         type="button"
         className="grid__header-sort"
         draggable
+        tabIndex={tabbable ? 0 : -1}
+        data-header={index}
         aria-label={`${column.name}, ${stateLabel}`}
+        aria-describedby={hintId}
         title="Cliquer pour trier · Maj+clic pour ajouter au tri · glisser pour déplacer"
+        onFocus={onFocus}
+        onKeyDown={headerKeys}
         onClick={(event) => {
           onSort(event.shiftKey)
         }}
@@ -143,6 +170,7 @@ export function GridHeader({
             icon={FilterIcon}
             size="sm"
             className="grid__header-filter"
+            tabIndex={-1}
             data-active={filterCount > 0 ? '' : undefined}
             label={filterCount > 0 ? `Filtres sur ${column.name} (${String(filterCount)})` : `Filtrer ${column.name}`}
             onClick={(event) => {
@@ -154,6 +182,7 @@ export function GridHeader({
           icon={MoreIcon}
           size="sm"
           className="grid__header-menu"
+          tabIndex={-1}
           label={`Options de la colonne ${column.name}`}
           aria-haspopup="menu"
           onClick={(event) => {
@@ -161,20 +190,14 @@ export function GridHeader({
           }}
         />
       </span>
+      {/* Mouse handle; the keyboard resizes from the header (Shift+← / Shift+→). */}
       <div
-        role="separator"
-        aria-orientation="vertical"
-        aria-label={`Largeur de ${column.name}`}
-        aria-valuenow={width}
-        aria-valuemin={MIN_WIDTH}
-        aria-valuemax={MAX_WIDTH}
-        tabIndex={0}
+        aria-hidden="true"
         className="grid__resizer"
         data-resizing={header.column.getIsResizing() ? '' : undefined}
         onMouseDown={header.getResizeHandler()}
         onTouchStart={header.getResizeHandler()}
         onDoubleClick={onResetWidth}
-        onKeyDown={resizeWithKeyboard}
       />
     </th>
   )

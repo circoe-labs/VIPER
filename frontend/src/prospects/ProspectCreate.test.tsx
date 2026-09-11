@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { ProspectCreateInput } from '../api/prospects'
 import { company } from '../test/companiesApi'
+import { fill } from '../test/fill'
 import { lastBody, stubProspectsApi } from '../test/prospectsApi'
 import { renderProspectEditor } from '../test/renderProspectEditor'
 
@@ -15,20 +16,31 @@ async function pickCompany(text: string, option: RegExp) {
   await userEvent.click(await screen.findByRole('option', { name: option }))
 }
 
+// Nina Nouvelle at Transports Exemple SARL with one e-mail, then « Enregistrer et nouveau ».
+async function createNina() {
+  await fill(screen.getByRole('textbox', { name: 'Prénom' }), 'Nina')
+  await fill(screen.getByRole('textbox', { name: 'Nom' }), 'Nouvelle')
+  await pickCompany('Transports', /Transports Exemple SARL/)
+  await fill(screen.getByRole('textbox', { name: 'Adresse e-mail' }), 'nina@exemple.example')
+  await userEvent.click(screen.getByRole('button', { name: 'Enregistrer et nouveau' }))
+  expect(await screen.findByText(/Prospect enregistré\. Saisissez le suivant/)).toBeInTheDocument()
+}
+
 describe('Prospect editor — new prospect', () => {
-  it('creates a person with the company and the manual provenance, then offers the next one', async () => {
-    const api = stubProspectsApi({ companies: [employer] })
+  it('opens on an empty form with the first name focused', () => {
+    stubProspectsApi({ companies: [employer] })
     renderProspectEditor('new')
+
     expect(screen.getByRole('dialog', { name: 'Nouveau prospect' })).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: 'Prénom' })).toHaveFocus()
+  })
 
-    await userEvent.type(screen.getByRole('textbox', { name: 'Prénom' }), 'Nina')
-    await userEvent.type(screen.getByRole('textbox', { name: 'Nom' }), 'Nouvelle')
-    await pickCompany('Transports', /Transports Exemple SARL/)
-    await userEvent.type(screen.getByRole('textbox', { name: 'Adresse e-mail' }), 'nina@exemple.example')
-    await userEvent.click(screen.getByRole('button', { name: 'Enregistrer et nouveau' }))
+  it('creates a person with the company and the manual provenance', async () => {
+    const api = stubProspectsApi({ companies: [employer] })
+    renderProspectEditor('new')
 
-    expect(await screen.findByText(/Prospect enregistré\. Saisissez le suivant/)).toBeInTheDocument()
+    await createNina()
+
     const body = lastBody(api.requests, 'POST') as ProspectCreateInput
     expect(body).toMatchObject({
       first_name: 'Nina',
@@ -39,6 +51,14 @@ describe('Prospect editor — new prospect', () => {
       provenance: { legal_basis_or_collection_context: 'Saisie manuelle — prospection B2B', source_reference: null },
     })
     expect(body.emails).toEqual([expect.objectContaining({ address: 'nina@exemple.example', is_primary: true, verified_now: false })])
+  })
+
+  it('« Enregistrer et nouveau » offers an empty form for the next person of the same company', async () => {
+    stubProspectsApi({ companies: [employer] })
+    renderProspectEditor('new')
+
+    await createNina()
+
     expect(screen.getByRole('textbox', { name: 'Prénom' })).toHaveValue('')
     await waitFor(() => {
       expect(screen.getByRole('combobox', { name: /Entreprise/ })).toHaveValue('Transports Exemple SARL')
@@ -49,7 +69,7 @@ describe('Prospect editor — new prospect', () => {
     const api = stubProspectsApi()
     renderProspectEditor('new')
 
-    await userEvent.type(screen.getByRole('textbox', { name: 'Adresse e-mail' }), 'x@exemple.example')
+    await fill(screen.getByRole('textbox', { name: 'Adresse e-mail' }), 'x@exemple.example')
     await userEvent.keyboard('{Control>}s{/Control}')
 
     expect(screen.getByRole('textbox', { name: 'Nom' })).toHaveAccessibleDescription('Saisissez au moins un prénom ou un nom.')

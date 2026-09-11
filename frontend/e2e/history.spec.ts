@@ -14,6 +14,11 @@ test.beforeEach(async ({ page }) => {
 
 test.use({ viewport: { width: 1440, height: 900 } })
 
+// The part of GET /api/home this spec reads (frontend/src/api/home.ts).
+interface HomeAnswer {
+  recent_edits: { subject_id: string | null }[]
+}
+
 function region(scope: Locator, name: string) {
   return scope.getByRole('region', { name })
 }
@@ -70,18 +75,27 @@ test('an editor save reads back in the prospect history and on Home', async ({ p
   await editor.getByRole('combobox', { name: /Entreprise/ }).fill(employer)
   await page.getByRole('option', { name: new RegExp(`^${employer}`) }).click()
   await region(editor, 'Suivi de contact').getByRole('combobox', { name: 'Étape' }).selectOption({ label: 'Contacté' })
+  const saveResponse = page.waitForResponse(
+    (response) => response.request().method() === 'PUT' && /^\/api\/prospects\/[^/]+$/.test(new URL(response.url()).pathname),
+  )
   await editor.getByRole('button', { name: 'Enregistrer', exact: true }).click()
+  const { id } = (await (await saveResponse).json()) as { id: string }
   await expect(editor.getByText('Prospect enregistré.')).toBeVisible()
 
-  // Home first: its feed keeps the latest saves of the whole (shared) base.
+  // Home's feed keeps the 8 latest saves of the whole base, which other specs keep writing to: read it right after
+  // the save, check that the save is one entry there (Home joins a save's events on one record even when concurrent
+  // saves interleave them), then let the Home page render exactly that answer, so the line below stays on screen.
+  const home = (await (await page.request.get('/api/home')).json()) as HomeAnswer
+  expect(home.recent_edits.filter((edit) => edit.subject_id === id)).toHaveLength(1)
+  await page.route('**/api/home', (route) => route.fulfill({ json: home }))
   await page.goto('/')
   const feed = page.getByRole('region', { name: 'Dernières modifications' })
   const line = feed.getByRole('listitem').filter({ hasText: person })
   await expect(line).toContainText('Changement d’entreprise · E-mail principal modifié · E-mail ajouté · Suivi : Contacté')
   await expect(line).toContainText('Pilote E2E')
   await expect(line).not.toContainText(domain)
-  // Other specs keep saving: after a reload this line may have left the latest saves, so wait for any line.
-  await screenshots(page, 'history-home-feed', () => feed, () => feed.getByRole('listitem').first())
+  await screenshots(page, 'history-home-feed', () => feed, () => line)
+  await page.unroute('**/api/home')
 
   await page.goBack()
   await expect(entries(editor)).toHaveCount(2)

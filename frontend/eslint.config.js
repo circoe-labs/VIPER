@@ -19,6 +19,19 @@ export default defineConfig(
     languageOptions: { globals: globals.browser },
   },
   {
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/api/refresh.ts', 'src/**/*.test.{ts,tsx}'],
+    rules: {
+      'no-restricted-properties': [
+        'error',
+        {
+          property: 'invalidateQueries',
+          message: 'After a write use refreshAfterWrite (src/api/refresh.ts): invalidation alone keeps a request sent before the write.',
+        },
+      ],
+    },
+  },
+  {
     files: ['**/*.js'],
     extends: [tseslint.configs.disableTypeChecked],
     languageOptions: { globals: globals.node },

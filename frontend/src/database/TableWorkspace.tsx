@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'r
 import { Link, useNavigate } from 'react-router'
 
 import { ApiError } from '../api/client'
+import { refreshAfterWrite } from '../api/refresh'
 import { useCompanyEditor } from '../companies/CompanyEditorProvider'
 import {
   changeErrors,
@@ -156,7 +157,7 @@ export function TableWorkspace({ table, view, onViewChange, origin }: TableWorks
       columnState={columnState}
       onColumnAction={dispatch}
       onRefresh={() => {
-        void queryClient.invalidateQueries({ queryKey: explorerKeys.all })
+        void refreshAfterWrite(queryClient, [explorerKeys.all])
       }}
       onNavigate={(href) => {
         void navigate(href, { state: { origin: { table } satisfies NavigationOrigin } })
@@ -360,7 +361,7 @@ function Workspace({ meta, view, onViewChange, origin, rows, columnState, onColu
       setSelection({ page: pageKey, ids: NO_SELECTION })
       setReviewing(false)
       announce(`${String(result.updated + result.inserted + result.deleted)} ligne(s) enregistrée(s) et inscrite(s) au journal d’audit.`)
-      await queryClient.invalidateQueries({ queryKey: explorerKeys.all })
+      await refreshAfterWrite(queryClient, [explorerKeys.all])
     } catch (error) {
       const errors = error instanceof ApiError ? changeErrors(error.detail) : null
       if (errors) {

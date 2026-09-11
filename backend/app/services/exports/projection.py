@@ -19,6 +19,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.db.session import whole_base_plan
 from app.models.companies import Company, Establishment
 from app.models.contact_tracking import ContactTracking
 from app.models.imports import ImportBatch, ImportRowMetadata
@@ -149,21 +150,27 @@ class ExportData:
 
 
 def load_export_data(session: Session) -> ExportData:
-    prospects = repository.prospects(session)
+    # Whole-base reads with joined child collections: planned without nested loops (ADR-0019).
+    with whole_base_plan(session):
+        prospects = repository.prospects(session)
+        company_rows = repository.companies(session)
+        segments = {row.id: row for row in repository.segments(session)}
+        roles = {row.id: row for row in repository.roles(session)}
+        referents = {row.id: row for row in repository.referents(session)}
+        source_rows = repository.sources(session)
+        batches = {row.id: row for row in repository.import_batches(session)}
+        metadata = repository.row_metadata(session)
     counts: dict[uuid.UUID, int] = defaultdict(int)
     for prospect in prospects:
         if prospect.company_id is not None:
             counts[prospect.company_id] += 1
-    segments = {row.id: row for row in repository.segments(session)}
     companies = sorted(
-        (_company(row, segments, counts[row.id]) for row in repository.companies(session)),
+        (_company(row, segments, counts[row.id]) for row in company_rows),
         key=lambda record: (fold(record.company.display_name), str(record.company.id)),
     )
     by_company = {record.company.id: record for record in companies}
-    roles = {row.id: row for row in repository.roles(session)}
-    referents = {row.id: row for row in repository.referents(session)}
     sources: dict[uuid.UUID, list[ProspectSource]] = defaultdict(list)
-    for source in repository.sources(session):
+    for source in source_rows:
         sources[source.prospect_id].append(source)
     records = sorted(
         (
@@ -172,12 +179,11 @@ def load_export_data(session: Session) -> ExportData:
         ),
         key=_prospect_order,
     )
-    batches = {row.id: row for row in repository.import_batches(session)}
     by_prospect = {record.prospect.id: record for record in records}
     return ExportData(
         prospects=tuple(records),
         companies=tuple(companies),
-        legacy=tuple(_legacy(repository.row_metadata(session), batches, by_prospect)),
+        legacy=tuple(_legacy(metadata, batches, by_prospect)),
         batches=batches,
     )
 

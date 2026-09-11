@@ -11,7 +11,10 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
-from fastapi import HTTPException, status
+from fastapi import HTTPException, Request, status
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
 from app.services.errors import (
     ConflictError,
@@ -59,3 +62,16 @@ def business_errors() -> Iterator[None]:
         raise refusal(status.HTTP_409_CONFLICT, "conflict", str(error)) from error
     except DoNotContactError as error:
         raise refusal(status.HTTP_409_CONFLICT, "do_not_contact", str(error)) from error
+
+
+async def validation_refused(_: Request, error: Exception) -> JSONResponse:
+    """FastAPI's 422 for a malformed request, without the submitted values: its `input` field would
+    echo a password, a name or an e-mail address back (Task 20, I-159)."""
+    assert isinstance(error, RequestValidationError)
+    errors = [
+        {key: value for key, value in item.items() if key != "input"} for item in error.errors()
+    ]
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        content={"detail": jsonable_encoder(errors)},
+    )

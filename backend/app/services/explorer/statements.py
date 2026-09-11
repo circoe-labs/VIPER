@@ -103,8 +103,12 @@ def _compile(node: Condition | Group) -> sa.ColumnElement[bool]:
 
 
 def _as_text(column: ColumnInfo) -> sa.ColumnElement[str]:
-    if column.kind in (ColumnKind.TEXT, ColumnKind.ENUM):
+    if column.kind is ColumnKind.TEXT:
         return column.column  # type: ignore[return-value]
+    if column.kind is ColumnKind.ENUM:
+        # Stored as varchar: compared as a plain string, so the searched text is not bound as the
+        # enum type, which refuses anything but its values.
+        return sa.type_coerce(column.column, sa.String)
     return sa.cast(column.column, sa.Text)
 
 

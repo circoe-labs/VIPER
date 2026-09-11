@@ -16,7 +16,7 @@ console (Task 13, section [SQL console](#sql-console-task-13)). Design and trade
 | Search | Global search box (debounced 300 ms): case-insensitive substring over text, enum, UUID, JSON and array columns. |
 | Filters | Per-column popover (filter icon or column menu): condition list valid for the column kind, typed input (number, date-time in browser local time, enum/boolean choices, value lists for `fait partie de`). Filters show as removable chips; several filters combine with AND; `Effacer les filtres` clears filters and search. |
 | Sort | Click a header: ascending → descending → none. Shift+click adds/cycles a column in a multi-column sort (priority shown). Column menu: sort ascending/descending/remove. |
-| Columns | Hide/show, pin/unpin left, move left/right (menu, column chooser, or drag a header onto another one), resize (drag the header edge, double-click = default width, or focus the edge and use ← / →). Layout persisted per table in `localStorage` (`viper.explorer.columns.<table>`), reconciled when the schema changes; `Réinitialiser la disposition`. |
+| Columns | Hide/show, pin/unpin left, move left/right (menu, column chooser, or drag a header onto another one), resize (drag the header edge, double-click = default width, or Shift+← / Shift+→ on a focused header). Layout persisted per table in `localStorage` (`viper.explorer.columns.<table>`), reconciled when the schema changes; `Réinitialiser la disposition`. |
 | Long values | Text/JSON longer than 240 characters is cut in pages (ellipsis + expand button); the **value viewer** (drawer) fetches the complete value, pretty-prints JSON, counts characters, copies. The expand button opens it; double-click or Enter open it on a read-only cell (they edit an editable one). |
 | Context menu | Right-click, Shift+F10 or the context-menu key on a cell: copy value (Ctrl+C), view full value, copy row as TSV or JSON (displayed columns, display order), filter on / exclude this value (NULL → `est vide` / `n’est pas vide`), open the referenced row (FK), `Lignes liées : <table>` (rows of other tables referencing this row). A truncated preview is never used as a filter value. |
 | FK navigation | Opens the target table filtered on its key; the hop is a browser history entry: `Retour à <table>` and browser Back restore the previous table with its filters. FK values render in teal with a link button. |
@@ -27,7 +27,12 @@ console (Task 13, section [SQL console](#sql-console-task-13)). Design and trade
 URL state: `/database/<table>?q=…&sort=a,-b&filters=[…]&page=2&size=250` — reload and deep links restore the view.
 
 Keyboard: arrows, Home/End (Ctrl = first/last cell), PageUp/PageDown (10 rows), Enter, Shift+F10, Ctrl+C; menus
-follow the WAI-ARIA menu pattern (arrows, Home/End, Enter, Esc returns focus to the cell).
+follow the WAI-ARIA menu pattern (arrows, Home/End, Enter, Esc returns focus to the cell). The grid has **two tab
+stops**: the header row and the rows, each with a roving focus that follows the active column. In the header row,
+← / → / Home / End move between headers, ↓ enters the first row (↑ on the first row comes back); on a header, Enter
+sorts, Shift+Enter adds to the sort, Alt+↓ (or Shift+F10 / the context-menu key) opens the column menu — which also
+holds *Filtrer…* — and Shift+← / Shift+→ resize by 16 px (announced). The filter and menu icons and the resize edge
+stay for the mouse, out of the tab order (I-154).
 
 ## Exposure policy
 
@@ -233,7 +238,11 @@ decision I-67).
 aligns the role and resets its grants; idempotent; **run it after every migration** (grants follow the tables). It
 needs `CREATEROLE` to create the role; without it, the command prints the SQL an administrator must run (password
 elided) and, once the role exists, applies the grants (the application role owns the tables). The test suite and the
-Playwright setup provision their databases themselves.
+Playwright setup provision their databases themselves. The role is shared by every database of the PostgreSQL
+cluster, so runs are serialized by `provisioning_lock`: an advisory lock held in the `postgres` maintenance database
+(advisory locks are per database) until the provisioning transaction has committed, or in the target database when
+the role may not connect to `postgres` (decision I-151). Parallel checkouts, pytest and the E2E setup can therefore
+provision at the same time without « tuple concurrently updated ».
 
 ## Code map
 

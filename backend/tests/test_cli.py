@@ -1,18 +1,31 @@
-"""`python -m app.cli create-user`: bootstrap or reset a login account without committed secrets."""
+"""`python -m app.cli`: bootstrap or reset a login account without committed secrets; provision the
+SQL console's reader role."""
 
 import getpass
 import io
+import threading
+import time
 from datetime import timedelta
 
 import pytest
-from sqlalchemy import select
+import sqlalchemy as sa
+from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from app import cli
 from app.cli import main
 from app.core.actor import ActorType
+from app.core.config import Settings
 from app.core.security import verify_password
+from app.db.session import create_session_factory
 from app.models import User, UserSession
 from app.services.auth import SessionPolicy, open_session, resolve_session
+from app.services.explorer import sql_reader
+from app.services.explorer.sql_reader import (
+    PROVISIONING_LOCK_KEY,
+    ProvisioningReport,
+    provisioning_lock,
+)
 from tests.builders import PILOT_EMAIL, PILOT_PASSWORD, audit_events
 
 NEW_PASSWORD = "nouveau-mot-de-passe-synthetique"
@@ -92,6 +105,30 @@ def test_create_user_on_an_existing_email_resets_the_password_and_signs_out(
     ]
 
 
+def test_a_password_piped_by_windows_powershell_loses_its_byte_order_mark(
+    session_factory: sessionmaker[Session],
+    db_session: Session,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # `"…" | python -m app.cli create-user --password-stdin` in Windows PowerShell 5.1 sends a UTF-8
+    # BOM first: kept, it became an invisible first character and the password never matched.
+    code, _ = run(
+        session_factory,
+        capsys,
+        monkeypatch,
+        "--email",
+        "pilote.bom@example.com",
+        "--display-name",
+        "Pilote BOM",
+        stdin=f"\ufeff{NEW_PASSWORD}\r\n",
+    )
+
+    assert code == 0
+    [user] = users(db_session)
+    assert verify_password(user.password_hash, NEW_PASSWORD)
+
+
 def test_create_user_prompts_twice_and_rejects_a_mismatch(
     session_factory: sessionmaker[Session],
     db_session: Session,
@@ -146,3 +183,82 @@ def test_provision_sql_reader_aligns_the_role_and_its_grants(
         "Updated role viper_sql_reader"
     )
     assert output.rstrip().endswith("SELECT on 16 exposed tables.")
+
+
+def databases_holding_the_provisioning_lock(engine: Engine) -> set[str]:
+    with engine.connect() as connection:
+        return set(
+            connection.scalars(
+                sa.text(
+                    "SELECT d.datname FROM pg_locks l JOIN pg_database d ON d.oid = l.database"
+                    " WHERE l.locktype = 'advisory' AND l.granted AND l.objid::bigint = :key"
+                ),
+                {"key": PROVISIONING_LOCK_KEY},
+            )
+        )
+
+
+def test_the_provisioning_lock_is_held_in_the_maintenance_database_or_else_the_target_one(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Advisory locks are per database: only the maintenance database is shared by every checkout.
+    with provisioning_lock(engine.url):
+        assert "postgres" in databases_holding_the_provisioning_lock(engine)
+
+    monkeypatch.setattr(sql_reader, "MAINTENANCE_DATABASE", "viper_absent_maintenance_probe")
+    with provisioning_lock(engine.url):
+        assert engine.url.database in databases_holding_the_provisioning_lock(engine)
+    assert engine.url.database not in databases_holding_the_provisioning_lock(engine)
+
+
+def a_lock_request_waits(engine: Engine) -> bool:
+    """True once some session of the cluster waits for a lock (within 10 s)."""
+    deadline = time.monotonic() + 10
+    waiting = sa.text("SELECT EXISTS (SELECT 1 FROM pg_locks WHERE NOT granted)")
+    with engine.connect() as connection:
+        while time.monotonic() < deadline:
+            if connection.scalar(waiting):
+                return True
+            time.sleep(0.02)
+    return False
+
+
+def test_two_provisioning_runs_at_once_take_turns(
+    engine: Engine, test_database_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Parallel checkouts provision the one reader role of the cluster: a run started while another
+    one is in progress waits for its commit instead of failing with "tuple concurrently updated"."""
+    settings = Settings(database_url=test_database_url)
+    factory = create_session_factory(engine)
+    first_run_wrote = threading.Event()
+    second_run_waited: list[bool] = []
+    provision = sql_reader.provision_sql_reader
+
+    def provision_then_let_the_other_run_start(
+        connection: sa.Connection, role: str, password: str
+    ) -> ProvisioningReport:
+        report = provision(connection, role, password)
+        if not first_run_wrote.is_set():
+            first_run_wrote.set()
+            second_run_waited.append(a_lock_request_waits(engine))
+        return report
+
+    monkeypatch.setattr("app.cli.provision_sql_reader", provision_then_let_the_other_run_start)
+    outcomes: list[str | Exception] = []
+
+    def run_command() -> None:
+        try:
+            outcomes.append(cli.provision_reader(factory, settings))
+        except Exception as error:
+            outcomes.append(error)
+
+    first = threading.Thread(target=run_command)
+    first.start()
+    assert first_run_wrote.wait(10)
+    second = threading.Thread(target=run_command)
+    second.start()
+    first.join(30)
+    second.join(30)
+
+    assert second_run_waited == [True]
+    assert [type(outcome) for outcome in outcomes] == [str, str], outcomes

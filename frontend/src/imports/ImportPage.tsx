@@ -3,6 +3,7 @@ import { useReducer, useRef } from 'react'
 import { Link } from 'react-router'
 
 import { type CommitResult, importKeys, previewImport } from '../api/imports'
+import { refreshAfterWrite } from '../api/refresh'
 import { ExportWorkbookButton } from '../exports/ExportWorkbookButton'
 import { Button } from '../ui/Button'
 import { AlertIcon, ArrowLeftIcon } from '../ui/icons'
@@ -64,10 +65,7 @@ export function ImportPage() {
 
   function committed(result: CommitResult) {
     dispatch({ type: 'committed', result })
-    void queryClient.invalidateQueries({ queryKey: importKeys.history })
-    void queryClient.invalidateQueries({ queryKey: ['companies'] })
-    void queryClient.invalidateQueries({ queryKey: ['settings'] })
-    void queryClient.invalidateQueries({ queryKey: ['explorer'] })
+    void refreshAfterWrite(queryClient, [importKeys.history, ['companies'], ['settings'], ['explorer']])
   }
 
   const current = stepIndex(step)

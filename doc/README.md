@@ -25,7 +25,7 @@ or an ADR with its rationale.
 | `features/` | Interface spec, Excel import/export contract, feature-level behaviour (KPIs, filters, SQL limits…) |
 | `design/` | Neon Command design system, logo/asset usage |
 | `adr/` | Architecture Decision Records (`NNNN-title.md`) |
-| `process/` | Agent brief, orchestration log, testing strategy, runbooks |
+| `process/` | Final implementation report, agent brief, orchestration log, testing strategy, runbooks (local development, production requirements) |
 | `legacy/` | Non-PII profile of the historical Excel workbook |
 
 ## Privacy rule (non-negotiable)

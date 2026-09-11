@@ -8,6 +8,7 @@ import hashlib
 import json
 import time
 from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 import pytest
@@ -39,6 +40,7 @@ from app.services.explorer.sql_console import (
 from app.services.explorer.sql_reader import (
     SqlReaderProvisioningError,
     provision_sql_reader,
+    provisioning_lock,
     reader_grants,
 )
 from tests.builders import audit_events
@@ -56,12 +58,20 @@ def settings(test_database_url: str) -> Settings:
 def provisioned(engine: Engine, settings: Settings) -> Iterator[None]:
     """The reader role with its grants (a migration round-trip elsewhere may have dropped them),
     plus a committed sequence for the `nextval` probe."""
-    with engine.begin() as connection:
+    with provisioning(engine) as connection:
         provision(connection, settings)
         connection.exec_driver_sql(f"CREATE SEQUENCE IF NOT EXISTS {PROBE_SEQUENCE}")
     yield
     with engine.begin() as connection:
         connection.exec_driver_sql(f"DROP SEQUENCE IF EXISTS {PROBE_SEQUENCE}")
+
+
+@contextmanager
+def provisioning(engine: Engine) -> Iterator[sa.Connection]:
+    """A committed transaction changing the cluster's roles, serialized with every other
+    provisioning run (another checkout's tests or E2E setup may provision the same role)."""
+    with provisioning_lock(engine.url), engine.begin() as connection:
+        yield connection
 
 
 def provision(
@@ -177,7 +187,7 @@ def test_provisioning_revokes_any_other_grant_and_is_idempotent(
     engine: Engine, settings: Settings
 ) -> None:
     role = settings.sql_reader_role
-    with engine.begin() as connection:
+    with provisioning(engine) as connection:
         connection.exec_driver_sql(f"GRANT SELECT, INSERT ON users TO {role}")
         connection.exec_driver_sql(f"GRANT UPDATE ON roles TO {role}")
         report = provision(connection, settings)
@@ -194,7 +204,7 @@ def test_masked_and_hidden_columns_are_not_granted(engine: Engine, settings: Set
     }
     masking = ExposurePolicy(tables={**EXPOSED_TABLES, "companies": TablePolicy(columns=columns)})
     try:
-        with engine.begin() as connection:
+        with provisioning(engine) as connection:
             provision(connection, settings, masking)
         granted = {
             column
@@ -202,7 +212,7 @@ def test_masked_and_hidden_columns_are_not_granted(engine: Engine, settings: Set
             if table == "companies"
         }
     finally:
-        with engine.begin() as connection:
+        with provisioning(engine) as connection:
             provision(connection, settings)
 
     assert "display_name" in granted
@@ -222,15 +232,15 @@ def test_provisioning_without_createrole_says_what_an_administrator_must_run(
 
 def test_a_role_with_memberships_is_refused_as_reader(engine: Engine) -> None:
     probe = "viper_sql_member_probe"
-    with engine.begin() as connection:
+    with provisioning(engine) as connection:
         connection.exec_driver_sql(f"DROP ROLE IF EXISTS {probe}")
         connection.exec_driver_sql(f"CREATE ROLE {probe} LOGIN")
         connection.exec_driver_sql(f"GRANT pg_read_all_data TO {probe}")
     try:
-        with engine.begin() as connection, pytest.raises(SqlReaderProvisioningError):
+        with provisioning(engine) as connection, pytest.raises(SqlReaderProvisioningError):
             provision_sql_reader(connection, probe, "mot-de-passe-de-test")
     finally:
-        with engine.begin() as connection:
+        with provisioning(engine) as connection:
             connection.exec_driver_sql(f"DROP ROLE {probe}")
 
 

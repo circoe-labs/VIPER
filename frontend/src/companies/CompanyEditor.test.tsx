@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import type { CompanyInput } from '../api/companies'
 import type { ProspectSummary } from '../api/companies'
 import { company, establishment as establishmentRow, stubCompaniesApi } from '../test/companiesApi'
+import { fill } from '../test/fill'
 import { historyEntry } from '../test/historyApi'
 import { renderApp } from '../test/render'
 import { taxonomyValue } from '../test/settingsApi'
@@ -63,31 +64,50 @@ function lastBody(api: ReturnType<typeof stubCompaniesApi>, method: string): Com
   return request?.body as CompanyInput
 }
 
-// Long user flows through the whole drawer (the establishments one takes ~5 s on a loaded machine): past Vitest's 5 s
-// default a timed-out test keeps typing into the next one's DOM, so give them room instead.
-describe('Company editor', { timeout: 15_000 }, () => {
-  it('creates a company: the name is required, the payload is normalized, the drawer stays on the saved company', async () => {
-    const segment = taxonomyValue('Transporteur')
-    const road = taxonomyValue('Transport routier')
-    const api = stubCompaniesApi({ segments: [segment], categories: [road, taxonomyValue('Entreposage')] })
+function save() {
+  return userEvent.click(within(drawer()).getByRole('button', { name: 'Enregistrer' }))
+}
+
+// A new company named "Transports Exemple" with SIREN 999 000 011 and `count` empty establishments.
+async function openNewWithEstablishments(count: number) {
+  await openNew()
+  await fill(field(/Nom de l’entreprise/), 'Transports Exemple')
+  await fill(field('SIREN'), SIREN)
+  const add = within(drawer()).getByRole('button', { name: 'Ajouter un établissement' })
+  for (let index = 0; index < count; index += 1) await userEvent.click(add)
+  return add
+}
+
+describe('Company editor', () => {
+  it('refuses to save a new company without a name and points at the field', async () => {
+    const api = stubCompaniesApi()
     renderApp('/prospection/companies')
     await openNew()
     expect(field(/Nom de l’entreprise/)).toHaveFocus()
 
-    await userEvent.type(field('Raison sociale'), '  Transports   Exemple SAS ')
-    await userEvent.click(within(drawer()).getByRole('button', { name: 'Enregistrer' }))
+    await fill(field('Raison sociale'), 'Transports Exemple SAS')
+    await save()
 
     expect(field(/Nom de l’entreprise/)).toHaveFocus()
     expect(field(/Nom de l’entreprise/)).toHaveAccessibleDescription(expect.stringContaining('Saisissez le nom de l’entreprise.'))
     expect(status()).toHaveTextContent('Corrigez le champ signalé.')
     expect(api.requests.filter((request) => request.method === 'POST')).toHaveLength(0)
+  })
 
-    await userEvent.type(field(/Nom de l’entreprise/), 'Transports Exemple')
-    await userEvent.type(field('SIREN'), '999 000 011')
+  it('creates a company with a normalized payload, then stays on the saved company', async () => {
+    const segment = taxonomyValue('Transporteur')
+    const road = taxonomyValue('Transport routier')
+    const api = stubCompaniesApi({ segments: [segment], categories: [road, taxonomyValue('Entreposage')] })
+    renderApp('/prospection/companies')
+    await openNew()
+
+    await fill(field(/Nom de l’entreprise/), 'Transports Exemple')
+    await fill(field('Raison sociale'), '  Transports   Exemple SAS ')
+    await fill(field('SIREN'), '999 000 011')
     await userEvent.type(within(drawer()).getByRole('combobox', { name: 'Segment commercial' }), 'transp{Enter}')
     await userEvent.type(within(drawer()).getByRole('combobox', { name: 'Catégories d’activité' }), 'routier{Enter}')
-    await userEvent.type(field('Approche client'), 'Approche fictive{Enter}sur deux lignes  ')
-    await userEvent.click(within(drawer()).getByRole('button', { name: 'Enregistrer' }))
+    await fill(field('Approche client'), 'Approche fictive\nsur deux lignes  ')
+    await save()
 
     await waitFor(() => {
       expect(status()).toHaveTextContent('Entreprise enregistrée.')
@@ -129,11 +149,10 @@ describe('Company editor', { timeout: 15_000 }, () => {
       expect.stringContaining('Le SIREN enregistré ne respecte pas la clé de contrôle'),
     )
     expect(field('SIREN')).not.toHaveAttribute('aria-invalid')
-    await userEvent.type(field('Taille'), '10-49')
+    await fill(field('Taille'), '10-49')
     expect(within(drawer()).getByRole('button', { name: 'Enregistrer' })).toBeEnabled()
 
-    await userEvent.clear(field('SIREN'))
-    await userEvent.type(field('SIREN'), '12345678')
+    await fill(field('SIREN'), '12345678')
     await userEvent.tab()
     expect(field('SIREN')).toHaveAccessibleDescription(expect.stringContaining('Le SIREN comporte 9 chiffres.'))
     await userEvent.type(field('SIREN'), '9')
@@ -141,49 +160,74 @@ describe('Company editor', { timeout: 15_000 }, () => {
     expect(field('SIREN')).toHaveAttribute('aria-invalid', 'true')
   })
 
-  it('manages establishments: add, primary, remove, SIRET warnings and repeats', async () => {
-    const api = stubCompaniesApi()
+  it('adds establishments: the first is primary, each new one takes the focus', async () => {
+    stubCompaniesApi()
     renderApp('/prospection/companies')
-    await openNew()
-    await userEvent.type(field(/Nom de l’entreprise/), 'Transports Exemple')
-    await userEvent.type(field('SIREN'), SIREN)
+    const add = await openNewWithEstablishments(0)
     expect(within(drawer()).getByText(/Aucun établissement/)).toBeInTheDocument()
 
-    const add = within(drawer()).getByRole('button', { name: 'Ajouter un établissement' })
     await userEvent.click(add)
-    const head = establishment(0)
-    expect(field('Nom de l’établissement', head)).toHaveFocus()
-    await userEvent.type(field('Nom de l’établissement', head), 'Siège')
-    await userEvent.type(field('SIRET', head), SIRET)
+    expect(field('Nom de l’établissement', establishment(0))).toHaveFocus()
     await userEvent.click(add)
-    const depot = establishment(1)
-    await userEvent.type(field('Nom de l’établissement', depot), 'Dépôt')
-    await userEvent.type(field('SIRET', depot), SIRET_OTHER)
-    await userEvent.tab()
+    expect(field('Nom de l’établissement', establishment(1))).toHaveFocus()
 
-    expect(within(head).getByRole('radio', { name: 'Établissement principal' })).toBeChecked()
-    expect(within(depot).getByRole('radio', { name: 'Établissement principal' })).not.toBeChecked()
+    expect(within(establishment(0)).getByRole('radio', { name: 'Établissement principal' })).toBeChecked()
+    expect(within(establishment(1)).getByRole('radio', { name: 'Établissement principal' })).not.toBeChecked()
+  })
+
+  it('only warns about a SIRET of another SIREN, and refuses one repeated in another establishment', async () => {
+    stubCompaniesApi()
+    renderApp('/prospection/companies')
+    await openNewWithEstablishments(2)
+    await fill(field('SIRET', establishment(0)), SIRET)
+
+    const depot = establishment(1)
+    await fill(field('SIRET', depot), SIRET_OTHER)
+    await userEvent.tab()
     expect(field('SIRET', depot)).toHaveAccessibleDescription(
       expect.stringContaining('Ce SIRET ne commence pas par le SIREN de l’entreprise (999 000 011)'),
     )
     expect(field('SIRET', depot)).not.toHaveAttribute('aria-invalid')
 
-    await userEvent.clear(field('SIRET', depot))
-    await userEvent.type(field('SIRET', depot), SIRET)
+    await fill(field('SIRET', depot), SIRET)
     expect(field('SIRET', depot)).toHaveAccessibleDescription(expect.stringContaining('déjà saisi pour un autre établissement'))
-    await userEvent.clear(field('SIRET', depot))
-    await userEvent.type(field('SIRET', depot), '999 000 011 00026')
+  })
+
+  it('keeps exactly one primary establishment when it moves or its establishment is removed', async () => {
+    stubCompaniesApi({
+      companies: [
+        company('Transports Exemple', {
+          siren: SIREN,
+          establishments: [
+            establishmentRow('Siège', { siret: SIRET, is_primary: true }),
+            establishmentRow('Dépôt', { siret: SIRET_2 }),
+          ],
+        }),
+      ],
+    })
+    renderApp('/prospection/companies')
+    await openExisting('Transports Exemple')
+    const [head, depot] = [establishment(0), establishment(1)]
 
     await userEvent.click(within(depot).getByRole('radio', { name: 'Établissement principal' }))
     expect(within(head).getByRole('radio', { name: 'Établissement principal' })).not.toBeChecked()
     await userEvent.click(within(drawer()).getByRole('button', { name: 'Retirer « Dépôt »' }))
+
     expect(establishments()).toHaveLength(1)
     expect(within(establishment(0)).getByRole('radio', { name: 'Établissement principal' })).toBeChecked()
-    expect(add).toHaveFocus()
+    expect(within(drawer()).getByRole('button', { name: 'Ajouter un établissement' })).toHaveFocus()
+  })
 
-    await userEvent.click(add)
-    await userEvent.type(field('SIRET', establishment(1)), SIRET_2)
-    await userEvent.click(within(drawer()).getByRole('button', { name: 'Enregistrer' }))
+  it('sends the new establishments in order, with the primary flag', async () => {
+    const api = stubCompaniesApi()
+    renderApp('/prospection/companies')
+    await openNewWithEstablishments(2)
+    await fill(field('Nom de l’établissement', establishment(0)), 'Siège')
+    await fill(field('SIRET', establishment(0)), SIRET)
+    await fill(field('SIRET', establishment(1)), '999 000 011 00026')
+
+    await save()
+
     await waitFor(() => {
       expect(status()).toHaveTextContent('Entreprise enregistrée.')
     })
@@ -199,8 +243,7 @@ describe('Company editor', { timeout: 15_000 }, () => {
     await openExisting('Transports Exemple')
     expect(status()).toBeEmptyDOMElement()
 
-    await userEvent.clear(field('Taille'))
-    await userEvent.type(field('Taille'), '50-249')
+    await fill(field('Taille'), '50-249')
     expect(status()).toHaveTextContent('Modifications non enregistrées')
     await userEvent.click(within(drawer()).getByRole('button', { name: 'Annuler les modifications' }))
     expect(field('Taille')).toHaveValue('10-49')
@@ -222,7 +265,7 @@ describe('Company editor', { timeout: 15_000 }, () => {
     renderApp('/prospection/companies')
     await openExisting('Transports Exemple')
 
-    await userEvent.type(field('Taille'), '10-49')
+    await fill(field('Taille'), '10-49')
     await userEvent.keyboard('{Control>}s{/Control}')
     await waitFor(() => {
       expect(status()).toHaveTextContent('Entreprise enregistrée.')
@@ -241,8 +284,8 @@ describe('Company editor', { timeout: 15_000 }, () => {
     renderApp('/prospection/companies')
     await openNew()
 
-    await userEvent.type(field(/Nom de l’entreprise/), 'Doublon')
-    await userEvent.type(field('SIREN'), SIREN)
+    await fill(field(/Nom de l’entreprise/), 'Doublon')
+    await fill(field('SIREN'), SIREN)
     await userEvent.click(within(drawer()).getByRole('button', { name: 'Enregistrer' }))
 
     await waitFor(() => {
@@ -258,8 +301,8 @@ describe('Company editor', { timeout: 15_000 }, () => {
     const api = stubCompaniesApi()
     renderApp('/prospection/companies')
     await openNew()
-    await userEvent.type(field(/Nom de l’entreprise/), 'Transports Exemple')
-    await userEvent.type(field('Domaine e-mail'), 'gmail.com')
+    await fill(field(/Nom de l’entreprise/), 'Transports Exemple')
+    await fill(field('Domaine e-mail'), 'gmail.com')
     api.next.reply = [422, { detail: { code: 'invalid', field: 'email_domain', reason: 'webmail', message: 'Webmail.' } }]
 
     await userEvent.click(within(drawer()).getByRole('button', { name: 'Enregistrer' }))
@@ -343,7 +386,7 @@ describe('Company editor', { timeout: 15_000 }, () => {
     renderApp('/prospection/companies')
     await openNew()
 
-    await userEvent.type(field('Site web'), 'https://www.exemple.fr/contact')
+    await fill(field('Site web'), 'https://www.exemple.fr/contact')
     await userEvent.click(within(drawer()).getByRole('button', { name: /Utiliser « exemple.fr »/ }))
 
     expect(field('Domaine e-mail')).toHaveValue('exemple.fr')
@@ -359,7 +402,7 @@ describe('Company editor', { timeout: 15_000 }, () => {
     renderApp('/prospection/companies')
     await openNew()
 
-    await userEvent.type(field(/Nom de l’entreprise/), 'Transports Exemple SARL')
+    await fill(field(/Nom de l’entreprise/), 'Transports Exemple SARL')
     const note = await screen.findByRole('note', { name: 'Entreprises proches déjà enregistrées' })
     expect(note).toHaveTextContent('TRANSPORTS EXEMPLE — même nom · exemple.fr')
 

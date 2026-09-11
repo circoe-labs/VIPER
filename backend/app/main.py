@@ -4,8 +4,11 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 
+from app.api.errors import validation_refused
 from app.api.router import api_router, public_router
+from app.api.security_headers import SecurityHeadersMiddleware
 from app.core.config import Settings, get_settings
 from app.db.session import create_db_engine, create_session_factory
 from app.services.explorer.sql_console import create_reader_engine
@@ -36,6 +39,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.session_factory = create_session_factory(engine)
     app.state.sql_engine = sql_engine
     app.state.login_throttle = LoginThrottle()
+    app.add_middleware(SecurityHeadersMiddleware)
+    app.add_exception_handler(RequestValidationError, validation_refused)
     app.include_router(public_router, prefix="/api")
     app.include_router(api_router, prefix="/api")
     return app

@@ -1,9 +1,15 @@
-"""Read-only queries feeding the Excel export projection (Task 10): every exported entity, once."""
+"""Read-only queries feeding the Excel export projection (Task 10): every exported entity, once.
+
+The export reads every row of these tables, so each child collection is loaded by one statement
+joined to its parents (`subqueryload`), never by batches of ids: batches become one scan of the
+child table each when the planner believes it empty. The caller plans them with
+`whole_base_plan` (ADR-0019), which keeps those joins hash joins whatever the statistics.
+"""
 
 from collections.abc import Sequence
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, subqueryload
 
 from app.models.companies import Company
 from app.models.contact_tracking import ContactTracking
@@ -15,9 +21,9 @@ from app.models.taxonomies import CommercialSegment, InternalReferent, Role
 def prospects(session: Session) -> Sequence[Prospect]:
     return session.scalars(
         select(Prospect).options(
-            selectinload(Prospect.emails),
-            selectinload(Prospect.phones),
-            selectinload(Prospect.contact_tracking).selectinload(ContactTracking.status_history),
+            subqueryload(Prospect.emails),
+            subqueryload(Prospect.phones),
+            subqueryload(Prospect.contact_tracking).subqueryload(ContactTracking.status_history),
         )
     ).all()
 
@@ -25,7 +31,7 @@ def prospects(session: Session) -> Sequence[Prospect]:
 def companies(session: Session) -> Sequence[Company]:
     return session.scalars(
         select(Company).options(
-            selectinload(Company.activity_categories), selectinload(Company.establishments)
+            subqueryload(Company.activity_categories), subqueryload(Company.establishments)
         )
     ).all()
 

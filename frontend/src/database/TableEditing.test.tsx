@@ -13,6 +13,7 @@ import {
   TABLES,
 } from '../test/explorerFixtures'
 import { company, stubCompaniesApi } from '../test/companiesApi'
+import { fill } from '../test/fill'
 import { type ApiReply, renderApp, stubApi } from '../test/render'
 
 const API = '/api/explorer/tables'
@@ -48,8 +49,8 @@ async function cellOf(table: string, position: string): Promise<HTMLElement> {
 async function editText(cell: HTMLElement, column: string, text: string) {
   await userEvent.dblClick(cell)
   const input = within(cell).getByRole('textbox', { name: `Nouvelle valeur de ${column}` })
-  await userEvent.clear(input)
-  await userEvent.type(input, `${text}{Enter}`)
+  await fill(input, text)
+  await userEvent.keyboard('{Enter}')
 }
 
 function pendingBar() {
@@ -62,8 +63,7 @@ function changeRequests(fetchMock: Mock<(input: string, init?: RequestInit) => P
     .map(([, init]) => JSON.parse((init as RequestInit).body as string) as unknown)
 }
 
-// Full-app integration in jsdom (typing, portals, router): slower than unit tests, above all on a cold worker.
-describe('Database explorer editing', { timeout: 15_000 }, () => {
+describe('Database explorer editing', () => {
   beforeEach(() => {
     vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(720)
     vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(1200)

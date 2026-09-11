@@ -34,7 +34,10 @@
   append-only audit); service tests cover contactability, contact tracking, company change and the seed.
   Synthetic builders and the `rejected(session, "<constraint>")` helper live in `backend/tests/builders.py`.
 - Frontend: Vitest + Testing Library (`renderApp(path)` / `stubFetchJson` helpers in `frontend/src/test/`);
-  Playwright E2E in `frontend/e2e/`.
+  Playwright E2E in `frontend/e2e/`. Every component test runs within Vitest's default 5 s limit — no raised
+  timeout: one behaviour per test, and long values entered with `fill` (`src/test/fill.ts`, one paste) rather than
+  typed key by key, except where keystrokes are the behaviour (pickers, Enter/Ctrl+S, live validation). Measured with
+  `npx vitest run --reporter=verbose`: slowest test ≈ 1.8 s, also while the backend suite runs (I-152).
 - Authentication (Task 04): the backend `client` fixture is **signed in** as a synthetic pilot user (session cookie +
   CSRF header), `anonymous_client` is not — so feature-router tests need no auth plumbing. `test_auth.py` covers
   sign-in, identical answers for unknown email / wrong password, throttling, idle/absolute expiry, logout revocation,
@@ -133,7 +136,8 @@
   company/person ordering and companies without prospects; round trip synthetic import → service and explorer edits
   → API download with the corrected semantics, complete aliases and every legacy value; byte-identical exports;
   formula-free cells with `quotePrefix`; audited attachment with counts only; 401; 3 000 synthetic prospects in
-  < 45 s). Frontend: `ExportWorkbookButton.test.tsx` (progress, file name, fallback name, French error and retry,
+  < 45 s); `test_export_explorer_statistics.py` (20 000 prospects in the three planner states: the export's reads in
+  ≤ 20 statements and < 2 s of database time, explorer deep page and table list < 2 s — I-155). Frontend: `ExportWorkbookButton.test.tsx` (progress, file name, fallback name, French error and retry,
   presence in both headers), `client.test.ts` (`apiDownload`). Playwright `e2e/export.spec.ts` downloads the workbook
   and reads its zip entries with Node's zlib (sheet names, a company the test created).
 - Excel import review and commit (Task 09): `test_import_commit.py` (real test database: default commit with
@@ -173,7 +177,18 @@
   save; values as stored under a masked policy, secrets/masked/structured values never shown; every audited column
   labelled or deliberately hidden), `test_history_api.py` (401, bounds, an editor save read back as one entry by the
   signed-in user, opposition reason, company pages); `src/history/*.test.ts(x)`; Playwright `e2e/history.spec.ts`
-  (own imported person and company) — details in `doc/architecture/audit-and-provenance.md`.
+  (own imported person and company; Home's feed keeps only the 8 latest saves of the shared base, so the spec reads
+  `/api/home` right after its save, requires its save there as one entry, and has the Home page render that captured
+  answer — I-153) — details in `doc/architecture/audit-and-provenance.md`.
+- Accessibility smoke (Task 20): Playwright `e2e/accessibility.spec.ts` runs axe-core (`@axe-core/playwright`,
+  WCAG 2.1 A/AA rules) on the sign-in page, Home, Prospection, the Prospect editor, Entreprises with the Company
+  editor, an import review of its own synthetic workbook, the Database grid, the SQL console with a result, Paramètres
+  and Exploitation, in both themes at 1440×900; a serious or critical violation fails, others become annotations
+  (none today). `e2e/keyboard.spec.ts` is a whole working session with keys only — sign-in, skip link, Prospection
+  search, editor verification and Ctrl+Entrée (Save & Next), Entreprises and Ctrl+S, Database header row → rows →
+  context menu → staged edit cancelled, Paramètres — and requires a visible focus change at every stop (the element or
+  its `:focus-within` frame, compared focused vs blurred under reduced motion). Finer keyboard behaviour stays covered
+  by the component tests and the feature specs (grid, menus, editors, dialogs).
 - Privacy: `scripts/check_private_data.py` in CI; synthetic fixtures only under `*/tests/fixtures/synthetic/`.
 - Commands: `doc/process/runbook-local-dev.md`.
 

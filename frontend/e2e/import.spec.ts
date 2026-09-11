@@ -82,7 +82,9 @@ test('a synthetic workbook is reviewed, resolved and committed, then found in th
   await dialog.getByRole('textbox', { name: /Référence de la source/ }).fill(`Liste E2E ${suffix}`)
   await dialog.getByRole('button', { name: 'Importer 5 lignes' }).click()
 
-  await expect(page.getByRole('heading', { name: 'Import terminé' })).toBeVisible()
+  // The commit analyses the file again and writes it in one transaction: the suite's heaviest request, which can
+  // take more than the default 5 s on the single-process backend when 12 workers share it.
+  await expect(page.getByRole('heading', { name: 'Import terminé' })).toBeVisible({ timeout: 15_000 })
   await expect(page.getByRole('list', { name: 'Résultat de l’import' })).toContainText('5 prospects créés')
   const history = page.getByRole('table', { name: 'Historique des imports' })
   const batchRow = history.getByRole('row', { name: new RegExp(`base-e2e-${suffix}\\.xlsx`) })
@@ -91,8 +93,11 @@ test('a synthetic workbook is reviewed, resolved and committed, then found in th
 
   await page.goto('/database/prospects')
   await page.getByRole('searchbox', { name: 'Rechercher dans prospects' }).fill(`Essai${suffix}`)
-  await expect(page.getByRole('row', { name: /Jean/ }).first()).toBeVisible()
-  await expect(page.getByRole('row', { name: /Claire/ }).first()).toBeVisible()
+  // Exactly the two people of the file with that name: the search ran (it failed on tables with enum columns).
+  const found = page.getByRole('grid', { name: 'Lignes de prospects' }).getByRole('row', { name: new RegExp(`Essai${suffix}`) })
+  await expect(found).toHaveCount(2)
+  await expect(found.filter({ hasText: 'Jean' })).toHaveCount(1)
+  await expect(found.filter({ hasText: 'Claire' })).toHaveCount(1)
 })
 
 for (const theme of ['dark', 'light'] as const) {

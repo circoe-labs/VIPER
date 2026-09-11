@@ -2,6 +2,7 @@ import { keepPreviousData, type QueryClient, useMutation, useQuery, useQueryClie
 
 import { foldText } from '../lib/text'
 import { ApiError, apiGet, apiRequest } from './client'
+import { refreshAfterWrite } from './refresh'
 
 // Mirrors backend/app/api/routes/settings.py: administrable taxonomies and Circoe internal referents (Task 06).
 
@@ -118,7 +119,7 @@ function addToAllValues<T extends { id: string }>(
 // the server decides on duplicates and usage.
 export function useTaxonomyMutations(kind: TaxonomyKind) {
   const queryClient = useQueryClient()
-  const refresh = () => queryClient.invalidateQueries({ queryKey: settingsKeys.list(kind) })
+  const refresh = () => refreshAfterWrite(queryClient, [settingsKeys.list(kind)])
   const valuePath = (id: string): `/${string}` => `/settings/${kind}/${encodeURIComponent(id)}`
   return {
     create: useMutation({
@@ -152,7 +153,7 @@ export function referentName(referent: Pick<Referent, 'first_name' | 'last_name'
 
 export function useReferentMutations() {
   const queryClient = useQueryClient()
-  const refresh = () => queryClient.invalidateQueries({ queryKey: settingsKeys.list('referents') })
+  const refresh = () => refreshAfterWrite(queryClient, [settingsKeys.list('referents')])
   const referentPath = (id: string): `/${string}` => `/settings/referents/${encodeURIComponent(id)}`
   return {
     create: useMutation({

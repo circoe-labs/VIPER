@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { PhoneAlias, Prospect, ProspectInput } from '../api/prospects'
 import { company } from '../test/companiesApi'
+import { fill } from '../test/fill'
 import { companySummary, lastBody, prospectDetail, stubProspectsApi } from '../test/prospectsApi'
 import { renderProspectEditor } from '../test/renderProspectEditor'
 
@@ -66,7 +67,7 @@ describe('Prospect editor — e-mails and phones', () => {
     await userEvent.click(within(emails).getByRole('button', { name: 'Ajouter un e-mail' }))
     const added = within(emails).getAllByRole('textbox', { name: 'Adresse e-mail' })[1]
     expect(added).toHaveFocus()
-    await userEvent.type(added as HTMLElement, 'j.nouveau@exemple.example')
+    await fill(added as HTMLElement, 'j.nouveau@exemple.example')
     await userEvent.click(within(emails).getAllByRole('radio', { name: 'Principal' })[1] as HTMLElement)
     await userEvent.click(screen.getByRole('button', { name: 'Enregistrer' }))
 

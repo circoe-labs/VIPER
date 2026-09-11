@@ -6,7 +6,7 @@ import {
   useReactTable,
 } from '@tanstack/react-table'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { type CSSProperties, type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { type CSSProperties, type KeyboardEvent, type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react'
 
 import type { ExplorerColumn, ExplorerRow, ExplorerTable } from '../api/explorer'
 import { Menu, type MenuItem, type MenuSection } from '../ui/Menu'
@@ -142,6 +142,7 @@ export function ExplorerGrid({
   empty,
 }: ExplorerGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
+  const headerHintId = useId()
   const [active, setActive] = useState<{ row: number; col: number }>({ row: 0, col: 0 })
   const [openedCell, setOpenedCell] = useState<EditingCell | null>(null)
   const [floating, setFloating] = useState<Floating | null>(null)
@@ -226,6 +227,29 @@ export function ExplorerGrid({
     })
   }
 
+  function focusHeader(col: number) {
+    const next = Math.max(0, Math.min(col, order.length - 1))
+    setActive((current) => ({ ...current, col: next }))
+    scrollRef.current?.querySelector<HTMLElement>(`[data-header="${String(next)}"]`)?.focus()
+  }
+
+  // The header row: ← / → / Home / End move between the column headers, ↓ goes down into the rows.
+  function handleHeaderKeyDown(event: KeyboardEvent<HTMLTableSectionElement>) {
+    const target = event.target
+    if (event.defaultPrevented || event.altKey || event.shiftKey || !(target instanceof HTMLElement)) return
+    if (target.dataset.header === undefined) return
+    const col = Number(target.dataset.header)
+    const moves: Record<string, number> = { ArrowLeft: col - 1, ArrowRight: col + 1, Home: 0, End: order.length - 1 }
+    const move = moves[event.key]
+    if (move !== undefined) {
+      event.preventDefault()
+      focusHeader(move)
+    } else if (event.key === 'ArrowDown' && rows.length > 0) {
+      event.preventDefault()
+      focusCell(0, col)
+    }
+  }
+
   function cellAt(row: number, col: number): CellPosition | null {
     const column = order[col]
     return rows[row] && column ? { row, column } : null
@@ -281,6 +305,11 @@ export function ExplorerGrid({
     const target = event.target
     if (!(target instanceof HTMLElement) || !target.dataset.cell) return
     const [row = 0, col = 0] = target.dataset.cell.split(':').map(Number)
+    if (event.key === 'ArrowUp' && row === 0) {
+      event.preventDefault()
+      focusHeader(col)
+      return
+    }
     const moves: Record<string, [number, number]> = {
       ArrowDown: [row + 1, col],
       ArrowUp: [row - 1, col],
@@ -498,6 +527,10 @@ export function ExplorerGrid({
       style={{ scrollPaddingLeft: table.getLeftTotalSize() }}
     >
       {busy && <div className="explorer-grid__progress" role="progressbar" aria-label="Chargement des lignes" />}
+      <p id={headerHintId} className="visually-hidden">
+        Entrée : trier ; Maj+Entrée : ajouter au tri ; Alt+Flèche bas : options et filtres de la colonne ; Maj+Flèche
+        gauche ou droite : largeur.
+      </p>
       <table
         role="grid"
         aria-label={`Lignes de ${meta.name}`}
@@ -508,7 +541,7 @@ export function ExplorerGrid({
         className="grid"
         style={{ width: totalWidth }}
       >
-        <thead className="grid__head">
+        <thead className="grid__head" onKeyDown={handleHeaderKeyDown}>
           <tr className="grid__row" aria-rowindex={1}>
             {headerGroup?.headers.map((header) => {
               const style: CSSProperties = { width: header.getSize(), ...pinnedStyle(header.column) }
@@ -527,11 +560,18 @@ export function ExplorerGrid({
                   key={header.id}
                   header={header}
                   column={column}
+                  index={order.indexOf(column.name)}
+                  tabbable={order.indexOf(column.name) === activeCol}
+                  hintId={headerHintId}
                   lockReason={tableWritable && !column.updatable ? (column.read_only_reason ?? meta.update_refused) : null}
                   style={style}
                   sort={sort}
                   filterCount={columnFilters.length}
                   dragging={dragging}
+                  onFocus={() => {
+                    const col = order.indexOf(column.name)
+                    setActive((current) => ({ ...current, col }))
+                  }}
                   onSort={(additive) => {
                     if (column.sortable) onSortChange(nextSort(sort, column.name, additive))
                   }}
@@ -543,6 +583,7 @@ export function ExplorerGrid({
                   }}
                   onResize={(width) => {
                     onColumnAction({ type: 'resize', widths: { [column.name]: width } })
+                    onAnnounce(`Largeur de ${column.name} : ${String(width)} px`)
                   }}
                   onResetWidth={() => {
                     onColumnAction({ type: 'resetWidth', column: column.name })

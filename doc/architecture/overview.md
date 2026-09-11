@@ -29,6 +29,12 @@ Relational transactional database, versioned migrations, stable IDs, FK constrai
 `app/api` (thin routers) → `app/services` (business rules; flush, never commit) → `app/repositories` (ORM/SQL
 queries) → `app/models` / `app/db`. The frontend reaches data only through `/api/*` via `frontend/src/api/client.ts`.
 
+Frontend server state lives only in TanStack Query: every list or search key contains its parameters, no page keeps
+fetched data in its own state, and every write refreshes the caches it affects with
+`refreshAfterWrite(queryClient, keys)` (`frontend/src/api/refresh.ts`; a lint rule forbids a bare `invalidateQueries`).
+It cancels the requests in flight before invalidating, because TanStack Query keeps the first request of a new key
+(a search typed just before a save) and would show its pre-save answer (decision I-150).
+
 ### Transaction boundaries
 **Services flush, callers commit; one request = one transaction.**
 - Services and repositories mutate the session and `flush()` when they need database-generated values or an early

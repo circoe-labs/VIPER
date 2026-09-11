@@ -131,7 +131,9 @@ opening a prospect **pushes** one. Other pages link in with `prospectionHref({ s
   following one and returns the first person not already on the queue's page — so a saved person leaving the segment
   (a verified one leaves *Jamais vérifiés*) never makes Save & Next skip anyone.
 - `onNavigate(id, { page })` replaces the open prospect (Save & Next); `onNavigate(null)` closes the editor.
-- After a write, invalidate `prospectionKeys.all` (`frontend/src/api/prospection.ts`): counters and pages refresh.
+- After a write, refresh `prospectionKeys.all` (`frontend/src/api/prospection.ts`) with `refreshAfterWrite`
+  (`frontend/src/api/refresh.ts`, I-150): counters and pages refresh, and a search request sent before the save
+  cannot bring its old answer back.
 - Implemented by Task 15: the default of `ProspectEditorContext` is `{ canCreate: true, Editor: ProspectEditor }` (the
   drawer of [prospect-editor.md](prospect-editor.md)); the Task 14 explorer fallback is removed. A test may still
   provide another implementation with `<ProspectEditorContext.Provider value={{ canCreate, Editor }}>`; with
