@@ -656,7 +656,8 @@
   font-size: var(--text-xs);
   font-style: italic;
   letter-spacing: 0.04em;
-  color: color-mix(in srgb, var(--color-text-muted) 75%, transparent);
+  /* Muted, not faded: small italics already set the marker apart, and text must stay at 4.5:1 or more. */
+  color: var(--color-text-muted);
 }
 
 /* Overlays the end of the cell (hover / active cell) instead of taking room from the value. */

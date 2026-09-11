@@ -180,6 +180,12 @@
   (own imported person and company; Home's feed keeps only the 8 latest saves of the shared base, so the spec reads
   `/api/home` right after its save, requires its save there as one entry, and has the Home page render that captured
   answer — I-153) — details in `doc/architecture/audit-and-provenance.md`.
+- Accessibility smoke (Task 20): Playwright `e2e/accessibility.spec.ts` runs axe-core (`@axe-core/playwright`,
+  WCAG 2.1 A/AA rules) on the sign-in page, Home, Prospection, the Prospect editor, Entreprises with the Company
+  editor, an import review of its own synthetic workbook, the Database grid, the SQL console with a result, Paramètres
+  and Exploitation, in both themes at 1440×900; a serious or critical violation fails, others become annotations
+  (none today). Keyboard behaviour stays covered by the component tests and the feature specs (grid, menus, editors,
+  dialogs).
 - Privacy: `scripts/check_private_data.py` in CI; synthetic fixtures only under `*/tests/fixtures/synthetic/`.
 - Commands: `doc/process/runbook-local-dev.md`.
 
