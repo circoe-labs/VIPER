@@ -20,7 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.actor import ActorContext
-from app.core.business_time import BUSINESS_TIMEZONE
+from app.core.business_time import BUSINESS_TIMEZONE, business_day
 from app.models.enums import ContactTrackingStatus, OriginType, VerificationStatus
 from app.models.imports import ImportRowMetadata
 from app.services import audit, import_commit, prospects
@@ -61,8 +61,6 @@ def reconcile_batch(
     checked_at = datetime.now(BUSINESS_TIMEZONE)
     today = checked_at.date()
 
-    # A prospect can receive several source rows. Apply them in source order; the last explicit
-    # verification state wins only while this import is creating/completing the data.
     for trace in metadata:
         if trace.prospect_id is None:
             continue
@@ -82,17 +80,14 @@ def reconcile_batch(
         if tracking is None:
             continue
 
-        # The Excel week is the contact week. Once that resolved date is in the past, it represents
-        # a contact already made unless a more advanced stage is already recorded.
         next_status = tracking.status
         if (
             tracking.planned_contact_at is not None
-            and tracking.planned_contact_at.astimezone(BUSINESS_TIMEZONE).date() < today
+            and business_day(tracking.planned_contact_at) < today
             and tracking.status is ContactTrackingStatus.TO_CONTACT
         ):
             next_status = ContactTrackingStatus.CONTACTED
 
-        # A referent is an owner of an actual contact/opportunity, not of an untouched lead.
         next_referent = (
             tracking.referent_id
             if next_status is not ContactTrackingStatus.TO_CONTACT
@@ -122,13 +117,14 @@ def _apply_imported_email_verification(
 ) -> None:
     wanted = email_verification_status(outcome)
     for email in prospect.emails:
-        # Do not let a historical workbook override a channel maintained manually after import.
         if email.origin_type is not OriginType.IMPORTED:
             continue
         if email.verification_status is wanted:
             continue
-        # Never downgrade a later confirmed e-mail because an old row says unknown/inactive.
-        if email.verification_status is VerificationStatus.VERIFIED and wanted is not VerificationStatus.VERIFIED:
+        if (
+            email.verification_status is VerificationStatus.VERIFIED
+            and wanted is not VerificationStatus.VERIFIED
+        ):
             continue
         audit.annotate(session, actor, email)
         email.verification_status = wanted
