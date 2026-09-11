@@ -41,7 +41,7 @@ export function FieldFrame({
   const warningId = warning && !error ? `${id}-warning` : undefined
   const describedByIds = [describedBy, hintId, errorId, warningId].filter(Boolean).join(' ') || undefined
   return (
-    <div className="field" data-invalid={error ? '' : undefined}>
+    <div className="field" data-invalid={error ? '' : undefined} data-warning={warningId ? '' : undefined}>
       <label className="field__label" htmlFor={id}>
         {label}
         {required && (

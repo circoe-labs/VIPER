@@ -88,6 +88,26 @@ def _search_condition(search: str) -> ColumnElement[bool]:
     return condition
 
 
+def _primary_city() -> ColumnElement[str | None]:
+    return (
+        select(Establishment.city)
+        .where(Establishment.company_id == Company.id, Establishment.is_primary)
+        .scalar_subquery()
+    )
+
+
+def company_summary(
+    session: Session, company_id: uuid.UUID
+) -> tuple[Company, str | None, int, str | None] | None:
+    """`(company, segment label, prospect count, primary city)`, or None when it does not exist."""
+    statement = (
+        select(Company, CommercialSegment.label, prospect_count(Company.id), _primary_city())
+        .outerjoin(CommercialSegment, CommercialSegment.id == Company.commercial_segment_id)
+        .where(Company.id == company_id)
+    )
+    return session.execute(statement).tuples().one_or_none()
+
+
 def list_companies(
     session: Session, *, search: str | None, limit: int, offset: int
 ) -> tuple[Sequence[Row[tuple[Company, str | None, int, int, str | None]]], int]:
@@ -97,18 +117,13 @@ def list_companies(
     establishment_count = (
         select(func.count()).where(Establishment.company_id == Company.id).scalar_subquery()
     )
-    primary_city = (
-        select(Establishment.city)
-        .where(Establishment.company_id == Company.id, Establishment.is_primary)
-        .scalar_subquery()
-    )
     statement = (
         select(
             Company,
             CommercialSegment.label,
             prospect_count(Company.id),
             establishment_count,
-            primary_city,
+            _primary_city(),
         )
         .outerjoin(CommercialSegment, CommercialSegment.id == Company.commercial_segment_id)
         .where(*where)
