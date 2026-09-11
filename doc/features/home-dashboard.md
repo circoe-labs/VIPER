@@ -103,11 +103,43 @@ tracking_status, at, referent_name}]}}, recent_imports: [import batch as in /api
 actor: {kind, label, id, on_behalf_of}, source, subject_type, subject_id, subject_label, summary: [phrase]}]}` (Task 19,
 I-135).
 
-Cost: **9 statements** whatever the base size (segments aggregate, companies + stages, monthly progress — one pass
+Cost: **9 queries** whatever the base size (segments aggregate, companies + stages, monthly progress — one pass
 over the status history grouped by tracking —, 3 action groups with `count(*) OVER ()`, imports, audit events, current
-names of the edited prospects/companies). No index added: ≈ 0.25 s on 20 000 prospects with history
-(`tests/test_prospection_performance.py`); the history index `(contact_tracking_id, changed_at)`, the audit
-`occurred_at` index and the import batch ordering serve the other reads.
+names of the edited prospects/companies), plus the 4 planner-setting statements of `whole_base_plan` (below).
+
+## Performance
+
+Budget: 2 s per call on 20 000 prospects with their history and ≈ 52 000 audit events
+(`tests/test_prospection_performance.py`). Measured locally over HTTP: ≈ 185 ms right after a bulk load (no column
+statistics), ≈ 155 ms after a concurrent VACUUM, ≈ 135 ms analyzed.
+
+**Regression of 2026-09-11 (Home 250–310 s) — root cause.** The cause was planner statistics, not a query or an
+index. The previous test's rolled-back rows made autovacuum vacuum `prospects`, `emails`, `contact_tracking` and
+`companies` while the Home test's seed was still uncommitted. A VACUUM does not count rows being inserted by another
+transaction, and it cannot truncate pages that hold them, so it recorded `reltuples = 0` on tables of hundreds of
+pages. The planner then estimated 1 row per table. It planned the segment counters and the *Échus* and *Réponses*
+groups as nested loops that scan the inner table's whole index for every outer row. `EXPLAIN ANALYZE`: 123 s for the
+counters (400 M + 168 M rows removed by join filters), 87 s and 186 s for the two groups. The monthly progress, the
+imports and the audit feed read one table each and stayed at 1–15 ms. Migration 0007 is not the cause: the same
+state fails the same way at 0006. The race hit about one run in four, more under load. It explains the "failure
+alone, pass on rerun" pattern, and probably the full-suite overruns previously attributed to contention.
+
+**Fix** ([ADR-0019](../adr/0019-whole-base-statement-plans.md), I-140). The segment counters, the Prospection page and
+Home's action groups run inside `app.db.session.whole_base_plan`: transaction-local `enable_nestloop = off` and
+`jit = off`, reset after the block. Hash joins read each table once whatever the estimates, so these statements stay
+linear even when the planner believes a table is empty. That state is reachable in production after a bulk import
+that races a VACUUM, until autoanalyze runs. JIT compilation cost ≈ 410 ms per counters call without statistics and
+≈ 45 ms with, for a ≈ 55 ms statement. Service time on 20 000 prospects: 0.57 s → 0.17 s without statistics, > 250 s →
+0.18 s after the concurrent VACUUM, 0.19 s → 0.16 s analyzed. No index was added: each join already has its unique
+index, and the audit feed reads 150 000 newer import events in 28 ms. The history index
+`(contact_tracking_id, changed_at)`, the audit indexes and the import batch ordering serve the other reads.
+
+**Test** (I-141). The performance test measures Home, the counters and a deep page in the three planner states a real
+base goes through: without statistics, emptied by a VACUUM that it runs from a second connection, and analyzed. The
+budget applies to each state. It keeps 20 000 prospects on CI because the plans it guards against are quadratic.
+The forced VACUUM makes the failure deterministic. Against the code before the fix, the counters took 69 s and the
+page 87 s after the VACUUM. Home then took 371 s: its "without statistics" state inherited the zero-row statistics
+the failed counters test left behind.
 
 ## Page layout
 
@@ -132,11 +164,12 @@ the base and the contact activity. Styles: `frontend/src/home/home.css` (see the
   appointment); Paris month boundaries incl. DST; appointment first entry (direct quote, no double count, won later,
   date without stage); history from the real tracking service; next actions on the edge cases (DNC and inactive
   excluded) and ordering / limit / window bounds; recent edits grouping and summaries, import writes excluded, no
-  e-mail, reason or other company name in the output, deleted subject; latest imports; 9 statements for 3 and 60
-  prospects (the formatter's summaries need no query). `tests/test_history.py`: an agent's save on Home.
+  e-mail, reason or other company name in the output, deleted subject; latest imports; 9 queries for 3 and 60
+  prospects (the formatter's summaries need no query), the segments and the action groups inside `whole_base_plan`. `tests/test_history.py`: an agent's save on Home.
   `tests/test_home_api.py`: 401, GET only, contract and counts == `/api/prospection/counters`, targets from settings,
   no raw payload, staged Database Explorer stage changes (into `contacted`, into `appointment_obtained` after an
-  imported contact) counted in the current month as human history rows. `tests/test_prospection_performance.py`: Home on 20 000 prospects.
+  imported contact) counted in the current month as human history rows. `tests/test_prospection_performance.py`: Home on
+  20 000 prospects in three planner states (see *Performance*).
 - Frontend `src/home/HomePage.test.tsx` (heading order, every card's segment/filter URL and count, click → URL, meters'
   text alternatives and 6-month table, next-action links, readable import/edit lines without technical names, empty
   base with/without the editor's create, V1 scope sentence and no agent/e-mail widget, error + retry),

@@ -6,12 +6,12 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import select, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DataError, IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.dependencies import SessionDep
 from app.core.config import Settings
-from app.db.session import unit_of_work
+from app.db.session import unit_of_work, whole_base_plan
 from app.main import create_app
 from app.models import ContactTracking, Prospect, Role
 from app.models.enums import ContactabilityStatus, ContactTrackingStatus
@@ -142,3 +142,21 @@ def test_request_commits_on_success_and_rolls_back_on_error(
 
     with session_factory() as session:
         assert list(session.scalars(select(Role.slug))) == ["kept"]
+
+
+def planner_settings(session: Session) -> tuple[str, str]:
+    row = session.execute(
+        select(text("current_setting('enable_nestloop')"), text("current_setting('jit')"))
+    ).one()
+    return row[0], row[1]
+
+
+def test_whole_base_plan_settings_last_only_for_the_block(db_session: Session) -> None:
+    defaults = planner_settings(db_session)
+    with whole_base_plan(db_session):
+        assert planner_settings(db_session) == ("off", "off")
+    assert planner_settings(db_session) == defaults
+
+    with pytest.raises(DataError), db_session.begin_nested(), whole_base_plan(db_session):
+        db_session.execute(text("SELECT 1 / 0"))
+    assert planner_settings(db_session) == defaults

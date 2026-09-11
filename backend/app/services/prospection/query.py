@@ -26,6 +26,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Session, aliased
 
 from app.core.business_time import BUSINESS_TIMEZONE
+from app.db.session import whole_base_plan
 from app.models import (
     Company,
     ContactTracking,
@@ -245,7 +246,8 @@ def count_segments(
     statement = join_segment_sources(select(*segment_counts(context))).where(
         *filter_conditions(filters)
     )
-    row = session.execute(statement).one()._mapping
+    with whole_base_plan(session):
+        row = session.execute(statement).one()._mapping
     return SegmentCounts(
         counts={segment: row[segment.value] for segment in Segment},
         today=context.today,
@@ -302,13 +304,11 @@ def list_prospects(
     limit = max(1, min(limit, LIST_MAX_LIMIT))
     offset = max(0, offset)
     where = [*filter_conditions(filters), predicate(segment, context)]
-    rows = session.execute(
-        _page_statement(context)
-        .where(*where)
-        .order_by(*_order_by(sort))
-        .limit(limit)
-        .offset(offset)
-    ).tuples()
+    page = _page_statement(context).where(*where).order_by(*_order_by(sort))
+    count = join_segment_sources(select(func.count())).where(*where)
+    with whole_base_plan(session):
+        rows = session.execute(page.limit(limit).offset(offset)).tuples().all()
+        total = session.execute(count).scalar_one()
     items = []
     for (
         prospect,
@@ -355,7 +355,6 @@ def list_prospects(
                 updated_at=prospect.updated_at,
             )
         )
-    total = session.execute(join_segment_sources(select(func.count())).where(*where)).scalar_one()
     return ProspectPage(items=items, total=total, limit=limit, offset=offset)
 
 

@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.core.actor import ActorType
 from app.core.business_time import start_of_day
+from app.db.session import whole_base_plan
 from app.models import Company, ContactTracking, ImportBatch, InternalReferent, Prospect
 from app.models.contact_tracking import ContactTrackingStatusHistory
 from app.models.enums import ContactTrackingStatus
@@ -262,15 +263,17 @@ def next_actions(session: Session, context: SegmentContext) -> NextActions:
         ~has_appointment(),
         ContactTracking.status != S.NOT_INTERESTED,
     )
-    return NextActions(
-        appointments=_action_group(session, upcoming, ContactTracking.appointment_at),
-        due=_action_group(
-            session, predicate(Segment.DUE, context), ContactTracking.planned_contact_at
-        ),
-        responses=_action_group(
-            session, awaiting, ContactTracking.response_received_at, nulls_last=True
-        ),
-    )
+    # Each group counts its whole segment (`count(*) OVER ()`) before keeping the first five.
+    with whole_base_plan(session):
+        return NextActions(
+            appointments=_action_group(session, upcoming, ContactTracking.appointment_at),
+            due=_action_group(
+                session, predicate(Segment.DUE, context), ContactTracking.planned_contact_at
+            ),
+            responses=_action_group(
+                session, awaiting, ContactTracking.response_received_at, nulls_last=True
+            ),
+        )
 
 
 # --- recent edits -------------------------------------------------------------------------------

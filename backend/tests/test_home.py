@@ -413,5 +413,8 @@ def test_statement_count_does_not_grow_with_rows(db_session: Session, size: int)
     with statements(db_session) as executed:
         home_summary(db_session, CONTEXT)
 
-    # Segments, companies + stages, months, 3 action groups, imports, edits, subject names.
-    assert len(executed) == 9
+    # Segments, companies + stages, months, 3 action groups, imports, edits, subject names; the
+    # segments and the action groups inside `whole_base_plan` (its settings, then their reset).
+    settings = [index for index, statement in enumerate(executed) if "set_config" in statement]
+    assert len(executed) - len(settings) == 9
+    assert settings == [0, 2, 5, 9]

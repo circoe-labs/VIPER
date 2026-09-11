@@ -150,7 +150,8 @@
   transaction and prints aggregates only.
 - Prospection (Task 14): `test_prospection.py` (expected members of every segment on one synthetic person per edge
   case, search, filters, counters == list totals on random bases, paging per sort, statement counts),
-  `test_prospection_api.py`, `test_prospection_performance.py` (20 000 prospects); `src/prospection/*.test.ts(x)`
+  `test_prospection_api.py`, `test_prospection_performance.py` (20 000 prospects; counters, deep page and Home in
+  three planner states — without statistics, after a concurrent VACUUM, analyzed — ADR-0019); `src/prospection/*.test.ts(x)`
   against `src/test/prospectionApi.ts`; Playwright `e2e/prospection.spec.ts` creates its people through the import API
   (`importProspects`, `e2e/data.ts`) and narrows to their unique tag — details in `doc/features/prospection-kpis.md`.
 - Prospect editor (Task 15): `test_prospect_editor.py` (service: every save step, verification action, alias rule,
