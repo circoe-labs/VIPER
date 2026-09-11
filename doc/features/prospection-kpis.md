@@ -78,10 +78,13 @@ Both endpoints take the same **criteria**, so a counter always equals the total 
   `planned_contact_at`, `due`, `planned_contact_week` (ISO `2026-W38`, business time), `response_received_at`,
   `appointment_at`, `referent_id`, `referent_name`, `contactability_status`, `do_not_contact_at`, `updated_at`.
 
-No index was added: on 20 000 synthetic prospects the counters answer in ≈ 0.25 s and a deep page in ≈ 0.15 s
-locally (`tests/test_prospection_performance.py`, budget 2 s). The `q` search keeps its `label_key`/`strpos`
-semantics; the trigram indexes of Task 17 serve the global search ([global-search.md](global-search.md)), not this
-criterion.
+No index was added: on 20 000 synthetic prospects the counters (with `q`) answer in ≈ 0.17–0.21 s and a deep page in
+≈ 0.10–0.13 s over HTTP locally, with or without planner statistics (`tests/test_prospection_performance.py`, budget
+2 s per state). The counters and the page run inside `app.db.session.whole_base_plan`, which turns off nested-loop
+joins and JIT for them. A VACUUM that races a bulk write can make the planner believe the tables are empty, and
+without the guard these statements then took minutes ([ADR-0019](../adr/0019-whole-base-statement-plans.md), I-140).
+The `q` search keeps its `label_key`/`strpos` semantics; the trigram indexes of Task 17 serve the global search
+([global-search.md](global-search.md)), not this criterion.
 
 ## Page
 
@@ -151,9 +154,10 @@ opening a prospect **pushes** one. Other pages link in with `prospectionHref({ s
   secondary only, invalid/unknown e-mail, verification null vs set, company change then re-verification, stale
   threshold and its boundary, business-day rollover; row states and view model; search across names, company, any
   e-mail and phone formats with literal wildcards; every filter and `none`, combined with segments; counters == list
-  totals for every segment on seeded random bases; paging stable for every sort; 2 statements per page and 1 for the
-  counters whatever the row count), `tests/test_prospection_api.py` (401, counters == totals through HTTP, contract,
-  `none` and 422 validation, stale setting, read-only), `tests/test_prospection_performance.py`.
+  totals for every segment on seeded random bases; paging stable for every sort; 2 queries per page and 1 for the
+  counters whatever the row count, inside `whole_base_plan`), `tests/test_prospection_api.py` (401, counters == totals through HTTP, contract,
+  `none` and 422 validation, stale setting, read-only), `tests/test_prospection_performance.py` (20 000 prospects in three
+  planner states: without statistics, after a concurrent VACUUM, analyzed).
 - Frontend: `criteria.test.ts`, `queue.test.ts` (page walk, next page, people leaving the segment, end),
   `ProspectionPage.test.tsx` (entry points, counter click → URL + list, search and reset, URL restore and page reset,
   row states as text + glyph, keyboard open in the editor, Add opening the editor on a new person, editor contract with

@@ -615,6 +615,9 @@ def test_statement_count_does_not_grow_with_rows(db_session: Session, size: int)
         count_segments(db_session, ProspectFilters(search="jean"), CONTEXT)
 
     assert len(page.items) == size
-    assert len(page_statements) == 2  # the page, then its total
-    assert len(counter_statements) == 1  # every counter in one aggregate
-    assert "FILTER (WHERE" in counter_statements[0]
+    # The page, then its total; every counter in one aggregate — each inside `whole_base_plan`
+    # (its planner settings first, their reset last).
+    assert len(page_statements) == 4
+    assert len(counter_statements) == 3
+    assert all("set_config" in s for s in [*page_statements[::3], *counter_statements[::2]])
+    assert "FILTER (WHERE" in counter_statements[1]
