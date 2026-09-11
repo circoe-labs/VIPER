@@ -1,6 +1,6 @@
 # ADR-0019 — Whole-base statements are planned without nested loops or JIT
 
-- Status: accepted
+- Status: accepted; scope extended to the Excel export's reads by decision I-155 (Task 20)
 - Date: 2026-09-11
 - Deciders: Home performance fix (branch `fix-home-performance`), for orchestrator review
 - Related: [ADR-0014](0014-canonical-prospect-segments.md) (segments over `join_segment_sources`),

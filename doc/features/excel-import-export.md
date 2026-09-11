@@ -489,6 +489,14 @@ route requires the session (a GET: no CSRF token, no domain write), answers `Cac
 and records one audit event `export.generated` (signed-in user, `source=ui`; changes = rows per sheet
 `<sheet>_rows` and `size_bytes`, never a value). Without a session: 401.
 
+**Reads and size** (Task 20, I-155): the projection reads each table once; the prospects' e-mails, phones, trackings
+(+ history) and the companies' categories and establishments come with one statement per collection joined to the
+parents (`subqueryload`), planned by `whole_base_plan` ([ADR-0019](../adr/0019-whole-base-statement-plans.md)) — 16
+statements whatever the base, ≈ 0.25 s of database time on 20 000 prospects in every planner state. The rest of the
+time is Python (ORM objects, openpyxl): ≈ 4 s for the projection and ≈ 20 s for the whole download on 20 000
+prospects, a few seconds at V1 scale (hundreds to a few thousand rows). `tests/test_export_explorer_statistics.py`
+keeps it so.
+
 ### Workbook
 
 Seven sheets, in this order. Every sheet: bold header row, frozen panes under it, autofilter over the data, column

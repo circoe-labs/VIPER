@@ -136,7 +136,8 @@
   company/person ordering and companies without prospects; round trip synthetic import → service and explorer edits
   → API download with the corrected semantics, complete aliases and every legacy value; byte-identical exports;
   formula-free cells with `quotePrefix`; audited attachment with counts only; 401; 3 000 synthetic prospects in
-  < 45 s). Frontend: `ExportWorkbookButton.test.tsx` (progress, file name, fallback name, French error and retry,
+  < 45 s); `test_export_explorer_statistics.py` (20 000 prospects in the three planner states: the export's reads in
+  ≤ 20 statements and < 2 s of database time, explorer deep page and table list < 2 s — I-155). Frontend: `ExportWorkbookButton.test.tsx` (progress, file name, fallback name, French error and retry,
   presence in both headers), `client.test.ts` (`apiDownload`). Playwright `e2e/export.spec.ts` downloads the workbook
   and reads its zip entries with Node's zlib (sheet names, a company the test created).
 - Excel import review and commit (Task 09): `test_import_commit.py` (real test database: default commit with
