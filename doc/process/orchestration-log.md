@@ -241,3 +241,21 @@ found, what was sent back for rework, and the verification evidence accepted. Ta
   repeated runs: `auth.spec.ts` asserted `getByText('Pilote E2E')`, which Home's activity feed now also renders
   (strict-mode violation). Fix assigned as the first commit of Task 17.
 - Next: Task 17 (global search, worktree `task-17-global-search`) while Task 15 continues.
+
+### Task 15 — Prospect editor (2026-09-11) — ACCEPTED
+
+- Commits `62fd2f5`, `f70b009`, `ad9cec6`; merged as `4eb510c`. One-request/one-transaction save composing domain
+  operations (inline role at save time, `change_company`, aliases as full lists with two-step primary switching,
+  tracking with history, manual provenance on create); verification is an explicit action
+  (`keep`/`verified_now`/`verified_on`/`clear`), not an editable status; opposition only through a dedicated
+  endpoint with a mandatory reason (the save rejects contactability fields); multi-table version → 409 on any
+  concurrent change; delete refused for DNC. Drawer with the nine spec sections, warning/verified/stale treatments
+  with icon + text, company-change banner, dirty bar, Save & Next over the Task 14 queue, Ctrl+S / Ctrl+Entrée /
+  Échap. ADR-0015, I-100..I-109. Screenshots reviewed.
+- Review note carried to Task 19: an empty "Rôle" field showed "Importé, à confirmer" (should be an actionable
+  empty state).
+- Orchestrator verification after merge: vitest 569, Playwright 68, lint/tsc/build OK; pytest 885/887 in the full
+  run — the two 20k-prospect performance tests exceeded their budget only because the Task 17 agent was running its
+  own 20k load tests on the same Postgres server at that moment (whole suite 8 min instead of ~1); re-run alone:
+  both pass (10 s total). Not a regression; CI runs in isolation.
+- Next: Task 19 (history/provenance UI, worktree `task-19-history`) while Task 17 continues.
