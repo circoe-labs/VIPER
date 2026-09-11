@@ -271,3 +271,17 @@ found, what was sent back for rework, and the verification evidence accepted. Ta
   277–308 s run alone (budget 2 s), while it passed alone before the Task 17 merge. Not contention. Dispatched a
   dedicated diagnosis agent (branch `fix-home-performance`) to find the root cause with EXPLAIN ANALYZE and fix it
   robustly (query/index), not by raising the budget.
+
+### Task 19 — Visible history & provenance (2026-09-11) — ACCEPTED
+
+- Commits `40ede17`, `9099e2d`, `c8e997c`, `f5a1e0d`; merged as `7618966`. One backend formatter
+  (`app/services/history.py`, ADR-0018) turns audit events into grouped display entries (one save = one entry;
+  actor kinds human/import/system/agent incl. "on behalf of"; French labels; values as stored, masked stays masked,
+  raw JSON never leaves the module; exhaustive labelled-or-hidden column test), paginated history endpoints for
+  prospects and companies, `HistoryTimeline` in both editors, Home feed on the same data without values
+  (values only inside editors — documented split). I-130..I-137. Screenshots reviewed.
+- Bugs found and fixed by the agent's new E2E: editor saves silently rewrote imported e-mails' source reference
+  (trailing space in sheet name) producing false "E-mail modifié" events; Home feed split one save into several
+  lines under concurrent writes. Review polish done: empty Rôle/Intitulé/Entreprise now show actionable empty states.
+- Data point for the perf investigation: on the Task 19 worktree test DB the 20k Home test passes alone (5.7 s)
+  after merging 33fc7c3 → the 277–308 s case looks database-state specific; forwarded to the perf agent.

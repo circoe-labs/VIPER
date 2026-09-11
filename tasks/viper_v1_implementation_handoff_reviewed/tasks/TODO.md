@@ -36,7 +36,7 @@ VIPER V1 is a database-first human dashboard for maintaining prospect/company/co
 - [x] **16** `16-home-dashboard` — global activity/database-health dashboard
 - [x] **17** `17-global-search` — cross-entity quick search (explicitly defer only if necessary)
 - [x] **18** `18-exploitation-placeholder` — Coming soon only
-- [~] **19** `19-audit-history-ui` — focused visible history/provenance
+- [x] **19** `19-audit-history-ui` — focused visible history/provenance
 - [ ] **20** `20-hardening` — E2E/security/privacy/perf/accessibility/final report
 
 ## Global acceptance gates
