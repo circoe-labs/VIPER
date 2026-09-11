@@ -7,9 +7,10 @@ Routes: Home, Prospection, Exploitation, Database, Settings. Global shell provid
 
 ### Application services
 Use explicit service boundaries rather than UI-to-ORM coupling:
-- ProspectService
+- ProspectService (domain rules in `app/services/prospects.py`; the Prospect editor's view model and atomic save in
+  `app/services/prospect_editor.py`, Task 15 — [prospect-editor.md](../features/prospect-editor.md))
 - CompanyService (Task 07: `app/services/companies.py` — [company-editor.md](../features/company-editor.md))
-- ContactChannelService
+- ContactChannelService (Task 15: `app/services/contact_channels.py` — alias normalization and full-list save)
 - ContactTrackingService
 - ProspectQueryService (Task 14: `app/services/prospection/` — canonical segments + counters/list, read-only,
   [prospection-kpis.md](../features/prospection-kpis.md), [ADR-0014](../adr/0014-canonical-prospect-segments.md))
@@ -89,7 +90,7 @@ When a Prospect changes company:
 1. audit old/new company;
 2. set employment verification as needing a fresh check (clear or supersede the employment verification date according to implementation semantics);
 3. mark professional emails/phones that are company-dependent as needing re-verification without deleting them;
-4. surface a visible warning/action in Prospection;
+4. surface a visible warning/action in Prospection (and, before the save, in the Prospect editor — Task 15);
 5. preserve old values in audit/history, not as a public CV UI.
 
 ## Contact suppression rule

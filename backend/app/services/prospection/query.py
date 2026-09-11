@@ -281,7 +281,7 @@ def _page_statement(context: SegmentContext) -> Select[Any]:
     )
 
 
-def _iso_week(moment: datetime | None) -> str | None:
+def iso_week(moment: datetime | None) -> str | None:
     if moment is None:
         return None
     year, week, _ = moment.astimezone(BUSINESS_TIMEZONE).isocalendar()
@@ -345,7 +345,7 @@ def list_prospects(
                 tracking_status=tracking.status if tracking else None,
                 planned_contact_at=tracking.planned_contact_at if tracking else None,
                 due=due,
-                planned_contact_week=_iso_week(tracking.planned_contact_at if tracking else None),
+                planned_contact_week=iso_week(tracking.planned_contact_at if tracking else None),
                 response_received_at=tracking.response_received_at if tracking else None,
                 appointment_at=tracking.appointment_at if tracking else None,
                 referent_id=tracking.referent_id if tracking else None,
@@ -357,3 +357,14 @@ def list_prospects(
         )
     total = session.execute(join_segment_sources(select(func.count())).where(*where)).scalar_one()
     return ProspectPage(items=items, total=total, limit=limit, offset=offset)
+
+
+def prospect_verification_state(
+    session: Session, prospect_id: uuid.UUID, context: SegmentContext
+) -> VerificationState | None:
+    """One prospect's employment verification state, from the list's own expression (the Prospect
+    editor shows the same state as the Prospection card). None when the prospect does not exist."""
+    state = session.execute(
+        join_segment_sources(select(verification_state(context))).where(Prospect.id == prospect_id)
+    ).scalar_one_or_none()
+    return VerificationState(state) if state is not None else None

@@ -170,5 +170,5 @@ export function stubCompaniesApi(options: CompaniesStubOptions = {}) {
     return handle(method, url, body)
   })
   vi.stubGlobal('fetch', fetchMock)
-  return { store, requests, next, settings }
+  return { store, requests, next, settings, fetchMock }
 }

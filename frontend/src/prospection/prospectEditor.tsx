@@ -1,7 +1,6 @@
-import { type ComponentType, createContext, useContext, useEffect } from 'react'
-import { useNavigate } from 'react-router'
+import { type ComponentType, createContext, useContext } from 'react'
 
-import { recordHref } from '../database/explorerView'
+import { ProspectEditor } from '../prospects/ProspectEditor'
 import type { ProspectQueue } from './queue'
 
 // Open-editor contract between the Prospection list (Task 14) and the Prospect editor (Task 15).
@@ -14,9 +13,8 @@ import type { ProspectQueue } from './queue'
 // - `onNavigate(id, { page })` replaces the open prospect (Save & Next); `onNavigate(null)` closes the editor.
 // - After a write, invalidate `prospectionKeys.all` (api/prospection.ts) so counters and pages refresh.
 //
-// Task 15 provides its drawer with `<ProspectEditorContext.Provider value={{ canCreate: true, Editor }}>` (e.g. in
-// AppShell, next to CompanyEditorProvider). Until then the default below is an honest fallback: it opens the person's
-// row in the Database Explorer, and « Ajouter un prospect » stays disabled.
+// The default implementation is the Prospect editor drawer (prospects/ProspectEditor.tsx); a test can provide another
+// one with `<ProspectEditorContext.Provider value={{ canCreate, Editor }}>`.
 
 export interface ProspectEditorProps {
   // A prospect id, or 'new'.
@@ -31,24 +29,7 @@ export interface ProspectEditorImplementation {
   Editor: ComponentType<ProspectEditorProps>
 }
 
-// The prospect's row in the Database Explorer (`prospects` filtered on its id).
-export function prospectRecordHref(id: string): string {
-  return recordHref('prospects', id)
-}
-
-// Replaces the `?prospect=` history entry by the explorer, so Back returns to the list as it was.
-function ExplorerFallback({ target, onNavigate }: ProspectEditorProps) {
-  const navigate = useNavigate()
-  useEffect(() => {
-    if (target === 'new') onNavigate(null)
-    else void navigate(prospectRecordHref(target), { replace: true })
-  }, [target, navigate, onNavigate])
-  return null
-}
-
-export const EXPLORER_FALLBACK: ProspectEditorImplementation = { canCreate: false, Editor: ExplorerFallback }
-
-export const ProspectEditorContext = createContext<ProspectEditorImplementation>(EXPLORER_FALLBACK)
+export const ProspectEditorContext = createContext<ProspectEditorImplementation>({ canCreate: true, Editor: ProspectEditor })
 
 export function useProspectEditor(): ProspectEditorImplementation {
   return useContext(ProspectEditorContext)

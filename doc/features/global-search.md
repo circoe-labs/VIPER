@@ -49,7 +49,7 @@ Rules:
 | Focus the search from anywhere | **Ctrl+K** (⌘K), or **/** when not typing in a field; ignored while a dialog (editor, confirmation) is open |
 | Search | type; the request leaves 200 ms after the last keystroke |
 | Move between results | **↑ / ↓** (all groups, wrapping); pointer hover |
-| Open | **Enter** or click: a prospect opens `/prospection?prospect=<id>` (the Prospect editor contract, [prospection-kpis.md](prospection-kpis.md#open-editor-contract-for-task-15)); a company opens the Company editor (`useCompanyEditor`); an establishment opens its company |
+| Open | **Enter** or click: a prospect opens `/prospection?prospect=<id>` — the Prospect editor drawer of Task 15 over the Prospection list ([prospection-kpis.md](prospection-kpis.md#open-editor-contract)); a company opens the Company editor (`useCompanyEditor`); an establishment opens its company |
 | Open the row in the Database Explorer | **Shift+Enter**, or the table button of the active/hovered result — `/database/<table>?filters=[id = …]` |
 | Close / clear | **Esc** closes the results, a second **Esc** clears the field; **Tab** closes and moves on |
 

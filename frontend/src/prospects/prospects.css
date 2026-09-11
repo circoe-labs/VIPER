@@ -1,0 +1,475 @@
+/* Prospect editor (Task 15): a wide drawer in two columns — the person (identity, employment, verification, e-mails,
+   phones) on the left, the context (opposition, contact tracking, company, provenance) on the right. */
+
+.prospect-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
+  gap: var(--space-8);
+  align-items: start;
+}
+
+.prospect-editor__main,
+.prospect-editor__side {
+  display: grid;
+  gap: var(--space-6);
+  min-width: 0;
+}
+
+@media (max-width: 1100px) {
+  .prospect-editor {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.prospect-editor__state {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-4) 0;
+  color: var(--color-text-muted);
+}
+
+.prospect-editor__state--error {
+  color: var(--color-danger-fg);
+}
+
+/* --- sections --- */
+
+.prospect-editor__section {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+  padding: var(--space-5) var(--space-6);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+/* Values to (re)verify: a warning edge on the section, never the only signal (badges and field texts carry it). */
+.prospect-editor__section[data-tone='warning'] {
+  border-left: 3px solid var(--color-warning-fg);
+}
+
+.prospect-editor__section[data-tone='danger'] {
+  border-color: color-mix(in srgb, var(--color-danger-fg) 55%, var(--color-border));
+  border-left: 3px solid var(--color-danger-fg);
+}
+
+.prospect-editor__section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+}
+
+.prospect-editor__section-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-lg);
+}
+
+.prospect-editor__count {
+  min-width: 1.5rem;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-neutral-soft);
+  color: var(--color-neutral-fg);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.375rem;
+  text-align: center;
+}
+
+.prospect-editor__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4) var(--space-5);
+  align-items: start;
+}
+
+.prospect-editor__side .prospect-editor__grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.prospect-editor__wide {
+  grid-column: 1 / -1;
+}
+
+.prospect-editor__identity {
+  display: grid;
+  grid-template-columns: 6.5rem repeat(2, minmax(0, 1fr));
+  gap: var(--space-4) var(--space-5);
+  align-items: start;
+}
+
+.prospect-editor__stack {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.prospect-editor__pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(6.5rem, 1fr);
+  gap: var(--space-3);
+  align-items: start;
+}
+
+.prospect-editor__quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.prospect-editor__muted {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.prospect-editor__note {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.prospect-editor__note svg {
+  flex: none;
+  margin-top: 0.125rem;
+}
+
+.prospect-editor__note--danger {
+  color: var(--color-danger-fg);
+  font-weight: var(--weight-medium);
+}
+
+.prospect-editor__banner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+  background: var(--color-warning-soft);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+}
+
+.prospect-editor__banner svg {
+  flex: none;
+  margin-top: 0.0625rem;
+  color: var(--color-warning-fg);
+}
+
+.prospect-editor__dialog {
+  display: grid;
+  gap: var(--space-4);
+}
+
+/* Activity: a segmented choice (radios), with the warning edge when its value was imported and never verified. */
+.prospect-segmented {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.prospect-segmented__options {
+  display: flex;
+  justify-self: start;
+  border: var(--border-width) solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.prospect-segmented[data-warning] .prospect-segmented__options {
+  border-color: var(--color-warning-fg);
+}
+
+.prospect-segmented__option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-md);
+  padding: 0 var(--space-4);
+  background: var(--color-field);
+  font-size: var(--text-md);
+  cursor: pointer;
+}
+
+.prospect-segmented__option + .prospect-segmented__option {
+  border-left: var(--border-width) solid var(--color-border-strong);
+}
+
+.prospect-segmented__option:has(input:checked) {
+  background: var(--color-accent-soft);
+  font-weight: var(--weight-semibold);
+}
+
+.prospect-segmented__option:has(input:focus-visible) {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
+}
+
+.prospect-segmented__option input {
+  margin: 0;
+  accent-color: var(--color-accent);
+}
+
+/* Employment verification: one click, or a date. */
+.prospect-verify {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3) var(--space-4);
+}
+
+.prospect-verify .field {
+  width: 11rem;
+}
+
+/* --- e-mail and phone aliases --- */
+
+.prospect-aliases {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.prospect-alias {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  margin: 0;
+  padding: var(--space-4);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+}
+
+.prospect-alias[data-primary] {
+  border-color: color-mix(in srgb, var(--color-accent-fg) 45%, var(--color-border));
+}
+
+.prospect-alias[data-tone='warning'] {
+  border-left: 3px solid var(--color-warning-fg);
+}
+
+.prospect-alias[data-inactive] {
+  background: var(--color-surface);
+}
+
+.prospect-alias[data-inactive] .field__control {
+  color: var(--color-text-muted);
+  text-decoration: line-through;
+}
+
+.prospect-alias__fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-3) var(--space-4);
+  align-items: end;
+}
+
+.prospect-alias__fields[data-kind='phones'] {
+  grid-template-columns: minmax(0, 1fr) 7.5rem auto;
+}
+
+.prospect-alias__primary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-md);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.prospect-alias__primary input {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+
+.prospect-alias__primary:has(input:disabled) {
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+
+.prospect-alias__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.prospect-alias__origin {
+  flex: 1;
+  min-width: 8rem;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prospect-alias__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* --- opposition, tracking, company, provenance --- */
+
+.prospect-opposition {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.prospect-opposition--blocked {
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+  background: var(--color-danger-soft);
+}
+
+.prospect-opposition__state {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: var(--weight-medium);
+}
+
+.prospect-opposition__state svg {
+  color: var(--color-success-fg);
+}
+
+.prospect-editor__referent {
+  display: grid;
+  gap: var(--space-2);
+}
+
+/* An appointment without its Circoe referent: the field is asked for. */
+.prospect-editor__referent[data-emphasis] {
+  padding: var(--space-3);
+  border-left: 3px solid var(--color-warning-fg);
+  border-radius: var(--radius-sm);
+  background: var(--color-warning-soft);
+}
+
+.prospect-company {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.prospect-company__name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: var(--weight-semibold);
+}
+
+.prospect-company__facts {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.prospect-company__facts dt {
+  color: var(--color-text-muted);
+}
+
+.prospect-company__facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.prospect-sources {
+  display: grid;
+  gap: var(--space-3);
+  padding: 0;
+  list-style: none;
+}
+
+.prospect-sources__item {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.prospect-sources__title {
+  font-weight: var(--weight-medium);
+  overflow-wrap: anywhere;
+}
+
+/* --- footer: dirty-state bar --- */
+
+.prospect-editor__bar {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.prospect-editor__bar-status {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  min-width: 14rem;
+}
+
+.prospect-editor__status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.prospect-editor__status svg {
+  flex: none;
+}
+
+.prospect-editor__status--dirty {
+  color: var(--color-warning-fg);
+}
+
+.prospect-editor__status--saved {
+  color: var(--color-success-fg);
+}
+
+.prospect-editor__status--info {
+  color: var(--color-info-fg);
+}
+
+.prospect-editor__status--error {
+  color: var(--color-danger-fg);
+}
+
+.prospect-editor__dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: var(--radius-full);
+  background: currentcolor;
+}
+
+.prospect-editor__keys {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.prospect-editor__keys kbd {
+  padding: 0 var(--space-1);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-surface);
+  font-family: inherit;
+  font-size: var(--text-xs);
+}

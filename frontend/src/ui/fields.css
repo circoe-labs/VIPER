@@ -60,6 +60,12 @@
   border-color: var(--color-danger-fg);
 }
 
+/* A value to double-check (e.g. imported and never verified): warning outline, with the warning text below. */
+.field[data-warning] .field__control,
+.field[data-warning] .combobox__control {
+  border-color: var(--color-warning-fg);
+}
+
 .field__hint {
   font-size: var(--text-sm);
   color: var(--color-text-muted);

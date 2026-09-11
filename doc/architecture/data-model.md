@@ -334,6 +334,16 @@ tracking and its history, sources, import row metadata) and for a batch's row me
   Prospection counters and list and by Home ([prospection-kpis.md](../features/prospection-kpis.md)).
 - **Contact tracking** (`save_contact_tracking`): creates or replaces the single current row and appends a
   status-history row (with the actor snapshot) whenever the status changes.
+- **Prospect editor** (Task 15, `app/services/prospect_editor.py` + `contact_channels.py`,
+  [prospect-editor.md](../features/prospect-editor.md), [ADR-0015](../adr/0015-prospect-editor-save.md)): one atomic save
+  composing an inline role creation, `change_company`, the identity/employment fields, the e-mail and phone **full
+  lists** (normalized like the import; exactly one active primary, switched in two flushes; removals deleted), the
+  contact tracking and, on creation, a `manual` provenance source. Verification is explicit: the employment through an
+  action (`keep`, `verified_now`, `verified_on` a day, `clear`), each alias through `verified_now` — a `verified` status
+  is otherwise kept only for an alias already verified and unchanged, so a company change is never undone by the
+  payload; an edited value is a new, never-verified `manual` one. Contactability has its own operation with a reason
+  both ways; the save cannot carry it. Writes check an **aggregate version** (the prospect, its e-mails, phones and
+  tracking) under a row lock and refuse stale ones (409). A `do_not_contact` prospect cannot be deleted.
 - **Companies** (Task 07, `app/services/companies.py`, [company-editor.md](../features/company-editor.md)): SIREN/SIRET
   stored as digits with a valid Luhn key when entered or changed (La Poste SIRETs by digit sum; unchanged imported
   values are not re-checked), unique with a 409 naming the holding company; `email_domain` lowercase without `@`,
