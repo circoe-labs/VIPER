@@ -34,7 +34,10 @@
   append-only audit); service tests cover contactability, contact tracking, company change and the seed.
   Synthetic builders and the `rejected(session, "<constraint>")` helper live in `backend/tests/builders.py`.
 - Frontend: Vitest + Testing Library (`renderApp(path)` / `stubFetchJson` helpers in `frontend/src/test/`);
-  Playwright E2E in `frontend/e2e/`.
+  Playwright E2E in `frontend/e2e/`. Every component test runs within Vitest's default 5 s limit — no raised
+  timeout: one behaviour per test, and long values entered with `fill` (`src/test/fill.ts`, one paste) rather than
+  typed key by key, except where keystrokes are the behaviour (pickers, Enter/Ctrl+S, live validation). Measured with
+  `npx vitest run --reporter=verbose`: slowest test ≈ 1.8 s, also while the backend suite runs (I-152).
 - Authentication (Task 04): the backend `client` fixture is **signed in** as a synthetic pilot user (session cookie +
   CSRF header), `anonymous_client` is not — so feature-router tests need no auth plumbing. `test_auth.py` covers
   sign-in, identical answers for unknown email / wrong password, throttling, idle/absolute expiry, logout revocation,
