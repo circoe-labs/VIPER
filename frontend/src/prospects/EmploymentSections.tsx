@@ -73,10 +73,13 @@ interface EmploymentProps extends SectionProps {
   companyMoved: boolean
 }
 
-// Company, role, exact title and activity: the employment context the verification date covers.
+// Company, role, exact title and activity: the employment context the verification date covers. Imported values to
+// confirm are flagged; an imported field left empty says what to do instead (there is nothing to confirm).
 export function EmploymentSection({ draft, errors, fieldId, onChange, prospect, companyMoved }: EmploymentProps) {
   const imported = employmentNeedsCheck({ prospect, draft, companyMoved: false })
   const warning = imported ? IMPORTED_HINT : undefined
+  const flag = (filled: boolean, empty: string) =>
+    imported && !filled ? { hint: empty } : { warning: filled ? warning : undefined }
   return (
     <EditorSection title="Emploi" tone={companyMoved || imported ? 'warning' : undefined}>
       {companyMoved && (
@@ -94,7 +97,9 @@ export function EmploymentSection({ draft, errors, fieldId, onChange, prospect, 
           value={draft.company_id}
           selectedLabel={prospect?.company && prospect.company.id === draft.company_id ? prospect.company.display_name : null}
           error={errors.company_id}
-          warning={companyMoved ? MOVED_HINT : warning}
+          {...(companyMoved
+            ? { warning: MOVED_HINT }
+            : flag(draft.company_id !== null, 'Aucune entreprise — choisissez-la ou créez-la.'))}
           onChange={(company_id) => {
             onChange({ company_id })
           }}
@@ -104,7 +109,7 @@ export function EmploymentSection({ draft, errors, fieldId, onChange, prospect, 
           roleId={draft.role_id}
           roleLabel={draft.role_label}
           error={errors.role_id}
-          warning={warning}
+          {...flag(draft.role_id !== null || draft.role_label !== null, 'Aucun rôle — choisissez-en un ou créez-le.')}
           onChange={onChange}
         />
         <div className="prospect-editor__wide">
@@ -114,7 +119,7 @@ export function EmploymentSection({ draft, errors, fieldId, onChange, prospect, 
             placeholder="Le libellé de poste tel que la personne l’emploie"
             value={draft.exact_job_title}
             error={errors.exact_job_title}
-            warning={warning}
+            {...flag(draft.exact_job_title.trim() !== '', 'Aucun intitulé — saisissez le libellé de poste de la personne.')}
             onChange={(event) => {
               onChange({ exact_job_title: event.target.value })
             }}

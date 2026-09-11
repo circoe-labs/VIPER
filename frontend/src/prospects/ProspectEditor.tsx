@@ -8,7 +8,7 @@ import { Button } from '../ui/Button'
 import { Drawer, Modal } from '../ui/Dialog'
 import { AlertIcon, CheckCircleIcon, InfoIcon, RefreshIcon, TrashIcon } from '../ui/icons'
 import { AliasList } from './AliasList'
-import { CompanySection, DeleteProspectDialog, ProvenanceSection } from './ContextSections'
+import { CompanySection, DeleteProspectDialog, HistorySection, ProvenanceSection } from './ContextSections'
 import { EmploymentSection, IdentitySection, VerificationSection } from './EmploymentSections'
 import { type ProspectRefusal, prospectRefusal } from './messages'
 import { OppositionSection } from './OppositionSection'
@@ -374,6 +374,7 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
             <TrackingSection draft={draft} errors={shown} fieldId={fieldId} onChange={change} prospect={prospect} today={today} />
             <CompanySection companyId={draft.company_id} />
             <ProvenanceSection draft={draft} errors={shown} fieldId={fieldId} onChange={change} prospect={prospect} />
+            {prospect && <HistorySection prospectId={prospect.id} />}
           </div>
         </form>
       )}

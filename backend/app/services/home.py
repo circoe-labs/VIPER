@@ -18,11 +18,11 @@ from sqlalchemy.orm import Session
 from app.core.actor import ActorType
 from app.core.business_time import start_of_day
 from app.models import Company, ContactTracking, ImportBatch, InternalReferent, Prospect
-from app.models.audit import AuditLogEntry
 from app.models.contact_tracking import ContactTrackingStatusHistory
 from app.models.enums import ContactTrackingStatus
-from app.services import audit, import_batches
+from app.services import audit, history, import_batches
 from app.services.audit import AuditSource
+from app.services.history import HistoryActor
 from app.services.prospection.query import ProspectFilters, count_segments
 from app.services.prospection.segments import (
     APPOINTMENT_STAGES,
@@ -50,9 +50,13 @@ IMPORT_LIMIT = 5
 EDIT_LIMIT = 8
 # Events read to build EDIT_LIMIT lines (one save writes one event per changed row).
 EDIT_EVENTS_READ = 40
-# Home's feed is about the prospect base: human edits of prospects (and their e-mails, phones,
+# Home's feed is about the prospect base: edits of prospects (and their e-mails, phones,
 # tracking, sources) and companies (and their establishments). Settings changes stay out.
 EDIT_SUBJECT_TYPES = ("prospect", "company")
+# Saves by people and by future agents; imports have their own list, CLI/seed writes none.
+EDIT_ACTOR_TYPES = (ActorType.HUMAN, ActorType.AGENT)
+# Summaries need no labels: Home shows no value.
+NO_LOOKUPS = history.Lookups()
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,26 +92,18 @@ class NextActions:
 
 
 @dataclass(frozen=True, slots=True)
-class EditAction:
-    action: str
-    entity_type: str
-    # Contact-tracking stage change, when the event is one.
-    status_before: ContactTrackingStatus | None
-    status_after: ContactTrackingStatus | None
-
-
-@dataclass(frozen=True, slots=True)
 class EditItem:
-    """One save: the events of one request on one prospect or company, oldest action first."""
+    """One save on one prospect or company, as the history groups it (`app.services.history`)."""
 
     occurred_at: datetime
-    actor_display: str
+    actor: HistoryActor
     source: AuditSource | None
     subject_type: str
     subject_id: uuid.UUID | None
     # The person's name or the company's display name; None once the record is deleted.
     subject_label: str | None
-    actions: list[EditAction]
+    # What the save did, without any value (« E-mail principal modifié », « Suivi : A → B »).
+    summary: list[str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -280,31 +276,6 @@ def next_actions(session: Session, context: SegmentContext) -> NextActions:
 # --- recent edits -------------------------------------------------------------------------------
 
 
-def _same_save(group: list[AuditLogEntry], event: AuditLogEntry) -> bool:
-    first = group[0]
-    request = event.context.get("request_id")
-    return (
-        request is not None
-        and first.context.get("request_id") == request
-        and (first.subject_type, first.subject_id) == (event.subject_type, event.subject_id)
-    )
-
-
-def _status(changes: dict[str, Any], side: str) -> ContactTrackingStatus | None:
-    value = (changes.get("status") or {}).get(side)
-    return ContactTrackingStatus(value) if isinstance(value, str) and value in S else None
-
-
-def _edit_action(event: AuditLogEntry) -> EditAction:
-    tracking = event.entity_type == "contact_tracking"
-    return EditAction(
-        action=event.action,
-        entity_type=event.entity_type,
-        status_before=_status(event.changes, "before") if tracking else None,
-        status_after=_status(event.changes, "after") if tracking else None,
-    )
-
-
 def _subject_labels(
     session: Session, subjects: set[tuple[str | None, uuid.UUID | None]]
 ) -> dict[tuple[str, uuid.UUID], str]:
@@ -324,39 +295,29 @@ def _subject_labels(
 
 
 def recent_edits(session: Session) -> list[EditItem]:
-    """The latest human saves on prospects and companies, newest first — structured actions only,
-    never field values (the readable history is Task 19's)."""
-    groups: list[list[AuditLogEntry]] = []
-    for event in audit.recent_activity(
+    """The latest saves by people (and, later, agents) on prospects and companies, newest first,
+    grouped and summarized by the history formatter — value-free phrases only: Home shows what
+    changed, the editors' history shows the values."""
+    events = audit.recent_activity(
         session,
         limit=EDIT_EVENTS_READ,
         subject_types=EDIT_SUBJECT_TYPES,
-        actor_types=(ActorType.HUMAN,),
-    ):
-        if groups and _same_save(groups[-1], event):
-            groups[-1].append(event)
-        elif len(groups) < EDIT_LIMIT:
-            groups.append([event])
-        else:
-            break
-    labels = _subject_labels(session, {(g[0].subject_type, g[0].subject_id) for g in groups})
-    items = []
-    for group in groups:
-        latest = group[0]
-        source = latest.context.get("source")
-        subject_type = latest.subject_type or latest.entity_type
-        subject_id = latest.subject_id
-        items.append(
-            EditItem(
-                occurred_at=latest.occurred_at,
-                actor_display=latest.actor_display,
-                source=AuditSource(source)
-                if isinstance(source, str) and source in AuditSource
-                else None,
-                subject_type=subject_type,
-                subject_id=subject_id,
-                subject_label=labels.get((subject_type, subject_id)) if subject_id else None,
-                actions=[_edit_action(event) for event in reversed(group)],
-            )
+        actor_types=EDIT_ACTOR_TYPES,
+    )
+    groups = history.group_events(events, across_records=True)[:EDIT_LIMIT]
+    entries = [history.describe(group, NO_LOOKUPS) for group in groups]
+    labels = _subject_labels(session, {(entry.subject_type, entry.subject_id) for entry in entries})
+    return [
+        EditItem(
+            occurred_at=entry.occurred_at,
+            actor=entry.actor,
+            source=entry.source,
+            subject_type=entry.subject_type,
+            subject_id=entry.subject_id,
+            subject_label=(
+                labels.get((entry.subject_type, entry.subject_id)) if entry.subject_id else None
+            ),
+            summary=entry.summary,
         )
-    return items
+        for entry in entries
+    ]

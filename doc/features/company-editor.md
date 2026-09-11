@@ -32,6 +32,7 @@ Decisions: I-37, I-38, I-39, I-70, I-71 in the decision log. Schema: `companies`
 | Établissements | see below | `establishments` | Company-only: prospects are not linked to an establishment in V1. |
 | Contexte Circoe | Projet déjà réalisé avec l'entreprise · Type de projet · Références Circoe · Approche client | `project_done_with_circoe`, `project_type`, `circoe_references`, `client_approach` | Free multi-line texts kept from the legacy workbook columns of the same names; trimmed, 10 000 characters. |
 | Prospects associés | (read-only) | — | Count and the first 100 prospects (name, role · exact title, activity, *Ne pas contacter* when blocked), by last then first name. Navigation only: people are edited in the Prospect editor (Task 15). |
+| Historique | (read-only) | `audit_log` | Existing companies: who changed the company, its categories and establishments, one entry per save, 10 then *Voir plus* — the Prospect editor's timeline component (Task 19, `GET /api/companies/{id}/history`, [audit-and-provenance.md](../architecture/audit-and-provenance.md#visible-history-task-19)). |
 
 Blank texts are stored as NULL.
 
@@ -79,7 +80,7 @@ same helper Task 09 (duplicate company candidates) and Task 15 (inline creation)
 ## Editor behaviour
 
 - Wide drawer (`Drawer size="xl"`), focus on the name field when it opens, sections *Identité*, *Classification*,
-  *Établissements*, *Contexte Circoe*, *Prospects associés*.
+  *Établissements*, *Contexte Circoe*, *Prospects associés*, *Historique* (existing company).
 - Footer = dirty-state bar: status (*Modifications non enregistrées*, *Entreprise enregistrée.*, *Corrigez les N champs
   signalés.*, *Enregistrement impossible : …*, announced through `role="status"`), *Supprimer* (existing company),
   *Annuler les modifications* (reverts to the saved state) or *Fermer*, and *Enregistrer* (enabled only with changes).
@@ -103,6 +104,7 @@ same helper Task 09 (duplicate company candidates) and Task 15 (inline creation)
 | `POST /companies` | company fields, `commercial_segment_id`, `activity_category_ids`, `establishments` (both lists optional) | 201 company |
 | `PUT /companies/{id}` | the **whole** editable state; `activity_category_ids` and `establishments` are required (an omitted field is cleared; an omitted establishment is deleted); an establishment keeps its `id` | company |
 | `DELETE /companies/{id}` | — | 204 |
+| `GET /companies/{id}/history` | `limit` 1–50 (10), `before` | readable history page (Task 19), as `GET /prospects/{id}/history` |
 
 Refusals (`app/api/errors.py`, shared with Settings):
 
@@ -118,8 +120,8 @@ Refusals (`app/api/errors.py`, shared with Settings):
 Every write goes through `CompanyService` with the signed-in actor (`source=ui`). One event per changed row:
 `company.created/updated/deleted` (a segment change carries both labels; categories appear as
 `activity_categories_ids`, also on creation), `establishment.created/updated/deleted` with the company as subject — so
-a company's history (`audit.history(session, "company", id)`, Task 19) includes its establishments. Unchanged rows get
-no event; a save that changes nothing writes nothing.
+a company's history (`audit.history(session, "company", id)`, shown in the *Historique* section since Task 19) includes
+its establishments. Unchanged rows get no event; a save that changes nothing writes nothing.
 
 ## Code
 
@@ -143,7 +145,7 @@ no event; a save that changes nothing writes nothing.
 - Frontend: `src/companies/companyForm.test.ts` (keys, web values, payload, dirty state, every validation message),
   `CompanyEditor.test.tsx` (creation with validation and normalized payload, identifier warnings vs errors,
   establishment repeater and focus, dirty bar / revert / close guard, Ctrl+S and Enter, server refusals on fields,
-  prospects list, delete refused/allowed, domain suggestion, similar companies), `CompaniesPage.test.tsx` (entry from
+  prospects list, delete refused/allowed, domain suggestion, similar companies, history section), `CompaniesPage.test.tsx` (entry from
   Prospection, list cells, search, paging, empty state, refresh after save) — against `src/test/companiesApi.ts`.
 - Playwright `e2e/companies.spec.ts` (real backend): Prospection → Entreprises, create a company with two
   establishments, a segment and categories (one created inline), SIRET/SIREN warning, save, find it by SIREN, switch the

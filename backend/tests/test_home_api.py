@@ -116,22 +116,21 @@ def test_recent_edits_carry_no_raw_payload(client: TestClient, db_session: Sessi
 
     (edit,) = body["recent_edits"]
     assert edit["subject_label"] == "Jean Témoin"
-    assert edit["actions"] == [
-        {
-            "action": "contact_tracking.created",
-            "entity_type": "contact_tracking",
-            "status_before": None,
-            "status_after": "contacted",
-        }
-    ]
+    assert edit["summary"] == ["Suivi : Contacté"]
+    assert edit["actor"] == {
+        "kind": "human",
+        "label": "Opératrice Test",
+        "id": "test-user",
+        "on_behalf_of": None,
+    }
     assert set(edit) == {
         "occurred_at",
-        "actor_display",
+        "actor",
         "source",
         "subject_type",
         "subject_id",
         "subject_label",
-        "actions",
+        "summary",
     }
     text = client.get(HOME).text
     assert "jean.temoin@exemple.example" not in text

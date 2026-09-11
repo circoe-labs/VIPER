@@ -2,8 +2,10 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
+import type { HistoryEntry } from '../api/history'
 import type { Prospect, ProspectInput } from '../api/prospects'
 import { company } from '../test/companiesApi'
+import { historyEntry } from '../test/historyApi'
 import { companySummary, lastBody, prospectDetail, stubProspectsApi } from '../test/prospectsApi'
 import { renderProspectEditor } from '../test/renderProspectEditor'
 import { taxonomyValue } from '../test/settingsApi'
@@ -41,7 +43,7 @@ function imported(fields: Partial<Prospect> = {}): Prospect {
         source_reference: 'base.xlsx / Prospects / ligne 7',
         collected_at: '2026-09-01T08:00:00+00:00',
         legal_basis_or_collection_context: 'Fichier historique (synthétique)',
-        actor_display: 'Import base.xlsx',
+        recorded_by: { kind: 'import', label: 'base.xlsx', id: 'batch-1', on_behalf_of: 'Pilote Test' },
         import_filename: 'base.xlsx',
       },
     ],
@@ -53,8 +55,8 @@ function region(name: string | RegExp) {
   return screen.getByRole('region', { name })
 }
 
-async function open(detail: Prospect) {
-  const api = stubProspectsApi({ details: [detail], companies: [employer], roles: [role] })
+async function open(detail: Prospect, histories: Record<string, HistoryEntry[]> = {}) {
+  const api = stubProspectsApi({ details: [detail], companies: [employer], roles: [role], histories })
   const view = renderProspectEditor(detail.id)
   await screen.findByRole('textbox', { name: 'Prénom' })
   return { api, ...view }
@@ -98,6 +100,41 @@ describe('Prospect editor', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Modifications non enregistrées')
   })
 
+  it('says what to do with an imported field left empty instead of « Importé »', async () => {
+    await open(imported({ role: null, exact_job_title: null }))
+
+    const roleField = screen.getByRole('combobox', { name: 'Rôle' })
+    expect(roleField).toHaveAccessibleDescription('Aucun rôle — choisissez-en un ou créez-le.')
+    expect(screen.getByRole('textbox', { name: 'Intitulé exact' })).toHaveAccessibleDescription(
+      'Aucun intitulé — saisissez le libellé de poste de la personne.',
+    )
+    await waitFor(() => {
+      expect(screen.getByRole('combobox', { name: /Entreprise/ })).toHaveAccessibleDescription(/Importé, à confirmer/)
+    })
+  })
+
+  it('shows the provenance and the latest saves with who made them', async () => {
+    const detail = imported()
+    await open(detail, {
+      [detail.id]: [
+        historyEntry({ title: 'Fiche modifiée', changes: [{ label: 'Étape', before: 'Contacté', after: 'Relance 1' }] }),
+        historyEntry({
+          actor: { kind: 'import', label: 'base.xlsx', id: 'batch-1', on_behalf_of: 'Pilote Test' },
+          source: 'import',
+          title: 'Fiche créée',
+        }),
+      ],
+    })
+
+    expect(region('Provenance')).toHaveTextContent('par Import « base.xlsx »')
+    expect(region('Provenance')).toHaveTextContent('Contexte : Fichier historique (synthétique)')
+    const history = await screen.findByRole('list', { name: 'Historique du prospect' })
+    const [saved, created] = Array.from(history.children) as [HTMLElement, HTMLElement]
+    expect(saved).toHaveTextContent('Vous')
+    expect(saved).toHaveTextContent('Étape : Contacté → Relance 1')
+    expect(created).toHaveTextContent('Import « base.xlsx »')
+  })
+
   it('marks a recent verification with a subtle positive state and its date', async () => {
     await open(
       imported({
@@ -111,8 +148,9 @@ describe('Prospect editor', () => {
     expect(screen.getByRole('textbox', { name: 'Intitulé exact' })).not.toHaveAccessibleDescription(/Importé/)
   })
 
-  it('saves the whole form in one request, then refreshes the Prospection list', async () => {
-    const { api, queryClient } = await open(imported())
+  it('saves the whole form in one request, then refreshes the Prospection list and the history', async () => {
+    const detail = imported()
+    const { api, queryClient } = await open(detail)
     const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
 
     await userEvent.type(screen.getByRole('textbox', { name: 'Prénom' }), 'ne')
@@ -124,6 +162,7 @@ describe('Prospect editor', () => {
     expect(body).toMatchObject({ version: 'v1', first_name: 'Jeanne', employment_verification: { action: 'keep', day: null } })
     expect(body.emails[0]).toMatchObject({ id: 'e1', verified_now: true, verification_status: 'verified' })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['prospection'] })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['history', 'prospects', detail.id] })
     expect(region('E-mails')).toHaveTextContent('Vérifié le 11 sept. 2026')
   })
 

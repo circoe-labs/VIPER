@@ -263,7 +263,9 @@ function aliasFields(kind: AliasKind, alias: AliasDraft, companyMoved: boolean) 
     is_active: alias.is_active,
     verification_status: effectiveStatus(kind, alias, companyMoved),
     verified_now: alias.verified_now,
-    source_reference: line(alias.source_reference),
+    // A stored alias's source is not editable here: sent back exactly as stored (e.g. an import reference keeps the
+    // sheet name's own spacing), so a save never rewrites it.
+    source_reference: alias.stored ? alias.stored.source_reference : line(alias.source_reference),
   }
 }
 

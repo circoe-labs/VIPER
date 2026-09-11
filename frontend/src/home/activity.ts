@@ -1,50 +1,13 @@
-// Readable lines for Home's recent activity (Task 16): the one place that turns audit actions into French. It shows
-// what happened and to whom — never field values (the API does not send them). Task 19 replaces it with the full
-// history formatter over the same data.
+// Readable lines for Home's recent activity. What a save did comes already worded, without any value, from the history
+// formatter (Task 19, backend/app/services/history.py): Home shows what changed and to whom, the editors' history
+// shows the values. This module names the record and the origin and formats counts and dates.
+import type { EditItem } from '../api/home'
 import type { ImportBatch } from '../api/imports'
-import type { EditAction, EditItem } from '../api/home'
-import { TRACKING_LABELS } from '../prospection/labels'
+import { actorName } from '../history/format'
 
-interface Noun {
-  label: string
-  feminine: boolean
-}
-
-const ENTITIES: Record<string, Noun> = {
-  prospect: { label: 'Fiche', feminine: true },
-  email: { label: 'E-mail', feminine: false },
-  phone: { label: 'Téléphone', feminine: false },
-  contact_tracking: { label: 'Suivi de contact', feminine: false },
-  prospect_source: { label: 'Source', feminine: true },
-  company: { label: 'Entreprise', feminine: true },
-  establishment: { label: 'Établissement', feminine: false },
-}
-
-const LIFECYCLE: Record<string, string> = { created: 'ajouté', updated: 'modifié', deleted: 'supprimé' }
-
-const SEMANTIC: Record<string, string> = {
-  'prospect.company_changed': 'Changement d’entreprise',
-  'prospect.do_not_contact.set': 'Opposition enregistrée',
-  'prospect.do_not_contact.cleared': 'Opposition levée',
-}
-
-// « Suivi : Contacté → Rendez-vous obtenu », « E-mail ajouté », « Fiche modifiée »…
-export function describeAction(action: EditAction): string {
-  const semantic = SEMANTIC[action.action]
-  if (semantic) return semantic
-  if (action.status_after) {
-    const before = action.status_before ? `${TRACKING_LABELS[action.status_before]} → ` : ''
-    return `Suivi : ${before}${TRACKING_LABELS[action.status_after]}`
-  }
-  const noun = ENTITIES[action.entity_type]
-  const verb = LIFECYCLE[action.action.slice(action.action.lastIndexOf('.') + 1)]
-  if (!noun || !verb) return 'Modification'
-  return `${noun.label} ${verb}${noun.feminine ? 'e' : ''}`
-}
-
-// The save's actions, without repeating one (a save that touched two e-mails reads « E-mail modifié » once).
+// « Changement d’entreprise · E-mail principal modifié · Suivi : Contacté → Relance 1 ».
 export function describeEdit(edit: EditItem): string {
-  return [...new Set(edit.actions.map(describeAction))].join(' · ')
+  return edit.summary.join(' · ')
 }
 
 // Name of the edited record; a deleted one keeps no name in the feed.
@@ -54,7 +17,8 @@ export function editSubject(edit: EditItem): string {
 }
 
 export function editOrigin(edit: EditItem): string {
-  return edit.source === 'database_explorer' ? `${edit.actor_display} · via Base de données` : edit.actor_display
+  const who = actorName(edit.actor)
+  return edit.source === 'database_explorer' ? `${who} · via Base de données` : who
 }
 
 // « 12 lignes importées sur 14 · 2 exclues ».

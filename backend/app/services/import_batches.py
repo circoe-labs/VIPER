@@ -38,8 +38,14 @@ FINAL_STATUSES = {
 }
 
 
+# The import actor's label is this prefix and the file name (the history shows the file name alone).
+IMPORT_ACTOR_PREFIX = "Import "
+
+
 def import_actor(batch: ImportBatch) -> ActorContext:
-    return ActorContext(type=ActorType.IMPORT, id=str(batch.id), display=f"Import {batch.filename}")
+    return ActorContext(
+        type=ActorType.IMPORT, id=str(batch.id), display=f"{IMPORT_ACTOR_PREFIX}{batch.filename}"
+    )
 
 
 @contextmanager

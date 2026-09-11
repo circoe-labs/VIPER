@@ -1,10 +1,10 @@
 """Audit log persistence: inserts only (the table is append-only) and history queries."""
 
 import uuid
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from typing import Any
 
-from sqlalchemy import Select, insert, select
+from sqlalchemy import Select, Uuid, and_, insert, literal, or_, select, tuple_
 from sqlalchemy.orm import Session
 
 from app.core.actor import ActorType
@@ -26,15 +26,47 @@ def _newest_first(
 
 
 def subject_history(
-    session: Session, subject_type: str, subject_id: uuid.UUID, *, limit: int
+    session: Session,
+    subject_type: str,
+    subject_id: uuid.UUID,
+    *,
+    limit: int,
+    before: uuid.UUID | None = None,
 ) -> list[AuditLogEntry]:
-    return _newest_first(
-        session,
-        select(AuditLogEntry).where(
-            AuditLogEntry.subject_type == subject_type, AuditLogEntry.subject_id == subject_id
-        ),
-        limit,
+    """Newest first; `before` (an event id) continues after that event, in the same order."""
+    statement = select(AuditLogEntry).where(
+        AuditLogEntry.subject_type == subject_type, AuditLogEntry.subject_id == subject_id
     )
+    if before is not None:
+        cursor = select(AuditLogEntry.occurred_at).where(AuditLogEntry.id == before)
+        statement = statement.where(
+            tuple_(AuditLogEntry.occurred_at, AuditLogEntry.id)
+            < tuple_(cursor.scalar_subquery(), literal(before, Uuid))
+        )
+    return _newest_first(session, statement, limit)
+
+
+def identity_changes(
+    session: Session, fields: Mapping[str, str], entity_ids: Collection[uuid.UUID]
+) -> list[AuditLogEntry]:
+    """Events of these rows that set their identity field (`fields`: entity type → field, e.g.
+    `email` → `address`), oldest first: what a row was called at the time of a later event."""
+    if not entity_ids:
+        return []
+    statement = (
+        select(AuditLogEntry)
+        .where(
+            AuditLogEntry.entity_id.in_(entity_ids),
+            or_(
+                *(
+                    and_(AuditLogEntry.entity_type == kind, AuditLogEntry.changes.has_key(name))
+                    for kind, name in fields.items()
+                )
+            ),
+        )
+        .order_by(AuditLogEntry.occurred_at, AuditLogEntry.id)
+    )
+    return list(session.scalars(statement))
 
 
 def recent(

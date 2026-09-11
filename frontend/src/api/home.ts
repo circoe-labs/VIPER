@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 
 import { apiGet } from './client'
+import type { AuditSource, HistoryActor } from './history'
 import type { ImportBatch } from './imports'
 import type { Segment, TrackingStatus } from './prospection'
 
@@ -36,22 +37,17 @@ export interface ActionGroup {
   items: ActionItem[]
 }
 
-export interface EditAction {
-  action: string
-  entity_type: string
-  status_before: TrackingStatus | null
-  status_after: TrackingStatus | null
-}
-
+// One save on a prospect or a company, grouped and summarized by the history formatter (Task 19).
 export interface EditItem {
   occurred_at: string
-  actor_display: string
-  source: 'ui' | 'import' | 'database_explorer' | 'cli' | 'agent' | null
+  actor: HistoryActor
+  source: AuditSource | null
   subject_type: string
   subject_id: string | null
   // Current name of the person or company; null once deleted.
   subject_label: string | null
-  actions: EditAction[]
+  // What the save did, without values (« E-mail principal modifié », « Suivi : Contacté → Relance 1 »).
+  summary: string[]
 }
 
 export interface HomeData {

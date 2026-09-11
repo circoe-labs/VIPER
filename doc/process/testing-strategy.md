@@ -165,6 +165,14 @@
   p95 < 150 ms locally; with `CI` set 2 000 prospects and 500 ms); `src/shell/GlobalSearch.test.tsx` (debounce, late
   answers, keyboard, shortcuts, states); Playwright `e2e/search.spec.ts` on the test's own tagged rows — details in
   `doc/features/global-search.md`.
+- History and provenance (Task 19): `test_history.py` (formatter per kind of event — manual edit, import creation,
+  company change, alias add / primary switch / verification / deactivation / removal, tracking stage, opposition set
+  and lifted with reasons, explorer edit, command-line creation, company fields/categories/establishments; an `agent`
+  actor in the history and on Home; grouping by save and by time without a request id; cursor pages that never cut a
+  save; values as stored under a masked policy, secrets/masked/structured values never shown; every audited column
+  labelled or deliberately hidden), `test_history_api.py` (401, bounds, an editor save read back as one entry by the
+  signed-in user, opposition reason, company pages); `src/history/*.test.ts(x)`; Playwright `e2e/history.spec.ts`
+  (own imported person and company) — details in `doc/architecture/audit-and-provenance.md`.
 - Privacy: `scripts/check_private_data.py` in CI; synthetic fixtures only under `*/tests/fixtures/synthetic/`.
 - Commands: `doc/process/runbook-local-dev.md`.
 

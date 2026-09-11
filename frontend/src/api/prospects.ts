@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { companyKeys } from './companies'
 import { apiGet, apiRequest } from './client'
+import { type HistoryActor, historyKeys } from './history'
 import { type ActivityStatus, type ChannelVerification, prospectionKeys, type TrackingStatus, type VerificationState } from './prospection'
 import { settingsKeys } from './settings'
 
@@ -72,7 +73,8 @@ export interface ProspectSource {
   source_reference: string | null
   collected_at: string
   legal_basis_or_collection_context: string | null
-  actor_display: string | null
+  // Who recorded it, shown like a history actor (an import by its file name).
+  recorded_by: HistoryActor | null
   import_filename: string | null
 }
 
@@ -177,8 +179,8 @@ export function useProspect(id: string | null) {
   })
 }
 
-// Writes refresh the Prospection counters and pages (prospectionKeys.all), the companies (prospect counts) and the
-// Settings lists (a role created inline, usage counts).
+// Writes refresh the Prospection counters and pages (prospectionKeys.all), the companies (prospect counts), the
+// Settings lists (a role created inline, usage counts) and the prospect's history.
 export function useProspectMutations() {
   const queryClient = useQueryClient()
   const saved = (prospect: Prospect) => {
@@ -187,6 +189,7 @@ export function useProspectMutations() {
       queryClient.invalidateQueries({ queryKey: prospectionKeys.all }),
       queryClient.invalidateQueries({ queryKey: companyKeys.all }),
       queryClient.invalidateQueries({ queryKey: settingsKeys.all }),
+      queryClient.invalidateQueries({ queryKey: historyKeys.subject('prospects', prospect.id) }),
     ])
   }
   return {

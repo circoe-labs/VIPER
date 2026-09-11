@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import type { CompanyInput } from '../api/companies'
 import type { ProspectSummary } from '../api/companies'
 import { company, establishment as establishmentRow, stubCompaniesApi } from '../test/companiesApi'
+import { historyEntry } from '../test/historyApi'
 import { renderApp } from '../test/render'
 import { taxonomyValue } from '../test/settingsApi'
 
@@ -302,6 +303,21 @@ describe('Company editor', { timeout: 15_000 }, () => {
     const refusal = screen.getByRole('dialog', { name: 'Suppression impossible' })
     expect(refusal).toHaveTextContent('« Transports Exemple » est rattachée à 2 prospects.')
     expect(within(refusal).queryByRole('button', { name: 'Supprimer' })).not.toBeInTheDocument()
+  })
+
+  it('shows the history of an existing company', async () => {
+    const existing = company('Transports Exemple')
+    const change = { label: 'Établissement Siège · ville', before: 'Lyon', after: 'Nantes' }
+    stubCompaniesApi({
+      companies: [existing],
+      histories: { [existing.id]: [historyEntry({ title: 'Entreprise modifiée', changes: [change] })] },
+    })
+    renderApp('/prospection/companies')
+    await openExisting('Transports Exemple')
+
+    const history = await within(drawer()).findByRole('list', { name: 'Historique de l’entreprise' })
+    expect(history).toHaveTextContent('Entreprise modifiée')
+    expect(history).toHaveTextContent('Établissement Siège · ville : Lyon → Nantes')
   })
 
   it('deletes a company without prospects and closes', async () => {

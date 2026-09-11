@@ -42,7 +42,9 @@ function EditLine({ edit }: { edit: EditItem }) {
           <span className="activity-item__title">{subject}</span>
         )}
       </div>
-      <span className="activity-item__detail">{describeEdit(edit)}</span>
+      <span className="activity-item__detail" title={describeEdit(edit)}>
+        {describeEdit(edit)}
+      </span>
       <span className="activity-item__meta">
         {editOrigin(edit)} · {formatMoment(edit.occurred_at)}
       </span>
@@ -51,7 +53,7 @@ function EditLine({ edit }: { edit: EditItem }) {
 }
 
 // Recent activity (Task 16): the latest imports (a committed one opens Prospection filtered on it) and the latest
-// manual saves on prospects and companies. Task 19 will enrich the edit lines from the same data.
+// saves on prospects and companies, grouped and summarized by the history formatter (Task 19) — never a value.
 export function RecentActivity({ imports, edits }: { imports: ImportBatch[]; edits: EditItem[] }) {
   return (
     <>

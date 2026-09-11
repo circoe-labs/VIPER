@@ -1,7 +1,13 @@
+import { use } from 'react'
+
 import { useCompany } from '../api/companies'
 import type { Prospect, ProspectSource } from '../api/prospects'
+import { CurrentUserContext } from '../auth/currentUser'
 import { useCompanyEditor } from '../companies/CompanyEditorProvider'
+import { actorBadge } from '../history/format'
+import { HistoryTimeline } from '../history/HistoryTimeline'
 import { formatDay } from '../prospection/labels'
+import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { Modal } from '../ui/Dialog'
 import { TextAreaField, TextField } from '../ui/fields'
@@ -67,20 +73,28 @@ const SOURCE_TYPES: Record<ProspectSource['source_type'], string> = {
 }
 
 function SourceItem({ source }: { source: ProspectSource }) {
+  const currentUserId = use(CurrentUserContext)?.id ?? null
   const reference = source.source_reference ?? source.import_filename
+  const recorder = source.recorded_by ? actorBadge(source.recorded_by, currentUserId) : null
   return (
     <li className="prospect-sources__item">
       <span className="prospect-sources__title">
         {SOURCE_TYPES[source.source_type]}
         {reference ? ` · ${reference}` : ''}
       </span>
-      <span className="prospect-editor__muted">
+      <span className="prospect-sources__meta">
         Collecté le {formatDay(source.collected_at)}
-        {source.actor_display ? ` · par ${source.actor_display}` : ''}
+        {recorder && (
+          <span className="prospect-sources__recorder">
+            par <Badge tone={recorder.tone}>{recorder.text}</Badge>
+          </span>
+        )}
       </span>
-      {source.legal_basis_or_collection_context && (
-        <span className="prospect-editor__muted">Contexte : {source.legal_basis_or_collection_context}</span>
-      )}
+      <span className="prospect-editor__muted">
+        {source.legal_basis_or_collection_context
+          ? `Contexte : ${source.legal_basis_or_collection_context}`
+          : 'Contexte de collecte ou base légale non renseigné'}
+      </span>
     </li>
   )
 }
@@ -89,8 +103,8 @@ interface ProvenanceProps extends SectionProps {
   prospect: Prospect | null
 }
 
-// Where the data came from. A new prospect records its manual provenance with the save; an existing one lists its
-// sources (the change history of Task 19 will sit below).
+// Where the data came from: each source with its type, reference, collection date, who recorded it and the legal basis
+// or collection context. A new prospect records its manual provenance with the save.
 export function ProvenanceSection({ draft, errors, fieldId, onChange, prospect }: ProvenanceProps) {
   return (
     <EditorSection title="Provenance">
@@ -137,6 +151,15 @@ export function ProvenanceSection({ draft, errors, fieldId, onChange, prospect }
           />
         </>
       )}
+    </EditorSection>
+  )
+}
+
+// Who changed what and when (Task 19): the person, their aliases, tracking and sources, one entry per save.
+export function HistorySection({ prospectId }: { prospectId: string }) {
+  return (
+    <EditorSection title="Historique">
+      <HistoryTimeline subject="prospects" id={prospectId} label="Historique du prospect" />
     </EditorSection>
   )
 }

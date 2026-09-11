@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from app.api.dependencies import CurrentActor, SessionDep, SettingsDep
 from app.api.errors import business_errors
+from app.api.history import HistoryActorOut, HistoryCursor, HistoryLimit, HistoryPageOut
 from app.models.enums import (
     ActivityStatus,
     Civility,
@@ -29,7 +30,7 @@ from app.models.enums import (
     ProspectSourceType,
     VerificationStatus,
 )
-from app.services import prospect_editor
+from app.services import history, prospect_editor
 from app.services.contact_channels import ChannelItem
 from app.services.prospect_editor import (
     EditorClock,
@@ -197,7 +198,8 @@ class SourceOut(BaseModel):
     source_reference: str | None
     collected_at: datetime
     legal_basis_or_collection_context: str | None
-    actor_display: str | None
+    # Who recorded it, like a history entry's actor (an import by its file name).
+    recorded_by: HistoryActorOut | None
     import_filename: str | None
 
 
@@ -271,6 +273,19 @@ def prospect_form(body: ProspectIn) -> ProspectForm:
 def get_prospect(prospect_id: uuid.UUID, session: SessionDep, clock: ClockDep) -> ProspectOut:
     with business_errors():
         return prospect_out(prospect_editor.get_view(session, prospect_id, clock))
+
+
+@router.get("/{prospect_id}/history")
+def prospect_history(
+    prospect_id: uuid.UUID,
+    session: SessionDep,
+    limit: HistoryLimit = 10,
+    before: HistoryCursor = None,
+) -> HistoryPageOut:
+    """Readable history, newest first: the person and their e-mails, phones, contact tracking
+    and sources — deleted ones included (the audit outlives the rows)."""
+    page = history.history_page(session, "prospect", prospect_id, limit=limit, before=before)
+    return HistoryPageOut.model_validate(page, from_attributes=True)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)

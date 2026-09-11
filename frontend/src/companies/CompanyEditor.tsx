@@ -1,6 +1,7 @@
 import { type ReactNode, type RefObject, useEffect, useId, useRef, useState } from 'react'
 
 import { type Company, useCompany, useCompanyMutations } from '../api/companies'
+import { HistoryTimeline } from '../history/HistoryTimeline'
 import { TaxonomyMultiSelect, TaxonomySelect } from '../settings/selectors'
 import { Button } from '../ui/Button'
 import { Drawer, Modal } from '../ui/Dialog'
@@ -41,8 +42,8 @@ interface Forms {
 }
 
 // Lightweight Company editor (Task 07), a wide drawer opened from anywhere through `useCompanyEditor`. Sections
-// Identité, Classification, Établissements, Contexte Circoe, Prospects associés — not a CRM dossier (no deals, tasks or
-// notes). Saving keeps the drawer open on the saved company; closing with unsaved changes asks first. Ctrl+S saves.
+// Identité, Classification, Établissements, Contexte Circoe, Prospects associés, Historique (Task 19) — not a CRM
+// dossier (no deals, tasks or notes). Saving keeps the drawer open on the saved company; closing with unsaved changes asks first. Ctrl+S saves.
 export function CompanyEditor({ companyId, initialName, onClose, onSaved, onDeleted, onOpenCompany }: CompanyEditorProps) {
   const loaded = useCompany(companyId)
   const [forms, setForms] = useState<Forms | null>(() =>
@@ -466,6 +467,12 @@ function CompanyFields({ draft, company, errors, warnings, fieldId, nameRef, onC
       </Section>
 
       {company && <ProspectsSection company={company} />}
+
+      {company && (
+        <Section title="Historique">
+          <HistoryTimeline subject="companies" id={company.id} label="Historique de l’entreprise" />
+        </Section>
+      )}
     </>
   )
 }

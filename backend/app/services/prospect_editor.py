@@ -54,6 +54,7 @@ from app.services.errors import (
     InvalidFieldError,
     NotFoundError,
 )
+from app.services.history import HistoryActor, snapshot_actor
 from app.services.prospection.query import iso_week, prospect_verification_state
 from app.services.prospection.segments import SegmentContext, VerificationState
 from app.services.taxonomies import Taxonomy, normalize_text
@@ -218,7 +219,8 @@ class SourceView:
     source_reference: str | None
     collected_at: datetime
     legal_basis_or_collection_context: str | None
-    actor_display: str | None
+    # Who recorded it (the source row's actor snapshot, shown like a history actor).
+    recorded_by: HistoryActor | None
     import_filename: str | None
 
 
@@ -353,7 +355,11 @@ def get_view(session: Session, prospect_id: uuid.UUID, clock: EditorClock) -> Pr
             source_reference=source.source_reference,
             collected_at=source.collected_at,
             legal_basis_or_collection_context=source.legal_basis_or_collection_context,
-            actor_display=source.actor_display,
+            recorded_by=(
+                snapshot_actor(source.actor_type, source.actor_id, source.actor_display)
+                if source.actor_type and source.actor_display
+                else None
+            ),
             import_filename=filename,
         )
         for source, filename in repository.sources_with_batches(session, prospect.id)
