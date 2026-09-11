@@ -45,9 +45,12 @@ Two figures for the current month (Europe/Paris, `app/core/business_time.py`), e
   meetings held rather than obtained. A direct jump to *Devis envoyé* counts (an appointment was obtained on the way);
   *Rendez-vous obtenu* → *Devis envoyé* does not count twice.
 - Month boundaries are midnight in Paris (DST-aware): 31 Aug 22:30 UTC is September.
-- Limits: a stage changed without the tracking service (a Database Explorer edit of `contact_tracking.status`) writes
-  no history row, and an appointment recorded only as a date (stage left behind) is not in the monthly figure — both
-  still appear in the segments. V1 keeps one tracking cycle per prospect: "first" means first in that cycle.
+- Every stage change is in the history, whatever the screen: the Prospect editor and Database Explorer edits of
+  `contact_tracking` both go through `contact_tracking.save_contact_tracking` (I-64), which writes the row with the
+  signed-in user as actor — an explorer change into `contacted` or `appointment_obtained` counts this month (tested).
+- Limit: an appointment (or a response) recorded **only as a date**, with the stage left behind, is not in the monthly
+  figure — no stage entered an appointment stage — but it is in the `appointments` (`responses`) segment. V1 keeps one
+  tracking cycle per prospect: "first" means first in that cycle.
 
 The meter's full track is the target (the fill stops there; the text says `12 sur un objectif indicatif de 10 (120 %)`).
 The figure sits in a panel of the same weight as the recent activity, below the KPIs and next actions — never the
@@ -128,7 +131,8 @@ the base and the contact activity. Styles: `frontend/src/home/home.css` (see the
   excluded) and ordering / limit / window bounds; recent edits grouping, import writes excluded, no e-mail or reason
   in the output, deleted subject; latest imports; 9 statements for 3 and 60 prospects.
   `tests/test_home_api.py`: 401, GET only, contract and counts == `/api/prospection/counters`, targets from settings,
-  no raw payload. `tests/test_prospection_performance.py`: Home on 20 000 prospects.
+  no raw payload, staged Database Explorer stage changes (into `contacted`, into `appointment_obtained` after an
+  imported contact) counted in the current month as human history rows. `tests/test_prospection_performance.py`: Home on 20 000 prospects.
 - Frontend `src/home/HomePage.test.tsx` (heading order, every card's segment/filter URL and count, click → URL, meters'
   text alternatives and 6-month table, next-action links, readable import/edit lines without technical names, empty
   base with/without the editor's create, V1 scope sentence and no agent/e-mail widget, error + retry),

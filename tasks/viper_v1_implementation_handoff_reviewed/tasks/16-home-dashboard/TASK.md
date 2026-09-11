@@ -109,9 +109,18 @@ screen = state of the base + contact activity; progress panel secondary), copied
   navigation section now has its page (I-117). Other shell tests only gained a `/api/home` stub.
 
 ### Open points / risks
-- A stage changed outside the tracking service (Database Explorer edit of `contact_tracking.status`) writes no history
-  row, so it is missing from the monthly figures (still in the segments) — documented limit.
+- An appointment (or response) recorded only as a date, without a stage change, is not in the monthly figures (it is
+  in the `appointments` / `responses` segments) — documented limit.
+- *Correction after orchestrator review:* the first version of this report and of `home-dashboard.md` / I-113 said a
+  Database Explorer stage change writes no history row. That was wrong: explorer tracking writes go through
+  `save_contact_tracking` (I-64), which records the history with the signed-in user, so they count in the monthly
+  figures — now proven by `test_database_explorer_stage_changes_count_in_the_month` (`tests/test_home_api.py`).
 - The edits feed wording is intentionally minimal (Task 19 replaces `activity.ts` over the same data; the API
   already carries entity type, action, stage before/after, source and current record name).
 - Task 15 (Prospect editor) had not landed on `claude` when this branch was verified; Home's links already follow the
   `?prospect=<id>` contract and *Ajouter un prospect* appears on the empty base once `canCreate` is true.
+
+### Fix after orchestrator review
+Explorer-history correction (see *Open points*): new API test, `home-dashboard.md`, I-113 and this report corrected.
+`python scripts/verify.py` → privacy guard OK, ruff/format/mypy clean, **pytest 839 passed, 2 skipped**, eslint/tsc
+clean, vitest 522 passed, build OK (no frontend or E2E change since the `--e2e` run above).
