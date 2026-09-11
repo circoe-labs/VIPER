@@ -82,7 +82,9 @@ test('a synthetic workbook is reviewed, resolved and committed, then found in th
   await dialog.getByRole('textbox', { name: /Référence de la source/ }).fill(`Liste E2E ${suffix}`)
   await dialog.getByRole('button', { name: 'Importer 5 lignes' }).click()
 
-  await expect(page.getByRole('heading', { name: 'Import terminé' })).toBeVisible()
+  // The commit analyses the file again and writes it in one transaction: the suite's heaviest request, which can
+  // take more than the default 5 s on the single-process backend when 12 workers share it.
+  await expect(page.getByRole('heading', { name: 'Import terminé' })).toBeVisible({ timeout: 15_000 })
   await expect(page.getByRole('list', { name: 'Résultat de l’import' })).toContainText('5 prospects créés')
   const history = page.getByRole('table', { name: 'Historique des imports' })
   const batchRow = history.getByRole('row', { name: new RegExp(`base-e2e-${suffix}\\.xlsx`) })
