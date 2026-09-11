@@ -259,12 +259,21 @@ a.activity-item__title:hover {
   text-decoration: underline;
 }
 
-.action-item__company,
-.activity-item__detail {
+.action-item__company {
   overflow: hidden;
   font-size: var(--text-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* What a save did (a few phrases of the history formatter): up to two lines, the full text as a tooltip. */
+.activity-item__detail {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: var(--text-sm);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
 }
 
 .action-item__meta,

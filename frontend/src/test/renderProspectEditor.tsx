@@ -4,13 +4,15 @@ import { useState } from 'react'
 import { vi } from 'vitest'
 
 import { setCsrfToken } from '../api/client'
+import { CurrentUserContext } from '../auth/currentUser'
 import type { ProspectListCriteria, Segment } from '../api/prospection'
 import { CompanyEditorProvider } from '../companies/CompanyEditorProvider'
 import type { ProspectQueue, QueueStep } from '../prospection/queue'
 import { ProspectEditor } from '../prospects/ProspectEditor'
-import { TEST_CSRF_TOKEN } from './render'
+import { TEST_CSRF_TOKEN, TEST_USER } from './render'
 
-// The Prospect editor on its own, with a queue standing in for the Prospection list (queue.ts has its own tests).
+// The Prospect editor on its own, signed in as TEST_USER, with a queue standing in for the Prospection list (queue.ts
+// has its own tests).
 
 export function fakeQueue(ids: string[], segment: Segment = 'never_verified') {
   const criteria: ProspectListCriteria = {
@@ -61,9 +63,11 @@ export function renderProspectEditor(target: string, queue: ProspectQueue = fake
 
   const view = render(
     <QueryClientProvider client={queryClient}>
-      <CompanyEditorProvider>
-        <Harness />
-      </CompanyEditorProvider>
+      <CurrentUserContext value={TEST_USER}>
+        <CompanyEditorProvider>
+          <Harness />
+        </CompanyEditorProvider>
+      </CurrentUserContext>
     </QueryClientProvider>,
   )
   return { ...view, queryClient, onNavigate }

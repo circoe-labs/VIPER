@@ -80,6 +80,10 @@ Implemented in Task 05 — [audit-and-provenance.md](audit-and-provenance.md), [
   requires it; events already written would then need a subject-scoped redaction migration. Free-text reasons
   (`context.reason`, e.g. why an opposition was lifted) are kept as written: the UI should ask for reasons without
   unnecessary personal detail.
+- **Visible history (Task 19, I-133)**: one backend formatter turns events into display strings; raw `changes` /
+  `context` never reach a screen. The Prospect and Company editors show values as stored under the policy above
+  (masked markers read « (masqué) »; secret-looking or unlabelled fields and structured values are never shown); Home's
+  global feed shows only value-free phrases (what changed, contact-stage transitions) and the record's current name.
 
 ## Do-not-contact
 Opposition is durable and distinct from non-interest. Import/merge/new contact tracking must not silently reactivate blocked prospects.

@@ -1,8 +1,10 @@
 import { vi } from 'vitest'
 
 import type { Company, CompanyInput, CompanyListItem, Establishment, SimilarCompany } from '../api/companies'
+import type { HistoryEntry } from '../api/history'
 import type { TaxonomyValue } from '../api/settings'
 import { foldText, matchesWords } from '../lib/text'
+import { historyPage } from './historyApi'
 import { type RecordedRequest, stubSettingsApi } from './settingsApi'
 
 // In-memory stand-in for /api/companies (backend/app/api/routes/companies.py) for component tests, on top of the
@@ -83,10 +85,12 @@ interface CompaniesStubOptions {
   categories?: TaxonomyValue[]
   // Answer of GET /api/companies/similar.
   similar?: SimilarCompany[]
+  // History entries per company id, newest first (none by default).
+  histories?: Record<string, HistoryEntry[]>
 }
 
 export function stubCompaniesApi(options: CompaniesStubOptions = {}) {
-  const { companies = [], segments = [], categories = [], similar = [] } = options
+  const { companies = [], segments = [], categories = [], similar = [], histories = {} } = options
   const settings = stubSettingsApi({ 'commercial-segments': segments, 'activity-categories': categories })
   const store = structuredClone(companies)
   const requests: RecordedRequest[] = []
@@ -115,6 +119,8 @@ export function stubCompaniesApi(options: CompaniesStubOptions = {}) {
   function handle(method: string, url: URL, body: unknown): Promise<Response> {
     const id = /^\/api\/companies\/([^/]+)$/.exec(url.pathname)?.[1]
     if (url.pathname === '/api/companies/similar') return reply(200, similar)
+    const historyOf = /^\/api\/companies\/([^/]+)\/history$/.exec(url.pathname)?.[1]
+    if (historyOf) return reply(200, historyPage(histories[historyOf] ?? [], url))
     if (method !== 'GET' && next.reply) {
       const [status, detail] = next.reply
       next.reply = null

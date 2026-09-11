@@ -8,7 +8,8 @@ Two separate concepts (overview, *Provenance + audit*):
 
 Design and rationale: [ADR-0006](../adr/0006-audit-integration.md). Decisions: I-26 … I-30 in the decision log.
 Code: `backend/app/services/audit.py` (service, vocabulary, flush hook), `audit_changes.py` (change capture),
-`app/core/audit_policy.py` (payload policy), `app/services/provenance.py`, `app/services/import_batches.py`.
+`app/core/audit_policy.py` (payload policy), `app/services/history.py` (readable history, Task 19),
+`app/services/provenance.py`, `app/services/import_batches.py`.
 
 ## Audit event (`audit_log`)
 
@@ -150,13 +151,61 @@ the session binding; otherwise the flush raises `UnattributedMutationError`.
 
 ## Reads
 
-- `audit.history(session, subject_type, subject_id, limit=50)` — a prospect's/company's timeline, child rows
-  included, newest first (`occurred_at`, then `id`, descending).
-- `audit.recent_activity(session, limit=50, subject_types=None, actor_types=None)` — global feed. Home (Task 16)
-  reads the human events on `prospect` / `company` subjects and turns them into structured lines without field values
-  (`app/services/home.py`, `recent_edits`; wording in `frontend/src/home/activity.ts`).
-- `GET /api/audit/recent?limit=1..100` — raw events for the signed-in user (no UI yet; Task 19 formats them and keeps
-  raw JSON out of normal screens).
+- `audit.history(session, subject_type, subject_id, limit=50, before=None)` — a prospect's/company's events, child
+  rows included, newest first (`occurred_at`, then `id`, descending); `before` (an event id) continues after that event.
+- `audit.recent_activity(session, limit=50, subject_types=None, actor_types=None)` — global feed (Home, below).
+- `GET /api/audit/recent?limit=1..100` — raw events for the signed-in user; no screen uses it (normal screens read
+  the formatted history below, never raw JSON).
+
+## Visible history (Task 19)
+
+What people read is built by **one formatter**, `app/services/history.py` (decisions I-130 … I-136,
+[ADR-0018](../adr/0018-readable-history.md)). Raw `changes` / `context` never leave it.
+
+### Entries: one per save
+
+- **Grouping** (`group_events`): consecutive events (newest first) with the same subject, actor, source and
+  `request_id` form one entry — one Prospect editor save, one company save, one import of a row. Events without a
+  request id (CLI, seed, jobs, older fixtures) group when consecutive with the same actor and source and less than
+  5 s apart (`UNBOUND_GAP`).
+- **Entry** (`HistoryEntry`): `id` and `occurred_at` of its newest event; `actor {kind, label, id, on_behalf_of}` —
+  `kind` is the actor type (`human`, `import`, `system`, `agent`: a future agent is representable today), `label` the
+  display snapshot (an import's **file name**, without the `Import ` prefix), `on_behalf_of` the person who confirmed
+  an import (or an agent's work); `source` (`ui`, `import`, `database_explorer`, `cli`, `agent`); `actions` (the
+  vocabulary above); a `title` (« Fiche créée », « Changement d’entreprise », « Opposition enregistrée »… else « Fiche
+  modifiée » / « Entreprise modifiée »); `summary` — value-free phrases (« E-mail principal modifié », « Suivi :
+  Contacté → Relance 1 »); `changes` — `{label, before, after}` display strings.
+- **Change lines**: a French label per field (`FIELDS`: every audited column of a prospect's or company's rows is
+  labelled or listed in `NOT_SHOWN` with its reason — parent keys, import batch id, the source's recorder snapshot;
+  a test enforces it). Values: enums in French, booleans Oui/Non, moments in Europe/Paris (« 3 sept. 2026 », « … à
+  10:30 » when not midnight), French phones by pairs, long texts cut at 160 characters, an empty side « — ». References
+  show the label snapshotted in the event (`before_label` / `after_label`: company names on a company change, role or
+  segment labels), else the current label read once per page (companies, roles, segments, categories, referents);
+  a removed one reads « valeur supprimée ». Child rows are named by what they were called then — e-mail address,
+  phone number, establishment name, from the event or from the row's latest earlier identity event
+  (`E-mail jean@… · vérification : Non vérifié → Vérifié`).
+- **Readable shapes**: a created row lists its fields (a new e-mail reads « E-mail ajouté : x · principal »); a
+  removed alias « E-mail retiré : x »; a primary switch within one save reads as one line « E-mail principal : A → B »
+  (same for phones and establishments); deactivation « E-mail désactivé : x »; the opposition « Opposition
+  enregistrée — motif : … » / « Opposition levée — motif : … » (the reason from `context.reason`, the row's
+  contactability columns not repeated); a stage « Étape : Contacté → Relance 1 ».
+- **Payload policy**: values are shown **as stored** — personal values follow `POLICY.personal_values` (full in V1,
+  masked or omitted if tightened), `[masked]` / `[personal]` read « (masqué) », a field without a label or with a
+  secret-looking name is never shown, a structured value reads « (valeur non affichée) », never JSON.
+
+### Where it is shown
+
+| Place | Data | Values |
+|---|---|---|
+| Prospect editor, section *Historique* | `GET /api/prospects/{id}/history` — the person, their e-mails, phones, tracking and sources (deleted ones included) | yes — the operator's own record, under the audit payload policy |
+| Company editor, section *Historique* | `GET /api/companies/{id}/history` — fields, categories, establishments | yes |
+| Home, *Dernières modifications* | `home.recent_edits`: the latest saves by people and agents on prospects and companies, grouped the same way, `summary` only | **no** — action phrases and stage transitions only (a global screen: no address, name change, reason or company name beyond the record's current name) |
+
+History API: `?limit=1..50` (10) entries and `?before=<next_cursor>`; answer `{items, next_cursor}`. Reads events
+100 at a time until one more entry starts, so an entry is never cut between pages; the cursor is the id of the last
+event of the page's last entry (deterministic: `occurred_at`, then `id`). The history outlives its record (the audit
+has no foreign key): the endpoints do not require the prospect or company to exist. Cost: one indexed read per 100
+events, one label query per referenced kind present and at most one identity query per page.
 
 ## Provenance
 
@@ -174,7 +223,9 @@ the session binding; otherwise the flush raises `UnattributedMutationError`.
   time (the original collection date of legacy rows is unknown, I-15).
 - `list_sources(session, prospect_id)` — oldest first.
 
-Creating a source is itself audited (`prospect_source.created`), like any row.
+Creating a source is itself audited (`prospect_source.created`), like any row. The Prospect editor's view model lists
+the sources (oldest first, with the import file name) and each one's recorder as a history actor (`recorded_by`, same
+badge as the history: « Vous », a person, « Import « fichier » », « Système », « Agent »).
 
 ### Import batches (`app/services/import_batches.py`, for Task 09)
 

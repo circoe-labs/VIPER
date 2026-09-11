@@ -1,5 +1,5 @@
 /* Prospect editor (Task 15): a wide drawer in two columns — the person (identity, employment, verification, e-mails,
-   phones) on the left, the context (opposition, contact tracking, company, provenance) on the right. */
+   phones) on the left, the context (opposition, contact tracking, company, provenance, history) on the right. */
 
 .prospect-editor {
   display: grid;
@@ -403,6 +403,31 @@
 
 .prospect-sources__title {
   font-weight: var(--weight-medium);
+  overflow-wrap: anywhere;
+}
+
+.prospect-sources__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+/* « par » stays with the badge it introduces. */
+.prospect-sources__recorder {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.prospect-sources__recorder .badge {
+  min-width: 0;
+  padding-block: 0.1875rem;
+  line-height: var(--leading-tight);
+  white-space: normal;
   overflow-wrap: anywhere;
 }
 

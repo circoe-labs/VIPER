@@ -13,6 +13,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from app.api.dependencies import SessionDep, SettingsDep
+from app.api.history import HistoryActorOut
 from app.api.routes.imports import BatchOut
 from app.api.routes.prospection import segment_context
 from app.models.enums import ContactTrackingStatus
@@ -58,21 +59,15 @@ class NextActionsOut(BaseModel):
     responses: ActionGroupOut
 
 
-class EditActionOut(BaseModel):
-    action: str
-    entity_type: str
-    status_before: ContactTrackingStatus | None
-    status_after: ContactTrackingStatus | None
-
-
 class EditItemOut(BaseModel):
     occurred_at: datetime
-    actor_display: str
+    actor: HistoryActorOut
     source: AuditSource | None
     subject_type: str
     subject_id: uuid.UUID | None
     subject_label: str | None
-    actions: list[EditActionOut]
+    # Value-free phrases of the history formatter; never field values.
+    summary: list[str]
 
 
 class HomeOut(BaseModel):

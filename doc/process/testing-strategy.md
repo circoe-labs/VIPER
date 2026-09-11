@@ -160,6 +160,14 @@
   (`src/test/renderProspectEditor.tsx`, a fake queue) — interaction tests kept short, one behaviour each, so the 5 s
   Vitest limit holds under a parallel run; Playwright `e2e/prospect-editor.spec.ts` imports or creates its own people
   and narrows Prospection to their tag — details in `doc/features/prospect-editor.md`.
+- History and provenance (Task 19): `test_history.py` (formatter per kind of event — manual edit, import creation,
+  company change, alias add / primary switch / verification / deactivation / removal, tracking stage, opposition set
+  and lifted with reasons, explorer edit, command-line creation, company fields/categories/establishments; an `agent`
+  actor in the history and on Home; grouping by save and by time without a request id; cursor pages that never cut a
+  save; values as stored under a masked policy, secrets/masked/structured values never shown; every audited column
+  labelled or deliberately hidden), `test_history_api.py` (401, bounds, an editor save read back as one entry by the
+  signed-in user, opposition reason, company pages); `src/history/*.test.ts(x)`; Playwright `e2e/history.spec.ts`
+  (own imported person and company) — details in `doc/architecture/audit-and-provenance.md`.
 - Privacy: `scripts/check_private_data.py` in CI; synthetic fixtures only under `*/tests/fixtures/synthetic/`.
 - Commands: `doc/process/runbook-local-dev.md`.
 

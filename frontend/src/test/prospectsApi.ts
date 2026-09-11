@@ -1,9 +1,11 @@
 import { vi } from 'vitest'
 
 import type { Company } from '../api/companies'
+import type { HistoryEntry } from '../api/history'
 import type { Prospect, ProspectCreateInput, ProspectInput } from '../api/prospects'
 import type { Referent, TaxonomyValue } from '../api/settings'
 import { stubCompaniesApi } from './companiesApi'
+import { historyPage } from './historyApi'
 import { type FakeProspect, stubProspectionApi } from './prospectionApi'
 import type { RecordedRequest } from './settingsApi'
 
@@ -74,6 +76,8 @@ interface ProspectsStubOptions {
   companies?: Company[]
   roles?: TaxonomyValue[]
   referents?: Referent[]
+  // History entries per prospect id, newest first (none by default).
+  histories?: Record<string, HistoryEntry[]>
 }
 
 export function stubProspectsApi(options: ProspectsStubOptions = {}) {
@@ -156,6 +160,7 @@ export function stubProspectsApi(options: ProspectsStubOptions = {}) {
     }
     const current = id ? store.get(id) : undefined
     if (!current) return reply(404, { detail: { code: 'not_found', message: 'Not found.' } })
+    if (method === 'GET' && action === 'history') return reply(200, historyPage(options.histories?.[current.id] ?? [], url))
     if (method === 'GET') return reply(200, current)
     if (method === 'PUT' && action === 'contactability') {
       const { do_not_contact, reason } = body as { do_not_contact: boolean; reason: string }

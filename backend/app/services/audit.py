@@ -470,10 +470,18 @@ for _model in AUDITED_ENTITIES:
 
 
 def history(
-    session: Session, subject_type: str, subject_id: uuid.UUID, *, limit: int = 50
+    session: Session,
+    subject_type: str,
+    subject_id: uuid.UUID,
+    *,
+    limit: int = 50,
+    before: uuid.UUID | None = None,
 ) -> list[AuditLogEntry]:
-    """Newest first: events whose subject is this prospect/company/…, child rows included."""
-    return audit_repository.subject_history(session, subject_type, subject_id, limit=limit)
+    """Newest first: events whose subject is this prospect/company/…, child rows included;
+    `before` (an event id) continues after that event. Readable entries: `app.services.history`."""
+    return audit_repository.subject_history(
+        session, subject_type, subject_id, limit=limit, before=before
+    )
 
 
 def recent_activity(

@@ -1,6 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiGet, apiRequest } from './client'
+import { historyKeys } from './history'
 
 // Mirrors backend/app/api/routes/companies.py: the lightweight Company editor and its list (Task 07).
 
@@ -156,8 +157,8 @@ export function useSimilarCompanies(name: string, emailDomain: string, exclude: 
   })
 }
 
-// Every write goes through the audited API; the list and the detail refresh afterwards. Segment/category counts in
-// Paramètres change too, so their caches are refreshed as well.
+// Every write goes through the audited API; the list, the detail and its history refresh afterwards. Segment/category
+// counts in Paramètres change too, so their caches are refreshed as well.
 export function useCompanyMutations() {
   const queryClient = useQueryClient()
   const refresh = async () => {
@@ -169,6 +170,7 @@ export function useCompanyMutations() {
   const saved = (company: Company) => {
     queryClient.setQueryData(companyKeys.detail(company.id), company)
     void refresh()
+    void queryClient.invalidateQueries({ queryKey: historyKeys.subject('companies', company.id) })
   }
   return {
     create: useMutation({

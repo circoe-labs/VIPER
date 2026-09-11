@@ -17,8 +17,9 @@ from pydantic import BaseModel, Field, StringConstraints
 
 from app.api.dependencies import CurrentActor, SessionDep
 from app.api.errors import business_errors
+from app.api.history import HistoryCursor, HistoryLimit, HistoryPageOut
 from app.models.enums import ActivityStatus, Civility, ContactabilityStatus
-from app.services import companies
+from app.services import companies, history
 from app.services.companies import CompanyDetail, CompanyInput, EstablishmentInput
 from app.services.imports.models import MatchReason
 
@@ -187,6 +188,18 @@ def similar_companies(
 def get_company(company_id: uuid.UUID, session: SessionDep) -> CompanyOut:
     with business_errors():
         return company_out(companies.get_company(session, company_id))
+
+
+@router.get("/{company_id}/history")
+def company_history(
+    company_id: uuid.UUID,
+    session: SessionDep,
+    limit: HistoryLimit = 10,
+    before: HistoryCursor = None,
+) -> HistoryPageOut:
+    """Readable history, newest first: the company's fields, categories and establishments."""
+    page = history.history_page(session, "company", company_id, limit=limit, before=before)
+    return HistoryPageOut.model_validate(page, from_attributes=True)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)

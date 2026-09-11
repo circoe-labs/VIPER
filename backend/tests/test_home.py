@@ -346,21 +346,16 @@ def test_recent_edits_group_one_save_and_leave_values_out(db_session: Session) -
         ("prospect", "Jean Témoin"),
     ]
     latest, renamed, tracked = edits
-    assert [a.action for a in latest.actions][:1] == ["prospect.company_changed"]
-    assert "prospect.do_not_contact.set" in [a.action for a in latest.actions]
-    assert (renamed.actions[0].action, renamed.actor_display) == (
-        "company.updated",
+    assert latest.summary == ["Changement d’entreprise", "Opposition enregistrée"]
+    assert (renamed.summary, renamed.actor.label, renamed.actor.kind) == (
+        ["Nom de l’entreprise modifié"],
         "Opératrice Test",
+        ActorType.HUMAN,
     )
-    (status,) = tracked.actions
-    assert (status.action, status.status_before, status.status_after) == (
-        "contact_tracking.status_changed",
-        S.TO_CONTACT,
-        S.CONTACTED,
-    )
+    assert tracked.summary == ["Suivi : À contacter → Contacté"]
     assert latest.source is audit.AuditSource.UI
     serialized = json.dumps([str(edit) for edit in edits])
-    for value in ("jean.temoin@exemple.example", "Demande écrite", "before_label"):
+    for value in ("jean.temoin@exemple.example", "Demande écrite", "Nouvel Employeur"):
         assert value not in serialized
 
 
@@ -373,7 +368,7 @@ def test_recent_edits_keep_a_deleted_subject_unnamed(db_session: Session) -> Non
     (edit,) = home.recent_edits(db_session)
 
     assert edit.subject_label is None
-    assert [a.action for a in edit.actions] == ["prospect.created", "prospect.deleted"]
+    assert edit.summary == ["Fiche créée", "Fiche supprimée"]
 
 
 def test_recent_imports_are_the_latest_batches(db_session: Session) -> None:

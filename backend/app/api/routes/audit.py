@@ -53,5 +53,6 @@ def event_response(entry: AuditLogEntry) -> AuditEventResponse:
 def recent_activity(
     session: SessionDep, limit: Annotated[int, Query(ge=1, le=100)] = 20
 ) -> list[AuditEventResponse]:
-    """Latest audit events, newest first (raw events; Task 19 builds the readable history)."""
+    """Latest audit events, newest first — raw events, used by no screen (screens read the readable
+    history built by `app.services.history`)."""
     return [event_response(entry) for entry in audit.recent_activity(session, limit=limit)]

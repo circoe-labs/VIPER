@@ -19,13 +19,14 @@ interface CompanyPickerProps {
   selectedLabel: string | null
   error?: ReactNode
   warning?: ReactNode
+  hint?: ReactNode
   onChange: (id: string | null) => void
 }
 
 // Searches every company by name on the server (a picker over the first ones only would miss existing companies and
 // invite duplicates). « Créer l’entreprise « … » » opens the Company editor prefilled with the text; the company it
 // saves is selected — its similar-companies check still warns before a duplicate is created.
-export function CompanyPicker({ id, value, selectedLabel, error, warning, onChange }: CompanyPickerProps) {
+export function CompanyPicker({ id, value, selectedLabel, error, warning, hint, onChange }: CompanyPickerProps) {
   const openCompanyEditor = useCompanyEditor()
   const [typed, setTyped] = useState('')
   const search = useDebouncedValue(typed.trim(), 250)
@@ -50,6 +51,7 @@ export function CompanyPicker({ id, value, selectedLabel, error, warning, onChan
       value={value}
       error={error}
       warning={warning}
+      hint={hint}
       onChange={onChange}
       onQueryChange={setTyped}
       create={{
@@ -81,12 +83,14 @@ interface RolePickerProps {
   roleLabel: string | null
   error?: ReactNode
   warning?: ReactNode
+  // Shown when no role is typed for creation (e.g. an empty imported field's next step).
+  hint?: ReactNode
   onChange: (role: { role_id: string | null; role_label: string | null }) => void
 }
 
 // The normalized role (filters) — the exact job title keeps the person's own wording. A missing role is created with
 // the prospect's save (same rules and audit as Paramètres), so a cancelled edit leaves no new value behind.
-export function RolePicker({ id, roleId, roleLabel, error, warning, onChange }: RolePickerProps) {
+export function RolePicker({ id, roleId, roleLabel, error, warning, hint, onChange }: RolePickerProps) {
   const roles = useTaxonomyValues('roles')
   const options: ComboboxOption[] = (roles.data ?? []).map((role) => ({ id: role.id, label: role.label, inactive: !role.active }))
   if (roleLabel) options.push({ id: NEW_ROLE, label: roleLabel, hint: 'Nouveau rôle' })
@@ -95,7 +99,7 @@ export function RolePicker({ id, roleId, roleLabel, error, warning, onChange }: 
       id={id}
       label="Rôle"
       placeholder="Choisir ou créer un rôle"
-      hint={roleLabel ? `« ${roleLabel} » sera ajouté aux rôles à l’enregistrement, pour tous les prospects.` : undefined}
+      hint={roleLabel ? `« ${roleLabel} » sera ajouté aux rôles à l’enregistrement, pour tous les prospects.` : hint}
       options={options}
       status={roles.isError ? 'error' : roles.isPending ? 'loading' : 'ready'}
       value={roleLabel ? NEW_ROLE : roleId}

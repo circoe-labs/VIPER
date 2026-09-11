@@ -165,6 +165,13 @@ A person of the Prospection list opens in the Prospect editor (`?prospect=<id>`;
 import, the imported people show the « à confirmer » warning states; `VIPER_VERIFICATION_STALE_DAYS` also
 marks old alias verifications as « ancien ».
 
+### History (Task 19)
+
+The Prospect and Company editors end with *Historique* (`GET /api/prospects/{id}/history`,
+`/api/companies/{id}/history`); Home's *Dernières modifications* uses the same formatter without values
+(`doc/architecture/audit-and-provenance.md`, *Visible history*). Save a person in the editor, or load the synthetic
+dataset (its rows carry creation events by a system actor), to see entries.
+
 ### Home (Task 16)
 
 `/` reads `GET /api/home` (definitions: `doc/features/home-dashboard.md`). With an empty database it invites to import;

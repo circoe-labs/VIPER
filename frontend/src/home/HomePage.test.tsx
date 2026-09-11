@@ -89,30 +89,21 @@ const FILLED = homeData({
   recent_edits: [
     {
       occurred_at: '2026-09-10T12:15:00+00:00',
-      actor_display: 'Pilote Test',
+      actor: { kind: 'human', label: 'Pilote Test', id: 'user-1', on_behalf_of: null },
       source: 'ui',
       subject_type: 'prospect',
       subject_id: PERSON,
       subject_label: 'Jean Echu',
-      actions: [
-        { action: 'prospect.updated', entity_type: 'prospect', status_before: null, status_after: null },
-        { action: 'email.created', entity_type: 'email', status_before: null, status_after: null },
-        {
-          action: 'contact_tracking.status_changed',
-          entity_type: 'contact_tracking',
-          status_before: 'to_contact',
-          status_after: 'contacted',
-        },
-      ],
+      summary: ['E-mail principal modifié', 'E-mail ajouté', 'Suivi : À contacter → Contacté'],
     },
     {
       occurred_at: '2026-09-10T11:00:00+00:00',
-      actor_display: 'Pilote Test',
+      actor: { kind: 'human', label: 'Pilote Test', id: 'user-1', on_behalf_of: null },
       source: 'database_explorer',
       subject_type: 'prospect',
       subject_id: OTHER,
       subject_label: null,
-      actions: [{ action: 'prospect.deleted', entity_type: 'prospect', status_before: null, status_after: null }],
+      summary: ['Fiche supprimée'],
     },
   ],
 })
@@ -243,7 +234,7 @@ describe('Home page', () => {
     const edits = screen.getByRole('region', { name: 'Dernières modifications' })
     const [saved, deleted] = within(edits).getAllByRole('listitem') as [HTMLElement, HTMLElement]
     expect(within(saved).getByRole('link', { name: 'Jean Echu' })).toHaveAttribute('href', `/prospection?prospect=${PERSON}`)
-    expect(saved).toHaveTextContent('Fiche modifiée · E-mail ajouté · Suivi : À contacter → Contacté')
+    expect(saved).toHaveTextContent('E-mail principal modifié · E-mail ajouté · Suivi : À contacter → Contacté')
     expect(saved).toHaveTextContent('Pilote Test · 10 sept. à 14:15')
     expect(deleted).toHaveTextContent('Prospect supprimé')
     expect(deleted).toHaveTextContent('Fiche supprimée')

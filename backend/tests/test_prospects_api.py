@@ -113,6 +113,12 @@ def test_lifecycle_is_attributed_to_the_signed_in_user(
     assert view["phones"][0]["number"] == "+33600000001"
     assert view["tracking"]["planned_contact_week"] == "2026-W39"
     assert view["sources"][0]["source_type"] == "manual"
+    assert view["sources"][0]["recorded_by"] == {
+        "kind": "human",
+        "label": "Pilote Test",
+        "id": str(pilot_user.id),
+        "on_behalf_of": None,
+    }
     assert view["verification_state"] == "verified"
 
     saved = client.put(f"{PROSPECTS}/{view['id']}", json=body_of(view, last_name="Api-Modifié"))

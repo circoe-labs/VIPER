@@ -73,6 +73,13 @@ describe('prospect form model', () => {
     expect(input.employment_verification).toEqual({ action: 'keep', day: null })
   })
 
+  it('sends a stored alias source back exactly as stored (an import sheet name keeps its spacing)', () => {
+    const reference = 'base.xlsx / Base client  / ligne 2'
+    const draft = draftFromProspect(prospectDetail({ emails: [email({ source_reference: reference })] }))
+
+    expect(toInput(draft, null).emails[0]?.source_reference).toBe(reference)
+  })
+
   it('leaves blank new lines out of the payload and maps payload indexes back to the draft', () => {
     const draft = emptyDraft({ company_id: 'c1' })
     const typed = { ...newAlias('emails', false), value: 'b@exemple.example' }

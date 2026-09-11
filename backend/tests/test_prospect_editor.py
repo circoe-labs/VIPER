@@ -193,10 +193,9 @@ def test_creation_records_the_person_their_aliases_tracking_and_manual_provenanc
         ProspectSourceType.MANUAL,
         CONTEXT,
     )
-    assert (source.source_reference, source.actor_display) == (
-        "Salon fictif 2026",
-        OPERATOR.display,
-    )
+    assert source.source_reference == "Salon fictif 2026"
+    assert source.recorded_by is not None
+    assert (source.recorded_by.kind, source.recorded_by.label) == (OPERATOR.type, OPERATOR.display)
     assert sorted(actions(db_session)) == sorted(
         [
             "role.created",

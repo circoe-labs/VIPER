@@ -75,15 +75,18 @@ réponses* / *Tous les rendez-vous* open the segment (the last two are wider tha
 
 - **Derniers imports** — the 5 latest import batches (`import_batches.list_batches`): file name, status badge, `12 lignes
   importées sur 14 · 2 exclues`, who, when; a committed one opens `/prospection?import_batch=<id>`.
-- **Dernières modifications** — the latest **human** saves on prospects and companies (and their e-mails, phones,
-  tracking, sources, establishments), from `audit.recent_activity(subject_types=("prospect", "company"),
-  actor_types=(HUMAN,))`. Import writes (listed above), sign-ins, exports, SQL queries and Settings changes stay out.
-  Consecutive events of one request on one record form one line (8 lines, from the latest 40 events). The API sends
-  **no field value and no raw `changes`/`context`**: only action names, entity types, the tracking stage before/after,
-  the source (`via Base de données` for explorer edits) and the record's current name (none once deleted).
-  French wording lives in one place, `frontend/src/home/activity.ts` (« Fiche modifiée », « E-mail ajouté »,
-  « Suivi : Contacté → Réponse reçue », « Changement d’entreprise », « Opposition enregistrée »…; an unknown action reads
-  « Modification »). Task 19 replaces it with the full history formatter over the same data.
+- **Dernières modifications** — the latest saves by **people and agents** (none in V1) on prospects and companies (and
+  their e-mails, phones, tracking, sources, establishments), from `audit.recent_activity(subject_types=("prospect",
+  "company"), actor_types=(HUMAN, AGENT))`. Import writes (listed above), CLI/seed writes, sign-ins, exports, SQL
+  queries and Settings changes stay out. Since Task 19 each line is one entry of the **history formatter**
+  (`app/services/history.py`, [audit-and-provenance.md](../architecture/audit-and-provenance.md#visible-history-task-19),
+  I-133/I-135): the events of one save on one record, grouped exactly as in the editors' *Historique* (8 lines, from the
+  latest 40 events), read as the entry's **value-free summary** — « Paul Test » / « Changement d’entreprise · E-mail
+  principal modifié · E-mail ajouté · Suivi : Contacté → Relance 1 » / « Pilote Test · 11 sept. à 10:32 » (« · via
+  Base de données » for an explorer edit, « Agent « … » » for an agent). Home deliberately shows **no field value**:
+  no address, name change, reason or other company name — only what changed, contact-stage transitions and the
+  record's current name (none once deleted); the values are in the Prospect and Company editors' *Historique*. The API
+  sends no raw `changes`/`context`. The line wraps on two lines, the full text as a tooltip.
 
 ## States
 
@@ -97,8 +100,8 @@ failed import still shows) and no figure at all. Empty groups say so (*Aucun con
 not_interested}, progress: {contact_target, appointment_target, months: [{month, contacted, appointments}] (6, oldest
 first)}, next_actions: {appointments|due|responses: {total, items: [{prospect_id, first_name, last_name, company_name,
 tracking_status, at, referent_name}]}}, recent_imports: [import batch as in /api/imports], recent_edits: [{occurred_at,
-actor_display, source, subject_type, subject_id, subject_label, actions: [{action, entity_type, status_before,
-status_after}]}]}`.
+actor: {kind, label, id, on_behalf_of}, source, subject_type, subject_id, subject_label, summary: [phrase]}]}` (Task 19,
+I-135).
 
 Cost: **9 statements** whatever the base size (segments aggregate, companies + stages, monthly progress — one pass
 over the status history grouped by tracking —, 3 action groups with `count(*) OVER ()`, imports, audit events, current
@@ -128,16 +131,19 @@ the base and the contact activity. Styles: `frontend/src/home/home.css` (see the
   counted; import exclusion (imported contact + later follow-up, imported *à contacter* then contacted, imported
   appointment); Paris month boundaries incl. DST; appointment first entry (direct quote, no double count, won later,
   date without stage); history from the real tracking service; next actions on the edge cases (DNC and inactive
-  excluded) and ordering / limit / window bounds; recent edits grouping, import writes excluded, no e-mail or reason
-  in the output, deleted subject; latest imports; 9 statements for 3 and 60 prospects.
+  excluded) and ordering / limit / window bounds; recent edits grouping and summaries, import writes excluded, no
+  e-mail, reason or other company name in the output, deleted subject; latest imports; 9 statements for 3 and 60
+  prospects (the formatter's summaries need no query). `tests/test_history.py`: an agent's save on Home.
   `tests/test_home_api.py`: 401, GET only, contract and counts == `/api/prospection/counters`, targets from settings,
   no raw payload, staged Database Explorer stage changes (into `contacted`, into `appointment_obtained` after an
   imported contact) counted in the current month as human history rows. `tests/test_prospection_performance.py`: Home on 20 000 prospects.
 - Frontend `src/home/HomePage.test.tsx` (heading order, every card's segment/filter URL and count, click → URL, meters'
   text alternatives and 6-month table, next-action links, readable import/edit lines without technical names, empty
   base with/without the editor's create, V1 scope sentence and no agent/e-mail widget, error + retry),
-  `src/home/activity.test.ts` (formatter). Shell tests stub `/api/home` (`src/test/homeApi.ts`).
+  `src/home/activity.test.ts` (record name, origin incl. an agent, counts, dates). Shell tests stub `/api/home`
+  (`src/test/homeApi.ts`).
 - Playwright `e2e/home.spec.ts`: imports its own people, compares every displayed figure and next-action link with the
   captured `/api/home` answer, clicks *Échus* and *Sans réponse* and finds its own people by search in the segment,
   opens a committed import from the recent activity; screenshots dark/light at 1440×900 and 1280×800 without horizontal
-  overflow.
+  overflow. `e2e/history.spec.ts` (Task 19): after an editor save of its own imported person, the Home line reads the
+  save's summary, by the signed-in user, without the person's e-mail domain; screenshots dark/light at 1440×900.

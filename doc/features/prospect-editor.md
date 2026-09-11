@@ -4,7 +4,8 @@ The Prospect editor is the central low-effort form of the daily work: open a per
 what needs verification, confirm or correct it, plan or record the contact, and move to the next person. The same
 wide drawer adds a new person. Everything is prefilled; one save writes everything atomically and audited.
 
-Decisions: I-100 … I-109 in the decision log, [ADR-0015](../adr/0015-prospect-editor-save.md). Schema and rules:
+Decisions: I-100 … I-109 in the decision log, [ADR-0015](../adr/0015-prospect-editor-save.md); history and
+provenance (Task 19): I-130 … I-137, [ADR-0018](../adr/0018-readable-history.md). Schema and rules:
 [data-model.md](../architecture/data-model.md) (verification contract, contactability, company-change rule I-13).
 Open-editor contract and queue: [prospection-kpis.md](prospection-kpis.md#open-editor-contract).
 
@@ -27,7 +28,7 @@ below 1100 px):
 | Column | Sections |
 |---|---|
 | Left | 1 **Identité** (Civilité, Prénom, Nom) · 2 **Emploi** (Entreprise *, Rôle, Intitulé exact, Activité) · 3 **Vérification de l'emploi** · 4 **E-mails** · 5 **Téléphones** |
-| Right | 6 **Opposition** · 7 **Suivi de contact** · 8 **Entreprise** (summary + *Ouvrir la fiche entreprise*) · 9 **Provenance** (sources; the change history of Task 19 goes below) |
+| Right | 6 **Opposition** · 7 **Suivi de contact** · 8 **Entreprise** (summary + *Ouvrir la fiche entreprise*) · 9 **Provenance** (sources) and **Historique** (the latest saves, Task 19) |
 
 The header gives the person's name and their place in the queue (*Prospect 3 sur 45 · Jamais vérifiés*). The footer is
 the dirty-state bar.
@@ -51,7 +52,8 @@ the dirty-state bar.
 | | Rendez-vous le … à … | `appointment_at` | A day and an optional time. |
 | | Référent Circoe | `referent_id` | A Circoe internal referent (never a login). Emphasized (warning box + hint) once an appointment exists without one. Inline creation *Prénom Nom* through Paramètres, as everywhere. |
 | Entreprise | summary | — | Name, legal name, SIREN, segment, city, e-mail domain, website, prospect count; every change goes through the Company editor (no company field is duplicated here). |
-| Provenance | sources | `prospect_sources` | Each source: type, reference (file / sheet / row for imports), collection date, who recorded it, legal basis or collection context; creation and last-change dates. |
+| Provenance | sources | `prospect_sources` | Each source: type, reference (file / sheet / row for imports), collection date, who recorded it (the history's actor badge: *Vous*, a person, *Import « fichier »*, *Système*, *Agent*), legal basis or collection context (or *non renseigné*); creation and last-change dates. |
+| Historique | timeline | `audit_log` (read) | See *History*. Existing prospects only. |
 
 ## Verification
 
@@ -76,7 +78,7 @@ phone** (own status and date). Identity fields are not re-verified individually.
 | Imported values never verified | Emploi and Vérification sections get a warning edge; Entreprise, Rôle, Intitulé exact get a warning outline and the text *Importé, à confirmer* (*Nouvelle entreprise, à confirmer* after a company change); the Activité choice a warning outline. Aliases: warning edge + *Importé, jamais vérifié*. Sections show counts (*1 à vérifier*). |
 | Verified | Subtle success badge with the date (*Vérifié le 3 sept. 2026*) — the mint success colour, not the brand green. |
 | Stale | Only when the threshold is configured: *Vérifié le … · ancien* (warning, clock glyph), for the employment and the aliases. |
-| Missing | Actionable empty states: *Aucune adresse. Ajoutez…*, *Aucune entreprise choisie*, *Pas encore vérifié*; a new form starts with one empty e-mail and phone line. |
+| Missing | Actionable empty states: *Aucune adresse. Ajoutez…*, *Aucune entreprise choisie*, *Pas encore vérifié*; a new form starts with one empty e-mail and phone line. An imported person's **empty** Rôle, Intitulé exact or Entreprise says what to do (*Aucun rôle — choisissez-en un ou créez-le.*, *Aucun intitulé — saisissez le libellé de poste de la personne.*, *Aucune entreprise — choisissez-la ou créez-la.*) rather than *Importé, à confirmer* (nothing to confirm, I-136). |
 | Invalid / inactive / opposed | *Invalide* (danger), *Ancienne adresse (inactive)* (struck through, neutral), *Ne pas contacter* (danger box with date and reason). |
 | Company changed in this edit | Banner *Entreprise modifiée. À l'enregistrement, la vérification de l'emploi est effacée et les e-mails et téléphones vérifiés repassent « à revérifier » ; ils sont conservés, rien n'est supprimé.*; the verification shows *Nouvelle entreprise : emploi à vérifier*; verified aliases *À revérifier (vérifié le …)*. An e-mail outside the company's e-mail domain gets *Domaine différent de celui de l'entreprise (…)*. |
 
@@ -149,11 +151,31 @@ drawer on the created person; *Enregistrer et nouveau* opens a fresh form keepin
 (*Suppression impossible* explains why: a later import could recreate them as contactable — lift the opposition first,
 with its reason). One `prospect.deleted` event; the cascaded rows are not audited one by one (ADR-0006 limit).
 
+## History (Task 19)
+
+The *Historique* section (below *Provenance*) lists who changed what and when, one entry per save, the latest first:
+10 entries, then *Voir plus* for older ones. Built by the backend history formatter
+([audit-and-provenance.md](../architecture/audit-and-provenance.md#visible-history-task-19)); it covers the person and
+their e-mails, phones, contact tracking and sources.
+
+- Each entry: the actor badge (*Vous* for the signed-in user, another person's name, *Import « base.xlsx »* with
+  *confirmé par …*, *Système* with the command, *Agent*), the source (*Interface*, *Import*, *Base de données*, *Ligne de
+  commande*, *Agent*), a relative and an absolute date (*il y a 5 minutes · 11 sept. 2026 à 10:32*), a title (*Fiche
+  créée*, *Fiche modifiée*, *Changement d’entreprise*, *Opposition enregistrée*…) and change lines: *E-mail principal :
+  ancienne@… → nouvelle@…*, *Entreprise : A → B*, *Opposition enregistrée — motif : …*, *Étape : Contacté → Relance 1*,
+  *E-mail jean@… · vérification : Non vérifié → Vérifié*. A creation lists its fields; beyond 5 lines, *Afficher les N
+  autres*.
+- Values are shown as the audit stored them (full in V1, masked if the policy is tightened); never raw JSON, never a
+  secret. Readable, not a compliance log: no rollback, no filter.
+- The section refreshes after every save and opposition change of the editor.
+- A save sends a stored alias's source reference back unchanged, so it never rewrites an import reference (I-137).
+
 ## API — `/api/prospects` (session + CSRF, `api_router`)
 
 | Method & path | Body / query | Answer |
 |---|---|---|
-| `GET /prospects/{id}` | — | The view model: identity, `company` summary, `role`, employment and `verification_state`, `employment_imported_unverified`, contactability, `emails` / `phones` (primary first, each with `imported_unverified`), `tracking` (days in business time, `appointment_time`, `planned_contact_week`, `referent`, `status_since`), `sources` (oldest first, with the import file name), `import_row_count`, `today`, `stale_threshold_days`, timestamps, **`version`** |
+| `GET /prospects/{id}` | — | The view model: identity, `company` summary, `role`, employment and `verification_state`, `employment_imported_unverified`, contactability, `emails` / `phones` (primary first, each with `imported_unverified`), `tracking` (days in business time, `appointment_time`, `planned_contact_week`, `referent`, `status_since`), `sources` (oldest first, with the import file name and `recorded_by` — a history actor), `import_row_count`, `today`, `stale_threshold_days`, timestamps, **`version`** |
+| `GET /prospects/{id}/history` | `limit` 1–50 (10), `before` (a `next_cursor`) | `{items: [{id, occurred_at, actor: {kind, label, id, on_behalf_of}, source, actions, title, summary, changes: [{label, before, after}]}], next_cursor}` (Task 19) |
 | `POST /prospects` | the form + `provenance: {legal_basis_or_collection_context, source_reference}` | 201 view |
 | `PUT /prospects/{id}` | `version` + the whole editable state; `emails` and `phones` required (full lists) | view |
 | `PUT /prospects/{id}/contactability` | `{do_not_contact, reason, version}` | view |
@@ -191,7 +213,7 @@ that changes nothing writes nothing.
 | Services | `backend/app/services/prospect_editor.py` (view model, `create_prospect`, `update_prospect`, `set_contactability`, `delete_prospect`, `aggregate_version`), `backend/app/services/contact_channels.py` (alias normalization and full-list save), existing domain operations in `prospects.py`, `contact_tracking.py`, `provenance.py`, `taxonomies.py` |
 | Repositories | `backend/app/repositories/prospects.py` (`lock_prospect`, `version_rows`, `sources_with_batches`, `count_import_rows`), `companies.company_summary`; `prospection.query.prospect_verification_state` |
 | Router | `backend/app/api/routes/prospects.py` |
-| Frontend | `frontend/src/prospects/` (`ProspectEditor`, `EmploymentSections`, `AliasList`, `TrackingSection`, `OppositionSection`, `ContextSections`, `pickers`, `EditorSection`, `prospectForm.ts`, `verification.ts`, `messages.ts`, `prospects.css`), API hooks `frontend/src/api/prospects.ts` |
+| Frontend | `frontend/src/prospects/` (`ProspectEditor`, `EmploymentSections`, `AliasList`, `TrackingSection`, `OppositionSection`, `ContextSections`, `pickers`, `EditorSection`, `prospectForm.ts`, `verification.ts`, `messages.ts`, `prospects.css`), API hooks `frontend/src/api/prospects.ts`; history: `frontend/src/history/` (`HistoryTimeline`, `format.ts`), `frontend/src/api/history.ts`, backend `app/services/history.py` |
 
 ## Tests
 
@@ -214,7 +236,11 @@ that changes nothing writes nothing.
   `ProspectSaveNext.test.tsx` (Save & Next through a queue, Ctrl+Entrée without changes and the end of the list),
   `ProspectCreate.test.tsx` (creation with provenance and *Enregistrer et nouveau*, required fields, company created
   through the Company editor), `ProspectTracking.test.tsx` (role created with the save, planned week and referent
-  emphasis) — against `src/test/prospectsApi.ts` and `src/test/renderProspectEditor.tsx`.
+  emphasis) — against `src/test/prospectsApi.ts` and `src/test/renderProspectEditor.tsx`. Task 19: empty imported
+  fields' empty states, provenance badge and history section, history refreshed after a save (`ProspectEditor.test.tsx`),
+  stored alias source sent back unchanged (`prospectForm.test.ts`), `src/history/*.test.ts(x)` (actor badges, sources,
+  dates, change lines, *Voir plus*, folded creation, empty state); backend `tests/test_history.py`,
+  `tests/test_history_api.py`; Playwright `e2e/history.spec.ts`.
 - Playwright `e2e/prospect-editor.spec.ts` (real backend, its own imported people): open from the list, verify the
   employment, add a second e-mail made primary, plan a contact and a stage, Save & Next to the next person of the
   filtered queue; add a person with a company created inline; record an opposition and find it under *Opposition*;
