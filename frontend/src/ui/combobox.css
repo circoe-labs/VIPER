@@ -44,6 +44,8 @@
   background: transparent;
   color: var(--color-text);
   font-size: var(--text-md);
+  /* A long value or placeholder ends with an ellipsis rather than a cut word. */
+  text-overflow: ellipsis;
 }
 
 .combobox__input:focus-visible {
