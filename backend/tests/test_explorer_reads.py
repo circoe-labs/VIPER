@@ -129,6 +129,18 @@ def test_search_wildcards_are_literal(client: TestClient) -> None:
     assert get_rows(client, "companies", q="/")["total"] == 0
 
 
+def test_search_on_a_table_with_enum_columns_matches_text_and_enum_values(
+    client: TestClient, db_session: Session
+) -> None:
+    # Any text is compared with the enum columns too; bound as their type, it failed (500) when
+    # it was not one of their values — a name, for instance.
+    add_prospect(db_session, last_name="Cherchable", activity_status=ActivityStatus.INACTIVE)
+    add_prospect(db_session, last_name="Autre", activity_status=ActivityStatus.ACTIVE)
+
+    assert column_values(get_rows(client, "prospects", q="cherchab"), "last_name") == ["Cherchable"]
+    assert column_values(get_rows(client, "prospects", q="INACT"), "last_name") == ["Cherchable"]
+
+
 def test_search_matches_identifiers_by_prefix(client: TestClient, companies: list[Company]) -> None:
     target = companies[2].id
     body = get_rows(client, "companies", q=str(target)[:18])

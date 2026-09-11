@@ -91,8 +91,11 @@ test('a synthetic workbook is reviewed, resolved and committed, then found in th
 
   await page.goto('/database/prospects')
   await page.getByRole('searchbox', { name: 'Rechercher dans prospects' }).fill(`Essai${suffix}`)
-  await expect(page.getByRole('row', { name: /Jean/ }).first()).toBeVisible()
-  await expect(page.getByRole('row', { name: /Claire/ }).first()).toBeVisible()
+  // Exactly the two people of the file with that name: the search ran (it failed on tables with enum columns).
+  const found = page.getByRole('grid', { name: 'Lignes de prospects' }).getByRole('row', { name: new RegExp(`Essai${suffix}`) })
+  await expect(found).toHaveCount(2)
+  await expect(found.filter({ hasText: 'Jean' })).toHaveCount(1)
+  await expect(found.filter({ hasText: 'Claire' })).toHaveCount(1)
 })
 
 for (const theme of ['dark', 'light'] as const) {
