@@ -1,0 +1,430 @@
+/* Accueil (Task 16): KPI sections, next actions, monthly progress, recent activity. */
+
+.home {
+  display: grid;
+  gap: var(--space-10);
+  container-type: inline-size;
+}
+
+/* The grid gap separates the header from the rest; its two actions stay on one line, the lead sentence wraps. */
+.home .page-header {
+  margin-bottom: calc(var(--space-2) * -1);
+}
+
+.home .page-header__actions {
+  flex: none;
+}
+
+.home__state {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+}
+
+.home__state--error {
+  color: var(--color-danger-fg);
+}
+
+.home__scope {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  max-width: 48rem;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.home__scope svg {
+  flex: none;
+}
+
+.home-empty__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-3);
+}
+
+/* --- sections and KPI cards --- */
+
+.home-section {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.home-section__title {
+  font-size: var(--text-lg);
+}
+
+.home-section__note {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.kpi-group {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.kpi-group__cards {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.kpi-card {
+  display: grid;
+  align-content: space-between;
+  gap: var(--space-2);
+  height: 100%;
+  min-height: 5.25rem;
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  text-decoration: none;
+  transition:
+    border-color var(--duration-fast) var(--ease-standard),
+    background-color var(--duration-fast) var(--ease-standard);
+}
+
+.kpi-card:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-hover);
+}
+
+.kpi-card__label {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.375rem;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-tight);
+}
+
+.kpi-card__label svg {
+  flex: none;
+  margin-top: 0.0625rem;
+}
+
+.kpi-card--attention .kpi-card__label svg {
+  color: var(--color-warning-fg);
+}
+
+/* A standalone figure: proportional digits read tighter than tabular ones at this size. */
+.kpi-card__count {
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-tight);
+  line-height: 1.1;
+}
+
+/* --- panels --- */
+
+/* Monthly progress, imports and edits side by side, of equal weight. */
+.home-panels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+  gap: var(--space-6);
+  align-items: start;
+}
+
+.home-panel {
+  display: grid;
+  align-content: start;
+  gap: var(--space-5);
+  padding: var(--space-6);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.home-panel__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+}
+
+.home-panel__title {
+  font-size: var(--text-lg);
+}
+
+.home-panel__meta {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.home-panel__empty,
+.home-panel__note {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.home-panel__note {
+  font-size: var(--text-xs);
+}
+
+/* --- next actions --- */
+
+.home-actions__groups {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-6);
+}
+
+.action-group {
+  display: grid;
+  align-content: start;
+  gap: var(--space-3);
+}
+
+.action-group__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.action-group__count {
+  min-width: 1.5rem;
+  padding: 0.0625rem var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-neutral-soft);
+  color: var(--color-neutral-fg);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.action-group__empty {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.action-group__list,
+.activity-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.action-item,
+.activity-item {
+  display: grid;
+  gap: 0.125rem;
+  padding: var(--space-3) 0;
+  border-top: var(--border-width) solid var(--color-border);
+  min-width: 0;
+}
+
+.action-item:first-child,
+.activity-item:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.action-item__name,
+.activity-item__title {
+  color: var(--color-text);
+  font-weight: var(--weight-semibold);
+  text-decoration: none;
+}
+
+.action-item__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* File names are long and unspaced: they wrap anywhere rather than lose their end. */
+.activity-item__title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+a.action-item__name:hover,
+a.activity-item__title:hover {
+  color: var(--color-accent-fg);
+  text-decoration: underline;
+}
+
+.action-item__company,
+.activity-item__detail {
+  overflow: hidden;
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.action-item__meta,
+.activity-item__meta {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.action-group__more {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: var(--space-1);
+  color: var(--color-accent-fg);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.activity-item__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+/* --- monthly progress --- */
+
+.progress-metric {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.progress-metric__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.progress-metric__label {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.progress-metric__value {
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-tight);
+}
+
+/* The target is the full track; the fill never passes it. Same hue, lighter step for the track. */
+.progress-metric__meter {
+  height: 0.375rem;
+  overflow: hidden;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--color-accent-2-fg) 18%, var(--color-surface));
+}
+
+.progress-metric__meter span {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: var(--color-accent-2-fg);
+}
+
+.progress-metric__target {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+/* Six months of one metric, one axis: current month in the accent, earlier months recessive. */
+.spark {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: var(--space-2);
+  height: 3.5rem;
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.spark__month {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  justify-items: center;
+  gap: var(--space-1);
+}
+
+.spark__bar {
+  align-self: end;
+  width: min(100%, 1.5rem);
+  min-height: 2px;
+  border-radius: 4px 4px 0 0;
+  background: var(--color-border-strong);
+}
+
+.spark__month--current .spark__bar {
+  background: var(--color-accent-2-fg);
+}
+
+.spark__label {
+  color: var(--color-text-muted);
+  font-size: 0.6875rem;
+  line-height: 1;
+}
+
+.spark__month--current .spark__label {
+  color: var(--color-text);
+  font-weight: var(--weight-semibold);
+}
+
+.home-progress__details summary {
+  color: var(--color-accent-fg);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+.home-progress__table {
+  margin-top: var(--space-3);
+  overflow-x: auto;
+}
+
+.home-progress__table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.home-progress__table th,
+.home-progress__table td {
+  padding: var(--space-1) var(--space-2);
+  border-bottom: var(--border-width) solid var(--color-border);
+  text-align: left;
+}
+
+.home-progress__table td {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.home-progress__table thead th {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+}
+
+.home-progress__table thead th:not(:first-child) {
+  text-align: right;
+}
+
+/* --- narrower workspaces (collapsed sidebar off, small laptop) --- */
+
+@container (width < 52rem) {
+  .kpi-group__cards {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .home-actions__groups {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

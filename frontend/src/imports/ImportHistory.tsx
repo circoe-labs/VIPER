@@ -6,7 +6,8 @@ import { AlertIcon } from '../ui/icons'
 import { Table } from '../ui/Table'
 import { formatDateTime } from './messages'
 
-const STATUS: Record<BatchStatus, { tone: StatusTone; label: string }> = {
+// Also Home's recent imports (Task 16).
+export const BATCH_STATUS: Record<BatchStatus, { tone: StatusTone; label: string }> = {
   committed: { tone: 'success', label: 'Importé' },
   failed: { tone: 'danger', label: 'Échec, rien importé' },
   pending: { tone: 'info', label: 'En cours' },
@@ -59,7 +60,7 @@ export function ImportHistory() {
                 </td>
                 <td className="table__numeric">{batch.rows_skipped}</td>
                 <td>
-                  <StatusBadge tone={STATUS[batch.status].tone}>{STATUS[batch.status].label}</StatusBadge>
+                  <StatusBadge tone={BATCH_STATUS[batch.status].tone}>{BATCH_STATUS[batch.status].label}</StatusBadge>
                 </td>
               </tr>
             ))}

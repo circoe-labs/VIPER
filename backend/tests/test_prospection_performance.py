@@ -1,4 +1,5 @@
-"""Prospection counters and pages stay interactive on a synthetic base far above V1 scale."""
+"""Prospection counters and pages, and Home, stay interactive on a synthetic base far above V1
+scale."""
 
 import time
 
@@ -11,7 +12,7 @@ PROSPECTS = 20_000
 BUDGET_SECONDS = 2.0
 
 
-def test_counters_and_deep_page_on_20k_prospects(client: TestClient, db_session: Session) -> None:
+def seed_base(db_session: Session) -> None:
     db_session.execute(
         text(
             "INSERT INTO companies (display_name)"
@@ -48,6 +49,10 @@ def test_counters_and_deep_page_on_20k_prospects(client: TestClient, db_session:
         )
     )
 
+
+def test_counters_and_deep_page_on_20k_prospects(client: TestClient, db_session: Session) -> None:
+    seed_base(db_session)
+
     started = time.perf_counter()
     counters = client.get("/api/prospection/counters", params={"q": "nom1"})
     counters_elapsed = time.perf_counter() - started
@@ -63,3 +68,24 @@ def test_counters_and_deep_page_on_20k_prospects(client: TestClient, db_session:
     assert len(page.json()["items"]) == 50
     assert counters_elapsed < BUDGET_SECONDS, f"counters took {counters_elapsed:.2f}s"
     assert page_elapsed < BUDGET_SECONDS, f"page took {page_elapsed:.2f}s"
+
+
+def test_home_on_20k_prospects(client: TestClient, db_session: Session) -> None:
+    seed_base(db_session)
+    # Every tracking entered its stage at some point of the last 200 days.
+    db_session.execute(
+        text(
+            "INSERT INTO contact_tracking_status_history"
+            " (contact_tracking_id, to_status, changed_at, actor_type, actor_display)"
+            " SELECT id, status, now() - (random() * 200)::int * interval '1 day', 'human',"
+            " 'Opératrice synthétique' FROM contact_tracking"
+        )
+    )
+
+    started = time.perf_counter()
+    home = client.get("/api/home")
+    elapsed = time.perf_counter() - started
+
+    assert home.status_code == 200
+    assert sum(month["contacted"] for month in home.json()["progress"]["months"]) > 0
+    assert elapsed < BUDGET_SECONDS, f"home took {elapsed:.2f}s"

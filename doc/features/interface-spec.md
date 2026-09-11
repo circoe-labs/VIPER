@@ -27,6 +27,19 @@ Recommended V1 blocks, all from real/manual DB data:
 
 Cards are clickable when they map to a Prospection filter. Future agent/email/Calendly widgets must not be mocked.
 
+### As implemented (Task 16)
+KPI definitions, monthly progress, next actions, recent activity and API: [home-dashboard.md](home-dashboard.md).
+*État de la base* (*Base*: Prospects, Entreprises, Actifs, Inconnus, Inactifs, Opposition; *Vérification*: Jamais
+vérifiés, À revérifier, E-mail manquant / invalide / non vérifié) and *Activité de contact* (*Suivi de contact*: À
+contacter, Échus, Contactés, Sans réponse, Réponses, Rendez-vous; *Suivi commercial léger*: Devis envoyé, Suivi du
+devis, Gagné, Pas intéressé) as link cards — every prospect count is the Prospection segment it opens
+(`/prospection?segment=…`, stages `?tracking_status=…`, Entreprises `/prospection/companies`); then *Prochaines
+actions* (appointments of the next 7 days, due contacts, answers without appointment — each person opens in its
+Prospection queue); then three equal panels: *Progression du mois* (first contacts and appointments obtained this
+month against the informative 100 / 10 targets, six-month columns, a table view), *Derniers imports* and *Dernières
+modifications*; one sentence says e-mail sending, Calendly and agents are not part of V1. An empty base shows an
+invitation to import instead of figures.
+
 ## Prospection
 
 ### Header/actions
@@ -124,7 +137,7 @@ figure or date; the navigation item is current. Replace the component when the a
 | Path | Page | Navigation item |
 |---|---|---|
 | `/login` | Connexion (public) | — |
-| `/` | Accueil (placeholder until Task 16) | Accueil |
+| `/` | Accueil: global dashboard (Task 16) | Accueil |
 | `/prospection` | Prospection: counters, filters and people list (Task 14) | Prospection |
 | `/prospection/companies` | Entreprises list + Company editor (Task 07) | Prospection |
 | `/exploitation` | Exploitation — Bientôt disponible (Task 18) | Exploitation |

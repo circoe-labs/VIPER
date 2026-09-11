@@ -477,7 +477,14 @@ def history(
 
 
 def recent_activity(
-    session: Session, *, limit: int = 50, subject_types: Collection[str] | None = None
+    session: Session,
+    *,
+    limit: int = 50,
+    subject_types: Collection[str] | None = None,
+    actor_types: Collection[ActorType] | None = None,
 ) -> list[AuditLogEntry]:
-    """Newest first, across the whole application (optionally limited to some subject types)."""
-    return audit_repository.recent(session, limit=limit, subject_types=subject_types)
+    """Newest first, across the whole application (optionally limited to some subject types
+    and actor types — Home keeps the human edits of prospects and companies)."""
+    return audit_repository.recent(
+        session, limit=limit, subject_types=subject_types, actor_types=actor_types
+    )

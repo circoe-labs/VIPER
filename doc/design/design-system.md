@@ -27,6 +27,7 @@ Styling approach and rationale: [ADR-0003](../adr/0003-styling-and-theming.md).
 | Settings page and pickers (Task 06) | `src/settings/*` (`settings.css`), `src/ui/Combobox.tsx` + `combobox.css` |
 | Entreprises page and Company editor drawer (Task 07) | `src/companies/*` (`companies.css`), `src/ui/SearchField.tsx` + `search-field.css` |
 | Prospection page: counter cards, toolbar, people cards (Task 14) | `src/prospection/*` (`prospection.css`) — see *Prospection people list* below |
+| Home dashboard (Task 16) | `src/home/*` (`home.css`) — see *Home dashboard* below |
 | Font | `@fontsource-variable/inter` (self-hosted Inter Variable, imported in `src/main.tsx`; no CDN) |
 
 ## Tokens
@@ -165,6 +166,18 @@ surface: search, *Filtres* disclosure (accent count badge), inline *Trier par*. 
 muted text, then status badges; do-not-contact adds a 3 px danger edge on top of its badge. Three columns (identity
 and states / company and contacts / follow-up); a container query drops to two then one column. Styles:
 `frontend/src/prospection/prospection.css` (feature doc: `doc/features/prospection-kpis.md`).
+
+## Home dashboard
+Spacious, global state first: eyebrow-labelled rows of six link cards (14 px glyph + 13 px muted label, 26 px
+semibold figure with proportional digits; hover = surface-hover + strong border; the glyph turns warning-fg when a
+"work to do" count is not zero), then *Prochaines actions* in one bordered panel with three columns (name as a plain
+semibold link, company, muted meta line; count badge in neutral-soft), then three equal panels. **Monthly progress is
+deliberately secondary** — a panel like the others, 20 px figure, a 6 px meter whose full track is the target
+(`--color-accent-2-fg` fill on an 18 % mix of it with the surface) and six 24 px-max columns with 4 px rounded tops:
+the current month in `--color-accent-2-fg`, earlier months in `--color-border-strong` (emphasis form, one axis per
+metric; hover title per column, `role="meter"` with a text value, a `<details>` table of the six months). No status
+colour on targets. The V1-scope sentence is 12 px muted text with an info glyph. Styles: `frontend/src/home/home.css`
+(feature doc: `doc/features/home-dashboard.md`).
 
 ## App shell
 Left sidebar: lockup (expanded) or mark (collapsed), the five sections with icons, active item = accent-soft
