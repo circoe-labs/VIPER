@@ -179,6 +179,14 @@ load the synthetic dataset or import a synthetic workbook to see figures. The in
 `VIPER_MONTHLY_CONTACT_TARGET` (100) and `VIPER_MONTHLY_APPOINTMENT_TARGET` (10). Monthly figures come from the
 contact-tracking status history, so stages imported from a workbook never count as this month's contacts.
 
+### Global search (Task 17)
+
+The header field (Ctrl+K or `/`) reads `GET /api/search?q=` (behaviour: `doc/features/global-search.md`). Load the
+synthetic dataset or import a synthetic workbook to try it. `tests/test_search_performance.py` builds 20 000 synthetic
+prospects inside the test transaction and requires p95 < 150 ms; with `CI` set it uses 2 000 prospects and 500 ms.
+The same seed helps manual measurements on a throwaway `_e2e` or worktree database (`seed_base(session, 20_000)`, then
+`VACUUM ANALYZE`) — never on a database you keep.
+
 ### Excel import review and commit (Task 09)
 
 The page is `/prospection/import` (« Importer Excel » in the Prospection and Entreprises headers). For a
@@ -236,6 +244,9 @@ app code into a migration), add the `set_updated_at` trigger to any new table wi
 `tests/test_migrations.py` checks all three because autogenerate ignores CHECKs and triggers.
 Migration `0005` creates the `unaccent` extension (shipped with the `postgres:16-alpine` image; any hosting database
 must allow it) and the `label_key` function used by the Settings uniqueness indexes ([ADR-0009](../adr/0009-settings-value-uniqueness.md)).
+Migration `0007` creates the `pg_trgm` extension (same image, *trusted* since PostgreSQL 13; any hosting database must
+allow it too), the `search_key` / `person_search_key` functions and the global search's trigram indexes
+([ADR-0017](../adr/0017-global-search-trigram-indexes.md)).
 
 Seed data is separate from migrations: `python -m app.seed` (dev) or `python -m app.seed --db test` inserts the
 suggested taxonomy values that are missing and never modifies existing rows, so it is safe to re-run. Full wipe of

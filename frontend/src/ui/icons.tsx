@@ -347,3 +347,11 @@ export const BuildingIcon = (props: IconProps) => (
     <path d="M7.5 8.5h2M7.5 12h2M7.5 15.5h2M15.5 13h1.5M15.5 16.5h1.5" />
   </Svg>
 )
+
+// Establishments in global search (Task 17)
+export const MapPinIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M12 21s-6.5-5.7-6.5-11a6.5 6.5 0 0 1 13 0c0 5.3-6.5 11-6.5 11z" />
+    <circle cx="12" cy="10" r="2.5" />
+  </Svg>
+)

@@ -6,13 +6,10 @@ counters compared with list totals — the definitions in doc/features/prospecti
 
 import random
 import uuid
-from collections.abc import Iterator
-from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
-from sqlalchemy import event
 from sqlalchemy.orm import Session
 
 from app.core.actor import ActorType
@@ -46,7 +43,15 @@ from app.services.prospection.segments import (
     SegmentContext,
     VerificationState,
 )
-from tests.builders import OPERATOR, add_company, add_email, add_phone, add_prospect, add_role
+from tests.builders import (
+    OPERATOR,
+    add_company,
+    add_email,
+    add_phone,
+    add_prospect,
+    add_role,
+    statements,
+)
 
 TODAY = date(2026, 9, 10)
 CONTEXT = SegmentContext(today=TODAY)
@@ -598,21 +603,6 @@ def test_sort_orders(db_session: Session) -> None:
     assert order(ProspectSort.COMPANY) == ["Ábel", "Zola", "Martin"]  # no company last
     assert order(ProspectSort.PLANNED_CONTACT) == ["Zola", "Ábel", "Martin"]
     assert order(ProspectSort.VERIFICATION) == ["Ábel", "Martin", "Zola"]
-
-
-@contextmanager
-def statements(session: Session) -> Iterator[list[str]]:
-    executed: list[str] = []
-    connection = session.connection()
-
-    def record(*args: object) -> None:
-        executed.append(str(args[2]))
-
-    event.listen(connection, "before_cursor_execute", record)
-    try:
-        yield executed
-    finally:
-        event.remove(connection, "before_cursor_execute", record)
 
 
 @pytest.mark.parametrize("size", [3, 60])

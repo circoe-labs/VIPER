@@ -20,7 +20,14 @@ from app.services.contact_tracking import ContactTrackingInput, save_contact_tra
 from app.services.home import home_summary, month_start, monthly_progress, next_actions
 from app.services.prospection.query import ProspectFilters, count_segments
 from app.services.prospection.segments import Segment, SegmentContext
-from tests.builders import OPERATOR, add_company, add_email, add_prospect, bind_operator
+from tests.builders import (
+    OPERATOR,
+    add_company,
+    add_email,
+    add_prospect,
+    bind_operator,
+    statements,
+)
 from tests.test_prospection import (
     CONTEXT,
     EXPECTED,
@@ -29,7 +36,6 @@ from tests.test_prospection import (
     block,
     cases,  # noqa: F401 — the Prospection edge cases fixture
     random_base,
-    statements,
     track,
 )
 

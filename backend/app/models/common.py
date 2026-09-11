@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import DateTime, Enum, FetchedValue, Uuid, func
+from sqlalchemy import DateTime, Enum, FetchedValue, Index, Uuid, func, literal_column
 from sqlalchemy.orm import Mapped, mapped_column
 
 ENUM_LENGTH = 32
@@ -22,6 +22,21 @@ def text_enum(enum_cls: type[StrEnum], name: str) -> Enum:
         length=ENUM_LENGTH,
         values_callable=lambda cls: [member.value for member in cls],
         validate_strings=True,
+    )
+
+
+def trigram_index(name: str, expression: str) -> Index:
+    """GIN `pg_trgm` index answering `LIKE '%…%'` on a column or an SQL expression (global
+    search, ADR-0017)."""
+    if expression.isidentifier():
+        return Index(
+            name, expression, postgresql_using="gin", postgresql_ops={expression: "gin_trgm_ops"}
+        )
+    return Index(
+        name,
+        literal_column(expression).label("key"),
+        postgresql_using="gin",
+        postgresql_ops={"key": "gin_trgm_ops"},
     )
 
 

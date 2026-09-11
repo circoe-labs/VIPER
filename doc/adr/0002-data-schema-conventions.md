@@ -10,6 +10,8 @@
 - Amended: 2026-09-10 by Task 06 ([ADR-0009](0009-settings-value-uniqueness.md), decision I-34) — taxonomy labels are
   unique on `label_key(label)` (case, accents and spacing ignored; migration 0005) instead of `lower(label)`;
   internal referents are unique on full name (same key) and e-mail.
+- Amended: 2026-09-11 by Task 17 ([ADR-0017](0017-global-search-trigram-indexes.md)) — substring search is indexed
+  with `pg_trgm` GIN indexes on folded search keys (migration 0007).
 
 ## Context
 

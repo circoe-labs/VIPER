@@ -280,8 +280,14 @@ on purpose.
 | `import_row_metadata` | `import_batch_id`, `source_sheet`, `source_row_number int`, `prospect_id NULL`, `company_id NULL`, `legacy_metadata jsonb DEFAULT '{}'`, `created_at` only | `uq_import_row_metadata_batch_sheet_row`; CHECK row number > 0 |
 | `audit_log` | `occurred_at DEFAULT clock_timestamp()`, `actor_type`, `actor_id varchar(128) NULL`, `actor_display`, `entity_type varchar(64)`, `entity_id uuid NULL`, `subject_type varchar(64) NULL`, `subject_id uuid NULL` (migration 0004), `action varchar(64)`, `changes jsonb DEFAULT '{}'`, `context jsonb DEFAULT '{}'` | triggers `append_only` (UPDATE/DELETE) and `no_truncate`; indexes `occurred_at`, `(entity_type, entity_id, occurred_at)`, `(subject_type, subject_id, occurred_at)`; no FKs. Event schema, vocabulary and payload policy: [audit-and-provenance.md](audit-and-provenance.md) |
 
-Every FK column is the leading column of a non-partial index (checked by a test). Substring search indexes
-(`pg_trgm`) are left to Task 17.
+Every FK column is the leading column of a non-partial index (checked by a test).
+
+Global search (migration 0007, [ADR-0017](../adr/0017-global-search-trigram-indexes.md)): the `pg_trgm` extension,
+the immutable functions `search_key(text)` (`unaccent` + lowercase) and `person_search_key(first_name, last_name)`, and
+GIN trigram indexes `ix_prospects_person_search_key_trgm`, `ix_emails_address_trgm`, `ix_phones_number_trgm`,
+`ix_companies_display_name_search_key_trgm`, `ix_companies_legal_name_search_key_trgm`,
+`ix_establishments_name_search_key_trgm`, `ix_establishments_city_search_key_trgm` —
+[global-search.md](../features/global-search.md).
 
 `label_key(text)` (migration 0005, [ADR-0009](../adr/0009-settings-value-uniqueness.md)) is an immutable SQL function
 over the `unaccent` extension: trimmed, whitespace collapsed, unaccented, lowercase. Settings services compare and

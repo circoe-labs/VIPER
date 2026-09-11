@@ -10,6 +10,8 @@
   routes stay GET-only.
 - Amended: 2026-09-10 by Task 13 ([ADR-0011](0011-read-only-sql-console.md)) — the SQL console's database role gets
   column `SELECT` grants derived from this exposure policy.
+- Amended: 2026-09-11 by Task 17 ([ADR-0017](0017-global-search-trigram-indexes.md)) — `pg_trgm` is decided for the
+  global search's folded keys; the explorer's own `ILIKE` search keeps no dedicated index.
 
 ## Context
 

@@ -160,6 +160,11 @@
   (`src/test/renderProspectEditor.tsx`, a fake queue) — interaction tests kept short, one behaviour each, so the 5 s
   Vitest limit holds under a parallel run; Playwright `e2e/prospect-editor.spec.ts` imports or creates its own people
   and narrows Prospection to their tag — details in `doc/features/prospect-editor.md`.
+- Global search (Task 17): `test_search.py` (matching per field, accents/case, word starts, ranking, limits, badges,
+  targets, 3 statements, literal wildcards), `test_search_api.py`, `test_search_performance.py` (20 000 prospects and
+  p95 < 150 ms locally; with `CI` set 2 000 prospects and 500 ms); `src/shell/GlobalSearch.test.tsx` (debounce, late
+  answers, keyboard, shortcuts, states); Playwright `e2e/search.spec.ts` on the test's own tagged rows — details in
+  `doc/features/global-search.md`.
 - History and provenance (Task 19): `test_history.py` (formatter per kind of event — manual edit, import creation,
   company change, alias add / primary switch / verification / deactivation / removal, tracking stage, opposition set
   and lifted with reasons, explorer edit, command-line creation, company fields/categories/establishments; an `agent`

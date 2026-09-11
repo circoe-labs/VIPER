@@ -28,6 +28,7 @@ Styling approach and rationale: [ADR-0003](../adr/0003-styling-and-theming.md).
 | Entreprises page and Company editor drawer (Task 07) | `src/companies/*` (`companies.css`), `src/ui/SearchField.tsx` + `search-field.css` |
 | Prospection page: counter cards, toolbar, people cards (Task 14) | `src/prospection/*` (`prospection.css`) — see *Prospection people list* below |
 | Home dashboard (Task 16) | `src/home/*` (`home.css`) — see *Home dashboard* below |
+| Global search (Task 17) | `src/shell/GlobalSearch.tsx`, `src/shell/global-search.css` — see *App shell* below |
 | Font | `@fontsource-variable/inter` (self-hosted Inter Variable, imported in `src/main.tsx`; no CDN) |
 
 ## Tokens
@@ -128,7 +129,8 @@ Set: navigation (`Home`, `Users`, `Bolt`, `Database`, `Sliders`), status (`Check
 `Clock`, `MinusCircle`), interface (`Sun`, `Moon`, `PanelLeft`, `LogOut`, `Close`, `Plus`, `Check`, `ChevronDown`, `Pencil`,
 `Trash`, `Spinner`), data/explorer
 (`Search`, `Refresh`, `Download`, `Filter`, `Key`, `Link`, `ArrowUp/Down/Left`, `ChevronLeft/Right`, `Columns`, `Pin`,
-`More`, `Copy`, `Expand`, `Table`), companies (`Building`). Add icons in the same file and style.
+`More`, `Copy`, `Expand`, `Table`), companies (`Building`), establishments (`MapPin`, global search). Add icons in
+the same file and style.
 
 ## Primitives catalogue (`src/ui/`)
 
@@ -183,10 +185,17 @@ colour on targets. The V1-scope sentence is 12 px muted text with an info glyph.
 Left sidebar: lockup (expanded) or mark (collapsed), the five sections with icons, active item = accent-soft
 background + accent-fg text + neon left marker (`aria-current="page"`); footer = API status (glyph + text) and the
 collapse toggle (`aria-expanded`/`aria-controls`). Collapsed labels stay in the accessible name and as tooltips.
-Header: left zone reserved for global search (Task 17), right zone = theme switch, then the user zone
+Header: left zone = global search (Task 17), right zone = theme switch, then the user zone
 (`src/shell/UserMenu.tsx`, Task 04): initials avatar (decorative), display name (e-mail as tooltip, "Connecté :" for
 screen readers) and the `Se déconnecter` icon button, separated by a thin left border. Skip link "Aller au contenu".
 Desktop-first; verified at 1280–1920 px (no horizontal overflow at 1280).
+
+Global search: a 40 px field like `SearchField` (magnifier, strong border, focus ring) up to 32 rem wide, with a
+`Ctrl K` key cap (replaced by a spinner while searching, a clear button once typed). Its results open below as a
+38 rem raised surface (radius md, overlay shadow, scrolling within the viewport): uppercase eyebrow group titles,
+two-line options (32 px icon tile, medium label, muted 13 px context line with ` · ` separators, badges), the active
+option on accent-soft with the 3 px neon marker used by the navigation; results of a pending query at 55 % opacity;
+a footer of key caps (↑ ↓ naviguer · Entrée ouvrir · Maj+Entrée base de données · Échap fermer).
 
 ## Sign-in and session screens (Task 04)
 `/login` (`src/auth/LoginPage.tsx`, `auth.css`): canvas with one soft accent halo at the top (the page's only glow), a

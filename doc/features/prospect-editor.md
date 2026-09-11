@@ -15,7 +15,8 @@ Open-editor contract and queue: [prospection-kpis.md](prospection-kpis.md#open-e
 |---|---|
 | Prospection list | A person's name (click, or Enter on the focused card) sets `?prospect=<id>` — pushed, so Back closes the editor; the list stays behind it with its segment, search, filters, sort and page. |
 | *+ Ajouter un prospect* | `?prospect=new`: the same drawer, empty (see *New prospect*). |
-| Anywhere else | Not yet (global search is Task 17). The Database Explorer keeps its own row editing. |
+| Global search (Task 17) | A prospect result (Enter or click) opens `/prospection?prospect=<id>`: the same drawer over the Prospection list ([global-search.md](global-search.md)). |
+| Database Explorer | Keeps its own row editing. |
 
 The implementation is the default of `ProspectEditorContext` (`frontend/src/prospection/prospectEditor.tsx`); the
 former explorer fallback is gone.
