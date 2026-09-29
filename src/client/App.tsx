@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { api } from './api';
 import { commitWorkbookPreview, previewWorkbook } from './importCache';
 import { hasServerBusinessState, requestPersistentBrowserStorage, restoreLatestViperState, saveCurrentViperState } from './stateCache';
+import { deleteDraft, hasDraft, loadDraft, saveDraft } from './draftCache';
 
 type Page = 'home' | 'prospection' | 'exploitation' | 'database' | 'settings';
 type Prospect = Record<string, any>;
@@ -25,6 +26,7 @@ const trackingLabels: Record<string, string> = {
 const trackingStatuses = Object.keys(trackingLabels);
 const stageAfterAppointment = new Set(['appointment_obtained', 'quote_sent', 'quote_follow_up', 'won']);
 const stagesWithNextAction = new Set(['to_contact', 'follow_up_1', 'follow_up_2']);
+const IMPORT_DRAFT_KEY = 'import-preview';
 
 const formatDate = (value?: string | null, withTime = false) => {
   if (!value) return '—';
@@ -58,9 +60,13 @@ function Login({ onDone }: { onDone: () => void }) {
 }
 
 function Shell() {
-  const [page, setPage] = useState<Page>('home');
+  const [page, setPage] = useState<Page>(() => {
+    const saved = localStorage.getItem('viper.ui.page') as Page | null;
+    return saved && nav.some(([id]) => id === saved) ? saved : 'home';
+  });
   const [search, setSearch] = useState('');
   const [results, setResults] = useState<any[]>([]);
+  useEffect(() => { localStorage.setItem('viper.ui.page', page); }, [page]);
   useEffect(() => {
     const t = setTimeout(() => search.trim() ? api<any[]>('/api/search?q=' + encodeURIComponent(search)).then(setResults) : setResults([]), 180);
     return () => clearTimeout(t);
@@ -106,11 +112,18 @@ function Prospection() {
   const [q, setQ] = useState('');
   const [selected, setSelected] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [hasImportDraft, setHasImportDraft] = useState(false);
   const load = () => Promise.all([
     api<Prospect[]>(`/api/prospects?q=${encodeURIComponent(q)}&filter=${encodeURIComponent(filter)}&company=${encodeURIComponent(company)}`),
     api<Prospect[]>(`/api/prospects?q=${encodeURIComponent(q)}`)
   ]).then(([filtered, full]) => { setList(filtered); setAll(full); });
   useEffect(() => { load(); }, [q, filter, company]);
+  useEffect(() => {
+    hasDraft(IMPORT_DRAFT_KEY).then(found => {
+      setHasImportDraft(found);
+      if (found) setImportOpen(true);
+    }).catch(() => undefined);
+  }, []);
   const c = useMemo(() => ({
     all: all.length,
     never: all.filter(x => !x.employment_verified_at).length,
@@ -128,7 +141,7 @@ function Prospection() {
   ];
   return <>
     <div className="top"><Title title="Prospection" sub="Vérifier les données, puis piloter le suivi de contact sans mélanger les deux usages." />
-      <div><button className="secondary" onClick={() => setImportOpen(true)}>Importer Excel</button><a className="button secondary" href="/api/export.xlsx">Exporter Excel</a><button onClick={() => setSelected('new')}>+ Ajouter un prospect</button></div>
+      <div><button className="secondary" onClick={() => setImportOpen(true)}>{hasImportDraft ? 'Reprendre l’import en cours' : 'Importer Excel'}</button><a className="button secondary" href="/api/export.xlsx">Exporter Excel</a><button onClick={() => setSelected('new')}>+ Ajouter un prospect</button></div>
     </div>
     <div className="filters compact-counters">
       {[
@@ -154,7 +167,7 @@ function Prospection() {
       {!list.length && <div className="empty-list">Aucun prospect pour ces filtres.</div>}
     </div></div>
     {selected && <Drawer id={selected} nextId={nextId} close={() => setSelected(null)} saved={(goNext) => { const n = goNext ? nextId : null; load(); setSelected(n); }} />}
-    {importOpen && <ImportModal close={() => setImportOpen(false)} done={() => { setImportOpen(false); load(); }} />}
+    {importOpen && <ImportModal close={() => setImportOpen(false)} done={() => { setHasImportDraft(false); setImportOpen(false); load(); }} draftChanged={setHasImportDraft} />}
   </>;
 }
 
@@ -167,14 +180,52 @@ function Drawer({ id, nextId, close, saved }: { id: string; nextId: string | nul
   const [tab, setTab] = useState<'identity' | 'contact' | 'tracking' | 'history'>('identity');
   const [employmentTouched, setEmploymentTouched] = useState(false);
   const [verifyNow, setVerifyNow] = useState(false);
+  const [draftReady, setDraftReady] = useState(false);
+  const [draftRestored, setDraftRestored] = useState(false);
   const [error, setError] = useState('');
+  const draftKey = `prospect:${id}`;
+
   useEffect(() => {
-    Promise.all([api<any[]>('/api/companies'), api<any[]>('/api/settings/roles'), api<any[]>('/api/settings/referents')]).then(([a, b, c]) => { setCompanies(a); setRoles(b); setReferents(c); });
-    if (id !== 'new') api<any>('/api/prospects/' + id).then(d => {
-      setOriginal(d);
-      setForm({ ...d.prospect, tracking: d.tracking || { status: 'to_contact' }, emails: d.emails || [], phones: d.phones || [], trackingHistory: d.trackingHistory || [], company: d.company });
-    });
+    let active = true;
+    setDraftReady(false);
+    setDraftRestored(false);
+    Promise.all([
+      api<any[]>('/api/companies'),
+      api<any[]>('/api/settings/roles'),
+      api<any[]>('/api/settings/referents'),
+      id !== 'new' ? api<any>('/api/prospects/' + id) : Promise.resolve(null),
+      loadDraft<any>(draftKey)
+    ]).then(([a, b, c, server, draft]) => {
+      if (!active) return;
+      setCompanies(a); setRoles(b); setReferents(c);
+      if (server) setOriginal(server);
+      const base = server
+        ? { ...server.prospect, tracking: server.tracking || { status: 'to_contact' }, emails: server.emails || [], phones: server.phones || [], trackingHistory: server.trackingHistory || [], company: server.company }
+        : { activity_status: 'unknown', contactability_status: 'contactable', tracking: { status: 'to_contact' }, emails: [], phones: [] };
+      if (draft?.value?.form) {
+        setForm(draft.value.form);
+        setTab(draft.value.tab || 'identity');
+        setEmploymentTouched(Boolean(draft.value.employmentTouched));
+        setVerifyNow(Boolean(draft.value.verifyNow));
+        setDraftRestored(true);
+      } else {
+        setForm(base);
+        setTab('identity');
+        setEmploymentTouched(false);
+        setVerifyNow(false);
+      }
+      setDraftReady(true);
+    }).catch(e => { if (active) setError((e as Error).message); });
+    return () => { active = false; };
   }, [id]);
+
+  useEffect(() => {
+    if (!draftReady) return;
+    const timer = window.setTimeout(() => {
+      saveDraft(draftKey, { form, tab, employmentTouched, verifyNow }).catch(() => undefined);
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [draftReady, draftKey, form, tab, employmentTouched, verifyNow]);
   const setEmployment = (patch: any) => { setEmploymentTouched(true); setForm((f: any) => ({ ...f, ...patch })); };
   const save = async (goNext = false) => {
     setError('');
@@ -183,6 +234,7 @@ function Drawer({ id, nextId, close, saved }: { id: string; nextId: string | nul
         method: id === 'new' ? 'POST' : 'PUT',
         body: JSON.stringify({ ...form, mark_employment_verified: verifyNow || employmentTouched })
       });
+      await deleteDraft(draftKey).catch(() => undefined);
       saved(goNext);
     } catch (e) { setError((e as Error).message); }
   };
@@ -199,6 +251,7 @@ function Drawer({ id, nextId, close, saved }: { id: string; nextId: string | nul
       <button className={tab === 'history' ? 'active' : ''} onClick={() => setTab('history')}>Provenance</button>
     </div>
     <div className="drawer-body">
+      {draftRestored && <p className="warnbox">Brouillon non enregistré restauré automatiquement.</p>}
       {tab === 'identity' && <>
         <Group title="Identité"><Grid>
           <Field label="Prénom"><input value={form.first_name || ''} onChange={e => setForm({ ...form, first_name: e.target.value })} /></Field>
@@ -257,16 +310,41 @@ function Drawer({ id, nextId, close, saved }: { id: string; nextId: string | nul
       </>}
       {error && <p className="danger">{error}</p>}
     </div>
-    <footer><button className="secondary" onClick={close}>Annuler</button>{nextId && id !== 'new' && <button className="secondary" onClick={() => save(true)}>Enregistrer et suivant</button>}<button onClick={() => save(false)}>Enregistrer</button></footer>
+    <footer><button className="secondary" onClick={close}>Fermer</button>{nextId && id !== 'new' && <button className="secondary" onClick={() => save(true)}>Enregistrer et suivant</button>}<button onClick={() => save(false)}>Enregistrer</button></footer>
   </div></div>;
 }
 
-function ImportModal({ close, done }: { close: () => void; done: () => void }) {
+function ImportModal({ close, done, draftChanged }: { close: () => void; done: () => void; draftChanged: (value: boolean) => void }) {
   const [p, setP] = useState<any>();
+  const [draftReady, setDraftReady] = useState(false);
+  const [draftRestored, setDraftRestored] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    loadDraft<any>(IMPORT_DRAFT_KEY).then(draft => {
+      if (!active) return;
+      if (draft?.value) {
+        setP(draft.value);
+        setDraftRestored(true);
+        draftChanged(true);
+      }
+      setDraftReady(true);
+    }).catch(() => setDraftReady(true));
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!draftReady || !p) return;
+    const timer = window.setTimeout(() => {
+      saveDraft(IMPORT_DRAFT_KEY, p).then(() => draftChanged(true)).catch(() => undefined);
+    }, 100);
+    return () => window.clearTimeout(timer);
+  }, [draftReady, p]);
+
   return <div className="overlay center"><div className="modal">
     <div className="drawer-head"><div><small>Excel → base normalisée</small><h2>Import contrôlé</h2></div><button className="icon" onClick={close}>×</button></div>
-    <div className="drawer-body">{!p ? <label className="drop">Choisir un fichier XLSX, XLS ou CSV<input type="file" accept=".xlsx,.xls,.csv" onChange={async e => {
+    <div className="drawer-body">{draftRestored && <p className="warnbox">Brouillon d’import restauré automatiquement. Tes choix et modifications non validés ont été conservés.</p>}{!p ? <label className="drop">Choisir un fichier XLSX, XLS ou CSV<input type="file" accept=".xlsx,.xls,.csv" onChange={async e => {
       const f = e.target.files?.[0]; if (!f) return; setError('');
       try { setP(await previewWorkbook(f)); }
       catch (e) { setError((e as Error).message); }
@@ -281,7 +359,7 @@ function ImportModal({ close, done }: { close: () => void; done: () => void }) {
         <small>{r.diagnostics.map((d: any) => d.message).join(' · ') || 'Prêt'}</small>
       </div>)}</div>
     </>}{error && <p className="danger">{error}</p>}</div>
-    <footer><button className="secondary" onClick={close}>Annuler</button>{p && <button onClick={async () => { try { await commitWorkbookPreview(p); done(); } catch (e) { setError((e as Error).message); } }}>Confirmer l’import</button>}</footer>
+    <footer><button className="secondary" onClick={close}>Fermer</button>{p && <button onClick={async () => { try { await commitWorkbookPreview(p); await deleteDraft(IMPORT_DRAFT_KEY); draftChanged(false); done(); } catch (e) { setError((e as Error).message); } }}>Confirmer l’import</button>}</footer>
   </div></div>;
 }
 
