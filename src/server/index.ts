@@ -10,8 +10,11 @@ import { buildExport } from './exporter.js';
 import { assertReadOnlySql } from './sqlSafety.js';
 import { archiveImportedWorkbook } from './storage.js';
 import { deleteDraftRecord, loadDraftRecord, saveDraftRecord } from './drafts.js';
+import { backfillUnassignedProspectRoles, ensureDefaultRoles, inferRoleSlug } from './roleTaxonomy.js';
 
 migrate();
+ensureDefaultRoles(db);
+backfillUnassignedProspectRoles(db);
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
 app.use(express.json({ limit: '50mb' }));
@@ -69,6 +72,8 @@ app.post('/api/state/restore', upload.single('backup'), (req, res) => {
   if (!isBusinessStateEmpty()) return res.status(409).json({ error: 'Restauration refusée : VIPER contient déjà des données.' });
   try {
     restoreDatabase(req.file.buffer);
+    ensureDefaultRoles(db);
+    backfillUnassignedProspectRoles(db);
     res.json({ ok: true });
   } catch (e) {
     res.status(400).json({ error: e instanceof Error ? e.message : 'Restauration impossible' });
@@ -251,9 +256,11 @@ app.post('/api/prospects', (req, res) => {
   if (!b.company_id || !b.first_name || !b.last_name) return res.status(400).json({ error: 'Entreprise, prénom et nom requis' });
   const id = randomUUID();
   const a = actor(req);
+  const inferredSlug = !b.role_id ? inferRoleSlug(b.exact_job_title) : null;
+  const inferredRole = inferredSlug ? db.prepare('SELECT id FROM roles WHERE slug=?').get(inferredSlug) as any : null;
   db.transaction(() => {
     db.prepare('INSERT INTO prospects(id,company_id,civility,first_name,last_name,role_id,exact_job_title,activity_status,employment_verified_at,contactability_status) VALUES(?,?,?,?,?,?,?,?,?,?)')
-      .run(id, b.company_id, b.civility || null, b.first_name, b.last_name, b.role_id || null, b.exact_job_title || null, b.activity_status || 'unknown', b.mark_employment_verified ? nowIso() : null, b.contactability_status || 'contactable');
+      .run(id, b.company_id, b.civility || null, b.first_name, b.last_name, b.role_id || inferredRole?.id || null, b.exact_job_title || null, b.activity_status || 'unknown', b.mark_employment_verified ? nowIso() : null, b.contactability_status || 'contactable');
     const trackingId = randomUUID();
     const initialStatus = b.tracking?.status || 'to_contact';
     db.prepare('INSERT INTO contact_tracking(id,prospect_id,status,planned_contact_at,referent_id,response_received_at,appointment_at) VALUES(?,?,?,?,?,?,?)')
@@ -376,16 +383,18 @@ app.post('/api/import/commit', (req, res) => {
         }
         const storedFirstName = n.first_name || '';
         const storedLastName = n.last_name || 'Inconnu';
+        const inferredRole = n.role_slug ? db.prepare('SELECT id FROM roles WHERE slug=?').get(n.role_slug) as any : null;
+        const inferredRoleId = inferredRole?.id || null;
         const verifiedAt = n.verification_state === 'verified' ? (n.employment_verified_at || p.importedAt || nowIso()) : null;
         if (!prospect) {
           prospect = { id: randomUUID(), employment_verified_at: verifiedAt };
-          db.prepare('INSERT INTO prospects(id,company_id,civility,first_name,last_name,exact_job_title,activity_status,employment_verified_at) VALUES(?,?,?,?,?,?,?,?)')
-            .run(prospect.id, company.id, n.civility || null, storedFirstName, storedLastName, n.job_title || null, n.activity_status_suggestion || 'unknown', verifiedAt);
+          db.prepare('INSERT INTO prospects(id,company_id,civility,first_name,last_name,role_id,exact_job_title,activity_status,employment_verified_at) VALUES(?,?,?,?,?,?,?,?,?)')
+            .run(prospect.id, company.id, n.civility || null, storedFirstName, storedLastName, inferredRoleId, n.job_title || null, n.activity_status_suggestion || 'unknown', verifiedAt);
         } else {
           updated++;
           const nextVerifiedAt = verifiedAt || prospect.employment_verified_at || null;
-          db.prepare(`UPDATE prospects SET civility=coalesce(nullif(?,''),civility),exact_job_title=coalesce(nullif(?,''),exact_job_title),activity_status=CASE WHEN ?='inactive' THEN 'inactive' ELSE activity_status END,employment_verified_at=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
-            .run(n.civility || '', n.job_title || '', n.activity_status_suggestion || '', nextVerifiedAt, prospect.id);
+          db.prepare(`UPDATE prospects SET civility=coalesce(nullif(?,''),civility),role_id=coalesce(role_id,?),exact_job_title=coalesce(nullif(?,''),exact_job_title),activity_status=CASE WHEN ?='inactive' THEN 'inactive' ELSE activity_status END,employment_verified_at=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
+            .run(n.civility || '', inferredRoleId, n.job_title || '', n.activity_status_suggestion || '', nextVerifiedAt, prospect.id);
         }
 
         let tracking = db.prepare('SELECT * FROM contact_tracking WHERE prospect_id=?').get(prospect.id) as any;

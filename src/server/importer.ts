@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import crypto from 'node:crypto';
+import { inferRoleSlug, roleLabelForSlug } from './roleTaxonomy.js';
 
 export type Diagnostic = { code: string; level: 'info' | 'warning' | 'error'; message: string };
 export type PreviewRow = {
@@ -231,6 +232,9 @@ export function parseWorkbook(buffer: Buffer, filename = 'import.xlsx', referenc
       const first = text(read(raw, ['Prénom', 'Prenom']));
       const last = text(read(raw, ['Nom']));
       const email = text(read(raw, ['Mail', 'Email'])).toLowerCase();
+      const jobTitle = text(read(raw, ['Fonction']));
+      const roleSlug = inferRoleSlug(jobTitle);
+      const roleLabel = roleLabelForSlug(roleSlug);
       const civRaw = text(read(raw, ['Civilité ', 'Civilité', 'Civilite']));
       const civ = civMap[key(civRaw)] || civRaw;
       const referentRaw = text(read(raw, ['Référent', 'Referent']));
@@ -289,6 +293,7 @@ export function parseWorkbook(buffer: Buffer, filename = 'import.xlsx', referenc
       if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) diagnostics.push({ code: 'invalid_email', level: 'warning', message: 'Email à vérifier' });
       if (civRaw && civ === civRaw && !['M.', 'Mme', 'Mlle'].includes(civ)) diagnostics.push({ code: 'unknown_civility', level: 'warning', message: `Civilité non reconnue: ${civRaw}` });
       if (categoryRaw && !category) diagnostics.push({ code: 'invalid_category', level: 'warning', message: `Catégorie à vérifier: ${categoryRaw}` });
+      if (roleLabel) diagnostics.push({ code: 'role_suggested', level: 'info', message: `Rôle suggéré : ${roleLabel}` });
       if (statusVerification?.unknown || (!statusVerificationColumn && explicitVerification && (legacyVerification as any).unknown)) diagnostics.push({ code: 'unknown_verification', level: 'warning', message: `Valeur de vérification non reconnue: ${text(verificationRaw)}` });
       if (plannedWeek) diagnostics.push({ code: 'planned_week_resolved', level: 'info', message: `Semaine ${plannedWeek.week} conservée comme semaine d’envoi ${plannedWeek.year}` });
       else if (/^s\d{1,2}$/i.test(plannedRaw)) diagnostics.push({ code: 'invalid_week', level: 'warning', message: `Semaine invalide: ${plannedRaw}` });
@@ -312,7 +317,9 @@ export function parseWorkbook(buffer: Buffer, filename = 'import.xlsx', referenc
           last_name: last,
           identity_unknown: !first && !last,
           civility: civ,
-          job_title: text(read(raw, ['Fonction'])),
+          job_title: jobTitle,
+          role_slug: roleSlug,
+          role_label: roleLabel,
           email,
           email_verification_status: emailVerificationStatus,
           email_verified_at: emailVerifiedAt,
