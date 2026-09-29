@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { api } from './api';
+import { commitWorkbookPreview, previewWorkbook, restoreLastImportedWorkbook, saveLastImportedWorkbook } from './importCache';
 
 type Page = 'home' | 'prospection' | 'exploitation' | 'database' | 'settings';
 type Prospect = Record<string, any>;
@@ -104,11 +105,28 @@ function Prospection() {
   const [q, setQ] = useState('');
   const [selected, setSelected] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [restoreMessage, setRestoreMessage] = useState('');
   const load = () => Promise.all([
     api<Prospect[]>(`/api/prospects?q=${encodeURIComponent(q)}&filter=${encodeURIComponent(filter)}&company=${encodeURIComponent(company)}`),
     api<Prospect[]>(`/api/prospects?q=${encodeURIComponent(q)}`)
   ]).then(([filtered, full]) => { setList(filtered); setAll(full); });
   useEffect(() => { load(); }, [q, filter, company]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const existing = await api<Prospect[]>('/api/prospects?q=');
+        if (existing.length) return;
+        const restored = await restoreLastImportedWorkbook();
+        if (!restored || cancelled) return;
+        setRestoreMessage('Base restaurée automatiquement depuis le dernier fichier Excel enregistré sur cet appareil.');
+        await load();
+      } catch {
+        // Aucun cache local disponible, ou restauration impossible : l'import manuel reste disponible.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
   const c = useMemo(() => ({
     all: all.length,
     never: all.filter(x => !x.employment_verified_at).length,
@@ -128,6 +146,7 @@ function Prospection() {
     <div className="top"><Title title="Prospection" sub="Vérifier les données, puis piloter le suivi de contact sans mélanger les deux usages." />
       <div><button className="secondary" onClick={() => setImportOpen(true)}>Importer Excel</button><a className="button secondary" href="/api/export.xlsx">Exporter Excel</a><button onClick={() => setSelected('new')}>+ Ajouter un prospect</button></div>
     </div>
+    {restoreMessage && <p className="warnbox">{restoreMessage}</p>}
     <div className="filters compact-counters">
       {[
         ['Tous', c.all, ''], ['Non vérifiés', c.never, 'never_verified'], ['Vérifiés', c.verified, 'verified'], ['Incomplets', c.partial, 'partial_verification'], ['À contacter', c.due, 'due'], ['Contactés', c.contacted, 'contacted'], ['Réponses', c.responses, 'responses'], ['Rendez-vous', c.rdv, 'appointments']
@@ -261,14 +280,14 @@ function Drawer({ id, nextId, close, saved }: { id: string; nextId: string | nul
 
 function ImportModal({ close, done }: { close: () => void; done: () => void }) {
   const [p, setP] = useState<any>();
+  const [sourceFile, setSourceFile] = useState<File | null>(null);
   const [error, setError] = useState('');
   return <div className="overlay center"><div className="modal">
     <div className="drawer-head"><div><small>Excel → base normalisée</small><h2>Import contrôlé</h2></div><button className="icon" onClick={close}>×</button></div>
     <div className="drawer-body">{!p ? <label className="drop">Choisir un fichier XLSX, XLS ou CSV<input type="file" accept=".xlsx,.xls,.csv" onChange={async e => {
-      const f = e.target.files?.[0]; if (!f) return; setError('');
-      const fd = new FormData(); fd.append('file', f);
-      const r = await fetch('/api/import/preview', { method: 'POST', body: fd });
-      const body = await r.json(); if (!r.ok) setError(body.error || 'Import impossible'); else setP(body);
+      const f = e.target.files?.[0]; if (!f) return; setError(''); setSourceFile(f);
+      try { setP(await previewWorkbook(f)); }
+      catch (e) { setError((e as Error).message); }
     }} /></label> : <>
       <div className="import-summary"><b>{p.rows?.length || 0} lignes détectées</b><span>Les valeurs S37, S39 et S40 sont conservées comme semaines d’envoi 2026. Les contacts concernés sont considérés comme vérifiés.</span></div>
       {p.skippedSheets?.length > 0 && <p className="warnbox">Feuille ignorée explicitement : {p.skippedSheets.join(', ')}</p>}
@@ -280,7 +299,7 @@ function ImportModal({ close, done }: { close: () => void; done: () => void }) {
         <small>{r.diagnostics.map((d: any) => d.message).join(' · ') || 'Prêt'}</small>
       </div>)}</div>
     </>}{error && <p className="danger">{error}</p>}</div>
-    <footer><button className="secondary" onClick={close}>Annuler</button>{p && <button onClick={async () => { try { await api('/api/import/commit', { method: 'POST', body: JSON.stringify(p) }); done(); } catch (e) { setError((e as Error).message); } }}>Confirmer l’import</button>}</footer>
+    <footer><button className="secondary" onClick={close}>Annuler</button>{p && <button onClick={async () => { try { await commitWorkbookPreview(p); if (sourceFile) await saveLastImportedWorkbook(sourceFile); done(); } catch (e) { setError((e as Error).message); } }}>Confirmer l’import</button>}</footer>
   </div></div>;
 }
 
