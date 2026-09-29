@@ -110,7 +110,7 @@ function Prospection() {
   const [filter, setFilter] = useState('');
   const [company, setCompany] = useState('');
   const [q, setQ] = useState('');
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(() => localStorage.getItem('viper.prospection.selected'));
   const [importOpen, setImportOpen] = useState(false);
   const [hasImportDraft, setHasImportDraft] = useState(false);
   const load = () => Promise.all([
@@ -118,6 +118,7 @@ function Prospection() {
     api<Prospect[]>(`/api/prospects?q=${encodeURIComponent(q)}`)
   ]).then(([filtered, full]) => { setList(filtered); setAll(full); });
   useEffect(() => { load(); }, [q, filter, company]);
+  useEffect(() => { if (selected) localStorage.setItem('viper.prospection.selected', selected); else localStorage.removeItem('viper.prospection.selected'); }, [selected]);
   useEffect(() => {
     hasDraft(IMPORT_DRAFT_KEY).then(found => {
       setHasImportDraft(found);
