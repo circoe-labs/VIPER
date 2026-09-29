@@ -327,6 +327,7 @@ app.post('/api/import/preview', upload.single('file'), (req, res) => {
   try {
     const preview = parseWorkbook(req.file.buffer, req.file.originalname, new Date());
     archiveImportedWorkbook(req.file.buffer, req.file.originalname, preview.fingerprint);
+    saveDraftRecord(db, 'import-preview', preview);
     res.json(preview);
   } catch (e) {
     res.status(400).json({ error: e instanceof Error ? e.message : 'Import impossible' });
@@ -427,6 +428,7 @@ app.post('/api/import/commit', (req, res) => {
       }
       db.prepare('UPDATE import_batches SET accepted_count=?,rejected_count=? WHERE id=?').run(accepted, rejected, batchId);
     })();
+    deleteDraftRecord(db, 'import-preview');
     audit(importActor, 'import_batch', batchId, 'commit', null, { accepted, rejected, updated }, 'excel_import');
     res.json({ batchId, accepted, rejected, updated });
   } catch (e) {
