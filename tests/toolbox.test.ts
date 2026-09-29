@@ -143,25 +143,25 @@ describe('OAuth 2.1 + PKCE vers la Toolbox (faux serveur)', () => {
   });
 
   it('jeton expiré : rafraîchi si le serveur le permet, sinon « à reconnecter »', async () => {
-    const withRefresh = await fakeToolbox({ refresh: true, tokenTtlSec: 1 });
+    const withRefresh = await fakeToolbox({ refresh: true, tokenTtlSec: 60 });
     let clock = new Date();
     const store = createMemoryTokenStore();
     const auth = createToolboxAuth({ mcpUrl: withRefresh.mcpUrl, redirectUri: REDIRECT, tokenStorePath: 'unused' }, { store, now: () => clock });
     expect(await auth.complete(await authorize((await auth.start(human)).authorizationUrl))).toEqual({ ok: true });
     expect(auth.status().refreshable).toBe(true);
     const first = store.snapshot().token!.accessToken;
-    clock = new Date(clock.getTime() + 5000);
+    clock = new Date(clock.getTime() + 120_000); // au-delà de la durée du jeton (60 s) pour le client ; toujours valable en temps réel pour le faux serveur
     const toolbox = createMcpMailToolbox({ mcpUrl: withRefresh.mcpUrl, tokens: auth.tokens, timeoutMs: 2000 });
     expect((await toolbox.createDraft(draftInput)).draftId).toMatch(/^draft-/);
     expect(store.snapshot().token!.accessToken).not.toBe(first);
     expect(withRefresh.tokenRequests.map(r => r.grant_type)).toEqual(['authorization_code', 'refresh_token']);
 
-    const noRefresh = await fakeToolbox({ tokenTtlSec: 1 });
+    const noRefresh = await fakeToolbox({ tokenTtlSec: 60 });
     let clock2 = new Date();
     const store2 = createMemoryTokenStore();
     const auth2 = createToolboxAuth({ mcpUrl: noRefresh.mcpUrl, redirectUri: REDIRECT, tokenStorePath: 'unused' }, { store: store2, now: () => clock2 });
     await auth2.complete(await authorize((await auth2.start(human)).authorizationUrl));
-    clock2 = new Date(clock2.getTime() + 5000);
+    clock2 = new Date(clock2.getTime() + 120_000);
     expect(auth2.status().state).toBe('expired');
     const toolbox2 = createMcpMailToolbox({ mcpUrl: noRefresh.mcpUrl, tokens: auth2.tokens, timeoutMs: 2000 });
     await expectToolboxError(toolbox2.createDraft(draftInput), 'toolbox_auth_required');
