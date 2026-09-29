@@ -50,17 +50,22 @@ export function inferRoleSlug(jobTitle: unknown): string | null {
   const title = normalized(jobTitle);
   if (!title) return null;
 
-  // 1. Gouvernance / direction générale.
+  // Cas support explicites qui contiennent parfois le mot "direction".
+  if (contains(title, /(^| )(assistante|assistant|secretaire)( |$)/)) {
+    return 'support-admin-rh-juridique';
+  }
+
+  // 1. Direction adjointe / vice-présidence avant "président" et "direction".
+  if (contains(title, /(^| )(adjoint|adjointe|vice president|senior vice president|sdg)( |$)/)) {
+    return 'direction-adjointe';
+  }
+
+  // 2. Gouvernance / direction générale.
   if (contains(title, /(^| )(dg|pdg|ceo|gerant|gerante|dirigeant|dirigeante|president|presidente|fondateur|fondatrice|associe)( |$)/)) {
     return 'gouvernance';
   }
   if (contains(title, /(^| )(directeur general|directrice generale|president directeur general|chef d entreprise)( |$)/)) {
     return 'gouvernance';
-  }
-
-  // 2. Direction adjointe / vice-présidence avant la règle générique "direction".
-  if (contains(title, /(^| )(adjoint|adjointe|vice president|senior vice president|sdg)( |$)/)) {
-    return 'direction-adjointe';
   }
 
   // 3. Direction.
