@@ -1,3 +1,13 @@
+import { DEFAULT_PROSPECT_STATE } from '../shared/contactWorkflow.js';
+
+// Table `contact_tracking` canonique (Task 02) : état neutre par défaut, prochaine échéance = couple (année ISO, semaine ISO), NULL possible.
+// Les colonnes legacy `contact_year`/`contact_week` n'existent plus dans une base neuve ; sur une base existante elles sont
+// conservées gelées par `migrateContactTracking` (contactTrackingSchema.ts) jusqu'à une migration de nettoyage documentée.
+// Pas de CHECK sur `status` tant que la réconciliation des statuts legacy (Task 03) n'est pas faite ; la validité fine
+// d'une semaine ISO (53 selon l'année) est vérifiée côté serveur (`isValidIsoWeek`).
+export const contactTrackingColumns = `id TEXT PRIMARY KEY,prospect_id TEXT NOT NULL UNIQUE,planned_contact_at TEXT,next_action_year INTEGER,next_action_week INTEGER,status TEXT NOT NULL DEFAULT '${DEFAULT_PROSPECT_STATE}',referent_id TEXT,response_received_at TEXT,appointment_at TEXT,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP`;
+export const contactTrackingConstraints = `CHECK((next_action_year IS NULL)=(next_action_week IS NULL)),CHECK(next_action_year IS NULL OR next_action_year BETWEEN 1970 AND 9999),CHECK(next_action_week IS NULL OR next_action_week BETWEEN 1 AND 53),FOREIGN KEY(prospect_id) REFERENCES prospects(id) ON DELETE CASCADE,FOREIGN KEY(referent_id) REFERENCES internal_referents(id)`;
+
 export const schema = `
 PRAGMA foreign_keys=ON;
 CREATE TABLE IF NOT EXISTS roles(id TEXT PRIMARY KEY,label TEXT NOT NULL UNIQUE,slug TEXT NOT NULL UNIQUE,active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
@@ -13,11 +23,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS one_primary_email ON emails(prospect_id) WHERE
 CREATE UNIQUE INDEX IF NOT EXISTS normalized_email_unique ON emails(lower(address));
 CREATE TABLE IF NOT EXISTS phones(id TEXT PRIMARY KEY,prospect_id TEXT NOT NULL,number TEXT NOT NULL,type TEXT NOT NULL DEFAULT 'other',is_primary INTEGER NOT NULL DEFAULT 0,is_active INTEGER NOT NULL DEFAULT 1,verification_status TEXT NOT NULL DEFAULT 'unverified',origin_type TEXT NOT NULL DEFAULT 'manual',last_verified_at TEXT,source_reference TEXT,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(prospect_id) REFERENCES prospects(id) ON DELETE CASCADE);
 CREATE UNIQUE INDEX IF NOT EXISTS one_primary_phone ON phones(prospect_id) WHERE is_primary=1 AND is_active=1;
-CREATE TABLE IF NOT EXISTS contact_tracking(id TEXT PRIMARY KEY,prospect_id TEXT NOT NULL UNIQUE,planned_contact_at TEXT,contact_year INTEGER,contact_week INTEGER,status TEXT NOT NULL DEFAULT 'to_contact',referent_id TEXT,response_received_at TEXT,appointment_at TEXT,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(prospect_id) REFERENCES prospects(id) ON DELETE CASCADE,FOREIGN KEY(referent_id) REFERENCES internal_referents(id));
+CREATE TABLE IF NOT EXISTS contact_tracking(${contactTrackingColumns},${contactTrackingConstraints});
 CREATE TABLE IF NOT EXISTS contact_tracking_status_history(id TEXT PRIMARY KEY,contact_tracking_id TEXT NOT NULL,from_status TEXT,to_status TEXT NOT NULL,changed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,actor_type TEXT NOT NULL,actor_id TEXT,FOREIGN KEY(contact_tracking_id) REFERENCES contact_tracking(id) ON DELETE CASCADE);
 CREATE TABLE IF NOT EXISTS prospect_sources(id TEXT PRIMARY KEY,prospect_id TEXT NOT NULL,source_type TEXT NOT NULL,source_reference TEXT,collected_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,legal_basis_or_collection_context TEXT,created_by_actor TEXT,notes TEXT,FOREIGN KEY(prospect_id) REFERENCES prospects(id) ON DELETE CASCADE);
 CREATE TABLE IF NOT EXISTS import_batches(id TEXT PRIMARY KEY,filename TEXT NOT NULL,sheets TEXT,imported_at TEXT,status TEXT NOT NULL,row_count INTEGER NOT NULL DEFAULT 0,accepted_count INTEGER NOT NULL DEFAULT 0,rejected_count INTEGER NOT NULL DEFAULT 0,actor_id TEXT,file_fingerprint TEXT);
 CREATE TABLE IF NOT EXISTS import_row_metadata(id TEXT PRIMARY KEY,batch_id TEXT NOT NULL,source_sheet TEXT,source_row_number INTEGER,prospect_id TEXT,company_id TEXT,legacy_metadata TEXT NOT NULL DEFAULT '{}',FOREIGN KEY(batch_id) REFERENCES import_batches(id) ON DELETE CASCADE);
 CREATE TABLE IF NOT EXISTS drafts(key TEXT PRIMARY KEY,payload TEXT NOT NULL,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS schema_migrations(id TEXT PRIMARY KEY,applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,report TEXT);
 CREATE TABLE IF NOT EXISTS audit_log(id TEXT PRIMARY KEY,actor_type TEXT NOT NULL,actor_id TEXT,actor_display TEXT,entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,action TEXT NOT NULL,changed_fields TEXT,before_payload TEXT,after_payload TEXT,source_context TEXT,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
 `;

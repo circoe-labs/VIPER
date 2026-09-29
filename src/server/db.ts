@@ -1,7 +1,9 @@
 import Database from 'better-sqlite3';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { schema } from './schema.js';
+import { CONTACT_TRACKING_MIGRATION_ID, migrateContactTracking } from './contactTrackingSchema.js';
 import { dbPath, preparePersistentStorage } from './storage.js';
 
 preparePersistentStorage();
@@ -16,15 +18,16 @@ function openDatabase() {
 
 export let db = openDatabase();
 
-function ensureColumn(table:string,column:string,definition:string){
-  const cols=db.prepare(`PRAGMA table_info(${table})`).all() as any[];
-  if(!cols.some(c=>c.name===column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+// Instantané complet de la base avant une migration qui reconstruit une table (à côté de la base, même dossier privé).
+function snapshotBeforeMigration(migrationId:string){
+  const target=`${dbPath}.before-${migrationId}-${Date.now()}-${randomUUID().slice(0,8)}.sqlite`;
+  db.exec(`VACUUM INTO '${target.replace(/'/g,"''")}'`);
 }
 
 export function migrate(){
   db.exec(schema);
-  ensureColumn('contact_tracking','contact_year','INTEGER');
-  ensureColumn('contact_tracking','contact_week','INTEGER');
+  const report=migrateContactTracking(db,{ beforeRebuild:()=>snapshotBeforeMigration(CONTACT_TRACKING_MIGRATION_ID) });
+  if(report) console.log(`VIPER migration ${report.id} appliquée : ${JSON.stringify(report)}`);
 }
 
 export function rows(sql:string, params: unknown[]=[]){

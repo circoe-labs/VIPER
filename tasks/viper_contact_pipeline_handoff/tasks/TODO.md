@@ -22,7 +22,12 @@ Implémenter le nouveau cycle de contact humain dans `circoe-labs/VIPER`, en com
 - [x] 01 — Contrat de workflow partagé
   - `src/shared/contactWorkflow.ts` (états, labels, étapes, semaines ISO, cadence +2/+2/+4 ; Zod) + `tests/contactWorkflow.test.ts`. Aucune constante legacy remplacée (`src/shared/contracts.ts` inchangé, inutilisé).
   - Point ouvert : `tsconfig.server.json` (`rootDir: src/server`) empêche le serveur d'importer `src/shared/` (TS6059) — à lever en Task 02/04 (rootDir `src` + chemins `start`/Docker).
-- [ ] 02 — Migration du suivi prospect
+- [x] 02 — Migration du suivi prospect
+  - `contact_tracking` : défaut `status='neutral'`, `next_action_year/next_action_week` (NULL possibles, CHECK couple complet + bornes ; validité S53 côté serveur via `isValidIsoWeek`), index `ix_contact_tracking_next_action`. Table `schema_migrations` (migration `2026-09-contact-02-next-action`, exécutée une fois par `migrate()` au démarrage/restauration/`npm run migrate`, rapport non-PII journalisé et stocké).
+  - Base existante : reconstruction atomique (foreign_keys OFF le temps du DROP/RENAME, contrôle des compteurs et des FK, rollback sinon), instantané `VACUUM INTO <db>.before-<migration>-*.sqlite` préalable ; historique intact ; `contact_year/contact_week` conservés **gelés** (plus lus ni écrits ; suppression = migration de nettoyage ultérieure) ; seuls les couples ISO valides sont recopiés, le reste est compté (`legacyWeekUnmapped`, `plannedDateWithoutWeek`) pour la Task 03.
+  - Statuts legacy **non convertis** (Task 03) et écritures applicatives toujours explicites en `to_contact` (Task 03/04). Lectures/écritures serveur redirigées vers `next_action_*` (alias `contact_year/contact_week` conservés dans l'API liste/export).
+  - `tsconfig.server.json` : `rootDir: src` (+ `src/shared`) ; sortie `dist-server/server/index.js`, script `start` mis à jour.
+  - `doc/architecture/data-model.md` décrit l'ancienne pile Postgres/Python : non modifié.
 - [ ] 03 — Réconciliation des données legacy
 - [ ] 04 — Service backend de suivi manuel
 - [ ] 05 — Badges d’état et de semaine réutilisables

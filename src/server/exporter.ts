@@ -24,7 +24,7 @@ export function buildExport() {
   const raw = db.prepare(`SELECT
     trim(coalesce(ir.first_name,'')||' '||coalesce(ir.last_name,'')) AS referent,
     c.display_name AS company,c.email_domain,c.project_done_with_circoe,c.project_type,c.circoe_references,c.client_approach,
-    ct.planned_contact_at,ct.contact_year,ct.contact_week,p.civility,p.last_name,p.first_name,r.label role,p.exact_job_title,p.activity_status,p.employment_verified_at,
+    ct.planned_contact_at,ct.next_action_year contact_year,ct.next_action_week contact_week,p.civility,p.last_name,p.first_name,r.label role,p.exact_job_title,p.activity_status,p.employment_verified_at,
     e.address email,e.verification_status email_verification,e.last_verified_at email_verified_at,
     ph.number phone,ct.status tracking_status,p.contactability_status,ct.response_received_at,ct.appointment_at
     FROM prospects p
