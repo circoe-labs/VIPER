@@ -143,10 +143,10 @@ function Prospection() {
         const verification = verificationSummary(p);
         return <button key={p.id} onClick={() => setSelected(p.id)}>
           <div className="avatar">{p.first_name?.[0]}{p.last_name?.[0]}</div>
-          <div className="identity-cell"><b>{p.first_name} {p.last_name}</b><span>{p.role || p.exact_job_title || 'Rôle non classé'} · {p.company}</span></div>
+          <div className="identity-cell"><b>{[p.first_name, p.last_name].filter(Boolean).join(' ') || 'Inconnu'}</b><span>Rôle : {p.exact_job_title || p.role || 'Inconnu'} · {p.company}</span></div>
           <div className={`verification-cell ${verification.tone}`}><small>Vérification</small><span><i />{verification.label}</span><em>{verification.detail}</em></div>
           <div className="email-cell"><small>Email</small><span>{p.primary_email || 'Email manquant'}</span><em>{p.email_verification === 'verified' ? `Vérifié ${formatDate(p.email_verified_at)}` : p.primary_email ? 'Non confirmé' : 'À renseigner'}</em></div>
-          <div className="tracking-cell"><small>Suivi</small><strong>{trackingLabels[p.tracking_status] || 'À contacter'}</strong><em>{p.planned_contact_at ? `Prévu ${formatDate(p.planned_contact_at)}` : p.referent ? `Référent · ${p.referent}` : '—'}</em></div>
+          <div className="tracking-cell"><small>Suivi</small><strong>{trackingLabels[p.tracking_status] || 'À contacter'}</strong><em>{p.contact_week ? `Semaine ${p.contact_week} · ${p.contact_year || 2026}` : p.planned_contact_at ? `Prévu ${formatDate(p.planned_contact_at)}` : p.referent ? `Référent · ${p.referent}` : '—'}</em></div>
         </button>;
       })}
       {!list.length && <div className="empty-list">Aucun prospect pour ces filtres.</div>}
@@ -206,7 +206,7 @@ function Drawer({ id, nextId, close, saved }: { id: string; nextId: string | nul
         <Group title="Emploi"><Grid>
           <Field label="Entreprise"><select value={form.company_id || ''} onChange={e => setEmployment({ company_id: e.target.value })}><option value="">Sélectionner…</option>{companies.map(c => <option key={c.id} value={c.id}>{c.display_name}</option>)}</select></Field>
           <Field label="Rôle"><select value={form.role_id || ''} onChange={e => setEmployment({ role_id: e.target.value || null })}><option value="">Non classé</option>{roles.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}</select></Field>
-          <Field label="Intitulé exact"><input value={form.exact_job_title || ''} onChange={e => setEmployment({ exact_job_title: e.target.value })} /></Field>
+          <Field label="Fonction"><input value={form.exact_job_title || ''} onChange={e => setEmployment({ exact_job_title: e.target.value })} /></Field>
           <Field label="Statut d’activité"><select value={form.activity_status} onChange={e => setEmployment({ activity_status: e.target.value })}><option value="active">Actif</option><option value="unknown">Inconnu</option><option value="inactive">Inactif</option></select></Field>
         </Grid></Group>
         <div className={`verification-panel ${form.employment_verified_at ? 'ok' : 'needs'}`}>
@@ -270,13 +270,13 @@ function ImportModal({ close, done }: { close: () => void; done: () => void }) {
       const r = await fetch('/api/import/preview', { method: 'POST', body: fd });
       const body = await r.json(); if (!r.ok) setError(body.error || 'Import impossible'); else setP(body);
     }} /></label> : <>
-      <div className="import-summary"><b>{p.rows?.length || 0} lignes détectées</b><span>Les semaines Sxx sont converties vers le lundi correspondant. Une valeur « vérifiée » sans date prend la date d’import.</span></div>
+      <div className="import-summary"><b>{p.rows?.length || 0} lignes détectées</b><span>Les valeurs S37, S39 et S40 sont conservées comme semaines d’envoi 2026. Les contacts concernés sont considérés comme vérifiés.</span></div>
       {p.skippedSheets?.length > 0 && <p className="warnbox">Feuille ignorée explicitement : {p.skippedSheets.join(', ')}</p>}
       <div className="preview"><div className="preview-head"><span /><b>Prospect</b><b>Entreprise</b><b>Vérification</b><b>Contact prévu</b><b>Diagnostic</b></div>{p.rows?.slice(0, 120).map((r: any, i: number) => <div key={i}>
         <input type="checkbox" checked={!r.excluded} onChange={e => { const rows = [...p.rows]; rows[i] = { ...r, excluded: !e.target.checked }; setP({ ...p, rows }); }} />
-        <b>{r.normalized.first_name} {r.normalized.last_name}</b><span>{r.normalized.company}</span>
+        <b>{[r.normalized.first_name, r.normalized.last_name].filter(Boolean).join(' ') || 'Inconnu'}</b><span>{r.normalized.company}</span>
         <span className={r.normalized.verification_state === 'verified' ? 'text-ok' : 'text-warn'}>{r.normalized.verification_state === 'verified' ? 'Vérifié' : 'À vérifier'}</span>
-        <span>{r.normalized.planned_contact_at ? formatDate(r.normalized.planned_contact_at) : '—'}</span>
+        <span>{r.normalized.contact_week ? `Semaine ${r.normalized.contact_week} · ${r.normalized.contact_year || 2026}` : r.normalized.planned_contact_at ? formatDate(r.normalized.planned_contact_at) : '—'}</span>
         <small>{r.diagnostics.map((d: any) => d.message).join(' · ') || 'Prêt'}</small>
       </div>)}</div>
     </>}{error && <p className="danger">{error}</p>}</div>
