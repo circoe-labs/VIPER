@@ -39,3 +39,16 @@ The user review of the first usable Prospection screen identified several semant
 ## Known partial area
 
 Task 12 remains partial: advanced generic Database Explorer mutations (pin/reorder/resize, rich context menus and broad staged FK-aware editing) are not falsely marked complete.
+
+
+## Feedback pass — 29 September 2026
+
+Direct product refinements implemented on `main` for Home and Prospection:
+
+- every prospect visibly carries a contact cohort S37 / S39 / S40 / S41, editable in the prospect drawer;
+- employment-verification UI was removed from the human workflow; activity status remains available;
+- email and phone are grouped into one compact Coordinates block beside Identity/Employment, with an explicit recommended contact channel;
+- the Opposition/Contactability block is removed from the Prospection UI while the durable backend guardrail remains preserved;
+- contact follow-up is condensed around cohort, relance level 0–5/Defaillant, referent, response, appointment date/time and post-RDV state;
+- prospect navigation now uses previous/next arrows; the footer keeps only navigation + Save and the top-right close cross;
+- Home is reduced to 4 BASE metrics + a weekly response trend card, 4 contact-activity metrics, a monthly pie chart, a cohort/day schedule and a collapsible 24-hour modification log.

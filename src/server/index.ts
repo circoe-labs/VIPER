@@ -176,7 +176,9 @@ function updateTracking(prospectId: string, incoming: any, a: any) {
   if (!current) {
     const id = randomUUID();
     const status = incoming.status || 'to_contact';
-    const responseAt = status === 'response_received' ? nowIso() : (incoming.response_received_at || null);
+    const responseAt = incoming.response_received === true || status === 'response_received' || status === 'appointment_obtained'
+      ? nowIso()
+      : (incoming.response_received_at || null);
     db.prepare('INSERT INTO contact_tracking(id,prospect_id,planned_contact_at,contact_year,contact_week,status,referent_id,response_received_at,appointment_at) VALUES(?,?,?,?,?,?,?,?,?)')
       .run(id, prospectId, incoming.planned_contact_at || null, incoming.contact_year || null, incoming.contact_week || null, status, incoming.referent_id || null, responseAt, incoming.appointment_at || null);
     addTrackingHistory(id, null, status, a);
@@ -188,27 +190,44 @@ function updateTracking(prospectId: string, incoming: any, a: any) {
   const contactYear = incoming.contact_year !== undefined ? (incoming.contact_year || null) : current.contact_year;
   const contactWeek = incoming.contact_week !== undefined ? (incoming.contact_week || null) : current.contact_week;
   const appointmentAt = incoming.appointment_at !== undefined ? (incoming.appointment_at || null) : current.appointment_at;
-  const responseAt = current.response_received_at || (status === 'response_received' ? nowIso() : null);
+  const responseAt = incoming.response_received === false
+    ? null
+    : current.response_received_at || ((incoming.response_received === true || status === 'response_received' || status === 'appointment_obtained') ? nowIso() : null);
   db.prepare('UPDATE contact_tracking SET planned_contact_at=?,contact_year=?,contact_week=?,status=?,referent_id=?,response_received_at=?,appointment_at=?,updated_at=CURRENT_TIMESTAMP WHERE prospect_id=?')
     .run(planned, contactYear, contactWeek, status, referentId, responseAt, appointmentAt, prospectId);
   addTrackingHistory(current.id, current.status, status, a);
 }
 
 app.get('/api/dashboard', (_req, res) => {
-  const one = (sql: string) => Number((db.prepare(sql).get() as any)?.n || 0);
+  const one = (sql: string, params: any[] = []) => Number((db.prepare(sql).get(...params) as any)?.n || 0);
+  const now = new Date();
+  const currentMonday = new Date(now);
+  const offset = (now.getUTCDay() + 6) % 7;
+  currentMonday.setUTCDate(now.getUTCDate() - offset);
+  currentMonday.setUTCHours(0, 0, 0, 0);
+  const nextMonday = new Date(currentMonday); nextMonday.setUTCDate(currentMonday.getUTCDate() + 7);
+  const previousMonday = new Date(currentMonday); previousMonday.setUTCDate(currentMonday.getUTCDate() - 7);
+  const responseCurrent = one('SELECT count(*) n FROM contact_tracking WHERE response_received_at IS NOT NULL AND datetime(response_received_at)>=datetime(?) AND datetime(response_received_at)<datetime(?)', [currentMonday.toISOString(), nextMonday.toISOString()]);
+  const responsePrevious = one('SELECT count(*) n FROM contact_tracking WHERE response_received_at IS NOT NULL AND datetime(response_received_at)>=datetime(?) AND datetime(response_received_at)<datetime(?)', [previousMonday.toISOString(), currentMonday.toISOString()]);
+  const outreachSet = "'to_contact','contacted','follow_up_1','follow_up_2','follow_up_3','follow_up_4','follow_up_5'";
+  const monthTouch = "datetime(ct.updated_at)>=datetime('now','start of month')";
+
   res.json({
     total: one('SELECT count(*) n FROM prospects'),
-    neverVerified: one('SELECT count(*) n FROM prospects WHERE employment_verified_at IS NULL'),
-    active: one("SELECT count(*) n FROM prospects WHERE activity_status='active'"),
-    unknown: one("SELECT count(*) n FROM prospects WHERE activity_status='unknown'"),
-    inactive: one("SELECT count(*) n FROM prospects WHERE activity_status='inactive'"),
-    due: one("SELECT count(*) n FROM contact_tracking WHERE planned_contact_at<=date('now') AND status='to_contact'"),
-    contacted: one("SELECT count(*) n FROM contact_tracking WHERE status<>'to_contact' AND status<>'not_interested'"),
-    responses: one('SELECT count(*) n FROM contact_tracking WHERE response_received_at IS NOT NULL'),
     appointments: one('SELECT count(*) n FROM contact_tracking WHERE appointment_at IS NOT NULL'),
-    emailIssues: one("SELECT count(*) n FROM prospects p WHERE NOT EXISTS(SELECT 1 FROM emails e WHERE e.prospect_id=p.id AND e.is_primary=1 AND e.is_active=1 AND e.verification_status='verified')"),
-    nextActions: rows("SELECT p.id,p.first_name,p.last_name,c.display_name company,ct.planned_contact_at,ct.status FROM contact_tracking ct JOIN prospects p ON p.id=ct.prospect_id JOIN companies c ON c.id=p.company_id WHERE ct.planned_contact_at IS NOT NULL AND ct.status='to_contact' ORDER BY ct.planned_contact_at LIMIT 8"),
-    recent: rows('SELECT * FROM audit_log ORDER BY created_at DESC LIMIT 8')
+    defaillants: one("SELECT count(*) n FROM contact_tracking WHERE status='defaillant'"),
+    incompleteContacts: one("SELECT count(*) n FROM prospects p WHERE NOT EXISTS(SELECT 1 FROM emails e WHERE e.prospect_id=p.id AND e.is_primary=1 AND e.is_active=1 AND trim(e.address)<>'') OR NOT EXISTS(SELECT 1 FROM phones ph WHERE ph.prospect_id=p.id AND ph.is_primary=1 AND ph.is_active=1 AND trim(ph.number)<>'')"),
+    toContact: one(`SELECT count(*) n FROM contact_tracking WHERE status IN (${outreachSet})`),
+    withoutResponses: one(`SELECT count(*) n FROM contact_tracking WHERE status IN (${outreachSet}) AND response_received_at IS NULL`),
+    quotesSent: one("SELECT count(*) n FROM contact_tracking WHERE status IN ('quote_sent','quote_follow_up','won')"),
+    responseTrend: { current: responseCurrent, previous: responsePrevious },
+    month: {
+      sansReponse: one(`SELECT count(*) n FROM contact_tracking ct WHERE ${monthTouch} AND ct.response_received_at IS NULL AND ct.status IN ('contacted','follow_up_1','follow_up_2','follow_up_3','follow_up_4','follow_up_5','defaillant')`),
+      reponses: one(`SELECT count(*) n FROM contact_tracking ct WHERE ${monthTouch} AND ct.response_received_at IS NOT NULL AND ct.appointment_at IS NULL`),
+      rdv: one(`SELECT count(*) n FROM contact_tracking ct WHERE ${monthTouch} AND ct.appointment_at IS NOT NULL AND ct.status NOT IN ('quote_sent','quote_follow_up','won')`),
+      devis: one(`SELECT count(*) n FROM contact_tracking ct WHERE ${monthTouch} AND ct.status IN ('quote_sent','quote_follow_up','won')`)
+    },
+    recent: rows("SELECT * FROM audit_log WHERE datetime(created_at)>=datetime('now','-24 hours') ORDER BY created_at DESC LIMIT 50")
   });
 });
 
@@ -219,8 +238,8 @@ app.get('/api/prospects', (req, res) => {
   const ps: any[] = [];
   let w = '1=1';
   if (q) {
-    w += " AND (p.first_name||' '||p.last_name LIKE ? OR c.display_name LIKE ? OR e.address LIKE ? OR p.exact_job_title LIKE ?)";
-    ps.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
+    w += " AND (p.first_name||' '||p.last_name LIKE ? OR c.display_name LIKE ? OR e.address LIKE ? OR ph.number LIKE ? OR p.exact_job_title LIKE ?)";
+    ps.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
   }
   if (company) { w += ' AND p.company_id=?'; ps.push(company); }
   if (filter === 'never_verified') w += ' AND p.employment_verified_at IS NULL';
@@ -228,11 +247,16 @@ app.get('/api/prospects', (req, res) => {
   if (filter === 'partial_verification') w += " AND p.employment_verified_at IS NOT NULL AND (e.id IS NULL OR e.verification_status<>'verified')";
   if (['active', 'inactive', 'unknown'].includes(filter)) { w += ' AND p.activity_status=?'; ps.push(filter); }
   if (filter === 'due') w += " AND ct.planned_contact_at<=date('now') AND ct.status='to_contact'";
-  if (filter === 'contacted') w += " AND ct.status IN ('contacted','follow_up_1','follow_up_2')";
+  if (filter === 'contacted') w += " AND ct.status IN ('contacted','follow_up_1','follow_up_2','follow_up_3','follow_up_4','follow_up_5')";
   if (filter === 'responses') w += ' AND ct.response_received_at IS NOT NULL';
   if (filter === 'appointments') w += ' AND ct.appointment_at IS NOT NULL';
+  if (filter === 'incomplete_contact') w += " AND (e.id IS NULL OR trim(e.address)='' OR ph.id IS NULL OR trim(ph.number)='')";
+  if (filter === 'no_response') w += " AND ct.response_received_at IS NULL AND ct.status IN ('to_contact','contacted','follow_up_1','follow_up_2','follow_up_3','follow_up_4','follow_up_5')";
+  if (filter === 'defaillant') w += " AND ct.status='defaillant'";
+  if (filter === 'outreach') w += " AND ct.status IN ('to_contact','contacted','follow_up_1','follow_up_2','follow_up_3','follow_up_4','follow_up_5')";
+  if (filter.startsWith('week:')) { w += ' AND ct.contact_week=?'; ps.push(Number(filter.slice(5))); }
   if (filter.startsWith('status:')) { w += ' AND ct.status=?'; ps.push(filter.slice(7)); }
-  res.json(rows(`SELECT p.*,c.display_name company,r.label role,e.address primary_email,e.verification_status email_verification,e.last_verified_at email_verified_at,ct.status tracking_status,ct.planned_contact_at,ct.contact_year,ct.contact_week,ct.response_received_at,ct.appointment_at,trim(coalesce(ir.first_name,'')||' '||coalesce(ir.last_name,'')) referent,(SELECT max(h.changed_at) FROM contact_tracking_status_history h WHERE h.contact_tracking_id=ct.id AND h.to_status=ct.status) tracking_status_since FROM prospects p JOIN companies c ON c.id=p.company_id LEFT JOIN roles r ON r.id=p.role_id LEFT JOIN emails e ON e.prospect_id=p.id AND e.is_primary=1 AND e.is_active=1 LEFT JOIN contact_tracking ct ON ct.prospect_id=p.id LEFT JOIN internal_referents ir ON ir.id=ct.referent_id WHERE ${w} ORDER BY CASE WHEN ct.planned_contact_at IS NULL THEN 1 ELSE 0 END,ct.planned_contact_at,p.updated_at DESC LIMIT 500`, ps));
+  res.json(rows(`SELECT p.*,c.display_name company,r.label role,e.address primary_email,e.verification_status email_verification,e.last_verified_at email_verified_at,ph.number primary_phone,ct.status tracking_status,ct.planned_contact_at,ct.contact_year,ct.contact_week,ct.response_received_at,ct.appointment_at,trim(coalesce(ir.first_name,'')||' '||coalesce(ir.last_name,'')) referent,(SELECT max(h.changed_at) FROM contact_tracking_status_history h WHERE h.contact_tracking_id=ct.id AND h.to_status=ct.status) tracking_status_since FROM prospects p JOIN companies c ON c.id=p.company_id LEFT JOIN roles r ON r.id=p.role_id LEFT JOIN emails e ON e.prospect_id=p.id AND e.is_primary=1 AND e.is_active=1 LEFT JOIN phones ph ON ph.prospect_id=p.id AND ph.is_primary=1 AND ph.is_active=1 LEFT JOIN contact_tracking ct ON ct.prospect_id=p.id LEFT JOIN internal_referents ir ON ir.id=ct.referent_id WHERE ${w} ORDER BY CASE WHEN ct.contact_week IS NULL THEN 1 ELSE 0 END,ct.contact_week,p.updated_at DESC LIMIT 500`, ps));
 });
 
 app.get('/api/prospects/:id', (req, res) => {
@@ -263,8 +287,8 @@ app.post('/api/prospects', (req, res) => {
       .run(id, b.company_id, b.civility || null, b.first_name, b.last_name, b.role_id || inferredRole?.id || null, b.exact_job_title || null, b.activity_status || 'unknown', b.mark_employment_verified ? nowIso() : null, b.contactability_status || 'contactable');
     const trackingId = randomUUID();
     const initialStatus = b.tracking?.status || 'to_contact';
-    db.prepare('INSERT INTO contact_tracking(id,prospect_id,status,planned_contact_at,referent_id,response_received_at,appointment_at) VALUES(?,?,?,?,?,?,?)')
-      .run(trackingId, id, initialStatus, b.tracking?.planned_contact_at || null, b.tracking?.referent_id || null, initialStatus === 'response_received' ? nowIso() : null, b.tracking?.appointment_at || null);
+    db.prepare('INSERT INTO contact_tracking(id,prospect_id,status,planned_contact_at,contact_year,contact_week,referent_id,response_received_at,appointment_at) VALUES(?,?,?,?,?,?,?,?,?)')
+      .run(trackingId, id, initialStatus, b.tracking?.planned_contact_at || null, b.tracking?.contact_year || 2026, b.tracking?.contact_week || null, b.tracking?.referent_id || null, b.tracking?.response_received || initialStatus === 'response_received' || initialStatus === 'appointment_obtained' ? nowIso() : null, b.tracking?.appointment_at || null);
     addTrackingHistory(trackingId, null, initialStatus, a);
     syncEmails(id, b.emails);
     syncPhones(id, b.phones);

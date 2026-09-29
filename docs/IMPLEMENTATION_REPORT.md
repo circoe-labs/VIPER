@@ -48,3 +48,14 @@ Single-user pilot auth uses opaque in-memory session tokens in HTTP-only SameSit
 
 ## Testing
 The patch was syntax/type checked locally with strict enough interface stubs to catch TS/JSX errors. The import logic was also reconciled against the private legacy workbook using aggregate-only inspection; no row-level PII was printed or committed. Unit tests were updated for explicit verification and ISO-week conversion. GitHub CI remains authoritative for dependency-backed typecheck, Vitest and Vite build.
+
+
+### UI/product refinement — 29 September 2026
+
+The latest user review further simplifies the operator experience:
+
+- S37/S39/S40/S41 is now a first-class visible cohort on every prospect card and in the editor.
+- The Prospection UI no longer exposes employment verification or opposition controls. Employment verification remains internal legacy/provenance data, and the durable do-not-contact guardrail remains enforced in the backend rather than presented as an operator field.
+- Coordinates are surfaced earlier and grouped compactly so the operator immediately knows whether to use email or phone.
+- Relance handling now supports levels 1 through 5 plus a Defaillant state; appointment and response information are grouped in one condensed tracking panel.
+- Home now focuses on a small set of operational metrics, weekly response trend, a monthly outcome pie, cohort contact-day scheduling, and an expandable last-24-hours audit feed.

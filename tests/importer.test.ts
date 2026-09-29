@@ -53,17 +53,18 @@ describe('Excel preview', () => {
     expect(p.rows[2].normalized.email_verification_status).toBe('unknown');
     expect(p.rows[3].normalized.verification_state).toBe('unverified');
   });
-  it('applies the agreed S37/S39/S40 campaign history rules', () => {
+  it('applies the agreed S37/S39/S40/S41 campaign history rules', () => {
     const p = parseWorkbook(workbook([
       { Entreprise: 'S37', Nom: 'Un', Prénom: 'A', Mail: 'a@s37.fr', 'A contacter ': 'S37' },
       { Entreprise: 'S39', Nom: 'Deux', Prénom: 'B', Mail: 'b@s39.fr', 'A contacter ': 'S39' },
-      { Entreprise: 'S40', Nom: 'Trois', Prénom: 'C', Mail: 'c@s40.fr', 'A contacter ': 'S40' }
+      { Entreprise: 'S40', Nom: 'Trois', Prénom: 'C', Mail: 'c@s40.fr', 'A contacter ': 'S40' },
+      { Entreprise: 'S41', Nom: 'Quatre', Prénom: 'D', Mail: 'd@s41.fr', 'A contacter ': 'S41' }
     ]), 'test.xlsx', ref);
-    expect(p.rows.map(r => r.normalized.verification_state)).toEqual(['verified', 'verified', 'verified']);
-    expect(p.rows.map(r => r.normalized.email_verification_status)).toEqual(['verified', 'verified', 'verified']);
-    expect(p.rows.map(r => r.normalized.tracking_status)).toEqual(['contacted', 'contacted', 'to_contact']);
-    expect(p.rows.map(r => r.normalized.contact_week)).toEqual([37, 39, 40]);
-    expect(p.rows.map(r => r.normalized.contact_year)).toEqual([2026, 2026, 2026]);
+    expect(p.rows.map(r => r.normalized.verification_state)).toEqual(['verified', 'verified', 'verified', 'verified']);
+    expect(p.rows.map(r => r.normalized.email_verification_status)).toEqual(['verified', 'verified', 'verified', 'verified']);
+    expect(p.rows.map(r => r.normalized.tracking_status)).toEqual(['contacted', 'contacted', 'to_contact', 'to_contact']);
+    expect(p.rows.map(r => r.normalized.contact_week)).toEqual([37, 39, 40, 41]);
+    expect(p.rows.map(r => r.normalized.contact_year)).toEqual([2026, 2026, 2026, 2026]);
   });
   it('suggests a normalized role while preserving the exact function', () => {
     const p = parseWorkbook(workbook([

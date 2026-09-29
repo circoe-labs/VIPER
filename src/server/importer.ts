@@ -255,7 +255,7 @@ export function parseWorkbook(buffer: Buffer, filename = 'import.xlsx', referenc
       const legacyPlannedRaw = Object.prototype.hasOwnProperty.call(raw, 'A contacter ') ? text(raw['A contacter ']) : '';
       const plannedRaw = legacyPlannedRaw || text(read(raw, ['Contact planifié', 'Contact planifie', 'Date contact', 'Date de contact']));
       const plannedWeek = resolveLegacyWeek(plannedRaw);
-      const legacyCampaignWeek = plannedWeek && [37, 39, 40].includes(plannedWeek.week) ? plannedWeek : null;
+      const legacyCampaignWeek = plannedWeek && [37, 39, 40, 41].includes(plannedWeek.week) ? plannedWeek : null;
       const plannedDate = excelDate(plannedRaw);
       const plannedContactAt = plannedDate ? isoDate(plannedDate) : null;
       if (legacyCampaignWeek) {
