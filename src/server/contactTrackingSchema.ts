@@ -1,7 +1,7 @@
 // Migration du suivi prospect (Task 02) : défaut `neutral` + prochaine échéance `next_action_year/next_action_week`.
 // Non destructive : aucune ligne supprimée, colonnes legacy `contact_year/contact_week` conservées gelées (nettoyage en 2e temps),
 // historique `contact_tracking_status_history` intact. Exécutée une seule fois (table `schema_migrations`), atomique.
-// Les statuts legacy (`to_contact`, `follow_up_1`...) ne sont PAS convertis ici : réconciliation = Task 03.
+// Les statuts legacy (`to_contact`, `follow_up_1`...) ne sont PAS convertis ici : voir contactTrackingReconciliation.ts (Task 03).
 import type Database from 'better-sqlite3';
 import { DEFAULT_PROSPECT_STATE, isValidIsoWeek, type IsoWeek } from '../shared/contactWorkflow.js';
 import { contactTrackingColumns, contactTrackingConstraints } from './schema.js';

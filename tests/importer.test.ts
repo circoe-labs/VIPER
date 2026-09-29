@@ -61,7 +61,7 @@ describe('Excel preview', () => {
     ]), 'test.xlsx', ref);
     expect(p.rows.map(r => r.normalized.verification_state)).toEqual(['verified', 'verified', 'verified']);
     expect(p.rows.map(r => r.normalized.email_verification_status)).toEqual(['verified', 'verified', 'verified']);
-    expect(p.rows.map(r => r.normalized.tracking_status)).toEqual(['contacted', 'contacted', 'to_contact']);
+    expect(p.rows.map(r => r.normalized.tracking_status)).toEqual(['contacted', 'contacted', 'neutral']);
     expect(p.rows.map(r => r.normalized.contact_week)).toEqual([37, 39, 40]);
     expect(p.rows.map(r => r.normalized.contact_year)).toEqual([2026, 2026, 2026]);
   });

@@ -3,8 +3,9 @@ import { DEFAULT_PROSPECT_STATE } from '../shared/contactWorkflow.js';
 // Table `contact_tracking` canonique (Task 02) : état neutre par défaut, prochaine échéance = couple (année ISO, semaine ISO), NULL possible.
 // Les colonnes legacy `contact_year`/`contact_week` n'existent plus dans une base neuve ; sur une base existante elles sont
 // conservées gelées par `migrateContactTracking` (contactTrackingSchema.ts) jusqu'à une migration de nettoyage documentée.
-// Pas de CHECK sur `status` tant que la réconciliation des statuts legacy (Task 03) n'est pas faite ; la validité fine
-// d'une semaine ISO (53 selon l'année) est vérifiée côté serveur (`isValidIsoWeek`).
+// Pas de CHECK sur `status` : la réconciliation legacy (Task 03, contactTrackingReconciliation.ts) laisse les valeurs inattendues
+// en revue au lieu de les écraser ; les écritures passent par `toProspectStateForWrite`. La validité fine d'une semaine ISO
+// (53 selon l'année) est vérifiée côté serveur (`isValidIsoWeek`).
 export const contactTrackingColumns = `id TEXT PRIMARY KEY,prospect_id TEXT NOT NULL UNIQUE,planned_contact_at TEXT,next_action_year INTEGER,next_action_week INTEGER,status TEXT NOT NULL DEFAULT '${DEFAULT_PROSPECT_STATE}',referent_id TEXT,response_received_at TEXT,appointment_at TEXT,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP`;
 export const contactTrackingConstraints = `CHECK((next_action_year IS NULL)=(next_action_week IS NULL)),CHECK(next_action_year IS NULL OR next_action_year BETWEEN 1970 AND 9999),CHECK(next_action_week IS NULL OR next_action_week BETWEEN 1 AND 53),FOREIGN KEY(prospect_id) REFERENCES prospects(id) ON DELETE CASCADE,FOREIGN KEY(referent_id) REFERENCES internal_referents(id)`;
 

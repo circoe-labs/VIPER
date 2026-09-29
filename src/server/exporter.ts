@@ -1,11 +1,9 @@
 import * as XLSX from 'xlsx';
 import { db } from './db.js';
+import { isProspectState, prospectStateLabels } from '../shared/contactWorkflow.js';
 
-const statusLabels: Record<string, string> = {
-  to_contact: 'À contacter', contacted: 'Contacté', follow_up_1: 'Relance 1', follow_up_2: 'Relance 2',
-  response_received: 'Réponse reçue', appointment_obtained: 'Rendez-vous obtenu', quote_sent: 'Devis envoyé',
-  quote_follow_up: 'Devis relancé', won: 'Commande passée', not_interested: 'Non intéressé'
-};
+// Labels du contrat Contact (état neutre = cellule vide, décision 4) ; une valeur hors contrat est exportée brute.
+const trackingLabel = (status: unknown) => isProspectState(status) ? prospectStateLabels[status] || '' : String(status || '');
 const activityLabels: Record<string, string> = { active: 'Actif', inactive: 'Inactif', unknown: 'Inconnu' };
 const emailLabels: Record<string, string> = { verified: 'Vérifié', unverified: 'À vérifier', invalid: 'Invalide', unknown: 'Inconnu' };
 
@@ -54,7 +52,7 @@ export function buildExport() {
     'Statut email': emailLabels[x.email_verification] || x.email_verification || '',
     'Email vérifié le': x.email_verified_at || '',
     'Téléphone': x.phone || '',
-    'Suivi de contact': statusLabels[x.tracking_status] || x.tracking_status || 'À contacter',
+    'Suivi de contact': trackingLabel(x.tracking_status),
     'Contactabilité': x.contactability_status === 'do_not_contact' ? 'À ne plus contacter' : 'Contactable',
     'Réponse reçue le': x.response_received_at || '',
     'Rendez-vous le': x.appointment_at || '',

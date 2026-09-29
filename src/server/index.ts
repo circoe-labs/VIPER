@@ -11,6 +11,8 @@ import { assertReadOnlySql } from './sqlSafety.js';
 import { archiveImportedWorkbook } from './storage.js';
 import { deleteDraftRecord, loadDraftRecord, saveDraftRecord } from './drafts.js';
 import { resolveIncomingNextAction, toNextActionWeek } from './contactTrackingSchema.js';
+import type { ProspectState } from '../shared/contactWorkflow.js';
+import { isLegacyTrackingStatus, mapLegacyTrackingStatus, toProspectStateForWrite } from './contactTrackingReconciliation.js';
 import { backfillUnassignedProspectRoles, ensureDefaultRoles, inferRoleSlug } from './roleTaxonomy.js';
 
 migrate();
@@ -171,12 +173,14 @@ function syncPhones(prospectId: string, items: any[] | undefined, forceUnverifie
   for (const old of existing) if (!kept.has(old.id)) db.prepare('UPDATE phones SET is_active=0,is_primary=0,updated_at=CURRENT_TIMESTAMP WHERE id=?').run(old.id);
 }
 
+const isDoNotContact = (prospectId: string) => (db.prepare('SELECT contactability_status FROM prospects WHERE id=?').get(prospectId) as { contactability_status: string } | undefined)?.contactability_status === 'do_not_contact';
+
 function updateTracking(prospectId: string, incoming: any, a: any) {
   if (!incoming) return;
   let current = db.prepare('SELECT * FROM contact_tracking WHERE prospect_id=?').get(prospectId) as any;
   if (!current) {
     const id = randomUUID();
-    const status = incoming.status || 'to_contact';
+    const status = toProspectStateForWrite(incoming.status, isDoNotContact(prospectId));
     const responseAt = status === 'response_received' ? nowIso() : (incoming.response_received_at || null);
     const nextAction = resolveIncomingNextAction(incoming, null);
     db.prepare('INSERT INTO contact_tracking(id,prospect_id,planned_contact_at,next_action_year,next_action_week,status,referent_id,response_received_at,appointment_at) VALUES(?,?,?,?,?,?,?,?,?)')
@@ -184,7 +188,7 @@ function updateTracking(prospectId: string, incoming: any, a: any) {
     addTrackingHistory(id, null, status, a);
     return;
   }
-  const status = incoming.status || current.status;
+  const status = incoming.status ? toProspectStateForWrite(incoming.status, isDoNotContact(prospectId)) : current.status;
   const planned = incoming.planned_contact_at !== undefined ? (incoming.planned_contact_at || null) : current.planned_contact_at;
   const referentId = incoming.referent_id !== undefined ? (incoming.referent_id || null) : current.referent_id;
   const currentNextAction = current.next_action_year && current.next_action_week ? { year: current.next_action_year, week: current.next_action_week } : null;
@@ -204,12 +208,12 @@ app.get('/api/dashboard', (_req, res) => {
     active: one("SELECT count(*) n FROM prospects WHERE activity_status='active'"),
     unknown: one("SELECT count(*) n FROM prospects WHERE activity_status='unknown'"),
     inactive: one("SELECT count(*) n FROM prospects WHERE activity_status='inactive'"),
-    due: one("SELECT count(*) n FROM contact_tracking WHERE planned_contact_at<=date('now') AND status='to_contact'"),
-    contacted: one("SELECT count(*) n FROM contact_tracking WHERE status<>'to_contact' AND status<>'not_interested'"),
+    due: one("SELECT count(*) n FROM contact_tracking WHERE planned_contact_at<=date('now') AND status='neutral'"),
+    contacted: one("SELECT count(*) n FROM contact_tracking WHERE status NOT IN ('neutral','failure','ignored')"),
     responses: one('SELECT count(*) n FROM contact_tracking WHERE response_received_at IS NOT NULL'),
     appointments: one('SELECT count(*) n FROM contact_tracking WHERE appointment_at IS NOT NULL'),
     emailIssues: one("SELECT count(*) n FROM prospects p WHERE NOT EXISTS(SELECT 1 FROM emails e WHERE e.prospect_id=p.id AND e.is_primary=1 AND e.is_active=1 AND e.verification_status='verified')"),
-    nextActions: rows("SELECT p.id,p.first_name,p.last_name,c.display_name company,ct.planned_contact_at,ct.status FROM contact_tracking ct JOIN prospects p ON p.id=ct.prospect_id JOIN companies c ON c.id=p.company_id WHERE ct.planned_contact_at IS NOT NULL AND ct.status='to_contact' ORDER BY ct.planned_contact_at LIMIT 8"),
+    nextActions: rows("SELECT p.id,p.first_name,p.last_name,c.display_name company,ct.planned_contact_at,ct.status FROM contact_tracking ct JOIN prospects p ON p.id=ct.prospect_id JOIN companies c ON c.id=p.company_id WHERE ct.planned_contact_at IS NOT NULL AND ct.status='neutral' ORDER BY ct.planned_contact_at LIMIT 8"),
     recent: rows('SELECT * FROM audit_log ORDER BY created_at DESC LIMIT 8')
   });
 });
@@ -229,11 +233,11 @@ app.get('/api/prospects', (req, res) => {
   if (filter === 'verified') w += " AND p.employment_verified_at IS NOT NULL AND e.verification_status='verified'";
   if (filter === 'partial_verification') w += " AND p.employment_verified_at IS NOT NULL AND (e.id IS NULL OR e.verification_status<>'verified')";
   if (['active', 'inactive', 'unknown'].includes(filter)) { w += ' AND p.activity_status=?'; ps.push(filter); }
-  if (filter === 'due') w += " AND ct.planned_contact_at<=date('now') AND ct.status='to_contact'";
-  if (filter === 'contacted') w += " AND ct.status IN ('contacted','follow_up_1','follow_up_2')";
+  if (filter === 'due') w += " AND ct.planned_contact_at<=date('now') AND ct.status='neutral'";
+  if (filter === 'contacted') w += " AND ct.status IN ('contacted','r1','r2')";
   if (filter === 'responses') w += ' AND ct.response_received_at IS NOT NULL';
   if (filter === 'appointments') w += ' AND ct.appointment_at IS NOT NULL';
-  if (filter.startsWith('status:')) { w += ' AND ct.status=?'; ps.push(filter.slice(7)); }
+  if (filter.startsWith('status:')) { const value = filter.slice(7); w += ' AND ct.status=?'; ps.push(isLegacyTrackingStatus(value) ? mapLegacyTrackingStatus(value, false) : value); } // filtres client legacy (`status:to_contact`)
   res.json(rows(`SELECT p.*,c.display_name company,r.label role,e.address primary_email,e.verification_status email_verification,e.last_verified_at email_verified_at,ct.status tracking_status,ct.planned_contact_at,ct.next_action_year,ct.next_action_week,ct.next_action_year contact_year,ct.next_action_week contact_week,ct.response_received_at,ct.appointment_at,trim(coalesce(ir.first_name,'')||' '||coalesce(ir.last_name,'')) referent,(SELECT max(h.changed_at) FROM contact_tracking_status_history h WHERE h.contact_tracking_id=ct.id AND h.to_status=ct.status) tracking_status_since FROM prospects p JOIN companies c ON c.id=p.company_id LEFT JOIN roles r ON r.id=p.role_id LEFT JOIN emails e ON e.prospect_id=p.id AND e.is_primary=1 AND e.is_active=1 LEFT JOIN contact_tracking ct ON ct.prospect_id=p.id LEFT JOIN internal_referents ir ON ir.id=ct.referent_id WHERE ${w} ORDER BY CASE WHEN ct.planned_contact_at IS NULL THEN 1 ELSE 0 END,ct.planned_contact_at,p.updated_at DESC LIMIT 500`, ps));
 });
 
@@ -260,11 +264,14 @@ app.post('/api/prospects', (req, res) => {
   const a = actor(req);
   const inferredSlug = !b.role_id ? inferRoleSlug(b.exact_job_title) : null;
   const inferredRole = inferredSlug ? db.prepare('SELECT id FROM roles WHERE slug=?').get(inferredSlug) as any : null;
+  let initialStatus: ProspectState;
+  try { initialStatus = toProspectStateForWrite(b.tracking?.status, b.contactability_status === 'do_not_contact'); } catch (e) {
+    return res.status(400).json({ error: e instanceof Error ? e.message : 'Enregistrement impossible' });
+  }
   db.transaction(() => {
     db.prepare('INSERT INTO prospects(id,company_id,civility,first_name,last_name,role_id,exact_job_title,activity_status,employment_verified_at,contactability_status) VALUES(?,?,?,?,?,?,?,?,?,?)')
       .run(id, b.company_id, b.civility || null, b.first_name, b.last_name, b.role_id || inferredRole?.id || null, b.exact_job_title || null, b.activity_status || 'unknown', b.mark_employment_verified ? nowIso() : null, b.contactability_status || 'contactable');
     const trackingId = randomUUID();
-    const initialStatus = b.tracking?.status || 'to_contact';
     db.prepare('INSERT INTO contact_tracking(id,prospect_id,status,planned_contact_at,referent_id,response_received_at,appointment_at) VALUES(?,?,?,?,?,?,?)')
       .run(trackingId, id, initialStatus, b.tracking?.planned_contact_at || null, b.tracking?.referent_id || null, initialStatus === 'response_received' ? nowIso() : null, b.tracking?.appointment_at || null);
     addTrackingHistory(trackingId, null, initialStatus, a);
@@ -401,7 +408,7 @@ app.post('/api/import/commit', (req, res) => {
 
         let tracking = db.prepare('SELECT * FROM contact_tracking WHERE prospect_id=?').get(prospect.id) as any;
         const referentId = n.referent ? ensureReferent(String(n.referent)) : null;
-        const importedStatus = n.tracking_status || 'to_contact';
+        const importedStatus = toProspectStateForWrite(n.tracking_status, isDoNotContact(prospect.id));
         const importedNextAction = toNextActionWeek(n.contact_year, n.contact_week);
         if (!tracking) {
           tracking = { id: randomUUID(), status: importedStatus };
@@ -409,7 +416,8 @@ app.post('/api/import/commit', (req, res) => {
             .run(tracking.id, prospect.id, n.planned_contact_at || null, importedNextAction?.year ?? null, importedNextAction?.week ?? null, importedStatus, referentId, importedStatus === 'response_received' ? (p.importedAt || nowIso()) : null);
           addTrackingHistory(tracking.id, null, importedStatus, importActor);
         } else {
-          const nextStatus = tracking.status === 'to_contact' && importedStatus !== 'to_contact' ? importedStatus : tracking.status;
+          // Un import ne fait avancer qu'un suivi encore neutre ; il ne réécrit jamais un état choisi (dont `ignored`).
+          const nextStatus = tracking.status === 'neutral' && importedStatus !== 'neutral' ? importedStatus : tracking.status;
           const nextResponseAt = tracking.response_received_at || (nextStatus === 'response_received' ? (p.importedAt || nowIso()) : null);
           db.prepare('UPDATE contact_tracking SET planned_contact_at=coalesce(?,planned_contact_at),next_action_year=coalesce(?,next_action_year),next_action_week=coalesce(?,next_action_week),status=?,referent_id=coalesce(?,referent_id),response_received_at=?,updated_at=CURRENT_TIMESTAMP WHERE id=?')
             .run(n.planned_contact_at || null, importedNextAction?.year ?? null, importedNextAction?.week ?? null, nextStatus, referentId, nextResponseAt, tracking.id);

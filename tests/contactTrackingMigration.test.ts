@@ -211,7 +211,9 @@ describe('migrate() du serveur sur une base persistante legacy', () => {
       server.db.prepare('DELETE FROM prospects').run();
       server.restoreDatabase(legacyBackup);
       expect(statusDefault(server.db)).toBe("'neutral'");
-      expect(server.db.prepare('SELECT count(*) n FROM contact_tracking_status_history').get()).toEqual({ n: 19 });
+      // 19 lignes d'origine intactes + 7 lignes de conversion ajoutées par la réconciliation legacy (Task 03).
+      expect(server.db.prepare("SELECT count(*) n FROM contact_tracking_status_history WHERE actor_type<>'system'").get()).toEqual({ n: 19 });
+      expect(server.db.prepare('SELECT count(*) n FROM contact_tracking_status_history').get()).toEqual({ n: 26 });
     } finally {
       server.db.close();
     }

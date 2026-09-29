@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { schema } from './schema.js';
 import { CONTACT_TRACKING_MIGRATION_ID, migrateContactTracking } from './contactTrackingSchema.js';
+import { LEGACY_STATUS_MIGRATION_ID, reconcileLegacyTrackingStatuses } from './contactTrackingReconciliation.js';
 import { dbPath, preparePersistentStorage } from './storage.js';
 
 preparePersistentStorage();
@@ -28,6 +29,9 @@ export function migrate(){
   db.exec(schema);
   const report=migrateContactTracking(db,{ beforeRebuild:()=>snapshotBeforeMigration(CONTACT_TRACKING_MIGRATION_ID) });
   if(report) console.log(`VIPER migration ${report.id} appliquée : ${JSON.stringify(report)}`);
+  const reconciliation=reconcileLegacyTrackingStatuses(db,{ beforeApply:()=>snapshotBeforeMigration(LEGACY_STATUS_MIGRATION_ID) });
+  if(reconciliation) console.log(`VIPER migration ${reconciliation.id} appliquée : ${JSON.stringify(reconciliation)}`);
+  if(reconciliation&&Object.keys(reconciliation.unexpectedStatuses).length) console.warn(`VIPER migration ${reconciliation.id} : statuts inattendus laissés tels quels, revue requise : ${JSON.stringify(reconciliation.unexpectedStatuses)}`);
 }
 
 export function rows(sql:string, params: unknown[]=[]){

@@ -1,6 +1,7 @@
 import * as XLSX from 'xlsx';
 import crypto from 'node:crypto';
 import { inferRoleSlug, roleLabelForSlug } from './roleTaxonomy.js';
+import { mapLegacyTrackingStatus, type LegacyTrackingStatus } from './contactTrackingReconciliation.js';
 
 export type Diagnostic = { code: string; level: 'info' | 'warning' | 'error'; message: string };
 export type PreviewRow = {
@@ -146,9 +147,9 @@ function truthyLegacy(value: unknown) {
   return Boolean(s) && !['non', 'no', '0', 'false', 'n a'].includes(s);
 }
 
-function explicitTrackingFromLegacy(raw: Record<string, unknown>) {
+function explicitTrackingFromLegacy(raw: Record<string, unknown>): LegacyTrackingStatus | null {
   const suivi = key(read(raw, ['Suivi']));
-  const labels: [string, string[]][] = [
+  const labels: [LegacyTrackingStatus, string[]][] = [
     ['won', ['commande passee', 'gagne', 'gagnee', 'won']],
     ['quote_follow_up', ['devis relance', 'relance devis']],
     ['quote_sent', ['devis envoye']],
@@ -166,7 +167,7 @@ function explicitTrackingFromLegacy(raw: Record<string, unknown>) {
   return null;
 }
 
-function trackingFromLegacy(raw: Record<string, unknown>, plannedContactAt: string | null, verificationState: string, referenceDate: Date) {
+function trackingFromLegacy(raw: Record<string, unknown>, plannedContactAt: string | null, verificationState: string, referenceDate: Date): LegacyTrackingStatus {
   const explicit = explicitTrackingFromLegacy(raw);
   if (explicit) return explicit;
   const today = isoDate(referenceDate);
@@ -280,11 +281,13 @@ export function parseWorkbook(buffer: Buffer, filename = 'import.xlsx', referenc
         emailVerificationStatus = 'verified';
         emailVerifiedAt = emailVerifiedAt || importedAt.toISOString();
       }
-      const trackingStatus = legacyCampaignWeek?.week === 37 || legacyCampaignWeek?.week === 39
+      const legacyTrackingStatus: LegacyTrackingStatus = legacyCampaignWeek?.week === 37 || legacyCampaignWeek?.week === 39
         ? 'contacted'
         : legacyCampaignWeek?.week === 40
           ? 'to_contact'
           : trackingFromLegacy(raw, plannedContactAt, verificationState, importedAt);
+      // Taxonomie Contact (Task 03) : l'Excel ne porte jamais de blocage durable, la ligne brute reste en métadonnées d'import.
+      const trackingStatus = mapLegacyTrackingStatus(legacyTrackingStatus, false);
       const statusActivity = statusVerification?.activityStatus || '';
       const activityStatusSuggestion = statusActivity || (/retrait/i.test(plannedRaw) ? 'inactive' : '');
 
@@ -297,6 +300,7 @@ export function parseWorkbook(buffer: Buffer, filename = 'import.xlsx', referenc
       if (statusVerification?.unknown || (!statusVerificationColumn && explicitVerification && (legacyVerification as any).unknown)) diagnostics.push({ code: 'unknown_verification', level: 'warning', message: `Valeur de vérification non reconnue: ${text(verificationRaw)}` });
       if (plannedWeek) diagnostics.push({ code: 'planned_week_resolved', level: 'info', message: `Semaine ${plannedWeek.week} conservée comme semaine d’envoi ${plannedWeek.year}` });
       else if (/^s\d{1,2}$/i.test(plannedRaw)) diagnostics.push({ code: 'invalid_week', level: 'warning', message: `Semaine invalide: ${plannedRaw}` });
+      if (['quote_sent', 'quote_follow_up', 'won'].includes(legacyTrackingStatus)) diagnostics.push({ code: 'legacy_status_mapped', level: 'info', message: `Suivi post-RDV (${legacyTrackingStatus}) ramené à « RDV pris »` });
       if (/retrait/i.test(plannedRaw)) diagnostics.push({ code: 'legacy_anomaly', level: 'warning', message: 'Valeur retraité détectée : activité suggérée inactive' });
       if (referentRaw && !isReferentName(referentRaw) && !legacyVerificationMarker && !unverifiedTokens.has(key(referentRaw))) diagnostics.push({ code: 'ambiguous_referent', level: 'warning', message: 'Référent historique ambigu : conservé en métadonnées' });
 
@@ -338,6 +342,7 @@ export function parseWorkbook(buffer: Buffer, filename = 'import.xlsx', referenc
           contact_year: plannedWeek?.year || null,
           contact_week: plannedWeek?.week || null,
           tracking_status: trackingStatus,
+          legacy_tracking_status: legacyTrackingStatus,
           activity_status_suggestion: activityStatusSuggestion,
           project_done_with_circoe: text(read(raw, ["Projet déjà réalisé avec l'entreprise", "Projet deja realise avec l'entreprise"])),
           project_type: text(read(raw, ['Type de projet'])),
