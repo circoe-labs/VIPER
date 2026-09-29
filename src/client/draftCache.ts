@@ -1,59 +1,34 @@
-const DB_NAME = 'viper-local-drafts';
-const DB_VERSION = 1;
-const STORE = 'drafts';
-
-type DraftRecord<T = unknown> = {
+export type DraftRecord<T = unknown> = {
   key: string;
   updatedAt: string;
   value: T;
 };
 
-function openDraftDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'key' });
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error || new Error('IndexedDB indisponible'));
+export async function saveDraft<T>(key: string, value: T): Promise<DraftRecord<T>> {
+  const response = await fetch('/api/drafts/' + encodeURIComponent(key), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ value })
   });
-}
-
-export async function saveDraft<T>(key: string, value: T) {
-  const db = await openDraftDb();
-  const payload: DraftRecord<T> = { key, updatedAt: new Date().toISOString(), value };
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(STORE, 'readwrite');
-    tx.objectStore(STORE).put(payload);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error || new Error('Sauvegarde du brouillon impossible'));
-    tx.onabort = () => reject(tx.error || new Error('Sauvegarde du brouillon interrompue'));
-  });
-  db.close();
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error || 'Sauvegarde du brouillon impossible');
+  return body as DraftRecord<T>;
 }
 
 export async function loadDraft<T>(key: string): Promise<DraftRecord<T> | null> {
-  const db = await openDraftDb();
-  const payload = await new Promise<DraftRecord<T> | undefined>((resolve, reject) => {
-    const tx = db.transaction(STORE, 'readonly');
-    const request = tx.objectStore(STORE).get(key);
-    request.onsuccess = () => resolve(request.result as DraftRecord<T> | undefined);
-    request.onerror = () => reject(request.error || new Error('Lecture du brouillon impossible'));
-  });
-  db.close();
-  return payload || null;
+  const response = await fetch('/api/drafts/' + encodeURIComponent(key), { cache: 'no-store' });
+  if (response.status === 404) return null;
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error || 'Lecture du brouillon impossible');
+  return body as DraftRecord<T>;
 }
 
 export async function deleteDraft(key: string) {
-  const db = await openDraftDb();
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(STORE, 'readwrite');
-    tx.objectStore(STORE).delete(key);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error || new Error('Suppression du brouillon impossible'));
-  });
-  db.close();
+  const response = await fetch('/api/drafts/' + encodeURIComponent(key), { method: 'DELETE' });
+  if (!response.ok && response.status !== 404) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.error || 'Suppression du brouillon impossible');
+  }
 }
 
 export async function hasDraft(key: string) {
