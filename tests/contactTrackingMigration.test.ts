@@ -186,12 +186,15 @@ describe('migrate() du serveur sur une base persistante legacy', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'viper-migration-'));
     dirs.push(dir);
     const dbPath = path.join(dir, 'viper.sqlite');
-    const legacy = new Database(dbPath);
+    // Fixture construite en mémoire puis écrite d'un bloc : sur disque, chaque INSERT en autocommit coûte un fsync
+    // (plusieurs secondes sous charge parallèle, timeout Vitest dépassé).
+    const legacy = new Database(':memory:');
     legacy.pragma('foreign_keys = ON');
     legacy.exec(LEGACY_CONTACT_TRACKING);
     legacy.exec(schema);
     seed(legacy);
     const legacyBackup = legacy.serialize();
+    fs.writeFileSync(dbPath, legacyBackup);
     legacy.close();
     vi.stubEnv('VIPER_DB_PATH', dbPath);
     vi.spyOn(console, 'log').mockImplementation(() => undefined);

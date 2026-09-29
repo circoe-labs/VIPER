@@ -198,11 +198,14 @@ describe('migrate() du serveur — réconciliation', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'viper-reconciliation-'));
     dirs.push(dir);
     const dbPath = path.join(dir, 'viper.sqlite');
-    const legacy = new Database(dbPath);
+    // Fixture construite en mémoire puis écrite d'un bloc : sur disque, chaque INSERT en autocommit coûte un fsync
+    // (plusieurs secondes sous charge parallèle, timeout Vitest dépassé).
+    const legacy = new Database(':memory:');
     legacy.pragma('foreign_keys = ON');
     legacy.exec(LEGACY_CONTACT_TRACKING);
     legacy.exec(schema);
     seed(legacy);
+    fs.writeFileSync(dbPath, legacy.serialize());
     legacy.close();
     vi.stubEnv('VIPER_DB_PATH', dbPath);
     const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
