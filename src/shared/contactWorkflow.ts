@@ -29,6 +29,25 @@ export const hasDefaultNextAction = (state: ProspectState): boolean => prospectS
 export const cancelsFutureMessages = (state: ProspectState): boolean => prospectStatesCancellingSequence.includes(state);
 export const isTerminalProspectState = (state: ProspectState): boolean => terminalProspectStates.includes(state);
 
+// --- Statuts legacy (avant Task 03) : lecture seule (historique, compat écriture) ; jamais réécrits comme nouvel état ---
+export const legacyTrackingStatuses = ['to_contact', 'contacted', 'follow_up_1', 'follow_up_2', 'response_received', 'appointment_obtained', 'quote_sent', 'quote_follow_up', 'won', 'not_interested'] as const;
+export type LegacyTrackingStatus = typeof legacyTrackingStatuses[number];
+export const isLegacyTrackingStatus = (value: unknown): value is LegacyTrackingStatus => legacyTrackingStatuses.includes(value as LegacyTrackingStatus);
+
+/** Mapping direct (Task 03, docs/06 §2) ; `not_interested` dépend du blocage durable (voir `mapLegacyTrackingStatus`). */
+const legacyMapping: Readonly<Record<Exclude<LegacyTrackingStatus, 'not_interested'>, ProspectState>> = {
+  to_contact: 'neutral', contacted: 'contacted', follow_up_1: 'r1', follow_up_2: 'r2',
+  response_received: 'response_received', appointment_obtained: 'appointment_obtained',
+  // Post-RDV : hors périmètre Contact V1, convergence vers `appointment_obtained` (ancien statut tracé dans l'historique).
+  quote_sent: 'appointment_obtained', quote_follow_up: 'appointment_obtained', won: 'appointment_obtained'
+};
+
+/** `not_interested` -> `ignored` si `contactability_status=do_not_contact` (blocage durable), sinon `failure`. */
+export function mapLegacyTrackingStatus(status: LegacyTrackingStatus, doNotContact: boolean): ProspectState {
+  if (status === 'not_interested') return doNotContact ? 'ignored' : 'failure';
+  return legacyMapping[status];
+}
+
 // --- Étapes message ---
 export const contactMessageSteps = ['contact', 'r1', 'r2'] as const;
 export type ContactMessageStep = typeof contactMessageSteps[number];

@@ -3,6 +3,9 @@ import { api } from './api';
 import { commitWorkbookPreview, previewWorkbook } from './importCache';
 import { hasServerBusinessState, requestPersistentBrowserStorage, restoreLatestViperState, saveCurrentViperState } from './stateCache';
 import { deleteDraft, hasDraft, loadDraft, saveDraft } from './draftCache';
+import { hasDefaultNextAction, isProspectState, isTerminalProspectState, prospectStates } from '../shared/contactWorkflow';
+import { TrackingBadges, WeekBadge } from './TrackingBadges';
+import { historyStatusLabel, selectableState, stateOptionLabel } from './trackingDisplay';
 
 type Page = 'home' | 'prospection' | 'exploitation' | 'database' | 'settings';
 type Prospect = Record<string, any>;
@@ -11,21 +14,6 @@ const nav: [Page, string][] = [
   ['home', 'Accueil'], ['prospection', 'Prospection'], ['exploitation', 'Exploitation'], ['database', 'Base de données'], ['settings', 'Paramètres']
 ];
 
-const trackingLabels: Record<string, string> = {
-  to_contact: 'À contacter',
-  contacted: 'Contacté',
-  follow_up_1: 'Relance 1',
-  follow_up_2: 'Relance 2',
-  response_received: 'Réponse reçue',
-  appointment_obtained: 'Rendez-vous obtenu',
-  quote_sent: 'Devis envoyé',
-  quote_follow_up: 'Devis relancé',
-  won: 'Commande passée',
-  not_interested: 'Non intéressé'
-};
-const trackingStatuses = Object.keys(trackingLabels);
-const stageAfterAppointment = new Set(['appointment_obtained', 'quote_sent', 'quote_follow_up', 'won']);
-const stagesWithNextAction = new Set(['to_contact', 'follow_up_1', 'follow_up_2']);
 const IMPORT_DRAFT_KEY = 'import-preview';
 
 const formatDate = (value?: string | null, withTime = false) => {
@@ -130,15 +118,15 @@ function Prospection() {
     never: all.filter(x => !x.employment_verified_at).length,
     verified: all.filter(x => x.employment_verified_at && x.primary_email && x.email_verification === 'verified').length,
     partial: all.filter(x => x.employment_verified_at && (!x.primary_email || x.email_verification !== 'verified')).length,
-    due: all.filter(x => x.tracking_status === 'to_contact' && x.planned_contact_at && x.planned_contact_at <= new Date().toISOString().slice(0, 10)).length,
-    contacted: all.filter(x => ['contacted', 'follow_up_1', 'follow_up_2'].includes(x.tracking_status)).length,
+    due: all.filter(x => x.tracking_status === 'neutral' && x.planned_contact_at && x.planned_contact_at <= new Date().toISOString().slice(0, 10)).length,
+    contacted: all.filter(x => ['contacted', 'r1', 'r2'].includes(x.tracking_status)).length,
     responses: all.filter(x => x.response_received_at).length,
     rdv: all.filter(x => x.appointment_at).length
   }), [all]);
   const companies = useMemo(() => Array.from(new Map(all.map(x => [x.company_id, x.company])).entries()).sort((a, b) => String(a[1]).localeCompare(String(b[1]))), [all]);
   const nextId = selected && selected !== 'new' ? list[list.findIndex(x => x.id === selected) + 1]?.id || null : null;
   const quick = [
-    ['Vérifiés', 'verified'], ['À vérifier', 'never_verified'], ['Incomplets', 'partial_verification'], ['À contacter', 'status:to_contact'], ['Contactés', 'contacted'], ['Réponses', 'responses'], ['RDV', 'appointments']
+    ['Vérifiés', 'verified'], ['À vérifier', 'never_verified'], ['Incomplets', 'partial_verification'], ['Contactés', 'contacted'], ['Réponses', 'responses'], ['RDV', 'appointments']
   ];
   return <>
     <div className="top"><Title title="Prospection" sub="Vérifier les données, puis piloter le suivi de contact sans mélanger les deux usages." />
@@ -146,7 +134,7 @@ function Prospection() {
     </div>
     <div className="filters compact-counters">
       {[
-        ['Tous', c.all, ''], ['Non vérifiés', c.never, 'never_verified'], ['Vérifiés', c.verified, 'verified'], ['Incomplets', c.partial, 'partial_verification'], ['À contacter', c.due, 'due'], ['Contactés', c.contacted, 'contacted'], ['Réponses', c.responses, 'responses'], ['Rendez-vous', c.rdv, 'appointments']
+        ['Tous', c.all, ''], ['Non vérifiés', c.never, 'never_verified'], ['Vérifiés', c.verified, 'verified'], ['Incomplets', c.partial, 'partial_verification'], ['Contacts dus', c.due, 'due'], ['Contactés', c.contacted, 'contacted'], ['Réponses', c.responses, 'responses'], ['Rendez-vous', c.rdv, 'appointments']
       ].map(([l, n, f]: any) => <button className={filter === f ? 'active' : ''} onClick={() => setFilter(f)} key={l}><span>{l}</span><b>{n}</b></button>)}
     </div>
     <div className="prospect-toolbar">
@@ -162,7 +150,7 @@ function Prospection() {
           <div className="identity-cell"><b>{[p.first_name, p.last_name].filter(Boolean).join(' ') || 'Inconnu'}</b><span>Rôle : {p.role || 'Non classé'} · Fonction : {p.exact_job_title || 'Inconnue'} · {p.company}</span></div>
           <div className={`verification-cell ${verification.tone}`}><small>Vérification</small><span><i />{verification.label}</span><em>{verification.detail}</em></div>
           <div className="email-cell"><small>Email</small><span>{p.primary_email || 'Email manquant'}</span><em>{p.email_verification === 'verified' ? `Vérifié ${formatDate(p.email_verified_at)}` : p.primary_email ? 'Non confirmé' : 'À renseigner'}</em></div>
-          <div className="tracking-cell"><small>Suivi</small><strong>{trackingLabels[p.tracking_status] || 'À contacter'}</strong><em>{p.contact_week ? `Semaine ${p.contact_week} · ${p.contact_year || 2026}` : p.planned_contact_at ? `Prévu ${formatDate(p.planned_contact_at)}` : p.referent ? `Référent · ${p.referent}` : '—'}</em></div>
+          <div className="tracking-cell"><small>Suivi</small><TrackingBadges status={p.tracking_status} year={p.next_action_year} week={p.next_action_week} empty={<em>—</em>} /><em>{p.planned_contact_at ? `Prévu ${formatDate(p.planned_contact_at)}` : p.referent ? `Référent · ${p.referent}` : ''}</em></div>
         </button>;
       })}
       {!list.length && <div className="empty-list">Aucun prospect pour ces filtres.</div>}
@@ -176,7 +164,7 @@ function Drawer({ id, nextId, close, saved }: { id: string; nextId: string | nul
   const [companies, setCompanies] = useState<any[]>([]);
   const [roles, setRoles] = useState<any[]>([]);
   const [referents, setReferents] = useState<any[]>([]);
-  const [form, setForm] = useState<any>({ activity_status: 'unknown', contactability_status: 'contactable', tracking: { status: 'to_contact' }, emails: [], phones: [] });
+  const [form, setForm] = useState<any>({ activity_status: 'unknown', contactability_status: 'contactable', tracking: { status: 'neutral' }, emails: [], phones: [] });
   const [original, setOriginal] = useState<any>();
   const [tab, setTab] = useState<'identity' | 'contact' | 'tracking' | 'history'>('identity');
   const [employmentTouched, setEmploymentTouched] = useState(false);
@@ -201,8 +189,8 @@ function Drawer({ id, nextId, close, saved }: { id: string; nextId: string | nul
       setCompanies(a); setRoles(b); setReferents(c);
       if (server) setOriginal(server);
       const base = server
-        ? { ...server.prospect, tracking: server.tracking || { status: 'to_contact' }, emails: server.emails || [], phones: server.phones || [], trackingHistory: server.trackingHistory || [], company: server.company }
-        : { activity_status: 'unknown', contactability_status: 'contactable', tracking: { status: 'to_contact' }, emails: [], phones: [] };
+        ? { ...server.prospect, tracking: server.tracking || { status: 'neutral' }, emails: server.emails || [], phones: server.phones || [], trackingHistory: server.trackingHistory || [], company: server.company }
+        : { activity_status: 'unknown', contactability_status: 'contactable', tracking: { status: 'neutral' }, emails: [], phones: [] };
       if (draft?.value?.form) {
         setForm(draft.value.form);
         setTab(draft.value.tab || 'identity');
@@ -239,12 +227,15 @@ function Drawer({ id, nextId, close, saved }: { id: string; nextId: string | nul
       saved(goNext);
     } catch (e) { setError((e as Error).message); }
   };
-  const trackingStatus = form.tracking?.status || 'to_contact';
-  const currentHistory = form.trackingHistory?.find((h: any) => h.to_status === trackingStatus);
+  const doNotContact = form.contactability_status === 'do_not_contact';
+  const trackingStatus = selectableState(form.tracking?.status, doNotContact);
+  const savedStatus = original?.tracking?.status;
+  const stateLocked = isProspectState(savedStatus) && isTerminalProspectState(savedStatus); // même règle que le service (Task 04)
+  const currentHistory = form.trackingHistory?.find((h: any) => h.to_status === form.tracking?.status);
   const updateEmail = (i: number, patch: any) => setForm((f: any) => ({ ...f, emails: f.emails.map((x: any, j: number) => j === i ? { ...x, ...patch } : x) }));
   const updatePhone = (i: number, patch: any) => setForm((f: any) => ({ ...f, phones: f.phones.map((x: any, j: number) => j === i ? { ...x, ...patch } : x) }));
   return <div className="overlay"><div className="drawer">
-    <div className="drawer-head"><div><small>{id === 'new' ? 'Nouveau prospect' : 'Fiche prospect'}</small><h2>{form.first_name || '—'} {form.last_name || ''}</h2></div><button className="icon" onClick={close}>×</button></div>
+    <div className="drawer-head"><div><small>{id === 'new' ? 'Nouveau prospect' : 'Fiche prospect'}</small><h2>{form.first_name || '—'} {form.last_name || ''}</h2>{id !== 'new' && <TrackingBadges status={original?.tracking?.status} year={original?.tracking?.next_action_year} week={original?.tracking?.next_action_week} />}</div><button className="icon" onClick={close}>×</button></div>
     <div className="drawer-tabs">
       <button className={tab === 'identity' ? 'active' : ''} onClick={() => setTab('identity')}>Identité & emploi</button>
       <button className={tab === 'contact' ? 'active' : ''} onClick={() => setTab('contact')}>Coordonnées</button>
@@ -295,15 +286,21 @@ function Drawer({ id, nextId, close, saved }: { id: string; nextId: string | nul
         </Grid>{original?.prospect?.contactability_status === 'do_not_contact' && <p className="danger">Blocage durable : une simple édition ou un ré-import ne peut pas le lever.</p>}</Group>
       </>}
       {tab === 'tracking' && <>
-        <Group title="Étape actuelle"><Field label="Suivi de contact"><select value={trackingStatus} onChange={e => setForm({ ...form, tracking: { ...form.tracking, status: e.target.value } })}>{trackingStatuses.map(s => <option value={s} key={s}>{trackingLabels[s]}</option>)}</select></Field></Group>
+        <Group title="État actuel"><Grid>
+          <Field label="État (choix humain)"><select disabled={stateLocked} value={trackingStatus ?? ''} onChange={e => setForm({ ...form, tracking: { ...form.tracking, status: e.target.value } })}>
+            {trackingStatus === null && <option value="" disabled>{String(form.tracking?.status)} (hors contrat)</option>}
+            {prospectStates.map(s => <option value={s} key={s}>{stateOptionLabel(s)}</option>)}
+          </select></Field>
+          <div className="stage-note"><small>Prochaine échéance</small><b>{form.tracking?.next_action_week ? <WeekBadge year={form.tracking.next_action_year} week={form.tracking.next_action_week} /> : 'Aucune semaine planifiée'}</b></div>
+        </Grid>{stateLocked && <p className="danger">« Ignoré » est définitif : l’état ne peut plus être modifié.</p>}</Group>
         <div className="stage-context">
           <div className="stage-note"><small>Date de l’étape</small><b>{currentHistory?.changed_at ? formatDate(currentHistory.changed_at, true) : 'Elle sera enregistrée automatiquement lors du changement d’étape.'}</b></div>
-          {stagesWithNextAction.has(trackingStatus) && <Field label={trackingStatus === 'to_contact' ? 'Contact planifié' : 'Prochaine action planifiée'}><input type="date" value={(form.tracking?.planned_contact_at || '').slice(0, 10)} onChange={e => setForm({ ...form, tracking: { ...form.tracking, planned_contact_at: e.target.value || null } })} /></Field>}
+          {trackingStatus && hasDefaultNextAction(trackingStatus) && <Field label="Date prévue (indicative)"><input type="date" value={(form.tracking?.planned_contact_at || '').slice(0, 10)} onChange={e => setForm({ ...form, tracking: { ...form.tracking, planned_contact_at: e.target.value || null } })} /></Field>}
           {trackingStatus === 'response_received' && <div className="stage-note"><small>Réponse reçue</small><b>{form.tracking?.response_received_at ? formatDate(form.tracking.response_received_at, true) : 'La date sera enregistrée automatiquement à la sauvegarde.'}</b></div>}
-          {stageAfterAppointment.has(trackingStatus) && <Field label="Date du rendez-vous"><input type="datetime-local" value={(form.tracking?.appointment_at || '').slice(0, 16)} onChange={e => setForm({ ...form, tracking: { ...form.tracking, appointment_at: e.target.value || null } })} /></Field>}
-          {stageAfterAppointment.has(trackingStatus) && <Field label="Référent Circoe"><select value={form.tracking?.referent_id || ''} onChange={e => setForm({ ...form, tracking: { ...form.tracking, referent_id: e.target.value || null } })}><option value="">Non affecté</option>{referents.map(r => <option value={r.id} key={r.id}>{r.first_name} {r.last_name}</option>)}</select></Field>}
+          {trackingStatus === 'appointment_obtained' && <Field label="Date du rendez-vous"><input type="datetime-local" value={(form.tracking?.appointment_at || '').slice(0, 16)} onChange={e => setForm({ ...form, tracking: { ...form.tracking, appointment_at: e.target.value || null } })} /></Field>}
+          {trackingStatus === 'appointment_obtained' && <Field label="Référent Circoe"><select value={form.tracking?.referent_id || ''} onChange={e => setForm({ ...form, tracking: { ...form.tracking, referent_id: e.target.value || null } })}><option value="">Non affecté</option>{referents.map(r => <option value={r.id} key={r.id}>{r.first_name} {r.last_name}</option>)}</select></Field>}
         </div>
-        {form.trackingHistory?.length > 0 && <Group title="Historique des étapes">{form.trackingHistory.slice(0, 8).map((h: any) => <div className="row" key={h.id}><b>{trackingLabels[h.to_status] || h.to_status}</b><span>{formatDate(h.changed_at, true)}</span></div>)}</Group>}
+        {form.trackingHistory?.length > 0 && <Group title="Historique des états">{form.trackingHistory.slice(0, 8).map((h: any) => <div className="row" key={h.id}><b>{historyStatusLabel(h.to_status, doNotContact)}</b><span>{formatDate(h.changed_at, true)}</span></div>)}</Group>}
       </>}
       {tab === 'history' && <>
         <Group title="Provenance">{original?.sources?.length ? original.sources.map((s: any) => <div className="row" key={s.id}><b>{s.source_type === 'excel_import' ? 'Import Excel' : s.source_type === 'manual' ? 'Saisie VIPER' : s.source_type}</b><span>{s.source_reference} · {formatDate(s.collected_at, true)}</span></div>) : <p className="muted">Aucune provenance enregistrée.</p>}</Group>
@@ -364,7 +361,7 @@ function ImportModal({ close, done, draftChanged }: { close: () => void; done: (
         }} />
         <b>{[r.normalized.first_name, r.normalized.last_name].filter(Boolean).join(' ') || 'Inconnu'}</b><span>{r.normalized.company}</span>
         <span className={r.normalized.verification_state === 'verified' ? 'text-ok' : 'text-warn'}>{r.normalized.verification_state === 'verified' ? 'Vérifié' : 'À vérifier'}</span>
-        <span>{r.normalized.contact_week ? `Semaine ${r.normalized.contact_week} · ${r.normalized.contact_year || 2026}` : r.normalized.planned_contact_at ? formatDate(r.normalized.planned_contact_at) : '—'}</span>
+        <span>{r.normalized.contact_week ? <WeekBadge year={r.normalized.contact_year} week={r.normalized.contact_week} /> : r.normalized.planned_contact_at ? formatDate(r.normalized.planned_contact_at) : '—'}</span>
         <small>{r.diagnostics.map((d: any) => d.message).join(' · ') || 'Prêt'}</small>
       </div>)}</div>
     </>}{error && <p className="danger">{error}</p>}</div>

@@ -4,27 +4,12 @@
 // Valeurs inattendues : jamais écrasées, laissées telles quelles et comptées dans le rapport (file de revue explicite).
 import type Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
-import { DEFAULT_PROSPECT_STATE, isProspectState, prospectStates, type ProspectState } from '../shared/contactWorkflow.js';
+import { DEFAULT_PROSPECT_STATE, isLegacyTrackingStatus, isProspectState, legacyTrackingStatuses, mapLegacyTrackingStatus, prospectStates, type ProspectState } from '../shared/contactWorkflow.js';
 
 export const LEGACY_STATUS_MIGRATION_ID = '2026-09-contact-03-legacy-statuses';
 
-export const legacyTrackingStatuses = ['to_contact', 'contacted', 'follow_up_1', 'follow_up_2', 'response_received', 'appointment_obtained', 'quote_sent', 'quote_follow_up', 'won', 'not_interested'] as const;
-export type LegacyTrackingStatus = typeof legacyTrackingStatuses[number];
-export const isLegacyTrackingStatus = (value: unknown): value is LegacyTrackingStatus => legacyTrackingStatuses.includes(value as LegacyTrackingStatus);
-
-/** Mapping direct ; `not_interested` dépend du blocage durable (voir `mapLegacyTrackingStatus`). */
-const legacyMapping: Readonly<Record<Exclude<LegacyTrackingStatus, 'not_interested'>, ProspectState>> = {
-  to_contact: 'neutral', contacted: 'contacted', follow_up_1: 'r1', follow_up_2: 'r2',
-  response_received: 'response_received', appointment_obtained: 'appointment_obtained',
-  // Post-RDV : hors périmètre Contact V1, convergence vers `appointment_obtained` (ancien statut tracé dans l'historique).
-  quote_sent: 'appointment_obtained', quote_follow_up: 'appointment_obtained', won: 'appointment_obtained'
-};
-
-/** `not_interested` -> `ignored` si `contactability_status=do_not_contact` (blocage durable), sinon `failure`. */
-export function mapLegacyTrackingStatus(status: LegacyTrackingStatus, doNotContact: boolean): ProspectState {
-  if (status === 'not_interested') return doNotContact ? 'ignored' : 'failure';
-  return legacyMapping[status];
-}
+// Codes legacy et mapping : définis dans le contrat partagé (aussi lus par le client pour l'historique).
+export { isLegacyTrackingStatus, legacyTrackingStatuses, mapLegacyTrackingStatus, type LegacyTrackingStatus } from '../shared/contactWorkflow.js';
 
 /**
  * État à écrire depuis une saisie (API, import) : vide -> `neutral`, état du contrat -> inchangé, statut legacy -> converti.
