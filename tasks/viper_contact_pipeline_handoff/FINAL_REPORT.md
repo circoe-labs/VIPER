@@ -49,7 +49,10 @@ Branche `claude` (commit de départ `3fb8eb6`), non poussée.
 | 17 | `0e3a925` | Suppression de `src/shared/contracts.ts` (ancienne taxonomie inutilisée) |
 | 17 | `3fc5e2e` | Correctif : horodatages SQLite lus en UTC côté client |
 | 17 | `fea08d9` | README et `.env.example` |
-| 17 | (ce commit) | Rapport final, TODO |
+| 17 | `03406ee` | Rapport final, TODO |
+| 17 | `5b4c065` | Test d'expiration du jeton Toolbox indépendant du temps réel |
+| 17 | `ea32d9a` | Délais des tests de timeout Toolbox robustes à la charge |
+| 17 | (dernier commit) | Rapport final mis à jour |
 
 ## Tâches réalisées
 
@@ -58,7 +61,9 @@ Toutes les tâches 00 à 17 sont cochées dans `tasks/TODO.md`. Chaque tâche y 
 La Task 17 a apporté les éléments suivants :
 
 - **Gate `npm test`** : `vite.config.ts` déclare `test.include = tests/**/*.test.ts` et exclut `frontend/`, `backend/` et `dist-*`. Le legacy n'est ni supprimé ni modifié.
-- **Tests instables** : la cause était la construction de la base legacy sur disque en autocommit, soit un fsync par INSERT. Sous charge, cela prenait plusieurs secondes et dépassait le timeout de 5 s. La fixture est maintenant construite en mémoire puis écrite d'un bloc. Le test passe de ~1,1 s à ~0,2–0,4 s. Aucun timeout n'a été allongé.
+- **Tests instables** :
+  - « migrate() du serveur » : la cause était la construction de la base legacy sur disque en autocommit, soit un fsync par INSERT. Sous charge, cela prenait plusieurs secondes et dépassait le timeout de 5 s. La fixture est maintenant construite en mémoire puis écrite d'un bloc. Le test passe de ~1,1 s à ~0,2–0,4 s, sans timeout allongé.
+  - Deux autres tests instables sont apparus pendant les gates de la Task 17, tous deux dans des tests Toolbox qui supposaient un temps réel très court : un jeton du faux serveur de 1 s réelle pendant un rafraîchissement, et un délai global de 300 ms qui pouvait expirer dès la connexion ou l'`initialize` MCP. Correction : l'expiration est pilotée par l'horloge injectée ; la préparation utilise le délai normal ; seul l'appel volontairement bloqué passe par un client à 1,5 s ; timeout Vitest de ces 3 tests porté à 15 s. Le code applicatif n'est pas modifié.
 - **Lint** : les 101 `no-explicit-any` ont été remplacés par des types réels (`src/client/apiTypes.ts` pour les réponses d'API lues par `App.tsx`, lignes SQL typées). Les `exhaustive-deps` sont corrigés sans changer les relances. Il reste un seul `eslint-disable-next-line react-hooks/set-state-in-effect`, justifié en commentaire : la réinitialisation du Drawer à chaque changement de fiche, conservée pour ne pas modifier l'ordre vu par l'auto-sauvegarde du brouillon.
 - **Bug corrigé** : les dates `CURRENT_TIMESTAMP` SQLite (UTC sans fuseau) étaient affichées comme heure locale. Exemple : « État choisi le … 15:06 » pour un choix fait à 17:06 à Paris. Sont concernés l'historique des états, la provenance et la base de calcul de la cadence proposée. Correction : `src/client/serverDate.ts` (`normalizeServerTimestamp`) + test.
 - **Reliquat supprimé** : `src/shared/contracts.ts` (`to_contact`, `quote_sent`, `won`…, « À contacter »), qui n'était plus importé nulle part.
@@ -154,8 +159,8 @@ Les migrations sont exécutées par `migrate()` (`src/server/db.ts`) au démarra
 Résultats du 29/09/2026, branche `claude`, sur Windows 11 et Node 24.19.
 
 ```text
-npm test:           21 fichiers, 351 tests, 351 OK — 3 exécutions successives vertes (11,7 s / 12,0 s / 11,6 s),
-                    plus 3 exécutions simultanées vertes (contrôle de charge des anciens tests instables)
+npm test:           21 fichiers, 351 tests, 351 OK — 3 exécutions successives vertes (18,9 s / 16,3 s / 21,5 s),
+                    plus 3 exécutions simultanées vertes (contrôle de charge), après les correctifs d'instabilité ci-dessus
 npm run typecheck:  OK (server + client)
 npm run lint:       0 erreur, 0 warning (baseline : 110 erreurs / 3 warnings ; avant Task 17 : 102 / 3)
 npm run build:      OK (tsc server + vite build)
@@ -209,6 +214,8 @@ Répartition des tests :
 | UX : fiche lisible pendant l'édition | Workbench fiche/mail côte à côte (smoke Task 10, capture E2E) |
 | UX : états d'email sans jargon | `contactMessages` « labels FR sans jargon » ; `contactDispatcher` « lignes lisibles selon l'état » |
 | UX : confirmation avant validation/programmation | `contactMail` « confirmations claires… » ; E2E |
+
+Limite constatée : en surcharge volontaire (12 suites lancées en parallèle, durées multipliées par 4 ou 5), des timeouts génériques Vitest de 5 s ou 10 s apparaissent sur des tests à base SQLite sur disque. Ce ne sont pas des erreurs logiques.
 
 Aucune exigence docs/04 n'était sans test. Un seul test a été ajouté en Task 17 : les horodatages serveur, avec le correctif.
 
