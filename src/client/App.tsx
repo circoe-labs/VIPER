@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { api } from './api';
-import { commitWorkbookPreview, previewWorkbook, restoreLastImportedWorkbook, saveLastImportedWorkbook } from './importCache';
+import { commitWorkbookPreview, previewWorkbook } from './importCache';
+import { hasServerBusinessState, requestPersistentBrowserStorage, restoreLatestViperState, saveCurrentViperState } from './stateCache';
 
 type Page = 'home' | 'prospection' | 'exploitation' | 'database' | 'settings';
 type Prospect = Record<string, any>;
@@ -105,28 +106,11 @@ function Prospection() {
   const [q, setQ] = useState('');
   const [selected, setSelected] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
-  const [restoreMessage, setRestoreMessage] = useState('');
   const load = () => Promise.all([
     api<Prospect[]>(`/api/prospects?q=${encodeURIComponent(q)}&filter=${encodeURIComponent(filter)}&company=${encodeURIComponent(company)}`),
     api<Prospect[]>(`/api/prospects?q=${encodeURIComponent(q)}`)
   ]).then(([filtered, full]) => { setList(filtered); setAll(full); });
   useEffect(() => { load(); }, [q, filter, company]);
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const existing = await api<Prospect[]>('/api/prospects?q=');
-        if (existing.length) return;
-        const restored = await restoreLastImportedWorkbook();
-        if (!restored || cancelled) return;
-        setRestoreMessage('Base restaurée automatiquement depuis le dernier fichier Excel enregistré sur cet appareil.');
-        await load();
-      } catch {
-        // Aucun cache local disponible, ou restauration impossible : l'import manuel reste disponible.
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
   const c = useMemo(() => ({
     all: all.length,
     never: all.filter(x => !x.employment_verified_at).length,
@@ -146,7 +130,6 @@ function Prospection() {
     <div className="top"><Title title="Prospection" sub="Vérifier les données, puis piloter le suivi de contact sans mélanger les deux usages." />
       <div><button className="secondary" onClick={() => setImportOpen(true)}>Importer Excel</button><a className="button secondary" href="/api/export.xlsx">Exporter Excel</a><button onClick={() => setSelected('new')}>+ Ajouter un prospect</button></div>
     </div>
-    {restoreMessage && <p className="warnbox">{restoreMessage}</p>}
     <div className="filters compact-counters">
       {[
         ['Tous', c.all, ''], ['Non vérifiés', c.never, 'never_verified'], ['Vérifiés', c.verified, 'verified'], ['Incomplets', c.partial, 'partial_verification'], ['À contacter', c.due, 'due'], ['Contactés', c.contacted, 'contacted'], ['Réponses', c.responses, 'responses'], ['Rendez-vous', c.rdv, 'appointments']
@@ -280,12 +263,11 @@ function Drawer({ id, nextId, close, saved }: { id: string; nextId: string | nul
 
 function ImportModal({ close, done }: { close: () => void; done: () => void }) {
   const [p, setP] = useState<any>();
-  const [sourceFile, setSourceFile] = useState<File | null>(null);
   const [error, setError] = useState('');
   return <div className="overlay center"><div className="modal">
     <div className="drawer-head"><div><small>Excel → base normalisée</small><h2>Import contrôlé</h2></div><button className="icon" onClick={close}>×</button></div>
     <div className="drawer-body">{!p ? <label className="drop">Choisir un fichier XLSX, XLS ou CSV<input type="file" accept=".xlsx,.xls,.csv" onChange={async e => {
-      const f = e.target.files?.[0]; if (!f) return; setError(''); setSourceFile(f);
+      const f = e.target.files?.[0]; if (!f) return; setError('');
       try { setP(await previewWorkbook(f)); }
       catch (e) { setError((e as Error).message); }
     }} /></label> : <>
@@ -299,7 +281,7 @@ function ImportModal({ close, done }: { close: () => void; done: () => void }) {
         <small>{r.diagnostics.map((d: any) => d.message).join(' · ') || 'Prêt'}</small>
       </div>)}</div>
     </>}{error && <p className="danger">{error}</p>}</div>
-    <footer><button className="secondary" onClick={close}>Annuler</button>{p && <button onClick={async () => { try { await commitWorkbookPreview(p); if (sourceFile) await saveLastImportedWorkbook(sourceFile); done(); } catch (e) { setError((e as Error).message); } }}>Confirmer l’import</button>}</footer>
+    <footer><button className="secondary" onClick={close}>Annuler</button>{p && <button onClick={async () => { try { await commitWorkbookPreview(p); done(); } catch (e) { setError((e as Error).message); } }}>Confirmer l’import</button>}</footer>
   </div></div>;
 }
 
@@ -327,7 +309,34 @@ function SettingsSet({ title, items, add }: { title: string; items: string[]; ad
 
 export function App() {
   const [state, setState] = useState<'loading' | 'in' | 'out'>('loading');
-  useEffect(() => { api('/api/auth/me').then(() => setState('in')).catch(() => setState('out')); }, []);
-  if (state === 'loading') return <div className="login">Chargement…</div>;
-  return state === 'in' ? <Shell /> : <Login onDone={() => setState('in')} />;
+
+  const bootstrap = async () => {
+    setState('loading');
+    try {
+      await requestPersistentBrowserStorage();
+      const serverHasState = await hasServerBusinessState();
+      if (!serverHasState) await restoreLatestViperState();
+      await saveCurrentViperState().catch(() => undefined);
+      setState('in');
+    } catch {
+      setState('in');
+    }
+  };
+
+  useEffect(() => {
+    let active = true;
+    api('/api/auth/me')
+      .then(async () => { if (active) await bootstrap(); })
+      .catch(() => { if (active) setState('out'); });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (state !== 'in') return;
+    const timer = window.setInterval(() => { saveCurrentViperState().catch(() => undefined); }, 15000);
+    return () => window.clearInterval(timer);
+  }, [state]);
+
+  if (state === 'loading') return <div className="login">Chargement et restauration de votre session VIPER…</div>;
+  return state === 'in' ? <Shell /> : <Login onDone={() => { bootstrap(); }} />;
 }
