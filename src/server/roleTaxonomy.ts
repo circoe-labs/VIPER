@@ -44,7 +44,7 @@ export function inferRoleSlug(jobTitle: unknown): string | null {
   if (hasAny(title, ['logistique', 'supply chain', 'transport', 'entrepot'])) return 'logistique';
   if (hasAny(title, ['exploitation', 'operations', 'operationnel', 'production'])) return 'exploitation';
   if (
-    hasAny(title, ['developpement commercial', 'business developer', 'business development', 'charge de developpement', 'chargee de developpement', 'partenariats'])
+    hasAny(title, ['developpement commercial', 'business developer', 'business development', 'charge de developpement', 'chargee de developpement', 'charge de dev', 'chargee de dev', 'partenariats'])
   ) return 'developpement-commercial';
   if (hasAny(title, ['commercial', 'ventes', 'sales', 'account manager', 'grands comptes'])) return 'commercial';
   if (hasAny(title, ['achats', 'achat', 'procurement', 'approvisionnement'])) return 'achats';
