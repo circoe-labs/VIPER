@@ -10,9 +10,8 @@ import { buildExport } from './exporter.js';
 import { assertReadOnlySql } from './sqlSafety.js';
 import { archiveImportedWorkbook } from './storage.js';
 import { deleteDraftRecord, loadDraftRecord, saveDraftRecord } from './drafts.js';
-import { resolveIncomingNextAction, toNextActionWeek } from './contactTrackingSchema.js';
-import type { ProspectState } from '../shared/contactWorkflow.js';
-import { isLegacyTrackingStatus, mapLegacyTrackingStatus, toProspectStateForWrite } from './contactTrackingReconciliation.js';
+import { isLegacyTrackingStatus, mapLegacyTrackingStatus } from './contactTrackingReconciliation.js';
+import { ContactTrackingError, createContactTrackingService, parseTrackingPatch, type ContactTrackingDeps } from './contactTrackingService.js';
 import { backfillUnassignedProspectRoles, ensureDefaultRoles, inferRoleSlug } from './roleTaxonomy.js';
 
 migrate();
@@ -29,6 +28,13 @@ app.use('/api', requireAuth);
 
 const actor = (req: express.Request) => (req as any).actor || { type: 'human', id: 'pilot-user', display: 'Commercial VIPER' };
 const nowIso = () => new Date().toISOString();
+// Dépendances du service de suivi : `cancelFutureMessages` sera branché par le service messages (Tasks 11/12/16).
+const trackingDeps: ContactTrackingDeps = {};
+// `db` est réassigné par une restauration : le service est recréé à chaque requête (aucun état propre).
+const trackingService = () => createContactTrackingService(db, trackingDeps);
+const sendTrackingError = (res: express.Response, e: unknown, fallback: string) => e instanceof ContactTrackingError
+  ? res.status(e.httpStatus).json({ error: e.message, code: e.code })
+  : res.status(400).json({ error: e instanceof Error ? e.message : fallback });
 const norm = (v: unknown) => String(v || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
 app.get('/api/drafts/:key', (req, res) => {
@@ -108,12 +114,6 @@ function ensureReferent(label: string) {
   return ref.id as string;
 }
 
-function addTrackingHistory(trackingId: string, fromStatus: string | null, toStatus: string, a: any) {
-  if (fromStatus === toStatus) return;
-  db.prepare('INSERT INTO contact_tracking_status_history(id,contact_tracking_id,from_status,to_status,actor_type,actor_id) VALUES(?,?,?,?,?,?)')
-    .run(randomUUID(), trackingId, fromStatus, toStatus, a.type || 'human', a.id || null);
-}
-
 function syncEmails(prospectId: string, items: any[] | undefined, forceUnverified = false) {
   if (!Array.isArray(items)) return;
   const existing = rows('SELECT * FROM emails WHERE prospect_id=?', [prospectId]) as any[];
@@ -171,33 +171,6 @@ function syncPhones(prospectId: string, items: any[] | undefined, forceUnverifie
     }
   }
   for (const old of existing) if (!kept.has(old.id)) db.prepare('UPDATE phones SET is_active=0,is_primary=0,updated_at=CURRENT_TIMESTAMP WHERE id=?').run(old.id);
-}
-
-const isDoNotContact = (prospectId: string) => (db.prepare('SELECT contactability_status FROM prospects WHERE id=?').get(prospectId) as { contactability_status: string } | undefined)?.contactability_status === 'do_not_contact';
-
-function updateTracking(prospectId: string, incoming: any, a: any) {
-  if (!incoming) return;
-  let current = db.prepare('SELECT * FROM contact_tracking WHERE prospect_id=?').get(prospectId) as any;
-  if (!current) {
-    const id = randomUUID();
-    const status = toProspectStateForWrite(incoming.status, isDoNotContact(prospectId));
-    const responseAt = status === 'response_received' ? nowIso() : (incoming.response_received_at || null);
-    const nextAction = resolveIncomingNextAction(incoming, null);
-    db.prepare('INSERT INTO contact_tracking(id,prospect_id,planned_contact_at,next_action_year,next_action_week,status,referent_id,response_received_at,appointment_at) VALUES(?,?,?,?,?,?,?,?,?)')
-      .run(id, prospectId, incoming.planned_contact_at || null, nextAction?.year ?? null, nextAction?.week ?? null, status, incoming.referent_id || null, responseAt, incoming.appointment_at || null);
-    addTrackingHistory(id, null, status, a);
-    return;
-  }
-  const status = incoming.status ? toProspectStateForWrite(incoming.status, isDoNotContact(prospectId)) : current.status;
-  const planned = incoming.planned_contact_at !== undefined ? (incoming.planned_contact_at || null) : current.planned_contact_at;
-  const referentId = incoming.referent_id !== undefined ? (incoming.referent_id || null) : current.referent_id;
-  const currentNextAction = current.next_action_year && current.next_action_week ? { year: current.next_action_year, week: current.next_action_week } : null;
-  const nextAction = resolveIncomingNextAction(incoming, currentNextAction);
-  const appointmentAt = incoming.appointment_at !== undefined ? (incoming.appointment_at || null) : current.appointment_at;
-  const responseAt = current.response_received_at || (status === 'response_received' ? nowIso() : null);
-  db.prepare('UPDATE contact_tracking SET planned_contact_at=?,next_action_year=?,next_action_week=?,status=?,referent_id=?,response_received_at=?,appointment_at=?,updated_at=CURRENT_TIMESTAMP WHERE prospect_id=?')
-    .run(planned, nextAction?.year ?? null, nextAction?.week ?? null, status, referentId, responseAt, appointmentAt, prospectId);
-  addTrackingHistory(current.id, current.status, status, a);
 }
 
 app.get('/api/dashboard', (_req, res) => {
@@ -264,22 +237,19 @@ app.post('/api/prospects', (req, res) => {
   const a = actor(req);
   const inferredSlug = !b.role_id ? inferRoleSlug(b.exact_job_title) : null;
   const inferredRole = inferredSlug ? db.prepare('SELECT id FROM roles WHERE slug=?').get(inferredSlug) as any : null;
-  let initialStatus: ProspectState;
-  try { initialStatus = toProspectStateForWrite(b.tracking?.status, b.contactability_status === 'do_not_contact'); } catch (e) {
-    return res.status(400).json({ error: e instanceof Error ? e.message : 'Enregistrement impossible' });
+  try {
+    db.transaction(() => {
+      db.prepare('INSERT INTO prospects(id,company_id,civility,first_name,last_name,role_id,exact_job_title,activity_status,employment_verified_at,contactability_status) VALUES(?,?,?,?,?,?,?,?,?,?)')
+        .run(id, b.company_id, b.civility || null, b.first_name, b.last_name, b.role_id || inferredRole?.id || null, b.exact_job_title || null, b.activity_status || 'unknown', b.mark_employment_verified ? nowIso() : null, b.contactability_status || 'contactable');
+      trackingService().applyProspectPayload(id, b.tracking || {}, a);
+      syncEmails(id, b.emails);
+      syncPhones(id, b.phones);
+      db.prepare('INSERT INTO prospect_sources(id,prospect_id,source_type,source_reference,created_by_actor) VALUES(?,?,?,?,?)').run(randomUUID(), id, 'manual', 'VIPER manual entry', a.id);
+      audit(a, 'prospect', id, 'create', null, b, 'manual');
+    })();
+  } catch (e) {
+    return sendTrackingError(res, e, 'Enregistrement impossible');
   }
-  db.transaction(() => {
-    db.prepare('INSERT INTO prospects(id,company_id,civility,first_name,last_name,role_id,exact_job_title,activity_status,employment_verified_at,contactability_status) VALUES(?,?,?,?,?,?,?,?,?,?)')
-      .run(id, b.company_id, b.civility || null, b.first_name, b.last_name, b.role_id || inferredRole?.id || null, b.exact_job_title || null, b.activity_status || 'unknown', b.mark_employment_verified ? nowIso() : null, b.contactability_status || 'contactable');
-    const trackingId = randomUUID();
-    db.prepare('INSERT INTO contact_tracking(id,prospect_id,status,planned_contact_at,referent_id,response_received_at,appointment_at) VALUES(?,?,?,?,?,?,?)')
-      .run(trackingId, id, initialStatus, b.tracking?.planned_contact_at || null, b.tracking?.referent_id || null, initialStatus === 'response_received' ? nowIso() : null, b.tracking?.appointment_at || null);
-    addTrackingHistory(trackingId, null, initialStatus, a);
-    syncEmails(id, b.emails);
-    syncPhones(id, b.phones);
-    db.prepare('INSERT INTO prospect_sources(id,prospect_id,source_type,source_reference,created_by_actor) VALUES(?,?,?,?,?)').run(randomUUID(), id, 'manual', 'VIPER manual entry', a.id);
-    audit(a, 'prospect', id, 'create', null, b, 'manual');
-  })();
   res.status(201).json({ id });
 });
 
@@ -302,12 +272,29 @@ app.put('/api/prospects/:id', (req, res) => {
       }
       syncEmails(req.params.id, b.emails, companyChanged);
       syncPhones(req.params.id, b.phones, companyChanged);
-      updateTracking(req.params.id, b.tracking, a);
+      trackingService().applyProspectPayload(req.params.id, b.tracking, a);
       audit(a, 'prospect', req.params.id, 'update', before, b, 'manual');
     })();
     res.json({ ok: true, contactability, employment_verified_at: verifiedAt });
   } catch (e) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'Enregistrement impossible' });
+    sendTrackingError(res, e, 'Enregistrement impossible');
+  }
+});
+
+// Suivi manuel (Task 04) : routes minces, logique dans contactTrackingService.ts.
+app.get('/api/prospects/:id/tracking', (req, res) => {
+  try {
+    const service = trackingService();
+    res.json({ tracking: service.getTracking(req.params.id), history: service.getHistory(req.params.id) });
+  } catch (e) {
+    sendTrackingError(res, e, 'Lecture du suivi impossible');
+  }
+});
+app.patch('/api/prospects/:id/tracking', (req, res) => {
+  try {
+    res.json(trackingService().updateTracking(req.params.id, parseTrackingPatch(req.body), actor(req)));
+  } catch (e) {
+    sendTrackingError(res, e, 'Mise à jour du suivi impossible');
   }
 });
 
@@ -406,23 +393,8 @@ app.post('/api/import/commit', (req, res) => {
             .run(n.civility || '', inferredRoleId, n.job_title || '', n.activity_status_suggestion || '', nextVerifiedAt, prospect.id);
         }
 
-        let tracking = db.prepare('SELECT * FROM contact_tracking WHERE prospect_id=?').get(prospect.id) as any;
         const referentId = n.referent ? ensureReferent(String(n.referent)) : null;
-        const importedStatus = toProspectStateForWrite(n.tracking_status, isDoNotContact(prospect.id));
-        const importedNextAction = toNextActionWeek(n.contact_year, n.contact_week);
-        if (!tracking) {
-          tracking = { id: randomUUID(), status: importedStatus };
-          db.prepare('INSERT INTO contact_tracking(id,prospect_id,planned_contact_at,next_action_year,next_action_week,status,referent_id,response_received_at) VALUES(?,?,?,?,?,?,?,?)')
-            .run(tracking.id, prospect.id, n.planned_contact_at || null, importedNextAction?.year ?? null, importedNextAction?.week ?? null, importedStatus, referentId, importedStatus === 'response_received' ? (p.importedAt || nowIso()) : null);
-          addTrackingHistory(tracking.id, null, importedStatus, importActor);
-        } else {
-          // Un import ne fait avancer qu'un suivi encore neutre ; il ne réécrit jamais un état choisi (dont `ignored`).
-          const nextStatus = tracking.status === 'neutral' && importedStatus !== 'neutral' ? importedStatus : tracking.status;
-          const nextResponseAt = tracking.response_received_at || (nextStatus === 'response_received' ? (p.importedAt || nowIso()) : null);
-          db.prepare('UPDATE contact_tracking SET planned_contact_at=coalesce(?,planned_contact_at),next_action_year=coalesce(?,next_action_year),next_action_week=coalesce(?,next_action_week),status=?,referent_id=coalesce(?,referent_id),response_received_at=?,updated_at=CURRENT_TIMESTAMP WHERE id=?')
-            .run(n.planned_contact_at || null, importedNextAction?.year ?? null, importedNextAction?.week ?? null, nextStatus, referentId, nextResponseAt, tracking.id);
-          addTrackingHistory(tracking.id, tracking.status, nextStatus, importActor);
-        }
+        trackingService().applyImport(prospect.id, { status: n.tracking_status, contactYear: n.contact_year, contactWeek: n.contact_week, plannedContactAt: n.planned_contact_at || null, referentId, importedAt: p.importedAt || nowIso() }, importActor);
 
         if (n.email) {
           const existingEmail = db.prepare('SELECT * FROM emails WHERE lower(address)=lower(?)').get(n.email) as any;
