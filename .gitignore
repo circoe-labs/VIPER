@@ -1,0 +1,12 @@
+node_modules/
+dist-client/
+dist-server/
+data/
+*.sqlite
+*.sqlite3
+.env
+sources/
+BASE_CLIENT.xlsx
+*.xlsx
+!tests/fixtures/*.xlsx
+.DS_Store
