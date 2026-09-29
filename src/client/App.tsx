@@ -159,7 +159,7 @@ function Prospection() {
         const verification = verificationSummary(p);
         return <button key={p.id} onClick={() => setSelected(p.id)}>
           <div className="avatar">{p.first_name?.[0]}{p.last_name?.[0]}</div>
-          <div className="identity-cell"><b>{[p.first_name, p.last_name].filter(Boolean).join(' ') || 'Inconnu'}</b><span>Rôle : {p.exact_job_title || p.role || 'Inconnu'} · {p.company}</span></div>
+          <div className="identity-cell"><b>{[p.first_name, p.last_name].filter(Boolean).join(' ') || 'Inconnu'}</b><span>Rôle : {p.role || 'Non classé'} · Fonction : {p.exact_job_title || 'Inconnue'} · {p.company}</span></div>
           <div className={`verification-cell ${verification.tone}`}><small>Vérification</small><span><i />{verification.label}</span><em>{verification.detail}</em></div>
           <div className="email-cell"><small>Email</small><span>{p.primary_email || 'Email manquant'}</span><em>{p.email_verification === 'verified' ? `Vérifié ${formatDate(p.email_verified_at)}` : p.primary_email ? 'Non confirmé' : 'À renseigner'}</em></div>
           <div className="tracking-cell"><small>Suivi</small><strong>{trackingLabels[p.tracking_status] || 'À contacter'}</strong><em>{p.contact_week ? `Semaine ${p.contact_week} · ${p.contact_year || 2026}` : p.planned_contact_at ? `Prévu ${formatDate(p.planned_contact_at)}` : p.referent ? `Référent · ${p.referent}` : '—'}</em></div>
@@ -261,8 +261,8 @@ function Drawer({ id, nextId, close, saved }: { id: string; nextId: string | nul
         </Grid></Group>
         <Group title="Emploi"><Grid>
           <Field label="Entreprise"><select value={form.company_id || ''} onChange={e => setEmployment({ company_id: e.target.value })}><option value="">Sélectionner…</option>{companies.map(c => <option key={c.id} value={c.id}>{c.display_name}</option>)}</select></Field>
-          <Field label="Rôle"><select value={form.role_id || ''} onChange={e => setEmployment({ role_id: e.target.value || null })}><option value="">Non classé</option>{roles.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}</select></Field>
-          <Field label="Fonction"><input value={form.exact_job_title || ''} onChange={e => setEmployment({ exact_job_title: e.target.value })} /></Field>
+          <Field label="Rôle (catégorie)"><select value={form.role_id || ''} onChange={e => setEmployment({ role_id: e.target.value || null })}><option value="">Non classé</option>{roles.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}</select></Field>
+          <Field label="Fonction exacte"><input value={form.exact_job_title || ''} onChange={e => setEmployment({ exact_job_title: e.target.value })} /></Field>
           <Field label="Statut d’activité"><select value={form.activity_status} onChange={e => setEmployment({ activity_status: e.target.value })}><option value="active">Actif</option><option value="unknown">Inconnu</option><option value="inactive">Inactif</option></select></Field>
         </Grid></Group>
         <div className={`verification-panel ${form.employment_verified_at ? 'ok' : 'needs'}`}>
