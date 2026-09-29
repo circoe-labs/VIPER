@@ -75,24 +75,13 @@ function excelDate(value: unknown): Date | null {
   return null;
 }
 
-function isoWeekMonday(year: number, week: number) {
-  const jan4 = new Date(Date.UTC(year, 0, 4));
-  const jan4Day = jan4.getUTCDay() || 7;
-  const monday = new Date(jan4);
-  monday.setUTCDate(jan4.getUTCDate() - jan4Day + 1 + (week - 1) * 7);
-  return monday;
-}
-
-export function resolveLegacyWeek(value: unknown, referenceDate: Date) {
+export function resolveLegacyWeek(value: unknown) {
   const s = text(value).toLowerCase().replace(/\s+/g, '');
   const m = s.match(/^s(?:emaine)?(\d{1,2})$/i);
   if (!m) return null;
   const week = Number(m[1]);
   if (week < 1 || week > 53) return null;
-  const candidates = [referenceDate.getUTCFullYear() - 1, referenceDate.getUTCFullYear(), referenceDate.getUTCFullYear() + 1]
-    .map(year => isoWeekMonday(year, week))
-    .sort((a, b) => Math.abs(a.getTime() - referenceDate.getTime()) - Math.abs(b.getTime() - referenceDate.getTime()));
-  return { week, date: isoDate(candidates[0]) };
+  return { week, year: 2026 };
 }
 
 function verificationFrom(value: unknown, importedAt: Date) {
@@ -256,14 +245,19 @@ export function parseWorkbook(buffer: Buffer, filename = 'import.xlsx', referenc
         : legacyVerificationMarker
           ? { verified: true, verifiedAt: importedAt.toISOString(), raw: referentRaw }
           : { verified: false, verifiedAt: null, raw: '' };
-      const verificationState = statusVerification?.state || (legacyVerification.verified ? 'verified' : 'unverified');
-      const employmentVerifiedAt = statusVerification?.verifiedAt || legacyVerification.verifiedAt;
+      let verificationState = statusVerification?.state || (legacyVerification.verified ? 'verified' : 'unverified');
+      let employmentVerifiedAt = statusVerification?.verifiedAt || legacyVerification.verifiedAt;
 
       const legacyPlannedRaw = Object.prototype.hasOwnProperty.call(raw, 'A contacter ') ? text(raw['A contacter ']) : '';
       const plannedRaw = legacyPlannedRaw || text(read(raw, ['Contact planifié', 'Contact planifie', 'Date contact', 'Date de contact']));
-      const plannedWeek = resolveLegacyWeek(plannedRaw, importedAt);
+      const plannedWeek = resolveLegacyWeek(plannedRaw);
+      const legacyCampaignWeek = plannedWeek && [37, 39, 40].includes(plannedWeek.week) ? plannedWeek : null;
       const plannedDate = excelDate(plannedRaw);
-      const plannedContactAt = plannedWeek?.date || (plannedDate ? isoDate(plannedDate) : null);
+      const plannedContactAt = plannedDate ? isoDate(plannedDate) : null;
+      if (legacyCampaignWeek) {
+        verificationState = 'verified';
+        employmentVerifiedAt = employmentVerifiedAt || importedAt.toISOString();
+      }
       const categoryRaw = text(read(raw, ['Catégorie', 'Categorie']));
       const category = normalizeCategory(categoryRaw);
       const emailVerificationAliases = ['Email vérifié', 'Email verifie', 'Vérification email', 'Verification email'];
@@ -272,23 +266,31 @@ export function parseWorkbook(buffer: Buffer, filename = 'import.xlsx', referenc
       const emailVerification = explicitEmailVerification
         ? verificationFrom(emailVerificationRaw, importedAt)
         : { verified: false, verifiedAt: null, raw: '' };
-      const emailVerificationStatus = explicitEmailVerification
+      let emailVerificationStatus = explicitEmailVerification
         ? (emailVerification.verified ? 'verified' : 'unverified')
         : statusVerification?.emailStatus || 'unverified';
-      const emailVerifiedAt = explicitEmailVerification
+      let emailVerifiedAt = explicitEmailVerification
         ? emailVerification.verifiedAt
         : statusVerification?.emailVerifiedAt || null;
-      const trackingStatus = trackingFromLegacy(raw, plannedContactAt, verificationState, importedAt);
+      if (legacyCampaignWeek) {
+        emailVerificationStatus = 'verified';
+        emailVerifiedAt = emailVerifiedAt || importedAt.toISOString();
+      }
+      const trackingStatus = legacyCampaignWeek?.week === 37 || legacyCampaignWeek?.week === 39
+        ? 'contacted'
+        : legacyCampaignWeek?.week === 40
+          ? 'to_contact'
+          : trackingFromLegacy(raw, plannedContactAt, verificationState, importedAt);
       const statusActivity = statusVerification?.activityStatus || '';
       const activityStatusSuggestion = statusActivity || (/retrait/i.test(plannedRaw) ? 'inactive' : '');
 
       if (!company) diagnostics.push({ code: 'missing_company', level: 'error', message: 'Entreprise manquante' });
-      if (!first && !last) diagnostics.push({ code: 'missing_identity', level: 'error', message: 'Identité manquante' });
+      if (!first && !last) diagnostics.push({ code: 'missing_identity', level: 'warning', message: 'Identité inconnue : prospect conservé dans « Inconnus »' });
       if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) diagnostics.push({ code: 'invalid_email', level: 'warning', message: 'Email à vérifier' });
       if (civRaw && civ === civRaw && !['M.', 'Mme', 'Mlle'].includes(civ)) diagnostics.push({ code: 'unknown_civility', level: 'warning', message: `Civilité non reconnue: ${civRaw}` });
       if (categoryRaw && !category) diagnostics.push({ code: 'invalid_category', level: 'warning', message: `Catégorie à vérifier: ${categoryRaw}` });
       if (statusVerification?.unknown || (!statusVerificationColumn && explicitVerification && (legacyVerification as any).unknown)) diagnostics.push({ code: 'unknown_verification', level: 'warning', message: `Valeur de vérification non reconnue: ${text(verificationRaw)}` });
-      if (plannedWeek) diagnostics.push({ code: 'planned_week_resolved', level: 'info', message: `S${plannedWeek.week} interprétée au lundi ${plannedWeek.date}` });
+      if (plannedWeek) diagnostics.push({ code: 'planned_week_resolved', level: 'info', message: `Semaine ${plannedWeek.week} conservée comme semaine d’envoi ${plannedWeek.year}` });
       else if (/^s\d{1,2}$/i.test(plannedRaw)) diagnostics.push({ code: 'invalid_week', level: 'warning', message: `Semaine invalide: ${plannedRaw}` });
       if (/retrait/i.test(plannedRaw)) diagnostics.push({ code: 'legacy_anomaly', level: 'warning', message: 'Valeur retraité détectée : activité suggérée inactive' });
       if (referentRaw && !isReferentName(referentRaw) && !legacyVerificationMarker && !unverifiedTokens.has(key(referentRaw))) diagnostics.push({ code: 'ambiguous_referent', level: 'warning', message: 'Référent historique ambigu : conservé en métadonnées' });
@@ -308,6 +310,7 @@ export function parseWorkbook(buffer: Buffer, filename = 'import.xlsx', referenc
           company,
           first_name: first,
           last_name: last,
+          identity_unknown: !first && !last,
           civility: civ,
           job_title: text(read(raw, ['Fonction'])),
           email,
@@ -325,6 +328,8 @@ export function parseWorkbook(buffer: Buffer, filename = 'import.xlsx', referenc
           verification_source: statusVerificationColumn ? 'excel_status_column' : explicitVerification ? 'excel_column' : legacyVerificationMarker ? 'legacy_marker' : 'none',
           planned_contact_raw: plannedRaw,
           planned_contact_at: plannedContactAt,
+          contact_year: plannedWeek?.year || null,
+          contact_week: plannedWeek?.week || null,
           tracking_status: trackingStatus,
           activity_status_suggestion: activityStatusSuggestion,
           project_done_with_circoe: text(read(raw, ["Projet déjà réalisé avec l'entreprise", "Projet deja realise avec l'entreprise"])),
