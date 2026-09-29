@@ -17,6 +17,9 @@ import { contactDashboard, contactProspects, countContactFilter } from './contac
 import { parseContactListQuery } from '../shared/contactDashboard.js';
 import { ContactTrackingError, createContactTrackingService, parseTrackingPatch, type ContactTrackingDeps } from './contactTrackingService.js';
 import { contactMessageCanceller } from './contactMessageStore.js';
+import {
+  ContactMessageError, createContactMessageService, parseExpectedRevision, parseMessageContent, parseMessageStep, parseSchedule, type ContactMessageDeps
+} from './contactMessageService.js';
 import { backfillUnassignedProspectRoles, ensureDefaultRoles, inferRoleSlug } from './roleTaxonomy.js';
 
 migrate();
@@ -41,6 +44,13 @@ const trackingService = () => createContactTrackingService(db, trackingDeps);
 const sendTrackingError = (res: express.Response, e: unknown, fallback: string) => e instanceof ContactTrackingError
   ? res.status(e.httpStatus).json({ error: e.message, code: e.code })
   : res.status(400).json({ error: e instanceof Error ? e.message : fallback });
+// Messages Contact/R1/R2 (Task 12) : From par défaut depuis la config serveur (jamais codé en dur) ; brouillons distants
+// Toolbox inactifs (no-op) jusqu'à la Task 15.
+const messageDeps = (): ContactMessageDeps => ({ defaultFromEmail: process.env.DEFAULT_OUTBOUND_EMAIL || null });
+const messageService = () => createContactMessageService(db, messageDeps());
+const sendMessageError = (res: express.Response, e: unknown, fallback: string) => e instanceof ContactMessageError
+  ? res.status(e.httpStatus).json({ error: e.message, code: e.code, ...(e.fields ? { fields: e.fields } : {}) })
+  : res.status(500).json({ error: fallback });
 const norm = (v: unknown) => String(v || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
 app.get('/api/drafts/:key', (req, res) => {
@@ -300,6 +310,42 @@ app.patch('/api/prospects/:id/tracking', (req, res) => {
   } catch (e) {
     sendTrackingError(res, e, 'Mise à jour du suivi impossible');
   }
+});
+
+// Messages Contact/R1/R2 (Task 12) : routes minces, machine d'état dans contactMessageService.ts. Aucune route ne permet
+// d'écrire un statut directement ; `sent` est réservé au dispatcher interne (Task 16).
+app.get('/api/prospects/:id/messages', (req, res) => {
+  try { res.json(messageService().listMessages(req.params.id)); } catch (e) { sendMessageError(res, e, 'Lecture des messages impossible'); }
+});
+app.get('/api/prospects/:id/messages/:step', (req, res) => {
+  try { res.json(messageService().getMessage(req.params.id, parseMessageStep(req.params.step))); } catch (e) { sendMessageError(res, e, 'Lecture du message impossible'); }
+});
+app.put('/api/prospects/:id/messages/:step', (req, res) => {
+  try {
+    const result = messageService().saveMessage(req.params.id, parseMessageStep(req.params.step), parseMessageContent(req.body), actor(req));
+    res.status(result.created ? 201 : 200).json(result);
+  } catch (e) { sendMessageError(res, e, 'Enregistrement du message impossible'); }
+});
+app.post('/api/prospects/:id/messages/:step/:action', async (req, res) => {
+  try {
+    const service = messageService();
+    const step = parseMessageStep(req.params.step);
+    const a = actor(req);
+    switch (req.params.action) {
+      case 'validate': {
+        const result = service.validate(req.params.id, step, parseExpectedRevision(req.body), a);
+        return res.json({ ...result, remoteDraft: await service.syncRemoteDraft(result.message.id, a) });
+      }
+      case 'schedule': {
+        const result = service.schedule(req.params.id, step, parseSchedule(req.body), a);
+        return res.json({ ...result, remoteDraft: await service.syncRemoteDraft(result.message.id, a) });
+      }
+      case 'unschedule': return res.json(service.unschedule(req.params.id, step, parseExpectedRevision(req.body), a));
+      case 'cancel': return res.json(service.cancel(req.params.id, step, parseExpectedRevision(req.body), a));
+      case 'reopen': return res.json(service.reopen(req.params.id, step, parseExpectedRevision(req.body), a));
+      default: return res.status(404).json({ error: 'Action de message inconnue', code: 'unknown_action' });
+    }
+  } catch (e) { sendMessageError(res, e, 'Action sur le message impossible'); }
 });
 
 app.get('/api/companies', (_req, res) => res.json(rows('SELECT c.*,count(p.id) prospect_count FROM companies c LEFT JOIN prospects p ON p.company_id=c.id GROUP BY c.id ORDER BY c.display_name')));

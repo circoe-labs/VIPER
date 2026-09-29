@@ -79,6 +79,19 @@ export const cancellableContactMessageStatuses: readonly ContactMessageStatus[] 
 export const isContactMessageStatus = (value: unknown): value is ContactMessageStatus => contactMessageStatusSchema.safeParse(value).success;
 export const canTransitionContactMessage = (from: ContactMessageStatus, to: ContactMessageStatus): boolean => contactMessageTransitions[from].includes(to);
 export const isCancellableContactMessage = (status: ContactMessageStatus): boolean => cancellableContactMessageStatuses.includes(status);
+/**
+ * Séquence fermée pour un prospect : état qui annule les messages futurs (décision 29) ou blocage `do_not_contact`.
+ * Aucun message ne peut alors être créé, rouvert, validé ni programmé (Task 12).
+ */
+export const isContactSequenceClosed = (state: string | null | undefined, doNotContact: boolean): boolean =>
+  doNotContact || (isProspectState(state) && cancelsFutureMessages(state));
+/**
+ * Réouverture d'une étape `cancelled` (Task 12) : ce n'est pas une transition de la machine d'état (`cancelled` reste sans
+ * sortie automatique) mais une re-création explicite, par un humain, du message durable de l'étape (UNIQUE prospect/étape),
+ * en `draft`, seulement si la séquence n'est pas fermée.
+ */
+export const canReopenContactMessage = (status: ContactMessageStatus, state: string | null | undefined, doNotContact: boolean): boolean =>
+  status === 'cancelled' && !isContactSequenceClosed(state, doNotContact);
 
 /** Événements du journal par message (`contact_message_events`) ; jamais de sujet/corps/destinataire dans leurs détails. */
 export const contactMessageEventTypes = [
