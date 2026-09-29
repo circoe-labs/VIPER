@@ -1,0 +1,12 @@
+{
+  "title": "VIPER Contact & prospect lifecycle implementation handoff",
+  "created_at": "2026-09-29T13:09:00+02:00",
+  "source": "Conversation grill 2026-09-29 + cahier des charges V2 + audit GitHub de circoe-labs/VIPER et circoe-labs/circoe-toolbox",
+  "task_count": 18,
+  "language": "fr",
+  "repositories": {
+    "viper": "circoe-labs/VIPER",
+    "toolbox": "circoe-labs/circoe-toolbox"
+  },
+  "priority": "Gestion des états/badges + semaine de prochaine échéance + page Contact + génération IA de brouillons"
+}
