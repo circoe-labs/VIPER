@@ -19,8 +19,16 @@ Ce que fait la V1 :
 - **Contact** — (ex-« Exploitation ») page de préparation des prises de contact par semaine : cartes-filtres
   « À traiter cette semaine » (premier contact / relances / revues R2) et « RDV pris » cumulés, filtres semaine ISO et
   état, liste sélectionnable ; un clic ouvre la fiche du prospect à gauche (lecture, choix manuel de l’état et de la
-  semaine, lien vers la fiche Prospection pour corriger) et la zone de séquence mail à droite, encore vide (aucun agent,
-  e-mail ou Calendly simulé).
+  semaine, lien vers la fiche Prospection pour corriger) et la séquence mail à droite : onglets Contact / R1 / R2
+  (statut Brouillon, Validé, Programmé, Envoyé, Annulé ou Vide), éditeur type boîte mail (De prérempli depuis
+  `DEFAULT_OUTBOUND_EMAIL`, À prérempli avec l’email principal, Cc/Cci, objet, corps). Workflow opérateur : rédiger puis
+  « Créer le brouillon » / « Enregistrer » (n’envoie ni ne valide rien) → « Valider… » (confirmation) → choisir date **et**
+  heure (heure locale, aucune valeur par défaut) → « Programmer… » (confirmation). Toute modification enregistrée d’un
+  message validé ou programmé le repasse en Brouillon : il faut le revalider (et le reprogrammer). « Déprogrammer »
+  garde la validation ; « Annuler le message… » l’écarte ; « Rouvrir » le repasse en Brouillon tant que la séquence
+  est ouverte. Envoyé = lecture seule ; après « Réponse reçue », « RDV pris » ou « Ignoré », les messages non envoyés
+  sont annulés et l’éditeur est verrouillé. L’envoi automatique à la date programmée et la rédaction IA arrivent
+  ensuite ; pas de pièces jointes. Aucun agent, e-mail ou Calendly simulé.
 
 Chaque modification est tracée (qui, quand, depuis où) ; une opposition « Ne pas contacter » survit aux réimports.
 Un seul utilisateur authentifié pour le pilote. L’interface est en français ; le code et la documentation technique

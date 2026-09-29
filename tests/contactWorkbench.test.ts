@@ -59,11 +59,10 @@ describe('fiche prospect du workbench', () => {
     expect(markup).not.toMatch(/<(input|textarea|select)\b/);
   });
 
-  it('la zone mail est un emplacement réservé, sans faux message', () => {
+  it('la zone mail charge la séquence sans inventer de message ni de bouton « générer »', () => {
     const markup = renderToStaticMarkup(createElement(ContactMailPanel, { prospect: prospectSummary(detail()), onTrackingChanged: () => undefined }));
-    expect(markup).toContain('Destinataire principal : alice@acme.test');
-    expect(markup).toContain('Aucun message n’est encore préparé');
-    expect(markup).not.toMatch(/<(input|textarea|select|button)\b/);
+    expect(markup).toContain('Séquence mail');
+    expect(markup).toContain('Chargement des messages');
     expect(markup).not.toMatch(/générer/i);
   });
 });
