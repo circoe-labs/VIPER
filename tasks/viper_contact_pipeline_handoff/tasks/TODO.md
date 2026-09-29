@@ -19,7 +19,9 @@ Implémenter le nouveau cycle de contact humain dans `circoe-labs/VIPER`, en com
 ## Ordre des tâches
 
 - [x] 00 — Orchestrator
-- [ ] 01 — Contrat de workflow partagé
+- [x] 01 — Contrat de workflow partagé
+  - `src/shared/contactWorkflow.ts` (états, labels, étapes, semaines ISO, cadence +2/+2/+4 ; Zod) + `tests/contactWorkflow.test.ts`. Aucune constante legacy remplacée (`src/shared/contracts.ts` inchangé, inutilisé).
+  - Point ouvert : `tsconfig.server.json` (`rootDir: src/server`) empêche le serveur d'importer `src/shared/` (TS6059) — à lever en Task 02/04 (rootDir `src` + chemins `start`/Docker).
 - [ ] 02 — Migration du suivi prospect
 - [ ] 03 — Réconciliation des données legacy
 - [ ] 04 — Service backend de suivi manuel
