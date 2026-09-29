@@ -10,13 +10,11 @@ import { WeekPlanner } from './WeekPlanner';
 import { withoutPlannedWeek } from './weekPlanning';
 import { emptyProspectionCounters, employmentCheck, prospectionCards } from './prospectionDisplay';
 import type { ProspectionCounters } from '../shared/prospectionDashboard';
+import { loadStoredPage, nav, storePage, type Page } from './navigation';
+import { ContactPage } from './ContactPage';
+import { PageTitle } from './PageTitle';
 
-type Page = 'home' | 'prospection' | 'exploitation' | 'database' | 'settings';
 type Prospect = Record<string, any>;
-
-const nav: [Page, string][] = [
-  ['home', 'Accueil'], ['prospection', 'Prospection'], ['exploitation', 'Exploitation'], ['database', 'Base de données'], ['settings', 'Paramètres']
-];
 
 const IMPORT_DRAFT_KEY = 'import-preview';
 
@@ -46,13 +44,10 @@ function Login({ onDone }: { onDone: () => void }) {
 }
 
 function Shell() {
-  const [page, setPage] = useState<Page>(() => {
-    const saved = localStorage.getItem('viper.ui.page') as Page | null;
-    return saved && nav.some(([id]) => id === saved) ? saved : 'home';
-  });
+  const [page, setPage] = useState<Page>(() => loadStoredPage(localStorage));
   const [search, setSearch] = useState('');
   const [results, setResults] = useState<any[]>([]);
-  useEffect(() => { localStorage.setItem('viper.ui.page', page); }, [page]);
+  useEffect(() => { storePage(localStorage, page); }, [page]);
   useEffect(() => {
     const t = setTimeout(() => search.trim() ? api<any[]>('/api/search?q=' + encodeURIComponent(search)).then(setResults) : setResults([]), 180);
     return () => clearTimeout(t);
@@ -69,21 +64,19 @@ function Shell() {
     </header><section>
       {page === 'home' && <Home onGo={() => setPage('prospection')} />}
       {page === 'prospection' && <Prospection />}
+      {page === 'contact' && <ContactPage onPlanInProspection={() => setPage('prospection')} />}
       {page === 'database' && <Database />}
       {page === 'settings' && <Settings />}
-      {page === 'exploitation' && <Exploitation />}
     </section></main>
   </div>;
 }
-
-const Title = ({ title, sub }: { title: string; sub: string }) => <div className="title"><small>VIPER / V1</small><h1>{title}</h1><p>{sub}</p></div>;
 
 function Home({ onGo }: { onGo: () => void }) {
   const [d, setD] = useState<any>();
   useEffect(() => { api('/api/dashboard').then(setD); }, []);
   if (!d) return <p>Chargement…</p>;
   const cards = [['Prospects', d.total], ['Contacts dus', d.due], ['Emploi à vérifier', d.employmentUnverified], ['Emails à fiabiliser', d.emailToReview], ['Contactés', d.contacted], ['Réponses', d.responses], ['Rendez-vous', d.appointments]];
-  return <><Title title="Vue d’ensemble" sub="Santé de la base et activité de contact issue des données réellement enregistrées." />
+  return <><PageTitle title="Vue d’ensemble" sub="Santé de la base et activité de contact issue des données réellement enregistrées." />
     <div className="cards">{cards.map(([l, v]) => <button onClick={onGo} key={l}><span>{l}</span><b>{v}</b></button>)}</div>
     <div className="cols"><Panel title="Objectifs mensuels"><Progress label="Prospects contactés" value={d.contacted} target={100} /><Progress label="Rendez-vous" value={d.appointments} target={10} /></Panel>
       <Panel title="Prochaines actions">{d.nextActions.length ? d.nextActions.map((x: any) => <div className="row" key={x.id}><b>{x.first_name} {x.last_name}</b><span className="next-action">{x.company}<TrackingBadges status={x.status} year={x.next_action_year} week={x.next_action_week} /></span></div>) : <p className="muted">Aucune semaine planifiée.</p>}</Panel></div>
@@ -116,7 +109,7 @@ function Prospection() {
   const companies = useMemo(() => Array.from(new Map(all.map(x => [x.company_id, x.company])).entries()).sort((a, b) => String(a[1]).localeCompare(String(b[1]))), [all]);
   const nextId = selected && selected !== 'new' ? list[list.findIndex(x => x.id === selected) + 1]?.id || null : null;
   return <>
-    <div className="top"><Title title="Prospection" sub="Vérifier les données, puis piloter le suivi de contact sans mélanger les deux usages." />
+    <div className="top"><PageTitle title="Prospection" sub="Vérifier les données, puis piloter le suivi de contact sans mélanger les deux usages." />
       <div><button className="secondary" onClick={() => setImportOpen(true)}>{hasImportDraft ? 'Reprendre l’import en cours' : 'Importer Excel'}</button><a className="button secondary" href="/api/export.xlsx">Exporter Excel</a><button onClick={() => setSelected('new')}>+ Ajouter un prospect</button></div>
     </div>
     <div className="filters compact-counters">
@@ -376,17 +369,16 @@ function Database() {
   const [tables, setTables] = useState<any[]>([]), [table, setTable] = useState('prospects'), [grid, setGrid] = useState<any>(), [sql, setSql] = useState('SELECT * FROM prospects LIMIT 25'), [out, setOut] = useState<any[]>([]);
   useEffect(() => { api<any[]>('/api/database/tables').then(setTables); }, []);
   useEffect(() => { api('/api/database/table/' + table).then(setGrid); }, [table]);
-  return <><Title title="Base de données" sub="Explorateur technique et SQL read-only imposé côté serveur." /><div className="db"><nav>{tables.map(t => <button className={table === t.name ? 'active' : ''} key={t.name} onClick={() => setTable(t.name)}>{t.name}</button>)}</nav><div><h3>{table} · {grid?.count || 0} lignes</h3><div className="tablewrap"><table><thead><tr>{grid?.columns?.map((c: any) => <th key={c.name}>{c.name}<small>{c.type}</small></th>)}</tr></thead><tbody>{grid?.data?.map((r: any, i: number) => <tr key={i}>{grid.columns.map((c: any) => <td key={c.name} title={String(r[c.name] ?? '')}>{String(r[c.name] ?? '')}</td>)}</tr>)}</tbody></table></div><div className="sql"><b>SQL read-only</b><textarea value={sql} onChange={e => setSql(e.target.value)} /><button onClick={async () => setOut((await api<any>('/api/database/sql', { method: 'POST', body: JSON.stringify({ sql }) })).rows)}>Exécuter</button>{out.length > 0 && <pre>{JSON.stringify(out.slice(0, 20), null, 2)}</pre>}</div></div></div></>;
+  return <><PageTitle title="Base de données" sub="Explorateur technique et SQL read-only imposé côté serveur." /><div className="db"><nav>{tables.map(t => <button className={table === t.name ? 'active' : ''} key={t.name} onClick={() => setTable(t.name)}>{t.name}</button>)}</nav><div><h3>{table} · {grid?.count || 0} lignes</h3><div className="tablewrap"><table><thead><tr>{grid?.columns?.map((c: any) => <th key={c.name}>{c.name}<small>{c.type}</small></th>)}</tr></thead><tbody>{grid?.data?.map((r: any, i: number) => <tr key={i}>{grid.columns.map((c: any) => <td key={c.name} title={String(r[c.name] ?? '')}>{String(r[c.name] ?? '')}</td>)}</tr>)}</tbody></table></div><div className="sql"><b>SQL read-only</b><textarea value={sql} onChange={e => setSql(e.target.value)} /><button onClick={async () => setOut((await api<any>('/api/database/sql', { method: 'POST', body: JSON.stringify({ sql }) })).rows)}>Exécuter</button>{out.length > 0 && <pre>{JSON.stringify(out.slice(0, 20), null, 2)}</pre>}</div></div></div></>;
 }
 
 function Settings() {
   const [roles, setRoles] = useState<any[]>([]), [cats, setCats] = useState<any[]>([]), [segments, setSegments] = useState<any[]>([]), [companies, setCompanies] = useState<any[]>([]);
   const load = () => Promise.all([api<any[]>('/api/settings/roles'), api<any[]>('/api/settings/categories'), api<any[]>('/api/settings/segments'), api<any[]>('/api/companies')]).then(([a, b, c, d]) => { setRoles(a); setCats(b); setSegments(c); setCompanies(d); });
   useEffect(() => { load(); }, []);
-  return <><Title title="Paramètres" sub="Taxonomies et référentiels administrables." /><div className="cols"><SettingsSet title="Rôles" items={roles.map(x => x.label)} add={async label => { await api('/api/settings/roles', { method: 'POST', body: JSON.stringify({ label }) }); load(); }} /><SettingsSet title="Catégories d’activité" items={cats.map(x => x.label)} add={async label => { await api('/api/settings/categories', { method: 'POST', body: JSON.stringify({ label }) }); load(); }} /><SettingsSet title="Segments commerciaux" items={segments.map(x => x.label)} add={async label => { await api('/api/settings/segments', { method: 'POST', body: JSON.stringify({ label }) }); load(); }} /><Panel title="Entreprises"><div className="tags">{companies.slice(0, 50).map(c => <span key={c.id}>{c.display_name} · {c.prospect_count}</span>)}</div></Panel></div></>;
+  return <><PageTitle title="Paramètres" sub="Taxonomies et référentiels administrables." /><div className="cols"><SettingsSet title="Rôles" items={roles.map(x => x.label)} add={async label => { await api('/api/settings/roles', { method: 'POST', body: JSON.stringify({ label }) }); load(); }} /><SettingsSet title="Catégories d’activité" items={cats.map(x => x.label)} add={async label => { await api('/api/settings/categories', { method: 'POST', body: JSON.stringify({ label }) }); load(); }} /><SettingsSet title="Segments commerciaux" items={segments.map(x => x.label)} add={async label => { await api('/api/settings/segments', { method: 'POST', body: JSON.stringify({ label }) }); load(); }} /><Panel title="Entreprises"><div className="tags">{companies.slice(0, 50).map(c => <span key={c.id}>{c.display_name} · {c.prospect_count}</span>)}</div></Panel></div></>;
 }
 
-function Exploitation() { return <div className="coming"><img src="/viper-mark.svg" /><small>VIPER / V1</small><h1>Exploitation</h1><p>Cette surface est volontairement réservée. Aucun brouillon, agent, envoi ou métrique fictive n’est simulé en V1.</p><b>Coming soon</b></div>; }
 function Panel({ title, children }: any) { return <div className="panel"><h3>{title}</h3>{children}</div>; }
 function Progress({ label, value, target }: any) { return <div className="progress"><div><span>{label}</span><b>{value} / {target}</b></div><i><em style={{ width: `${Math.min(100, value / target * 100)}%` }} /></i></div>; }
 function Group({ title, children }: any) { return <div className="group"><h3>{title}</h3>{children}</div>; }
