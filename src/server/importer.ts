@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import crypto from 'node:crypto';
+import { inferRoleSlug, roleLabelForSlug } from './roleTaxonomy.js';
 
 export type Diagnostic = { code: string; level: 'info' | 'warning' | 'error'; message: string };
 export type PreviewRow = {
@@ -231,6 +232,9 @@ export function parseWorkbook(buffer: Buffer, filename = 'import.xlsx', referenc
       const first = text(read(raw, ['Prénom', 'Prenom']));
       const last = text(read(raw, ['Nom']));
       const email = text(read(raw, ['Mail', 'Email'])).toLowerCase();
+      const jobTitle = text(read(raw, ['Fonction']));
+      const roleSlug = inferRoleSlug(jobTitle);
+      const roleLabel = roleLabelForSlug(roleSlug);
       const civRaw = text(read(raw, ['Civilité ', 'Civilité', 'Civilite']));
       const civ = civMap[key(civRaw)] || civRaw;
       const referentRaw = text(read(raw, ['Référent', 'Referent']));
@@ -312,7 +316,9 @@ export function parseWorkbook(buffer: Buffer, filename = 'import.xlsx', referenc
           last_name: last,
           identity_unknown: !first && !last,
           civility: civ,
-          job_title: text(read(raw, ['Fonction'])),
+          job_title: jobTitle,
+          role_slug: roleSlug,
+          role_label: roleLabel,
           email,
           email_verification_status: emailVerificationStatus,
           email_verified_at: emailVerifiedAt,
