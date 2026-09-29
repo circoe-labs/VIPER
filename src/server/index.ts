@@ -8,6 +8,7 @@ import { audit, type Actor } from './audit.js';
 import { parseWorkbook } from './importer.js';
 import { buildExport } from './exporter.js';
 import { assertReadOnlySql } from './sqlSafety.js';
+import { archiveImportedWorkbook } from './storage.js';
 
 migrate();
 const app = express();
@@ -272,8 +273,13 @@ app.post('/api/settings/referents', (req, res) => {
 
 app.post('/api/import/preview', upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Fichier requis' });
-  try { res.json(parseWorkbook(req.file.buffer, req.file.originalname, new Date())); }
-  catch (e) { res.status(400).json({ error: e instanceof Error ? e.message : 'Import impossible' }); }
+  try {
+    const preview = parseWorkbook(req.file.buffer, req.file.originalname, new Date());
+    archiveImportedWorkbook(req.file.buffer, req.file.originalname, preview.fingerprint);
+    res.json(preview);
+  } catch (e) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'Import impossible' });
+  }
 });
 
 app.post('/api/import/commit', (req, res) => {
