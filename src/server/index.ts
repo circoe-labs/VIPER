@@ -11,7 +11,9 @@ import { assertReadOnlySql } from './sqlSafety.js';
 import { archiveImportedWorkbook } from './storage.js';
 import { deleteDraftRecord, loadDraftRecord, saveDraftRecord } from './drafts.js';
 import { isLegacyTrackingStatus, mapLegacyTrackingStatus } from './contactTrackingReconciliation.js';
-import { nextActionDueFilter, nextActionOrderSql } from './contactTrackingSchema.js';
+import { nextActionOrderSql } from './contactTrackingSchema.js';
+import { prospectionCounters, prospectionFilterSql, prospectSearchSql } from './prospectionDashboard.js';
+import { isProspectionFilter } from '../shared/prospectionDashboard.js';
 import { ContactTrackingError, createContactTrackingService, parseTrackingPatch, type ContactTrackingDeps } from './contactTrackingService.js';
 import { backfillUnassignedProspectRoles, ensureDefaultRoles, inferRoleSlug } from './roleTaxonomy.js';
 
@@ -174,40 +176,32 @@ function syncPhones(prospectId: string, items: any[] | undefined, forceUnverifie
   for (const old of existing) if (!kept.has(old.id)) db.prepare('UPDATE phones SET is_active=0,is_primary=0,updated_at=CURRENT_TIMESTAMP WHERE id=?').run(old.id);
 }
 
+// Accueil : compteurs de donnée identiques aux cartes Prospection (Task 07) + activité de contact existante.
 app.get('/api/dashboard', (_req, res) => {
   const one = (sql: string) => Number((db.prepare(sql).get() as any)?.n || 0);
   res.json({
-    total: one('SELECT count(*) n FROM prospects'),
-    neverVerified: one('SELECT count(*) n FROM prospects WHERE employment_verified_at IS NULL'),
-    active: one("SELECT count(*) n FROM prospects WHERE activity_status='active'"),
-    unknown: one("SELECT count(*) n FROM prospects WHERE activity_status='unknown'"),
-    inactive: one("SELECT count(*) n FROM prospects WHERE activity_status='inactive'"),
-    due: one("SELECT count(*) n FROM contact_tracking WHERE planned_contact_at<=date('now') AND status='neutral'"),
+    ...prospectionCounters(db, { today: new Date() }),
     contacted: one("SELECT count(*) n FROM contact_tracking WHERE status NOT IN ('neutral','failure','ignored')"),
     responses: one('SELECT count(*) n FROM contact_tracking WHERE response_received_at IS NOT NULL'),
     appointments: one('SELECT count(*) n FROM contact_tracking WHERE appointment_at IS NOT NULL'),
-    emailIssues: one("SELECT count(*) n FROM prospects p WHERE NOT EXISTS(SELECT 1 FROM emails e WHERE e.prospect_id=p.id AND e.is_primary=1 AND e.is_active=1 AND e.verification_status='verified')"),
-    nextActions: rows("SELECT p.id,p.first_name,p.last_name,c.display_name company,ct.planned_contact_at,ct.status FROM contact_tracking ct JOIN prospects p ON p.id=ct.prospect_id JOIN companies c ON c.id=p.company_id WHERE ct.planned_contact_at IS NOT NULL AND ct.status='neutral' ORDER BY ct.planned_contact_at LIMIT 8"),
+    // Prochaines actions = suivis avec une prochaine semaine ISO (tous états sauf `ignored`), triés par (année, semaine).
+    nextActions: rows(`SELECT p.id,p.first_name,p.last_name,c.display_name company,ct.status,ct.next_action_year,ct.next_action_week FROM contact_tracking ct JOIN prospects p ON p.id=ct.prospect_id JOIN companies c ON c.id=p.company_id WHERE ct.next_action_year IS NOT NULL AND ct.status<>'ignored' ORDER BY ${nextActionOrderSql()},p.last_name LIMIT 8`),
     recent: rows('SELECT * FROM audit_log ORDER BY created_at DESC LIMIT 8')
   });
 });
+
+app.get('/api/prospection/counters', (req, res) => res.json(prospectionCounters(db, { today: new Date(), q: String(req.query.q || '') })));
 
 app.get('/api/prospects', (req, res) => {
   const q = String(req.query.q || '').trim();
   const filter = String(req.query.filter || '');
   const company = String(req.query.company || '');
-  const ps: any[] = [];
-  let w = '1=1';
-  if (q) {
-    w += " AND (p.first_name||' '||p.last_name LIKE ? OR c.display_name LIKE ? OR e.address LIKE ? OR p.exact_job_title LIKE ?)";
-    ps.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
-  }
+  const search = prospectSearchSql(q);
+  const ps: any[] = [...search.params];
+  let w = search.sql;
   if (company) { w += ' AND p.company_id=?'; ps.push(company); }
-  if (filter === 'never_verified') w += ' AND p.employment_verified_at IS NULL';
-  if (filter === 'verified') w += " AND p.employment_verified_at IS NOT NULL AND e.verification_status='verified'";
-  if (filter === 'partial_verification') w += " AND p.employment_verified_at IS NOT NULL AND (e.id IS NULL OR e.verification_status<>'verified')";
-  if (['active', 'inactive', 'unknown'].includes(filter)) { w += ' AND p.activity_status=?'; ps.push(filter); }
-  if (filter === 'due') { const due = nextActionDueFilter(new Date()); w += ` AND ct.status='neutral' AND ${due.sql}`; ps.push(...due.params); } // premier contact planifié, semaine atteinte (Task 06)
+  if (isProspectionFilter(filter)) { const f = prospectionFilterSql(filter, new Date()); w += ` AND ${f.sql}`; ps.push(...f.params); } // cartes Prospection (Task 07)
+  if (['active', 'inactive'].includes(filter)) { w += ' AND p.activity_status=?'; ps.push(filter); }
   if (filter === 'contacted') w += " AND ct.status IN ('contacted','r1','r2')";
   if (filter === 'responses') w += ' AND ct.response_received_at IS NOT NULL';
   if (filter === 'appointments') w += ' AND ct.appointment_at IS NOT NULL';

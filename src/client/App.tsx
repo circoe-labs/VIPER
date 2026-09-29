@@ -3,11 +3,13 @@ import { api } from './api';
 import { commitWorkbookPreview, previewWorkbook } from './importCache';
 import { hasServerBusinessState, requestPersistentBrowserStorage, restoreLatestViperState, saveCurrentViperState } from './stateCache';
 import { deleteDraft, hasDraft, loadDraft, saveDraft } from './draftCache';
-import { compareIsoWeeks, isoWeekOf, isProspectState, isTerminalProspectState, prospectStates } from '../shared/contactWorkflow';
+import { isProspectState, isTerminalProspectState, prospectStates } from '../shared/contactWorkflow';
 import { TrackingBadges, WeekBadge } from './TrackingBadges';
 import { historyStatusLabel, selectableState, stateOptionLabel } from './trackingDisplay';
 import { WeekPlanner } from './WeekPlanner';
-import { storedWeek, withoutPlannedWeek } from './weekPlanning';
+import { withoutPlannedWeek } from './weekPlanning';
+import { emptyProspectionCounters, employmentCheck, prospectionCards } from './prospectionDisplay';
+import type { ProspectionCounters } from '../shared/prospectionDashboard';
 
 type Page = 'home' | 'prospection' | 'exploitation' | 'database' | 'settings';
 type Prospect = Record<string, any>;
@@ -24,12 +26,6 @@ const formatDate = (value?: string | null, withTime = false) => {
   if (Number.isNaN(d.getTime())) return value;
   return new Intl.DateTimeFormat('fr-FR', withTime ? { dateStyle: 'medium', timeStyle: 'short' } : { dateStyle: 'medium' }).format(d);
 };
-
-function verificationSummary(p: Prospect) {
-  if (!p.employment_verified_at) return { tone: 'never', label: 'Non vérifié', detail: 'À vérifier' };
-  if (!p.primary_email || p.email_verification !== 'verified') return { tone: 'partial', label: 'Incomplet', detail: `Emploi vérifié ${formatDate(p.employment_verified_at)}` };
-  return { tone: 'verified', label: 'Vérifié', detail: formatDate(p.employment_verified_at) };
-}
 
 function Login({ onDone }: { onDone: () => void }) {
   const [email, setEmail] = useState('commercial@example.test');
@@ -86,11 +82,11 @@ function Home({ onGo }: { onGo: () => void }) {
   const [d, setD] = useState<any>();
   useEffect(() => { api('/api/dashboard').then(setD); }, []);
   if (!d) return <p>Chargement…</p>;
-  const cards = [['Prospects', d.total], ['À vérifier', d.neverVerified], ['Contacts dus', d.due], ['Contactés', d.contacted], ['Réponses', d.responses], ['Rendez-vous', d.appointments], ['Emails à fiabiliser', d.emailIssues]];
+  const cards = [['Prospects', d.total], ['Contacts dus', d.due], ['Emploi à vérifier', d.employmentUnverified], ['Emails à fiabiliser', d.emailToReview], ['Contactés', d.contacted], ['Réponses', d.responses], ['Rendez-vous', d.appointments]];
   return <><Title title="Vue d’ensemble" sub="Santé de la base et activité de contact issue des données réellement enregistrées." />
     <div className="cards">{cards.map(([l, v]) => <button onClick={onGo} key={l}><span>{l}</span><b>{v}</b></button>)}</div>
     <div className="cols"><Panel title="Objectifs mensuels"><Progress label="Prospects contactés" value={d.contacted} target={100} /><Progress label="Rendez-vous" value={d.appointments} target={10} /></Panel>
-      <Panel title="Prochaines actions">{d.nextActions.length ? d.nextActions.map((x: any) => <div className="row" key={x.id}><b>{x.first_name} {x.last_name}</b><span>{x.company} · {formatDate(x.planned_contact_at)}</span></div>) : <p className="muted">Aucune action planifiée.</p>}</Panel></div>
+      <Panel title="Prochaines actions">{d.nextActions.length ? d.nextActions.map((x: any) => <div className="row" key={x.id}><b>{x.first_name} {x.last_name}</b><span className="next-action">{x.company}<TrackingBadges status={x.status} year={x.next_action_year} week={x.next_action_week} /></span></div>) : <p className="muted">Aucune semaine planifiée.</p>}</Panel></div>
   </>;
 }
 
@@ -103,10 +99,12 @@ function Prospection() {
   const [selected, setSelected] = useState<string | null>(() => localStorage.getItem('viper.prospection.selected'));
   const [importOpen, setImportOpen] = useState(false);
   const [hasImportDraft, setHasImportDraft] = useState(false);
+  const [counters, setCounters] = useState<ProspectionCounters>(emptyProspectionCounters);
   const load = () => Promise.all([
     api<Prospect[]>(`/api/prospects?q=${encodeURIComponent(q)}&filter=${encodeURIComponent(filter)}&company=${encodeURIComponent(company)}`),
-    api<Prospect[]>(`/api/prospects?q=${encodeURIComponent(q)}`)
-  ]).then(([filtered, full]) => { setList(filtered); setAll(full); });
+    api<Prospect[]>(`/api/prospects?q=${encodeURIComponent(q)}`),
+    api<ProspectionCounters>(`/api/prospection/counters?q=${encodeURIComponent(q)}`)
+  ]).then(([filtered, full, counts]) => { setList(filtered); setAll(full); setCounters(counts); });
   useEffect(() => { load(); }, [q, filter, company]);
   useEffect(() => { if (selected) localStorage.setItem('viper.prospection.selected', selected); else localStorage.removeItem('viper.prospection.selected'); }, [selected]);
   useEffect(() => {
@@ -115,42 +113,26 @@ function Prospection() {
       if (found) setImportOpen(true);
     }).catch(() => undefined);
   }, []);
-  const c = useMemo(() => ({
-    all: all.length,
-    never: all.filter(x => !x.employment_verified_at).length,
-    verified: all.filter(x => x.employment_verified_at && x.primary_email && x.email_verification === 'verified').length,
-    partial: all.filter(x => x.employment_verified_at && (!x.primary_email || x.email_verification !== 'verified')).length,
-    due: all.filter(x => { const week = storedWeek(x.next_action_year, x.next_action_week); return x.tracking_status === 'neutral' && week !== null && compareIsoWeeks(week, isoWeekOf(new Date())) <= 0; }).length, // premier contact planifié, semaine atteinte
-    contacted: all.filter(x => ['contacted', 'r1', 'r2'].includes(x.tracking_status)).length,
-    responses: all.filter(x => x.response_received_at).length,
-    rdv: all.filter(x => x.appointment_at).length
-  }), [all]);
   const companies = useMemo(() => Array.from(new Map(all.map(x => [x.company_id, x.company])).entries()).sort((a, b) => String(a[1]).localeCompare(String(b[1]))), [all]);
   const nextId = selected && selected !== 'new' ? list[list.findIndex(x => x.id === selected) + 1]?.id || null : null;
-  const quick = [
-    ['Vérifiés', 'verified'], ['À vérifier', 'never_verified'], ['Incomplets', 'partial_verification'], ['Contactés', 'contacted'], ['Réponses', 'responses'], ['RDV', 'appointments']
-  ];
   return <>
     <div className="top"><Title title="Prospection" sub="Vérifier les données, puis piloter le suivi de contact sans mélanger les deux usages." />
       <div><button className="secondary" onClick={() => setImportOpen(true)}>{hasImportDraft ? 'Reprendre l’import en cours' : 'Importer Excel'}</button><a className="button secondary" href="/api/export.xlsx">Exporter Excel</a><button onClick={() => setSelected('new')}>+ Ajouter un prospect</button></div>
     </div>
     <div className="filters compact-counters">
-      {[
-        ['Tous', c.all, ''], ['Non vérifiés', c.never, 'never_verified'], ['Vérifiés', c.verified, 'verified'], ['Incomplets', c.partial, 'partial_verification'], ['Contacts dus', c.due, 'due'], ['Contactés', c.contacted, 'contacted'], ['Réponses', c.responses, 'responses'], ['Rendez-vous', c.rdv, 'appointments']
-      ].map(([l, n, f]: any) => <button className={filter === f ? 'active' : ''} onClick={() => setFilter(f)} key={l}><span>{l}</span><b>{n}</b></button>)}
+      {prospectionCards(counters).map(card => <button className={filter === card.filter ? 'active' : ''} aria-pressed={filter === card.filter} title={card.title} onClick={() => setFilter(card.filter)} key={card.label}><span>{card.label}</span><b>{card.count}</b></button>)}
     </div>
     <div className="prospect-toolbar">
       <input className="list-search" value={q} onChange={e => setQ(e.target.value)} placeholder="Rechercher une personne, entreprise, fonction ou email…" />
-      <div className="quick-filters">{quick.map(([label, value]) => <button key={value} className={filter === value ? 'active' : ''} onClick={() => setFilter(filter === value ? '' : value)}>{label}</button>)}</div>
       <select value={company} onChange={e => setCompany(e.target.value)}><option value="">Toutes les entreprises</option>{companies.map(([id, label]) => <option value={id} key={id}>{label}</option>)}</select>
     </div>
     <div className="people-scroll"><div className="people">
       {list.map(p => {
-        const verification = verificationSummary(p);
+        const employment = employmentCheck(p.employment_verified_at, formatDate);
         return <button key={p.id} onClick={() => setSelected(p.id)}>
           <div className="avatar">{p.first_name?.[0]}{p.last_name?.[0]}</div>
-          <div className="identity-cell"><b>{[p.first_name, p.last_name].filter(Boolean).join(' ') || 'Inconnu'}</b><span>Rôle : {p.role || 'Non classé'} · Fonction : {p.exact_job_title || 'Inconnue'} · {p.company}</span></div>
-          <div className={`verification-cell ${verification.tone}`}><small>Vérification</small><span><i />{verification.label}</span><em>{verification.detail}</em></div>
+          <div className="identity-cell"><b>{[p.first_name, p.last_name].filter(Boolean).join(' ') || 'Nom non renseigné'}</b><span>Rôle : {p.role || 'Non classé'} · Fonction : {p.exact_job_title || 'Non renseignée'} · {p.company}</span></div>
+          <div className={`verification-cell ${employment.tone}`}><small>Emploi</small><span><i />{employment.label}</span><em>{employment.detail}</em></div>
           <div className="email-cell"><small>Email</small><span>{p.primary_email || 'Email manquant'}</span><em>{p.email_verification === 'verified' ? `Vérifié ${formatDate(p.email_verified_at)}` : p.primary_email ? 'Non confirmé' : 'À renseigner'}</em></div>
           <div className="tracking-cell"><small>Suivi</small><TrackingBadges status={p.tracking_status} year={p.next_action_year} week={p.next_action_week} empty={<em>—</em>} /><em>{p.referent ? `Référent · ${p.referent}` : ''}</em></div>
         </button>;
