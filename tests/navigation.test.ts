@@ -48,13 +48,11 @@ describe('navigation principale', () => {
 });
 
 describe('page Contact', () => {
-  it('affiche la coquille Contact sans Coming soon ni donnée', () => {
+  it('affiche la page Contact sans Coming soon (cartes-filtres Task 09 : tests/contactDashboard.test.ts)', () => {
     const markup = renderToStaticMarkup(createElement(ContactPage, { onPlanInProspection: () => undefined }));
     expect(markup).toContain('<h1>Contact</h1>');
     expect(markup).toContain('contact-list');
     expect(markup).toContain('contact-main');
     expect(markup).not.toMatch(/coming soon|exploitation/i);
-    expect(markup).not.toContain('<b>');
-    expect(markup).not.toMatch(/class="(cards|filters)/);
   });
 });

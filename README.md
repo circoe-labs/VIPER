@@ -16,8 +16,9 @@ Ce que fait la V1 :
 - **Base de données** — un explorateur de tables (tri, filtres, modifications en attente puis enregistrées et
   tracées) et une console SQL en lecture seule garantie par PostgreSQL ;
 - **Paramètres** — rôles, catégories d’activité, segments commerciaux et référents internes ;
-- **Contact** — (ex-« Exploitation ») page de préparation des prises de contact par semaine ; coquille vide pour
-  l’instant (liste et zone de travail), sans métrique ni donnée fictive, aucun agent, e-mail ou Calendly simulé.
+- **Contact** — (ex-« Exploitation ») page de préparation des prises de contact par semaine : cartes-filtres
+  « À traiter cette semaine » (premier contact / relances / revues R2) et « RDV pris » cumulés, filtres semaine ISO et
+  état, liste sélectionnable ; zone de travail encore vide (aucun agent, e-mail ou Calendly simulé).
 
 Chaque modification est tracée (qui, quand, depuis où) ; une opposition « Ne pas contacter » survit aux réimports.
 Un seul utilisateur authentifié pour le pilote. L’interface est en français ; le code et la documentation technique

@@ -10,10 +10,11 @@ import { buildExport } from './exporter.js';
 import { assertReadOnlySql } from './sqlSafety.js';
 import { archiveImportedWorkbook } from './storage.js';
 import { deleteDraftRecord, loadDraftRecord, saveDraftRecord } from './drafts.js';
-import { isLegacyTrackingStatus, mapLegacyTrackingStatus } from './contactTrackingReconciliation.js';
 import { nextActionOrderSql } from './contactTrackingSchema.js';
 import { prospectionCounters, prospectionFilterSql, prospectSearchSql } from './prospectionDashboard.js';
 import { isProspectionFilter } from '../shared/prospectionDashboard.js';
+import { contactDashboard, contactProspects, countContactFilter } from './contactDashboard.js';
+import { parseContactListQuery } from '../shared/contactDashboard.js';
 import { ContactTrackingError, createContactTrackingService, parseTrackingPatch, type ContactTrackingDeps } from './contactTrackingService.js';
 import { backfillUnassignedProspectRoles, ensureDefaultRoles, inferRoleSlug } from './roleTaxonomy.js';
 
@@ -176,14 +177,16 @@ function syncPhones(prospectId: string, items: any[] | undefined, forceUnverifie
   for (const old of existing) if (!kept.has(old.id)) db.prepare('UPDATE phones SET is_active=0,is_primary=0,updated_at=CURRENT_TIMESTAMP WHERE id=?').run(old.id);
 }
 
-// Accueil : compteurs de donnée identiques aux cartes Prospection (Task 07) + activité de contact existante.
+// Accueil : compteurs de donnée identiques aux cartes Prospection (Task 07) + activité de contact existante ;
+// « Rendez-vous » = « RDV pris » cumulés du dashboard Contact (Task 09, même définition SQL).
 app.get('/api/dashboard', (_req, res) => {
   const one = (sql: string) => Number((db.prepare(sql).get() as any)?.n || 0);
+  const today = new Date();
   res.json({
-    ...prospectionCounters(db, { today: new Date() }),
+    ...prospectionCounters(db, { today }),
     contacted: one("SELECT count(*) n FROM contact_tracking WHERE status NOT IN ('neutral','failure','ignored')"),
     responses: one('SELECT count(*) n FROM contact_tracking WHERE response_received_at IS NOT NULL'),
-    appointments: one('SELECT count(*) n FROM contact_tracking WHERE appointment_at IS NOT NULL'),
+    appointments: countContactFilter(db, 'appointments', today),
     // Prochaines actions = suivis avec une prochaine semaine ISO (tous états sauf `ignored`), triés par (année, semaine).
     nextActions: rows(`SELECT p.id,p.first_name,p.last_name,c.display_name company,ct.status,ct.next_action_year,ct.next_action_week FROM contact_tracking ct JOIN prospects p ON p.id=ct.prospect_id JOIN companies c ON c.id=p.company_id WHERE ct.next_action_year IS NOT NULL AND ct.status<>'ignored' ORDER BY ${nextActionOrderSql()},p.last_name LIMIT 8`),
     recent: rows('SELECT * FROM audit_log ORDER BY created_at DESC LIMIT 8')
@@ -191,6 +194,14 @@ app.get('/api/dashboard', (_req, res) => {
 });
 
 app.get('/api/prospection/counters', (req, res) => res.json(prospectionCounters(db, { today: new Date(), q: String(req.query.q || '') })));
+
+// Dashboard Contact (Task 09) : lecture seule, définitions dans src/shared/contactDashboard.ts, SQL dans contactDashboard.ts.
+app.get('/api/contact/dashboard', (_req, res) => res.json(contactDashboard(db, new Date())));
+app.get('/api/contact/prospects', (req, res) => {
+  const parsed = parseContactListQuery(req.query as Record<string, unknown>);
+  if (!parsed.ok) return res.status(400).json({ error: parsed.error, code: 'invalid_contact_query' });
+  res.json(contactProspects(db, parsed.query, new Date()));
+});
 
 app.get('/api/prospects', (req, res) => {
   const q = String(req.query.q || '').trim();
@@ -201,11 +212,6 @@ app.get('/api/prospects', (req, res) => {
   let w = search.sql;
   if (company) { w += ' AND p.company_id=?'; ps.push(company); }
   if (isProspectionFilter(filter)) { const f = prospectionFilterSql(filter, new Date()); w += ` AND ${f.sql}`; ps.push(...f.params); } // cartes Prospection (Task 07)
-  if (['active', 'inactive'].includes(filter)) { w += ' AND p.activity_status=?'; ps.push(filter); }
-  if (filter === 'contacted') w += " AND ct.status IN ('contacted','r1','r2')";
-  if (filter === 'responses') w += ' AND ct.response_received_at IS NOT NULL';
-  if (filter === 'appointments') w += ' AND ct.appointment_at IS NOT NULL';
-  if (filter.startsWith('status:')) { const value = filter.slice(7); w += ' AND ct.status=?'; ps.push(isLegacyTrackingStatus(value) ? mapLegacyTrackingStatus(value, false) : value); } // filtres client legacy (`status:to_contact`)
   res.json(rows(`SELECT p.*,c.display_name company,r.label role,e.address primary_email,e.verification_status email_verification,e.last_verified_at email_verified_at,ct.status tracking_status,ct.planned_contact_at,ct.next_action_year,ct.next_action_week,ct.next_action_year contact_year,ct.next_action_week contact_week,ct.response_received_at,ct.appointment_at,trim(coalesce(ir.first_name,'')||' '||coalesce(ir.last_name,'')) referent,(SELECT max(h.changed_at) FROM contact_tracking_status_history h WHERE h.contact_tracking_id=ct.id AND h.to_status=ct.status) tracking_status_since FROM prospects p JOIN companies c ON c.id=p.company_id LEFT JOIN roles r ON r.id=p.role_id LEFT JOIN emails e ON e.prospect_id=p.id AND e.is_primary=1 AND e.is_active=1 LEFT JOIN contact_tracking ct ON ct.prospect_id=p.id LEFT JOIN internal_referents ir ON ir.id=ct.referent_id WHERE ${w} ORDER BY ${nextActionOrderSql()},p.updated_at DESC LIMIT 500`, ps));
 });
 
