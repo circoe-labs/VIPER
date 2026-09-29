@@ -26,3 +26,12 @@ La Toolbox possède une politique serveur avant tout envoi. En configuration `IN
 ## Scheduling
 
 Aucun outil de scheduling mail n’a été identifié dans le README audité. La session produit décide que VIPER porte donc `scheduled_at` et le déclenchement.
+
+## Contrat des outils brouillons (vérifié dans le code le 29/09/2026, commit `60ad176`, Task 15)
+
+- `infomaniak.mail.create_draft` : `{ to: email[1..50], cc?: email[≤50], bcc?: email[≤50], subject: 1..500, text: 1..200000, html?, inReplyTo?: { uid, folder } }` → `{ draftId, draftUid, to, cc, bcc, subject, inReplyTo, hint }`. Pas de `from` : expéditeur = boîte par défaut du token API Infomaniak de la connexion. L'allowlist s'applique.
+- `infomaniak.mail.send_draft` : `{ draftId }` → `{ sent: true, pendingConfirmation: false, draftId, to, cc, bcc, subject, reason, provider: { transport, etop, cancelResource } }`. Pas d'identifiant de message envoyé. Seule l'allowlist s'applique (l'approbation humaine remplace la politique d'envoi direct). Brouillon absent : « Brouillon introuvable ».
+- `infomaniak.mail.delete_draft` : `{ draftId }` → `{ deleted: true, draftId }` ; brouillon absent : erreur « L'API Infomaniak Mail a répondu 404 ».
+- `infomaniak.mail.list_drafts` : `{ limit: 1..100 (20) }` → `{ folder, drafts: [{ draftId, subject, to, cc, date, preview }] }`.
+- Erreurs : `result.isError` + texte français ; les codes internes (`TOOLBOX_OUTBOUND_BLOCKED`, `INFOMANIAK_MAIL_HTTP_404`…) ne sont pas transmis par MCP.
+- Transport : Streamable HTTP sans état, réponses JSON ; outils listés et appelables seulement si le jeton porte leur scope.

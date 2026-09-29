@@ -8,7 +8,7 @@ import { audit, type Actor } from './audit.js';
 import { parseWorkbook } from './importer.js';
 import { buildExport } from './exporter.js';
 import { assertReadOnlySql } from './sqlSafety.js';
-import { archiveImportedWorkbook } from './storage.js';
+import { archiveImportedWorkbook, storageDir } from './storage.js';
 import { deleteDraftRecord, loadDraftRecord, saveDraftRecord } from './drafts.js';
 import { nextActionOrderSql } from './contactTrackingSchema.js';
 import { prospectionCounters, prospectionFilterSql, prospectSearchSql } from './prospectionDashboard.js';
@@ -16,12 +16,14 @@ import { isProspectionFilter } from '../shared/prospectionDashboard.js';
 import { contactDashboard, contactProspects, countContactFilter } from './contactDashboard.js';
 import { parseContactListQuery } from '../shared/contactDashboard.js';
 import { ContactTrackingError, createContactTrackingService, parseTrackingPatch, type ContactTrackingDeps } from './contactTrackingService.js';
-import { contactMessageCanceller } from './contactMessageStore.js';
+import { contactMessageCanceller, getContactMessageById } from './contactMessageStore.js';
 import {
   ContactMessageError, createContactMessageService, parseExpectedRevision, parseMessageContent, parseMessageStep, parseSchedule, type ContactMessageDeps
 } from './contactMessageService.js';
 import { createContactMailGenerationService, parseGenerateRequest } from './contactMailGenerationService.js';
 import { AiGenerationError, createOpenAiMailGenerator, missingOpenAiSettings, openAiConfigFromEnv } from './openaiMailGenerator.js';
+import { callbackReturnPath, createToolboxIntegration, toolboxSettingsFromEnv } from './toolboxIntegration.js';
+import { ToolboxError } from './toolboxMcpClient.js';
 import { backfillUnassignedProspectRoles, ensureDefaultRoles, inferRoleSlug } from './roleTaxonomy.js';
 
 migrate();
@@ -31,6 +33,15 @@ const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
 app.use(express.json({ limit: '50mb' }));
 app.use(cookieParser());
+// CIRCOE Toolbox (Task 15) : désactivée par défaut (`TOOLBOX_MAIL_ENABLED`) ; jetons OAuth dans un fichier serveur hors dépôt et hors
+// base, jamais renvoyés au client. Le retour OAuth arrive par redirection depuis la Toolbox (autre site : le cookie de session
+// `SameSite=Strict` n'est pas envoyé) : la route est publique et authentifiée par le `state` à usage unique lié à l'utilisateur.
+const toolbox = createToolboxIntegration({ getDb: () => db, settings: toolboxSettingsFromEnv(process.env, { storageDir }) });
+toolbox.startCleanupWorker();
+app.get('/api/toolbox/oauth/callback', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.redirect(302, callbackReturnPath(await toolbox.completeAuthorization(req.query as Record<string, unknown>)));
+});
 app.post('/api/auth/login', login);
 app.post('/api/auth/logout', logout);
 app.get('/api/auth/me', me);
@@ -46,9 +57,9 @@ const trackingService = () => createContactTrackingService(db, trackingDeps);
 const sendTrackingError = (res: express.Response, e: unknown, fallback: string) => e instanceof ContactTrackingError
   ? res.status(e.httpStatus).json({ error: e.message, code: e.code })
   : res.status(400).json({ error: e instanceof Error ? e.message : fallback });
-// Messages Contact/R1/R2 (Task 12) : From par défaut depuis la config serveur (jamais codé en dur) ; brouillons distants
-// Toolbox inactifs (no-op) jusqu'à la Task 15.
-const messageDeps = (): ContactMessageDeps => ({ defaultFromEmail: process.env.DEFAULT_OUTBOUND_EMAIL || null });
+// Messages Contact/R1/R2 (Task 12) : From par défaut depuis la config serveur (jamais codé en dur) ; brouillon distant Toolbox
+// créé à la validation/programmation seulement si l'intégration est activée et connectée (sinon `noRemoteDrafts`, Task 15).
+const messageDeps = (): ContactMessageDeps => ({ defaultFromEmail: process.env.DEFAULT_OUTBOUND_EMAIL || null, remoteDrafts: toolbox.remoteDrafts() });
 const messageService = () => createContactMessageService(db, messageDeps());
 const sendMessageError = (res: express.Response, e: unknown, fallback: string) => e instanceof ContactMessageError
   ? res.status(e.httpStatus).json({ error: e.message, code: e.code, ...(e.fields ? { fields: e.fields } : {}) })
@@ -63,6 +74,15 @@ const generationService = () => {
     missingSettings: missingOpenAiSettings(), bookingUrl: process.env.CONTACT_BOOKING_URL || null
   });
 };
+// File de suppression des brouillons distants : passe non bloquante après toute mutation réussie d'un prospect ou d'un message
+// (édition, annulation, changement d'état) ; le worker périodique reprend les échecs (backoff).
+app.use('/api/prospects', (req, res, next) => {
+  if (req.method !== 'GET') res.on('finish', () => { if (res.statusCode < 400) toolbox.kickCleanup(); });
+  next();
+});
+const sendToolboxError = (res: express.Response, e: unknown, fallback: string) => e instanceof ToolboxError
+  ? res.status(e.httpStatus).json({ error: e.message, code: e.code })
+  : res.status(500).json({ error: fallback });
 const norm = (v: unknown) => String(v || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
 app.get('/api/drafts/:key', (req, res) => {
@@ -345,6 +365,11 @@ app.post('/api/prospects/:id/messages/:step/generate', async (req, res) => {
     res.json(await generationService().generate(req.params.id, step, parseGenerateRequest(req.body), actor(req)));
   } catch (e) { sendMessageError(res, e, 'Génération du message impossible'); }
 });
+// Brouillon distant créé après la validation/programmation (hors transaction) ; la réponse porte le message relu (id distant compris).
+async function withRemoteDraft(service: ReturnType<typeof messageService>, result: ReturnType<ReturnType<typeof messageService>['validate']>, a: Actor) {
+  const remoteDraft = await service.syncRemoteDraft(result.message.id, a);
+  return { ...result, message: getContactMessageById(db, result.message.id) ?? result.message, remoteDraft };
+}
 app.post('/api/prospects/:id/messages/:step/:action', async (req, res) => {
   try {
     const service = messageService();
@@ -352,12 +377,10 @@ app.post('/api/prospects/:id/messages/:step/:action', async (req, res) => {
     const a = actor(req);
     switch (req.params.action) {
       case 'validate': {
-        const result = service.validate(req.params.id, step, parseExpectedRevision(req.body), a);
-        return res.json({ ...result, remoteDraft: await service.syncRemoteDraft(result.message.id, a) });
+        return res.json(await withRemoteDraft(service, service.validate(req.params.id, step, parseExpectedRevision(req.body), a), a));
       }
       case 'schedule': {
-        const result = service.schedule(req.params.id, step, parseSchedule(req.body), a);
-        return res.json({ ...result, remoteDraft: await service.syncRemoteDraft(result.message.id, a) });
+        return res.json(await withRemoteDraft(service, service.schedule(req.params.id, step, parseSchedule(req.body), a), a));
       }
       case 'unschedule': return res.json(service.unschedule(req.params.id, step, parseExpectedRevision(req.body), a));
       case 'cancel': return res.json(service.cancel(req.params.id, step, parseExpectedRevision(req.body), a));
@@ -365,6 +388,16 @@ app.post('/api/prospects/:id/messages/:step/:action', async (req, res) => {
       default: return res.status(404).json({ error: 'Action de message inconnue', code: 'unknown_action' });
     }
   } catch (e) { sendMessageError(res, e, 'Action sur le message impossible'); }
+});
+
+// CIRCOE Toolbox (Task 15) : état de connexion sans secret, démarrage du flux OAuth (URL d'autorisation renvoyée au navigateur),
+// oubli du jeton. Aucun envoi ici (Task 16).
+app.get('/api/toolbox/status', (_req, res) => res.json(toolbox.status()));
+app.post('/api/toolbox/connect', async (req, res) => {
+  try { res.json(await toolbox.startAuthorization(actor(req))); } catch (e) { sendToolboxError(res, e, 'Connexion à la Toolbox impossible'); }
+});
+app.post('/api/toolbox/disconnect', (_req, res) => {
+  try { toolbox.disconnect(); res.json(toolbox.status()); } catch (e) { sendToolboxError(res, e, 'Déconnexion de la Toolbox impossible'); }
 });
 
 app.get('/api/companies', (_req, res) => res.json(rows('SELECT c.*,count(p.id) prospect_count FROM companies c LEFT JOIN prospects p ON p.company_id=c.id GROUP BY c.id ORDER BY c.display_name')));

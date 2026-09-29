@@ -13,6 +13,7 @@ import type { ProspectionCounters } from '../shared/prospectionDashboard';
 import { loadStoredPage, nav, PROSPECTION_SELECTED_KEY, storePage, storeProspectionSelection, type Page } from './navigation';
 import { ContactPage } from './ContactPage';
 import { PageTitle } from './PageTitle';
+import { ToolboxSettings } from './ToolboxSettings';
 
 type Prospect = Record<string, any>;
 
@@ -376,7 +377,7 @@ function Settings() {
   const [roles, setRoles] = useState<any[]>([]), [cats, setCats] = useState<any[]>([]), [segments, setSegments] = useState<any[]>([]), [companies, setCompanies] = useState<any[]>([]);
   const load = () => Promise.all([api<any[]>('/api/settings/roles'), api<any[]>('/api/settings/categories'), api<any[]>('/api/settings/segments'), api<any[]>('/api/companies')]).then(([a, b, c, d]) => { setRoles(a); setCats(b); setSegments(c); setCompanies(d); });
   useEffect(() => { load(); }, []);
-  return <><PageTitle title="Paramètres" sub="Taxonomies et référentiels administrables." /><div className="cols"><SettingsSet title="Rôles" items={roles.map(x => x.label)} add={async label => { await api('/api/settings/roles', { method: 'POST', body: JSON.stringify({ label }) }); load(); }} /><SettingsSet title="Catégories d’activité" items={cats.map(x => x.label)} add={async label => { await api('/api/settings/categories', { method: 'POST', body: JSON.stringify({ label }) }); load(); }} /><SettingsSet title="Segments commerciaux" items={segments.map(x => x.label)} add={async label => { await api('/api/settings/segments', { method: 'POST', body: JSON.stringify({ label }) }); load(); }} /><Panel title="Entreprises"><div className="tags">{companies.slice(0, 50).map(c => <span key={c.id}>{c.display_name} · {c.prospect_count}</span>)}</div></Panel></div></>;
+  return <><PageTitle title="Paramètres" sub="Taxonomies et référentiels administrables." /><div className="cols"><SettingsSet title="Rôles" items={roles.map(x => x.label)} add={async label => { await api('/api/settings/roles', { method: 'POST', body: JSON.stringify({ label }) }); load(); }} /><SettingsSet title="Catégories d’activité" items={cats.map(x => x.label)} add={async label => { await api('/api/settings/categories', { method: 'POST', body: JSON.stringify({ label }) }); load(); }} /><SettingsSet title="Segments commerciaux" items={segments.map(x => x.label)} add={async label => { await api('/api/settings/segments', { method: 'POST', body: JSON.stringify({ label }) }); load(); }} /><ToolboxSettings /><Panel title="Entreprises"><div className="tags">{companies.slice(0, 50).map(c => <span key={c.id}>{c.display_name} · {c.prospect_count}</span>)}</div></Panel></div></>;
 }
 
 function Panel({ title, children }: any) { return <div className="panel"><h3>{title}</h3>{children}</div>; }
