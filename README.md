@@ -27,8 +27,12 @@ Ce que fait la V1 :
   message validé ou programmé le repasse en Brouillon : il faut le revalider (et le reprogrammer). « Déprogrammer »
   garde la validation ; « Annuler le message… » l’écarte ; « Rouvrir » le repasse en Brouillon tant que la séquence
   est ouverte. Envoyé = lecture seule ; après « Réponse reçue », « RDV pris » ou « Ignoré », les messages non envoyés
-  sont annulés et l’éditeur est verrouillé. L’envoi automatique à la date programmée et la rédaction IA arrivent
-  ensuite ; pas de pièces jointes. Aucun agent, e-mail ou Calendly simulé.
+  sont annulés et l’éditeur est verrouillé. « Générer / Régénérer avec l’IA » (consigne facultative) rédige objet et
+  corps via OpenAI côté serveur (`OPENAI_API_KEY` + `OPENAI_MODEL` obligatoires, `OPENAI_BASE_URL`/`OPENAI_TIMEOUT_MS`/
+  `OPENAI_MAX_RETRIES` et lien de RDV `CONTACT_BOOKING_URL` optionnels, voir `.env.example`) : résultat toujours
+  Brouillon à relire et valider, confirmation avant de remplacer un contenu, aucune donnée inventée ni coordonnée
+  envoyée, version du prompt enregistrée (`contact-mail-fr-2026-09-v1`). L’envoi automatique à la date programmée
+  arrive ensuite ; pas de pièces jointes. Aucun agent, e-mail ou Calendly simulé.
 
 Chaque modification est tracée (qui, quand, depuis où) ; une opposition « Ne pas contacter » survit aux réimports.
 Un seul utilisateur authentifié pour le pilote. L’interface est en français ; le code et la documentation technique

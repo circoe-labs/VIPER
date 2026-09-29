@@ -20,6 +20,8 @@ import { contactMessageCanceller } from './contactMessageStore.js';
 import {
   ContactMessageError, createContactMessageService, parseExpectedRevision, parseMessageContent, parseMessageStep, parseSchedule, type ContactMessageDeps
 } from './contactMessageService.js';
+import { createContactMailGenerationService, parseGenerateRequest } from './contactMailGenerationService.js';
+import { AiGenerationError, createOpenAiMailGenerator, missingOpenAiSettings, openAiConfigFromEnv } from './openaiMailGenerator.js';
 import { backfillUnassignedProspectRoles, ensureDefaultRoles, inferRoleSlug } from './roleTaxonomy.js';
 
 migrate();
@@ -50,7 +52,17 @@ const messageDeps = (): ContactMessageDeps => ({ defaultFromEmail: process.env.D
 const messageService = () => createContactMessageService(db, messageDeps());
 const sendMessageError = (res: express.Response, e: unknown, fallback: string) => e instanceof ContactMessageError
   ? res.status(e.httpStatus).json({ error: e.message, code: e.code, ...(e.fields ? { fields: e.fields } : {}) })
-  : res.status(500).json({ error: fallback });
+  : e instanceof AiGenerationError
+    ? res.status(e.httpStatus).json({ error: e.message, code: e.code })
+    : res.status(500).json({ error: fallback });
+// Génération IA (Task 14) : configuration relue à chaque requête (clé et modèle serveur uniquement, jamais renvoyés au client).
+const generationService = () => {
+  const config = openAiConfigFromEnv();
+  return createContactMailGenerationService(db, {
+    ...messageDeps(), generator: config ? createOpenAiMailGenerator(config) : null,
+    missingSettings: missingOpenAiSettings(), bookingUrl: process.env.CONTACT_BOOKING_URL || null
+  });
+};
 const norm = (v: unknown) => String(v || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
 app.get('/api/drafts/:key', (req, res) => {
@@ -325,6 +337,13 @@ app.put('/api/prospects/:id/messages/:step', (req, res) => {
     const result = messageService().saveMessage(req.params.id, parseMessageStep(req.params.step), parseMessageContent(req.body), actor(req));
     res.status(result.created ? 201 : 200).json(result);
   } catch (e) { sendMessageError(res, e, 'Enregistrement du message impossible'); }
+});
+// Génération / régénération IA : contenu toujours `draft`, aucune transition prospect, rien d'écrit si l'IA échoue.
+app.post('/api/prospects/:id/messages/:step/generate', async (req, res) => {
+  try {
+    const step = parseMessageStep(req.params.step);
+    res.json(await generationService().generate(req.params.id, step, parseGenerateRequest(req.body), actor(req)));
+  } catch (e) { sendMessageError(res, e, 'Génération du message impossible'); }
 });
 app.post('/api/prospects/:id/messages/:step/:action', async (req, res) => {
   try {

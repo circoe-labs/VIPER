@@ -3,7 +3,9 @@
 // `expected_revision`), validation humaine confirmée, programmation date + heure explicites (aucune heure par défaut),
 // déprogrammation, annulation, réouverture. Envoyé = lecture seule ; séquence fermée = édition/validation/programmation bloquées.
 // Aucune action ici ne change l'état du prospect. Logique pure : `contactMailModel.ts` ; contrat HTTP : Task 12.
-// Task 14 (génération IA) : passer `renderGeneration` à `MailEditor` (rendu en tête de la barre d'actions `.mail-actions`).
+// Task 14 (génération IA) : `MailGenerationControls` passé à `MailEditor` via `renderGeneration` (tête de `.mail-actions`) :
+// « Générer » / « Régénérer » + consigne facultative, confirmation avant de remplacer un contenu ou des modifications locales,
+// résultat toujours Brouillon (logique pure : `mailGenerationModel.ts`).
 import React, { useEffect, useRef, useState, type ReactNode } from 'react';
 import { api, ApiError } from './api';
 import type { ProspectSummaryModel } from './contactWorkbenchModel';
@@ -13,6 +15,10 @@ import {
   scheduleToIso, tabKeyTarget, type ContactMessage, type MailConfirmation, type MailErrorView, type MailField, type MailForm,
   type MessageAction, type MessageMutationResult, type ProspectMessagesResponse
 } from './contactMailModel';
+import {
+  generateUrl, generationAvailability, generationConfirmation, generationErrorView, generationNotice, generationPayload,
+  MAX_GENERATION_INSTRUCTIONS, type GenerationResult
+} from './mailGenerationModel';
 import { contactMessageStepLabels, contactMessageSteps, type ContactMessageStatus, type ContactMessageStep } from '../shared/contactWorkflow';
 
 export type ContactMailPanelProps = {
@@ -26,6 +32,8 @@ export type ContactMailPanelProps = {
 export type MailGenerationContext = {
   step: ContactMessageStep; message: ContactMessage | null; editable: boolean; dirty: boolean; busy: boolean;
   onGenerated: (result: MessageMutationResult) => void;
+  /** Recharge la version enregistrée (conflit, séquence fermée…). */
+  onReload: () => void;
 };
 
 export function MessageStatusBadge({ status }: { status: ContactMessageStatus | null }) {
@@ -227,7 +235,7 @@ export function MailEditor({ prospectId, step, data, localForm, onLocalForm, con
     <div className="mail-actions" role="group" aria-label={`Actions du message ${label}`}>
       {renderGeneration && <div className="mail-actions-generation">{renderGeneration({
         step, message, editable: actions.editable, dirty, busy: busy || !!confirm,
-        onGenerated: result => { onMessage(result.message); onLocalForm(undefined); onReload(); }
+        onGenerated: result => { onMessage(result.message); onLocalForm(undefined); onReload(); }, onReload
       })}</div>}
       {actions.editable && <button type="button" className={actions.showValidate || actions.showSchedule ? 'secondary' : ''} disabled={!actions.canSave} onClick={save}>{actions.saveLabel}</button>}
       {actions.editable && dirty && <button type="button" className="secondary" disabled={busy} onClick={() => { onLocalForm(undefined); setError(null); }}>Abandonner les modifications</button>}
@@ -247,6 +255,52 @@ export function MailEditor({ prospectId, step, data, localForm, onLocalForm, con
       <summary>Message {contactMessageStepLabels[previous]} (référence, lecture seule) <MessageStatusBadge status={previousMessage.status} /></summary>
       <MessageView message={previousMessage} />
     </details>}
+  </div>;
+}
+
+/** Bouton « Générer » / « Régénérer » + consigne (Task 14) ; rien n'est remplacé sans confirmation, rien n'est validé. */
+export function MailGenerationControls({ prospectId, ctx }: { prospectId: string; ctx: MailGenerationContext }) {
+  const [instructions, setInstructions] = useState('');
+  const [running, setRunning] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [feedback, setFeedback] = useState<{ notice: string; error: string }>({ notice: '', error: '' });
+  const availability = generationAvailability({ message: ctx.message, editable: ctx.editable, busy: ctx.busy || running || confirming });
+  const confirmation = generationConfirmation(ctx.step, ctx.message, ctx.dirty);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  if (!availability.show) return null;
+  const id = `mail-generate-${prospectId}-${ctx.step}`;
+  const generate = async () => {
+    setConfirming(false); setRunning(true); setFeedback({ notice: '', error: '' });
+    try {
+      const result = await api<GenerationResult>(generateUrl(prospectId, ctx.step), { method: 'POST', body: JSON.stringify(generationPayload(ctx.message, instructions)) });
+      setInstructions('');
+      setFeedback({ notice: generationNotice(ctx.step, result), error: '' });
+      ctx.onGenerated(result);
+    } catch (e) {
+      const view = generationErrorView(e instanceof ApiError ? e : { message: (e as Error).message });
+      setFeedback({ notice: '', error: view.message });
+      if (view.reload) ctx.onReload();
+    } finally { setRunning(false); }
+  };
+  const request = () => { if (confirmation) { setFeedback({ notice: '', error: '' }); setConfirming(true); } else void generate(); };
+  const cancel = () => { setConfirming(false); requestAnimationFrame(() => buttonRef.current?.focus()); };
+  return <div className="mail-generation" aria-busy={running}>
+    <div className="mail-generation-row">
+      <label htmlFor={`${id}-instructions`} className="sr-only">Consigne pour l’IA (facultatif)</label>
+      <input id={`${id}-instructions`} type="text" value={instructions} maxLength={MAX_GENERATION_INSTRUCTIONS} disabled={running}
+        placeholder={availability.label === 'Régénérer' ? 'Consigne (facultatif) : plus court, autre angle…' : 'Consigne pour l’IA (facultatif)'}
+        onChange={e => setInstructions(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && availability.enabled) { e.preventDefault(); request(); } }} />
+      <button type="button" ref={buttonRef} className="secondary" disabled={!availability.enabled} onClick={request}>
+        {running ? 'Génération en cours…' : `${availability.label} avec l’IA`}
+      </button>
+    </div>
+    {availability.note && <p className="muted">{availability.note}</p>}
+    {confirming && confirmation && <ConfirmBox id={`${id}-confirm`} confirmation={confirmation} busy={running} onConfirm={() => void generate()} onCancel={cancel} />}
+    <div aria-live="polite" className="mail-feedback">
+      {running && <p className="muted">L’IA rédige une proposition (brouillon, à relire)…</p>}
+      {feedback.notice && <p className="workbench-notice">{feedback.notice}</p>}
+      {feedback.error && <p className="danger" role="alert">{feedback.error}</p>}
+    </div>
   </div>;
 }
 
@@ -306,7 +360,8 @@ export function ContactMailPanel({ prospect }: ContactMailPanelProps) {
     {contactMessageSteps.map(step => <div key={step} role="tabpanel" id={`mail-panel-${prospect.id}-${step}`} aria-labelledby={`mail-tab-${prospect.id}-${step}`}
       hidden={step !== active} tabIndex={0} className="mail-panel">
       <MailEditor prospectId={prospect.id} step={step} data={data} localForm={local[step]} onLocalForm={setStepForm(step)}
-        conflictForm={conflicts[step]} onConflict={setStepConflict(step)} onMessage={applyMessage} onReload={() => setReload(n => n + 1)} />
+        conflictForm={conflicts[step]} onConflict={setStepConflict(step)} onMessage={applyMessage} onReload={() => setReload(n => n + 1)}
+        renderGeneration={ctx => <MailGenerationControls prospectId={prospect.id} ctx={ctx} />} />
     </div>)}
   </div>;
 }

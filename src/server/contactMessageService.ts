@@ -464,8 +464,10 @@ export function createContactMessageService(db: Db, deps: ContactMessageDeps = {
      * Task 14 : enregistre un sujet/corps générés. Crée l'étape si absente (valeurs par défaut), sinon applique la règle
      * d'édition (validated/scheduled -> draft) ; résultat toujours `draft`, `generation_model`/`generation_prompt_version`
      * renseignés, événement `generated`. Acteur humain ou `agent` ; jamais de validation, programmation ni transition prospect.
+     * `replaceScheduled: false` (route `generate`) refuse de remplacer un message programmé (`invalid_transition`, à déprogrammer
+     * d'abord), vérifié dans la même transaction que l'écriture.
      */
-    saveGeneratedContent: (prospectId: string, step: ContactMessageStep, input: GeneratedContentInput, actor: Actor): MessageMutationResult => {
+    saveGeneratedContent: (prospectId: string, step: ContactMessageStep, input: GeneratedContentInput, actor: Actor, options: { replaceScheduled?: boolean } = {}): MessageMutationResult => {
       if (!(isHuman(actor) || (actor.type === 'agent' && actor.id))) throw new ContactMessageError('human_actor_required', 'Génération demandée sans acteur identifié');
       const generation = { model: input.model.trim(), promptVersion: input.prompt_version.trim() };
       return db.transaction((): MessageMutationResult => {
@@ -477,6 +479,7 @@ export function createContactMessageService(db: Db, deps: ContactMessageDeps = {
         requireNotSent(existing);
         if (input.expected_revision === undefined || input.expected_revision === null) throw new ContactMessageError('message_exists', 'Le message de cette étape existe déjà : recharger avant de continuer');
         requireRevision(existing, input.expected_revision);
+        if (options.replaceScheduled === false && existing.status === 'scheduled') throw invalidTransition(existing.status, 'régénérer');
         return editContent(existing, { ...existing, subject: input.subject, body_text: input.body_text }, actor, at, generation);
       })();
     },
