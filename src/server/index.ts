@@ -9,11 +9,12 @@ import { parseWorkbook } from './importer.js';
 import { buildExport } from './exporter.js';
 import { assertReadOnlySql } from './sqlSafety.js';
 import { archiveImportedWorkbook } from './storage.js';
+import { deleteDraftRecord, loadDraftRecord, saveDraftRecord } from './drafts.js';
 
 migrate();
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '50mb' }));
 app.use(cookieParser());
 app.post('/api/auth/login', login);
 app.post('/api/auth/logout', logout);
@@ -23,6 +24,34 @@ app.use('/api', requireAuth);
 const actor = (req: express.Request) => (req as any).actor || { type: 'human', id: 'pilot-user', display: 'Commercial VIPER' };
 const nowIso = () => new Date().toISOString();
 const norm = (v: unknown) => String(v || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+app.get('/api/drafts/:key', (req, res) => {
+  try {
+    const draft = loadDraftRecord(db, req.params.key);
+    if (!draft) return res.status(404).json({ error: 'Brouillon introuvable' });
+    res.json(draft);
+  } catch (e) {
+    res.status(500).json({ error: e instanceof Error ? e.message : 'Lecture du brouillon impossible' });
+  }
+});
+
+app.put('/api/drafts/:key', (req, res) => {
+  try {
+    const draft = saveDraftRecord(db, req.params.key, req.body?.value);
+    res.json(draft);
+  } catch (e) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'Sauvegarde du brouillon impossible' });
+  }
+});
+
+app.delete('/api/drafts/:key', (req, res) => {
+  try {
+    deleteDraftRecord(db, req.params.key);
+    res.status(204).end();
+  } catch (e) {
+    res.status(500).json({ error: e instanceof Error ? e.message : 'Suppression du brouillon impossible' });
+  }
+});
 
 app.get('/api/state/backup', (_req, res) => {
   try {
