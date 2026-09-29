@@ -19,6 +19,21 @@ npm run dev
 
 Identifiants de développement par défaut : `commercial@example.test` / `change-me-now`. À remplacer hors développement.
 
+## Persistance des données
+
+Les données VIPER ne sont plus stockées dans le checkout Git. Par défaut, SQLite et les classeurs Excel importés sont conservés dans `~/.viper` :
+
+- `~/.viper/viper.sqlite` : base VIPER persistante ;
+- `~/.viper/imports/` : copie locale des classeurs importés.
+
+Un redémarrage de VIPER, un `git pull` ou une modification du code ne doit donc plus effacer les prospects importés.
+
+Au premier démarrage avec cette version, si une ancienne base existe encore dans `./data/viper.sqlite`, VIPER la recopie automatiquement vers le stockage persistant.
+
+Pour un serveur, Docker ou une VM, définir `VIPER_STORAGE_DIR` vers un volume réellement persistant, par exemple `/data/viper`. `VIPER_DB_PATH` reste disponible si un chemin SQLite précis doit être imposé.
+
+Les classeurs réels restent des données privées locales : ils sont archivés hors du dépôt et ne sont jamais commités sur GitHub.
+
 ## Git et branche GPT
 
 Le dépôt distant est `https://github.com/circoe-labs/VIPER.git`. La branche de travail locale est `GPT` et suit `origin/GPT`.
