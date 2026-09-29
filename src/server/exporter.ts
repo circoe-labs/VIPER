@@ -18,6 +18,14 @@ function isoWeek(value: unknown) {
   return `S${Math.ceil((((target.getTime() - yearStart.getTime()) / 86400000) + 1) / 7)}`;
 }
 
+type Nullable = string | null;
+type ExportRow = {
+  referent: string; company: string; email_domain: Nullable; project_done_with_circoe: Nullable; project_type: Nullable; circoe_references: Nullable; client_approach: Nullable;
+  planned_contact_at: Nullable; contact_year: number | null; contact_week: number | null; civility: Nullable; last_name: string; first_name: string; role: Nullable; exact_job_title: Nullable;
+  activity_status: string; employment_verified_at: Nullable; email: Nullable; email_verification: Nullable; email_verified_at: Nullable; phone: Nullable;
+  tracking_status: Nullable; contactability_status: string; response_received_at: Nullable; appointment_at: Nullable;
+};
+
 export function buildExport() {
   const raw = db.prepare(`SELECT
     trim(coalesce(ir.first_name,'')||' '||coalesce(ir.last_name,'')) AS referent,
@@ -32,7 +40,7 @@ export function buildExport() {
     LEFT JOIN phones ph ON ph.prospect_id=p.id AND ph.is_primary=1 AND ph.is_active=1
     LEFT JOIN contact_tracking ct ON ct.prospect_id=p.id
     LEFT JOIN internal_referents ir ON ir.id=ct.referent_id
-    ORDER BY c.display_name,p.last_name,p.first_name`).all() as any[];
+    ORDER BY c.display_name,p.last_name,p.first_name`).all() as ExportRow[];
 
   const data = raw.map(x => ({
     'Référent': x.referent || '',
@@ -49,7 +57,7 @@ export function buildExport() {
     'Vérification emploi': x.employment_verified_at ? 'Vérifié' : 'À vérifier',
     'Vérifié le': x.employment_verified_at || '',
     'Mail': x.email || '',
-    'Statut email': emailLabels[x.email_verification] || x.email_verification || '',
+    'Statut email': emailLabels[x.email_verification ?? ''] || x.email_verification || '',
     'Email vérifié le': x.email_verified_at || '',
     'Téléphone': x.phone || '',
     'Suivi de contact': trackingLabel(x.tracking_status),

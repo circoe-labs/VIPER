@@ -1,4 +1,5 @@
 import { scheduleStateBackup } from './stateCache';
+import type { ImportPreview } from './apiTypes';
 
 export async function previewWorkbook(file: File) {
   const fd = new FormData();
@@ -9,7 +10,7 @@ export async function previewWorkbook(file: File) {
   return body;
 }
 
-export async function commitWorkbookPreview(preview: any) {
+export async function commitWorkbookPreview(preview: ImportPreview) {
   const response = await fetch('/api/import/commit', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

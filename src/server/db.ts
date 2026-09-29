@@ -48,7 +48,7 @@ export function serializeDatabase() {
 
 export function isBusinessStateEmpty() {
   migrate();
-  return Number((db.prepare('SELECT count(*) AS n FROM prospects').get() as any)?.n || 0) === 0;
+  return Number((db.prepare('SELECT count(*) AS n FROM prospects').get() as { n: number } | undefined)?.n || 0) === 0;
 }
 
 export function restoreDatabase(buffer: Buffer) {

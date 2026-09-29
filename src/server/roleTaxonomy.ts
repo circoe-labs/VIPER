@@ -124,7 +124,7 @@ export function ensureDefaultRoles(db: Database.Database) {
   }
 
   for (const role of DEFAULT_ROLES) {
-    let current = db.prepare('SELECT id,label,slug FROM roles WHERE slug=?').get(role.slug) as any;
+    let current = db.prepare('SELECT id,label,slug FROM roles WHERE slug=?').get(role.slug) as { id: string; label: string; slug: string } | undefined;
     if (!current) {
       current = { id: randomUUID(), slug: role.slug, label: role.label };
       db.prepare('INSERT INTO roles(id,label,slug,active) VALUES(?,?,?,1)').run(current.id, role.label, role.slug);
@@ -147,7 +147,7 @@ export function backfillUnassignedProspectRoles(db: Database.Database) {
     LEFT JOIN roles r ON r.id=p.role_id
     WHERE coalesce(trim(p.exact_job_title),'')<>''
       AND (p.role_id IS NULL OR r.slug IN (${placeholders}))
-  `).all(...legacySlugs) as any[];
+  `).all(...legacySlugs) as { id: string; exact_job_title: string | null; current_role_slug: string | null }[];
 
   let updated = 0;
   const update = db.prepare('UPDATE prospects SET role_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=?');

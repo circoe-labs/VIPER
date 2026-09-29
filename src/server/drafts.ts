@@ -17,7 +17,7 @@ export function saveDraftRecord<T>(db: Database.Database, key: string, value: T)
 }
 
 export function loadDraftRecord<T>(db: Database.Database, key: string): StoredDraft<T> | null {
-  const row = db.prepare('SELECT key,payload,updated_at FROM drafts WHERE key=?').get(key) as any;
+  const row = db.prepare('SELECT key,payload,updated_at FROM drafts WHERE key=?').get(key) as { key: string; payload: string; updated_at: string } | undefined;
   if (!row) return null;
   return { key: row.key, updatedAt: row.updated_at, value: JSON.parse(row.payload) as T };
 }

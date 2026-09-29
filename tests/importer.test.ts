@@ -2,14 +2,14 @@ import { describe, it, expect } from 'vitest';
 import * as XLSX from 'xlsx';
 import { parseWorkbook, resolveLegacyWeek } from '../src/server/importer.js';
 
-function workbook(rows: any[], extra = false) {
+function workbook(rows: Record<string, unknown>[], extra = false) {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'BASE CLIENT');
   if (extra) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([{ x: 1 }]), 'actualité');
   return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
 }
 
-function workbookWithNoise(rows: any[]) {
+function workbookWithNoise(rows: Record<string, unknown>[]) {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Base client ');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['FBL', '', '', 'Commerciale'], ['Noise', '', '', 'Transport']]), 'Feuil1');

@@ -63,7 +63,7 @@ app.post('/api/auth/logout', logout);
 app.get('/api/auth/me', me);
 app.use('/api', requireAuth);
 
-const actor = (req: express.Request) => (req as any).actor || { type: 'human', id: 'pilot-user', display: 'Commercial VIPER' };
+const actor = (req: express.Request): Actor => (req as express.Request & { actor?: Actor }).actor || { type: 'human', id: 'pilot-user', display: 'Commercial VIPER' };
 const nowIso = () => new Date().toISOString();
 // Dépendances du service de suivi : annulation SQL des messages futurs (décision 29, Task 11) ; la suppression des brouillons
 // distants mis en file (`contact_message_remote_draft_cleanups`) est faite après commit par le worker Toolbox (Task 15) ; un
@@ -157,7 +157,7 @@ app.post('/api/state/restore', upload.single('backup'), (req, res) => {
 function ensureCategory(label: string) {
   const clean = label.trim();
   if (!clean) return null;
-  let category = db.prepare('SELECT id FROM activity_categories WHERE lower(label)=lower(?)').get(clean) as any;
+  let category = db.prepare('SELECT id FROM activity_categories WHERE lower(label)=lower(?)').get(clean) as { id: string } | undefined;
   if (!category) {
     category = { id: randomUUID() };
     db.prepare('INSERT INTO activity_categories(id,label) VALUES(?,?)').run(category.id, clean);
@@ -171,7 +171,7 @@ function ensureReferent(label: string) {
   const parts = clean.split(/\s+/).filter(Boolean);
   const firstName = parts[0] || clean;
   const lastName = parts.slice(1).join(' ');
-  let ref = db.prepare("SELECT id FROM internal_referents WHERE lower(trim(first_name||' '||last_name))=lower(?)").get(clean) as any;
+  let ref = db.prepare("SELECT id FROM internal_referents WHERE lower(trim(first_name||' '||last_name))=lower(?)").get(clean) as { id: string } | undefined;
   if (!ref) {
     ref = { id: randomUUID() };
     db.prepare('INSERT INTO internal_referents(id,first_name,last_name) VALUES(?,?,?)').run(ref.id, firstName, lastName);
@@ -179,9 +179,15 @@ function ensureReferent(label: string) {
   return ref.id as string;
 }
 
-function syncEmails(prospectId: string, items: any[] | undefined, forceUnverified = false) {
+// Formes JSON envoyées par le formulaire prospect (App.tsx) et lignes SQL relues pour la synchronisation.
+type ContactPointInput = { id?: string; is_primary?: boolean | number; verification_status: string; source_reference?: string };
+type EmailInput = ContactPointInput & { address?: string };
+type PhoneInput = ContactPointInput & { number?: string; type: string };
+type ContactPointRow = { id: string; verification_status: string; last_verified_at: string | null; source_reference: string | null };
+
+function syncEmails(prospectId: string, items: EmailInput[] | undefined, forceUnverified = false) {
   if (!Array.isArray(items)) return;
-  const existing = rows('SELECT * FROM emails WHERE prospect_id=?', [prospectId]) as any[];
+  const existing = rows('SELECT * FROM emails WHERE prospect_id=?', [prospectId]) as (ContactPointRow & { address: string })[];
   const existingById = new Map(existing.map(x => [x.id, x]));
   db.prepare('UPDATE emails SET is_primary=0 WHERE prospect_id=?').run(prospectId);
   const active = items.filter(x => String(x.address || '').trim());
@@ -208,9 +214,9 @@ function syncEmails(prospectId: string, items: any[] | undefined, forceUnverifie
   for (const old of existing) if (!kept.has(old.id)) db.prepare('UPDATE emails SET is_active=0,is_primary=0,updated_at=CURRENT_TIMESTAMP WHERE id=?').run(old.id);
 }
 
-function syncPhones(prospectId: string, items: any[] | undefined, forceUnverified = false) {
+function syncPhones(prospectId: string, items: PhoneInput[] | undefined, forceUnverified = false) {
   if (!Array.isArray(items)) return;
-  const existing = rows('SELECT * FROM phones WHERE prospect_id=?', [prospectId]) as any[];
+  const existing = rows('SELECT * FROM phones WHERE prospect_id=?', [prospectId]) as (ContactPointRow & { number: string })[];
   const existingById = new Map(existing.map(x => [x.id, x]));
   db.prepare('UPDATE phones SET is_primary=0 WHERE prospect_id=?').run(prospectId);
   const active = items.filter(x => String(x.number || '').trim());
@@ -241,7 +247,7 @@ function syncPhones(prospectId: string, items: any[] | undefined, forceUnverifie
 // Accueil : compteurs de donnée identiques aux cartes Prospection (Task 07) + activité de contact existante ;
 // « Rendez-vous » = « RDV pris » cumulés du dashboard Contact (Task 09, même définition SQL).
 app.get('/api/dashboard', (_req, res) => {
-  const one = (sql: string) => Number((db.prepare(sql).get() as any)?.n || 0);
+  const one = (sql: string) => Number((db.prepare(sql).get() as { n: number } | undefined)?.n || 0);
   const today = new Date();
   res.json({
     ...prospectionCounters(db, { today }),
@@ -269,7 +275,7 @@ app.get('/api/prospects', (req, res) => {
   const filter = String(req.query.filter || '');
   const company = String(req.query.company || '');
   const search = prospectSearchSql(q);
-  const ps: any[] = [...search.params];
+  const ps: unknown[] = [...search.params];
   let w = search.sql;
   if (company) { w += ' AND p.company_id=?'; ps.push(company); }
   if (isProspectionFilter(filter)) { const f = prospectionFilterSql(filter, new Date()); w += ` AND ${f.sql}`; ps.push(...f.params); } // cartes Prospection (Task 07)
@@ -277,9 +283,9 @@ app.get('/api/prospects', (req, res) => {
 });
 
 app.get('/api/prospects/:id', (req, res) => {
-  const prospect = db.prepare('SELECT * FROM prospects WHERE id=?').get(req.params.id) as any;
+  const prospect = db.prepare('SELECT * FROM prospects WHERE id=?').get(req.params.id) as Record<string, unknown> | undefined;
   if (!prospect) return res.status(404).json({ error: 'Prospect introuvable' });
-  const tracking = db.prepare('SELECT * FROM contact_tracking WHERE prospect_id=?').get(req.params.id) as any || null;
+  const tracking = db.prepare('SELECT * FROM contact_tracking WHERE prospect_id=?').get(req.params.id) as Record<string, unknown> | undefined || null;
   res.json({
     prospect,
     company: db.prepare('SELECT * FROM companies WHERE id=?').get(prospect.company_id) || null,
@@ -299,7 +305,7 @@ app.post('/api/prospects', (req, res) => {
   const id = randomUUID();
   const a = actor(req);
   const inferredSlug = !b.role_id ? inferRoleSlug(b.exact_job_title) : null;
-  const inferredRole = inferredSlug ? db.prepare('SELECT id FROM roles WHERE slug=?').get(inferredSlug) as any : null;
+  const inferredRole = inferredSlug ? db.prepare('SELECT id FROM roles WHERE slug=?').get(inferredSlug) as { id: string } | undefined : null;
   try {
     db.transaction(() => {
       db.prepare('INSERT INTO prospects(id,company_id,civility,first_name,last_name,role_id,exact_job_title,activity_status,employment_verified_at,contactability_status) VALUES(?,?,?,?,?,?,?,?,?,?)')
@@ -318,7 +324,7 @@ app.post('/api/prospects', (req, res) => {
 
 app.put('/api/prospects/:id', (req, res) => {
   const b = req.body || {};
-  const before = db.prepare('SELECT * FROM prospects WHERE id=?').get(req.params.id) as any;
+  const before = db.prepare('SELECT * FROM prospects WHERE id=?').get(req.params.id) as Record<string, unknown> | undefined;
   if (!before) return res.status(404).json({ error: 'Prospect introuvable' });
   const a = actor(req);
   const contactability = before.contactability_status === 'do_not_contact' ? 'do_not_contact' : (b.contactability_status || before.contactability_status);
@@ -457,6 +463,7 @@ app.post('/api/import/preview', upload.single('file'), (req, res) => {
   }
 });
 
+type ImportedProspect = { id: string; employment_verified_at: string | null };
 app.post('/api/import/commit', (req, res) => {
   const p = req.body;
   if (!p?.rows) return res.status(400).json({ error: 'Prévisualisation requise' });
@@ -468,9 +475,9 @@ app.post('/api/import/commit', (req, res) => {
       db.prepare('INSERT INTO import_batches(id,filename,sheets,imported_at,status,row_count,actor_id,file_fingerprint) VALUES(?,?,?,?,?,?,?,?)')
         .run(batchId, p.filename, JSON.stringify(p.sheets), p.importedAt || nowIso(), 'committed', p.rows.length, actor(req).id, p.fingerprint || null);
       for (const r of p.rows) {
-        if (r.excluded || r.diagnostics?.some((d: any) => d.level === 'error')) { rejected++; continue; }
+        if (r.excluded || r.diagnostics?.some((d: { level?: string }) => d.level === 'error')) { rejected++; continue; }
         const n = r.normalized || {};
-        let company = db.prepare('SELECT * FROM companies WHERE lower(display_name)=lower(?)').get(n.company) as any;
+        let company = db.prepare('SELECT * FROM companies WHERE lower(display_name)=lower(?)').get(n.company) as { id: string } | undefined;
         if (!company) {
           company = { id: randomUUID() };
           db.prepare('INSERT INTO companies(id,display_name,project_done_with_circoe,project_type,circoe_references,client_approach) VALUES(?,?,?,?,?,?)')
@@ -492,14 +499,14 @@ app.post('/api/import/commit', (req, res) => {
         }
 
         let prospect = n.email
-          ? db.prepare('SELECT p.* FROM prospects p JOIN emails e ON e.prospect_id=p.id WHERE lower(e.address)=lower(?)').get(n.email) as any
+          ? db.prepare('SELECT p.* FROM prospects p JOIN emails e ON e.prospect_id=p.id WHERE lower(e.address)=lower(?)').get(n.email) as ImportedProspect | undefined
           : null;
         if (!prospect && !n.identity_unknown) {
-          prospect = db.prepare('SELECT * FROM prospects WHERE company_id=? AND lower(first_name)=lower(?) AND lower(last_name)=lower(?)').get(company.id, n.first_name, n.last_name) as any;
+          prospect = db.prepare('SELECT * FROM prospects WHERE company_id=? AND lower(first_name)=lower(?) AND lower(last_name)=lower(?)').get(company.id, n.first_name, n.last_name) as ImportedProspect | undefined;
         }
         const storedFirstName = n.first_name || '';
         const storedLastName = n.last_name || 'Inconnu';
-        const inferredRole = n.role_slug ? db.prepare('SELECT id FROM roles WHERE slug=?').get(n.role_slug) as any : null;
+        const inferredRole = n.role_slug ? db.prepare('SELECT id FROM roles WHERE slug=?').get(n.role_slug) as { id: string } | undefined : null;
         const inferredRoleId = inferredRole?.id || null;
         const verifiedAt = n.verification_state === 'verified' ? (n.employment_verified_at || p.importedAt || nowIso()) : null;
         if (!prospect) {
@@ -517,7 +524,7 @@ app.post('/api/import/commit', (req, res) => {
         trackingService().applyImport(prospect.id, { status: n.tracking_status, contactYear: n.contact_year, contactWeek: n.contact_week, plannedContactAt: n.planned_contact_at || null, referentId, importedAt: p.importedAt || nowIso() }, importActor);
 
         if (n.email) {
-          const existingEmail = db.prepare('SELECT * FROM emails WHERE lower(address)=lower(?)').get(n.email) as any;
+          const existingEmail = db.prepare('SELECT * FROM emails WHERE lower(address)=lower(?)').get(n.email) as { id: string; prospect_id: string; verification_status: string } | undefined;
           if (!existingEmail) {
             db.prepare('INSERT INTO emails(id,prospect_id,address,is_primary,verification_status,origin_type,last_verified_at,source_reference) VALUES(?,?,?,?,?,?,?,?)')
               .run(randomUUID(), prospect.id, n.email, 1, n.email_verification_status || 'unverified', 'imported', n.email_verified_at || null, `${n.sheet}:${r.row}`);
@@ -556,7 +563,7 @@ const safe = new Set(['companies', 'establishments', 'prospects', 'emails', 'pho
 app.get('/api/database/tables', (_req, res) => res.json(rows("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").filter(r => safe.has(String(r.name)))));
 app.get('/api/database/table/:name', (req, res) => {
   if (!safe.has(req.params.name)) return res.status(400).json({ error: 'Table non exposée' });
-  res.json({ data: rows(`SELECT * FROM ${req.params.name} LIMIT 100`), columns: rows(`PRAGMA table_info(${req.params.name})`), count: (db.prepare(`SELECT count(*) n FROM ${req.params.name}`).get() as any).n });
+  res.json({ data: rows(`SELECT * FROM ${req.params.name} LIMIT 100`), columns: rows(`PRAGMA table_info(${req.params.name})`), count: (db.prepare(`SELECT count(*) n FROM ${req.params.name}`).get() as { n: number }).n });
 });
 app.post('/api/database/sql', (req, res) => {
   try { res.json({ rows: db.prepare(assertReadOnlySql(String(req.body?.sql || ''))).all().slice(0, 500) }); }

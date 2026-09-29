@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from './api';
 import { commitWorkbookPreview, previewWorkbook } from './importCache';
 import { hasServerBusinessState, requestPersistentBrowserStorage, restoreLatestViperState, saveCurrentViperState } from './stateCache';
@@ -14,8 +14,21 @@ import { loadStoredPage, nav, PROSPECTION_SELECTED_KEY, storePage, storeProspect
 import { ContactPage } from './ContactPage';
 import { PageTitle } from './PageTitle';
 import { ToolboxSettings } from './ToolboxSettings';
+import type {
+  CompanyListItem, CompanyRow, EmailRow, HomeDashboard, ImportPreview, LabelRow, PhoneRow, ProspectDetail, ProspectListItem, ProspectRow, ReferentRow,
+  SearchResult, TableGrid, TrackingHistoryRow, TrackingRow
+} from './apiTypes';
 
-type Prospect = Record<string, any>;
+// Fiche éditée : colonnes du prospect (absentes pour une création) + sous-objets ; `is_primary` vaut 0/1 (serveur) ou booléen (radio).
+type ContactPointForm<T> = Omit<Partial<T>, 'is_primary'> & { is_primary?: number | boolean };
+type EmailForm = ContactPointForm<EmailRow>;
+type PhoneForm = ContactPointForm<PhoneRow>;
+type TrackingForm = Partial<TrackingRow>;
+type ProspectForm = Partial<ProspectRow> & { tracking: TrackingForm; emails: EmailForm[]; phones: PhoneForm[]; trackingHistory?: TrackingHistoryRow[]; company?: CompanyRow | null };
+// Détail enregistré ; son suivi est complété par les réponses de `PATCH .../tracking` (WeekPlanner), d'où `Partial`.
+type SavedProspect = Partial<Omit<ProspectDetail, 'tracking'>> & { tracking?: TrackingForm | null };
+type DrawerTab = 'identity' | 'contact' | 'tracking' | 'history';
+type ProspectDraft = { form: ProspectForm; tab: DrawerTab; employmentTouched: boolean; verifyNow: boolean };
 
 const IMPORT_DRAFT_KEY = 'import-preview';
 
@@ -47,10 +60,10 @@ function Login({ onDone }: { onDone: () => void }) {
 function Shell() {
   const [page, setPage] = useState<Page>(() => loadStoredPage(localStorage));
   const [search, setSearch] = useState('');
-  const [results, setResults] = useState<any[]>([]);
+  const [results, setResults] = useState<SearchResult[]>([]);
   useEffect(() => { storePage(localStorage, page); }, [page]);
   useEffect(() => {
-    const t = setTimeout(() => search.trim() ? api<any[]>('/api/search?q=' + encodeURIComponent(search)).then(setResults) : setResults([]), 180);
+    const t = setTimeout(() => search.trim() ? api<SearchResult[]>('/api/search?q=' + encodeURIComponent(search)).then(setResults) : setResults([]), 180);
     return () => clearTimeout(t);
   }, [search]);
   return <div className="app">
@@ -73,20 +86,20 @@ function Shell() {
 }
 
 function Home({ onGo }: { onGo: () => void }) {
-  const [d, setD] = useState<any>();
-  useEffect(() => { api('/api/dashboard').then(setD); }, []);
+  const [d, setD] = useState<HomeDashboard>();
+  useEffect(() => { api<HomeDashboard>('/api/dashboard').then(setD); }, []);
   if (!d) return <p>Chargement…</p>;
   const cards = [['Prospects', d.total], ['Contacts dus', d.due], ['Emploi à vérifier', d.employmentUnverified], ['Emails à fiabiliser', d.emailToReview], ['Contactés', d.contacted], ['Réponses', d.responses], ['Rendez-vous', d.appointments]];
   return <><PageTitle title="Vue d’ensemble" sub="Santé de la base et activité de contact issue des données réellement enregistrées." />
     <div className="cards">{cards.map(([l, v]) => <button onClick={onGo} key={l}><span>{l}</span><b>{v}</b></button>)}</div>
     <div className="cols"><Panel title="Objectifs mensuels"><Progress label="Prospects contactés" value={d.contacted} target={100} /><Progress label="Rendez-vous" value={d.appointments} target={10} /></Panel>
-      <Panel title="Prochaines actions">{d.nextActions.length ? d.nextActions.map((x: any) => <div className="row" key={x.id}><b>{x.first_name} {x.last_name}</b><span className="next-action">{x.company}<TrackingBadges status={x.status} year={x.next_action_year} week={x.next_action_week} /></span></div>) : <p className="muted">Aucune semaine planifiée.</p>}</Panel></div>
+      <Panel title="Prochaines actions">{d.nextActions.length ? d.nextActions.map(x => <div className="row" key={x.id}><b>{x.first_name} {x.last_name}</b><span className="next-action">{x.company}<TrackingBadges status={x.status} year={x.next_action_year} week={x.next_action_week} /></span></div>) : <p className="muted">Aucune semaine planifiée.</p>}</Panel></div>
   </>;
 }
 
 function Prospection() {
-  const [list, setList] = useState<Prospect[]>([]);
-  const [all, setAll] = useState<Prospect[]>([]);
+  const [list, setList] = useState<ProspectListItem[]>([]);
+  const [all, setAll] = useState<ProspectListItem[]>([]);
   const [filter, setFilter] = useState('');
   const [company, setCompany] = useState('');
   const [q, setQ] = useState('');
@@ -94,12 +107,13 @@ function Prospection() {
   const [importOpen, setImportOpen] = useState(false);
   const [hasImportDraft, setHasImportDraft] = useState(false);
   const [counters, setCounters] = useState<ProspectionCounters>(emptyProspectionCounters);
-  const load = () => Promise.all([
-    api<Prospect[]>(`/api/prospects?q=${encodeURIComponent(q)}&filter=${encodeURIComponent(filter)}&company=${encodeURIComponent(company)}`),
-    api<Prospect[]>(`/api/prospects?q=${encodeURIComponent(q)}`),
+  // Mémoïsé sur (q, filter, company) : l'effet ci-dessous se relance exactement quand l'un d'eux change, comme avant.
+  const load = useCallback(() => Promise.all([
+    api<ProspectListItem[]>(`/api/prospects?q=${encodeURIComponent(q)}&filter=${encodeURIComponent(filter)}&company=${encodeURIComponent(company)}`),
+    api<ProspectListItem[]>(`/api/prospects?q=${encodeURIComponent(q)}`),
     api<ProspectionCounters>(`/api/prospection/counters?q=${encodeURIComponent(q)}`)
-  ]).then(([filtered, full, counts]) => { setList(filtered); setAll(full); setCounters(counts); });
-  useEffect(() => { load(); }, [q, filter, company]);
+  ]).then(([filtered, full, counts]) => { setList(filtered); setAll(full); setCounters(counts); }), [q, filter, company]);
+  useEffect(() => { load(); }, [load]);
   useEffect(() => { if (selected) localStorage.setItem(PROSPECTION_SELECTED_KEY, selected); else localStorage.removeItem(PROSPECTION_SELECTED_KEY); }, [selected]);
   useEffect(() => {
     hasDraft(IMPORT_DRAFT_KEY).then(found => {
@@ -139,12 +153,12 @@ function Prospection() {
 }
 
 function Drawer({ id, nextId, close, saved, trackingChanged }: { id: string; nextId: string | null; close: () => void; saved: (goNext: boolean) => void; trackingChanged: () => void }) {
-  const [companies, setCompanies] = useState<any[]>([]);
-  const [roles, setRoles] = useState<any[]>([]);
-  const [referents, setReferents] = useState<any[]>([]);
-  const [form, setForm] = useState<any>({ activity_status: 'unknown', contactability_status: 'contactable', tracking: { status: 'neutral' }, emails: [], phones: [] });
-  const [original, setOriginal] = useState<any>();
-  const [tab, setTab] = useState<'identity' | 'contact' | 'tracking' | 'history'>('identity');
+  const [companies, setCompanies] = useState<CompanyListItem[]>([]);
+  const [roles, setRoles] = useState<LabelRow[]>([]);
+  const [referents, setReferents] = useState<ReferentRow[]>([]);
+  const [form, setForm] = useState<ProspectForm>({ activity_status: 'unknown', contactability_status: 'contactable', tracking: { status: 'neutral' }, emails: [], phones: [] });
+  const [original, setOriginal] = useState<SavedProspect>();
+  const [tab, setTab] = useState<DrawerTab>('identity');
   const [employmentTouched, setEmploymentTouched] = useState(false);
   const [verifyNow, setVerifyNow] = useState(false);
   const [draftReady, setDraftReady] = useState(false);
@@ -155,20 +169,23 @@ function Drawer({ id, nextId, close, saved, trackingChanged }: { id: string; nex
 
   useEffect(() => {
     let active = true;
+    // Réinitialisation voulue à chaque changement de fiche (« Enregistrer et suivant » réutilise le Drawer) : la faire pendant le
+    // rendu changerait la séquence observée par l'effet d'autosauvegarde du brouillon ; conservée telle quelle.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setDraftReady(false);
     setDraftRestored(false);
     setPlanningNotice('');
     Promise.all([
-      api<any[]>('/api/companies'),
-      api<any[]>('/api/settings/roles'),
-      api<any[]>('/api/settings/referents'),
-      id !== 'new' ? api<any>('/api/prospects/' + id) : Promise.resolve(null),
-      loadDraft<any>(draftKey)
+      api<CompanyListItem[]>('/api/companies'),
+      api<LabelRow[]>('/api/settings/roles'),
+      api<ReferentRow[]>('/api/settings/referents'),
+      id !== 'new' ? api<ProspectDetail>('/api/prospects/' + id) : Promise.resolve(null),
+      loadDraft<ProspectDraft>(draftKey)
     ]).then(([a, b, c, server, draft]) => {
       if (!active) return;
       setCompanies(a); setRoles(b); setReferents(c);
       if (server) setOriginal(server);
-      const base = server
+      const base: ProspectForm = server
         ? { ...server.prospect, tracking: server.tracking || { status: 'neutral' }, emails: server.emails || [], phones: server.phones || [], trackingHistory: server.trackingHistory || [], company: server.company }
         : { activity_status: 'unknown', contactability_status: 'contactable', tracking: { status: 'neutral' }, emails: [], phones: [] };
       if (draft?.value?.form) {
@@ -186,7 +203,7 @@ function Drawer({ id, nextId, close, saved, trackingChanged }: { id: string; nex
       setDraftReady(true);
     }).catch(e => { if (active) setError((e as Error).message); });
     return () => { active = false; };
-  }, [id]);
+  }, [id, draftKey]); // draftKey dérive de id seul : mêmes relances qu'avec [id]
 
   useEffect(() => {
     if (!draftReady) return;
@@ -195,7 +212,7 @@ function Drawer({ id, nextId, close, saved, trackingChanged }: { id: string; nex
     }, 150);
     return () => window.clearTimeout(timer);
   }, [draftReady, draftKey, form, tab, employmentTouched, verifyNow]);
-  const setEmployment = (patch: any) => { setEmploymentTouched(true); setForm((f: any) => ({ ...f, ...patch })); };
+  const setEmployment = (patch: Partial<ProspectRow>) => { setEmploymentTouched(true); setForm(f => ({ ...f, ...patch })); };
   const save = async (goNext = false) => {
     setError('');
     try {
@@ -212,19 +229,19 @@ function Drawer({ id, nextId, close, saved, trackingChanged }: { id: string; nex
   const trackingStatus = selectableState(form.tracking?.status, doNotContact);
   const savedStatus = original?.tracking?.status;
   const stateLocked = isProspectState(savedStatus) && isTerminalProspectState(savedStatus); // même règle que le service (Task 04)
-  const currentHistory = form.trackingHistory?.find((h: any) => h.to_status === form.tracking?.status);
+  const currentHistory = form.trackingHistory?.find(h => h.to_status === form.tracking?.status);
   const savedHistory: { to_status: string; changed_at: string }[] = original?.trackingHistory ?? [];
   const savedStateSince = savedHistory.find(h => h.to_status === savedStatus)?.changed_at ?? null;
   // Semaine enregistrée à part (PATCH tracking) : la fiche et son brouillon reprennent la semaine renvoyée pour ne pas la réécrire à l'enregistrement.
-  const weekPlanned = (tracking: Record<string, unknown>, notice: string) => {
+  const weekPlanned = (tracking: TrackingForm, notice: string) => {
     const week = { next_action_year: tracking.next_action_year ?? null, next_action_week: tracking.next_action_week ?? null };
-    setOriginal((o: Prospect | undefined) => ({ ...o, tracking: { ...(o?.tracking || {}), ...tracking } }));
-    setForm((f: Prospect) => ({ ...f, tracking: { ...(f.tracking || { status: tracking.status }), ...week } }));
+    setOriginal(o => ({ ...o, tracking: { ...(o?.tracking || {}), ...tracking } }));
+    setForm(f => ({ ...f, tracking: { ...(f.tracking || { status: tracking.status }), ...week } }));
     setPlanningNotice(notice);
     trackingChanged();
   };
-  const updateEmail = (i: number, patch: any) => setForm((f: any) => ({ ...f, emails: f.emails.map((x: any, j: number) => j === i ? { ...x, ...patch } : x) }));
-  const updatePhone = (i: number, patch: any) => setForm((f: any) => ({ ...f, phones: f.phones.map((x: any, j: number) => j === i ? { ...x, ...patch } : x) }));
+  const updateEmail = (i: number, patch: EmailForm) => setForm(f => ({ ...f, emails: f.emails.map((x, j) => j === i ? { ...x, ...patch } : x) }));
+  const updatePhone = (i: number, patch: PhoneForm) => setForm(f => ({ ...f, phones: f.phones.map((x, j) => j === i ? { ...x, ...patch } : x) }));
   return <div className="overlay"><div className="drawer">
     <div className="drawer-head"><div><small>{id === 'new' ? 'Nouveau prospect' : 'Fiche prospect'}</small><h2>{form.first_name || '—'} {form.last_name || ''}</h2>{id !== 'new' && <TrackingBadges status={original?.tracking?.status} year={original?.tracking?.next_action_year} week={original?.tracking?.next_action_week} />}</div><button className="icon" onClick={close}>×</button></div>
     <div className="drawer-tabs">
@@ -256,21 +273,21 @@ function Drawer({ id, nextId, close, saved, trackingChanged }: { id: string; nex
       {tab === 'contact' && <>
         <Group title="Emails">
           <p className="section-help">La date de vérification d’un email est automatique dès que son statut passe à « Vérifié ».</p>
-          <div className="aliases">{form.emails?.map((mail: any, i: number) => <div className="alias-row" key={mail.id || i}>
+          <div className="aliases">{form.emails?.map((mail, i) => <div className="alias-row" key={mail.id || i}>
             <input value={mail.address || ''} onChange={e => updateEmail(i, { address: e.target.value })} placeholder="nom@entreprise.fr" />
             <select value={mail.verification_status || 'unverified'} onChange={e => updateEmail(i, { verification_status: e.target.value })}><option value="unverified">À vérifier</option><option value="verified">Vérifié</option><option value="invalid">Invalide</option><option value="unknown">Inconnu</option></select>
-            <label><input type="radio" name="primary-email" checked={Boolean(mail.is_primary)} onChange={() => setForm((f: any) => ({ ...f, emails: f.emails.map((x: any, j: number) => ({ ...x, is_primary: j === i })) }))} /> Principal</label>
+            <label><input type="radio" name="primary-email" checked={Boolean(mail.is_primary)} onChange={() => setForm(f => ({ ...f, emails: f.emails.map((x, j) => ({ ...x, is_primary: j === i })) }))} /> Principal</label>
             <small>{mail.last_verified_at ? `Vérifié ${formatDate(mail.last_verified_at)}` : mail.origin_type === 'imported' ? 'Import Excel · non confirmé' : 'Non vérifié'}</small>
-            <button className="icon mini" onClick={() => setForm((f: any) => ({ ...f, emails: f.emails.filter((_: any, j: number) => j !== i) }))}>×</button>
+            <button className="icon mini" onClick={() => setForm(f => ({ ...f, emails: f.emails.filter((_, j) => j !== i) }))}>×</button>
           </div>)}</div>
-          <button className="secondary small" onClick={() => setForm((f: any) => ({ ...f, emails: [...f.emails, { address: '', verification_status: 'unverified', is_primary: f.emails.length === 0 }] }))}>+ Ajouter un email</button>
+          <button className="secondary small" onClick={() => setForm(f => ({ ...f, emails: [...f.emails, { address: '', verification_status: 'unverified', is_primary: f.emails.length === 0 }] }))}>+ Ajouter un email</button>
         </Group>
-        <Group title="Téléphones"><div className="aliases">{form.phones?.map((phone: any, i: number) => <div className="alias-row phone" key={phone.id || i}>
+        <Group title="Téléphones"><div className="aliases">{form.phones?.map((phone, i) => <div className="alias-row phone" key={phone.id || i}>
           <input value={phone.number || ''} onChange={e => updatePhone(i, { number: e.target.value })} placeholder="Numéro" />
           <select value={phone.type || 'other'} onChange={e => updatePhone(i, { type: e.target.value })}><option value="mobile">Mobile</option><option value="landline">Fixe</option><option value="other">Autre</option></select>
           <select value={phone.verification_status || 'unverified'} onChange={e => updatePhone(i, { verification_status: e.target.value })}><option value="unverified">À vérifier</option><option value="verified">Vérifié</option><option value="invalid">Invalide</option><option value="unknown">Inconnu</option></select>
-          <button className="icon mini" onClick={() => setForm((f: any) => ({ ...f, phones: f.phones.filter((_: any, j: number) => j !== i) }))}>×</button>
-        </div>)}</div><button className="secondary small" onClick={() => setForm((f: any) => ({ ...f, phones: [...f.phones, { number: '', type: 'other', verification_status: 'unverified', is_primary: f.phones.length === 0 }] }))}>+ Ajouter un téléphone</button></Group>
+          <button className="icon mini" onClick={() => setForm(f => ({ ...f, phones: f.phones.filter((_, j) => j !== i) }))}>×</button>
+        </div>)}</div><button className="secondary small" onClick={() => setForm(f => ({ ...f, phones: [...f.phones, { number: '', type: 'other', verification_status: 'unverified', is_primary: f.phones.length === 0 }] }))}>+ Ajouter un téléphone</button></Group>
         <Group title="Contactabilité"><Grid>
           <Field label="État"><select disabled={original?.prospect?.contactability_status === 'do_not_contact'} value={form.contactability_status} onChange={e => setForm({ ...form, contactability_status: e.target.value })}><option value="contactable">Contactable</option><option value="do_not_contact">À ne plus contacter</option></select></Field>
           <Field label="Motif"><input value={form.do_not_contact_reason || ''} onChange={e => setForm({ ...form, do_not_contact_reason: e.target.value })} /></Field>
@@ -297,11 +314,11 @@ function Drawer({ id, nextId, close, saved, trackingChanged }: { id: string; nex
           {trackingStatus === 'appointment_obtained' && <Field label="Date du rendez-vous"><input type="datetime-local" value={(form.tracking?.appointment_at || '').slice(0, 16)} onChange={e => setForm({ ...form, tracking: { ...form.tracking, appointment_at: e.target.value || null } })} /></Field>}
           {trackingStatus === 'appointment_obtained' && <Field label="Référent Circoe"><select value={form.tracking?.referent_id || ''} onChange={e => setForm({ ...form, tracking: { ...form.tracking, referent_id: e.target.value || null } })}><option value="">Non affecté</option>{referents.map(r => <option value={r.id} key={r.id}>{r.first_name} {r.last_name}</option>)}</select></Field>}
         </div>
-        {form.trackingHistory?.length > 0 && <Group title="Historique des états">{form.trackingHistory.slice(0, 8).map((h: any) => <div className="row" key={h.id}><b>{historyStatusLabel(h.to_status, doNotContact)}</b><span>{formatDate(h.changed_at, true)}</span></div>)}</Group>}
+        {(form.trackingHistory?.length ?? 0) > 0 && <Group title="Historique des états">{form.trackingHistory?.slice(0, 8).map(h => <div className="row" key={h.id}><b>{historyStatusLabel(h.to_status, doNotContact)}</b><span>{formatDate(h.changed_at, true)}</span></div>)}</Group>}
       </>}
       {tab === 'history' && <>
-        <Group title="Provenance">{original?.sources?.length ? original.sources.map((s: any) => <div className="row" key={s.id}><b>{s.source_type === 'excel_import' ? 'Import Excel' : s.source_type === 'manual' ? 'Saisie VIPER' : s.source_type}</b><span>{s.source_reference} · {formatDate(s.collected_at, true)}</span></div>) : <p className="muted">Aucune provenance enregistrée.</p>}</Group>
-        <Group title="Historique récent">{original?.history?.length ? original.history.slice(0, 12).map((h: any) => <div className="row" key={h.id}><b>{h.action}</b><span>{formatDate(h.created_at, true)}</span></div>) : <p className="muted">Aucun changement enregistré.</p>}</Group>
+        <Group title="Provenance">{original?.sources?.length ? original.sources.map(s => <div className="row" key={s.id}><b>{s.source_type === 'excel_import' ? 'Import Excel' : s.source_type === 'manual' ? 'Saisie VIPER' : s.source_type}</b><span>{s.source_reference} · {formatDate(s.collected_at, true)}</span></div>) : <p className="muted">Aucune provenance enregistrée.</p>}</Group>
+        <Group title="Historique récent">{original?.history?.length ? original.history.slice(0, 12).map(h => <div className="row" key={h.id}><b>{h.action}</b><span>{formatDate(h.created_at, true)}</span></div>) : <p className="muted">Aucun changement enregistré.</p>}</Group>
       </>}
       {error && <p className="danger">{error}</p>}
     </div>
@@ -310,22 +327,22 @@ function Drawer({ id, nextId, close, saved, trackingChanged }: { id: string; nex
 }
 
 function ImportModal({ close, done, draftChanged }: { close: () => void; done: () => void; draftChanged: (value: boolean) => void }) {
-  const [p, setP] = useState<any>();
+  const [p, setP] = useState<ImportPreview>();
   const [draftRestored, setDraftRestored] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
     let active = true;
-    loadDraft<any>(IMPORT_DRAFT_KEY).then(draft => {
+    loadDraft<ImportPreview>(IMPORT_DRAFT_KEY).then(draft => {
       if (!active || !draft?.value) return;
       setP(draft.value);
       setDraftRestored(true);
       draftChanged(true);
     }).catch(e => { if (active) setError((e as Error).message); });
     return () => { active = false; };
-  }, []);
+  }, [draftChanged]); // draftChanged = setter useState du parent (identité stable) : effet exécuté une seule fois, comme avant
 
-  const persistImportDraft = async (next: any) => {
+  const persistImportDraft = async (next: ImportPreview) => {
     setError('');
     try {
       await saveDraft(IMPORT_DRAFT_KEY, next);
@@ -349,8 +366,8 @@ function ImportModal({ close, done, draftChanged }: { close: () => void; done: (
       }
     }} /></label> : <>
       <div className="import-summary"><b>{p.rows?.length || 0} lignes détectées</b><span>Les valeurs S37, S39 et S40 sont conservées comme semaines d’envoi 2026. Les contacts concernés sont considérés comme vérifiés.</span></div>
-      {p.skippedSheets?.length > 0 && <p className="warnbox">Feuille ignorée explicitement : {p.skippedSheets.join(', ')}</p>}
-      <div className="preview"><div className="preview-head"><span /><b>Prospect</b><b>Entreprise</b><b>Vérification</b><b>Contact prévu</b><b>Diagnostic</b></div>{p.rows?.slice(0, 120).map((r: any, i: number) => <div key={i}>
+      {(p.skippedSheets?.length ?? 0) > 0 && <p className="warnbox">Feuille ignorée explicitement : {p.skippedSheets.join(', ')}</p>}
+      <div className="preview"><div className="preview-head"><span /><b>Prospect</b><b>Entreprise</b><b>Vérification</b><b>Contact prévu</b><b>Diagnostic</b></div>{p.rows?.slice(0, 120).map((r, i) => <div key={i}>
         <input type="checkbox" checked={!r.excluded} onChange={async e => {
           const rows = [...p.rows];
           rows[i] = { ...r, excluded: !e.target.checked };
@@ -359,7 +376,7 @@ function ImportModal({ close, done, draftChanged }: { close: () => void; done: (
         <b>{[r.normalized.first_name, r.normalized.last_name].filter(Boolean).join(' ') || 'Inconnu'}</b><span>{r.normalized.company}</span>
         <span className={r.normalized.verification_state === 'verified' ? 'text-ok' : 'text-warn'}>{r.normalized.verification_state === 'verified' ? 'Vérifié' : 'À vérifier'}</span>
         <span>{r.normalized.contact_week ? <WeekBadge year={r.normalized.contact_year} week={r.normalized.contact_week} /> : r.normalized.planned_contact_at ? formatDate(r.normalized.planned_contact_at) : '—'}</span>
-        <small>{r.diagnostics.map((d: any) => d.message).join(' · ') || 'Prêt'}</small>
+        <small>{r.diagnostics.map(d => d.message).join(' · ') || 'Prêt'}</small>
       </div>)}</div>
     </>}{error && <p className="danger">{error}</p>}</div>
     <footer><button className="secondary" onClick={close}>Fermer</button>{p && <button onClick={async () => { try { await commitWorkbookPreview(p); await deleteDraft(IMPORT_DRAFT_KEY); draftChanged(false); done(); } catch (e) { setError((e as Error).message); } }}>Confirmer l’import</button>}</footer>
@@ -367,24 +384,24 @@ function ImportModal({ close, done, draftChanged }: { close: () => void; done: (
 }
 
 function Database() {
-  const [tables, setTables] = useState<any[]>([]), [table, setTable] = useState('prospects'), [grid, setGrid] = useState<any>(), [sql, setSql] = useState('SELECT * FROM prospects LIMIT 25'), [out, setOut] = useState<any[]>([]);
-  useEffect(() => { api<any[]>('/api/database/tables').then(setTables); }, []);
-  useEffect(() => { api('/api/database/table/' + table).then(setGrid); }, [table]);
-  return <><PageTitle title="Base de données" sub="Explorateur technique et SQL read-only imposé côté serveur." /><div className="db"><nav>{tables.map(t => <button className={table === t.name ? 'active' : ''} key={t.name} onClick={() => setTable(t.name)}>{t.name}</button>)}</nav><div><h3>{table} · {grid?.count || 0} lignes</h3><div className="tablewrap"><table><thead><tr>{grid?.columns?.map((c: any) => <th key={c.name}>{c.name}<small>{c.type}</small></th>)}</tr></thead><tbody>{grid?.data?.map((r: any, i: number) => <tr key={i}>{grid.columns.map((c: any) => <td key={c.name} title={String(r[c.name] ?? '')}>{String(r[c.name] ?? '')}</td>)}</tr>)}</tbody></table></div><div className="sql"><b>SQL read-only</b><textarea value={sql} onChange={e => setSql(e.target.value)} /><button onClick={async () => setOut((await api<any>('/api/database/sql', { method: 'POST', body: JSON.stringify({ sql }) })).rows)}>Exécuter</button>{out.length > 0 && <pre>{JSON.stringify(out.slice(0, 20), null, 2)}</pre>}</div></div></div></>;
+  const [tables, setTables] = useState<{ name: string }[]>([]), [table, setTable] = useState('prospects'), [grid, setGrid] = useState<TableGrid>(), [sql, setSql] = useState('SELECT * FROM prospects LIMIT 25'), [out, setOut] = useState<Record<string, unknown>[]>([]);
+  useEffect(() => { api<{ name: string }[]>('/api/database/tables').then(setTables); }, []);
+  useEffect(() => { api<TableGrid>('/api/database/table/' + table).then(setGrid); }, [table]);
+  return <><PageTitle title="Base de données" sub="Explorateur technique et SQL read-only imposé côté serveur." /><div className="db"><nav>{tables.map(t => <button className={table === t.name ? 'active' : ''} key={t.name} onClick={() => setTable(t.name)}>{t.name}</button>)}</nav><div><h3>{table} · {grid?.count || 0} lignes</h3><div className="tablewrap"><table><thead><tr>{grid?.columns?.map(c => <th key={c.name}>{c.name}<small>{c.type}</small></th>)}</tr></thead><tbody>{grid?.data?.map((r, i) => <tr key={i}>{grid.columns.map(c => <td key={c.name} title={String(r[c.name] ?? '')}>{String(r[c.name] ?? '')}</td>)}</tr>)}</tbody></table></div><div className="sql"><b>SQL read-only</b><textarea value={sql} onChange={e => setSql(e.target.value)} /><button onClick={async () => setOut((await api<{ rows: Record<string, unknown>[] }>('/api/database/sql', { method: 'POST', body: JSON.stringify({ sql }) })).rows)}>Exécuter</button>{out.length > 0 && <pre>{JSON.stringify(out.slice(0, 20), null, 2)}</pre>}</div></div></div></>;
 }
 
 function Settings() {
-  const [roles, setRoles] = useState<any[]>([]), [cats, setCats] = useState<any[]>([]), [segments, setSegments] = useState<any[]>([]), [companies, setCompanies] = useState<any[]>([]);
-  const load = () => Promise.all([api<any[]>('/api/settings/roles'), api<any[]>('/api/settings/categories'), api<any[]>('/api/settings/segments'), api<any[]>('/api/companies')]).then(([a, b, c, d]) => { setRoles(a); setCats(b); setSegments(c); setCompanies(d); });
+  const [roles, setRoles] = useState<LabelRow[]>([]), [cats, setCats] = useState<LabelRow[]>([]), [segments, setSegments] = useState<LabelRow[]>([]), [companies, setCompanies] = useState<CompanyListItem[]>([]);
+  const load = () => Promise.all([api<LabelRow[]>('/api/settings/roles'), api<LabelRow[]>('/api/settings/categories'), api<LabelRow[]>('/api/settings/segments'), api<CompanyListItem[]>('/api/companies')]).then(([a, b, c, d]) => { setRoles(a); setCats(b); setSegments(c); setCompanies(d); });
   useEffect(() => { load(); }, []);
   return <><PageTitle title="Paramètres" sub="Taxonomies et référentiels administrables." /><div className="cols"><SettingsSet title="Rôles" items={roles.map(x => x.label)} add={async label => { await api('/api/settings/roles', { method: 'POST', body: JSON.stringify({ label }) }); load(); }} /><SettingsSet title="Catégories d’activité" items={cats.map(x => x.label)} add={async label => { await api('/api/settings/categories', { method: 'POST', body: JSON.stringify({ label }) }); load(); }} /><SettingsSet title="Segments commerciaux" items={segments.map(x => x.label)} add={async label => { await api('/api/settings/segments', { method: 'POST', body: JSON.stringify({ label }) }); load(); }} /><ToolboxSettings /><Panel title="Entreprises"><div className="tags">{companies.slice(0, 50).map(c => <span key={c.id}>{c.display_name} · {c.prospect_count}</span>)}</div></Panel></div></>;
 }
 
-function Panel({ title, children }: any) { return <div className="panel"><h3>{title}</h3>{children}</div>; }
-function Progress({ label, value, target }: any) { return <div className="progress"><div><span>{label}</span><b>{value} / {target}</b></div><i><em style={{ width: `${Math.min(100, value / target * 100)}%` }} /></i></div>; }
-function Group({ title, children }: any) { return <div className="group"><h3>{title}</h3>{children}</div>; }
-function Grid({ children }: any) { return <div className="grid">{children}</div>; }
-function Field({ label, children }: any) { return <label className="field"><span>{label}</span>{children}</label>; }
+function Panel({ title, children }: { title: string; children?: React.ReactNode }) { return <div className="panel"><h3>{title}</h3>{children}</div>; }
+function Progress({ label, value, target }: { label: string; value: number; target: number }) { return <div className="progress"><div><span>{label}</span><b>{value} / {target}</b></div><i><em style={{ width: `${Math.min(100, value / target * 100)}%` }} /></i></div>; }
+function Group({ title, children }: { title: string; children?: React.ReactNode }) { return <div className="group"><h3>{title}</h3>{children}</div>; }
+function Grid({ children }: { children?: React.ReactNode }) { return <div className="grid">{children}</div>; }
+function Field({ label, children }: { label: string; children?: React.ReactNode }) { return <label className="field"><span>{label}</span>{children}</label>; }
 function SettingsSet({ title, items, add }: { title: string; items: string[]; add: (s: string) => void }) { const [v, setV] = useState(''); return <Panel title={title}><div className="tags">{items.map(x => <span key={x}>{x}</span>)}</div><form className="inline" onSubmit={e => { e.preventDefault(); if (v.trim()) { add(v.trim()); setV(''); } }}><input value={v} onChange={e => setV(e.target.value)} placeholder="Ajouter…" /><button>Ajouter</button></form></Panel>; }
 
 export function App() {

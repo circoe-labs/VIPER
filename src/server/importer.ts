@@ -205,7 +205,7 @@ function verificationAliases() {
   ];
 }
 
-function hasProspectHeaders(sheet: any) {
+function hasProspectHeaders(sheet: XLSX.WorkSheet | undefined) {
   const ref = sheet?.['!ref'];
   if (!ref) return false;
   const range = XLSX.utils.decode_range(ref);
@@ -245,7 +245,7 @@ export function parseWorkbook(buffer: Buffer, filename = 'import.xlsx', referenc
       const verificationRaw = verificationHeader == null ? undefined : raw[verificationHeader];
       const legacyVerificationMarker = !explicitVerification && key(referentRaw) === 'v';
       const statusVerification = statusVerificationColumn ? statusVerificationFrom(verificationRaw, importedAt) : null;
-      const legacyVerification = explicitVerification && !statusVerificationColumn
+      const legacyVerification: { verified: boolean; verifiedAt: string | null; raw: string; unknown?: boolean } = explicitVerification && !statusVerificationColumn
         ? verificationFrom(verificationRaw, importedAt)
         : legacyVerificationMarker
           ? { verified: true, verifiedAt: importedAt.toISOString(), raw: referentRaw }
@@ -297,7 +297,7 @@ export function parseWorkbook(buffer: Buffer, filename = 'import.xlsx', referenc
       if (civRaw && civ === civRaw && !['M.', 'Mme', 'Mlle'].includes(civ)) diagnostics.push({ code: 'unknown_civility', level: 'warning', message: `Civilité non reconnue: ${civRaw}` });
       if (categoryRaw && !category) diagnostics.push({ code: 'invalid_category', level: 'warning', message: `Catégorie à vérifier: ${categoryRaw}` });
       if (roleLabel) diagnostics.push({ code: 'role_suggested', level: 'info', message: `Rôle suggéré : ${roleLabel}` });
-      if (statusVerification?.unknown || (!statusVerificationColumn && explicitVerification && (legacyVerification as any).unknown)) diagnostics.push({ code: 'unknown_verification', level: 'warning', message: `Valeur de vérification non reconnue: ${text(verificationRaw)}` });
+      if (statusVerification?.unknown || (!statusVerificationColumn && explicitVerification && legacyVerification.unknown)) diagnostics.push({ code: 'unknown_verification', level: 'warning', message: `Valeur de vérification non reconnue: ${text(verificationRaw)}` });
       if (plannedWeek) diagnostics.push({ code: 'planned_week_resolved', level: 'info', message: `Semaine ${plannedWeek.week} conservée comme semaine d’envoi ${plannedWeek.year}` });
       else if (/^s\d{1,2}$/i.test(plannedRaw)) diagnostics.push({ code: 'invalid_week', level: 'warning', message: `Semaine invalide: ${plannedRaw}` });
       if (['quote_sent', 'quote_follow_up', 'won'].includes(legacyTrackingStatus)) diagnostics.push({ code: 'legacy_status_mapped', level: 'info', message: `Suivi post-RDV (${legacyTrackingStatus}) ramené à « RDV pris »` });

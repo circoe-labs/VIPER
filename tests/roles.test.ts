@@ -43,9 +43,9 @@ describe('role groups', () => {
 
     ensureDefaultRoles(db);
 
-    expect((db.prepare('SELECT count(*) n FROM roles WHERE active=1').get() as any).n).toBe(10);
-    expect((db.prepare("SELECT label FROM roles WHERE slug='direction'").get() as any).label).toBe('Direction');
-    expect((db.prepare("SELECT active FROM roles WHERE slug='logistique'").get() as any).active).toBe(0);
+    expect((db.prepare('SELECT count(*) n FROM roles WHERE active=1').get() as { n: number }).n).toBe(10);
+    expect((db.prepare("SELECT label FROM roles WHERE slug='direction'").get() as { label: string }).label).toBe('Direction');
+    expect((db.prepare("SELECT active FROM roles WHERE slug='logistique'").get() as { active: number }).active).toBe(0);
     expect(roleLabelForSlug('gouvernance')).toBe('Direction générale / Gouvernance');
     db.close();
   });
@@ -67,9 +67,9 @@ describe('role groups', () => {
 
     const ids = ensureDefaultRoles(db);
     expect(backfillUnassignedProspectRoles(db)).toBe(2);
-    expect((db.prepare('SELECT role_id FROM prospects WHERE id=?').get('p1') as any).role_id).toBe(ids.get('direction'));
-    expect((db.prepare('SELECT role_id FROM prospects WHERE id=?').get('p2') as any).role_id).toBe('custom');
-    expect((db.prepare('SELECT role_id FROM prospects WHERE id=?').get('p3') as any).role_id).toBe(ids.get('management'));
+    expect((db.prepare('SELECT role_id FROM prospects WHERE id=?').get('p1') as { role_id: string | null }).role_id).toBe(ids.get('direction'));
+    expect((db.prepare('SELECT role_id FROM prospects WHERE id=?').get('p2') as { role_id: string | null }).role_id).toBe('custom');
+    expect((db.prepare('SELECT role_id FROM prospects WHERE id=?').get('p3') as { role_id: string | null }).role_id).toBe(ids.get('management'));
     db.close();
   });
 });

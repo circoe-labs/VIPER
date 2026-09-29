@@ -19,7 +19,7 @@ function openPersistentTestDb() {
   return { db, dbPath };
 }
 
-function workbook(rows: any[]) {
+function workbook(rows: Record<string, unknown>[]) {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'BASE CLIENT');
   return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
@@ -57,7 +57,7 @@ describe('persistent drafts', () => {
 
     const reopened = new Database(dbPath);
     reopened.exec(schema);
-    const restored = loadDraftRecord<any>(reopened, 'import-preview');
+    const restored = loadDraftRecord<typeof preview>(reopened, 'import-preview');
 
     expect(restored).not.toBeNull();
     expect(restored?.value).toEqual(preview);
