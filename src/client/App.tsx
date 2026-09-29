@@ -14,6 +14,7 @@ import { loadStoredPage, nav, PROSPECTION_SELECTED_KEY, storePage, storeProspect
 import { ContactPage } from './ContactPage';
 import { PageTitle } from './PageTitle';
 import { ToolboxSettings } from './ToolboxSettings';
+import { normalizeServerTimestamp } from './serverDate';
 import type {
   CompanyListItem, CompanyRow, EmailRow, HomeDashboard, ImportPreview, LabelRow, PhoneRow, ProspectDetail, ProspectListItem, ProspectRow, ReferentRow,
   SearchResult, TableGrid, TrackingHistoryRow, TrackingRow
@@ -34,7 +35,7 @@ const IMPORT_DRAFT_KEY = 'import-preview';
 
 const formatDate = (value?: string | null, withTime = false) => {
   if (!value) return '—';
-  const d = new Date(value.length === 10 ? `${value}T12:00:00` : value);
+  const d = new Date(value.length === 10 ? `${value}T12:00:00` : normalizeServerTimestamp(value));
   if (Number.isNaN(d.getTime())) return value;
   return new Intl.DateTimeFormat('fr-FR', withTime ? { dateStyle: 'medium', timeStyle: 'short' } : { dateStyle: 'medium' }).format(d);
 };

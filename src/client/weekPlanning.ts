@@ -6,6 +6,7 @@ import {
   isoWeeksInYear, isProspectState, isTerminalProspectState, isValidIsoWeek, prospectStateBadgeLabel, suggestNextActionWeek,
   type IsoWeek
 } from '../shared/contactWorkflow';
+import { normalizeServerTimestamp } from './serverDate';
 
 /** Origine du pré-remplissage du sélecteur (affichée à l'humain, jamais enregistrée seule). */
 export type PlanningPrefillSource = 'current' | 'legacy_date' | 'cadence' | 'this_week';
@@ -36,7 +37,7 @@ export function legacyDateWeek(value: unknown): IsoWeek | null {
  */
 export function cadenceSuggestion(status: unknown, stateSince: unknown, today: Date): CadenceSuggestion | null {
   if (!isProspectState(status)) return null;
-  const since = typeof stateSince === 'string' && stateSince ? new Date(stateSince.length === 10 ? `${stateSince}T00:00:00Z` : stateSince) : null;
+  const since = typeof stateSince === 'string' && stateSince ? new Date(stateSince.length === 10 ? `${stateSince}T00:00:00Z` : normalizeServerTimestamp(stateSince)) : null;
   const from = isoWeekOf(since && !Number.isNaN(since.getTime()) ? since : today);
   const week = suggestNextActionWeek(status, from);
   const step = completedStepByState[status];

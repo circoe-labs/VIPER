@@ -3,11 +3,12 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { prospectStates } from '../src/shared/contactWorkflow';
 import {
-  HISTORY_LIMIT, initialStateChoice, isStateLocked, presenceNotice, prospectSummary, selectionPresence, stateChangeConfirmation,
+  displayDate, HISTORY_LIMIT, initialStateChoice, isStateLocked, presenceNotice, prospectSummary, selectionPresence, stateChangeConfirmation,
   stateChangeHint, stateChangeNotice, stateChangePatch, workbenchStateOptions, type ProspectDetail
 } from '../src/client/contactWorkbenchModel';
 import { ProspectSummary } from '../src/client/ContactWorkbench';
 import { ContactMailPanel } from '../src/client/ContactMailPanel';
+import { normalizeServerTimestamp } from '../src/client/serverDate';
 
 const detail = (over: Partial<ProspectDetail> = {}, prospect: Record<string, unknown> = {}): ProspectDetail => ({
   prospect: { id: 'p1', first_name: 'Alice', last_name: 'Martin', civility: 'Mme', exact_job_title: 'Directrice RSE', contactability_status: 'contactable', employment_verified_at: '2026-09-01', ...prospect },
@@ -131,5 +132,16 @@ describe('sélection stable après rafraîchissement', () => {
     expect(presenceNotice('pending', 'r1')).toBeNull();
     expect(presenceNotice('outside_list', 'r1')).toContain('ne correspond plus aux filtres');
     expect(presenceNotice('outside_list', 'ignored')).toContain('ne figure plus dans Contact');
+  });
+});
+
+describe('horodatages serveur (Task 17)', () => {
+  it('CURRENT_TIMESTAMP SQLite (UTC sans fuseau) est lu en UTC, jamais en heure locale', () => {
+    expect(normalizeServerTimestamp('2026-09-29 15:06:00')).toBe('2026-09-29T15:06:00Z');
+    expect(normalizeServerTimestamp('2026-09-29 15:06:00.123')).toBe('2026-09-29T15:06:00.123Z');
+    for (const unchanged of ['2026-09-29T15:06:00.000Z', '2026-09-29T17:06:00+02:00', '2026-09-29', 'illisible']) expect(normalizeServerTimestamp(unchanged)).toBe(unchanged);
+    const expected = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date('2026-09-29T15:06:00Z'));
+    expect(displayDate('2026-09-29 15:06:00', true)).toBe(expected);
+    expect(displayDate('2026-09-29T15:06:00.000Z', true)).toBe(expected);
   });
 });

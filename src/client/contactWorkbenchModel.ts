@@ -8,6 +8,7 @@ import {
 } from '../shared/contactWorkflow';
 import { historyStatusLabel, selectableState, stateOptionLabel } from './trackingDisplay';
 import { storedWeek } from './weekPlanning';
+import { normalizeServerTimestamp } from './serverDate';
 
 type Row = Record<string, unknown>;
 /** Réponse de `GET /api/prospects/:id` (champs utilisés ici). */
@@ -151,7 +152,7 @@ const dateTimeFormat = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium', t
 /** Date lisible (`YYYY-MM-DD` ou ISO) ; valeur illisible renvoyée telle quelle. */
 export function displayDate(value: string | null, withTime = false): string {
   if (!value) return '—';
-  const d = new Date(value.length === 10 ? `${value}T12:00:00` : value);
+  const d = new Date(value.length === 10 ? `${value}T12:00:00` : normalizeServerTimestamp(value));
   if (Number.isNaN(d.getTime())) return value;
   return (withTime ? dateTimeFormat : dateFormat).format(d);
 }
