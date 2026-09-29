@@ -16,6 +16,7 @@ import { isProspectionFilter } from '../shared/prospectionDashboard.js';
 import { contactDashboard, contactProspects, countContactFilter } from './contactDashboard.js';
 import { parseContactListQuery } from '../shared/contactDashboard.js';
 import { ContactTrackingError, createContactTrackingService, parseTrackingPatch, type ContactTrackingDeps } from './contactTrackingService.js';
+import { contactMessageCanceller } from './contactMessageStore.js';
 import { backfillUnassignedProspectRoles, ensureDefaultRoles, inferRoleSlug } from './roleTaxonomy.js';
 
 migrate();
@@ -32,8 +33,9 @@ app.use('/api', requireAuth);
 
 const actor = (req: express.Request) => (req as any).actor || { type: 'human', id: 'pilot-user', display: 'Commercial VIPER' };
 const nowIso = () => new Date().toISOString();
-// Dépendances du service de suivi : `cancelFutureMessages` sera branché par le service messages (Tasks 11/12/16).
-const trackingDeps: ContactTrackingDeps = {};
+// Dépendances du service de suivi : annulation SQL des messages futurs (décision 29, Task 11) ; la suppression des brouillons
+// distants mis en file (`contact_message_remote_draft_cleanups`) est faite après commit par la Task 16.
+const trackingDeps: ContactTrackingDeps = { cancelFutureMessages: contactMessageCanceller };
 // `db` est réassigné par une restauration : le service est recréé à chaque requête (aucun état propre).
 const trackingService = () => createContactTrackingService(db, trackingDeps);
 const sendTrackingError = (res: express.Response, e: unknown, fallback: string) => e instanceof ContactTrackingError

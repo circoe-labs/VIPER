@@ -55,6 +55,38 @@ export const contactMessageStepSchema = z.enum(contactMessageSteps);
 export const contactMessageStepLabels: Readonly<Record<ContactMessageStep, string>> = { contact: 'Contact', r1: 'R1', r2: 'R2' };
 export const isContactMessageStep = (value: unknown): value is ContactMessageStep => contactMessageStepSchema.safeParse(value).success;
 
+// --- Statuts message (distincts de l'état prospect ; docs/02 §4) ---
+export const contactMessageStatuses = ['draft', 'validated', 'scheduled', 'sent', 'cancelled'] as const;
+export type ContactMessageStatus = typeof contactMessageStatuses[number];
+export const contactMessageStatusSchema = z.enum(contactMessageStatuses);
+export const DEFAULT_CONTACT_MESSAGE_STATUS: ContactMessageStatus = 'draft';
+/** Labels UI (décisions 21-24). */
+export const contactMessageStatusLabels: Readonly<Record<ContactMessageStatus, string>> = {
+  draft: 'Brouillon', validated: 'Validé', scheduled: 'Programmé', sent: 'Envoyé', cancelled: 'Annulé'
+};
+/** Transitions du contrat (docs/02 §4) : `validated/scheduled -> draft` = édition ; `sent` immuable ; `cancelled` sans sortie. */
+export const contactMessageTransitions: Readonly<Record<ContactMessageStatus, readonly ContactMessageStatus[]>> = {
+  draft: ['validated', 'cancelled'],
+  validated: ['scheduled', 'draft', 'cancelled'],
+  scheduled: ['sent', 'draft', 'cancelled'],
+  sent: [],
+  cancelled: []
+};
+/** Statuts portant une validation humaine courante (validation de la révision en cours). */
+export const validatedContactMessageStatuses: readonly ContactMessageStatus[] = ['validated', 'scheduled', 'sent'];
+/** Statuts « futurs non envoyés » annulés par un choix humain `response_received`/`appointment_obtained`/`ignored` (décision 29). */
+export const cancellableContactMessageStatuses: readonly ContactMessageStatus[] = ['draft', 'validated', 'scheduled'];
+export const isContactMessageStatus = (value: unknown): value is ContactMessageStatus => contactMessageStatusSchema.safeParse(value).success;
+export const canTransitionContactMessage = (from: ContactMessageStatus, to: ContactMessageStatus): boolean => contactMessageTransitions[from].includes(to);
+export const isCancellableContactMessage = (status: ContactMessageStatus): boolean => cancellableContactMessageStatuses.includes(status);
+
+/** Événements du journal par message (`contact_message_events`) ; jamais de sujet/corps/destinataire dans leurs détails. */
+export const contactMessageEventTypes = [
+  'created', 'generated', 'edited', 'validated', 'unvalidated_by_edit', 'scheduled', 'dispatch_claimed', 'sent', 'send_failed',
+  'cancelled', 'remote_draft_created', 'remote_draft_invalidated'
+] as const;
+export type ContactMessageEventType = typeof contactMessageEventTypes[number];
+
 // --- Semaines ISO (année ISO + semaine ISO, calculs en UTC) ---
 export type IsoWeek = { year: number; week: number };
 const DAY_MS = 86400000;

@@ -102,6 +102,8 @@ UNIQUE(prospect_id, step)
 
 Pour la V1, un seul message durable par étape suffit. Si le produit doit plus tard conserver plusieurs variantes, introduire une table de versions plutôt que de casser ce contrat silencieusement.
 
+Implémentation (Task 11) : `src/server/contactMessageSchema.ts` (DDL, CHECK, colonnes ajoutées `revision`, `validated_revision`, `remote_message_id`, `dispatch_claim_id`, `dispatch_claimed_at`, `dispatch_attempts`, `last_error_code`, `last_error_at`, file `contact_message_remote_draft_cleanups`).
+
 ## 5. Historique des messages
 
 Recommandé : `contact_message_events` ou audit existant pour tracer :
