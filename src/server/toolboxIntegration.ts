@@ -3,9 +3,9 @@
 // obsolètes (`contact_message_remote_draft_cleanups`). Désactivée par défaut (`TOOLBOX_MAIL_ENABLED`) : sans flag, sans
 // configuration complète ou sans connexion, le port reste `noRemoteDrafts` et le comportement Task 12-14 est inchangé.
 //
-// Hors périmètre (Task 16) : scan des messages programmés, verrou de dispatch, `sendDraft`, `markSent`, réconciliation `listDrafts`.
-// La Task 16 obtient le client via `integration.mailToolbox()` (null si inactive) et doit (re)créer le brouillon distant par
-// `syncRemoteDraft` avant l'envoi s'il manque (validation faite pendant que la Toolbox était déconnectée).
+// L'envoi programmé (scan, verrou, `sendDraft`, `markSent`, réconciliation `listDrafts`) est dans `contactMessageDispatcher.ts`
+// (Task 16), qui obtient le client via `integration.mailToolbox()` (null si inactive) et recrée le brouillon distant manquant
+// par `syncRemoteDraft` avant l'envoi.
 import path from 'node:path';
 import type Database from 'better-sqlite3';
 import type { Actor } from './audit.js';

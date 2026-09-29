@@ -110,7 +110,7 @@ export const stateChangePatch = (to: ProspectState) => ({ status: to });
 
 /** Réponse (partielle) de `PATCH /api/prospects/:id/tracking`. */
 export type TrackingMutation = {
-  tracking: Row; stateChanged: boolean; doNotContactReinforced: boolean; cancelledMessages: number; previousStatus?: string | null;
+  tracking: Row; stateChanged: boolean; doNotContactReinforced: boolean; cancelledMessages: number; inFlightMessages?: number; previousStatus?: string | null;
 };
 
 /** Annonce après enregistrement de l'état (lue par `aria-live`). */
@@ -119,6 +119,9 @@ export function stateChangeNotice(result: TrackingMutation, previousWeek: { year
   const parts = [result.stateChanged ? `État enregistré : ${isProspectState(status) ? stateOptionLabel(status) : String(status)}.` : 'État inchangé.'];
   if (storedWeek(previousWeek.year, previousWeek.week) && !storedWeek(result.tracking.next_action_year, result.tracking.next_action_week)) parts.push('Prochaine semaine retirée.');
   if (result.cancelledMessages > 0) parts.push(`${result.cancelledMessages} message${result.cancelledMessages > 1 ? 's' : ''} futur${result.cancelledMessages > 1 ? 's' : ''} annulé${result.cancelledMessages > 1 ? 's' : ''}.`);
+  if (result.inFlightMessages) parts.push(result.inFlightMessages > 1
+    ? `${result.inFlightMessages} messages étaient déjà en cours d’envoi : ils n’ont pas pu être arrêtés (s’ils échouent, ils seront annulés).`
+    : 'Un message était déjà en cours d’envoi : il n’a pas pu être arrêté (s’il échoue, il sera annulé).');
   if (result.doNotContactReinforced) parts.push('Prospect marqué « À ne plus contacter ».');
   return parts.join(' ');
 }

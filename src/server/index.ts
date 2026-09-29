@@ -24,6 +24,7 @@ import { createContactMailGenerationService, parseGenerateRequest } from './cont
 import { AiGenerationError, createOpenAiMailGenerator, missingOpenAiSettings, openAiConfigFromEnv } from './openaiMailGenerator.js';
 import { callbackReturnPath, createToolboxIntegration, toolboxSettingsFromEnv } from './toolboxIntegration.js';
 import { ToolboxError } from './toolboxMcpClient.js';
+import { contactDispatchConfigFromEnv, createContactDispatcher } from './contactMessageDispatcher.js';
 import { backfillUnassignedProspectRoles, ensureDefaultRoles, inferRoleSlug } from './roleTaxonomy.js';
 
 migrate();
@@ -36,8 +37,23 @@ app.use(cookieParser());
 // CIRCOE Toolbox (Task 15) : désactivée par défaut (`TOOLBOX_MAIL_ENABLED`) ; jetons OAuth dans un fichier serveur hors dépôt et hors
 // base, jamais renvoyés au client. Le retour OAuth arrive par redirection depuis la Toolbox (autre site : le cookie de session
 // `SameSite=Strict` n'est pas envoyé) : la route est publique et authentifiée par le `state` à usage unique lié à l'utilisateur.
-const toolbox = createToolboxIntegration({ getDb: () => db, settings: toolboxSettingsFromEnv(process.env, { storageDir }) });
+const toolboxSettings = toolboxSettingsFromEnv(process.env, { storageDir });
+const toolbox = createToolboxIntegration({ getDb: () => db, settings: toolboxSettings });
 toolbox.startCleanupWorker();
+// Envoi programmé (Task 16) : scan périodique dans ce process, seulement si la Toolbox est activée et configurée ; chaque passe
+// ne fait rien tant qu'elle n'est pas connectée. `db` relu à chaque étape (restauration). Modèle : contactMessageDispatcher.ts.
+const dispatcher = createContactDispatcher({
+  getDb: () => db, toolbox: () => toolbox.mailToolbox(), remoteDrafts: () => toolbox.remoteDrafts(),
+  config: contactDispatchConfigFromEnv(process.env, { toolboxTimeoutMs: toolboxSettings.config?.timeoutMs ?? 20_000 })
+});
+if (toolboxSettings.enabled && toolboxSettings.config) dispatcher.start();
+// Arrêt propre : plus de nouvelle passe, l'envoi en cours se termine (au plus 30 s) avant la sortie du process.
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+  process.once(signal, () => {
+    toolbox.stopCleanupWorker();
+    void Promise.race([dispatcher.stop(), new Promise(resolve => setTimeout(resolve, 30_000))]).finally(() => process.exit(0));
+  });
+}
 app.get('/api/toolbox/oauth/callback', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.redirect(302, callbackReturnPath(await toolbox.completeAuthorization(req.query as Record<string, unknown>)));
@@ -50,7 +66,8 @@ app.use('/api', requireAuth);
 const actor = (req: express.Request) => (req as any).actor || { type: 'human', id: 'pilot-user', display: 'Commercial VIPER' };
 const nowIso = () => new Date().toISOString();
 // Dépendances du service de suivi : annulation SQL des messages futurs (décision 29, Task 11) ; la suppression des brouillons
-// distants mis en file (`contact_message_remote_draft_cleanups`) est faite après commit par la Task 16.
+// distants mis en file (`contact_message_remote_draft_cleanups`) est faite après commit par le worker Toolbox (Task 15) ; un
+// message en cours d'envoi (`inFlight`) est résolu par le dispatcher (Task 16).
 const trackingDeps: ContactTrackingDeps = { cancelFutureMessages: contactMessageCanceller };
 // `db` est réassigné par une restauration : le service est recréé à chaque requête (aucun état propre).
 const trackingService = () => createContactTrackingService(db, trackingDeps);
@@ -345,9 +362,10 @@ app.patch('/api/prospects/:id/tracking', (req, res) => {
 });
 
 // Messages Contact/R1/R2 (Task 12) : routes minces, machine d'état dans contactMessageService.ts. Aucune route ne permet
-// d'écrire un statut directement ; `sent` est réservé au dispatcher interne (Task 16).
+// d'écrire un statut directement ; `sent` est réservé au dispatcher interne (Task 16), dont l'état réel (`dispatch.active`)
+// accompagne la liste des messages (texte de confirmation de programmation, avertissement si rien ne partira).
 app.get('/api/prospects/:id/messages', (req, res) => {
-  try { res.json(messageService().listMessages(req.params.id)); } catch (e) { sendMessageError(res, e, 'Lecture des messages impossible'); }
+  try { res.json({ ...messageService().listMessages(req.params.id), dispatch: dispatcher.status() }); } catch (e) { sendMessageError(res, e, 'Lecture des messages impossible'); }
 });
 app.get('/api/prospects/:id/messages/:step', (req, res) => {
   try { res.json(messageService().getMessage(req.params.id, parseMessageStep(req.params.step))); } catch (e) { sendMessageError(res, e, 'Lecture du message impossible'); }

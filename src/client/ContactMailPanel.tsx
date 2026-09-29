@@ -6,11 +6,13 @@
 // Task 14 (génération IA) : `MailGenerationControls` passé à `MailEditor` via `renderGeneration` (tête de `.mail-actions`) :
 // « Générer » / « Régénérer » + consigne facultative, confirmation avant de remplacer un contenu ou des modifications locales,
 // résultat toujours Brouillon (logique pure : `mailGenerationModel.ts`).
+// Task 16 : état d'envoi sous le statut (envoi en cours/incertain, nouvel essai, échec à reprogrammer, brouillon Infomaniak prêt,
+// envoi automatique inactif) et confirmation de programmation selon l'état réel du dispatcher (`data.dispatch`).
 import React, { useEffect, useRef, useState, type ReactNode } from 'react';
 import { api, ApiError } from './api';
 import type { ProspectSummaryModel } from './contactWorkbenchModel';
 import {
-  actionConfirmation, actionNotice, formFieldErrors, formFromMessage, formPayload, isFormDirty, localDateValue, localTimeZoneLabel,
+  actionConfirmation, actionNotice, dispatchStatusLines, formFieldErrors, formFromMessage, formPayload, isFormDirty, localDateValue, localTimeZoneLabel,
   mailActions, mailErrorView, mailTabs, messageOf, messageStatusBadge, messageStatusLine, messageUrl, messagesUrl, previousStep,
   scheduleToIso, tabKeyTarget, type ContactMessage, type MailConfirmation, type MailErrorView, type MailField, type MailForm,
   type MessageAction, type MessageMutationResult, type ProspectMessagesResponse
@@ -156,7 +158,7 @@ export function MailEditor({ prospectId, step, data, localForm, onLocalForm, con
   const requestSchedule = () => {
     const parsed = scheduleToIso(schedule, new Date());
     if (!parsed.ok) { setError({ message: parsed.error, fields: { schedule: parsed.error }, reload: false, conflict: false }); return; }
-    openConfirm({ action: 'schedule', iso: parsed.iso, confirmation: actionConfirmation('schedule', step, { at: parsed.at, zone: localTimeZoneLabel(parsed.at) }) });
+    openConfirm({ action: 'schedule', iso: parsed.iso, confirmation: actionConfirmation('schedule', step, { at: parsed.at, zone: localTimeZoneLabel(parsed.at) }, data.dispatch) });
   };
   const confirmPending = () => {
     if (!confirm) return;
@@ -187,6 +189,7 @@ export function MailEditor({ prospectId, step, data, localForm, onLocalForm, con
   return <div className="mail-editor">
     <div className="mail-status">
       <p>{messageStatusLine(message, data.prospect.sequence_closed)}</p>
+      {dispatchStatusLines(message, data.dispatch).map(line => <p key={line} className="mail-dispatch">{line}</p>)}
       {(message?.status === 'validated' || message?.status === 'scheduled') && !dirty && actions.editable &&
         <p className="muted">Toute modification enregistrée repassera ce message en Brouillon (revalidation obligatoire).</p>}
     </div>

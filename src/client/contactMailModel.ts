@@ -18,11 +18,17 @@ export type ContactMessage = {
   revision: number; scheduled_at: string | null; validated_at: string | null;
   sent_at: string | null; cancelled_at: string | null; cancel_reason: string | null;
   dispatch_claim_id: string | null; updated_at: string;
+  /** Diagnostic d'envoi (Task 16) ; absents des anciennes réponses. */
+  remote_draft_id?: string | null; dispatch_attempts?: number; last_error_code?: string | null; last_error_at?: string | null;
 };
+/** État réel de l'envoi programmé côté serveur (dispatcher démarré et Toolbox connectée), jamais une constante du client. */
+export type DispatchInfo = { active: boolean; maxLatenessMinutes: number };
 export type ProspectMessagesResponse = {
   prospect: { id: string; state: string | null; do_not_contact: boolean; sequence_closed: boolean };
   defaults: { from_email: string | null; to: string[] };
   messages: { step: ContactMessageStep; message: ContactMessage | null }[];
+  /** Absent (ancienne API) = envoi automatique considéré inactif. */
+  dispatch?: DispatchInfo;
 };
 export type MessageMutationResult = { message: ContactMessage; created: boolean; changed: boolean; unvalidated: boolean; remoteDraftQueued: boolean };
 export type MessageAction = 'validate' | 'schedule' | 'unschedule' | 'cancel' | 'reopen';
@@ -193,6 +199,7 @@ export function displayDateTime(iso: string | null): string {
 export function cancelReasonLabel(reason: string | null): string | null {
   if (!reason) return null;
   if (reason === 'manual') return 'annulé à la main';
+  if (reason === 'do_not_contact') return 'annulé : prospect « À ne plus contacter »';
   const state = reason.startsWith('prospect_state:') ? reason.slice('prospect_state:'.length) : null;
   if (state && isProspectState(state)) return `annulé par le passage du prospect à « ${stateOptionLabel(state)} »`;
   return null;
@@ -209,6 +216,57 @@ export function messageStatusLine(message: ContactMessage | null, sequenceClosed
       const reason = cancelReasonLabel(message.cancel_reason);
       return `Annulé le ${displayDateTime(message.cancelled_at)}${reason ? ` (${reason})` : ''}.`;
     }
+  }
+}
+
+// --- Suivi de l'envoi programmé (Task 16), sans jargon ---
+const sendErrorLabels: Record<string, string> = {
+  toolbox_unavailable: 'la Toolbox était injoignable',
+  toolbox_timeout: 'la Toolbox a mis trop de temps à répondre',
+  toolbox_auth_required: 'la connexion à la Toolbox est à renouveler (Paramètres)',
+  toolbox_not_configured: 'la Toolbox n’est pas configurée',
+  toolbox_outbound_blocked: 'un destinataire n’est pas autorisé par la liste d’envoi de la Toolbox',
+  toolbox_rejected: 'la Toolbox a refusé l’envoi',
+  toolbox_invalid_input: 'la Toolbox a refusé le message (champ invalide)',
+  toolbox_draft_not_found: 'le brouillon n’existe plus dans Infomaniak (supprimé ou envoyé depuis le webmail ?)',
+  toolbox_invalid_response: 'la réponse de la Toolbox était illisible',
+  dispatch_overdue: 'l’heure prévue était dépassée depuis trop longtemps (VIPER arrêté ou Toolbox déconnectée) : il n’est pas parti en retard',
+  send_not_confirmed: 'l’envoi n’a pas pu être confirmé et le brouillon est toujours dans Infomaniak : vérifiez les éléments envoyés avant de reprogrammer',
+  missing_recipients: 'aucun destinataire'
+};
+export const sendErrorLabel = (code: string | null | undefined): string => (code && sendErrorLabels[code]) || 'erreur inattendue';
+/**
+ * Lignes d'état d'envoi affichées sous le statut : envoi en cours ou incertain, nouvel essai prévu, échec à reprogrammer,
+ * envoi confirmé par vérification, brouillon Infomaniak prêt ou non, envoi automatique inactif.
+ */
+export function dispatchStatusLines(message: ContactMessage | null, dispatch: DispatchInfo | undefined): string[] {
+  if (!message) return [];
+  const code = message.last_error_code ?? null;
+  const active = !!dispatch?.active;
+  const draftLine = message.remote_draft_id ? 'Brouillon prêt dans Infomaniak.'
+    : active ? 'Brouillon Infomaniak pas encore créé : il le sera avant l’envoi.' : null;
+  switch (message.status) {
+    case 'sent':
+      return code === 'send_reconciled_draft_absent'
+        ? ['Envoi déduit après vérification : la Toolbox n’a pas confirmé, mais le brouillon a quitté Infomaniak. Contrôlez au besoin les éléments envoyés.']
+        : [];
+    case 'scheduled': {
+      if (message.dispatch_claim_id) return [code === 'send_outcome_unknown'
+        ? 'Envoi non confirmé : VIPER vérifie auprès d’Infomaniak s’il est parti. Il ne sera jamais renvoyé automatiquement.'
+        : 'Envoi en cours.'];
+      const lines: string[] = [];
+      if (!active) lines.push('Envoi automatique inactif : la Toolbox n’est pas connectée (Paramètres). Rien ne partira tant qu’elle ne l’est pas.');
+      if (code) lines.push(`Dernière tentative d’envoi échouée : ${sendErrorLabel(code)}. Nouvel essai automatique.`);
+      if (draftLine) lines.push(draftLine);
+      return lines;
+    }
+    case 'validated': {
+      const lines: string[] = [];
+      if (code) lines.push(`Envoi non effectué : ${sendErrorLabel(code)}. Le message reste validé : reprogrammez-le pour réessayer.`);
+      if (message.remote_draft_id) lines.push('Brouillon prêt dans Infomaniak.');
+      return lines;
+    }
+    default: return [];
   }
 }
 
@@ -249,10 +307,10 @@ export function scheduleToIso({ date, time }: ScheduleInput, now: Date): Schedul
 }
 
 // --- Confirmations ---
+const formatLateness = (minutes: number) => minutes >= 120 && minutes % 60 === 0 ? `${minutes / 60} heures` : `${minutes} minutes`;
 export type MailConfirmation = { title: string; lines: string[]; confirmLabel: string };
-/** Rappel tant que l'envoi différé (Task 16) n'est pas branché : la programmation enregistre la date, rien ne part encore. */
-export const SCHEDULED_DISPATCH_ACTIVE = false;
-export function actionConfirmation(action: 'validate' | 'schedule' | 'cancel', step: ContactMessageStep, schedule?: { at: Date; zone: string }): MailConfirmation {
+/** `dispatch` = état réel du serveur (`GET .../messages`) : la confirmation ne promet un envoi que s'il aura lieu. */
+export function actionConfirmation(action: 'validate' | 'schedule' | 'cancel', step: ContactMessageStep, schedule?: { at: Date; zone: string }, dispatch?: DispatchInfo): MailConfirmation {
   const label = contactMessageStepLabels[step];
   if (action === 'validate') return {
     title: `Valider le message ${label} ?`,
@@ -264,7 +322,10 @@ export function actionConfirmation(action: 'validate' | 'schedule' | 'cancel', s
     title: `Programmer le message ${label} ?`,
     lines: [
       `Envoi prévu le ${schedule ? dateTimeFormat.format(schedule.at) : '—'} (${schedule?.zone ?? 'heure locale'}).`,
-      SCHEDULED_DISPATCH_ACTIVE ? 'Le message partira automatiquement à cette date.' : 'L’envoi automatique n’est pas encore actif dans cette version : la date est enregistrée, aucun mail ne part pour l’instant.',
+      ...(dispatch?.active ? [
+        'Le message partira automatiquement à cette date, depuis la boîte Infomaniak connectée à la Toolbox (VIPER doit être en marche).',
+        `S’il ne peut pas partir dans les ${formatLateness(dispatch.maxLatenessMinutes)} qui suivent, il ne part pas et revient à « Validé ».`
+      ] : ['L’envoi automatique est inactif (Toolbox non connectée) : la date est enregistrée, mais aucun mail ne partira tant que la Toolbox n’est pas connectée.']),
       'Vous pourrez déprogrammer tant que le message n’est pas envoyé.'
     ],
     confirmLabel: 'Confirmer la programmation'

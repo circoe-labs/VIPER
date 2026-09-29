@@ -18,7 +18,7 @@ export type FakeToolbox = {
   registrations: { client_name: unknown; redirect_uris: unknown }[];
   tokenRequests: { grant_type: string | null }[];
   /** Pannes à la demande. */
-  mode: { hangTool?: string; httpStatus?: number; toolErrorText?: string };
+  mode: { hangTool?: string; httpStatus?: number; toolErrorText?: string; delayTool?: string; delayMs?: number };
   /** Invalide tous les jetons émis (membre archivé, secret Toolbox changé…). */
   revokeAll(): void;
   close(): Promise<void>;
@@ -178,6 +178,8 @@ export async function startFakeToolbox(options: FakeToolboxOptions = {}): Promis
         else if (message.method === 'tools/call') {
           const name = message.params?.name ?? '';
           if (fake.mode.hangTool === name) { hanging.add(res); return; }
+          // Outil lent : exécuté après le délai même si le client a abandonné entre-temps (Toolbox qui envoie malgré la coupure).
+          if (fake.mode.delayTool === name) await new Promise(resolve => setTimeout(resolve, fake.mode.delayMs ?? 1000));
           result = runTool(name, message.params?.arguments ?? {});
           if (result === null) return json(res, 200, { jsonrpc: '2.0', id: message.id, error: { code: -32602, message: `Tool ${name} not found` } });
         } else return json(res, 200, { jsonrpc: '2.0', id: message.id, error: { code: -32601, message: 'Method not found' } });

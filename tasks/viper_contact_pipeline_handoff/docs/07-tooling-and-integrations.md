@@ -38,6 +38,18 @@ Le MCP Toolbox utilise OAuth 2.1 Authorization Code + PKCE et délègue ensuite 
 
 Ce design évite de polluer Infomaniak avec chaque génération IA non validée.
 
+### Envoi programmé — modèle d’exécution et reprise (Task 16, `src/server/contactMessageDispatcher.ts`)
+
+- **Exécution** : scan périodique dans le process serveur (`CONTACT_DISPATCH_INTERVAL_MS`, 30 s ; démarré seulement si la Toolbox est activée et configurée ; une passe ne fait rien tant qu’elle n’est pas connectée) ; jamais deux passes en parallèle dans un process ; arrêt propre sur SIGINT/SIGTERM (l’envoi en cours se termine, 30 s max).
+- **Verrou** : avant tout appel réseau, UPDATE conditionnel dans une transaction IMMEDIATE (`scheduled`, dû, non verrouillé, même révision, validation courante, même brouillon distant, même nombre de tentatives) + revérification de l’état prospect dans la même transaction (séquence fermée ⇒ annulation) ; `dispatch_attempts+1`, événement `dispatch_claimed`. Deux passes ou deux process : un seul gagne. `send_draft` suit immédiatement.
+- **Succès** : `markSent` (un seul UPDATE, `sent` immuable). Aucun changement d’état prospect.
+- **Échec certain** (refus avant exécution) : transitoire (injoignable/429, délai à l’initialisation, auth, non configurée) ⇒ verrou relâché, `last_error_code`, nouvel essai après backoff (60 s × 2^n, 1 h max), au plus `CONTACT_DISPATCH_MAX_ATTEMPTS` ; définitif (allowlist, refus, champ invalide, brouillon introuvable) ou tentatives épuisées ⇒ retour `validated` (date effacée, validation conservée) pour reprogrammation humaine. Toujours `send_failed`, jamais `sent`.
+- **Issue inconnue** (timeout/coupure/5xx pendant `send_draft`, réponse illisible, erreur interne) : verrou **conservé**, `send_outcome_unknown`, aucun renvoi.
+- **Réconciliation** (verrou plus vieux que `CONTACT_DISPATCH_CLAIM_TTL_MS`, 10 min, > 2 × délai Toolbox, non tenu par ce process — issue inconnue, process tué, `markSent` impossible après envoi) via `list_drafts` (100) : brouillon absent d’une liste non pleine ⇒ `sent` (`send_reconciled_draft_absent`, envoi déduit) ; brouillon présent ⇒ retour `validated` + `send_not_confirmed` (un humain vérifie puis reprogramme) ; liste pleine ou illisible ⇒ rien, nouvel essai à la passe suivante. Un verrou n’est jamais relâché vers un renvoi automatique.
+- **Retard** (serveur éteint, Toolbox déconnectée) : envoi tardif accepté jusqu’à `CONTACT_DISPATCH_MAX_LATENESS_MS` (6 h) après `scheduled_at` ; au-delà, pas d’envoi : retour `validated` + `dispatch_overdue`.
+- **Annulation pendant un envoi** (décision 29) : un message verrouillé n’est pas annulable (`inFlight`, signalé à l’utilisateur) ; si l’envoi échoue, le dispatcher l’annule aussitôt ; s’il a réussi, il reste `sent`.
+- Une nouvelle programmation efface le diagnostic (`dispatch_attempts=0`, `last_error_code`). Journal/audit : identifiants, codes, statuts seulement.
+
 ## OpenAI
 
 ### Règles

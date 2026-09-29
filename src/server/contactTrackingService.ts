@@ -54,7 +54,7 @@ export type FutureMessageCancellation = {
  * Doit annuler les messages non envoyés (`sent` intact) et retourner leur nombre. La suppression des brouillons distants
  * Toolbox (appel réseau) ne peut pas être transactionnelle : l'implémentation doit la différer après commit (Task 16).
  */
-export type FutureMessageCanceller = (cancellation: FutureMessageCancellation) => { cancelled: number };
+export type FutureMessageCanceller = (cancellation: FutureMessageCancellation) => { cancelled: number; inFlight?: number };
 /** Défaut tant que `contact_messages` n'existe pas (Task 11) : rien à annuler. */
 export const noFutureMessages: FutureMessageCanceller = () => ({ cancelled: 0 });
 
@@ -79,6 +79,8 @@ export type TrackingMutationResult = {
   doNotContactReinforced: boolean;
   /** Messages futurs annulés par le hook (décision 29). */
   cancelledMessages: number;
+  /** Messages dont l'envoi était déjà en cours (verrou du dispatcher) : non annulables, le dispatcher les résout (Task 16). */
+  inFlightMessages: number;
   /** Proposition de cadence pour un état de séquence (`contacted`/`r1`/`r2`) nouvellement choisi, depuis la semaine courante ; jamais appliquée. */
   suggestedNextAction: IsoWeek | null;
 };
@@ -214,15 +216,17 @@ export function createContactTrackingService(db: Db, deps: ContactTrackingDeps =
           .run(randomUUID(), trackingId, previousStatus, target, context.actor.type, context.actor.id ?? null);
       }
       const doNotContactReinforced = target === 'ignored' ? reinforceDoNotContact(prospect, context.actor, context.source) : false;
-      const cancelledMessages = stateChanged && targetState && cancelsFutureMessages(targetState)
-        ? cancelFutureMessages({ db, prospectId, trackingId: trackingId as string, fromState: previousStatus, toState: targetState, actor: context.actor, at }).cancelled
-        : 0;
+      const cancellation = stateChanged && targetState && cancelsFutureMessages(targetState)
+        ? cancelFutureMessages({ db, prospectId, trackingId: trackingId as string, fromState: previousStatus, toState: targetState, actor: context.actor, at })
+        : { cancelled: 0 };
+      const cancelledMessages = cancellation.cancelled;
+      const inFlightMessages = cancellation.inFlight ?? 0;
       if (context.audit && (changed.length || !current)) {
         writeAudit(context.actor, prospectId, current ? 'tracking_update' : 'tracking_create', changed, auditPayload(current), { ...auditPayload(next as Partial<ContactTrackingRecord>), cancelled_messages: cancelledMessages }, context.source);
       }
       return {
         tracking: loadTracking(prospectId) as ContactTrackingRecord,
-        created: !current, previousStatus, stateChanged, changed, doNotContactReinforced, cancelledMessages,
+        created: !current, previousStatus, stateChanged, changed, doNotContactReinforced, cancelledMessages, inFlightMessages,
         suggestedNextAction: stateChanged && targetState ? suggestNextActionWeek(targetState, isoWeekOf(now())) : null
       };
     })();

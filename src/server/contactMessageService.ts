@@ -82,6 +82,9 @@ export class ContactMessageError extends Error {
   }
 }
 
+/** Diagnostic d'un envoi déduit par réconciliation (issue incertaine, brouillon distant disparu) : voir `markSent`. */
+export const SENT_RECONCILED_CODE = 'send_reconciled_draft_absent';
+
 // --- Points d'extension brouillon distant (Tasks 15/16) ---
 export type RemoteDraftRef = { provider: string; draftId: string };
 /**
@@ -393,7 +396,8 @@ export function createContactMessageService(db: Db, deps: ContactMessageDeps = {
         const current = now();
         if (scheduledAt.getTime() <= current.getTime()) throw new ContactMessageError('scheduled_at_not_future', 'La date/heure d’envoi doit être dans le futur');
         const at = current.toISOString();
-        const updated = transition(message, "status='scheduled',scheduled_at=?", [scheduledAt.toISOString()], at);
+        // Nouvelle programmation = nouveau cycle d'envoi : diagnostic de l'envoi précédent (échec, retard) effacé (Task 16).
+        const updated = transition(message, "status='scheduled',scheduled_at=?,dispatch_attempts=0,last_error_code=NULL,last_error_at=NULL", [scheduledAt.toISOString()], at);
         appendContactMessageEvent(db, { messageId: message.id, type: 'scheduled', actor, at, fromStatus: 'validated', toStatus: 'scheduled', revision: message.revision, details: { scheduled_at: updated.scheduled_at } });
         writeAudit(actor, updated, 'message_schedule', message);
         return result(updated);
@@ -519,17 +523,20 @@ export function createContactMessageService(db: Db, deps: ContactMessageDeps = {
 
     /**
      * Dispatcher (Task 16) uniquement, aucune route : `scheduled` -> `sent` après confirmation réelle de l'envoi. Exige le
-     * verrou de dispatch posé par ce dispatcher (`claimId`) et une validation encore courante.
+     * verrou de dispatch posé par ce dispatcher (`claimId`) et une validation encore courante. Un seul UPDATE pose toutes les
+     * colonnes finales (le trigger rend ensuite la ligne immuable). `reconciled` : envoi déduit après une issue incertaine (le
+     * brouillon distant a quitté la boîte), tracé par `last_error_code='send_reconciled_draft_absent'` (diagnostic, pas une erreur).
      */
-    markSent: (messageId: string, input: { claimId: string; remoteMessageId: string | null }, actor: Actor): ContactMessageRecord => db.transaction(() => {
+    markSent: (messageId: string, input: { claimId: string; remoteMessageId: string | null; reconciled?: boolean }, actor: Actor): ContactMessageRecord => db.transaction(() => {
       const message = getContactMessageById(db, messageId);
       if (!message) throw new ContactMessageError('message_not_found', 'Message introuvable');
       requireNotSent(message);
       if (message.status !== 'scheduled' || message.validated_revision !== message.revision) throw invalidTransition(message.status, 'marquer envoyé');
       if (message.dispatch_claim_id !== input.claimId) throw new ContactMessageError('dispatch_claim_mismatch', 'Verrou d’envoi absent ou différent');
       const at = now().toISOString();
-      const updated = transition(message, "status='sent',sent_at=?,remote_message_id=?,last_error_code=NULL,last_error_at=NULL", [at, input.remoteMessageId], at);
-      appendContactMessageEvent(db, { messageId, type: 'sent', actor, at, fromStatus: 'scheduled', toStatus: 'sent', revision: message.revision, details: { claim_id: input.claimId } });
+      const updated = transition(message, "status='sent',sent_at=?,remote_message_id=?,last_error_code=?,last_error_at=?",
+        [at, input.remoteMessageId, input.reconciled ? SENT_RECONCILED_CODE : null, input.reconciled ? at : null], at);
+      appendContactMessageEvent(db, { messageId, type: 'sent', actor, at, fromStatus: 'scheduled', toStatus: 'sent', revision: message.revision, details: { claim_id: input.claimId, reconciled: Boolean(input.reconciled) } });
       writeAudit(actor, updated, 'message_sent', message);
       return updated;
     })()
