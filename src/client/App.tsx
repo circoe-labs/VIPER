@@ -317,43 +317,51 @@ function Drawer({ id, nextId, close, saved }: { id: string; nextId: string | nul
 
 function ImportModal({ close, done, draftChanged }: { close: () => void; done: () => void; draftChanged: (value: boolean) => void }) {
   const [p, setP] = useState<any>();
-  const [draftReady, setDraftReady] = useState(false);
   const [draftRestored, setDraftRestored] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
     let active = true;
     loadDraft<any>(IMPORT_DRAFT_KEY).then(draft => {
-      if (!active) return;
-      if (draft?.value) {
-        setP(draft.value);
-        setDraftRestored(true);
-        draftChanged(true);
-      }
-      setDraftReady(true);
-    }).catch(() => setDraftReady(true));
+      if (!active || !draft?.value) return;
+      setP(draft.value);
+      setDraftRestored(true);
+      draftChanged(true);
+    }).catch(e => { if (active) setError((e as Error).message); });
     return () => { active = false; };
   }, []);
 
-  useEffect(() => {
-    if (!draftReady || !p) return;
-    const timer = window.setTimeout(() => {
-      saveDraft(IMPORT_DRAFT_KEY, p).then(() => draftChanged(true)).catch(() => undefined);
-    }, 100);
-    return () => window.clearTimeout(timer);
-  }, [draftReady, p]);
+  const persistImportDraft = async (next: any) => {
+    setError('');
+    try {
+      await saveDraft(IMPORT_DRAFT_KEY, next);
+      draftChanged(true);
+      setP(next);
+    } catch (e) {
+      setError((e as Error).message);
+      throw e;
+    }
+  };
 
   return <div className="overlay center"><div className="modal">
     <div className="drawer-head"><div><small>Excel → base normalisée</small><h2>Import contrôlé</h2></div><button className="icon" onClick={close}>×</button></div>
     <div className="drawer-body">{draftRestored && <p className="warnbox">Brouillon d’import restauré automatiquement. Tes choix et modifications non validés ont été conservés.</p>}{!p ? <label className="drop">Choisir un fichier XLSX, XLS ou CSV<input type="file" accept=".xlsx,.xls,.csv" onChange={async e => {
       const f = e.target.files?.[0]; if (!f) return; setError('');
-      try { setP(await previewWorkbook(f)); }
-      catch (e) { setError((e as Error).message); }
+      try {
+        const preview = await previewWorkbook(f);
+        await persistImportDraft(preview);
+      } catch (e) {
+        setError((e as Error).message);
+      }
     }} /></label> : <>
       <div className="import-summary"><b>{p.rows?.length || 0} lignes détectées</b><span>Les valeurs S37, S39 et S40 sont conservées comme semaines d’envoi 2026. Les contacts concernés sont considérés comme vérifiés.</span></div>
       {p.skippedSheets?.length > 0 && <p className="warnbox">Feuille ignorée explicitement : {p.skippedSheets.join(', ')}</p>}
       <div className="preview"><div className="preview-head"><span /><b>Prospect</b><b>Entreprise</b><b>Vérification</b><b>Contact prévu</b><b>Diagnostic</b></div>{p.rows?.slice(0, 120).map((r: any, i: number) => <div key={i}>
-        <input type="checkbox" checked={!r.excluded} onChange={e => { const rows = [...p.rows]; rows[i] = { ...r, excluded: !e.target.checked }; setP({ ...p, rows }); }} />
+        <input type="checkbox" checked={!r.excluded} onChange={async e => {
+          const rows = [...p.rows];
+          rows[i] = { ...r, excluded: !e.target.checked };
+          try { await persistImportDraft({ ...p, rows }); } catch { /* erreur affichée dans la modale */ }
+        }} />
         <b>{[r.normalized.first_name, r.normalized.last_name].filter(Boolean).join(' ') || 'Inconnu'}</b><span>{r.normalized.company}</span>
         <span className={r.normalized.verification_state === 'verified' ? 'text-ok' : 'text-warn'}>{r.normalized.verification_state === 'verified' ? 'Vérifié' : 'À vérifier'}</span>
         <span>{r.normalized.contact_week ? `Semaine ${r.normalized.contact_week} · ${r.normalized.contact_year || 2026}` : r.normalized.planned_contact_at ? formatDate(r.normalized.planned_contact_at) : '—'}</span>
