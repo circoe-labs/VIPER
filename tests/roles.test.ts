@@ -3,56 +3,73 @@ import Database from 'better-sqlite3';
 import { schema } from '../src/server/schema.js';
 import { backfillUnassignedProspectRoles, ensureDefaultRoles, inferRoleSlug, roleLabelForSlug } from '../src/server/roleTaxonomy.js';
 
-describe('role taxonomy', () => {
+describe('role groups', () => {
   it.each([
-    ['Gérant', 'direction'],
-    ['Directeur général', 'direction'],
-    ['Directeur logistique', 'logistique'],
-    ['Responsable logistique', 'logistique'],
-    ['Responsable exploitation', 'exploitation'],
-    ['Directeur des opérations', 'exploitation'],
-    ['Chargé de développement', 'developpement-commercial'],
-    ['Chargé de dev', 'developpement-commercial'],
-    ['Business developer', 'developpement-commercial'],
-    ['Directeur commercial', 'commercial'],
-    ['Responsable achats', 'achats'],
-    ['Directeur financier', 'finance-administration'],
-    ['Responsable RH', 'ressources-humaines'],
-    ['DSI', 'technique-it']
+    ['Gérant', 'gouvernance'],
+    ['DG', 'gouvernance'],
+    ['PDG', 'gouvernance'],
+    ['Président', 'gouvernance'],
+    ['Directeur général', 'gouvernance'],
+    ['Directeur logistique', 'direction'],
+    ['Directrice export et communication', 'direction'],
+    ['Directeur régional opérationnel', 'direction'],
+    ['adjoint au directeur ILS', 'direction-adjointe'],
+    ['senior vice president', 'direction-adjointe'],
+    ['Responsable logistique', 'management'],
+    ['Sales Manager', 'management'],
+    ['Chef de Projet', 'pilotage'],
+    ['Chef des ventes', 'pilotage'],
+    ['Chargée de mission innovation', 'charge-mission-affaires'],
+    ['chargée d’affaires', 'charge-mission-affaires'],
+    ['commercial', 'commercial-developpement'],
+    ['service commercial', 'commercial-developpement'],
+    ['Ingénieur Valorisation Biomasse', 'technique-ingenierie-it'],
+    ['Digital Transformation Officer', 'technique-ingenierie-it'],
+    ['RH', 'support-admin-rh-juridique'],
+    ['assistante de direction', 'support-admin-rh-juridique'],
+    ['Directrice juriste', 'direction'],
+    ['Préfet', 'institutionnel-conseil-autre'],
+    ['Journaliste', 'institutionnel-conseil-autre'],
+    ['non confirmé', 'institutionnel-conseil-autre']
   ])('maps %s to %s', (title, slug) => {
     expect(inferRoleSlug(title)).toBe(slug);
   });
 
-  it('leaves ambiguous titles unclassified', () => {
-    expect(inferRoleSlug('Consultant')).toBeNull();
-    expect(inferRoleSlug('Assistant de direction')).toBeNull();
-  });
-
-  it('creates the default role set and migrates old labels', () => {
+  it('creates exactly ten active default groups and retires old automatic groups', () => {
     const db = new Database(':memory:');
     db.exec(schema);
-    db.prepare('INSERT INTO roles(id,label,slug) VALUES(?,?,?)').run('old-direction', 'Direction', 'direction');
+    db.prepare('INSERT INTO roles(id,label,slug) VALUES(?,?,?)').run('old-logistique', 'Logistique', 'logistique');
+    db.prepare('INSERT INTO roles(id,label,slug) VALUES(?,?,?)').run('old-direction', 'Direction / Gérance', 'direction');
+
     ensureDefaultRoles(db);
-    const direction = db.prepare("SELECT label FROM roles WHERE slug='direction'").get() as any;
-    expect(direction.label).toBe('Direction / Gérance');
-    expect(roleLabelForSlug('developpement-commercial')).toBe('Développement commercial');
-    expect((db.prepare('SELECT count(*) n FROM roles').get() as any).n).toBeGreaterThanOrEqual(9);
+
+    expect((db.prepare('SELECT count(*) n FROM roles WHERE active=1').get() as any).n).toBe(10);
+    expect((db.prepare("SELECT label FROM roles WHERE slug='direction'").get() as any).label).toBe('Direction');
+    expect((db.prepare("SELECT active FROM roles WHERE slug='logistique'").get() as any).active).toBe(0);
+    expect(roleLabelForSlug('gouvernance')).toBe('Direction générale / Gouvernance');
     db.close();
   });
 
-  it('backfills only prospects without a manually assigned role', () => {
+  it('reclassifies old automatic roles but preserves a custom manual role', () => {
     const db = new Database(':memory:');
     db.exec(schema);
-    const ids = ensureDefaultRoles(db);
     db.prepare('INSERT INTO companies(id,display_name) VALUES(?,?)').run('c1', 'Acme');
-    db.prepare('INSERT INTO prospects(id,company_id,first_name,last_name,exact_job_title) VALUES(?,?,?,?,?)')
-      .run('p1', 'c1', 'Luc', 'Martin', 'Directeur logistique');
-    db.prepare('INSERT INTO prospects(id,company_id,first_name,last_name,role_id,exact_job_title) VALUES(?,?,?,?,?,?)')
-      .run('p2', 'c1', 'Léa', 'Durand', ids.get('commercial'), 'Gérante');
 
-    expect(backfillUnassignedProspectRoles(db)).toBe(1);
-    expect((db.prepare('SELECT role_id FROM prospects WHERE id=?').get('p1') as any).role_id).toBe(ids.get('logistique'));
-    expect((db.prepare('SELECT role_id FROM prospects WHERE id=?').get('p2') as any).role_id).toBe(ids.get('commercial'));
+    db.prepare('INSERT INTO roles(id,label,slug) VALUES(?,?,?)').run('legacy-log', 'Logistique', 'logistique');
+    db.prepare('INSERT INTO roles(id,label,slug) VALUES(?,?,?)').run('custom', 'Décideur clé', 'decideur-cle');
+
+    db.prepare('INSERT INTO prospects(id,company_id,first_name,last_name,role_id,exact_job_title) VALUES(?,?,?,?,?,?)')
+      .run('p1', 'c1', 'Luc', 'Martin', 'legacy-log', 'Directeur logistique');
+    db.prepare('INSERT INTO prospects(id,company_id,first_name,last_name,role_id,exact_job_title) VALUES(?,?,?,?,?,?)')
+      .run('p2', 'c1', 'Léa', 'Durand', 'custom', 'Gérante');
+    db.prepare('INSERT INTO prospects(id,company_id,first_name,last_name,exact_job_title) VALUES(?,?,?,?,?)')
+      .run('p3', 'c1', 'Marc', 'Petit', 'Responsable exploitation');
+
+    const ids = ensureDefaultRoles(db);
+    expect(backfillUnassignedProspectRoles(db)).toBe(2);
+    expect((db.prepare('SELECT role_id FROM prospects WHERE id=?').get('p1') as any).role_id).toBe(ids.get('direction'));
+    expect((db.prepare('SELECT role_id FROM prospects WHERE id=?').get('p2') as any).role_id).toBe('custom');
+    expect((db.prepare('SELECT role_id FROM prospects WHERE id=?').get('p3') as any).role_id).toBe(ids.get('management'));
     db.close();
   });
 });

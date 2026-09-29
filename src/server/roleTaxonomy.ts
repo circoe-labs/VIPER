@@ -8,16 +8,29 @@ export type DefaultRole = {
 };
 
 export const DEFAULT_ROLES: DefaultRole[] = [
-  { slug: 'direction', label: 'Direction / Gérance', aliases: ['Direction', 'Gérance'] },
-  { slug: 'logistique', label: 'Logistique', aliases: [] },
-  { slug: 'exploitation', label: 'Exploitation / Opérations', aliases: ['Exploitation', 'Opérations'] },
-  { slug: 'developpement-commercial', label: 'Développement commercial', aliases: ['Développement', 'Business development'] },
-  { slug: 'commercial', label: 'Commercial / Ventes', aliases: ['Commercial', 'Ventes'] },
-  { slug: 'achats', label: 'Achats', aliases: [] },
-  { slug: 'finance-administration', label: 'Finance / Administration', aliases: ['Finance', 'Administration'] },
-  { slug: 'ressources-humaines', label: 'Ressources humaines', aliases: ['RH'] },
-  { slug: 'technique-it', label: 'Technique / IT', aliases: ['Technique', 'IT'] }
+  { slug: 'gouvernance', label: 'Direction générale / Gouvernance', aliases: ['DG', 'PDG', 'Présidence', 'Gérance'] },
+  { slug: 'direction', label: 'Direction', aliases: ['Directeur', 'Directrice'] },
+  { slug: 'direction-adjointe', label: 'Direction adjointe / Vice-présidence', aliases: ['Adjoint', 'Vice-présidence'] },
+  { slug: 'management', label: 'Responsable / Management', aliases: ['Responsable', 'Manager'] },
+  { slug: 'pilotage', label: 'Chef / Pilotage', aliases: ['Chef', 'Pilotage'] },
+  { slug: 'charge-mission-affaires', label: 'Chargé de mission / Affaires / Études', aliases: ['Chargé de mission', 'Chargé d’affaires', 'Chargé d’études'] },
+  { slug: 'commercial-developpement', label: 'Commercial / Développement', aliases: ['Commercial', 'Développement commercial'] },
+  { slug: 'technique-ingenierie-it', label: 'Technique / Ingénierie / IT', aliases: ['Ingénierie', 'Technique', 'IT'] },
+  { slug: 'support-admin-rh-juridique', label: 'Support / Admin / RH / Juridique', aliases: ['RH', 'Administration', 'Juridique'] },
+  { slug: 'institutionnel-conseil-autre', label: 'Institutionnel / Conseil / Autre', aliases: ['Institutionnel', 'Conseil', 'Autre'] }
 ];
+
+const LEGACY_SYSTEM_ROLE_SLUGS = new Set([
+  'direction',
+  'logistique',
+  'exploitation',
+  'developpement-commercial',
+  'commercial',
+  'achats',
+  'finance-administration',
+  'ressources-humaines',
+  'technique-it'
+]);
 
 function normalized(value: unknown) {
   return String(value || '')
@@ -29,35 +42,72 @@ function normalized(value: unknown) {
     .replace(/\s+/g, ' ');
 }
 
-function hasAny(title: string, terms: string[]) {
-  return terms.some(term => {
-    const t = normalized(term);
-    return title === t || title.startsWith(t + ' ') || title.endsWith(' ' + t) || title.includes(' ' + t + ' ');
-  });
+function contains(title: string, pattern: RegExp) {
+  return pattern.test(title);
 }
 
 export function inferRoleSlug(jobTitle: unknown): string | null {
   const title = normalized(jobTitle);
   if (!title) return null;
 
-  // Domain-specific responsibilities take precedence over hierarchy.
-  if (hasAny(title, ['logistique', 'supply chain', 'transport', 'entrepot'])) return 'logistique';
-  if (hasAny(title, ['exploitation', 'operations', 'operationnel', 'production'])) return 'exploitation';
-  if (
-    hasAny(title, ['developpement commercial', 'business developer', 'business development', 'charge de developpement', 'chargee de developpement', 'charge de dev', 'chargee de dev', 'partenariats'])
-  ) return 'developpement-commercial';
-  if (hasAny(title, ['commercial', 'ventes', 'sales', 'account manager', 'grands comptes'])) return 'commercial';
-  if (hasAny(title, ['achats', 'achat', 'procurement', 'approvisionnement'])) return 'achats';
-  if (hasAny(title, ['ressources humaines', 'recrutement', 'talent', 'rh'])) return 'ressources-humaines';
-  if (hasAny(title, ['finance', 'financier', 'comptabilite', 'comptable', 'administratif', 'administration', 'daf', 'cfo'])) return 'finance-administration';
-  if (hasAny(title, ['informatique', 'it', 'technique', 'dsi', 'cto', 'systemes d information'])) return 'technique-it';
+  // Cas support explicites qui contiennent parfois le mot "direction".
+  if (contains(title, /(^| )(assistante|assistant|secretaire)( |$)/)) {
+    return 'support-admin-rh-juridique';
+  }
 
-  // Generic company leadership only when no clearer functional domain matched above.
-  if (
-    hasAny(title, ['gerant', 'gerante', 'dirigeant', 'dirigeante', 'directeur general', 'directrice generale', 'president', 'presidente', 'pdg', 'ceo', 'fondateur', 'fondatrice', 'cofondateur', 'cofondatrice', 'managing director'])
-  ) return 'direction';
+  // 1. Direction adjointe / vice-présidence avant "président" et "direction".
+  if (contains(title, /(^| )(adjoint|adjointe|vice president|senior vice president|sdg)( |$)/)) {
+    return 'direction-adjointe';
+  }
 
-  return null;
+  // 2. Gouvernance / direction générale.
+  if (contains(title, /(^| )(dg|pdg|ceo|gerant|gerante|dirigeant|dirigeante|president|presidente|fondateur|fondatrice|associe)( |$)/)) {
+    return 'gouvernance';
+  }
+  if (contains(title, /(^| )(directeur general|directrice generale|president directeur general|chef d entreprise)( |$)/)) {
+    return 'gouvernance';
+  }
+
+  // 3. Direction.
+  if (contains(title, /(^| )(directeur|directrice|director|direction|dst|delegue general|executive officer)( |$)/)) {
+    return 'direction';
+  }
+
+  // 4. Responsable / management.
+  if (contains(title, /(^| )(responsable|manager|rrh)( |$)/)) {
+    return 'management';
+  }
+
+  // 5. Chef / pilotage.
+  if (contains(title, /(^| )chef( |$)/)) {
+    return 'pilotage';
+  }
+
+  // 6. Chargé de mission / affaires / études.
+  if (contains(title, /(^| )(charge|chargee)( |$)/)) {
+    return 'charge-mission-affaires';
+  }
+
+  // 7. Commercial / développement.
+  if (contains(title, /(^| )(commercial|commerciale|sales|ventes|business developer|business development)( |$)/)) {
+    return 'commercial-developpement';
+  }
+
+  // 8. Technique / ingénierie / IT.
+  if (contains(title, /(^| )(ingenieur|ingenieure|technical|digital|informatique|it|dsi|cto)( |$)/)) {
+    return 'technique-ingenierie-it';
+  }
+  if (title.includes('product development') || title.includes('design and application architecture')) {
+    return 'technique-ingenierie-it';
+  }
+
+  // 9. Fonctions support.
+  if (contains(title, /(^| )(rh|ressources humaines|administrative|financial|secretaire|assistante|juriste|finance|comptable)( |$)/)) {
+    return 'support-admin-rh-juridique';
+  }
+
+  // 10. Institutionnel / conseil / cas non standard.
+  return 'institutionnel-conseil-autre';
 }
 
 export function roleLabelForSlug(slug: string | null | undefined) {
@@ -66,32 +116,41 @@ export function roleLabelForSlug(slug: string | null | undefined) {
 
 export function ensureDefaultRoles(db: Database.Database) {
   const ids = new Map<string, string>();
+
+  // Les anciennes catégories automatiques deviennent inactives, sauf "direction"
+  // qui est réutilisée pour le nouveau groupe Direction.
+  for (const slug of LEGACY_SYSTEM_ROLE_SLUGS) {
+    if (slug !== 'direction') db.prepare('UPDATE roles SET active=0,updated_at=CURRENT_TIMESTAMP WHERE slug=?').run(slug);
+  }
+
   for (const role of DEFAULT_ROLES) {
     let current = db.prepare('SELECT id,label,slug FROM roles WHERE slug=?').get(role.slug) as any;
     if (!current) {
-      const candidates = [role.label, ...role.aliases];
-      for (const alias of candidates) {
-        current = db.prepare('SELECT id,label,slug FROM roles WHERE lower(label)=lower(?)').get(alias) as any;
-        if (current) break;
-      }
-    }
-    if (!current) {
       current = { id: randomUUID(), slug: role.slug, label: role.label };
-      db.prepare('INSERT INTO roles(id,label,slug) VALUES(?,?,?)').run(current.id, role.label, role.slug);
+      db.prepare('INSERT INTO roles(id,label,slug,active) VALUES(?,?,?,1)').run(current.id, role.label, role.slug);
     } else {
-      const labelOwner = db.prepare('SELECT id FROM roles WHERE lower(label)=lower(?) AND id<>?').get(role.label, current.id) as any;
-      if (!labelOwner) db.prepare('UPDATE roles SET label=?,slug=?,active=1,updated_at=CURRENT_TIMESTAMP WHERE id=?').run(role.label, role.slug, current.id);
+      db.prepare('UPDATE roles SET label=?,active=1,updated_at=CURRENT_TIMESTAMP WHERE id=?').run(role.label, current.id);
     }
     ids.set(role.slug, current.id);
   }
+
   return ids;
 }
 
 export function backfillUnassignedProspectRoles(db: Database.Database) {
   const ids = ensureDefaultRoles(db);
-  const prospects = db.prepare("SELECT id,exact_job_title FROM prospects WHERE role_id IS NULL AND coalesce(trim(exact_job_title),'')<>''").all() as any[];
+  const legacySlugs = Array.from(LEGACY_SYSTEM_ROLE_SLUGS);
+  const placeholders = legacySlugs.map(() => '?').join(',');
+  const prospects = db.prepare(`
+    SELECT p.id,p.exact_job_title,r.slug current_role_slug
+    FROM prospects p
+    LEFT JOIN roles r ON r.id=p.role_id
+    WHERE coalesce(trim(p.exact_job_title),'')<>''
+      AND (p.role_id IS NULL OR r.slug IN (${placeholders}))
+  `).all(...legacySlugs) as any[];
+
   let updated = 0;
-  const update = db.prepare('UPDATE prospects SET role_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND role_id IS NULL');
+  const update = db.prepare('UPDATE prospects SET role_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=?');
   for (const prospect of prospects) {
     const slug = inferRoleSlug(prospect.exact_job_title);
     const roleId = slug ? ids.get(slug) : null;
