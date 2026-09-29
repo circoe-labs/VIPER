@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { api } from './api';
+import { commitWorkbookPreview, previewWorkbook } from './importCache';
+import { hasServerBusinessState, requestPersistentBrowserStorage, restoreLatestViperState, saveCurrentViperState } from './stateCache';
 
 type Page = 'home' | 'prospection' | 'exploitation' | 'database' | 'settings';
 type Prospect = Record<string, any>;
@@ -266,9 +268,8 @@ function ImportModal({ close, done }: { close: () => void; done: () => void }) {
     <div className="drawer-head"><div><small>Excel → base normalisée</small><h2>Import contrôlé</h2></div><button className="icon" onClick={close}>×</button></div>
     <div className="drawer-body">{!p ? <label className="drop">Choisir un fichier XLSX, XLS ou CSV<input type="file" accept=".xlsx,.xls,.csv" onChange={async e => {
       const f = e.target.files?.[0]; if (!f) return; setError('');
-      const fd = new FormData(); fd.append('file', f);
-      const r = await fetch('/api/import/preview', { method: 'POST', body: fd });
-      const body = await r.json(); if (!r.ok) setError(body.error || 'Import impossible'); else setP(body);
+      try { setP(await previewWorkbook(f)); }
+      catch (e) { setError((e as Error).message); }
     }} /></label> : <>
       <div className="import-summary"><b>{p.rows?.length || 0} lignes détectées</b><span>Les valeurs S37, S39 et S40 sont conservées comme semaines d’envoi 2026. Les contacts concernés sont considérés comme vérifiés.</span></div>
       {p.skippedSheets?.length > 0 && <p className="warnbox">Feuille ignorée explicitement : {p.skippedSheets.join(', ')}</p>}
@@ -280,7 +281,7 @@ function ImportModal({ close, done }: { close: () => void; done: () => void }) {
         <small>{r.diagnostics.map((d: any) => d.message).join(' · ') || 'Prêt'}</small>
       </div>)}</div>
     </>}{error && <p className="danger">{error}</p>}</div>
-    <footer><button className="secondary" onClick={close}>Annuler</button>{p && <button onClick={async () => { try { await api('/api/import/commit', { method: 'POST', body: JSON.stringify(p) }); done(); } catch (e) { setError((e as Error).message); } }}>Confirmer l’import</button>}</footer>
+    <footer><button className="secondary" onClick={close}>Annuler</button>{p && <button onClick={async () => { try { await commitWorkbookPreview(p); done(); } catch (e) { setError((e as Error).message); } }}>Confirmer l’import</button>}</footer>
   </div></div>;
 }
 
@@ -308,7 +309,34 @@ function SettingsSet({ title, items, add }: { title: string; items: string[]; ad
 
 export function App() {
   const [state, setState] = useState<'loading' | 'in' | 'out'>('loading');
-  useEffect(() => { api('/api/auth/me').then(() => setState('in')).catch(() => setState('out')); }, []);
-  if (state === 'loading') return <div className="login">Chargement…</div>;
-  return state === 'in' ? <Shell /> : <Login onDone={() => setState('in')} />;
+
+  const bootstrap = async () => {
+    setState('loading');
+    try {
+      await requestPersistentBrowserStorage();
+      const serverHasState = await hasServerBusinessState();
+      if (!serverHasState) await restoreLatestViperState();
+      await saveCurrentViperState().catch(() => undefined);
+      setState('in');
+    } catch {
+      setState('in');
+    }
+  };
+
+  useEffect(() => {
+    let active = true;
+    api('/api/auth/me')
+      .then(async () => { if (active) await bootstrap(); })
+      .catch(() => { if (active) setState('out'); });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (state !== 'in') return;
+    const timer = window.setInterval(() => { saveCurrentViperState().catch(() => undefined); }, 15000);
+    return () => window.clearInterval(timer);
+  }, [state]);
+
+  if (state === 'loading') return <div className="login">Chargement et restauration de votre session VIPER…</div>;
+  return state === 'in' ? <Shell /> : <Login onDone={() => { bootstrap(); }} />;
 }

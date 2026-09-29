@@ -2,16 +2,17 @@ import express from 'express';
 import cookieParser from 'cookie-parser';
 import multer from 'multer';
 import { randomUUID } from 'node:crypto';
-import { db, migrate, rows } from './db.js';
+import { db, isBusinessStateEmpty, migrate, restoreDatabase, rows, serializeDatabase } from './db.js';
 import { login, logout, me, requireAuth } from './auth.js';
 import { audit, type Actor } from './audit.js';
 import { parseWorkbook } from './importer.js';
 import { buildExport } from './exporter.js';
 import { assertReadOnlySql } from './sqlSafety.js';
+import { archiveImportedWorkbook } from './storage.js';
 
 migrate();
 const app = express();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
 app.use(express.json({ limit: '2mb' }));
 app.use(cookieParser());
 app.post('/api/auth/login', login);
@@ -22,6 +23,28 @@ app.use('/api', requireAuth);
 const actor = (req: express.Request) => (req as any).actor || { type: 'human', id: 'pilot-user', display: 'Commercial VIPER' };
 const nowIso = () => new Date().toISOString();
 const norm = (v: unknown) => String(v || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+app.get('/api/state/backup', (_req, res) => {
+  try {
+    const snapshot = serializeDatabase();
+    res.setHeader('Content-Type', 'application/vnd.sqlite3');
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(snapshot);
+  } catch (e) {
+    res.status(500).json({ error: e instanceof Error ? e.message : 'Sauvegarde impossible' });
+  }
+});
+
+app.post('/api/state/restore', upload.single('backup'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Sauvegarde requise' });
+  if (!isBusinessStateEmpty()) return res.status(409).json({ error: 'Restauration refusée : VIPER contient déjà des données.' });
+  try {
+    restoreDatabase(req.file.buffer);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'Restauration impossible' });
+  }
+});
 
 function ensureCategory(label: string) {
   const clean = label.trim();
@@ -272,8 +295,13 @@ app.post('/api/settings/referents', (req, res) => {
 
 app.post('/api/import/preview', upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Fichier requis' });
-  try { res.json(parseWorkbook(req.file.buffer, req.file.originalname, new Date())); }
-  catch (e) { res.status(400).json({ error: e instanceof Error ? e.message : 'Import impossible' }); }
+  try {
+    const preview = parseWorkbook(req.file.buffer, req.file.originalname, new Date());
+    archiveImportedWorkbook(req.file.buffer, req.file.originalname, preview.fingerprint);
+    res.json(preview);
+  } catch (e) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'Import impossible' });
+  }
 });
 
 app.post('/api/import/commit', (req, res) => {
