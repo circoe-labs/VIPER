@@ -231,14 +231,17 @@ describe('MailToolbox MCP (faux serveur)', () => {
 
   it('timeout : erreur typée, issue inconnue signalée pour send_draft', async () => {
     const fake = await fakeToolbox();
-    const { toolbox } = await connectedToolbox(fake, 300);
-    const { draftId } = await toolbox.createDraft(draftInput);
+    // Connexion et création du brouillon avec le délai normal ; délai court (1,5 s, marge contre la charge de la machine : un
+    // dépassement pendant `initialize` serait une issue connue) seulement pour les appels volontairement bloqués par le faux serveur.
+    const { auth, toolbox: setup } = await connectedToolbox(fake);
+    const { draftId } = await setup.createDraft(draftInput);
+    const toolbox = createMcpMailToolbox({ mcpUrl: fake.mcpUrl, tokens: auth.tokens, timeoutMs: 1500 });
     fake.mode.hangTool = 'infomaniak.mail.send_draft';
     const error = await expectToolboxError(toolbox.sendDraft(draftId), 'toolbox_timeout');
     expect(error.outcomeUnknown).toBe(true);
     fake.mode.hangTool = 'infomaniak.mail.create_draft';
     expect((await expectToolboxError(toolbox.createDraft(draftInput), 'toolbox_timeout')).outcomeUnknown).toBe(false);
-  });
+  }, 15_000);
 
   it('classement des textes d\'erreur Toolbox', () => {
     expect(classifyToolError('Brouillon introuvable : d1')).toBe('toolbox_draft_not_found');

@@ -49,15 +49,18 @@ function openDb(file: string) {
   db.pragma('journal_mode = WAL');
   return db;
 }
-async function connectedToolbox(fake: FakeToolbox, timeoutMs: number): Promise<MailToolbox> {
+async function connectedToolbox(fake: FakeToolbox, timeoutMs: number): Promise<{ toolbox: MailToolbox; withTimeout: (ms: number) => MailToolbox }> {
   const auth = createToolboxAuth({ mcpUrl: fake.mcpUrl, redirectUri: REDIRECT, tokenStorePath: 'unused', timeoutMs }, { store: createMemoryTokenStore() });
   const { authorizationUrl } = await auth.start(human);
   const res = await fetch(authorizationUrl, { redirect: 'manual' });
   expect(await auth.complete(Object.fromEntries(new URL(res.headers.get('location')!).searchParams))).toEqual({ ok: true });
-  return createMcpMailToolbox({ mcpUrl: fake.mcpUrl, tokens: auth.tokens, timeoutMs });
+  const withTimeout = (ms: number) => createMcpMailToolbox({ mcpUrl: fake.mcpUrl, tokens: auth.tokens, timeoutMs: ms });
+  return { toolbox: withTimeout(timeoutMs), withTimeout };
 }
 
-async function setup(opts: { fake?: FakeToolboxOptions; timeoutMs?: number } = {}) {
+// `sendTimeoutMs` : délai court appliqué seulement aux appels du dispatcher (envoi volontairement bloqué/lent) ; connexion,
+// brouillons et réconciliation gardent le délai normal pour ne pas dépendre de la charge de la machine.
+async function setup(opts: { fake?: FakeToolboxOptions; sendTimeoutMs?: number } = {}) {
   const fake = await startFakeToolbox(opts.fake);
   fakes.push(fake);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'viper-dispatch-'));
@@ -75,7 +78,8 @@ async function setup(opts: { fake?: FakeToolboxOptions; timeoutMs?: number } = {
     db.prepare('INSERT INTO emails(id,prospect_id,address,is_primary) VALUES(?,?,?,1)').run(`e-${id}`, id, id === 'p1' ? TO : `${id}@example.test`);
     tracking.applyProspectPayload(id, {}, human);
   }
-  const toolbox = await connectedToolbox(fake, opts.timeoutMs ?? 2000);
+  const { toolbox, withTimeout } = await connectedToolbox(fake, 2000);
+  const shortToolbox = opts.sendTimeoutMs ? withTimeout(opts.sendTimeoutMs) : toolbox;
   const service = createContactMessageService(db, { now, defaultFromEmail: 'lucie@example.test', remoteDrafts: toolboxRemoteDrafts(toolbox) });
   const logs: string[] = [];
   const dispatcher = (over: Partial<ContactDispatcherDeps> = {}, onDb: Database.Database = db) => createContactDispatcher({
@@ -94,7 +98,7 @@ async function setup(opts: { fake?: FakeToolboxOptions; timeoutMs?: number } = {
   const sendCalls = () => fake.calls.filter(c => c.tool === SEND).length;
   const reload = (id: string) => getContactMessageById(db, id)!;
   const events = (id: string) => listContactMessageEvents(db, id).map(e => e.event_type);
-  return { fake, db, file, tracking, toolbox, service, logs, dispatcher, draft, validated, scheduled, sendCalls, reload, events, setClock: (d: Date) => { clock = d; } };
+  return { fake, db, file, tracking, toolbox, shortToolbox, service, logs, dispatcher, draft, validated, scheduled, sendCalls, reload, events, setClock: (d: Date) => { clock = d; } };
 }
 
 describe('dispatcher : éligibilité', () => {
@@ -236,17 +240,17 @@ describe('dispatcher : anti-double-envoi', () => {
   });
 
   it('issue inconnue (timeout pendant send_draft) : jamais rejoué, réconcilié ensuite (envoi effectif => sent)', async () => {
-    const t = await setup({ timeoutMs: 300 });
+    const t = await setup({ sendTimeoutMs: 1500 });
     const s = await t.scheduled();
     t.fake.mode.delayTool = SEND;
-    t.fake.mode.delayMs = 600; // la Toolbox envoie après l'abandon du client
+    t.fake.mode.delayMs = 2500; // la Toolbox envoie après l'abandon du client (délai client 1,5 s)
     t.setClock(DUE);
-    const d = t.dispatcher();
-    expect(await d.runScan()).toMatchObject({ uncertain: 1, sent: 0 });
+    expect(await t.dispatcher({ toolbox: () => t.shortToolbox }).runScan()).toMatchObject({ uncertain: 1, sent: 0 });
     expect(t.reload(s.id)).toMatchObject({ status: 'scheduled', last_error_code: 'send_outcome_unknown' });
     expect(t.reload(s.id).dispatch_claim_id).not.toBeNull();
-    await new Promise(resolve => setTimeout(resolve, 500));
+    for (let i = 0; i < 100 && t.fake.sent.length === 0; i++) await new Promise(resolve => setTimeout(resolve, 50)); // envoi effectif côté Toolbox
     t.fake.mode.delayTool = undefined;
+    const d = t.dispatcher(); // reprise (délai normal)
     t.setClock(plus(DUE, 60_000));
     await d.runScan(); // verrou récent : aucune action
     expect(t.sendCalls()).toBe(1);
@@ -255,22 +259,22 @@ describe('dispatcher : anti-double-envoi', () => {
     expect(t.reload(s.id)).toMatchObject({ status: 'sent', last_error_code: 'send_reconciled_draft_absent' });
     expect(t.sendCalls()).toBe(1);
     expect(t.fake.sent).toHaveLength(1);
-  });
+  }, 15_000);
 
   it('issue inconnue sans envoi effectif (Toolbox muette) : brouillon toujours présent => revue humaine, aucun renvoi', async () => {
-    const t = await setup({ timeoutMs: 300 });
+    const t = await setup({ sendTimeoutMs: 1500 });
     const s = await t.scheduled();
     t.fake.mode.hangTool = SEND;
     t.setClock(DUE);
-    const d = t.dispatcher();
-    expect(await d.runScan()).toMatchObject({ uncertain: 1 });
+    expect(await t.dispatcher({ toolbox: () => t.shortToolbox }).runScan()).toMatchObject({ uncertain: 1 });
     t.fake.mode.hangTool = undefined;
+    const d = t.dispatcher(); // reprise (délai normal)
     t.setClock(plus(DUE, CONFIG.claimTtlMs + 1));
     expect(await d.runScan()).toMatchObject({ reconciledNotSent: 1, sent: 0 });
     expect(t.reload(s.id)).toMatchObject({ status: 'validated', last_error_code: 'send_not_confirmed' });
     expect(t.sendCalls()).toBe(1);
     expect(t.fake.sent).toHaveLength(0);
-  });
+  }, 15_000);
 });
 
 describe('dispatcher : erreurs Toolbox', () => {
