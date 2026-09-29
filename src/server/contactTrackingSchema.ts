@@ -3,7 +3,7 @@
 // historique `contact_tracking_status_history` intact. Exécutée une seule fois (table `schema_migrations`), atomique.
 // Les statuts legacy (`to_contact`, `follow_up_1`...) ne sont PAS convertis ici : voir contactTrackingReconciliation.ts (Task 03).
 import type Database from 'better-sqlite3';
-import { DEFAULT_PROSPECT_STATE, isValidIsoWeek, type IsoWeek } from '../shared/contactWorkflow.js';
+import { DEFAULT_PROSPECT_STATE, isoWeekOf, isValidIsoWeek, type IsoWeek } from '../shared/contactWorkflow.js';
 import { contactTrackingColumns, contactTrackingConstraints } from './schema.js';
 
 export const CONTACT_TRACKING_MIGRATION_ID = '2026-09-contact-02-next-action';
@@ -130,3 +130,11 @@ export function resolveIncomingNextAction(incoming: Record<string, unknown>, cur
   if (incoming.contact_year !== undefined || incoming.contact_week !== undefined) return toNextActionWeek(incoming.contact_year, incoming.contact_week);
   return current;
 }
+
+/** Filtre SQL « prochaine semaine atteinte » (semaine ISO courante incluse, échues comprises) sur l'alias de `contact_tracking`. */
+export function nextActionDueFilter(today: Date, alias = 'ct'): { sql: string; params: number[] } {
+  const { year, week } = isoWeekOf(today);
+  return { sql: `${alias}.next_action_year IS NOT NULL AND (${alias}.next_action_year<? OR (${alias}.next_action_year=? AND ${alias}.next_action_week<=?))`, params: [year, year, week] };
+}
+/** Tri par prochaine semaine (année ISO puis semaine), prospects sans semaine en dernier. */
+export const nextActionOrderSql = (alias = 'ct') => `CASE WHEN ${alias}.next_action_year IS NULL THEN 1 ELSE 0 END,${alias}.next_action_year,${alias}.next_action_week`;

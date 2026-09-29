@@ -11,6 +11,7 @@ import { assertReadOnlySql } from './sqlSafety.js';
 import { archiveImportedWorkbook } from './storage.js';
 import { deleteDraftRecord, loadDraftRecord, saveDraftRecord } from './drafts.js';
 import { isLegacyTrackingStatus, mapLegacyTrackingStatus } from './contactTrackingReconciliation.js';
+import { nextActionDueFilter, nextActionOrderSql } from './contactTrackingSchema.js';
 import { ContactTrackingError, createContactTrackingService, parseTrackingPatch, type ContactTrackingDeps } from './contactTrackingService.js';
 import { backfillUnassignedProspectRoles, ensureDefaultRoles, inferRoleSlug } from './roleTaxonomy.js';
 
@@ -206,12 +207,12 @@ app.get('/api/prospects', (req, res) => {
   if (filter === 'verified') w += " AND p.employment_verified_at IS NOT NULL AND e.verification_status='verified'";
   if (filter === 'partial_verification') w += " AND p.employment_verified_at IS NOT NULL AND (e.id IS NULL OR e.verification_status<>'verified')";
   if (['active', 'inactive', 'unknown'].includes(filter)) { w += ' AND p.activity_status=?'; ps.push(filter); }
-  if (filter === 'due') w += " AND ct.planned_contact_at<=date('now') AND ct.status='neutral'";
+  if (filter === 'due') { const due = nextActionDueFilter(new Date()); w += ` AND ct.status='neutral' AND ${due.sql}`; ps.push(...due.params); } // premier contact planifié, semaine atteinte (Task 06)
   if (filter === 'contacted') w += " AND ct.status IN ('contacted','r1','r2')";
   if (filter === 'responses') w += ' AND ct.response_received_at IS NOT NULL';
   if (filter === 'appointments') w += ' AND ct.appointment_at IS NOT NULL';
   if (filter.startsWith('status:')) { const value = filter.slice(7); w += ' AND ct.status=?'; ps.push(isLegacyTrackingStatus(value) ? mapLegacyTrackingStatus(value, false) : value); } // filtres client legacy (`status:to_contact`)
-  res.json(rows(`SELECT p.*,c.display_name company,r.label role,e.address primary_email,e.verification_status email_verification,e.last_verified_at email_verified_at,ct.status tracking_status,ct.planned_contact_at,ct.next_action_year,ct.next_action_week,ct.next_action_year contact_year,ct.next_action_week contact_week,ct.response_received_at,ct.appointment_at,trim(coalesce(ir.first_name,'')||' '||coalesce(ir.last_name,'')) referent,(SELECT max(h.changed_at) FROM contact_tracking_status_history h WHERE h.contact_tracking_id=ct.id AND h.to_status=ct.status) tracking_status_since FROM prospects p JOIN companies c ON c.id=p.company_id LEFT JOIN roles r ON r.id=p.role_id LEFT JOIN emails e ON e.prospect_id=p.id AND e.is_primary=1 AND e.is_active=1 LEFT JOIN contact_tracking ct ON ct.prospect_id=p.id LEFT JOIN internal_referents ir ON ir.id=ct.referent_id WHERE ${w} ORDER BY CASE WHEN ct.planned_contact_at IS NULL THEN 1 ELSE 0 END,ct.planned_contact_at,p.updated_at DESC LIMIT 500`, ps));
+  res.json(rows(`SELECT p.*,c.display_name company,r.label role,e.address primary_email,e.verification_status email_verification,e.last_verified_at email_verified_at,ct.status tracking_status,ct.planned_contact_at,ct.next_action_year,ct.next_action_week,ct.next_action_year contact_year,ct.next_action_week contact_week,ct.response_received_at,ct.appointment_at,trim(coalesce(ir.first_name,'')||' '||coalesce(ir.last_name,'')) referent,(SELECT max(h.changed_at) FROM contact_tracking_status_history h WHERE h.contact_tracking_id=ct.id AND h.to_status=ct.status) tracking_status_since FROM prospects p JOIN companies c ON c.id=p.company_id LEFT JOIN roles r ON r.id=p.role_id LEFT JOIN emails e ON e.prospect_id=p.id AND e.is_primary=1 AND e.is_active=1 LEFT JOIN contact_tracking ct ON ct.prospect_id=p.id LEFT JOIN internal_referents ir ON ir.id=ct.referent_id WHERE ${w} ORDER BY ${nextActionOrderSql()},p.updated_at DESC LIMIT 500`, ps));
 });
 
 app.get('/api/prospects/:id', (req, res) => {

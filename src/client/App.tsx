@@ -3,9 +3,11 @@ import { api } from './api';
 import { commitWorkbookPreview, previewWorkbook } from './importCache';
 import { hasServerBusinessState, requestPersistentBrowserStorage, restoreLatestViperState, saveCurrentViperState } from './stateCache';
 import { deleteDraft, hasDraft, loadDraft, saveDraft } from './draftCache';
-import { hasDefaultNextAction, isProspectState, isTerminalProspectState, prospectStates } from '../shared/contactWorkflow';
+import { compareIsoWeeks, isoWeekOf, isProspectState, isTerminalProspectState, prospectStates } from '../shared/contactWorkflow';
 import { TrackingBadges, WeekBadge } from './TrackingBadges';
 import { historyStatusLabel, selectableState, stateOptionLabel } from './trackingDisplay';
+import { WeekPlanner } from './WeekPlanner';
+import { storedWeek, withoutPlannedWeek } from './weekPlanning';
 
 type Page = 'home' | 'prospection' | 'exploitation' | 'database' | 'settings';
 type Prospect = Record<string, any>;
@@ -118,7 +120,7 @@ function Prospection() {
     never: all.filter(x => !x.employment_verified_at).length,
     verified: all.filter(x => x.employment_verified_at && x.primary_email && x.email_verification === 'verified').length,
     partial: all.filter(x => x.employment_verified_at && (!x.primary_email || x.email_verification !== 'verified')).length,
-    due: all.filter(x => x.tracking_status === 'neutral' && x.planned_contact_at && x.planned_contact_at <= new Date().toISOString().slice(0, 10)).length,
+    due: all.filter(x => { const week = storedWeek(x.next_action_year, x.next_action_week); return x.tracking_status === 'neutral' && week !== null && compareIsoWeeks(week, isoWeekOf(new Date())) <= 0; }).length, // premier contact planifié, semaine atteinte
     contacted: all.filter(x => ['contacted', 'r1', 'r2'].includes(x.tracking_status)).length,
     responses: all.filter(x => x.response_received_at).length,
     rdv: all.filter(x => x.appointment_at).length
@@ -150,17 +152,17 @@ function Prospection() {
           <div className="identity-cell"><b>{[p.first_name, p.last_name].filter(Boolean).join(' ') || 'Inconnu'}</b><span>Rôle : {p.role || 'Non classé'} · Fonction : {p.exact_job_title || 'Inconnue'} · {p.company}</span></div>
           <div className={`verification-cell ${verification.tone}`}><small>Vérification</small><span><i />{verification.label}</span><em>{verification.detail}</em></div>
           <div className="email-cell"><small>Email</small><span>{p.primary_email || 'Email manquant'}</span><em>{p.email_verification === 'verified' ? `Vérifié ${formatDate(p.email_verified_at)}` : p.primary_email ? 'Non confirmé' : 'À renseigner'}</em></div>
-          <div className="tracking-cell"><small>Suivi</small><TrackingBadges status={p.tracking_status} year={p.next_action_year} week={p.next_action_week} empty={<em>—</em>} /><em>{p.planned_contact_at ? `Prévu ${formatDate(p.planned_contact_at)}` : p.referent ? `Référent · ${p.referent}` : ''}</em></div>
+          <div className="tracking-cell"><small>Suivi</small><TrackingBadges status={p.tracking_status} year={p.next_action_year} week={p.next_action_week} empty={<em>—</em>} /><em>{p.referent ? `Référent · ${p.referent}` : ''}</em></div>
         </button>;
       })}
       {!list.length && <div className="empty-list">Aucun prospect pour ces filtres.</div>}
     </div></div>
-    {selected && <Drawer id={selected} nextId={nextId} close={() => setSelected(null)} saved={(goNext) => { const n = goNext ? nextId : null; load(); setSelected(n); }} />}
+    {selected && <Drawer id={selected} nextId={nextId} close={() => setSelected(null)} saved={(goNext) => { const n = goNext ? nextId : null; load(); setSelected(n); }} trackingChanged={load} />}
     {importOpen && <ImportModal close={() => setImportOpen(false)} done={() => { setHasImportDraft(false); setImportOpen(false); load(); }} draftChanged={setHasImportDraft} />}
   </>;
 }
 
-function Drawer({ id, nextId, close, saved }: { id: string; nextId: string | null; close: () => void; saved: (goNext: boolean) => void }) {
+function Drawer({ id, nextId, close, saved, trackingChanged }: { id: string; nextId: string | null; close: () => void; saved: (goNext: boolean) => void; trackingChanged: () => void }) {
   const [companies, setCompanies] = useState<any[]>([]);
   const [roles, setRoles] = useState<any[]>([]);
   const [referents, setReferents] = useState<any[]>([]);
@@ -172,12 +174,14 @@ function Drawer({ id, nextId, close, saved }: { id: string; nextId: string | nul
   const [draftReady, setDraftReady] = useState(false);
   const [draftRestored, setDraftRestored] = useState(false);
   const [error, setError] = useState('');
+  const [planningNotice, setPlanningNotice] = useState('');
   const draftKey = `prospect:${id}`;
 
   useEffect(() => {
     let active = true;
     setDraftReady(false);
     setDraftRestored(false);
+    setPlanningNotice('');
     Promise.all([
       api<any[]>('/api/companies'),
       api<any[]>('/api/settings/roles'),
@@ -221,7 +225,8 @@ function Drawer({ id, nextId, close, saved }: { id: string; nextId: string | nul
     try {
       await api(id === 'new' ? '/api/prospects' : '/api/prospects/' + id, {
         method: id === 'new' ? 'POST' : 'PUT',
-        body: JSON.stringify({ ...form, mark_employment_verified: verifyNow || employmentTouched })
+        // La semaine se planifie uniquement via PATCH tracking (WeekPlanner) : ne jamais la renvoyer, un brouillon ancien la réécrirait.
+        body: JSON.stringify({ ...form, tracking: withoutPlannedWeek(form.tracking), mark_employment_verified: verifyNow || employmentTouched })
       });
       await deleteDraft(draftKey).catch(() => undefined);
       saved(goNext);
@@ -232,6 +237,16 @@ function Drawer({ id, nextId, close, saved }: { id: string; nextId: string | nul
   const savedStatus = original?.tracking?.status;
   const stateLocked = isProspectState(savedStatus) && isTerminalProspectState(savedStatus); // même règle que le service (Task 04)
   const currentHistory = form.trackingHistory?.find((h: any) => h.to_status === form.tracking?.status);
+  const savedHistory: { to_status: string; changed_at: string }[] = original?.trackingHistory ?? [];
+  const savedStateSince = savedHistory.find(h => h.to_status === savedStatus)?.changed_at ?? null;
+  // Semaine enregistrée à part (PATCH tracking) : la fiche et son brouillon reprennent la semaine renvoyée pour ne pas la réécrire à l'enregistrement.
+  const weekPlanned = (tracking: Record<string, unknown>, notice: string) => {
+    const week = { next_action_year: tracking.next_action_year ?? null, next_action_week: tracking.next_action_week ?? null };
+    setOriginal((o: Prospect | undefined) => ({ ...o, tracking: { ...(o?.tracking || {}), ...tracking } }));
+    setForm((f: Prospect) => ({ ...f, tracking: { ...(f.tracking || { status: tracking.status }), ...week } }));
+    setPlanningNotice(notice);
+    trackingChanged();
+  };
   const updateEmail = (i: number, patch: any) => setForm((f: any) => ({ ...f, emails: f.emails.map((x: any, j: number) => j === i ? { ...x, ...patch } : x) }));
   const updatePhone = (i: number, patch: any) => setForm((f: any) => ({ ...f, phones: f.phones.map((x: any, j: number) => j === i ? { ...x, ...patch } : x) }));
   return <div className="overlay"><div className="drawer">
@@ -291,11 +306,17 @@ function Drawer({ id, nextId, close, saved }: { id: string; nextId: string | nul
             {trackingStatus === null && <option value="" disabled>{String(form.tracking?.status)} (hors contrat)</option>}
             {prospectStates.map(s => <option value={s} key={s}>{stateOptionLabel(s)}</option>)}
           </select></Field>
-          <div className="stage-note"><small>Prochaine échéance</small><b>{form.tracking?.next_action_week ? <WeekBadge year={form.tracking.next_action_year} week={form.tracking.next_action_week} /> : 'Aucune semaine planifiée'}</b></div>
         </Grid>{stateLocked && <p className="danger">« Ignoré » est définitif : l’état ne peut plus être modifié.</p>}</Group>
+        <Group title="Planification">
+          <p className="section-help">Semaine du prochain contact ou de la prochaine relance, indépendante de l’état : un prospect sans état peut être planifié.</p>
+          {id === 'new'
+            ? <p className="muted">La semaine pourra être planifiée une fois la fiche enregistrée.</p>
+            : original?.prospect?.id === id ? <WeekPlanner key={id} prospectId={id} tracking={original.tracking} stateSince={savedStateSince} onSaved={weekPlanned} /> : <p className="muted">Chargement…</p>}
+          <p className="sr-only" aria-live="polite">{planningNotice}</p>
+        </Group>
         <div className="stage-context">
           <div className="stage-note"><small>Date de l’étape</small><b>{currentHistory?.changed_at ? formatDate(currentHistory.changed_at, true) : 'Elle sera enregistrée automatiquement lors du changement d’étape.'}</b></div>
-          {trackingStatus && hasDefaultNextAction(trackingStatus) && <Field label="Date prévue (indicative)"><input type="date" value={(form.tracking?.planned_contact_at || '').slice(0, 10)} onChange={e => setForm({ ...form, tracking: { ...form.tracking, planned_contact_at: e.target.value || null } })} /></Field>}
+          {form.tracking?.planned_contact_at && <div className="stage-note legacy"><small>Ancienne date prévue (legacy, non utilisée)</small><b>{formatDate(form.tracking.planned_contact_at)}</b><span className="muted">Seule la semaine planifiée compte ; la date/heure d’envoi se choisira sur le mail.</span></div>}
           {trackingStatus === 'response_received' && <div className="stage-note"><small>Réponse reçue</small><b>{form.tracking?.response_received_at ? formatDate(form.tracking.response_received_at, true) : 'La date sera enregistrée automatiquement à la sauvegarde.'}</b></div>}
           {trackingStatus === 'appointment_obtained' && <Field label="Date du rendez-vous"><input type="datetime-local" value={(form.tracking?.appointment_at || '').slice(0, 16)} onChange={e => setForm({ ...form, tracking: { ...form.tracking, appointment_at: e.target.value || null } })} /></Field>}
           {trackingStatus === 'appointment_obtained' && <Field label="Référent Circoe"><select value={form.tracking?.referent_id || ''} onChange={e => setForm({ ...form, tracking: { ...form.tracking, referent_id: e.target.value || null } })}><option value="">Non affecté</option>{referents.map(r => <option value={r.id} key={r.id}>{r.first_name} {r.last_name}</option>)}</select></Field>}
