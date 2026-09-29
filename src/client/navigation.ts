@@ -36,3 +36,10 @@ export function loadStoredPage(storage: Pick<Storage, 'getItem' | 'setItem'>): P
 export function storePage(storage: Pick<Storage, 'setItem'>, page: Page) {
   try { storage.setItem(PAGE_STORAGE_KEY, page); } catch { /* stockage indisponible : navigation non mémorisée */ }
 }
+
+/** Fiche ouverte dans Prospection (relue au montage de la page) : permet d'y rejoindre un prospect depuis Contact (Task 10). */
+export const PROSPECTION_SELECTED_KEY = 'viper.prospection.selected';
+
+export function storeProspectionSelection(storage: Pick<Storage, 'setItem'>, prospectId: string) {
+  try { storage.setItem(PROSPECTION_SELECTED_KEY, prospectId); } catch { /* stockage indisponible : Prospection s'ouvre sans fiche */ }
+}

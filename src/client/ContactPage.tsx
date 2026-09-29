@@ -2,11 +2,15 @@
 // - Task 09 : `dashboard` = cartes-filtres « À traiter cette semaine » (premier contact / relances / revues R2) et « RDV pris »,
 //   filtres semaine ISO (couple année/semaine) et état ; `list` = prospects filtrés, sélectionnables (`selectedProspectId`).
 //   Lecture seule : aucun filtre ni clic ne change un état.
-// - Task 10 : split view fiche prospect (gauche) / séquence mail (droite) dans `main`, à partir de `selectedProspectId`.
+// - Task 10 : `main` = `ContactWorkbench` (fiche prospect à gauche, séquence mail à droite) pour `selectedProspectId`.
+//   Après une mutation du suivi, dashboard et liste sont rechargés ; la sélection reste ouverte même si le prospect
+//   sort des filtres (mention dans la fiche).
 import React, { useEffect, useState, type ReactNode } from 'react';
 import { api } from './api';
 import { PageTitle } from './PageTitle';
 import { TrackingBadges } from './TrackingBadges';
+import { ContactWorkbench } from './ContactWorkbench';
+import { selectionPresence } from './contactWorkbenchModel';
 import {
   contactCards, contactStateOptions, emptyListMessage, nextStepLabel, sameContactWeek, toggleCardFilter, weekFilterOptions,
   weekOptionLabel, withWeekFilter, type ContactCard
@@ -96,35 +100,45 @@ function ContactList({ items, loading, error, query, selectedId, onSelect, onPla
   </div>;
 }
 
-export function ContactPage({ onPlanInProspection }: { onPlanInProspection: () => void }) {
+export function ContactPage({ onPlanInProspection, onOpenInProspection }: { onPlanInProspection: () => void; onOpenInProspection: (prospectId: string) => void }) {
   const [dashboard, setDashboard] = useState<ContactDashboard | null>(null);
   const [query, setQuery] = useState<ContactListQuery>({});
   // Dernier résultat reçu, avec la requête qui l'a produit : la liste est « en chargement » tant qu'il ne correspond pas aux filtres.
   const [result, setResult] = useState<{ key: string | null; items: ContactListItem[]; error: string }>({ key: null, items: [], error: '' });
   const [dashboardError, setDashboardError] = useState('');
-  // Sélection exposée à la Task 10 (split view dans `main`) ; un filtre ne la réinitialise pas.
+  // Prospect ouvert dans le workbench ; ni un filtre ni un rafraîchissement ne la réinitialise.
   const [selectedProspectId, setSelectedProspectId] = useState<string | null>(null);
+  // Incrémenté après chaque mutation du suivi : recharge dashboard et liste (même requête).
+  const [refresh, setRefresh] = useState(0);
 
   const queryKey = contactListSearchParams(query);
-  const loading = result.key !== queryKey;
+  const resultKey = `${queryKey}#${refresh}`;
+  const loading = result.key !== resultKey;
   const items = result.items;
   const error = dashboardError || (loading ? '' : result.error);
 
-  useEffect(() => { api<ContactDashboard>('/api/contact/dashboard').then(setDashboard).catch(e => setDashboardError((e as Error).message)); }, []);
+  useEffect(() => {
+    let current = true;
+    api<ContactDashboard>('/api/contact/dashboard')
+      .then(d => { if (current) { setDashboard(d); setDashboardError(''); } })
+      .catch(e => { if (current) setDashboardError((e as Error).message); });
+    return () => { current = false; };
+  }, [refresh]);
   useEffect(() => {
     let current = true;
     api<ContactListItem[]>(`/api/contact/prospects?${queryKey}`)
-      .then(rows => { if (current) setResult({ key: queryKey, items: rows, error: '' }); })
-      .catch(e => { if (current) setResult(r => ({ key: queryKey, items: r.items, error: (e as Error).message })); });
+      .then(rows => { if (current) setResult({ key: resultKey, items: rows, error: '' }); })
+      .catch(e => { if (current) setResult(r => ({ key: resultKey, items: r.items, error: (e as Error).message })); });
     return () => { current = false; };
-  }, [queryKey]);
+  }, [queryKey, resultKey]);
 
-  const selected = items.find(p => p.id === selectedProspectId) ?? null;
+  const presence = selectionPresence(selectedProspectId, items.map(p => p.id), loading);
   return <ContactWorkspace
     dashboard={<ContactDashboardBar dashboard={dashboard} query={query} onChange={setQuery} />}
     list={<ContactList items={items} loading={loading} error={error} query={query} selectedId={selectedProspectId} onSelect={setSelectedProspectId} onPlanInProspection={onPlanInProspection} />}
-    main={<div className="empty-list contact-main-empty" aria-live="polite">
-      {selectedProspectId ? `${selected ? fullName(selected) : 'Prospect'} sélectionné. La fiche et la séquence mail arrivent ici.` : 'Aucun prospect sélectionné.'}
-    </div>}
+    main={selectedProspectId
+      ? <ContactWorkbench key={selectedProspectId} prospectId={selectedProspectId} presence={presence} onTrackingChanged={() => setRefresh(n => n + 1)}
+        onOpenInProspection={onOpenInProspection} onClose={() => setSelectedProspectId(null)} />
+      : <div className="empty-list contact-main-empty">Sélectionnez un prospect dans la liste pour afficher sa fiche et sa séquence mail.</div>}
   />;
 }

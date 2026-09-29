@@ -222,6 +222,7 @@ app.get('/api/prospects/:id', (req, res) => {
   res.json({
     prospect,
     company: db.prepare('SELECT * FROM companies WHERE id=?').get(prospect.company_id) || null,
+    role: prospect.role_id ? (db.prepare('SELECT label FROM roles WHERE id=?').get(prospect.role_id) as { label: string } | undefined)?.label ?? null : null,
     emails: rows('SELECT * FROM emails WHERE prospect_id=? AND is_active=1 ORDER BY is_primary DESC,created_at', [req.params.id]),
     phones: rows('SELECT * FROM phones WHERE prospect_id=? AND is_active=1 ORDER BY is_primary DESC,created_at', [req.params.id]),
     tracking,

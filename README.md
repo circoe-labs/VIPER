@@ -18,7 +18,9 @@ Ce que fait la V1 :
 - **Paramètres** — rôles, catégories d’activité, segments commerciaux et référents internes ;
 - **Contact** — (ex-« Exploitation ») page de préparation des prises de contact par semaine : cartes-filtres
   « À traiter cette semaine » (premier contact / relances / revues R2) et « RDV pris » cumulés, filtres semaine ISO et
-  état, liste sélectionnable ; zone de travail encore vide (aucun agent, e-mail ou Calendly simulé).
+  état, liste sélectionnable ; un clic ouvre la fiche du prospect à gauche (lecture, choix manuel de l’état et de la
+  semaine, lien vers la fiche Prospection pour corriger) et la zone de séquence mail à droite, encore vide (aucun agent,
+  e-mail ou Calendly simulé).
 
 Chaque modification est tracée (qui, quand, depuis où) ; une opposition « Ne pas contacter » survit aux réimports.
 Un seul utilisateur authentifié pour le pilote. L’interface est en français ; le code et la documentation technique

@@ -10,7 +10,7 @@ import { WeekPlanner } from './WeekPlanner';
 import { withoutPlannedWeek } from './weekPlanning';
 import { emptyProspectionCounters, employmentCheck, prospectionCards } from './prospectionDisplay';
 import type { ProspectionCounters } from '../shared/prospectionDashboard';
-import { loadStoredPage, nav, storePage, type Page } from './navigation';
+import { loadStoredPage, nav, PROSPECTION_SELECTED_KEY, storePage, storeProspectionSelection, type Page } from './navigation';
 import { ContactPage } from './ContactPage';
 import { PageTitle } from './PageTitle';
 
@@ -64,7 +64,7 @@ function Shell() {
     </header><section>
       {page === 'home' && <Home onGo={() => setPage('prospection')} />}
       {page === 'prospection' && <Prospection />}
-      {page === 'contact' && <ContactPage onPlanInProspection={() => setPage('prospection')} />}
+      {page === 'contact' && <ContactPage onPlanInProspection={() => setPage('prospection')} onOpenInProspection={id => { storeProspectionSelection(localStorage, id); setPage('prospection'); }} />}
       {page === 'database' && <Database />}
       {page === 'settings' && <Settings />}
     </section></main>
@@ -89,7 +89,7 @@ function Prospection() {
   const [filter, setFilter] = useState('');
   const [company, setCompany] = useState('');
   const [q, setQ] = useState('');
-  const [selected, setSelected] = useState<string | null>(() => localStorage.getItem('viper.prospection.selected'));
+  const [selected, setSelected] = useState<string | null>(() => localStorage.getItem(PROSPECTION_SELECTED_KEY));
   const [importOpen, setImportOpen] = useState(false);
   const [hasImportDraft, setHasImportDraft] = useState(false);
   const [counters, setCounters] = useState<ProspectionCounters>(emptyProspectionCounters);
@@ -99,7 +99,7 @@ function Prospection() {
     api<ProspectionCounters>(`/api/prospection/counters?q=${encodeURIComponent(q)}`)
   ]).then(([filtered, full, counts]) => { setList(filtered); setAll(full); setCounters(counts); });
   useEffect(() => { load(); }, [q, filter, company]);
-  useEffect(() => { if (selected) localStorage.setItem('viper.prospection.selected', selected); else localStorage.removeItem('viper.prospection.selected'); }, [selected]);
+  useEffect(() => { if (selected) localStorage.setItem(PROSPECTION_SELECTED_KEY, selected); else localStorage.removeItem(PROSPECTION_SELECTED_KEY); }, [selected]);
   useEffect(() => {
     hasDraft(IMPORT_DRAFT_KEY).then(found => {
       setHasImportDraft(found);
