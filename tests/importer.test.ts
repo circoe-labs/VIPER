@@ -71,9 +71,9 @@ describe('Excel preview', () => {
       { Entreprise: 'Beta', Nom: 'Durand', Prénom: 'Léa', Fonction: 'Chargée de développement' }
     ]), 'test.xlsx', ref);
     expect(p.rows[0].normalized.job_title).toBe('Directeur logistique');
-    expect(p.rows[0].normalized.role_slug).toBe('logistique');
-    expect(p.rows[0].normalized.role_label).toBe('Logistique');
-    expect(p.rows[1].normalized.role_slug).toBe('developpement-commercial');
+    expect(p.rows[0].normalized.role_slug).toBe('direction');
+    expect(p.rows[0].normalized.role_label).toBe('Direction');
+    expect(p.rows[1].normalized.role_slug).toBe('charge-mission-affaires');
     expect(p.rows[1].diagnostics.some(d => d.code === 'role_suggested')).toBe(true);
   });
   it('keeps a missing identity as an unknown contact instead of an error', () => {

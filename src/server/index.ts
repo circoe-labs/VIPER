@@ -312,7 +312,7 @@ app.post('/api/companies', (req, res) => {
 });
 
 for (const [route, table] of [['roles', 'roles'], ['segments', 'commercial_segments'], ['categories', 'activity_categories']] as const) {
-  app.get(`/api/settings/${route}`, (_req, res) => res.json(rows(`SELECT * FROM ${table} ORDER BY active DESC,label`)));
+  app.get(`/api/settings/${route}`, (_req, res) => res.json(rows(`SELECT * FROM ${table}${table === 'roles' ? ' WHERE active=1' : ''} ORDER BY label`)));
   app.post(`/api/settings/${route}`, (req, res) => {
     const id = randomUUID(), label = String(req.body.label || '').trim();
     if (!label) return res.status(400).json({ error: 'Libellé requis' });
