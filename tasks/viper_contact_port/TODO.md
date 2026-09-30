@@ -19,7 +19,7 @@ Chaque Slice = un agent d'implémentation, puis une revue QA indépendante, puis
   Contact/R1/R2, statuts Brouillon/Validé/Programmé/Envoyé/Annulé, révisions, validation individuelle, modification ⇒
   retour Brouillon, Envoyé immuable, annulation des messages futurs sur `response_received`/`appointment_obtained`/
   `ignored`), API REST, audit. Réf. : handoff Tasks 09, 11, 12.
-- [ ] **S4 — Page Contact (frontend)** : Exploitation → Contact (P4), primitive `Tabs` dans `src/ui/`, compteurs et
+- [x] **S4 — Page Contact (frontend)** : Exploitation → Contact (P4), primitive `Tabs` dans `src/ui/`, compteurs et
   filtres, liste, fiche prospect à gauche + séquence mail à droite (onglets Contact/R1/R2, éditeur De/À/Cc/Cci/objet/
   corps, actions Enregistrer/Valider/Programmer/Déprogrammer/Annuler/Rouvrir avec confirmations), tests + e2e.
   Réf. : handoff Tasks 08, 10, 13.
@@ -41,3 +41,4 @@ Chaque Slice = un agent d'implémentation, puis une revue QA indépendante, puis
 - 2026-09-30 : S3 accepté (`8ee74e5`, correctifs QA `03014bd`) — l'opposition (`do_not_contact`) annule aussi les messages non envoyés ; réponses `cancelled_messages` / `in_flight_messages` ; « RDV pris » n'exclut que `ignored`. Reste-à-faire S6/S7 listé dans `doc/features/contact.md`.
 - 2026-09-30 : gate orchestrateur après S2+S3 : pytest 1121, vitest 633, Playwright 95 — verts. Machine à mémoire saturée : lancer vitest avec `--maxWorkers=3` et Playwright avec `--workers=3`, et **ne jamais lancer deux gates en parallèle** (base `viper_test` partagée).
 - 2026-09-30 : **Décision Humaine** — pas de limite au nombre de cartes-compteurs de Prospection : le point « ≤ 6 cartes » de la Task 07 du handoff est abandonné. Les 16 compteurs actuels restent.
+- 2026-09-30 : S4 accepté (`125ce74`, correctifs QA `48c65fd`) — page Contact (compteurs, liste, poste de travail fiche + séquence Contact/R1/R2) dans la DA existante, vérifiée sur captures ; bug réel corrigé dans la recherche globale (valeur vide retardée par le debounce). Gate : vitest 710, Playwright 99. À reprendre en S7 : texte de confirmation de programmation selon que l'envoi automatique est actif (drapeau backend).
