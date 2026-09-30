@@ -236,6 +236,7 @@ def test_an_import_edited_by_hand_is_exported_with_the_edits_and_clean_semantics
     )
     jean_tracking = jean.contact_tracking
     assert jean_tracking is not None
+    planned = jean_tracking.planned_contact_at
     save_contact_tracking(
         db_session,
         OPERATOR,
@@ -248,14 +249,27 @@ def test_an_import_edited_by_hand_is_exported_with_the_edits_and_clean_semantics
             appointment_at=datetime(2026, 9, 15, 14, 30, tzinfo=PARIS),
         ),
     )
+    # The appointment cleared the echoed next action; a person sets the week again.
     save_contact_tracking(
-        db_session, OPERATOR, lea.id, ContactTrackingInput(ContactTrackingStatus.NOT_INTERESTED)
+        db_session,
+        OPERATOR,
+        jean.id,
+        ContactTrackingInput(
+            status=ContactTrackingStatus.APPOINTMENT_OBTAINED,
+            planned_contact_at=planned,
+            referent_id=jean_tracking.referent_id,
+            response_received_at=datetime(2026, 9, 8, 9, 0, tzinfo=PARIS),
+            appointment_at=datetime(2026, 9, 15, 14, 30, tzinfo=PARIS),
+        ),
+    )
+    save_contact_tracking(
+        db_session, OPERATOR, lea.id, ContactTrackingInput(ContactTrackingStatus.FAILURE)
     )
     save_contact_tracking(
         db_session,
         OPERATOR,
         nina.id,
-        ContactTrackingInput(ContactTrackingStatus.TO_CONTACT, referent_id=ids["paul"]),
+        ContactTrackingInput(ContactTrackingStatus.NEUTRAL, referent_id=ids["paul"]),
     )
     prospects.mark_do_not_contact(db_session, OPERATOR, paul.id, reason="Opposition fictive")
     db_session.refresh(jean)
@@ -305,7 +319,7 @@ def test_an_import_edited_by_hand_is_exported_with_the_edits_and_clean_semantics
         "+33600000001",
         "Mobile",
     )
-    assert jean_row["Suivi de contact"] == "RDV obtenu"
+    assert jean_row["Suivi de contact"] == "RDV pris"
     assert isinstance(jean_row["Statut depuis le"], datetime)
     assert jean_row["Date de réponse"] == datetime(2026, 9, 8)
     assert jean_row["Date de rendez-vous"] == datetime(2026, 9, 15, 14, 30)
@@ -330,7 +344,7 @@ def test_an_import_edited_by_hand_is_exported_with_the_edits_and_clean_semantics
     assert row_of(people, nina)["Référent"] == "Paul Démo"
     # Opposition is distinct from non-interest.
     lea_row = row_of(people, lea)
-    assert (lea_row["Suivi de contact"], lea_row["Ne pas contacter"]) == ("Non intéressé", "Non")
+    assert (lea_row["Suivi de contact"], lea_row["Ne pas contacter"]) == ("Failure", "Non")
     paul_row = row_of(people, paul)
     assert (paul_row["Ne pas contacter"], paul_row["Motif d'opposition"]) == (
         "Oui",
@@ -347,7 +361,7 @@ def test_an_import_edited_by_hand_is_exported_with_the_edits_and_clean_semantics
         "69000",
         "Lyon",
     )
-    assert emma_row["Suivi de contact"] == "RDV obtenu"
+    assert emma_row["Suivi de contact"] == "RDV pris"
     # Aliases: every e-mail and phone, keyed by the prospect id, primary first.
     emails = records(book, "E-mails")
     assert len(emails) == db_session.scalar(select(func.count()).select_from(Email))

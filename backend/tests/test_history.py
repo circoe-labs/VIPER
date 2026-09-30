@@ -147,7 +147,7 @@ def test_an_import_creation_names_the_file_and_the_person_who_confirmed_it(
     assert ("Prénom", None, "Jean") in changes
     assert ("Entreprise", None, "Transports Exemple SARL") in changes
     assert ("E-mail ajouté", None, "jean.import@exemple.example · principal") in changes
-    assert ("Étape", None, "Contacté") in changes
+    assert ("État", None, "Contacté") in changes
     assert (
         "Provenance ajoutée",
         None,
@@ -254,15 +254,15 @@ def test_a_tracking_stage_change_and_its_dates(db_session: Session) -> None:
             db_session,
             OPERATOR,
             prospect.id,
-            ContactTrackingInput(S.FOLLOW_UP_1, planned_contact_at=planned),
+            ContactTrackingInput(S.R1, planned_contact_at=planned),
         )
 
     entry = latest(db_session, prospect)
     assert lines(entry) == [
-        ("Étape", "Contacté", "Relance 1"),
+        ("État", "Contacté", "R1"),
         ("Contact prévu le", "—", "14 sept. 2026"),
     ]
-    assert entry.summary == ["Suivi : Contacté → Relance 1", "Contact planifié"]
+    assert entry.summary == ["Suivi : Contacté → R1", "Contact planifié"]
     assert entry.actions == ["contact_tracking.status_changed"]
 
 

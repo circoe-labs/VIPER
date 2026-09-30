@@ -76,7 +76,7 @@ def test_an_editor_save_reads_back_as_one_entry_by_the_signed_in_user(
         ("Entreprise", "Transports Exemple SARL", "Nouvel Employeur SAS"),
         ("E-mail principal", "ancienne@exemple.example", "nouvelle@exemple.example"),
         ("E-mail ajouté", None, "nouvelle@exemple.example"),
-        ("Étape", None, "Contacté"),
+        ("État", None, "Contacté"),
     ]
     assert entry["summary"] == [
         "Changement d’entreprise",

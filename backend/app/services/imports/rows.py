@@ -66,12 +66,14 @@ COMPANY_TEXT_FIELDS = (
     ImportField.CLIENT_APPROACH,
 )
 COMPANY_FIELDS = (*COMPANY_TEXT_FIELDS, ImportField.CATEGORY, ImportField.ADDRESS)
+# Legacy stage columns → Contact state. Post-appointment stages (quote sent, its follow-up) are
+# outside the Contact scope and converge on `appointment_obtained` (handoff 06 §2).
 STAGE_STATUS = {
-    ImportField.STAGE_FOLLOW_UP_1: ContactTrackingStatus.FOLLOW_UP_1,
-    ImportField.STAGE_FOLLOW_UP_2: ContactTrackingStatus.FOLLOW_UP_2,
+    ImportField.STAGE_FOLLOW_UP_1: ContactTrackingStatus.R1,
+    ImportField.STAGE_FOLLOW_UP_2: ContactTrackingStatus.R2,
     ImportField.STAGE_APPOINTMENT: ContactTrackingStatus.APPOINTMENT_OBTAINED,
-    ImportField.STAGE_QUOTE_SENT: ContactTrackingStatus.QUOTE_SENT,
-    ImportField.STAGE_QUOTE_FOLLOW_UP: ContactTrackingStatus.QUOTE_FOLLOW_UP,
+    ImportField.STAGE_QUOTE_SENT: ContactTrackingStatus.APPOINTMENT_OBTAINED,
+    ImportField.STAGE_QUOTE_FOLLOW_UP: ContactTrackingStatus.APPOINTMENT_OBTAINED,
 }
 # Stage columns that only make sense after another one (`Relance 2` after `Relance 1`, `Suivi`
 # of a quote after `Devis envoyé`).
@@ -79,7 +81,21 @@ STAGE_PREREQUISITES = {
     ImportField.STAGE_FOLLOW_UP_2: ImportField.STAGE_FOLLOW_UP_1,
     ImportField.STAGE_QUOTE_FOLLOW_UP: ImportField.STAGE_QUOTE_SENT,
 }
-STATUS_RANK = {status: rank for rank, status in enumerate(ContactTrackingStatus)}
+# How far each legacy stage column is in the historical chain. Ranked by column, not by state:
+# several columns share `appointment_obtained`, and a quote marked done with the appointment
+# marked « non » stays a contradiction to review.
+STAGE_RANK = {
+    stage: rank
+    for rank, stage in enumerate(
+        (
+            ImportField.STAGE_FOLLOW_UP_1,
+            ImportField.STAGE_FOLLOW_UP_2,
+            ImportField.STAGE_APPOINTMENT,
+            ImportField.STAGE_QUOTE_SENT,
+            ImportField.STAGE_QUOTE_FOLLOW_UP,
+        )
+    )
+}
 REASON_CONFIDENCE = {
     MatchReason.SAME_EMAIL: 1.0,
     MatchReason.SAME_PERSON: 0.9,
@@ -537,19 +553,15 @@ class RowBuilder:
         referent = self.referent()
         if not positive and planned is None and not referent.suggestions:
             return None
-        best = max(
-            (STAGE_STATUS[stage] for stage in positive), key=STATUS_RANK.__getitem__, default=None
-        )
-        conflict = any(
-            STATUS_RANK[STAGE_STATUS[stage]] < STATUS_RANK[best] for stage in negative if best
-        ) or any(
+        best = max(positive, key=STAGE_RANK.__getitem__, default=None)
+        conflict = any(STAGE_RANK[stage] < STAGE_RANK[best] for stage in negative if best) or any(
             stage in positive and prerequisite not in positive
             for stage, prerequisite in STAGE_PREREQUISITES.items()
         )
         if conflict:
             self.flag(DiagnosticCode.TRACKING_STAGE_CONFLICT)
         return TrackingProposal(
-            status=best or ContactTrackingStatus.TO_CONTACT,
+            status=STAGE_STATUS[best] if best else ContactTrackingStatus.NEUTRAL,
             stages=positive,
             requires_review=conflict,
             planned_contact=planned,

@@ -4,10 +4,13 @@
 provenance); `PUT` replaces the editable state atomically — identity, company, role, employment
 and its explicit verification action, the **full** e-mail and phone lists (an alias left out is
 deleted; both lists are required), contact tracking. Contactability is not part of it (extra
-fields are refused): `PUT …/contactability` is the dedicated, reasoned operation. Every write
+fields are refused): `PUT …/contactability` is the dedicated, reasoned operation. `PATCH …/tracking`
+changes only the Contact state and/or the next-action ISO week (stored as its Monday). Every write
 carries the `version` the client read; a stale one answers 409 `conflict`. Business refusals use
 the stable codes of `app.api.errors` (422 `invalid` with a field path such as `emails.1.address`,
-409 `duplicate` for a new role label, 409 `do_not_contact` when deleting an opposed prospect, 404).
+409 `duplicate` for a new role label, 409 `do_not_contact` when deleting an opposed prospect, 404;
+Contact rules: 409 `ignored_is_terminal` / `ignored_has_no_next_action`, 403
+`human_actor_required`).
 """
 
 import uuid
@@ -32,6 +35,8 @@ from app.models.enums import (
 )
 from app.services import history, prospect_editor
 from app.services.contact_channels import ChannelItem
+from app.services.contact_workflow import IsoWeek
+from app.services.errors import InvalidFieldError
 from app.services.prospect_editor import (
     EditorClock,
     EmploymentVerification,
@@ -39,6 +44,7 @@ from app.services.prospect_editor import (
     ProspectForm,
     ProspectView,
     TrackingForm,
+    TrackingUpdate,
     VerificationAction,
 )
 from app.services.prospection.segments import VerificationState
@@ -87,12 +93,28 @@ class EmploymentVerificationIn(StrictModel):
 
 
 class TrackingIn(StrictModel):
-    status: ContactTrackingStatus = ContactTrackingStatus.TO_CONTACT
+    status: ContactTrackingStatus = ContactTrackingStatus.NEUTRAL
     planned_contact_on: date | None = None
     response_received_on: date | None = None
     appointment_on: date | None = None
     appointment_time: time | None = None
     referent_id: uuid.UUID | None = None
+
+
+class IsoWeekIn(StrictModel):
+    """An ISO 8601 week (week-numbering year); week 53 only in the years that have one."""
+
+    year: int = Field(ge=1970, le=9999)
+    week: int = Field(ge=1, le=53)
+
+
+class TrackingPatch(StrictModel):
+    """`status` omitted or null keeps the state. `next_action_week` omitted keeps the next action;
+    null clears it; a week sets it (its Monday, business midnight)."""
+
+    version: Version
+    status: ContactTrackingStatus | None = None
+    next_action_week: IsoWeekIn | None = None
 
 
 class ProspectIn(StrictModel):
@@ -190,6 +212,8 @@ class TrackingOut(BaseModel):
     appointment_time: time | None
     referent: ValueRefOut | None
     status_since: datetime | None
+    suggested_next_contact_on: date | None
+    suggested_next_contact_week: str | None
 
 
 class SourceOut(BaseModel):
@@ -330,6 +354,38 @@ def set_contactability(
             do_not_contact=body.do_not_contact,
             reason=body.reason,
             clock=clock,
+        )
+    return prospect_out(view)
+
+
+def tracking_update(body: TrackingPatch) -> TrackingUpdate:
+    week = body.next_action_week
+    try:
+        next_action = IsoWeek(week.year, week.week) if week else None
+    except ValueError as error:
+        raise InvalidFieldError(
+            "next_action_week", "This ISO week does not exist.", "iso_week"
+        ) from error
+    return TrackingUpdate(
+        status=body.status,
+        set_next_action="next_action_week" in body.model_fields_set,
+        next_action=next_action,
+    )
+
+
+@router.patch("/{prospect_id}/tracking")
+def update_tracking(
+    prospect_id: uuid.UUID,
+    body: TrackingPatch,
+    session: SessionDep,
+    actor: CurrentActor,
+    clock: ClockDep,
+) -> ProspectOut:
+    """Human choice of the Contact state and/or the next-action week; answers the editor view
+    (with the cadence suggestion `tracking.suggested_next_contact_*`, never applied)."""
+    with business_errors():
+        view = prospect_editor.update_tracking(
+            session, actor, prospect_id, body.version, tracking_update(body), clock
         )
     return prospect_out(view)
 

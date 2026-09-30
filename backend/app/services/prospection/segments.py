@@ -71,21 +71,23 @@ class EmailState(StrEnum):
 
 
 S = ContactTrackingStatus
-# Stages reached only after a first contact attempt (every stage but `to_contact`).
-CONTACTED_STAGES = tuple(stage for stage in S if stage is not S.TO_CONTACT)
-# Contacted, followed up, still waiting for an answer.
-AWAITING_STAGES = (S.CONTACTED, S.FOLLOW_UP_1, S.FOLLOW_UP_2)
-# The prospect answered — positively or not (`not_interested` is an answer).
-RESPONDED_STAGES = (
+# States reached only after a first contact attempt. `neutral` is before any; `ignored` may be
+# chosen without any contact (a prospect set aside), so it proves nothing either.
+CONTACTED_STAGES = (
+    S.CONTACTED,
+    S.R1,
+    S.R2,
     S.RESPONSE_RECEIVED,
     S.APPOINTMENT_OBTAINED,
-    S.QUOTE_SENT,
-    S.QUOTE_FOLLOW_UP,
-    S.WON,
-    S.NOT_INTERESTED,
+    S.FAILURE,
 )
-# An appointment was obtained (quotes and wins come after one in the stage chain).
-APPOINTMENT_STAGES = (S.APPOINTMENT_OBTAINED, S.QUOTE_SENT, S.QUOTE_FOLLOW_UP, S.WON)
+# Contacted or followed up (R1, R2), still waiting for an answer.
+AWAITING_STAGES = (S.CONTACTED, S.R1, S.R2)
+# The prospect answered. `failure` is the human verdict of a sequence without outcome, not an
+# answer (decision 13).
+RESPONDED_STAGES = (S.RESPONSE_RECEIVED, S.APPOINTMENT_OBTAINED)
+# An appointment was obtained (« RDV pris » ends the Contact scope, decision 8).
+APPOINTMENT_STAGES = (S.APPOINTMENT_OBTAINED,)
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,7 +164,7 @@ def actionable() -> ColumnElement[bool]:
 
 
 def contacted() -> ColumnElement[bool]:
-    """A contact attempt happened: a stage past `to_contact`, or a response/appointment date.
+    """A contact attempt happened: a state of `CONTACTED_STAGES`, or a response/appointment date.
     Never NULL (a prospect without tracking is simply not contacted)."""
     return and_(
         ContactTracking.id.is_not(None),
@@ -199,7 +201,14 @@ def needs_recheck(context: SegmentContext) -> ColumnElement[bool]:
 
 
 def to_contact() -> ColumnElement[bool]:
-    return and_(actionable(), ~contacted())
+    """A first contact is planned: actionable, still `neutral` (no contact yet) and a next-action
+    week is set. A neutral prospect without a week is not planned (decisions 4-5)."""
+    return and_(
+        actionable(),
+        ContactTracking.status == S.NEUTRAL,
+        ContactTracking.planned_contact_at.is_not(None),
+        ~contacted(),
+    )
 
 
 # --- segments ----------------------------------------------------------------------------------

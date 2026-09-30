@@ -64,7 +64,7 @@ def at(day: date, hour: int = 9) -> datetime:
     return datetime(day.year, day.month, day.day, hour, tzinfo=BUSINESS_TIMEZONE)
 
 
-def track(session: Session, prospect: Prospect, status: S = S.TO_CONTACT, **fields: Any) -> None:
+def track(session: Session, prospect: Prospect, status: S = S.NEUTRAL, **fields: Any) -> None:
     session.add(ContactTracking(prospect_id=prospect.id, status=status, **fields))
     session.flush()
 
@@ -172,13 +172,17 @@ def cases(db_session: Session) -> dict[str, Prospect]:
     made["waiting"] = case(s, company, "waiting")
     track(s, made["waiting"], S.CONTACTED)
     made["follow_up"] = case(s, company, "follow_up")
-    track(s, made["follow_up"], S.FOLLOW_UP_2)
+    track(s, made["follow_up"], S.R2)
     made["blocked_waiting"] = case(s, company, "blocked_waiting", **block())
     track(s, made["blocked_waiting"], S.CONTACTED)
     made["answered"] = case(s, company, "answered")
-    track(s, made["answered"], S.FOLLOW_UP_1, response_received_at=at(TODAY))
-    made["not_interested"] = case(s, company, "not_interested")
-    track(s, made["not_interested"], S.NOT_INTERESTED)
+    track(s, made["answered"], S.R1, response_received_at=at(TODAY))
+    # A sequence closed without outcome: contacted, but not an answer.
+    made["failure"] = case(s, company, "failure")
+    track(s, made["failure"], S.FAILURE)
+    # Set aside for good: terminal and do-not-contact, never contacted as such.
+    made["ignored"] = case(s, company, "ignored", **block())
+    track(s, made["ignored"], S.IGNORED)
     made["appointment"] = case(s, company, "appointment")
     track(
         s,
@@ -187,16 +191,14 @@ def cases(db_session: Session) -> dict[str, Prospect]:
         response_received_at=at(TODAY),
         appointment_at=at(TODAY + timedelta(days=3)),
     )
-    # An appointment date on a stage left at `to_contact` (e.g. an explorer edit) still counts.
+    # An appointment date on a state left `neutral` (e.g. an explorer edit) still counts.
     made["appointment_date_only"] = case(s, company, "appointment_date_only")
     track(s, made["appointment_date_only"], appointment_at=at(TODAY))
-    made["won"] = case(s, company, "won")
-    track(s, made["won"], S.WON)
     s.flush()
     return made
 
 
-# Every case, then each segment's members. `to_contact` = actionable and never contacted.
+# Every case, then each segment's members. `to_contact` = actionable, neutral, with a planned week.
 ALL_CASES = {
     "plain",
     "verified",
@@ -218,10 +220,10 @@ ALL_CASES = {
     "follow_up",
     "blocked_waiting",
     "answered",
-    "not_interested",
+    "failure",
+    "ignored",
     "appointment",
     "appointment_date_only",
-    "won",
 }
 VERIFIED_CASES = {"verified", "reset", "phone_reset", "former_reset", "old_verification"}
 CONTACTED_CASES = {
@@ -229,10 +231,9 @@ CONTACTED_CASES = {
     "follow_up",
     "blocked_waiting",
     "answered",
-    "not_interested",
+    "failure",
     "appointment",
     "appointment_date_only",
-    "won",
 }
 EXPECTED: dict[Segment, set[str]] = {
     Segment.ALL: ALL_CASES,
@@ -241,23 +242,17 @@ EXPECTED: dict[Segment, set[str]] = {
     Segment.ACTIVE: {"verified", "due_past"},
     Segment.INACTIVE: {"inactive_due"},
     Segment.UNKNOWN: ALL_CASES - {"verified", "due_past", "inactive_due"},
-    Segment.DO_NOT_CONTACT: {"blocked_due", "blocked_waiting"},
+    Segment.DO_NOT_CONTACT: {"blocked_due", "blocked_waiting", "ignored"},
     Segment.EMAIL_MISSING: ALL_CASES
     - {"verified", "reset", "moved", "invalid_email", "unknown_email"},
     Segment.EMAIL_INVALID: {"invalid_email"},
     Segment.EMAIL_UNVERIFIED: {"reset", "moved", "unknown_email"},
-    Segment.TO_CONTACT: ALL_CASES - CONTACTED_CASES - {"blocked_due", "inactive_due"},
+    Segment.TO_CONTACT: {"due_today", "due_past", "planned_tomorrow"},
     Segment.DUE: {"due_today", "due_past"},
     Segment.CONTACTED: CONTACTED_CASES,
     Segment.NO_RESPONSE: {"waiting", "follow_up"},
-    Segment.RESPONSES: {
-        "answered",
-        "not_interested",
-        "appointment",
-        "appointment_date_only",
-        "won",
-    },
-    Segment.APPOINTMENTS: {"appointment", "appointment_date_only", "won"},
+    Segment.RESPONSES: {"answered", "appointment", "appointment_date_only"},
+    Segment.APPOINTMENTS: {"appointment", "appointment_date_only"},
 }
 
 
@@ -494,7 +489,7 @@ def test_filters_combine(db_session: Session) -> None:
             Segment.NO_RESPONSE,
             {"a"},
         ),
-        (ProspectFilters(search="filtre", company_id=logistique.id), Segment.TO_CONTACT, {"d"}),
+        (ProspectFilters(search="filtre", company_id=logistique.id), Segment.CONTACTED, {"c"}),
         (ProspectFilters(company_id=uuid.uuid4()), Segment.ALL, set()),
     ]
     for filters, segment, expected in checks:

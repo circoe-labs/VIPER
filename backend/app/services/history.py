@@ -43,6 +43,7 @@ from app.models.enums import (
 from app.repositories import audit as audit_repository
 from app.services import audit
 from app.services.audit import AuditAction, AuditSource
+from app.services.contact_workflow import LEGACY_LABELS, STATE_LABELS
 from app.services.import_batches import IMPORT_ACTOR_PREFIX
 
 # Consecutive events without a request id (CLI, seed, jobs) closer than this are one entry.
@@ -210,17 +211,10 @@ PHONE_TYPES: dict[str, str] = {
     PhoneType.LANDLINE: "Fixe",
     PhoneType.OTHER: "Autre",
 }
+# Current Contact states and the legacy codes still found in older events (one label source).
 STAGES: dict[str, str] = {
-    ContactTrackingStatus.TO_CONTACT: "À contacter",
-    ContactTrackingStatus.CONTACTED: "Contacté",
-    ContactTrackingStatus.FOLLOW_UP_1: "Relance 1",
-    ContactTrackingStatus.FOLLOW_UP_2: "Relance 2",
-    ContactTrackingStatus.RESPONSE_RECEIVED: "Réponse reçue",
-    ContactTrackingStatus.APPOINTMENT_OBTAINED: "Rendez-vous obtenu",
-    ContactTrackingStatus.QUOTE_SENT: "Devis envoyé",
-    ContactTrackingStatus.QUOTE_FOLLOW_UP: "Suivi du devis",
-    ContactTrackingStatus.WON: "Gagné",
-    ContactTrackingStatus.NOT_INTERESTED: "Pas intéressé",
+    **{state.value: label for state, label in STATE_LABELS.items()},
+    **{code.value: label for code, label in LEGACY_LABELS.items()},
 }
 SOURCE_TYPES: dict[str, str] = {
     ProspectSourceType.EXCEL_IMPORT: "Import Excel",
@@ -285,7 +279,7 @@ FIELDS: dict[str, dict[str, Field]] = {
     )
     | {"type": Field("type", "Téléphone modifié", _choice(PHONE_TYPES))},
     "contact_tracking": {
-        "status": Field("Étape", "Étape modifiée", _choice(STAGES)),
+        "status": Field("État", "État modifié", _choice(STAGES)),
         "planned_contact_at": Field("Contact prévu le", "Contact planifié", _moment),
         "response_received_at": Field("Réponse reçue le", "Réponse enregistrée", _moment),
         "appointment_at": Field("Rendez-vous le", "Rendez-vous planifié", _moment),
@@ -548,7 +542,7 @@ def _created(event: AuditLogEntry, lines: _Lines, switched: frozenset[uuid.UUID]
         lines.note("Provenance ajoutée")
         return
     if kind == "contact_tracking":
-        lines.note(f"Suivi : {value('status') or STAGES[ContactTrackingStatus.TO_CONTACT]}")
+        lines.note(f"Suivi : {value('status') or STAGES[ContactTrackingStatus.NEUTRAL]}")
     else:
         lines.note(_phrase(kind, "créé"))
     for name, spec in FIELDS.get(kind, {}).items():

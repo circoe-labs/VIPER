@@ -8,8 +8,13 @@ transaction: any refusal rolls every step back), in this order:
    verified active channels back to `unverified`; `prospect.company_changed`);
 3. identity and employment fields, with the explicit employment-verification action;
 4. e-mails and phones as full lists (`contact_channels.save_channels`);
-5. contact tracking through `contact_tracking.save_contact_tracking` (status history kept);
+5. contact tracking through `contact_tracking.save_contact_tracking` (status history kept, Contact
+   rules applied: `ignored` terminal and reinforcing do-not-contact, next action cleared by
+   states without one);
 6. on creation, the `manual` provenance record (`provenance.add_manual_source`).
+
+`update_tracking` is the lighter write of the tracking alone (state and/or next-action week, the
+week planner and the state picker), with the same version check and rules.
 
 Contactability never travels with the save: `set_contactability` calls the dedicated
 `mark_do_not_contact` / `clear_do_not_contact` operations, with a mandatory reason. Every write
@@ -27,7 +32,7 @@ from enum import StrEnum
 
 from sqlalchemy.orm import Session
 
-from app.core.actor import ActorContext
+from app.core.actor import ActorContext, ActorType
 from app.core.business_time import BUSINESS_TIMEZONE, business_day, business_moment, start_of_day
 from app.models import ContactTracking, Email, Phone, Prospect, Role
 from app.models.enums import (
@@ -47,7 +52,14 @@ from app.repositories import taxonomies as taxonomy_repository
 from app.services import audit, contact_channels, prospects, provenance, taxonomies
 from app.services.contact_channels import EMAILS, PHONES, ChannelItem
 from app.services.contact_tracking import ContactTrackingInput, save_contact_tracking
+from app.services.contact_workflow import (
+    DEFAULT_STATE,
+    IsoWeek,
+    next_action_at,
+    suggest_next_action,
+)
 from app.services.errors import (
+    ActorNotAllowedError,
     ConflictError,
     DoNotContactError,
     DuplicateValueError,
@@ -101,6 +113,16 @@ class TrackingForm:
     appointment_on: date | None = None
     appointment_time: time | None = None
     referent_id: uuid.UUID | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TrackingUpdate:
+    """A change of the tracking alone. `status` None keeps the state; `next_action` applies only
+    when `set_next_action` (a week, or None to clear it)."""
+
+    status: ContactTrackingStatus | None = None
+    set_next_action: bool = False
+    next_action: IsoWeek | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,6 +232,10 @@ class TrackingView:
     referent: ValueRef | None
     # When the current stage was reached (last status-history entry).
     status_since: datetime | None
+    # Default cadence proposal for `contacted` / `r1` / `r2` (+2, +2, +4 weeks from the week the
+    # state was reached): Monday and ISO week. Offered by the UI, never applied automatically.
+    suggested_next_contact_on: date | None
+    suggested_next_contact_week: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -323,6 +349,10 @@ def _tracking_view(session: Session, tracking: ContactTracking | None) -> Tracki
     )
     appointment = _local_parts(tracking.appointment_at) if tracking.appointment_at else None
     history = tracking.status_history
+    since = history[-1].changed_at if history else None
+    suggestion = suggest_next_action(
+        tracking.status, business_day(since) if since else business_day(tracking.updated_at)
+    )
     return TrackingView(
         status=tracking.status,
         planned_contact_on=(
@@ -339,7 +369,9 @@ def _tracking_view(session: Session, tracking: ContactTracking | None) -> Tracki
             if referent
             else None
         ),
-        status_since=history[-1].changed_at if history else None,
+        status_since=since,
+        suggested_next_contact_on=suggestion.monday if suggestion else None,
+        suggested_next_contact_week=suggestion.label if suggestion else None,
     )
 
 
@@ -692,6 +724,42 @@ def set_contactability(
     else:
         prospects.clear_do_not_contact(session, actor, prospect_id, reason=text)
     return get_view(session, prospect_id, clock)
+
+
+def update_tracking(
+    session: Session,
+    actor: ActorContext,
+    prospect_id: uuid.UUID,
+    version: str,
+    update: TrackingUpdate,
+    clock: EditorClock,
+) -> ProspectView:
+    """Choose a state and/or set or clear the next-action week (stored as its Monday, P1). Only a
+    person may do it (decision 10); dates and referent are kept. A new tracking starts `neutral`.
+    Refusals: `ActorNotAllowedError`, `InvalidFieldError` (`empty`: nothing to change),
+    `TrackingRuleError` (`ignored_is_terminal`, `ignored_has_no_next_action`), `ConflictError`."""
+    if actor.type is not ActorType.HUMAN:
+        raise ActorNotAllowedError("Only a person changes a contact state or its next week.")
+    if update.status is None and not update.set_next_action:
+        raise InvalidFieldError("status", "Nothing to change.", "empty")
+    prospect = _locked(session, prospect_id, version)
+    current = prospect.contact_tracking
+    planned = current.planned_contact_at if current else None
+    if update.set_next_action:
+        planned = next_action_at(update.next_action) if update.next_action else None
+    save_contact_tracking(
+        session,
+        actor,
+        prospect.id,
+        ContactTrackingInput(
+            status=update.status or (current.status if current else DEFAULT_STATE),
+            planned_contact_at=planned,
+            referent_id=current.referent_id if current else None,
+            response_received_at=current.response_received_at if current else None,
+            appointment_at=current.appointment_at if current else None,
+        ),
+    )
+    return get_view(session, prospect.id, clock)
 
 
 def delete_prospect(

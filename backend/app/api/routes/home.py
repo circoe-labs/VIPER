@@ -75,7 +75,6 @@ class HomeOut(BaseModel):
     stale_threshold_days: int | None
     counts: dict[Segment, int]
     companies: int
-    stages: dict[ContactTrackingStatus, int]
     progress: ProgressOut
     next_actions: NextActionsOut
     recent_imports: list[BatchOut]

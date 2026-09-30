@@ -9,7 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.actor import ActorType
 from app.db.base import Base
 from app.models.common import TimestampMixin, UUIDPrimaryKeyMixin, text_enum
-from app.models.enums import ContactTrackingStatus
+from app.models.enums import ContactTrackingStatus, TrackingHistoryStatus
 from app.models.prospects import Prospect
 
 
@@ -20,10 +20,12 @@ class ContactTracking(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     prospect_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("prospects.id", ondelete="CASCADE"), unique=True
     )
+    # The next action (P1): first contact, follow-up or review. Written by the week planner and the
+    # cadence as the Monday of the chosen ISO week (business midnight); the week is derived.
     planned_contact_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[ContactTrackingStatus] = mapped_column(
         text_enum(ContactTrackingStatus, "status"),
-        server_default=ContactTrackingStatus.TO_CONTACT.value,
+        server_default=ContactTrackingStatus.NEUTRAL.value,
     )
     referent_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("internal_referents.id", ondelete="RESTRICT"), index=True
@@ -61,12 +63,13 @@ class ContactTrackingStatusHistory(UUIDPrimaryKeyMixin, Base):
             name="fk_contact_tracking_status_history_contact_tracking_id",
         )
     )
-    # NULL for the initial status of a new tracking row.
-    from_status: Mapped[ContactTrackingStatus | None] = mapped_column(
-        text_enum(ContactTrackingStatus, "from_status")
+    # NULL for the initial status of a new tracking row. Rows written before migration 0008 keep
+    # their legacy code (history is never rewritten), hence the wider `TrackingHistoryStatus`.
+    from_status: Mapped[TrackingHistoryStatus | None] = mapped_column(
+        text_enum(TrackingHistoryStatus, "from_status")
     )
-    to_status: Mapped[ContactTrackingStatus] = mapped_column(
-        text_enum(ContactTrackingStatus, "to_status")
+    to_status: Mapped[TrackingHistoryStatus] = mapped_column(
+        text_enum(TrackingHistoryStatus, "to_status")
     )
     changed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.clock_timestamp()

@@ -196,7 +196,7 @@ def test_a_tracking_stage_change_keeps_the_status_history(
         db_session,
         FIXTURE_ACTOR,
         prospect.id,
-        ContactTrackingInput(status=ContactTrackingStatus.TO_CONTACT),
+        ContactTrackingInput(status=ContactTrackingStatus.NEUTRAL),
     )
 
     response = save(client, "contact_tracking", updates=[update(tracking, status="contacted")])
@@ -207,7 +207,7 @@ def test_a_tracking_stage_change_keeps_the_status_history(
             ContactTrackingStatusHistory.changed_at
         )
     ).all()
-    assert history == [ContactTrackingStatus.TO_CONTACT, ContactTrackingStatus.CONTACTED]
+    assert history == ["neutral", "contacted"]
     [event] = explorer_events(db_session, "contact_tracking")
     assert event.action == "contact_tracking.status_changed"
 

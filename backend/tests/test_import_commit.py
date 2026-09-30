@@ -35,6 +35,7 @@ from app.models.enums import (
     VerificationStatus,
 )
 from app.services import import_commit, provenance
+from app.services.contact_tracking import ContactTrackingInput, save_contact_tracking
 from app.services.errors import DuplicateValueError
 from app.services.imports.decisions import ImportDecisions, PreviewOptions
 from app.services.imports.diagnostics import DiagnosticCode, ImportRejectedError
@@ -211,7 +212,7 @@ def test_defaults_apply_only_exact_matches_and_never_invent(
     assert jean_tracking is not None
     assert jean_tracking.referent_id == ids["claire"]  # exact referent
     assert jean_tracking.planned_contact_at is None  # `S37`: never a guessed year
-    assert jean_tracking.status is ContactTrackingStatus.TO_CONTACT
+    assert jean_tracking.status is ContactTrackingStatus.NEUTRAL
     nina = person(db_session, "Nina", "Homonyme")  # homonym of a blocked person: a warning only
     assert nina.contactability_status is ContactabilityStatus.CONTACTABLE
     assert nina.role_id is None  # the inactive `Chef de quai` is not applied by default
@@ -235,8 +236,10 @@ def test_historical_stages_and_address_become_tracking_and_establishment(
     commit(db_session, file, review, rows=excluded(10))
 
     hugo_tracking = tracking(db_session, person(db_session, "Hugo", "Fictif"))
-    assert hugo_tracking is not None and hugo_tracking.status is ContactTrackingStatus.QUOTE_SENT
-    assert [h.to_status for h in hugo_tracking.status_history] == [ContactTrackingStatus.QUOTE_SENT]
+    # « Devis envoyé » is post-appointment: it converges on « RDV pris » (Contact model).
+    assert hugo_tracking is not None
+    assert hugo_tracking.status is ContactTrackingStatus.APPOINTMENT_OBTAINED
+    assert [h.to_status for h in hugo_tracking.status_history] == ["appointment_obtained"]
     assert hugo_tracking.status_history[0].actor_type is ActorType.IMPORT
     emma = person(db_session, "Emma", "Test")
     emma_tracking = tracking(db_session, emma)
@@ -564,6 +567,36 @@ def test_attaching_to_an_existing_prospect_fills_empty_fields_only(
     assert count(db_session, Prospect) == 3 and count(db_session, Company) == 1
     assert result.counts["prospects_attached"] == 1 and result.counts["companies_linked"] == 1
     assert trace(db_session, 2).prospect_id == luc.id
+
+
+@pytest.mark.parametrize(
+    ("current", "expected"),
+    [
+        # Nothing chosen yet: the file's stage columns advance the state (reference Task 03).
+        (ContactTrackingStatus.NEUTRAL, ContactTrackingStatus.R1),
+        # A chosen state is never rewritten; the file's stage stays in the row metadata.
+        (ContactTrackingStatus.R2, ContactTrackingStatus.R2),
+        (ContactTrackingStatus.FAILURE, ContactTrackingStatus.FAILURE),
+    ],
+)
+def test_an_import_advances_only_a_neutral_tracking(
+    db_session: Session,
+    ids: dict[str, uuid.UUID],
+    current: ContactTrackingStatus,
+    expected: ContactTrackingStatus,
+) -> None:
+    save_contact_tracking(db_session, OPERATOR, ids["luc"], ContactTrackingInput(current))
+    file = upload([{**LUC_AGAIN, "relance1": "x"}])
+    review = review_of(db_session, file)
+
+    commit(db_session, file, review)
+
+    luc = db_session.get(Prospect, ids["luc"])
+    assert luc is not None
+    luc_tracking = tracking(db_session, luc)
+    assert luc_tracking is not None and luc_tracking.status is expected
+    kept = trace(db_session, 2).legacy_metadata
+    assert ("stage_follow_up_1" in kept) is (current is not ContactTrackingStatus.NEUTRAL)
 
 
 def test_duplicates_can_be_created_merged_into_another_row_or_excluded(

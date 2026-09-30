@@ -3,7 +3,9 @@
 404 `not_found`; 422 `invalid` (with the `field`, and a `reason` when the service gives one);
 409 `duplicate` (with the `field` and the `existing` row holding the value, which may be
 inactive); 409 `in_use` (with usage counts); 409 `conflict` (the record changed since it was read);
-409 `do_not_contact` (the operation would erase a durable opposition). Raising inside
+409 `do_not_contact` (the operation would erase a durable opposition); 409 with the rule's own code
+for a Contact tracking rule (`ignored_is_terminal`, `ignored_has_no_next_action`); 403
+`human_actor_required` (a change only a person may make). Raising inside
 `business_errors()` also rolls the request's transaction back.
 """
 
@@ -17,12 +19,14 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.services.errors import (
+    ActorNotAllowedError,
     ConflictError,
     DoNotContactError,
     DuplicateValueError,
     InUseError,
     InvalidFieldError,
     NotFoundError,
+    TrackingRuleError,
 )
 
 
@@ -62,6 +66,10 @@ def business_errors() -> Iterator[None]:
         raise refusal(status.HTTP_409_CONFLICT, "conflict", str(error)) from error
     except DoNotContactError as error:
         raise refusal(status.HTTP_409_CONFLICT, "do_not_contact", str(error)) from error
+    except TrackingRuleError as error:
+        raise refusal(status.HTTP_409_CONFLICT, error.code, str(error)) from error
+    except ActorNotAllowedError as error:
+        raise refusal(status.HTTP_403_FORBIDDEN, "human_actor_required", str(error)) from error
 
 
 async def validation_refused(_: Request, error: Exception) -> JSONResponse:

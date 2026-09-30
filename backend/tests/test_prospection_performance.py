@@ -63,7 +63,7 @@ def seed_base(db_session: Session) -> None:
     db_session.execute(
         text(
             "INSERT INTO contact_tracking (prospect_id, status, planned_contact_at)"
-            " SELECT id, (ARRAY['to_contact', 'contacted', 'follow_up_1', 'response_received'])"
+            " SELECT id, (ARRAY['neutral', 'contacted', 'r1', 'response_received'])"
             "[(random() * 3)::int + 1], now() + ((random() * 60)::int - 30) * interval '1 day'"
             " FROM prospects TABLESAMPLE BERNOULLI (60)"
         )
@@ -140,7 +140,7 @@ def test_counters_and_deep_page_on_20k_prospects(
             lambda: client.get(
                 "/api/prospection/prospects",
                 params={
-                    "segment": "to_contact",
+                    "segment": "contacted",
                     "sort": "planned_contact",
                     "offset": 5_000,
                     "limit": 50,

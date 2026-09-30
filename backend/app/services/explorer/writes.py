@@ -268,7 +268,7 @@ class _Writer:
             getattr(owner, self.link.collection).append(target)
             return {name: to_json(value) for name, value in values.items()}
         if self.table.name == ContactTracking.__tablename__:
-            fields: dict[str, Any] = {"status": ContactTrackingStatus.TO_CONTACT}
+            fields: dict[str, Any] = {"status": ContactTrackingStatus.NEUTRAL}
             fields |= {name: values[name] for name in TRACKING_FIELDS if name in values}
             data = contact_tracking.ContactTrackingInput(**fields)
             prospect_id = values["prospect_id"]

@@ -329,7 +329,7 @@ def test_deleting_a_prospect_removes_its_owned_records(db_session: Session) -> N
     db_session.add(
         ContactTrackingStatusHistory(
             contact_tracking_id=tracking.id,
-            to_status=ContactTrackingStatus.TO_CONTACT,
+            to_status=ContactTrackingStatus.NEUTRAL,
             actor_type=OPERATOR.type,
             actor_display=OPERATOR.display,
         )

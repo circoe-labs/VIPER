@@ -22,13 +22,13 @@ from app.models.enums import (
     ActivityStatus,
     Civility,
     ContactabilityStatus,
-    ContactTrackingStatus,
     OriginType,
     PhoneType,
     ProspectSourceType,
     VerificationStatus,
 )
 from app.models.taxonomies import InternalReferent
+from app.services.contact_workflow import STATE_LABELS
 from app.services.exports.projection import (
     CompanyRecord,
     EmailRecord,
@@ -77,18 +77,7 @@ ACTIVITY = {
     ActivityStatus.INACTIVE: "Inactif",
     ActivityStatus.UNKNOWN: "Inconnu",
 }
-TRACKING_STATUS = {
-    ContactTrackingStatus.TO_CONTACT: "À contacter",
-    ContactTrackingStatus.CONTACTED: "Contacté",
-    ContactTrackingStatus.FOLLOW_UP_1: "Relance 1",
-    ContactTrackingStatus.FOLLOW_UP_2: "Relance 2",
-    ContactTrackingStatus.RESPONSE_RECEIVED: "Réponse reçue",
-    ContactTrackingStatus.APPOINTMENT_OBTAINED: "RDV obtenu",
-    ContactTrackingStatus.QUOTE_SENT: "Devis envoyé",
-    ContactTrackingStatus.QUOTE_FOLLOW_UP: "Suivi du devis",
-    ContactTrackingStatus.WON: "Gagné",
-    ContactTrackingStatus.NOT_INTERESTED: "Non intéressé",
-}
+TRACKING_STATUS = STATE_LABELS
 PHONE_TYPE = {PhoneType.MOBILE: "Mobile", PhoneType.LANDLINE: "Fixe", PhoneType.OTHER: "Autre"}
 VERIFICATION = {
     VerificationStatus.UNVERIFIED: "Non vérifié",

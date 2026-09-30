@@ -102,7 +102,7 @@ def test_lifecycle_is_attributed_to_the_signed_in_user(
             "employment_verification": {"action": "verified_now"},
             "emails": [{"address": "Jean.Api@Exemple.example", "verified_now": True}],
             "phones": [{"number": "06 00 00 00 01", "type": "mobile"}],
-            "tracking": {"status": "to_contact", "planned_contact_on": "2026-09-21"},
+            "tracking": {"status": "neutral", "planned_contact_on": "2026-09-21"},
             "provenance": {"legal_basis_or_collection_context": CONTEXT},
         },
     )

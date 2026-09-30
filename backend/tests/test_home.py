@@ -13,11 +13,12 @@ from sqlalchemy.orm import Session
 
 from app.core.actor import ActorContext, ActorType
 from app.models import ContactTracking, ContactTrackingStatusHistory, ImportBatch, Prospect
-from app.models.enums import ContactTrackingStatus, ImportBatchStatus
+from app.models.enums import ContactTrackingStatus, ImportBatchStatus, TrackingHistoryStatus
 from app.services import audit, home
 from app.services import prospects as prospect_service
 from app.services.audit import AuditContext, AuditSource
 from app.services.contact_tracking import ContactTrackingInput, save_contact_tracking
+from app.services.contact_workflow import CONTACT_STATES_MIGRATION_ID, LEGACY_EQUIVALENTS
 from app.services.home import home_summary, month_start, monthly_progress, next_actions
 from app.services.prospection.query import ProspectFilters, count_segments
 from app.services.prospection.segments import Segment, SegmentContext
@@ -41,6 +42,7 @@ from tests.test_prospection import (
 )
 
 S = ContactTrackingStatus
+H = TrackingHistoryStatus
 History = ContactTrackingStatusHistory
 IMPORT_ACTOR = ActorType.IMPORT
 
@@ -48,14 +50,17 @@ IMPORT_ACTOR = ActorType.IMPORT
 def moved(
     session: Session,
     prospect: Prospect,
-    to_status: S,
+    to_status: S | H,
     when: datetime,
     actor_type: ActorType = ActorType.HUMAN,
+    actor_id: str | None = None,
 ) -> None:
-    """A status-history row at an explicit time (the tracking is created on first use)."""
+    """A status-history row at an explicit time (the tracking is created on first use). A legacy
+    code (history written before migration 0008) leaves the tracking at its equivalent state."""
+    state = LEGACY_EQUIVALENTS.get(H(to_status)) or S(to_status)
     tracking = session.query(ContactTracking).filter_by(prospect_id=prospect.id).one_or_none()
     if tracking is None:
-        tracking = ContactTracking(prospect_id=prospect.id, status=to_status)
+        tracking = ContactTracking(prospect_id=prospect.id, status=state)
         session.add(tracking)
         session.flush()
     previous = (
@@ -65,14 +70,15 @@ def moved(
         .limit(1)
         .scalar()
     )
-    tracking.status = to_status
+    tracking.status = state
     session.add(
         History(
             contact_tracking_id=tracking.id,
             from_status=previous,
-            to_status=to_status,
+            to_status=H(to_status),
             changed_at=when,
             actor_type=actor_type,
+            actor_id=actor_id,
             actor_display="Import test.xlsx" if actor_type is IMPORT_ACTOR else "Opératrice Test",
         )
     )
@@ -98,7 +104,7 @@ def test_counts_are_the_prospection_counters(db_session: Session) -> None:
     assert summary.counts == {segment: len(EXPECTED[segment]) for segment in Segment}
     # Opposed people are never due, to contact or awaiting an answer, but stay in the outcomes.
     assert summary.counts[Segment.DUE] == 2
-    assert summary.counts[Segment.DO_NOT_CONTACT] == 2
+    assert summary.counts[Segment.DO_NOT_CONTACT] == 3
     assert (summary.today, summary.stale_threshold_days) == (TODAY, None)
 
 
@@ -110,29 +116,18 @@ def test_counts_equal_prospection_on_random_bases(db_session: Session, seed: int
     summary = home_summary(db_session, context)
 
     assert summary.counts == count_segments(db_session, ProspectFilters(), context).counts
-    for stage, count in summary.stages.items():
-        filtered = count_segments(db_session, ProspectFilters(tracking_status=stage), context)
-        assert count == filtered.counts[Segment.ALL], stage
 
 
-def test_companies_and_commercial_stages_come_from_recorded_statuses(db_session: Session) -> None:
+def test_companies_count_every_company(db_session: Session) -> None:
     company = add_company(db_session, "Transports Exemple SARL")
     add_company(db_session, "Entreprise Sans Prospect SAS")
-    stages = [S.QUOTE_SENT, S.QUOTE_SENT, S.QUOTE_FOLLOW_UP, S.WON, S.NOT_INTERESTED, S.CONTACTED]
-    for n, stage in enumerate(stages):
-        track(db_session, add_prospect(db_session, company, last_name=f"Stade{n}"), stage)
-    # An appointment date alone never makes a quote or a win.
-    track(db_session, add_prospect(db_session, company, last_name="Rdv"), appointment_at=at(TODAY))
+    track(db_session, add_prospect(db_session, company, last_name="Stade"), S.CONTACTED)
 
     summary = home_summary(db_session, CONTEXT)
 
     assert summary.companies == 2
-    assert summary.stages == {
-        S.QUOTE_SENT: 2,
-        S.QUOTE_FOLLOW_UP: 1,
-        S.WON: 1,
-        S.NOT_INTERESTED: 1,
-    }
+    # The post-appointment stage group is gone with the Contact model (P3).
+    assert not hasattr(summary, "stages")
 
 
 def test_empty_base(db_session: Session) -> None:
@@ -140,7 +135,6 @@ def test_empty_base(db_session: Session) -> None:
 
     assert set(summary.counts.values()) == {0}
     assert summary.companies == 0
-    assert set(summary.stages.values()) == {0}
     assert [month.contacted + month.appointments for month in summary.months] == [0] * 6
     assert summary.next_actions.due == home.ActionGroup(total=0, items=[])
     assert (summary.recent_imports, summary.recent_edits) == ([], [])
@@ -166,13 +160,13 @@ def test_months_list_oldest_first(db_session: Session) -> None:
 
 def test_first_contact_counts_once_in_its_month(db_session: Session) -> None:
     fresh = person(db_session, "Nouveau")
-    moved(db_session, fresh, S.TO_CONTACT, at(date(2026, 8, 20)))
+    moved(db_session, fresh, S.NEUTRAL, at(date(2026, 8, 20)))
     moved(db_session, fresh, S.CONTACTED, at(date(2026, 9, 2)))
-    moved(db_session, fresh, S.FOLLOW_UP_1, at(date(2026, 9, 8)))
+    moved(db_session, fresh, S.R1, at(date(2026, 9, 8)))
     # Contacted in August, followed up in September: August's contact, not September's.
     earlier = person(db_session, "Ancien")
     moved(db_session, earlier, S.CONTACTED, at(date(2026, 8, 5)))
-    moved(db_session, earlier, S.FOLLOW_UP_1, at(date(2026, 9, 3)))
+    moved(db_session, earlier, S.R1, at(date(2026, 9, 3)))
     # Created directly at a later stage by hand: a first contact too.
     direct = person(db_session, "Direct")
     moved(db_session, direct, S.RESPONSE_RECEIVED, at(date(2026, 9, 9)))
@@ -189,10 +183,10 @@ def test_imported_stages_are_not_new_contacts(db_session: Session) -> None:
     # The import restates a legacy contact: neither its row nor a later follow-up is new.
     legacy = person(db_session, "Historique")
     moved(db_session, legacy, S.CONTACTED, at(date(2026, 9, 1)), IMPORT_ACTOR)
-    moved(db_session, legacy, S.FOLLOW_UP_1, at(date(2026, 9, 4)))
+    moved(db_session, legacy, S.R1, at(date(2026, 9, 4)))
     # Imported at « to contact », then contacted by hand this month: a new contact.
     imported = person(db_session, "Importé")
-    moved(db_session, imported, S.TO_CONTACT, at(date(2026, 9, 1)), IMPORT_ACTOR)
+    moved(db_session, imported, S.NEUTRAL, at(date(2026, 9, 1)), IMPORT_ACTOR)
     moved(db_session, imported, S.CONTACTED, at(date(2026, 9, 7)))
     legacy_appointment = person(db_session, "RdvHistorique")
     moved(db_session, legacy_appointment, S.APPOINTMENT_OBTAINED, at(TODAY), IMPORT_ACTOR)
@@ -225,15 +219,16 @@ def test_appointment_counts_the_first_entry_into_an_appointment_stage(db_session
     obtained = person(db_session, "Obtenu")
     moved(db_session, obtained, S.CONTACTED, at(date(2026, 8, 3)))
     moved(db_session, obtained, S.APPOINTMENT_OBTAINED, at(date(2026, 9, 2)))
-    moved(db_session, obtained, S.QUOTE_SENT, at(date(2026, 9, 9)))  # not a second one
-    # Straight to « devis envoyé »: an appointment was obtained on the way.
+    # History written before migration 0008 keeps its legacy codes, read as their equivalent.
+    moved(db_session, obtained, H.LEGACY_QUOTE_SENT, at(date(2026, 9, 9)))  # not a second one
+    # Straight to « devis envoyé » (legacy): an appointment was obtained on the way.
     quoted = person(db_session, "Devis")
     moved(db_session, quoted, S.CONTACTED, at(date(2026, 9, 1)))
-    moved(db_session, quoted, S.QUOTE_SENT, at(date(2026, 9, 4)))
-    # Obtained in July, won in September: July's appointment.
+    moved(db_session, quoted, H.LEGACY_QUOTE_SENT, at(date(2026, 9, 4)))
+    # Obtained in July, won in September (legacy): July's appointment.
     won = person(db_session, "Gagné")
     moved(db_session, won, S.APPOINTMENT_OBTAINED, at(date(2026, 7, 10)))
-    moved(db_session, won, S.WON, at(date(2026, 9, 5)))
+    moved(db_session, won, H.LEGACY_WON, at(date(2026, 9, 5)))
     # A date recorded without the stage is not in the monthly count (only in the segment).
     dated = person(db_session, "DateSeule")
     moved(db_session, dated, S.RESPONSE_RECEIVED, at(date(2026, 9, 3)))
@@ -244,6 +239,28 @@ def test_appointment_counts_the_first_entry_into_an_appointment_stage(db_session
     months = {m.month.month: m.appointments for m in monthly_progress(db_session, TODAY)}
 
     assert months == {4: 0, 5: 0, 6: 0, 7: 1, 8: 0, 9: 2}
+
+
+def test_legacy_history_counts_and_migration_rows_restate_nothing(db_session: Session) -> None:
+    system = ActorType.SYSTEM
+    # Followed up in August before migration 0008: August's contact.
+    legacy = person(db_session, "Relance")
+    moved(db_session, legacy, H.LEGACY_TO_CONTACT, at(date(2026, 8, 1)))
+    moved(db_session, legacy, H.LEGACY_FOLLOW_UP_1, at(date(2026, 8, 12)))
+    moved(db_session, legacy, S.R1, at(date(2026, 9, 2)), system, CONTACT_STATES_MIGRATION_ID)
+    # Only the migration's row reached an appointment state: a restatement, not a new one.
+    restated = person(db_session, "Converti")
+    day = at(date(2026, 9, 2))
+    moved(db_session, restated, S.APPOINTMENT_OBTAINED, day, system, CONTACT_STATES_MIGRATION_ID)
+    # A refusal recorded before 0008 was a contact attempt.
+    refused = person(db_session, "Refus")
+    moved(db_session, refused, H.LEGACY_NOT_INTERESTED, at(date(2026, 9, 3)))
+
+    progress = monthly_progress(db_session, TODAY)
+    months = {m.month.month: (m.contacted, m.appointments) for m in progress}
+
+    assert months[8] == (1, 0)
+    assert months[9] == (1, 0)
 
 
 def test_history_written_by_the_tracking_service_counts(db_session: Session) -> None:
@@ -298,13 +315,20 @@ def test_next_actions_order_limits_and_windows(db_session: Session) -> None:
         track(db_session, prospect, S.APPOINTMENT_OBTAINED, appointment_at=at(day, 0))
     for key, response in [("Recente", at(TODAY)), ("Ancienne", at(TODAY - timedelta(days=5)))]:
         prospect = add_prospect(db_session, company, last_name=f"Reponse{key}")
-        track(db_session, prospect, S.FOLLOW_UP_1, response_received_at=response)
+        track(db_session, prospect, S.R1, response_received_at=response)
     track(
         db_session,
         add_prospect(db_session, company, last_name="ReponseSansDate"),
         S.RESPONSE_RECEIVED,
     )
-    track(db_session, add_prospect(db_session, company, last_name="Refus"), S.NOT_INTERESTED)
+    track(db_session, add_prospect(db_session, company, last_name="Echec"), S.FAILURE)
+    # A failure that had an answer is closed too: nothing left to convert.
+    track(
+        db_session,
+        add_prospect(db_session, company, last_name="EchecRepondu"),
+        S.FAILURE,
+        response_received_at=at(TODAY),
+    )
 
     actions = next_actions(db_session, CONTEXT)
 
@@ -316,7 +340,7 @@ def test_next_actions_order_limits_and_windows(db_session: Session) -> None:
     item = actions.due.items[0]
     assert (item.company_name, item.tracking_status, item.at) == (
         "Transports Exemple SARL",
-        S.TO_CONTACT,
+        S.NEUTRAL,
         at(TODAY - timedelta(days=6)),
     )
 
@@ -332,7 +356,7 @@ def test_recent_edits_group_one_save_and_leave_values_out(db_session: Session) -
     # An import's writes are in the import history, not in the edits feed.
     import_actor = ActorContext(type=ActorType.IMPORT, display="Import test.xlsx", id="batch")
     save_contact_tracking(
-        db_session, import_actor, prospect.id, ContactTrackingInput(status=S.TO_CONTACT)
+        db_session, import_actor, prospect.id, ContactTrackingInput(status=S.NEUTRAL)
     )
     bind_operator(db_session)
 
@@ -361,7 +385,7 @@ def test_recent_edits_group_one_save_and_leave_values_out(db_session: Session) -
         "Opératrice Test",
         ActorType.HUMAN,
     )
-    assert tracked.summary == ["Suivi : À contacter → Contacté"]
+    assert tracked.summary == ["Suivi : Aucun état → Contacté"]
     assert latest.source is audit.AuditSource.UI
     serialized = json.dumps([str(edit) for edit in edits])
     for value in ("jean.temoin@exemple.example", "Demande écrite", "Nouvel Employeur"):
@@ -413,7 +437,7 @@ def test_statement_count_does_not_grow_with_rows(db_session: Session, size: int)
     with statements(db_session) as executed:
         home_summary(db_session, CONTEXT)
 
-    # Segments, companies + stages, months, 3 action groups, imports, edits, subject names; the
+    # Segments, companies, months, 3 action groups, imports, edits, subject names; the
     # segments and the action groups inside `whole_base_plan` (its settings, then their reset).
     settings = [index for index, statement in enumerate(executed) if "set_config" in statement]
     assert len(executed) - len(settings) == 9

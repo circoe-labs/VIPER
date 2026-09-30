@@ -17,6 +17,7 @@ from app.models.enums import (
     ActivityStatus,
     Civility,
     ContactabilityStatus,
+    ContactTrackingStatus,
     OriginType,
     PhoneType,
     VerificationStatus,
@@ -26,7 +27,7 @@ from app.repositories import companies as company_repository
 from app.repositories import prospects as prospect_repository
 from app.services import audit
 from app.services.audit import AuditAction
-from app.services.errors import DomainError, NotFoundError
+from app.services.errors import DomainError, NotFoundError, TrackingRuleError
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,10 +182,15 @@ def clear_do_not_contact(
     Imports, tracking updates and generic edits cannot do it (the database trigger rejects them).
     The prospect row cannot keep the reason (it only describes an active restriction), so the
     audit event does: `context.reason` of `prospect.do_not_contact.cleared` (decision I-28).
+    An `ignored` prospect keeps it: that state is terminal and implies the opposition (Contact
+    decision 7) — `TrackingRuleError("ignored_is_terminal")`.
     """
     if not reason.strip():
         raise DomainError("A reason is required to clear a do-not-contact restriction.")
     prospect = get_prospect(session, prospect_id)
+    tracking = prospect.contact_tracking
+    if tracking is not None and tracking.status is ContactTrackingStatus.IGNORED:
+        raise TrackingRuleError("ignored_is_terminal", "An ignored prospect stays do-not-contact.")
     if prospect.contactability_status is ContactabilityStatus.CONTACTABLE:
         return prospect
     audit.annotate(

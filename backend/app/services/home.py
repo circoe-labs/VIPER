@@ -1,9 +1,10 @@
 """HomeService (Task 16): the global dashboard, read-only.
 
 Every prospect count is a canonical Prospection segment (`prospection.query.count_segments`), so
-Home and Prospection always agree. Home adds what Prospection does not count — companies, current
-commercial stages, monthly progress read from the status history, next actions and the recent
-imports and edits — in a fixed number of explicit statements whatever the base size.
+Home and Prospection always agree. Home adds what Prospection does not count — companies, monthly
+progress read from the status history, next actions and the recent imports and edits — in a fixed
+number of explicit statements whatever the base size. (The « Suivi commercial léger » group of
+post-appointment stages was removed with the Contact model, decision P3.)
 Definitions: doc/features/home-dashboard.md (decisions I-110 … I-117).
 """
 
@@ -12,7 +13,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import ColumnElement, and_, func, select
+from sqlalchemy import ColumnElement, and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.actor import ActorType
@@ -23,6 +24,7 @@ from app.models.contact_tracking import ContactTrackingStatusHistory
 from app.models.enums import ContactTrackingStatus
 from app.services import audit, history, import_batches
 from app.services.audit import AuditSource
+from app.services.contact_workflow import CONTACT_STATES_MIGRATION_ID, history_codes
 from app.services.history import HistoryActor
 from app.services.prospection.query import ProspectFilters, count_segments
 from app.services.prospection.segments import (
@@ -40,8 +42,8 @@ from app.services.prospection.segments import (
 S = ContactTrackingStatus
 History = ContactTrackingStatusHistory
 
-# Lightweight commercial outcomes, counted from the current recorded stage only.
-COMMERCIAL_STAGES = (S.QUOTE_SENT, S.QUOTE_FOLLOW_UP, S.WON, S.NOT_INTERESTED)
+# Outcomes that leave nothing to do: never listed as next actions.
+CLOSED_STAGES = (S.FAILURE, S.IGNORED)
 # The current month and the five before it.
 TREND_MONTHS = 6
 # Appointments from the start of today to the end of the 6th day after it.
@@ -113,7 +115,6 @@ class HomeSummary:
     stale_threshold_days: int | None
     counts: dict[Segment, int]
     companies: int
-    stages: dict[ContactTrackingStatus, int]
     months: list[MonthProgress]  # oldest first; the last one is the current month
     next_actions: NextActions
     recent_imports: list[ImportBatch]
@@ -122,29 +123,17 @@ class HomeSummary:
 
 def home_summary(session: Session, context: SegmentContext) -> HomeSummary:
     counted = count_segments(session, ProspectFilters(), context)
-    companies, stages = _companies_and_stages(session)
+    companies = session.execute(select(func.count()).select_from(Company)).scalar_one()
     return HomeSummary(
         today=context.today,
         stale_threshold_days=context.stale_days,
         counts=counted.counts,
         companies=companies,
-        stages=stages,
         months=monthly_progress(session, context.today),
         next_actions=next_actions(session, context),
         recent_imports=import_batches.list_batches(session, limit=IMPORT_LIMIT),
         recent_edits=recent_edits(session),
     )
-
-
-def _companies_and_stages(session: Session) -> tuple[int, dict[ContactTrackingStatus, int]]:
-    companies = select(func.count()).select_from(Company).scalar_subquery()
-    row = session.execute(
-        select(
-            companies,
-            *(func.count().filter(ContactTracking.status == stage) for stage in COMMERCIAL_STAGES),
-        ).select_from(ContactTracking)
-    ).one()
-    return row[0], dict(zip(COMMERCIAL_STAGES, row[1:], strict=True))
 
 
 # --- monthly progress ---------------------------------------------------------------------------
@@ -159,10 +148,19 @@ def month_start(day: date, months_back: int = 0) -> date:
 def _first_transitions(stages: tuple[ContactTrackingStatus, ...]) -> tuple[Any, Any]:
     """Per tracking: when it first entered one of `stages`, and when it first did so other than
     by an import. The two are equal only when the first entry was recorded in VIPER — an import
-    restates a legacy stage reached at an unknown earlier date."""
-    into = History.to_status.in_(stages)
+    restates a legacy stage reached at an unknown earlier date. History rows written before
+    migration 0008 keep their legacy codes, read through their equivalent state; the rows that
+    migration appended restate a conversion, like an import, so they are never a first entry."""
+    into = History.to_status.in_(history_codes(stages))
+    restated = or_(
+        History.actor_type == ActorType.IMPORT,
+        and_(
+            History.actor_type == ActorType.SYSTEM,
+            History.actor_id == CONTACT_STATES_MIGRATION_ID,
+        ),
+    )
     first = func.min(History.changed_at).filter(into)
-    recorded = func.min(History.changed_at).filter(into, History.actor_type != ActorType.IMPORT)
+    recorded = func.min(History.changed_at).filter(into, ~restated)
     return first, recorded
 
 
@@ -261,7 +259,7 @@ def next_actions(session: Session, context: SegmentContext) -> NextActions:
         actionable(),
         responded(),
         ~has_appointment(),
-        ContactTracking.status != S.NOT_INTERESTED,
+        ContactTracking.status.not_in(CLOSED_STAGES),
     )
     # Each group counts its whole segment (`count(*) OVER ()`) before keeping the first five.
     with whole_base_plan(session):

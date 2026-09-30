@@ -147,7 +147,7 @@ def test_deleting_a_prospect_lists_every_cascade(client: TestClient, db_session:
         db_session,
         FIXTURE_ACTOR,
         prospect.id,
-        ContactTrackingInput(status=ContactTrackingStatus.TO_CONTACT),
+        ContactTrackingInput(status=ContactTrackingStatus.NEUTRAL),
     )
 
     body = check(client, "prospects", prospect.id)

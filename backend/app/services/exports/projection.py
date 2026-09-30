@@ -72,7 +72,7 @@ class ProspectRecord:
             (
                 row.changed_at
                 for row in reversed(self.tracking.status_history)
-                if row.to_status == self.tracking.status
+                if row.to_status.value == self.tracking.status.value
             ),
             None,
         )

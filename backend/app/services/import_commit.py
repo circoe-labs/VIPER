@@ -521,9 +521,10 @@ class Committer:
     # --- contact tracking ---
 
     def tracking(self, plan: RowPlan, prospect: Prospect) -> None:
-        """Create the tracking (status history included) or fill its empty dates/referent; the
-        stage of an existing tracking is never changed, and a do-not-contact prospect gets no
-        tracking from an import."""
+        """Create the tracking (status history included) or fill its empty dates/referent. The
+        state of an existing tracking is never changed, except a `neutral` one that the file's
+        stage columns advance (nothing was chosen yet); a do-not-contact prospect (hence every
+        `ignored` one) gets no tracking change from an import."""
         row = plan.row
         proposal = row.tracking
         # A stage only when a legacy stage column said so; a suggestion alone creates nothing.
@@ -543,7 +544,7 @@ class Committer:
                 self.importer,
                 prospect.id,
                 ContactTrackingInput(
-                    status=status or ContactTrackingStatus.TO_CONTACT,
+                    status=status or ContactTrackingStatus.NEUTRAL,
                     planned_contact_at=planned,
                     referent_id=referent,
                     appointment_at=appointment,
@@ -551,8 +552,9 @@ class Committer:
             )
             self.counts["trackings_created"] += 1
             return
+        neutral = current.status is ContactTrackingStatus.NEUTRAL
         filled = ContactTrackingInput(
-            status=current.status,
+            status=status if neutral and status is not None else current.status,
             planned_contact_at=current.planned_contact_at or planned,
             referent_id=current.referent_id or referent,
             response_received_at=current.response_received_at,
@@ -560,15 +562,12 @@ class Committer:
         )
         self.keep_tracking(
             row,
-            stages=status is not None and status != current.status,
+            stages=status is not None and status != filled.status,
             planned=planned is not None and filled.planned_contact_at != planned,
             referent=referent is not None and filled.referent_id != referent,
         )
-        if (filled.planned_contact_at, filled.referent_id, filled.appointment_at) != (
-            current.planned_contact_at,
-            current.referent_id,
-            current.appointment_at,
-        ):
+        kept = ("status", "planned_contact_at", "referent_id", "appointment_at")
+        if any(getattr(filled, name) != getattr(current, name) for name in kept):
             save_contact_tracking(self.session, self.importer, prospect.id, filled)
 
     def keep_tracking(

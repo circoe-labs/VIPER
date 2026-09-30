@@ -200,7 +200,7 @@ def test_historical_stages(preview: ImportPreview) -> None:
     conflict, consistent = row(preview, 7), row(preview, 8)
 
     assert conflict.tracking is not None
-    assert conflict.tracking.status is ContactTrackingStatus.QUOTE_SENT
+    assert conflict.tracking.status is ContactTrackingStatus.APPOINTMENT_OBTAINED
     assert conflict.tracking.requires_review
     assert Code.TRACKING_STAGE_CONFLICT in codes(conflict)
     assert consistent.tracking is not None

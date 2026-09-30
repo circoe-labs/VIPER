@@ -157,7 +157,7 @@ def test_creation_records_the_person_their_aliases_tracking_and_manual_provenanc
             ChannelItem(value="01 23 45 67 89", phone_type=PhoneType.LANDLINE),
         ],
         tracking=TrackingForm(
-            status=ContactTrackingStatus.TO_CONTACT,
+            status=ContactTrackingStatus.NEUTRAL,
             planned_contact_on=date(2026, 9, 16),
             referent_id=referent.id,
         ),
@@ -644,9 +644,7 @@ def test_tracking_records_dates_in_business_time_referent_and_history(db_session
     save(
         db_session,
         prospect,
-        tracking=TrackingForm(
-            ContactTrackingStatus.TO_CONTACT, planned_contact_on=date(2026, 9, 14)
-        ),
+        tracking=TrackingForm(ContactTrackingStatus.NEUTRAL, planned_contact_on=date(2026, 9, 14)),
     )
     view = save(
         db_session,
@@ -663,16 +661,17 @@ def test_tracking_records_dates_in_business_time_referent_and_history(db_session
 
     tracking = view.tracking
     assert tracking is not None
+    # « RDV pris » has no default next action: the echoed planned day is cleared.
     assert (tracking.status, tracking.planned_contact_on, tracking.response_received_on) == (
         ContactTrackingStatus.APPOINTMENT_OBTAINED,
-        date(2026, 9, 14),
+        None,
         date(2026, 9, 15),
     )
     assert (tracking.appointment_on, tracking.appointment_time) == (date(2026, 9, 22), time(10, 30))
     assert tracking.referent is not None and tracking.referent.label == "Claire Référente"
     row = prospect.contact_tracking
     assert row is not None
-    assert row.planned_contact_at == start_of_day(date(2026, 9, 14))
+    assert row.planned_contact_at is None
     assert row.appointment_at == business_moment(date(2026, 9, 22), time(10, 30))
     transitions = db_session.execute(
         select(ContactTrackingStatusHistory.from_status, ContactTrackingStatusHistory.to_status)
@@ -680,8 +679,8 @@ def test_tracking_records_dates_in_business_time_referent_and_history(db_session
         .order_by(ContactTrackingStatusHistory.changed_at)
     ).all()
     assert [tuple(transition) for transition in transitions] == [
-        (None, ContactTrackingStatus.TO_CONTACT),
-        (ContactTrackingStatus.TO_CONTACT, ContactTrackingStatus.APPOINTMENT_OBTAINED),
+        (None, ContactTrackingStatus.NEUTRAL),
+        (ContactTrackingStatus.NEUTRAL, ContactTrackingStatus.APPOINTMENT_OBTAINED),
     ]
     assert actions(db_session) == ["contact_tracking.created", "contact_tracking.status_changed"]
 
@@ -782,7 +781,7 @@ def test_the_save_never_touches_an_opposition(db_session: Session) -> None:
         db_session,
         prospect,
         last_name="Renommé",
-        tracking=TrackingForm(ContactTrackingStatus.NOT_INTERESTED),
+        tracking=TrackingForm(ContactTrackingStatus.FAILURE),
     )
 
     assert view.contactability_status is ContactabilityStatus.DO_NOT_CONTACT

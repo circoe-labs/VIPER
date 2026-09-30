@@ -68,6 +68,19 @@ class DoNotContactError(DomainError):
     """The operation would erase a durable do-not-contact restriction (e.g. deleting the person)."""
 
 
+class TrackingRuleError(DomainError):
+    """A Contact tracking rule refused the change; `code` is stable (`ignored_is_terminal`,
+    `ignored_has_no_next_action`)."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+class ActorNotAllowedError(DomainError):
+    """This kind of actor may not make this change (e.g. a contact state chosen by an agent)."""
+
+
 def violated_constraint(error: IntegrityError) -> str | None:
     """Name of the constraint or index a database write violated (ADR-0002 naming)."""
     diagnostics = getattr(error.orig, "diag", None)

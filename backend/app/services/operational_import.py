@@ -8,8 +8,8 @@ and the resolved contact week:
 - Inactif -> employment checked, inactive, imported e-mail invalid;
 - Inconnus -> employment checked, outcome unknown, imported e-mail unknown;
 - blank/unrecognised -> no verification claim;
-- a resolved contact date in the past -> contacted when no later stage already exists;
-- an internal referent is not assigned while the prospect is still only ``to_contact``.
+- a resolved contact date in the past -> ``contacted`` when the tracking is still ``neutral``;
+- an internal referent is not assigned while the prospect is still ``neutral`` (not contacted).
 
 All changes happen in the same request transaction as the normal import and are audited.
 """
@@ -86,12 +86,12 @@ def reconcile_batch(
         if (
             tracking.planned_contact_at is not None
             and business_day(tracking.planned_contact_at) < today
-            and tracking.status is ContactTrackingStatus.TO_CONTACT
+            and tracking.status is ContactTrackingStatus.NEUTRAL
         ):
             next_status = ContactTrackingStatus.CONTACTED
 
         next_referent = (
-            tracking.referent_id if next_status is not ContactTrackingStatus.TO_CONTACT else None
+            tracking.referent_id if next_status is not ContactTrackingStatus.NEUTRAL else None
         )
         if next_status != tracking.status or next_referent != tracking.referent_id:
             save_contact_tracking(

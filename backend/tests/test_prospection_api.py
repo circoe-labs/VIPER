@@ -40,7 +40,7 @@ def test_counters_and_list_agree_for_every_segment(client: TestClient, db_sessio
             db_session.add(
                 ContactTracking(
                     prospect_id=prospect.id,
-                    status=ContactTrackingStatus.TO_CONTACT,
+                    status=ContactTrackingStatus.NEUTRAL,
                     # Relative to the real clock: the API compares with the business day.
                     planned_contact_at=datetime.now(UTC) - timedelta(days=n),
                 )

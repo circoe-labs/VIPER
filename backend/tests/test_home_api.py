@@ -48,7 +48,7 @@ def test_contract_and_agreement_with_prospection(client: TestClient, db_session:
         db_session.add(
             ContactTracking(
                 prospect_id=prospect.id,
-                status=[S.TO_CONTACT, S.CONTACTED, S.QUOTE_SENT][n % 3],
+                status=[S.NEUTRAL, S.CONTACTED, S.APPOINTMENT_OBTAINED][n % 3],
                 planned_contact_at=now - timedelta(days=n + 1),
             )
         )
@@ -62,7 +62,6 @@ def test_contract_and_agreement_with_prospection(client: TestClient, db_session:
         "stale_threshold_days",
         "counts",
         "companies",
-        "stages",
         "progress",
         "next_actions",
         "recent_imports",
@@ -72,7 +71,6 @@ def test_contract_and_agreement_with_prospection(client: TestClient, db_session:
     assert set(body["counts"]) == {segment.value for segment in Segment}
     assert body["today"] == counters["today"]
     assert body["companies"] == 1
-    assert body["stages"] == {"quote_sent": 2, "quote_follow_up": 0, "won": 0, "not_interested": 0}
     due = body["next_actions"]["due"]
     assert due["total"] == body["counts"]["due"] == 2
     assert [item["last_name"] for item in due["items"]] == ["Test3", "Test0"]
@@ -144,7 +142,7 @@ def test_database_explorer_stage_changes_count_in_the_month(
     waiting = add_prospect(db_session, None, first_name="Explorateur", last_name="Contact")
     answered = add_prospect(db_session, None, first_name="Explorateur", last_name="Rdv")
     to_contact = save_contact_tracking(
-        db_session, importer, waiting.id, ContactTrackingInput(status=S.TO_CONTACT)
+        db_session, importer, waiting.id, ContactTrackingInput(status=S.NEUTRAL)
     )
     # Imported as already contacted: not a new contact, but its appointment is new.
     contacted = save_contact_tracking(
