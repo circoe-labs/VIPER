@@ -74,12 +74,22 @@ export function contentOf(form: MailForm, revision: number | null): MessageConte
 // A local look at the addresses, to point at the right field before the call (the server stays the authority).
 const EMAIL = /^[^\s@<>(),;:"]+@[^\s@<>(),;:"]+\.[^\s@<>(),;:"]+$/
 
+// The API's limits (backend contact_messages): 50 addresses per field, 320 characters per address, a 100 000-character
+// body.
+export const MAX_RECIPIENTS = 50
+export const ADDRESS_MAX_LENGTH = 320
+export const BODY_MAX_LENGTH = 100_000
+// A recipients field holding 50 addresses of the maximum length and their separators.
+export const RECIPIENTS_MAX_LENGTH = MAX_RECIPIENTS * (ADDRESS_MAX_LENGTH + 2)
+
 export function localErrors(form: MailForm): Partial<Record<MailField, string>> {
   const errors: Partial<Record<MailField, string>> = {}
   if (form.from.trim() && !EMAIL.test(form.from.trim())) errors.from = 'Adresse d’expédition invalide.'
   for (const field of ['to', 'cc', 'bcc'] as const) {
-    const bad = parseRecipients(form[field]).filter((address) => !EMAIL.test(address))
+    const addresses = parseRecipients(form[field])
+    const bad = addresses.filter((address) => !EMAIL.test(address) || address.length > ADDRESS_MAX_LENGTH)
     if (bad.length > 0) errors[field] = `Adresse invalide : ${bad.join(', ')}.`
+    else if (addresses.length > MAX_RECIPIENTS) errors[field] = `${String(MAX_RECIPIENTS)} adresses au plus dans ce champ.`
   }
   return errors
 }

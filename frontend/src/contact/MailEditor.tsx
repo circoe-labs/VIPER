@@ -1,4 +1,4 @@
-import { type ReactNode, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 
 import type { Message, MessageSequence, MessageStatus, MessageStep, useMessageMutations } from '../api/contact'
 import { Button } from '../ui/Button'
@@ -7,6 +7,8 @@ import { AlertIcon, CalendarIcon, CheckIcon, CloseIcon, LockIcon, RefreshIcon, S
 import { type Confirmation, ConfirmDialog } from './ConfirmDialog'
 import { formatDateTime, STEP_LABELS } from './labels'
 import {
+  ADDRESS_MAX_LENGTH,
+  BODY_MAX_LENGTH,
   contentOf,
   isDirty,
   localDay,
@@ -15,6 +17,7 @@ import {
   type MailActions,
   type MailForm,
   orderWarning,
+  RECIPIENTS_MAX_LENGTH,
   scheduleToIso,
   statusLine,
 } from './mailModel'
@@ -35,25 +38,54 @@ interface MailEditorProps {
   mutations: Mutations
   // Reads the sequence again (after a refusal saying the server's message differs).
   onReload: () => void
+  // The send moment typed for this step (kept by the sequence across tab switches).
+  when: SendMoment
+  onWhen: (when: SendMoment) => void
   // Slot of the action bar's left side, for the AI drafting of Slice S5 (« Générer avec l'IA »). Empty until then.
   assist?: ReactNode
 }
 
 type Pending = 'validate' | 'schedule' | 'cancel'
 
+export interface SendMoment {
+  date: string
+  time: string
+}
+
 const FIELD_LABELS: Record<MailField, string> = { from: 'De', to: 'À', cc: 'Cc', bcc: 'Cci', subject: 'Objet', body: 'Corps' }
 
 // One step's message, laid out like a mailbox's compose window (De, À, Cc, Cci, Objet, Corps), with the actions of its
 // status: create / save (never validates), validate…, date + time then schedule…, unschedule, cancel…, reopen. A sent
 // message is read-only; a closed sequence locks the editor with its reason.
-export function MailEditor({ step, sequence, message, actions, saved, form, onForm, mutations, onReload, assist }: MailEditorProps) {
+export function MailEditor({
+  step,
+  sequence,
+  message,
+  actions,
+  saved,
+  form,
+  onForm,
+  mutations,
+  onReload,
+  when,
+  onWhen,
+  assist,
+}: MailEditorProps) {
   const [refusal, setRefusal] = useState<MessageRefusal | null>(null)
   // The outcome of the last action, kept while the message stays in the status that action left it in (a state
   // change elsewhere that cancels the message makes it stale).
   const [notice, setNotice] = useState<{ text: string; status: MessageStatus } | null>(null)
   const [pending, setPending] = useState<Pending | null>(null)
-  const [date, setDate] = useState('')
-  const [time, setTime] = useState('')
+  const { date, time } = when
+  // A confirmed action removes its own button (« Valider… » once validated…): the focus goes to the status sentence,
+  // which reads the new status, once the confirmation has closed.
+  const statusRef = useRef<HTMLParagraphElement>(null)
+  const focusStatus = useRef(false)
+  useEffect(() => {
+    if (pending !== null || !focusStatus.current) return
+    focusStatus.current = false
+    statusRef.current?.focus()
+  }, [pending])
   const [scheduleError, setScheduleError] = useState<string | null>(null)
   const label = STEP_LABELS[step]
   const dirty = actions.editable && isDirty(form, saved)
@@ -101,6 +133,7 @@ export function MailEditor({ step, sequence, message, actions, saved, form, onFo
     setRefusal(null)
     try {
       const result = await mutations.act.mutateAsync({ step, action, revision: message.revision })
+      focusStatus.current = action !== 'unschedule'
       setNotice({
         status: result.message.status,
         text: {
@@ -123,8 +156,8 @@ export function MailEditor({ step, sequence, message, actions, saved, form, onFo
     setRefusal(null)
     try {
       const result = await mutations.schedule.mutateAsync({ step, revision: message.revision, at: iso })
-      setDate('')
-      setTime('')
+      onWhen({ date: '', time: '' })
+      focusStatus.current = true
       setNotice({
         status: result.message.status,
         text: `Message ${label} programmé pour le ${formatDateTime(result.message.scheduled_at ?? iso)}.`,
@@ -137,6 +170,8 @@ export function MailEditor({ step, sequence, message, actions, saved, form, onFo
   }
 
   const parsed = scheduleToIso(date, time, new Date())
+  // The offset shown is the chosen day's (summer / winter time), today's until a day is chosen.
+  const zoneAt = parsed.ok ? parsed.at : /^\d{4}-\d{2}-\d{2}$/.test(date) ? new Date(`${date}T12:00:00`) : new Date()
   const warning = actions.schedule ? orderWarning(step, sequence, parsed.ok ? parsed.at : null) : null
 
   function confirmation(): Confirmation | null {
@@ -195,7 +230,9 @@ export function MailEditor({ step, sequence, message, actions, saved, form, onFo
 
   return (
     <div className="contact-mail">
-      <p className="contact-mail__status">{statusLine(message, sequence.sequence.closed || sequence.sequence.do_not_contact)}</p>
+      <p ref={statusRef} tabIndex={-1} className="contact-mail__status">
+        {statusLine(message, sequence.sequence.closed || sequence.sequence.do_not_contact)}
+      </p>
 
       {actions.lock && (
         <p className="contact-mail__lock">
@@ -214,35 +251,36 @@ export function MailEditor({ step, sequence, message, actions, saved, form, onFo
       )}
 
       <div className="contact-mail__fields">
-        <div className="contact-mail__pair">
-          <TextField
-            id={fieldId('from')}
-            label={FIELD_LABELS.from}
-            type="email"
-            value={form.from}
-            readOnly={readOnly}
-            placeholder={actions.editable ? 'prospection@exemple.fr' : undefined}
-            error={errorOf('from')}
-            onChange={(event) => {
-              edit({ from: event.target.value })
-            }}
-          />
-          <TextField
-            id={fieldId('to')}
-            label={FIELD_LABELS.to}
-            value={form.to}
-            readOnly={readOnly}
-            error={errorOf('to')}
-            onChange={(event) => {
-              edit({ to: event.target.value })
-            }}
-          />
-        </div>
+        <TextField
+          id={fieldId('from')}
+          label={FIELD_LABELS.from}
+          type="email"
+          maxLength={ADDRESS_MAX_LENGTH}
+          value={form.from}
+          readOnly={readOnly}
+          placeholder={actions.editable ? 'prospection@exemple.fr' : undefined}
+          error={errorOf('from')}
+          onChange={(event) => {
+            edit({ from: event.target.value })
+          }}
+        />
+        <TextField
+          id={fieldId('to')}
+          label={FIELD_LABELS.to}
+          value={form.to}
+          maxLength={RECIPIENTS_MAX_LENGTH}
+          readOnly={readOnly}
+          error={errorOf('to')}
+          onChange={(event) => {
+            edit({ to: event.target.value })
+          }}
+        />
         <div className="contact-mail__pair">
           <TextField
             id={fieldId('cc')}
             label={FIELD_LABELS.cc}
             value={form.cc}
+            maxLength={RECIPIENTS_MAX_LENGTH}
             readOnly={readOnly}
             error={errorOf('cc')}
             onChange={(event) => {
@@ -253,6 +291,7 @@ export function MailEditor({ step, sequence, message, actions, saved, form, onFo
             id={fieldId('bcc')}
             label={FIELD_LABELS.bcc}
             value={form.bcc}
+            maxLength={RECIPIENTS_MAX_LENGTH}
             readOnly={readOnly}
             error={errorOf('bcc')}
             onChange={(event) => {
@@ -279,6 +318,7 @@ export function MailEditor({ step, sequence, message, actions, saved, form, onFo
           label={FIELD_LABELS.body}
           className="contact-mail__body"
           value={form.body}
+          maxLength={BODY_MAX_LENGTH}
           readOnly={readOnly}
           rows={14}
           error={errorOf('body')}
@@ -290,7 +330,7 @@ export function MailEditor({ step, sequence, message, actions, saved, form, onFo
 
       {actions.schedule && (
         <fieldset className="contact-mail__schedule" disabled={busy}>
-          <legend className="contact-mail__legend">Envoi programmé</legend>
+          <legend className="contact-mail__legend">Programmer l’envoi</legend>
           <div className="contact-mail__when">
             <TextField
               id={fieldId('date')}
@@ -299,7 +339,7 @@ export function MailEditor({ step, sequence, message, actions, saved, form, onFo
               min={localDay(new Date())}
               value={date}
               onChange={(event) => {
-                setDate(event.target.value)
+                onWhen({ date: event.target.value, time })
                 setScheduleError(null)
               }}
             />
@@ -309,12 +349,12 @@ export function MailEditor({ step, sequence, message, actions, saved, form, onFo
               type="time"
               value={time}
               onChange={(event) => {
-                setTime(event.target.value)
+                onWhen({ date, time: event.target.value })
                 setScheduleError(null)
               }}
             />
           </div>
-          <p className="contact-mail__hint">Heure locale ({localZoneLabel()}). Aucune heure n’est proposée par défaut.</p>
+          <p className="contact-mail__hint">Heure locale ({localZoneLabel(zoneAt)}). Aucune heure n’est proposée par défaut.</p>
           {(scheduleError ?? refusal?.fields.schedule) && (
             <p className="field__error" role="alert">
               <AlertIcon size={16} />
@@ -331,10 +371,21 @@ export function MailEditor({ step, sequence, message, actions, saved, form, onFo
       )}
 
       {refusal && (
-        <p className="contact-panel__error" role="alert">
+        <div className="contact-panel__error" role="alert">
           <AlertIcon size={16} />
-          {refusal.message}
-        </p>
+          <span>{refusal.message}</span>
+          {refusal.conflict && dirty && (
+            <Button
+              size="sm"
+              onClick={() => {
+                onForm(undefined)
+                setRefusal(null)
+              }}
+            >
+              Voir la version enregistrée
+            </Button>
+          )}
+        </div>
       )}
       <Notice text={notice && notice.status === status ? notice.text : null} />
 

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
-import { useBlocker, useNavigate } from 'react-router'
+import { useBlocker, useLocation, useNavigate } from 'react-router'
 
 import { ApiError } from '../api/client'
 import { useProspect } from '../api/prospects'
 import { Button } from '../ui/Button'
 import { Modal } from '../ui/Dialog'
 import { AlertIcon, ArrowLeftIcon, ChevronLeftIcon, ChevronRightIcon, SpinnerIcon } from '../ui/icons'
+import { FROM_LIST, openedFromList } from './criteria'
 import { MailSequence } from './MailSequence'
 import { ProspectSheet } from './ProspectSheet'
 import { TrackingPanel } from './TrackingPanel'
@@ -38,6 +39,8 @@ function prospectOf(search: string): string | null {
 // asks first; reloading or closing the tab triggers the browser's own prompt.
 export function Workbench({ prospectId, listHref, openHref, neighbours }: WorkbenchProps) {
   const navigate = useNavigate()
+  const location = useLocation()
+  const fromList = openedFromList(location.state)
   const loaded = useProspect(prospectId)
   const [dirtyMail, setDirtyMail] = useState(false)
   const [dirtyTracking, setDirtyTracking] = useState(false)
@@ -66,8 +69,14 @@ export function Workbench({ prospectId, listHref, openHref, neighbours }: Workbe
     }
   }, [dirty])
 
-  const go = (href: string) => {
-    void navigate(href)
+  // Back is « Retour à la liste »: opened from the list, returning goes back to its entry; the walk replaces the
+  // current entry, so Back never reopens a prospect that was left.
+  const backToList = () => {
+    if (fromList) void navigate(-1)
+    else void navigate(listHref, { replace: true })
+  }
+  const walk = (id: string) => {
+    void navigate(openHref(id), { replace: true, state: fromList ? FROM_LIST : null })
   }
 
   return (
@@ -77,9 +86,7 @@ export function Workbench({ prospectId, listHref, openHref, neighbours }: Workbe
           size="sm"
           variant="ghost"
           icon={ArrowLeftIcon}
-          onClick={() => {
-            go(listHref)
-          }}
+          onClick={backToList}
         >
           Retour à la liste
         </Button>
@@ -93,7 +100,7 @@ export function Workbench({ prospectId, listHref, openHref, neighbours }: Workbe
               icon={ChevronLeftIcon}
               disabled={!neighbours.previous}
               onClick={() => {
-                if (neighbours.previous) go(openHref(neighbours.previous))
+                if (neighbours.previous) walk(neighbours.previous)
               }}
             >
               Précédent
@@ -103,7 +110,7 @@ export function Workbench({ prospectId, listHref, openHref, neighbours }: Workbe
               icon={ChevronRightIcon}
               disabled={!neighbours.next}
               onClick={() => {
-                if (neighbours.next) go(openHref(neighbours.next))
+                if (neighbours.next) walk(neighbours.next)
               }}
             >
               Suivant
@@ -115,34 +122,39 @@ export function Workbench({ prospectId, listHref, openHref, neighbours }: Workbe
         )}
       </nav>
 
-      {loaded.isPending && (
-        <p className="contact-panel__status" role="status">
-          <SpinnerIcon size={18} className="btn__spinner" />
-          Chargement de la fiche…
-        </p>
-      )}
-      {loaded.isError && (
-        <div className="contact-panel__error" role="alert">
-          <AlertIcon size={16} />
-          {loaded.error instanceof ApiError && loaded.error.status === 404
-            ? 'Ce prospect n’existe plus : il a peut-être été supprimé entre-temps.'
-            : `La fiche n’a pas pu être lue (${loaded.error.message}).`}
-          <Button size="sm" onClick={() => void loaded.refetch()}>
-            Réessayer
-          </Button>
+      {/* The sheet and the mail sequence load side by side. */}
+      <div className="contact-bench__panels">
+        <aside className="contact-bench__prospect" aria-label="Fiche du prospect">
+          {loaded.isPending && (
+            <p className="contact-panel__status" role="status">
+              <SpinnerIcon size={18} className="btn__spinner" />
+              Chargement de la fiche…
+            </p>
+          )}
+          {loaded.isError && (
+            <div className="contact-panel__error" role="alert">
+              <AlertIcon size={16} />
+              <span>
+                {loaded.error instanceof ApiError && loaded.error.status === 404
+                  ? 'Ce prospect n’existe plus : il a peut-être été supprimé entre-temps.'
+                  : `La fiche n’a pas pu être lue (${loaded.error.message}).`}
+              </span>
+              <Button size="sm" onClick={() => void loaded.refetch()}>
+                Réessayer
+              </Button>
+            </div>
+          )}
+          {loaded.data && (
+            <>
+              <ProspectSheet prospect={loaded.data} />
+              <TrackingPanel key={loaded.data.id} prospect={loaded.data} onDirtyChange={onTrackingDirty} />
+            </>
+          )}
+        </aside>
+        <div className="contact-bench__mail">
+          <MailSequence key={prospectId} prospectId={prospectId} onDirtyChange={onMailDirty} />
         </div>
-      )}
-      {loaded.data && (
-        <div className="contact-bench__panels">
-          <aside className="contact-bench__prospect" aria-label="Fiche du prospect">
-            <ProspectSheet prospect={loaded.data} />
-            <TrackingPanel key={loaded.data.id} prospect={loaded.data} onDirtyChange={onTrackingDirty} />
-          </aside>
-          <div className="contact-bench__mail">
-            <MailSequence key={prospectId} prospectId={prospectId} onDirtyChange={onMailDirty} />
-          </div>
-        </div>
-      )}
+      </div>
 
       {blocker.state === 'blocked' && (
         <Modal

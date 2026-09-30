@@ -75,13 +75,13 @@ export function listCriteria(view: ContactView, currentWeek: string | undefined)
   }
 }
 
-// A counter card opens its whole set: its own window (overdue weeks included) and not the week selector's, so the
-// card always equals the list; the selector goes to « Toutes les semaines » (it can still narrow afterwards). Pressing
-// the active card again returns to the default planning (this week).
+// A counter card opens its whole set: its own window (overdue weeks included) and every state, not the selectors', so
+// the card always equals the list; the week goes to « Toutes les semaines » and the state to « Tous les états » (both
+// can still narrow afterwards). Pressing the active card again returns to the default planning (this week).
 export function selectCounter(view: ContactView, counter: ContactCounter): Partial<ContactView> {
   return view.counter === counter
     ? { counter: null, week: 'current', page: 1 }
-    : { counter, week: 'all', page: 1 }
+    : { counter, week: 'all', state: null, page: 1 }
 }
 
 // Criteria that narrow the list besides the counter (shown as « Réinitialiser »).
@@ -92,4 +92,12 @@ export function hasFilters(view: ContactView): boolean {
 export function contactHref(view: Partial<ContactView> = {}): string {
   const query = serializeView(view).toString()
   return `/contact${query ? `?${query}` : ''}`
+}
+
+// History state of a workbench opened from the list (and walked with « Précédent » / « Suivant », which replace their
+// entry): « Retour à la liste » then goes back, so Back never reopens a prospect that was closed.
+export const FROM_LIST = { fromList: true } as const
+
+export function openedFromList(state: unknown): boolean {
+  return typeof state === 'object' && state !== null && 'fromList' in state && state.fromList === true
 }

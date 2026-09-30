@@ -50,7 +50,3 @@
   min-width: 0;
   padding-top: var(--space-5);
 }
-
-.tabs__panel:focus-visible {
-  outline: none;
-}

@@ -143,10 +143,39 @@ describe('Contact page', () => {
     expect(luc).toHaveTextContent(/ContactAnnulé/)
   })
 
-  it('says why the list is empty, and lets failed reads be retried', async () => {
-    stubContactApi({ dashboard: DASHBOARD, rows: [] })
+  it('says why this week is empty, and points to overdue people when « À traiter » has some', async () => {
+    stubContactApi({ dashboard: contactDashboard(), rows: [] })
     renderApp('/contact')
     expect(await screen.findByText(/Aucun prospect planifié cette semaine/)).toBeInTheDocument()
+  })
+
+  it('points an empty week to « À traiter » when overdue people remain', async () => {
+    const overdue = contactRow('Paul', 'Retard', { next_action_week: '2026-W38' })
+    stubContactApi({ dashboard: DASHBOARD, rows: [overdue] })
+    const { router } = renderApp('/contact')
+    expect(await screen.findByText(/3 prospects de semaines passées restent à traiter/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Voir « À traiter cette semaine »' }))
+    expect(router.state.location.search).toBe('?counter=to_handle&week=all')
+    expect(await screen.findByRole('link', { name: 'Paul Retard' })).toBeInTheDocument()
+  })
+
+  it('shows the current week of a URL as « Cette semaine »', async () => {
+    stubContactApi({ dashboard: DASHBOARD, rows: rows() })
+    renderApp(`/contact?week=${CURRENT_WEEK}`)
+    await waitFor(() => {
+      expect(screen.getByRole('combobox', { name: 'Semaine' })).toHaveValue('current')
+    })
+  })
+
+  it('clears the state filter when a counter card is pressed (the card equals its list)', async () => {
+    stubContactApi({ dashboard: DASHBOARD, rows: rows() })
+    const { router } = renderApp('/contact?state=r1')
+    await waitFor(() => {
+      expect(counter('Relances')).toHaveTextContent('1')
+    })
+    await userEvent.click(counter('Relances'))
+    expect(router.state.location.search).toBe('?counter=follow_up&week=all')
+    expect(screen.getByRole('combobox', { name: 'État' })).toHaveValue('')
   })
 
   it('shows a counters failure with « Réessayer »', async () => {
@@ -181,9 +210,33 @@ describe('Contact page', () => {
     await waitFor(() => {
       expect(router.state.location.search).toContain(`prospect=${people[1]?.id ?? ''}`)
     })
+    // The walk replaces the entry: Back never reopens a prospect that was left.
+    expect(router.state.historyAction).toBe('REPLACE')
 
     await userEvent.click(screen.getByRole('button', { name: 'Retour à la liste' }))
     expect(await screen.findByRole('list', { name: 'Prospects à contacter' })).toBeInTheDocument()
     expect(router.state.location.search).toBe('?week=all')
+    // « Retour à la liste » goes back to the list's own entry (no new entry that Back would undo).
+    expect(router.state.historyAction).toBe('POP')
+  })
+
+  it('walks the whole list order past its first page, kept while the workbench is open', async () => {
+    const { prospectDetail } = await import('../test/prospectsApi')
+    const people = Array.from({ length: 60 }, (_, index) => contactRow('Personne', `N${String(index + 1).padStart(2, '0')}`))
+    const fiftieth = people[49] as ReturnType<typeof contactRow>
+    const fiftyFirst = people[50] as ReturnType<typeof contactRow>
+    stubContactApi({
+      dashboard: DASHBOARD,
+      rows: people,
+      details: [fiftieth, fiftyFirst].map((row) => prospectDetail({ id: row.id, first_name: 'Personne', last_name: row.last_name })),
+    })
+    const { router } = renderApp(`/contact?week=all&prospect=${fiftieth.id}`)
+    expect(await screen.findByText('50 sur 60')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Suivant' }))
+    await waitFor(() => {
+      expect(router.state.location.search).toContain(fiftyFirst.id)
+    })
+    expect(await screen.findByText('51 sur 60')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 2, name: /N51/ })).toHaveFocus()
   })
 })

@@ -10,17 +10,21 @@ import { settingsErrorMessage, usageText } from './messages'
 
 // Building blocks shared by the taxonomy and referent sections of the Settings page.
 
-export function useDebouncedValue<T>(value: T, delay: number): T {
+export function useDebouncedValue<T>(value: T, delay: number, { immediate }: { immediate?: (value: T) => boolean } = {}): T {
   const [debounced, setDebounced] = useState(value)
+  // Values that must not wait (e.g. a cleared search): taken at once, so the next value always differs from them.
+  const now = immediate?.(value) ?? false
+  if (now && !Object.is(debounced, value)) setDebounced(value)
   useEffect(() => {
+    if (now) return
     const timer = window.setTimeout(() => {
       setDebounced(value)
     }, delay)
     return () => {
       window.clearTimeout(timer)
     }
-  }, [value, delay])
-  return debounced
+  }, [value, delay, now])
+  return now ? value : debounced
 }
 
 const ACTIVE_FILTERS: { value: ActiveFilter; label: string }[] = [

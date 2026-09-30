@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { Link } from 'react-router'
 
 import type { ChannelVerification } from '../api/prospection'
@@ -26,7 +27,13 @@ function initials(prospect: Prospect): string {
 
 // The read-mostly prospect sheet of the workbench (decision 19): who, where, how to reach them, and the two Contact
 // indicators. Nothing here edits the record — « Ouvrir dans Prospection » leads to the full editor to correct it.
+// The sheet's heading takes the focus when the prospect opens (from the list, « Précédent » / « Suivant »): keyboard and
+// screen-reader users start on the person, not on a button that no longer exists.
 export function ProspectSheet({ prospect }: { prospect: Prospect }) {
+  const headingRef = useRef<HTMLHeadingElement>(null)
+  useEffect(() => {
+    headingRef.current?.focus()
+  }, [])
   const civility = civilityLabel(prospect.civility)
   const week = parseIsoWeek(prospect.tracking?.planned_contact_week)
   const blocked = prospect.contactability_status === 'do_not_contact'
@@ -41,7 +48,7 @@ export function ProspectSheet({ prospect }: { prospect: Prospect }) {
             {initials(prospect)}
           </span>
           <div className="contact-sheet__who">
-            <h2 id="contact-sheet-name" className="contact-sheet__name">
+            <h2 ref={headingRef} id="contact-sheet-name" className="contact-sheet__name" tabIndex={-1}>
               {civility && <span className="contact-row__muted">{civility} </span>}
               {personName(prospect) || 'Nom non renseigné'}
             </h2>

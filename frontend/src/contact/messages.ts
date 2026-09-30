@@ -10,6 +10,8 @@ export interface MessageRefusal {
   fields: Partial<Record<MailField | 'schedule', string>>
   // The server's message differs from the one shown: read it again (the unsaved edits stay in the form).
   reload: boolean
+  // The saved version changed under the unsaved text (revision conflict): the next save replaces it.
+  conflict?: boolean
 }
 
 const INCOMPLETE: Record<string, [MailField, string]> = {
@@ -78,10 +80,13 @@ export function messageRefusal(error: unknown): MessageRefusal {
       return invalidField(refusal.field ?? '', refusal.reason)
     case 'revision_conflict':
     case 'message_exists':
-      return plain(
-        'Ce message a changé entre-temps (autre fenêtre ou changement d’état du prospect). La version enregistrée est rechargée ; vos modifications non enregistrées restent dans le formulaire.',
-        true,
-      )
+      return {
+        message:
+          'La version enregistrée de ce message a changé entre-temps (autre fenêtre ou changement d’état du prospect). Votre texte est conservé : l’enregistrer remplacera la version enregistrée. « Voir la version enregistrée » abandonne votre texte.',
+        fields: {},
+        reload: true,
+        conflict: true,
+      }
     case 'message_sent_immutable':
       return plain('Ce message est déjà envoyé : il ne peut plus être modifié.', true)
     case 'message_cancelled':
@@ -101,6 +106,13 @@ export function messageRefusal(error: unknown): MessageRefusal {
     case 'human_actor_required':
       return plain('Seule une personne connectée peut préparer, valider ou programmer un message.')
     default:
+      // FastAPI's own validation (a list `detail`): the schema's size limits — more than 50 addresses in a field, an
+      // address over 320 characters, a body over 100 000.
+      if (error instanceof ApiError && error.status === 422 && Array.isArray(error.detail)) {
+        return plain(
+          'Un champ dépasse la taille autorisée (50 adresses par champ, 320 caractères par adresse, 100 000 caractères pour le corps) : raccourcissez-le puis réessayez.',
+        )
+      }
       return plain(
         error instanceof ApiError && error.status >= 500
           ? `Le serveur a refusé l’opération (HTTP ${String(error.status)}). Réessayez ; si cela persiste, consultez les journaux de l’API.`

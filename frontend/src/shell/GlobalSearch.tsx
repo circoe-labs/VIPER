@@ -94,6 +94,8 @@ function HitBadges({ hit }: { hit: SearchHit }) {
   )
 }
 
+const isEmpty = (value: string) => value === ''
+
 export function GlobalSearch() {
   const navigate = useNavigate()
   const openCompanyEditor = useCompanyEditor()
@@ -106,7 +108,9 @@ export function GlobalSearch() {
   const [active, setActive] = useState({ query: '', index: 0 })
 
   const query = normalizeQuery(text)
-  const settled = useDebouncedValue(query, SEARCH_DEBOUNCE_MS)
+  // A cleared field settles at once: retyping the same query afterwards (e.g. after opening a result and editing it)
+  // is a new query for the cache, so the server is asked again instead of the answer from before being reused.
+  const settled = useDebouncedValue(query, SEARCH_DEBOUNCE_MS, { immediate: isEmpty })
   const search = useSearch(settled)
   const results = settled.length >= SEARCH_MIN_LENGTH ? search.data : undefined
   // Results of an earlier query (typing, or the request in flight): shown dimmed, never opened.

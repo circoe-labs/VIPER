@@ -161,15 +161,19 @@ export function useContactDashboard(q: string) {
   })
 }
 
-function pagePath(criteria: ContactListCriteria, page: number): `/${string}` {
+function listPath(criteria: ContactListCriteria, limit: number, offset: number): `/${string}` {
   const params = new URLSearchParams()
   if (criteria.counter) params.set('counter', criteria.counter)
   if (criteria.week) params.set('week', criteria.week)
   if (criteria.state) params.set('state', criteria.state)
   if (criteria.q.trim()) params.set('q', criteria.q.trim())
-  params.set('limit', String(CONTACT_PAGE_SIZE))
-  params.set('offset', String((page - 1) * CONTACT_PAGE_SIZE))
+  params.set('limit', String(limit))
+  params.set('offset', String(offset))
   return `/contact/prospects?${params.toString()}`
+}
+
+function pagePath(criteria: ContactListCriteria, page: number): `/${string}` {
+  return listPath(criteria, CONTACT_PAGE_SIZE, (page - 1) * CONTACT_PAGE_SIZE)
 }
 
 // `page` is 1-based. `enabled` false while the page does not know yet which week « cette semaine » is.
@@ -179,6 +183,32 @@ export function useContactPage(criteria: ContactListCriteria, page: number, enab
     queryFn: ({ signal }) => apiGet<ContactPage>(pagePath(criteria, page), signal),
     placeholderData: keepPreviousData,
     enabled,
+  })
+}
+
+// The list's order, every page, read once when the workbench opens and kept while it stays open: « Précédent » /
+// « Suivant » walk it past a page and are not reshuffled when a save moves the person out of the filtered list. Kept
+// outside `contactKeys.all` (no refresh after writes); dropped as soon as the workbench closes (gcTime 0).
+const WALK_PAGE = 200
+const WALK_MAX = 2000
+
+export function useContactWalk(criteria: ContactListCriteria | null, enabled: boolean) {
+  return useQuery({
+    queryKey: ['contact-walk', criteria],
+    queryFn: async ({ signal }) => {
+      const ids: string[] = []
+      for (let offset = 0; offset < WALK_MAX; offset += WALK_PAGE) {
+        if (!criteria) break
+        const page = await apiGet<ContactPage>(listPath(criteria, WALK_PAGE, offset), signal)
+        ids.push(...page.items.map((row) => row.id))
+        if (offset + WALK_PAGE >= page.total) break
+      }
+      return ids
+    },
+    enabled: enabled && criteria !== null,
+    staleTime: Infinity,
+    gcTime: 0,
+    refetchOnWindowFocus: false,
   })
 }
 

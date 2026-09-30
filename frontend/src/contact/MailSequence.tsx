@@ -7,7 +7,7 @@ import { Button } from '../ui/Button'
 import { AlertIcon, SpinnerIcon } from '../ui/icons'
 import { Tabs } from '../ui/Tabs'
 import { STEP_LABELS } from './labels'
-import { MailEditor } from './MailEditor'
+import { MailEditor, type SendMoment } from './MailEditor'
 import { formOf, isDirty, type MailForm, mailActions } from './mailModel'
 import { MessageBadge } from './MessageBadge'
 
@@ -29,12 +29,14 @@ interface MailSequenceProps {
 
 // The mail sequence of the workbench (decisions 20-24): three tabs Contact / R1 / R2, each with its message's status,
 // and the editor of the selected step. Unsaved text is kept per step, so switching tabs loses nothing (a dot marks a
-// tab with unsaved changes); leaving the prospect with unsaved text asks first (Workbench.tsx).
+// tab with unsaved changes, and the typed send moment is kept too); leaving the prospect with unsaved text asks first (Workbench.tsx).
 export function MailSequence({ prospectId, onDirtyChange }: MailSequenceProps) {
   const query = useMessageSequence(prospectId)
   const mutations = useMessageMutations(prospectId)
   const [selected, setSelected] = useState<MessageStep | null>(null)
   const [drafts, setDrafts] = useState<Partial<Record<MessageStep, MailForm>>>({})
+  // The send moment typed per step, kept across tab switches like the text.
+  const [moments, setMoments] = useState<Partial<Record<MessageStep, SendMoment>>>({})
   const sequence = query.data
 
   const context = sequence
@@ -120,6 +122,10 @@ export function MailSequence({ prospectId, onDirtyChange }: MailSequenceProps) {
           form={draft ?? saved}
           mutations={mutations}
           onReload={() => void query.refetch()}
+          when={moments[step] ?? { date: '', time: '' }}
+          onWhen={(when) => {
+            setMoments((current) => ({ ...current, [step]: when }))
+          }}
           onForm={(form) => {
             setDrafts((current) => ({ ...current, [step]: form }))
           }}

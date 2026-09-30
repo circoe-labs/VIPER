@@ -34,7 +34,7 @@ describe('Contact criteria', () => {
   })
 
   it('opens a counter on every week (the card equals its list), and closes it back to this week', () => {
-    expect(selectCounter(DEFAULT_VIEW, 'to_handle')).toEqual({ counter: 'to_handle', week: 'all', page: 1 })
+    expect(selectCounter({ ...DEFAULT_VIEW, state: 'r1' }, 'to_handle')).toEqual({ counter: 'to_handle', week: 'all', state: null, page: 1 })
     expect(selectCounter({ ...DEFAULT_VIEW, counter: 'to_handle', week: 'all' }, 'to_handle')).toEqual({
       counter: null,
       week: 'current',

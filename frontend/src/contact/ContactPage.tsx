@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router'
 
-import { CONTACT_PAGE_SIZE, type ContactCounter, useContactDashboard, useContactPage } from '../api/contact'
+import { CONTACT_PAGE_SIZE, type ContactCounter, useContactDashboard, useContactPage, useContactWalk } from '../api/contact'
 import { businessToday } from '../lib/isoWeek'
 import { TRACKING_LABELS } from '../prospection/labels'
 import { useDebouncedValue } from '../settings/shared'
@@ -80,6 +80,7 @@ export function ContactPage() {
   const criteria = listCriteria(view, currentWeek)
   const list = useContactPage(criteria ?? { ...DEFAULT_VIEW, week: null }, view.page, criteria !== null)
   const page = criteria ? list.data : undefined
+  const walkOrder = useContactWalk(criteria, view.prospect !== null)
   const today = dashboard.data?.today ?? businessToday()
 
   // The prospect whose workbench was closed last: the list gives it the focus back.
@@ -94,16 +95,18 @@ export function ContactPage() {
   const listHref = `?${serializeView({ ...view, prospect: null }).toString()}`
 
   if (view.prospect !== null) {
-    const rows = page?.items ?? []
-    const index = rows.findIndex((row) => row.id === view.prospect)
+    // The whole list order once read (every page), the current page meanwhile.
+    const ids = walkOrder.data ?? (page?.items ?? []).map((row) => row.id)
+    const index = ids.indexOf(view.prospect)
+    const offset = walkOrder.data ? 0 : (page?.offset ?? 0)
     const neighbours: Neighbours | null =
       index < 0
         ? null
         : {
-            position: (page?.offset ?? 0) + index + 1,
-            count: page?.total ?? rows.length,
-            previous: rows[index - 1]?.id ?? null,
-            next: rows[index + 1]?.id ?? null,
+            position: offset + index + 1,
+            count: walkOrder.data ? ids.length : (page?.total ?? ids.length),
+            previous: ids[index - 1] ?? null,
+            next: ids[index + 1] ?? null,
           }
     return (
       <div className="contact">
@@ -120,6 +123,8 @@ export function ContactPage() {
   }
 
   const filtered = hasFilters(view)
+  // This week's list is empty while « À traiter » still counts people: their week is past (overdue).
+  const overdue = dashboard.data?.counts.to_handle ?? 0
   const last = page ? Math.min(page.offset + page.items.length, page.total) : 0
   const heading = view.counter ? COUNTER_INFO[view.counter].label : 'Planning de contact'
   function select(counter: ContactCounter) {
@@ -210,11 +215,28 @@ export function ContactPage() {
           </div>
         )}
         {page?.total === 0 && (
-          <p className="contact__state">
-            {filtered
-              ? 'Aucun prospect ne correspond à ces critères.'
-              : 'Aucun prospect planifié cette semaine. Planifiez une semaine depuis Prospection, ou choisissez une autre semaine.'}
-          </p>
+          <div className="contact__state">
+            {filtered ? (
+              'Aucun prospect ne correspond à ces critères.'
+            ) : overdue > 0 ? (
+              <>
+                <span>
+                  Aucune prochaine action cette semaine, mais {peopleCount(overdue)} de semaines passées{' '}
+                  {overdue > 1 ? 'restent' : 'reste'} à traiter.
+                </span>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    select('to_handle')
+                  }}
+                >
+                  Voir « À traiter cette semaine »
+                </Button>
+              </>
+            ) : (
+              'Aucun prospect planifié cette semaine. Planifiez une semaine depuis Prospection, ou choisissez une autre semaine.'
+            )}
+          </div>
         )}
         {page && page.items.length > 0 && (
           <ContactList rows={page.items} openHref={(id) => openHref(id)} today={today} returnedFrom={returnedFrom} />

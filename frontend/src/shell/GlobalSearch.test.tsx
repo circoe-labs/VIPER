@@ -147,6 +147,24 @@ describe('GlobalSearch', () => {
     expect(field()).toHaveValue('')
   })
 
+  it('asks the server again when the same query is retyped right after opening a result', async () => {
+    // The opened record may have just been edited: a cleared field settles at once, so the same query is new again.
+    const calls = stubSearch(() => RESULTS)
+    renderApp('/contact')
+    await userEvent.type(field(), 'fret')
+    await screen.findByRole('listbox')
+    await userEvent.keyboard('{ArrowDown}{Enter}')
+    const editor = await screen.findByRole('dialog')
+    await userEvent.keyboard('{Escape}')
+    await waitFor(() => {
+      expect(editor).not.toBeInTheDocument()
+    })
+    await userEvent.type(field(), 'fret')
+    await waitFor(() => {
+      expect(calls.map((call) => call.q)).toEqual(['fret', 'fret'])
+    })
+  })
+
   it('opens a prospect in Prospection and a row in the Database Explorer with Shift+Enter', async () => {
     stubSearch(() => RESULTS)
     const { router } = renderApp('/contact')

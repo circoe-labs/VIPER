@@ -90,8 +90,8 @@ test('operator flow: draft, validate, schedule, unschedule, edit back to draft, 
   await expect(list.getByRole('listitem').first()).toContainText('Premier contact')
   await list.getByRole('link', { name: `Lina Contact${suffix}` }).click()
 
-  // The workbench: the sheet on the left, the mail sequence on the right, Contact tab first.
-  await expect(page.getByRole('heading', { level: 2, name: `Mme Lina Contact${suffix}` })).toBeVisible()
+  // The workbench: the sheet on the left (its heading focused), the mail sequence on the right, Contact tab first.
+  await expect(page.getByRole('heading', { level: 2, name: `Mme Lina Contact${suffix}` })).toBeFocused()
   await expect(page.getByRole('complementary', { name: 'Fiche du prospect' })).toContainText(email)
   await expect(mailTab(page, 'Contact')).toHaveAttribute('aria-selected', 'true')
   await expect(mailTab(page, 'Contact')).toContainText('Vide')
@@ -109,6 +109,7 @@ test('operator flow: draft, validate, schedule, unschedule, edit back to draft, 
   await page.getByRole('button', { name: 'Valider…' }).click()
   await confirm(page, /Valider le message Contact/, 'Valider le message')
   await expect(mailTab(page, 'Contact')).toContainText('Validé')
+  await expect(page.getByText(/prêt à être programmé/)).toBeFocused()
 
   // Schedule: no default time — date and time are typed.
   await page.getByLabel('Date d’envoi').fill(tomorrow())
@@ -146,6 +147,9 @@ test('operator flow: draft, validate, schedule, unschedule, edit back to draft, 
   await page.getByRole('button', { name: 'Retour à la liste' }).click()
   await expect(card(page, 'Premier contact').locator('.counter-card__count')).toHaveText('0')
   await expect(page.getByText('Aucun prospect ne correspond à ces critères.')).toBeVisible()
+  // « Retour à la liste » went back to the list's entry: going forward reopens the workbench, not Back.
+  await page.goForward()
+  await expect(page.getByRole('tablist', { name: 'Étapes de la séquence' })).toBeVisible()
 })
 
 test('unsaved text asks before leaving the prospect', async ({ page }) => {

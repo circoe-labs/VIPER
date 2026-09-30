@@ -250,8 +250,10 @@ export function stubContactApi(options: ContactStubOptions = {}) {
     }
     if (url.pathname === '/api/contact/prospects') {
       requests.push({ method, path: url.pathname, search: url.search, body })
-      const items = listed(url)
-      return json(200, { items, total: items.length, limit: 50, offset: 0 })
+      const all = listed(url)
+      const limit = Number(url.searchParams.get('limit') ?? 50)
+      const offset = Number(url.searchParams.get('offset') ?? 0)
+      return json(200, { items: all.slice(offset, offset + limit), total: all.length, limit, offset })
     }
     const found = /^\/api\/prospects\/([^/]+)\/messages(?:\/(contact|r1|r2))?(?:\/(\w+))?$/.exec(url.pathname)
     if (found?.[1]) {

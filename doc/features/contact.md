@@ -210,18 +210,22 @@ Visual pattern: `doc/design/design-system.md` § *Contact page*. API module: `fr
 
 | Part | Behaviour |
 |---|---|
-| Counters | `GET /api/contact/dashboard?q=` — group *Cette semaine*: *À traiter cette semaine* (the union), *Premier contact*, *Relances*, *Revues R2*; group *Résultats*: *RDV pris*. Each card is a toggle filter (`aria-pressed`, check mark): it sets `counter` and puts the week on *Toutes les semaines*, so the list equals the card (overdue weeks included); pressing it again returns to the default. A card never changes a state. |
+| Counters | `GET /api/contact/dashboard?q=` — group *Cette semaine*: *À traiter cette semaine* (the union), *Premier contact*, *Relances*, *Revues R2*; group *Résultats*: *RDV pris*. Each card is a toggle filter (`aria-pressed`, check mark): it sets `counter`, puts the week on *Toutes les semaines* and the state on *Tous les états*, so the list equals the card (overdue weeks included); pressing it again returns to the default. A card never changes a state. |
 | Toolbar | Search (debounced, `q` in the URL, also narrows the counters); *Semaine*: *Cette semaine (S40)* by default — the page sends the dashboard's `current_week` (the API has no default week; the list waits for it) —, the weeks of `weeks` (*S42 · lun. 12 oct. 2026 (3)*), *Toutes les semaines*; *État*: every Contact state but *Ignoré*. |
 | Heading | The counter's label (or *Planning de contact*), the total, and one sentence of what the list holds. *Réinitialiser* when anything narrows it. |
 | Rows | Compact person cards: initials, name (the card's link), role · title, company · primary e-mail (or *Pas d'e-mail principal*); the state badge (none for *Aucun état*) and the week badge, *Échu* when a follow-up's week is past; *À préparer : Premier contact / Relance R1 / Relance R2 / Revue après R2* (`next_step`); the three messages' statuses (*Contact Envoyé · R1 Brouillon · R2 Vide*), or *Aucun message préparé*. ↑/↓/Home/End move between people. |
 | URL | `counter`, `week` (`all` or `2026-W41`; absent = this week), `state`, `q`, `page`, `prospect` (`contact/criteria.ts`); malformed values fall back to their default. Pages of 50. |
-| States | Loading line, counters or list failure with the server's message and *Réessayer*, empty week (*Aucun prospect planifié cette semaine…*) vs no match. |
+| States | Loading line, counters or list failure with the server's message and *Réessayer*, empty week (*Aucun prospect planifié cette semaine…*, or — when « À traiter » still counts people of past weeks — *… N prospects de semaines passées restent à traiter* with *Voir « À traiter cette semaine »*) vs no match. A URL week equal to the current one shows as *Cette semaine*. |
 
 ### Workbench (`?prospect=<id>`)
 
-Opens **in place of the list** (decision 19: not the Prospection drawer): *Retour à la liste* (and browser Back)
-returns to the list with the focus on the person; *Précédent* / *Suivant* walk the current list page (*3 sur 12*); a
-prospect no longer in the list (state or week changed) stays open with *Hors de la liste affichée*.
+Opens **in place of the list** (decision 19: not the Prospection drawer), the focus on the sheet's heading (also after
+*Précédent* / *Suivant*). *Retour à la liste* and browser Back are the same move: opened from the list, it goes back to
+the list's history entry (focus on the person); opened from a link, it replaces the entry. *Précédent* / *Suivant*
+replace their entry and walk the **whole list order**, read once (every page, `useContactWalk`) when the workbench
+opens and kept while it stays open — past row 50, and unchanged when a save moves the person out of the filtered list
+(*50 sur 60*); a prospect not in that order stays open with *Hors de la liste affichée*. The sheet and the mail sequence
+load in parallel.
 
 - **Left — prospect sheet** (`ProspectSheet.tsx`, read-mostly, `GET /api/prospects/{id}`): name, civility, role ·
   title, company and city, state / week / *Ne pas contacter* badges (and the opposition reason), active e-mails with
@@ -237,14 +241,15 @@ prospect no longer in the list (state or week changed) stays open with *Hors de 
   R2* (shared `Tabs` primitive), each with its status badge (*Vide*, *Brouillon*, *Validé*, *Programmé*, *Envoyé*,
   *Annulé*); the tab of the next step opens first (R1 after *Contacté*, R2 after *R1*). The editor: *De* (prefilled
   with `defaults.from_email`), *À* (prefilled with the primary e-mail), *Cc*, *Cci* (several addresses separated by
-  commas), *Objet*, *Corps*; a status sentence (*Validé par … : prêt à être programmé.*, *Programmé pour le …*,
+  commas; De and À each on a full row, Cc and Cci side by side), *Objet*, *Corps*; a status sentence that takes the focus
+after a confirmed action (the action's button is gone); a status sentence (*Validé par … : prêt à être programmé.*, *Programmé pour le …*,
   *Annulé le … (passage à « Réponse reçue »)*).
 
 | Status | Actions (one primary) |
 |---|---|
 | none | *Créer le brouillon* (`PUT` without revision) |
 | draft | *Enregistrer* (never validates) · *Valider…* (confirmation) · *Annuler le message…* |
-| validated | date **and** time fields (browser time, no default, zone shown) → *Programmer…* (confirmation) · *Enregistrer* · *Annuler le message…* |
+| validated | *Programmer l'envoi*: date **and** time fields (browser time, no default, the chosen day's UTC offset shown; kept per step across tab switches) → *Programmer…* (confirmation) · *Enregistrer* · *Annuler le message…* |
 | scheduled | *Déprogrammer* (keeps the validation) · *Enregistrer* · *Annuler le message…* |
 | sent | read-only, no action (*Message envoyé : il reste consultable…*) |
 | cancelled | read-only; *Rouvrir* (back to draft) while the sequence is open |
@@ -257,7 +262,10 @@ opposition locks the editor with its reason; a scheduled message can still be un
 `contact/messages.ts`: `message_incomplete` on its fields, `invalid` on the named address / subject / send moment,
 the others as one sentence; codes meaning « the server's message differs » (`revision_conflict`, `message_exists`,
 `message_sent_immutable`, `message_cancelled`, `invalid_transition`, `dispatch_in_progress`, sequence closed,
-`message_not_found`) reload the sequence **and keep the unsaved text in the form**. The confirmation of a schedule
+`message_not_found`) reload the sequence **and keep the unsaved text in the form**; after a revision conflict the
+message says the next save will replace the saved version and offers *Voir la version enregistrée* (drops the local
+text). FastAPI's own 422 (list `detail`: over 50 addresses, an address over 320 characters, a body over 100 000) reads
+*Un champ dépasse la taille autorisée…*; the fields carry the same limits (`maxLength`, local check of 50 addresses). The confirmation of a schedule
 says that automatic sending is not active yet (S7).
 
 The action bar's left side (`.contact-mail__assist`, the `assist` prop of `MailEditor`) is the slot of S5's

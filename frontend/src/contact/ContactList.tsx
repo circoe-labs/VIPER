@@ -8,6 +8,7 @@ import { civilityLabel, personName } from '../prospection/labels'
 import { StateBadge, WeekBadge } from '../prospection/TrackingBadges'
 import { StatusBadge } from '../ui/Badge'
 import { BuildingIcon, ClockIcon } from '../ui/icons'
+import { FROM_LIST } from './criteria'
 import { NEXT_STEP_LABELS, STEP_LABELS } from './labels'
 import { MessageBadge } from './MessageBadge'
 
@@ -69,7 +70,7 @@ export function ContactList({ rows, openHref, today, returnedFrom }: ContactList
               <div className="contact-row__who">
                 <span className="contact-row__name-line">
                   {civility && <span className="contact-row__muted">{civility}</span>}
-                  <Link className="contact-row__open" to={openHref(row.id)} data-prospect={row.id}>
+                  <Link className="contact-row__open" to={openHref(row.id)} state={FROM_LIST} data-prospect={row.id}>
                     {personName(row) || 'Nom non renseigné'}
                   </Link>
                 </span>

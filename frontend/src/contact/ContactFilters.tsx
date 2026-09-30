@@ -28,26 +28,28 @@ export function ContactFilters({ view, dashboard, onChange, search }: ContactFil
   const weeks = dashboard?.weeks ?? []
   const current = dashboard?.current_week
   // A week typed in the URL that the planning does not hold (any more) stays selectable.
-  const unknownWeek = view.week !== 'current' && view.week !== 'all' && !weeks.some((week) => week.week === view.week)
+  // A week equal to the current one is « Cette semaine ».
+  const week = view.week === current ? 'current' : view.week
+  const unknownWeek = week !== 'current' && week !== 'all' && !weeks.some((option) => option.week === week)
   return (
     <div className="contact-toolbar" role="search" aria-label="Filtrer la liste">
       <div className="contact-toolbar__search">{search}</div>
       <div className="contact-toolbar__select">
         <SelectField
           label="Semaine"
-          value={view.week}
+          value={week}
           onChange={(event) => {
             onChange({ week: event.target.value as WeekChoice, page: 1 })
           }}
         >
           <option value="current">Cette semaine{current ? ` (${current.slice(-3).replace('W', 'S')})` : ''}</option>
           <option value="all">Toutes les semaines</option>
-          {unknownWeek && <option value={view.week}>{view.week.replace('-W', ' · S')}</option>}
+          {unknownWeek && <option value={week}>{week.replace('-W', ' · S')}</option>}
           {weeks
-            .filter((week) => week.week !== current)
-            .map((week) => (
-              <option key={week.week} value={week.week}>
-                {weekOption(week)}
+            .filter((option) => option.week !== current)
+            .map((option) => (
+              <option key={option.week} value={option.week}>
+                {weekOption(option)}
               </option>
             ))}
         </SelectField>

@@ -68,8 +68,10 @@ describe('Contact workbench', () => {
   it('shows the prospect sheet on the left, read-only, with a link to the full record', async () => {
     const detail = person({ contactability_status: 'contactable' })
     open(detail)
-    const sheet = await screen.findByRole('complementary', { name: 'Fiche du prospect' })
-    expect(within(sheet).getByRole('heading', { level: 2, name: /Claire Démo/ })).toBeInTheDocument()
+    const sheet = screen.getByRole('complementary', { name: 'Fiche du prospect' })
+    const heading = await within(sheet).findByRole('heading', { level: 2, name: /Claire Démo/ })
+    // Opening a prospect puts the focus on the person.
+    expect(heading).toHaveFocus()
     expect(sheet).toHaveTextContent('claire@exemple.example')
     expect(sheet).toHaveTextContent('Vérifié')
     expect(within(sheet).getByRole('link', { name: 'Ouvrir dans Prospection' })).toHaveAttribute(
@@ -121,6 +123,10 @@ describe('Contact workbench', () => {
     await waitFor(() => {
       expect(tab('Contact')).toHaveTextContent('Validé')
     })
+    // « Valider… » is gone: the focus lands on the status sentence, which reads the new status.
+    await waitFor(() => {
+      expect(screen.getByText(/prêt à être programmé/)).toHaveFocus()
+    })
 
     // No default time: « Programmer… » without a date and time says what is missing.
     await userEvent.click(screen.getByRole('button', { name: 'Programmer…' }))
@@ -129,6 +135,11 @@ describe('Contact workbench', () => {
     const day = `${String(tomorrow.getFullYear())}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`
     await userEvent.type(screen.getByLabelText('Date d’envoi'), day)
     await userEvent.type(screen.getByLabelText('Heure'), '09:30')
+    // The typed moment survives a tab switch.
+    await userEvent.click(tab('R1'))
+    await userEvent.click(tab('Contact'))
+    expect(screen.getByLabelText('Date d’envoi')).toHaveValue(day)
+    expect(screen.getByLabelText('Heure')).toHaveValue('09:30')
     await userEvent.click(screen.getByRole('button', { name: 'Programmer…' }))
     await confirmDialog(/Programmer le message Contact/, 'Programmer l’envoi')
     await waitFor(() => {
@@ -179,6 +190,9 @@ describe('Contact workbench', () => {
     await confirmDialog(/Annuler le message Contact/, 'Annuler le message')
     await waitFor(() => {
       expect(tab('Contact')).toHaveTextContent('Annulé')
+    })
+    await waitFor(() => {
+      expect(screen.getByText(/^Annulé le/)).toHaveFocus()
     })
     expect(field('Objet')).toHaveAttribute('readonly')
     await userEvent.click(screen.getByRole('button', { name: 'Rouvrir' }))
@@ -233,11 +247,15 @@ describe('Contact workbench', () => {
     api.next.reply = [409, { code: 'revision_conflict', message: 'stale' }]
     const reads = sent(api.requests, 'GET', `/api/prospects/${detail.id}/messages`).length
     await userEvent.click(screen.getByRole('button', { name: 'Enregistrer' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('vos modifications non enregistrées restent dans le formulaire')
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('l’enregistrer remplacera la version enregistrée')
     expect(field('Objet')).toHaveValue('Objet contact (local)')
     await waitFor(() => {
       expect(sent(api.requests, 'GET', `/api/prospects/${detail.id}/messages`).length).toBeGreaterThan(reads)
     })
+    // « Voir la version enregistrée » drops the local text.
+    await userEvent.click(within(alert).getByRole('button', { name: 'Voir la version enregistrée' }))
+    expect(field('Objet')).toHaveValue('Objet contact')
   })
 
   it('keeps unsaved text across tabs (marked) and asks before leaving the prospect', async () => {

@@ -54,6 +54,8 @@ Rules:
 | Close / clear | **Esc** closes the results, a second **Esc** clears the field; **Tab** closes and moves on |
 
 Opening a result closes the popup and clears the field; closing the Company editor returns the focus to the search.
+A cleared field settles at once (no debounce on the empty value): the same query typed again right after asks the
+server again, so a record just opened and edited is never shown from the answer given before (C-18).
 
 States: *Saisissez au moins 2 caractères.*, *Recherche…* (spinner, also in the field while a request runs), *Aucun
 résultat pour « … ».*, *La recherche a échoué.* with *Réessayer*. While a newer query is pending the previous

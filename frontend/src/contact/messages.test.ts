@@ -48,7 +48,14 @@ describe('messageRefusal', () => {
     ]) {
       expect(messageRefusal(refused(409, { code })).reload, code).toBe(true)
     }
-    expect(messageRefusal(refused(409, { code: 'revision_conflict' })).message).toContain('restent dans le formulaire')
+    const conflict = messageRefusal(refused(409, { code: 'revision_conflict' }))
+    expect(conflict.conflict).toBe(true)
+    expect(conflict.message).toContain('l’enregistrer remplacera la version enregistrée')
+  })
+
+  it('says a field is too long when the schema refuses it (FastAPI list detail)', () => {
+    const view = messageRefusal(new ApiError(422, 'failed', [{ loc: ['body', 'cc'], msg: 'too long', type: 'too_long' }]))
+    expect(view.message).toContain('Un champ dépasse la taille autorisée')
   })
 
   it('keeps the real cause of an unknown failure', () => {
