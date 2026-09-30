@@ -149,10 +149,10 @@ columns, in workbook order:
 | B | `A contacter ` (1st) | `planned_contact` | contact tracking `planned_contact_at` candidate (week/date) |
 | C | `Entreprise` | `company_name` | company `display_name` (+ in-file company key) |
 | D | `rdv obtenu` | `stage_appointment` | tracking status `appointment_obtained` (a date → `appointment_date`) |
-| E | `Devis envoyé` | `stage_quote_sent` | tracking status `quote_sent` |
-| F | `Suivi` | `stage_quote_follow_up` | tracking status `quote_follow_up` |
-| G | `Relance 1` | `stage_follow_up_1` | tracking status `follow_up_1` |
-| H | `relance 2` | `stage_follow_up_2` | tracking status `follow_up_2` |
+| E | `Devis envoyé` | `stage_quote_sent` | tracking status `appointment_obtained` (post-appointment, out of the Contact scope) |
+| F | `Suivi` | `stage_quote_follow_up` | tracking status `appointment_obtained` (idem) |
+| G | `Relance 1` | `stage_follow_up_1` | tracking status `r1` |
+| H | `relance 2` | `stage_follow_up_2` | tracking status `r2` |
 | I | `Mode de contact` | `contact_mode` | **legacy metadata only** (raw; never a commercial segment) |
 | J | `Catégorie` | `category` | company activity categories (suggestions) / segment suggestion |
 | K | `Civilité ` | `civility` | prospect `civility` (`mr` / `ms`) |
@@ -201,7 +201,7 @@ header row or a field mapped twice → `ImportRejectedError` (`mapping.*`).
 | `Catégorie` | Numeric prefix `N. ` removed. The whole cell is matched first; otherwise split on `/`, `;`, `,`, `+`, `\|`, line break — **never** on `&` or `et` (historical labels contain them). Each part: exact category, suggestion (`category.suggested`), inactive (`category.inactive_match`), exact commercial-segment label (`category.segment_suggested`, company segment suggestion to confirm) or unmatched (`category.unmatched`, listed in `unmatched_categories`). Yes/no markers, `x`, `?`, numbers, `n/a`… → `category.invalid`. Raw kept unless every part matched exactly. |
 | `Référent` | Only a recognised internal referent: full name in either order (exact), or a unique first name / last name / initial + last name (`referent.partial_match`, to confirm); several → `referent.ambiguous`; only a deactivated one → `referent.inactive`. Markers `v`, `x`, `xxx`, `?`, `ok`… → `referent.marker`; anything with `@` → `referent.email_like` (even a referent's own address); week codes → `referent.week_marker`; one to three words of letters → `referent.unknown`; other text → `referent.note` (a departure hint also suggests `inactive`). Unmatched values are kept raw and **never** become a referent. |
 | 1st `A contacter` | `S37`, `s39`, `S 37`, `sem. 37` → week **without year** (`planned_contact.week_without_year`, `requires_year`, no date, raw kept — the year is never guessed). `S37 2026`, `S37/26`, `2026-W37` → Monday of that ISO week. A date cell or `dd/mm/yyyy` → that date. Impossible week → `planned_contact.invalid_week`. Anything else → `planned_contact.not_a_week`, raw kept; `retraité`, `décédé`, `plus en poste`… also suggest activity `inactive` (`activity.inactive_suggested`, to confirm; import never sets activity). |
-| Stage columns | Positive: `oui`, `x`, `ok`, `fait`, `1`, `v`, check marks, `TRUE`, non-zero numbers, dates, `oui …`. Negative: `non`, `0`, `FALSE`, dashes. Other text → `tracking.stage_unrecognized`, raw kept. The **most advanced positive stage wins** (enum order `follow_up_1` < `follow_up_2` < `appointment_obtained` < `quote_sent` < `quote_follow_up`). Conflict (`tracking.stage_conflict`, `requires_review`): a negative stage below the winning one, `Relance 2` without `Relance 1`, `Suivi` without `Devis envoyé`. Dates and non-plain values of stages other than `rdv obtenu` are kept raw. A tracking proposal exists when a stage is positive, a planned contact was read or a referent was recognised (status `to_contact` otherwise). |
+| Stage columns | Positive: `oui`, `x`, `ok`, `fait`, `1`, `v`, check marks, `TRUE`, non-zero numbers, dates, `oui …`. Negative: `non`, `0`, `FALSE`, dashes. Other text → `tracking.stage_unrecognized`, raw kept. The **most advanced positive stage column wins** (column order `Relance 1` < `relance 2` < `rdv obtenu` < `Devis envoyé` < `Suivi`, `STAGE_RANK`), then maps to its Contact state (`r1`, `r2`, `appointment_obtained` for the last three). Conflict (`tracking.stage_conflict`, `requires_review`): a negative stage below the winning one, `Relance 2` without `Relance 1`, `Suivi` without `Devis envoyé`. Dates and non-plain values of stages other than `rdv obtenu` are kept raw. A tracking proposal exists when a stage is positive, a planned contact was read or a referent was recognised (status `neutral` otherwise). |
 | `Mail` | Split on spaces, `;`, `,`, `/`, `\|`; lowercased; `mailto:` and wrapping punctuation removed; syntax-checked (`local@domain.tld`, ≤ 320). Valid addresses kept in order, first = primary (`email.multiple_in_cell`); any invalid part → `email.invalid`, raw kept. The company `email_domain` is the first non-webmail domain of the row. |
 | `Téléphone`, `Mobile` | Split on `/`, `;`, `,`, `\|`, line break, ` ou `, ` - `. French numbers (`06 00 00 00 01`, `+33 (0)6…`, `0033…`) → `+33XXXXXXXXX`; other `+`/`00` numbers keep their digits; a number typed as a number that lost its leading zero (9 digits) is restored (`phone.leading_zero_restored`); other digit strings not starting with `0` are kept as typed (`phone.unrecognized_format`); letters or wrong length → `phone.invalid`, raw kept. Type by the French numbering plan (06/07 mobile, 01–05/09 landline, 08 other), else by column (`Mobile` → mobile, `Téléphone` → other). Duplicates across both columns dropped. **Primary = first mobile number, else the first number.** |
 | `Adresse` | `12 rue X, 69000 Lyon` → line 1, postal code, city (country only when `France` is written); otherwise free text (first line / other lines, `address.unstructured`, raw kept). Attached to the company's establishment proposal, never to the prospect; without a company → `address.without_company`. |
@@ -423,8 +423,10 @@ to the blocked prospect), `not_a_candidate` (attach target not among the row's c
   is — never reactivated), `origin_type=imported`, `verification_status=unverified`, source reference
   `file / sheet / ligne n`; a new one becomes primary only when the prospect has no primary of that kind.
 - Activity: `inactive` only when confirmed and the prospect's activity is `unknown`.
-- Contact tracking: created when absent; an existing tracking keeps its stage and only gets empty dates/referent
-  filled. A do-not-contact prospect gets no tracking from an import. Contactability is never read or written.
+- Contact tracking: created when absent; an existing tracking keeps its state — except a `neutral` one, which the
+  file's stage columns advance (nothing was chosen yet; reference Task 03) — and only gets empty dates/referent
+  filled. A chosen state is never rewritten (the stage stays in the row metadata); an `ignored` one is never touched
+  (it implies do-not-contact, which excludes any tracking change). A do-not-contact prospect gets no tracking from an import. Contactability is never read or written.
 - Existing company (link): `companies.complete_company` fills empty e-mail domain, segment and Circoe texts, adds
   missing categories, and adds the address as primary establishment only when the company has none.
 
@@ -442,9 +444,9 @@ applied. Dates without time (planned contact, appointment) are stored at midnigh
 Operational reconciliation (`services/operational_import.py`, same transaction, audited), run by
 `POST /api/imports/commit` after the generic commit, row by row in source order: a recognised `Statut_verification`
 value marks employment checked now and sets the activity status and the imported e-mails' verification (never
-downgrading a verified e-mail, never touching a non-imported one); a tracking still `to_contact` whose planned
+downgrading a verified e-mail, never touching a non-imported one); a tracking still `neutral` whose planned
 contact falls **before today** becomes `contacted` (the workbook's past week is a contact already made); a tracking
-left `to_contact` loses its referent (a referent owns an actual contact, not an untouched lead). An imported person
+left `neutral` loses its referent (a referent owns an actual contact, not an untouched lead). An imported person
 is therefore never « Échu » right after the import.
 
 Losslessness at commit: besides the engine's legacy metadata, a row keeps the raw value of anything the commit does
@@ -556,7 +558,7 @@ ignored — and the id as last tie-breaker).
 | 20 | SIREN | | code |
 | 21–22 | Site web · Domaine e-mail | | text |
 | 23–26 | Projet déjà réalisé avec l'entreprise · Type de projet · Références Circoe · Approche client | company Circoe context | text |
-| 27 | Suivi de contact | one status label: `À contacter`, `Contacté`, `Relance 1`, `Relance 2`, `Réponse reçue`, `RDV obtenu`, `Devis envoyé`, `Suivi du devis`, `Gagné`, `Non intéressé`; blank without tracking | text |
+| 27 | Suivi de contact | one Contact state label (`contact_workflow.STATE_LABELS`): `Aucun état`, `Contacté`, `R1`, `R2`, `Réponse reçue`, `RDV pris`, `Failure`, `Ignoré`; blank without tracking | text |
 | 28 | Statut depuis le | when the current status was reached (latest status-history row) | date |
 | 29 | Date de réponse | | date |
 | 30 | Date de rendez-vous | date and time (shown as a date when at midnight) | date/time |

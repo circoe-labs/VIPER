@@ -18,11 +18,13 @@ re-defines a KPI.
 | *Actifs*, *Inconnus*, *Inactifs*, *Opposition* | segments `active`, `unknown`, `inactive`, `do_not_contact` | `/prospection?segment=…` |
 | *Jamais vérifiés*, *À revérifier*, *E-mail manquant / invalide / non vérifié* | segments `never_verified`, `needs_recheck`, `email_missing`, `email_invalid`, `email_unverified` (with the stale-threshold note of Prospection) | `/prospection?segment=…` |
 | *À contacter*, *Échus*, *Contactés*, *Sans réponse*, *Réponses*, *Rendez-vous* | segments `to_contact`, `due`, `contacted`, `no_response`, `responses`, `appointments` | `/prospection?segment=…` |
-| *Devis envoyé*, *Suivi du devis*, *Gagné*, *Pas intéressé* (*Suivi commercial léger*) | prospects whose **current** tracking stage is `quote_sent`, `quote_follow_up`, `won`, `not_interested` — manually recorded stages only, nothing inferred from dates | `/prospection?tracking_status=…` |
 
-Each segment card equals the Prospection counter it opens (same function, `count_segments`, same business day); each
-stage card equals Prospection's *Tous* counter under the *Suivi de contact* filter of that stage (tested on random
-bases). A glyph turns to the warning colour on *Jamais vérifiés*, *À revérifier*, the three e-mail cards and *Échus*
+The former *Suivi commercial léger* group (*Devis envoyé*, *Suivi du devis*, *Gagné*, *Pas intéressé*) and the API's
+`stages` field were removed with the Contact states (Contact port decision P3: the post-appointment pipeline is out of
+the V1 Contact scope; « RDV pris » ends it).
+
+Each segment card equals the Prospection counter it opens (same function, `count_segments`, same business day; tested
+on random bases). A glyph turns to the warning colour on *Jamais vérifiés*, *À revérifier*, the three e-mail cards and *Échus*
 when their count is not zero (glyph + text, never colour alone).
 
 ## Monthly progress
@@ -31,15 +33,18 @@ Two figures for the current month (Europe/Paris, `app/core/business_time.py`), e
 (`VIPER_MONTHLY_CONTACT_TARGET` = 100, `VIPER_MONTHLY_APPOINTMENT_TARGET` = 10 — the source requirement "100 contacts /
 10 rendez-vous"), plus the five months before as small columns:
 
-- **Prospects contacted for the first time** in month M: prospects whose tracking **first** entered a contacted stage
-  (`contacted` or any later stage — `CONTACTED_STAGES` of the segments) in M, according to
-  `contact_tracking_status_history`, **unless that first entry was written by an import**. An imported stage restates a
+- **Prospects contacted for the first time** in month M: prospects whose tracking **first** entered a contacted state
+  (`contacted`, `r1`, `r2`, `response_received`, `appointment_obtained`, `failure` — `CONTACTED_STAGES` of the
+  segments) in M, according to `contact_tracking_status_history`, **unless that first entry was written by an import**
+  (or is a row appended by migration `0008`, which restates a conversion). History rows written before `0008` keep
+  their legacy codes and are read through their equivalent state (`contact_workflow.history_codes`: `follow_up_1/2` as
+  R1/R2, `quote_sent`/`quote_follow_up`/`won` as an appointment, `not_interested` as a failure). An imported stage restates a
   legacy contact made at an unknown earlier date: neither the import's history row nor a later follow-up makes the
   person newly contacted. A person imported at *À contacter* and contacted by hand this month counts. Later moves
   (relance, réponse) never count again. Opposed or inactive people still count (a historical fact, like the
   `contacted` segment).
-- **Appointments obtained** in month M: prospects whose tracking first entered an appointment stage
-  (`appointment_obtained`, `quote_sent`, `quote_follow_up`, `won` — `APPOINTMENT_STAGES`) in M, same import rule. Chosen
+- **Appointments obtained** in month M: prospects whose tracking first entered `appointment_obtained`
+  (`APPOINTMENT_STAGES`; legacy history `quote_sent`, `quote_follow_up`, `won` too) in M, same import rule. Chosen
   over "`appointment_at` in M" because the target measures the prospecting work (securing meetings) when it is done;
   `appointment_at` is the meeting's date — often in a later month, overwritten when rescheduled, and it would count
   meetings held rather than obtained. A direct jump to *Devis envoyé* counts (an appointment was obtained on the way);
@@ -65,7 +70,7 @@ then conversions waiting; within a group the oldest (or soonest) first, ties by 
 |---|---|---|
 | *Rendez-vous des 7 prochains jours* | *actionable* (segments: contactable and not inactive) with `appointment_at` from the start of today to the end of the 6th day after | soonest first |
 | *Contacts échus* | segment `due` | oldest planned contact first |
-| *Réponses sans rendez-vous* | actionable, answered (`responses` predicate), no appointment (`appointments` predicate false), stage ≠ `not_interested` | oldest response first, no date last |
+| *Réponses sans rendez-vous* | actionable, answered (`responses` predicate), no appointment (`appointments` predicate false), state not `failure` / `ignored` | oldest response first, no date last |
 
 A person opens in Prospection within the list they belong to (`/prospection?segment=due&sort=planned_contact&prospect=<id>`,
 Task 14 contract), so the Prospect editor's *Enregistrer et suivant* walks that queue; *Tous les échus* / *Toutes les
@@ -96,14 +101,13 @@ failed import still shows) and no figure at all. Empty groups say so (*Aucun con
 
 ## API — `GET /api/home` (session required, read-only)
 
-`{today, stale_threshold_days, counts: {<segment>: n}, companies, stages: {quote_sent, quote_follow_up, won,
-not_interested}, progress: {contact_target, appointment_target, months: [{month, contacted, appointments}] (6, oldest
+`{today, stale_threshold_days, counts: {<segment>: n}, companies, progress: {contact_target, appointment_target, months: [{month, contacted, appointments}] (6, oldest
 first)}, next_actions: {appointments|due|responses: {total, items: [{prospect_id, first_name, last_name, company_name,
 tracking_status, at, referent_name}]}}, recent_imports: [import batch as in /api/imports], recent_edits: [{occurred_at,
 actor: {kind, label, id, on_behalf_of}, source, subject_type, subject_id, subject_label, summary: [phrase]}]}` (Task 19,
 I-135).
 
-Cost: **9 queries** whatever the base size (segments aggregate, companies + stages, monthly progress — one pass
+Cost: **9 queries** whatever the base size (segments aggregate, companies, monthly progress — one pass
 over the status history grouped by tracking —, 3 action groups with `count(*) OVER ()`, imports, audit events, current
 names of the edited prospects/companies), plus the 4 planner-setting statements of `whole_base_plan` (below).
 
@@ -144,7 +148,7 @@ the failed counters test left behind.
 ## Page layout
 
 Header (*Accueil*, lead sentence with the business day, *Importer Excel*, *Ouvrir la prospection*) → *État de la
-base* (*Base*, *Vérification* card rows) → *Activité de contact* (*Suivi de contact*, *Suivi commercial léger*) →
+base* (*Base*, *Vérification* card rows) → *Activité de contact* (*Suivi de contact*) →
 *Prochaines actions* (three columns, stacked when narrow) → three equal panels: *Progression du mois*, *Derniers
 imports*, *Dernières modifications* → the V1 scope sentence. At 1280×800 and 1440×900 the first screen is the state of
 the base and the contact activity. Styles: `frontend/src/home/home.css` (see the design system).
@@ -157,12 +161,12 @@ the base and the contact activity. Styles: `frontend/src/home/home.css` (see the
 | Router | `backend/app/api/routes/home.py`; settings `VIPER_MONTHLY_CONTACT_TARGET` / `VIPER_MONTHLY_APPOINTMENT_TARGET` |
 | Frontend | `frontend/src/home/` (`HomePage`, `NextActions`, `MonthlyProgress`, `RecentActivity`, `activity.ts`, `home.css`), `frontend/src/api/home.ts` |
 
-- Backend `tests/test_home.py`: counts == Prospection counters on the Prospection edge cases and on random bases
-  (stage counts == the tracking-status filter), companies and stages from recorded statuses only, empty base; months
-  list; first contact once in its month, earlier contact followed up later, direct later stage, opposed still
+- Backend `tests/test_home.py`: counts == Prospection counters on the Prospection edge cases and on random bases,
+  companies count, empty base; months list; first contact once in its month, earlier contact followed up later, direct later stage, opposed still
   counted; import exclusion (imported contact + later follow-up, imported *à contacter* then contacted, imported
   appointment); Paris month boundaries incl. DST; appointment first entry (direct quote, no double count, won later,
-  date without stage); history from the real tracking service; next actions on the edge cases (DNC and inactive
+  date without stage, all through legacy history codes); legacy history counted and `0008` rows never a first entry;
+  history from the real tracking service; next actions on the edge cases (DNC and inactive
   excluded) and ordering / limit / window bounds; recent edits grouping and summaries, import writes excluded, no
   e-mail, reason or other company name in the output, deleted subject; latest imports; 9 queries for 3 and 60
   prospects (the formatter's summaries need no query), the segments and the action groups inside `whole_base_plan`. `tests/test_history.py`: an agent's save on Home.

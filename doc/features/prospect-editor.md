@@ -47,7 +47,7 @@ the dirty-state bar.
 | Vérification de l'emploi | *Vérifié aujourd'hui*, *ou vérifié le* (date), *Effacer la vérification* | `employment_verified_at` | Covers company, role, exact title and activity. Explicit only: see *Verification*. |
 | E-mails, Téléphones | repeaters | `emails`, `phones` | See *E-mails and phones*. |
 | Opposition | *Enregistrer une opposition…*, *Lever l'opposition…* | `contactability_status`, `do_not_contact_at`, `do_not_contact_reason` | Dedicated operation, never the save — see *Opposition*. |
-| Suivi de contact | Étape | `contact_tracking.status` | *Aucun suivi* until one exists; setting a date alone creates it at *À contacter*. *Depuis le …* = the last status-history entry. A tracking is never deleted from the editor. |
+| Suivi de contact | État | `contact_tracking.status` (Contact states, data-model) | *Aucun suivi* until one exists; setting a date alone creates it at `neutral` (no state). *Depuis le …* = the last status-history entry. A tracking is never deleted from the editor. |
 | | Contact prévu le (+ *Aujourd'hui*, *Dans 1 semaine*) | `planned_contact_at` | A day (Europe/Paris); the ISO week is shown (*Semaine 38*). |
 | | Réponse reçue le | `response_received_at` | A day. |
 | | Rendez-vous le … à … | `appointment_at` | A day and an optional time. |
@@ -101,7 +101,7 @@ phone** (own status and date). Identity fields are not re-verified individually.
 
 ## Opposition (durable do-not-contact)
 
-Independent of the activity and of the contact stage (*Pas intéressé* is an outcome, not an opposition). *Enregistrer
+Independent of the activity and of the contact stage (*Failure* is an outcome, not an opposition; *Ignoré* reinforces it and keeps it). *Enregistrer
 une opposition…* and *Lever l'opposition…* open a confirmation with a required reason and call their own audited
 operation (`PUT /api/prospects/{id}/contactability`) at once — the form's pending changes stay pending (the dialog
 says so). The reason of an opposition is kept on the prospect and in the event; the reason of lifting it only in the
@@ -175,11 +175,12 @@ their e-mails, phones, contact tracking and sources.
 
 | Method & path | Body / query | Answer |
 |---|---|---|
-| `GET /prospects/{id}` | — | The view model: identity, `company` summary, `role`, employment and `verification_state`, `employment_imported_unverified`, contactability, `emails` / `phones` (primary first, each with `imported_unverified`), `tracking` (days in business time, `appointment_time`, `planned_contact_week`, `referent`, `status_since`), `sources` (oldest first, with the import file name and `recorded_by` — a history actor), `import_row_count`, `today`, `stale_threshold_days`, timestamps, **`version`** |
+| `GET /prospects/{id}` | — | The view model: identity, `company` summary, `role`, employment and `verification_state`, `employment_imported_unverified`, contactability, `emails` / `phones` (primary first, each with `imported_unverified`), `tracking` (days in business time, `appointment_time`, `planned_contact_week`, `referent`, `status_since`, `suggested_next_contact_on` / `suggested_next_contact_week` — the cadence proposal for `contacted`/`r1`/`r2`, else null), `sources` (oldest first, with the import file name and `recorded_by` — a history actor), `import_row_count`, `today`, `stale_threshold_days`, timestamps, **`version`** |
 | `GET /prospects/{id}/history` | `limit` 1–50 (10), `before` (a `next_cursor`) | `{items: [{id, occurred_at, actor: {kind, label, id, on_behalf_of}, source, actions, title, summary, changes: [{label, before, after}]}], next_cursor}` (Task 19) |
 | `POST /prospects` | the form + `provenance: {legal_basis_or_collection_context, source_reference}` | 201 view |
 | `PUT /prospects/{id}` | `version` + the whole editable state; `emails` and `phones` required (full lists) | view |
 | `PUT /prospects/{id}/contactability` | `{do_not_contact, reason, version}` | view |
+| `PATCH /prospects/{id}/tracking` | `{version, status?, next_action_week?: {year, week} \| null}` — `status` omitted/null keeps the state; `next_action_week` omitted keeps the week, null clears it, a week sets it (its Monday, business midnight). Human only. | view (Contact port S1) |
 | `DELETE /prospects/{id}?version=…` | — | 204 |
 
 Form fields: `civility`, `first_name`, `last_name`, `company_id`, `role_id` or `role_label` (new role), `exact_job_title`,
@@ -196,6 +197,9 @@ Refusals (`app/api/errors.py`, French copy in `frontend/src/prospects/messages.t
 | 409 | `{code: "duplicate", field: "role_label", existing}` | *Le rôle « Dirigeant » existe déjà : choisissez-le dans la liste.* |
 | 409 | `{code: "conflict"}` | *Ce prospect a été modifié ailleurs depuis son ouverture…* |
 | 409 | `{code: "do_not_contact"}` (delete) | *Suppression impossible : ce prospect est en opposition…* |
+| 409 | `{code: "ignored_is_terminal"}` (a state change or lifting the opposition of an `ignored` prospect) · `{code: "ignored_has_no_next_action"}` | Contact rules (data-model *Domain rules*) |
+| 403 | `{code: "human_actor_required"}` | a state chosen by a non-human actor (never through the UI) |
+| 422 | `{code: "invalid", field: "next_action_week", reason: "iso_week"}` (week 53 of a 52-week year) · `{code: "invalid", field: "status", reason: "empty"}` (PATCH without change) | |
 | 404 | `{code: "not_found"}` | *Ce prospect n'existe plus…* |
 
 ## Audit

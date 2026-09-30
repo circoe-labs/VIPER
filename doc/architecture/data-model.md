@@ -81,27 +81,48 @@ These are Circoe meeting/dossier referents, not application login accounts.
 ## `contact_tracking` (`prospections` internally if preferred)
 - `id`
 - `prospect_id`
-- `planned_contact_at` nullable
+- `planned_contact_at` nullable — the **next action** (first contact, R1, R2 or review), written by the week planner
+  and the cadence as the **Monday of the chosen ISO week** at business midnight; the week (`2026-W41`) is always
+  derived (Contact port decision P1). It is not the send time of a message.
 - `status`
 - `referent_id` nullable
 - `response_received_at` nullable
 - `appointment_at` nullable
 - timestamps
 
-Recommended current status base:
-`to_contact`, `contacted`, `follow_up_1`, `follow_up_2`, `response_received`, `appointment_obtained`, `quote_sent`, `quote_follow_up`, `won`, `not_interested`.
+Contact states (migration `0008`, handoff decisions 4-10, `app/services/contact_workflow.py`), in display order:
+`neutral` (default, « Aucun état », no badge in the UI), `contacted` (Contacté), `r1` (R1), `r2` (R2),
+`response_received` (Réponse reçue), `appointment_obtained` (RDV pris), `failure` (Failure), `ignored` (Ignoré).
+The state and the next-action week are independent. Every state change is a decision of a person (or of an import /
+system job on their existing paths) — never of an agent, a date or a mail. `ignored` is terminal and implies
+`do_not_contact` (see *Domain rules*). The former 10-stage taxonomy (`to_contact`, `follow_up_1/2`, `quote_sent`,
+`quote_follow_up`, `won`, `not_interested`) was converted by `0008` and only survives in old history rows.
 
-`do_not_contact` is **not only a stage**; use the durable prospect contactability restriction. UI may present it alongside outcomes.
+`do_not_contact` is **not a state**; use the durable prospect contactability restriction.
 
 V1 default: one current contact-tracking row per prospect + history. Multiple independent cycles remain deferred.
 
 ## `contact_tracking_status_history`
 - `id`, `contact_tracking_id`
-- `from_status`, `to_status`
+- `from_status`, `to_status` — current codes, or a legacy code in rows written before `0008` (never rewritten)
 - `changed_at`
-- `actor_id/type` or audit link
+- `actor_id/type` or audit link (`0008` appended one `system` row `legacy → new`, actor id `0008_contact_states`,
+  per converted tracking)
 
 Allows derivation of first contact/follow-up/status dates without duplicating five legacy booleans.
+
+### Migration `0008_contact_states`
+
+Maps each legacy status (handoff `docs/06-data-model.md` §2): `to_contact → neutral`, `follow_up_1 → r1`,
+`follow_up_2 → r2`, `quote_sent` / `quote_follow_up` / `won → appointment_obtained` (post-appointment is out of the
+Contact scope), `not_interested → ignored` when the prospect is `do_not_contact`, else `failure`; `contacted`,
+`response_received`, `appointment_obtained` unchanged. Each converted row gets one appended history row and one
+`contact_tracking.status_changed` audit event (actor `system` / `0008_contact_states`, source `cli`, codes only —
+the ORM audit hook does not run in migrations). An `ignored` row loses its next action. The history CHECKs accept
+legacy and new codes, so old rows keep what really happened. Counts before/after are logged. The downgrade is best
+effort: it deletes the appended rows, maps states back (`neutral → to_contact`, `r1/r2 → follow_up_1/2`,
+`failure/ignored → not_interested`, dropping history rows that would no longer change status); quotes/wins stay
+`appointment_obtained`, cleared weeks and audit events are not restored. Tests: `tests/test_migration_contact_states.py`.
 
 ## `prospect_sources`
 Minimal provenance required by the functional spec:
@@ -273,7 +294,7 @@ on purpose.
 | `prospects` | `company_id NULL`, `civility (mr/ms) NULL`, `first_name`, `last_name varchar(100) NULL`, `role_id NULL`, `exact_job_title varchar(255)`, `activity_status DEFAULT 'unknown'`, `employment_verified_at NULL`, `contactability_status DEFAULT 'contactable'`, `do_not_contact_at`, `do_not_contact_reason text` | CHECK `has_name` (at least one non-blank name); CHECK `do_not_contact_consistency`; trigger `guard_do_not_contact`; `ix_prospects_lower_last_name_first_name` |
 | `emails` | `prospect_id`, `address varchar(320)`, `is_primary DEFAULT false`, `is_active DEFAULT true`, `verification_status DEFAULT 'unverified'`, `origin_type` (no default), `last_verified_at`, `source_reference text` | `uq_emails_prospect_id_address`; `uq_emails_prospect_id_primary` (partial); CHECK address lowercase `x@y`, primary ⇒ active; `ix_emails_address` |
 | `phones` | as `emails`, with `number varchar(21)` and `type` | `uq_phones_prospect_id_number`; `uq_phones_prospect_id_primary` (partial); CHECK number `^\+?[0-9]{4,20}$`, primary ⇒ active; `ix_phones_number` |
-| `contact_tracking` | `prospect_id`, `planned_contact_at`, `status DEFAULT 'to_contact'`, `referent_id NULL`, `response_received_at`, `appointment_at` | `uq_contact_tracking_prospect_id` (one current row per prospect); `ix_contact_tracking_referent_id` |
+| `contact_tracking` | `prospect_id`, `planned_contact_at`, `status DEFAULT 'neutral'`, `referent_id NULL`, `response_received_at`, `appointment_at` | `uq_contact_tracking_prospect_id` (one current row per prospect); `ix_contact_tracking_referent_id` |
 | `contact_tracking_status_history` | `contact_tracking_id`, `from_status NULL` (initial), `to_status`, `changed_at DEFAULT clock_timestamp()`, `actor_type`, `actor_id`, `actor_display` | CHECK `from_status IS DISTINCT FROM to_status`; index `(contact_tracking_id, changed_at)`; no `updated_at` |
 | `prospect_sources` | `prospect_id`, `source_type`, `source_reference text`, `import_batch_id NULL`, `collected_at DEFAULT now()`, `legal_basis_or_collection_context text`, `actor_type/actor_id/actor_display NULL`, `notes text` | FK indexes |
 | `import_batches` | `filename`, `sheet_names text[] DEFAULT '{}'`, `file_fingerprint varchar(64) NULL`, `status DEFAULT 'pending'`, `rows_total/rows_imported/rows_skipped int DEFAULT 0`, `committed_at NULL`, `legal_basis_or_collection_context text NULL`, `source_reference text NULL` (migration 0006, Task 09), `actor_type/actor_id/actor_display` | CHECK fingerprint `^[0-9a-f]{64}$`, counts ≥ 0, `committed` ⇔ `committed_at`. No workbook bytes |
@@ -304,7 +325,8 @@ search labels through it; behaviour of the Settings values (stable slug, deactiv
 | `emails/phones.verification_status` | `unverified`, `verified`, `invalid`, `unknown` |
 | `emails/phones.origin_type` | `imported`, `manual`, `published`, `inferred`, `other` |
 | `phones.type` | `mobile`, `landline`, `other` |
-| `contact_tracking.status`, history `from_status` / `to_status` | `to_contact`, `contacted`, `follow_up_1`, `follow_up_2`, `response_received`, `appointment_obtained`, `quote_sent`, `quote_follow_up`, `won`, `not_interested` — **no `do_not_contact`** |
+| `contact_tracking.status` (`ContactTrackingStatus`) | `neutral`, `contacted`, `r1`, `r2`, `response_received`, `appointment_obtained`, `failure`, `ignored` — **no `do_not_contact`** |
+| history `from_status` / `to_status` (`TrackingHistoryStatus`) | the 8 states above plus the read-only legacy codes `to_contact`, `follow_up_1`, `follow_up_2`, `quote_sent`, `quote_follow_up`, `won`, `not_interested` |
 | `prospect_sources.source_type` | `excel_import`, `manual`, `future_agent`, `other` |
 | `import_batches.status` | `pending`, `committed`, `failed`, `cancelled` |
 | `*.actor_type` | `human`, `import`, `system`, `agent` |
@@ -321,8 +343,9 @@ tracking and its history, sources, import row metadata) and for a batch's row me
 ### Domain rules at the service boundary
 
 - **Contactability** (`app/services/prospects.py`): `mark_do_not_contact` (idempotent, keeps the first date) and
-  `clear_do_not_contact` (mandatory reason; the only path the `guard_do_not_contact` trigger accepts). Contact
-  tracking (`app/services/contact_tracking.py`) never reads or writes contactability; `not_interested` is an outcome,
+  `clear_do_not_contact` (mandatory reason; the only path the `guard_do_not_contact` trigger accepts; refused with
+  `ignored_is_terminal` while the tracking is `ignored`). Contact tracking only ever *reinforces* contactability:
+  choosing `ignored` calls `mark_do_not_contact` (reason « Suivi de contact : Ignoré »); `failure` is an outcome,
   not an opposition.
 - **Company change** (`change_company`): sets the new company, clears `employment_verified_at` (NULL = current
   employment context not verified) and moves every **active** email/phone from `verified` to `unverified`, keeping
@@ -332,8 +355,17 @@ tracking and its history, sources, import row metadata) and for a batch's row me
 - **Prospection segments** (Task 14, `app/services/prospection/segments.py`): the canonical reading of these columns —
   never verified, re-check, due, contacted, no response, responses, appointments, e-mail states — used by the
   Prospection counters and list and by Home ([prospection-kpis.md](../features/prospection-kpis.md)).
-- **Contact tracking** (`save_contact_tracking`): creates or replaces the single current row and appends a
-  status-history row (with the actor snapshot) whenever the status changes.
+- **Contact tracking** (`save_contact_tracking`, the only write path — editor, `PATCH …/tracking`, Database
+  Explorer, imports): creates or replaces the single current row and appends a status-history row (with the actor
+  snapshot) whenever the status changes. Contact rules (reference `src/server/contactTrackingService.ts`): an
+  `agent` actor may not change a state (`ActorNotAllowedError`, 403 `human_actor_required`); nothing leaves
+  `ignored` (409 `ignored_is_terminal`) and `ignored` has no next action (409 `ignored_has_no_next_action`);
+  entering `response_received`, `appointment_obtained`, `failure` or `ignored` clears the next action when the input
+  only echoes the stored one (an explicit different one is kept, except on `ignored`); entering `response_received`
+  without a response date records now; choosing `response_received`, `appointment_obtained` or `ignored` calls
+  `cancel_future_messages` in the same transaction (decision 29 — a no-op seam until the messages table of Slice S3).
+  The default cadence (contacted/R1 +2 weeks, R2 +4 weeks review) is only *suggested*
+  (`contact_workflow.suggest_next_action`, exposed as `tracking.suggested_next_contact_*`).
 - **Prospect editor** (Task 15, `app/services/prospect_editor.py` + `contact_channels.py`,
   [prospect-editor.md](../features/prospect-editor.md), [ADR-0015](../adr/0015-prospect-editor-save.md)): one atomic save
   composing an inline role creation, `change_company`, the identity/employment fields, the e-mail and phone **full

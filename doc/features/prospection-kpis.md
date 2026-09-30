@@ -17,7 +17,9 @@ and its primary e-mail (at most one, always active). Terms used below:
 - **actionable** — `contactability_status = contactable` **and** `activity_status ≠ inactive`: someone to contact or
   follow up now. A do-not-contact prospect is never actionable (durable opposition), nor someone known to have left
   the role (still visible under *Inactifs*);
-- **contacted** — the tracking exists and its stage is past `to_contact`, or it has a response or an appointment date;
+- **contacted** — the tracking exists and its Contact state is `contacted`, `r1`, `r2`, `response_received`,
+  `appointment_obtained` or `failure`, or it has a response or an appointment date (`neutral` is before any contact;
+  `ignored` may be chosen without any contact, so it proves nothing);
 - **reset channel** — an **active** e-mail or phone whose status is `unverified` while it keeps a `last_verified_at`:
   the trace a company change leaves (I-13: verified active channels go back to `unverified`, keeping the date).
 
@@ -31,15 +33,15 @@ and its primary e-mail (at most one, always active). Terms used below:
 | `email_missing` | E-mail manquant | No primary e-mail (a person with only non-primary or former addresses counts as missing). |
 | `email_invalid` | E-mail invalide | Primary e-mail `verification_status = invalid`. |
 | `email_unverified` | E-mail non vérifié | Primary e-mail `unverified` **or** `unknown` (not known to be deliverable). |
-| `to_contact` | À contacter | Actionable and **not contacted** — a tracking at `to_contact` without response/appointment date, **or no tracking at all** (the untouched base is left to contact). |
-| `due` | Échus | `to_contact` and `planned_contact_at` before the start of tomorrow (business day): planned today or earlier. |
+| `to_contact` | À contacter | A **planned first contact**: actionable, state `neutral`, a next-action week set (`planned_contact_at`), not contacted. A neutral prospect without a week, or without tracking, is not planned (Contact decisions 4-5: « un prospect neutre avec une semaine signifie qu'un premier contact est prévu »). The segment key stays `to_contact` (URL/API). |
+| `due` | Échus | `to_contact` and `planned_contact_at` before the start of tomorrow (business day): planned today or earlier. Follow-ups due (R1, R2, review) belong to the Contact page (Slice S3). |
 | `contacted` | Contactés | Contacted (see above), do-not-contact included — a historical fact. |
-| `no_response` | Sans réponse | Actionable, stage `contacted`, `follow_up_1` or `follow_up_2`, and neither a response nor an appointment date: the follow-up queue. |
-| `responses` | Réponses | A response date, an appointment date, or a stage reached only after an answer: `response_received`, `appointment_obtained`, `quote_sent`, `quote_follow_up`, `won`, `not_interested` (a negative answer is an answer). |
-| `appointments` | Rendez-vous | An appointment date, or stage `appointment_obtained`, `quote_sent`, `quote_follow_up` or `won`. |
+| `no_response` | Sans réponse | Actionable, state `contacted`, `r1` or `r2`, and neither a response nor an appointment date: the follow-up queue. |
+| `responses` | Réponses | A response date, an appointment date, or state `response_received` or `appointment_obtained`. `failure` (a sequence closed without outcome, decision 13) is not an answer. |
+| `appointments` | Rendez-vous | An appointment date, or state `appointment_obtained` (« RDV pris »). |
 
 **Home (Task 16)** shows these same counts (`count_segments` without criteria), each card linking to
-`/prospection?segment=<key>`; its own additions — current commercial stages, monthly progress from the status history,
+`/prospection?segment=<key>`; its own additions — monthly progress from the status history,
 next actions — are defined in [home-dashboard.md](home-dashboard.md) on top of these predicates (`actionable`,
 `responded`, `has_appointment`, `CONTACTED_STAGES`, `APPOINTMENT_STAGES`).
 
@@ -62,7 +64,7 @@ Both endpoints take the same **criteria**, so a counter always equals the total 
 | `role` | Role id, or `none` (no role). |
 | `activity` | `active`, `unknown`, `inactive`. |
 | `referent` | Referent id of the tracking, or `none`. |
-| `tracking_status` | A stage, or `none` (no tracking). |
+| `tracking_status` | A Contact state (`neutral` … `ignored`), or `none` (no tracking row). |
 | `company` | Company id. |
 | `import_batch` | Import batch id (a prospect source of that batch). |
 
