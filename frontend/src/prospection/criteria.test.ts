@@ -13,7 +13,7 @@ describe('Prospection URL state', () => {
       role: 'none',
       activity: 'active' as const,
       referent: ID,
-      tracking_status: 'follow_up_1' as const,
+      tracking_status: 'r1' as const,
       company: ID,
       import_batch: ID,
       sort: 'planned_contact' as const,

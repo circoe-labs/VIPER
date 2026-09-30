@@ -1,23 +1,19 @@
 import { Link } from 'react-router'
 
-import { type CommercialStage, COMMERCIAL_STAGES, type HomeData, useHome } from '../api/home'
+import { type HomeData, useHome } from '../api/home'
 import type { Segment } from '../api/prospection'
 import { prospectionHref } from '../prospection/criteria'
-import { SEGMENT_INFO, TRACKING_LABELS } from '../prospection/labels'
+import { SEGMENT_INFO } from '../prospection/labels'
 import { useProspectEditor } from '../prospection/prospectEditor'
 import { Button } from '../ui/Button'
 import { EmptyState } from '../ui/EmptyState'
 import {
   AlertIcon,
   BuildingIcon,
-  CheckCircleIcon,
-  ClockIcon,
   type IconComponent,
   InfoIcon,
-  MinusCircleIcon,
   PlusIcon,
   SpinnerIcon,
-  SpreadsheetIcon,
   UploadIcon,
   UsersIcon,
 } from '../ui/icons'
@@ -67,23 +63,6 @@ function segmentKpi(data: HomeData, segment: Segment, label = SEGMENT_INFO[segme
     count: data.counts[segment],
     href: prospectionHref({ segment }),
     attention: ATTENTION.includes(segment),
-  }
-}
-
-const STAGE_ICONS: Record<CommercialStage, IconComponent> = {
-  quote_sent: SpreadsheetIcon,
-  quote_follow_up: ClockIcon,
-  won: CheckCircleIcon,
-  not_interested: MinusCircleIcon,
-}
-
-function stageKpi(data: HomeData, stage: CommercialStage): Kpi {
-  return {
-    label: TRACKING_LABELS[stage],
-    hint: `Étape actuelle du suivi de contact : ${TRACKING_LABELS[stage]}.`,
-    icon: STAGE_ICONS[stage],
-    count: data.stages[stage],
-    href: prospectionHref({ tracking_status: stage }),
   }
 }
 
@@ -155,15 +134,6 @@ function Overview({ data }: { data: HomeData }) {
           Activité de contact
         </h2>
         <KpiGroup id="home-kpi-contact" title="Suivi de contact" kpis={contact} />
-        <KpiGroup
-          id="home-kpi-commercial"
-          title="Suivi commercial léger"
-          kpis={COMMERCIAL_STAGES.map((stage) => stageKpi(data, stage))}
-        />
-        <p className="home-section__note">
-          Devis, suivi du devis, gagné et pas intéressé : étape actuelle saisie dans le suivi de contact de chaque
-          prospect.
-        </p>
       </section>
 
       <NextActions actions={data.next_actions} />

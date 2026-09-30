@@ -5,7 +5,7 @@ import type { EditItem } from '../api/home'
 import type { ImportBatch } from '../api/imports'
 import { actorName } from '../history/format'
 
-// « Changement d’entreprise · E-mail principal modifié · Suivi : Contacté → Relance 1 ».
+// « Changement d’entreprise · E-mail principal modifié · Suivi : Contacté → R1 ».
 export function describeEdit(edit: EditItem): string {
   return edit.summary.join(' · ')
 }

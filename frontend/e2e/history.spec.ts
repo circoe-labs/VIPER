@@ -67,14 +67,14 @@ test('an editor save reads back in the prospect history and on Home', async ({ p
   await expect(entries(editor).first()).toContainText(`Import « ${file} »`)
   await expect(entries(editor).first()).toContainText('Fiche créée')
 
-  // One save: a new primary e-mail, another company, a contact stage.
+  // One save: a new primary e-mail, another company, a contact state.
   const emails = region(editor, 'E-mails')
   await emails.getByRole('button', { name: 'Ajouter un e-mail' }).click()
   await emails.getByRole('textbox', { name: 'Adresse e-mail' }).nth(1).fill(`p.histoire@${domain}`)
   await emails.getByRole('radio', { name: 'Principal' }).nth(1).check()
   await editor.getByRole('combobox', { name: /Entreprise/ }).fill(employer)
   await page.getByRole('option', { name: new RegExp(`^${employer}`) }).click()
-  await region(editor, 'Suivi de contact').getByRole('combobox', { name: 'Étape' }).selectOption({ label: 'Contacté' })
+  await region(editor, 'Suivi de contact').getByRole('combobox', { name: 'État' }).selectOption({ label: 'Contacté' })
   const saveResponse = page.waitForResponse(
     (response) => response.request().method() === 'PUT' && /^\/api\/prospects\/[^/]+$/.test(new URL(response.url()).pathname),
   )
@@ -105,7 +105,7 @@ test('an editor save reads back in the prospect history and on Home', async ({ p
   await expect(saved).toContainText('Changement d’entreprise')
   await expect(saved).toContainText(`Entreprise : Transports ${tag} → ${employer}`)
   await expect(saved).toContainText(`E-mail principal : paul@${domain} → p.histoire@${domain}`)
-  await expect(saved).toContainText('Étape : Contacté')
+  await expect(saved).toContainText('État : Contacté')
 
   const reopened = () => page.getByRole('dialog').first()
   await screenshots(

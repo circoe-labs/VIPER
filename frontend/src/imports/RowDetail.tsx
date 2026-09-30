@@ -8,6 +8,8 @@ import {
   type LegacyValue,
   type PreviewRow,
 } from '../api/imports'
+import { TRACKING_STATUSES, type TrackingStatus } from '../api/prospection'
+import { stateLabel } from '../prospection/labels'
 import { Button } from '../ui/Button'
 import { TextField } from '../ui/fields'
 import { AlertIcon, InfoIcon, PencilIcon } from '../ui/icons'
@@ -43,15 +45,11 @@ const LEGACY_REASONS: Record<LegacyValue['reason'], string> = {
   corrected: 'valeur d’origine, corrigée',
 }
 const CIVILITIES = { mr: 'M.', ms: 'Mme' } as const
-const STAGES: Record<string, string> = {
-  to_contact: 'À contacter',
-  follow_up_1: 'Relance 1',
-  follow_up_2: 'Relance 2',
-  appointment_obtained: 'RDV obtenu',
-  quote_sent: 'Devis envoyé',
-  quote_follow_up: 'Suivi du devis',
-}
 
+// The Contact state the stage columns give (`r1`, `r2`, `appointment_obtained`…); none for `neutral`.
+function trackingStateLabel(status: string): string | null {
+  return (TRACKING_STATUSES as readonly string[]).includes(status) ? stateLabel(status as TrackingStatus) : status
+}
 function text(value: JsonScalar): string {
   if (value === null) return ''
   if (typeof value === 'boolean') return value ? 'VRAI' : 'FAUX'
@@ -150,7 +148,7 @@ export function RowDetail({ review, decisions, decide, reanalyzing, onReanalyse,
             <dt>Suivi</dt>
             <dd>
               {[
-                row.tracking?.stages.length ? STAGES[row.tracking.status] : null,
+                row.tracking?.stages.length ? trackingStateLabel(row.tracking.status) : null,
                 plannedText && `à contacter : ${plannedText}`,
                 referentText && `référent : ${referentText}`,
               ]

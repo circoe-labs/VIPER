@@ -47,6 +47,8 @@ const FIELD_INVALID: Record<string, string> = {
   'provenance.legal_basis_or_collection_context.blank': 'Indiquez le contexte de collecte (ou la base légale).',
   'provenance.legal_basis_or_collection_context.length': 'Texte trop long (2 000 caractères au plus).',
   'provenance.source_reference.length': 'Texte trop long (2 000 caractères au plus).',
+  'next_action_week.iso_week': 'Cette semaine n’existe pas cette année-là (la semaine 53 n’existe que certaines années).',
+  'status.empty': 'Rien à enregistrer : choisissez un état ou une semaine.',
   'reason.blank': 'Indiquez le motif.',
   'reason.length': 'Motif trop long (2 000 caractères au plus).',
 }
@@ -98,6 +100,21 @@ export function prospectRefusal(error: unknown, indexes: AliasIndexes = { emails
       return {
         field: null,
         message: 'Suppression impossible : ce prospect est en opposition. Levez d’abord l’opposition (avec son motif).',
+      }
+    case 'ignored_is_terminal':
+      return {
+        field: null,
+        message: 'Ce prospect est « Ignoré » : c’est définitif, son état ne change plus et son opposition reste enregistrée.',
+      }
+    case 'ignored_has_no_next_action':
+      return {
+        field: 'tracking.planned_contact_on',
+        message: 'Un prospect « Ignoré » n’a pas de prochaine action : effacez la semaine.',
+      }
+    case 'human_actor_required':
+      return {
+        field: null,
+        message: 'Seule une personne connectée peut changer l’état de contact ou sa semaine (pas un agent).',
       }
     case 'not_found':
       return { field: null, message: 'Ce prospect n’existe plus : il a peut-être été supprimé entre-temps.' }

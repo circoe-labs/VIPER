@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 
 import { useCompany } from '../api/companies'
 import { type Prospect, useProspect, useProspectMutations } from '../api/prospects'
+import { businessToday } from '../lib/isoWeek'
 import { civilityLabel, personName, SEGMENT_INFO } from '../prospection/labels'
 import type { ProspectEditorProps } from '../prospection/prospectEditor'
 import { Button } from '../ui/Button'
@@ -57,11 +58,6 @@ function newForms(defaults: NewProspectDefaults = {}): Forms {
   return { target: 'new', prospect: null, baseline: draft, draft, session: nextSession() }
 }
 
-// Today in Circoe's business time zone (`YYYY-MM-DD`), for a prospect the server has not described yet.
-function businessToday(): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Paris' }).format(new Date())
-}
-
 // The Prospect editor (Task 15): one wide drawer for adding and editing a person, opened by the Prospection list
 // (contract: prospection/prospectEditor.tsx). Prefilled; what needs verification is shown in warning style; one
 // atomic save; « Enregistrer et suivant » follows the list's queue. Ctrl+S saves, Ctrl+Entrée saves and moves on,
@@ -99,6 +95,7 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
 
   const prospect = forms?.prospect ?? null
   const isNew = forms !== null && prospect === null
+  // For a prospect the server has not described yet, today in Circoe's business time zone.
   const today = prospect?.today ?? businessToday()
   const draft = forms?.draft
   const companyMoved = forms !== null && prospect !== null && forms.draft.company_id !== forms.baseline.company_id

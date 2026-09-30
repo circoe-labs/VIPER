@@ -48,22 +48,30 @@ export const SEGMENT_INFO: Record<Segment, SegmentInfo> = {
   },
   to_contact: {
     label: 'À contacter',
-    hint: 'Jamais contactés, sans opposition et pas inactifs.',
+    hint: 'Premier contact planifié : aucun état, une semaine choisie (hors opposition et inactifs).',
     icon: UsersIcon,
   },
   due: {
     label: 'Échus',
-    hint: 'À contacter, contact prévu au plus tard aujourd’hui.',
+    hint: 'À contacter, semaine prévue arrivée ou dépassée.',
     icon: ClockIcon,
   },
-  contacted: { label: 'Contactés', hint: 'Au moins une prise de contact enregistrée.', icon: CheckCircleIcon },
+  contacted: {
+    label: 'Contactés',
+    hint: 'Au moins une prise de contact enregistrée (Contacté, R1, R2, réponse, RDV pris ou Failure).',
+    icon: CheckCircleIcon,
+  },
   no_response: {
     label: 'Sans réponse',
-    hint: 'Contactés ou relancés, sans réponse ni rendez-vous (hors opposition et inactifs).',
+    hint: 'État Contacté, R1 ou R2, sans réponse ni rendez-vous (hors opposition et inactifs).',
     icon: MinusCircleIcon,
   },
-  responses: { label: 'Réponses', hint: 'Une réponse est enregistrée, positive ou non.', icon: CheckCircleIcon },
-  appointments: { label: 'Rendez-vous', hint: 'Un rendez-vous a été obtenu.', icon: CheckCircleIcon },
+  responses: {
+    label: 'Réponses',
+    hint: 'Réponse reçue ou RDV pris, ou une date de réponse ou de rendez-vous enregistrée.',
+    icon: CheckCircleIcon,
+  },
+  appointments: { label: 'Rendez-vous', hint: 'RDV pris, ou une date de rendez-vous enregistrée.', icon: CheckCircleIcon },
 }
 
 export const SEGMENT_GROUPS: { id: 'base' | 'verification' | 'contact'; title: string; segments: Segment[] }[] = [
@@ -80,17 +88,22 @@ export const SEGMENT_GROUPS: { id: 'base' | 'verification' | 'contact'; title: s
   },
 ]
 
+// Contact state labels (backend contact_workflow.STATE_LABELS). `neutral` has no badge and no label in the lists
+// (decision 4); « Aucun état » is its name where a state must be named (select option, filter, history, export).
 export const TRACKING_LABELS: Record<TrackingStatus, string> = {
-  to_contact: 'À contacter',
+  neutral: 'Aucun état',
   contacted: 'Contacté',
-  follow_up_1: 'Relance 1',
-  follow_up_2: 'Relance 2',
+  r1: 'R1',
+  r2: 'R2',
   response_received: 'Réponse reçue',
-  appointment_obtained: 'Rendez-vous obtenu',
-  quote_sent: 'Devis envoyé',
-  quote_follow_up: 'Suivi du devis',
-  won: 'Gagné',
-  not_interested: 'Pas intéressé',
+  appointment_obtained: 'RDV pris',
+  failure: 'Failure',
+  ignored: 'Ignoré',
+}
+
+// The label shown beside a person (lists, Home): none for `neutral` or no tracking.
+export function stateLabel(status: TrackingStatus | null): string | null {
+  return status && status !== 'neutral' ? TRACKING_LABELS[status] : null
 }
 
 export const ACTIVITY_LABELS: Record<ActivityStatus, string> = {
@@ -117,11 +130,6 @@ const DAY = new Intl.DateTimeFormat('fr-FR', {
 // e.g. « 14 sept. 2026 », in Circoe's time zone like the backend's business day.
 export function formatDay(iso: string): string {
   return DAY.format(new Date(iso))
-}
-
-// `2026-W38` → « S38 ».
-export function formatWeek(isoWeek: string): string {
-  return `S${isoWeek.slice(isoWeek.indexOf('W') + 1)}`
 }
 
 export function personName(row: Pick<ProspectRow, 'first_name' | 'last_name'>): string {

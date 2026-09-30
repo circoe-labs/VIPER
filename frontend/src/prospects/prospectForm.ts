@@ -50,7 +50,8 @@ export interface AliasDraft {
 export interface TrackingDraft {
   // '' = no contact tracking yet.
   status: TrackingStatus | ''
-  // `YYYY-MM-DD` (date inputs) or ''.
+  // `YYYY-MM-DD` or '': the next-action day — the Monday of the week chosen in the planner (P1); an older stored day
+  // is kept as is until another week is chosen.
   planned_contact_on: string
   response_received_on: string
   appointment_on: string
@@ -279,7 +280,7 @@ function trackingInput(tracking: TrackingDraft) {
   }
   const anything = Object.values(dates).some((value) => value !== null)
   if (tracking.status === '' && !anything) return null
-  return { status: tracking.status || 'to_contact', ...dates }
+  return { status: tracking.status || 'neutral', ...dates }
 }
 
 // `baselineCompany`: the company when the prospect was loaded (null for a new one).
@@ -390,19 +391,22 @@ export function validate(draft: ProspectDraft, { isNew, today }: { isNew: boolea
 
 // --- small helpers ------------------------------------------------------------------------------------------------
 
-// ISO 8601 week of a `YYYY-MM-DD` day, e.g. « S38 » (the backend's planned-contact week, business time).
-export function isoWeekLabel(day: string): string | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day)
-  if (!match) return null
-  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])))
-  date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7))
-  const yearStart = Date.UTC(date.getUTCFullYear(), 0, 1)
-  const week = Math.ceil(((date.getTime() - yearStart) / 86_400_000 + 1) / 7)
-  return `S${String(week)}`
-}
-
 // Domain of an e-mail address (`jean@exemple.fr` → `exemple.fr`).
 export function emailDomain(value: string): string | null {
   const at = normalizeEmail(value).lastIndexOf('@')
   return at < 0 ? null : normalizeEmail(value).slice(at + 1) || null
 }
+
+// --- Contact state rules the editor shows before saving (backend contact_tracking._checked) -----------------------
+
+// States with a next action by default (backend NEXT_ACTION_STATES): the others close or pause the sequence.
+const NEXT_ACTION_STATES: readonly TrackingStatus[] = ['neutral', 'contacted', 'r1', 'r2']
+
+// The tracking draft after choosing `status`. Like the server, entering a state without a next action drops the stored
+// week when the form still holds it (a week chosen on purpose is kept), and `ignored` never keeps one.
+export function withStatus(tracking: TrackingDraft, status: TrackingStatus | '', storedPlanned: string | null): TrackingDraft {
+  const echo = tracking.planned_contact_on === (storedPlanned ?? '')
+  const drop = status === 'ignored' || (status !== '' && !NEXT_ACTION_STATES.includes(status) && echo)
+  return { ...tracking, status, planned_contact_on: drop ? '' : tracking.planned_contact_on }
+}
+

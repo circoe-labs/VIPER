@@ -25,17 +25,17 @@ export const SEGMENTS = [
 ] as const
 export type Segment = (typeof SEGMENTS)[number]
 
+// The Contact states in display order (backend ContactTrackingStatus, doc/architecture/data-model.md). `neutral` is
+// the initial « no state »: no badge (Contact decision 4). `ignored` is terminal (decision 7).
 export const TRACKING_STATUSES = [
-  'to_contact',
+  'neutral',
   'contacted',
-  'follow_up_1',
-  'follow_up_2',
+  'r1',
+  'r2',
   'response_received',
   'appointment_obtained',
-  'quote_sent',
-  'quote_follow_up',
-  'won',
-  'not_interested',
+  'failure',
+  'ignored',
 ] as const
 export type TrackingStatus = (typeof TRACKING_STATUSES)[number]
 
@@ -92,9 +92,10 @@ export interface ProspectRow {
   primary_phone_type: 'mobile' | 'landline' | 'other' | null
   tracking_status: TrackingStatus | null
   planned_contact_at: string | null
-  // In the `due` segment (to contact, planned no later than today) — computed by the backend's segment predicate.
+  // In the `due` segment (a planned first contact — neutral with a week — due no later than today): computed by the
+  // backend's segment predicate.
   due: boolean
-  // ISO week in business time, e.g. `2026-W38`.
+  // The next-action week (ISO, business time), e.g. `2026-W38`; `planned_contact_at` is its Monday (P1).
   planned_contact_week: string | null
   response_received_at: string | null
   appointment_at: string | null

@@ -91,7 +91,7 @@ export async function createDueProspect(
     last_name: person.last_name,
     company_id: companyId,
     emails: person.email ? [{ address: person.email, is_primary: true }] : [],
-    tracking: { status: 'to_contact', planned_contact_on: day },
+    tracking: { status: 'neutral', planned_contact_on: day },
     provenance: { legal_basis_or_collection_context: 'Données synthétiques de test E2E' },
   })
 }

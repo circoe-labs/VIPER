@@ -7,7 +7,6 @@ import {
   effectiveStatus,
   emptyDraft,
   isDirty,
-  isoWeekLabel,
   newAlias,
   normalizePhone,
   payloadIndexes,
@@ -15,6 +14,7 @@ import {
   toCreateInput,
   toInput,
   validate,
+  withStatus,
 } from './prospectForm'
 
 const VERIFIED = '2026-06-01T10:00:00+00:00'
@@ -53,6 +53,8 @@ describe('prospect form model', () => {
         appointment_time: '10:30:00',
         referent: null,
         status_since: null,
+        suggested_next_contact_on: '2026-09-28',
+        suggested_next_contact_week: '2026-W40',
       },
     })
     const draft = draftFromProspect(prospect)
@@ -94,11 +96,27 @@ describe('prospect form model', () => {
     expect(input.tracking).toBeNull()
   })
 
-  it('creates a tracking at « À contacter » as soon as a date is planned', () => {
+  it('creates a tracking with no state (neutral) as soon as a week is planned', () => {
     const draft = emptyDraft()
     draft.tracking = { ...draft.tracking, planned_contact_on: '2026-09-21' }
 
-    expect(toInput(draft, null).tracking).toMatchObject({ status: 'to_contact', planned_contact_on: '2026-09-21' })
+    expect(toInput(draft, null).tracking).toMatchObject({ status: 'neutral', planned_contact_on: '2026-09-21' })
+  })
+
+  it('drops the stored week when a state without next action is chosen, like the server', () => {
+    const tracking = { ...emptyDraft().tracking, status: 'r1' as const, planned_contact_on: '2026-09-21' }
+
+    // The form still holds the stored week: the server would clear it, the form shows it cleared.
+    expect(withStatus(tracking, 'response_received', '2026-09-21').planned_contact_on).toBe('')
+    expect(withStatus(tracking, 'failure', '2026-09-21').planned_contact_on).toBe('')
+    expect(withStatus(tracking, 'appointment_obtained', '2026-09-21').planned_contact_on).toBe('')
+    // A week chosen on purpose is kept…
+    expect(withStatus(tracking, 'failure', '2026-09-14').planned_contact_on).toBe('2026-09-21')
+    // …except on « Ignoré », which never has a next action.
+    expect(withStatus(tracking, 'ignored', '2026-09-14')).toMatchObject({ status: 'ignored', planned_contact_on: '' })
+    // Sequence states keep it.
+    expect(withStatus(tracking, 'r2', '2026-09-21').planned_contact_on).toBe('2026-09-21')
+    expect(withStatus(tracking, 'neutral', '2026-09-21').planned_contact_on).toBe('2026-09-21')
   })
 
   it('normalizes phone numbers like the server and suggests their type', () => {
@@ -149,9 +167,4 @@ describe('prospect form model', () => {
     })
   })
 
-  it('derives the planned-contact week (ISO 8601)', () => {
-    expect(isoWeekLabel('2026-09-14')).toBe('S38')
-    expect(isoWeekLabel('2027-01-01')).toBe('S53')
-    expect(isoWeekLabel('')).toBeNull()
-  })
 })

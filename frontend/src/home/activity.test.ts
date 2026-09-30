@@ -18,9 +18,9 @@ function edit(fields: Partial<EditItem>): EditItem {
 
 describe('Home activity lines', () => {
   it('reads the save as the formatter summarized it', () => {
-    const save = edit({ summary: ['Changement d’entreprise', 'E-mail principal modifié', 'Suivi : Contacté → Relance 1'] })
+    const save = edit({ summary: ['Changement d’entreprise', 'E-mail principal modifié', 'Suivi : Contacté → R1'] })
 
-    expect(describeEdit(save)).toBe('Changement d’entreprise · E-mail principal modifié · Suivi : Contacté → Relance 1')
+    expect(describeEdit(save)).toBe('Changement d’entreprise · E-mail principal modifié · Suivi : Contacté → R1')
   })
 
   it('names a deleted record, the explorer origin and an agent', () => {

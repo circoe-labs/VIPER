@@ -11,6 +11,7 @@ import type {
   ReferentDecision,
   RoleDecision,
 } from '../api/imports'
+import { weekMonday, weeksInYear } from '../lib/isoWeek'
 import { foldText } from '../lib/text'
 
 // The user's review decisions — overrides of the defaults the server proposed (backend review.py) — and what they
@@ -154,15 +155,11 @@ export function weekYear(decisions: ReviewDecisions, key: string): number | null
   return key in decisions.weeks ? (decisions.weeks[key] ?? null) : decisions.weekYear
 }
 
-// Monday of ISO week `week` of `year` (UTC date), or null when the year has no such week (week 53).
+// Monday of ISO week `week` of `year` (UTC date), or null when the year has no such week (week 53). Calendar
+// arithmetic: src/lib/isoWeek.ts.
 export function isoWeekMonday(year: number, week: number): Date | null {
-  const january4 = new Date(Date.UTC(year, 0, 4))
-  const monday = new Date(january4)
-  monday.setUTCDate(january4.getUTCDate() - ((january4.getUTCDay() + 6) % 7) + (week - 1) * 7)
-  const nextYear = new Date(Date.UTC(year + 1, 0, 4))
-  const lastWeekMonday = new Date(nextYear)
-  lastWeekMonday.setUTCDate(nextYear.getUTCDate() - ((nextYear.getUTCDay() + 6) % 7) - 7)
-  return week >= 1 && monday <= lastWeekMonday ? monday : null
+  if (week < 1 || week > weeksInYear(year)) return null
+  return new Date(`${weekMonday({ year, week })}T00:00:00Z`)
 }
 
 function distinctLabels(labels: string[]): string[] {

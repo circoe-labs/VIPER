@@ -117,7 +117,7 @@ describe('Prospect editor', () => {
     const detail = imported()
     await open(detail, {
       [detail.id]: [
-        historyEntry({ title: 'Fiche modifiée', changes: [{ label: 'Étape', before: 'Contacté', after: 'Relance 1' }] }),
+        historyEntry({ title: 'Fiche modifiée', changes: [{ label: 'État', before: 'Contacté', after: 'R1' }] }),
         historyEntry({
           actor: { kind: 'import', label: 'base.xlsx', id: 'batch-1', on_behalf_of: 'Pilote Test' },
           source: 'import',
@@ -131,7 +131,7 @@ describe('Prospect editor', () => {
     const history = await screen.findByRole('list', { name: 'Historique du prospect' })
     const [saved, created] = Array.from(history.children) as [HTMLElement, HTMLElement]
     expect(saved).toHaveTextContent('Vous')
-    expect(saved).toHaveTextContent('Étape : Contacté → Relance 1')
+    expect(saved).toHaveTextContent('État : Contacté → R1')
     expect(created).toHaveTextContent('Import « base.xlsx »')
   })
 

@@ -62,9 +62,9 @@ test('verify, add a primary e-mail, plan the contact, then Save & Next through t
   await emails.getByRole('radio', { name: 'Principal' }).nth(1).check()
 
   const tracking = region(editor, 'Suivi de contact')
-  await tracking.getByRole('button', { name: 'Dans 1 semaine' }).click()
-  await tracking.getByRole('combobox', { name: 'Étape' }).selectOption({ label: 'Contacté' })
-  await expect(tracking).toContainText('Semaine')
+  await tracking.getByRole('button', { name: '+1 semaine' }).click()
+  await tracking.getByRole('combobox', { name: 'État' }).selectOption({ label: 'Contacté' })
+  await expect(tracking.getByRole('group', { name: 'Prochaine action' })).toContainText('dans 1 semaine')
 
   await editor.getByRole('button', { name: 'Enregistrer et suivant' }).click()
 
@@ -168,6 +168,9 @@ async function screenshots(page: Page, state: string) {
       await page.screenshot({ path: `${SCREENSHOTS}/prospect-editor-${state}-${theme}-${String(width)}.png`, animations: 'disabled' })
       await editor.getByRole('region', { name: 'Téléphones' }).scrollIntoViewIfNeeded()
       await page.screenshot({ path: `${SCREENSHOTS}/prospect-editor-${state}-aliases-${theme}-${String(width)}.png`, animations: 'disabled' })
+      const tracking = editor.getByRole('region', { name: 'Suivi de contact' })
+      await tracking.scrollIntoViewIfNeeded()
+      await tracking.screenshot({ path: `${SCREENSHOTS}/prospect-editor-${state}-tracking-${theme}-${String(width)}.png`, animations: 'disabled' })
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth)
       expect(overflow).toBeLessThanOrEqual(width)
     }
@@ -200,10 +203,14 @@ test('editor screenshots: imported values to verify, then verified (dark/light, 
   await editor.getByRole('button', { name: 'Vérifié aujourd’hui' }).click()
   await region(editor, 'E-mails').getByRole('button', { name: 'Vérifié', exact: true }).click()
   await region(editor, 'Téléphones').getByRole('button', { name: 'Vérifié', exact: true }).click()
-  await region(editor, 'Suivi de contact').getByRole('button', { name: 'Dans 1 semaine' }).click()
+  await region(editor, 'Suivi de contact').getByRole('button', { name: '+1 semaine' }).click()
+  await region(editor, 'Suivi de contact').getByRole('combobox', { name: 'État' }).selectOption({ label: 'Contacté' })
   await editor.getByRole('button', { name: 'Enregistrer', exact: true }).click()
   await expect(editor.getByText('Prospect enregistré.')).toBeVisible()
   await expect(region(editor, 'Vérification de l’emploi')).toContainText('Vérifié le')
+
+  // Saved « Contacté »: the cadence week (+2) is offered, not applied.
+  await expect(region(editor, 'Suivi de contact').getByRole('button', { name: /^Appliquer la cadence : S\d{2} \(relance après Contacté\)$/ })).toBeVisible()
 
   await screenshots(page, 'verified')
 })

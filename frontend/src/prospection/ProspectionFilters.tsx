@@ -116,19 +116,19 @@ function FilterFields({ id, view, onChange }: { id: string; view: ProspectionVie
         ))}
       </SelectField>
       <SelectField
-        label="Suivi de contact"
+        label="État de contact"
         value={view.tracking_status ?? ''}
         onChange={(event) => {
           onChange({ tracking_status: orNull(event.target.value) })
         }}
       >
-        <option value="">Tous les stades</option>
-        <option value={NONE}>Sans suivi</option>
+        <option value="">Tous les états</option>
         {TRACKING_STATUSES.map((status) => (
           <option key={status} value={status}>
             {TRACKING_LABELS[status]}
           </option>
         ))}
+        <option value={NONE}>Jamais suivi (aucune fiche de suivi)</option>
       </SelectField>
       <SelectField
         label="Référent"

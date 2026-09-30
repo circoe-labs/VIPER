@@ -2,6 +2,7 @@
 // Content is generic placeholder text: no business data — except the Settings pickers, which are wired to the API.
 import { useRef, useState } from 'react'
 
+import { TRACKING_STATUSES } from '../api/prospection'
 import { BrandLogo } from '../brand/BrandLogo'
 import type { LogoVariant } from '../brand/logos'
 import { Badge, StatusBadge } from '../ui/Badge'
@@ -14,6 +15,7 @@ import { Menu } from '../ui/Menu'
 import * as icons from '../ui/icons'
 import { PageHeader } from '../ui/PageHeader'
 import { Table } from '../ui/Table'
+import { StateBadge, WeekBadge } from '../prospection/TrackingBadges'
 import { ReferentSelect, TaxonomyMultiSelect, TaxonomySelect } from '../settings/selectors'
 import './showcase.css'
 
@@ -118,6 +120,16 @@ export function Showcase() {
             <StatusBadge tone="neutral">Inconnu</StatusBadge>
             <Badge>Étiquette</Badge>
             <Badge tone="accent">12</Badge>
+          </div>
+        </Card>
+
+        <Card title="États de contact et semaine">
+          <div className="showcase__row">
+            {TRACKING_STATUSES.map((status) => (
+              <StateBadge key={status} status={status} />
+            ))}
+            <WeekBadge week={{ year: 2026, week: 41 }} today="2026-09-30" />
+            <WeekBadge week={{ year: 2027, week: 2 }} today="2026-09-30" />
           </div>
         </Card>
 

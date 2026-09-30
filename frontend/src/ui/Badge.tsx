@@ -41,10 +41,19 @@ export function StatusBadge({ tone, children, icon }: StatusBadgeProps) {
 
 interface BadgeProps {
   tone?: 'neutral' | 'accent'
+  // Optional leading glyph (e.g. the calendar of a week tag); decorative, the text carries the meaning.
+  icon?: IconComponent
+  // Tooltip with the full reading (e.g. the week's year and Monday).
+  title?: string
   children: ReactNode
 }
 
-// Plain label/tag (counts, categories) carrying no status meaning.
-export function Badge({ tone = 'neutral', children }: BadgeProps) {
-  return <span className={`badge badge--tag badge--tag-${tone}`}>{children}</span>
+// Plain label/tag (counts, categories, the next-action week) carrying no status meaning.
+export function Badge({ tone = 'neutral', icon: Icon, title, children }: BadgeProps) {
+  return (
+    <span className={`badge badge--tag badge--tag-${tone}`} title={title}>
+      {Icon && <Icon size={14} />}
+      {children}
+    </span>
+  )
 }

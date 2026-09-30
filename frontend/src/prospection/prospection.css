@@ -382,3 +382,41 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Quick week planning (Contact port S2): the card's « Planifier » button sits above the card-wide link. */
+.prospect-row__plan {
+  position: relative;
+  z-index: 1;
+}
+
+.quick-plan {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.quick-plan__status,
+.quick-plan__hint,
+.quick-plan__error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.quick-plan__error {
+  color: var(--color-danger-fg);
+  font-weight: var(--weight-medium);
+}
+
+.quick-plan__status svg,
+.quick-plan__error svg {
+  flex: none;
+  margin-top: 0.125rem;
+}
+
+.quick-plan__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}

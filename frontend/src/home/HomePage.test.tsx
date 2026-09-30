@@ -37,7 +37,6 @@ function batch(fields: Partial<ImportBatch>): ImportBatch {
 const FILLED = homeData({
   counts: COUNTS,
   companies: 7,
-  stages: { quote_sent: 2, quote_follow_up: 1, won: 1, not_interested: 4 },
   progress: {
     contact_target: 100,
     appointment_target: 10,
@@ -77,7 +76,7 @@ const FILLED = homeData({
           first_name: 'Jean',
           last_name: 'Echu',
           company_name: 'Transports Exemple SARL',
-          tracking_status: 'to_contact',
+          tracking_status: 'neutral',
           at: '2026-09-07T22:00:00+00:00',
           referent_name: null,
         },
@@ -94,7 +93,7 @@ const FILLED = homeData({
       subject_type: 'prospect',
       subject_id: PERSON,
       subject_label: 'Jean Echu',
-      summary: ['E-mail principal modifié', 'E-mail ajouté', 'Suivi : À contacter → Contacté'],
+      summary: ['E-mail principal modifié', 'E-mail ajouté', 'Suivi : Aucun état → Contacté'],
     },
     {
       occurred_at: '2026-09-10T11:00:00+00:00',
@@ -153,10 +152,9 @@ describe('Home page', () => {
       .filter((href) => href.includes('segment='))
     expect(segmentLinks.sort()).toEqual(SEGMENTS.filter((s) => s !== 'all').map((s) => `/prospection?segment=${s}`).sort())
 
-    expect(card('Suivi commercial léger', 'Devis envoyé')).toHaveAttribute('href', '/prospection?tracking_status=quote_sent')
-    expect(card('Suivi commercial léger', 'Gagné')).toHaveTextContent('1')
-    expect(card('Suivi commercial léger', 'Pas intéressé')).toHaveTextContent('4')
-    expect(card('Suivi de contact', 'Échus')).toHaveAttribute('title', 'À contacter, contact prévu au plus tard aujourd’hui.')
+    // The post-appointment group is gone (Contact port P3).
+    expect(screen.queryByRole('heading', { name: 'Suivi commercial léger' })).not.toBeInTheDocument()
+    expect(card('Suivi de contact', 'Échus')).toHaveAttribute('title', 'À contacter, semaine prévue arrivée ou dépassée.')
   })
 
   it('opens Prospection on the segment of a clicked card', async () => {
@@ -210,7 +208,7 @@ describe('Home page', () => {
     )
     const appointment = within(actions).getByRole('list', { name: /Rendez-vous des 7 prochains jours/ })
     expect(within(appointment).getByRole('listitem')).toHaveTextContent(
-      'Rendez-vous le 14 sept. à 10:30 · Rendez-vous obtenu · Référent : Camille Référente',
+      'Rendez-vous le 14 sept. à 10:30 · RDV pris · Référent : Camille Référente',
     )
     expect(within(actions).getByText('Aucune réponse en attente d’un rendez-vous.')).toBeInTheDocument()
     expect(within(actions).queryByRole('link', { name: 'Toutes les réponses' })).not.toBeInTheDocument()
@@ -234,7 +232,7 @@ describe('Home page', () => {
     const edits = screen.getByRole('region', { name: 'Dernières modifications' })
     const [saved, deleted] = within(edits).getAllByRole('listitem') as [HTMLElement, HTMLElement]
     expect(within(saved).getByRole('link', { name: 'Jean Echu' })).toHaveAttribute('href', `/prospection?prospect=${PERSON}`)
-    expect(saved).toHaveTextContent('E-mail principal modifié · E-mail ajouté · Suivi : À contacter → Contacté')
+    expect(saved).toHaveTextContent('E-mail principal modifié · E-mail ajouté · Suivi : Aucun état → Contacté')
     expect(saved).toHaveTextContent('Pilote Test · 10 sept. à 14:15')
     expect(deleted).toHaveTextContent('Prospect supprimé')
     expect(deleted).toHaveTextContent('Fiche supprimée')

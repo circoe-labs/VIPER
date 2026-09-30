@@ -2,22 +2,27 @@ import type { KeyboardEvent } from 'react'
 import { Link } from 'react-router'
 
 import type { ProspectRow } from '../api/prospection'
-import { Badge, StatusBadge } from '../ui/Badge'
+import { parseIsoWeek } from '../lib/isoWeek'
+import { StatusBadge } from '../ui/Badge'
 import { BanIcon, BuildingIcon, ClockIcon, MinusCircleIcon, UsersIcon } from '../ui/icons'
 import {
   ACTIVITY_LABELS,
   civilityLabel,
   formatDay,
   formatPhone,
-  formatWeek,
   personName,
-  TRACKING_LABELS,
 } from './labels'
+import { PlanWeekButton } from './QuickWeekPlanner'
+import { StateBadge, WeekBadge } from './TrackingBadges'
 
 interface ProspectListProps {
   rows: ProspectRow[]
   // URL (search part) that opens a prospect: the current list URL plus `prospect=<id>`.
   openHref: (id: string) => string
+  // Business day (`YYYY-MM-DD`): the current week and year of the week badges.
+  today: string
+  // Offer the quick week planning (PATCH) on each card.
+  planning?: boolean
 }
 
 function initials(row: ProspectRow): string {
@@ -83,24 +88,24 @@ function EmailLine({ row }: { row: ProspectRow }) {
   )
 }
 
-function Tracking({ row }: { row: ProspectRow }) {
-  if (!row.tracking_status) return <span className="prospect-row__muted">Aucun suivi de contact</span>
+// The contact follow-up: two independent indicators — the state (none while `neutral`) and the next-action week —
+// then the dates and the referent (Contact decisions 4-5).
+function Tracking({ row, today, planning }: { row: ProspectRow; today: string; planning: boolean }) {
+  const week = parseIsoWeek(row.planned_contact_week)
+  const shown = row.tracking_status !== null && row.tracking_status !== 'neutral'
   return (
     <>
       <span className="prospect-row__stage">
-        {TRACKING_LABELS[row.tracking_status]}
+        <StateBadge status={row.tracking_status} />
+        {week && <WeekBadge week={week} today={today} />}
         {row.due && (
           <StatusBadge tone="warning" icon={ClockIcon}>
             Échu
           </StatusBadge>
         )}
+        {!shown && !week && <span className="prospect-row__muted">Aucun état · aucune semaine</span>}
+        {planning && <PlanWeekButton row={row} />}
       </span>
-      {row.planned_contact_at && (
-        <span className="prospect-row__planned">
-          Prévu le {formatDay(row.planned_contact_at)}
-          {row.planned_contact_week && <Badge>{formatWeek(row.planned_contact_week)}</Badge>}
-        </span>
-      )}
       {row.response_received_at && <span>Réponse le {formatDay(row.response_received_at)}</span>}
       {row.appointment_at && <span>Rendez-vous le {formatDay(row.appointment_at)}</span>}
       {row.referent_name && <span className="prospect-row__muted">Référent : {row.referent_name}</span>}
@@ -110,7 +115,7 @@ function Tracking({ row }: { row: ProspectRow }) {
 
 // The people list: one readable card per person — identity with its states, company and contacts, contact follow-up.
 // The name is the row's link — the whole card is clickable — and opens the prospect (prospectEditor.tsx).
-export function ProspectList({ rows, openHref }: ProspectListProps) {
+export function ProspectList({ rows, openHref, today, planning = true }: ProspectListProps) {
   return (
     <ul className="prospect-list" aria-label="Prospects" onKeyDown={moveFocus}>
       {rows.map((row) => {
@@ -153,7 +158,7 @@ export function ProspectList({ rows, openHref }: ProspectListProps) {
               {row.primary_phone && <span className="prospect-row__muted">{formatPhone(row.primary_phone)}</span>}
             </div>
             <div className="prospect-row__tracking">
-              <Tracking row={row} />
+              <Tracking row={row} today={today} planning={planning} />
             </div>
           </li>
         )

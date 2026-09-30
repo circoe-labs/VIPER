@@ -7,19 +7,32 @@ export interface Point {
   y: number
 }
 
-// Places a fixed-position element at `point`, shifted back inside the viewport once its size is known.
+// Places a fixed-position element at `point`, shifted back inside the viewport once its size is known — and again
+// whenever that size changes (content loaded after opening, e.g. the quick week planner).
 export function useViewportClamp(ref: RefObject<HTMLElement | null>, point: Point, alignRight = false) {
   const [position, setPosition] = useState<Point>(point)
 
   useLayoutEffect(() => {
     const element = ref.current
     if (!element) return
-    const { width, height } = element.getBoundingClientRect()
-    const left = alignRight ? point.x - width : point.x
-    setPosition({
-      x: Math.max(VIEWPORT_MARGIN, Math.min(left, window.innerWidth - width - VIEWPORT_MARGIN)),
-      y: Math.max(VIEWPORT_MARGIN, Math.min(point.y, window.innerHeight - height - VIEWPORT_MARGIN)),
+    function clamp(target: HTMLElement) {
+      const { width, height } = target.getBoundingClientRect()
+      const left = alignRight ? point.x - width : point.x
+      setPosition({
+        x: Math.max(VIEWPORT_MARGIN, Math.min(left, window.innerWidth - width - VIEWPORT_MARGIN)),
+        y: Math.max(VIEWPORT_MARGIN, Math.min(point.y, window.innerHeight - height - VIEWPORT_MARGIN)),
+      })
+    }
+    clamp(element)
+    // Absent from jsdom: the first placement is then the only one.
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => {
+      clamp(element)
     })
+    observer.observe(element)
+    return () => {
+      observer.disconnect()
+    }
   }, [ref, point.x, point.y, alignRight])
 
   return position

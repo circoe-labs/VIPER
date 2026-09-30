@@ -66,6 +66,11 @@ export interface Tracking {
   appointment_time: string | null
   referent: ValueRef | null
   status_since: string | null
+  // Cadence proposal after `contacted` / `r1` / `r2` (+2 / +2 / +4 weeks from the state's week), else null. Never
+  // applied by the server: the planner offers it, a person applies it (Contact decisions 10-13).
+  suggested_next_contact_on: string | null
+  // e.g. `2026-W41`.
+  suggested_next_contact_week: string | null
 }
 
 export interface ProspectSource {
@@ -156,6 +161,13 @@ export interface ProspectInput {
   tracking: TrackingInput | null
 }
 
+// `PATCH /prospects/{id}/tracking`: the Contact state and/or the next-action week, nothing else. `status` omitted keeps
+// the state; `next_action_week` omitted keeps the week, null clears it (stored as the week's Monday, P1).
+export interface TrackingPatch {
+  status?: TrackingStatus
+  next_action_week?: { year: number; week: number } | null
+}
+
 export interface ProspectCreateInput extends ProspectInput {
   provenance: { legal_basis_or_collection_context: string; source_reference: string | null }
 }
@@ -206,6 +218,12 @@ export function useProspectMutations() {
     contactability: useMutation({
       mutationFn: ({ id, ...body }: { id: string; do_not_contact: boolean; reason: string; version: string }) =>
         apiRequest<Prospect>('PUT', `${prospectPath(id)}/contactability`, { body }),
+      onSuccess: saved,
+    }),
+    // Quick planning outside the editor's form (Prospection list): answers the whole view, like the other writes.
+    tracking: useMutation({
+      mutationFn: ({ id, version, patch }: { id: string; version: string; patch: TrackingPatch }) =>
+        apiRequest<Prospect>('PATCH', `${prospectPath(id)}/tracking`, { body: { ...patch, version } }),
       onSuccess: saved,
     }),
     remove: useMutation({

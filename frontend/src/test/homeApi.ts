@@ -11,7 +11,6 @@ export function homeData(overrides: Partial<HomeData> = {}): HomeData {
     stale_threshold_days: null,
     counts: Object.fromEntries(SEGMENTS.map((segment) => [segment, 0])) as HomeData['counts'],
     companies: 0,
-    stages: { quote_sent: 0, quote_follow_up: 0, won: 0, not_interested: 0 },
     progress: {
       contact_target: 100,
       appointment_target: 10,

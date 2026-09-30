@@ -53,7 +53,17 @@ export const ALL_VALUES: ListFilters = { search: '', active: 'all' }
 // Companies and Prospects APIs), turned into French copy by `settings/messages.ts`, `companies/messages.ts` and
 // `prospects/messages.ts`. `conflict` (stale version) and `do_not_contact` come from the Prospects API only.
 export interface SettingsRefusal {
-  code: 'duplicate' | 'in_use' | 'invalid' | 'not_found' | 'conflict' | 'do_not_contact'
+  // Codes of backend/app/api/errors.py; the last three are the Contact tracking rules (prospects only).
+  code:
+    | 'duplicate'
+    | 'in_use'
+    | 'invalid'
+    | 'not_found'
+    | 'conflict'
+    | 'do_not_contact'
+    | 'ignored_is_terminal'
+    | 'ignored_has_no_next_action'
+    | 'human_actor_required'
   field?: string
   // Why an `invalid` field was refused when it can fail in several ways (`format`, `checksum`, `webmail`…).
   reason?: string

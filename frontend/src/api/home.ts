@@ -9,15 +9,12 @@ import type { Segment, TrackingStatus } from './prospection'
 // Prospection segments (same keys and values as /api/prospection/counters); definitions in
 // doc/features/home-dashboard.md.
 
-export const COMMERCIAL_STAGES = ['quote_sent', 'quote_follow_up', 'won', 'not_interested'] as const
-export type CommercialStage = (typeof COMMERCIAL_STAGES)[number]
-
 export interface MonthProgress {
   // First day of the month (ISO date, Europe/Paris).
   month: string
   // Prospects contacted for the first time that month (status history, imports excluded).
   contacted: number
-  // Prospects who reached an appointment stage for the first time that month.
+  // Prospects whose state first became « RDV pris » that month.
   appointments: number
 }
 
@@ -46,7 +43,7 @@ export interface EditItem {
   subject_id: string | null
   // Current name of the person or company; null once deleted.
   subject_label: string | null
-  // What the save did, without values (« E-mail principal modifié », « Suivi : Contacté → Relance 1 »).
+  // What the save did, without values (« E-mail principal modifié », « Suivi : Contacté → R1 »).
   summary: string[]
 }
 
@@ -55,7 +52,6 @@ export interface HomeData {
   stale_threshold_days: number | null
   counts: Record<Segment, number>
   companies: number
-  stages: Record<CommercialStage, number>
   progress: {
     contact_target: number
     appointment_target: number

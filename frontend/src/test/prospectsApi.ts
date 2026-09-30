@@ -2,8 +2,9 @@ import { vi } from 'vitest'
 
 import type { Company } from '../api/companies'
 import type { HistoryEntry } from '../api/history'
-import type { Prospect, ProspectCreateInput, ProspectInput } from '../api/prospects'
+import type { Prospect, ProspectCreateInput, ProspectInput, Tracking, TrackingPatch } from '../api/prospects'
 import type { Referent, TaxonomyValue } from '../api/settings'
+import { isoWeekOf, weekMonday } from '../lib/isoWeek'
 import { stubCompaniesApi } from './companiesApi'
 import { historyPage } from './historyApi'
 import { type FakeProspect, stubProspectionApi } from './prospectionApi'
@@ -60,6 +61,29 @@ export function companySummary(company: Company): NonNullable<Prospect['company'
     commercial_segment_label: null,
     city: null,
     prospect_count: company.prospect_count,
+  }
+}
+
+// `2026-09-14` → `2026-W38` (the API's week label).
+function weekLabel(day: string | null): string | null {
+  const week = day ? isoWeekOf(day) : null
+  return week ? `${String(week.year)}-W${String(week.week).padStart(2, '0')}` : null
+}
+
+// Blank tracking with the API's fields (a test overrides what it needs).
+export function trackingDetail(fields: Partial<Tracking> = {}): Tracking {
+  return {
+    status: 'neutral',
+    planned_contact_on: null,
+    planned_contact_week: null,
+    response_received_on: null,
+    appointment_on: null,
+    appointment_time: null,
+    referent: null,
+    status_since: null,
+    suggested_next_contact_on: null,
+    suggested_next_contact_week: null,
+    ...fields,
   }
 }
 
@@ -138,9 +162,11 @@ export function stubProspectsApi(options: ProspectsStubOptions = {}) {
       tracking: input.tracking
         ? {
             ...input.tracking,
-            planned_contact_week: null,
+            planned_contact_week: weekLabel(input.tracking.planned_contact_on),
             referent: null,
             status_since: null,
+            suggested_next_contact_on: null,
+            suggested_next_contact_week: null,
           }
         : previous.tracking,
     }
@@ -170,6 +196,27 @@ export function stubProspectsApi(options: ProspectsStubOptions = {}) {
         contactability_status: do_not_contact ? 'do_not_contact' : 'contactable',
         do_not_contact_at: do_not_contact ? `${TODAY}T10:00:00+00:00` : null,
         do_not_contact_reason: do_not_contact ? reason : null,
+      }
+      store.set(current.id, updated)
+      return reply(200, updated)
+    }
+    if (method === 'PATCH' && action === 'tracking') {
+      // State and/or week only; the Contact rules themselves are tested in the backend.
+      const patch = body as TrackingPatch
+      const tracking = current.tracking ?? trackingDetail()
+      const planned =
+        patch.next_action_week === undefined
+          ? tracking.planned_contact_on
+          : patch.next_action_week && weekMonday(patch.next_action_week)
+      const updated: Prospect = {
+        ...current,
+        version: `${current.version}+`,
+        tracking: {
+          ...tracking,
+          status: patch.status ?? tracking.status,
+          planned_contact_on: planned,
+          planned_contact_week: weekLabel(planned),
+        },
       }
       store.set(current.id, updated)
       return reply(200, updated)

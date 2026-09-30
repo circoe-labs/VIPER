@@ -73,7 +73,8 @@ test('counters narrow the list to the right people, kept in the URL; a person op
   await expectCount(page, 'Jamais vérifiés', 5)
   await expectCount(page, 'E-mail manquant', 1)
   await expectCount(page, 'E-mail non vérifié', 4)
-  await expectCount(page, 'À contacter', 3)
+  // Planned first contacts only: neutral with a week (Léa has neither state nor week).
+  await expectCount(page, 'À contacter', 2)
   await expectCount(page, 'Échus', 1)
   await expectCount(page, 'Contactés', 2)
   await expectCount(page, 'Sans réponse', 1)
@@ -87,13 +88,15 @@ test('counters narrow the list to the right people, kept in the URL; a person op
   await expect(people(page).getByRole('listitem')).toHaveCount(1)
   const due = people(page).getByRole('listitem').filter({ hasText: `Echu${suffix}` })
   await expect(due).toContainText('Échu')
-  await expect(due).toContainText(`S${String(past.week)}`)
+  await expect(due).toContainText(`S${String(past.week).padStart(2, '0')}`)
+  // Neutral: the week badge, no state badge.
+  await expect(due).not.toContainText('État :')
   await expect(due).toContainText('Emploi jamais vérifié')
 
   await card(page, 'Sans réponse').click()
   await expect(people(page).getByRole('listitem')).toHaveCount(1)
   await expect(people(page)).toContainText(`Relance${suffix}`)
-  await expect(people(page)).toContainText('Relance 1')
+  await expect(people(page)).toContainText('R1')
 
   await card(page, 'Rendez-vous').click()
   await expect(people(page).getByRole('listitem')).toHaveCount(1)
@@ -108,13 +111,29 @@ test('counters narrow the list to the right people, kept in the URL; a person op
   // Combined filters: every counter follows them.
   await card(page, 'Tous').click()
   await page.getByRole('button', { name: 'Filtres' }).click()
-  await page.getByRole('combobox', { name: 'Suivi de contact' }).selectOption({ label: 'Sans suivi' })
+  await page.getByRole('combobox', { name: 'État de contact' }).selectOption({ label: 'Jamais suivi (aucune fiche de suivi)' })
   await expectCount(page, 'Tous', 1)
   await expect(people(page)).toContainText(`SansMail${suffix}`)
   await expect(people(page)).toContainText('Pas d’e-mail principal')
   await page.getByRole('button', { name: 'Réinitialiser' }).click()
   await page.getByRole('searchbox', { name: /Rechercher/ }).fill(tag)
   await expectCount(page, 'Tous', 5)
+
+  // Quick planning from the list (PATCH, the week only): Léa becomes a planned first contact, still with no state.
+  const lea = people(page).getByRole('listitem').filter({ hasText: `SansMail${suffix}` })
+  await lea.getByRole('button', { name: /^Planifier la semaine de/ }).click()
+  const popover = page.getByRole('dialog', { name: /^Prochaine semaine de Léa/ })
+  await popover.getByRole('button', { name: '+2 semaines' }).click()
+  const planned = isoWeek(new Date(Date.now() + 14 * DAY))
+  const plannedLabel = `S${String(planned.week).padStart(2, '0')}`
+  await page.screenshot({ path: `${SCREENSHOTS}/prospection-quick-plan-dark.png`, animations: 'disabled' })
+  const patched = page.waitForResponse((response) => response.request().method() === 'PATCH')
+  await popover.getByRole('button', { name: `Enregistrer ${plannedLabel}` }).click()
+  expect((await patched).status()).toBe(200)
+  await expect(popover).toBeHidden()
+  await expect(lea).toContainText(plannedLabel)
+  await expect(lea).not.toContainText('État :')
+  await expectCount(page, 'À contacter', 3)
 
   // Keyboard: ↓ to the second person, Enter opens them in the prospect editor over the list.
   await card(page, 'Contactés').click()

@@ -355,3 +355,19 @@ export const MapPinIcon = (props: IconProps) => (
     <circle cx="12" cy="10" r="2.5" />
   </Svg>
 )
+
+// Contact tracking: the next-action week (Contact port S2)
+export const CalendarIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <rect x="3.5" y="5" width="17" height="15.5" rx="2" />
+    <path d="M3.5 10h17M8 3v4M16 3v4" />
+  </Svg>
+)
+
+// Contact tracking: a state with a reply awaited or given (Contact port S2)
+export const MailIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <rect x="3" y="5" width="18" height="14" rx="2" />
+    <path d="m3.5 6.5 8.5 6.5 8.5-6.5" />
+  </Svg>
+)

@@ -19,11 +19,13 @@ interface OppositionSectionProps {
   onSubmit: (doNotContact: boolean, reason: string) => Promise<void>
 }
 
-// Durable do-not-contact: independent of the activity status and of the contact-tracking stage (« Pas intéressé » is
-// an outcome, not an opposition). Set and lifted only through a confirmation with a reason, never by the form's save.
+// Durable do-not-contact: independent of the activity status and of the contact state (« Failure » is an outcome, not
+// an opposition). Set and lifted only through a confirmation with a reason, never by the form's save. The state
+// « Ignoré » sets it for good (Contact decision 7): it cannot be lifted then.
 export function OppositionSection({ prospect, busy, pendingChanges, onSubmit }: OppositionSectionProps) {
   const [dialog, setDialog] = useState<'set' | 'clear' | null>(null)
   const blocked = prospect?.contactability_status === 'do_not_contact'
+  const ignored = prospect?.tracking?.status === 'ignored'
   return (
     <EditorSection title="Opposition" tone={blocked ? 'danger' : undefined}>
       {blocked ? (
@@ -41,16 +43,22 @@ export function OppositionSection({ prospect, busy, pendingChanges, onSubmit }: 
               </>
             )}
           </p>
-          <div>
-            <Button
-              size="sm"
-              onClick={() => {
-                setDialog('clear')
-              }}
-            >
-              Lever l’opposition…
-            </Button>
-          </div>
+          {ignored ? (
+            <p className="prospect-editor__muted">
+              Prospect « Ignoré » : l’opposition est définitive et ne peut pas être levée.
+            </p>
+          ) : (
+            <div>
+              <Button
+                size="sm"
+                onClick={() => {
+                  setDialog('clear')
+                }}
+              >
+                Lever l’opposition…
+              </Button>
+            </div>
+          )}
         </div>
       ) : (
         <div className="prospect-opposition">

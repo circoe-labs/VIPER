@@ -21,7 +21,6 @@ const DAY = 24 * 60 * 60 * 1000
 interface HomeAnswer {
   counts: Record<string, number>
   companies: number
-  stages: Record<string, number>
   next_actions: Record<'appointments' | 'due' | 'responses', { total: number; items: { prospect_id: string }[] }>
   recent_imports: { id: string; filename: string; status: string }[]
 }
@@ -82,9 +81,8 @@ test('Home shows the global state it reads, and a card opens its Prospection seg
   ] as const) {
     await expect(kpi(page, 'Suivi de contact', label)).toContainText(NUMBER.format(data.counts[segment] ?? -1))
   }
-  await expect(kpi(page, 'Suivi commercial léger', 'Devis envoyé')).toContainText(
-    NUMBER.format(data.stages.quote_sent ?? -1),
-  )
+  // The post-appointment group is gone (Contact port P3).
+  await expect(page.getByRole('heading', { name: 'Suivi commercial léger' })).toHaveCount(0)
   const due = page.getByRole('list', { name: /^Contacts échus/ })
   const dueLinks = due.getByRole('link')
   await expect(dueLinks).toHaveCount(data.next_actions.due.items.length)

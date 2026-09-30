@@ -3,7 +3,7 @@ import { Link } from 'react-router'
 import type { ActionGroup, ActionItem, HomeData } from '../api/home'
 import type { ProspectSort, Segment } from '../api/prospection'
 import { prospectionHref } from '../prospection/criteria'
-import { personName, TRACKING_LABELS } from '../prospection/labels'
+import { personName, stateLabel } from '../prospection/labels'
 import { ChevronRightIcon } from '../ui/icons'
 import { formatMoment } from './activity'
 
@@ -18,7 +18,8 @@ interface GroupSpec {
   sort?: ProspectSort
   more: string
   when: (item: ActionItem) => string | null
-  // Whether the current stage says more than the group title (every due contact is « À contacter »).
+  // Whether the current state says more than the group title (every due contact is a planned first contact, with no
+  // state). `neutral` shows no label.
   stage: boolean
 }
 
@@ -74,7 +75,7 @@ function ActionList({ spec, group }: { spec: GroupSpec; group: ActionGroup }) {
           {group.items.map((item) => {
             const meta = [
               spec.when(item),
-              spec.stage && item.tracking_status && TRACKING_LABELS[item.tracking_status],
+              spec.stage && stateLabel(item.tracking_status),
               item.referent_name && `Référent : ${item.referent_name}`,
             ]
             return (
