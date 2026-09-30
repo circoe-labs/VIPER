@@ -72,6 +72,9 @@ then conversions waiting; within a group the oldest (or soonest) first, ties by 
 | *Contacts échus* | segment `due` | oldest planned contact first |
 | *Réponses sans rendez-vous* | actionable, answered (`responses` predicate), no appointment (`appointments` predicate false), state not `failure` / `ignored` | oldest response first, no date last |
 
+Each person shows the date of the group and, for the appointments and responses groups, the Contact state label
+(`stateLabel`: nothing for `neutral`, which the due group always is).
+
 A person opens in Prospection within the list they belong to (`/prospection?segment=due&sort=planned_contact&prospect=<id>`,
 Task 14 contract), so the Prospect editor's *Enregistrer et suivant* walks that queue; *Tous les échus* / *Toutes les
 réponses* / *Tous les rendez-vous* open the segment (the last two are wider than the group, as their labels say).
@@ -174,8 +177,9 @@ the base and the contact activity. Styles: `frontend/src/home/home.css` (see the
   no raw payload, staged Database Explorer stage changes (into `contacted`, into `appointment_obtained` after an
   imported contact) counted in the current month as human history rows. `tests/test_prospection_performance.py`: Home on
   20 000 prospects in three planner states (see *Performance*).
-- Frontend `src/home/HomePage.test.tsx` (heading order, every card's segment/filter URL and count, click → URL, meters'
-  text alternatives and 6-month table, next-action links, readable import/edit lines without technical names, empty
+- Frontend `src/home/HomePage.test.tsx` (heading order, every card's segment URL and count, no *Suivi commercial léger*
+  group, click → URL, meters' text alternatives and 6-month table, next-action links (the state label next to a
+  person — none for `neutral`, *RDV pris*…), readable import/edit lines without technical names, empty
   base with/without the editor's create, V1 scope sentence and no agent/e-mail widget, error + retry),
   `src/home/activity.test.ts` (record name, origin incl. an agent, counts, dates). Shell tests stub `/api/home`
   (`src/test/homeApi.ts`).

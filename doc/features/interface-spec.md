@@ -38,9 +38,9 @@ Cards are clickable when they map to a Prospection filter. Future agent/email/Ca
 KPI definitions, monthly progress, next actions, recent activity and API: [home-dashboard.md](home-dashboard.md).
 *État de la base* (*Base*: Prospects, Entreprises, Actifs, Inconnus, Inactifs, Opposition; *Vérification*: Jamais
 vérifiés, À revérifier, E-mail manquant / invalide / non vérifié) and *Activité de contact* (*Suivi de contact*: À
-contacter, Échus, Contactés, Sans réponse, Réponses, Rendez-vous; *Suivi commercial léger*: Devis envoyé, Suivi du
-devis, Gagné, Pas intéressé) as link cards — every prospect count is the Prospection segment it opens
-(`/prospection?segment=…`, stages `?tracking_status=…`, Entreprises `/prospection/companies`); then *Prochaines
+contacter, Échus, Contactés, Sans réponse, Réponses, Rendez-vous — the *Suivi commercial léger* group was removed with
+the Contact states, P3) as link cards — every prospect count is the Prospection segment it opens
+(`/prospection?segment=…`, Entreprises `/prospection/companies`); then *Prochaines
 actions* (appointments of the next 7 days, due contacts, answers without appointment — each person opens in its
 Prospection queue); then three equal panels: *Progression du mois* (first contacts and appointments obtained this
 month against the informative 100 / 10 targets, six-month columns, a table view), *Derniers imports* and *Dernières
@@ -62,9 +62,9 @@ People-oriented readable rows/cards, not a raw table. Show: identity, Role/exact
 Segments, counters, criteria, URL and open-editor contract: [prospection-kpis.md](prospection-kpis.md). Header
 *Entreprises*, *Importer Excel*, *Exporter Excel*, *+ Ajouter un prospect* (opens the Prospect editor, Task 15); 16 counter cards
 in three groups (*Base*, *Vérification*, *Suivi de contact*) that toggle the list's segment; search, *Filtres* (role,
-activity, contact stage, referent, company, import) and sort; one card per person (identity, role · exact title,
-activity and verification badges, company, primary e-mail state, phone, stage, planned date + week, due, referent,
-do-not-contact). All state in the URL (`?segment=due&q=…&page=2`); opening a person sets `?prospect=<id>` and opens the
+activity, contact state, referent, company, import) and sort; one card per person (identity, role · exact title,
+activity and verification badges, company, primary e-mail state, phone, the Contact state badge — none while neutral —
+and the next-action week badge *S41*, due, referent, do-not-contact, *Planifier* for a quick week choice). All state in the URL (`?segment=due&q=…&page=2`); opening a person sets `?prospect=<id>` and opens the
 Prospect editor over the list (Task 15).
 
 ### Prospect editor
@@ -77,7 +77,7 @@ Sections:
 4. Emails: aliases, primary, verification, origin/source
 5. Phones: aliases, type, primary, verification, origin/source
 6. Contactability/opposition: durable do-not-contact control clearly separated from activity and current stage
-7. Suivi de contact: planned contact, current stage, response date, appointment date, referent (primarily once appointment exists)
+7. Suivi de contact: Contact state (8 states, *Aucun état* = no badge), next-action week planner with the cadence proposal (never auto-applied), response date, appointment date, referent (primarily once appointment exists)
 8. Company context summary + link/open Company editor
 9. Provenance / recent history compactly accessible
 

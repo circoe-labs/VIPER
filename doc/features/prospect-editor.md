@@ -47,8 +47,8 @@ the dirty-state bar.
 | Vérification de l'emploi | *Vérifié aujourd'hui*, *ou vérifié le* (date), *Effacer la vérification* | `employment_verified_at` | Covers company, role, exact title and activity. Explicit only: see *Verification*. |
 | E-mails, Téléphones | repeaters | `emails`, `phones` | See *E-mails and phones*. |
 | Opposition | *Enregistrer une opposition…*, *Lever l'opposition…* | `contactability_status`, `do_not_contact_at`, `do_not_contact_reason` | Dedicated operation, never the save — see *Opposition*. |
-| Suivi de contact | État | `contact_tracking.status` (Contact states, data-model) | *Aucun suivi* until one exists; setting a date alone creates it at `neutral` (no state). The `PUT` save sends the whole form, so its `planned_contact_on` cannot tell a kept week from a chosen one: when the save moves the state to `response_received`, `appointment_obtained`, `failure` or `ignored` and the planned day is **unchanged**, the day is treated as an echo and cleared; a different day is kept (not on `ignored`). To keep the same week with such a state, use `PATCH …/tracking` with the week in the body. *Depuis le …* = the last status-history entry. A tracking is never deleted from the editor. |
-| | Contact prévu le (+ *Aujourd'hui*, *Dans 1 semaine*) | `planned_contact_at` | A day (Europe/Paris); the ISO week is shown (*Semaine 38*). |
+| Suivi de contact | État | `contact_tracking.status` (Contact states, data-model) | Select over the eight states in display order (*Aucun état* = `neutral`, *Contacté*, *R1*, *R2*, *Réponse reçue*, *RDV pris*, *Failure*, *Ignoré*); *Aucun suivi* until one exists; setting a week alone creates it at `neutral` (no state). The hint says what the chosen state implies before saving (response date defaulted, end of sequence and referent, *Failure* is not an opposition, *Ignoré* is final and sets *Ne pas contacter*); the form mirrors the echo rule below (`withStatus` in `prospectForm.ts`): the stored week disappears from the planner when such a state is chosen. A saved *Ignoré* disables the select (*« Ignoré » est définitif*) and the opposition cannot be lifted (no *Lever l'opposition…*). The `PUT` save sends the whole form, so its `planned_contact_on` cannot tell a kept week from a chosen one: when the save moves the state to `response_received`, `appointment_obtained`, `failure` or `ignored` and the planned day is **unchanged**, the day is treated as an echo and cleared; a different day is kept (not on `ignored`). To keep the same week with such a state, use `PATCH …/tracking` with the week in the body. *Depuis le …* = the last status-history entry. A tracking is never deleted from the editor. |
+| | Prochaine action — *Année*, *Semaine* (+ *Cette semaine*, *+1 semaine*, *+2 semaines*, *Effacer*) | `planned_contact_at` | The next-action **week** (`WeekPlanner.tsx`, Contact decisions 5 and 14 — a week, neither a state nor a sending date): year select (current −1 … +2) and week select (*S41 · lun. 5 oct.*, 52 or 53 weeks); the planner writes the week's Monday (P1) and shows the week badge, *Semaine du lun. 5 oct. 2026 · dans 1 semaine*, or *Aucune semaine planifiée*. An older stored day (not a Monday) is kept until another week is chosen. The cadence proposal of the **saved** state (`tracking.suggested_next_contact_week`: *Contacté*/*R1* +2 weeks, *R2* +4 for the review) is a one-click *Appliquer la cadence : S42 (relance après R1)*, never applied by itself, and hidden once another state is chosen in the form. On *Ignoré* the planner is replaced by *Prospect ignoré : aucune prochaine action ne peut être planifiée.* The editor saves the week with the form (`PUT`); `PATCH …/tracking` serves the Prospection list's quick planning. |
 | | Réponse reçue le | `response_received_at` | A day. |
 | | Rendez-vous le … à … | `appointment_at` | A day and an optional time. |
 | | Référent Circoe | `referent_id` | A Circoe internal referent (never a login). Emphasized (warning box + hint) once an appointment exists without one. Inline creation *Prénom Nom* through Paramètres, as everywhere. |
@@ -197,9 +197,9 @@ Refusals (`app/api/errors.py`, French copy in `frontend/src/prospects/messages.t
 | 409 | `{code: "duplicate", field: "role_label", existing}` | *Le rôle « Dirigeant » existe déjà : choisissez-le dans la liste.* |
 | 409 | `{code: "conflict"}` | *Ce prospect a été modifié ailleurs depuis son ouverture…* |
 | 409 | `{code: "do_not_contact"}` (delete) | *Suppression impossible : ce prospect est en opposition…* |
-| 409 | `{code: "ignored_is_terminal"}` (a state change or lifting the opposition of an `ignored` prospect) · `{code: "ignored_has_no_next_action"}` | Contact rules (data-model *Domain rules*) |
-| 403 | `{code: "human_actor_required"}` | a state chosen by a non-human actor (never through the UI) |
-| 422 | `{code: "invalid", field: "next_action_week", reason: "iso_week"}` (week 53 of a 52-week year) · `{code: "invalid", field: "status", reason: "empty"}` (PATCH without change) | |
+| 409 | `{code: "ignored_is_terminal"}` (a state change or lifting the opposition of an `ignored` prospect) · `{code: "ignored_has_no_next_action"}` | *Ce prospect est « Ignoré » : c'est définitif, son état ne change plus et son opposition reste enregistrée.* · *Un prospect « Ignoré » n'a pas de prochaine action : effacez la semaine.* (on the week) |
+| 403 | `{code: "human_actor_required"}` | *Seule une personne connectée peut changer l'état de contact ou sa semaine (pas un agent).* |
+| 422 | `{code: "invalid", field: "next_action_week", reason: "iso_week"}` (week 53 of a 52-week year) · `{code: "invalid", field: "status", reason: "empty"}` (PATCH without change) | *Cette semaine n'existe pas cette année-là…* · *Rien à enregistrer : choisissez un état ou une semaine.* |
 | 404 | `{code: "not_found"}` | *Ce prospect n'existe plus…* |
 
 ## Audit
@@ -218,7 +218,7 @@ that changes nothing writes nothing.
 | Services | `backend/app/services/prospect_editor.py` (view model, `create_prospect`, `update_prospect`, `set_contactability`, `delete_prospect`, `aggregate_version`), `backend/app/services/contact_channels.py` (alias normalization and full-list save), existing domain operations in `prospects.py`, `contact_tracking.py`, `provenance.py`, `taxonomies.py` |
 | Repositories | `backend/app/repositories/prospects.py` (`lock_prospect`, `version_rows`, `sources_with_batches`, `count_import_rows`), `companies.company_summary`; `prospection.query.prospect_verification_state` |
 | Router | `backend/app/api/routes/prospects.py` |
-| Frontend | `frontend/src/prospects/` (`ProspectEditor`, `EmploymentSections`, `AliasList`, `TrackingSection`, `OppositionSection`, `ContextSections`, `pickers`, `EditorSection`, `prospectForm.ts`, `verification.ts`, `messages.ts`, `prospects.css`), API hooks `frontend/src/api/prospects.ts`; history: `frontend/src/history/` (`HistoryTimeline`, `format.ts`), `frontend/src/api/history.ts`, backend `app/services/history.py` |
+| Frontend | `frontend/src/prospects/` (`ProspectEditor`, `EmploymentSections`, `AliasList`, `TrackingSection`, `WeekPlanner` (+ `week-planner.css`), `OppositionSection`, `ContextSections`, `pickers`, `EditorSection`, `prospectForm.ts`, `verification.ts`, `messages.ts`, `prospects.css`), API hooks `frontend/src/api/prospects.ts`; history: `frontend/src/history/` (`HistoryTimeline`, `format.ts`), `frontend/src/api/history.ts`, backend `app/services/history.py` |
 
 ## Tests
 
@@ -240,13 +240,17 @@ that changes nothing writes nothing.
   change effect), `ProspectOpposition.test.tsx` (set/lift dialogs with reason, blocked and allowed deletion),
   `ProspectSaveNext.test.tsx` (Save & Next through a queue, Ctrl+Entrée without changes and the end of the list),
   `ProspectCreate.test.tsx` (creation with provenance and *Enregistrer et nouveau*, required fields, company created
-  through the Company editor), `ProspectTracking.test.tsx` (role created with the save, planned week and referent
-  emphasis) — against `src/test/prospectsApi.ts` and `src/test/renderProspectEditor.tsx`. Task 19: empty imported
+  through the Company editor), `ProspectTracking.test.tsx` (role created with the save; week planned without a state → `neutral` on the Monday;
+  another year through the selects and *Effacer*; cadence offered, applied only on click, hidden for another state;
+  the eight states, echo week dropped on *RDV pris* and referent emphasis; *Ignoré* closing the planner, saved *Ignoré*
+  locked with its opposition; French copy of `ignored_is_terminal`) — against `src/test/prospectsApi.ts` and `src/test/renderProspectEditor.tsx`. Task 19: empty imported
   fields' empty states, provenance badge and history section, history refreshed after a save (`ProspectEditor.test.tsx`),
   stored alias source sent back unchanged (`prospectForm.test.ts`), `src/history/*.test.ts(x)` (actor badges, sources,
   dates, change lines, *Voir plus*, folded creation, empty state); backend `tests/test_history.py`,
   `tests/test_history_api.py`; Playwright `e2e/history.spec.ts`.
 - Playwright `e2e/prospect-editor.spec.ts` (real backend, its own imported people): open from the list, verify the
-  employment, add a second e-mail made primary, plan a contact and a stage, Save & Next to the next person of the
+  employment, add a second e-mail made primary, plan a week (*+1 semaine*) and a state, Save & Next to the next person of the
   filtered queue; add a person with a company created inline; record an opposition and find it under *Opposition*;
-  screenshots of the warning and verified states in both themes at 1440×900 and 1280×800.
+  screenshots of the warning and verified states in both themes at 1440×900 and 1280×800 (plus the *Suivi de contact*
+  section alone: `prospect-editor-<state>-tracking-<theme>-<width>.png`; the verified state is saved *Contacté* + 1 week,
+  so the cadence proposal shows).

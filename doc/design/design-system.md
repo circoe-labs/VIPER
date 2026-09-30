@@ -143,7 +143,7 @@ the same file and style.
 | `Checkbox` / `Switch` | `label`, `hint`, native checkbox props | `Switch` has `role="switch"` and is for settings applied immediately; form values use `Checkbox`. |
 | `Card` | `title?`, `actions?` | With a title it is a named `region` (`<section>` + `<h2>`). |
 | `StatusBadge` | `tone` success \| warning \| danger \| info \| neutral, `icon?`, text children | Always glyph + text (never colour alone). success = verified/positive (mint, not brand green), warning = unverified/stale, danger = do-not-contact/destructive, neutral = unknown/inactive. |
-| `Badge` | `tone` neutral \| accent | Plain tags/counts, no status meaning. |
+| `Badge` | `tone` neutral \| accent, `icon?`, `title?` | Plain tags/counts, no status meaning; an optional decorative glyph and tooltip (the next-action week tag). |
 | `Table` | `caption` (required), `density` comfortable \| compact; children `<thead>/<tbody>` | Focusable named scroll region, sticky header, `.table__numeric` for numbers/dates. |
 | `EmptyState` | `icon`, `title`, `description?`, `action?` | Honest absence of data + next action. |
 | `PageHeader` | `title` (the page `<h1>`), `description?`, `actions?` | One per routed page. |
@@ -168,6 +168,33 @@ surface: search, *Filtres* disclosure (accent count badge), inline *Trier par*. 
 muted text, then status badges; do-not-contact adds a 3 px danger edge on top of its badge. Three columns (identity
 and states / company and contacts / follow-up); a container query drops to two then one column. Styles:
 `frontend/src/prospection/prospection.css` (feature doc: `doc/features/prospection-kpis.md`).
+
+### Contact state and week badges (Contact port S2)
+Two independent indicators (`frontend/src/prospection/TrackingBadges.tsx`, shown in `/_dev/ui`), never merged:
+
+| State | Badge | Why this tone |
+|---|---|---|
+| `neutral` (*Aucun état*) | **none** | the initial state shows nothing (Contact decision 4) |
+| *Contacté* | `StatusBadge` neutral + check | sequence in progress, nothing to signal |
+| *R1*, *R2* | neutral + refresh (relance) | same |
+| *Réponse reçue* | info + envelope | a reply waits for a human decision |
+| *RDV pris* | success + check-circle | the positive end of the sequence |
+| *Failure* | neutral + minus-circle | closed without outcome — not an opposition, not an error |
+| *Ignoré* | danger + ban | terminal, reinforces *Ne pas contacter* (same glyph and tone) |
+
+Each state badge reads « État : … » for screen readers. The **week** is a `Badge` accent tag with a calendar glyph,
+*S41* (two digits), the year written when it is not the current one (*S02 · 2027*), the full week (*Semaine 41 de
+2026, du lun. 5 oct.*) in the tooltip and for screen readers; *Échu* stays the warning `StatusBadge` beside it.
+*Aucun état · aucune semaine* in muted text when there is neither. The card's *Planifier* / *Replanifier* ghost button
+(calendar glyph, above the stretched link) opens a `Popover` with the week planner.
+
+### Week planner
+`frontend/src/prospects/WeekPlanner.tsx` + `week-planner.css`, in the editor's *Suivi de contact* section and the
+list's popover: a *Prochaine action* group — current week line (badge + *Semaine du lun. 5 oct. 2026 · dans 1
+semaine*, or italic muted *Aucune semaine planifiée*), *Année* and *Semaine* `SelectField`s side by side, ghost `sm`
+quick choices (*Cette semaine*, *+1 semaine*, *+2 semaines*; the matching one is `aria-pressed` with accent-soft +
+accent-fg **and** a check glyph) and *Effacer*; the cadence proposal is a secondary `sm` button with a calendar glyph
+(*Appliquer la cadence : S42 (relance après R1)*), or a muted line with the glyph once the chosen week matches it.
 
 ## Home dashboard
 Spacious, global state first: eyebrow-labelled rows of six link cards (14 px glyph + 13 px muted label, 26 px

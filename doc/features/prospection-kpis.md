@@ -100,14 +100,22 @@ The `q` search keeps its `label_key`/`strpos` semantics; the trigram indexes of 
   Counts follow the search and filters. Each card's tooltip is its definition in one sentence, repeated under the list
   title.
 - **Toolbar** — search (debounced), *Filtres* (disclosure with the number of active filters; open on load when one is
-  set): Rôle, Activité, Suivi de contact, Référent, Entreprise (picker over the first 200 companies), Import (committed
-  imports of the history); *Trier par*. *Réinitialiser* clears the segment, search and filters (keeps the sort).
+  set): Rôle, Activité, *État de contact* (*Tous les états*, the eight Contact states — *Aucun état* is `neutral` —
+  and *Jamais suivi (aucune fiche de suivi)* for `none`), Référent, Entreprise (picker over the first 200 companies),
+  Import (committed imports of the history); *Trier par*. *Réinitialiser* clears the segment, search and filters (keeps the sort).
 - **People list** — one card per person, 50 per page (*Précédents / Suivants*): initials, civility and name (the
   card's link), *Ne pas contacter* badge and a red edge when opposed, role · exact title (or *Rôle non renseigné*),
   activity and employment-verification badges (*Emploi jamais vérifié*, *Coordonnées à revérifier*, *Vérifié le … ·
   ancien* in warning style with an icon; *Vérifié le …* in success style); company, primary e-mail with its state
-  (*Invalide*, *Non vérifié*, *Vérifié*, or *Pas d'e-mail principal*) and primary phone; tracking stage (*Échu* badge
-  when due), *Prévu le … S38*, response and appointment dates, *Référent : …*. Every status is glyph + text.
+  (*Invalide*, *Non vérifié*, *Vérifié*, or *Pas d'e-mail principal*) and primary phone; the contact follow-up as two
+  independent indicators (Contact decisions 4-5, `frontend/src/prospection/TrackingBadges.tsx`): the **state badge**
+  (none while `neutral`; tones in the design system) and the **week badge** *S41* (calendar glyph, accent tag; the year
+  is written when it is not the current one, *S02 · 2027*, and always in the tooltip and for screen readers), the
+  *Échu* warning badge when due, *Aucun état · aucune semaine* when there is neither; response and appointment dates,
+  *Référent : …*. Every status is glyph + text. **Quick planning**: *Planifier* / *Replanifier* (not for *Ignoré*)
+  opens a popover (`QuickWeekPlanner.tsx`) that reads the prospect (version, cadence proposal) and saves the week only
+  through `PATCH /api/prospects/{id}/tracking` — no `status` is sent, so a neutral person stays neutral (handoff Task
+  06); errors show in the popover (French refusal copy of the editor), a 409 `conflict` reloads the prospect.
   Keyboard: Tab reaches each person, ↑/↓/Home/End move between people, Enter opens. Three columns at 1280–1920 px,
   two then one in narrower workspaces.
 - **States** — loading (*Chargement des prospects…*), errors with *Réessayer* (list and counters separately), empty
@@ -151,7 +159,7 @@ opening a prospect **pushes** one. Other pages link in with `prospectionHref({ s
 | Semantics | `backend/app/services/prospection/segments.py` |
 | Query service | `backend/app/services/prospection/query.py` (`count_segments`, `list_prospects`, filters, sorts, row view model) |
 | Router | `backend/app/api/routes/prospection.py`; setting `VIPER_VERIFICATION_STALE_DAYS` (`app/core/config.py`) |
-| Frontend | `frontend/src/prospection/` (`ProspectionPage`, `CounterCards`, `ProspectionFilters`, `ProspectList`, `criteria.ts`, `labels.ts`, `prospectEditor.tsx`, `queue.ts`, `prospection.css`; *Exporter Excel* is `src/exports/ExportWorkbookButton.tsx`), API hooks `frontend/src/api/prospection.ts` |
+| Frontend | `frontend/src/prospection/` (`ProspectionPage`, `CounterCards`, `ProspectionFilters`, `ProspectList`, `TrackingBadges` (state and week badges), `QuickWeekPlanner`, `criteria.ts`, `labels.ts`, `prospectEditor.tsx`, `queue.ts`, `prospection.css`; ISO weeks `src/lib/isoWeek.ts`; *Exporter Excel* is `src/exports/ExportWorkbookButton.tsx`), API hooks `frontend/src/api/prospection.ts` |
 
 - Backend: `tests/test_prospection.py` (one synthetic person per edge case and the expected members of every segment:
   DNC excluded from due/to contact/no response, no tracking, planned tomorrow at midnight, no primary e-mail,
@@ -164,9 +172,11 @@ opening a prospect **pushes** one. Other pages link in with `prospectionHref({ s
   planner states: without statistics, after a concurrent VACUUM, analyzed).
 - Frontend: `criteria.test.ts`, `queue.test.ts` (page walk, next page, people leaving the segment, end),
   `ProspectionPage.test.tsx` (entry points, counter click → URL + list, search and reset, URL restore and page reset,
-  row states as text + glyph, keyboard open in the editor, Add opening the editor on a new person, editor contract with
+  row states as text + glyph (state badge absent for neutral, week badge with its year), quick week planning (PATCH body
+  without `status`, refusal message, nothing for *Ignoré*), keyboard open in the editor, Add opening the editor on a new person, editor contract with
   a custom implementation and Save & Next, empty base, errors) against `src/test/prospectionApi.ts`.
 - Playwright `e2e/prospection.spec.ts`: imports its own synthetic people through the import API (`importProspects` in
   `e2e/data.ts`), searches their unique tag, checks every counter, clicks *Échus* / *Sans réponse* / *Rendez-vous*,
-  reload, a filter, keyboard open in the prospect editor and Back; screenshots dark/light at 1440×900 and 1280×800 with no
+  reload, a filter, quick week planning from a card (PATCH, *À contacter* + 1, no state badge), keyboard open in the
+  prospect editor and Back; screenshots dark/light at 1440×900 and 1280×800 with no
   horizontal overflow.
