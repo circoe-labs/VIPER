@@ -306,3 +306,28 @@ found, what was sent back for rework, and the verification evidence accepted. Ta
   statistics; consider `ANALYZE` of touched tables at the end of an import commit.
 - Orchestrator verification on `claude` @ `01fa1d2`: pytest 948 (+2 private skipped), vitest 598, Playwright 74 —
   all green.
+
+### Task 20 — Hardening, release gates and final report (2026-09-11) — ACCEPTED
+
+- 18 commits `b58fe16`…`8d06c59`, merged as `def27c1`. All six carried defects fixed with failing-first tests:
+  stale responses after writes (`refreshAfterWrite` + lint rule), cluster-wide lock for `provision-sql-reader`, long
+  Vitest flows split (both raised timeouts removed), robust `history.spec` Home check, one tab stop per explorer
+  header row with keyboard actions, export projection made plan-robust (154 → 16 statements; ≈0.25 s DB time in every
+  planner state).
+- Release checks found and fixed six more product bugs: explorer search 500 on tables with enum columns; import dedup
+  gap for single-name rows without e-mail (could have reactivated an opposed person on re-import); 422 bodies echoing
+  submitted values (incl. a password); BOM in passwords piped from PowerShell; NULL-marker contrast (axe); truncated
+  picker values. Added API security headers, bound-value-free DB errors, CSRF walk over every unsafe route, axe smoke
+  (20/20), keyboard-only E2E, `README.md`, `runbook-production.md`, `final-implementation-report.md`. I-150..I-161.
+- Evidence (agent): fresh clone following README/runbook only → boots, all suites green; `npm audit` / `pip-audit`
+  clean; leak scan over 91 commits → 0 hits for the workbook's e-mails, phones, full names and company names, no
+  spreadsheet ever committed; 20k-prospect timings (Home ≈ 0.14–0.20 s, counters < 0.1 s, search p95 47 ms, export
+  ≈ 21 s over HTTP). Private end-to-end run (aggregates only): 328 imported, acknowledged re-import left the opposed
+  person untouched, export sheets equal to the DB, 2 286 legacy values exported = stored, 0 formula cells, no legacy
+  markers in Référent.
+- Orchestrator verification on `claude` @ `def27c1`: `verify.py --e2e` → pytest 966 (+2 private skipped), vitest 610,
+  Playwright 95 — all green. (A first run failed on `eslint: not found` because `npm ci` had been blocked by a
+  leftover dev server holding a native binding in the main checkout; the servers were stopped and the install redone —
+  environment, not code.)
+- Final manual verification in a real browser (Claude in Chrome) against a demo database loaded with the synthetic
+  dataset only — see the next entry.
