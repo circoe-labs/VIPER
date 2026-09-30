@@ -1,12 +1,13 @@
 import { expect, type Page, test } from '@playwright/test'
 
-import { importProspects, uniqueSuffix } from './data'
+import { createDueProspect, importProspects, uniqueSuffix } from './data'
 import { SCREENSHOTS, useTheme } from './helpers'
 import { signIn } from './session'
 
 // Home dashboard (Task 16) against the real backend. The test imports its own synthetic people (names carry its
-// `uniqueSuffix()`); Home's figures are global, so they are compared with the /api/home answer the page displays —
-// never with numbers known in advance (I-81) — and the drill-down is checked on the test's own people through a search.
+// `uniqueSuffix()`; its « Échu » person is created through the API, see `createDueProspect`); Home's figures are
+// global, so they are compared with the /api/home answer the page displays — never with numbers known in advance
+// (I-81) — and the drill-down is checked on the test's own people through a search.
 
 test.beforeEach(async ({ page }) => {
   await signIn(page)
@@ -38,29 +39,21 @@ function kpi(page: Page, group: string, label: string) {
   return page.getByRole('list', { name: group, exact: true }).getByRole('link', { name: new RegExp(`^${label}`) })
 }
 
-function isoWeek(day: Date): { year: number; week: number } {
-  const date = new Date(Date.UTC(day.getFullYear(), day.getMonth(), day.getDate()))
-  date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7))
-  const yearStart = Date.UTC(date.getUTCFullYear(), 0, 1)
-  return { year: date.getUTCFullYear(), week: Math.ceil(((date.getTime() - yearStart) / DAY + 1) / 7) }
-}
-
 test('Home shows the global state it reads, and a card opens its Prospection segment', async ({ page }) => {
   const suffix = uniqueSuffix()
   const tag = `HE2E${suffix}`
-  const past = isoWeek(new Date(Date.now() - 10 * DAY))
+  const pastDay = new Date(Date.now() - 10 * DAY)
   const company = `Transports ${tag}`
   const file = `accueil-${suffix}.xlsx`
   await importProspects(
     page,
     file,
     [
-      { company, civility: 'M.', first_name: 'Jean', last_name: `Echu${suffix}`, week: `S${String(past.week)}` },
       { company, civility: 'Mme', first_name: 'Claire', last_name: `Relance${suffix}`, relance1: 'x' },
       { company, civility: 'M.', first_name: 'Hugo', last_name: `Rdv${suffix}`, rdv: 'oui' },
     ],
-    { [past.week]: past.year },
   )
+  await createDueProspect(page, company, { civility: 'mr', first_name: 'Jean', last_name: `Echu${suffix}` }, pastDay)
 
   const data = await openHome(page)
 

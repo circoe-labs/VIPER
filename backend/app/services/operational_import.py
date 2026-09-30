@@ -23,12 +23,14 @@ from app.core.actor import ActorContext
 from app.core.business_time import BUSINESS_TIMEZONE, business_day
 from app.models.enums import ContactTrackingStatus, OriginType, VerificationStatus
 from app.models.imports import ImportRowMetadata
+from app.models.prospects import Prospect
 from app.services import audit, import_commit, prospects
 from app.services.contact_tracking import ContactTrackingInput, save_contact_tracking
 from app.services.imports.decisions import ImportDecisions
 from app.services.imports.fields import ImportField
 from app.services.imports.preview import ImportFile
 from app.services.imports.verification import (
+    ExcelVerificationOutcome,
     activity_status,
     email_verification_status,
     verification_value,
@@ -89,9 +91,7 @@ def reconcile_batch(
             next_status = ContactTrackingStatus.CONTACTED
 
         next_referent = (
-            tracking.referent_id
-            if next_status is not ContactTrackingStatus.TO_CONTACT
-            else None
+            tracking.referent_id if next_status is not ContactTrackingStatus.TO_CONTACT else None
         )
         if next_status != tracking.status or next_referent != tracking.referent_id:
             save_contact_tracking(
@@ -111,8 +111,8 @@ def reconcile_batch(
 def _apply_imported_email_verification(
     session: Session,
     actor: ActorContext,
-    prospect,
-    outcome,
+    prospect: Prospect,
+    outcome: ExcelVerificationOutcome,
     checked_at: datetime,
 ) -> None:
     wanted = email_verification_status(outcome)

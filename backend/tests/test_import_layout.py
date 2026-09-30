@@ -9,6 +9,8 @@ from app.services.imports.workbook import ImportLimits, read_workbook
 from tests.fixtures.synthetic.legacy_workbook import HEADERS, NEWS_ROWS, legacy_xlsx
 
 LIMITS = ImportLimits()
+# `Statut_verification` is optional: the historical 24-column workbook predates it.
+HISTORICAL_LAYOUT = [s for s in LEGACY_LAYOUT if s.field is not ImportField.VERIFICATION_STATUS]
 ROW = {"company": "Transports Exemple SARL", "last_name": "Test", "first_name": "Jean"}
 
 
@@ -28,7 +30,7 @@ def test_legacy_layout_maps_all_24_columns() -> None:
     assert layout.sheet is not None and layout.sheet.name == "Base client "
     assert layout.header is not None and layout.header.number == 1
     fields = [column.field for column in layout.columns]
-    assert fields == [spec.field for spec in LEGACY_LAYOUT] + [None]
+    assert fields == [spec.field for spec in HISTORICAL_LAYOUT] + [None]
     assert [c.column for c in layout.columns][:3] == ["A", "B", "C"]
     assert layout.columns[1].matched_by is MatchedBy.HEADER
     assert layout.columns[22].field is ImportField.LEGACY_TO_CONTACT_FLAG
@@ -49,7 +51,18 @@ def test_other_sheets_get_an_explicit_skip_notice() -> None:
         DiagnosticCode.COLUMN_LEGACY_PRESERVED,  # Mode de contact
         DiagnosticCode.COLUMN_LEGACY_PRESERVED,  # second A contacter
         DiagnosticCode.COLUMN_UNNAMED,
+        DiagnosticCode.COLUMN_MISSING,  # optional Statut_verification, absent from old workbooks
     ]
+
+
+def test_verification_status_column_is_mapped_when_present() -> None:
+    layout = layout_of(legacy_xlsx([], headers=("Statut_verification", *HEADERS)))
+
+    assert layout.columns[0].field is ImportField.VERIFICATION_STATUS
+    assert layout.columns[0].matched_by is MatchedBy.HEADER
+    assert layout.columns[1].field is ImportField.REFERENT
+    assert layout.columns[23].field is ImportField.LEGACY_TO_CONTACT_FLAG
+    assert DiagnosticCode.COLUMN_MISSING not in codes(layout.notices)
 
 
 def test_prospect_sheet_is_found_by_fingerprint_whatever_its_name_and_position() -> None:
@@ -198,4 +211,5 @@ def test_invalid_overrides_are_rejected(mapping: ImportMapping, code: Diagnostic
 
 
 def test_historical_headers_are_the_documented_ones() -> None:
-    assert [spec.header for spec in LEGACY_LAYOUT] == list(HEADERS[:23])
+    assert LEGACY_LAYOUT[0].header == "Statut_verification"
+    assert [spec.header for spec in HISTORICAL_LAYOUT] == list(HEADERS[:23])

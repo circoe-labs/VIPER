@@ -1,6 +1,6 @@
 import { expect, type Page, test } from '@playwright/test'
 
-import { createReferent, importProspects, uniqueSuffix } from './data'
+import { createDueProspect, createReferent, importProspects, uniqueSuffix } from './data'
 import { SCREENSHOTS, useTheme } from './helpers'
 import { signIn } from './session'
 
@@ -43,7 +43,8 @@ test('counters narrow the list to the right people, kept in the URL; a person op
   const tag = `PE2E${suffix}`
   const referentName = { first_name: 'Référente', last_name: `Suivi${suffix}` }
   await createReferent(page, { ...referentName, email: null })
-  const past = isoWeek(new Date(Date.now() - 14 * DAY))
+  const pastDay = new Date(Date.now() - 14 * DAY)
+  const past = isoWeek(pastDay)
   const future = isoWeek(new Date(Date.now() + 21 * DAY))
   const company = `Transports ${tag}`
   const domain = `${tag.toLowerCase()}.example`
@@ -51,13 +52,18 @@ test('counters narrow the list to the right people, kept in the URL; a person op
     page,
     `prospection-${suffix}.xlsx`,
     [
-      { company, civility: 'M.', first_name: 'Jean', last_name: `Echu${suffix}`, email: `jean@${domain}`, week: `S${String(past.week)}` },
       { company, civility: 'Mme', first_name: 'Claire', last_name: `Futur${suffix}`, email: `claire@${domain}`, week: `S${String(future.week)}` },
       { company, civility: 'M.', first_name: 'Hugo', last_name: `Relance${suffix}`, email: `hugo@${domain}`, relance1: 'x' },
       { company, civility: 'Mme', first_name: 'Emma', last_name: `Rdv${suffix}`, email: `emma@${domain}`, rdv: 'oui', referent: `Référente Suivi${suffix}` },
       { company, civility: 'Mme', first_name: 'Léa', last_name: `SansMail${suffix}` },
     ],
-    { [past.week]: past.year, [future.week]: future.year },
+    { [future.week]: future.year },
+  )
+  await createDueProspect(
+    page,
+    company,
+    { civility: 'mr', first_name: 'Jean', last_name: `Echu${suffix}`, email: `jean@${domain}` },
+    pastDay,
   )
 
   await page.goto('/prospection')

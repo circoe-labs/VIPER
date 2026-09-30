@@ -170,6 +170,13 @@ columns, in workbook order:
 | W | `A contacter` (2nd) | `legacy_to_contact_flag` | **legacy metadata only** (`Oui/OUI`, meaning unconfirmed) |
 | X | *(unnamed)* | — | legacy metadata (`column.unnamed` notice) |
 
+The current operational workbook adds an optional `Statut_verification` column (aliases `Statut vérification`,
+`Statut de vérification`) **before** `Référent` (so the columns above shift by one). It maps to
+`verification_status` by header, is kept raw in legacy metadata (`column.legacy_preserved`) and its operational
+values (`Validé`, `Inactif`, `Inconnus`, blank) set the activity and e-mail verification status on commit
+(`services/imports/verification.py`, `services/operational_import.py`). Older workbooks without it stay valid: it is
+only reported as `column.missing` (info).
+
 Accepted aliases (e.g. `Société`, `E-mail`, `Courriel`, `Portable`, `Rendez-vous obtenu`, `Poste`) are listed in
 `fields.py`. The repeated `A contacter` header is disambiguated **by position** (`matched_by = position`). Any
 other repeated header, unknown header or unnamed column is kept raw (`column.duplicate_header`,
@@ -431,6 +438,14 @@ tracking through `save_contact_tracking` (status history) → per imported row a
 batch `committed` with `rows_total`, `rows_imported`, `rows_skipped` (+ the batch's legal basis and source reference,
 migration 0006). A contact tracking is created only when a legacy stage, a dated planned contact or a referent is
 applied. Dates without time (planned contact, appointment) are stored at midnight Europe/Paris.
+
+Operational reconciliation (`services/operational_import.py`, same transaction, audited), run by
+`POST /api/imports/commit` after the generic commit, row by row in source order: a recognised `Statut_verification`
+value marks employment checked now and sets the activity status and the imported e-mails' verification (never
+downgrading a verified e-mail, never touching a non-imported one); a tracking still `to_contact` whose planned
+contact falls **before today** becomes `contacted` (the workbook's past week is a contact already made); a tracking
+left `to_contact` loses its referent (a referent owns an actual contact, not an untouched lead). An imported person
+is therefore never « Échu » right after the import.
 
 Losslessness at commit: besides the engine's legacy metadata, a row keeps the raw value of anything the commit does
 not apply — another spelling of its company, a company text that differs from the stored one, a second address, an

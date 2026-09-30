@@ -70,6 +70,32 @@ export function createReferent(page: Page, referent: { first_name: string; last_
   return post<{ id: string }>(page, '/api/settings/referents', referent)
 }
 
+// A person of `companyName` (a company the test imported) still to contact on a past day: « Échu ». The import cannot
+// make one: a past contact week in the workbook means the contact was already made (backend operational_import.py),
+// so the person is created through the prospect editor's API instead.
+export async function createDueProspect(
+  page: Page,
+  companyName: string,
+  person: { civility: 'mr' | 'ms'; first_name: string; last_name: string; email?: string },
+  plannedOn: Date,
+): Promise<{ id: string }> {
+  const found = await page.request.get('/api/prospection/prospects', { params: { q: companyName, limit: 1 } })
+  expect(found.ok(), await found.text()).toBe(true)
+  const companyId = ((await found.json()) as { items: { company_id: string | null }[] }).items[0]?.company_id
+  expect(companyId, `company « ${companyName} » imported`).toBeTruthy()
+  const pad = (value: number) => String(value).padStart(2, '0')
+  const day = `${String(plannedOn.getFullYear())}-${pad(plannedOn.getMonth() + 1)}-${pad(plannedOn.getDate())}`
+  return post(page, '/api/prospects', {
+    civility: person.civility,
+    first_name: person.first_name,
+    last_name: person.last_name,
+    company_id: companyId,
+    emails: person.email ? [{ address: person.email, is_primary: true }] : [],
+    tracking: { status: 'to_contact', planned_contact_on: day },
+    provenance: { legal_basis_or_collection_context: 'Données synthétiques de test E2E' },
+  })
+}
+
 // One row of the legacy workbook, by the short keys of backend/tests/fixtures/synthetic/legacy_workbook.py (`company`,
 // `civility`, `last_name`, `first_name`, `job`, `email`, `phone`, `mobile`, `week`, `referent`, `rdv`, `relance1`…).
 export type WorkbookRow = Record<string, string | number | undefined>

@@ -1,5 +1,5 @@
 from app.models.enums import ActivityStatus, VerificationStatus
-from app.services.imports.fields import FIELD_BY_HEADER, ImportField, SPECS
+from app.services.imports.fields import FIELD_BY_HEADER, SPECS, ImportField
 from app.services.imports.text import fold
 from app.services.imports.verification import (
     ExcelVerificationOutcome,

@@ -39,9 +39,7 @@ def reset_prospecting_data(session: Session, actor: ActorContext) -> ResetResult
     session.flush()
 
     orphan_companies = session.scalars(
-        select(Company).where(
-            ~exists(select(Prospect.id).where(Prospect.company_id == Company.id))
-        )
+        select(Company).where(~exists(select(Prospect.id).where(Prospect.company_id == Company.id)))
     ).all()
     for company in orphan_companies:
         session.delete(company)
