@@ -18,7 +18,12 @@ from datetime import date, datetime, timedelta
 from app.core.actor import ActorType
 from app.core.business_time import start_of_day
 from app.models.contact_tracking import ContactTrackingStatusHistory
-from app.models.enums import ContactTrackingStatus, TrackingHistoryStatus
+from app.models.enums import (
+    ContactMessageStatus,
+    ContactMessageStep,
+    ContactTrackingStatus,
+    TrackingHistoryStatus,
+)
 
 S = ContactTrackingStatus
 H = TrackingHistoryStatus
@@ -39,6 +44,19 @@ STATE_LABELS: dict[ContactTrackingStatus, str] = {
     S.APPOINTMENT_OBTAINED: "RDV pris",
     S.FAILURE: "Failure",
     S.IGNORED: "Ignoré",
+}
+# French labels of the mail sequence (decisions 20-24): tabs and message statuses.
+MESSAGE_STEP_LABELS: dict[ContactMessageStep, str] = {
+    ContactMessageStep.CONTACT: "Contact",
+    ContactMessageStep.R1: "R1",
+    ContactMessageStep.R2: "R2",
+}
+MESSAGE_STATUS_LABELS: dict[ContactMessageStatus, str] = {
+    ContactMessageStatus.DRAFT: "Brouillon",
+    ContactMessageStatus.VALIDATED: "Validé",
+    ContactMessageStatus.SCHEDULED: "Programmé",
+    ContactMessageStatus.SENT: "Envoyé",
+    ContactMessageStatus.CANCELLED: "Annulé",
 }
 # Labels of the codes replaced by migration 0008, still found in old history rows and audit events.
 LEGACY_LABELS: dict[TrackingHistoryStatus, str] = {

@@ -82,6 +82,26 @@ class TrackingHistoryStatus(StrEnum):
     LEGACY_NOT_INTERESTED = "not_interested"
 
 
+class ContactMessageStep(StrEnum):
+    """Step of the Contact mail sequence (decision 20): one durable message per prospect and step.
+    Declaration order is the sequence order (tabs Contact, R1, R2)."""
+
+    CONTACT = "contact"
+    R1 = "r1"
+    R2 = "r2"
+
+
+class ContactMessageStatus(StrEnum):
+    """Status of one Contact message, distinct from the prospect's Contact state (decisions 21-24).
+    Transitions and rules: `app.services.contact_messages`."""
+
+    DRAFT = "draft"
+    VALIDATED = "validated"
+    SCHEDULED = "scheduled"
+    SENT = "sent"
+    CANCELLED = "cancelled"
+
+
 class ProspectSourceType(StrEnum):
     EXCEL_IMPORT = "excel_import"
     MANUAL = "manual"

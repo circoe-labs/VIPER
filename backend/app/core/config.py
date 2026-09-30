@@ -47,6 +47,12 @@ class Settings(BaseSettings):
     monthly_contact_target: PositiveInt = 100
     monthly_appointment_target: PositiveInt = 10
 
+    # Contact messages (S3): the sender pre-filled in a new message (`From`). Unset: the person
+    # types it; a message cannot be validated without one. Never hard-coded (handoff Task 12).
+    default_outbound_email: (
+        Annotated[str, Field(max_length=320, pattern=r"^[^@\s]+@[^@\s]+$")] | None
+    ) = None
+
     @property
     def sql_reader_url(self) -> str:
         """The application database, reached as the SQL console's role."""

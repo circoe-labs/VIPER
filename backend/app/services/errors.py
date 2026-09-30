@@ -77,6 +77,19 @@ class TrackingRuleError(DomainError):
         self.code = code
 
 
+class ContactMessageError(DomainError):
+    """The Contact message state machine refused the operation. `code` is stable (the UI turns it
+    into French copy), `status` is its HTTP status and `details` add machine-readable context
+    (e.g. the missing `fields` of an incomplete message). Codes: `app.services.contact_messages`.
+    """
+
+    def __init__(self, code: str, http_status: int, message: str, **details: object) -> None:
+        super().__init__(message)
+        self.code = code
+        self.http_status = http_status
+        self.details = details
+
+
 class ActorNotAllowedError(DomainError):
     """This kind of actor may not make this change (e.g. a contact state chosen by an agent)."""
 

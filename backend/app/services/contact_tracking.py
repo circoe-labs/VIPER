@@ -29,7 +29,7 @@ from sqlalchemy.orm import Session
 from app.core.actor import ActorContext, ActorType
 from app.models.contact_tracking import ContactTracking, ContactTrackingStatusHistory
 from app.models.enums import ContactTrackingStatus, TrackingHistoryStatus
-from app.services import audit
+from app.services import audit, contact_messages
 from app.services.audit import AuditAction
 from app.services.contact_workflow import (
     NEXT_ACTION_STATES,
@@ -55,9 +55,18 @@ class ContactTrackingInput:
 
 def cancel_future_messages(session: Session, actor: ActorContext, tracking: ContactTracking) -> int:
     """Cancel the prospect's future unsent messages after a sequence-closing state (decision 29);
-    returns how many. Seam for Slice S3 (`contact_messages` does not exist yet): nothing to cancel.
-    It runs inside the state change's transaction, so a failure here rolls the change back."""
-    return 0
+    returns how many. It runs inside the state change's transaction, so a failure here rolls the
+    change back."""
+    return contact_messages.cancel_future_messages(
+        session, actor, tracking.prospect_id, tracking.status
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class TrackingSaved:
+    tracking: ContactTracking
+    # Messages cancelled by this change (decision 29); 0 when the state did not close the sequence.
+    cancelled_messages: int = 0
 
 
 def _checked(
@@ -103,13 +112,29 @@ def save_contact_tracking(
     explicit_next_action: bool = False,
     now: datetime | None = None,
 ) -> ContactTracking:
+    """`apply_contact_tracking` for callers that only need the row."""
+    return apply_contact_tracking(
+        session, actor, prospect_id, data, explicit_next_action=explicit_next_action, now=now
+    ).tracking
+
+
+def apply_contact_tracking(
+    session: Session,
+    actor: ActorContext,
+    prospect_id: uuid.UUID,
+    data: ContactTrackingInput,
+    *,
+    explicit_next_action: bool = False,
+    now: datetime | None = None,
+) -> TrackingSaved:
     """Create or replace the prospect's current tracking; log a history row on status change.
 
     Audit: `contact_tracking.created`, `contact_tracking.status_changed` when the state moves, or
     `contact_tracking.updated` when only dates/referent change (no event when nothing changes);
     `prospect.do_not_contact.set` when `ignored` reinforces the opposition.
     Refusals: `ActorNotAllowedError` (agent), `TrackingRuleError` (`ignored_is_terminal`,
-    `ignored_has_no_next_action`). `now` is the caller's clock (the request's moment); callers
+    `ignored_has_no_next_action`). Returns the row and the number of messages cancelled by a
+    sequence-closing state. `now` is the caller's clock (the request's moment); callers
     without one (Explorer, imports) get the current time.
     """
     prospect = get_prospect(session, prospect_id)
@@ -144,6 +169,7 @@ def save_contact_tracking(
     session.flush()
     if data.status in TERMINAL_STATES:
         mark_do_not_contact(session, actor, prospect_id, reason=IGNORED_REASON)
+    cancelled = 0
     if moved and data.status in SEQUENCE_CLOSING_STATES:
-        cancel_future_messages(session, actor, tracking)
-    return tracking
+        cancelled = cancel_future_messages(session, actor, tracking)
+    return TrackingSaved(tracking, cancelled)

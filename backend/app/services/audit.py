@@ -36,6 +36,7 @@ from app.models import (
     ActivityCategory,
     CommercialSegment,
     Company,
+    ContactMessage,
     ContactTracking,
     Email,
     Establishment,
@@ -81,6 +82,14 @@ class AuditAction(StrEnum):
     PROSPECT_DO_NOT_CONTACT_SET = "prospect.do_not_contact.set"
     PROSPECT_DO_NOT_CONTACT_CLEARED = "prospect.do_not_contact.cleared"
     CONTACT_TRACKING_STATUS_CHANGED = "contact_tracking.status_changed"
+    # Contact message state machine (S3, `app.services.contact_messages`). A content edit is the
+    # generic `contact_message.updated`, or `unvalidated` when it cleared a validation.
+    CONTACT_MESSAGE_UNVALIDATED = "contact_message.unvalidated"
+    CONTACT_MESSAGE_VALIDATED = "contact_message.validated"
+    CONTACT_MESSAGE_SCHEDULED = "contact_message.scheduled"
+    CONTACT_MESSAGE_UNSCHEDULED = "contact_message.unscheduled"
+    CONTACT_MESSAGE_CANCELLED = "contact_message.cancelled"
+    CONTACT_MESSAGE_REOPENED = "contact_message.reopened"
     IMPORT_BATCH_STARTED = "import_batch.started"
     IMPORT_BATCH_COMMITTED = "import_batch.committed"
     IMPORT_BATCH_FAILED = "import_batch.failed"
@@ -132,6 +141,7 @@ AUDITED_ENTITIES: dict[type[Any], AuditedEntity] = {
     Email: AuditedEntity("email", "prospect", "prospect_id"),
     Phone: AuditedEntity("phone", "prospect", "prospect_id"),
     ContactTracking: AuditedEntity("contact_tracking", "prospect", "prospect_id"),
+    ContactMessage: AuditedEntity("contact_message", "prospect", "prospect_id"),
     ProspectSource: AuditedEntity("prospect_source", "prospect", "prospect_id"),
     Role: AuditedEntity("role", "role"),
     CommercialSegment: AuditedEntity("commercial_segment", "commercial_segment"),

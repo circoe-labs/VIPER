@@ -39,7 +39,7 @@ stay for the mouse, out of the tab order (I-154).
 Single source: `backend/app/services/explorer/policy.py`.
 
 - **Tables — default deny.** Exposed: `activity_categories`, `audit_log`, `commercial_segments`, `companies`,
-  `company_activity_categories`, `contact_tracking`, `contact_tracking_status_history`, `emails`, `establishments`,
+  `company_activity_categories`, `contact_messages`, `contact_tracking`, `contact_tracking_status_history`, `emails`, `establishments`,
   `import_batches`, `import_row_metadata`, `internal_referents`, `phones`, `prospect_sources`, `prospects`, `roles`.
   Every other ORM table must be listed in `UNEXPOSED_TABLES` with a reason: today the authentication tables
   `users` (argon2 password hashes) and `user_sessions` (session token hashes) — never listed, readable, exported, or
@@ -141,6 +141,7 @@ combined with structural rules in `metadata.py`. **Default deny**: an exposed ta
 | `emails`, `phones` | yes | yes | yes | `prospect_id` set at creation only |
 | `contact_tracking` | yes | yes | yes, single row (cascades its history) | writes go through `save_contact_tracking` (status history kept); one row per prospect; `prospect_id` set at creation only |
 | `prospect_sources` | only `legal_basis_or_collection_context`, `notes` | no | no | origin, reference, batch, dates and actor are the provenance trace |
+| `contact_messages` | no | no | no | a message changes only through its state machine (validation of a precise revision, sent immutable — [`contact.md`](contact.md)); a grid edit could fake a validation |
 | `import_batches`, `import_row_metadata`, `contact_tracking_status_history`, `audit_log` | no | no | no | written by the import / derived / append-only |
 
 Structural rules on every table: generated primary keys, `created_at`/`updated_at`, JSON and array columns, masked

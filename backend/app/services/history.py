@@ -43,7 +43,12 @@ from app.models.enums import (
 from app.repositories import audit as audit_repository
 from app.services import audit
 from app.services.audit import AuditAction, AuditSource
-from app.services.contact_workflow import LEGACY_LABELS, STATE_LABELS
+from app.services.contact_workflow import (
+    LEGACY_LABELS,
+    MESSAGE_STATUS_LABELS,
+    MESSAGE_STEP_LABELS,
+    STATE_LABELS,
+)
 from app.services.import_batches import IMPORT_ACTOR_PREFIX
 
 # Consecutive events without a request id (CLI, seed, jobs) closer than this are one entry.
@@ -216,6 +221,10 @@ STAGES: dict[str, str] = {
     **{state.value: label for state, label in STATE_LABELS.items()},
     **{code.value: label for code, label in LEGACY_LABELS.items()},
 }
+MESSAGE_STEPS: dict[str, str] = {step.value: label for step, label in MESSAGE_STEP_LABELS.items()}
+MESSAGE_STATUSES: dict[str, str] = {
+    status.value: label for status, label in MESSAGE_STATUS_LABELS.items()
+}
 SOURCE_TYPES: dict[str, str] = {
     ProspectSourceType.EXCEL_IMPORT: "Import Excel",
     ProspectSourceType.MANUAL: "Saisie manuelle",
@@ -285,6 +294,14 @@ FIELDS: dict[str, dict[str, Field]] = {
         "appointment_at": Field("Rendez-vous le", "Rendez-vous planifié", _moment),
         "referent_id": Field("Référent Circoe", "Référent modifié", _reference("referent")),
     },
+    # A Contact message: its step, status, send moment and revision. The content and addresses
+    # are masked in the audit log, so they are never shown (NOT_SHOWN).
+    "contact_message": {
+        "step": Field("étape", "Message modifié", _choice(MESSAGE_STEPS)),
+        "status": Field("statut", "Statut du message modifié", _choice(MESSAGE_STATUSES)),
+        "scheduled_at": Field("envoi programmé le", "Envoi programmé", _moment),
+        "revision": Field("révision", "Message modifié"),
+    },
     "prospect_source": {
         "source_type": Field("type", "Provenance modifiée", _choice(SOURCE_TYPES)),
         "source_reference": Field("référence", "Provenance modifiée"),
@@ -330,23 +347,58 @@ NOT_SHOWN: dict[str, frozenset[str]] = {
     "email": frozenset({"prospect_id"}),
     "phone": frozenset({"prospect_id"}),
     "contact_tracking": frozenset({"prospect_id"}),
+    "contact_message": frozenset(
+        {
+            "prospect_id",
+            "from_email",
+            "to_recipients",
+            "cc_recipients",
+            "bcc_recipients",
+            "subject",
+            "body_text",
+            "validated_revision",
+            "validated_at",
+            "validated_by_actor_id",
+            "validated_by_display",
+            "sent_at",
+            "cancelled_at",
+            "cancel_reason",
+            "generation_model",
+            "generation_prompt_version",
+            "generated_at",
+            "remote_provider",
+            "remote_draft_id",
+            "remote_message_id",
+            "dispatch_claim_id",
+            "dispatch_claimed_at",
+            "dispatch_attempts",
+            "last_error_code",
+            "last_error_at",
+        }
+    ),
     "prospect_source": frozenset(
         {"prospect_id", "import_batch_id", "actor_type", "actor_id", "actor_display"}
     ),
     "establishment": frozenset({"company_id"}),
 }
 # Child rows named by one of their fields, as it was at the time of the event.
-IDENTITY_FIELDS = {"email": "address", "phone": "number", "establishment": "name"}
+IDENTITY_FIELDS = {
+    "email": "address",
+    "phone": "number",
+    "establishment": "name",
+    "contact_message": "step",
+}
 # Row kinds with one primary row per parent: a switch reads as one line.
 PRIMARY_NOUNS = {"email": "E-mail", "phone": "Téléphone", "establishment": "Établissement"}
 # Rows whose changes read « <Noun> <identity> · <field> ».
-PREFIXED = {**PRIMARY_NOUNS, "prospect_source": "Provenance"}
+PREFIXED = {**PRIMARY_NOUNS, "prospect_source": "Provenance", "contact_message": "Message"}
 # (noun, feminine) for lifecycle phrases.
 NOUNS = {
     "prospect": ("Fiche", True),
     "email": ("E-mail", False),
     "phone": ("Téléphone", False),
     "contact_tracking": ("Suivi de contact", False),
+    "contact_message": ("Message", False),
     "prospect_source": ("Provenance", True),
     "company": ("Entreprise", True),
     "establishment": ("Établissement", False),
@@ -631,6 +683,18 @@ TITLES: dict[str, str] = {
     **OPPOSITIONS,
     AuditAction.PROSPECT_COMPANY_CHANGED: "Changement d’entreprise",
 }
+# Titles of a save that only touched Contact messages (a state change that cancels messages keeps
+# the prospect's title: the state is what the person chose).
+MESSAGE_TITLES: dict[str, str] = {
+    AuditAction.CONTACT_MESSAGE_VALIDATED: "Message validé",
+    AuditAction.CONTACT_MESSAGE_UNVALIDATED: "Message modifié après validation",
+    AuditAction.CONTACT_MESSAGE_SCHEDULED: "Message programmé",
+    AuditAction.CONTACT_MESSAGE_UNSCHEDULED: "Message déprogrammé",
+    AuditAction.CONTACT_MESSAGE_CANCELLED: "Message annulé",
+    AuditAction.CONTACT_MESSAGE_REOPENED: "Message rouvert",
+    "contact_message.created": "Message créé",
+    "contact_message.updated": "Message modifié",
+}
 DEFAULT_TITLES = {"prospect": "Fiche modifiée", "company": "Entreprise modifiée"}
 
 
@@ -658,8 +722,10 @@ def describe(group: Sequence[AuditLogEntry], lookups: Lookups) -> HistoryEntry:
             del switches[event.entity_type]
     actions = [event.action for event in events]
     subject_type = newest.subject_type or newest.entity_type
+    only_messages = all(event.entity_type == "contact_message" for event in events)
+    titles = {**TITLES, **MESSAGE_TITLES} if only_messages else TITLES
     title = next(
-        (title for action, title in TITLES.items() if action in actions),
+        (title for action, title in titles.items() if action in actions),
         DEFAULT_TITLES.get(subject_type, "Modification"),
     )
     return HistoryEntry(

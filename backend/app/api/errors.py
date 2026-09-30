@@ -5,7 +5,9 @@
 inactive); 409 `in_use` (with usage counts); 409 `conflict` (the record changed since it was read);
 409 `do_not_contact` (the operation would erase a durable opposition); 409 with the rule's own code
 for a Contact tracking rule (`ignored_is_terminal`, `ignored_has_no_next_action`); 403
-`human_actor_required` (a change only a person may make). Raising inside
+`human_actor_required` (a change only a person may make); a Contact message refusal with its own
+status and code (`app.services.contact_messages`, e.g. 409 `revision_conflict`, 422
+`message_incomplete` with its `fields`). Raising inside
 `business_errors()` also rolls the request's transaction back.
 """
 
@@ -21,6 +23,7 @@ from fastapi.responses import JSONResponse
 from app.services.errors import (
     ActorNotAllowedError,
     ConflictError,
+    ContactMessageError,
     DoNotContactError,
     DuplicateValueError,
     InUseError,
@@ -68,6 +71,8 @@ def business_errors() -> Iterator[None]:
         raise refusal(status.HTTP_409_CONFLICT, "do_not_contact", str(error)) from error
     except TrackingRuleError as error:
         raise refusal(status.HTTP_409_CONFLICT, error.code, str(error)) from error
+    except ContactMessageError as error:
+        raise refusal(error.http_status, error.code, str(error), **error.details) from error
     except ActorNotAllowedError as error:
         raise refusal(status.HTTP_403_FORBIDDEN, "human_actor_required", str(error)) from error
 

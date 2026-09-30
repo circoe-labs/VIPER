@@ -254,6 +254,12 @@ class ProspectOut(BaseModel):
     updated_at: datetime
 
 
+class TrackingPatchOut(ProspectOut):
+    """The editor view plus the effect of the state change on the Contact messages."""
+
+    cancelled_messages: int
+
+
 def editor_clock(settings: SettingsDep) -> EditorClock:
     return EditorClock(now=datetime.now(UTC), stale_days=settings.verification_stale_days)
 
@@ -380,14 +386,17 @@ def update_tracking(
     session: SessionDep,
     actor: CurrentActor,
     clock: ClockDep,
-) -> ProspectOut:
+) -> TrackingPatchOut:
     """Human choice of the Contact state and/or the next-action week; answers the editor view
-    (with the cadence suggestion `tracking.suggested_next_contact_*`, never applied)."""
+    (with the cadence suggestion `tracking.suggested_next_contact_*`, never applied) and
+    `cancelled_messages`, the unsent Contact messages a sequence-closing state cancelled."""
     with business_errors():
-        view = prospect_editor.update_tracking(
+        updated = prospect_editor.update_tracking(
             session, actor, prospect_id, body.version, tracking_update(body), clock
         )
-    return prospect_out(view)
+    return TrackingPatchOut(
+        **prospect_out(updated.view).model_dump(), cancelled_messages=updated.cancelled_messages
+    )
 
 
 @router.delete("/{prospect_id}", status_code=status.HTTP_204_NO_CONTENT)

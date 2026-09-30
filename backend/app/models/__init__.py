@@ -2,6 +2,7 @@
 
 from app.models.audit import AuditLogEntry
 from app.models.companies import Company, Establishment, company_activity_categories
+from app.models.contact_messages import ContactMessage
 from app.models.contact_tracking import ContactTracking, ContactTrackingStatusHistory
 from app.models.imports import ImportBatch, ImportRowMetadata
 from app.models.prospects import Email, Phone, Prospect, ProspectSource
@@ -13,6 +14,7 @@ __all__ = [
     "AuditLogEntry",
     "CommercialSegment",
     "Company",
+    "ContactMessage",
     "ContactTracking",
     "ContactTrackingStatusHistory",
     "Email",

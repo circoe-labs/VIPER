@@ -51,7 +51,11 @@ from app.repositories import referents as referent_repository
 from app.repositories import taxonomies as taxonomy_repository
 from app.services import audit, contact_channels, prospects, provenance, taxonomies
 from app.services.contact_channels import EMAILS, PHONES, ChannelItem
-from app.services.contact_tracking import ContactTrackingInput, save_contact_tracking
+from app.services.contact_tracking import (
+    ContactTrackingInput,
+    apply_contact_tracking,
+    save_contact_tracking,
+)
 from app.services.contact_workflow import (
     DEFAULT_STATE,
     IsoWeek,
@@ -284,6 +288,13 @@ class ProspectView:
     stale_threshold_days: int | None
     created_at: datetime
     updated_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class TrackingUpdated:
+    view: ProspectView
+    # Unsent Contact messages cancelled by a sequence-closing state (decision 29).
+    cancelled_messages: int
 
 
 def aggregate_version(session: Session, prospect_id: uuid.UUID) -> str:
@@ -738,11 +749,12 @@ def update_tracking(
     version: str,
     update: TrackingUpdate,
     clock: EditorClock,
-) -> ProspectView:
+) -> TrackingUpdated:
     """Choose a state and/or set or clear the next-action week (stored as its Monday, P1). Only a
     person may do it (decision 10); dates and referent are kept. A new tracking starts `neutral`.
     Refusals: `ActorNotAllowedError`, `InvalidFieldError` (`empty`: nothing to change),
-    `TrackingRuleError` (`ignored_is_terminal`, `ignored_has_no_next_action`), `ConflictError`."""
+    `TrackingRuleError` (`ignored_is_terminal`, `ignored_has_no_next_action`), `ConflictError`.
+    Answers the view and the number of unsent messages a sequence-closing state cancelled."""
     if actor.type is not ActorType.HUMAN:
         raise ActorNotAllowedError("Only a person changes a contact state or its next week.")
     if update.status is None and not update.set_next_action:
@@ -752,7 +764,7 @@ def update_tracking(
     planned = current.planned_contact_at if current else None
     if update.set_next_action:
         planned = next_action_at(update.next_action) if update.next_action else None
-    save_contact_tracking(
+    saved = apply_contact_tracking(
         session,
         actor,
         prospect.id,
@@ -767,7 +779,7 @@ def update_tracking(
         explicit_next_action=update.set_next_action,
         now=clock.now,
     )
-    return get_view(session, prospect.id, clock)
+    return TrackingUpdated(get_view(session, prospect.id, clock), saved.cancelled_messages)
 
 
 def delete_prospect(

@@ -125,6 +125,11 @@ EXPOSED_TABLES: Mapping[str, TablePolicy] = {
             delete=None,
         )
     ),
+    # Read-only: a message changes only through its state machine (validation of a precise
+    # revision, sent immutable, decisions 21-24); a grid edit could fake a validation.
+    "contact_messages": TablePolicy(
+        writes=read_only("Messages Contact : modifiables uniquement depuis la page Contact.")
+    ),
     # Stage changes go through the contact-tracking service, which keeps the status history.
     "contact_tracking": TablePolicy(columns={"prospect_id": PARENT_FIXED}, writes=ALL_WRITES),
     "contact_tracking_status_history": TablePolicy(

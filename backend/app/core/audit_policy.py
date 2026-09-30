@@ -48,8 +48,20 @@ POLICY = AuditPayloadPolicy(
     excluded_entities=frozenset({"user", "user_session"}),
     secret_fields=frozenset({"password_hash", "token_hash", "csrf_token"}),
     secret_fragments=("password", "token", "secret", "csrf"),
-    # Raw legacy workbook columns may hold unmapped personal data.
-    masked_fields=frozenset({"legacy_metadata"}),
+    # Raw legacy workbook columns may hold unmapped personal data. A Contact message's content
+    # and addresses stay in `contact_messages` only: its events say that they changed, never what
+    # they say (Contact handoff, Task 11).
+    masked_fields=frozenset(
+        {
+            "legacy_metadata",
+            "from_email",
+            "to_recipients",
+            "cc_recipients",
+            "bcc_recipients",
+            "subject",
+            "body_text",
+        }
+    ),
     personal_fields=frozenset(
         {
             ("prospect", "first_name"),

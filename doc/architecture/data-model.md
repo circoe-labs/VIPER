@@ -124,6 +124,34 @@ effort: it deletes the appended rows, maps states back (`neutral → to_contact`
 `failure/ignored → not_interested`, dropping history rows that would no longer change status); quotes/wins stay
 `appointment_obtained`, cleared weeks and audit events are not restored. Tests: `tests/test_migration_contact_states.py`.
 
+## `contact_messages`
+
+One durable mail per prospect and sequence step (Contact port S3, migration `0009_contact_messages`; handoff
+Tasks 11-12, decisions H-20 … H-29). Separate from the prospect's Contact state. Contract and state machine:
+[`../features/contact.md`](../features/contact.md); rules in `app/services/contact_messages.py` (the only
+application write path — Database Explorer shows the table read-only).
+
+- `prospect_id` (CASCADE), `step` (`contact`, `r1`, `r2`), UNIQUE `(prospect_id, step)`;
+- `status` (`draft` default, `validated`, `scheduled`, `sent`, `cancelled`);
+- content: `from_email`, `to_recipients` / `cc_recipients` / `bcc_recipients` (`varchar(320)[]`, default `{}`),
+  `subject varchar(998)`, `body_text text` (both default `''`) — masked in the audit log;
+- `revision int DEFAULT 1` (bumped by every content change and a reopening; the optimistic-concurrency token),
+  `validated_revision`, `validated_at`, `validated_by_actor_id`, `validated_by_display`;
+- `scheduled_at` (send moment, never the next-action week — H-14), `sent_at`, `cancelled_at`, `cancel_reason`
+  (`manual` | `prospect_state:<state>`);
+- AI drafting (S5): `generation_model`, `generation_prompt_version`, `generated_at`;
+- CIRCOE Toolbox (S6): `remote_provider`, `remote_draft_id`, `remote_message_id`;
+- dispatch (S7): `dispatch_claim_id uuid`, `dispatch_claimed_at`, `dispatch_attempts int DEFAULT 0`,
+  `last_error_code` (a code, never a raw provider message), `last_error_at`.
+
+SQL invariants: `validated`/`scheduled`/`sent` ⇒ current validation (`validated_revision = revision`, `validated_at`,
+`validated_by_actor_id`); `draft` ⇒ no validation; `scheduled` ⇒ `scheduled_at`; `sent` ⇔ `sent_at`;
+`cancelled` ⇔ `cancelled_at`; a remote draft only on validated/scheduled/sent; a complete dispatch claim only on
+scheduled/sent; `last_error_code` ⇔ `last_error_at`; trigger `reject_sent_change` makes a sent row immutable
+(H-21; deleting the prospect still cascades). Partial indexes: `ix_contact_messages_scheduled_at_due`
+(`WHERE status = 'scheduled'`), unique `uq_contact_messages_remote_draft` and `uq_contact_messages_dispatch_claim_id`.
+No separate event table: the audit log records each transition (`contact_message.*`, subject = prospect).
+
 ## `prospect_sources`
 Minimal provenance required by the functional spec:
 - `id`, `prospect_id`
@@ -191,6 +219,7 @@ erDiagram
     prospects ||--o| contact_tracking : "CASCADE"
     internal_referents |o--o{ contact_tracking : "referent RESTRICT"
     contact_tracking ||--o{ contact_tracking_status_history : "CASCADE"
+    prospects ||--o{ contact_messages : "CASCADE (one per step)"
     prospects ||--o{ prospect_sources : "CASCADE"
     import_batches |o--o{ prospect_sources : "RESTRICT"
     import_batches ||--o{ import_row_metadata : "CASCADE"
@@ -240,6 +269,14 @@ erDiagram
         uuid referent_id FK
         timestamptz response_received_at
         timestamptz appointment_at
+    }
+    contact_messages {
+        uuid id PK
+        uuid prospect_id FK
+        varchar step "contact, r1, r2"
+        varchar status "draft, validated, scheduled, sent, cancelled"
+        int revision
+        timestamptz scheduled_at
     }
     contact_tracking_status_history {
         uuid id PK
@@ -296,6 +333,7 @@ on purpose.
 | `phones` | as `emails`, with `number varchar(21)` and `type` | `uq_phones_prospect_id_number`; `uq_phones_prospect_id_primary` (partial); CHECK number `^\+?[0-9]{4,20}$`, primary ⇒ active; `ix_phones_number` |
 | `contact_tracking` | `prospect_id`, `planned_contact_at`, `status DEFAULT 'neutral'`, `referent_id NULL`, `response_received_at`, `appointment_at` | `uq_contact_tracking_prospect_id` (one current row per prospect); `ix_contact_tracking_referent_id` |
 | `contact_tracking_status_history` | `contact_tracking_id`, `from_status NULL` (initial), `to_status`, `changed_at DEFAULT clock_timestamp()`, `actor_type`, `actor_id`, `actor_display` | CHECK `from_status IS DISTINCT FROM to_status`; index `(contact_tracking_id, changed_at)`; no `updated_at` |
+| `contact_messages` | `prospect_id`, `step`, `status DEFAULT 'draft'`, `from_email`, `to/cc/bcc_recipients varchar(320)[] DEFAULT '{}'`, `subject`, `body_text`, `revision DEFAULT 1`, validation (`validated_revision/at/by_actor_id/by_display`), `scheduled_at`, `sent_at`, `cancelled_at`, `cancel_reason`, generation, remote and dispatch columns (migration 0009) | `uq_contact_messages_prospect_id_step`; the CHECKs listed in [`contact_messages`](#contact_messages); partial indexes on `scheduled_at` (scheduled), remote draft, dispatch claim; triggers `set_updated_at`, `reject_sent_change` |
 | `prospect_sources` | `prospect_id`, `source_type`, `source_reference text`, `import_batch_id NULL`, `collected_at DEFAULT now()`, `legal_basis_or_collection_context text`, `actor_type/actor_id/actor_display NULL`, `notes text` | FK indexes |
 | `import_batches` | `filename`, `sheet_names text[] DEFAULT '{}'`, `file_fingerprint varchar(64) NULL`, `status DEFAULT 'pending'`, `rows_total/rows_imported/rows_skipped int DEFAULT 0`, `committed_at NULL`, `legal_basis_or_collection_context text NULL`, `source_reference text NULL` (migration 0006, Task 09), `actor_type/actor_id/actor_display` | CHECK fingerprint `^[0-9a-f]{64}$`, counts ≥ 0, `committed` ⇔ `committed_at`. No workbook bytes |
 | `import_row_metadata` | `import_batch_id`, `source_sheet`, `source_row_number int`, `prospect_id NULL`, `company_id NULL`, `legacy_metadata jsonb DEFAULT '{}'`, `created_at` only | `uq_import_row_metadata_batch_sheet_row`; CHECK row number > 0 |
@@ -327,6 +365,8 @@ search labels through it; behaviour of the Settings values (stable slug, deactiv
 | `phones.type` | `mobile`, `landline`, `other` |
 | `contact_tracking.status` (`ContactTrackingStatus`) | `neutral`, `contacted`, `r1`, `r2`, `response_received`, `appointment_obtained`, `failure`, `ignored` — **no `do_not_contact`** |
 | history `from_status` / `to_status` (`TrackingHistoryStatus`) | the 8 states above plus the read-only legacy codes `to_contact`, `follow_up_1`, `follow_up_2`, `quote_sent`, `quote_follow_up`, `won`, `not_interested` |
+| `contact_messages.step` (`ContactMessageStep`) | `contact`, `r1`, `r2` |
+| `contact_messages.status` (`ContactMessageStatus`) | `draft`, `validated`, `scheduled`, `sent`, `cancelled` |
 | `prospect_sources.source_type` | `excel_import`, `manual`, `future_agent`, `other` |
 | `import_batches.status` | `pending`, `committed`, `failed`, `cancelled` |
 | `*.actor_type` | `human`, `import`, `system`, `agent` |
@@ -337,7 +377,7 @@ Python source of truth: `backend/app/models/enums.py` and `backend/app/core/acto
 
 RESTRICT for every taxonomy/referent reference, company → prospects and import batch → prospect sources; CASCADE
 for a company's establishments and category links, for everything owned by a prospect (emails, phones, contact
-tracking and its history, sources, import row metadata) and for a batch's row metadata; SET NULL for
+tracking and its history, Contact messages, sources, import row metadata) and for a batch's row metadata; SET NULL for
 `import_row_metadata.company_id`. A `do_not_contact` prospect cannot be deleted. Rationale: ADR-0002.
 
 ### Domain rules at the service boundary
