@@ -3,8 +3,9 @@ counters, week options and people list, read-only (no filter or counter ever cha
 
 Scope: prospects with a contact tracking whose state is not `ignored` (terminal, outside
 Contact — the reference's rule) and without the durable opposition `do_not_contact` (nobody to
-write to; `ignored` implies it anyway). `failure` stays in scope: it is filterable, has no next
-action by default and is never due.
+write to; `ignored` implies it anyway) — except `appointment_obtained`, which stays counted and
+listed whatever the opposition (« RDV pris » is a cumulative fact). `failure` stays in scope: it
+is filterable, has no next action by default and is never due.
 
 Counters — each equals the total of the list opened with the same `counter` key (same SQL):
 
@@ -13,7 +14,7 @@ Counters — each equals the total of the list opened with the same `counter` ke
 - `review`: `r2`, week reached or overdue — a human review/closing, not another mail (decision 13);
 - `to_handle`: « À traiter cette semaine » = the exact, disjoint union of the three above;
 - `appointments`: « RDV pris », cumulative = current state `appointment_obtained`, no time window
-  (a corrected choice stops counting).
+  (a corrected choice stops counting), opposed or not.
 
 The four « due » counters also exclude prospects known to have left their role (`inactive`),
 exactly as Prospection's `actionable()`. "Reached or overdue" compares the stored next action
@@ -34,7 +35,7 @@ from datetime import date, datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import ColumnElement, Select, and_, false, func, select
+from sqlalchemy import ColumnElement, Select, and_, false, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.business_time import BUSINESS_TIMEZONE, business_day, start_of_day
@@ -174,7 +175,11 @@ def in_scope() -> ColumnElement[bool]:
     return and_(
         ContactTracking.id.is_not(None),
         ContactTracking.status != S.IGNORED,
-        Prospect.contactability_status == ContactabilityStatus.CONTACTABLE,
+        or_(
+            Prospect.contactability_status == ContactabilityStatus.CONTACTABLE,
+            # An appointment obtained stays a fact after a later opposition (« RDV pris »).
+            ContactTracking.status == S.APPOINTMENT_OBTAINED,
+        ),
     )
 
 

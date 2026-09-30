@@ -38,6 +38,8 @@ from app.services.prospection.query import LIST_MAX_LIMIT
 router = APIRouter(prefix="/contact", tags=["contact"])
 
 WEEK_FORMAT = re.compile(r"(\d{4})-W(\d{2})")
+# Plausible planning years; outside them a week is a typo (and year 9999 would overflow).
+MIN_YEAR, MAX_YEAR = 2000, 2100
 Search = Annotated[str | None, Query(max_length=200)]
 
 
@@ -91,7 +93,7 @@ def parse_week(value: str | None) -> IsoWeek | None:
         return None
     match = WEEK_FORMAT.fullmatch(value.strip())
     try:
-        if match is None:
+        if match is None or not MIN_YEAR <= int(match[1]) <= MAX_YEAR:
             raise ValueError(value)
         return IsoWeek(int(match[1]), int(match[2]))
     except ValueError as error:

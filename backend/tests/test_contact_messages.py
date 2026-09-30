@@ -14,6 +14,7 @@ from app.core.actor import ActorContext, ActorType
 from app.models import ContactMessage, ContactTracking, Prospect
 from app.models.enums import ContactMessageStatus, ContactMessageStep, ContactTrackingStatus
 from app.services import contact_messages as service
+from app.services.contact_message_cancellation import Cancellation
 from app.services.contact_messages import MessageEdit, MessageResult
 from app.services.contact_tracking import ContactTrackingInput, apply_contact_tracking
 from app.services.errors import (
@@ -22,7 +23,7 @@ from app.services.errors import (
     InvalidFieldError,
     NotFoundError,
 )
-from app.services.prospects import mark_do_not_contact
+from app.services.prospects import record_do_not_contact
 from tests.builders import OPERATOR, add_company, add_email, add_prospect, audit_events, rejected
 
 M = ContactMessageStatus
@@ -375,15 +376,26 @@ def test_closing_the_sequence_by_hand_keeps_unscheduling_and_cancelling(
     assert message.id is not None
 
 
-def test_do_not_contact_closes_the_sequence(db_session: Session) -> None:
+def test_do_not_contact_cancels_the_unsent_messages_and_closes_the_sequence(
+    db_session: Session,
+) -> None:
     prospect = prospect_with(db_session)
-    message = create(db_session, prospect)
-    mark_do_not_contact(db_session, OPERATOR, prospect.id, reason="Demande")
+    scheduled = message_in(db_session, prospect, M.SCHEDULED)
 
+    recorded = record_do_not_contact(db_session, OPERATOR, prospect.id, reason="Demande")
+
+    assert recorded.messages == Cancellation(cancelled=1, in_flight=0)
+    db_session.refresh(scheduled)
+    assert (scheduled.status, scheduled.cancel_reason) == (M.CANCELLED, "do_not_contact")
+    [event] = audit_events(db_session, action="contact_message.cancelled")
+    assert event.context["reason"] == "do_not_contact"
     with pytest.raises(ContactMessageError) as refused:
-        service.validate(db_session, OPERATOR, prospect.id, STEP, message.revision)
+        create(db_session, prospect, ContactMessageStep.R1)
     assert code_of(refused) == "prospect_do_not_contact"
     assert service.prospect_messages(db_session, prospect.id, None).context.closed
+    # Idempotent: marking again finds nothing left to cancel.
+    again = record_do_not_contact(db_session, OPERATOR, prospect.id)
+    assert again.messages == Cancellation()
 
 
 @pytest.mark.parametrize("state", [S.RESPONSE_RECEIVED, S.APPOINTMENT_OBTAINED, S.IGNORED])
@@ -396,7 +408,7 @@ def test_a_sequence_closing_state_cancels_the_unsent_messages(
 
     saved = apply_contact_tracking(db_session, OPERATOR, prospect.id, ContactTrackingInput(state))
 
-    assert saved.cancelled_messages == 2
+    assert saved.messages.cancelled == 2
     for message in (scheduled, draft):
         db_session.refresh(message)
         assert (message.status, message.cancel_reason) == (M.CANCELLED, f"prospect_state:{state}")
@@ -426,7 +438,7 @@ def test_the_cancellation_spares_sent_cancelled_and_in_flight_messages(
         db_session, OPERATOR, prospect.id, ContactTrackingInput(S.APPOINTMENT_OBTAINED)
     )
 
-    assert saved.cancelled_messages == 0
+    assert saved.messages == Cancellation(cancelled=0, in_flight=1)
     for message, status in ((sent, M.SENT), (cancelled, M.CANCELLED), (claimed, M.SCHEDULED)):
         db_session.refresh(message)
         assert message.status is status
@@ -436,6 +448,33 @@ def test_the_cancellation_spares_sent_cancelled_and_in_flight_messages(
     assert code_of(refused) == "dispatch_in_progress"
 
 
+def test_ignored_cancels_with_its_own_reason_and_counts_claimed_messages_once(
+    db_session: Session,
+) -> None:
+    prospect = prospect_with(db_session)
+    draft = create(db_session, prospect)
+    claimed = create(db_session, prospect, ContactMessageStep.R1)
+    claimed = service.validate(
+        db_session, OPERATOR, prospect.id, ContactMessageStep.R1, claimed.revision
+    ).message
+    claimed = service.schedule(
+        db_session, OPERATOR, prospect.id, ContactMessageStep.R1, claimed.revision, LATER
+    ).message
+    claimed.dispatch_claim_id = uuid.uuid4()
+    claimed.dispatch_claimed_at = datetime.now(UTC)
+    db_session.flush()
+
+    saved = apply_contact_tracking(
+        db_session, OPERATOR, prospect.id, ContactTrackingInput(S.IGNORED)
+    )
+
+    assert saved.messages == Cancellation(cancelled=1, in_flight=1)
+    db_session.refresh(draft)
+    assert draft.cancel_reason == "prospect_state:ignored"
+    events = audit_events(db_session, action="contact_message.cancelled")
+    assert [event.context["reason"] for event in events] == ["prospect_state:ignored"]
+
+
 def test_other_state_changes_cancel_nothing(db_session: Session) -> None:
     prospect = prospect_with(db_session, S.NEUTRAL)
     create(db_session, prospect)
@@ -443,7 +482,7 @@ def test_other_state_changes_cancel_nothing(db_session: Session) -> None:
         saved = apply_contact_tracking(
             db_session, OPERATOR, prospect.id, ContactTrackingInput(state)
         )
-        assert saved.cancelled_messages == 0
+        assert saved.messages.cancelled == 0
     assert service.get_message(db_session, prospect.id, STEP).status is M.DRAFT  # type: ignore[union-attr]
 
 
@@ -470,3 +509,78 @@ def test_the_database_refuses_a_stale_validation(db_session: Session) -> None:
     db_session.refresh(message)
     with rejected(db_session, "ck_contact_messages_scheduled_has_moment"):
         message.status = M.SCHEDULED
+
+
+def test_control_characters_are_refused_in_headers(db_session: Session) -> None:
+    prospect = prospect_with(db_session)
+    sender = frozenset({"from_email"})
+    for change, field in (
+        (MessageEdit(subject="Objet\r\nBcc: x@exemple.example"), "subject"),
+        (MessageEdit(to=["a@exemple.example\n"]), "to.0"),
+        (MessageEdit(from_email="a@exemple.example\r", provided=sender), "from_email"),
+        (MessageEdit(subject="Objet\x00"), "subject"),
+    ):
+        with pytest.raises(InvalidFieldError) as refused:
+            service.save_message(db_session, OPERATOR, prospect.id, STEP, change)
+        assert (refused.value.field, refused.value.reason) == (field, "control_character")
+    # The body is free text: line breaks are its content.
+    body = MessageEdit(body_text="Bonjour,\r\n\r\nCordialement")
+    assert service.save_message(db_session, OPERATOR, prospect.id, STEP, body).created
+
+
+def test_an_address_receives_the_mail_once(db_session: Session) -> None:
+    prospect = prospect_with(db_session)
+    edit = MessageEdit(
+        to=["a@exemple.example"],
+        cc=["A@exemple.example", "b@exemple.example"],
+        bcc=["b@exemple.example", "a@exemple.example", "c@exemple.example"],
+    )
+
+    message = service.save_message(db_session, OPERATOR, prospect.id, STEP, edit).message
+
+    assert (message.to_recipients, message.cc_recipients, message.bcc_recipients) == (
+        ["a@exemple.example"],
+        ["b@exemple.example"],
+        ["c@exemple.example"],
+    )
+
+
+def test_scheduling_at_most_a_year_ahead(db_session: Session) -> None:
+    prospect = prospect_with(db_session)
+    message_in(db_session, prospect, M.VALIDATED)
+    now = datetime(2026, 10, 1, 9, tzinfo=UTC)
+
+    with pytest.raises(InvalidFieldError) as refused:
+        service.schedule(
+            db_session, OPERATOR, prospect.id, STEP, 1, now + timedelta(days=400), now=now
+        )
+    assert refused.value.reason == "too_far"
+    ok = service.schedule(
+        db_session, OPERATOR, prospect.id, STEP, 1, now + timedelta(days=365), now=now
+    )
+    assert ok.message.status is M.SCHEDULED
+
+
+def test_a_person_without_an_id_is_not_an_identified_person(db_session: Session) -> None:
+    prospect = prospect_with(db_session)
+    message = create(db_session, prospect)
+    anonymous = ActorContext(type=ActorType.HUMAN, display="Sans identifiant", id=None)
+    with pytest.raises(ActorNotAllowedError):
+        service.validate(db_session, anonymous, prospect.id, STEP, message.revision)
+
+
+def test_an_identical_save_on_a_closed_sequence_changes_nothing(db_session: Session) -> None:
+    prospect = prospect_with(db_session)
+    message = create(db_session, prospect)
+    tracking = db_session.scalars(
+        select(ContactTracking).where(ContactTracking.prospect_id == prospect.id)
+    ).one()
+    tracking.status = S.RESPONSE_RECEIVED  # a raw write: the draft survived
+    db_session.flush()
+
+    same = MessageEdit(expected_revision=message.revision, subject=message.subject)
+    result = service.save_message(db_session, OPERATOR, prospect.id, STEP, same)
+    assert result.changed is False
+    with pytest.raises(ContactMessageError) as refused:
+        edit(db_session, prospect, message)
+    assert code_of(refused) == "prospect_sequence_closed"

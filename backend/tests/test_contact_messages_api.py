@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.api.session_cookie import CSRF_HEADER
@@ -16,7 +17,7 @@ from app.core.config import Settings
 from app.models import ContactTracking
 from app.models.enums import ContactTrackingStatus
 from tests.builders import add_company, add_email, add_prospect
-from tests.test_prospects_api import PROSPECTS, load
+from tests.test_prospects_api import PROSPECTS, body_of, load
 
 SENDER = "prospection@exemple.example"
 FUTURE = (datetime.now(UTC) + timedelta(days=2)).replace(microsecond=0)
@@ -225,3 +226,101 @@ def test_messages_need_a_session_and_the_csrf_token(
         ).status_code
         == 403
     )
+
+
+def claim(session: Session, prospect: uuid.UUID, step: str) -> None:
+    """Mark a scheduled message as claimed by the dispatcher (S7)."""
+    session.execute(
+        text(
+            "UPDATE contact_messages SET dispatch_claim_id = :claim, dispatch_claimed_at = now() "
+            "WHERE prospect_id = :id AND step = :step"
+        ),
+        {"claim": uuid.uuid4(), "id": prospect, "step": step},
+    )
+
+
+def scheduled(client: TestClient, prospect: uuid.UUID, step: str) -> None:
+    path = f"{messages(prospect)}/{step}"
+    ok(client.put(path, json={"subject": "s", "body_text": "b"}), 201)
+    ok(client.post(f"{path}/validate", json={"expected_revision": 1}))
+    ok(
+        client.post(
+            f"{path}/schedule", json={"expected_revision": 1, "scheduled_at": FUTURE.isoformat()}
+        )
+    )
+
+
+def test_ignored_reports_cancelled_and_in_flight_messages(
+    app_with_sender: FastAPI, client: TestClient, db_session: Session
+) -> None:
+    prospect = prospect_id(db_session, ContactTrackingStatus.CONTACTED)
+    ok(client.put(f"{messages(prospect)}/contact", json={"subject": "s"}), 201)
+    scheduled(client, prospect, "r1")
+    claim(db_session, prospect, "r1")
+    view = load(client, prospect)
+
+    view = ok(
+        client.patch(
+            f"{PROSPECTS}/{prospect}/tracking",
+            json={"version": view["version"], "status": "ignored"},
+        )
+    )
+
+    assert (view["cancelled_messages"], view["in_flight_messages"]) == (1, 1)
+    steps = ok(client.get(messages(prospect)))["steps"]
+    assert steps[0]["message"]["cancel_reason"] == "prospect_state:ignored"
+    assert steps[1]["message"]["status"] == "scheduled"  # left to the dispatcher
+
+
+def test_the_opposition_cancels_the_unsent_messages(
+    app_with_sender: FastAPI, client: TestClient, db_session: Session
+) -> None:
+    prospect = prospect_id(db_session, ContactTrackingStatus.CONTACTED)
+    scheduled(client, prospect, "contact")
+    view = load(client, prospect)
+
+    view = ok(
+        client.put(
+            f"{PROSPECTS}/{prospect}/contactability",
+            json={"do_not_contact": True, "reason": "Demande", "version": view["version"]},
+        )
+    )
+
+    assert (view["cancelled_messages"], view["in_flight_messages"]) == (1, 0)
+    message = ok(client.get(f"{messages(prospect)}/contact"))["message"]
+    assert (message["status"], message["cancel_reason"]) == ("cancelled", "do_not_contact")
+    body = ok(client.get(messages(prospect)))
+    assert body["sequence"]["closed"] is True
+
+
+def test_the_editor_save_reports_the_cancelled_messages(
+    app_with_sender: FastAPI, client: TestClient, db_session: Session
+) -> None:
+    prospect = prospect_id(db_session, ContactTrackingStatus.CONTACTED)
+    ok(client.put(f"{messages(prospect)}/r1", json={"subject": "s"}), 201)
+    view = load(client, prospect)
+    tracking = body_of(view)["tracking"] | {"status": "appointment_obtained"}
+
+    saved = ok(client.put(f"{PROSPECTS}/{prospect}", json=body_of(view, tracking=tracking)))
+
+    assert (saved["cancelled_messages"], saved["in_flight_messages"]) == (1, 0)
+    unchanged = ok(client.put(f"{PROSPECTS}/{prospect}", json=body_of(saved)))
+    assert (unchanged["cancelled_messages"], unchanged["in_flight_messages"]) == (0, 0)
+
+
+def test_other_checks_of_the_content(
+    app_with_sender: FastAPI, client: TestClient, db_session: Session
+) -> None:
+    prospect = prospect_id(db_session)
+    path = f"{messages(prospect)}/contact"
+    detail = refused(client.put(path, json={"subject": "a\r\nBcc: x@y.example"}), 422, "invalid")
+    assert (detail["field"], detail["reason"]) == ("subject", "control_character")
+    ok(client.put(path, json={"subject": "s", "body_text": "b"}), 201)
+    ok(client.post(f"{path}/validate", json={"expected_revision": 1}))
+    far = (datetime.now(UTC) + timedelta(days=400)).isoformat()
+    detail = refused(
+        client.post(f"{path}/schedule", json={"expected_revision": 1, "scheduled_at": far}),
+        422,
+        "invalid",
+    )
+    assert (detail["field"], detail["reason"]) == ("scheduled_at", "too_far")

@@ -138,7 +138,7 @@ application write path — Database Explorer shows the table read-only).
 - `revision int DEFAULT 1` (bumped by every content change and a reopening; the optimistic-concurrency token),
   `validated_revision`, `validated_at`, `validated_by_actor_id`, `validated_by_display`;
 - `scheduled_at` (send moment, never the next-action week — H-14), `sent_at`, `cancelled_at`, `cancel_reason`
-  (`manual` | `prospect_state:<state>`);
+  (`manual` | `prospect_state:<state>` | `do_not_contact`);
 - AI drafting (S5): `generation_model`, `generation_prompt_version`, `generated_at`;
 - CIRCOE Toolbox (S6): `remote_provider`, `remote_draft_id`, `remote_message_id`;
 - dispatch (S7): `dispatch_claim_id uuid`, `dispatch_claimed_at`, `dispatch_attempts int DEFAULT 0`,

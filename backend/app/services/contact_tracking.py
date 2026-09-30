@@ -31,13 +31,14 @@ from app.models.contact_tracking import ContactTracking, ContactTrackingStatusHi
 from app.models.enums import ContactTrackingStatus, TrackingHistoryStatus
 from app.services import audit, contact_messages
 from app.services.audit import AuditAction
+from app.services.contact_message_cancellation import NOTHING, Cancellation
 from app.services.contact_workflow import (
     NEXT_ACTION_STATES,
     SEQUENCE_CLOSING_STATES,
     TERMINAL_STATES,
 )
 from app.services.errors import ActorNotAllowedError, TrackingRuleError
-from app.services.prospects import get_prospect, mark_do_not_contact
+from app.services.prospects import get_prospect, record_do_not_contact
 
 S = ContactTrackingStatus
 # `context.reason` of the `prospect.do_not_contact.set` event written when `ignored` is chosen.
@@ -53,10 +54,12 @@ class ContactTrackingInput:
     appointment_at: datetime | None = None
 
 
-def cancel_future_messages(session: Session, actor: ActorContext, tracking: ContactTracking) -> int:
+def cancel_future_messages(
+    session: Session, actor: ActorContext, tracking: ContactTracking
+) -> Cancellation:
     """Cancel the prospect's future unsent messages after a sequence-closing state (decision 29);
-    returns how many. It runs inside the state change's transaction, so a failure here rolls the
-    change back."""
+    returns how many (and how many are left to the dispatcher). It runs inside the state change's
+    transaction, so a failure here rolls the change back."""
     return contact_messages.cancel_future_messages(
         session, actor, tracking.prospect_id, tracking.status
     )
@@ -65,8 +68,9 @@ def cancel_future_messages(session: Session, actor: ActorContext, tracking: Cont
 @dataclass(frozen=True, slots=True)
 class TrackingSaved:
     tracking: ContactTracking
-    # Messages cancelled by this change (decision 29); 0 when the state did not close the sequence.
-    cancelled_messages: int = 0
+    # Messages cancelled by this change (decision 29, then the opposition of `ignored`), and the
+    # claimed ones left to the dispatcher; nothing when the state did not close the sequence.
+    messages: Cancellation = NOTHING
 
 
 def _checked(
@@ -167,9 +171,12 @@ def apply_contact_tracking(
             )
         )
     session.flush()
-    if data.status in TERMINAL_STATES:
-        mark_do_not_contact(session, actor, prospect_id, reason=IGNORED_REASON)
-    cancelled = 0
+    messages = NOTHING
+    # The state cancels first, so an `ignored` prospect's messages carry `prospect_state:ignored`;
+    # the opposition it reinforces then finds nothing left (only claimed rows, counted again).
     if moved and data.status in SEQUENCE_CLOSING_STATES:
-        cancelled = cancel_future_messages(session, actor, tracking)
-    return TrackingSaved(tracking, cancelled)
+        messages = cancel_future_messages(session, actor, tracking)
+    if data.status in TERMINAL_STATES:
+        opposition = record_do_not_contact(session, actor, prospect_id, reason=IGNORED_REASON)
+        messages = messages.then(opposition.messages)
+    return TrackingSaved(tracking, messages)

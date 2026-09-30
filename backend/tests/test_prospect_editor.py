@@ -121,7 +121,7 @@ def save(session: Session, prospect: Prospect, **changes: object) -> ProspectVie
     view = get_view(session, prospect.id, CLOCK)
     return update_prospect(
         session, OPERATOR, prospect.id, view.version, form_of(view, **changes), CLOCK
-    )
+    ).view
 
 
 def refused(error: pytest.ExceptionInfo[InvalidFieldError]) -> tuple[str, str | None]:
@@ -368,7 +368,7 @@ def test_adding_an_email_and_making_it_primary_switches_without_a_clash(
 
     saved = update_prospect(
         db_session, OPERATOR, prospect.id, view.version, replace(loaded, emails=emails), CLOCK
-    )
+    ).view
 
     assert [(email.address, email.is_primary, email.is_active) for email in saved.emails] == [
         ("jean.nouveau@exemple.example", True, True),
@@ -392,7 +392,7 @@ def test_deactivating_the_primary_hands_it_to_the_first_active_alias(db_session:
 
     saved = update_prospect(
         db_session, OPERATOR, prospect.id, view.version, replace(loaded, phones=phones), CLOCK
-    )
+    ).view
 
     assert [(phone.number, phone.is_primary, phone.is_active) for phone in saved.phones] == [
         ("+33123456789", True, True),
@@ -413,7 +413,7 @@ def test_removing_an_alias_deletes_it_with_its_event(db_session: Session) -> Non
         view.version,
         form_of(view, emails=form_of(view).emails[:1]),
         CLOCK,
-    )
+    ).view
 
     assert [email.address for email in saved.emails] == ["jean@exemple.example"]
     [event] = audit_events(db_session)
@@ -504,7 +504,7 @@ def test_one_click_verification_and_status_changes(db_session: Session) -> None:
 
     saved = update_prospect(
         db_session, OPERATOR, prospect.id, view.version, replace(loaded, emails=emails), CLOCK
-    )
+    ).view
 
     assert [(e.verification_status, e.last_verified_at) for e in saved.emails] == [
         (VerificationStatus.VERIFIED, NOW),
@@ -535,7 +535,7 @@ def test_editing_an_address_makes_it_a_new_unverified_manual_value(db_session: S
         view.version,
         replace(loaded, emails=[replace(loaded.emails[0], value="jean.dupont@exemple.example")]),
         CLOCK,
-    )
+    ).view
 
     [email] = saved.emails
     assert (email.address, email.origin_type, email.last_verified_at) == (
@@ -572,7 +572,7 @@ def test_company_change_clears_employment_and_resets_verified_channels(db_sessio
         view.version,
         replace(loaded, company_id=new.id, emails=emails, phones=phones),
         CLOCK,
-    )
+    ).view
 
     assert saved.company is not None and saved.company.display_name == "Nouvel Employeur SAS"
     assert saved.employment_verified_at is None
@@ -624,7 +624,7 @@ def test_after_a_company_change_only_an_explicit_action_verifies_again(db_sessio
             emails=[replace(loaded.emails[0], verified_now=True)],
         ),
         CLOCK,
-    )
+    ).view
     assert saved.employment_verified_at == NOW
     assert (saved.emails[0].verification_status, saved.emails[0].last_verified_at) == (
         VerificationStatus.VERIFIED,
@@ -748,7 +748,7 @@ def test_opposition_is_set_and_lifted_only_with_a_reason(db_session: Session) ->
         do_not_contact=True,
         reason="Demande de l’intéressé (synthétique)",
         clock=CLOCK,
-    )
+    ).view
     assert blocked.contactability_status is ContactabilityStatus.DO_NOT_CONTACT
     assert blocked.do_not_contact_reason == "Demande de l’intéressé (synthétique)"
 
@@ -760,7 +760,7 @@ def test_opposition_is_set_and_lifted_only_with_a_reason(db_session: Session) ->
         do_not_contact=False,
         reason="Opposition saisie par erreur (synthétique)",
         clock=CLOCK,
-    )
+    ).view
     assert lifted.contactability_status is ContactabilityStatus.CONTACTABLE
     set_event, cleared = audit_events(db_session)
     assert set_event.action == "prospect.do_not_contact.set"

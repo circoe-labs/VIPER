@@ -27,6 +27,11 @@ from app.repositories import companies as company_repository
 from app.repositories import prospects as prospect_repository
 from app.services import audit
 from app.services.audit import AuditAction
+from app.services.contact_message_cancellation import (
+    DO_NOT_CONTACT_REASON,
+    Cancellation,
+    cancel_unsent_messages,
+)
 from app.services.errors import DomainError, NotFoundError, TrackingRuleError
 
 
@@ -158,20 +163,38 @@ def add_channels(
     return added_emails, added_phones
 
 
+@dataclass(frozen=True, slots=True)
+class OppositionRecorded:
+    prospect: Prospect
+    # Unsent Contact messages cancelled because of the opposition (and claimed ones left).
+    messages: Cancellation
+
+
+def record_do_not_contact(
+    session: Session, actor: ActorContext, prospect_id: uuid.UUID, *, reason: str | None = None
+) -> OppositionRecorded:
+    """Block the prospect durably. Idempotent: an existing restriction keeps its original date.
+    Every unsent, unclaimed Contact message of the prospect is cancelled in the same transaction
+    (`cancel_reason = do_not_contact`) — nobody opposed may receive a mail."""
+    prospect = get_prospect(session, prospect_id)
+    if prospect.contactability_status is not ContactabilityStatus.DO_NOT_CONTACT:
+        reason = (reason or "").strip() or None
+        audit.annotate(
+            session, actor, prospect, AuditAction.PROSPECT_DO_NOT_CONTACT_SET, reason=reason
+        )
+        prospect.contactability_status = ContactabilityStatus.DO_NOT_CONTACT
+        prospect.do_not_contact_at = datetime.now(UTC)
+        prospect.do_not_contact_reason = reason
+        session.flush()
+    messages = cancel_unsent_messages(session, actor, prospect.id, DO_NOT_CONTACT_REASON)
+    return OppositionRecorded(prospect, messages)
+
+
 def mark_do_not_contact(
     session: Session, actor: ActorContext, prospect_id: uuid.UUID, *, reason: str | None = None
 ) -> Prospect:
-    """Block the prospect durably. Idempotent: an existing restriction keeps its original date."""
-    prospect = get_prospect(session, prospect_id)
-    if prospect.contactability_status is ContactabilityStatus.DO_NOT_CONTACT:
-        return prospect
-    reason = (reason or "").strip() or None
-    audit.annotate(session, actor, prospect, AuditAction.PROSPECT_DO_NOT_CONTACT_SET, reason=reason)
-    prospect.contactability_status = ContactabilityStatus.DO_NOT_CONTACT
-    prospect.do_not_contact_at = datetime.now(UTC)
-    prospect.do_not_contact_reason = reason
-    session.flush()
-    return prospect
+    """`record_do_not_contact` for callers that only need the row."""
+    return record_do_not_contact(session, actor, prospect_id, reason=reason).prospect
 
 
 def clear_do_not_contact(

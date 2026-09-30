@@ -48,11 +48,13 @@ caller owns the transaction.
 """
 
 import logging
+import re
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
+from typing import cast
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -69,6 +71,13 @@ from app.models.enums import (
 from app.services import audit
 from app.services.audit import AuditAction
 from app.services.contact_channels import normalize_email_address
+from app.services.contact_message_cancellation import (
+    CANCELLABLE,
+    Cancellation,
+    cancel_message,
+    cancel_unsent_messages,
+    state_cancel_reason,
+)
 from app.services.contact_workflow import SEQUENCE_CLOSING_STATES
 from app.services.errors import (
     ActorNotAllowedError,
@@ -84,18 +93,11 @@ logger = logging.getLogger(__name__)
 
 M = ContactMessageStatus
 STEPS = tuple(ContactMessageStep)
-# Not yet sent and still alive: what a person or a sequence-closing state may cancel.
-CANCELLABLE = (M.DRAFT, M.VALIDATED, M.SCHEDULED)
 # Carry the human validation of the current revision.
 VALIDATED = (M.VALIDATED, M.SCHEDULED)
 MANUAL_CANCEL_REASON = "manual"
 MAX_RECIPIENTS = 50
 UNIQUE_STEP = "uq_contact_messages_prospect_id_step"
-
-
-def state_cancel_reason(state: ContactTrackingStatus) -> str:
-    """`cancel_reason` of the mechanical cancellation after a sequence-closing state."""
-    return f"prospect_state:{state.value}"
 
 
 # --- inputs and results ------------------------------------------------------------------------
@@ -182,7 +184,8 @@ def _invalid_transition(message: ContactMessage, action: str) -> ContactMessageE
 
 
 def _require_human(actor: ActorContext) -> None:
-    if actor.type is not ActorType.HUMAN:
+    # The validation records who validated: a person without an id is no identified person.
+    if actor.type is not ActorType.HUMAN or not actor.id:
         raise ActorNotAllowedError("A Contact message is handled by a person.")
 
 
@@ -224,7 +227,14 @@ def _require_not_claimed(message: ContactMessage) -> None:
 
 
 def sequence_context(session: Session, prospect_id: uuid.UUID) -> SequenceContext:
-    """Raises `NotFoundError` for an unknown prospect."""
+    """Raises `NotFoundError` for an unknown prospect.
+
+    Read without a lock: a state change committed concurrently (another tab closing the
+    sequence) can pass unseen by a message write in flight. The impact is bounded: that state
+    change cancels every unsent message in its own transaction, which waits for the message row
+    lock (and then cancels it too). The one gap is a *creation* racing the change: the new row is
+    invisible to that cancellation, so a draft may remain — it cannot be validated, scheduled or
+    edited afterwards (the sequence is closed), only read or cancelled."""
     prospect = get_prospect(session, prospect_id)
     tracking = prospect.contact_tracking
     return SequenceContext(
@@ -290,6 +300,17 @@ def _required(session: Session, prospect_id: uuid.UUID, step: ContactMessageStep
 # --- content -----------------------------------------------------------------------------------
 
 
+CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f]")
+# At most a year ahead: a later moment is a typo (a wrong year), not a plan.
+MAX_SCHEDULE_AHEAD = timedelta(days=366)
+
+
+def _no_control_characters(field: str, value: str) -> None:
+    """A CR/LF (or another control character) in a header would let a value add headers."""
+    if CONTROL_CHARACTERS.search(value):
+        raise InvalidFieldError(field, "Control characters are not allowed.", "control_character")
+
+
 def _recipients(name: str, values: Sequence[str]) -> list[str]:
     """Normalized addresses (lowercase, deduplicated, blanks dropped); an invalid one is refused,
     never silently ignored."""
@@ -299,6 +320,7 @@ def _recipients(name: str, values: Sequence[str]) -> list[str]:
     for position, raw in enumerate(values):
         if not raw.strip():
             continue
+        _no_control_characters(f"{name}.{position}", raw)
         address = normalize_email_address(f"{name}.{position}", raw)
         if address not in out:
             out.append(address)
@@ -308,6 +330,7 @@ def _recipients(name: str, values: Sequence[str]) -> list[str]:
 def _from(value: str | None) -> str | None:
     if value is None or not value.strip():
         return None
+    _no_control_characters("from_email", value)
     return normalize_email_address("from_email", value)
 
 
@@ -317,12 +340,19 @@ def _content(edit: MessageEdit, base: dict[str, object]) -> dict[str, object]:
     if "from_email" in edit.provided:
         content["from_email"] = _from(edit.from_email)
     if edit.subject is not None:
+        _no_control_characters("subject", edit.subject)
         content["subject"] = edit.subject
     if edit.body_text is not None:
         content["body_text"] = edit.body_text
     for name, values in (("to", edit.to), ("cc", edit.cc), ("bcc", edit.bcc)):
         if values is not None:
             content[f"{name}_recipients"] = _recipients(name, values)
+    # One address receives the mail once: kept in the first list (to > cc > bcc).
+    seen: set[str] = set()
+    for key in ("to_recipients", "cc_recipients", "bcc_recipients"):
+        addresses = [address for address in cast(list[str], content[key]) if address not in seen]
+        seen.update(addresses)
+        content[key] = addresses
     return content
 
 
@@ -450,10 +480,10 @@ def save_message(
             HTTPStatus.CONFLICT,
             "The message is cancelled: reopen it before editing.",
         )
-    _require_open(context)
     content = _content(edit, _current_content(message))
     if content == _current_content(message):
         return MessageResult(message, changed=False)
+    _require_open(context)
     _require_not_claimed(message)
     unvalidated = message.status in VALIDATED
     audit.annotate(
@@ -537,7 +567,10 @@ def schedule(
     _require_open(context)
     if scheduled_at.tzinfo is None:
         raise InvalidFieldError("scheduled_at", "A time zone is required.", "time_zone")
-    if scheduled_at <= (now or datetime.now(UTC)):
+    current = now or datetime.now(UTC)
+    if scheduled_at > current + MAX_SCHEDULE_AHEAD:
+        raise InvalidFieldError("scheduled_at", "At most one year ahead.", "too_far")
+    if scheduled_at <= current:
         raise InvalidFieldError(
             "scheduled_at", "The send moment must be in the future.", "not_future"
         )
@@ -572,14 +605,6 @@ def unschedule(
     return MessageResult(message)
 
 
-def _cancel(message: ContactMessage, reason: str, moment: datetime) -> None:
-    message.status = M.CANCELLED
-    message.cancelled_at = moment
-    message.cancel_reason = reason
-    message.remote_provider = None
-    message.remote_draft_id = None
-
-
 def cancel(
     session: Session,
     actor: ActorContext,
@@ -598,7 +623,7 @@ def cancel(
     audit.annotate(
         session, actor, message, AuditAction.CONTACT_MESSAGE_CANCELLED, reason=MANUAL_CANCEL_REASON
     )
-    _cancel(message, MANUAL_CANCEL_REASON, now or datetime.now(UTC))
+    cancel_message(message, MANUAL_CANCEL_REASON, now or datetime.now(UTC))
     session.flush()
     _log("cancelled", message, actor)
     return MessageResult(message)
@@ -635,42 +660,7 @@ def cancel_future_messages(
     state: ContactTrackingStatus,
     *,
     now: datetime | None = None,
-) -> int:
-    """Decision 29: cancel the prospect's unsent messages after a sequence-closing state; returns
-    how many. Mechanical (any actor that may change the state, imports included), in the
-    caller's transaction. A message claimed by the dispatcher is left to it (S7 re-checks the
-    prospect state before sending); `sent` and `cancelled` are untouched."""
-    moment = now or datetime.now(UTC)
-    reason = state_cancel_reason(state)
-    rows = session.scalars(
-        select(ContactMessage)
-        .where(
-            ContactMessage.prospect_id == prospect_id,
-            ContactMessage.status.in_(CANCELLABLE),
-        )
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    ).all()
-    cancelled = 0
-    for message in rows:
-        if message.dispatch_claim_id is not None:
-            logger.warning(
-                "contact_message.cancel_skipped_in_flight message=%s prospect=%s",
-                message.id,
-                prospect_id,
-            )
-            continue
-        audit.annotate(
-            session, actor, message, AuditAction.CONTACT_MESSAGE_CANCELLED, reason=reason
-        )
-        _cancel(message, reason, moment)
-        cancelled += 1
-    session.flush()
-    if rows:
-        logger.info(
-            "contact_message.future_cancelled prospect=%s state=%s cancelled=%s",
-            prospect_id,
-            state.value,
-            cancelled,
-        )
-    return cancelled
+) -> Cancellation:
+    """Decision 29: cancel the prospect's unsent messages after a sequence-closing state
+    (`contact_message_cancellation`, reason `prospect_state:<state>`)."""
+    return cancel_unsent_messages(session, actor, prospect_id, state_cancel_reason(state), now=now)

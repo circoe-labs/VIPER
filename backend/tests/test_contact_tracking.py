@@ -13,6 +13,7 @@ from app.models import ContactTracking, ContactTrackingStatusHistory, InternalRe
 from app.models.enums import ContactabilityStatus, ContactTrackingStatus
 from app.services import contact_tracking as contact_tracking_service
 from app.services import prospects as prospect_service
+from app.services.contact_message_cancellation import Cancellation
 from app.services.contact_tracking import (
     IGNORED_REASON,
     ContactTrackingInput,
@@ -293,9 +294,9 @@ def test_sequence_closing_states_call_the_cancellation_seam_once(
 ) -> None:
     calls: list[S] = []
 
-    def cancel(session: Session, actor: ActorContext, tracking: ContactTracking) -> int:
+    def cancel(session: Session, actor: ActorContext, tracking: ContactTracking) -> Cancellation:
         calls.append(tracking.status)
-        return 0
+        return Cancellation()
 
     monkeypatch.setattr(contact_tracking_service, "cancel_future_messages", cancel)
     prospect = add_prospect(db_session)
@@ -310,7 +311,7 @@ def test_sequence_closing_states_call_the_cancellation_seam_once(
 def test_a_failing_cancellation_rolls_the_state_change_back(
     db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def cancel(session: Session, actor: ActorContext, tracking: ContactTracking) -> int:
+    def cancel(session: Session, actor: ActorContext, tracking: ContactTracking) -> Cancellation:
         raise RuntimeError("cancellation failed")
 
     monkeypatch.setattr(contact_tracking_service, "cancel_future_messages", cancel)

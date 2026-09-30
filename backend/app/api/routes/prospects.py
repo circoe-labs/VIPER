@@ -39,6 +39,7 @@ from app.services.contact_workflow import IsoWeek
 from app.services.errors import InvalidFieldError
 from app.services.prospect_editor import (
     EditorClock,
+    EditorResult,
     EmploymentVerification,
     ManualSource,
     ProspectForm,
@@ -254,10 +255,21 @@ class ProspectOut(BaseModel):
     updated_at: datetime
 
 
-class TrackingPatchOut(ProspectOut):
-    """The editor view plus the effect of the state change on the Contact messages."""
+class ProspectSavedOut(ProspectOut):
+    """The editor view plus the save's effect on the Contact messages (S3): unsent messages
+    cancelled by a sequence-closing state or the opposition, and claimed ones left in flight to
+    the dispatcher. Both 0 when nothing closed the sequence."""
 
     cancelled_messages: int
+    in_flight_messages: int
+
+
+def saved_out(result: EditorResult) -> ProspectSavedOut:
+    return ProspectSavedOut(
+        **prospect_out(result.view).model_dump(),
+        cancelled_messages=result.messages.cancelled,
+        in_flight_messages=result.messages.in_flight,
+    )
 
 
 def editor_clock(settings: SettingsDep) -> EditorClock:
@@ -335,12 +347,12 @@ def update_prospect(
     session: SessionDep,
     actor: CurrentActor,
     clock: ClockDep,
-) -> ProspectOut:
+) -> ProspectSavedOut:
     with business_errors():
-        view = prospect_editor.update_prospect(
+        result = prospect_editor.update_prospect(
             session, actor, prospect_id, body.version, prospect_form(body), clock
         )
-    return prospect_out(view)
+    return saved_out(result)
 
 
 @router.put("/{prospect_id}/contactability")
@@ -350,9 +362,9 @@ def set_contactability(
     session: SessionDep,
     actor: CurrentActor,
     clock: ClockDep,
-) -> ProspectOut:
+) -> ProspectSavedOut:
     with business_errors():
-        view = prospect_editor.set_contactability(
+        result = prospect_editor.set_contactability(
             session,
             actor,
             prospect_id,
@@ -361,7 +373,7 @@ def set_contactability(
             reason=body.reason,
             clock=clock,
         )
-    return prospect_out(view)
+    return saved_out(result)
 
 
 def tracking_update(body: TrackingPatch) -> TrackingUpdate:
@@ -386,17 +398,15 @@ def update_tracking(
     session: SessionDep,
     actor: CurrentActor,
     clock: ClockDep,
-) -> TrackingPatchOut:
+) -> ProspectSavedOut:
     """Human choice of the Contact state and/or the next-action week; answers the editor view
     (with the cadence suggestion `tracking.suggested_next_contact_*`, never applied) and
-    `cancelled_messages`, the unsent Contact messages a sequence-closing state cancelled."""
+    `cancelled_messages` / `in_flight_messages` (effect on the Contact messages)."""
     with business_errors():
-        updated = prospect_editor.update_tracking(
+        result = prospect_editor.update_tracking(
             session, actor, prospect_id, body.version, tracking_update(body), clock
         )
-    return TrackingPatchOut(
-        **prospect_out(updated.view).model_dump(), cancelled_messages=updated.cancelled_messages
-    )
+    return saved_out(result)
 
 
 @router.delete("/{prospect_id}", status_code=status.HTTP_204_NO_CONTENT)

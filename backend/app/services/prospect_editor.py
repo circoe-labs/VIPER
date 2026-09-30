@@ -51,11 +51,8 @@ from app.repositories import referents as referent_repository
 from app.repositories import taxonomies as taxonomy_repository
 from app.services import audit, contact_channels, prospects, provenance, taxonomies
 from app.services.contact_channels import EMAILS, PHONES, ChannelItem
-from app.services.contact_tracking import (
-    ContactTrackingInput,
-    apply_contact_tracking,
-    save_contact_tracking,
-)
+from app.services.contact_message_cancellation import NOTHING, Cancellation
+from app.services.contact_tracking import ContactTrackingInput, apply_contact_tracking
 from app.services.contact_workflow import (
     DEFAULT_STATE,
     IsoWeek,
@@ -291,10 +288,12 @@ class ProspectView:
 
 
 @dataclass(frozen=True, slots=True)
-class TrackingUpdated:
+class EditorResult:
+    """A save's view, and its effect on the Contact messages: unsent ones cancelled by a
+    sequence-closing state or the opposition (decision 29), claimed ones left to the dispatcher."""
+
     view: ProspectView
-    # Unsent Contact messages cancelled by a sequence-closing state (decision 29).
-    cancelled_messages: int
+    messages: Cancellation
 
 
 def aggregate_version(session: Session, prospect_id: uuid.UUID) -> str:
@@ -611,9 +610,9 @@ def _save_tracking(
     prospect: Prospect,
     form: TrackingForm | None,
     now: datetime,
-) -> None:
+) -> Cancellation:
     if form is None:
-        return
+        return NOTHING
     current = prospect.contact_tracking
     data = ContactTrackingInput(
         status=form.status,
@@ -631,8 +630,8 @@ def _save_tracking(
     if current is not None and all(
         getattr(current, name) == getattr(data, name) for name in TRACKING_FIELDS
     ):
-        return
-    save_contact_tracking(session, actor, prospect.id, data, now=now)
+        return NOTHING
+    return apply_contact_tracking(session, actor, prospect.id, data, now=now).messages
 
 
 def _save_details(
@@ -641,10 +640,10 @@ def _save_details(
     prospect: Prospect,
     form: ProspectForm,
     clock: EditorClock,
-) -> None:
+) -> Cancellation:
     contact_channels.save_channels(session, actor, prospect, EMAILS, form.emails, now=clock.now)
     contact_channels.save_channels(session, actor, prospect, PHONES, form.phones, now=clock.now)
-    _save_tracking(session, actor, prospect, form.tracking, clock.now)
+    return _save_tracking(session, actor, prospect, form.tracking, clock.now)
 
 
 def _locked(session: Session, prospect_id: uuid.UUID, version: str) -> Prospect:
@@ -705,7 +704,7 @@ def update_prospect(
     version: str,
     form: ProspectForm,
     clock: EditorClock,
-) -> ProspectView:
+) -> EditorResult:
     """Replace the prospect's editable state (see the module steps)."""
     prospect = _locked(session, prospect_id, version)
     form = _cleaned(session, form)
@@ -717,8 +716,8 @@ def update_prospect(
         prospect.employment_verified_at, form.employment_verification, clock
     )
     _apply_fields(session, actor, prospect, form, role_id, verified_at)
-    _save_details(session, actor, prospect, form, clock)
-    return get_view(session, prospect.id, clock)
+    messages = _save_details(session, actor, prospect, form, clock)
+    return EditorResult(get_view(session, prospect.id, clock), messages)
 
 
 def set_contactability(
@@ -730,16 +729,19 @@ def set_contactability(
     do_not_contact: bool,
     reason: str,
     clock: EditorClock,
-) -> ProspectView:
+) -> EditorResult:
     """Record or lift the durable opposition through its dedicated operations; a reason is
     required both ways (setting: on the row and in the event; lifting: in the event, I-28)."""
     _locked(session, prospect_id, version)
     text = _required("reason", reason, TEXT_MAX_LENGTH)
+    messages = NOTHING
     if do_not_contact:
-        prospects.mark_do_not_contact(session, actor, prospect_id, reason=text)
+        messages = prospects.record_do_not_contact(
+            session, actor, prospect_id, reason=text
+        ).messages
     else:
         prospects.clear_do_not_contact(session, actor, prospect_id, reason=text)
-    return get_view(session, prospect_id, clock)
+    return EditorResult(get_view(session, prospect_id, clock), messages)
 
 
 def update_tracking(
@@ -749,7 +751,7 @@ def update_tracking(
     version: str,
     update: TrackingUpdate,
     clock: EditorClock,
-) -> TrackingUpdated:
+) -> EditorResult:
     """Choose a state and/or set or clear the next-action week (stored as its Monday, P1). Only a
     person may do it (decision 10); dates and referent are kept. A new tracking starts `neutral`.
     Refusals: `ActorNotAllowedError`, `InvalidFieldError` (`empty`: nothing to change),
@@ -779,7 +781,7 @@ def update_tracking(
         explicit_next_action=update.set_next_action,
         now=clock.now,
     )
-    return TrackingUpdated(get_view(session, prospect.id, clock), saved.cancelled_messages)
+    return EditorResult(get_view(session, prospect.id, clock), saved.messages)
 
 
 def delete_prospect(

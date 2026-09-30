@@ -26,7 +26,8 @@ number).
 ```
 
 **Scope** of Contact: prospects with a contact tracking whose state is not `ignored` (terminal, outside Contact) and
-who are not `do_not_contact`. `failure`, `response_received`, `appointment_obtained` stay in scope (filterable).
+who are not `do_not_contact` — except `appointment_obtained`, kept whatever the opposition (« RDV pris » is a
+cumulative fact). `failure`, `response_received`, `appointment_obtained` stay in scope (filterable).
 
 **Counters** (read-only; each equals the `total` of `GET /api/contact/prospects?counter=<key>` under the same `q`):
 
@@ -36,11 +37,11 @@ who are not `do_not_contact`. `failure`, `response_received`, `appointment_obtai
 | `first_contact` | Premier contact | `neutral`, next action reached or overdue |
 | `follow_up` | Relances | `contacted` (R1 to prepare) or `r1` (R2 to prepare), reached or overdue |
 | `review` | Revues R2 | `r2`, reached or overdue — a human review/closing, not another mail (H-13) |
-| `appointments` | RDV pris | current state `appointment_obtained`, cumulative, no time window (H-18) |
+| `appointments` | RDV pris | current state `appointment_obtained`, cumulative, no time window (H-18), opposed or not (only `ignored` is excluded) |
 
 « Reached or overdue » = `planned_contact_at` before next week's Monday (business time, Europe/Paris), i.e. the
-next-action ISO week ≤ the current ISO week. The four due counters also exclude prospects whose activity is
-`inactive` (Prospection's `actionable()`). An overdue week never changes a state (H-10): it stays « à traiter » until a
+next-action ISO week ≤ the current ISO week. The four due counters exclude `do_not_contact` and `inactive`
+prospects (Prospection's `actionable()`). An overdue week never changes a state (H-10): it stays « à traiter » until a
 person acts. `weeks` = the ISO weeks present in the planning (scope, under `q`), oldest first — the week selector's
 options; `current_week` is the server's « cette semaine ».
 
@@ -70,12 +71,18 @@ overdue weeks). Order: next action (soonest first, none last), last name, first 
 `due` = in `to_handle`. `next_step` = what the next action prepares: `contact` (neutral), `r1` (contacted), `r2`
 (r1), `review` (r2), `null` otherwise. `messages` = status of each step's message, `null` = never created.
 
-Refusals: 422 `invalid` with `field: "week"`, `reason: "iso_week"` (malformed or non-existent week, e.g. `2025-W53`);
+Refusals: 422 `invalid` with `field: "week"`, `reason: "iso_week"` (malformed or non-existent week, e.g. `2025-W53`,
+or a year outside 2000-2100);
 422 `invalid` with `field: "state"`, `reason: "not_filterable"` (`ignored`).
 
 The left panel uses `GET /api/prospects/{id}` (editor view, with tracking and cadence suggestion) and changes the
-state/week with `PATCH /api/prospects/{id}/tracking`. That answer now also carries `cancelled_messages` (integer, the
-unsent messages a sequence-closing state cancelled; additive field).
+state/week with `PATCH /api/prospects/{id}/tracking`.
+
+**Effect on the messages** (additive fields, S3): `PATCH /api/prospects/{id}/tracking`, the editor save
+`PUT /api/prospects/{id}` and the opposition `PUT /api/prospects/{id}/contactability` answer the editor view plus
+`cancelled_messages` (unsent messages cancelled by this save) and `in_flight_messages` (messages claimed by the
+dispatcher, left to it — they may still leave). Both are 0 when nothing closed the sequence; `POST /api/prospects`
+answers the plain view.
 
 ## Mail sequence — `/api/prospects/{prospect_id}/messages`
 
@@ -98,8 +105,8 @@ draft|validated|scheduled --cancel--> cancelled --reopen--> draft (revision+1)
   changes nothing (`changed: false`).
 - **Validation** (H-23) confirms the current revision (`validated_revision = revision`), by a person, one message at a
   time; it needs `from_email`, at least one `to`, a subject and a body (else 422 `message_incomplete` + `fields`).
-- **Schedule** (H-25): from `validated` only, an explicit ISO 8601 moment **with offset**, strictly in the future; no
-  default time, unrelated to the next-action week (H-14). **Unschedule** keeps the validation.
+- **Schedule** (H-25): from `validated` only, an explicit ISO 8601 moment **with offset**, strictly in the future and
+  at most one year ahead; no default time, unrelated to the next-action week (H-14). **Unschedule** keeps the validation.
 - **Sent** is immutable (H-21: service + database trigger). No route marks a message sent.
 - **Cancel** (a person, or decision 29 below) keeps the content; **reopen** brings a cancelled step back to `draft`.
 - **Optimistic concurrency**: every change of an existing message sends the `expected_revision` it read.
@@ -107,11 +114,12 @@ draft|validated|scheduled --cancel--> cancelled --reopen--> draft (revision+1)
 - **Human actor** only (403 `human_actor_required`).
 - **Closed sequence**: prospect state `response_received`, `appointment_obtained` or `ignored`, or the opposition
   `do_not_contact` — create, edit, validate, schedule and reopen are refused; unschedule and cancel stay possible.
-- **Decision 29**: when a person (or an import) sets `response_received`, `appointment_obtained` or `ignored`, every
-  `draft`/`validated`/`scheduled` message of the prospect is cancelled in the same transaction
-  (`cancel_reason = "prospect_state:<state>"`); `sent`/`cancelled` are untouched; a message claimed by the dispatcher
-  (S7) is left to it. Setting `do_not_contact` from the editor does not cancel messages (they can no longer be
-  validated or scheduled, and the dispatcher re-checks the opposition — S7).
+- **Decision 29 and the opposition**: when a person (or an import) sets `response_received`, `appointment_obtained`
+  or `ignored`, every `draft`/`validated`/`scheduled` message of the prospect is cancelled in the same transaction
+  (`cancel_reason = "prospect_state:<state>"`). Recording the opposition `do_not_contact` (the editor's opposition, or the
+  `ignored` state from any path) does the same with `cancel_reason = "do_not_contact"`; on the `ignored` path the state cancels
+  first, so its messages carry `prospect_state:ignored`. `sent`/`cancelled` are untouched; a message claimed by the
+  dispatcher (S7) is left to it and counted in `in_flight_messages`.
 
 ### Endpoints
 
@@ -140,14 +148,16 @@ draft|validated|scheduled --cancel--> cancelled --reopen--> draft (revision+1)
 
 `MessageContentIn` (unknown fields refused): `expected_revision` (omitted/null = create the step's message; else the
 revision read), `from_email` (null clears it), `subject` (≤ 998), `body_text` (≤ 100 000), `to`, `cc`, `bcc` (lists of
-≤ 50 addresses; blanks dropped, lowercased, deduplicated). An omitted field keeps its value — or, on creation, the
-default (`from_email`, `to`) or empty.
+≤ 50 addresses; blanks dropped, lowercased, deduplicated — also across lists: an address is kept in the first of
+`to` > `cc` > `bcc`). Control characters (CR, LF, NUL…) are refused in `subject` and the addresses (header
+injection); the body is free text. An omitted field keeps its value — or, on creation, the default (`from_email`,
+`to`) or empty. An identical save answers `changed: false`, even on a closed sequence.
 
 `MessageResult`: `{"message": Message, "created": bool, "changed": bool, "unvalidated": bool}`.
 
 `Message`: `id`, `prospect_id`, `step`, `status`, `from_email`, `to`, `cc`, `bcc`, `subject`, `body_text`,
 `revision`, `validated_revision`, `validated_at`, `validated_by` (display name), `scheduled_at`, `sent_at`,
-`cancelled_at`, `cancel_reason` (`manual` | `prospect_state:<state>`), `generation_model`,
+`cancelled_at`, `cancel_reason` (`manual` | `prospect_state:<state>` | `do_not_contact`), `generation_model`,
 `generation_prompt_version`, `generated_at` (S5), `has_remote_draft` (S6), `last_error_code`, `last_error_at` (S7),
 `created_at`, `updated_at`.
 
@@ -166,14 +176,15 @@ default (`from_email`, `to`) or empty.
 | 409 | `prospect_do_not_contact` | write on a do-not-contact prospect | |
 | 409 | `prospect_sequence_closed` | write after `response_received` / `appointment_obtained` / `ignored` | |
 | 422 | `message_incomplete` | validate without from/to/subject/body | `fields`: `from_email`, `to`, `subject`, `body_text` |
-| 422 | `invalid` | bad address (`field`: `from_email`, `to.1`, `cc.0`…; `reason` `format`/`too_many`), past moment (`field: scheduled_at`, `reason: not_future`) | `field`, `reason` |
-| 403 | `human_actor_required` | non-human actor | |
+| 422 | `invalid` | bad address (`field`: `from_email`, `to.1`, `cc.0`…; `reason` `format`/`too_many`/`control_character`), control character in `subject` (`reason: control_character`), send moment in the past (`field: scheduled_at`, `reason: not_future`) or more than a year ahead (`reason: too_far`) | `field`, `reason` |
+| 403 | `human_actor_required` | not a person, or a person without an id | |
 
 ## Audit and privacy
 
 Each message change is one audit event on the message, in the prospect's history: `contact_message.created`,
 `.updated` (edit of a draft), `.unvalidated` (edit that cleared a validation), `.validated`, `.scheduled`,
-`.unscheduled`, `.cancelled` (context `reason`: `manual` or `prospect_state:<state>`), `.reopened`. The content
+`.unscheduled`, `.cancelled` (context `reason`: `manual`, `prospect_state:<state>` or `do_not_contact`), `.reopened`.
+The content
 (`from_email`, recipients, subject, body) is **masked** in the audit log (`[masked]`: it changed, never what it says)
 and never logged. Application logs carry ids, step, status, revision and actor type only. There is no separate
 message journal: the append-only audit log already records who, when, which transition and which revision.
@@ -182,3 +193,21 @@ message journal: the append-only audit log already records who, when, which tran
 
 `VIPER_DEFAULT_OUTBOUND_EMAIL` (optional): the sender pre-filled in a new message; unset → typed by hand (a message
 cannot be validated without one). Validated at startup (`x@y` form).
+
+## Concurrency note
+
+The prospect state is read without a lock by a message write. A state change committed meanwhile waits for the
+message row lock and then cancels that message too; the only gap is a **creation** racing the change: the new draft
+is invisible to the cancellation and remains — it cannot be validated, scheduled or edited afterwards (closed
+sequence), only read or cancelled.
+
+## Reste à faire (later Slices)
+
+- **S6 (Toolbox)**: add `contact_message_remote_draft_cleanups` (the reference's queue) and enqueue the old remote draft
+  id wherever it is detached today — `contact_messages._clear_validation` (edit, reopen),
+  `contact_message_cancellation.cancel_message` (manual cancel, decision 29, opposition) — then delete them after
+  commit.
+- **S7 (dispatch)**: inside the claim transaction, re-read the prospect state **and** `do_not_contact` and refuse to
+  send on a closed sequence; send `r1`/`r2` only once the previous step is `sent`; after a definitive failure, cancel
+  the message if the sequence closed meanwhile; reclaim stale claims after a TTL based on `dispatch_claimed_at`
+  (a stale claim may have sent: reconcile, never resend blindly); report the in-flight messages the UI was told about.

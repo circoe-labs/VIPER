@@ -296,3 +296,30 @@ def test_invalid_criteria_are_refused(
 def test_the_dashboard_needs_a_session(anonymous_client: TestClient) -> None:
     assert anonymous_client.get(f"{CONTACT}/dashboard").status_code == 401
     assert anonymous_client.get(f"{CONTACT}/prospects").status_code == 401
+
+
+def test_an_appointment_counts_whatever_the_opposition(
+    db_session: Session, planning: dict[str, uuid.UUID]
+) -> None:
+    person(
+        db_session,
+        "Rrr",
+        S.APPOINTMENT_OBTAINED,
+        W52,
+        contactability_status=ContactabilityStatus.DO_NOT_CONTACT,
+        do_not_contact_at=W52,
+    )
+
+    counts = dashboard(db_session, CLOCK).counts
+
+    assert counts[C.APPOINTMENTS] == 3
+    assert names(db_session, ContactFilters(counter=C.APPOINTMENTS)) == ["Kkk", "Rrr", "Jjj"]
+    # The due cards still leave out the opposed (and the inactive).
+    assert counts[C.TO_HANDLE] == 6
+
+
+@pytest.mark.parametrize("week", ["1999-W10", "2101-W01", "9999-W52"])
+def test_implausible_week_years_are_refused(client: TestClient, week: str) -> None:
+    response = client.get(f"{CONTACT}/prospects", params={"week": week})
+    assert response.status_code == 422
+    assert response.json()["detail"]["reason"] == "iso_week"
