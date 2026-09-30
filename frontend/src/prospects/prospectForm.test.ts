@@ -117,6 +117,12 @@ describe('prospect form model', () => {
     // Sequence states keep it.
     expect(withStatus(tracking, 'r2', '2026-09-21').planned_contact_on).toBe('2026-09-21')
     expect(withStatus(tracking, 'neutral', '2026-09-21').planned_contact_on).toBe('2026-09-21')
+    // Back to a state with a next action before saving: the stored week comes back.
+    const closed = withStatus(tracking, 'failure', '2026-09-21')
+    expect(withStatus(closed, 'r2', '2026-09-21')).toMatchObject({ status: 'r2', planned_contact_on: '2026-09-21' })
+    expect(withStatus(withStatus(tracking, 'ignored', '2026-09-21'), 'r1', '2026-09-21').planned_contact_on).toBe(
+      '2026-09-21',
+    )
   })
 
   it('normalizes phone numbers like the server and suggests their type', () => {

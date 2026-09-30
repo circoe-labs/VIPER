@@ -200,7 +200,13 @@ def filter_conditions(filters: ProspectFilters) -> list[ColumnElement[bool]]:
         conditions.append(Prospect.activity_status == filters.activity)
     conditions += _optional_ref(ContactTracking.referent_id, filters.referent)
     if filters.tracking_status == NONE:
+        # Kept for old URLs: no tracking row at all.
         conditions.append(ContactTracking.id.is_(None))
+    elif filters.tracking_status is ContactTrackingStatus.NEUTRAL:
+        # « Aucun état » for the user (Contact decision 4): neutral, or no tracking row yet.
+        conditions.append(
+            or_(ContactTracking.id.is_(None), ContactTracking.status == filters.tracking_status)
+        )
     elif filters.tracking_status is not None:
         conditions.append(ContactTracking.status == filters.tracking_status)
     if filters.company_id is not None:

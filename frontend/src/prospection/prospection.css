@@ -354,14 +354,6 @@
   font-weight: var(--weight-semibold);
 }
 
-.prospect-row__planned {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-  font-variant-numeric: tabular-nums;
-}
-
 .prospect-row__muted {
   color: var(--color-text-muted);
 }
@@ -383,10 +375,16 @@
   }
 }
 
-/* Quick week planning (Contact port S2): the card's « Planifier » button sits above the card-wide link. */
-.prospect-row__plan {
+/* Quick week planning (Contact port S2): the card's « Planifier » button and the week badge (its tooltip) sit above
+   the card-wide link. */
+.prospect-row__plan,
+.prospect-row__stage .badge--tag {
   position: relative;
   z-index: 1;
+}
+
+.prospect-row__plan {
+  margin-left: calc(-1 * var(--space-3));
 }
 
 .quick-plan {

@@ -88,7 +88,7 @@ export function MonthlyProgress({ progress }: { progress: HomeData['progress'] }
       />
       <ProgressMetric
         metric="appointments"
-        label="Rendez-vous obtenus"
+        label="RDV pris"
         target={progress.appointment_target}
         months={progress.months}
       />
@@ -117,8 +117,8 @@ export function MonthlyProgress({ progress }: { progress: HomeData['progress'] }
         </div>
       </details>
       <p className="home-panel__note">
-        Première prise de contact et premier rendez-vous enregistrés dans VIPER (changements d’étape du suivi) ; les
-        étapes reprises d’un import ne comptent pas.
+        Première prise de contact et premier RDV pris enregistrés dans VIPER (changements d’état du suivi) ; les
+        états repris d’un import ne comptent pas.
       </p>
     </section>
   )

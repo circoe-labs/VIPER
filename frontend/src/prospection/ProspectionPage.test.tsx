@@ -201,6 +201,46 @@ describe('Prospection page', () => {
     }
   })
 
+  it('flags a past next-action week of a follow-up as « Échu », display only', async () => {
+    // The fake's business day is 2026-09-10 (week 37).
+    stubProspectionApi({
+      prospects: [
+        prospect('Rémi', 'Retard', { tracking_status: 'r2', planned_contact_week: '2026-W30' }),
+        prospect('Alice', 'Alheure', { tracking_status: 'contacted', planned_contact_week: '2026-W38' }),
+        prospect('Fanny', 'Fermée', { tracking_status: 'failure', planned_contact_week: '2026-W30' }),
+      ],
+    })
+    renderApp('/prospection?segment=all&q=')
+    const rows = within(await screen.findByRole('list', { name: 'Prospects' })).getAllByRole('listitem')
+
+    expect(rows[0]).toHaveTextContent('Échu')
+    expect(rows[1]).not.toHaveTextContent('Échu')
+    // Failure has no next action: its old week is not overdue.
+    expect(rows[2]).not.toHaveTextContent('Échu')
+  })
+
+  it('offers « Aucun état » as one state filter, covering people without any tracking', async () => {
+    const api = stubProspectionApi({ prospects: people() })
+    renderApp('/prospection?segment=all&q=')
+    await userEvent.click(await screen.findByRole('button', { name: /^Filtres/ }))
+    const filter = screen.getByRole('combobox', { name: 'État de contact' })
+    expect(within(filter).getAllByRole('option').map((option) => option.textContent)).toEqual([
+      'Tous les états',
+      'Aucun état',
+      'Contacté',
+      'R1',
+      'R2',
+      'Réponse reçue',
+      'RDV pris',
+      'Failure',
+      'Ignoré',
+    ])
+    await userEvent.selectOptions(filter, 'Aucun état')
+    await waitFor(() => {
+      expect(lastParams(api.requests, PROSPECTS).get('tracking_status')).toBe('neutral')
+    })
+  })
+
   it('moves between people with the arrow keys and opens one with Enter in the prospect editor', async () => {
     const rows = people()
     stubProspectsApi({ rows, details: rows.map((row) => prospectDetail({ id: row.id, first_name: row.first_name, last_name: row.last_name })) })
@@ -229,7 +269,10 @@ describe('Prospection page', () => {
   })
 
   it('plans a week from the list without touching the state (PATCH), and says why a save is refused', async () => {
-    const rows = [...people(), prospect('Ida', 'Ignorée', { tracking_status: 'ignored', contactability_status: 'do_not_contact' })]
+    const rows = [
+      ...people(),
+      prospect('Ida', 'Ignorée', { tracking_status: 'ignored', contactability_status: 'do_not_contact' }),
+    ]
     const api = stubProspectsApi({
       rows,
       details: rows.map((row) => prospectDetail({ id: row.id, first_name: row.first_name, last_name: row.last_name })),
@@ -242,6 +285,10 @@ describe('Prospection page', () => {
 
     await userEvent.click(within(prospects).getByRole('button', { name: 'Planifier la semaine de Claire Démo' }))
     const popover = await screen.findByRole('dialog', { name: 'Prochaine semaine de Claire Démo' })
+    // Once the prospect is read, its first control has the focus.
+    await waitFor(() => {
+      expect(within(popover).getByRole('combobox', { name: 'Année' })).toHaveFocus()
+    })
     await userEvent.click(await within(popover).findByRole('button', { name: '+2 semaines' }))
     await userEvent.click(within(popover).getByRole('button', { name: 'Enregistrer S39' }))
 

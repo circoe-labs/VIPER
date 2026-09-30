@@ -175,7 +175,7 @@ describe('Home page', () => {
     expect(contacted).toHaveAttribute('aria-valuetext', '37 sur un objectif indicatif de 100 (37 %)')
     expect(contacted).toHaveAttribute('aria-valuenow', '37')
     // Above the target: the meter is full, the text says by how much.
-    const appointments = within(progress).getByRole('meter', { name: 'Rendez-vous obtenus' })
+    const appointments = within(progress).getByRole('meter', { name: 'RDV pris' })
     expect(appointments).toHaveAttribute('aria-valuenow', '10')
     expect(appointments).toHaveAttribute('aria-valuetext', '12 sur un objectif indicatif de 10 (120 %)')
     expect(within(progress).getByText('Objectif indicatif : 100 · 37 %')).toBeInTheDocument()
@@ -201,7 +201,7 @@ describe('Home page', () => {
     const jean = within(due).getByRole('link', { name: 'Jean Echu' })
     expect(jean).toHaveAttribute('href', `/prospection?segment=due&sort=planned_contact&prospect=${PERSON}`)
     expect(within(due).getByRole('listitem')).toHaveTextContent('Transports Exemple SARL')
-    expect(within(due).getByRole('listitem')).toHaveTextContent(/Prévu le 8 sept\.$/)
+    expect(within(due).getByRole('listitem')).toHaveTextContent(/Semaine S37$/)
     expect(within(actions).getByRole('link', { name: 'Tous les échus' })).toHaveAttribute(
       'href',
       '/prospection?segment=due&sort=planned_contact',

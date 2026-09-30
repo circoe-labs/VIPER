@@ -64,7 +64,7 @@ Both endpoints take the same **criteria**, so a counter always equals the total 
 | `role` | Role id, or `none` (no role). |
 | `activity` | `active`, `unknown`, `inactive`. |
 | `referent` | Referent id of the tracking, or `none`. |
-| `tracking_status` | A Contact state (`neutral` … `ignored`), or `none` (no tracking row). |
+| `tracking_status` | A Contact state (`neutral` … `ignored`). `neutral` is « Aucun état » for the user and also matches prospects **without any tracking row** (Contact decision 4); `none` (no tracking row only) stays accepted for old URLs but is no longer offered. |
 | `company` | Company id. |
 | `import_batch` | Import batch id (a prospect source of that batch). |
 
@@ -100,8 +100,8 @@ The `q` search keeps its `label_key`/`strpos` semantics; the trigram indexes of 
   Counts follow the search and filters. Each card's tooltip is its definition in one sentence, repeated under the list
   title.
 - **Toolbar** — search (debounced), *Filtres* (disclosure with the number of active filters; open on load when one is
-  set): Rôle, Activité, *État de contact* (*Tous les états*, the eight Contact states — *Aucun état* is `neutral` —
-  and *Jamais suivi (aucune fiche de suivi)* for `none`), Référent, Entreprise (picker over the first 200 companies),
+  set): Rôle, Activité, *État de contact* (*Tous les états* and the eight Contact states — *Aucun état* is `neutral`,
+  people without tracking included), Référent, Entreprise (picker over the first 200 companies),
   Import (committed imports of the history); *Trier par*. *Réinitialiser* clears the segment, search and filters (keeps the sort).
 - **People list** — one card per person, 50 per page (*Précédents / Suivants*): initials, civility and name (the
   card's link), *Ne pas contacter* badge and a red edge when opposed, role · exact title (or *Rôle non renseigné*),
@@ -111,11 +111,15 @@ The `q` search keeps its `label_key`/`strpos` semantics; the trigram indexes of 
   independent indicators (Contact decisions 4-5, `frontend/src/prospection/TrackingBadges.tsx`): the **state badge**
   (none while `neutral`; tones in the design system) and the **week badge** *S41* (calendar glyph, accent tag; the year
   is written when it is not the current one, *S02 · 2027*, and always in the tooltip and for screen readers), the
-  *Échu* warning badge when due, *Aucun état · aucune semaine* when there is neither; response and appointment dates,
-  *Référent : …*. Every status is glyph + text. **Quick planning**: *Planifier* / *Replanifier* (not for *Ignoré*)
-  opens a popover (`QuickWeekPlanner.tsx`) that reads the prospect (version, cadence proposal) and saves the week only
+  *Échu* warning badge when due — the `due` segment (a planned first contact), or, display only and computed in the
+  browser, a state with a next action (`neutral`, *Contacté*, *R1*, *R2*) whose week is before the current ISO week;
+  the `due` segment itself is unchanged — and *Aucun état · aucune semaine* when there is neither; response and
+  appointment dates, *Référent : …*. Every status is glyph + text. **Quick planning**: *Planifier* / *Replanifier*
+  (not for *Ignoré*), on its own line under the badges, opens a popover (`QuickWeekPlanner.tsx`) that reads the prospect (version, cadence proposal) and saves the week only
   through `PATCH /api/prospects/{id}/tracking` — no `status` is sent, so a neutral person stays neutral (handoff Task
-  06); errors show in the popover (French refusal copy of the editor), a 409 `conflict` reloads the prospect.
+  06); errors show in the popover (French refusal copy of the editor), a 409 `conflict` reloads the prospect;
+  once loaded, the year select takes the focus. The outcome (*Semaine S42 enregistrée.*, plus *N messages non envoyés
+  annulés.* when the answer's `cancelled_messages` is not zero) is announced in the list's single live region.
   Keyboard: Tab reaches each person, ↑/↓/Home/End move between people, Enter opens. Three columns at 1280–1920 px,
   two then one in narrower workspaces.
 - **States** — loading (*Chargement des prospects…*), errors with *Réessayer* (list and counters separately), empty

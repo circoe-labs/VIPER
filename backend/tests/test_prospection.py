@@ -481,6 +481,8 @@ def test_filters_combine(db_session: Session) -> None:
         (ProspectFilters(referent=NONE), Segment.ALL, {"b", "c", "d"}),
         (ProspectFilters(tracking_status=S.CONTACTED), Segment.ALL, {"a", "c"}),
         (ProspectFilters(tracking_status=NONE), Segment.ALL, {"d"}),
+        # « Aucun état »: neutral or no tracking row (Contact decision 4).
+        (ProspectFilters(tracking_status=S.NEUTRAL), Segment.ALL, {"b", "d"}),
         (ProspectFilters(company_id=logistique.id), Segment.ALL, {"c", "d"}),
         (ProspectFilters(import_batch_id=batch.id), Segment.ALL, {"a", "c"}),
         (ProspectFilters(company_id=transports.id, role=role.id), Segment.DUE, {"b"}),

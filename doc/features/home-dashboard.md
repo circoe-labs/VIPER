@@ -43,7 +43,7 @@ Two figures for the current month (Europe/Paris, `app/core/business_time.py`), e
   person newly contacted. A person imported at *À contacter* and contacted by hand this month counts. Later moves
   (relance, réponse) never count again. Opposed or inactive people still count (a historical fact, like the
   `contacted` segment).
-- **Appointments obtained** in month M: prospects whose tracking first entered `appointment_obtained`
+- **Appointments obtained** (meter *RDV pris*) in month M: prospects whose tracking first entered `appointment_obtained`
   (`APPOINTMENT_STAGES`; legacy history `quote_sent`, `quote_follow_up`, `won` too) in M, same import rule. Chosen
   over "`appointment_at` in M" because the target measures the prospecting work (securing meetings) when it is done;
   `appointment_at` is the meeting's date — often in a later month, overwritten when rescheduled, and it would count
@@ -69,7 +69,7 @@ then conversions waiting; within a group the oldest (or soonest) first, ties by 
 | Group | People | Order |
 |---|---|---|
 | *Rendez-vous des 7 prochains jours* | *actionable* (segments: contactable and not inactive) with `appointment_at` from the start of today to the end of the 6th day after | soonest first |
-| *Contacts échus* | segment `due` | oldest planned contact first |
+| *Contacts échus* | segment `due` | oldest planned contact first; shown as its week (*Semaine S37*), a next action being a week |
 | *Réponses sans rendez-vous* | actionable, answered (`responses` predicate), no appointment (`appointments` predicate false), state not `failure` / `ignored` | oldest response first, no date last |
 
 Each person shows the date of the group and, for the appointments and responses groups, the Contact state label

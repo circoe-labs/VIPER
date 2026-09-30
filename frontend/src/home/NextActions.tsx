@@ -6,6 +6,7 @@ import { prospectionHref } from '../prospection/criteria'
 import { personName, stateLabel } from '../prospection/labels'
 import { ChevronRightIcon } from '../ui/icons'
 import { formatMoment } from './activity'
+import { weekOfMoment } from './weekOfMoment'
 
 type GroupKey = keyof HomeData['next_actions']
 
@@ -42,7 +43,7 @@ const GROUPS: GroupSpec[] = [
     segment: 'due',
     sort: 'planned_contact',
     more: 'Tous les échus',
-    when: (item) => (item.at ? `Prévu le ${formatMoment(item.at)}` : null),
+    when: (item) => weekOfMoment(item.at),
     stage: false,
   },
   {

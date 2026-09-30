@@ -1,8 +1,8 @@
-import type { KeyboardEvent } from 'react'
+import { type KeyboardEvent, useState } from 'react'
 import { Link } from 'react-router'
 
-import type { ProspectRow } from '../api/prospection'
-import { parseIsoWeek } from '../lib/isoWeek'
+import { NEXT_ACTION_STATES, type ProspectRow } from '../api/prospection'
+import { type IsoWeek, parseIsoWeek, weeksFrom } from '../lib/isoWeek'
 import { StatusBadge } from '../ui/Badge'
 import { BanIcon, BuildingIcon, ClockIcon, MinusCircleIcon, UsersIcon } from '../ui/icons'
 import {
@@ -90,7 +90,21 @@ function EmailLine({ row }: { row: ProspectRow }) {
 
 // The contact follow-up: two independent indicators — the state (none while `neutral`) and the next-action week —
 // then the dates and the referent (Contact decisions 4-5).
-function Tracking({ row, today, planning }: { row: ProspectRow; today: string; planning: boolean }) {
+interface TrackingProps {
+  row: ProspectRow
+  today: string
+  // Announces the outcome of a quick planning; null: no planning on the cards.
+  onPlanned: ((notice: string) => void) | null
+}
+
+// Past-week cue, display only: a planned first contact due by the backend's segment (`due`), or a follow-up whose
+// next-action week is before the current one (the `due` segment itself stays the first contacts).
+function overdue(row: ProspectRow, week: IsoWeek | null, today: string): boolean {
+  if (row.due) return true
+  return week !== null && NEXT_ACTION_STATES.includes(row.tracking_status ?? 'neutral') && weeksFrom(today, week) < 0
+}
+
+function Tracking({ row, today, onPlanned }: TrackingProps) {
   const week = parseIsoWeek(row.planned_contact_week)
   const shown = row.tracking_status !== null && row.tracking_status !== 'neutral'
   return (
@@ -98,14 +112,14 @@ function Tracking({ row, today, planning }: { row: ProspectRow; today: string; p
       <span className="prospect-row__stage">
         <StateBadge status={row.tracking_status} />
         {week && <WeekBadge week={week} today={today} />}
-        {row.due && (
+        {overdue(row, week, today) && (
           <StatusBadge tone="warning" icon={ClockIcon}>
             Échu
           </StatusBadge>
         )}
         {!shown && !week && <span className="prospect-row__muted">Aucun état · aucune semaine</span>}
-        {planning && <PlanWeekButton row={row} />}
       </span>
+      {onPlanned && <PlanWeekButton row={row} onPlanned={onPlanned} />}
       {row.response_received_at && <span>Réponse le {formatDay(row.response_received_at)}</span>}
       {row.appointment_at && <span>Rendez-vous le {formatDay(row.appointment_at)}</span>}
       {row.referent_name && <span className="prospect-row__muted">Référent : {row.referent_name}</span>}
@@ -116,53 +130,61 @@ function Tracking({ row, today, planning }: { row: ProspectRow; today: string; p
 // The people list: one readable card per person — identity with its states, company and contacts, contact follow-up.
 // The name is the row's link — the whole card is clickable — and opens the prospect (prospectEditor.tsx).
 export function ProspectList({ rows, openHref, today, planning = true }: ProspectListProps) {
+  // One live region for the whole list: the outcome of the last quick planning.
+  const [notice, setNotice] = useState('')
+  const onPlanned = planning ? setNotice : null
   return (
-    <ul className="prospect-list" aria-label="Prospects" onKeyDown={moveFocus}>
-      {rows.map((row) => {
-        const civility = civilityLabel(row.civility)
-        const blocked = row.contactability_status === 'do_not_contact'
-        const title = [row.role_label, row.exact_job_title].filter(Boolean)
-        return (
-          <li key={row.id} className={`prospect-row${blocked ? ' prospect-row--blocked' : ''}`}>
-            <div className="prospect-row__identity">
-              <span className="prospect-row__avatar" aria-hidden="true">
-                {initials(row)}
-              </span>
-              <div className="prospect-row__who">
-                <span className="prospect-row__name-line">
-                  {civility && <span className="prospect-row__civility">{civility}</span>}
-                  <Link className="prospect-row__open" to={openHref(row.id)}>
-                    {personName(row)}
-                  </Link>
-                  {blocked && (
-                    <StatusBadge tone="danger" icon={BanIcon}>
-                      Ne pas contacter
-                    </StatusBadge>
-                  )}
+    <>
+      <p className="visually-hidden" role="status">
+        {notice}
+      </p>
+      <ul className="prospect-list" aria-label="Prospects" onKeyDown={moveFocus}>
+        {rows.map((row) => {
+          const civility = civilityLabel(row.civility)
+          const blocked = row.contactability_status === 'do_not_contact'
+          const title = [row.role_label, row.exact_job_title].filter(Boolean)
+          return (
+            <li key={row.id} className={`prospect-row${blocked ? ' prospect-row--blocked' : ''}`}>
+              <div className="prospect-row__identity">
+                <span className="prospect-row__avatar" aria-hidden="true">
+                  {initials(row)}
                 </span>
-                <span className="prospect-row__title">
-                  {title.length > 0 ? title.join(' · ') : <span className="prospect-row__muted">Rôle non renseigné</span>}
-                </span>
-                <span className="prospect-row__state">
-                  <Activity row={row} />
-                  <Verification row={row} />
-                </span>
+                <div className="prospect-row__who">
+                  <span className="prospect-row__name-line">
+                    {civility && <span className="prospect-row__civility">{civility}</span>}
+                    <Link className="prospect-row__open" to={openHref(row.id)}>
+                      {personName(row)}
+                    </Link>
+                    {blocked && (
+                      <StatusBadge tone="danger" icon={BanIcon}>
+                        Ne pas contacter
+                      </StatusBadge>
+                    )}
+                  </span>
+                  <span className="prospect-row__title">
+                    {title.length > 0 ? title.join(' · ') : <span className="prospect-row__muted">Rôle non renseigné</span>}
+                  </span>
+                  <span className="prospect-row__state">
+                    <Activity row={row} />
+                    <Verification row={row} />
+                  </span>
+                </div>
               </div>
-            </div>
-            <div className="prospect-row__contact">
-              <span className="prospect-row__company">
-                <BuildingIcon size={16} />
-                {row.company_name ?? <span className="prospect-row__muted">Sans entreprise</span>}
-              </span>
-              <EmailLine row={row} />
-              {row.primary_phone && <span className="prospect-row__muted">{formatPhone(row.primary_phone)}</span>}
-            </div>
-            <div className="prospect-row__tracking">
-              <Tracking row={row} today={today} planning={planning} />
-            </div>
-          </li>
-        )
-      })}
-    </ul>
+              <div className="prospect-row__contact">
+                <span className="prospect-row__company">
+                  <BuildingIcon size={16} />
+                  {row.company_name ?? <span className="prospect-row__muted">Sans entreprise</span>}
+                </span>
+                <EmailLine row={row} />
+                {row.primary_phone && <span className="prospect-row__muted">{formatPhone(row.primary_phone)}</span>}
+              </div>
+              <div className="prospect-row__tracking">
+                <Tracking row={row} today={today} onPlanned={onPlanned} />
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+    </>
   )
 }

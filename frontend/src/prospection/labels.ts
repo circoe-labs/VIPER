@@ -115,7 +115,7 @@ export const ACTIVITY_LABELS: Record<ActivityStatus, string> = {
 export const SORT_LABELS: Record<ProspectSort, string> = {
   name: 'Nom',
   company: 'Entreprise',
-  planned_contact: 'Contact prévu le plus proche',
+  planned_contact: 'Prochaine échéance la plus proche',
   verification: 'Vérification la plus ancienne',
   updated: 'Modifiés récemment',
 }

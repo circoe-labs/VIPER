@@ -185,8 +185,11 @@ Two independent indicators (`frontend/src/prospection/TrackingBadges.tsx`, shown
 Each state badge reads « État : … » for screen readers. The **week** is a `Badge` accent tag with a calendar glyph,
 *S41* (two digits), the year written when it is not the current one (*S02 · 2027*), the full week (*Semaine 41 de
 2026, du lun. 5 oct.*) in the tooltip and for screen readers; *Échu* stays the warning `StatusBadge` beside it.
-*Aucun état · aucune semaine* in muted text when there is neither. The card's *Planifier* / *Replanifier* ghost button
-(calendar glyph, above the stretched link) opens a `Popover` with the week planner.
+*Échu* also marks a follow-up (*Contacté*, *R1*, *R2*) whose week is past. *Aucun état · aucune semaine* in muted
+text when there is neither. The card's *Planifier* / *Replanifier* ghost button (calendar glyph) sits on its own line
+under the badges, so every card has the same rhythm; it and the week tag are raised above the stretched link (tooltip
+and click reachable). It opens a `Popover` with the week planner; the `Popover` re-clamps itself inside the viewport
+when its content grows.
 
 ### Week planner
 `frontend/src/prospects/WeekPlanner.tsx` + `week-planner.css`, in the editor's *Suivi de contact* section and the

@@ -95,7 +95,7 @@ test('Home shows the global state it reads, and a card opens its Prospection seg
   const imports = page.getByRole('list', { name: 'Derniers imports' }).getByRole('listitem')
   await expect(imports).toHaveCount(data.recent_imports.length)
   await expect(imports.first()).toContainText(data.recent_imports[0]?.filename ?? '')
-  await expect(page.getByRole('meter', { name: 'Rendez-vous obtenus' })).toHaveAttribute(
+  await expect(page.getByRole('meter', { name: 'RDV pris' })).toHaveAttribute(
     'aria-valuetext',
     /sur un objectif indicatif de 10 /,
   )

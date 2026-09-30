@@ -90,6 +90,8 @@ def test_none_filters_and_validation(client: TestClient, db_session: Session) ->
         get(client, PROSPECTS, role="none", referent="none", tracking_status="none")["total"] == 1
     )
     assert get(client, COUNTERS, tracking_status="contacted")["counts"]["all"] == 0
+    # « Aucun état » includes a prospect without any tracking row.
+    assert get(client, COUNTERS, tracking_status="neutral")["counts"]["all"] == 1
     for params in (
         {"segment": "inconnu"},
         {"role": "pas-un-uuid"},

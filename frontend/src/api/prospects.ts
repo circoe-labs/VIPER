@@ -161,6 +161,12 @@ export interface ProspectInput {
   tracking: TrackingInput | null
 }
 
+// Answer of `PATCH /prospects/{id}/tracking`: the view plus the unsent Contact messages a sequence-closing state
+// cancelled (Contact decision 29).
+export interface TrackingPatched extends Prospect {
+  cancelled_messages: number
+}
+
 // `PATCH /prospects/{id}/tracking`: the Contact state and/or the next-action week, nothing else. `status` omitted keeps
 // the state; `next_action_week` omitted keeps the week, null clears it (stored as the week's Monday, P1).
 export interface TrackingPatch {
@@ -223,7 +229,7 @@ export function useProspectMutations() {
     // Quick planning outside the editor's form (Prospection list): answers the whole view, like the other writes.
     tracking: useMutation({
       mutationFn: ({ id, version, patch }: { id: string; version: string; patch: TrackingPatch }) =>
-        apiRequest<Prospect>('PATCH', `${prospectPath(id)}/tracking`, { body: { ...patch, version } }),
+        apiRequest<TrackingPatched>('PATCH', `${prospectPath(id)}/tracking`, { body: { ...patch, version } }),
       onSuccess: saved,
     }),
     remove: useMutation({

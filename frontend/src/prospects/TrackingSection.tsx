@@ -18,6 +18,11 @@ const STATE_HINTS: Partial<Record<TrackingStatus, string>> = {
   ignored: 'Définitif : le prospect passe en « Ne pas contacter » et n’aura plus de prochaine action.',
 }
 
+// Which states clear the saved week at the save (the echo rule of the PUT, backend contact_tracking).
+const WEEK_NOTE =
+  'Réponse reçue, RDV pris et Failure retirent la semaine enregistrée, sauf si vous en choisissez une autre ; ' +
+  'Ignoré la retire toujours.'
+
 interface TrackingSectionProps extends SectionProps {
   prospect: Prospect | null
   today: string
@@ -40,7 +45,10 @@ export function TrackingSection({ draft, errors, fieldId, onChange, prospect, to
   const ignored = tracking.status === 'ignored'
   const stateHint = terminal
     ? '« Ignoré » est définitif : l’état ne peut plus changer.'
-    : [since && `Depuis le ${formatDay(since)}.`, tracking.status !== saved?.status && tracking.status && STATE_HINTS[tracking.status]]
+    : [
+        since && `Depuis le ${formatDay(since)}.`,
+        tracking.status !== saved?.status && tracking.status && STATE_HINTS[tracking.status],
+      ]
         .filter(Boolean)
         .join(' ') || undefined
   return (
@@ -61,7 +69,11 @@ export function TrackingSection({ draft, errors, fieldId, onChange, prospect, to
           disabled={terminal}
           onChange={(event) => {
             onChange({
-              tracking: withStatus(tracking, event.target.value as TrackingStatus | '', saved?.planned_contact_on ?? null),
+              tracking: withStatus(
+                tracking,
+                event.target.value as TrackingStatus | '',
+                saved?.planned_contact_on ?? null,
+              ),
             })
           }}
         >
@@ -83,6 +95,7 @@ export function TrackingSection({ draft, errors, fieldId, onChange, prospect, to
             value={isoWeekOf(tracking.planned_contact_on)}
             today={today}
             suggestion={cadenceSuggestion(prospect?.tracking ?? null, tracking.status)}
+            note={WEEK_NOTE}
             onChange={(week) => {
               set({ planned_contact_on: week ? weekMonday(week) : '' })
             }}

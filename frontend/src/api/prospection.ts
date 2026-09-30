@@ -38,6 +38,8 @@ export const TRACKING_STATUSES = [
   'ignored',
 ] as const
 export type TrackingStatus = (typeof TRACKING_STATUSES)[number]
+// States with a next action by default (backend contact_workflow.NEXT_ACTION_STATES): first contact, R1, R2, review.
+export const NEXT_ACTION_STATES: readonly TrackingStatus[] = ['neutral', 'contacted', 'r1', 'r2']
 
 export const PROSPECT_SORTS = ['name', 'company', 'planned_contact', 'verification', 'updated'] as const
 export type ProspectSort = (typeof PROSPECT_SORTS)[number]

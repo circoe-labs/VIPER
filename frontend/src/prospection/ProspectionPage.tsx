@@ -224,7 +224,9 @@ export function ProspectionPage() {
                   : `Aucun prospect dans « ${segment.label} » pour l’instant.`}
               </p>
             )}
-            {page && page.items.length > 0 && <ProspectList rows={page.items} openHref={openHref} today={counters.data?.today ?? businessToday()} />}
+            {page && page.items.length > 0 && (
+              <ProspectList rows={page.items} openHref={openHref} today={counters.data?.today ?? businessToday()} />
+            )}
             {page && page.total > PROSPECT_PAGE_SIZE && (
               <nav className="prospection__pager" aria-label="Pages de la liste">
                 <span>

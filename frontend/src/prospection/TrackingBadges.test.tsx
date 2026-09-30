@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { TRACKING_STATUSES } from '../api/prospection'
+import { cancelledNotice } from './QuickWeekPlanner'
 import { StateBadge, WeekBadge } from './TrackingBadges'
 
 describe('Contact badges', () => {
@@ -37,5 +38,10 @@ describe('Contact badges', () => {
     expect(screen.getByTitle('Semaine 40 de 2026, du lun. 28 sept.')).toBeInTheDocument()
     expect(screen.getByText('S02 · 2027')).toBeInTheDocument()
     expect(screen.getByText('Prochaine action : Semaine 2 de 2027, du lun. 11 janv.')).toBeInTheDocument()
+  })
+
+  it('words the messages a state change cancelled', () => {
+    expect(cancelledNotice(1)).toBe('1 message non envoyé annulé.')
+    expect(cancelledNotice(3)).toBe('3 messages non envoyés annulés.')
   })
 })

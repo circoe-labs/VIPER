@@ -111,8 +111,10 @@ test('counters narrow the list to the right people, kept in the URL; a person op
   // Combined filters: every counter follows them.
   await card(page, 'Tous').click()
   await page.getByRole('button', { name: 'Filtres' }).click()
-  await page.getByRole('combobox', { name: 'État de contact' }).selectOption({ label: 'Jamais suivi (aucune fiche de suivi)' })
-  await expectCount(page, 'Tous', 1)
+  // « Aucun état »: neutral with or without a tracking row (Claire and Jean planned, Léa never followed).
+  await page.getByRole('combobox', { name: 'État de contact' }).selectOption({ label: 'Aucun état' })
+  await expectCount(page, 'Tous', 3)
+  await expectCount(page, 'E-mail manquant', 1)
   await expect(people(page)).toContainText(`SansMail${suffix}`)
   await expect(people(page)).toContainText('Pas d’e-mail principal')
   await page.getByRole('button', { name: 'Réinitialiser' }).click()
@@ -126,7 +128,6 @@ test('counters narrow the list to the right people, kept in the URL; a person op
   await popover.getByRole('button', { name: '+2 semaines' }).click()
   const planned = isoWeek(new Date(Date.now() + 14 * DAY))
   const plannedLabel = `S${String(planned.week).padStart(2, '0')}`
-  await page.screenshot({ path: `${SCREENSHOTS}/prospection-quick-plan-dark.png`, animations: 'disabled' })
   const patched = page.waitForResponse((response) => response.request().method() === 'PATCH')
   await popover.getByRole('button', { name: `Enregistrer ${plannedLabel}` }).click()
   expect((await patched).status()).toBe(200)
@@ -188,6 +189,16 @@ for (const [width, height] of [
       })
       const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth)
       expect(scrollWidth).toBeLessThanOrEqual(width)
+
+      // The quick week planning popover, loaded (its year select focused).
+      await people(page).getByRole('button', { name: /lanifier la semaine de/ }).first().click()
+      await expect(page.getByRole('dialog').getByRole('combobox', { name: 'Année' })).toBeFocused()
+      await page.screenshot({
+        path: `${SCREENSHOTS}/prospection-quick-plan-${theme}-${String(width)}.png`,
+        animations: 'disabled',
+      })
+      await page.keyboard.press('Escape')
+      await expect(page.getByRole('dialog')).toBeHidden()
     })
   }
 }

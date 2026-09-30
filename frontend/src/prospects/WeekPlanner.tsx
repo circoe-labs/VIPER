@@ -17,7 +17,7 @@ import { TRACKING_LABELS } from '../prospection/labels'
 import { WeekBadge } from '../prospection/TrackingBadges'
 import { Button } from '../ui/Button'
 import { SelectField } from '../ui/fields'
-import { CalendarIcon, CheckIcon, CloseIcon } from '../ui/icons'
+import { CalendarIcon, CheckIcon, CloseIcon, InfoIcon } from '../ui/icons'
 import './week-planner.css'
 
 // The cadence proposal of the saved state (`tracking.suggested_next_contact_week`), with why it is proposed.
@@ -32,7 +32,8 @@ export interface CadenceSuggestion {
 export function cadenceSuggestion(tracking: Tracking | null, status: TrackingStatus | ''): CadenceSuggestion | null {
   const week = parseIsoWeek(tracking?.suggested_next_contact_week)
   if (!tracking || !week || tracking.status !== status) return null
-  return { week, reason: `${tracking.status === 'r2' ? 'revue' : 'relance'} après ${TRACKING_LABELS[tracking.status]}` }
+  const kind = tracking.status === 'r2' ? 'revue' : 'relance'
+  return { week, reason: `${kind} après ${TRACKING_LABELS[tracking.status]}` }
 }
 
 interface WeekPlannerProps {
@@ -45,6 +46,8 @@ interface WeekPlannerProps {
   onChange: (week: IsoWeek | null) => void
   suggestion?: CadenceSuggestion | null
   disabled?: boolean
+  // A remark under the controls (the editor: which states clear the week).
+  note?: string
 }
 
 // Years offered: the current one, the one before and the next two, plus the chosen one when outside.
@@ -56,7 +59,15 @@ function yearOptions(today: IsoWeek, chosen: number): number[] {
 // caller decides when it is saved (the editor's form, or the list's quick planning through PATCH). Year and week
 // selects (53-week years handled), quick choices relative to this week, and the cadence proposal as a one-click choice
 // — never applied by itself.
-export function WeekPlanner({ idPrefix, value, today, onChange, suggestion = null, disabled = false }: WeekPlannerProps) {
+export function WeekPlanner({
+  idPrefix,
+  value,
+  today,
+  onChange,
+  suggestion = null,
+  disabled = false,
+  note,
+}: WeekPlannerProps) {
   const current = isoWeekOf(today) ?? { year: 2000, week: 1 }
   // Year browsed while no week is chosen yet.
   const [browsedYear, setBrowsedYear] = useState(current.year)
@@ -173,6 +184,12 @@ export function WeekPlanner({ idPrefix, value, today, onChange, suggestion = nul
             </Button>
           )}
         </div>
+      )}
+      {note && (
+        <p className="week-planner__hint">
+          <InfoIcon size={16} />
+          {note}
+        </p>
       )}
     </div>
   )

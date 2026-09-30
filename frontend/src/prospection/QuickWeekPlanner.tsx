@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import type { ProspectRow } from '../api/prospection'
 import { useProspect, useProspectMutations } from '../api/prospects'
@@ -14,6 +14,12 @@ import { personName } from './labels'
 // at once through `PATCH /prospects/{id}/tracking` — the state is never sent, so a neutral person stays neutral. The
 // popover reads the prospect first (its version, and the cadence proposal of its state).
 
+// « 2 messages non envoyés annulés. » (Contact decision 29: a sequence-closing state cancels the unsent messages).
+export function cancelledNotice(count: number): string {
+  const s = count > 1 ? 's' : ''
+  return `${String(count)} message${s} non envoyé${s} annulé${s}.`
+}
+
 interface QuickWeekPlannerProps {
   prospectId: string
   onDone: (notice: string | null) => void
@@ -25,6 +31,13 @@ function QuickWeekPlanner({ prospectId, onDone }: QuickWeekPlannerProps) {
   // undefined: nothing chosen yet (the stored week shows).
   const [choice, setChoice] = useState<IsoWeek | null | undefined>(undefined)
   const [error, setError] = useState<string | null>(null)
+  const loadedId = loaded.data?.id
+  const idPrefix = `quick-plan-${prospectId}`
+
+  // The popover focused itself while the prospect was loading: once loaded, its first control takes the focus.
+  useEffect(() => {
+    if (loadedId) document.getElementById(`${idPrefix}-year`)?.focus()
+  }, [loadedId, idPrefix])
 
   if (loaded.isPending) {
     return (
@@ -42,7 +55,13 @@ function QuickWeekPlanner({ prospectId, onDone }: QuickWeekPlannerProps) {
           La fiche n’a pas pu être lue ({loaded.error.message}).
         </p>
         <div className="quick-plan__actions">
-          <Button size="sm" variant="ghost" onClick={() => { onDone(null) }}>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              onDone(null)
+            }}
+          >
             Fermer
           </Button>
           <Button size="sm" onClick={() => void loaded.refetch()}>
@@ -56,16 +75,31 @@ function QuickWeekPlanner({ prospectId, onDone }: QuickWeekPlannerProps) {
   const prospect = loaded.data
   const stored = parseIsoWeek(prospect.tracking?.planned_contact_week)
   const chosen = choice === undefined ? stored : choice
-  const idPrefix = `quick-plan-${prospect.id}`
 
   async function submit() {
     setError(null)
     try {
-      await save.mutateAsync({ id: prospect.id, version: prospect.version, patch: { next_action_week: chosen } })
-      onDone(chosen ? `Semaine ${weekBadgeLabel(chosen)} enregistrée.` : 'Semaine retirée.')
+      const saved = await save.mutateAsync({
+        id: prospect.id,
+        version: prospect.version,
+        patch: { next_action_week: chosen },
+      })
+      const cancelled = saved.cancelled_messages
+      onDone(
+        [
+          chosen ? `Semaine ${weekBadgeLabel(chosen)} enregistrée.` : 'Semaine retirée.',
+          cancelled > 0 && cancelledNotice(cancelled),
+        ]
+          .filter(Boolean)
+          .join(' '),
+      )
     } catch (caught) {
       const refusal = prospectRefusal(caught)
-      setError(refusal.conflict ? 'Ce prospect a été modifié entre-temps : la fiche est rechargée, vérifiez puis réessayez.' : refusal.message)
+      setError(
+        refusal.conflict
+          ? 'Ce prospect a été modifié entre-temps : la fiche est rechargée, vérifiez puis réessayez.'
+          : refusal.message,
+      )
       if (refusal.conflict) {
         setChoice(undefined)
         void loaded.refetch()
@@ -92,7 +126,9 @@ function QuickWeekPlanner({ prospectId, onDone }: QuickWeekPlannerProps) {
           setError(null)
         }}
       />
-      <p className="quick-plan__hint">Enregistrée tout de suite, sans changer l’état. Ce n’est pas une date d’envoi.</p>
+      <p className="quick-plan__hint">
+        Enregistrée tout de suite, sans changer l’état. Ce n’est pas une date d’envoi.
+      </p>
       {error && (
         <p className="quick-plan__error" role="alert">
           <AlertIcon size={16} />
@@ -100,7 +136,13 @@ function QuickWeekPlanner({ prospectId, onDone }: QuickWeekPlannerProps) {
         </p>
       )}
       <div className="quick-plan__actions">
-        <Button size="sm" variant="ghost" onClick={() => { onDone(null) }}>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => {
+            onDone(null)
+          }}
+        >
           Annuler
         </Button>
         <Button
@@ -118,9 +160,9 @@ function QuickWeekPlanner({ prospectId, onDone }: QuickWeekPlannerProps) {
 }
 
 // The row's « Planifier » button and its popover. Not offered once « Ignoré » (no next action, decision 7).
-export function PlanWeekButton({ row }: { row: ProspectRow }) {
+// `onPlanned` announces the outcome in the list's single live region.
+export function PlanWeekButton({ row, onPlanned }: { row: ProspectRow; onPlanned: (notice: string) => void }) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
-  const [notice, setNotice] = useState('')
   if (row.tracking_status === 'ignored') return null
   const name = personName(row) || 'ce prospect'
   const label = row.planned_contact_week ? 'Replanifier' : 'Planifier'
@@ -135,15 +177,12 @@ export function PlanWeekButton({ row }: { row: ProspectRow }) {
         aria-haspopup="dialog"
         aria-expanded={anchor !== null}
         onClick={(event) => {
-          setNotice('')
+          onPlanned('')
           setAnchor(anchor ? null : event.currentTarget)
         }}
       >
         {label}
       </Button>
-      <span className="visually-hidden" role="status">
-        {notice}
-      </span>
       {anchor && (
         <Popover
           anchor={anchor}
@@ -157,7 +196,7 @@ export function PlanWeekButton({ row }: { row: ProspectRow }) {
             prospectId={row.id}
             onDone={(message) => {
               setAnchor(null)
-              if (message) setNotice(message)
+              if (message) onPlanned(message)
             }}
           />
         </Popover>

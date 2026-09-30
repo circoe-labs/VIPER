@@ -1,4 +1,4 @@
-import type { ActivityStatus, ChannelVerification, TrackingStatus } from '../api/prospection'
+import { type ActivityStatus, type ChannelVerification, NEXT_ACTION_STATES, type TrackingStatus } from '../api/prospection'
 import type {
   Civility,
   EmailInput,
@@ -399,14 +399,18 @@ export function emailDomain(value: string): string | null {
 
 // --- Contact state rules the editor shows before saving (backend contact_tracking._checked) -----------------------
 
-// States with a next action by default (backend NEXT_ACTION_STATES): the others close or pause the sequence.
-const NEXT_ACTION_STATES: readonly TrackingStatus[] = ['neutral', 'contacted', 'r1', 'r2']
+function hasNextAction(status: TrackingStatus | ''): boolean {
+  return status === '' || NEXT_ACTION_STATES.includes(status)
+}
 
 // The tracking draft after choosing `status`. Like the server, entering a state without a next action drops the stored
-// week when the form still holds it (a week chosen on purpose is kept), and `ignored` never keeps one.
+// week when the form still holds it (a week chosen on purpose is kept), and `ignored` never keeps one. Coming back to a
+// state with a next action before saving gives the stored week back.
 export function withStatus(tracking: TrackingDraft, status: TrackingStatus | '', storedPlanned: string | null): TrackingDraft {
-  const echo = tracking.planned_contact_on === (storedPlanned ?? '')
-  const drop = status === 'ignored' || (status !== '' && !NEXT_ACTION_STATES.includes(status) && echo)
-  return { ...tracking, status, planned_contact_on: drop ? '' : tracking.planned_contact_on }
+  const stored = storedPlanned ?? ''
+  const echo = tracking.planned_contact_on === stored
+  if (status === 'ignored' || (!hasNextAction(status) && echo)) return { ...tracking, status, planned_contact_on: '' }
+  const restore = hasNextAction(status) && !hasNextAction(tracking.status) && tracking.planned_contact_on === ''
+  return { ...tracking, status, planned_contact_on: restore ? stored : tracking.planned_contact_on }
 }
 

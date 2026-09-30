@@ -128,7 +128,6 @@ function FilterFields({ id, view, onChange }: { id: string; view: ProspectionVie
             {TRACKING_LABELS[status]}
           </option>
         ))}
-        <option value={NONE}>Jamais suivi (aucune fiche de suivi)</option>
       </SelectField>
       <SelectField
         label="Référent"

@@ -134,6 +134,11 @@ describe('Prospect editor — role and contact tracking', () => {
     expect(within(tracking).getByRole('combobox', { name: 'Référent Circoe' })).toHaveAccessibleDescription(
       'RDV pris : indiquez qui le prend en charge chez Circoe.',
     )
+    expect(tracking).toHaveTextContent('Réponse reçue, RDV pris et Failure retirent la semaine enregistrée')
+    // Back to R2 before saving: the stored week comes back.
+    await userEvent.selectOptions(state, 'R2')
+    expect(tracking).toHaveTextContent('S38')
+    await userEvent.selectOptions(state, 'RDV pris')
     await save()
     expect(savedTracking(api)).toMatchObject({ status: 'appointment_obtained', planned_contact_on: null })
   })
