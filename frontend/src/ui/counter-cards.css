@@ -1,0 +1,94 @@
+/* Counter cards (Prospection Task 14, shared with Contact): eyebrow-labelled groups of toggle cards — a 14 px glyph
+   and label, a 20 px tabular count; the pressed card uses accent-soft + an accent-fg outline + a check mark (never
+   colour alone). A page sets the columns of its groups with `--counters-columns` (6 by default). */
+
+.counters {
+  display: grid;
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+
+.counters__group {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.counters__cards {
+  display: grid;
+  grid-template-columns: repeat(var(--counters-columns, 6), minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.counters__note {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.counter-card {
+  position: relative;
+  display: grid;
+  align-content: space-between;
+  gap: 0.375rem;
+  height: 100%;
+  padding: 0.625rem var(--space-3);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color var(--duration-fast) var(--ease-standard),
+    background-color var(--duration-fast) var(--ease-standard);
+}
+
+.counter-card:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-hover);
+}
+
+.counter-card[aria-pressed='true'] {
+  border-color: var(--color-accent-fg);
+  background: var(--color-accent-soft);
+  box-shadow: inset 0 0 0 1px var(--color-accent-fg);
+}
+
+.counter-card__label {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.375rem;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-tight);
+}
+
+.counter-card__label svg {
+  flex: none;
+  margin-top: 0.0625rem;
+}
+
+.counter-card[aria-pressed='true'] .counter-card__label {
+  color: var(--color-text);
+}
+
+.counter-card__count {
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-tight);
+  line-height: 1.2;
+}
+
+.counter-card__mark {
+  position: absolute;
+  right: var(--space-3);
+  bottom: var(--space-2);
+  display: grid;
+  place-items: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}

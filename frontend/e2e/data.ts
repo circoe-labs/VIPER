@@ -148,3 +148,43 @@ export async function importProspects(
     return (JSON.parse(answer) as { batch: { id: string } }).batch.id
   }
 }
+
+async function patch<T>(page: Page, path: string, data: object): Promise<T> {
+  const response = await page.request.patch(path, { data, headers: { 'X-CSRF-Token': await csrfToken(page) } })
+  expect(response.ok(), await response.text()).toBe(true)
+  return (await response.json()) as T
+}
+
+// ISO 8601 week (and its year) of a local day.
+export function isoWeekOf(day: Date): { year: number; week: number } {
+  const date = new Date(Date.UTC(day.getFullYear(), day.getMonth(), day.getDate()))
+  date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7))
+  const yearStart = Date.UTC(date.getUTCFullYear(), 0, 1)
+  return { year: date.getUTCFullYear(), week: Math.ceil(((date.getTime() - yearStart) / 86_400_000 + 1) / 7) }
+}
+
+// A person of a new company of their own, planned for a first contact this week (neutral state, next-action week =
+// the current one, set through `PATCH …/tracking` like the Prospection planner): what the Contact page lists under
+// « Premier contact ». Names carry `tag` so a search finds only this test's rows.
+export async function createContactProspect(
+  page: Page,
+  tag: string,
+  person: { civility: 'mr' | 'ms'; first_name: string; last_name: string; email: string },
+): Promise<{ id: string; company: string }> {
+  const company = `Transports ${tag}`
+  const { id: companyId } = await createCompany(page, { display_name: company })
+  const created = await post<{ id: string; version: string }>(page, '/api/prospects', {
+    civility: person.civility,
+    first_name: person.first_name,
+    last_name: person.last_name,
+    company_id: companyId,
+    emails: [{ address: person.email, is_primary: true }],
+    provenance: { legal_basis_or_collection_context: 'Données synthétiques de test E2E' },
+  })
+  await patch(page, `/api/prospects/${created.id}/tracking`, {
+    version: created.version,
+    status: 'neutral',
+    next_action_week: isoWeekOf(new Date()),
+  })
+  return { id: created.id, company }
+}

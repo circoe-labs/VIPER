@@ -20,7 +20,8 @@ export default defineConfig({
     {
       command: `"${PYTHON}" -m uvicorn app.main:create_app --factory --host 127.0.0.1 --port ${String(E2E_API_PORT)}`,
       cwd: BACKEND_DIR,
-      env: { VIPER_DATABASE_URL: E2E_DATABASE_URL },
+      // The sender pre-filled in a new Contact message (synthetic, like every E2E value).
+      env: { VIPER_DATABASE_URL: E2E_DATABASE_URL, VIPER_DEFAULT_OUTBOUND_EMAIL: 'prospection@exemple.example' },
       url: `http://127.0.0.1:${String(E2E_API_PORT)}/api/health`,
       reuseExistingServer: !process.env.CI,
     },

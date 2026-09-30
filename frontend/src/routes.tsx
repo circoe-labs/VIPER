@@ -3,8 +3,8 @@ import { Navigate, type RouteObject } from 'react-router'
 import { LoginPage } from './auth/LoginPage'
 import { RequireAuth } from './auth/RequireAuth'
 import { CompaniesPage } from './companies/CompaniesPage'
+import { ContactPage } from './contact/ContactPage'
 import { DatabasePage } from './database/DatabasePage'
-import { ExploitationPage } from './exploitation/ExploitationPage'
 import { HomePage } from './home/HomePage'
 import { ImportPage } from './imports/ImportPage'
 import { ProspectionPage } from './prospection/ProspectionPage'
@@ -23,12 +23,12 @@ const devRoutes: RouteObject[] = import.meta.env.DEV
     ]
   : []
 
-// One page per navigation section (shell/navigation.ts); Exploitation is « Bientôt disponible » on purpose (Task 18):
-// no fake operational feature.
+// One page per navigation section (shell/navigation.ts). Contact replaced Exploitation (Contact port P4): the old
+// path redirects, so bookmarks keep working.
 const PAGES: RouteObject[] = [
   { path: '/', element: <HomePage /> },
   { path: '/prospection', element: <ProspectionPage /> },
-  { path: '/exploitation', element: <ExploitationPage /> },
+  { path: '/contact', element: <ContactPage /> },
   { path: '/database/:table?', element: <DatabasePage /> },
   { path: '/settings/:section?', element: <SettingsPage /> },
 ]
@@ -52,6 +52,7 @@ export const routes: RouteObject[] = [
       ...PAGES,
       ...SUBPAGES,
       ...devRoutes,
+      { path: '/exploitation', element: <Navigate to="/contact" replace /> },
       { path: '*', element: <Navigate to="/" replace /> },
     ],
   },

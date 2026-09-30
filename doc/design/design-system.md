@@ -28,6 +28,7 @@ Styling approach and rationale: [ADR-0003](../adr/0003-styling-and-theming.md).
 | Entreprises page and Company editor drawer (Task 07) | `src/companies/*` (`companies.css`), `src/ui/SearchField.tsx` + `search-field.css` |
 | Prospection page: counter cards, toolbar, people cards (Task 14) | `src/prospection/*` (`prospection.css`) — see *Prospection people list* below |
 | Home dashboard (Task 16) | `src/home/*` (`home.css`) — see *Home dashboard* below |
+| Contact page: counters, toolbar, list, workbench (Contact port S4) | `src/contact/*` (`contact.css`) — see *Contact page* below |
 | Global search (Task 17) | `src/shell/GlobalSearch.tsx`, `src/shell/global-search.css` — see *App shell* below |
 | Font | `@fontsource-variable/inter` (self-hosted Inter Variable, imported in `src/main.tsx`; no CDN) |
 
@@ -129,8 +130,9 @@ Set: navigation (`Home`, `Users`, `Bolt`, `Database`, `Sliders`), status (`Check
 `Clock`, `MinusCircle`), interface (`Sun`, `Moon`, `PanelLeft`, `LogOut`, `Close`, `Plus`, `Check`, `ChevronDown`, `Pencil`,
 `Trash`, `Spinner`), data/explorer
 (`Search`, `Refresh`, `Download`, `Filter`, `Key`, `Link`, `ArrowUp/Down/Left`, `ChevronLeft/Right`, `Columns`, `Pin`,
-`More`, `Copy`, `Expand`, `Table`), companies (`Building`), establishments (`MapPin`, global search). Add icons in
-the same file and style.
+`More`, `Copy`, `Expand`, `Table`), companies (`Building`), establishments (`MapPin`, global search), Contact
+(`Mail` — the *Contact* navigation item, message states —, `Calendar` for weeks and scheduling, `Undo`, `Save`,
+`Lock`). Add icons in the same file and style.
 
 ## Primitives catalogue (`src/ui/`)
 
@@ -149,6 +151,8 @@ the same file and style.
 | `PageHeader` | `title` (the page `<h1>`), `description?`, `actions?` | One per routed page. |
 | `Modal` / `Drawer` | `open`, `onClose`, `title`, `description?`, `footer?`, `initialFocusRef?`, `size` (modal sm/md/lg, drawer md/lg/xl) | Portal, `role="dialog"` + `aria-modal` + labelled/described; focus moves in (dialog or `initialFocusRef`), Tab/Shift+Tab trapped, Esc / backdrop / close button call `onClose`, focus restored to the trigger, body scroll locked. Nested dialogs close one at a time. Focus stays inside the top dialog: when the focused control gets disabled (a save button while saving) or removed, the dialog itself takes the focus, and an Esc pressed with focus outside every dialog still closes the top one (I-82). Guard unsaved changes inside `onClose`. Drawer = editors that keep the list in context (Prospect, Company). The layer's single grid row is bounded by the viewport, so a tall dialog scrolls its body while header and footer stay visible (Task 07). |
 | `Menu` | `label`, `position` (viewport point), `alignRight?`, `sections` (`label?`, `items`: `id`, `label`, `icon?`, `hint?`, `disabled?`, `onSelect`), `onClose` | Context/action menu (WAI-ARIA menu): portal, first item focused, ↑/↓/Home/End skip disabled items and wrap, Enter/Space select (menu closes first, then the action runs), Esc/Tab/outside press close; focus returns to the trigger; clamped inside the viewport. Mounted only while open. |
+| `Tabs` | `label` (the tab list's name), `tabs` (`id`, `label`, `extra?` — a count, a status badge, an unsaved mark), `selected`, `onSelect`, children = the selected panel | In-page tabs (WAI-ARIA tabs, automatic activation, Contact port S4): one tab stop (the selected tab), ←/→ move and select with wrap, Home/End; the panel is labelled by its tab. Selected = 2 px accent bar + full-strength text (a shape, not colour alone), others muted. Used by the Contact mail sequence and the import review. Sections that must be deep-linkable use links instead (Paramètres' tab bar). |
+| `CounterGroup` / `CounterCard` | group: `id`, `title`, `note?`; card: `label`, `hint`, `icon`, `count`, `pressed`, `onSelect` | The actionable counters of Prospection and Contact (`src/ui/CounterCards.tsx`, `counter-cards.css`): eyebrow-titled groups of toggle cards, `aria-pressed` + check mark + accent outline when active; a card equals the list it opens. Columns per group: `--counters-columns` (6 by default). |
 | `Popover` | `anchor`, `label`, `onClose`, `alignRight?` | Small **non-modal** dialog under a control (filter editor, column chooser): first field focused, Esc/outside press close, focus restored, Tab not trapped. |
 | `Combobox` | `label`, `options` (`id`, `label`, `hint?`, `inactive?`), `value`/`onChange` (single) or `multiple` + `value[]`, `status`, `create?` (`run`, `label?`, `refuse?`), `hint`, `error`, `required` | Searchable picker (WAI-ARIA combobox + listbox, Task 06): filtering ignores case and accents, ↓/↑/Enter/Esc/Tab, Backspace removes the last chip; inactive options appear only while selected (*Inactif* tag); `create` adds a « Créer « … » » option, only once `status` is `ready`, whose failure shows as the field error. Domain pickers on top of it: `TaxonomySelect`, `TaxonomyMultiSelect`, `ReferentSelect` (`src/settings/selectors.tsx`, see `doc/features/settings-taxonomies.md`). |
 
@@ -199,6 +203,33 @@ quick choices (*Cette semaine*, *+1 semaine*, *+2 semaines*; the matching one is
 accent-fg **and** a check glyph) and *Effacer*; the cadence proposal is a secondary `sm` button with a calendar glyph
 (*Appliquer la cadence : S42 (relance après R1)*), or a muted line with the glyph once the chosen week matches it.
 
+## Contact page
+Contact reuses Prospection's language (decision 16), not its metrics. **Counters**: `CounterGroup` / `CounterCard`,
+two groups on one row of five equal columns through CSS subgrid (*Cette semaine*: four cards, *Résultats*: *RDV pris*),
+titles aligned and cards of equal height. **Toolbar**: one bordered surface — search, then *Semaine* and *État* with
+their labels beside the selects (like *Trier par*). **Rows**: compact person cards (12 px vertical padding, 40 px
+initials avatar, 16 px semibold name as the stretched link) in three columns — identity and company · state and week
+badges with *À préparer* · the three messages as an uppercase 12 px step label beside its status badge (or muted
+*Aucun message préparé*); container queries drop to two then one column.
+
+**Workbench** (selection, decision 19 — not a drawer): replaces the list below the page header; a bar with the ghost
+*Retour à la liste* and the list walk (*3 sur 12*, secondary *Précédent* / *Suivant*). Two panels: the prospect
+(`minmax(18rem, 22rem)`) and the mail sequence (the rest), 24 px apart; under ~56 rem of workspace they stack. Both
+panels are `EditorSection` cards (surface, 1 px border, radius md). The sheet starts with the 20 px name (`<h2>`),
+role, company, badges and the ghost *Ouvrir dans Prospection*; *Coordonnées*; *Suivi de contact* with the week planner
+and *Enregistrer le suivi* (primary only when something changed). The mail panel: `Tabs` Contact / R1 / R2 each with
+its `StatusBadge` (message statuses: *Brouillon* neutral + pencil, *Validé* info + check, *Programmé* info + clock,
+*Envoyé* success + envelope, *Annulé* neutral + cross; *Vide* a plain tag) and an 8 px warning-fg dot for unsaved
+text; a muted status sentence; the lock reason on neutral-soft with a lock glyph, the « back to draft » warning on
+warning-soft (like the editor's banners); fields De / À and Cc / Cci in two columns, Objet, a ≥ 18 rem Corps; read-only
+messages keep full-contrast text on the surface colour (not the faded disabled look). Scheduling is a bordered
+fieldset (*Envoi programmé*: date, time, zone hint, errors and the non-blocking order reminder). The action bar sits
+under a divider: left the AI slot (S5), right the actions with **one primary** — *Enregistrer* while edits are pending,
+otherwise the next step (*Créer le brouillon*, *Valider…*, *Programmer…*, *Rouvrir*); *Annuler le message…* and
+*Abandonner les modifications* are ghost. Confirmations are small `Modal`s whose *Retour* has the initial focus (the
+cancel of a message uses the danger button). Outcomes are one line with a mint check glyph, announced by a hidden live
+region. Styles: `frontend/src/contact/contact.css` (feature doc: `doc/features/contact.md`).
+
 ## Home dashboard
 Spacious, global state first: eyebrow-labelled rows of six link cards (14 px glyph + 13 px muted label, 26 px
 semibold figure with proportional digits; hover = surface-hover + strong border; the glyph turns warning-fg when a
@@ -212,7 +243,8 @@ colour on targets. The V1-scope sentence is 12 px muted text with an info glyph.
 (feature doc: `doc/features/home-dashboard.md`).
 
 ## App shell
-Left sidebar: lockup (expanded) or mark (collapsed), the five sections with icons, active item = accent-soft
+Left sidebar: lockup (expanded) or mark (collapsed), the five sections with icons (Accueil, Prospection, Contact,
+Base de données, Paramètres), active item = accent-soft
 background + accent-fg text + neon left marker (`aria-current="page"`); footer = API status (glyph + text) and the
 collapse toggle (`aria-expanded`/`aria-controls`). Collapsed labels stay in the accessible name and as tooltips.
 Header: left zone = global search (Task 17), right zone = theme switch, then the user zone

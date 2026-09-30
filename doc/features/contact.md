@@ -1,8 +1,8 @@
-# Contact — dashboard and mail sequence (backend contract)
+# Contact — dashboard, mail sequence and the Contact page
 
 Contact port, Slice S3 (handoff Tasks 09, 11, 12; decisions H-14 … H-29 of
-`tasks/viper_contact_pipeline_handoff/docs/01-decision-log.md`). This page is the API contract the Contact page
-(Slice S4) builds on. States of a prospect and the next-action week are described in
+`tasks/viper_contact_pipeline_handoff/docs/01-decision-log.md`) for the API, Slice S4 (Tasks 08, 10, 13) for the page
+([§ Contact page](#contact-page-ui-slice-s4)). States of a prospect and the next-action week are described in
 [`prospect-editor.md`](prospect-editor.md) (`PATCH /api/prospects/{id}/tracking`) and
 [`prospection-kpis.md`](prospection-kpis.md); the table is in
 [`../architecture/data-model.md`](../architecture/data-model.md#contact_messages).
@@ -200,6 +200,76 @@ The prospect state is read without a lock by a message write. A state change com
 message row lock and then cancels that message too; the only gap is a **creation** racing the change: the new draft
 is invisible to the cancellation and remains — it cannot be validated, scheduled or edited afterwards (closed
 sequence), only read or cancelled.
+
+## Contact page (UI, Slice S4)
+
+`/contact` (`frontend/src/contact/`), in the navigation as *Contact* (Mail icon); `/exploitation` redirects to it.
+Visual pattern: `doc/design/design-system.md` § *Contact page*. API module: `frontend/src/api/contact.ts`.
+
+### List view
+
+| Part | Behaviour |
+|---|---|
+| Counters | `GET /api/contact/dashboard?q=` — group *Cette semaine*: *À traiter cette semaine* (the union), *Premier contact*, *Relances*, *Revues R2*; group *Résultats*: *RDV pris*. Each card is a toggle filter (`aria-pressed`, check mark): it sets `counter` and puts the week on *Toutes les semaines*, so the list equals the card (overdue weeks included); pressing it again returns to the default. A card never changes a state. |
+| Toolbar | Search (debounced, `q` in the URL, also narrows the counters); *Semaine*: *Cette semaine (S40)* by default — the page sends the dashboard's `current_week` (the API has no default week; the list waits for it) —, the weeks of `weeks` (*S42 · lun. 12 oct. 2026 (3)*), *Toutes les semaines*; *État*: every Contact state but *Ignoré*. |
+| Heading | The counter's label (or *Planning de contact*), the total, and one sentence of what the list holds. *Réinitialiser* when anything narrows it. |
+| Rows | Compact person cards: initials, name (the card's link), role · title, company · primary e-mail (or *Pas d'e-mail principal*); the state badge (none for *Aucun état*) and the week badge, *Échu* when a follow-up's week is past; *À préparer : Premier contact / Relance R1 / Relance R2 / Revue après R2* (`next_step`); the three messages' statuses (*Contact Envoyé · R1 Brouillon · R2 Vide*), or *Aucun message préparé*. ↑/↓/Home/End move between people. |
+| URL | `counter`, `week` (`all` or `2026-W41`; absent = this week), `state`, `q`, `page`, `prospect` (`contact/criteria.ts`); malformed values fall back to their default. Pages of 50. |
+| States | Loading line, counters or list failure with the server's message and *Réessayer*, empty week (*Aucun prospect planifié cette semaine…*) vs no match. |
+
+### Workbench (`?prospect=<id>`)
+
+Opens **in place of the list** (decision 19: not the Prospection drawer): *Retour à la liste* (and browser Back)
+returns to the list with the focus on the person; *Précédent* / *Suivant* walk the current list page (*3 sur 12*); a
+prospect no longer in the list (state or week changed) stays open with *Hors de la liste affichée*.
+
+- **Left — prospect sheet** (`ProspectSheet.tsx`, read-mostly, `GET /api/prospects/{id}`): name, civility, role ·
+  title, company and city, state / week / *Ne pas contacter* badges (and the opposition reason), active e-mails with
+  *Principal* and their verification, phones; *Ouvrir dans Prospection* (`/prospection?prospect=<id>`) to correct the
+  record. **Suivi de contact** (`TrackingPanel.tsx`): *État* (the eight states, disabled once *Ignoré*) and S2's week
+  planner (cadence proposal included), saved together by *Enregistrer le suivi* through `PATCH …/tracking` — only
+  what changed is sent: the state if chosen, the week if a person chose one (a week-clearing state without a chosen
+  week lets the server clear it; the planner already shows it cleared; *Ignoré* never carries a week). *Réponse reçue*,
+  *RDV pris* and *Ignoré* ask for a confirmation first (unsent messages cancelled, week removed, *Ignoré* final). The
+  answer is said: *Suivi enregistré. 2 messages non envoyés annulés.*, plus a warning when `in_flight_messages` > 0
+  (already leaving, may still go). A version conflict reloads the sheet.
+- **Right — mail sequence** (`MailSequence.tsx`, `MailEditor.tsx`, rules in `mailModel.ts`): tabs *Contact / R1 /
+  R2* (shared `Tabs` primitive), each with its status badge (*Vide*, *Brouillon*, *Validé*, *Programmé*, *Envoyé*,
+  *Annulé*); the tab of the next step opens first (R1 after *Contacté*, R2 after *R1*). The editor: *De* (prefilled
+  with `defaults.from_email`), *À* (prefilled with the primary e-mail), *Cc*, *Cci* (several addresses separated by
+  commas), *Objet*, *Corps*; a status sentence (*Validé par … : prêt à être programmé.*, *Programmé pour le …*,
+  *Annulé le … (passage à « Réponse reçue »)*).
+
+| Status | Actions (one primary) |
+|---|---|
+| none | *Créer le brouillon* (`PUT` without revision) |
+| draft | *Enregistrer* (never validates) · *Valider…* (confirmation) · *Annuler le message…* |
+| validated | date **and** time fields (browser time, no default, zone shown) → *Programmer…* (confirmation) · *Enregistrer* · *Annuler le message…* |
+| scheduled | *Déprogrammer* (keeps the validation) · *Enregistrer* · *Annuler le message…* |
+| sent | read-only, no action (*Message envoyé : il reste consultable…*) |
+| cancelled | read-only; *Rouvrir* (back to draft) while the sequence is open |
+
+Pending edits disable *Valider…* / *Programmer…* / *Déprogrammer* (they act on the saved version) and offer
+*Abandonner les modifications*; editing a validated or scheduled message shows first that saving puts it back to
+*Brouillon* (to validate and schedule again). A closed sequence (*Réponse reçue*, *RDV pris*, *Ignoré*) or an
+opposition locks the editor with its reason; a scheduled message can still be unscheduled or cancelled. Scheduling R1
+(R2) while Contact (R1) has not left shows a non-blocking reminder (also in the confirmation). Refusals use
+`contact/messages.ts`: `message_incomplete` on its fields, `invalid` on the named address / subject / send moment,
+the others as one sentence; codes meaning « the server's message differs » (`revision_conflict`, `message_exists`,
+`message_sent_immutable`, `message_cancelled`, `invalid_transition`, `dispatch_in_progress`, sequence closed,
+`message_not_found`) reload the sequence **and keep the unsaved text in the form**. The confirmation of a schedule
+says that automatic sending is not active yet (S7).
+
+The action bar's left side (`.contact-mail__assist`, the `assist` prop of `MailEditor`) is the slot of S5's
+*Générer avec l'IA*; empty until then.
+
+**Unsaved text**: kept per step — switching tabs loses nothing, a dot marks a tab with unsaved changes; leaving the
+prospect (list, previous/next, Back, another page) with unsaved mail or follow-up asks *Modifications non
+enregistrées* (*Rester sur ce prospect* / *Quitter sans enregistrer*); reload or close triggers the browser prompt.
+
+**Refresh**: a message write replaces the step in the cache and re-reads the list (message chips), the counters and
+the prospect's history; a prospect write (`useProspectMutations`, every path) also refreshes Contact (`contactKeys`)
+and Home.
 
 ## Reste à faire (later Slices)
 

@@ -19,7 +19,7 @@ VIPER is the human interface over a shared prospecting database. In this V1, pro
 
 - **Home**: global database/contact overview and next actions.
 - **Prospection**: daily people-oriented verification/contact workspace.
-- **Exploitation**: Coming soon only.
+- **Contact** (ex-Exploitation, Contact lot): who to contact this week and the Contact / R1 / R2 mail of each prospect, prepared and validated by a person.
 - **Database**: DBeaver-inspired technical explorer/editor.
 - **Settings**: roles, categories, segments, referents.
 

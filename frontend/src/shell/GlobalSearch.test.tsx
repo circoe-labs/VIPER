@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type { SearchResults } from '../api/search'
 import { company } from '../test/companiesApi'
+import { contactDashboard } from '../test/contactApi'
 import { renderApp } from '../test/render'
 import { companyHit, establishmentHit, group, prospectHit, searchResults } from '../test/searchApi'
 
@@ -20,7 +21,7 @@ function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 }
 
-// /api/search answered by `reply(q)`; the health probe is up; a company opened in the editor is found; anything else
+// /api/search answered by `reply(q)`; the health probe is up; the Contact page (under the search) is empty; a company opened in the editor is found; anything else
 // answers 404. Returns the search calls (query and AbortSignal) in order.
 function stubSearch(reply: (q: string) => SearchReply) {
   const calls: SearchCall[] = []
@@ -34,6 +35,9 @@ function stubSearch(reply: (q: string) => SearchReply) {
       return Promise.resolve(answer === 'error' ? json(500, { detail: 'boom' }) : json(200, answer))
     }
     if (url.pathname === '/api/health') return Promise.resolve(json(200, { status: 'ok', database: 'ok' }))
+    // The page under the search (Contact), empty.
+    if (url.pathname === '/api/contact/dashboard') return Promise.resolve(json(200, contactDashboard()))
+    if (url.pathname === '/api/contact/prospects') return Promise.resolve(json(200, { items: [], total: 0, limit: 50, offset: 0 }))
     const opened = /^\/api\/companies\/([\w-]+)$/.exec(url.pathname)
     if (opened?.[1]) return Promise.resolve(json(200, company('Fret Témoin SARL', { id: opened[1] })))
     return Promise.resolve(json(404, { detail: 'Not Found' }))
@@ -70,7 +74,7 @@ const RESULTS = searchResults('fret', [group([PERSON]), group([FRET], true), gro
 describe('GlobalSearch', () => {
   it('searches once typing pauses and shows grouped, typed results', async () => {
     const calls = stubSearch(() => RESULTS)
-    renderApp('/exploitation')
+    renderApp('/contact')
 
     expect(field()).toHaveAttribute('placeholder', 'Rechercher un prospect, une entreprise, un SIREN…')
     await userEvent.type(field(), 'fret')
@@ -104,7 +108,7 @@ describe('GlobalSearch', () => {
           })
         : searchResults(q, [group([companyHit('Fret Témoin SARL')])]),
     )
-    renderApp('/exploitation')
+    renderApp('/contact')
 
     await userEvent.type(field(), 'fr')
     await waitFor(() => {
@@ -122,7 +126,7 @@ describe('GlobalSearch', () => {
 
   it('moves with the arrows and opens the active result with Enter', async () => {
     stubSearch(() => RESULTS)
-    const { router } = renderApp('/exploitation')
+    const { router } = renderApp('/contact')
     await userEvent.type(field(), 'fret')
     await screen.findByRole('listbox')
     const [person, fret, site] = options()
@@ -139,13 +143,13 @@ describe('GlobalSearch', () => {
 
     // An establishment opens its company in the Company editor.
     expect(await screen.findByRole('dialog')).toBeInTheDocument()
-    expect(router.state.location.pathname).toBe('/exploitation')
+    expect(router.state.location.pathname).toBe('/contact')
     expect(field()).toHaveValue('')
   })
 
   it('opens a prospect in Prospection and a row in the Database Explorer with Shift+Enter', async () => {
     stubSearch(() => RESULTS)
-    const { router } = renderApp('/exploitation')
+    const { router } = renderApp('/contact')
     await userEvent.type(field(), 'fret')
     await screen.findByRole('listbox')
 
@@ -162,7 +166,7 @@ describe('GlobalSearch', () => {
 
   it('opens a result with the mouse, and its row from the secondary button', async () => {
     stubSearch(() => RESULTS)
-    const { router } = renderApp('/exploitation')
+    const { router } = renderApp('/contact')
     await userEvent.type(field(), 'fret')
     await screen.findByRole('listbox')
 
@@ -176,7 +180,7 @@ describe('GlobalSearch', () => {
 
   it('is reached with Ctrl+K anywhere and « / » outside text fields', async () => {
     stubSearch(() => RESULTS)
-    renderApp('/exploitation')
+    renderApp('/contact')
 
     await userEvent.keyboard('{Control>}k{/Control}')
     expect(field()).toHaveFocus()
@@ -200,7 +204,7 @@ describe('GlobalSearch', () => {
 
   it('closes with Escape, then clears; Tab closes and leaves the field', async () => {
     stubSearch(() => RESULTS)
-    renderApp('/exploitation')
+    renderApp('/contact')
     await userEvent.type(field(), 'fret')
     await screen.findByRole('listbox')
 
@@ -224,7 +228,7 @@ describe('GlobalSearch', () => {
   it('asks for two characters, says when nothing matches and lets a failed search be retried', async () => {
     let fail = true
     const calls = stubSearch((q) => (q === 'zz' ? searchResults('zz', []) : fail ? 'error' : RESULTS))
-    renderApp('/exploitation')
+    renderApp('/contact')
 
     await userEvent.type(field(), 'z')
     expect(screen.getByText('Saisissez au moins 2 caractères.')).toBeInTheDocument()

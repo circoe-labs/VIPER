@@ -79,8 +79,8 @@ async function search(page: Page, text: string): Promise<SearchAnswer> {
 
 test('Ctrl+K finds the test’s prospects, company and establishments; each opens where it belongs', async ({ page }) => {
   const seeded = await seed(page, 'Recherche')
-  await page.goto('/exploitation')
-  await expect(page.getByRole('heading', { level: 1, name: 'Exploitation' })).toBeVisible()
+  await page.goto('/contact')
+  await expect(page.getByRole('heading', { level: 1, name: 'Contact' })).toBeVisible()
 
   await page.keyboard.press('Control+k')
   await expect(field(page)).toBeFocused()
@@ -132,7 +132,7 @@ test('Ctrl+K finds the test’s prospects, company and establishments; each open
 
 test('a phone number, a SIREN and a SIRET find the test’s rows; Shift+Enter opens the explorer row', async ({ page }) => {
   const seeded = await seed(page, 'Numéros')
-  await page.goto('/exploitation')
+  await page.goto('/contact')
   await field(page).click()
 
   const byPhone = await search(page, seeded.mobile.replace(/(\d{2})(?=\d)/g, '$1 '))
@@ -157,8 +157,8 @@ test('a phone number, a SIREN and a SIRET find the test’s rows; Shift+Enter op
 
 test('« / » opens the search from the page; Escape closes it, then clears it', async ({ page }) => {
   const seeded = await seed(page, 'Clavier')
-  await page.goto('/exploitation')
-  await expect(page.getByRole('heading', { level: 1, name: 'Exploitation' })).toBeVisible()
+  await page.goto('/contact')
+  await expect(page.getByRole('heading', { level: 1, name: 'Contact' })).toBeVisible()
 
   await page.keyboard.press('/')
   await expect(field(page)).toBeFocused()

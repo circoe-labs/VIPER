@@ -163,7 +163,7 @@ opening a prospect **pushes** one. Other pages link in with `prospectionHref({ s
 | Semantics | `backend/app/services/prospection/segments.py` |
 | Query service | `backend/app/services/prospection/query.py` (`count_segments`, `list_prospects`, filters, sorts, row view model) |
 | Router | `backend/app/api/routes/prospection.py`; setting `VIPER_VERIFICATION_STALE_DAYS` (`app/core/config.py`) |
-| Frontend | `frontend/src/prospection/` (`ProspectionPage`, `CounterCards`, `ProspectionFilters`, `ProspectList`, `TrackingBadges` (state and week badges), `QuickWeekPlanner`, `criteria.ts`, `labels.ts`, `prospectEditor.tsx`, `queue.ts`, `prospection.css`; ISO weeks `src/lib/isoWeek.ts`; *Exporter Excel* is `src/exports/ExportWorkbookButton.tsx`), API hooks `frontend/src/api/prospection.ts` |
+| Frontend | `frontend/src/prospection/` (`ProspectionPage`, `CounterCards` (on the shared `src/ui/CounterCards.tsx`), `ProspectionFilters`, `ProspectList`, `TrackingBadges` (state and week badges), `QuickWeekPlanner`, `criteria.ts`, `labels.ts`, `prospectEditor.tsx`, `queue.ts`, `prospection.css`; ISO weeks `src/lib/isoWeek.ts`; *Exporter Excel* is `src/exports/ExportWorkbookButton.tsx`), API hooks `frontend/src/api/prospection.ts` |
 
 - Backend: `tests/test_prospection.py` (one synthetic person per edge case and the expected members of every segment:
   DNC excluded from due/to contact/no response, no tracking, planned tomorrow at midnight, no primary e-mail,

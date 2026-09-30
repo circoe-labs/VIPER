@@ -208,10 +208,11 @@ export function stubProspectsApi(options: ProspectsStubOptions = {}) {
         patch.next_action_week === undefined
           ? tracking.planned_contact_on
           : patch.next_action_week && weekMonday(patch.next_action_week)
-      const updated: Prospect & { cancelled_messages: number } = {
+      const updated: Prospect & { cancelled_messages: number; in_flight_messages: number } = {
         ...current,
         version: `${current.version}+`,
         cancelled_messages: 0,
+        in_flight_messages: 0,
         tracking: {
           ...tracking,
           status: patch.status ?? tracking.status,

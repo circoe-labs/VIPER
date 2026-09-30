@@ -389,29 +389,9 @@
   padding-bottom: var(--space-8);
 }
 
-.import-tabs {
-  display: flex;
-  gap: var(--space-2);
-  border-bottom: var(--border-width) solid var(--color-border);
-}
-
-.import-tabs__tab {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin-bottom: -1px;
-  padding: var(--space-3) var(--space-4);
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: none;
-  color: var(--color-text-muted);
-  font-weight: var(--weight-medium);
-  cursor: pointer;
-}
-
-.import-tabs__tab[aria-selected='true'] {
-  border-bottom-color: var(--color-accent);
-  color: var(--color-text);
+/* The tab bar is the shared `Tabs` primitive (src/ui/Tabs.tsx); only the count chip is the import's own. */
+.import-review__tabs .tabs__panel {
+  padding-top: var(--space-6);
 }
 
 .import-tabs__count {

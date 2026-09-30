@@ -2,9 +2,9 @@
 
 ## Global shell
 
-Left navigation: Home, Prospection, Exploitation, Database, Settings — French labels and routes `Accueil` (`/`),
-`Prospection` (`/prospection`), `Exploitation` (`/exploitation`), `Base de données` (`/database`), `Paramètres`
-(`/settings`); unknown paths redirect to `/` (decision I-08). Desktop-first and spacious. Global search is compact. Theme switch may select dark/light; use accepted logo variant automatically by contrast. Authenticated user context appears separately from Circoe referent selectors.
+Left navigation: Home, Prospection, Contact, Database, Settings — French labels and routes `Accueil` (`/`),
+`Prospection` (`/prospection`), `Contact` (`/contact`, ex-Exploitation — `/exploitation` redirects, C-13), `Base de
+données` (`/database`), `Paramètres` (`/settings`); unknown paths redirect to `/` (decision I-08). Desktop-first and spacious. Global search is compact. Theme switch may select dark/light; use accepted logo variant automatically by contrast. Authenticated user context appears separately from Circoe referent selectors.
 
 ### Global search — as implemented (Task 17)
 One field on the left of the header (placeholder « Rechercher un prospect, une entreprise, un SIREN… »), reached with
@@ -140,14 +140,23 @@ Compact read-only SQL console. Backend must enforce read-only/SELECT behavior; t
 
 As implemented (Task 13): [database-explorer.md](database-explorer.md#sql-console-task-13).
 
-## Exploitation
-Coming soon only. No fake agent controls, drafts, messages or metrics.
+## Contact
+Replaces the Exploitation placeholder (Contact lot, decisions 15-24; port Slice S4). Who to contact this week, and
+the Contact / R1 / R2 mail of each person, written, validated and scheduled by a person. Nothing is sent by the page
+itself; the scheduled send arrives with the dispatcher (S7).
 
-Implemented by Task 18: `/exploitation` renders `frontend/src/exploitation/ExploitationPage.tsx` — the page `<h1>`
-*Exploitation*, then one empty-state block (`<h2>` *Bientôt disponible*) saying the area will later host the
-exploitation of the prospect base by future agents, that nothing is active (VIPER launches no action and sends no
-message) and that the base is maintained from Prospection and Base de données. No button, link, form, list, table,
-figure or date; the navigation item is current. Replace the component when the area is built.
+As implemented: `/contact` renders `frontend/src/contact/ContactPage.tsx` — behaviour, URL criteria, workbench and
+editor rules: [contact.md](contact.md#contact-page-ui-slice-s4); visual pattern: design-system *Contact page*.
+
+- **List view**: page header, counter cards *Cette semaine* (*À traiter cette semaine* — the union —, *Premier
+  contact*, *Relances*, *Revues R2*) and *Résultats* (*RDV pris*, cumulative), each a filter; toolbar (search,
+  *Semaine*: *Cette semaine* by default / a week of the planning / *Toutes les semaines*, *État*); compact person
+  cards (identity and company, state and week badges with *Échu*, *À préparer : …*, the three messages' statuses).
+- **Workbench** (`?prospect=<id>`, in place of the list — not the Prospection drawer, decision 19): prospect sheet on
+  the left (identity, company, contacts, badges, *Ouvrir dans Prospection*, *Suivi de contact* with the manual state
+  and the week planner), mail sequence on the right (tabs Contact / R1 / R2 with their status, mailbox-like editor De
+  / À / Cc / Cci / Objet / Corps, actions by status). *Retour à la liste*, *Précédent* / *Suivant*; unsaved text is
+  guarded.
 
 ## Route map
 
@@ -157,7 +166,8 @@ figure or date; the navigation item is current. Replace the component when the a
 | `/` | Accueil: global dashboard (Task 16) | Accueil |
 | `/prospection` | Prospection: counters, filters and people list (Task 14); `?prospect=<id\|new>` opens the Prospect editor (Task 15) | Prospection |
 | `/prospection/companies` | Entreprises list + Company editor (Task 07) | Prospection |
-| `/exploitation` | Exploitation — Bientôt disponible (Task 18) | Exploitation |
+| `/contact` | Contact: counters, week filters and list; `?prospect=<id>` opens the workbench (Contact port S4) | Contact |
+| `/exploitation` | redirect to `/contact` (C-13) | Contact |
 | `/database/:table?` | Base de données (Task 11) | Base de données |
 | `/settings/:section?` | Paramètres (Task 06) | Paramètres |
 | `/_dev/ui` | Component showcase (development server only) | — |

@@ -1,8 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { companyKeys } from './companies'
+import { contactKeys } from './contact'
 import { apiGet, apiRequest } from './client'
 import { type HistoryActor, historyKeys } from './history'
+import { homeKeys } from './home'
 import { type ActivityStatus, type ChannelVerification, prospectionKeys, type TrackingStatus, type VerificationState } from './prospection'
 import { refreshAfterWrite } from './refresh'
 import { settingsKeys } from './settings'
@@ -162,9 +164,10 @@ export interface ProspectInput {
 }
 
 // Answer of `PATCH /prospects/{id}/tracking`: the view plus the unsent Contact messages a sequence-closing state
-// cancelled (Contact decision 29).
+// cancelled (Contact decision 29), and those already claimed by the dispatcher, left to it (they may still leave).
 export interface TrackingPatched extends Prospect {
   cancelled_messages: number
+  in_flight_messages: number
 }
 
 // `PATCH /prospects/{id}/tracking`: the Contact state and/or the next-action week, nothing else. `status` omitted keeps
@@ -199,7 +202,8 @@ export function useProspect(id: string | null) {
 }
 
 // Writes refresh the Prospection counters and pages (prospectionKeys.all), the companies (prospect counts), the
-// Settings lists (a role created inline, usage counts) and the prospect's history.
+// Settings lists (a role created inline, usage counts), the prospect's history, the Contact page (its counters, list
+// and the prospect's messages — a sequence-closing state cancels the unsent ones) and Home.
 export function useProspectMutations() {
   const queryClient = useQueryClient()
   const saved = (prospect: Prospect) => {
@@ -209,6 +213,8 @@ export function useProspectMutations() {
       companyKeys.all,
       settingsKeys.all,
       historyKeys.subject('prospects', prospect.id),
+      contactKeys.all,
+      homeKeys.all,
     ])
   }
   return {

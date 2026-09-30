@@ -15,7 +15,10 @@ import { Menu } from '../ui/Menu'
 import * as icons from '../ui/icons'
 import { PageHeader } from '../ui/PageHeader'
 import { Table } from '../ui/Table'
+import { MessageBadge } from '../contact/MessageBadge'
 import { StateBadge, WeekBadge } from '../prospection/TrackingBadges'
+import { CounterCard, CounterGroup } from '../ui/CounterCards'
+import { Tabs } from '../ui/Tabs'
 import { ReferentSelect, TaxonomyMultiSelect, TaxonomySelect } from '../settings/selectors'
 import './showcase.css'
 
@@ -51,6 +54,8 @@ export function Showcase() {
   const [segment, setSegment] = useState<string | null>(null)
   const [categories, setCategories] = useState<string[]>([])
   const [referent, setReferent] = useState<string | null>(null)
+  const [tab, setTab] = useState<'one' | 'two' | 'three'>('one')
+  const [counter, setCounter] = useState<string | null>('Second')
 
   return (
     <>
@@ -131,6 +136,43 @@ export function Showcase() {
             <WeekBadge week={{ year: 2026, week: 41 }} today="2026-09-30" />
             <WeekBadge week={{ year: 2027, week: 2 }} today="2026-09-30" />
           </div>
+          <div className="showcase__row">
+            {([null, 'draft', 'validated', 'scheduled', 'sent', 'cancelled'] as const).map((status) => (
+              <MessageBadge key={status ?? 'empty'} status={status} />
+            ))}
+          </div>
+        </Card>
+
+        <Card title="Onglets et compteurs">
+          <Tabs
+            label="Exemple d’onglets"
+            selected={tab}
+            onSelect={setTab}
+            tabs={[
+              { id: 'one', label: 'Premier', extra: <MessageBadge status="sent" /> },
+              { id: 'two', label: 'Deuxième', extra: <MessageBadge status="draft" /> },
+              { id: 'three', label: 'Troisième', extra: <MessageBadge status={null} /> },
+            ]}
+          >
+            <p>Contenu de l’onglet « {tab} ». ←/→ changent d’onglet, Début/Fin vont au premier/dernier.</p>
+          </Tabs>
+          <section className="counters showcase__counters" aria-label="Compteurs d’exemple">
+            <CounterGroup id="showcase" title="Groupe">
+              {(['Premier', 'Second', 'Troisième'] as const).map((label, index) => (
+                <CounterCard
+                  key={label}
+                  label={label}
+                  hint="Ce que compte la carte."
+                  icon={icons.UsersIcon}
+                  count={index * 7}
+                  pressed={counter === label}
+                  onSelect={() => {
+                    setCounter(counter === label ? null : label)
+                  }}
+                />
+              ))}
+            </CounterGroup>
+          </section>
         </Card>
 
         <Card title="Champs">

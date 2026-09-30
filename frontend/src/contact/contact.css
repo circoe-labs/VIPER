@@ -1,0 +1,589 @@
+/* Contact page (Contact port S4): counters, toolbar and list in Prospection's card language, then the workbench —
+   prospect sheet left, mail sequence right. Tokens only; see doc/design/design-system.md (Contact page). */
+
+.contact__state {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-4) 0;
+  color: var(--color-text-muted);
+}
+
+.contact__state--error {
+  color: var(--color-danger-fg);
+}
+
+/* --- counters: « Cette semaine » (4 cards) and « Résultats » (1 card) on one row of five equal columns --- */
+
+.contact-counters {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-rows: auto auto;
+  gap: var(--space-2) var(--space-3);
+}
+
+/* Both groups share the parent's columns and rows: titles on one line, cards of equal height. */
+.contact-counters .counters__group {
+  grid-row: span 2;
+  grid-template-columns: subgrid;
+  grid-template-rows: subgrid;
+}
+
+.contact-counters__week {
+  grid-column: span 4;
+}
+
+.contact-counters .counters__title,
+.contact-counters .counters__cards {
+  grid-column: 1 / -1;
+}
+
+.contact-counters .counters__cards {
+  grid-template-columns: subgrid;
+}
+
+/* --- toolbar: search, week, state in one bordered surface --- */
+
+.contact-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-5);
+  margin-bottom: var(--space-6);
+  padding: var(--space-4) var(--space-5);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.contact-toolbar__search {
+  flex: 1 1 18rem;
+}
+
+.contact-toolbar__search .search-field {
+  width: 100%;
+}
+
+/* « Semaine » and « État » sit beside their select, like Prospection's « Trier par ». */
+.contact-toolbar__select .field {
+  grid-template-columns: auto minmax(11rem, 1fr);
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.contact-toolbar__select .field__label {
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* --- results --- */
+
+.contact__results-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.contact__results-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-3);
+  font-size: var(--text-lg);
+}
+
+.contact__results-count {
+  color: var(--color-text-muted);
+  font-size: var(--text-md);
+  font-weight: var(--weight-regular);
+  font-variant-numeric: tabular-nums;
+}
+
+.contact__results-hint {
+  margin-top: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.contact__pager {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- list: compact person cards (identity · state and week · messages) --- */
+
+.contact-list {
+  display: grid;
+  gap: var(--space-3);
+  padding: 0;
+  list-style: none;
+  container-type: inline-size;
+}
+
+.contact-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr) minmax(12rem, 0.8fr);
+  gap: var(--space-3) var(--space-6);
+  align-items: start;
+  padding: var(--space-3) var(--space-5);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  font-size: var(--text-sm);
+  transition:
+    border-color var(--duration-fast) var(--ease-standard),
+    background-color var(--duration-fast) var(--ease-standard);
+}
+
+.contact-row:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-hover);
+}
+
+.contact-row:focus-within {
+  border-color: var(--color-focus);
+  box-shadow: 0 0 0 1px var(--color-focus);
+}
+
+.contact-row__identity,
+.contact-sheet__identity {
+  display: flex;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.contact-row__avatar {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: var(--radius-full);
+  background: var(--color-neutral-soft);
+  color: var(--color-neutral-fg);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.contact-row__who,
+.contact-row__tracking {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  justify-items: start;
+}
+
+.contact-row__name-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* The name is the card's link; its ::after covers the card so a click anywhere opens the workbench. */
+.contact-row__open {
+  color: var(--color-text);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  text-decoration: none;
+}
+
+.contact-row__open::after {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  content: '';
+}
+
+.contact-row__open:focus-visible {
+  outline: none;
+}
+
+.contact-row:hover .contact-row__open {
+  color: var(--color-accent-fg);
+}
+
+/* Week tooltips stay reachable above the card-wide link. */
+.contact-row__badges .badge--tag {
+  position: relative;
+  z-index: 1;
+}
+
+.contact-row__muted {
+  color: var(--color-text-muted);
+}
+
+.contact-row__line {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contact-row__company {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font-weight: var(--weight-medium);
+}
+
+.contact-row__company svg {
+  flex: none;
+  color: var(--color-text-muted);
+}
+
+.contact-row__email {
+  overflow: hidden;
+  font-weight: var(--weight-regular);
+  text-overflow: ellipsis;
+}
+
+.contact-row__badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.contact-row__next {
+  font-weight: var(--weight-medium);
+}
+
+.contact-row__messages {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-1) var(--space-3);
+  align-items: center;
+  margin: 0;
+}
+
+.contact-row__message {
+  display: contents;
+}
+
+.contact-row__message dt {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.contact-row__message dd {
+  margin: 0;
+  font-size: var(--text-xs);
+}
+
+.contact-row__no-message {
+  align-self: center;
+}
+
+@container (width < 52rem) {
+  .contact-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .contact-row__identity {
+    grid-column: 1 / -1;
+  }
+}
+
+@container (width < 34rem) {
+  .contact-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* --- workbench --- */
+
+.contact-bench {
+  container-type: inline-size;
+}
+
+.contact-bench__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+}
+
+.contact-bench__bar > .btn:first-child {
+  margin-left: calc(-1 * var(--space-3));
+}
+
+.contact-bench__walk {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.contact-bench__position {
+  margin-right: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.contact-bench__panels {
+  display: grid;
+  grid-template-columns: minmax(18rem, 22rem) minmax(0, 1fr);
+  gap: var(--space-6);
+  align-items: start;
+}
+
+.contact-bench__prospect {
+  display: grid;
+  gap: var(--space-5);
+  min-width: 0;
+}
+
+.contact-bench__mail {
+  min-width: 0;
+  container-type: inline-size;
+}
+
+/* Below ~900 px of workspace the sheet goes above the mail. */
+@container (width < 56rem) {
+  .contact-bench__panels {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.contact-sheet__who {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.contact-sheet__name {
+  font-size: var(--text-xl);
+}
+
+.contact-sheet__open {
+  justify-self: start;
+  margin-left: calc(-1 * var(--space-3));
+}
+
+.contact-sheet__channels {
+  display: grid;
+  gap: var(--space-2);
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-sm);
+}
+
+.contact-sheet__channels li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-2);
+  min-width: 0;
+}
+
+.contact-sheet__channel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contact-sheet__tags {
+  display: flex;
+  gap: var(--space-1);
+}
+
+/* Status lines of the panels: loading, error, the outcome of the last action. */
+.contact-panel__status,
+.contact-panel__error,
+.contact-panel__notice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.contact-panel__status {
+  color: var(--color-text-muted);
+}
+
+.contact-panel__error {
+  color: var(--color-danger-fg);
+  font-weight: var(--weight-medium);
+}
+
+.contact-panel__notice {
+  color: var(--color-text);
+}
+
+.contact-panel__notice svg {
+  color: var(--color-success-fg);
+}
+
+.contact-panel__status svg,
+.contact-panel__error svg,
+.contact-panel__notice svg {
+  flex: none;
+  margin-top: 0.125rem;
+}
+
+/* « Réessayer » sits after the sentence. */
+.contact-panel__error .btn {
+  flex: none;
+  margin-top: calc(-1 * var(--space-1));
+}
+
+.contact-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+/* --- mail sequence --- */
+
+.contact-tab__dirty {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: var(--radius-full);
+  background: var(--color-warning-fg);
+}
+
+.contact-mail {
+  display: grid;
+  gap: var(--space-5);
+  min-width: 0;
+}
+
+.contact-mail__status {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.contact-mail__lock,
+.contact-mail__banner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+}
+
+.contact-mail__lock {
+  background: var(--color-neutral-soft);
+}
+
+.contact-mail__lock svg {
+  flex: none;
+  margin-top: 0.0625rem;
+  color: var(--color-neutral-fg);
+}
+
+.contact-mail__banner {
+  background: var(--color-warning-soft);
+}
+
+.contact-mail__banner svg {
+  flex: none;
+  margin-top: 0.0625rem;
+  color: var(--color-warning-fg);
+}
+
+.contact-mail__fields {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.contact-mail__pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4) var(--space-5);
+  align-items: start;
+}
+
+.contact-mail__body {
+  min-height: 18rem;
+  line-height: var(--leading-normal);
+}
+
+/* A read-only message stays fully legible (not greyed like a disabled field). */
+.contact-mail .field__control:read-only {
+  border-color: var(--color-border);
+  background: var(--color-surface);
+}
+
+.contact-mail__schedule {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  margin: 0;
+  padding: var(--space-4) var(--space-5) var(--space-5);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.contact-mail__legend {
+  padding: 0 var(--space-1);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.contact-mail__when {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: var(--space-4);
+  max-width: 26rem;
+}
+
+.contact-mail__hint {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.contact-mail__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-top: var(--space-4);
+  border-top: var(--border-width) solid var(--color-border);
+}
+
+/* Left side of the action bar: the AI drafting of Slice S5 lands here. */
+.contact-mail__assist:empty {
+  display: none;
+}
+
+.contact-mail__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+@container (width < 32rem) {
+  .contact-mail__pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.contact-confirm {
+  display: grid;
+  gap: var(--space-3);
+}

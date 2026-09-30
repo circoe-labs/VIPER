@@ -14,7 +14,7 @@ test('app shell boots with the five French sections and a connected API', async 
   await expect(navigation.getByRole('link')).toHaveText([
     'Accueil',
     'Prospection',
-    'Exploitation',
+    'Contact',
     'Base de données',
     'Paramètres',
   ])

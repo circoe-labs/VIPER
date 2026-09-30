@@ -3,7 +3,7 @@
 ## Layers
 
 ### UI
-Routes: Home, Prospection, Exploitation, Database, Settings. Global shell provides search, theme/contrast handling and authenticated user context.
+Routes: Home, Prospection, Contact (ex-Exploitation), Database, Settings. Global shell provides search, theme/contrast handling and authenticated user context.
 
 ### Application services
 Use explicit service boundaries rather than UI-to-ORM coupling:

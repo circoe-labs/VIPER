@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, type Page, test } from '@playwright/test'
 
-import { syntheticWorkbook, uniqueSuffix } from './data'
+import { createContactProspect, syntheticWorkbook, uniqueSuffix } from './data'
 import { openDatabase, useTheme } from './helpers'
 import { signIn } from './session'
 
@@ -98,10 +98,22 @@ const PAGES: { name: string; open: (page: Page) => Promise<void> }[] = [
     },
   },
   {
-    name: 'exploitation',
+    name: 'contact',
     open: async (page) => {
-      await page.goto('/exploitation')
-      await expect(page.getByRole('heading', { level: 1, name: 'Exploitation' })).toBeVisible()
+      const suffix = uniqueSuffix()
+      await createContactProspect(page, `A11Y${suffix}`, { civility: 'mr', first_name: 'Paul', last_name: `Accès${suffix}`, email: `paul.${suffix}@a11y.example` })
+      await page.goto(`/contact?q=A11Y${suffix}`)
+      await expect(page.getByRole('list', { name: 'Prospects à contacter' }).getByRole('link').first()).toBeVisible()
+    },
+  },
+  {
+    name: 'contact — poste de travail',
+    open: async (page) => {
+      const suffix = uniqueSuffix()
+      const { id } = await createContactProspect(page, `A11Y${suffix}`, { civility: 'ms', first_name: 'Léa', last_name: `Accès${suffix}`, email: `lea.${suffix}@a11y.example` })
+      await page.goto(`/contact?q=A11Y${suffix}&prospect=${id}`)
+      await expect(page.getByRole('tablist', { name: 'Étapes de la séquence' })).toBeVisible()
+      await expect(page.getByRole('textbox', { name: 'Objet' })).toBeVisible()
     },
   },
 ]

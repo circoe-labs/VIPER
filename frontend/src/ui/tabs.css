@@ -1,0 +1,56 @@
+/* In-page tabs: a bottom-bordered list, the selected tab marked by a 2 px accent bar and full-strength text (never
+   colour alone: the bar is a shape). */
+
+.tabs {
+  display: grid;
+  min-width: 0;
+}
+
+.tabs__list {
+  display: flex;
+  gap: var(--space-2);
+  overflow-x: auto;
+  border-bottom: var(--border-width) solid var(--color-border);
+}
+
+.tabs__tab {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: -1px;
+  padding: var(--space-3) var(--space-4);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--color-text-muted);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard);
+}
+
+.tabs__tab:hover {
+  color: var(--color-text);
+}
+
+.tabs__tab[aria-selected='true'] {
+  border-bottom-color: var(--color-accent);
+  color: var(--color-text);
+}
+
+.tabs__tab:focus-visible {
+  outline-offset: calc(-1 * var(--focus-ring-width));
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+}
+
+.tabs__panel {
+  min-width: 0;
+  padding-top: var(--space-5);
+}
+
+.tabs__panel:focus-visible {
+  outline: none;
+}

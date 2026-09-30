@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 
 import { StatusBadge } from '../ui/Badge'
 import type { StateLabel } from './verification'
+import './editor-section.css'
 
 interface EditorSectionProps {
   title: string
@@ -13,7 +14,7 @@ interface EditorSectionProps {
   children: ReactNode
 }
 
-// One named region of the Prospect editor.
+// One named region of the Prospect editor (also the panels of the Contact workbench).
 export function EditorSection({ title, state, count, tone, children }: EditorSectionProps) {
   return (
     <section className="prospect-editor__section" data-tone={tone} aria-label={title}>

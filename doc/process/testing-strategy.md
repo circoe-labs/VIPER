@@ -114,9 +114,16 @@
   groups and order, recent edits without values, 9 statements whatever the size), `src/home/*.test.ts(x)`, Playwright
   `e2e/home.spec.ts` (figures compared with the captured `/api/home` answer, drill-down checked on its own imported
   people) — details in `doc/features/home-dashboard.md`.
-- Exploitation (Task 18): `src/exploitation/ExploitationPage.test.tsx` (navigation state, heading structure, coming-soon
-  copy, and no button/link/control/list/table/figure/digit in the page) and `e2e/exploitation.spec.ts` (same smoke
-  against the real stack, screenshots in both themes).
+- Contact page (Contact port S4, replaces the Exploitation placeholder): `src/contact/*.test.ts(x)` against the
+  in-memory `src/test/contactApi.ts` (dashboard, list and the message state machine; the prospect detail and its
+  `PATCH` from `prospectsApi.ts`) — URL criteria, counters → list, the week selector sending the server's current
+  week, rows (state, week, next step, message chips), the workbench (sheet, manual state with its confirmation, week),
+  the mail editor by status (create, validate / schedule / cancel confirmations, unschedule, edit ⇒ draft, reopen, sent
+  and closed-sequence locks, refusals on their fields, revision conflict keeping the text), the unsaved-text guard;
+  `src/ui/Tabs.test.tsx` (roles, roving tab stop, arrows/Home/End). Playwright `e2e/contact.spec.ts` drives the
+  operator flow on the real stack (a prospect planned this week through the API: draft → validate → schedule →
+  unschedule → edit back to draft → « Réponse reçue » cancels and locks), the guard, `/exploitation` redirecting, and
+  screenshots (draft at 1440 and 1280, locked, list) in both themes with a no-horizontal-overflow check.
 - Excel import engine (Task 08): synthetic workbooks generated in memory by
   `tests/fixtures/synthetic/legacy_workbook.py` (the 24-column historical layout, an `actualité` sheet, one row per
   compatibility case below, a fake reference snapshot). `test_import_workbook.py` (XLSX typed values, cached values
@@ -183,7 +190,7 @@
 - Accessibility smoke (Task 20): Playwright `e2e/accessibility.spec.ts` runs axe-core (`@axe-core/playwright`,
   WCAG 2.1 A/AA rules) on the sign-in page, Home, Prospection, the Prospect editor, Entreprises with the Company
   editor, an import review of its own synthetic workbook, the Database grid, the SQL console with a result, Paramètres
-  and Exploitation, in both themes at 1440×900; a serious or critical violation fails, others become annotations
+  and Contact (the list and the workbench of a prospect it plans itself), in both themes at 1440×900; a serious or critical violation fails, others become annotations
   (none today). `e2e/keyboard.spec.ts` is a whole working session with keys only — sign-in, skip link, Prospection
   search, editor verification and Ctrl+Entrée (Save & Next), Entreprises and Ctrl+S, Database header row → rows →
   context menu → staged edit cancelled, Paramètres — and requires a visible focus change at every stop (the element or

@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react'
 import type { CommitResult, PreviewResult, RowStatus } from '../api/imports'
 import { Button } from '../ui/Button'
 import { AlertIcon, RefreshIcon } from '../ui/icons'
+import { Tabs } from '../ui/Tabs'
 import { CommitDialog } from './CommitDialog'
 import { commitSummary, resolutionOf, rowIssues, type ReviewDecisions } from './importPlan'
 import { codeLabel, plural, rowsText, STATUS_LABELS } from './messages'
@@ -132,39 +133,15 @@ export function ReviewStep({ file, preview, decisions, reanalyzing, decide, onRe
         )}
       </section>
 
-      <div className="import-tabs" role="tablist" aria-label="Vérification">
-        <button
-          type="button"
-          role="tab"
-          id="import-tab-resolve"
-          aria-controls="import-panel-resolve"
-          aria-selected={tab === 'resolve'}
-          className="import-tabs__tab"
-          onClick={() => {
-            setTab('resolve')
-          }}
-        >
-          À résoudre <span className="import-tabs__count">{toResolve}</span>
-        </button>
-        <button
-          type="button"
-          role="tab"
-          id="import-tab-rows"
-          aria-controls="import-panel-rows"
-          aria-selected={tab === 'rows'}
-          className="import-tabs__tab"
-          onClick={() => {
-            setTab('rows')
-          }}
-        >
-          Lignes <span className="import-tabs__count">{summary.rows_total}</span>
-        </button>
-      </div>
-      <div
-        id={`import-panel-${tab}`}
-        role="tabpanel"
-        aria-labelledby={`import-tab-${tab}`}
-        className="import-tabpanel"
+      <Tabs
+        label="Vérification"
+        className="import-review__tabs"
+        selected={tab}
+        onSelect={setTab}
+        tabs={[
+          { id: 'resolve', label: 'À résoudre', extra: <span className="import-tabs__count">{toResolve}</span> },
+          { id: 'rows', label: 'Lignes', extra: <span className="import-tabs__count">{summary.rows_total}</span> },
+        ]}
       >
         {tab === 'resolve' ? (
           <ResolvePanel
@@ -191,7 +168,7 @@ export function ReviewStep({ file, preview, decisions, reanalyzing, decide, onRe
             onReanalyse={onReanalyse}
           />
         )}
-      </div>
+      </Tabs>
 
       <div className="import-actionbar" role="region" aria-label="Import">
         <p className="import-actionbar__summary" aria-live="polite">
