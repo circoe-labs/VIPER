@@ -13,7 +13,8 @@ import { deleteDraftRecord, loadDraftRecord, saveDraftRecord } from './drafts.js
 import { nextActionOrderSql } from './contactTrackingSchema.js';
 import { prospectionCounters, prospectionFilterSql, prospectSearchSql } from './prospectionDashboard.js';
 import { isProspectionFilter } from '../shared/prospectionDashboard.js';
-import { contactDashboard, contactProspects, countContactFilter } from './contactDashboard.js';
+import { contactDashboard, contactProspects } from './contactDashboard.js';
+import { homeDashboard } from './homeDashboard.js';
 import { parseContactListQuery } from '../shared/contactDashboard.js';
 import { ContactTrackingError, createContactTrackingService, parseTrackingPatch, type ContactTrackingDeps } from './contactTrackingService.js';
 import { contactMessageCanceller, getContactMessageById } from './contactMessageStore.js';
@@ -244,20 +245,9 @@ function syncPhones(prospectId: string, items: PhoneInput[] | undefined, forceUn
   for (const old of existing) if (!kept.has(old.id)) db.prepare('UPDATE phones SET is_active=0,is_primary=0,updated_at=CURRENT_TIMESTAMP WHERE id=?').run(old.id);
 }
 
-// Accueil : compteurs de donnée identiques aux cartes Prospection (Task 07) + activité de contact existante ;
-// « Rendez-vous » = « RDV pris » cumulés du dashboard Contact (Task 09, même définition SQL).
+// Accueil (retour « PARTIE PROSPECTION ») : BASE, activité de contact, camembert du mois et journal 24 h sur le modèle Contact.
 app.get('/api/dashboard', (_req, res) => {
-  const one = (sql: string) => Number((db.prepare(sql).get() as { n: number } | undefined)?.n || 0);
-  const today = new Date();
-  res.json({
-    ...prospectionCounters(db, { today }),
-    contacted: one("SELECT count(*) n FROM contact_tracking WHERE status NOT IN ('neutral','failure','ignored')"),
-    responses: one('SELECT count(*) n FROM contact_tracking WHERE response_received_at IS NOT NULL'),
-    appointments: countContactFilter(db, 'appointments', today),
-    // Prochaines actions = suivis avec une prochaine semaine ISO (tous états sauf `ignored`), triés par (année, semaine).
-    nextActions: rows(`SELECT p.id,p.first_name,p.last_name,c.display_name company,ct.status,ct.next_action_year,ct.next_action_week FROM contact_tracking ct JOIN prospects p ON p.id=ct.prospect_id JOIN companies c ON c.id=p.company_id WHERE ct.next_action_year IS NOT NULL AND ct.status<>'ignored' ORDER BY ${nextActionOrderSql()},p.last_name LIMIT 8`),
-    recent: rows('SELECT * FROM audit_log ORDER BY created_at DESC LIMIT 8')
-  });
+  res.json(homeDashboard(db, new Date()));
 });
 
 app.get('/api/prospection/counters', (req, res) => res.json(prospectionCounters(db, { today: new Date(), q: String(req.query.q || '') })));
@@ -279,7 +269,7 @@ app.get('/api/prospects', (req, res) => {
   let w = search.sql;
   if (company) { w += ' AND p.company_id=?'; ps.push(company); }
   if (isProspectionFilter(filter)) { const f = prospectionFilterSql(filter, new Date()); w += ` AND ${f.sql}`; ps.push(...f.params); } // cartes Prospection (Task 07)
-  res.json(rows(`SELECT p.*,c.display_name company,r.label role,e.address primary_email,e.verification_status email_verification,e.last_verified_at email_verified_at,ct.status tracking_status,ct.planned_contact_at,ct.next_action_year,ct.next_action_week,ct.next_action_year contact_year,ct.next_action_week contact_week,ct.response_received_at,ct.appointment_at,trim(coalesce(ir.first_name,'')||' '||coalesce(ir.last_name,'')) referent,(SELECT max(h.changed_at) FROM contact_tracking_status_history h WHERE h.contact_tracking_id=ct.id AND h.to_status=ct.status) tracking_status_since FROM prospects p JOIN companies c ON c.id=p.company_id LEFT JOIN roles r ON r.id=p.role_id LEFT JOIN emails e ON e.prospect_id=p.id AND e.is_primary=1 AND e.is_active=1 LEFT JOIN contact_tracking ct ON ct.prospect_id=p.id LEFT JOIN internal_referents ir ON ir.id=ct.referent_id WHERE ${w} ORDER BY ${nextActionOrderSql()},p.updated_at DESC LIMIT 500`, ps));
+  res.json(rows(`SELECT p.*,c.display_name company,r.label role,e.address primary_email,e.verification_status email_verification,e.last_verified_at email_verified_at,ph.number primary_phone,ct.status tracking_status,ct.planned_contact_at,ct.next_action_year,ct.next_action_week,ct.next_action_year contact_year,ct.next_action_week contact_week,ct.response_received_at,ct.appointment_at,trim(coalesce(ir.first_name,'')||' '||coalesce(ir.last_name,'')) referent,(SELECT max(h.changed_at) FROM contact_tracking_status_history h WHERE h.contact_tracking_id=ct.id AND h.to_status=ct.status) tracking_status_since FROM prospects p JOIN companies c ON c.id=p.company_id LEFT JOIN roles r ON r.id=p.role_id LEFT JOIN emails e ON e.prospect_id=p.id AND e.is_primary=1 AND e.is_active=1 LEFT JOIN phones ph ON ph.id=(SELECT ph1.id FROM phones ph1 WHERE ph1.prospect_id=p.id AND ph1.is_primary=1 AND ph1.is_active=1 LIMIT 1) LEFT JOIN contact_tracking ct ON ct.prospect_id=p.id LEFT JOIN internal_referents ir ON ir.id=ct.referent_id WHERE ${w} ORDER BY ${nextActionOrderSql()},p.updated_at DESC LIMIT 500`, ps));
 });
 
 app.get('/api/prospects/:id', (req, res) => {

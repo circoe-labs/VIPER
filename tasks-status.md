@@ -39,3 +39,19 @@ The user review of the first usable Prospection screen identified several semant
 ## Known partial area
 
 Task 12 remains partial: advanced generic Database Explorer mutations (pin/reorder/resize, rich context menus and broad staged FK-aware editing) are not falsely marked complete.
+
+
+## Feedback pass — 29 September 2026 (merged into the Contact model)
+
+The "PARTIE PROSPECTION" user review was first implemented on `main` (`bb49a09`) on top of the legacy tracking statuses, then merged into the `claude` branch, where the VIPER Contact model (states `neutral`/Contacté/R1/R2/Réponse reçue/RDV pris/Failure/Ignoré + separate ISO next-action week) wins. What is actually in the code after the merge:
+
+- Excel import accepts the S37/S39/S40/S41 cohorts (S41, like S40, is imported as "no state" + planned week);
+- every prospect row and the drawer header show the week badge (`next_action_week`, e.g. `S41`); the week is planned with the existing week planner, not with a separate cohort field;
+- the drawer no longer shows employment verification nor the Opposition/Contactability block (the durable `do_not_contact` guardrail stays enforced in the backend);
+- emails and phones are grouped in one compact Coordinates block right after Identity, before Employment, with a recommended channel;
+- the tracking tab is condensed: state (Contact model), referent, response received, appointment with date/time, week;
+- the drawer footer keeps only ←/→ navigation + Save; closing is the top-right cross;
+- Home: BASE (Prospects, RDV confirmés, Défaillants = human `failure` state, À vérifier = missing primary email or phone, 7-day response trend arrow), contact activity in 3 cards (À contacter, Sans réponse, RDV), monthly pie by state, "Semaine X à contacter le…" (Monday S37, Tuesday S39, Wednesday S40), collapsible 24-hour change log;
+- Prospection search matches phone numbers; the "Emploi à vérifier" card is replaced by "Coordonnées incomplètes".
+
+Not carried over (to be decided): follow-ups 3 to 5, automatic "Défaillant after 5 follow-ups", "Devis envoyé", "Mail inactif" (bounces). See `tasks/viper_contact_pipeline_handoff/FINAL_REPORT.md`.

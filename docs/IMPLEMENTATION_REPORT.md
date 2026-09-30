@@ -48,3 +48,14 @@ Single-user pilot auth uses opaque in-memory session tokens in HTTP-only SameSit
 
 ## Testing
 The patch was syntax/type checked locally with strict enough interface stubs to catch TS/JSX errors. The import logic was also reconciled against the private legacy workbook using aggregate-only inspection; no row-level PII was printed or committed. Unit tests were updated for explicit verification and ISO-week conversion. GitHub CI remains authoritative for dependency-backed typecheck, Vitest and Vite build.
+
+
+### UI/product refinement — 29 September 2026 (merged into the Contact model)
+
+The latest user review ("PARTIE PROSPECTION") simplifies the operator experience. It was merged into the VIPER Contact model, which keeps its states (no state, Contacté, R1, R2, Réponse reçue, RDV pris, Failure, Ignoré) and its ISO next-action week:
+
+- S37/S39/S40/S41 are accepted by the Excel import and shown as the week badge on every prospect card and in the drawer.
+- The Prospection UI no longer exposes employment verification or opposition controls. Employment verification remains internal legacy/provenance data, and the durable do-not-contact guardrail remains enforced in the backend rather than presented as an operator field.
+- Coordinates are surfaced earlier and grouped compactly so the operator immediately knows whether to use email or phone; the list search also matches phone numbers.
+- The tracking panel is condensed (state, referent, response, appointment date/time, week). There is no relance level beyond R2 and no automatic "Defaillant" state: after R2 a human review decides, and `failure` is always a human choice.
+- Home now focuses on a small set of operational metrics (including human `failure` as "Défaillants"), a 7-day response trend, a monthly outcome pie by state, cohort contact-day scheduling, and an expandable last-24-hours audit feed. "Devis envoyé" and "Mail inactif" are not implemented (open product questions).

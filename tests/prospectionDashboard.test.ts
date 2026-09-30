@@ -4,19 +4,19 @@ import { isoWeekMonday, type IsoWeek } from '../src/shared/contactWorkflow';
 import { isProspectionFilter, prospectionFilters } from '../src/shared/prospectionDashboard';
 import { schema } from '../src/server/schema.js';
 import { prospectionCounters, prospectionFilterSql, prospectSearchSql } from '../src/server/prospectionDashboard.js';
-import { employmentCheck, prospectionCards } from '../src/client/prospectionDisplay';
+import { prospectionCards } from '../src/client/prospectionDisplay';
 
 const S = (week: number, year = 2026): IsoWeek => ({ year, week });
 const today = isoWeekMonday(S(40)); // lundi 28 sept. 2026
 
-type Row = { id: string; name: string; employment?: boolean; email?: 'verified' | 'unverified' | 'invalid' | 'inactive'; status?: string; week?: IsoWeek; activity?: string };
+type Row = { id: string; name: string; employment?: boolean; email?: 'verified' | 'unverified' | 'invalid' | 'inactive'; phone?: string; status?: string; week?: IsoWeek; activity?: string };
 
 // Base temporaire synthétique : chaque ligne isole un cas.
 const rowsFixture: Row[] = [
-  { id: 'p1', name: 'Alpha', employment: true, email: 'verified', status: 'neutral', week: S(40) },   // dû (semaine courante)
-  { id: 'p2', name: 'Bravo', email: 'unverified', status: 'neutral', week: S(38) },                  // dû (échu), emploi + email à revoir
+  { id: 'p1', name: 'Alpha', employment: true, email: 'verified', phone: '06 12 34 56 78', status: 'neutral', week: S(40) },   // dû (semaine courante), coordonnées complètes
+  { id: 'p2', name: 'Bravo', email: 'unverified', phone: '0700000000', status: 'neutral', week: S(38) },                  // dû (échu), email à revoir, coordonnées présentes
   { id: 'p3', name: 'Charlie', employment: true, status: 'neutral', week: S(41) },                   // semaine future, sans email
-  { id: 'p4', name: 'Delta', employment: true, email: 'verified', status: 'contacted', week: S(39) }, // relance échue : pas un premier contact
+  { id: 'p4', name: 'Delta', employment: true, email: 'verified', phone: '01.23.45.67.89', status: 'contacted', week: S(39) }, // relance échue : pas un premier contact
   { id: 'p5', name: 'Echo', email: 'invalid', status: 'neutral' },                                    // neutre sans semaine
   { id: 'p6', name: 'Foxtrot', employment: true, email: 'inactive', activity: 'unknown' },           // email principal inactif, pas de suivi
   { id: 'p7', name: 'Golf', employment: true, email: 'verified', status: 'neutral', week: S(52, 2025), activity: 'unknown' } // dû (année précédente)
@@ -32,6 +32,7 @@ function setup() {
       .run(r.id, r.id === 'p7' ? 'c2' : 'c1', r.name, r.activity || 'active', r.employment ? '2026-09-01T00:00:00Z' : null);
     if (r.email) db.prepare('INSERT INTO emails(id,prospect_id,address,is_primary,is_active,verification_status,origin_type) VALUES(?,?,?,1,?,?,?)')
       .run(`e_${r.id}`, r.id, `${r.id}@example.test`, r.email === 'inactive' ? 0 : 1, r.email === 'inactive' ? 'verified' : r.email, 'manual');
+    if (r.phone) db.prepare("INSERT INTO phones(id,prospect_id,number,type,is_primary,is_active) VALUES(?,?,?,'mobile',1,1)").run(`ph_${r.id}`, r.id, r.phone);
     if (r.status) db.prepare('INSERT INTO contact_tracking(id,prospect_id,status,next_action_year,next_action_week) VALUES(?,?,?,?,?)')
       .run(`t_${r.id}`, r.id, r.status, r.week?.year ?? null, r.week?.week ?? null);
   }
@@ -46,15 +47,15 @@ function setup() {
 }
 
 describe('compteurs Prospection (Task 07)', () => {
-  it('compte total, contacts dus, emploi à vérifier et emails à fiabiliser', () => {
+  it('compte total, contacts dus, coordonnées incomplètes et emails à fiabiliser', () => {
     const { db } = setup();
-    expect(prospectionCounters(db, { today })).toEqual({ total: 7, due: 3, employmentUnverified: 2, emailToReview: 4 });
+    expect(prospectionCounters(db, { today })).toEqual({ total: 7, due: 3, incompleteContact: 4, emailToReview: 4 });
   });
 
   it('chaque filtre renvoie exactement les prospects comptés par sa carte', () => {
     const { db, list } = setup();
     expect(list('due')).toEqual(['p1', 'p2', 'p7']);
-    expect(list('employment_unverified')).toEqual(['p2', 'p5']);
+    expect(list('incomplete_contact')).toEqual(['p3', 'p5', 'p6', 'p7']); // email principal actif ou téléphone principal absent
     expect(list('email_to_review')).toEqual(['p2', 'p3', 'p5', 'p6']);
     expect(list('')).toHaveLength(7);
     const counters = prospectionCounters(db, { today });
@@ -64,9 +65,18 @@ describe('compteurs Prospection (Task 07)', () => {
 
   it('les compteurs suivent la recherche texte comme la liste', () => {
     const { db, list } = setup();
-    expect(prospectionCounters(db, { today, q: 'Other Logistics' })).toEqual({ total: 1, due: 1, employmentUnverified: 0, emailToReview: 0 });
-    expect(prospectionCounters(db, { today, q: 'p2@example' })).toEqual({ total: 1, due: 1, employmentUnverified: 1, emailToReview: 1 });
+    expect(prospectionCounters(db, { today, q: 'Other Logistics' })).toEqual({ total: 1, due: 1, incompleteContact: 1, emailToReview: 0 });
+    expect(prospectionCounters(db, { today, q: 'p2@example' })).toEqual({ total: 1, due: 1, incompleteContact: 0, emailToReview: 1 });
     expect(list('due', 'golf')).toEqual(['p7']);
+  });
+
+  it('la recherche trouve un prospect par numéro de téléphone, avec ou sans séparateurs', () => {
+    const { list } = setup();
+    expect(list('', '06 12 34')).toEqual(['p1']);
+    expect(list('', '061234')).toEqual(['p1']);
+    expect(list('', '01.23')).toEqual(['p4']);
+    expect(list('', '0123456789')).toEqual(['p4']);
+    expect(list('incomplete_contact', '0700')).toEqual([]);
   });
 
   it('« contacts dus » suit la semaine ISO (changement d’année) et ignore les états non neutres', () => {
@@ -78,19 +88,19 @@ describe('compteurs Prospection (Task 07)', () => {
   it('aucun compteur Inconnu ni statut global Validé / Non validé', () => {
     const { db } = setup();
     const counters = prospectionCounters(db, { today });
-    expect(Object.keys(counters).sort()).toEqual(['due', 'emailToReview', 'employmentUnverified', 'total']);
+    expect(Object.keys(counters).sort()).toEqual(['due', 'emailToReview', 'incompleteContact', 'total']);
     expect(prospectionFilters).not.toContain('unknown');
-    for (const legacy of ['never_verified', 'verified', 'partial_verification', 'unknown']) expect(isProspectionFilter(legacy)).toBe(false);
+    for (const legacy of ['never_verified', 'verified', 'partial_verification', 'unknown', 'employment_unverified']) expect(isProspectionFilter(legacy)).toBe(false);
   });
 });
 
 describe('cartes Prospection — affichage', () => {
-  const cards = prospectionCards({ total: 7, due: 3, employmentUnverified: 2, emailToReview: 4 });
+  const cards = prospectionCards({ total: 7, due: 3, incompleteContact: 4, emailToReview: 4 });
 
   it('au plus 6 cartes, toutes cliquables avec un filtre connu', () => {
     expect(cards.length).toBeLessThanOrEqual(6);
     expect(cards.map(c => [c.label, c.count, c.filter])).toEqual([
-      ['Tous', 7, ''], ['Contacts dus', 3, 'due'], ['Emploi à vérifier', 2, 'employment_unverified'], ['Emails à fiabiliser', 4, 'email_to_review']
+      ['Tous', 7, ''], ['Contacts dus', 3, 'due'], ['Coordonnées incomplètes', 4, 'incomplete_contact'], ['Emails à fiabiliser', 4, 'email_to_review']
     ]);
     for (const card of cards) expect(card.filter === '' || isProspectionFilter(card.filter)).toBe(true);
   });
@@ -98,11 +108,5 @@ describe('cartes Prospection — affichage', () => {
   it('aucun libellé Inconnu / Vérifiés / Non vérifiés / Incomplets', () => {
     const labels = cards.map(c => c.label).join(' | ');
     expect(labels).not.toMatch(/Inconnu|Vérifiés|Non vérifiés|Incomplets|Validé/);
-  });
-
-  it('la colonne Emploi ne reflète que la vérification des informations d’emploi', () => {
-    const fmt = (v: string) => `le ${v.slice(0, 10)}`;
-    expect(employmentCheck('2026-09-01T00:00:00Z', fmt)).toEqual({ tone: 'verified', label: 'Vérifié', detail: 'le 2026-09-01' });
-    expect(employmentCheck(null, fmt)).toEqual({ tone: 'never', label: 'Non vérifié', detail: 'À vérifier' });
   });
 });

@@ -1,6 +1,5 @@
 // Formes JSON des routes /api consommées par App.tsx et importCache.ts (réponses construites dans src/server/index.ts,
 // colonnes SQL de src/server/schema.ts). Types de lecture côté client : aucune validation à l'exécution.
-import type { ProspectionCounters } from '../shared/prospectionDashboard';
 
 type Nullable<T = string> = T | null;
 
@@ -10,9 +9,8 @@ export type AuditEntry = {
   id: string; actor_type: string; actor_id: Nullable; actor_display: Nullable; entity_type: string; entity_id: string; action: string;
   changed_fields: Nullable; before_payload: Nullable; after_payload: Nullable; source_context: Nullable; created_at: string;
 };
-export type NextAction = { id: string; first_name: string; last_name: string; company: string; status: string; next_action_year: Nullable<number>; next_action_week: Nullable<number> };
-/** `GET /api/dashboard`. */
-export type HomeDashboard = ProspectionCounters & { contacted: number; responses: number; appointments: number; nextActions: NextAction[]; recent: AuditEntry[] };
+/** `GET /api/dashboard` : définitions dans `src/shared/homeDashboard.ts`. */
+export type { HomeDashboard } from '../shared/homeDashboard';
 
 export type ProspectRow = {
   id: string; company_id: string; civility: Nullable; first_name: string; last_name: string; role_id: Nullable; exact_job_title: Nullable;
@@ -21,7 +19,7 @@ export type ProspectRow = {
 };
 /** Ligne de `GET /api/prospects`. */
 export type ProspectListItem = ProspectRow & {
-  company: string; role: Nullable; primary_email: Nullable; email_verification: Nullable; email_verified_at: Nullable; tracking_status: Nullable;
+  company: string; role: Nullable; primary_email: Nullable; primary_phone: Nullable; email_verification: Nullable; email_verified_at: Nullable; tracking_status: Nullable;
   planned_contact_at: Nullable; next_action_year: Nullable<number>; next_action_week: Nullable<number>; contact_year: Nullable<number>; contact_week: Nullable<number>;
   response_received_at: Nullable; appointment_at: Nullable; referent: string; tracking_status_since: Nullable;
 };

@@ -256,7 +256,7 @@ export function parseWorkbook(buffer: Buffer, filename = 'import.xlsx', referenc
       const legacyPlannedRaw = Object.prototype.hasOwnProperty.call(raw, 'A contacter ') ? text(raw['A contacter ']) : '';
       const plannedRaw = legacyPlannedRaw || text(read(raw, ['Contact planifié', 'Contact planifie', 'Date contact', 'Date de contact']));
       const plannedWeek = resolveLegacyWeek(plannedRaw);
-      const legacyCampaignWeek = plannedWeek && [37, 39, 40].includes(plannedWeek.week) ? plannedWeek : null;
+      const legacyCampaignWeek = plannedWeek && [37, 39, 40, 41].includes(plannedWeek.week) ? plannedWeek : null;
       const plannedDate = excelDate(plannedRaw);
       const plannedContactAt = plannedDate ? isoDate(plannedDate) : null;
       if (legacyCampaignWeek) {
@@ -283,8 +283,8 @@ export function parseWorkbook(buffer: Buffer, filename = 'import.xlsx', referenc
       }
       const legacyTrackingStatus: LegacyTrackingStatus = legacyCampaignWeek?.week === 37 || legacyCampaignWeek?.week === 39
         ? 'contacted'
-        : legacyCampaignWeek?.week === 40
-          ? 'to_contact'
+        : legacyCampaignWeek?.week === 40 || legacyCampaignWeek?.week === 41
+          ? 'to_contact' // cohortes pas encore contactées : état neutre + semaine planifiée (S41 ajoutée au retour « PARTIE PROSPECTION »)
           : trackingFromLegacy(raw, plannedContactAt, verificationState, importedAt);
       // Taxonomie Contact (Task 03) : l'Excel ne porte jamais de blocage durable, la ligne brute reste en métadonnées d'import.
       const trackingStatus = mapLegacyTrackingStatus(legacyTrackingStatus, false);

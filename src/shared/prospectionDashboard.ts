@@ -3,7 +3,7 @@
 // (formule non actée, docs/08 §1). Les métriques de contact (contactés, réponses, RDV) relèvent du dashboard Contact (décision 16).
 
 /** Filtres cliquables de Prospection ; `''` = tous les prospects. */
-export const prospectionFilters = ['due', 'employment_unverified', 'email_to_review'] as const;
+export const prospectionFilters = ['due', 'incomplete_contact', 'email_to_review'] as const;
 export type ProspectionFilter = typeof prospectionFilters[number];
 
 export const isProspectionFilter = (value: unknown): value is ProspectionFilter =>
@@ -13,7 +13,8 @@ export const isProspectionFilter = (value: unknown): value is ProspectionFilter 
  * Compteurs factuels (mêmes définitions côté liste filtrée et côté Accueil) :
  * - `total` : prospects en base (une fiche sans email reste une fiche, décision 3) ;
  * - `due` : état neutre avec prochaine semaine ISO atteinte ou échue (premier contact à faire, Task 06) ;
- * - `employmentUnverified` : informations d'emploi jamais vérifiées (`employment_verified_at` absent) — vérification de champ ;
+ * - `incompleteContact` : coordonnées incomplètes = pas d'email principal actif renseigné OU pas de téléphone principal actif
+ *   renseigné (retour « PARTIE PROSPECTION » : remplace « Emploi à vérifier », les prospects ayant tous été vérifiés) ;
  * - `emailToReview` : aucun email principal actif au statut « Vérifié » (absent, non confirmé ou invalide) — vérification de champ.
  */
-export type ProspectionCounters = { total: number; due: number; employmentUnverified: number; emailToReview: number };
+export type ProspectionCounters = { total: number; due: number; incompleteContact: number; emailToReview: number };

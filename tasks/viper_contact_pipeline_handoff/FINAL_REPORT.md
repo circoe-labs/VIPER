@@ -358,3 +358,35 @@ Gates globaux du TODO :
 4. Protéger la restauration de sauvegarde contre la reprogrammation d'envois passés (par exemple, tous les messages `scheduled` repassent à `validated` à la restauration).
 5. Acter puis implémenter : la signature et la mention de désinscription, la formule de complétude, la migration de nettoyage (`planned_contact_at`, `contact_year/contact_week`, `activity_status` « Inconnu »), et la saisie de `appointment_at` depuis Contact.
 6. Hors lot : navigation mobile, sessions persistantes, remise à niveau de `doc/` sur la pile réelle.
+
+## Fusion avec main — retour PARTIE PROSPECTION
+
+`origin/main` avait reçu en parallèle `bb49a09` (« Refine Home and Prospection workflow »), qui applique le retour utilisateur « PARTIE PROSPECTION » sur l'ancien modèle de statuts (`follow_up_1..5`, `defaillant`, `quote_*`, `to_contact`). La fusion garde le modèle Contact de cette branche : aucun ancien statut n'est réintroduit, la migration Task 02/03 et la page Contact sont inchangées.
+
+**Repris (adapté au modèle Contact)**
+
+- **Cohorte S41** : l'import Excel accepte S37/S39/S40/S41. S41 est importée comme S40 : sans état, avec la semaine planifiée (`importer.ts`, `tests/importer.test.ts`).
+- **Semaine visible** : colonne « Semaine » dans la liste Prospection et badge dans l'en-tête de la fiche. C'est le badge `next_action_week` existant (`S41`, année en infobulle).
+- **Fiche prospect** :
+  - la vérification d'emploi et le bloc Opposition/Contactabilité ne sont plus dans l'UI. Le garde-fou `do_not_contact` reste appliqué côté serveur, et un bandeau le signale s'il est posé. Modifier un champ d'emploi horodate toujours `employment_verified_at`, sans bouton dédié ;
+  - les e-mails et les téléphones sont regroupés dans un bloc « Coordonnées » compact, placé entre Identité et Emploi, avec le canal recommandé ;
+  - le suivi est condensé : état (Aucun état, Contacté, R1, R2, Réponse reçue, RDV pris, Failure, Ignoré), référent, réponse reçue (oui/non, avec la date si elle est connue), RDV avec date et heure, semaine (planificateur existant) ;
+  - le pied de la fiche ne garde que les flèches ← / → et « Enregistrer ». La fermeture passe par la croix en haut à droite. « Enregistrer et suivant » et « Fermer » sont supprimés. Le tiroir est remonté à chaque fiche (`key`) ; les brouillons automatiques restent par fiche.
+- **Accueil** (`GET /api/dashboard`, `src/server/homeDashboard.ts`, `src/shared/homeDashboard.ts`, `src/client/homeDisplay.ts`) :
+  - BASE en 5 cases : Prospects, RDV confirmés (état « RDV pris »), Défaillants (Failure), À vérifier (e-mail principal ou téléphone principal manquant), et la tendance des réponses sur 7 jours glissants par rapport aux 7 jours précédents (flèche verte montante ou rouge descendante). Une « réponse » est un passage humain à « Réponse reçue » ou « RDV pris » ; les lignes d'historique de la migration système ne comptent pas ;
+  - Activité de contact en 3 cases : À contacter (Contacté, R1, R2, ou sans état avec une semaine planifiée, hors blocage durable), Sans réponse (Contacté, R1 ou R2 sans réponse enregistrée), RDV ;
+  - camembert du mois : états courants posés par un humain depuis le 1er du mois, une couleur par état ;
+  - « Semaine X à contacter le… » : S37 le lundi, S39 le mardi, S40 le mercredi, à la prochaine occurrence de ce jour ;
+  - « Dernières modifications (24 h) » repliables ;
+  - les anciens « Objectifs mensuels » et « Prochaines actions » sont retirés, comme dans le retour. Les prochaines actions restent dans la page Contact.
+- **Prospection** : la recherche trouve aussi un numéro de téléphone actif, avec ou sans séparateurs. La carte « Emploi à vérifier » devient « Coordonnées incomplètes » (filtre `incomplete_contact`, même SQL pour le compteur et la liste).
+
+**Non repris (évolutions à trancher)**
+
+- **Relances 3 à 5** : le modèle Contact s'arrête à R2, puis une revue humaine a lieu 4 semaines plus tard (décisions 11 à 13).
+- **« Défaillant après 5 relances »** : aucun passage automatique à Failure (décisions 10 et 13). Le « Défaillants » de l'Accueil ne compte que l'état Failure choisi par un humain.
+- **« Devis envoyé »** : le post-RDV est hors périmètre V1. Les anciens `quote_*`/`won` convergent vers « RDV pris ». Aucune case ni aucun état n'ont été inventés.
+- **« Mail inactif »** (rebonds automatiques) : aucune remontée des rebonds n'existe (Toolbox ne fournit pas de retour de délivrabilité). C'est à spécifier.
+- **Sélecteur de cohorte figé et filtres rapides S37…S41 de main** : la semaine affichée est la prochaine échéance. Elle avance avec la cadence (+2 semaines après un envoi), donc la cohorte d'origine n'est pas conservée comme donnée distincte. La filtrer demanderait une nouvelle colonne, à trancher.
+
+**Vérifications** : `npm test` (22 fichiers, 359 tests, dont `tests/homeDashboard.test.ts` ajouté), `npm run typecheck`, `npm run lint` (0 erreur, 0 avertissement) et `npm run build` sont verts. Smoke réel sur une copie temporaire de la base locale : `/api/dashboard`, `/api/prospects`, les filtres, la recherche par téléphone et un PATCH de semaine et d'état répondent sans erreur SQL. Edge headless a vérifié l'Accueil (5 + 3 cases, camembert, planning, journal dépliable), la liste, la fiche (onglets, coordonnées, suivi condensé), ← / → et la croix, sans erreur console.
