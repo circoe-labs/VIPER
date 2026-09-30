@@ -245,7 +245,7 @@ PROSPECT_COLUMNS: tuple[Column[P], ...] = (
         Kind.DATETIME,
         16,
     ),
-    # Durable opposition, distinct from the `Non intéressé` outcome above.
+    # Durable opposition, distinct from the `Failure` outcome above (`Ignoré` implies it).
     Column[P](
         "Ne pas contacter",
         lambda r: yes_no(r.prospect.contactability_status is ContactabilityStatus.DO_NOT_CONTACT),

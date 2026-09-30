@@ -44,6 +44,12 @@ from app.services.explorer.metadata import TableInfo
 type Change = RowUpdate | RowInsert | RowDelete
 
 DO_NOT_CONTACT_MESSAGE = "Ce prospect est en opposition : utilisez la fiche prospect."
+# `ignored` is terminal and implies do-not-contact (Contact decision 7): deleting its tracking
+# would let the opposition be lifted.
+IGNORED_IS_TERMINAL = (
+    "Ce prospect est « Ignoré » : cet état est définitif, son suivi ne peut être ni supprimé ni"
+    " changé d’état."
+)
 DO_NOT_CONTACT_DELETE = (
     "Ce prospect est en opposition : utilisez la fiche prospect pour lever l’opposition avant"
     " de le supprimer."
@@ -182,7 +188,17 @@ class _Writer:
                 and row.contactability_status is ContactabilityStatus.DO_NOT_CONTACT
             ):
                 self.fail(delete, ErrorCode.DO_NOT_CONTACT, DO_NOT_CONTACT_DELETE)
+            if isinstance(row, ContactTracking) and row.status is ContactTrackingStatus.IGNORED:
+                self.fail(delete, ErrorCode.REJECTED, IGNORED_IS_TERMINAL)
         for update in changes.updates:
+            row = rows.get(id(update))
+            status = update.values.get("status", ContactTrackingStatus.IGNORED)
+            if (
+                isinstance(row, ContactTracking)
+                and row.status is ContactTrackingStatus.IGNORED
+                and status != ContactTrackingStatus.IGNORED
+            ):
+                self.fail(update, ErrorCode.REJECTED, IGNORED_IS_TERMINAL, "status")
             if isinstance(rows.get(id(update)), Prospect) and (
                 "company_id" in update.values and update.values["company_id"] is None
             ):

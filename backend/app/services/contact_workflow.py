@@ -11,10 +11,13 @@ Single Python source for what the Contact states mean (handoff decision log, dec
 Nothing here reads or writes the database; `app.services.contact_tracking` applies the rules.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
+from app.core.actor import ActorType
 from app.core.business_time import start_of_day
+from app.models.contact_tracking import ContactTrackingStatusHistory
 from app.models.enums import ContactTrackingStatus, TrackingHistoryStatus
 
 S = ContactTrackingStatus
@@ -85,6 +88,19 @@ def history_codes(states: tuple[ContactTrackingStatus, ...]) -> tuple[TrackingHi
     """`states` as history codes, with the legacy codes that mean one of them."""
     legacy = (code for code, state in LEGACY_EQUIVALENTS.items() if state in states)
     return (*(H(state.value) for state in states), *legacy)
+
+
+def is_restatement(row: ContactTrackingStatusHistory) -> bool:
+    """A history row appended by migration 0008: a code conversion, not a moment the prospect
+    reached a state."""
+    return row.actor_type is ActorType.SYSTEM and row.actor_id == CONTACT_STATES_MIGRATION_ID
+
+
+def state_reached_at(history: Sequence[ContactTrackingStatusHistory]) -> datetime | None:
+    """When the current state was reached (`status_since`, cadence anchor): the latest history
+    row (oldest first) that is not a 0008 restatement — for a converted tracking, the legacy row
+    it restates."""
+    return next((row.changed_at for row in reversed(history) if not is_restatement(row)), None)
 
 
 # --- ISO weeks ----------------------------------------------------------------------------------

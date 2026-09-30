@@ -47,7 +47,7 @@ the dirty-state bar.
 | Vérification de l'emploi | *Vérifié aujourd'hui*, *ou vérifié le* (date), *Effacer la vérification* | `employment_verified_at` | Covers company, role, exact title and activity. Explicit only: see *Verification*. |
 | E-mails, Téléphones | repeaters | `emails`, `phones` | See *E-mails and phones*. |
 | Opposition | *Enregistrer une opposition…*, *Lever l'opposition…* | `contactability_status`, `do_not_contact_at`, `do_not_contact_reason` | Dedicated operation, never the save — see *Opposition*. |
-| Suivi de contact | État | `contact_tracking.status` (Contact states, data-model) | *Aucun suivi* until one exists; setting a date alone creates it at `neutral` (no state). *Depuis le …* = the last status-history entry. A tracking is never deleted from the editor. |
+| Suivi de contact | État | `contact_tracking.status` (Contact states, data-model) | *Aucun suivi* until one exists; setting a date alone creates it at `neutral` (no state). The `PUT` save sends the whole form, so its `planned_contact_on` cannot tell a kept week from a chosen one: when the save moves the state to `response_received`, `appointment_obtained`, `failure` or `ignored` and the planned day is **unchanged**, the day is treated as an echo and cleared; a different day is kept (not on `ignored`). To keep the same week with such a state, use `PATCH …/tracking` with the week in the body. *Depuis le …* = the last status-history entry. A tracking is never deleted from the editor. |
 | | Contact prévu le (+ *Aujourd'hui*, *Dans 1 semaine*) | `planned_contact_at` | A day (Europe/Paris); the ISO week is shown (*Semaine 38*). |
 | | Réponse reçue le | `response_received_at` | A day. |
 | | Rendez-vous le … à … | `appointment_at` | A day and an optional time. |
@@ -180,7 +180,7 @@ their e-mails, phones, contact tracking and sources.
 | `POST /prospects` | the form + `provenance: {legal_basis_or_collection_context, source_reference}` | 201 view |
 | `PUT /prospects/{id}` | `version` + the whole editable state; `emails` and `phones` required (full lists) | view |
 | `PUT /prospects/{id}/contactability` | `{do_not_contact, reason, version}` | view |
-| `PATCH /prospects/{id}/tracking` | `{version, status?, next_action_week?: {year, week} \| null}` — `status` omitted/null keeps the state; `next_action_week` omitted keeps the week, null clears it, a week sets it (its Monday, business midnight). Human only. | view (Contact port S1) |
+| `PATCH /prospects/{id}/tracking` | `{version, status?, next_action_week?: {year, week} \| null}` — `status` omitted/null keeps the state; `next_action_week` omitted keeps the week, null clears it, a week sets it (its Monday, business midnight). Human only. A week present in the body is always explicit: it is kept with `failure`, `response_received` or `appointment_obtained` even when equal to the stored one (and refused with `ignored`, 409 `ignored_has_no_next_action`); without a week in the body, choosing one of those states clears the stored week. | view (Contact port S1) |
 | `DELETE /prospects/{id}?version=…` | — | 204 |
 
 Form fields: `civility`, `first_name`, `last_name`, `company_id`, `role_id` or `role_label` (new role), `exact_job_title`,

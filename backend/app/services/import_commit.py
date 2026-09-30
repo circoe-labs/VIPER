@@ -22,7 +22,7 @@ import logging
 import uuid
 from collections import Counter
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, time
 from functools import partial
 
@@ -141,9 +141,21 @@ def review_upload(
 
 
 @dataclass(frozen=True, slots=True)
+class FileTracking:
+    """What one prospect's tracking holds *from the file* after the commit: the planned contact
+    of its row (written now, or already equal), and whether the row's referent was written now
+    (a referent already there — e.g. set by hand — is never the file's)."""
+
+    planned_contact_at: datetime | None = None
+    referent_written: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class CommitResult:
     batch: ImportBatch
     counts: dict[str, int]
+    # Per prospect: the file's tracking values (read by the operational reconciliation).
+    file_tracking: dict[uuid.UUID, FileTracking] = field(default_factory=dict)
 
 
 def commit_import(
@@ -262,6 +274,7 @@ class Committer:
         self.receivers: dict[int, Prospect] = {}  # row → the prospect it created or merged into
         self.extra: dict[int, dict[str, LegacyValue]] = {}
         self.attached: set[uuid.UUID] = set()
+        self.file_tracking: dict[uuid.UUID, FileTracking] = {}
 
     def run(self) -> CommitResult:
         self.create_taxonomies()
@@ -293,7 +306,7 @@ class Committer:
         self.counts["rows_imported"] = imported
         self.counts["rows_excluded"] = len(self.plan.rows) - imported
         self.counts["prospects_attached"] = len(self.attached)
-        return CommitResult(finished, dict(self.counts))
+        return CommitResult(finished, dict(self.counts), dict(self.file_tracking))
 
     @staticmethod
     def guarded(row: int, step: Callable[[], None]) -> None:
@@ -551,6 +564,7 @@ class Committer:
                 ),
             )
             self.counts["trackings_created"] += 1
+            self.from_file(prospect.id, planned, referent_written=referent is not None)
             return
         neutral = current.status is ContactTrackingStatus.NEUTRAL
         filled = ContactTrackingInput(
@@ -569,6 +583,21 @@ class Committer:
         kept = ("status", "planned_contact_at", "referent_id", "appointment_at")
         if any(getattr(filled, name) != getattr(current, name) for name in kept):
             save_contact_tracking(self.session, self.importer, prospect.id, filled)
+        self.from_file(
+            prospect.id,
+            planned if planned is not None and filled.planned_contact_at == planned else None,
+            referent_written=referent is not None and current.referent_id is None,
+        )
+
+    def from_file(
+        self, prospect_id: uuid.UUID, planned: datetime | None, *, referent_written: bool
+    ) -> None:
+        """Record what the tracking now holds from this row (merged rows add up)."""
+        known = self.file_tracking.get(prospect_id, FileTracking())
+        self.file_tracking[prospect_id] = FileTracking(
+            planned_contact_at=known.planned_contact_at or planned,
+            referent_written=known.referent_written or referent_written,
+        )
 
     def keep_tracking(
         self, row: PreviewRow, *, stages: bool, planned: bool, referent: bool

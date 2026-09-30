@@ -156,6 +156,8 @@ def test_0008_converts_legacy_statuses_and_keeps_history(
         assert default == [("'neutral'::character varying",)]
     assert "9 tracking row(s) converted" in report
     assert "'not_interested': 2" in report and "'failure': 1" in report
+    # The opposed `to_contact` became neutral: listed for review, not changed.
+    assert "1 do_not_contact prospect(s) neither ignored nor failure" in report
 
 
 def test_0008_refuses_legacy_codes_after_the_upgrade(engine: Engine) -> None:

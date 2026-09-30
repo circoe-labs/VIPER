@@ -88,7 +88,7 @@ class HistoryEntry:
     # Its events' actions, oldest first (the vocabulary of `app.services.audit`).
     actions: list[str]
     title: str
-    # Value-free phrases, e.g. « E-mail principal modifié », « Suivi : Contacté → Relance 1 ».
+    # Value-free phrases, e.g. « E-mail principal modifié », « Suivi : Contacté → R1 ».
     summary: list[str]
     changes: list[HistoryChange]
 

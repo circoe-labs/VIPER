@@ -56,6 +56,7 @@ from app.services.contact_workflow import (
     DEFAULT_STATE,
     IsoWeek,
     next_action_at,
+    state_reached_at,
     suggest_next_action,
 )
 from app.services.errors import (
@@ -349,7 +350,7 @@ def _tracking_view(session: Session, tracking: ContactTracking | None) -> Tracki
     )
     appointment = _local_parts(tracking.appointment_at) if tracking.appointment_at else None
     history = tracking.status_history
-    since = history[-1].changed_at if history else None
+    since = state_reached_at(history)
     suggestion = suggest_next_action(
         tracking.status, business_day(since) if since else business_day(tracking.updated_at)
     )
@@ -594,7 +595,11 @@ def _apply_fields(
 
 
 def _save_tracking(
-    session: Session, actor: ActorContext, prospect: Prospect, form: TrackingForm | None
+    session: Session,
+    actor: ActorContext,
+    prospect: Prospect,
+    form: TrackingForm | None,
+    now: datetime,
 ) -> None:
     if form is None:
         return
@@ -616,7 +621,7 @@ def _save_tracking(
         getattr(current, name) == getattr(data, name) for name in TRACKING_FIELDS
     ):
         return
-    save_contact_tracking(session, actor, prospect.id, data)
+    save_contact_tracking(session, actor, prospect.id, data, now=now)
 
 
 def _save_details(
@@ -628,7 +633,7 @@ def _save_details(
 ) -> None:
     contact_channels.save_channels(session, actor, prospect, EMAILS, form.emails, now=clock.now)
     contact_channels.save_channels(session, actor, prospect, PHONES, form.phones, now=clock.now)
-    _save_tracking(session, actor, prospect, form.tracking)
+    _save_tracking(session, actor, prospect, form.tracking, clock.now)
 
 
 def _locked(session: Session, prospect_id: uuid.UUID, version: str) -> Prospect:
@@ -758,6 +763,9 @@ def update_tracking(
             response_received_at=current.response_received_at if current else None,
             appointment_at=current.appointment_at if current else None,
         ),
+        # A week given in the body is a choice, even when equal to the stored one.
+        explicit_next_action=update.set_next_action,
+        now=clock.now,
     )
     return get_view(session, prospect.id, clock)
 

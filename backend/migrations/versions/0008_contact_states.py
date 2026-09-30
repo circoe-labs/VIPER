@@ -20,7 +20,9 @@ Audit: the ORM flush hook is application code and does not run in migrations, so
 writes the audit events itself, one `contact_tracking.status_changed` per converted row (codes
 only, no personal data; source `cli`, the same system actor). `ignored` implies do_not_contact;
 the mapping only produces `ignored` for prospects that already are, which the upgrade asserts
-(nothing to reinforce). Counts before/after are logged (codes and numbers only).
+(nothing to reinforce). Counts before/after are logged (codes and numbers only), with the number
+of do_not_contact prospects left in another state than ignored/failure, for human review (never
+changed automatically). `lock_timeout` is 10 s: the migration fails rather than waits on a lock.
 
 Downgrade is best effort: the appended `system` rows are deleted, states are mapped back
 (neutral -> to_contact, r1 -> follow_up_1, r2 -> follow_up_2, failure/ignored -> not_interested),
@@ -121,7 +123,13 @@ def _status_counts() -> dict[str, int]:
     return {status: count for status, count in rows}
 
 
+def _lock_timeout() -> None:
+    # Fail fast instead of queueing behind a running app transaction on these tables.
+    op.execute("SET LOCAL lock_timeout = '10s'")
+
+
 def upgrade() -> None:
+    _lock_timeout()
     before = _status_counts()
     # Widen first (old + new codes everywhere), convert, then narrow the current status.
     _set_checks(HISTORY_STATUSES, HISTORY_STATUSES)
@@ -200,15 +208,31 @@ def upgrade() -> None:
         raise RuntimeError(f"0008: {unprotected} ignored tracking(s) without do_not_contact")
     _set_checks(CONTACT_STATES, HISTORY_STATUSES)
     op.alter_column(TRACKING, "status", server_default=sa.text("'neutral'"))
+    # For human review, never changed here: opposed prospects whose state is neither `ignored`
+    # nor `failure` (e.g. opposed after an appointment).
+    opposed_not_closed = (
+        op.get_bind()
+        .execute(
+            sa.text(
+                f"SELECT count(*) FROM {TRACKING} ct JOIN prospects p ON p.id = ct.prospect_id"
+                " WHERE p.contactability_status = 'do_not_contact'"
+                " AND ct.status NOT IN ('ignored', 'failure')"
+            )
+        )
+        .scalar_one()
+    )
     log.info(
-        "0008 contact states: %d tracking row(s) converted; before %s; after %s",
+        "0008 contact states: %d tracking row(s) converted; before %s; after %s; "
+        "%d do_not_contact prospect(s) neither ignored nor failure (to review)",
         converted[0],
         before,
         _status_counts(),
+        opposed_not_closed,
     )
 
 
 def downgrade() -> None:
+    _lock_timeout()
     _set_checks(HISTORY_STATUSES, HISTORY_STATUSES)
     bind = op.get_bind()
     bind.execute(

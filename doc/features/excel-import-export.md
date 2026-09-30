@@ -444,10 +444,19 @@ applied. Dates without time (planned contact, appointment) are stored at midnigh
 Operational reconciliation (`services/operational_import.py`, same transaction, audited), run by
 `POST /api/imports/commit` after the generic commit, row by row in source order: a recognised `Statut_verification`
 value marks employment checked now and sets the activity status and the imported e-mails' verification (never
-downgrading a verified e-mail, never touching a non-imported one); a tracking still `neutral` whose planned
-contact falls **before today** becomes `contacted` (the workbook's past week is a contact already made); a tracking
-left `neutral` loses its referent (a referent owns an actual contact, not an untouched lead). An imported person
-is therefore never « Échu » right after the import.
+downgrading a verified e-mail, never touching a non-imported one). Tracking rules read **only what the row itself
+put on the tracking** (`CommitResult.file_tracking`: the row's week when the tracking now holds it — written by this
+import or already equal —, and whether the row's referent was written by this import):
+
+- a tracking still `neutral` whose row week falls **before today** becomes `contacted` (the workbook's past week is a
+  contact already made) and its next action moves to the default cadence — that week + 2 weeks, its Monday (the R1
+  week; Contact port decision P7) — instead of staying on the past week, which would show as an overdue R1;
+- while the tracking stays `neutral`, the row's referent is not kept (a referent owns an actual contact, not an
+  untouched lead); a referent already on the tracking — set by hand or earlier — is never removed;
+- a week or referent that did not come from the row (set by hand, by an earlier import, or a row week the import did
+  not apply because the tracking already had one) is left alone: no contact is inferred from it.
+
+An imported person is therefore never « Échu » right after the import. Tests: `tests/test_operational_import.py`.
 
 Losslessness at commit: besides the engine's legacy metadata, a row keeps the raw value of anything the commit does
 not apply — another spelling of its company, a company text that differs from the stored one, a second address, an

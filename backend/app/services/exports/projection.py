@@ -26,6 +26,7 @@ from app.models.imports import ImportBatch, ImportRowMetadata
 from app.models.prospects import Email, Phone, Prospect, ProspectSource
 from app.models.taxonomies import ActivityCategory, CommercialSegment, InternalReferent, Role
 from app.repositories import exports as repository
+from app.services.contact_workflow import state_reached_at
 from app.services.imports.text import fold
 
 type LegacyScalar = str | int | float | bool | None
@@ -65,17 +66,11 @@ class ProspectRecord:
 
     @property
     def status_since(self) -> datetime | None:
-        """When the current contact-tracking status was reached (its latest history row)."""
+        """When the current contact-tracking state was reached (`state_reached_at`: 0008
+        restatements skipped)."""
         if self.tracking is None:
             return None
-        return next(
-            (
-                row.changed_at
-                for row in reversed(self.tracking.status_history)
-                if row.to_status.value == self.tracking.status.value
-            ),
-            None,
-        )
+        return state_reached_at(self.tracking.status_history)
 
 
 @dataclass(frozen=True, slots=True)

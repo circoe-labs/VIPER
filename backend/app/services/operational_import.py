@@ -8,8 +8,14 @@ and the resolved contact week:
 - Inactif -> employment checked, inactive, imported e-mail invalid;
 - Inconnus -> employment checked, outcome unknown, imported e-mail unknown;
 - blank/unrecognised -> no verification claim;
-- a resolved contact date in the past -> ``contacted`` when the tracking is still ``neutral``;
-- an internal referent is not assigned while the prospect is still ``neutral`` (not contacted).
+- the row's own contact week in the past -> ``contacted`` when the tracking is still ``neutral``,
+  with the next action moved to the default cadence (that week + 2 weeks, its Monday: the R1
+  week, decision P7) instead of the past week;
+- the row's referent is not assigned while the prospect stays ``neutral`` (not contacted); a
+  referent already on the tracking (e.g. set by hand) is never removed.
+
+Only values that come from the file for that row are read (``CommitResult.file_tracking``): a week
+or referent set earlier, by hand or by another import, is left alone.
 
 All changes happen in the same request transaction as the normal import and are audited.
 """
@@ -26,6 +32,7 @@ from app.models.imports import ImportRowMetadata
 from app.models.prospects import Prospect
 from app.services import audit, import_commit, prospects
 from app.services.contact_tracking import ContactTrackingInput, save_contact_tracking
+from app.services.contact_workflow import next_action_at, suggest_next_action
 from app.services.imports.decisions import ImportDecisions
 from app.services.imports.fields import ImportField
 from app.services.imports.preview import ImportFile
@@ -79,28 +86,39 @@ def reconcile_batch(
             session.flush()
 
         tracking = prospect.contact_tracking
-        if tracking is None:
+        from_file = result.file_tracking.get(prospect.id)
+        if tracking is None or from_file is None:
             continue
 
         next_status = tracking.status
+        next_action = tracking.planned_contact_at
+        week = from_file.planned_contact_at
         if (
-            tracking.planned_contact_at is not None
-            and business_day(tracking.planned_contact_at) < today
+            week is not None
+            and tracking.planned_contact_at == week
+            and business_day(week) < today
             and tracking.status is ContactTrackingStatus.NEUTRAL
         ):
             next_status = ContactTrackingStatus.CONTACTED
+            follow_up = suggest_next_action(next_status, business_day(week))
+            assert follow_up is not None  # `contacted` always has a cadence
+            next_action = next_action_at(follow_up)
 
-        next_referent = (
-            tracking.referent_id if next_status is not ContactTrackingStatus.NEUTRAL else None
-        )
-        if next_status != tracking.status or next_referent != tracking.referent_id:
+        next_referent = tracking.referent_id
+        if next_status is ContactTrackingStatus.NEUTRAL and from_file.referent_written:
+            next_referent = None
+        if (next_status, next_action, next_referent) != (
+            tracking.status,
+            tracking.planned_contact_at,
+            tracking.referent_id,
+        ):
             save_contact_tracking(
                 session,
                 actor,
                 prospect.id,
                 ContactTrackingInput(
                     status=next_status,
-                    planned_contact_at=tracking.planned_contact_at,
+                    planned_contact_at=next_action,
                     referent_id=next_referent,
                     response_received_at=tracking.response_received_at,
                     appointment_at=tracking.appointment_at,

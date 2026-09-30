@@ -9,9 +9,11 @@ dedicated tracking endpoint, Database Explorer, imports), so the Contact rules h
 - `ignored` is terminal (no way out, never a next action) and reinforces the durable opposition
   `do_not_contact` through `prospects.mark_do_not_contact` (decision 7; never lifted here);
 - entering a state without a default next action (`response_received`, `appointment_obtained`,
-  `failure`, `ignored`) clears the next action when the input only echoes the stored one; a
-  different, explicit next action is kept (except on `ignored`);
-- entering `response_received` without a response date records now;
+  `failure`, `ignored`) clears the next action when the input only echoes the stored one (the
+  editor's full-form save, Explorer, imports); a different one is kept. A caller that knows the
+  week was given explicitly (`PATCH …/tracking`) passes `explicit_next_action=True` and it is
+  kept even when equal — on `ignored` that week is refused (`ignored_has_no_next_action`);
+- entering `response_received` without a response date records the caller's `now`;
 - choosing `response_received`, `appointment_obtained` or `ignored` cancels the prospect's future
   unsent messages (decision 29) through `cancel_future_messages`, in the same transaction.
 
@@ -59,7 +61,12 @@ def cancel_future_messages(session: Session, actor: ActorContext, tracking: Cont
 
 
 def _checked(
-    tracking: ContactTracking | None, actor: ActorContext, data: ContactTrackingInput
+    tracking: ContactTracking | None,
+    actor: ActorContext,
+    data: ContactTrackingInput,
+    *,
+    explicit_next_action: bool,
+    now: datetime,
 ) -> ContactTrackingInput:
     """`data` with the mechanical effects of the state change applied, or a refusal."""
     previous = tracking.status if tracking else None
@@ -74,6 +81,7 @@ def _checked(
         and tracking is not None
         and data.status not in NEXT_ACTION_STATES
         and planned == tracking.planned_contact_at
+        and not explicit_next_action
     ):
         planned = None
     if data.status in TERMINAL_STATES and planned is not None:
@@ -82,12 +90,18 @@ def _checked(
         )
     response = data.response_received_at
     if moved and data.status is S.RESPONSE_RECEIVED and response is None:
-        response = datetime.now(UTC)
+        response = now
     return replace(data, planned_contact_at=planned, response_received_at=response)
 
 
 def save_contact_tracking(
-    session: Session, actor: ActorContext, prospect_id: uuid.UUID, data: ContactTrackingInput
+    session: Session,
+    actor: ActorContext,
+    prospect_id: uuid.UUID,
+    data: ContactTrackingInput,
+    *,
+    explicit_next_action: bool = False,
+    now: datetime | None = None,
 ) -> ContactTracking:
     """Create or replace the prospect's current tracking; log a history row on status change.
 
@@ -95,11 +109,13 @@ def save_contact_tracking(
     `contact_tracking.updated` when only dates/referent change (no event when nothing changes);
     `prospect.do_not_contact.set` when `ignored` reinforces the opposition.
     Refusals: `ActorNotAllowedError` (agent), `TrackingRuleError` (`ignored_is_terminal`,
-    `ignored_has_no_next_action`).
+    `ignored_has_no_next_action`). `now` is the caller's clock (the request's moment); callers
+    without one (Explorer, imports) get the current time.
     """
     prospect = get_prospect(session, prospect_id)
     tracking = prospect.contact_tracking
-    data = _checked(tracking, actor, data)
+    moment = now if now is not None else datetime.now(UTC)
+    data = _checked(tracking, actor, data, explicit_next_action=explicit_next_action, now=moment)
     previous_status = tracking.status if tracking else None
     moved = previous_status != data.status
     if tracking is None:
