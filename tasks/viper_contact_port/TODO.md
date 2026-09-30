@@ -5,7 +5,7 @@ Chaque Slice = un agent d'implémentation, puis une revue QA indépendante, puis
 
 - [x] **S0 — Baseline** : remettre `scripts/verify.py --e2e` au vert sur la dette préexistante (ruff, mypy, tests
   d'import). Aucun changement fonctionnel.
-- [ ] **S1 — Modèle d'états (backend)** : enum 8 états (`neutral`, `contacted`, `r1`, `r2`, `response_received`,
+- [x] **S1 — Modèle d'états (backend)** : enum 8 états (`neutral`, `contacted`, `r1`, `r2`, `response_received`,
   `appointment_obtained`, `failure`, `ignored`) + labels FR, migration Alembic `0008` (CHECK + remap des données +
   lignes d'historique `system`), helper de cadence (+2/+2/+4 semaines, lundi ISO), service de suivi manuel
   (transitions humaines, `ignored` terminal + renforcement `do_not_contact`, suggestion de prochaine semaine),
@@ -36,3 +36,4 @@ Chaque Slice = un agent d'implémentation, puis une revue QA indépendante, puis
 
 - 2026-09-30 : handoff créé par l'orchestrateur ; branche `task/contact-port` depuis `claude` @ `2bd1c3b`.
 - 2026-09-30 : S0 accepté (`ad2e266`) — gate `verify.py --e2e` verte : pytest 973, vitest 610, Playwright 95. À noter : l'import convertit une semaine passée en « contacté » (6ebc51b/c3db0cb) ; un prospect « échu » se crée par l'API dans les tests.
+- 2026-09-30 : S1 accepté (`137ab12`, `6d5d35c`, correctifs QA `907ac5a`) — pytest 1027. QA : 4 mineurs corrigés (ancre « Depuis le » hors migration, Explorer ne peut plus lever `ignored`, PATCH garde une semaine explicite, compteur `do_not_contact` non ignoré). Décision **P7** : la règle d'import « semaine passée → contacté » ne lit que la semaine du fichier, pose la prochaine échéance à semaine + 2 et ne retire jamais un référent saisi à la main.
