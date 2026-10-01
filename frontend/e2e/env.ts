@@ -13,6 +13,9 @@ export const E2E_OPENAI_PORT = Number(process.env.VIPER_E2E_OPENAI_PORT ?? 8046)
 // token file lives in the system temp folder (outside the checkout, as the backend requires), one per API port.
 export const E2E_TOOLBOX_PORT = Number(process.env.VIPER_E2E_TOOLBOX_PORT ?? 8047)
 export const E2E_TOOLBOX_STORE = path.join(tmpdir(), `viper-e2e-toolbox-${String(E2E_API_PORT)}.json`)
+// The integration settings saved from Paramètres › Connexions (S8): a temporary file per API port, never the person's
+// ~/.viper/runtime-settings.json. Global setup deletes it, so every run starts from the environment defaults below.
+export const E2E_RUNTIME_SETTINGS = path.join(tmpdir(), `viper-e2e-runtime-settings-${String(E2E_API_PORT)}.json`)
 export const E2E_BOOKING_URL = 'https://rdv.exemple.example/circoe'
 export const E2E_DATABASE_URL =
   process.env.VIPER_E2E_DATABASE_URL ?? 'postgresql+psycopg://viper:viper@127.0.0.1:5442/viper_e2e'

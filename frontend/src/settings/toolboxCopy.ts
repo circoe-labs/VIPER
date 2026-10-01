@@ -6,7 +6,7 @@ import type { StatusTone } from '../ui/Badge'
 // backend/app/services/toolbox/errors.py, shared by Paramètres › Connexions and the Contact mail editor.
 
 const ERROR_LABELS: Record<string, string> = {
-  toolbox_not_configured: 'la Toolbox n’est pas configurée sur le serveur',
+  toolbox_not_configured: 'la Toolbox n’est pas connectée (Paramètres › Connexions)',
   toolbox_not_connected: 'la Toolbox n’est pas connectée',
   toolbox_auth_expired: 'la connexion à la Toolbox a expiré ou a été refusée : reconnectez-la',
   toolbox_unavailable: 'la Toolbox ne répond pas',
@@ -56,13 +56,21 @@ export const STATE_BADGES: Record<ToolboxState, { tone: StatusTone; label: strin
   expired: { tone: 'warning', label: 'À reconnecter' },
 }
 
+// The missing setting, named as the page names it (never an environment variable).
+const MISSING_LABELS: Record<string, string> = {
+  VIPER_TOOLBOX_MCP_URL: 'l’adresse du serveur CIRCOE Toolbox',
+  VIPER_TOOLBOX_OAUTH_REDIRECT_URI: 'l’adresse de retour',
+}
+
 // What the state means for the Contact messages, in one sentence.
 export function stateSentence(status: ToolboxStatus): string {
   switch (status.state) {
     case 'disabled':
-      return 'L’intégration est désactivée sur le serveur : les messages restent dans VIPER et rien n’est créé dans Infomaniak.'
-    case 'not_configured':
-      return `L’intégration est activée mais incomplète sur le serveur (${status.missing.join(', ') || 'réglage manquant'}) : rien n’est créé dans Infomaniak.`
+      return 'Connectez VIPER à CIRCOE Toolbox pour que chaque message validé crée un brouillon dans votre boîte Infomaniak. Sans connexion, les messages restent dans VIPER.'
+    case 'not_configured': {
+      const missing = status.missing.map((name) => MISSING_LABELS[name] ?? name).join(' et ')
+      return `Il manque ${missing || 'un réglage'} (Paramètres avancés ci-dessous) : rien n’est créé dans Infomaniak.`
+    }
     case 'disconnected':
       return 'Connectez la Toolbox pour que chaque message validé crée un brouillon dans la boîte Infomaniak liée. Sans connexion, les messages restent dans VIPER.'
     case 'connected':
@@ -72,27 +80,27 @@ export function stateSentence(status: ToolboxStatus): string {
   }
 }
 
-// The scheduled sending (S7) in one badge and one sentence.
-export function dispatchBadge(status: ToolboxStatus): { tone: StatusTone; label: string } {
+// The scheduled sending (S7) in one badge and one sentence. `intervalMs`: the frequency chosen on this page (0 = off).
+export function dispatchBadge(status: ToolboxStatus, intervalMs: number): { tone: StatusTone; label: string } {
   if (status.dispatch.active) return { tone: 'success', label: 'Actif' }
-  return status.dispatch.running ? { tone: 'warning', label: 'En attente' } : { tone: 'neutral', label: 'Inactif' }
+  if (intervalMs > 0) return { tone: 'warning', label: 'En attente' }
+  return { tone: 'neutral', label: 'Désactivé' }
 }
 
-export function dispatchSentence(status: ToolboxStatus): string {
+export function dispatchSentence(status: ToolboxStatus, intervalMs: number): string {
   const { dispatch } = status
   if (dispatch.active) {
     return `Les messages programmés partent automatiquement à l’heure choisie (vérification toutes les ${String(dispatch.interval_seconds)} s), tant que le serveur VIPER est en marche.`
   }
-  if (dispatch.running) {
-    return 'L’envoi programmé est prêt mais attend une Toolbox connectée : aucun message programmé ne part pour l’instant.'
+  if (intervalMs > 0) {
+    return 'L’envoi programmé démarrera dès que CIRCOE Toolbox sera connectée : aucun message programmé ne part pour l’instant.'
   }
-  return 'L’envoi programmé est désactivé sur ce serveur (VIPER_CONTACT_DISPATCH_INTERVAL_MS) : les dates d’envoi sont enregistrées, aucun mail ne part.'
+  return 'L’envoi programmé est désactivé : les dates d’envoi sont enregistrées, aucun mail ne part. Choisissez une fréquence pour l’activer, de préférence après un premier envoi vérifié.'
 }
 
 export const LIMITATIONS = [
   'Expéditeur : la boîte Infomaniak par défaut du compte connecté. Le champ « De » de VIPER n’est pas transmis à la Toolbox.',
   'La connexion dure 30 jours, sans renouvellement automatique : il faut la refaire à l’échéance.',
   'Une seule connexion pour tout VIPER, celle de la personne qui l’a établie.',
-  '« Oublier la connexion » l’efface dans VIPER seulement : la Toolbox ne propose pas de révocation, l’accès expire de lui-même.',
-  'Un message programmé ne part que si le serveur VIPER est en marche ; trop en retard, il revient à « Validé » sans partir.',
+  '« Se déconnecter » efface l’accès dans VIPER seulement : la Toolbox ne propose pas de révocation, l’accès expire de lui-même.',
 ]

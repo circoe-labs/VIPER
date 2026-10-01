@@ -6,6 +6,7 @@ import {
   E2E_BOOKING_URL,
   E2E_DATABASE_URL,
   E2E_OPENAI_PORT,
+  E2E_RUNTIME_SETTINGS,
   E2E_TOOLBOX_PORT,
   E2E_TOOLBOX_STORE,
   E2E_WEB_PORT,
@@ -31,7 +32,7 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      testIgnore: [/toolbox\.spec\.ts/, /contact-flow\.spec\.ts/],
+      testIgnore: [/toolbox\.spec\.ts/, /contact-flow\.spec\.ts/, /connections\.spec\.ts/],
       use: { ...devices['Desktop Chrome'] },
     },
     {
@@ -44,6 +45,14 @@ export default defineConfig({
       name: 'contact-flow',
       testMatch: /contact-flow\.spec\.ts/,
       dependencies: ['toolbox'],
+      use: { ...devices['Desktop Chrome'] },
+    },
+    // Settings typed in the browser (S8) change the whole server's configuration: last, alone, and it puts every value
+    // back to its environment default when done.
+    {
+      name: 'connections',
+      testMatch: /connections\.spec\.ts/,
+      dependencies: ['contact-flow'],
       use: { ...devices['Desktop Chrome'] },
     },
   ],
@@ -69,6 +78,8 @@ export default defineConfig({
       // the fake OpenAI server with a fake key (every VIPER_OPENAI_* is set, so a backend/.env cannot leak in).
       env: {
         VIPER_DATABASE_URL: E2E_DATABASE_URL,
+        // Settings saved from Paramètres › Connexions (S8) go to a temporary file of this run, never ~/.viper.
+        VIPER_RUNTIME_SETTINGS_PATH: E2E_RUNTIME_SETTINGS,
         VIPER_DEFAULT_OUTBOUND_EMAIL: 'prospection@exemple.example',
         VIPER_OPENAI_API_KEY: 'sk-e2e-fake-key',
         VIPER_OPENAI_MODEL: 'fake-e2e-model',

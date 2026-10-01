@@ -271,7 +271,7 @@ export function sendErrorLabel(code: string, latenessMinutes: number): string {
   const labels: Record<string, string> = {
     send_unavailable: 'la Toolbox ne répondait pas',
     send_timeout: 'la Toolbox n’a pas répondu à temps',
-    send_not_configured: 'la Toolbox n’est pas configurée sur le serveur',
+    send_not_configured: 'la Toolbox n’est pas connectée (Paramètres › Connexions)',
     send_not_connected: 'la Toolbox n’était pas connectée',
     send_auth_expired: 'la connexion à la Toolbox a expiré : reconnectez-la (Paramètres › Connexions)',
     send_rejected: 'la Toolbox a refusé l’envoi',
@@ -284,7 +284,7 @@ export function sendErrorLabel(code: string, latenessMinutes: number): string {
       'envoi non confirmé, brouillon toujours présent dans Infomaniak : vérifiez les éléments envoyés de la boîte',
     send_missing_recipients: 'le message n’a aucun destinataire',
     send_recipient_not_allowed:
-      'un destinataire ne figure pas dans la liste d’envoi autorisée du serveur (VIPER_INFOMANIAK_SEND_ALLOWLIST)',
+      'un destinataire ne figure pas dans la liste d’adresses autorisées (Paramètres › Connexions › Envoi programmé)',
     send_previous_step_pending: 'le message précédent de la séquence n’est pas encore parti : il doit partir avant',
     send_draft_not_created: 'le brouillon Infomaniak n’a pas pu être créé avant l’envoi',
     dispatch_overdue: `l’heure prévue était dépassée de plus de ${latenessLabel(latenessMinutes)} (serveur arrêté ou Toolbox déconnectée) : il n’est pas parti en retard`,

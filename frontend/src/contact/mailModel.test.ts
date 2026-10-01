@@ -246,7 +246,7 @@ describe('scheduled sending (S7)', () => {
     )
     expect(
       dispatchLine(message('contact', 'validated', { last_error_code: 'send_recipient_not_allowed' }), active, 'none')?.text,
-    ).toMatch(/VIPER_INFOMANIAK_SEND_ALLOWLIST/)
+    ).toMatch(/liste d’adresses autorisées/)
     expect(dispatchLine(message('contact', 'validated', { last_error_code: 'send_previous_step_pending' }), active, 'none')?.text).toMatch(
       /message précédent/,
     )

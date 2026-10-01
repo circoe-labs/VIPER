@@ -47,9 +47,18 @@ export interface ToolboxCallback {
 
 export const toolboxKeys = { status: ['toolbox', 'status'] as const }
 
-// The browser gives up after this long on a connection call (the server bounds each Toolbox request by
-// VIPER_TOOLBOX_TIMEOUT_MS, 20 s by default; starting a connection makes up to four of them).
+// The browser gives up after this long on a connection call (the server bounds each Toolbox request, 20 s by default;
+// starting a connection makes up to four of them).
 export const TOOLBOX_DEADLINE_MS = 90_000
+
+// The integration settings (api/integrations.ts, S8): connecting turns the Toolbox on, « Se déconnecter » turns it off.
+const INTEGRATIONS_KEY = ['settings', 'integrations'] as const
+
+// Where the Toolbox sends the browser back: this very page, as the browser sees it (S8). The server keeps it unless a
+// value was typed in « Paramètres avancés ».
+export function connectionReturnAddress(): string {
+  return `${window.location.origin}/settings/connections`
+}
 
 export function useToolboxStatus() {
   return useQuery({
@@ -63,17 +72,19 @@ export function useToolboxMutations() {
   const settled = (status: ToolboxStatus) => {
     queryClient.setQueryData(toolboxKeys.status, status)
     // The mail editor's « Toolbox connectée » flag comes with the message sequence.
-    void refreshAfterWrite(queryClient, [['contact', 'messages']])
+    void refreshAfterWrite(queryClient, [['contact', 'messages'], INTEGRATIONS_KEY])
   }
   return {
-    // Answers the Toolbox URL the browser goes to (the Toolbox, then Infomaniak).
+    // « Se connecter à CIRCOE Toolbox »: turns the integration on and sends this page's address, then answers the
+    // Toolbox URL the browser goes to (the Toolbox, then Infomaniak).
     connect: useMutation({
       mutationFn: () =>
         apiRequest<{ authorization_url: string }>('POST', '/settings/toolbox/connect', {
+          body: { redirect_uri: connectionReturnAddress() },
           signal: AbortSignal.timeout(TOOLBOX_DEADLINE_MS),
         }),
-      // A failure is recorded server-side (`last_error`): read the state again.
-      onError: () => void refreshAfterWrite(queryClient, [toolboxKeys.status]),
+      // The settings changed (turned on, return address); a failure is recorded server-side (`last_error`).
+      onSettled: () => void refreshAfterWrite(queryClient, [toolboxKeys.status, INTEGRATIONS_KEY]),
     }),
     callback: useMutation({
       mutationFn: (params: ToolboxCallback) =>
@@ -85,9 +96,12 @@ export function useToolboxMutations() {
       // A failure is recorded server-side (`last_error`): read the state again.
       onError: () => void refreshAfterWrite(queryClient, [toolboxKeys.status]),
     }),
+    // « Se déconnecter »: forgets the token and turns the integration off (S8).
     forget: useMutation({
-      mutationFn: () => apiRequest<ToolboxStatus>('POST', '/settings/toolbox/forget'),
+      mutationFn: () =>
+        apiRequest<ToolboxStatus>('POST', '/settings/toolbox/forget', { signal: AbortSignal.timeout(TOOLBOX_DEADLINE_MS) }),
       onSuccess: settled,
+      onError: () => void refreshAfterWrite(queryClient, [toolboxKeys.status, INTEGRATIONS_KEY]),
     }),
   }
 }

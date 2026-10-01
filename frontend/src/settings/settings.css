@@ -395,3 +395,125 @@ tr[data-inactive] .settings-table__label {
     animation-duration: 2.4s;
   }
 }
+
+/* Connexions (S8): the cards stacked, each with its settings form. */
+.settings-connections {
+  display: grid;
+  gap: var(--space-6);
+}
+
+.settings-form {
+  display: grid;
+  gap: var(--space-5);
+  max-width: 40rem;
+}
+
+/* Under a field: what it is for, then where its value comes from (and « Rétablir »). */
+.settings-setting__help,
+.settings-setting__source {
+  display: block;
+}
+
+.settings-setting__source {
+  margin-top: var(--space-1);
+  font-size: var(--text-xs);
+}
+
+.settings-setting__reset {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-accent-fg);
+  font: inherit;
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+.settings-setting__reset:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.settings-setting__reset:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-focus);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.settings-setting__reset:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+/* The write-only key: the field, then « Remplacer » / « Effacer… » aligned with the input. */
+.settings-secret {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--space-3);
+}
+
+.settings-secret__actions {
+  display: flex;
+  gap: var(--space-2);
+  /* Aligns the buttons with the input (label line + gap + half the height difference). */
+  margin-top: calc(var(--text-sm) * var(--leading-normal) + var(--space-2) + (var(--control-md) - var(--control-sm)) / 2);
+}
+
+/* « Paramètres avancés »: a quiet native disclosure. */
+.settings-advanced {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.settings-advanced__summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: fit-content;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  list-style: none;
+  cursor: pointer;
+}
+
+.settings-advanced__summary::-webkit-details-marker {
+  display: none;
+}
+
+.settings-advanced__summary:hover {
+  color: var(--color-text);
+}
+
+.settings-advanced__summary:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.settings-advanced__chevron {
+  transform: rotate(-90deg);
+  transition: transform var(--duration-fast) var(--ease-standard);
+}
+
+.settings-advanced[open] .settings-advanced__chevron {
+  transform: none;
+}
+
+.settings-advanced[open] > .settings-form {
+  padding-top: var(--space-4);
+  border-top: var(--border-width) solid var(--color-border);
+}
+
+@media (max-width: 40rem) {
+  .settings-secret {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-secret__actions {
+    margin-top: 0;
+  }
+}

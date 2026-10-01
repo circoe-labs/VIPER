@@ -9,7 +9,7 @@ import { signIn } from './session'
 
 // CIRCOE Toolbox (Contact port S6) against the fake Toolbox started by playwright.config.ts (e2e/fake-toolbox.ts): the
 // real OAuth redirect flow in the browser, the Infomaniak draft created at validation, deleted after a cancellation by
-// the API's worker, a failure said and retried, then « Oublier la connexion ». The connection is one per server: the
+// the API's worker, a failure said and retried, then « Se déconnecter ». The connection is one per server: the
 // steps run in order, in one worker.
 
 test.describe.configure({ mode: 'serial' })
@@ -83,7 +83,7 @@ test('connect through the Toolbox, then the state and the limits are said', asyn
   await expect(toolboxCard(page)).toContainText('boîte Infomaniak par défaut du compte connecté')
   await captureSettings(page, 'disconnected')
 
-  await page.getByRole('button', { name: 'Connecter la Toolbox' }).click()
+  await page.getByRole('button', { name: 'Se connecter à CIRCOE Toolbox' }).click()
 
   // The fake Toolbox accepts at once and sends the browser back to this page, which finishes the connection.
   await expect(page.getByRole('status').filter({ hasText: /CIRCOE Toolbox connectée jusqu’au/ })).toHaveCount(1)
@@ -148,15 +148,15 @@ test('validating creates the Infomaniak draft; cancelling deletes it; a failure 
   expect((await fakeDrafts(page)).drafts.some((draft) => draft.subject === `Relance ${tag}`)).toBe(true)
 })
 
-test('forgetting the connection, after a confirmation', async ({ page }) => {
+test('disconnecting, after a confirmation: the token is forgotten and the integration turned off', async ({ page }) => {
   await page.goto('/settings/connections')
   await expect(toolboxCard(page)).toContainText('Connectée')
-  await page.getByRole('button', { name: 'Oublier la connexion…' }).click()
-  await confirm(page, /Oublier la connexion à la Toolbox/, 'Oublier la connexion')
+  await page.getByRole('button', { name: 'Se déconnecter…' }).click()
+  await confirm(page, /Se déconnecter de CIRCOE Toolbox/, 'Se déconnecter')
 
-  await expect(page.getByRole('status').filter({ hasText: /Connexion oubliée/ })).toHaveCount(1)
-  await expect(toolboxCard(page)).toContainText('Non connectée')
-  await expect(page.getByRole('button', { name: 'Connecter la Toolbox' })).toBeVisible()
+  await expect(page.getByRole('status').filter({ hasText: /Déconnecté de CIRCOE Toolbox/ })).toHaveCount(1)
+  await expect(toolboxCard(page)).toContainText('Désactivée')
+  await expect(page.getByRole('button', { name: 'Se connecter à CIRCOE Toolbox' })).toBeVisible()
 })
 
 // Design review of the states the E2E server cannot reach by itself (its Toolbox is enabled and configured): the

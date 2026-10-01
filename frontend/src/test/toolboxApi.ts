@@ -51,6 +51,7 @@ export function stubToolboxApi(options: ToolboxStubOptions = {}) {
   const previous = globalThis.fetch
   const state = { status: options.status ?? toolboxStatus() }
   const callbacks: ToolboxCallback[] = []
+  const connects: unknown[] = []
   const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = new URL(input instanceof Request ? input.url : String(input), 'http://localhost')
     const method = init?.method ?? 'GET'
@@ -58,6 +59,7 @@ export function stubToolboxApi(options: ToolboxStubOptions = {}) {
     const action = url.pathname.slice('/api/settings/toolbox'.length)
     if (method === 'GET' && action === '') return json(200, state.status)
     if (method === 'POST' && action === '/connect') {
+      connects.push(JSON.parse(typeof init?.body === 'string' ? init.body : 'null'))
       return options.connectRefusal
         ? json(502, { detail: { code: options.connectRefusal, message: options.connectRefusal } })
         : json(200, { authorization_url: AUTHORIZE_URL })
@@ -72,11 +74,12 @@ export function stubToolboxApi(options: ToolboxStubOptions = {}) {
       return json(200, state.status)
     }
     if (method === 'POST' && action === '/forget') {
-      state.status = toolboxStatus()
+      // « Se déconnecter » (S8): the token is forgotten and the integration turned off.
+      state.status = toolboxStatus({ enabled: false, configured: false, state: 'disabled' })
       return json(200, state.status)
     }
     return json(404, { detail: 'Not Found' })
   })
   vi.stubGlobal('fetch', fetchMock)
-  return { fetchMock, callbacks, state }
+  return { fetchMock, callbacks, connects, state }
 }

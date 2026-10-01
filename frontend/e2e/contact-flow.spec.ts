@@ -88,10 +88,10 @@ test.afterAll(async ({ browser }) => {
   await signIn(page)
   await page.goto('/settings/connections')
   await expect(page.getByRole('region', { name: 'CIRCOE Toolbox' })).toBeVisible()
-  const forget = page.getByRole('button', { name: 'Oublier la connexion…' })
+  const forget = page.getByRole('button', { name: 'Se déconnecter…' })
   if (await forget.isVisible()) {
     await forget.click()
-    await confirm(page, /Oublier la connexion à la Toolbox/, 'Oublier la connexion')
+    await confirm(page, /Se déconnecter de CIRCOE Toolbox/, 'Se déconnecter')
   }
   await page.close()
 })
@@ -122,13 +122,12 @@ test('the operator scenario: import, plan, draft with the AI, validate, schedule
 
   // 3. Paramètres › Connexions: connect the Toolbox; the scheduled sending becomes active.
   await page.goto('/settings/connections')
-  await page.getByRole('button', { name: 'Connecter la Toolbox' }).click()
+  await page.getByRole('button', { name: 'Se connecter à CIRCOE Toolbox' }).click()
   await expect(page.getByRole('status').filter({ hasText: /CIRCOE Toolbox connectée jusqu’au/ })).toHaveCount(1)
-  const toolbox = page.getByRole('region', { name: 'CIRCOE Toolbox' })
-  await expect(toolbox).toContainText('Envoi programmé')
-  await expect(toolbox).toContainText('Actif')
+  const dispatch = page.getByRole('region', { name: 'Envoi programmé' })
+  await expect(dispatch).toContainText('Actif')
   await capture(page, 'settings-connections-dispatch', async () => {
-    await expect(page.getByRole('region', { name: 'CIRCOE Toolbox' })).toContainText('Actif')
+    await expect(page.getByRole('region', { name: 'Envoi programmé' })).toContainText('Actif')
   })
 
   // 4. Contact: the planned person is in this week's list.
@@ -233,7 +232,7 @@ test('a send whose outcome is unknown is never resent and a person settles it', 
   await page.goto(`/settings/connections`)
   const toolbox = page.getByRole('region', { name: 'CIRCOE Toolbox' })
   if (!(await toolbox.textContent())?.includes('Valable jusqu’au')) {
-    await page.getByRole('button', { name: 'Connecter la Toolbox' }).click()
+    await page.getByRole('button', { name: 'Se connecter à CIRCOE Toolbox' }).click()
     await expect(page.getByRole('status').filter({ hasText: /CIRCOE Toolbox connectée jusqu’au/ })).toHaveCount(1)
   }
 

@@ -50,7 +50,7 @@ describe('AI drafting: the button', () => {
     expect(aiAvailability({ message: null, editable: true, available: false, busy: false })).toMatchObject({
       show: true,
       enabled: false,
-      note: expect.stringMatching(/pas configurée sur ce serveur/) as unknown,
+      note: expect.stringMatching(/pas configurée \(clé et modèle OpenAI/) as unknown,
     })
     expect(aiAvailability({ message: message('contact', 'scheduled'), editable: true, available: true, busy: false })).toMatchObject({
       enabled: false,
@@ -101,10 +101,10 @@ describe('AI drafting: outcomes', () => {
 
   it('turns every AI code into French, saying nothing was changed', () => {
     for (const [status, code, text] of [
-      [503, 'ai_not_configured', /pas configurée sur le serveur/],
+      [503, 'ai_not_configured', /saisissez la clé et le modèle OpenAI dans Paramètres › Connexions/],
       [504, 'ai_timeout', /pas répondu à temps/],
       [429, 'ai_rate_limited', /quota OpenAI/],
-      [502, 'ai_auth_failed', /clé OpenAI du serveur a été refusée/],
+      [502, 'ai_auth_failed', /clé OpenAI a été refusée.*Tester la clé/],
       [502, 'ai_upstream_error', /a échoué ou est injoignable/],
       [422, 'ai_refused', /refusé de rédiger/],
       [502, 'ai_invalid_output', /inutilisable/],

@@ -1,35 +1,30 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 
+import { type Integrations, useIntegrations } from '../api/integrations'
 import { type ToolboxCallback, type ToolboxStatus, useToolboxMutations, useToolboxStatus } from '../api/toolbox'
 import { formatDateTime } from '../contact/labels'
 import { leaveFor } from '../lib/browser'
 import { useElapsed } from '../lib/useElapsed'
-import { StatusBadge } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { Modal } from '../ui/Dialog'
-import { AlertIcon, LinkIcon, MailIcon, RefreshIcon, SpinnerIcon, TrashIcon } from '../ui/icons'
+import { AlertIcon, LinkIcon, LogOutIcon, RefreshIcon, SpinnerIcon } from '../ui/icons'
+import { DispatchCard, IntegrationCard, OpenAICard, SenderCard, ToolboxAdvanced } from './IntegrationCards'
 import { type Feedback, FeedbackBanner } from './shared'
-import {
-  dispatchBadge,
-  dispatchSentence,
-  LIMITATIONS,
-  STATE_BADGES,
-  stateSentence,
-  toolboxErrorLabel,
-  toolboxFailure,
-} from './toolboxCopy'
+import { LIMITATIONS, STATE_BADGES, stateSentence, toolboxErrorLabel, toolboxFailure } from './toolboxCopy'
 
 // The OAuth return parameters this page consumes (and then removes from the address bar).
 const CALLBACK_KEYS = ['code', 'state', 'iss', 'error', 'error_description'] as const
 // A return already posted: React's development double effect must not post it twice (the state is single-use).
 const handledReturns = new Set<string>()
 
-// Paramètres › Connexions (Contact port S6): the CIRCOE Toolbox card — its state, « Connecter », « Oublier la
-// connexion… », the last failure and the limitations. It is also the page the Toolbox sends the browser back to
-// (`VIPER_TOOLBOX_OAUTH_REDIRECT_URI`): the return's query is posted to the API once, then removed from the URL.
+// Paramètres › Connexions: everything VIPER needs from outside, typed here (Contact port S8 — no server file to edit).
+// Cards: Rédaction IA (OpenAI), Expéditeur, CIRCOE Toolbox (S6: « Se connecter à CIRCOE Toolbox », « Se
+// déconnecter… », the last failure, the limitations, advanced addresses) and Envoi programmé (S7). It is also the page
+// the Toolbox sends the browser back to: the return's query is posted to the API once, then removed from the URL.
 export function ConnectionsSection() {
   const status = useToolboxStatus()
+  const integrations = useIntegrations()
   const mutations = useToolboxMutations()
   const [feedback, setFeedback] = useState<Feedback | null>(null)
   const [forgetting, setForgetting] = useState(false)
@@ -93,9 +88,12 @@ export function ConnectionsSection() {
     setFeedback(null)
     try {
       await mutations.forget.mutateAsync()
-      setFeedback({ tone: 'success', text: 'Connexion oubliée : plus aucun brouillon n’est créé dans Infomaniak.' })
+      setFeedback({
+        tone: 'success',
+        text: 'Déconnecté de CIRCOE Toolbox : plus aucun brouillon n’est créé dans Infomaniak et l’envoi programmé est arrêté.',
+      })
     } catch (error) {
-      setFeedback({ tone: 'error', text: `Impossible d’oublier la connexion : ${toolboxFailure(error)}.` })
+      setFeedback({ tone: 'error', text: `Impossible de se déconnecter : ${toolboxFailure(error)}.` })
     } finally {
       setForgetting(false)
     }
@@ -107,8 +105,9 @@ export function ConnectionsSection() {
         <div>
           <h2 className="settings-panel__title">Connexions</h2>
           <p className="settings-panel__description">
-            Services externes utilisés par VIPER. Aucun accès n’est transmis au navigateur : la connexion est conservée
-            sur le serveur, hors de la base de données.
+            Services externes utilisés par VIPER, réglés ici et appliqués aussitôt. Clés et accès sont conservés sur le
+            serveur, hors de la base de données, et ne sont jamais renvoyés au navigateur. Toute personne connectée à
+            VIPER peut les remplacer.
           </p>
         </div>
       </header>
@@ -122,33 +121,56 @@ export function ConnectionsSection() {
         </p>
       )}
 
-      {status.isPending && <p className="settings-state">Chargement…</p>}
-      {status.isError && (
+      {(status.isPending || integrations.isPending) && <p className="settings-state">Chargement…</p>}
+      {(status.isError || integrations.isError) && (
         <div className="settings-state settings-state--error" role="alert">
           <AlertIcon size={18} />
-          État de la connexion indisponible.
-          <Button size="sm" onClick={() => void status.refetch()}>
+          {integrations.isError ? 'Réglages des connexions indisponibles.' : 'État de la connexion indisponible.'}
+          <Button
+            size="sm"
+            onClick={() => {
+              void status.refetch()
+              void integrations.refetch()
+            }}
+          >
             Réessayer
           </Button>
         </div>
       )}
-      {status.data && (
-        <ToolboxCard
-          status={status.data}
-          redirecting={redirecting !== null}
-          redirectingFor={redirectingFor}
-          busy={returning !== null}
-          onConnect={() => void connect()}
-          onForget={() => {
-            setForgetting(true)
-          }}
-        />
+      {integrations.data?.load_error && (
+        <p className="settings-connection__error" role="alert">
+          <AlertIcon size={16} />
+          Les réglages enregistrés ici n’ont pas pu être relus au démarrage du serveur (
+          {integrations.data.load_error === 'unreadable' ? 'fichier illisible' : 'contenu refusé'}) : les valeurs par
+          défaut s’appliquent. Enregistrez-les à nouveau.
+        </p>
+      )}
+      {integrations.data && (
+        <div className="settings-connections">
+          <OpenAICard data={integrations.data} />
+          <SenderCard data={integrations.data} />
+          {status.data && (
+            <ToolboxCard
+              status={status.data}
+              integrations={integrations.data}
+              redirecting={redirecting !== null}
+              redirectingFor={redirectingFor}
+              busy={returning !== null}
+              onConnect={() => void connect()}
+              onForget={() => {
+                setForgetting(true)
+              }}
+            />
+          )}
+          <DispatchCard data={integrations.data} status={status.data} />
+          <StorageNote data={integrations.data} />
+        </div>
       )}
 
       <Modal
         open={forgetting}
         size="sm"
-        title="Oublier la connexion à la Toolbox ?"
+        title="Se déconnecter de CIRCOE Toolbox ?"
         initialFocusRef={backRef}
         onClose={() => {
           setForgetting(false)
@@ -164,20 +186,21 @@ export function ConnectionsSection() {
             >
               Retour
             </Button>
-            <Button variant="danger" icon={TrashIcon} loading={mutations.forget.isPending} onClick={() => void forget()}>
-              Oublier la connexion
+            <Button variant="danger" icon={LogOutIcon} loading={mutations.forget.isPending} onClick={() => void forget()}>
+              Se déconnecter
             </Button>
           </>
         }
       >
         <div className="settings-dialog">
           <p>
-            VIPER efface son accès à la Toolbox. Les prochains messages validés ne créeront plus de brouillon dans
-            Infomaniak, et les brouillons déjà créés restent dans la boîte.
+            VIPER efface son accès à la Toolbox et désactive l’intégration. Les prochains messages validés ne créeront
+            plus de brouillon dans Infomaniak, l’envoi programmé s’arrête, et les brouillons déjà créés restent dans la
+            boîte.
           </p>
           <p>
             La Toolbox ne propose pas de révocation : l’accès effacé expire de lui-même à sa date de fin. Vous pourrez
-            reconnecter la Toolbox à tout moment.
+            vous reconnecter à tout moment.
           </p>
         </div>
       </Modal>
@@ -185,43 +208,21 @@ export function ConnectionsSection() {
   )
 }
 
-// The scheduled sending (S7): whether a scheduled message really leaves, the dispatcher's last pass, and what waits.
-function DispatchFacts({ status }: { status: ToolboxStatus }) {
-  const { dispatch } = status
-  const badge = dispatchBadge(status)
+// Where the settings live and who changed them last.
+function StorageNote({ data }: { data: Integrations }) {
+  const last = data.updated_at
+    ? ` Dernière modification le ${formatDateTime(data.updated_at)}${data.updated_by ? ` par ${data.updated_by}` : ''}.`
+    : ''
   return (
-    <div className="settings-connection__dispatch">
-      <p className="settings-connection__dispatch-title">
-        <span>Envoi programmé</span>
-        <StatusBadge tone={badge.tone}>{badge.label}</StatusBadge>
-      </p>
-      <p className="settings-connection__sentence">{dispatchSentence(status)}</p>
-      <dl className="settings-connection__facts">
-        <div>
-          <dt>Dernière passe</dt>
-          <dd>
-            {dispatch.last_pass_at
-              ? `${formatDateTime(dispatch.last_pass_at)}${dispatch.last_outcome === 'error' ? ' (en échec : voir les journaux du serveur)' : ''}`
-              : 'aucune depuis le démarrage'}
-          </dd>
-        </div>
-        <div>
-          <dt>Messages programmés</dt>
-          <dd>{String(dispatch.scheduled)}</dd>
-        </div>
-        {dispatch.unconfirmed > 0 && (
-          <div>
-            <dt>Envois non confirmés</dt>
-            <dd>{String(dispatch.unconfirmed)} à trancher dans Contact</dd>
-          </div>
-        )}
-      </dl>
-    </div>
+    <p className="settings-connection__note">
+      Réglages conservés sur le serveur dans <span className="settings-connection__mono">{data.storage_path}</span>.{last}
+    </p>
   )
 }
 
 interface ToolboxCardProps {
   status: ToolboxStatus
+  integrations: Integrations
   redirecting: boolean
   redirectingFor: number
   busy: boolean
@@ -229,24 +230,16 @@ interface ToolboxCardProps {
   onForget: () => void
 }
 
-function ToolboxCard({ status, redirecting, redirectingFor, busy, onConnect, onForget }: ToolboxCardProps) {
-  const badge = STATE_BADGES[status.state]
+function ToolboxCard({ status, integrations, redirecting, redirectingFor, busy, onConnect, onForget }: ToolboxCardProps) {
   const linked = status.state === 'connected' || status.state === 'expired'
-  const canConnect = status.configured
   return (
-    <section className="settings-connection" aria-labelledby="settings-connection-toolbox">
-      <header className="settings-connection__header">
-        <span className="settings-connection__icon" aria-hidden="true">
-          <MailIcon size={20} />
-        </span>
-        <div className="settings-connection__heading">
-          <h3 id="settings-connection-toolbox" className="settings-connection__title">
-            CIRCOE Toolbox
-          </h3>
-          <p className="settings-connection__subtitle">Brouillons Infomaniak des messages Contact validés</p>
-        </div>
-        <StatusBadge tone={badge.tone}>{badge.label}</StatusBadge>
-      </header>
+    <IntegrationCard
+      id="settings-connection-toolbox"
+      icon={LinkIcon}
+      title="CIRCOE Toolbox"
+      subtitle="Brouillons Infomaniak des messages Contact validés, et leur envoi programmé"
+      badge={STATE_BADGES[status.state]}
+    >
 
       <p className="settings-connection__sentence">{stateSentence(status)}</p>
 
@@ -286,8 +279,6 @@ function ToolboxCard({ status, redirecting, redirectingFor, busy, onConnect, onF
         </p>
       )}
 
-      {status.configured && <DispatchFacts status={status} />}
-
       {status.cleanups.pending > 0 && (
         <p className="settings-connection__note">
           {status.cleanups.pending === 1
@@ -304,28 +295,28 @@ function ToolboxCard({ status, redirecting, redirectingFor, busy, onConnect, onF
         ))}
       </ul>
 
-      {canConnect && (
-        <div className="settings-connection__actions">
-          {linked && (
-            <Button variant="ghost" icon={TrashIcon} disabled={busy || redirecting} onClick={onForget}>
-              Oublier la connexion…
-            </Button>
-          )}
-          <Button
-            variant={status.state === 'connected' ? 'secondary' : 'primary'}
-            icon={status.state === 'disconnected' ? LinkIcon : RefreshIcon}
-            loading={redirecting}
-            disabled={busy}
-            onClick={onConnect}
-          >
-            {redirecting
-              ? `Ouverture de la Toolbox… ${String(redirectingFor)} s`
-              : status.state === 'disconnected'
-                ? 'Connecter la Toolbox'
-                : 'Reconnecter'}
+      <ToolboxAdvanced data={integrations} open={status.state === 'not_configured'} />
+
+      <div className="settings-connection__actions">
+        {linked && (
+          <Button variant="ghost" icon={LogOutIcon} disabled={busy || redirecting} onClick={onForget}>
+            Se déconnecter…
           </Button>
-        </div>
-      )}
-    </section>
+        )}
+        <Button
+          variant={status.state === 'connected' ? 'secondary' : 'primary'}
+          icon={linked ? RefreshIcon : LinkIcon}
+          loading={redirecting}
+          disabled={busy}
+          onClick={onConnect}
+        >
+          {redirecting
+            ? `Ouverture de la Toolbox… ${String(redirectingFor)} s`
+            : linked
+              ? 'Reconnecter'
+              : 'Se connecter à CIRCOE Toolbox'}
+        </Button>
+      </div>
+    </IntegrationCard>
   )
 }

@@ -1,6 +1,6 @@
 // The AI drafting of a step's mail (Contact port S5; decisions 22 and 26), pure rules. The AI only writes the subject
 // and the body; the result is always a Brouillon to review, edit and validate by hand. The server holds the key and the
-// model (`VIPER_OPENAI_*`) and says whether the drafting is configured (`defaults.generation_available`).
+// model (Paramètres › Connexions, S8) and says whether the drafting is configured (`defaults.generation_available`).
 import type { GenerateRequest, GenerationResult, Message, MessageStep } from '../api/contact'
 import { STEP_LABELS } from './labels'
 import { messageRefusal, type MessageRefusal, refusalOf } from './messages'
@@ -53,7 +53,7 @@ export function aiAvailability(input: {
       show: true,
       enabled: false,
       label,
-      note: 'La rédaction par l’IA n’est pas configurée sur ce serveur (clé et modèle OpenAI) : rédigez le message vous-même.',
+      note: 'La rédaction par l’IA n’est pas configurée (clé et modèle OpenAI, dans Paramètres › Connexions) : rédigez le message vous-même.',
     }
   }
   if (input.generatingStep && input.step && input.generatingStep !== input.step) {
@@ -112,11 +112,11 @@ export function generationNotice(step: MessageStep, result: GenerationResult): s
 
 const AI_ERRORS: Record<string, string> = {
   ai_not_configured:
-    'La rédaction par l’IA n’est pas configurée sur le serveur (clé ou modèle OpenAI manquant). Rien n’a été modifié.',
+    'La rédaction par l’IA n’est pas configurée : saisissez la clé et le modèle OpenAI dans Paramètres › Connexions. Rien n’a été modifié.',
   ai_timeout: 'L’IA n’a pas répondu à temps. Rien n’a été modifié : réessayez.',
   ai_rate_limited:
     'Trop de demandes à l’IA pour le moment, ou quota OpenAI épuisé. Rien n’a été modifié : réessayez dans quelques minutes.',
-  ai_auth_failed: 'La clé OpenAI du serveur a été refusée. Rien n’a été modifié : prévenez la personne qui administre VIPER.',
+  ai_auth_failed: 'La clé OpenAI a été refusée. Rien n’a été modifié : vérifiez-la dans Paramètres › Connexions (« Tester la clé »).',
   ai_upstream_error: 'Le service d’IA a échoué ou est injoignable. Rien n’a été modifié : réessayez.',
   ai_refused: 'L’IA a refusé de rédiger ce message. Rien n’a été modifié : reformulez la consigne ou rédigez-le vous-même.',
   ai_invalid_output:
