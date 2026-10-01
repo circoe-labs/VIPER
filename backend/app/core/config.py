@@ -220,9 +220,12 @@ class Settings(BaseSettings):
 
     @property
     def send_allowlist(self) -> tuple[str, ...] | None:
-        """The parsed `VIPER_INFOMANIAK_SEND_ALLOWLIST` (S7 checks it before a send); None = unset."""
-        return None if self.infomaniak_send_allowlist is None else (
-            parse_allowlist(self.infomaniak_send_allowlist)
+        """The parsed `VIPER_INFOMANIAK_SEND_ALLOWLIST` (S7 checks it before a send); None =
+        unset."""
+        return (
+            None
+            if self.infomaniak_send_allowlist is None
+            else (parse_allowlist(self.infomaniak_send_allowlist))
         )
 
     @property
