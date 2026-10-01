@@ -20,6 +20,7 @@ from app.models.enums import (
     SendSource,
 )
 from app.services import contact_messages as service
+from app.services import contact_sequences
 from app.services.contact_message_cancellation import Cancellation
 from app.services.contact_messages import MessageEdit, MessageResult
 from app.services.contact_tracking import ContactTrackingInput, apply_contact_tracking
@@ -725,6 +726,18 @@ def test_mark_sent_refuses_a_closed_sequence(db_session: Session, state: S) -> N
     with pytest.raises(ContactMessageError) as refused:
         service.mark_sent(db_session, OPERATOR, prospect.id)
     assert code_of(refused) == "prospect_sequence_closed"
+
+
+def test_mark_sent_rechecks_the_sequence_once_locked(db_session: Session) -> None:
+    """A change of cohort committed between the read of the context and the lock: the send is
+    refused instead of landing in the closed sequence."""
+    prospect = prospect_with(db_session)
+    stale = service.sequence_context(db_session, prospect.id)
+    contact_sequences.change_cohort(db_session, OPERATOR, prospect.id, None)
+
+    with pytest.raises(ContactMessageError) as refused:
+        service._next_send(db_session, stale)
+    assert code_of(refused) == "no_open_sequence"
 
 
 def test_mark_sent_refuses_a_message_being_sent(db_session: Session) -> None:

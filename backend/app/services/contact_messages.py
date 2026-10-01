@@ -831,9 +831,20 @@ def reopen(
 
 def _next_send(session: Session, context: SequenceContext) -> tuple[int, datetime | None]:
     """The first rank of the open sequence not sent yet, and the latest send moment. The sequence
-    row is locked first, so two « Marquer comme envoyé » of the same prospect serialize."""
-    sequence = select(ContactSequence.id).where(ContactSequence.id == context.sequence_id)
-    session.execute(sequence.with_for_update())
+    row is locked first, so two « Marquer comme envoyé » of the same prospect serialize, and
+    re-read: a change of cohort committed since `context` was read closed it (409
+    `no_open_sequence`, never a send in a closed sequence)."""
+    locked = session.execute(
+        select(ContactSequence.closed_at, ContactSequence.is_current)
+        .where(ContactSequence.id == context.sequence_id)
+        .with_for_update()
+    ).one_or_none()
+    if locked is None or locked.closed_at is not None or not locked.is_current:
+        raise _refusal(
+            "no_open_sequence",
+            HTTPStatus.CONFLICT,
+            "The prospect's sequence was closed meanwhile: reload it.",
+        )
     sent = session.execute(
         select(ContactMessage.rank, ContactMessage.sent_at).where(
             ContactMessage.sequence_id == context.sequence_id,
