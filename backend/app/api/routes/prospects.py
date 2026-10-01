@@ -8,12 +8,12 @@ fields are refused): `PUT …/contactability` is the dedicated, reasoned operati
 changes only the commercial state (« Défaillant » included, a person only). The view carries
 `contact`: the cohort, the sends, the level and the next due date, all derived (sequences rework
 D1); the cohort changes through `PUT …/cohort` (`app.api.routes.sequences`). The next due date is
-never written: `next_action_week` answers 422 `invalid` (reason `derived`) and the editor's former
-`tracking.planned_contact_on` is ignored (removed with the S4 UI). Every write carries the
-`version` the client read; a stale one answers 409 `conflict`. Business refusals use the stable
-codes of `app.api.errors` (422 `invalid` with a field path such as `emails.1.address`, 409
-`duplicate` for a new role label, 409 `do_not_contact` when deleting an opposed prospect, 404;
-Contact rules: 409 `ignored_is_terminal`, 403 `human_actor_required`).
+never written: `next_action_week` answers 422 `invalid` (reason `derived`) and the former
+`tracking.planned_contact_on` is an unknown field (422, removed with the S4 UI). Every write
+carries the `version` the client read; a stale one answers 409 `conflict`. Business refusals use
+the stable codes of `app.api.errors` (422 `invalid` with a field path such as
+`emails.1.address`, 409 `duplicate` for a new role label, 409 `do_not_contact` when deleting an
+opposed prospect, 404; Contact rules: 409 `ignored_is_terminal`, 403 `human_actor_required`).
 """
 
 import uuid
@@ -98,8 +98,6 @@ class EmploymentVerificationIn(StrictModel):
 
 class TrackingIn(StrictModel):
     status: ContactTrackingStatus = ContactTrackingStatus.NEUTRAL
-    # Ignored since the sequences rework (the next due date is derived); removed with the S4 UI.
-    planned_contact_on: date | None = None
     response_received_on: date | None = None
     appointment_on: date | None = None
     appointment_time: time | None = None
@@ -333,11 +331,7 @@ def prospect_form(body: ProspectIn) -> ProspectForm:
             )
             for item in body.phones
         ],
-        tracking=(
-            TrackingForm(**tracking.model_dump(exclude={"planned_contact_on"}))
-            if tracking
-            else None
-        ),
+        tracking=TrackingForm(**tracking.model_dump()) if tracking else None,
     )
 
 

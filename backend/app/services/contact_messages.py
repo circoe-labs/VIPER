@@ -903,6 +903,7 @@ def mark_sent(
     rank: int | None = None,
     sent_at: datetime | None = None,
     now: datetime | None = None,
+    sequence_id: uuid.UUID | None = None,
 ) -> MessageResult:
     """« Marquer comme envoyé » (D3): a person declares that the next step of the open sequence
     (the first rank not sent yet: Contact, then R1, R2…) was really sent at `sent_at` (default
@@ -916,10 +917,21 @@ def mark_sent(
     open sequence, the declaration is a replay (double click, retried request): the recorded send
     is answered with `changed: False` and nothing moves; another unsent rank than the next one is
     refused (409 `rank_not_next`, with the `next_rank`). Without `rank`, every call records the
-    next step."""
+    next step (internal callers only: the API requires it).
+
+    `sequence_id` (the API's UI sends it): the open sequence the person saw. Another one — the
+    cohort changed in another tab since — is refused (409 `sequence_changed`, with the current
+    `sequence_id`), so a stale screen never records a send on a new sequence."""
     _require_human(actor)
     context = sequence_context(session, prospect_id)
     _require_open(context)
+    if sequence_id is not None and sequence_id != context.sequence_id:
+        raise _refusal(
+            "sequence_changed",
+            HTTPStatus.CONFLICT,
+            "The prospect's sequence changed since it was read: reload it.",
+            sequence_id=str(context.sequence_id),
+        )
     current = now or datetime.now(UTC)
     moment = sent_at or current
     if moment.tzinfo is None:

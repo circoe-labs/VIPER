@@ -364,10 +364,11 @@ def test_mark_sent_over_http(
 
     sent = ok(
         client.post(
-            f"{messages(prospect)}/mark-sent", json={"sent_at": "2026-09-07T10:00:00+02:00"}
+            f"{messages(prospect)}/mark-sent",
+            json={"rank": 0, "sent_at": "2026-09-07T10:00:00+02:00"},
         )
     )
-    bare = ok(client.post(f"{messages(prospect)}/mark-sent", json={}), 201)
+    bare = ok(client.post(f"{messages(prospect)}/mark-sent", json={"rank": 1}), 201)
 
     assert (sent["created"], sent["message"]["status"], sent["message"]["sent_source"]) == (
         False,
@@ -382,14 +383,21 @@ def test_mark_sent_over_http(
     listed = ok(client.get(messages(prospect)))["sequence"]
     assert place["level"] == listed["level"] == "r1_sent"
     detail = refused(
-        client.post(f"{messages(prospect)}/mark-sent", json={"sent_at": "2020-01-01T00:00:00Z"}),
+        client.post(
+            f"{messages(prospect)}/mark-sent",
+            json={"rank": 2, "sent_at": "2020-01-01T00:00:00Z"},
+        ),
         422,
         "invalid",
     )
     assert (detail["field"], detail["reason"]) == ("sent_at", "before_previous_send")
     assert (
-        client.post(f"{messages(prospect)}/mark-sent", json={"sent_at": "2026-09-07T10:00:00"})
+        client.post(
+            f"{messages(prospect)}/mark-sent", json={"rank": 2, "sent_at": "2026-09-07T10:00:00"}
+        )
     ).status_code == 422  # a time zone is required
+    # The rank the person saw is required (S4): a bare declaration is refused.
+    assert client.post(f"{messages(prospect)}/mark-sent", json={}).status_code == 422
 
 
 def test_without_a_cohort_the_sequence_is_closed(
@@ -401,7 +409,9 @@ def test_without_a_cohort_the_sequence_is_closed(
 
     assert (body["sequence"]["sequence_id"], body["sequence"]["closed"]) == (None, True)
     refused(client.put(f"{messages(prospect)}/contact", json={}), 409, "no_open_sequence")
-    refused(client.post(f"{messages(prospect)}/mark-sent", json={}), 409, "no_open_sequence")
+    refused(
+        client.post(f"{messages(prospect)}/mark-sent", json={"rank": 0}), 409, "no_open_sequence"
+    )
 
 
 def test_s0_is_out_of_campaign_over_http(

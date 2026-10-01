@@ -13,7 +13,7 @@ from typing import Any
 import pytest
 from sqlalchemy.orm import Session
 
-from app.core.actor import ActorType
+from app.core.actor import ActorContext, ActorType
 from app.core.business_time import BUSINESS_TIMEZONE
 from app.models import (
     Company,
@@ -29,10 +29,11 @@ from app.models.enums import (
     ContactabilityStatus,
     ContactTrackingStatus,
     ProspectSourceType,
+    QualityAlertType,
     SequenceEndReason,
     VerificationStatus,
 )
-from app.services import contact_dashboard
+from app.services import contact_dashboard, quality_alerts
 from app.services import prospects as prospect_service
 from app.services.prospection.query import (
     NONE,
@@ -435,6 +436,24 @@ def test_row_view_model_resolves_labels_and_week(db_session: Session) -> None:
     assert (row.level, row.level_label) == ("contact_sent", "Contact envoyé")
     assert (row.next_due_at, row.next_due_week) == (at(date(2026, 9, 14), 0), "2026-W38")
     assert (row.referent_id, row.referent_name) == (referent.id, "Camille Référente")
+    assert row.email_error is False
+
+
+def test_row_says_an_email_error_but_not_an_ai_proposal(db_session: Session) -> None:
+    """D9: « Erreur sur le mail » of a person pauses the prospect; the AI's is a proposal."""
+    flagged, proposed = add_prospect(db_session), add_prospect(db_session, last_name="Ia")
+    for prospect in (flagged, proposed):
+        in_cohort(db_session, prospect, date(2026, 9, 7))
+    alert = quality_alerts.AlertInput(QualityAlertType.EMAIL_ERROR, prospect_id=flagged.id)
+    quality_alerts.raise_alert(db_session, OPERATOR, alert)
+    agent = ActorContext(type=ActorType.AGENT, display="Agent (test)", id="agent.t")
+    proposal = quality_alerts.AlertInput(QualityAlertType.EMAIL_ERROR, prospect_id=proposed.id)
+    quality_alerts.raise_alert(db_session, agent, proposal)
+
+    rows = {row.id: row for row in list_prospects(db_session, ProspectFilters(), CONTEXT).items}
+
+    assert (rows[flagged.id].email_error, rows[flagged.id].next_due_at) == (True, None)
+    assert rows[proposed.id].email_error is False
 
 
 def test_week_uses_the_business_day(db_session: Session) -> None:

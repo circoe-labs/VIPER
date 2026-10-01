@@ -49,6 +49,7 @@ from app.models.enums import (
 )
 from app.repositories.taxonomies import label_key
 from app.services.contact_sequences import (
+    email_error_sql,
     finished_sql,
     next_due_at_sql,
     next_rank_sql,
@@ -145,6 +146,9 @@ class ProspectRow:
     next_due_week: str | None
     # In the `due` segment: the Contact or a follow-up to send, due no later than today.
     due: bool
+    # An open « Erreur sur le mail » raised by a person or an import (D9): out of the automatic
+    # actions until a new e-mail and a new cohort (the AI's proposals do not count).
+    email_error: bool
     response_received_at: datetime | None
     appointment_at: datetime | None
     referent_id: uuid.UUID | None
@@ -307,6 +311,7 @@ def _page_statement(context: SegmentContext) -> Select[Any]:
                 next_rank_sql(),
                 func.coalesce(finished_sql(), false()),
                 next_due_at_sql(),
+                email_error_sql(),
             )
         )
         .outerjoin(Role, Role.id == Prospect.role_id)
@@ -363,6 +368,7 @@ def list_prospects(
         next_rank,
         finished,
         next_due,
+        email_error,
     ) in rows:
         items.append(
             ProspectRow(
@@ -396,6 +402,7 @@ def list_prospects(
                 next_due_at=next_due,
                 next_due_week=iso_week(next_due),
                 due=due,
+                email_error=email_error,
                 response_received_at=tracking.response_received_at if tracking else None,
                 appointment_at=tracking.appointment_at if tracking else None,
                 referent_id=tracking.referent_id if tracking else None,

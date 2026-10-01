@@ -14,8 +14,8 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import ColumnElement, and_, func, or_, select, union_all
-from sqlalchemy.orm import Session
+from sqlalchemy import ColumnElement, and_, exists, func, or_, select, union_all
+from sqlalchemy.orm import Session, aliased
 
 from app.core.actor import ActorType
 from app.core.business_time import start_of_day
@@ -23,6 +23,7 @@ from app.db.session import whole_base_plan
 from app.models import (
     Company,
     ContactMessage,
+    ContactSequence,
     ContactTracking,
     ImportBatch,
     InternalReferent,
@@ -33,6 +34,7 @@ from app.models.enums import (
     ContactMessageStatus,
     ContactTrackingStatus,
     SendSource,
+    SequenceEndReason,
     TrackingHistoryStatus,
 )
 from app.services import audit, history, import_batches
@@ -53,7 +55,6 @@ from app.services.prospection.segments import (
     has_appointment,
     join_segment_sources,
     predicate,
-    responded,
 )
 
 S = ContactTrackingStatus
@@ -318,6 +319,26 @@ def _action_group(
     )
 
 
+def answered_in_current_sequence() -> ColumnElement[bool]:
+    """An answer of the current sequence (R-28): the state says so (`response_received`), or a
+    response date that no later sequence change superseded — no sequence of the prospect was
+    closed (a change of cohort, or its removal) at or after that date. A prospect resumed by a
+    change of cohort (R-11) is back to `neutral` in a new sequence: its former answer stays in its
+    history but no longer waits for an appointment, so it is never both a contact to send and an
+    answer to convert. Reads the rows of `join_segment_sources`."""
+    # Aliased: the current sequence of the outer rows is `ContactSequence` itself.
+    former = aliased(ContactSequence, name="former_sequence")
+    superseded = exists().where(
+        former.prospect_id == Prospect.id,
+        former.end_reason.in_((SequenceEndReason.COHORT_CHANGED, SequenceEndReason.COHORT_REMOVED)),
+        former.closed_at >= ContactTracking.response_received_at,
+    )
+    return or_(
+        ContactTracking.status == S.RESPONSE_RECEIVED,
+        and_(ContactTracking.response_received_at.is_not(None), ~superseded),
+    )
+
+
 def next_actions(session: Session, context: SegmentContext) -> NextActions:
     """Three short lists, in this priority: appointments of the coming week (time-bound), due
     contacts (overdue work), answers still waiting for an appointment (conversion)."""
@@ -329,7 +350,7 @@ def next_actions(session: Session, context: SegmentContext) -> NextActions:
     )
     awaiting = and_(
         actionable(),
-        responded(),
+        answered_in_current_sequence(),
         ~has_appointment(),
         ContactTracking.status.not_in(CLOSED_STAGES),
     )

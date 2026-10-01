@@ -57,7 +57,7 @@ def test_writes_need_the_csrf_token(client: TestClient) -> None:
     assert client.put(f"{SETTINGS}/contact", json={"max_follow_ups": 3}).status_code == 403
     prospect = f"{PROSPECTS}/{uuid.uuid4()}"
     assert client.put(f"{prospect}/cohort", json={"cohort_id": None}).status_code == 403
-    assert client.post(f"{prospect}/messages/mark-sent", json={}).status_code == 403
+    assert client.post(f"{prospect}/messages/mark-sent", json={"rank": 0}).status_code == 403
     assert client.post(ALERTS, json={"type": "email_error"}).status_code == 403
     assert client.post(f"{ALERTS}/{uuid.uuid4()}/resolve", json={}).status_code == 403
 
@@ -137,8 +137,12 @@ def test_change_of_cohort_and_sequences(client: TestClient, db_session: Session)
         "S39",
         "contact",
     )
+    first_id = first["place"]["sequence_id"]
     ok(
-        client.post(f"{path}/messages/mark-sent", json={"sent_at": "2026-09-07T10:00:00+02:00"}),
+        client.post(
+            f"{path}/messages/mark-sent",
+            json={"rank": 0, "sent_at": "2026-09-07T10:00:00+02:00", "sequence_id": first_id},
+        ),
         201,
     )
     again = ok(client.put(f"{path}/cohort", json={"cohort_id": str(s39.id)}))
@@ -149,6 +153,10 @@ def test_change_of_cohort_and_sequences(client: TestClient, db_session: Session)
         0,
         0,
     )
+    # A tab still showing the S39 sequence cannot record a send on the new one (S4).
+    stale = {"rank": 0, "sequence_id": first_id}
+    detail = refused(client.post(f"{path}/messages/mark-sent", json=stale), 409, "sequence_changed")
+    assert detail["sequence_id"] == moved["place"]["sequence_id"] != first_id
 
     body = ok(client.get(f"{path}/sequences"))
     assert [(s["cohort"]["code"], s["is_current"], s["end_reason"]) for s in body["sequences"]] == [

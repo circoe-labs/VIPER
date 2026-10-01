@@ -69,6 +69,8 @@ class ProspectRowOut(BaseModel):
     next_due_at: datetime | None
     next_due_week: str | None
     due: bool
+    # An open « Erreur sur le mail » of a person or an import (D9).
+    email_error: bool
     response_received_at: datetime | None
     appointment_at: datetime | None
     referent_id: uuid.UUID | None

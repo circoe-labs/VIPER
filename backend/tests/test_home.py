@@ -22,6 +22,7 @@ from app.models.enums import (
 from app.services import audit, contact_messages, home
 from app.services import prospects as prospect_service
 from app.services.audit import AuditContext, AuditSource
+from app.services.contact_sequences import change_cohort
 from app.services.contact_tracking import ContactTrackingInput, save_contact_tracking
 from app.services.contact_workflow import (
     APPOINTMENT_CODES,
@@ -33,6 +34,7 @@ from app.services.prospection.query import ProspectFilters, count_segments
 from app.services.prospection.segments import Segment, SegmentContext
 from tests.builders import (
     OPERATOR,
+    add_cohort,
     add_company,
     add_email,
     add_prospect,
@@ -403,6 +405,30 @@ def test_next_actions_order_limits_and_windows(db_session: Session) -> None:
         S.NEUTRAL,
         at(TODAY - timedelta(days=6), 0),
     )
+
+
+def test_a_prospect_resumed_by_a_new_cohort_is_no_longer_an_answer(db_session: Session) -> None:
+    """R-28: a former answer superseded by a change of cohort leaves « Réponses sans rendez-vous »
+    — the prospect is a contact to send again (R-11), never both."""
+    company = add_company(db_session)
+    resumed = add_prospect(db_session, company, last_name="Reprise")
+    track(
+        db_session, resumed, S.RESPONSE_RECEIVED, response_received_at=at(TODAY - timedelta(days=9))
+    )
+    in_cohort(db_session, resumed, TODAY - timedelta(weeks=4), sends=1)
+    new_cohort = add_cohort(db_session, "S900", TODAY - timedelta(days=1))
+    change_cohort(
+        db_session, OPERATOR, resumed.id, new_cohort.id, now=at(TODAY - timedelta(days=2))
+    )
+    # Answered after the sequence opened: still waiting for an appointment.
+    answered = add_prospect(db_session, company, last_name="Repondu")
+    track(db_session, answered, response_received_at=at(TODAY - timedelta(days=1)))
+    in_cohort(db_session, answered, TODAY - timedelta(weeks=3), sends=1)
+
+    actions = next_actions(db_session, CONTEXT)
+
+    assert "Reprise" in names(actions.due)
+    assert names(actions.responses) == ["Repondu"]
 
 
 # --- recent activity ----------------------------------------------------------------------------

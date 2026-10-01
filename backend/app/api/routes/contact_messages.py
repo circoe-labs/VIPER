@@ -12,7 +12,8 @@ a real send (the dispatcher, S7, marks its own).
                                      (no cohort, S0, state, opposition);
 - `POST …/messages/mark-sent`        the next step was really sent (`sent_at`, default now): the
                                      step's message becomes the send, or a send record is created;
-                                     with `rank`, a replay answers the recorded send (idempotent);
+                                     `rank` required (a replay answers the recorded send), the seen
+                                     `sequence_id` checked (409 `sequence_changed`);
 - `GET  …/messages/{step}`           one step's message (null when never created);
 - `PUT  …/messages/{step}`           create (no `expected_revision`, 201) or edit the content (200);
 - `POST …/messages/{step}/validate|schedule|unschedule|cancel|reopen` with `expected_revision`;
@@ -106,10 +107,13 @@ class ScheduleIn(RevisionIn):
 
 
 class MarkSentIn(StrictModel):
-    # The step the person saw as next (0 = Contact, n = Rn). Recommended: a replay of an already
+    # The step the person saw as next (0 = Contact, n = Rn), required: a replay of an already
     # recorded rank answers that send (200, `changed: false`) instead of recording another one;
     # another unsent rank than the next is refused (409 `rank_not_next`).
-    rank: Annotated[int, Field(ge=0)] | None = None
+    rank: Annotated[int, Field(ge=0)]
+    # The open sequence the person saw (the UI always sends it): another one — the cohort changed
+    # meanwhile — is refused (409 `sequence_changed`).
+    sequence_id: uuid.UUID | None = None
     # When the mail left (ISO 8601 with a time zone); omitted: now. Never in the future, never
     # before the sequence's previous send.
     sent_at: AwareDatetime | None = None
@@ -326,7 +330,8 @@ def mark_sent(
 ) -> MessageResultOut:
     """« Marquer comme envoyé » (D3): the next step of the open sequence was really sent — its
     message becomes the send (200), or a send record without text is created (201). The level
-    moves by one (D1). With `rank`, a replay answers the recorded send (200, `changed: false`)."""
+    moves by one (D1). A replay of `rank` answers the recorded send (200, `changed: false`); a
+    `sequence_id` other than the open one is refused (409 `sequence_changed`)."""
     with business_errors():
         result = service.mark_sent(
             session,
@@ -335,6 +340,7 @@ def mark_sent(
             rank=body.rank,
             sent_at=body.sent_at,
             now=datetime.now(UTC),
+            sequence_id=body.sequence_id,
         )
     if result.created:
         response.status_code = status.HTTP_201_CREATED
