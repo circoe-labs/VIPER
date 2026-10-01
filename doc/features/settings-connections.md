@@ -92,11 +92,18 @@ The Toolbox has no revocation endpoint: the deleted token expires by itself at i
   "enabled": true, "state": "connected", "configured": true, "connected": true, "missing": [],
   "toolbox_origin": "https://toolbox.example", "connected_at": "…", "connected_by": "Prénom Nom",
   "expires_at": "…", "account_label": null, "last_error": {"code": "toolbox_access_denied", "at": "…"},
-  "cleanups": {"pending": 2, "failing": 1}
+  "cleanups": {"pending": 2, "failing": 1},
+  "dispatch": {"running": true, "active": true, "interval_seconds": 30.0, "last_pass_at": "…", "last_outcome": "ok",
+               "scheduled": 3, "unconfirmed": 0}
 }
 ```
 
 `account_label` is always null: the Toolbox's answers name no mailbox. `missing` holds variable names, never values.
+`dispatch` (S7) is the scheduled sending: `running` = the dispatcher thread runs in this API process (Toolbox enabled
+and configured, `VIPER_CONTACT_DISPATCH_INTERVAL_MS` > 0); `active` = and the Toolbox is connected, so a scheduled
+message really leaves; `last_pass_at` / `last_outcome` (`ok`, `error` — the traceback is in the server log, null before
+the first pass, per process); `scheduled` = messages in « Programmé », `unconfirmed` = those whose send is unconfirmed
+(a person settles them in Contact).
 
 Refusals (`{detail: {code, message}}`): 503 `toolbox_not_configured`; 502 `toolbox_unavailable` / 504
 `toolbox_timeout` (discovery, registration or token exchange); 422 `toolbox_rejected` (PKCE S256 missing, registration
@@ -111,7 +118,11 @@ refused); 400 `toolbox_state_invalid`, 403 `toolbox_access_denied`, 400 `toolbox
 `settings/toolboxCopy.ts` (states, `toolbox_*` reasons, limitations — shared with the Contact editor),
 `api/toolbox.ts` (queries/mutations). Same `.settings-tabs` / `.settings-panel` pattern as the other sections; the
 card is `.settings-connection` (canvas background inside the surface panel, accent-soft icon tile, `StatusBadge`,
-uppercase muted fact labels, danger-soft last error) — `settings.css`.
+uppercase muted fact labels, danger-soft last error) — `settings.css`. Under the facts, when the Toolbox is configured,
+the **Envoi programmé** block (S7, `.settings-connection__dispatch`, a hairline above): badge *Actif* (success) /
+*En attente* (warning: the worker runs, the Toolbox is not connected) / *Inactif* (neutral: no worker), one sentence
+(`dispatchSentence`), then *Dernière passe*, *Messages programmés* and, when there are some, *Envois non confirmés*
+(« à trancher dans Contact »). The limitations list adds that a scheduled message leaves only while VIPER runs.
 
 ## Connecting for real (operator)
 
@@ -125,3 +136,5 @@ uppercase muted fact labels, danger-soft last error) — `settings.css`.
 4. Validate a test message to an internal address and check the draft in Infomaniak's Drafts folder; cancel it and
    check it disappears (within `VIPER_TOOLBOX_CLEANUP_INTERVAL_MS`).
 5. Reconnect every 30 days (the tab says *À reconnecter*).
+6. Scheduled sending (S7): see [`runbook-production.md`](../process/runbook-production.md) § *Enabling the Contact
+   features* — first with `VIPER_INFOMANIAK_SEND_ALLOWLIST` restricted to an internal test address.

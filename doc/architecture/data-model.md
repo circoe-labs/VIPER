@@ -148,8 +148,11 @@ application write path — Database Explorer shows the table read-only).
 - AI drafting (S5): `generation_model` (the model OpenAI named), `generation_prompt_version`
   (`contact-mail-fr-2026-09-v1`), `generated_at` — set by `contact_messages.save_generated` only;
 - CIRCOE Toolbox (S6): `remote_provider`, `remote_draft_id`, `remote_message_id`;
-- dispatch (S7): `dispatch_claim_id uuid`, `dispatch_claimed_at`, `dispatch_attempts int DEFAULT 0`,
-  `last_error_code` (a code, never a raw provider message), `last_error_at`.
+- dispatch (S7, written by `app.services.contact_dispatch` only — no migration was needed): `dispatch_claim_id uuid`
+  (the claim of one send attempt; kept on a sent row), `dispatch_claimed_at` (the claim's age drives the
+  reconciliation), `dispatch_attempts int DEFAULT 0` (attempts of the current schedule, reset by a new schedule or an
+  edit), `last_error_code` (a code, never a raw provider message: `toolbox_*` for the Infomaniak draft, `send_*` /
+  `dispatch_*` for the send — catalogue in [`contact.md`](../features/contact.md#scheduled-sending-s7)), `last_error_at`.
 
 SQL invariants: `validated`/`scheduled`/`sent` ⇒ current validation (`validated_revision = revision`, `validated_at`,
 `validated_by_actor_id`); `draft` ⇒ no validation; `scheduled` ⇒ `scheduled_at`; `sent` ⇔ `sent_at`;

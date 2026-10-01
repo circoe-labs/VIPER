@@ -46,7 +46,7 @@ occurred_at)`.
 
 | Key | When | Meaning |
 |---|---|---|
-| `source` | always | `ui` (signed-in request), `import`, `database_explorer`, `cli`, `agent` |
+| `source` | always | `ui` (signed-in request), `import`, `database_explorer`, `cli`, `agent`, `dispatcher` (the scheduled sending of Contact messages, S7) |
 | `request_id` | HTTP requests | UUIDv7 shared by every event of one request (one save) |
 | `import_batch_id` | import writes | The batch being imported |
 | `on_behalf_of` | import (future agents) | `{type, id, display}` of the human who confirmed the automated work |

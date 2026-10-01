@@ -7,7 +7,8 @@ import { signIn } from './session'
 
 // Contact page (Contact port S4) against the real backend: the operator's flow on a prospect the test creates and plans
 // for this week through the API (I-81: every row carries the test's suffix, and a search narrows the page to them).
-// Nothing is sent: scheduling only records the moment (the dispatcher arrives in S7).
+// Nothing is sent: the Toolbox is not connected in this project, so the dispatcher (S7) sends nothing; the full
+// scenario with real sending (to the fake Toolbox) is e2e/contact-flow.spec.ts.
 
 test.use({ viewport: { width: 1440, height: 900 } })
 

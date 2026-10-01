@@ -239,6 +239,14 @@ relire avant de valider.* with an accent-fg Sparkles glyph and the model · prom
 sender is the Infomaniak account's default mailbox). Styles: `frontend/src/contact/contact.css` (feature doc:
 `doc/features/contact.md`).
 
+**Scheduled sending** (S7): the dispatch line reuses the same 14 px `.contact-mail__remote` line — muted spinner
+*Envoi en cours par la Toolbox…*, warning-fg alert for a failed attempt or a send back in *Validé* with its reason,
+muted info for *Envoi automatique inactif…*, *Envoi déduit…*, *Envoi confirmé par une personne…*. An unconfirmed
+send is the one block with actions: a warning-soft `.contact-mail__banner` (alert glyph) holding the sentence, then a
+row of two small buttons (`.contact-mail__settle-actions`): *Marquer envoyé…* primary, *Remettre en Validé…*
+secondary — each opens the shared confirmation `Modal` (*Retour* focused; the release confirms with the danger
+button).
+
 **Paramètres › Connexions** (S6, `settings.css`): the fifth `.settings-tabs` link (an *À reconnecter* warning
 badge on the tab when the connection expired). Inside the panel, one `.settings-connection` card per service:
 canvas background with a border (a surface inside the surface panel), header = accent-soft 40 px icon tile + 18 px
@@ -246,7 +254,9 @@ title + muted subtitle + `StatusBadge` on the right; a one-sentence meaning of t
 uppercase 12 px muted labels over medium values (the origin in monospace); the last failure on danger-soft; the
 limitations as a muted bullet list; actions right-aligned (ghost *Oublier la connexion…*, then *Connecter la
 Toolbox* primary or *Reconnecter* secondary). Waits show a spinner and a live seconds counter (*Ouverture de la
-Toolbox… n s*, *Finalisation de la connexion… n s*, `lib/useElapsed.ts`).
+Toolbox… n s*, *Finalisation de la connexion… n s*, `lib/useElapsed.ts`). The card's **Envoi programmé** block (S7, `.settings-connection__dispatch`) sits under the facts after a
+hairline: 600-weight title + `StatusBadge` (*Actif* success / *En attente* warning / *Inactif* neutral), one sentence,
+then the same fact grid (last pass, scheduled count, unconfirmed count).
 
 ## Home dashboard
 Spacious, global state first: eyebrow-labelled rows of six link cards (14 px glyph + 13 px muted label, 26 px

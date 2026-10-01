@@ -64,6 +64,10 @@ MCP URL) and `VIPER_TOOLBOX_OAUTH_REDIRECT_URI=http://localhost:5173/settings/co
 Paramètres › Connexions › *Connecter la Toolbox*. The token file defaults to `~/.viper/toolbox-oauth.json`
 (`VIPER_TOOLBOX_TOKEN_STORE_PATH`; refused inside the checkout). Obsolete drafts are deleted by the API's worker
 (`VIPER_TOOLBOX_CLEANUP_INTERVAL_MS`, 60 s; `0` = none) or by `python -m app.cli toolbox-cleanup --once`.
+Scheduled messages are sent by the API's dispatcher (S7) while the Toolbox is connected
+(`VIPER_CONTACT_DISPATCH_INTERVAL_MS`, 30 s; `0` = none, then `python -m app.cli contact-dispatch --once`); for a
+development VIPER connected to a real Toolbox, set `VIPER_CONTACT_DISPATCH_INTERVAL_MS=0` and
+`VIPER_INFOMANIAK_SEND_ALLOWLIST=<your own address>`. The E2E stack runs the dispatcher every second against the fake.
 **During development, only a local fake**: pytest uses `backend/tests/fake_toolbox.py` (an `httpx2` transport,
 no socket) and Playwright starts `e2e/fake-toolbox.ts` on 8047 (`VIPER_E2E_TOOLBOX_PORT`) with its token file in
 the system temp folder; never point a development VIPER at the real Toolbox or a real Infomaniak mailbox without

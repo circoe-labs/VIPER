@@ -60,7 +60,17 @@ Background jobs run **inside the API process**, off by default, each with a `pyt
   unsafe request under `/api/prospects` (`app/api/worker_wake.py`). One pass at a time; each entry is claimed
   (`SKIP LOCKED` + a lease), committed, deleted outside any transaction, then recorded, so a CLI pass can run
   beside it. CLI: `toolbox-cleanup --once`.
-- The scheduled dispatcher (S7) follows the same model.
+- **Contact dispatcher** (S7, `app/services/contact_dispatch_worker.py` → `contact_dispatch.Dispatcher.run_pass`): a
+  daemon thread started under the same conditions when `VIPER_CONTACT_DISPATCH_INTERVAL_MS` > 0 (default 30 s); it
+  sends nothing while the Toolbox is not connected. A pass reconciles stale claims, then sends the due scheduled
+  messages: each is claimed in a short transaction (row `FOR UPDATE SKIP LOCKED`, every condition re-checked, the
+  prospect's state and opposition read under share locks), committed, sent with `send_draft` outside any transaction,
+  then recorded. One pass at a time per process; across processes the claim lets one win. Writes are attributed to
+  the system actor `contact-dispatcher` (`AuditSource.DISPATCHER`). CLI: `contact-dispatch --once` (and
+  `--hold-scheduled`, the post-restore safeguard). Semantics: [`contact.md`](../features/contact.md) § Scheduled
+  sending.
+- Shutdown: the lifespan stops both threads and lets the running pass finish (a send included, bounded by the
+  Toolbox timeout).
 
 Network calls to external services (OpenAI S5, Toolbox S6) never run inside a database transaction: the request
 commits first, the call runs, then a new unit of work re-checks the rules before writing.

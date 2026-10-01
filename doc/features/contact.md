@@ -3,7 +3,9 @@
 Contact port, Slice S3 (handoff Tasks 09, 11, 12; decisions H-14 … H-29 of
 `tasks/viper_contact_pipeline_handoff/docs/01-decision-log.md`) for the API, Slice S4 (Tasks 08, 10, 13) for the page
 ([§ Contact page](#contact-page-ui-slice-s4)), Slice S5 (Task 14) for the AI drafting
-([§ AI drafting](#ai-drafting-s5--post-apiprospectsprospect_idmessagesstepgenerate)). States of a prospect and the next-action week are described in
+([§ AI drafting](#ai-drafting-s5--post-apiprospectsprospect_idmessagesstepgenerate)), Slice S6 (Task 15) for the
+Infomaniak drafts ([§ CIRCOE Toolbox](#circoe-toolbox-s6--infomaniak-drafts-of-validated-messages)) and Slice S7
+(Tasks 16-17) for the scheduled sending ([§ Scheduled sending](#scheduled-sending-s7)). States of a prospect and the next-action week are described in
 [`prospect-editor.md`](prospect-editor.md) (`PATCH /api/prospects/{id}/tracking`) and
 [`prospection-kpis.md`](prospection-kpis.md); the table is in
 [`../architecture/data-model.md`](../architecture/data-model.md#contact_messages).
@@ -111,7 +113,8 @@ draft|validated|scheduled --cancel--> cancelled --reopen--> draft (revision+1)
   time; it needs `from_email`, at least one `to`, a subject and a body (else 422 `message_incomplete` + `fields`).
 - **Schedule** (H-25): from `validated` only, an explicit ISO 8601 moment **with offset**, strictly in the future and
   at most one year ahead; no default time, unrelated to the next-action week (H-14). **Unschedule** keeps the validation.
-- **Sent** is immutable (H-21: service + database trigger). No route marks a message sent.
+- **Sent** is immutable (H-21: service + database trigger). Only the dispatcher sends (S7); the one route that marks
+  a message sent is `mark-sent`, for a send the dispatcher could not confirm (a person found it in the mailbox).
 - **Cancel** (a person, or decision 29 below) keeps the content; **reopen** brings a cancelled step back to `draft`.
 - **Optimistic concurrency**: every change of an existing message sends the `expected_revision` it read.
   `revision` changes with the content (and a reopening), never with validate/schedule/unschedule/cancel.
@@ -139,13 +142,17 @@ draft|validated|scheduled --cancel--> cancelled --reopen--> draft (revision+1)
 | POST | `…/messages/{step}/reopen` | `{"expected_revision": 1}` | `MessageResult` |
 | POST | `…/messages/{step}/generate` | `{"expected_revision"?: 1, "instruction"?: "…", "replace"?: true}` | 201 (created) / 200 `GenerationResult` — see *AI drafting (S5)* |
 | POST | `…/messages/{step}/remote-draft` | `{"expected_revision": 1}` | `RemoteDraftResult` — « Réessayer » the Infomaniak draft (S6) |
+| POST | `…/messages/{step}/mark-sent` | `{"expected_revision": 1}` | `MessageResult` — « Marquer envoyé » an unconfirmed send (S7) |
+| POST | `…/messages/{step}/release` | `{"expected_revision": 1}` | `MessageResult` — « Remettre en Validé » an unconfirmed send (S7) |
 
 `MessagesOut`:
 
 ```json
 {
   "sequence": {"prospect_id": "…", "state": "contacted", "do_not_contact": false, "closed": false},
-  "defaults": {"from_email": "prospection@exemple.example", "to": ["jean.test@exemple.example"], "generation_available": true, "toolbox_connected": false},
+  "defaults": {"from_email": "prospection@exemple.example", "to": ["jean.test@exemple.example"], "generation_available": true,
+               "toolbox_connected": false, "toolbox_state": "disabled", "automatic_sending_active": false,
+               "dispatch_max_lateness_minutes": 360, "dispatch_claim_ttl_seconds": 600},
   "steps": [{"step": "contact", "message": null}, {"step": "r1", "message": null}, {"step": "r2", "message": null}]
 }
 ```
@@ -153,7 +160,9 @@ draft|validated|scheduled --cancel--> cancelled --reopen--> draft (revision+1)
 `defaults.from_email` = `VIPER_DEFAULT_OUTBOUND_EMAIL` (null when unset), `defaults.to` = the primary e-mail,
 `defaults.generation_available` = the AI drafting is configured (`VIPER_OPENAI_API_KEY` and `VIPER_OPENAI_MODEL`),
 `defaults.toolbox_connected` = the CIRCOE Toolbox is enabled, configured and connected (S6), `defaults.toolbox_state`
-= its state (`disabled`, `not_configured`, `disconnected`, `connected`, `expired`).
+= its state (`disabled`, `not_configured`, `disconnected`, `connected`, `expired`), `defaults.automatic_sending_active`
+= a scheduled message really leaves (S7: the dispatcher runs in this API process and the Toolbox is connected), with
+`dispatch_max_lateness_minutes` and `dispatch_claim_ttl_seconds`.
 
 `MessageContentIn` (unknown fields refused): `expected_revision` (omitted/null = create the step's message; else the
 revision read), `from_email` (null clears it), `subject` (≤ 998), `body_text` (≤ 100 000), `to`, `cc`, `bcc` (lists of
@@ -167,8 +176,9 @@ injection); the body is free text. An omitted field keeps its value — or, on c
 `Message`: `id`, `prospect_id`, `step`, `status`, `from_email`, `to`, `cc`, `bcc`, `subject`, `body_text`,
 `revision`, `validated_revision`, `validated_at`, `validated_by` (display name), `scheduled_at`, `sent_at`,
 `cancelled_at`, `cancel_reason` (`manual` | `prospect_state:<state>` | `do_not_contact`), `generation_model`,
-`generation_prompt_version`, `generated_at` (S5), `has_remote_draft` (S6), `last_error_code`, `last_error_at` (S6: a
-`toolbox_*` code when the Infomaniak draft of the validated revision could not be created; S7: dispatch codes),
+`generation_prompt_version`, `generated_at` (S5), `has_remote_draft` (S6), `dispatch_claimed_at`, `dispatch_attempts`
+(S7), `last_error_code`, `last_error_at` (S6: a `toolbox_*` code when the Infomaniak draft of the validated revision
+could not be created; S7: the `send_*` / `dispatch_*` codes of [§ Scheduled sending](#scheduled-sending-s7)),
 `created_at`, `updated_at`.
 
 ### Refusal codes
@@ -183,6 +193,7 @@ injection); the body is free text. An omitted field keeps its value — or, on c
 | 409 | `message_cancelled` | edit of a cancelled message (reopen it first) | |
 | 409 | `invalid_transition` | action not allowed from the current status | `status` |
 | 409 | `dispatch_in_progress` | message claimed by the dispatcher (S7) | |
+| 409 | `dispatch_not_unconfirmed` | `mark-sent` / `release` of a message whose send is not unconfirmed (not claimed, or still running) | |
 | 409 | `prospect_do_not_contact` | write on a do-not-contact prospect | |
 | 409 | `prospect_sequence_closed` | write after `response_received` / `appointment_obtained` / `ignored` | |
 | 422 | `message_incomplete` | validate without from/to/subject/body | `fields`: `from_email`, `to`, `subject`, `body_text` |
@@ -376,8 +387,130 @@ Codes (`ToolboxError`, with `retryable` and `outcome_unknown`):
   *À reconnecter*).
 - One server-side connection for the whole VIPER (whoever connected it).
 - No remote revocation: « Oublier » deletes the token on VIPER's side only; it expires by itself.
-- No Message-ID from `send_draft` (S7).
+- No Message-ID from `send_draft`: `remote_message_id` stays null; a send is proven by the Toolbox's answer (or, when
+  it is lost, by the draft leaving the mailbox).
 - The Toolbox names no mailbox in its answers: `account_label` stays null.
+
+## Scheduled sending (S7)
+
+Port of the reference `src/server/contactMessageDispatcher.ts` (handoff Task 16, decisions 10, 21-25, 29; decision
+log C-24 … C-27). VIPER owns the schedule (`scheduled_at`, chosen by a person, decision 25); the dispatcher calls the
+Toolbox's `infomaniak.mail.send_draft` on the message's Infomaniak draft once it is due. **Only the message's status
+changes** (`scheduled` → `sent`, or back to `validated` for a person to review): the prospect's state never moves, the
+cadence stays a suggestion (H-10, H-11) — after a send, a person chooses *Contacté* (or R1, R2) and applies the
+suggested week if they want it.
+
+| Module | Role |
+|---|---|
+| `app/services/contact_dispatch.py` | `Dispatcher.run_pass` (one pass), the codes, `mark_sent` / `release` (a person settles), `hold_scheduled` (post-restore safeguard), `dispatch_counts` |
+| `app/services/contact_dispatch_worker.py` | `ContactDispatcher`: the daemon thread of the API process, one pass at a time, `status()` |
+| `app/main.py` | started by the lifespan when the Toolbox is enabled and configured and `VIPER_CONTACT_DISPATCH_INTERVAL_MS` > 0; stopped gracefully (the running pass finishes) |
+| `app/cli.py` | `python -m app.cli contact-dispatch --once` (one pass, prints its counts; exit 1 without a usable Toolbox) and `--hold-scheduled` |
+
+### One pass
+
+A pass does nothing while the Toolbox is disabled, not configured or not connected (no message is touched: no
+overdue processing either — a reconnection then applies the lateness rule).
+
+1. **Stale claims** — `scheduled` messages whose `dispatch_claim_id` is older than the claim TTL and not being sent by
+   this process (killed process, unknown outcome, `sent` not recorded): one `list_drafts` (100) decides, never a blind
+   resend.
+   - the draft is gone and the listing is complete (< 100) → `sent`, `last_error_code = send_reconciled_draft_absent`
+     (« envoyé (déduit) »);
+   - the draft is still in the mailbox → the send did not happen: the claim is released for a **new attempt**
+     (`send_not_confirmed`, backoff; back to Validé once `max_attempts` are spent; the lateness rule still bounds it).
+     *Deviation from the reference* (which sent it back to Validé): an Infomaniak draft that is still there after the
+     TTL was not sent — `send_draft` consumes it (C-25);
+   - the listing is full (truncated) or unreadable, or the message holds no draft id → the claim stays
+     (`send_reconcile_inconclusive`), retried at every pass; a person can settle it.
+2. **Due messages** (`scheduled`, `scheduled_at` ≤ now, unclaimed; oldest first, Contact before R1 before R2 at the
+   same moment; 100 per pass). For each, under its row lock (`SKIP LOCKED`: a person writing it meanwhile wins, next
+   pass):
+   - **closed sequence** (`response_received`, `appointment_obtained`, `ignored`, `do_not_contact`) → decision 29:
+     the prospect's unsent, unclaimed messages are cancelled (`prospect_state:<state>` / `do_not_contact`), nothing
+     leaves;
+   - **too late** (`now - scheduled_at` > max lateness, 6 h) → back to Validé, `dispatch_overdue`: never a late send;
+   - **backoff** after a failed attempt (`retry_base` × 2^(attempts-1), ≤ 1 h) → next pass;
+   - **recipients**: no `To` → `send_missing_recipients`; a `To`/`Cc`/`Cci` outside `VIPER_INFOMANIAK_SEND_ALLOWLIST`
+     (when set) → `send_recipient_not_allowed`; both back to Validé;
+   - **step order** (C-24): R1 (R2) never leaves while the Contact (R1) message of the same prospect is prepared but
+     unsent: it **waits** while that one is scheduled at or before it (it leaves first — or its own outcome decides),
+     and goes back to Validé with `send_previous_step_pending` when the previous one is a draft, validated, or
+     scheduled later. An absent or cancelled previous message does not block (a first contact made outside VIPER, e.g.
+     an imported « Contacté »);
+   - **no Infomaniak draft** (validated while the Toolbox was off, creation failed) → created now
+     (`sync_remote_draft`, with S6's `list_drafts` recovery after a `toolbox_outcome_unknown`); a failure counts an
+     attempt and keeps its `toolbox_*` code (retry), or goes back to Validé with `send_draft_not_created` when
+     definitive or the attempts are spent;
+   - **claim**: one short transaction, the row locked, every condition checked again (still `scheduled`, due,
+     unclaimed, the validation is the current revision, a draft attached, recipients), the prospect's state and
+     opposition **re-read under share locks** (a concurrent state change waits for the claim, then finds the message
+     in flight — `in_flight_messages`); `dispatch_claim_id` (new UUID), `dispatch_claimed_at`, `dispatch_attempts` + 1,
+     audited `contact_message.dispatch_claimed`, committed;
+   - **`send_draft`** outside any transaction;
+   - **success** → `sent`, `sent_at`, `remote_message_id` null (the Toolbox returns none), audited
+     `contact_message.sent` (reason `confirmed`). If `sent` cannot be recorded (database down), the claim stays and the
+     reconciliation concludes from the draft's absence;
+   - **certain failure** (refused before anything left): transient (`toolbox_unavailable`, `toolbox_timeout` at
+     `initialize`, `toolbox_not_connected`, `toolbox_auth_expired`, `toolbox_not_configured`) → claim released,
+     `send_<code>`, retry after the backoff, at most `max_attempts`; definitive (`toolbox_rejected`,
+     `toolbox_outbound_blocked`, `toolbox_invalid_input`, `toolbox_draft_not_found` — the draft id is then dropped) or
+     attempts spent → back to Validé with the code. Then, if the sequence closed during the call, the message is
+     cancelled (the state change had left it to the dispatcher);
+   - **unknown outcome** (timeout or 5xx during `send_draft`, unreadable answer, MCP error, unexpected exception) → the
+     claim is **kept**, `send_outcome_unknown`: never resent; reconciled after the TTL, or settled by a person.
+
+**Exactly once.** A `send_draft` needs a claim won under the row lock with every condition re-checked — two passes,
+threads or processes never both claim (tested with two database sessions); a claim is released for a new attempt
+only after a *certain* failure or a reconciliation that still sees the draft; `sent` is immutable (trigger
+`reject_sent_change`). Only a validated message of the **current** revision is ever sent: an edit puts it back to
+draft and detaches (queues for deletion) its draft, so the old revision's draft can never be the one sent.
+
+### A person settles an unconfirmed send
+
+An unconfirmed send = claimed with `send_outcome_unknown` / `send_reconcile_inconclusive`, or a claim older than the
+TTL (its process died). A send still running is never settled (409 `dispatch_not_unconfirmed`).
+
+| Route | Effect |
+|---|---|
+| `POST …/messages/{step}/mark-sent` `{expected_revision}` | *Marquer envoyé* — the person found the mail in the mailbox's sent items: `sent`, `send_marked_by_person`, audited `contact_message.sent` (reason `person`) |
+| `POST …/messages/{step}/release` `{expected_revision}` | *Remettre en Validé* — the person checked it did not leave: `validated` (validation and Infomaniak draft kept, no send moment), `send_released_by_person`, audited `contact_message.dispatch_released`; cancelled at once if the sequence has closed |
+
+Both: a person only (403 `human_actor_required`), 404 `not_found` / `message_not_found`, 409 `revision_conflict`,
+`invalid_transition` (not scheduled), `dispatch_not_unconfirmed`.
+
+### Codes (`last_error_code`) and what the editor says
+
+| Code | Where | Meaning |
+|---|---|---|
+| `send_unavailable`, `send_timeout`, `send_not_connected`, `send_auth_expired`, `send_not_configured` | scheduled (retry) / validated (attempts spent) | certain transient refusal of `send_draft` |
+| `send_rejected`, `send_outbound_blocked`, `send_invalid_input`, `send_draft_not_found` | validated | definitive refusal |
+| `send_outcome_unknown`, `send_reconcile_inconclusive` | scheduled, claimed | unconfirmed: locked, never resent |
+| `send_not_confirmed` | scheduled (retry) / validated | reconciliation found the draft still there |
+| `send_reconciled_draft_absent` | sent | « envoyé (déduit) » |
+| `send_marked_by_person` / `send_released_by_person` | sent / validated | a person settled it |
+| `dispatch_overdue` | validated | more late than the max lateness, not sent |
+| `send_missing_recipients`, `send_recipient_not_allowed`, `send_previous_step_pending`, `send_draft_not_created` | validated | refused before any send |
+| `dispatch_held` | validated | scheduling withdrawn by `contact-dispatch --hold-scheduled` (after a restore) |
+| `dispatch_internal_error` | (log only, as the unknown outcome) | unexpected exception during the send |
+
+`toolbox_*` codes stay the Infomaniak draft's (S6, `remoteDraftLine`); the UI never reads a `send_*` code as a
+draft failure. A new schedule or an edit clears the code and the attempts.
+
+### Read model
+
+`MessagesOut.defaults` adds `automatic_sending_active` (the dispatcher runs in this process **and** the Toolbox is
+connected: a scheduled message really leaves), `dispatch_max_lateness_minutes` and `dispatch_claim_ttl_seconds`.
+`Message` adds `dispatch_claimed_at` and `dispatch_attempts`. Settings › Connexions shows the dispatcher's state, last
+pass and counts (`GET /api/settings/toolbox` → `dispatch`, [`settings-connections.md`](settings-connections.md)).
+
+### Restore safeguard (handoff FINAL_REPORT recommendation 4)
+
+VIPER has no restore command: backups are `pg_dump` (runbook). A backup taken before a send restores the message as
+« Programmé »; started as is, the dispatcher would send it again (within the 6 h lateness window). The runbook
+requires `python -m app.cli contact-dispatch --hold-scheduled` before starting the API on a restored database: every
+scheduled, unclaimed message goes back to Validé (`dispatch_held`, audited `contact_message.unscheduled` by the CLI
+actor); claimed ones are counted for a person to settle.
 
 ## Audit and privacy
 
@@ -386,7 +519,11 @@ Each message change is one audit event on the message, in the prospect's history
 `.unscheduled`, `.cancelled` (context `reason`: `manual`, `prospect_state:<state>` or `do_not_contact`), `.reopened`,
 `.generated` (an AI draft, S5 — history title *Brouillon rédigé par l’IA*; the model and prompt version are in the
 changes, the subject and body masked like any content), `.remote_draft_created` / `.remote_draft_failed` (S6, the
-Infomaniak draft of the validated revision; the failure's `toolbox_*` code in `context.reason`). Connecting and
+Infomaniak draft of the validated revision; the failure's `toolbox_*` code in `context.reason`),
+`.dispatch_claimed` / `.sent` (reason `confirmed`, `reconciled` or `person`) / `.dispatch_failed` (the code in the
+reason) / `.dispatch_released` (S7; history titles *Envoi lancé*, *Message envoyé*, *Envoi non effectué*, *Envoi non
+confirmé, remis en Validé*). The dispatcher writes as the system actor `contact-dispatcher` (« Envoi programmé
+VIPER ») with `context.source = dispatcher` (history: *Système · Envoi programmé*). Connecting and
 forgetting the Toolbox are `toolbox.connected` / `toolbox.forgotten` (entity `toolbox_connection`, no token). The
 cleanup queue is a technical table outside the audit (ids and codes only), read-only in the Database Explorer.
 The content
@@ -424,6 +561,17 @@ CIRCOE Toolbox (S6), all optional — see [`settings-connections.md`](settings-c
 | `VIPER_INFOMANIAK_SEND_ALLOWLIST` | unset | VIPER-side recipient allowlist of the scheduled send (S7): addresses or `@domain`, comma-separated; parsed and validated at startup now (`Settings.send_allowlist`, `allowlist_permits`). |
 
 A malformed URL or allowlist is a startup error; an unset URL while enabled is the *non configurée* state.
+
+Scheduled sending (S7), names and defaults of the reference (`CONTACT_DISPATCH_*`):
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `VIPER_CONTACT_DISPATCH_INTERVAL_MS` | `30000` | Dispatcher period in the API process; `0` = no worker (CLI only). `1`-`499` refused at startup. Runs only when the Toolbox is enabled and configured; sends only while it is connected. |
+| `VIPER_CONTACT_DISPATCH_MAX_LATENESS_MS` | `21600000` (6 h) | Beyond this lateness a message goes back to Validé (`dispatch_overdue`). 1 min – 7 days. |
+| `VIPER_CONTACT_DISPATCH_CLAIM_TTL_MS` | `600000` (10 min) | Age after which a claim nobody finished is reconciled / settleable; never less than 2 × `VIPER_TOOLBOX_TIMEOUT_MS`. |
+| `VIPER_CONTACT_DISPATCH_MAX_ATTEMPTS` | `5` | Attempts (claims and draft creations) of one schedule before going back to Validé. 1-20. |
+| `VIPER_CONTACT_DISPATCH_RETRY_BASE_MS` | `60000` | Backoff base (× 2^(n-1), at most 1 h). |
+| `VIPER_INFOMANIAK_SEND_ALLOWLIST` | unset | Enforced by the dispatcher: every `To`/`Cc`/`Cci` must match an address or `@domain` rule, else `send_recipient_not_allowed`. |
 
 ## Concurrency note
 
@@ -482,6 +630,7 @@ after a confirmed action (the action's button is gone); a status sentence (*Vali
 | draft | *Enregistrer* (never validates) · *Valider…* (confirmation) · *Annuler le message…* |
 | validated | *Programmer l'envoi*: date **and** time fields (browser time, no default, the chosen day's UTC offset shown; kept per step across tab switches) → *Programmer…* (confirmation) · *Enregistrer* · *Annuler le message…* |
 | scheduled | *Déprogrammer* (keeps the validation) · *Enregistrer* · *Annuler le message…* |
+| scheduled, taken by the dispatcher (S7) | read-only, no action while it is being sent; *Marquer envoyé…* · *Remettre en Validé…* (confirmations) once unconfirmed |
 | sent | read-only, no action (*Message envoyé : il reste consultable…*) |
 | cancelled | read-only; *Rouvrir* (back to draft) while the sequence is open |
 
@@ -496,8 +645,27 @@ the others as one sentence; codes meaning « the server's message differs » (`r
 `message_not_found`) reload the sequence **and keep the unsaved text in the form**; after a revision conflict the
 message says the next save will replace the saved version and offers *Voir la version enregistrée* (drops the local
 text). FastAPI's own 422 (list `detail`: over 50 addresses, an address over 320 characters, a body over 100 000) reads
-*Un champ dépasse la taille autorisée…*; the fields carry the same limits (`maxLength`, local check of 50 addresses). The confirmation of a schedule
-says that automatic sending is not active yet (S7).
+*Un champ dépasse la taille autorisée…*; the fields carry the same limits (`maxLength`, local check of 50 addresses).
+
+**Scheduled sending (S7)** (`dispatchState`, `dispatchLine`, `sendErrorLabel` in `mailModel.ts`). The schedule
+confirmation follows `defaults.automatic_sending_active`: active — *Le mail partira automatiquement à cette date
+depuis la boîte Infomaniak connectée à la Toolbox (le serveur VIPER doit être en marche).*, *S’il ne peut pas partir
+dans les 6 heures qui suivent, il ne part pas et revient à « Validé ».*, *Vous pourrez le déprogrammer jusqu’à
+l’envoi.*; inactive — *L’envoi automatique n’est pas actif sur ce serveur (Toolbox non connectée ou envoi programmé
+désactivé) : la date est enregistrée, mais aucun mail ne part…*. The status sentence of a scheduled message reads
+*Programmé : le mail partira automatiquement le … depuis la boîte Infomaniak connectée, déprogrammable jusqu’à
+l’envoi.* when active (and not yet taken by the dispatcher), else *Programmé pour le …* with a muted line *Envoi
+automatique inactif : la Toolbox n’est pas connectée (Paramètres › Connexions) / l’envoi programmé n’est pas actif sur
+ce serveur. La date est enregistrée, mais rien ne part tant que ce n’est pas le cas.* Under it, one dispatch line:
+*Envoi en cours par la Toolbox…* (spinner, the editor locked); a failed attempt *Dernière tentative d’envoi échouée :
+<raison>. Nouvel essai automatique.*; back to Validé *Envoi programmé non effectué : <raison>. Le message reste
+validé : reprogrammez-le pour réessayer.* (overdue, allowlist, previous step, Toolbox refusals…); sent *Envoi déduit :
+…* or *Envoi confirmé par une personne…*. An **unconfirmed** send shows a warning banner (*Envoi non confirmé : la
+Toolbox n’a pas donné de réponse sûre. VIPER ne le renverra jamais de lui-même…*) with **Marquer envoyé…** (primary)
+and **Remettre en Validé…**, each behind a confirmation (*Retour* focused; the release is the danger button and warns
+that rescheduling a mail that did leave sends it twice). While the server sends and a message is due within 2 minutes
+or claimed, the sequence is read again every 3 s (`dispatchWatchInterval`): *Envoyé* appears without a reload, and a
+status changed by the server refreshes the list's message chips, the counters and the history.
 
 **AI drafting (S5)** (`AiDraft.tsx`, rules in `aiDraftModel.ts`), in the action bar's left side
 (`.contact-mail__assist`): the secondary *Générer avec l’IA* (empty step) / *Régénérer avec l’IA* (a saved text) and
@@ -538,14 +706,28 @@ enregistrées* (*Rester sur ce prospect* / *Quitter sans enregistrer*); reload o
 the prospect's history; a prospect write (`useProspectMutations`, every path) also refreshes Contact (`contactKeys`)
 and Home.
 
-## Reste à faire (later Slices)
+## Limitations (end of the port, S7)
 
-- **S7 (dispatch, Toolbox side)**: `McpMailToolbox.send_draft` / `list_drafts` are ready (fake-tested) for the send
-  and the reconciliation; before `send_draft`, recreate a missing remote draft (`sync_remote_draft`) and check
-  `Settings.send_allowlist` (`allowlist_permits`); never replay a send whose `ToolboxError.outcome_unknown` is true;
-  the dispatcher writes its own `last_error_code` (`send_*`), which the UI must not read as a remote-draft failure
-  (only `toolbox_*` codes are). The schedule confirmation still says the automatic send is not active (S4 note).
-- **S7 (dispatch)**: inside the claim transaction, re-read the prospect state **and** `do_not_contact` and refuse to
-  send on a closed sequence; send `r1`/`r2` only once the previous step is `sent`; after a definitive failure, cancel
-  the message if the sequence closed meanwhile; reclaim stale claims after a TTL based on `dispatch_claimed_at`
-  (a stale claim may have sent: reconcile, never resend blindly); report the in-flight messages the UI was told about.
+All S3-S7 items are done; what remains is known and accepted for the pilot, or left to a later lot:
+
+- **Never exercised for real**: OpenAI, the CIRCOE Toolbox and Infomaniak were only reached through local fakes (P6).
+  The first real calls follow the runbook's step-by-step enabling (allowlist first).
+- **Sender**: the default mailbox of the Infomaniak account behind the Toolbox connection; VIPER's *De* is indicative.
+- **Toolbox connection**: one per server, 30 days, no refresh, no remote revocation. While it is not connected nothing
+  leaves, and a scheduled message more than 6 h late goes back to « Validé » (said in the editor).
+- **The draft is sent as it is in Infomaniak**: a change made in the webmail after the validation leaves with it
+  (VIPER cannot see it).
+- **Deduced send**: an unknown outcome whose draft has left the mailbox is « envoyé (déduit) »; a draft deleted by
+  hand in the webmail meanwhile would be counted sent (no double send, a missed one is possible). No Message-ID.
+- **More than 100 drafts in the mailbox** make a reconciliation inconclusive: the message stays locked until a person
+  settles it (*Marquer envoyé* / *Remettre en Validé*); *Envois non confirmés* in Settings counts them.
+- **A state change during the `send_draft` round trip** cannot stop that send: it is reported (`in_flight_messages`)
+  and the message is cancelled afterwards only if the send failed.
+- **Step order**: R1/R2 refuse to leave before a prepared previous step; an absent or cancelled previous step does not
+  block (a first contact made outside VIPER).
+- **Restore**: VIPER has no restore command; the runbook's `contact-dispatch --hold-scheduled` must run before starting
+  the API on a restored database.
+- **One API process**: the dispatcher and the cleanup worker are threads of it; a second API instance is safe (claims)
+  but doubles the passes. Polling of the editor (3 s) only while a send is imminent.
+- Out of scope (V1): automatic state transitions after a send, bounce or reply reading, Calendly, attachments,
+  signature/unsubscribe text (no model validated).

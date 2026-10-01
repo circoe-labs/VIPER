@@ -225,6 +225,19 @@
   `e2e/fake-toolbox.ts` started as a Playwright web server: the real
   browser redirect flow, the draft created at validation, deleted by the worker after a cancellation, a failure
   said then retried, « Oublier la connexion »; screenshots of Settings › Connexions and the editor.
+- Scheduled sending (Contact port S7): `test_contact_dispatch.py` drives `Dispatcher.run_pass` against the fake
+  Toolbox with an injected clock — due / not due, lateness, step order (C-24), closed sequence and opposition, the
+  allowlist, transient retries with backoff and attempts, definitive refusals, a missing or lost remote draft, an
+  edit after scheduling, unknown outcomes and their reconciliation (gone ⇒ sent deduced, present ⇒ retried, truncated
+  ⇒ locked), the people's settlement routes, the CLI, the worker, and **two passes in two database sessions**
+  (a committed fixture, cleaned up afterwards: another session's row lock is skipped; a pass started while another
+  is sending sends nothing). The shared `fake`, `toolbox_app` and `connected` fixtures live in `tests/conftest.py`.
+  Front: `mailModel.test.ts` (dispatch state, lines, wording, polling), the S7 block of `Workbench.test.tsx`, the
+  dispatch facts of `ConnectionsSection.test.tsx`. E2E `e2e/contact-flow.spec.ts` (project `contact-flow`, after
+  `toolbox`): the full operator scenario — import, plan the week in Prospection, connect, AI draft, edit, validate,
+  schedule, sent by the API's dispatcher (1 s period in the E2E stack), *Contacté* + cadence, R1, *Réponse reçue*
+  cancelling R1 and deleting its draft — then an unknown send outcome (the fake sends then answers 502, its listing
+  fails) settled with *Marquer envoyé*; screenshots of the sent and unconfirmed states and of Settings.
 - Privacy: `scripts/check_private_data.py` in CI; synthetic fixtures only under `*/tests/fixtures/synthetic/`.
 - Commands: `doc/process/runbook-local-dev.md`.
 
