@@ -120,9 +120,9 @@ I-135).
 
 Cost: **11 queries** whatever the base size (segments aggregate, companies, monthly progress — one pass over the sends
 and the status history for the contacts, one over the history for the appointments, inside `whole_base_plan` —, the
-week's Contact planning (inside `whole_base_plan`), 3 action
-groups with `count(*) OVER ()`, imports, audit events, current names of the edited prospects/companies), plus the 6
-planner-setting statements of `whole_base_plan` (below).
+week's Contact planning (inside `whole_base_plan`), 3 action groups with `count(*) OVER ()`, imports, audit events,
+current names of the edited prospects/companies), plus the 8 planner-setting statements of the four `whole_base_plan`
+blocks (below).
 
 ## Performance
 
@@ -182,7 +182,8 @@ the base and the contact activity. Styles: `frontend/src/home/home.css` (see the
   history from the real tracking service; next actions on the edge cases (DNC and inactive
   excluded) and ordering / limit / window bounds; recent edits grouping and summaries, import writes excluded, no
   e-mail, reason or other company name in the output, deleted subject; latest imports; 11 queries for 3 and 60
-  prospects (the formatter's summaries need no query), the segments and the action groups inside `whole_base_plan`. `tests/test_history.py`: an agent's save on Home.
+  prospects (the formatter's summaries need no query), the segments, the months, the week's planning and the action
+  groups inside `whole_base_plan`. `tests/test_history.py`: an agent's save on Home.
   `tests/test_home_api.py`: 401, GET only, contract and counts == `/api/prospection/counters`, targets from settings,
   no raw payload, staged Database Explorer stage changes (into `contacted`, into `appointment_obtained` after an
   imported contact) counted in the current month as human history rows. `tests/test_prospection_performance.py`: Home on
