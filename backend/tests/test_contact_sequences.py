@@ -22,7 +22,6 @@ from app.models import (
 from app.models.enums import (
     ContactabilityStatus,
     ContactMessageStatus,
-    ContactMessageStep,
     ContactTrackingStatus,
     QualityAlertSource,
     QualityAlertType,
@@ -172,7 +171,7 @@ def test_changing_the_cohort_opens_a_new_sequence_and_keeps_the_history(
         db_session, OPERATOR, prospect.id, sent_at=datetime(2026, 9, 28, 9, tzinfo=UTC)
     )
     draft = contact_messages.save_message(
-        db_session, OPERATOR, prospect.id, ContactMessageStep.R1, MessageEdit(subject="R1")
+        db_session, OPERATOR, prospect.id, 1, MessageEdit(subject="R1")
     ).message
     s41 = add_cohort(db_session, "S41", date(2026, 10, 5))
     before = prospect_sequence(db_session, prospect.id)

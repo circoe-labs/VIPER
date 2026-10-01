@@ -83,16 +83,6 @@ class TrackingHistoryStatus(StrEnum):
     LEGACY_NOT_INTERESTED = "not_interested"
 
 
-class ContactMessageStep(StrEnum):
-    """The steps the message editor addresses by name (Contact, R1, R2): rank 0, 1, 2 of the
-    current sequence. Messages are stored by rank (0..n, decision D6); S3 opens the ranks beyond
-    R2 to the editor."""
-
-    CONTACT = "contact"
-    R1 = "r1"
-    R2 = "r2"
-
-
 class SequenceEndReason(StrEnum):
     """Why a contact sequence was closed (decision D6). History is kept either way."""
 

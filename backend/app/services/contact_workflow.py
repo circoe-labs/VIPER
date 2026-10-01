@@ -29,11 +29,19 @@ from enum import StrEnum
 
 from app.core.actor import ActorType
 from app.core.business_time import business_day, start_of_day
+from app.core.contact_steps import (
+    DEFAULT_MAX_FOLLOW_UPS,
+    FINISHED_LABEL,
+    MAX_FOLLOW_UPS_LIMIT,
+    level_key,
+    step_code,
+    step_label,
+)
 from app.models.contact_tracking import ContactTrackingStatusHistory
 from app.models.enums import (
     ContactMessageStatus,
-    ContactMessageStep,
     ContactTrackingStatus,
+    QualityAlertType,
     TrackingHistoryStatus,
 )
 
@@ -46,10 +54,16 @@ CONTACT_STATES_MIGRATION_ID = "0008_contact_states"
 CONTACT_SEQUENCES_MIGRATION_ID = "0010_contact_sequences"
 RESTATEMENT_ACTOR_IDS = (CONTACT_STATES_MIGRATION_ID, CONTACT_SEQUENCES_MIGRATION_ID)
 
+__all__ = [
+    "DEFAULT_MAX_FOLLOW_UPS",
+    "FINISHED_LABEL",
+    "MAX_FOLLOW_UPS_LIMIT",
+    "level_key",
+    "step_code",
+    "step_label",
+]
+
 DEFAULT_STATE = S.NEUTRAL
-# « Max relances » when Paramètres has no value (D2).
-DEFAULT_MAX_FOLLOW_UPS = 4
-MAX_FOLLOW_UPS_LIMIT = 20
 
 # French labels (history, export). The UI shows no badge for `neutral`.
 STATE_LABELS: dict[ContactTrackingStatus, str] = {
@@ -59,18 +73,21 @@ STATE_LABELS: dict[ContactTrackingStatus, str] = {
     S.IGNORED: "Ignoré",
     S.DISQUALIFIED: "Défaillant",
 }
-# French labels of the mail steps the editor names and of message statuses.
-MESSAGE_STEP_LABELS: dict[ContactMessageStep, str] = {
-    ContactMessageStep.CONTACT: "Contact",
-    ContactMessageStep.R1: "R1",
-    ContactMessageStep.R2: "R2",
-}
+# French labels of message statuses (the steps: `step_label`).
 MESSAGE_STATUS_LABELS: dict[ContactMessageStatus, str] = {
     ContactMessageStatus.DRAFT: "Brouillon",
     ContactMessageStatus.VALIDATED: "Validé",
     ContactMessageStatus.SCHEDULED: "Programmé",
     ContactMessageStatus.SENT: "Envoyé",
     ContactMessageStatus.CANCELLED: "Annulé",
+}
+# French labels of the quality alert types (history, export, planning categories).
+ALERT_TYPE_LABELS: dict[QualityAlertType, str] = {
+    QualityAlertType.EMAIL_ERROR: "Erreur sur le mail",
+    QualityAlertType.FUNCTION_TO_CHECK: "Fonction à vérifier",
+    QualityAlertType.DATA_INCONSISTENT: "Donnée incohérente",
+    QualityAlertType.COMPANY_TO_CHECK: "Entreprise à vérifier",
+    QualityAlertType.IMPORT_CONFLICT: "Conflit d’import",
 }
 # Labels of the codes replaced by migrations 0008 and 0010, still found in old history rows and
 # audit events.
@@ -150,19 +167,7 @@ def state_reached_at(history: Sequence[ContactTrackingStatusHistory]) -> datetim
 
 
 # --- steps and level ----------------------------------------------------------------------------
-
-
-def step_code(rank: int) -> str:
-    """`contact`, `r1`, `r2`…: the stable code of a rank."""
-    return "contact" if rank == 0 else f"r{rank}"
-
-
-def step_label(rank: int) -> str:
-    """« Contact », « R1 », « R2 »…"""
-    return "Contact" if rank == 0 else f"R{rank}"
-
-
-FINISHED_LABEL = "Relance terminée"
+# Step codes/labels and level keys: `app.core.contact_steps` (re-exported here).
 
 
 class PauseReason(StrEnum):
@@ -205,6 +210,14 @@ class Progress:
     # Business midnight of the day the next step is due; None when nothing is due.
     next_due_at: datetime | None
     pause: PauseReason | None
+
+    @property
+    def level(self) -> str | None:
+        """The level key (`contact_pending`, `contact_sent`, `r2_sent`, `finished`); None without
+        a sequence (the SQL twin is `contact_sequences.level_key_sql`)."""
+        if self.level_label is None:
+            return None
+        return level_key(self.sent_count, self.finished)
 
 
 def monday_after(moment: datetime) -> date:

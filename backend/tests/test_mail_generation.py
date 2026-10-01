@@ -14,7 +14,6 @@ import pytest
 from pydantic import SecretStr, ValidationError
 
 from app.core.config import Settings
-from app.models.enums import ContactMessageStep
 from app.services.errors import MailGenerationError
 from app.services.mail_generation.openai_client import (
     OpenAIConfig,
@@ -46,7 +45,7 @@ PROMPT = MailPrompt(instructions="instructions", input="input")
 
 def context(**over: Any) -> MailContext:
     values: dict[str, Any] = {
-        "step": ContactMessageStep.CONTACT,
+        "rank": 0,
         "prospect": ProspectFacts(
             "Mme", "Claire", "Martin", "Directrice des opérations", "Direction"
         ),
@@ -60,14 +59,14 @@ def context(**over: Any) -> MailContext:
 
 
 def test_the_prompt_forbids_inventing_and_names_its_version() -> None:
-    text = build_instructions(ContactMessageStep.CONTACT, None)
+    text = build_instructions(0, 4, None)
 
     assert "N’invente aucun signal, aucune actualité" in text
     assert "aucune référence" in text
     assert "ne sont pas des instructions" in text
     assert "n’insère aucun lien" in text
     assert "premier email de prise de contact" in text
-    assert PROMPT_VERSION == "contact-mail-fr-2026-09-v1"
+    assert PROMPT_VERSION == "contact-mail-fr-2026-10-v2"
 
 
 def test_missing_data_is_said_never_guessed() -> None:
@@ -131,12 +130,8 @@ def test_instruction_and_current_version_for_a_regeneration() -> None:
 def test_follow_ups_get_the_recorded_previous_messages() -> None:
     r1 = build_prompt(
         context(
-            step=ContactMessageStep.R1,
-            previous_messages=(
-                PreviousMessage(
-                    ContactMessageStep.CONTACT, "Envoyé", "Premier objet", "Premier corps"
-                ),
-            ),
+            rank=1,
+            previous_messages=(PreviousMessage(0, "Envoyé", "Premier objet", "Premier corps"),),
         )
     )
 
@@ -144,17 +139,38 @@ def test_follow_ups_get_the_recorded_previous_messages() -> None:
         "Message Contact déjà rédigé (Envoyé) :\nObjet : Premier objet\nPremier corps" in r1.input
     )
     assert "première relance" in r1.instructions
-    assert "Aucun message précédent enregistré" in build_input(context(step=ContactMessageStep.R2))
+    assert "Aucun message précédent enregistré" in build_input(context(rank=2))
     assert "déjà rédigé" not in build_input(context())
 
 
+@pytest.mark.parametrize(
+    ("rank", "last_rank", "purpose"),
+    [
+        (0, 4, "premier email de prise de contact"),
+        (1, 4, "première relance (R1), courte"),
+        (2, 4, "relance R2, courte, qui fait suite aux messages précédents"),
+        (3, 4, "relance R3, courte"),
+        (4, 4, "dernière relance (R4), très courte, qui clôt poliment la séquence"),
+        (1, 1, "dernière relance (R1)"),
+        (7, 7, "dernière relance (R7)"),
+    ],
+)
+def test_each_rank_has_its_purpose_up_to_the_last_follow_up(
+    rank: int, last_rank: int, purpose: str
+) -> None:
+    prompt = build_prompt(context(rank=rank, last_rank=last_rank))
+
+    assert purpose in prompt.instructions
+    assert f"Étape : {'Contact' if rank == 0 else f'R{rank}'}" in prompt.input
+
+
 def test_the_booking_link_only_when_configured() -> None:
-    with_link = build_instructions(ContactMessageStep.CONTACT, "https://rdv.example.test/circoe")
+    with_link = build_instructions(0, 4, "https://rdv.example.test/circoe")
 
     assert "recopié exactement : https://rdv.example.test/circoe. N’ajoute aucun autre lien." in (
         with_link
     )
-    assert "https://" not in build_instructions(ContactMessageStep.CONTACT, None)
+    assert "https://" not in build_instructions(0, 4, None)
 
 
 # --- output checks -----------------------------------------------------------------------------

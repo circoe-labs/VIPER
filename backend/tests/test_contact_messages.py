@@ -15,7 +15,6 @@ from app.core.actor import ActorContext, ActorType
 from app.models import ContactMessage, ContactTracking, Prospect
 from app.models.enums import (
     ContactMessageStatus,
-    ContactMessageStep,
     ContactTrackingStatus,
     SendSource,
 )
@@ -44,7 +43,7 @@ from tests.builders import (
 
 M = ContactMessageStatus
 S = ContactTrackingStatus
-STEP = ContactMessageStep.CONTACT
+STEP = 0
 SENDER = "prospection@exemple.example"
 LATER = datetime.now(UTC) + timedelta(days=3)
 COMPLETE = MessageEdit(
@@ -76,7 +75,7 @@ def code_of(error: pytest.ExceptionInfo[ContactMessageError]) -> str:
     return error.value.code
 
 
-def create(session: Session, prospect: Prospect, step: ContactMessageStep = STEP) -> ContactMessage:
+def create(session: Session, prospect: Prospect, step: int = STEP) -> ContactMessage:
     return service.save_message(session, OPERATOR, prospect.id, step, COMPLETE).message
 
 
@@ -111,7 +110,7 @@ def edit(session: Session, prospect: Prospect, message: ContactMessage) -> Messa
 
 
 def by_revision(
-    operation: Callable[[Session, ActorContext, uuid.UUID, ContactMessageStep, int], MessageResult],
+    operation: Callable[[Session, ActorContext, uuid.UUID, int, int], MessageResult],
 ) -> Action:
     def run(session: Session, prospect: Prospect, message: ContactMessage) -> MessageResult:
         return operation(session, OPERATOR, prospect.id, STEP, message.revision)
@@ -194,16 +193,18 @@ def test_a_new_message_takes_the_defaults_and_starts_as_a_draft(db_session: Sess
     assert "Objet" not in str(event.changes)
 
 
-def test_the_three_steps_are_independent_and_unique(db_session: Session) -> None:
+def test_the_steps_are_independent_and_unique(db_session: Session) -> None:
     prospect = prospect_with(db_session)
-    for step in ContactMessageStep:
+    for step in (0, 1, 2):
         create(db_session, prospect, step)
 
     read = service.prospect_messages(db_session, prospect.id, None)
-    assert [step for step, message in read.messages.items() if message] == list(ContactMessageStep)
+    assert [item.rank for item in read.messages if item.message] == [0, 1, 2]
+    # Every step up to R<max> is listed (4 by default), the empty ones without a message.
+    assert [item.step for item in read.messages] == ["contact", "r1", "r2", "r3", "r4"]
     # Saving without a revision again is a creation attempt: refused, the step exists.
     with pytest.raises(ContactMessageError) as refused:
-        service.save_message(db_session, OPERATOR, prospect.id, ContactMessageStep.R1, COMPLETE)
+        service.save_message(db_session, OPERATOR, prospect.id, 1, COMPLETE)
     assert code_of(refused) == "message_exists"
     sequence_id = read.context.sequence_id
     assert sequence_id is not None
@@ -382,7 +383,7 @@ def test_closing_the_sequence_by_hand_keeps_unscheduling_and_cancelling(
     db_session: Session,
 ) -> None:
     prospect = prospect_with(db_session)
-    draft = create(db_session, prospect, ContactMessageStep.R1)
+    draft = create(db_session, prospect, 1)
     message = message_in(db_session, prospect, M.SCHEDULED)
     tracking = db_session.scalars(
         select(ContactTracking).where(ContactTracking.prospect_id == prospect.id)
@@ -417,7 +418,7 @@ def test_do_not_contact_cancels_the_unsent_messages_and_closes_the_sequence(
     [event] = audit_events(db_session, action="contact_message.cancelled")
     assert event.context["reason"] == "do_not_contact"
     with pytest.raises(ContactMessageError) as refused:
-        create(db_session, prospect, ContactMessageStep.R1)
+        create(db_session, prospect, 1)
     assert code_of(refused) == "prospect_do_not_contact"
     assert service.prospect_messages(db_session, prospect.id, None).context.closed
     # Idempotent: marking again finds nothing left to cancel.
@@ -431,7 +432,7 @@ def test_a_sequence_closing_state_cancels_the_unsent_messages(
 ) -> None:
     prospect = prospect_with(db_session)
     scheduled = message_in(db_session, prospect, M.SCHEDULED)
-    draft = create(db_session, prospect, ContactMessageStep.R1)
+    draft = create(db_session, prospect, 1)
 
     saved = apply_contact_tracking(db_session, OPERATOR, prospect.id, ContactTrackingInput(state))
 
@@ -448,14 +449,12 @@ def test_the_cancellation_spares_sent_cancelled_and_in_flight_messages(
 ) -> None:
     prospect = prospect_with(db_session)
     sent = message_in(db_session, prospect, M.SENT)
-    cancelled = create(db_session, prospect, ContactMessageStep.R1)
-    service.cancel(db_session, OPERATOR, prospect.id, ContactMessageStep.R1, 1)
-    claimed = create(db_session, prospect, ContactMessageStep.R2)
-    claimed = service.validate(
-        db_session, OPERATOR, prospect.id, ContactMessageStep.R2, claimed.revision
-    ).message
+    cancelled = create(db_session, prospect, 1)
+    service.cancel(db_session, OPERATOR, prospect.id, 1, 1)
+    claimed = create(db_session, prospect, 2)
+    claimed = service.validate(db_session, OPERATOR, prospect.id, 2, claimed.revision).message
     claimed = service.schedule(
-        db_session, OPERATOR, prospect.id, ContactMessageStep.R2, claimed.revision, LATER
+        db_session, OPERATOR, prospect.id, 2, claimed.revision, LATER
     ).message
     claimed.dispatch_claim_id = uuid.uuid4()
     claimed.dispatch_claimed_at = datetime.now(UTC)
@@ -471,7 +470,7 @@ def test_the_cancellation_spares_sent_cancelled_and_in_flight_messages(
         assert message.status is status
     # A claimed message is locked for people too.
     with pytest.raises(ContactMessageError) as refused:
-        service.cancel(db_session, OPERATOR, prospect.id, ContactMessageStep.R2, claimed.revision)
+        service.cancel(db_session, OPERATOR, prospect.id, 2, claimed.revision)
     assert code_of(refused) == "dispatch_in_progress"
 
 
@@ -480,12 +479,10 @@ def test_ignored_cancels_with_its_own_reason_and_counts_claimed_messages_once(
 ) -> None:
     prospect = prospect_with(db_session)
     draft = create(db_session, prospect)
-    claimed = create(db_session, prospect, ContactMessageStep.R1)
-    claimed = service.validate(
-        db_session, OPERATOR, prospect.id, ContactMessageStep.R1, claimed.revision
-    ).message
+    claimed = create(db_session, prospect, 1)
+    claimed = service.validate(db_session, OPERATOR, prospect.id, 1, claimed.revision).message
     claimed = service.schedule(
-        db_session, OPERATOR, prospect.id, ContactMessageStep.R1, claimed.revision, LATER
+        db_session, OPERATOR, prospect.id, 1, claimed.revision, LATER
     ).message
     claimed.dispatch_claim_id = uuid.uuid4()
     claimed.dispatch_claimed_at = datetime.now(UTC)
@@ -621,7 +618,7 @@ def test_without_an_open_sequence_no_message_is_possible(db_session: Session) ->
 
     read = service.prospect_messages(db_session, prospect.id, None)
     assert (read.context.sequence_id, read.context.closed) == (None, True)
-    assert all(message is None for message in read.messages.values())
+    assert all(item.message is None for item in read.messages)
     with pytest.raises(ContactMessageError) as refused:
         create(db_session, prospect)
     assert code_of(refused) == "no_open_sequence"
@@ -642,12 +639,12 @@ def test_s0_is_out_of_campaign(db_session: Session) -> None:
 def test_messages_belong_to_the_current_sequence_at_their_rank(db_session: Session) -> None:
     prospect = prospect_with(db_session)
     contact = create(db_session, prospect)
-    r2 = create(db_session, prospect, ContactMessageStep.R2)
+    r2 = create(db_session, prospect, 2)
 
     read = service.prospect_messages(db_session, prospect.id, None)
     assert (contact.rank, r2.rank) == (0, 2)
     assert contact.sequence_id == r2.sequence_id == read.context.sequence_id
-    assert (contact.step, r2.step) == (ContactMessageStep.CONTACT, ContactMessageStep.R2)
+    assert (contact.step, r2.step) == ("contact", "r2")
 
 
 def test_mark_sent_records_the_next_step_and_keeps_its_text(db_session: Session) -> None:
@@ -681,7 +678,7 @@ def test_mark_sent_without_a_message_creates_a_send_record(db_session: Session) 
 
     assert (first.created, first.message.rank, first.message.subject) == (True, 0, "")
     assert (second.created, second.message.rank) == (True, 1)
-    assert second.message.step is ContactMessageStep.R1
+    assert second.message.step == "r1"
 
 
 def test_mark_sent_refuses_a_future_or_out_of_order_moment(db_session: Session) -> None:

@@ -1,4 +1,5 @@
-"""The versioned prompt of the Contact / R1 / R2 drafting (handoff docs/07 « Entrées minimales »).
+"""The versioned prompt of the Contact / R1 … R<max> drafting (handoff docs/07 « Entrées
+minimales »).
 
 Pure module: it builds the system instructions and the user input from the given data only.
 Port of the reference `src/server/mailGenerationPrompt.ts`, same text: any change of the text or
@@ -8,20 +9,23 @@ of the data sent must bump `PROMPT_VERSION` (stored in
 Data sent (minimal, no contact details): civility / first name / last name, exact job title,
 role, company (name, website, size, segment, activity categories, the Circoe context already
 typed in VIPER: project done with Circoe, project type, Circoe references, client approach), the
-messages of the previous steps actually recorded (R1/R2, cancelled ones excluded), the step's
+messages of the previous steps actually recorded (follow-ups, cancelled ones excluded), the step's
 current version and the person's instruction (regeneration), the configured booking link.
 Never: e-mail addresses, phone numbers, postal addresses, SIREN/SIRET, the tracking history,
 internal notes.
+
+Steps are ranks (sequences rework S3): 0 = the Contact, n = the follow-up Rn up to R<max> (« max
+relances »). The purpose sentence depends on the rank: R1 « première relance », a middle
+follow-up « relance Rn », the last one (R<max>) « dernière relance » that closes the sequence.
 """
 
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
-from app.models.enums import ContactMessageStep
-from app.services.contact_workflow import MESSAGE_STEP_LABELS
+from app.core.contact_steps import CONTACT_RANK, step_label
 
-PROMPT_VERSION = "contact-mail-fr-2026-09-v1"
+PROMPT_VERSION = "contact-mail-fr-2026-10-v2"
 MAX_INSTRUCTION_LENGTH = 1000
 
 
@@ -49,7 +53,7 @@ class CompanyFacts:
 
 @dataclass(frozen=True, slots=True)
 class PreviousMessage:
-    step: ContactMessageStep
+    rank: int
     status_label: str
     subject: str
     body: str
@@ -63,10 +67,13 @@ class CurrentVersion:
 
 @dataclass(frozen=True, slots=True)
 class MailContext:
-    step: ContactMessageStep
+    # 0 = Contact, n = Rn.
+    rank: int
     prospect: ProspectFacts
     company: CompanyFacts
-    # The recorded messages of the earlier steps, in sequence order (R1/R2 only).
+    # The last follow-up of the sequence (« max relances »): R<last_rank> closes it.
+    last_rank: int = 2
+    # The recorded messages of the earlier steps, in sequence order (follow-ups only).
     previous_messages: Sequence[PreviousMessage] = field(default_factory=tuple)
     # The step's saved version (regeneration); None for a first generation.
     current_version: CurrentVersion | None = None
@@ -82,18 +89,30 @@ class MailPrompt:
     input: str
 
 
-STEP_PURPOSE = {
-    ContactMessageStep.CONTACT: (
-        "premier email de prise de contact (le prospect n’a encore reçu aucun message de "
-        "notre part)"
-    ),
-    ContactMessageStep.R1: (
-        "première relance (R1), courte, qui fait suite au premier email sans le répéter"
-    ),
-    ContactMessageStep.R2: (
-        "seconde et dernière relance (R2), très courte, qui clôt poliment la séquence sans insister"
-    ),
-}
+CONTACT_PURPOSE = (
+    "premier email de prise de contact (le prospect n’a encore reçu aucun message de notre part)"
+)
+FIRST_FOLLOW_UP_PURPOSE = (
+    "première relance (R1), courte, qui fait suite au premier email sans le répéter"
+)
+
+
+def step_purpose(rank: int, last_rank: int) -> str:
+    """What the mail of `rank` is for, given the sequence's last follow-up (« max relances »)."""
+    if rank == CONTACT_RANK:
+        return CONTACT_PURPOSE
+    if rank >= last_rank:
+        return (
+            f"dernière relance ({step_label(rank)}), très courte, qui clôt poliment la séquence "
+            "sans insister"
+        )
+    if rank == 1:
+        return FIRST_FOLLOW_UP_PURPOSE
+    return (
+        f"relance {step_label(rank)}, courte, qui fait suite aux messages précédents sans les "
+        "répéter ni insister davantage"
+    )
+
 
 _SPACES = re.compile(r"\s+")
 
@@ -106,7 +125,7 @@ def _block(value: str | None) -> str:
     return (value or "").replace("\r\n", "\n").strip()
 
 
-def build_instructions(step: ContactMessageStep, booking_url: str | None) -> str:
+def build_instructions(rank: int, last_rank: int, booking_url: str | None) -> str:
     booking = (
         "- Tu peux proposer un échange via ce lien de prise de rendez-vous, recopié exactement : "
         f"{booking_url}. N’ajoute aucun autre lien."
@@ -118,7 +137,7 @@ def build_instructions(step: ContactMessageStep, booking_url: str | None) -> str
         [
             "Tu rédiges, en français, un email de prospection B2B pour Circoe, intégrateur "
             "d’intelligence artificielle et d’agents spécialisés.",
-            f"Message à rédiger : {STEP_PURPOSE[step]}.",
+            f"Message à rédiger : {step_purpose(rank, last_rank)}.",
             "",
             "Règles impératives :",
             "- Utilise uniquement les faits présents dans les données fournies. N’invente aucun "
@@ -162,7 +181,7 @@ def build_input(context: MailContext) -> str:
             lines.append(f"- {label} : {cleaned}")
 
     prospect, company = context.prospect, context.company
-    lines += [f"Étape : {MESSAGE_STEP_LABELS[context.step]}", "", "Prospect :"]
+    lines += [f"Étape : {step_label(context.rank)}", "", "Prospect :"]
     fact("Civilité", prospect.civility)
     fact("Prénom", prospect.first_name)
     fact("Nom", prospect.last_name)
@@ -199,11 +218,11 @@ def build_input(context: MailContext) -> str:
     for previous in context.previous_messages:
         lines += [
             "",
-            f"Message {MESSAGE_STEP_LABELS[previous.step]} déjà rédigé ({previous.status_label}) :",
+            f"Message {step_label(previous.rank)} déjà rédigé ({previous.status_label}) :",
             f"Objet : {_clean(previous.subject) or '(sans objet)'}",
             _block(previous.body) or "(corps vide)",
         ]
-    if context.step is not ContactMessageStep.CONTACT and not context.previous_messages:
+    if context.rank != CONTACT_RANK and not context.previous_messages:
         lines += [
             "",
             "Aucun message précédent enregistré : ne fais référence à aucun contenu précis d’un "
@@ -225,6 +244,6 @@ def build_input(context: MailContext) -> str:
 
 def build_prompt(context: MailContext) -> MailPrompt:
     return MailPrompt(
-        instructions=build_instructions(context.step, context.booking_url),
+        instructions=build_instructions(context.rank, context.last_rank, context.booking_url),
         input=build_input(context),
     )

@@ -81,20 +81,31 @@ def test_the_sequence_read_model(
         "sequence_id": sequence_id,
         "out_of_campaign": False,
         "closed": False,
+        "max_follow_ups": 4,
+        "sent_count": 0,
+        "next_rank": 0,
+        "next_step": "contact",
+        "finished": False,
+        "level_label": "Contact",
+        "level": "contact_pending",
     }
     assert body["defaults"] == {
         "from_email": SENDER,
         "to": ["jean.test@exemple.example"],
         "generation_available": False,
     }
+    # Every step from the Contact to R<max> (« max relances », 4 by default).
     assert body["steps"] == [
-        {"step": "contact", "message": None},
-        {"step": "r1", "message": None},
-        {"step": "r2", "message": None},
+        {"rank": rank, "step": step, "label": label, "message": None}
+        for rank, (step, label) in enumerate(
+            [("contact", "Contact"), ("r1", "R1"), ("r2", "R2"), ("r3", "R3"), ("r4", "R4")]
+        )
     ]
     assert ok(client.get(f"{messages(prospect)}/r1")) == {"message": None}
+    assert ok(client.get(f"{messages(prospect)}/r4")) == {"message": None}
     refused(client.get(messages(uuid.uuid4())), 404, "not_found")
-    assert client.get(f"{messages(prospect)}/r3").status_code == 422
+    for malformed in ("r0", "R1", "rank1", "r100", "-1"):
+        assert client.get(f"{messages(prospect)}/{malformed}").status_code == 422
 
 
 def test_the_full_lifecycle_over_http(

@@ -42,15 +42,15 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.contact_steps import CONTACT_RANK, step_code
 from app.db.base import Base
 from app.models.common import TimestampMixin, UUIDPrimaryKeyMixin, text_enum
-from app.models.enums import ContactMessageStatus, ContactMessageStep, SendSource
+from app.models.enums import ContactMessageStatus, SendSource
 
 EMAIL_MAX_LENGTH = 320
 SUBJECT_MAX_LENGTH = 998  # RFC 5322 line limit
 VALIDATED_STATUSES_SQL = "'validated', 'scheduled', 'sent'"
-# Rank of the Contact mail; rank n > 0 is the follow-up Rn.
-CONTACT_RANK = 0
+__all__ = ["CONTACT_RANK", "ContactMessage"]
 
 
 def _recipients() -> Mapped[list[str]]:
@@ -179,16 +179,6 @@ class ContactMessage(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     last_error_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     @property
-    def step(self) -> ContactMessageStep | None:
-        """The editor's name of the rank (Contact, R1, R2); None beyond R2."""
-        return step_of_rank(self.rank)
-
-
-STEP_RANKS: dict[ContactMessageStep, int] = {
-    step: rank for rank, step in enumerate(ContactMessageStep)
-}
-
-
-def step_of_rank(rank: int) -> ContactMessageStep | None:
-    steps = list(ContactMessageStep)
-    return steps[rank] if 0 <= rank < len(steps) else None
+    def step(self) -> str:
+        """The step code of the rank: `contact`, `r1`, `r2`…"""
+        return step_code(self.rank)

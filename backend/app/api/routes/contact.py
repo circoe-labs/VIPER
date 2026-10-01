@@ -22,7 +22,6 @@ from app.models.enums import (
     ActivityStatus,
     Civility,
     ContactMessageStatus,
-    ContactMessageStep,
     ContactTrackingStatus,
 )
 from app.services import contact_dashboard
@@ -78,7 +77,7 @@ class ContactRowOut(BaseModel):
     next_action_week: str | None
     due: bool
     next_step: str | None
-    messages: dict[ContactMessageStep, ContactMessageStatus | None]
+    messages: dict[str, ContactMessageStatus | None]
 
 
 class ContactPageOut(BaseModel):

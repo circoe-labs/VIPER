@@ -17,7 +17,6 @@ from app.models.enums import (
     ActivityStatus,
     ContactabilityStatus,
     ContactMessageStatus,
-    ContactMessageStep,
     ContactTrackingStatus,
     QualityAlertSource,
     QualityAlertType,
@@ -257,9 +256,9 @@ def test_rows_carry_the_level_and_the_message_statuses(
     assert (contacted.cohort_code, contacted.sent_count, contacted.finished) == ("S52", 1, False)
     assert contacted.next_due_at == at(MONDAY_W53, 0)
     assert contacted.messages == {
-        ContactMessageStep.CONTACT: ContactMessageStatus.SENT,
-        ContactMessageStep.R1: ContactMessageStatus.DRAFT,
-        ContactMessageStep.R2: None,
+        "contact": ContactMessageStatus.SENT,
+        "r1": ContactMessageStatus.DRAFT,
+        "r2": None,
     }
     assert (rows["Aaa"].next_step, rows["Ggg"].next_step) == ("contact", "r2")
     assert (rows["Hhh"].next_step, rows["Hhh"].finished, rows["Hhh"].sent_count) == (None, True, 5)

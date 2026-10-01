@@ -46,7 +46,6 @@ from app.models.enums import (
     PhoneType,
     ProspectSourceType,
     QualityAlertSource,
-    QualityAlertType,
     SendSource,
     SequenceEndReason,
     VerificationStatus,
@@ -55,9 +54,9 @@ from app.repositories import audit as audit_repository
 from app.services import audit
 from app.services.audit import AuditAction, AuditSource
 from app.services.contact_workflow import (
+    ALERT_TYPE_LABELS,
     LEGACY_LABELS,
     MESSAGE_STATUS_LABELS,
-    MESSAGE_STEP_LABELS,
     STATE_LABELS,
     step_label,
 )
@@ -233,7 +232,10 @@ STAGES: dict[str, str] = {
     **{state.value: label for state, label in STATE_LABELS.items()},
     **{code.value: label for code, label in LEGACY_LABELS.items()},
 }
-MESSAGE_STEPS: dict[str, str] = {step.value: label for step, label in MESSAGE_STEP_LABELS.items()}
+# The former `step` column of messages (dropped by migration 0010), still in older events.
+MESSAGE_STEPS: dict[str, str] = {
+    code: step_label(rank) for rank, code in enumerate(("contact", "r1", "r2"))
+}
 MESSAGE_STATUSES: dict[str, str] = {
     status.value: label for status, label in MESSAGE_STATUS_LABELS.items()
 }
@@ -248,13 +250,7 @@ END_REASONS: dict[str, str] = {
     SequenceEndReason.COHORT_REMOVED: "Cohorte retirée",
     SequenceEndReason.COMPLETED: "Relance terminée",
 }
-ALERT_TYPES: dict[str, str] = {
-    QualityAlertType.EMAIL_ERROR: "Erreur sur le mail",
-    QualityAlertType.FUNCTION_TO_CHECK: "Fonction à vérifier",
-    QualityAlertType.DATA_INCONSISTENT: "Donnée incohérente",
-    QualityAlertType.COMPANY_TO_CHECK: "Entreprise à vérifier",
-    QualityAlertType.IMPORT_CONFLICT: "Conflit d’import",
-}
+ALERT_TYPES: dict[str, str] = {kind.value: label for kind, label in ALERT_TYPE_LABELS.items()}
 ALERT_SOURCES: dict[str, str] = {
     QualityAlertSource.HUMAN: "Humain",
     QualityAlertSource.IMPORT: "Import",

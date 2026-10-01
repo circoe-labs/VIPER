@@ -48,7 +48,6 @@ from app.models.enums import (
     Civility,
     ContactabilityStatus,
     ContactMessageStatus,
-    ContactMessageStep,
     ContactTrackingStatus,
 )
 from app.repositories.taxonomies import label_key
@@ -66,6 +65,7 @@ from app.services.prospection.segments import actionable, join_segment_sources, 
 S = ContactTrackingStatus
 # Outside Contact: terminal or eliminated.
 OUT_OF_SCOPE_STATES = (S.IGNORED, S.DISQUALIFIED)
+NAMED_STEPS = ("contact", "r1", "r2")
 
 
 class ContactCounter(StrEnum):
@@ -149,7 +149,7 @@ class ContactRow:
     # The step to send next (`contact`, `r1`…), None when finished or without cohort.
     next_step: str | None
     # Status of each named step's message in the current sequence; None = never created.
-    messages: dict[ContactMessageStep, ContactMessageStatus | None]
+    messages: dict[str, ContactMessageStatus | None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -279,21 +279,19 @@ def _page_statement(clock: ContactClock) -> Select[Any]:
 
 def _message_statuses(
     session: Session, sequence_ids: list[uuid.UUID]
-) -> dict[uuid.UUID, dict[ContactMessageStep, ContactMessageStatus]]:
+) -> dict[uuid.UUID, dict[str, ContactMessageStatus]]:
     """Per current sequence: the status of its Contact, R1 and R2 messages."""
-    statuses: dict[uuid.UUID, dict[ContactMessageStep, ContactMessageStatus]] = {}
+    statuses: dict[uuid.UUID, dict[str, ContactMessageStatus]] = {}
     if not sequence_ids:
         return statuses
     rows = session.scalars(
         select(ContactMessage).where(
             ContactMessage.sequence_id.in_(sequence_ids),
-            ContactMessage.rank < len(ContactMessageStep),
+            ContactMessage.rank < len(NAMED_STEPS),
         )
     )
     for message in rows:
-        step = message.step
-        if step is not None:
-            statuses.setdefault(message.sequence_id, {})[step] = message.status
+        statuses.setdefault(message.sequence_id, {})[message.step] = message.status
     return statuses
 
 
@@ -357,7 +355,7 @@ def list_contacts(
                 next_action_week=iso_week(next_due),
                 due=bool(due),
                 next_step=step_code(next_rank) if next_rank is not None else None,
-                messages={step: steps.get(step) for step in ContactMessageStep},
+                messages={step: steps.get(step) for step in NAMED_STEPS},
             )
         )
     return ContactPage(items=items, total=total, limit=limit, offset=offset)
