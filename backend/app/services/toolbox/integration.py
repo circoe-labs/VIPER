@@ -27,7 +27,7 @@ from app.core.config import Settings
 from app.services.errors import ToolboxError
 from app.services.toolbox.errors import toolbox_error
 from app.services.toolbox.mcp_client import MailToolbox, McpMailToolbox
-from app.services.toolbox.oauth import AuthStatus, ToolboxAuth
+from app.services.toolbox.oauth import AuthStatus, ToolboxAuth, forget_token
 from app.services.toolbox.token_store import FileTokenStore, LastError, TokenStore
 
 logger = logging.getLogger(__name__)
@@ -59,6 +59,9 @@ class ToolboxIntegration:
         self.missing = settings.toolbox_missing_settings if self.enabled else []
         self.cleanup_interval_seconds = settings.toolbox_cleanup_interval_ms / 1000
         mcp_url, redirect_uri = settings.toolbox_mcp_url, settings.toolbox_oauth_redirect_uri
+        # The token file, also when the integration is off: « Se déconnecter » and a changed
+        # server address must be able to delete the token (S8).
+        self.store: TokenStore = store or FileTokenStore(settings.toolbox_token_store)
         self.auth: ToolboxAuth | None = None
         self._client: McpMailToolbox | None = None
         self._origin: str | None = None
@@ -67,7 +70,7 @@ class ToolboxIntegration:
             self.auth = ToolboxAuth(
                 mcp_url=mcp_url,
                 redirect_uri=redirect_uri,
-                store=store or FileTokenStore(settings.toolbox_token_store),
+                store=self.store,
                 timeout_seconds=timeout,
                 transport=transport,
                 now=now,
@@ -145,9 +148,17 @@ class ToolboxIntegration:
         logger.info("toolbox.connected")
 
     def forget(self) -> bool:
-        had = self._required_auth().forget()
+        """Delete the token, configured or not (S8: « Se déconnecter » while disabled, a changed
+        server address). True when there was one."""
+        had = self.auth.forget() if self.auth else forget_token(self.store)
         logger.info("toolbox.forgotten had_token=%s", had)
         return had
+
+    def adopt(self, previous: ToolboxIntegration) -> None:
+        """After a rebuild (S8): keep the connections started on `previous` when they can still
+        finish here (same server and return address), else refuse their return as interrupted."""
+        if self.auth is not None and previous.auth is not None:
+            self.auth.adopt_pending(previous.auth)
 
     def mail_toolbox(self) -> MailToolbox | None:
         """The MCP mail client while enabled, configured and connected; else None (local only)."""

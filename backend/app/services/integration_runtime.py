@@ -47,7 +47,9 @@ class IntegrationRuntime:
         # The workers' sessions; None = the app's. Tests give the threads their own sessions (the
         # per-test connection must not be shared across threads).
         self.worker_session_factory: sessionmaker[Session] | None = None
-        self._lock = threading.Lock()
+        # Re-entrant: a save holds it around `RuntimeSettings.update` + `apply` (S8 QA m6), so
+        # the file, `app.state.settings` and the integration always change together.
+        self.lock = threading.RLock()
 
     @property
     def _session_factory(self) -> sessionmaker[Session]:
@@ -99,13 +101,13 @@ class IntegrationRuntime:
 
     def start(self) -> None:
         """At startup: the workers, when the Toolbox is already connected."""
-        with self._lock:
+        with self.lock:
             self._sync()
             self._log("started")
 
     def sync(self) -> None:
         """After a connection or a « Se déconnecter »: start or stop the workers accordingly."""
-        with self._lock:
+        with self.lock:
             before = (self._state.toolbox_worker, self._state.contact_dispatcher)
             self._sync()
             if before != (self._state.toolbox_worker, self._state.contact_dispatcher):
@@ -113,13 +115,18 @@ class IntegrationRuntime:
 
     def stop(self) -> None:
         """At shutdown: each worker lets its running pass finish (a send included)."""
-        with self._lock:
+        with self.lock:
             self._stop_dispatcher()
             self._stop_cleanup()
 
-    def apply(self, before: Settings, after: Settings) -> None:
-        """Switch to `after`: the routes see it at once; the Toolbox and the workers follow."""
-        with self._lock:
+    def apply(self, before: Settings, after: Settings) -> bool:
+        """Switch to `after`: the routes see it at once; the Toolbox and the workers follow.
+
+        A changed Toolbox server address forgets the token (S8 QA B1): it was issued for the
+        previous server and is never sent to another one. Answers whether a token was forgotten.
+        """
+        forgot = False
+        with self.lock:
             self._state.settings = after
             toolbox_changed = any(
                 getattr(before, name) != getattr(after, name) for name in TOOLBOX_FIELDS
@@ -130,12 +137,18 @@ class IntegrationRuntime:
             if toolbox_changed:
                 self._stop_dispatcher()
                 self._stop_cleanup()
-                self._state.toolbox = self.toolbox_factory(after)
+                previous: ToolboxIntegration = self._state.toolbox
+                integration = self.toolbox_factory(after)
+                if before.toolbox_mcp_url != after.toolbox_mcp_url:
+                    forgot = integration.forget()
+                integration.adopt(previous)
+                self._state.toolbox = integration
             elif dispatch_changed:
                 self._stop_dispatcher()
             self._sync()
             if toolbox_changed or dispatch_changed:
                 self._log("reconfigured")
+        return forgot
 
     def _log(self, event: str) -> None:
         integration: ToolboxIntegration = self._state.toolbox

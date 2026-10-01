@@ -192,7 +192,7 @@ def connect(
     """« Se connecter à CIRCOE Toolbox » (S8): turns the integration on and records the page's
     return address when needed (saved like any setting, audited), then starts the OAuth flow."""
     runtime: RuntimeSettings = request.app.state.runtime_settings
-    settings = runtime.effective
+    settings: Settings = request.app.state.settings
     changes: dict[str, object] = {}
     if not settings.toolbox_mail_enabled:
         changes["toolbox_mail_enabled"] = True
@@ -255,7 +255,8 @@ def forget(
     """« Se déconnecter » (S8): forgets the token and turns the integration off (its workers
     stop); « Se connecter à CIRCOE Toolbox » turns it on again."""
     with business_errors():
-        had = integration.forget() if integration.configured else False
+        # Also while disabled (S8 QA): the token file is emptied in every case.
+        had = integration.forget()
     if had:
         audit.record_event(
             session,
@@ -264,8 +265,8 @@ def forget(
             entity_type=TOOLBOX_ENTITY,
             entity_id=None,
         )
-    runtime: RuntimeSettings = request.app.state.runtime_settings
-    if runtime.effective.toolbox_mail_enabled:
+    current: Settings = request.app.state.settings
+    if current.toolbox_mail_enabled:
         save_and_apply(request, session, actor, {"toolbox_mail_enabled": False})
     integrations: IntegrationRuntime = request.app.state.integrations
     integrations.sync()

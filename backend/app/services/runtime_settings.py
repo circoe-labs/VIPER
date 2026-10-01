@@ -38,7 +38,7 @@ from pydantic import BaseModel, SecretStr, ValidationError
 from app.core.actor import ActorContext
 from app.core.config import Settings
 from app.core.private_file import write_private_json
-from app.services.errors import ConflictError, InvalidFieldError
+from app.services.errors import ConflictError, InvalidFieldError, SettingsStorageError
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +73,13 @@ class StoredValue(BaseModel):
     # someone connects the Toolbox. A later connection from another address may replace it; a
     # value typed in « Paramètres avancés » is never replaced.
     auto: bool = False
+    # The OpenAI key only (S8 QA M1): the API address it was saved with. The key is never sent
+    # elsewhere: changing the address requires typing the key again in the same save.
+    bound_base_url: str | None = None
+
+    def __repr__(self) -> str:
+        # The value may be the OpenAI key: never in a repr, a log line or a traceback.
+        return f"StoredValue(value=<hidden>, updated_at={self.updated_at!r}, auto={self.auto})"
 
 
 class RuntimeFile(BaseModel):
@@ -114,7 +121,16 @@ class RuntimeSettingsFile:
         return file, None
 
     def write(self, file: RuntimeFile) -> None:
-        write_private_json(self.path, file.model_dump(mode="json"))
+        try:
+            write_private_json(self.path, file.model_dump(mode="json"))
+        except OSError as error:
+            # The path is the operator's; the error type says why (permissions, a directory…).
+            logger.error(
+                "runtime_settings.write_failed path=%s error=%s", self.path, type(error).__name__
+            )
+            raise SettingsStorageError(
+                "The settings file cannot be written on the server: nothing was saved."
+            ) from error
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,6 +166,11 @@ def _refusal(error: ValidationError) -> InvalidFieldError:
     return InvalidFieldError(field, message, reason=str(first.get("type", "invalid")))
 
 
+# When a stored value breaks a rule at startup, the value dropped for it (S8 QA m1): a missing
+# model drops the key saved without it; a key bound to another API address drops that address.
+_DROP_FOR = {"openai_model": "openai_api_key", "openai_api_key": "openai_base_url"}
+
+
 def merge(base: Settings, values: Mapping[str, Any]) -> Settings:
     """`base` with `values` applied, validated by `Settings`' own rules (`InvalidFieldError`)."""
     data = {name: getattr(base, name) for name in type(base).model_fields}
@@ -177,16 +198,27 @@ class RuntimeSettings:
         file, self.load_error = self.store.read()
         # Keys outside the editable list (a later version, a hand edit) are dropped, not applied.
         file.values = {name: v for name, v in file.values.items() if name in EDITABLE_FIELDS}
-        try:
-            self._effective = merge(base, self._overrides(file))
-        except InvalidFieldError as error:
-            logger.error(
-                "runtime_settings.invalid_values field=%s: ignored until the next save",
-                error.field,
-            )
+        # Only the values that break a rule are dropped (the others apply), and named.
+        self.dropped: list[str] = []
+        while True:
+            try:
+                self._effective = self._validated(file)
+                break
+            except InvalidFieldError as error:
+                victim = error.field if error.field in file.values else _DROP_FOR.get(error.field)
+                if victim is None or victim not in file.values:
+                    self.dropped.extend(sorted(file.values))
+                    file = RuntimeFile(revision=file.revision)
+                    self._effective = base
+                    break
+                del file.values[victim]
+                self.dropped.append(victim)
+        if self.dropped:
             self.load_error = "invalid"
-            file = RuntimeFile(revision=file.revision)
-            self._effective = base
+            logger.error(
+                "runtime_settings.invalid_values dropped=%s: ignored until the next save",
+                self.dropped,
+            )
         self._file = file
         logger.info(
             "runtime_settings.loaded path=%s fields=%s load_error=%s",
@@ -198,6 +230,27 @@ class RuntimeSettings:
     @staticmethod
     def _overrides(file: RuntimeFile) -> dict[str, Any]:
         return {name: stored.value for name, stored in file.values.items()}
+
+    def _validated(self, file: RuntimeFile) -> Settings:
+        """The merge, plus the key's binding to its API address (S8 QA M1): a key saved here is
+        only sent to the address it was saved with; the environment's key only to the
+        environment's / default address."""
+        settings = merge(self.base, self._overrides(file))
+        if settings.openai_api_key is not None:
+            stored = file.values.get("openai_api_key")
+            bound = (
+                (stored.bound_base_url or self.base.openai_base_url)
+                if stored
+                else self.base.openai_base_url
+            )
+            if settings.openai_base_url != bound:
+                raise InvalidFieldError(
+                    "openai_api_key",
+                    "Changing the API address requires the key again (it is never sent to "
+                    "another address).",
+                    reason="required_with_base_url",
+                )
+        return settings
 
     @property
     def effective(self) -> Settings:
@@ -268,15 +321,20 @@ class RuntimeSettings:
             now = self._now()
             file = self._file.model_copy(deep=True)
             for name, value in changes.items():
-                if value is None:
+                if isinstance(value, str):
+                    value = value.strip()
+                # An empty text is « back to the default » (S8 QA M2), never a typed "".
+                if value is None or value == "":
                     file.values.pop(name, None)
                 else:
-                    if isinstance(value, str):
-                        value = value.strip()
                     file.values[name] = StoredValue(
                         value=value, updated_at=now, updated_by=actor.display, auto=name in auto
                     )
-            after = merge(self.base, self._overrides(file))
+            new_key = file.values.get("openai_api_key") if changes.get("openai_api_key") else None
+            if new_key is not None:
+                # A key typed now is bound to the API address of this very save.
+                new_key.bound_base_url = merge(self.base, self._overrides(file)).openai_base_url
+            after = self._validated(file)
             before = self._effective
             changed = [
                 name

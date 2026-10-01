@@ -25,6 +25,8 @@ ERROR_STATUS: dict[str, HTTPStatus] = {
     "toolbox_draft_not_found": HTTPStatus.NOT_FOUND,
     # The OAuth return (`POST /api/settings/toolbox/callback`).
     "toolbox_state_invalid": HTTPStatus.BAD_REQUEST,
+    # S8: the connection was started before a change of the Toolbox settings: start it again.
+    "toolbox_connection_interrupted": HTTPStatus.CONFLICT,
     "toolbox_access_denied": HTTPStatus.FORBIDDEN,
     "toolbox_authorization_failed": HTTPStatus.BAD_REQUEST,
     "toolbox_issuer_mismatch": HTTPStatus.BAD_REQUEST,

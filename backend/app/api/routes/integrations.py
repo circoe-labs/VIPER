@@ -32,6 +32,7 @@ from sqlalchemy.orm import Session
 from app.api.dependencies import CurrentActor, SessionDep
 from app.api.errors import business_errors
 from app.core.actor import ActorContext, ActorType
+from app.core.config import Settings
 from app.services import audit
 from app.services.audit import AuditAction
 from app.services.contact_dispatch_worker import ContactDispatcher
@@ -93,6 +94,8 @@ class IntegrationsOut(BaseModel):
     updated_by: str | None
     # `unreadable` | `invalid`: the stored file was ignored at startup (the next save rewrites it).
     load_error: str | None
+    # The stored settings dropped at startup because they broke a rule (names only).
+    load_dropped: list[str]
     storage_path: str
     fields: dict[str, FieldOut]
     openai_api_key: SecretOut
@@ -139,7 +142,8 @@ def _runtime(request: Request) -> RuntimeSettings:
 def integrations_out(request: Request) -> IntegrationsOut:
     runtime = _runtime(request)
     file = runtime.file
-    effective = runtime.effective
+    # The same source as every other route (S8 QA m6).
+    effective: Settings = request.app.state.settings
     fields: dict[str, FieldOut] = {}
     for name in EDITABLE_FIELDS:
         if name in SECRET_FIELDS:
@@ -162,6 +166,7 @@ def integrations_out(request: Request) -> IntegrationsOut:
         updated_at=file.updated_at,
         updated_by=file.updated_by,
         load_error=runtime.load_error,
+        load_dropped=runtime.dropped,
         storage_path=str(runtime.store.path),
         fields=fields,
         openai_api_key=SecretOut(
@@ -211,13 +216,23 @@ def save_and_apply(
     `expected_revision` None: a server-side change on the current revision (the Toolbox
     connection enabling the integration and recording the page's address)."""
     runtime = _runtime(request)
-    with business_errors():
+    integrations: IntegrationRuntime = request.app.state.integrations
+    with business_errors(), integrations.lock:
         if actor.type != ActorType.HUMAN:
             raise ActorNotAllowedError("The integration settings are changed by a person.")
         revision = runtime.file.revision if expected_revision is None else expected_revision
         change = runtime.update(changes, expected_revision=revision, actor=actor, auto=auto)
-    integrations: IntegrationRuntime = request.app.state.integrations
-    integrations.apply(change.before, change.after)
+        forgot = integrations.apply(change.before, change.after)
+    if forgot:
+        # A changed server address: the token of the previous one is deleted (S8 QA B1).
+        audit.record_event(
+            session,
+            actor,
+            AuditAction.TOOLBOX_FORGOTTEN,
+            entity_type="toolbox_connection",
+            entity_id=None,
+            reason="toolbox_mcp_url changed",
+        )
     if not change.changed:
         return
     secrets = [
@@ -250,7 +265,7 @@ def _audited(value: object) -> object:
 @router.post("/openai/check")
 def check_openai(request: Request, actor: CurrentActor) -> CheckOut:
     """« Tester la clé »: the saved configuration, not what the form holds."""
-    settings = _runtime(request).effective
+    settings: Settings = request.app.state.settings
     config = config_from_settings(settings)
     if config is None:
         return CheckOut(ok=False, code="ai_not_configured", model=None, elapsed_ms=0)

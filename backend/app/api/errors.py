@@ -10,7 +10,8 @@ status and code (`app.services.contact_messages`, e.g. 409 `revision_conflict`, 
 `message_incomplete` with its `fields`); an AI drafting failure with its own status and code
 (`app.services.mail_generation`, e.g. 503 `ai_not_configured`, 504 `ai_timeout`); a CIRCOE
 Toolbox failure with its own status and code (`app.services.toolbox.errors`, e.g. 409
-`toolbox_not_connected`, 502 `toolbox_unavailable`). Raising inside
+`toolbox_not_connected`, 502 `toolbox_unavailable`); 503 `settings_storage_unavailable` (the
+integration settings file cannot be written, S8). Raising inside
 `business_errors()` also rolls the request's transaction back.
 """
 
@@ -33,6 +34,7 @@ from app.services.errors import (
     InvalidFieldError,
     MailGenerationError,
     NotFoundError,
+    SettingsStorageError,
     ToolboxError,
     TrackingRuleError,
 )
@@ -82,6 +84,10 @@ def business_errors() -> Iterator[None]:
         raise refusal(error.http_status, error.code, str(error)) from error
     except ToolboxError as error:
         raise refusal(error.http_status, error.code, str(error)) from error
+    except SettingsStorageError as error:
+        raise refusal(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "settings_storage_unavailable", str(error)
+        ) from error
     except ActorNotAllowedError as error:
         raise refusal(status.HTTP_403_FORBIDDEN, "human_actor_required", str(error)) from error
 

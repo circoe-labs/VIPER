@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import uuid
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -130,14 +131,19 @@ def test_the_browser_overrides_the_variable_and_a_reset_falls_back(
     )
 
 
-def test_an_empty_text_means_none_even_over_a_variable(
+def test_an_empty_text_goes_back_to_the_default(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """QA M2: an emptied field is « Rétablir », never a typed "" (which broke the connection)."""
     monkeypatch.setenv("VIPER_CONTACT_BOOKING_URL", "https://rdv.exemple.example/x")
     settings = runtime(tmp_path)
-    settings.update({"contact_booking_url": ""}, expected_revision=0, actor=PERSON)
-    assert settings.effective.contact_booking_url is None
-    assert settings.source("contact_booking_url") == "ui"
+    settings.update(
+        {"contact_booking_url": "https://rdv.exemple.example/y"}, expected_revision=0, actor=PERSON
+    )
+    settings.update({"contact_booking_url": "  "}, expected_revision=1, actor=PERSON)
+    assert settings.effective.contact_booking_url == "https://rdv.exemple.example/x"
+    assert settings.source("contact_booking_url") == "env"
+    assert "contact_booking_url" not in settings.file.values
 
 
 def test_the_api_reports_values_sources_and_fallbacks(client: TestClient) -> None:
@@ -505,3 +511,242 @@ def test_the_key_check_reports_an_unreachable_service(app: FastAPI, client: Test
     app.state.openai_transport = httpx2.MockTransport(down)
     result = ok(client.post(f"{URL}/openai/check"))
     assert (result["ok"], result["code"]) == (False, "ai_upstream_error")
+
+
+# --- QA rework (S8) ----------------------------------------------------------------------------
+
+
+def test_an_emptied_return_address_lets_the_page_send_its_own(
+    app: FastAPI, client: TestClient, fake_toolbox: FakeToolbox
+) -> None:
+    """QA M2 / P1: « Adresse de retour » emptied and saved, then « Se connecter »."""
+    ok(put(client, toolbox_oauth_redirect_uri="https://typed.exemple.example/settings/connections"))
+    body = ok(put(client, toolbox_oauth_redirect_uri=""))
+    assert body["fields"]["toolbox_oauth_redirect_uri"]["source"] == "default"
+    started = ok(client.post(f"{TOOLBOX}/connect", json={"redirect_uri": REDIRECT}))
+    assert "redirect_uri=http%3A%2F%2Flocalhost%3A5173" in started["authorization_url"]
+    redirect = ok(client.get(URL))["fields"]["toolbox_oauth_redirect_uri"]
+    assert (redirect["value"], redirect["source"]) == (REDIRECT, "ui")
+
+
+def test_a_saved_key_is_never_sent_to_another_api_address(app: FastAPI, client: TestClient) -> None:
+    """QA M1 / P2: changing the API address requires the key in the same save."""
+    ok(put(client, openai_api_key=KEY, openai_model="m-1"))
+    detail = refused(put(client, openai_base_url="https://attacker.example/v1"), 422, "invalid")
+    assert (detail["field"], detail["reason"]) == ("openai_api_key", "required_with_base_url")
+    assert KEY not in json.dumps(detail)
+    assert ok(client.get(URL))["fields"]["openai_base_url"]["value"] == "https://api.openai.com/v1"
+
+    seen: list[str] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        seen.append(f"{request.url.host} {request.headers['authorization']}")
+        return httpx2.Response(200, json={"id": "m-1"})
+
+    app.state.openai_transport = httpx2.MockTransport(handler)
+    ok(put(client, openai_base_url="http://127.0.0.1:9/v1", openai_api_key=OTHER_KEY))
+    assert ok(client.post(f"{URL}/openai/check"))["ok"] is True
+    assert seen == [f"127.0.0.1 Bearer {OTHER_KEY}"]
+    # Back to the official address: the key again, or a refusal.
+    detail = refused(put(client, openai_base_url=None), 422, "invalid")
+    assert detail["reason"] == "required_with_base_url"
+
+
+def test_the_environment_key_stays_with_the_environment_address(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("VIPER_OPENAI_API_KEY", KEY)
+    monkeypatch.setenv("VIPER_OPENAI_MODEL", "m")
+    settings = runtime(tmp_path)
+    with pytest.raises(InvalidFieldError) as refusal:
+        settings.update(
+            {"openai_base_url": "https://attacker.example/v1"}, expected_revision=0, actor=PERSON
+        )
+    assert refusal.value.reason == "required_with_base_url"
+    settings.update(
+        {"openai_base_url": "https://proxy.exemple.example/v1", "openai_api_key": OTHER_KEY},
+        expected_revision=0,
+        actor=PERSON,
+    )
+    # Removing the key typed here would send the environment's key to the new address: refused.
+    with pytest.raises(InvalidFieldError):
+        settings.update({"openai_api_key": None}, expected_revision=1, actor=PERSON)
+
+
+def test_a_stored_key_bound_elsewhere_is_dropped_at_startup(tmp_path: Path) -> None:
+    now = "2026-10-01T00:00:00Z"
+    (tmp_path / "rs.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "values": {
+                    "openai_api_key": {
+                        "value": KEY,
+                        "updated_at": now,
+                        "bound_base_url": "https://a.example/v1",
+                    },
+                    "openai_model": {"value": "m", "updated_at": now},
+                    "openai_base_url": {"value": "https://b.example/v1", "updated_at": now},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    settings = runtime(tmp_path)
+    assert settings.dropped == ["openai_api_key"]
+    assert settings.effective.openai_api_key is None
+    assert settings.effective.openai_base_url == "https://b.example/v1"
+
+
+def test_only_the_values_breaking_a_rule_are_dropped(tmp_path: Path) -> None:
+    """QA m1 / P3: one bad value no longer drops the key and the model."""
+    now = "2026-10-01T00:00:00Z"
+    (tmp_path / "rs.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "revision": 4,
+                "values": {
+                    "openai_api_key": {"value": KEY, "updated_at": now},
+                    "openai_model": {"value": "m", "updated_at": now},
+                    "openai_timeout_ms": {"value": 5, "updated_at": now},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    settings = runtime(tmp_path)
+    assert (settings.load_error, settings.dropped) == ("invalid", ["openai_timeout_ms"])
+    assert settings.effective.generation_available
+    assert settings.file.revision == 4
+
+
+def test_the_drop_is_reported_by_the_api(app: FastAPI, client: TestClient) -> None:
+    body = ok(client.get(URL))
+    assert body["load_dropped"] == []
+
+
+def test_an_unwritable_file_is_a_clear_refusal_and_changes_nothing(
+    app: FastAPI, client: TestClient, tmp_path: Path
+) -> None:
+    """QA m2 / P5."""
+    target = tmp_path / "a-directory"
+    target.mkdir()
+    app.state.runtime_settings.store.path = target
+    refused(put(client, openai_model="m"), 503, "settings_storage_unavailable")
+    assert app.state.settings.openai_model is None
+    assert app.state.runtime_settings.file.revision == 0
+
+
+def test_a_stored_value_never_shows_its_value_in_a_repr() -> None:
+    from app.services.runtime_settings import StoredValue
+
+    assert KEY not in repr(StoredValue(value=KEY, updated_at=datetime.now(UTC)))
+
+
+def connect(client: TestClient, fake: FakeToolbox) -> None:
+    started = ok(client.post(f"{TOOLBOX}/connect", json={"redirect_uri": REDIRECT}))
+    ok(client.post(f"{TOOLBOX}/callback", json=fake.authorize(started["authorization_url"])))
+
+
+def test_a_changed_server_address_forgets_the_token_and_never_sends_it(
+    app: FastAPI, client: TestClient, fake_toolbox: FakeToolbox, db_session: Session
+) -> None:
+    """QA B1 / P9-P10: the bearer token never follows a changed MCP URL."""
+    connect(client, fake_toolbox)
+    assert app.state.toolbox.connected()
+    seen: list[str] = []
+    original = fake_toolbox.handle
+
+    def spy(request: httpx2.Request) -> httpx2.Response:
+        if "authorization" in request.headers:
+            seen.append(str(request.url))
+        return original(request)
+
+    fake_toolbox.handle = spy  # type: ignore[method-assign]
+    body = ok(put(client, toolbox_mcp_url="https://elsewhere.example/mcp"))
+    assert body["toolbox"]["state"] == "disconnected"
+    assert app.state.toolbox.mail_toolbox() is None
+    assert (app.state.toolbox_worker, app.state.contact_dispatcher) == (None, None)
+    assert app.state.toolbox.store.read().token is None
+    assert seen == []
+    forgotten = audit_events(db_session, action="toolbox.forgotten")
+    assert forgotten[-1].context["reason"] == "toolbox_mcp_url changed"
+
+
+def test_a_token_issued_for_another_server_is_never_used_even_by_the_worker(
+    tmp_path: Path, fake_toolbox: FakeToolbox
+) -> None:
+    """QA B1 (a): a token bound to resource A is not sent to server B (status, access, worker)."""
+    from app.services.toolbox.token_store import StoredToken, StoreFile
+    from app.services.toolbox.worker import CleanupWorker
+
+    now = datetime.now(UTC)
+    store = MemoryTokenStore(
+        StoreFile(
+            token=StoredToken(
+                access_token="at-elsewhere",
+                expires_at=now + timedelta(days=1),
+                scope="mail",
+                issuer=ORIGIN,
+                resource=f"{ORIGIN}/mcp",
+                token_endpoint=f"{ORIGIN}/token",
+                client_id="c",
+                refresh_supported=False,
+                obtained_at=now,
+            )
+        )
+    )
+    settings = Settings(
+        toolbox_mail_enabled=True,
+        toolbox_mcp_url="https://other.example.test/mcp",
+        toolbox_oauth_redirect_uri=REDIRECT,
+        runtime_settings_path=tmp_path / "rs.json",
+    )
+    integration = ToolboxIntegration(settings, store=store, transport=fake_toolbox.transport)
+    assert integration.status().state == "disconnected"
+    assert integration.auth is not None and integration.auth.access_token() is None
+    assert integration.mail_toolbox() is None
+    assert CleanupWorker(integration, None, 1).run_once() is None  # type: ignore[arg-type]
+    assert fake_toolbox.calls == []
+
+
+def test_a_connection_started_before_a_change_of_address_is_said_interrupted(
+    app: FastAPI, client: TestClient, fake_toolbox: FakeToolbox
+) -> None:
+    """QA m5 / P7."""
+    started = ok(client.post(f"{TOOLBOX}/connect", json={"redirect_uri": REDIRECT}))
+    ok(put(client, toolbox_oauth_redirect_uri="https://other.exemple.example/settings/connections"))
+    back = client.post(
+        f"{TOOLBOX}/callback", json=fake_toolbox.authorize(started["authorization_url"])
+    )
+    refused(back, 409, "toolbox_connection_interrupted")
+
+
+def test_a_rebuild_keeps_a_connection_that_can_still_finish(
+    tmp_path: Path, fake_toolbox: FakeToolbox
+) -> None:
+    store = MemoryTokenStore()
+    settings = Settings(
+        toolbox_mail_enabled=True,
+        toolbox_mcp_url=f"{ORIGIN}/mcp",
+        toolbox_oauth_redirect_uri=REDIRECT,
+        runtime_settings_path=tmp_path / "rs.json",
+    )
+    first = ToolboxIntegration(settings, store=store, transport=fake_toolbox.transport)
+    url = first.start(PERSON)
+    second = ToolboxIntegration(settings, store=store, transport=fake_toolbox.transport)
+    second.adopt(first)
+    second.complete(fake_toolbox.authorize(url), PERSON)
+    assert second.connected()
+
+
+def test_disconnecting_while_disabled_deletes_the_token(
+    app: FastAPI, client: TestClient, fake_toolbox: FakeToolbox
+) -> None:
+    """QA P8: « Se déconnecter » empties the token file even when the integration is off."""
+    connect(client, fake_toolbox)
+    ok(put(client, toolbox_mail_enabled=False))
+    ok(client.post(f"{TOOLBOX}/forget"))
+    ok(put(client, toolbox_mail_enabled=True))
+    assert ok(client.get(TOOLBOX))["state"] == "disconnected"

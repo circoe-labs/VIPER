@@ -170,6 +170,20 @@ class _Pending:
     expires_at: datetime
 
 
+def forget_token(store: TokenStore) -> bool:
+    """Delete the stored token, who connected and the last error (the client registration is
+    kept). True when there was a token. Works without a configured integration (S8: « Se
+    déconnecter » while disabled, a changed server address)."""
+    file = store.read()
+    had = file.token is not None
+    file.token = None
+    file.connected_by = None
+    file.connected_at = None
+    file.last_error = None
+    store.write(file)
+    return had
+
+
 # --- the client --------------------------------------------------------------------------------
 
 
@@ -191,6 +205,9 @@ class ToolboxAuth:
         self._transport = transport
         self._now = now
         self._pending: dict[str, _Pending] = {}
+        # States of connections started before a change of the Toolbox settings (S8): their
+        # return is refused as « interrupted », never as unknown.
+        self._interrupted: set[str] = set()
         # One read-modify-write of the store at a time (request threads, cleanup worker).
         self._lock = threading.RLock()
 
@@ -311,6 +328,26 @@ class ToolboxAuth:
 
     # --- the authorization flow ---
 
+    def adopt_pending(self, previous: ToolboxAuth) -> None:
+        """After a rebuild of the integration (S8): connections started on `previous` stay
+        valid when the server and the return address did not change; otherwise their return is
+        refused as interrupted (the code was issued for another address)."""
+        with previous._lock:
+            pending = dict(previous._pending)
+        with self._lock:
+            if (
+                same_url(previous.mcp_url, self.mcp_url)
+                and previous.redirect_uri == self.redirect_uri
+            ):
+                self._pending.update(pending)
+            else:
+                self._interrupted.update(pending)
+
+    def bound(self, token: StoredToken) -> bool:
+        """The token was issued for this MCP server (RFC 8707 resource). A token for another
+        address is never sent (S8): the connection counts as absent until a new one."""
+        return same_url(token.resource, self.mcp_url)
+
     def _drop_expired_pending(self) -> None:
         now = self._now()
         for state in [key for key, item in self._pending.items() if item.expires_at <= now]:
@@ -364,6 +401,11 @@ class ToolboxAuth:
             # Someone else's state is refused without being consumed (it stays usable by its owner).
             if item is not None and item.actor.id == actor.id:
                 del self._pending[state]
+        if item is None and state in self._interrupted:
+            raise toolbox_error(
+                "toolbox_connection_interrupted",
+                "The connection was interrupted by a change of the Toolbox settings: start again.",
+            )
         if item is None or item.actor.id != actor.id:
             raise toolbox_error(
                 "toolbox_state_invalid",
@@ -439,14 +481,7 @@ class ToolboxAuth:
         """Delete the token on VIPER's side (the client registration is kept). True when there
         was one."""
         with self._lock:
-            file = self._store.read()
-            had = file.token is not None
-            file.token = None
-            file.connected_by = None
-            file.connected_at = None
-            file.last_error = None
-            self._store.write(file)
-        return had
+            return forget_token(self._store)
 
     def record_error(self, code: str) -> None:
         with self._lock:
@@ -466,6 +501,8 @@ class ToolboxAuth:
     def status(self) -> AuthStatus:
         file = self._store.read()
         token = file.token
+        if token is not None and not self.bound(token):
+            token = None  # issued for another server address: not this connection
         if token is None:
             state = "disconnected"
         elif token.invalidated_at or (self._expired(token) and not self._can_refresh(token)):
@@ -544,7 +581,7 @@ class ToolboxAuth:
     def access_token(self) -> str | None:
         """The usable bearer token, refreshed when it can be; None = (re)connection needed."""
         token = self._store.read().token
-        if token is None or token.invalidated_at is not None:
+        if token is None or token.invalidated_at is not None or not self.bound(token):
             return None
         return self._refresh(token) if self._expired(token) else token.access_token
 
@@ -552,7 +589,7 @@ class ToolboxAuth:
         """The Toolbox answered 401 to `rejected`: one refresh attempt, else the token is marked
         to reconnect and None is returned."""
         token = self._store.read().token
-        if token is None:
+        if token is None or not self.bound(token):
             return None
         if token.access_token != rejected and token.invalidated_at is None:
             return token.access_token  # already refreshed by another call
