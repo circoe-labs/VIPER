@@ -3,13 +3,16 @@
 Pure, like the engine: it reads a preview and the reference snapshot, nothing else.
 
 - `build_review` groups the values to resolve **by raw value** (roles by job title, categories by
-  token, referents, civilities, weeks without year, companies by company key) so one decision
-  applies to every row at once, and proposes a default for each group and each row.
+  token, referents, civilities, cohort codes, values that are not cohorts, companies by company
+  key) so one decision applies to every row at once, and proposes a default for each group and
+  each row.
 - Defaults are conservative: only exact matches on active values are applied; suggestions to
-  confirm, unknown values, markers and notes are left out; a week without year stays without
-  date; a do-not-contact match is excluded; a duplicate of an existing prospect (same e-mail, or
-  same names and company) is attached to it, one of an earlier row of the file (same names and
-  company) to that row; everything else is created.
+  confirm, unknown values, markers and notes are left out; an existing cohort is reused, a new
+  code has no default date (the commit refuses it until a person gives its real date — never
+  derived from an ISO week); a do-not-contact match is excluded; a duplicate of an existing
+  prospect (same e-mail, or same names and company) is attached to it, one of an earlier row of
+  the file (same names and company) to that row; everything else is created. The review lists
+  the rows that would become « Défaillant » if the file is declared verified by a person (D4).
 - `plan_import` applies the user's overrides (`decisions.ImportDecisions`) to those defaults and
   validates the result against the preview and the reference snapshot: the commit writes only a
   plan without errors.
@@ -27,6 +30,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.core.cohort_codes import OUT_OF_CAMPAIGN_CODE
 from app.models.enums import Civility, ContactabilityStatus
 from app.services.imports.decisions import (
     CategoryCreate,
@@ -150,8 +154,39 @@ class ReferentGroup(Frozen):
 
 
 class WeekGroup(Frozen):
-    key: str  # the week number
+    """Deprecated (weeks without year are gone with the cohorts, D5): always an empty list."""
+
+    key: str
     week: int
+    rows: list[int]
+
+
+class CohortStatus(StrEnum):
+    COHORT = "cohort"  # a cohort code (`S37`, `S0`)
+    MISSING = "missing"  # empty cell: no validation (« Défaillant » if the file is verified, D4)
+    NOT_A_COHORT = "not_a_cohort"  # another value (`retraité`…): an alert, and like MISSING
+
+
+class CohortGroup(Frozen):
+    """One cohort code of the file. `existing`: VIPER knows it (reused, its date shown); else
+    the commit needs its real date (`ImportDecisions.cohort_dates[code]`), S0 excepted."""
+
+    key: str  # the normalized code, also the `cohort_dates` key
+    code: str
+    rows: list[int]
+    existing: bool
+    cohort_id: uuid.UUID | None
+    starts_on: date | None
+    out_of_campaign: bool
+    needs_date: bool
+
+
+class NotCohortGroup(Frozen):
+    """A value of the cohort column that is not a cohort code: kept raw, a « Donnée incohérente »
+    alert on the prospect at commit."""
+
+    key: str
+    text: str
     rows: list[int]
 
 
@@ -191,6 +226,9 @@ class RowReview(Frozen):
     company_key: str | None
     inactive_suggested: bool
     default_resolution: ProspectResolution
+    cohort_key: str | None = None  # the row's cohort code (a `cohorts` group key)
+    cohort_status: CohortStatus = CohortStatus.MISSING
+    not_cohort_key: str | None = None  # a `not_cohorts` group key
 
 
 class ImportReview(Frozen):
@@ -199,11 +237,16 @@ class ImportReview(Frozen):
     roles: list[RoleGroup]
     categories: list[CategoryGroup]
     referents: list[ReferentGroup]
-    weeks: list[WeekGroup]
+    weeks: list[WeekGroup]  # deprecated: always empty
     civilities: list[CivilityGroup]
     companies: list[CompanyGroup]
     prospects: list[ProspectRef]
     rows: list[RowReview] = Field(default_factory=list)
+    cohorts: list[CohortGroup] = Field(default_factory=list)
+    not_cohorts: list[NotCohortGroup] = Field(default_factory=list)
+    # Rows that, with their default resolution, create a prospect without a cohort: they become
+    # « Défaillant » if the file is declared verified by a person (D4), else stay without cohort.
+    disqualified_if_verified: list[int] = Field(default_factory=list)
 
 
 # --- grouping -----------------------------------------------------------------------------------
@@ -357,17 +400,48 @@ def referent_groups(preview: ImportPreview) -> tuple[list[ReferentGroup], dict[i
     return result, keys
 
 
-def week_groups(preview: ImportPreview) -> tuple[list[WeekGroup], dict[int, str]]:
-    groups: dict[int, list[int]] = {}
+def cohort_groups(
+    preview: ImportPreview, reference: ImportReferenceData
+) -> tuple[list[CohortGroup], dict[int, str]]:
+    known = {cohort.code: cohort for cohort in reference.cohorts}
+    groups: dict[str, list[int]] = {}
     keys: dict[int, str] = {}
     for row in preview.rows:
-        planned = row.tracking.planned_contact if row.tracking else None
-        if planned is not None and planned.requires_year and planned.week is not None:
-            groups.setdefault(planned.week, []).append(row.row_number)
-            keys[row.row_number] = str(planned.week)
-    result = [
-        WeekGroup(key=str(week), week=week, rows=rows) for week, rows in sorted(groups.items())
-    ]
+        if row.cohort_code is not None:
+            groups.setdefault(row.cohort_code, []).append(row.row_number)
+            keys[row.row_number] = row.cohort_code
+    result = []
+    for code, rows in sorted(groups.items(), key=lambda item: (len(item[0]), item[0])):
+        cohort = known.get(code)
+        s0 = code == OUT_OF_CAMPAIGN_CODE
+        result.append(
+            CohortGroup(
+                key=code,
+                code=code,
+                rows=rows,
+                existing=cohort is not None,
+                cohort_id=cohort.id if cohort else None,
+                starts_on=cohort.starts_on if cohort else None,
+                out_of_campaign=s0,
+                needs_date=cohort is None and not s0,
+            )
+        )
+    return result, keys
+
+
+def not_cohort_groups(preview: ImportPreview) -> tuple[list[NotCohortGroup], dict[int, str]]:
+    column = column_of(preview, ImportField.PLANNED_CONTACT)
+    groups: dict[str, Grouped[None]] = {}
+    keys: dict[int, str] = {}
+    for row in preview.rows:
+        if row_diagnostic(row, [DiagnosticCode.COHORT_NOT_A_COHORT]) is None:
+            continue
+        text = cell_text(row, column)
+        if text is None:
+            continue
+        keys[row.row_number] = key = group_key(text)
+        add_to(groups, key, text, None, row.row_number)
+    result = [NotCohortGroup(key=k, text=g.text, rows=g.rows) for k, g in groups.items()]
     return result, keys
 
 
@@ -484,7 +558,8 @@ def build_review(preview: ImportPreview, reference: ImportReferenceData) -> Impo
     roles, role_keys = role_groups(preview)
     categories, category_keys = category_groups(preview)
     referents, referent_keys = referent_groups(preview)
-    weeks, week_keys = week_groups(preview)
+    cohorts, cohort_keys = cohort_groups(preview, reference)
+    not_cohorts, not_cohort_keys = not_cohort_groups(preview)
     civilities, civility_keys = civility_groups(preview)
     companies, company_keys = company_groups(preview)
     rows = [
@@ -493,11 +568,14 @@ def build_review(preview: ImportPreview, reference: ImportReferenceData) -> Impo
             role_key=role_keys.get(row.row_number),
             category_keys=category_keys.get(row.row_number, []),
             referent_key=referent_keys.get(row.row_number),
-            week_key=week_keys.get(row.row_number),
+            week_key=None,
             civility_key=civility_keys.get(row.row_number),
             company_key=company_keys.get(row.row_number),
             inactive_suggested=row.prospect.activity_status_suggestion is not None,
             default_resolution=default_resolution(row),
+            cohort_key=cohort_keys.get(row.row_number),
+            cohort_status=cohort_status(row, not_cohort_keys),
+            not_cohort_key=not_cohort_keys.get(row.row_number),
         )
         for row in preview.rows
     ]
@@ -507,12 +585,37 @@ def build_review(preview: ImportPreview, reference: ImportReferenceData) -> Impo
         roles=roles,
         categories=categories,
         referents=referents,
-        weeks=weeks,
+        weeks=[],
         civilities=civilities,
         companies=companies,
         prospects=prospect_refs(preview, reference),
         rows=rows,
+        cohorts=cohorts,
+        not_cohorts=not_cohorts,
+        disqualified_if_verified=disqualified_if_verified(rows),
     )
+
+
+def cohort_status(row: PreviewRow, not_cohort_keys: Mapping[int, str]) -> CohortStatus:
+    if row.cohort_code is not None:
+        return CohortStatus.COHORT
+    if row.row_number in not_cohort_keys:
+        return CohortStatus.NOT_A_COHORT
+    return CohortStatus.MISSING
+
+
+def disqualified_if_verified(rows: list[RowReview]) -> list[int]:
+    """Rows creating a prospect by default with no cohort on it (nor on a row merged into it)."""
+    with_cohort = {row.row_number for row in rows if row.cohort_key is not None}
+    for row in rows:
+        resolution = row.default_resolution
+        if isinstance(resolution, ProspectAttachRow) and row.cohort_key is not None:
+            with_cohort.add(resolution.row)
+    return [
+        row.row_number
+        for row in rows
+        if isinstance(row.default_resolution, ProspectCreate) and row.row_number not in with_cohort
+    ]
 
 
 # --- plan ---------------------------------------------------------------------------------------
@@ -522,7 +625,8 @@ class DecisionErrorCode(StrEnum):
     UNKNOWN_ROW = "unknown_row"
     UNKNOWN_KEY = "unknown_key"  # a grouped decision for a value the preview does not contain
     UNKNOWN_VALUE = "unknown_value"  # role, category, segment, referent or company id not found
-    INVALID_WEEK_YEAR = "invalid_week_year"  # week 53 in a year that has only 52
+    COHORT_DATE_REQUIRED = "cohort_date_required"  # a new cohort code an imported row needs
+    COHORT_EXISTS = "cohort_exists"  # a date given for a cohort VIPER already has
     INACTIVE_NOT_SUGGESTED = "inactive_not_suggested"
     MISSING_NAME = "missing_name"  # a prospect cannot be created without any name
     BLOCKED_BY_DO_NOT_CONTACT = "blocked_by_do_not_contact"  # only exclude or attach to them
@@ -535,7 +639,7 @@ class DecisionErrorCode(StrEnum):
 class DecisionError(Frozen):
     code: DecisionErrorCode
     row: int | None = None
-    group: str | None = None  # roles, categories, referents, civilities, weeks, companies
+    group: str | None = None  # roles, categories, referents, civilities, cohorts, companies
     key: str | None = None
 
 
@@ -554,7 +658,8 @@ class RowPlan:
     role: RoleChoice = RoleChoice()
     civility: Civility | None = None
     referent_id: uuid.UUID | None = None
-    planned_date: date | None = None
+    cohort_code: str | None = None  # the row's cohort (`S37`, `S0`)
+    not_cohort: str | None = None  # the cohort cell's text when it is not a cohort (`retraité`)
     inactive: bool = False
     categories_ignored: bool = False  # a category token of the row is left out by decision
     referent_ignored: bool = False  # the row's `Référent` value is left out by decision
@@ -581,6 +686,10 @@ class ImportPlan:
     role_labels: tuple[str, ...]  # distinct (folded) role labels to create
     category_labels: tuple[str, ...]
     errors: tuple[DecisionError, ...]
+    # Cohort codes to create at commit time (by the user) with their real date (None for S0).
+    new_cohorts: dict[str, date | None] = field(default_factory=dict)
+    # « Fichier vérifié humainement » (D4).
+    human_verified: bool = False
 
     def row(self, number: int) -> RowPlan:
         return next(plan for plan in self.rows if plan.row.row_number == number)
@@ -656,19 +765,27 @@ class Planner:
                 chosen[group.key] = None
         return chosen
 
-    def weeks(self) -> dict[str, date | None]:
-        self.check_keys("weeks", self.decisions.weeks, (g.key for g in self.review.weeks))
-        dates: dict[str, date | None] = {}
-        for group in self.review.weeks:
-            # An explicit `None` for this week leaves it without date whatever the batch year.
-            year = self.decisions.weeks.get(group.key, self.decisions.week_year)
-            dates[group.key] = None
-            if year is not None:
-                try:
-                    dates[group.key] = date.fromisocalendar(year, group.week, 1)
-                except ValueError:
-                    self.error(DecisionErrorCode.INVALID_WEEK_YEAR, group="weeks", key=group.key)
-        return dates
+    def new_cohorts(self, rows: list[RowPlan]) -> dict[str, date | None]:
+        """Codes the imported rows need that VIPER does not have, with the date the user gave.
+        A date is required for each (S0 excepted); a date for a known or absent code is refused."""
+        groups = {group.key: group for group in self.review.cohorts}
+        dates = self.decisions.cohort_dates
+        self.check_keys("cohorts", dates, groups)
+        for key in sorted(set(dates) & set(groups)):
+            if groups[key].existing:
+                self.error(DecisionErrorCode.COHORT_EXISTS, group="cohorts", key=key)
+        used = {plan.cohort_code for plan in rows if plan.imported and plan.cohort_code}
+        wanted: dict[str, date | None] = {}
+        for key, group in groups.items():
+            if group.existing or key not in used:
+                continue
+            if group.out_of_campaign:
+                wanted[key] = None
+            elif key in dates:
+                wanted[key] = dates[key]
+            else:
+                self.error(DecisionErrorCode.COHORT_DATE_REQUIRED, group="cohorts", key=key)
+        return wanted
 
     def companies(self) -> dict[str, CompanyDecision]:
         known = {company.id for company in self.reference.companies}
@@ -751,7 +868,6 @@ class Planner:
         roles = self.roles()
         categories = self.categories()
         referents = self.referents()
-        weeks = self.weeks()
         companies = self.companies()
         civilities = self.decisions.civilities
         self.check_keys("civilities", civilities, (g.key for g in self.review.civilities))
@@ -769,10 +885,6 @@ class Planner:
             inactive = bool(decision and decision.inactive)
             if inactive and not review.inactive_suggested:
                 self.error(DecisionErrorCode.INACTIVE_NOT_SUGGESTED, row=number)
-            planned = row.tracking.planned_contact if row.tracking else None
-            planned_date = planned.planned_date if planned else None
-            if review.week_key is not None:
-                planned_date = weeks.get(review.week_key)
             civility = row.prospect.civility
             if review.civility_key is not None:
                 civility = civilities.get(review.civility_key)
@@ -785,7 +897,8 @@ class Planner:
                     role=roles[review.role_key] if review.role_key else RoleChoice(),
                     civility=civility,
                     referent_id=referents.get(review.referent_key) if review.referent_key else None,
-                    planned_date=planned_date,
+                    cohort_code=row.cohort_code,
+                    not_cohort=self.not_cohort_text(review),
                     inactive=inactive and review.inactive_suggested,
                     categories_ignored=any(
                         isinstance(categories[key], CategoryIgnore) for key in review.category_keys
@@ -796,6 +909,7 @@ class Planner:
             )
         if not any(plan.imported for plan in rows):
             self.error(DecisionErrorCode.NOTHING_TO_IMPORT)
+        new_cohorts = self.new_cohorts(rows)
         company_plans = self.company_plans(rows, companies, categories)
         return ImportPlan(
             rows=tuple(rows),
@@ -805,7 +919,14 @@ class Planner:
                 label for plan in company_plans.values() for label in plan.category_labels
             ),
             errors=tuple(self.errors),
+            new_cohorts=new_cohorts,
+            human_verified=self.decisions.human_verified,
         )
+
+    def not_cohort_text(self, review: RowReview) -> str | None:
+        if review.not_cohort_key is None:
+            return None
+        return next(g.text for g in self.review.not_cohorts if g.key == review.not_cohort_key)
 
     def company_plans(
         self,

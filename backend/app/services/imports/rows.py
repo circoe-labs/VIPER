@@ -2,8 +2,8 @@
 
 Losslessness: every non-empty cell ends up in a proposed field (`SourceCell.mapped`), in legacy
 metadata (`preserved`), or both — raw values are kept whenever a conversion is partial,
-impossible, a guess or not storable (a week without its year). A final pass preserves any cell no
-rule consumed, so nothing is ever dropped silently.
+impossible, a guess or not storable (e.g. a value that is not a cohort code). A final pass preserves
+any cell no rule consumed, so nothing is ever dropped silently.
 """
 
 import uuid
@@ -33,7 +33,6 @@ from app.services.imports.models import (
     LegacyValue,
     MatchReason,
     PhoneProposal,
-    PlannedContactProposal,
     PreviewRow,
     ProspectProposal,
     RowStatus,
@@ -50,9 +49,9 @@ from app.services.imports.normalize import (
     normalize_civility,
     normalize_name,
     parse_address,
+    parse_cohort,
     parse_emails,
     parse_phones,
-    parse_planned_contact,
     read_stage,
 )
 from app.services.imports.reference import ImportReferenceData
@@ -127,6 +126,7 @@ class RowDraft:
     emails: list[EmailProposal]
     phones: list[PhoneProposal]
     tracking: TrackingProposal | None
+    cohort_code: str | None
     legacy: dict[str, LegacyValue]
     diagnostics: list[Diagnostic]
     cells: list[SourceCell]
@@ -201,6 +201,7 @@ class RowDraft:
             emails=self.emails,
             phones=self.phones,
             tracking=self.tracking,
+            cohort_code=self.cohort_code,
             legacy_metadata=self.legacy,
             duplicates=duplicates,
             blocked_by_do_not_contact=self.blocked,
@@ -319,6 +320,7 @@ class RowBuilder:
         prospect = self.prospect()
         emails = self.emails()
         phones = self.phones()
+        cohort_code = self.cohort()
         tracking = self.tracking()
         prospect = prospect.model_copy(
             update={"activity_status_suggestion": self.activity_suggestion}
@@ -340,6 +342,7 @@ class RowBuilder:
             emails=emails,
             phones=phones,
             tracking=tracking,
+            cohort_code=cohort_code,
             legacy=self.legacy,
             diagnostics=self.diagnostics,
             cells=self.source_cells(),
@@ -551,9 +554,8 @@ class RowBuilder:
             else:
                 self.settle(column, value, (), keep=not reading.plain, mapped=True)
             (positive if reading.state is StageState.POSITIVE else negative).append(stage)
-        planned = self.planned_contact()
         referent = self.referent()
-        if not positive and planned is None and not referent.suggestions:
+        if not positive and not referent.suggestions:
             return None
         best = max(positive, key=STAGE_RANK.__getitem__, default=None)
         conflict = any(STAGE_RANK[stage] < STAGE_RANK[best] for stage in negative if best) or any(
@@ -566,30 +568,24 @@ class RowBuilder:
             status=STAGE_STATUS[best] if best else ContactTrackingStatus.NEUTRAL,
             stages=positive,
             requires_review=conflict,
-            planned_contact=planned,
             appointment_date=appointment,
             referent=referent.match,
             referent_suggestions=list(referent.suggestions),
         )
 
-    def planned_contact(self) -> PlannedContactProposal | None:
+    def cohort(self) -> str | None:
+        """The cohort code of the first `A contacter` column (`S37`, `S0`), or None."""
         found = self.cell(ImportField.PLANNED_CONTACT)
         if found is None:
             return None
         column, value = found
-        outcome = parse_planned_contact(value)
-        planned = outcome.value
-        self.settle(column, value, outcome.codes, keep=outcome.keep_raw, mapped=planned is not None)
+        outcome = parse_cohort(value)
+        self.settle(
+            column, value, outcome.codes, keep=outcome.keep_raw, mapped=outcome.code is not None
+        )
         if outcome.suggests_inactive:
             self.suggest_inactive(column, value)
-        if planned is None:
-            return None
-        return PlannedContactProposal(
-            planned_date=planned.date,
-            week=planned.week,
-            year=planned.year,
-            requires_year=planned.date is None,
-        )
+        return outcome.code
 
     def referent(self) -> ReferentOutcome:
         found = self.cell(ImportField.REFERENT)

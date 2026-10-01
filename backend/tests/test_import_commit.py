@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.core.actor import ActorType
 from app.models import (
     ActivityCategory,
+    Cohort,
     Company,
     ContactTracking,
     Email,
@@ -22,6 +23,7 @@ from app.models import (
     Phone,
     Prospect,
     ProspectSource,
+    QualityAlert,
     Role,
 )
 from app.models.enums import (
@@ -73,8 +75,15 @@ def review_of(
     return review
 
 
+# Real date given to every new cohort code of a reviewed file (a past Monday, never an ISO week).
+COHORT_DATE = "2020-01-06"
+
+
 def decide(review: ImportReview, **fields: Any) -> ImportDecisions:
     fields.setdefault("legal_basis_or_collection_context", LEGAL_BASIS)
+    fields.setdefault(
+        "cohort_dates", {group.key: COHORT_DATE for group in review.cohorts if group.needs_date}
+    )
     return ImportDecisions.model_validate(
         {
             "file_fingerprint": review.preview.summary.file_fingerprint,
@@ -194,7 +203,9 @@ def test_default_commit_creates_normalized_entities_with_provenance(
     assert company.email_domain == "example.com"  # first non-webmail domain of the rows
     # One company for the two spellings of the same key (rows 2 and 3).
     assert person(db_session, "Marc", "Démo").company_id == company.id
-    assert count(db_session, ImportRowMetadata) == batch.rows_imported
+    # Every source row is traced (D10): the excluded ones too, with their raw snapshot only.
+    assert count(db_session, ImportRowMetadata) == batch.rows_total
+    assert count(db_session, ImportRowMetadata, ImportRowMetadata.excluded) == batch.rows_skipped
     assert count(db_session, ProspectSource, ProspectSource.import_batch_id == batch.id) == 8
 
 
@@ -210,8 +221,9 @@ def test_defaults_apply_only_exact_matches_and_never_invent(
     jean_tracking = tracking(db_session, jean)
     assert jean_tracking is not None
     assert jean_tracking.referent_id == ids["claire"]  # exact referent
-    # `S37`: never a guessed year, never a state; kept raw until the cohorts of the import (S2).
-    assert trace(db_session, 2).legacy_metadata["planned_contact"]["value"] == "S37"
+    # `S37`: a cohort (its date given by the user), never a guessed year, never a state.
+    assert "planned_contact" not in trace(db_session, 2).legacy_metadata
+    assert trace(db_session, 2).raw_cells["B"] == {"header": "A contacter", "value": "S37"}
     assert jean_tracking.status is ContactTrackingStatus.NEUTRAL
     nina = person(db_session, "Nina", "Homonyme")  # homonym of a blocked person: a warning only
     assert nina.contactability_status is ContactabilityStatus.CONTACTABLE
@@ -269,8 +281,9 @@ def test_every_row_is_created_linked_or_excluded(
         rows={10: resolution("exclude"), 9: resolution("attach", prospect_id=str(ids["blocked"]))},
     )
 
-    traced = {row.source_row_number for row in db_session.scalars(select(ImportRowMetadata))}
-    assert traced == set(range(2, 12)) - {10}
+    traces = db_session.scalars(select(ImportRowMetadata)).all()
+    assert {row.source_row_number for row in traces} == set(range(2, 12))
+    assert {row.source_row_number for row in traces if row.excluded} == {10}
     assert result.batch.rows_imported + result.batch.rows_skipped == result.batch.rows_total
     assert result.counts["prospects_attached"] == 1
 
@@ -434,7 +447,7 @@ def test_category_tokens_map_to_categories_a_new_category_or_the_segment(
     assert result.counts["categories_created"] == 1
 
 
-def test_referent_civility_week_and_inactive_decisions(
+def test_referent_civility_and_inactive_decisions(
     db_session: Session, ids: dict[str, uuid.UUID]
 ) -> None:
     file = upload()
@@ -452,35 +465,14 @@ def test_referent_civility_week_and_inactive_decisions(
             }
         },
         civilities={key_of(review, "civilities", "0"): "ms"},
-        week_year=2026,
-        weeks={"39": None},
     )
 
     nina_tracking = tracking(db_session, person(db_session, "Nina", "Homonyme"))
     assert nina_tracking is not None and nina_tracking.referent_id == ids["paul"]
     assert person(db_session, "Léa", "Modèle").civility is Civility.MS
     assert person(db_session, "Claire", "Exemple").activity_status is ActivityStatus.INACTIVE
-    jean_tracking = tracking(db_session, person(db_session, "Jean", "Test"))
-    assert jean_tracking is not None
-    # Sequences rework: a week is not written any more (a cohort is the import redesign, S2);
-    # the decided year is accepted and the raw cell kept, so nothing is lost.
-    assert trace(db_session, 2).legacy_metadata["planned_contact"]["value"] == "S37"
     marc_tracking = tracking(db_session, person(db_session, "Marc", "Démo"))
-    assert marc_tracking is None  # S39 left without year, `xxx` is not a referent
-
-
-def test_week_53_needs_a_year_that_has_one(db_session: Session, ids: dict[str, uuid.UUID]) -> None:
-    file = upload([{**PERSON, "first_name": "Iso", "week": "S53"}])
-    review = review_of(db_session, file)
-
-    assert refused(db_session, file, review, week_year=2025) == {
-        (DecisionErrorCode.INVALID_WEEK_YEAR, None)
-    }
-    commit(db_session, file, review, week_year=2026)
-
-    iso = person(db_session, "Iso", "Essai")
-    assert tracking(db_session, iso) is None  # a week alone writes nothing (S2: a cohort)
-    assert trace(db_session, 2).legacy_metadata["planned_contact"]["value"] == "S53"
+    assert marc_tracking is None  # `xxx` is not a referent; S39 is a cohort, not a state
 
 
 def test_unknown_keys_and_values_are_refused(
@@ -526,7 +518,7 @@ LUC_AGAIN: Row = {
     "job": "Responsable transport",
     "email": "l.exemple@logistique-demo.example / luc.exemple@example.com",
     "mobile": "06 00 00 00 09",
-    "week": "S40 2026",
+    "week": "S40",
     "project_type": "Étude fictive",
 }
 
@@ -534,6 +526,8 @@ LUC_AGAIN: Row = {
 def test_attaching_to_an_existing_prospect_fills_empty_fields_only(
     db_session: Session, ids: dict[str, uuid.UUID]
 ) -> None:
+    """Human precedence (D11): empty fields are filled; a different job title, e-mails or phones
+    stay as they are and each raise one `import_conflict` alert (raw values kept)."""
     luc = db_session.get(Prospect, ids["luc"])
     assert luc is not None
     luc.exact_job_title = "Chef d'équipe fictif"
@@ -548,23 +542,32 @@ def test_attaching_to_an_existing_prospect_fills_empty_fields_only(
     db_session.refresh(luc)
     assert luc.civility is Civility.MR and luc.role_id == ids["transport"]  # were empty
     assert luc.exact_job_title == "Chef d'équipe fictif"  # never overwritten…
-    assert trace(db_session, 2).legacy_metadata["job_title"]["value"] == "Responsable transport"
-    emails = {e.address: e for e in luc.emails}
-    assert emails["luc.exemple@example.com"].verification_status is VerificationStatus.VERIFIED
-    added = emails["l.exemple@logistique-demo.example"]
-    assert (added.is_primary, added.origin_type, added.verification_status) == (
-        False,
-        OriginType.IMPORTED,
-        VerificationStatus.UNVERIFIED,
+    kept = trace(db_session, 2).legacy_metadata
+    assert kept["job_title"]["value"] == "Responsable transport"
+    assert (
+        kept["email"]["value"] == LUC_AGAIN["email"] and kept["mobile"]["value"] == "06 00 00 00 09"
     )
-    assert {p.number: p.is_primary for p in luc.phones} == {
-        "+33100000009": True,
-        "+33600000009": False,
+    emails = {e.address: e for e in luc.emails}
+    assert set(emails) == {"luc.exemple@example.com"}  # another address is a conflict
+    assert emails["luc.exemple@example.com"].verification_status is VerificationStatus.VERIFIED
+    assert {p.number: p.is_primary for p in luc.phones} == {"+33100000009": True}
+    conflicts = {
+        alert.detail["field"]: (alert.detail["viper_value"], alert.detail["file_value"])
+        for alert in db_session.scalars(
+            select(QualityAlert).where(QualityAlert.prospect_id == luc.id)
+        )
+    }
+    assert conflicts == {
+        "exact_job_title": ("Chef d'équipe fictif", "Responsable transport"),
+        "emails": (
+            ["luc.exemple@example.com"],
+            ["l.exemple@logistique-demo.example", "luc.exemple@example.com"],
+        ),
+        "phones": (["+33100000009"], ["+33600000009"]),
     }
     demo = db_session.get(Company, ids["demo"])
     assert demo is not None and demo.email_domain == "logistique-demo.example"  # was empty
     assert demo.project_type == "Étude fictive"
-    assert trace(db_session, 2).legacy_metadata["planned_contact"]["value"] == "S40 2026"
     assert count(db_session, Prospect) == 3 and count(db_session, Company) == 1
     assert result.counts["prospects_attached"] == 1 and result.counts["companies_linked"] == 1
     assert trace(db_session, 2).prospect_id == luc.id
@@ -708,7 +711,7 @@ def test_values_the_import_does_not_apply_stay_in_the_row_metadata(
     row_2 = trace(db_session, 2).legacy_metadata
     assert row_2["contact_mode"]["value"] == "Auto"  # opaque column
     assert row_2["legacy_to_contact_flag"]["value"] == "Oui"
-    assert row_2["planned_contact"]["value"] == "S37"  # week without year
+    assert "planned_contact" not in row_2  # `S37`: applied as the cohort
     assert row_2["referent"]["value"] == "Claire Référente"  # exact match the user left out
     row_3 = trace(db_session, 3).legacy_metadata
     assert row_3["company_name"]["value"] == "TRANSPORTS EXEMPLE"  # other spelling
@@ -817,6 +820,7 @@ def test_a_failure_while_writing_leaves_no_partial_data(
     after = {model: count(db_session, model) for model in (Prospect, Company, Email, Role)}
     assert after == before
     assert count(db_session, ImportRowMetadata) == 0 and count(db_session, ProspectSource) == 0
+    assert count(db_session, Cohort) == 1  # S0 only: the cohorts to create are rolled back too
     assert not [e for e in audit_events(db_session) if e.actor_type is ActorType.IMPORT]
     [batch] = db_session.scalars(select(ImportBatch)).all()
     assert (batch.id, batch.status, batch.rows_imported) == (
@@ -844,7 +848,19 @@ def test_the_review_groups_values_and_names_existing_candidates(
         "parti à la retraite en 2024": "note",
         "Paul": "partial",
     }
-    assert [(g.key, g.rows) for g in review.weeks] == [("37", [2]), ("39", [3])]
+    assert review.weeks == []  # deprecated: cohorts are no weeks
+    assert [(g.code, g.rows, g.existing, g.needs_date) for g in review.cohorts] == [
+        ("S37", [2], False, True),
+        ("S39", [3], False, True),
+        ("S40", [12], False, True),
+    ]
+    assert [(g.text, g.rows) for g in review.not_cohorts] == [("retraité", [4])]
+    assert [r.cohort_status.value for r in review.rows[:4]] == [
+        "cohort",
+        "cohort",
+        "not_a_cohort",
+        "missing",
+    ]
     assert [(g.text, g.rows) for g in review.civilities] == [("0", [5])]
     fret = next(g for g in review.companies if g.key == "fret modele")
     assert (fret.variants, fret.rows) == (["Fret Modèle SAS", "Fret Modèle"], [5, 6])

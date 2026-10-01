@@ -1,4 +1,4 @@
-"""Pure normalizers: civility, names, emails, phones, planned-contact week, stages, address."""
+"""Pure normalizers: civility, names, emails, phones, cohort code, stages, address."""
 
 from datetime import date, datetime
 
@@ -8,15 +8,14 @@ from app.models.enums import Civility, PhoneType
 from app.services.imports.diagnostics import DiagnosticCode as Code
 from app.services.imports.normalize import (
     Address,
-    PlannedContact,
     StageState,
     is_zero_placeholder,
     normalize_civility,
     normalize_name,
     parse_address,
+    parse_cohort,
     parse_emails,
     parse_phones,
-    parse_planned_contact,
     read_stage,
 )
 from app.services.imports.text import CellValue, fold, json_value, multi_line, render, single_line
@@ -181,41 +180,18 @@ def test_digits_without_national_prefix_are_kept_but_flagged() -> None:
     assert outcome.codes == (Code.PHONE_UNRECOGNIZED_FORMAT,)
 
 
-@pytest.mark.parametrize(("raw", "week"), [("S37", 37), ("s39", 39), ("S 37", 37), ("sem. 5", 5)])
-def test_week_without_year_is_a_candidate_never_a_guessed_date(raw: str, week: int) -> None:
-    outcome = parse_planned_contact(raw)
-
-    assert outcome.value == PlannedContact(week=week)
-    assert outcome.codes == (Code.PLANNED_CONTACT_WEEK_WITHOUT_YEAR,)
-    assert outcome.keep_raw
-
-
 @pytest.mark.parametrize(
-    ("raw", "expected"),
-    [
-        ("S37 2026", PlannedContact(date(2026, 9, 7), 37, 2026)),
-        ("S37/26", PlannedContact(date(2026, 9, 7), 37, 2026)),
-        ("2026-W53", PlannedContact(date(2026, 12, 28), 53, 2026)),
-        ("14/09/2026", PlannedContact(date(2026, 9, 14))),
-        (datetime(2026, 9, 14, 10, 0), PlannedContact(date(2026, 9, 14))),
-        (date(2026, 9, 14), PlannedContact(date(2026, 9, 14))),
-    ],
+    ("raw", "code"),
+    [("S37", "S37"), ("s39", "S39"), (" S 39 ", "S39"), ("S0", "S0"), ("sem. 5", None)],
 )
-def test_week_with_its_year_or_a_date_is_a_real_date(
-    raw: CellValue, expected: PlannedContact
-) -> None:
-    outcome = parse_planned_contact(raw)
+def test_a_cohort_code_is_normalized_never_read_as_a_week(raw: str, code: str | None) -> None:
+    outcome = parse_cohort(raw)
 
-    assert outcome.value == expected
+    if code is None:  # « sem. 5 » (with a dot) is no cohort code: kept raw, flagged
+        assert outcome.code is None and outcome.codes == (Code.COHORT_NOT_A_COHORT,)
+        return
+    assert outcome.code == code
     assert outcome.codes == () and not outcome.keep_raw
-
-
-@pytest.mark.parametrize("raw", ["S60", "S0", "2025-W53"])
-def test_impossible_week(raw: str) -> None:
-    outcome = parse_planned_contact(raw)
-
-    assert outcome.value is None
-    assert outcome.codes == (Code.PLANNED_CONTACT_INVALID_WEEK,)
 
 
 @pytest.mark.parametrize(
@@ -225,14 +201,20 @@ def test_impossible_week(raw: str) -> None:
         ("RETRAITEE", True),
         ("décédé", True),
         ("à voir", False),
-        ("31/02/2026", False),
+        ("S37 2026", False),  # a week with its year is not a cohort: no year is ever read
+        ("2026-W37", False),
+        ("14/09/2026", False),
+        (date(2026, 9, 14), False),
+        (datetime(2026, 9, 14, 10, 0), False),
+        (37, False),
+        (True, False),
     ],
 )
-def test_other_planned_contact_values_are_not_weeks(raw: str, inactive: bool) -> None:
-    outcome = parse_planned_contact(raw)
+def test_other_cohort_column_values_are_not_cohorts(raw: CellValue, inactive: bool) -> None:
+    outcome = parse_cohort(raw)
 
-    assert outcome.value is None
-    assert outcome.codes == (Code.PLANNED_CONTACT_NOT_A_WEEK,)
+    assert outcome.code is None
+    assert outcome.codes == (Code.COHORT_NOT_A_COHORT,)
     assert outcome.keep_raw
     assert outcome.suggests_inactive is inactive
 

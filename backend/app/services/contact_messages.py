@@ -27,6 +27,8 @@ the editor addresses the ranks of the prospect's **current** sequence by step na
                              (« Marquer comme envoyé », date editable, default now; source
                              `manual`); the dispatcher (S7) will mark its own sends (`worker`).
                              `sent` is immutable (21, trigger) and counts for the level (D1)
+    (none)    -> sent        `record_imported_send`: an import records the Contact (rank 0) of
+                             a past cohort as sent at its date (source `import`, D3, Slice S2)
 
 Cross-cutting rules:
 
@@ -77,7 +79,7 @@ from sqlalchemy.orm import Session
 
 from app.core.actor import ActorContext, ActorType
 from app.models import ContactMessage, ContactSequence, Email
-from app.models.contact_messages import STEP_RANKS
+from app.models.contact_messages import CONTACT_RANK, STEP_RANKS
 from app.models.enums import (
     ContactabilityStatus,
     ContactMessageStatus,
@@ -916,6 +918,37 @@ def mark_sent(
     session.flush()
     _log("sent", message, actor)
     return MessageResult(message)
+
+
+def record_imported_send(
+    session: Session, actor: ActorContext, prospect_id: uuid.UUID, *, sent_at: datetime
+) -> ContactMessage:
+    """An import records the Contact (rank 0) of the prospect's open sequence as sent at its
+    cohort's past date (D3): a send record without text, source `import`, audited
+    `contact_message.sent`. Only for the import actor (403 otherwise) and only while nothing
+    exists at rank 0 (409 `message_exists`); the open-sequence refusals of every write apply."""
+    if actor.type is not ActorType.IMPORT:
+        raise ActorNotAllowedError("Only an import records an imported send.")
+    if sent_at.tzinfo is None:
+        raise InvalidFieldError("sent_at", "A time zone is required.", "time_zone")
+    context = sequence_context(session, prospect_id)
+    _require_open(context)
+    assert context.sequence_id is not None  # `_require_open` checked it
+    if _locked_rank(session, context, CONTACT_RANK) is not None:
+        raise _message_exists()
+    message = ContactMessage(
+        prospect_id=prospect_id,
+        sequence_id=context.sequence_id,
+        rank=CONTACT_RANK,
+        status=M.SENT,
+        sent_at=sent_at,
+        sent_source=SendSource.IMPORT,
+    )
+    audit.annotate(session, actor, message, AuditAction.CONTACT_MESSAGE_SENT)
+    session.add(message)
+    session.flush()
+    _log("sent", message, actor)
+    return message
 
 
 def cancel_future_messages(

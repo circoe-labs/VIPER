@@ -10,8 +10,10 @@ Reads:
 - the SQL twins for lists (`join_sequence_sources`, `next_due_at_sql`, …) used by Prospection,
   the Contact page and Home, so a list and a prospect sheet always agree.
 
-Write:
+Writes:
 
+- `open_imported_sequence` — an import puts a prospect that never had a cohort in the file's
+  cohort (D3, D11); nothing else of the sequence is ever changed by an import;
 - `change_cohort` — a person (403 `human_actor_required` otherwise; never an import, a job or the
   AI) puts the prospect in a cohort: the current sequence is closed (`cohort_changed`, or
   `cohort_removed` when the cohort is cleared) and its unsent messages cancelled (reason
@@ -54,6 +56,7 @@ from sqlalchemy.sql.expression import null
 
 from app.core.actor import ActorContext, ActorType
 from app.core.business_time import BUSINESS_TIMEZONE
+from app.core.cohort_codes import OUT_OF_CAMPAIGN_CODE
 from app.models import (
     AppSetting,
     Cohort,
@@ -64,7 +67,6 @@ from app.models import (
     QualityAlert,
 )
 from app.models.app_settings import MAX_FOLLOW_UPS_KEY
-from app.models.contact_sequences import OUT_OF_CAMPAIGN_CODE
 from app.models.contact_tracking import ContactTrackingStatusHistory
 from app.models.enums import (
     ContactabilityStatus,
@@ -416,6 +418,42 @@ def change_cohort(
         session.flush()
         resumed = _resume_state(session, actor, prospect)
     return CohortChange(sequence, changed=True, messages=cancelled, resumed_from=resumed)
+
+
+def open_imported_sequence(
+    session: Session, actor: ActorContext, prospect_id: uuid.UUID, cohort_id: uuid.UUID
+) -> ContactSequence:
+    """An import puts a prospect **without any cohort** in the file's cohort (D3, D11: an empty
+    value is filled, never a cohort or a sequence set before). Only for the import actor (403
+    `human_actor_required` wording aside: a person uses `change_cohort`); refused for a prospect
+    that already has or had a sequence (409 `sequence_exists`), under the do-not-contact
+    opposition (409 `prospect_do_not_contact`) or in a state other than `neutral` (409
+    `prospect_sequence_closed`). Audited `contact_sequence.created`."""
+    if actor.type is not ActorType.IMPORT:
+        raise ActorNotAllowedError("Only an import opens a sequence this way.")
+    prospect = _locked_prospect(session, prospect_id)
+    cohort = cohorts.get_cohort(session, cohort_id)
+    if prospect.contactability_status is ContactabilityStatus.DO_NOT_CONTACT:
+        raise BusinessRuleError(
+            "prospect_do_not_contact", HTTPStatus.CONFLICT, "The prospect must not be contacted."
+        )
+    had_one = session.scalar(select(exists().where(ContactSequence.prospect_id == prospect_id)))
+    if had_one:
+        raise BusinessRuleError(
+            "sequence_exists", HTTPStatus.CONFLICT, "The prospect already has a cohort history."
+        )
+    tracking = prospect.contact_tracking
+    if tracking is not None and tracking.status is not S.NEUTRAL:
+        raise BusinessRuleError(
+            "prospect_sequence_closed",
+            HTTPStatus.CONFLICT,
+            "The prospect's state keeps it out of any sequence.",
+        )
+    sequence = ContactSequence(prospect_id=prospect_id, cohort_id=cohort.id, is_current=True)
+    audit.annotate(session, actor, sequence, labels={"cohort_id": (None, cohort.code)})
+    session.add(sequence)
+    session.flush()
+    return sequence
 
 
 # --- SQL twins (lists) ---------------------------------------------------------------------------

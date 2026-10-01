@@ -15,6 +15,8 @@ class ImportField(StrEnum):
 
     VERIFICATION_STATUS = "verification_status"
     REFERENT = "referent"
+    # The cohort column (`Sxx`, first `A contacter`). Historical key, kept stable for the stored
+    # row metadata and the review's corrections.
     PLANNED_CONTACT = "planned_contact"
     COMPANY_NAME = "company_name"
     STAGE_APPOINTMENT = "stage_appointment"
@@ -63,8 +65,8 @@ LEGACY_LAYOUT: tuple[FieldSpec, ...] = (
     FieldSpec(
         ImportField.PLANNED_CONTACT,
         "A contacter ",
-        "A contacter (semaine)",
-        ("à contacter", "semaine de contact"),
+        "A contacter (cohorte)",
+        ("à contacter", "semaine de contact", "cohorte"),
         repeat=ImportField.LEGACY_TO_CONTACT_FLAG,
     ),
     FieldSpec(

@@ -1,6 +1,6 @@
-"""Pure value normalizers: civility, names, emails, phones, planned-contact week, tracking stages,
-address. Each returns the normalized value(s), the diagnostic codes raised and whether the raw
-value must also be kept in legacy metadata (whenever the conversion is partial or impossible).
+"""Pure value normalizers: civility, names, emails, phones, cohort code, tracking stages, address.
+Each returns the normalized value(s), the diagnostic codes raised and whether the raw value must
+also be kept in legacy metadata (whenever the conversion is partial or impossible).
 """
 
 import re
@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from enum import StrEnum
 
+from app.core.cohort_codes import normalize_code
 from app.models.enums import Civility, PhoneType
 from app.services.imports.diagnostics import DiagnosticCode
 from app.services.imports.text import CellValue, fold, render, single_line
@@ -185,11 +186,10 @@ def phone_type(number: str, *, mobile_column: bool) -> PhoneType:
     return PhoneType.MOBILE if mobile_column else PhoneType.OTHER
 
 
-# --- Planned contact (first `A contacter`) ------------------------------------------------------
+# --- Cohort (first `A contacter`) ----------------------------------------------------------------
 
+# A week-like marker (`S37`, `sem 37`), e.g. in the `Référent` column: not a referent.
 WEEK = re.compile(r"(?:s|sem|semaine|w|wk|week) ?([0-9]{1,2})")
-WEEK_YEAR = re.compile(r"(?:s|sem|semaine|w|wk|week) ?([0-9]{1,2}) ([0-9]{4}|[0-9]{2})")
-YEAR_WEEK = re.compile(r"([0-9]{4}) ?(?:s|w) ?([0-9]{1,2})")
 DATE_TEXT = re.compile(r"([0-9]{1,2}) ([0-9]{1,2}) ([0-9]{4}|[0-9]{2})")
 INACTIVE_HINT = re.compile(
     r"\b(?:retraite|retraitee|retraites|decede|decedee|plus en poste|n est plus|a quitte|parti)\b"
@@ -197,15 +197,8 @@ INACTIVE_HINT = re.compile(
 
 
 @dataclass(frozen=True, slots=True)
-class PlannedContact:
-    date: date | None = None  # a real date: given as such, or week + year written in the cell
-    week: int | None = None
-    year: int | None = None  # never guessed: None means the user must provide it
-
-
-@dataclass(frozen=True, slots=True)
-class PlannedOutcome:
-    value: PlannedContact | None
+class CohortOutcome:
+    code: str | None  # normalized `S<n>` (`S0` included), None when the cell is not a cohort
     codes: Codes = ()
     keep_raw: bool = False
     suggests_inactive: bool = False
@@ -219,57 +212,20 @@ def full_year(text: str) -> int:
     return int(text) if len(text) == 4 else 2000 + int(text)
 
 
-def parse_planned_contact(value: CellValue) -> PlannedOutcome:
-    """`S37`/`sem 37` → week without year (flagged, raw kept); `S37 2026`/`2026-W37` → that ISO
-    week's Monday; a date cell or `dd/mm/yyyy` → that date; anything else (e.g. `retraité`) is
-    not a week, raw kept, with an `inactive` suggestion when it reads like a departure."""
-    if isinstance(value, datetime):
-        return PlannedOutcome(PlannedContact(date=value.date()))
-    if isinstance(value, date):
-        return PlannedOutcome(PlannedContact(date=value))
-    text = fold(render(value))
-    if dated := week_with_year(text):
-        week, year = dated
-        try:
-            monday = date.fromisocalendar(year, week, 1)
-        except ValueError:
-            return invalid_week()
-        return PlannedOutcome(PlannedContact(date=monday, week=week, year=year))
-    if week_only := WEEK.fullmatch(text):
-        week = int(week_only[1])
-        if not 1 <= week <= 53:
-            return invalid_week()
-        return PlannedOutcome(
-            PlannedContact(week=week),
-            (DiagnosticCode.PLANNED_CONTACT_WEEK_WITHOUT_YEAR,),
-            keep_raw=True,
-        )
-    if day_month_year := DATE_TEXT.fullmatch(text):
-        day, month, year_text = day_month_year.groups()
-        try:
-            return PlannedOutcome(
-                PlannedContact(date=date(full_year(year_text), int(month), int(day)))
-            )
-        except ValueError:
-            pass
-    return PlannedOutcome(
+def parse_cohort(value: CellValue) -> CohortOutcome:
+    """`S37`, `s39`, ` S 39 `, `S0` → the cohort code (`app.core.cohort_codes`): a session name,
+    never an ISO week, and no year is inferred. Anything else — a date, a week with a year, a
+    note such as `retraité` — is not a cohort: raw kept, flagged, with an `inactive` suggestion
+    when it reads like a departure."""
+    if not isinstance(value, datetime | date | bool) and (code := normalize_code(render(value))):
+        return CohortOutcome(code)
+    text = render(value)
+    return CohortOutcome(
         None,
-        (DiagnosticCode.PLANNED_CONTACT_NOT_A_WEEK,),
+        (DiagnosticCode.COHORT_NOT_A_COHORT,),
         keep_raw=True,
-        suggests_inactive=suggests_inactive(render(value)),
+        suggests_inactive=suggests_inactive(text),
     )
-
-
-def week_with_year(text: str) -> tuple[int, int] | None:
-    if match := WEEK_YEAR.fullmatch(text):
-        return int(match[1]), full_year(match[2])
-    if match := YEAR_WEEK.fullmatch(text):
-        return int(match[2]), int(match[1])
-    return None
-
-
-def invalid_week() -> PlannedOutcome:
-    return PlannedOutcome(None, (DiagnosticCode.PLANNED_CONTACT_INVALID_WEEK,), keep_raw=True)
 
 
 # --- Legacy tracking stages (RDV / Devis / Suivi / Relance 1 / Relance 2) -----------------------

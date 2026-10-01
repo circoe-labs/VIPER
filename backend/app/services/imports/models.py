@@ -143,18 +143,10 @@ class PhoneProposal(Frozen):
     column: str
 
 
-class PlannedContactProposal(Frozen):
-    planned_date: date | None = None  # set only when the cell gives the year (or is a date)
-    week: int | None = None
-    year: int | None = None
-    requires_year: bool = False  # week without year: the user must provide it
-
-
 class TrackingProposal(Frozen):
     status: ContactTrackingStatus
     stages: list[ImportField] = Field(default_factory=list)  # positive legacy stage columns
     requires_review: bool = False  # contradictory stages
-    planned_contact: PlannedContactProposal | None = None
     appointment_date: date | None = None
     referent: ReferentMatch | None = None
     referent_suggestions: list[ReferentMatch] = Field(default_factory=list)
@@ -190,6 +182,9 @@ class PreviewRow(Frozen):
     emails: list[EmailProposal]
     phones: list[PhoneProposal]
     tracking: TrackingProposal | None
+    # The cohort of the first `A contacter` column, normalized (`S37`, `S0`); None when the cell is
+    # empty or is not a cohort code (then flagged `cohort.not_a_cohort`, raw kept).
+    cohort_code: str | None = None
     legacy_metadata: dict[str, LegacyValue]
     duplicates: list[DuplicateCandidate]
     blocked_by_do_not_contact: bool

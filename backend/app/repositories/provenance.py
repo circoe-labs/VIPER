@@ -49,12 +49,14 @@ def committed_batches(session: Session, fingerprint: str) -> list[ImportBatch]:
 
 
 def batch_row_counts(session: Session, batch_id: uuid.UUID) -> tuple[int, int, int]:
-    """(row metadata rows, distinct prospects, distinct companies) recorded by a batch."""
+    """(row metadata rows — excluded rows included —, distinct prospects and companies created or
+    completed by the imported rows) recorded by a batch."""
+    imported = ~ImportRowMetadata.excluded
     rows, prospects, companies = session.execute(
         select(
             func.count(),
-            func.count(ImportRowMetadata.prospect_id.distinct()),
-            func.count(ImportRowMetadata.company_id.distinct()),
+            func.count(ImportRowMetadata.prospect_id.distinct()).filter(imported),
+            func.count(ImportRowMetadata.company_id.distinct()).filter(imported),
         ).where(ImportRowMetadata.import_batch_id == batch_id)
     ).one()
     return rows, prospects, companies

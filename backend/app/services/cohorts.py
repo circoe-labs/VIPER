@@ -14,7 +14,6 @@ Only a person writes cohorts (403 `human_actor_required`). Audited through the f
 (`cohort.created|updated|deleted`). Operations flush; the caller owns the transaction.
 """
 
-import re
 import uuid
 from dataclasses import dataclass
 from datetime import date
@@ -25,8 +24,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.actor import ActorContext, ActorType
+from app.core.cohort_codes import OUT_OF_CAMPAIGN_CODE
+from app.core.cohort_codes import normalize_code as normalize_code  # the service's code rule
 from app.models import Cohort, ContactSequence
-from app.models.contact_sequences import OUT_OF_CAMPAIGN_CODE
 from app.services import audit
 from app.services.errors import (
     ActorNotAllowedError,
@@ -41,7 +41,6 @@ from app.services.errors import (
     violated_constraint,
 )
 
-CODE_FORMAT = re.compile(r"(?:s|sem|semaine)\s*0*([0-9]{1,6})")
 UNIQUE_CODE = "uq_cohorts_code"
 
 
@@ -55,14 +54,6 @@ class CohortView:
     # Prospects whose current sequence is in this cohort, and every sequence ever in it.
     current_count: int
     sequence_count: int
-
-
-def normalize_code(raw: str) -> str | None:
-    """`S<n>` from « S37 », « s 37 », « Sem 037 »…; None when it is not a cohort code."""
-    match = CODE_FORMAT.fullmatch(raw.strip().lower())
-    if match is None:
-        return None
-    return f"S{int(match[1])}"
 
 
 def _code(raw: str) -> str:

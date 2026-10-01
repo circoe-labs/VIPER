@@ -6,16 +6,21 @@ re-runs the preview on a fresh reference snapshot, refuses if the file or the pr
 (fingerprint, digest), validates the plan, then writes everything in **one savepoint** of the
 request's transaction:
 
-    roles/categories the user chose to create (by the user, audited Settings service)
-    → batch `pending` (by the user) → inside `import_batches.importing` (import actor, on behalf
-    of the user): companies (+ establishment) → prospects (+ e-mails/phones `imported`,
-    `unverified`) or merges into existing ones → contact tracking (history) → one
-    `excel_import` source and one `import_row_metadata` per imported row → batch `committed`.
+    roles/categories and new cohorts (with their real dates) the user chose to create (by the
+    user, audited Settings services) → batch `pending` (by the user) → inside
+    `import_batches.importing` (import actor, on behalf of the user): companies (+ establishment)
+    → prospects (+ e-mails/phones `imported`, `unverified`) or merges into existing ones →
+    contact tracking (history) → cohorts, sequences, imported sends and « Défaillant »
+    (`operational_import`) → one `import_row_metadata` per source row (raw snapshot of every
+    non-empty cell, excluded rows included) and one `excel_import` source per imported row →
+    batch `committed`.
 
 Any failure while writing rolls the savepoint back (no partial data) and records a `failed` batch
-in the request's transaction instead, so the history shows the attempt. Merge rules
-(`attach`): never overwrite, fill empty fields only, add missing e-mails/phones, never touch
-contactability; a value the import does not apply stays in the row's legacy metadata.
+in the request's transaction instead, so the history shows the attempt. Merge rules: human
+precedence (D11, `import_precedence`) — an empty field is filled unless a person set or emptied
+it, a different value is never written and raises an `import_conflict` alert on the prospect or
+the company; contactability is never touched; a value the import does not apply stays in the
+row's legacy metadata.
 """
 
 import logging
@@ -30,6 +35,7 @@ from sqlalchemy.orm import Session
 
 from app.core.actor import ActorContext
 from app.core.business_time import BUSINESS_TIMEZONE
+from app.models.companies import Company
 from app.models.enums import (
     ActivityStatus,
     ContactabilityStatus,
@@ -39,9 +45,20 @@ from app.models.enums import (
 )
 from app.models.imports import ImportBatch
 from app.models.prospects import Prospect
-from app.services import audit, companies, import_batches, prospects, provenance, taxonomies
+from app.services import (
+    audit,
+    cohorts,
+    companies,
+    import_batches,
+    operational_import,
+    prospects,
+    provenance,
+    taxonomies,
+)
+from app.services import import_precedence as precedence
 from app.services.contact_tracking import ContactTrackingInput, save_contact_tracking
 from app.services.errors import DomainError, DuplicateValueError, InvalidInputError
+from app.services.import_precedence import AlertRecorder, Reason, RowRef
 from app.services.imports.decisions import (
     ImportDecisions,
     PreviewOptions,
@@ -51,6 +68,7 @@ from app.services.imports.decisions import (
 )
 from app.services.imports.fields import ImportField
 from app.services.imports.models import (
+    CandidateKind,
     CompanyProposal,
     ImportPreview,
     LegacyReason,
@@ -60,6 +78,7 @@ from app.services.imports.models import (
 from app.services.imports.preview import ImportFile, build_preview
 from app.services.imports.reference_loader import load_reference_data
 from app.services.imports.review import (
+    PERSON_REASONS,
     DecisionError,
     ImportPlan,
     ImportReview,
@@ -69,10 +88,11 @@ from app.services.imports.review import (
 )
 from app.services.imports.rows import COMPANY_TEXT_FIELDS
 from app.services.imports.text import fold
+from app.services.imports.verification import row_activity
 from app.services.imports.workbook import ImportLimits
 
 logger = logging.getLogger(__name__)
-# Follow-up stage columns: sends, recorded by the import redesign (S2), kept raw until then.
+# Follow-up stage columns: sends without a known date (never a state, D1/D7): kept raw.
 SEND_STAGES = (ImportField.STAGE_FOLLOW_UP_1, ImportField.STAGE_FOLLOW_UP_2)
 TRACKING_FIELDS = (
     ImportField.STAGE_APPOINTMENT,
@@ -250,13 +270,14 @@ class Committer:
         decisions: ImportDecisions,
     ) -> None:
         self.session = session
-        self.actor = actor
+        self.actor = actor  # the person who validates the import
         self.importer = actor  # replaced by the import actor while importing
         self.preview = preview
         self.plan = plan
         self.decisions = decisions
         self.sheet = preview.summary.sheet or ""
         self.columns = {c.field: c for c in preview.summary.columns if c.field is not None}
+        self.headers = {c.column: c.header for c in preview.summary.columns}
         self.counts: Counter[str] = Counter()
         self.role_ids: dict[str, uuid.UUID] = {}
         self.category_ids: dict[str, uuid.UUID] = {}
@@ -264,12 +285,17 @@ class Committer:
         self.receivers: dict[int, Prospect] = {}  # row → the prospect it created or merged into
         self.extra: dict[int, dict[str, LegacyValue]] = {}
         self.attached: set[uuid.UUID] = set()
+        self.created: set[uuid.UUID] = set()  # prospects created by this import
+        self.batch: ImportBatch | None = None
+        self.alerts: AlertRecorder | None = None
 
     def run(self) -> CommitResult:
         self.create_taxonomies()
-        batch = start(self.session, self.actor, self.preview, self.decisions)
+        self.create_cohorts()
+        batch = self.batch = start(self.session, self.actor, self.preview, self.decisions)
         with import_batches.importing(self.session, batch, self.actor) as importer:
             self.importer = importer
+            self.alerts = AlertRecorder(self.session, importer)
             for company in self.plan.companies.values():
                 self.guarded(company.rows[0], partial(self.company, company.key))
             # Rows creating or attaching first, so that merges into another row find its prospect.
@@ -278,9 +304,9 @@ class Committer:
             for plan in ordered:
                 if plan.imported:
                     self.guarded(plan.row.row_number, partial(self.prospect, plan))
+            self.reconcile_operations()
             for plan in self.plan.rows:
-                if plan.imported:
-                    self.guarded(plan.row.row_number, partial(self.trace, plan, batch))
+                self.guarded(plan.row.row_number, partial(self.trace, plan, batch))
         imported = sum(1 for plan in self.plan.rows if plan.imported)
         finished = import_batches.finish_batch(
             self.session,
@@ -295,6 +321,7 @@ class Committer:
         self.counts["rows_imported"] = imported
         self.counts["rows_excluded"] = len(self.plan.rows) - imported
         self.counts["prospects_attached"] = len(self.attached)
+        self.counts["alerts_raised"] = self.alerts.raised if self.alerts else 0
         return CommitResult(finished, dict(self.counts))
 
     @staticmethod
@@ -307,7 +334,16 @@ class Committer:
         except Exception as error:
             raise _RowFailure(row, error) from None
 
-    # --- taxonomies the user chose to create ---
+    def ref(self, row: int) -> RowRef:
+        assert self.batch is not None
+        return RowRef(self.batch.id, self.preview.summary.file_name, self.sheet, row)
+
+    @property
+    def recorder(self) -> AlertRecorder:
+        assert self.alerts is not None
+        return self.alerts
+
+    # --- Settings values the user chose to create ---
 
     def create_taxonomies(self) -> None:
         for label in self.plan.role_labels:
@@ -322,6 +358,12 @@ class Committer:
             )
             self.category_ids[fold(label) or label] = value.id
             self.counts["categories_created"] += 1
+
+    def create_cohorts(self) -> None:
+        """New cohort codes of the file, with the real date the user gave (D5), by the user."""
+        for code, starts_on in self.plan.new_cohorts.items():
+            cohorts.create_cohort(self.session, self.actor, code, starts_on)
+            self.counts["cohorts_created"] += 1
 
     # --- companies ---
 
@@ -360,11 +402,9 @@ class Committer:
             )
             self.counts["companies_created"] += 1
         else:
-            before = companies.get_company(self.session, plan.link_id)
-            detail = companies.complete_company(
-                self.session,
-                self.importer,
+            completion = self.company_completion(
                 plan.link_id,
+                self.ref(plan.rows[0]),
                 companies.CompanyCompletion(
                     email_domain=domain,
                     commercial_segment_id=plan.segment_id,
@@ -373,9 +413,21 @@ class Committer:
                     **texts,
                 ),
             )
-            if before.establishments:
+            if completion.establishment is None:
                 site_row = None
+            detail = companies.complete_company(
+                self.session, self.importer, plan.link_id, completion
+            )
             self.counts["companies_linked"] += 1
+            linked = self.session.get(Company, plan.link_id)
+            held = {category.id for category in linked.activity_categories} if linked else set()
+            refused = set(category_ids) - held or (
+                plan.segment_id is not None
+                and (linked is None or linked.commercial_segment_id != plan.segment_id)
+            )
+            if refused:  # categories or segment the company did not take: kept raw
+                for plan_row in rows:
+                    self.keep(plan_row.row, ImportField.CATEGORY)
         values = CompanyValues(
             id=detail.id,
             display_name=detail.display_name,
@@ -385,6 +437,87 @@ class Committer:
         self.companies[key] = values
         for plan_row in rows:
             self.keep_company_values(plan_row, values)
+
+    def company_completion(
+        self, company_id: uuid.UUID, ref: RowRef, wanted: companies.CompanyCompletion
+    ) -> companies.CompanyCompletion:
+        """What the file may fill on an existing company (D11, handoff §16): empty fields a person
+        did not empty; a different value stays and raises an `import_conflict` on the company."""
+        company = self.session.get(Company, company_id)
+        assert company is not None
+        human = precedence.human_fields(self.session, "company", company_id)
+        sites_by_person = bool(
+            precedence.human_children(self.session, "company", company_id, ("establishment",))
+        )
+
+        def check(name: str, current: object, incoming: object) -> bool:
+            return self.applies(
+                name, current, incoming, human, ref, company_id=company_id, alert=True
+            )
+
+        texts = {
+            name.value: getattr(wanted, name.value)
+            if check(name.value, getattr(company, name.value), getattr(wanted, name.value))
+            else None
+            for name in COMPANY_TEXT_FIELDS
+        }
+        segment = wanted.commercial_segment_id
+        if not check("commercial_segment_id", company.commercial_segment_id, segment):
+            segment = None
+        current_ids = {category.id for category in company.activity_categories}
+        category_ids: list[uuid.UUID] = list(wanted.activity_category_ids)
+        if category_ids and not set(category_ids) <= current_ids:
+            name = "activity_categories_ids"
+            if current_ids:
+                self.recorder.conflict(
+                    ref,
+                    "activity_category_ids",
+                    sorted(current_ids, key=str),
+                    category_ids,
+                    company_id=company_id,
+                )
+                category_ids = []
+            elif name in human:
+                self.recorder.conflict(
+                    ref,
+                    "activity_category_ids",
+                    None,
+                    category_ids,
+                    company_id=company_id,
+                    reason=Reason.HUMAN_CLEARED,
+                )
+                category_ids = []
+        else:
+            category_ids = []
+        domain = wanted.email_domain if "email_domain" not in human else None
+        site = wanted.establishment
+        if site is not None:
+            known = [
+                _address(s.address_line1, s.postal_code, s.city) for s in company.establishments
+            ]
+            incoming = _address(site.address_line1, site.postal_code, site.city)
+            if any(precedence.same_text(incoming, other) for other in known):
+                site = None
+            elif known:
+                self.recorder.conflict(ref, "address", known[0], incoming, company_id=company_id)
+                site = None
+            elif sites_by_person:
+                self.recorder.conflict(
+                    ref,
+                    "address",
+                    None,
+                    incoming,
+                    company_id=company_id,
+                    reason=Reason.HUMAN_CLEARED,
+                )
+                site = None
+        return companies.CompanyCompletion(
+            email_domain=domain,
+            commercial_segment_id=segment,
+            activity_category_ids=category_ids,
+            establishment=site,
+            **texts,
+        )
 
     def keep_company_values(self, plan: RowPlan, values: CompanyValues) -> None:
         """Row values the company does not hold (another spelling, a conflicting text, a second
@@ -402,6 +535,43 @@ class Committer:
             self.keep(plan.row, ImportField.ADDRESS)
         if plan.categories_ignored:
             self.keep(plan.row, ImportField.CATEGORY)
+
+    # --- human precedence (D11) ---
+
+    def applies(
+        self,
+        name: str,
+        current: object,
+        incoming: object,
+        human: frozenset[str],
+        ref: RowRef,
+        *,
+        prospect_id: uuid.UUID | None = None,
+        company_id: uuid.UUID | None = None,
+        alert: bool,
+        viper_label: object = None,
+        file_label: object = None,
+    ) -> bool:
+        """Whether the file's value fills the field. Empty → fill unless a person set/emptied it;
+        same → nothing; different → kept, with an `import_conflict` alert when `alert` (an
+        existing record; two rows of the same new prospect only keep the raw value)."""
+        if precedence.is_empty(name, incoming) or precedence.same_text(current, incoming):
+            return False
+        if precedence.is_empty(name, current) and name not in human:
+            return True
+        if alert:
+            self.recorder.conflict(
+                ref,
+                name,
+                None if precedence.is_empty(name, current) else (viper_label or current),
+                file_label or incoming,
+                prospect_id=prospect_id,
+                company_id=company_id,
+                reason=Reason.HUMAN_CLEARED
+                if precedence.is_empty(name, current)
+                else Reason.DIFFERENT,
+            )
+        return False
 
     # --- prospects ---
 
@@ -457,6 +627,12 @@ class Committer:
         company = self.companies.get(plan.company_key) if plan.company_key else None
         return company.id if company else None
 
+    @staticmethod
+    def activity(plan: RowPlan) -> ActivityStatus | None:
+        """The activity the row claims: a confirmed `inactive` suggestion (a person's choice in
+        the review), else the `Statut_verification` cell (D10); None when nothing is known."""
+        return ActivityStatus.INACTIVE if plan.inactive else row_activity(plan.row)
+
     def create(self, plan: RowPlan) -> None:
         row = plan.row
         emails, phones = self.channels(row)
@@ -470,76 +646,172 @@ class Committer:
                 company_id=self.company_id(plan),
                 role_id=self.role_id(plan),
                 exact_job_title=row.prospect.exact_job_title,
-                activity_status=ActivityStatus.INACTIVE
-                if plan.inactive
-                else ActivityStatus.UNKNOWN,
+                activity_status=self.activity(plan) or ActivityStatus.UNKNOWN,
                 emails=emails,
                 phones=phones,
             ),
         )
         self.receivers[row.row_number] = prospect
+        self.created.add(prospect.id)
         self.counts["prospects_created"] += 1
         self.counts["emails_added"] += len(emails)
         self.counts["phones_added"] += len(phones)
 
     def merge(self, plan: RowPlan, prospect: Prospect) -> None:
-        """Fill the prospect's empty fields from the row; never replace a value, never touch its
-        contactability. Values that differ stay in the row's legacy metadata."""
+        """Complete the prospect with the row (D11): an empty field is filled unless a person
+        set or emptied it; a different value is kept, with an `import_conflict` alert on an
+        existing prospect (another row of the same new prospect only keeps its raw value);
+        contactability is never touched. Unapplied values stay in the row's legacy metadata."""
         row = plan.row
+        existing = prospect.id not in self.created
+        ref = self.ref(row.row_number)
+        human = (
+            precedence.human_fields(self.session, "prospect", prospect.id)
+            if existing
+            else frozenset()
+        )
         wanted = {
             "civility": (plan.civility, ImportField.CIVILITY),
             "first_name": (row.prospect.first_name, ImportField.FIRST_NAME),
             "last_name": (row.prospect.last_name, ImportField.LAST_NAME),
             "exact_job_title": (row.prospect.exact_job_title, ImportField.JOB_TITLE),
-            "role_id": (self.role_id(plan), None),
+            "activity_status": (self.activity(plan), ImportField.VERIFICATION_STATUS),
         }
-        fills = {}
+        fills: dict[str, object] = {}
         for name, (value, source) in wanted.items():
             current = getattr(prospect, name)
-            if value is None or value == current:
-                continue
-            if current is None:
+            if self.applies(
+                name, current, value, human, ref, prospect_id=prospect.id, alert=existing
+            ):
                 fills[name] = value
-            elif source is not None:
+            elif value is not None and not precedence.same_text(current, value):
                 self.keep(row, source)
-        if plan.inactive and prospect.activity_status is ActivityStatus.UNKNOWN:
-            fills["activity_status"] = ActivityStatus.INACTIVE
+        role_id = self.role_id(plan)
+        if role_id is not None and prospect.role_id is None and "role_id" not in human:
+            fills["role_id"] = role_id  # the job title's conflict, if any, says the rest
         if fills:
             audit.annotate(self.session, self.importer, prospect)
-            for name, value in fills.items():
-                setattr(prospect, name, value)
+            for attribute, filled in fills.items():
+                setattr(prospect, attribute, filled)
             self.session.flush()
-        company_id = self.company_id(plan)
-        if company_id is not None and prospect.company_id is None:
-            prospects.change_company(self.session, self.importer, prospect.id, company_id)
-        emails, phones = self.channels(row)
-        added_emails, added_phones = prospects.add_channels(
-            self.session, self.importer, prospect, emails=emails, phones=phones
-        )
+        self.merge_company(plan, prospect, human, ref, existing=existing)
+        self.merge_channels(plan, prospect, ref, existing=existing)
         self.receivers[row.row_number] = prospect
+
+    def merge_company(
+        self,
+        plan: RowPlan,
+        prospect: Prospect,
+        human: frozenset[str],
+        ref: RowRef,
+        *,
+        existing: bool,
+    ) -> None:
+        company_id = self.company_id(plan)
+        if company_id is None or company_id == prospect.company_id:
+            return
+        proposal = plan.row.company
+        current = self.session.get(Company, prospect.company_id) if prospect.company_id else None
+        if self.applies(
+            "company_id",
+            prospect.company_id,
+            company_id,
+            human,
+            ref,
+            prospect_id=prospect.id,
+            alert=existing,
+            viper_label=current.display_name if current else None,
+            file_label=proposal.display_name if proposal else None,
+        ):
+            prospects.change_company(self.session, self.importer, prospect.id, company_id)
+        else:
+            self.keep(plan.row, ImportField.COMPANY_NAME)
+
+    def merge_channels(
+        self, plan: RowPlan, prospect: Prospect, ref: RowRef, *, existing: bool
+    ) -> None:
+        """E-mails and phones of an existing prospect are filled when it has none (and a person
+        did not remove them); other addresses/numbers are a conflict, never silently added — the
+        address may be the new one of a person who changed job (handoff §8)."""
+        row = plan.row
+        emails, phones = self.channels(row)
+        by_person = (
+            precedence.human_children(self.session, "prospect", prospect.id, ("email", "phone"))
+            if existing
+            else frozenset()
+        )
+        kept_emails = self.channels_to_add(
+            "emails",
+            [email.address for email in prospect.emails],
+            emails,
+            "email" in by_person,
+            ref,
+            prospect.id,
+            existing=existing,
+        )
+        kept_phones = self.channels_to_add(
+            "phones",
+            [phone.number for phone in prospect.phones],
+            phones,
+            "phone" in by_person,
+            ref,
+            prospect.id,
+            existing=existing,
+        )
+        known_emails = {email.address for email in prospect.emails}
+        if any(e.value not in known_emails and e not in kept_emails for e in emails):
+            self.keep(row, ImportField.EMAIL)
+        known_phones = {phone.number for phone in prospect.phones}
+        if any(p.value not in known_phones and p not in kept_phones for p in phones):
+            self.keep(row, ImportField.PHONE)
+            self.keep(row, ImportField.MOBILE)
+        added_emails, added_phones = prospects.add_channels(
+            self.session, self.importer, prospect, emails=kept_emails, phones=kept_phones
+        )
         self.counts["emails_added"] += len(added_emails)
         self.counts["phones_added"] += len(added_phones)
+
+    def channels_to_add(
+        self,
+        name: str,
+        current: list[str],
+        incoming: list[prospects.ChannelInput],
+        cleared_by_person: bool,
+        ref: RowRef,
+        prospect_id: uuid.UUID,
+        *,
+        existing: bool,
+    ) -> list[prospects.ChannelInput]:
+        new = [channel for channel in incoming if channel.value not in current]
+        if not new or not existing:
+            return new  # nothing new, or another row of a prospect this import created
+        if not current and not cleared_by_person:
+            return new
+        self.recorder.conflict(
+            ref,
+            name,
+            sorted(current) or None,
+            [channel.value for channel in incoming],
+            prospect_id=prospect_id,
+            reason=Reason.DIFFERENT if current else Reason.HUMAN_CLEARED,
+        )
+        return []
 
     # --- contact tracking ---
 
     def tracking(self, plan: RowPlan, prospect: Prospect) -> None:
-        """Create the tracking (status history included) or fill its empty dates/referent. The
-        state of an existing tracking is never changed, except a `neutral` one that the file's
-        appointment stages advance (nothing was chosen yet); a do-not-contact prospect (hence
-        every `ignored` one) gets no tracking change from an import.
-
-        Sequences rework (S1): the planned week (`Sxx`) and the follow-up stage columns are no
-        longer written — a state is never derived from them (D7) and a cohort or a send needs the
-        import redesign of Slice S2 (D3, D5). Until then their raw cells are kept in the row's
-        legacy metadata, so nothing is lost. TODO(S2): cohorts and imported sends."""
+        """Create the tracking (status history included) or complete it (D11): its referent and
+        appointment date are filled when empty, an appointment stage of the file sets
+        `appointment_obtained` only on a `neutral` state no person chose; anything else that
+        differs is kept (an `import_conflict` alert on an existing prospect). A do-not-contact
+        prospect (hence every `ignored` one) gets no tracking change from an import. Follow-up
+        stage columns are not sends of a known date: they stay raw (legacy metadata)."""
         row = plan.row
         proposal = row.tracking
         # A stage only when a legacy stage column said so; a suggestion alone creates nothing.
         status = proposal.status if proposal and proposal.stages else None
         appointment = at_midnight(proposal.appointment_date if proposal else None)
         referent = plan.referent_id
-        if plan.planned_date is not None or (proposal and proposal.planned_contact):
-            self.keep(row, ImportField.PLANNED_CONTACT)
         if proposal and any(stage in SEND_STAGES for stage in proposal.stages):
             self.keep_tracking(row, stages=True, referent=False)
         if status is ContactTrackingStatus.NEUTRAL:
@@ -563,17 +835,42 @@ class Committer:
             )
             self.counts["trackings_created"] += 1
             return
-        neutral = current.status is ContactTrackingStatus.NEUTRAL
-        filled = ContactTrackingInput(
-            status=status if neutral and status is not None else current.status,
-            referent_id=current.referent_id or referent,
-            response_received_at=current.response_received_at,
-            appointment_at=current.appointment_at or appointment,
+        existing = prospect.id not in self.created
+        ref = self.ref(row.row_number)
+        human = (
+            precedence.human_fields(self.session, "contact_tracking", current.id)
+            if existing
+            else frozenset()
         )
-        self.keep_tracking(
-            row,
-            stages=status is not None and status != filled.status,
-            referent=referent is not None and filled.referent_id != referent,
+        state_by_person = existing and precedence.human_state(self.session, prospect.id)
+        new_status = current.status
+        if status is not None and status is not current.status:
+            neutral = current.status is ContactTrackingStatus.NEUTRAL
+            if neutral and not state_by_person:
+                new_status = status
+            else:
+                self.keep_tracking(row, stages=True, referent=False)
+                if existing:
+                    self.recorder.conflict(
+                        ref, "contact_state", current.status, status, prospect_id=prospect.id
+                    )
+
+        def fill(name: str, value: object, current_value: object) -> bool:
+            return self.applies(
+                name, current_value, value, human, ref, prospect_id=prospect.id, alert=existing
+            )
+
+        referent_id = referent if fill("referent_id", referent, current.referent_id) else None
+        if referent is not None and referent_id is None and referent != current.referent_id:
+            self.keep_tracking(row, stages=False, referent=True)
+        appointment_at = (
+            appointment if fill("appointment_at", appointment, current.appointment_at) else None
+        )
+        filled = ContactTrackingInput(
+            status=new_status,
+            referent_id=referent_id or current.referent_id,
+            response_received_at=current.response_received_at,
+            appointment_at=appointment_at or current.appointment_at,
         )
         kept = ("status", "referent_id", "appointment_at")
         if any(getattr(filled, name) != getattr(current, name) for name in kept):
@@ -586,10 +883,63 @@ class Committer:
         if referent:
             self.keep(row, ImportField.REFERENT)
 
+    # --- cohorts, sequences, imported sends, « Défaillant » (operational meaning) ---
+
+    def reconcile_operations(self) -> None:
+        """Per prospect the import created or completed, in source order of its rows."""
+        targets: dict[uuid.UUID, list[RowPlan]] = {}
+        for plan in self.plan.rows:
+            if plan.imported:
+                targets.setdefault(self.receivers[plan.row.row_number].id, []).append(plan)
+        reconciler = operational_import.OperationalReconciler(
+            self.session,
+            person=self.actor,
+            importer=self.importer,
+            alerts=self.recorder,
+            human_verified=self.plan.human_verified,
+            ref=self.ref,
+        )
+        for prospect_id, plans in targets.items():
+            rows = tuple(
+                operational_import.RowClaim(
+                    row=plan.row.row_number,
+                    cohort_code=plan.cohort_code,
+                    not_cohort=plan.not_cohort,
+                )
+                for plan in plans
+            )
+            target = operational_import.ProspectClaims(
+                prospect_id=prospect_id, created=prospect_id in self.created, rows=rows
+            )
+            self.guarded(rows[0].row, partial(reconciler.apply, target))
+            for plan in plans:
+                if plan.cohort_code is not None and plan.row.row_number in reconciler.unapplied:
+                    self.keep(plan.row, ImportField.PLANNED_CONTACT)
+        self.counts.update(reconciler.counts)
+
     # --- provenance and row trace ---
 
     def trace(self, plan: RowPlan, batch: ImportBatch) -> None:
+        """Every source row is traced with the raw snapshot of its non-empty cells (D10); an
+        imported row also gets its `excel_import` source and its unapplied legacy values."""
         row = plan.row
+        raw = {
+            cell.column: {"header": self.headers.get(cell.column), "value": cell.value}
+            | ({"merged": True} if cell.copied_from_merge else {})
+            for cell in row.cells
+        }
+        if not plan.imported:
+            import_batches.record_row(
+                self.session,
+                batch,
+                sheet=self.sheet,
+                row_number=row.row_number,
+                legacy_metadata={},
+                raw_cells=raw,
+                prospect_id=opposed_match(row),
+                excluded=True,
+            )
+            return
         prospect = self.receivers[row.row_number]
         provenance.add_import_source(
             self.session,
@@ -607,6 +957,7 @@ class Committer:
             sheet=self.sheet,
             row_number=row.row_number,
             legacy_metadata={key: value.model_dump(mode="json") for key, value in legacy.items()},
+            raw_cells=raw,
             prospect_id=prospect.id,
             company_id=self.company_id(plan),
         )
@@ -625,6 +976,26 @@ class Committer:
             value=cell.value,
             reason=LegacyReason.NOT_MAPPED_VALUE,
         )
+
+
+def opposed_match(row: PreviewRow) -> uuid.UUID | None:
+    """The do-not-contact prospect an excluded row matched (its trace goes with that prospect)."""
+    if not row.blocked_by_do_not_contact:
+        return None
+    return next(
+        (
+            candidate.prospect_id
+            for candidate in row.duplicates
+            if candidate.kind is CandidateKind.EXISTING_PROSPECT
+            and candidate.contactability is ContactabilityStatus.DO_NOT_CONTACT
+            and PERSON_REASONS & set(candidate.reasons)
+        ),
+        None,
+    )
+
+
+def _address(line1: str | None, postal_code: str | None, city: str | None) -> str:
+    return ", ".join(part for part in (line1, postal_code, city) if part)
 
 
 def fitting(text: str | None) -> str | None:

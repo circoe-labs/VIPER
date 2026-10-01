@@ -6,7 +6,13 @@ from app.services.imports.diagnostics import Diagnostic, DiagnosticCode, ImportR
 from app.services.imports.fields import LEGACY_LAYOUT, ImportField
 from app.services.imports.layout import ImportMapping, Layout, MatchedBy, resolve_layout
 from app.services.imports.workbook import ImportLimits, read_workbook
-from tests.fixtures.synthetic.legacy_workbook import HEADERS, NEWS_ROWS, legacy_xlsx
+from tests.fixtures.synthetic.legacy_workbook import (
+    HEADERS,
+    NEWS_ROWS,
+    legacy_values,
+    legacy_xlsx,
+    sheets_xlsx,
+)
 
 LIMITS = ImportLimits()
 # `Statut_verification` is optional: the historical 24-column workbook predates it.
@@ -44,7 +50,7 @@ def test_other_sheets_get_an_explicit_skip_notice() -> None:
     skipped = [n for n in layout.notices if n.code is DiagnosticCode.SHEET_SKIPPED]
     assert len(skipped) == 1
     assert skipped[0].message == (
-        "Feuille « actualité » ignorée : elle ne fait pas partie du modèle d'import des prospects."
+        "Feuille « actualité » ignorée : seule la première feuille du classeur est importée."
     )
     assert codes(layout.notices) == [
         DiagnosticCode.SHEET_SKIPPED,
@@ -65,16 +71,32 @@ def test_verification_status_column_is_mapped_when_present() -> None:
     assert DiagnosticCode.COLUMN_MISSING not in codes(layout.notices)
 
 
-def test_prospect_sheet_is_found_by_fingerprint_whatever_its_name_and_position() -> None:
+def test_the_first_sheet_is_imported_whatever_its_name() -> None:
     content = legacy_xlsx(
         [ROW],
         sheet="Feuil2",
-        extra_sheets={"Notes": NEWS_ROWS, "Autres": [("Entreprise", "Commentaire")]},
+        extra_sheets={"Notes": NEWS_ROWS, "Autres": [("Entreprise", "Nom", "Mail")]},
     )
 
     layout = layout_of(content)
 
     assert layout.sheet is not None and layout.sheet.name == "Feuil2"
+    assert codes(layout.notices).count(DiagnosticCode.SHEET_SKIPPED) == 2
+
+
+def test_a_prospect_list_on_another_sheet_is_never_imported() -> None:
+    """D10: only the first sheet feeds the CRM, even when a later one looks like prospects."""
+    content = sheets_xlsx(
+        {
+            "Feuil1": [("note libre", "fragment")],
+            "Base client ": [list(HEADERS), legacy_values(ROW)],
+        }
+    )
+
+    layout = layout_of(content)
+
+    assert layout.sheet is None and layout.columns == ()
+    assert codes(layout.notices)[0] is DiagnosticCode.SHEET_NOT_FOUND
     assert codes(layout.notices).count(DiagnosticCode.SHEET_SKIPPED) == 2
 
 
@@ -171,8 +193,8 @@ def test_user_overrides_remap_and_unmap_columns() -> None:
     assert missing == {ImportField.EMAIL}
 
 
-def test_user_can_force_a_sheet_and_header_row() -> None:
-    content = legacy_xlsx([ROW], extra_sheets={"Autre": [("Titre",), ("Entreprise", "Nom")]})
+def test_user_can_force_the_header_row_of_the_first_sheet() -> None:
+    content = sheets_xlsx({"Autre": [("Titre",), ("Entreprise", "Nom")], "Notes": NEWS_ROWS})
 
     layout = layout_of(content, mapping=ImportMapping(sheet="Autre", header_row=2))
 
@@ -182,13 +204,20 @@ def test_user_can_force_a_sheet_and_header_row() -> None:
     assert codes(layout.notices).count(DiagnosticCode.SHEET_SKIPPED) == 1
 
 
-def test_forced_sheet_without_known_headers_uses_its_first_row() -> None:
-    content = legacy_xlsx([ROW], extra_sheets={"Libre": [("Colonne 1", "Colonne 2"), ("a", "b")]})
+def test_forced_first_sheet_without_known_headers_uses_its_first_row() -> None:
+    content = sheets_xlsx({"Libre": [("Colonne 1", "Colonne 2"), ("a", "b")]})
 
     layout = layout_of(content, mapping=ImportMapping(sheet="Libre"))
 
     assert layout.header is not None and layout.header.number == 1
     assert [c.field for c in layout.columns] == [None, None]
+
+
+def test_another_sheet_than_the_first_cannot_be_forced() -> None:
+    with pytest.raises(ImportRejectedError) as caught:
+        layout_of(legacy_xlsx([ROW]), mapping=ImportMapping(sheet="actualité"))
+
+    assert caught.value.code is DiagnosticCode.MAPPING_NOT_FIRST_SHEET
 
 
 @pytest.mark.parametrize(

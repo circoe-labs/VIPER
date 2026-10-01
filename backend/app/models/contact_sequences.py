@@ -31,12 +31,12 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.core.cohort_codes import OUT_OF_CAMPAIGN_CODE
 from app.db.base import Base
 from app.models.common import TimestampMixin, UUIDPrimaryKeyMixin, text_enum
 from app.models.enums import SequenceEndReason
 
 COHORT_CODE_MAX_LENGTH = 16
-OUT_OF_CAMPAIGN_CODE = "S0"
 
 
 class Cohort(UUIDPrimaryKeyMixin, TimestampMixin, Base):

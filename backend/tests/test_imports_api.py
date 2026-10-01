@@ -50,6 +50,8 @@ def decisions(review: dict[str, Any], **fields: Any) -> dict[str, str]:
         "preview_digest": review["digest"],
         "legal_basis_or_collection_context": LEGAL_BASIS,
         "rows": {"10": {"resolution": {"action": "exclude"}}},
+        # The real date of each cohort code VIPER does not know yet (`S37`, `S39`).
+        "cohort_dates": {g["key"]: "2020-01-06" for g in review["cohorts"] if g["needs_date"]},
         **fields,
     }
     return {"decisions": json.dumps(body)}
@@ -184,11 +186,19 @@ def test_commit_imports_and_lists_the_batch_in_the_history(
     assert (batch["status"], batch["rows_imported"], batch["rows_skipped"]) == ("committed", 8, 2)
     assert (batch["actor_type"], batch["actor_display"]) == ("human", "Pilote Test")
     assert batch["source_reference"] == "Export fictif 2026"
-    assert body["counts"]["prospects_created"] == 8
+    counts = body["counts"]
+    assert counts["prospects_created"] == 8
+    assert (counts["cohorts_created"], counts["sequences_opened"], counts["sends_recorded"]) == (
+        2,
+        2,
+        2,
+    )
+    assert "prospects_disqualified" not in counts  # the file was not declared verified
     history = client.get(IMPORTS).json()
     assert [item["id"] for item in history] == [batch["id"]]
     detail = client.get(f"{IMPORTS}/{batch['id']}").json()
-    assert (detail["rows_traced"], detail["prospect_count"], detail["company_count"]) == (8, 8, 5)
+    # Every source row is traced (the 2 excluded ones with their raw snapshot only).
+    assert (detail["rows_traced"], detail["prospect_count"], detail["company_count"]) == (10, 8, 5)
     assert "legacy_metadata" not in json.dumps(history) + json.dumps(detail)
     events = audit_events(db_session, action="import_batch.committed")
     assert [(e.actor_type, e.actor_id) for e in events] == [(ActorType.HUMAN, str(pilot_user.id))]

@@ -124,10 +124,13 @@ def record_row(
     sheet: str,
     row_number: int,
     legacy_metadata: Mapping[str, Any],
+    raw_cells: Mapping[str, Any] | None = None,
     prospect_id: uuid.UUID | None = None,
     company_id: uuid.UUID | None = None,
+    excluded: bool = False,
 ) -> ImportRowMetadata:
-    """Keep where a row came from, what it produced and its unmapped legacy values (JSON-safe)."""
+    """Keep where a row came from, what it produced, its unapplied legacy values and the raw
+    snapshot of its non-empty cells (JSON-safe). An excluded row keeps its snapshot only."""
     row = ImportRowMetadata(
         import_batch_id=batch.id,
         source_sheet=sheet,
@@ -135,6 +138,8 @@ def record_row(
         prospect_id=prospect_id,
         company_id=company_id,
         legacy_metadata=to_json(legacy_metadata),
+        raw_cells=to_json(raw_cells or {}),
+        excluded=excluded,
     )
     session.add(row)
     session.flush()

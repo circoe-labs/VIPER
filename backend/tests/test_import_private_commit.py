@@ -65,6 +65,8 @@ def test_the_real_workbook_commits_with_the_default_decisions(db_session: Sessio
             "preview_digest": review.digest,
             "legal_basis_or_collection_context": "Fichier historique Circoe — prospection B2B",
             "rows": {number: {"resolution": {"action": "exclude"}} for number in missing_name},
+            # A placeholder date per new cohort code: the database is thrown away (S6 recipe).
+            "cohort_dates": {g.key: "2026-01-05" for g in review.cohorts if g.needs_date},
         }
     )
     blocked_before = count(
@@ -79,10 +81,13 @@ def test_the_real_workbook_commits_with_the_default_decisions(db_session: Sessio
     excluded = set(missing_name) | {
         row.row_number for row in review.rows if row.default_resolution.action == "exclude"
     }
-    traced = set(db_session.scalars(select(ImportRowMetadata.source_row_number)))
-    assert traced | excluded == {row.row_number for row in review.preview.rows}
-    assert not traced & excluded
-    assert len(traced) == batch.rows_imported == count(db_session, ProspectSource)
+    traces = db_session.execute(
+        select(ImportRowMetadata.source_row_number, ImportRowMetadata.excluded)
+    ).all()
+    # Every source row is traced with its raw snapshot (D10); excluded rows are flagged.
+    assert {number for number, _ in traces} == {row.row_number for row in review.preview.rows}
+    assert {number for number, gone in traces if gone} == excluded
+    assert batch.rows_imported == count(db_session, ProspectSource)
     assert batch.rows_imported + batch.rows_skipped == batch.rows_total
     assert blocked_before == count(
         db_session,
@@ -101,8 +106,10 @@ def test_the_real_workbook_commits_with_the_default_decisions(db_session: Sessio
         review.preview.summary.rows_by_status,
         "\ngroups",
         groups,
-        "weeks",
-        len(review.weeks),
+        "cohorts",
+        [(g.code, len(g.rows), g.existing) for g in review.cohorts],
+        "not_cohorts",
+        sum(len(g.rows) for g in review.not_cohorts),
         "civilities",
         len(review.civilities),
         "companies",

@@ -2,11 +2,14 @@
 
 Decisions are **overrides**: anything the client leaves out takes the default the review proposes
 (`review.build_review`), and the defaults never apply a suggestion that needs a confirmation, never
-invent a year and never create a taxonomy value. Grouped decisions are keyed by the review's group
-keys (folded raw values), row decisions by source row number.
+invent a date and never create a taxonomy value. Two decisions have no default: the real date of
+every cohort code of the file that VIPER does not know yet (`cohort_dates`), and whether the file
+was verified by a person before the import (`human_verified`, D4). Grouped decisions are keyed
+by the review's group keys (folded raw values), row decisions by source row number.
 """
 
 import uuid
+from datetime import date
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
@@ -171,7 +174,13 @@ class ImportDecisions(PreviewOptions):
     categories: dict[str, CategoryDecision] = Field(default_factory=dict, max_length=MAX_KEYS)
     referents: dict[str, ReferentDecision] = Field(default_factory=dict, max_length=MAX_KEYS)
     civilities: dict[str, Civility | None] = Field(default_factory=dict, max_length=MAX_KEYS)
-    # Year of every week written without one (`S37`), unless `weeks` says otherwise for that week.
+    # Real start date of each cohort code of the file VIPER does not know yet (`S41` → its first
+    # send), keyed by the normalized code; required for every new code an imported row carries.
+    cohort_dates: dict[str, date] = Field(default_factory=dict, max_length=MAX_KEYS)
+    # « Fichier vérifié humainement » (D4): rows of new prospects without a valid cohort become
+    # « Défaillant », by the person who validates the import. Unchecked by default.
+    human_verified: bool = False
+    # Deprecated (former weeks without year): accepted and ignored until the S5 review screen.
     week_year: Year | None = None
     weeks: dict[str, Year | None] = Field(default_factory=dict, max_length=60)
     companies: dict[str, CompanyDecision] = Field(default_factory=dict, max_length=MAX_KEYS)

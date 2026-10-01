@@ -200,7 +200,11 @@ def test_rows_are_ordered_by_company_then_person_and_companies_without_prospects
 
 
 def import_sample(session: Session) -> ImportBatch:
-    file = ImportFile(FILENAME, legacy_xlsx(SAMPLE_ROWS))
+    # Without the sample's cohort codes: a person puts Jean in his cohort below.
+    rows = [
+        {**row, "week": None} if row.get("week") in ("S37", "s39") else row for row in SAMPLE_ROWS
+    ]
+    file = ImportFile(FILENAME, legacy_xlsx(rows))
     limits = ImportLimits()
     review, _ = import_commit.review_upload(session, file, PreviewOptions(), limits)
     decisions = ImportDecisions.model_validate(
@@ -209,7 +213,6 @@ def import_sample(session: Session) -> ImportBatch:
             "preview_digest": review.digest,
             "legal_basis_or_collection_context": LEGAL_BASIS,
             "rows": {"10": {"resolution": {"action": "exclude"}}},
-            "week_year": 2026,
         }
     )
     return import_commit.commit_import(session, OPERATOR, file, decisions, limits).batch

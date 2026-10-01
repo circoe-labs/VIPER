@@ -121,21 +121,19 @@ def test_referent_markers_and_garbage_never_become_referents(preview: ImportPrev
     assert partial.referent.requires_confirmation
 
 
-def test_week_codes_keep_no_invented_year(preview: ImportPreview) -> None:
-    for number, week in ((2, 37), (3, 39)):
+def test_cohort_codes_are_normalized_never_iso_weeks(preview: ImportPreview) -> None:
+    for number, code in ((2, "S37"), (3, "S39")):
         item = row(preview, number)
-        assert item.tracking is not None and item.tracking.planned_contact is not None
-        planned = item.tracking.planned_contact
-        assert (planned.week, planned.year, planned.planned_date) == (week, None, None)
-        assert planned.requires_year
-        assert Code.PLANNED_CONTACT_WEEK_WITHOUT_YEAR in codes(item)
-        assert "planned_contact" in item.legacy_metadata
+        assert item.cohort_code == code
+        assert not {c for c in codes(item) if c.value.startswith("cohort.")}
+        assert "planned_contact" not in item.legacy_metadata  # fully represented by the code
 
 
-def test_retired_is_not_a_week_and_only_suggests_inactive(preview: ImportPreview) -> None:
+def test_retired_is_not_a_cohort_and_only_suggests_inactive(preview: ImportPreview) -> None:
     item = row(preview, 4)
 
-    assert {Code.PLANNED_CONTACT_NOT_A_WEEK, Code.ACTIVITY_INACTIVE_SUGGESTED} <= codes(item)
+    assert {Code.COHORT_NOT_A_COHORT, Code.ACTIVITY_INACTIVE_SUGGESTED} <= codes(item)
+    assert item.cohort_code is None
     assert item.prospect.activity_status_suggestion == "inactive"
     assert item.tracking is None
     assert item.legacy_metadata["planned_contact"].value == "retraité"
@@ -375,7 +373,18 @@ def test_file_errors_surface_as_rejections() -> None:
 
 POOLS: dict[str, list[CellValue]] = {
     "referent": ["Claire Référente", "Paul", "v", "xxx", "?", "a@example.com", "note 12/03", None],
-    "week": ["S37", "s39", "S37 2026", "retraité", "à voir", date(2026, 9, 14), 0, None],
+    "week": [
+        "S37",
+        "s39",
+        "S0",
+        " S 39 ",
+        "S37 2026",
+        "retraité",
+        "à voir",
+        date(2026, 9, 14),
+        0,
+        None,
+    ],
     "company": ["Transports Exemple SARL", "TRANSPORTS EXEMPLE", "x" * 300, 0, None],
     "rdv": ["oui", "non", "x", "à rappeler", datetime(2026, 3, 12), 2, None],
     "devis": ["oui", "non", True, "?", None],
@@ -412,7 +421,7 @@ def represented(item: PreviewRow, key: str, value: CellValue) -> bool:
     company, prospect, tracking = item.company, item.prospect, item.tracking
     checks = {
         "referent": lambda: tracking is not None and bool(tracking.referent_suggestions),
-        "week": lambda: tracking is not None and tracking.planned_contact is not None,
+        "week": lambda: item.cohort_code is not None,
         "company": lambda: company is not None,
         "category": lambda: (
             company is not None
