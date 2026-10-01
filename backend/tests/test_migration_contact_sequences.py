@@ -352,3 +352,53 @@ def test_0010_downgrade_maps_back_then_upgrade_again(
 
     with engine.connect() as connection:
         assert len(sends(connection, people["contacted"])) == 2
+
+
+def test_0010_merges_a_week_number_of_two_years_into_one_cohort_to_review(
+    engine: Engine, migration_database: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Decision R-10 (Q1): the code has no year, so week 41 of 2025 and of 2026 make one cohort
+    `S41`, dated by the oldest Monday and flagged for review."""
+    config = alembic_config(migration_database)
+    command.downgrade(config, "0009")
+    planned = {
+        "last_year": datetime(2025, 10, 5, 22, 0, tzinfo=UTC),  # Monday 6 October 2025, W41
+        "this_year": PLANNED,  # Monday 5 October 2026, W41
+    }
+    with engine.begin() as connection:
+        people = {}
+        for name, moment in planned.items():
+            prospect = connection.execute(
+                text("INSERT INTO prospects (last_name) VALUES (:name) RETURNING id"),
+                {"name": name},
+            ).scalar_one()
+            connection.execute(
+                text(
+                    "INSERT INTO contact_tracking (prospect_id, status, planned_contact_at)"
+                    " VALUES (:id, 'neutral', :planned)"
+                ),
+                {"id": prospect, "planned": moment},
+            )
+            people[name] = prospect
+
+    capsys.readouterr()
+    command.upgrade(config, "0010")
+    report = capsys.readouterr().err
+
+    with engine.connect() as connection:
+        assert rows(
+            connection, "SELECT code, starts_on, needs_review FROM cohorts ORDER BY code"
+        ) == [
+            ("S0", None, False),
+            ("S41", date(2025, 10, 6), True),
+        ]
+        for prospect in people.values():
+            assert place(connection, prospect) == (
+                "S41",
+                date(2025, 10, 6),
+                True,
+                True,
+                False,
+                None,
+            )
+    assert "'codes_over_several_weeks': 1" in report
