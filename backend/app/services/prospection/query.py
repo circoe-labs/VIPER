@@ -26,6 +26,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Session, aliased
 
 from app.core.business_time import BUSINESS_TIMEZONE
+from app.core.contact_steps import level_key, level_label, step_code
 from app.db.session import whole_base_plan
 from app.models import (
     Cohort,
@@ -53,7 +54,6 @@ from app.services.contact_sequences import (
     next_rank_sql,
     sent_count_sql,
 )
-from app.services.contact_workflow import step_code
 from app.services.prospection.segments import (
     EmailState,
     Segment,
@@ -136,6 +136,10 @@ class ProspectRow:
     sent_count: int
     next_step: str | None
     finished: bool
+    # The level key (`contact_pending`, `r2_sent`, `finished`…) and its label (« R2 envoyée »),
+    # the Contact planning's own levels; None without cohort.
+    level: str | None
+    level_label: str | None
     # Derived next due date (business midnight) and its ISO calendar week, e.g. `2026-W41`.
     next_due_at: datetime | None
     next_due_week: str | None
@@ -383,6 +387,12 @@ def list_prospects(
                 sent_count=sent_count,
                 next_step=step_code(next_rank) if next_rank is not None else None,
                 finished=finished,
+                level=level_key(sent_count, finished) if cohort_code is not None else None,
+                level_label=(
+                    level_label(level_key(sent_count, finished))
+                    if cohort_code is not None
+                    else None
+                ),
                 next_due_at=next_due,
                 next_due_week=iso_week(next_due),
                 due=due,

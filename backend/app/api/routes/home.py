@@ -38,6 +38,15 @@ class ProgressOut(BaseModel):
     months: list[MonthProgressOut]
 
 
+class ContactWeekOut(BaseModel):
+    # The current ISO week (`2026-W40`) and its Monday; Contacts and follow-ups to send in it
+    # (overdue included) and how many are overdue — `GET /api/contact/dashboard` `to_send`.
+    week: str
+    monday: date
+    to_send: int
+    overdue: int
+
+
 class ActionItemOut(BaseModel):
     prospect_id: uuid.UUID
     first_name: str | None
@@ -76,6 +85,7 @@ class HomeOut(BaseModel):
     counts: dict[Segment, int]
     companies: int
     progress: ProgressOut
+    contact_week: ContactWeekOut
     next_actions: NextActionsOut
     recent_imports: list[BatchOut]
     recent_edits: list[EditItemOut]

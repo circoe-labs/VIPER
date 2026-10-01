@@ -1,45 +1,61 @@
-"""Contact dashboard (Contact port Slice S3; handoff Task 09, decisions 16-18; adapted to the
-sequences rework D1-D9 — the full weekly planning by level is Slice S3 of the rework): the Contact
-page's counters, week options and people list, read-only (no filter or counter ever changes a
-state, a cohort or a sequence).
+"""Contact weekly planning (sequences rework S3, handoff §11; D1, D2, D7, D9): what to send this
+week, where every sequence stands and the categories out of the automatic actions — read-only (no
+count, list or filter ever changes a state, a cohort, a sequence or a message).
 
-Scope: prospects in a cohort (a current sequence) or with a contact tracking, whose state is
-neither `ignored` (terminal) nor `disqualified` (« Défaillant », out of the pipeline), and without
-the durable opposition `do_not_contact` (nobody to write to) — except `appointment_obtained`,
-which stays counted and listed whatever the opposition (« RDV pris » is a cumulative fact).
+**Week.** A planning week is an ISO calendar week, Monday 00:00 to Sunday 24:00 business time
+(Europe/Paris, DST-aware), « cette semaine » being the week of the business day. A cohort code
+`Sxx` is never a week (D5): the week only places the derived next due dates.
 
-The next due date is derived (`contact_sequences.next_due_at_sql`): the cohort's date for the
-Contact, then the Monday of the calendar week after the last real send; nothing is due when the
-sequence is finished (« Relance terminée »), the cohort is S0, the state is not `neutral` or an
-« Erreur sur le mail » is open. Counters — each equals the total of the list opened with the same
-`counter` key (same SQL):
+**À envoyer.** A prospect has something to send when its next due date
+(`contact_sequences.next_due_at_sql`: the cohort's date for the Contact, then the Monday after the
+last real send) falls in the week — **for the current week, every earlier due date too** (an
+overdue step stays to send until a person records it, flagged `overdue`: due before this week's
+Monday). A future week shows only what falls in it; a past week what fell in it and is still
+unsent. The predicate is `segments.to_send_before` (actionable: no opposition, not `inactive`), so
+nothing is ever to send without a cohort, in S0, under a state other than `neutral` (response,
+RDV, ignored, Défaillant), after « Relance terminée », under the opposition or while an
+« Erreur sur le mail » raised by a person or an import is open. Groups: one per rank from the
+Contact (« nouveaux contacts ») to R<max> (« max relances »), by the rank to send next. Levels move
+only with real sends: a week without prospecting (no S38) changes nothing, the next step simply
+stays due (overdue).
 
-- `first_contact`: nothing sent yet in the sequence, Contact due this week or overdue;
-- `follow_up`: at least one send, the next follow-up (R1, R2…) due this week or overdue;
-- `to_handle`: « À traiter cette semaine » = the exact, disjoint union of the two above;
-- `appointments`: « RDV pris », cumulative = current state `appointment_obtained`, no time window,
-  opposed or not.
+**Levels** (`contact_steps.level_key`, SQL `contact_sequences.level_key_sql`): over the sequences
+**in progress** — a current sequence in a campaign cohort (not S0), state `neutral`, no
+opposition (`in_sequence`) — Contact à envoyer, Contact envoyé, R1 … R<max-1> envoyée, Relance
+terminée (R<max> sent, or the sequence closed `completed`).
 
-The « due » counters also exclude prospects known to have left their role (`inactive`), exactly
-as Prospection's `actionable()`. "This week or overdue" compares the next due date with the start
-of next week's Monday. An overdue step stays « à traiter » until a person records the send.
+**Categories** (counts and lists; a prospect may be in several):
 
-List criteria (AND): `counter`, `week` (exact ISO calendar week of the next due date, business
-time), `state` (any state but `ignored`/`disqualified`), `q` (the Prospection search). Without
-`counter`, `week` or `state`, the list is the planning: prospects with a next due date only.
-Order: next due date (soonest first, none last), then last name, first name, id.
+- `in_sequence` — the sequences in progress above;
+- `email_error` — an open « Erreur sur le mail » raised by a person or an import (the AI's is a
+  proposal and pauses nothing); the cohort, state and history are kept;
+- `finished` — « Relance terminée »: in sequence and finished (still contactable);
+- `disqualified` — « Défaillant »;
+- `out_of_campaign` — current cohort S0 (validated, out of campaign);
+- `response_received`, `appointment_obtained` — the state;
+- `ignored` — the state `ignored` or the do-not-contact opposition.
+
+**Cohorts**: per cohort holding current prospects (under the filters): its prospects, its
+sequences in progress by level (so a person sees « S37 at R4 »), what it has to send in the week.
+
+Scope of the page: prospects with a current sequence, a contact tracking or an open effective
+« Erreur sur le mail ». Filters (AND): `cohort` (a cohort id or `none`), `q` (the Prospection
+search), and for the lists `category` (default `to_send`), `rank`, `level`, `week`. Every count of
+the dashboard equals the total of the list opened with the same criteria (same SQL).
 """
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
-from sqlalchemy import ColumnElement, Select, and_, false, func, or_, select
+from sqlalchemy import ColumnElement, Select, and_, case, false, func, null, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.business_time import BUSINESS_TIMEZONE, business_day, start_of_day
+from app.core.cohort_codes import OUT_OF_CAMPAIGN_CODE
+from app.core.contact_steps import level_keys, level_label, step_code, step_label
 from app.db.session import whole_base_plan
 from app.models import Cohort, ContactMessage, ContactSequence, ContactTracking, Prospect, Role
 from app.models.companies import Company
@@ -51,34 +67,102 @@ from app.models.enums import (
     ContactTrackingStatus,
 )
 from app.repositories.taxonomies import label_key
+from app.services import app_settings
 from app.services.contact_sequences import (
+    email_error_sql,
     finished_sql,
     has_cohort_sql,
+    last_sent_at_sql,
+    level_key_sql,
     next_due_at_sql,
     next_rank_sql,
     sent_count_sql,
 )
-from app.services.contact_workflow import IsoWeek, step_code
+from app.services.contact_workflow import IsoWeek
 from app.services.prospection.query import LIST_MAX_LIMIT, iso_week, search_condition
-from app.services.prospection.segments import actionable, join_segment_sources, primary_email
+from app.services.prospection.segments import (
+    actionable,
+    join_segment_sources,
+    primary_email,
+    to_send_before,
+)
 
 S = ContactTrackingStatus
-# Outside Contact: terminal or eliminated.
-OUT_OF_SCOPE_STATES = (S.IGNORED, S.DISQUALIFIED)
-NAMED_STEPS = ("contact", "r1", "r2")
+NONE: Literal["none"] = "none"
 
 
-class ContactCounter(StrEnum):
-    """The dashboard's cards; the value is the list's `counter` key."""
+class ContactCategory(StrEnum):
+    """The lists of the planning; the value is the API key (`?category=`)."""
 
-    TO_HANDLE = "to_handle"
-    FIRST_CONTACT = "first_contact"
-    FOLLOW_UP = "follow_up"
-    APPOINTMENTS = "appointments"
+    TO_SEND = "to_send"
+    IN_SEQUENCE = "in_sequence"
+    EMAIL_ERROR = "email_error"
+    FINISHED = "finished"
+    DISQUALIFIED = "disqualified"
+    OUT_OF_CAMPAIGN = "out_of_campaign"
+    RESPONSE_RECEIVED = "response_received"
+    APPOINTMENT_OBTAINED = "appointment_obtained"
+    IGNORED = "ignored"
 
 
-# States a Contact list may be filtered on.
-FILTERABLE_STATES = tuple(state for state in S if state not in OUT_OF_SCOPE_STATES)
+CATEGORY_LABELS: dict[ContactCategory, str] = {
+    ContactCategory.TO_SEND: "À envoyer",
+    ContactCategory.IN_SEQUENCE: "En séquence",
+    ContactCategory.EMAIL_ERROR: "Erreur sur le mail",
+    ContactCategory.FINISHED: "Relance terminée",
+    ContactCategory.DISQUALIFIED: "Défaillant",
+    ContactCategory.OUT_OF_CAMPAIGN: "S0 (validé hors campagne)",
+    ContactCategory.RESPONSE_RECEIVED: "Réponse reçue",
+    ContactCategory.APPOINTMENT_OBTAINED: "RDV obtenu",
+    ContactCategory.IGNORED: "Ignoré",
+}
+# The categories counted beside the planning (`to_send` is counted per rank).
+COUNTED_CATEGORIES = tuple(
+    category for category in ContactCategory if category is not ContactCategory.TO_SEND
+)
+
+
+class ContactSort(StrEnum):
+    DUE = "due"  # next due date (soonest first, none last), then the person
+    NAME = "name"  # last name, first name
+    COHORT = "cohort"  # cohort date (oldest first, S0 and none last), then the person
+
+
+# --- the week -----------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class PlanningWeek:
+    """The planning of `week` seen from the `current` week."""
+
+    week: IsoWeek
+    current: IsoWeek
+
+    @property
+    def is_current(self) -> bool:
+        return self.week == self.current
+
+    @property
+    def monday(self) -> date:
+        return self.week.monday
+
+    @property
+    def sunday(self) -> date:
+        return self.week.monday + timedelta(days=6)
+
+    @property
+    def start(self) -> datetime:
+        return start_of_day(self.week.monday)
+
+    @property
+    def end(self) -> datetime:
+        """Start of the next week's Monday (exclusive)."""
+        return start_of_day(self.week.monday + timedelta(weeks=1))
+
+    @property
+    def overdue_before(self) -> datetime:
+        """A due date before the current week's Monday is overdue."""
+        return start_of_day(self.current.monday)
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,18 +179,80 @@ class ContactClock:
     def current_week(self) -> IsoWeek:
         return IsoWeek.of(self.today)
 
-    @property
-    def due_before(self) -> datetime:
-        """Start of next week's Monday: a due date before it is this week or overdue."""
-        return start_of_day(self.current_week.monday + timedelta(weeks=1))
+    def window(self, week: IsoWeek | None = None) -> PlanningWeek:
+        return PlanningWeek(week=week or self.current_week, current=self.current_week)
+
+
+# --- inputs and results -------------------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
 class ContactFilters:
-    counter: ContactCounter | None = None
+    category: ContactCategory = ContactCategory.TO_SEND
+    # The planning week (default: the current one); used by `to_send` and the row flags.
     week: IsoWeek | None = None
-    state: ContactTrackingStatus | None = None
+    # The rank to send next (0 = Contact, n = Rn).
+    rank: int | None = None
+    # A level key (`contact_pending`, `contact_sent`, `r2_sent`, `finished`).
+    level: str | None = None
+    # The current cohort, or `none` (no cohort).
+    cohort: uuid.UUID | Literal["none"] | None = None
     search: str | None = None
+    sort: ContactSort = ContactSort.DUE
+
+
+@dataclass(frozen=True, slots=True)
+class WeekInfo:
+    week: str
+    monday: date
+    sunday: date
+    is_current: bool
+
+
+@dataclass(frozen=True, slots=True)
+class RankGroup:
+    rank: int
+    step: str
+    step_label: str
+    count: int
+    overdue: int
+
+
+@dataclass(frozen=True, slots=True)
+class ToSend:
+    total: int
+    overdue: int
+    groups: list[RankGroup]
+
+
+@dataclass(frozen=True, slots=True)
+class LevelCount:
+    level: str
+    label: str
+    count: int
+
+
+@dataclass(frozen=True, slots=True)
+class CategoryCount:
+    category: ContactCategory
+    label: str
+    count: int
+
+
+@dataclass(frozen=True, slots=True)
+class CohortSummary:
+    id: uuid.UUID
+    code: str
+    starts_on: date | None
+    out_of_campaign: bool
+    needs_review: bool
+    # Prospects whose current cohort it is (under the filters), in progress among them, to send in
+    # the week (overdue included for the current week) and overdue.
+    prospects: int
+    in_sequence: int
+    to_send: int
+    overdue: int
+    levels: list[LevelCount]
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,6 +260,7 @@ class WeekOption:
     week: str
     year: int
     number: int
+    monday: date
     count: int
 
 
@@ -121,9 +268,21 @@ class WeekOption:
 class ContactDashboard:
     today: date
     current_week: str
-    counts: dict[ContactCounter, int]
-    # Weeks of the next due dates (in scope, under `q`), oldest first, for the week selector.
+    week: WeekInfo
+    max_follow_ups: int
+    to_send: ToSend
+    levels: list[LevelCount]
+    categories: list[CategoryCount]
+    cohorts: list[CohortSummary]
+    # Weeks holding next due dates (overdue ones included, under the filters), oldest first.
     weeks: list[WeekOption]
+
+
+@dataclass(frozen=True, slots=True)
+class MessageState:
+    rank: int
+    step: str
+    status: ContactMessageStatus
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,18 +297,33 @@ class ContactRow:
     company_name: str | None
     primary_email: str | None
     activity_status: ActivityStatus
+    contactability_status: ContactabilityStatus
     tracking_status: ContactTrackingStatus
+    cohort_id: uuid.UUID | None
     cohort_code: str | None
+    cohort_starts_on: date | None
+    out_of_campaign: bool
     sent_count: int
+    last_sent_at: datetime | None
+    # The level key and its label; None without a cohort.
+    level: str | None
+    level_label: str | None
     finished: bool
-    next_due_at: datetime | None
-    next_action_week: str | None
-    # In `to_handle`: due this week or overdue, and actionable.
-    due: bool
-    # The step to send next (`contact`, `r1`…), None when finished or without cohort.
+    # The rank to send next, its code and label (None when finished or without a cohort).
+    next_rank: int | None
     next_step: str | None
-    # Status of each named step's message in the current sequence; None = never created.
-    messages: dict[str, ContactMessageStatus | None]
+    next_step_label: str | None
+    next_due_at: datetime | None
+    next_due_week: str | None
+    # To send in the requested week (overdue included for the current week); overdue: due before
+    # the current week.
+    to_send: bool
+    overdue: bool
+    email_error: bool
+    # The status of the message at the next rank (None: nothing prepared) and every message of
+    # the current sequence by rank.
+    next_message_status: ContactMessageStatus | None
+    messages: list[MessageState] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,107 +332,280 @@ class ContactPage:
     total: int
     limit: int
     offset: int
+    # The planning week the `to_send` flags and the `to_send` category refer to.
+    week: str
 
 
-# --- conditions --------------------------------------------------------------------------------
+# --- conditions ---------------------------------------------------------------------------------
+
+
+def _neutral() -> ColumnElement[bool]:
+    return or_(ContactTracking.status.is_(None), ContactTracking.status == S.NEUTRAL)
 
 
 def in_scope() -> ColumnElement[bool]:
+    """A current sequence, a contact tracking or an open effective « Erreur sur le mail »."""
+    return or_(has_cohort_sql(), ContactTracking.id.is_not(None), email_error_sql())
+
+
+def in_sequence() -> ColumnElement[bool]:
+    """A sequence in progress: a current sequence in a campaign cohort, state `neutral`, no
+    opposition (« Relance terminée » and a paused « Erreur sur le mail » included)."""
     return and_(
-        or_(has_cohort_sql(), ContactTracking.id.is_not(None)),
-        or_(ContactTracking.id.is_(None), ContactTracking.status.not_in(OUT_OF_SCOPE_STATES)),
-        or_(
-            Prospect.contactability_status == ContactabilityStatus.CONTACTABLE,
-            # An appointment obtained stays a fact after a later opposition (« RDV pris »).
-            ContactTracking.status == S.APPOINTMENT_OBTAINED,
-        ),
+        has_cohort_sql(),
+        Cohort.code != OUT_OF_CAMPAIGN_CODE,
+        _neutral(),
+        Prospect.contactability_status == ContactabilityStatus.CONTACTABLE,
     )
 
 
-def _due(clock: ContactClock) -> ColumnElement[bool]:
-    return and_(actionable(), next_due_at_sql() < clock.due_before)
+def to_send(window: PlanningWeek) -> ColumnElement[bool]:
+    condition = to_send_before(window.end)
+    if window.is_current:
+        return condition
+    return and_(condition, next_due_at_sql() >= window.start)
 
 
-def counter_condition(counter: ContactCounter, clock: ContactClock) -> ColumnElement[bool]:
-    match counter:
-        case ContactCounter.APPOINTMENTS:
+def overdue(window: PlanningWeek) -> ColumnElement[bool]:
+    return next_due_at_sql() < window.overdue_before
+
+
+def category_condition(category: ContactCategory, window: PlanningWeek) -> ColumnElement[bool]:
+    match category:
+        case ContactCategory.TO_SEND:
+            return to_send(window)
+        case ContactCategory.IN_SEQUENCE:
+            return in_sequence()
+        case ContactCategory.EMAIL_ERROR:
+            return email_error_sql()
+        case ContactCategory.FINISHED:
+            return and_(in_sequence(), finished_sql())
+        case ContactCategory.DISQUALIFIED:
+            return ContactTracking.status == S.DISQUALIFIED
+        case ContactCategory.OUT_OF_CAMPAIGN:
+            return and_(has_cohort_sql(), Cohort.code == OUT_OF_CAMPAIGN_CODE)
+        case ContactCategory.RESPONSE_RECEIVED:
+            return ContactTracking.status == S.RESPONSE_RECEIVED
+        case ContactCategory.APPOINTMENT_OBTAINED:
             return ContactTracking.status == S.APPOINTMENT_OBTAINED
-        case ContactCounter.FIRST_CONTACT:
-            return and_(_due(clock), sent_count_sql() == 0)
-        case ContactCounter.FOLLOW_UP:
-            return and_(_due(clock), sent_count_sql() > 0)
-        case ContactCounter.TO_HANDLE:
-            return _due(clock)
+        case ContactCategory.IGNORED:
+            return or_(
+                ContactTracking.status == S.IGNORED,
+                Prospect.contactability_status == ContactabilityStatus.DO_NOT_CONTACT,
+            )
 
 
-def week_condition(week: IsoWeek) -> ColumnElement[bool]:
-    start = start_of_day(week.monday)
-    due = next_due_at_sql()
-    return and_(due >= start, due < start_of_day(week.monday + timedelta(weeks=1)))
+def _cohort_condition(cohort: uuid.UUID | str | None) -> list[ColumnElement[bool]]:
+    if cohort is None:
+        return []
+    if cohort == NONE:
+        return [~has_cohort_sql()]
+    return [Cohort.id == cohort]
 
 
-def _search(filters: ContactFilters) -> list[ColumnElement[bool]]:
+def scope_conditions(filters: ContactFilters) -> list[ColumnElement[bool]]:
+    """The page's scope under `cohort` and `q` (dashboard and lists)."""
+    conditions = [in_scope(), *_cohort_condition(filters.cohort)]
     search = (filters.search or "").strip()
-    return [search_condition(search)] if search else []
-
-
-def list_conditions(filters: ContactFilters, clock: ContactClock) -> list[ColumnElement[bool]]:
-    conditions = [in_scope(), *_search(filters)]
-    if filters.counter is not None:
-        conditions.append(counter_condition(filters.counter, clock))
-    if filters.week is not None:
-        conditions.append(week_condition(filters.week))
-    if filters.state is not None:
-        if filters.state is S.NEUTRAL:
-            no_state = or_(ContactTracking.id.is_(None), ContactTracking.status == S.NEUTRAL)
-            conditions.append(no_state)
-        else:
-            conditions.append(ContactTracking.status == filters.state)
-    if filters.counter is None and filters.week is None and filters.state is None:
-        conditions.append(next_due_at_sql().is_not(None))
+    if search:
+        conditions.append(search_condition(search))
     return conditions
 
 
-def _week_label() -> ColumnElement[str]:
+def list_conditions(filters: ContactFilters, window: PlanningWeek) -> list[ColumnElement[bool]]:
+    conditions = [*scope_conditions(filters), category_condition(filters.category, window)]
+    if filters.rank is not None:
+        conditions.append(next_rank_sql() == filters.rank)
+    if filters.level is not None:
+        conditions.append(level_key_sql() == filters.level)
+    return conditions
+
+
+def _due_week() -> ColumnElement[str | None]:
+    """The ISO week (`2026-W41`) of an actionable next due date; NULL when nothing is due."""
     local = func.timezone(str(BUSINESS_TIMEZONE), next_due_at_sql())
-    return func.to_char(local, 'IYYY-"W"IW')
+    return case(
+        (and_(actionable(), next_due_at_sql().is_not(None)), func.to_char(local, 'IYYY-"W"IW')),
+        else_=null(),
+    )
 
 
-# --- service -----------------------------------------------------------------------------------
+# --- dashboard ----------------------------------------------------------------------------------
 
 
-def dashboard(session: Session, clock: ContactClock, search: str | None = None) -> ContactDashboard:
-    """Every card's count (one aggregate query) and the week options, under the search `q`."""
-    filters = ContactFilters(search=search)
-    where = [in_scope(), *_search(filters)]
-    counts = [
-        func.count().filter(counter_condition(counter, clock)).label(counter.value)
-        for counter in ContactCounter
-    ]
-    week = _week_label().label("week")
-    weeks_query = (
-        join_segment_sources(select(week, func.count()))
-        .where(*where, next_due_at_sql().is_not(None))
-        .group_by(week)
-        .order_by(week)
+def _derived(filters: ContactFilters, window: PlanningWeek) -> Any:
+    """One row per prospect in scope with every derived fact the dashboard counts (computed once,
+    then aggregated)."""
+    sending = to_send(window)
+    statement = join_segment_sources(
+        select(
+            Cohort.id.label("cohort_id"),
+            func.coalesce(sending, false()).label("to_send"),
+            func.coalesce(and_(sending, overdue(window)), false()).label("overdue"),
+            next_rank_sql().label("next_rank"),
+            level_key_sql().label("level"),
+            func.coalesce(in_sequence(), false()).label("in_sequence"),
+            _due_week().label("due_week"),
+            *(
+                func.coalesce(category_condition(category, window), false()).label(
+                    f"category_{category.value}"
+                )
+                for category in COUNTED_CATEGORIES
+            ),
+        )
+    ).where(*scope_conditions(filters))
+    return statement.subquery("planning")
+
+
+def dashboard(
+    session: Session, clock: ContactClock, filters: ContactFilters | None = None
+) -> ContactDashboard:
+    """The week's planning, the levels, the categories, the cohorts and the week options under
+    `week`, `cohort` and `q` (the list criteria `category`, `rank`, `level` do not apply). Four
+    statements (plus the « max relances » read) whatever the base size."""
+    filters = filters or ContactFilters()
+    window = clock.window(filters.week)
+    limit = app_settings.max_follow_ups(session)
+    keys = level_keys(limit)
+    rows = _derived(filters, window)
+    ranks = range(limit + 1)
+    totals = select(
+        func.count().filter(rows.c.to_send).label("to_send"),
+        func.count().filter(rows.c.overdue).label("overdue"),
+        *(
+            func.count().filter(rows.c.to_send, rows.c.next_rank == rank).label(f"rank_{rank}")
+            for rank in ranks
+        ),
+        *(
+            func.count().filter(rows.c.overdue, rows.c.next_rank == rank).label(f"late_{rank}")
+            for rank in ranks
+        ),
+        *(
+            func.count().filter(rows.c.in_sequence, rows.c.level == key).label(f"level_{key}")
+            for key in keys
+        ),
+        *(
+            func.count().filter(rows.c[f"category_{c.value}"]).label(c.value)
+            for c in COUNTED_CATEGORIES
+        ),
+    ).select_from(rows)
+    per_cohort = (
+        select(
+            rows.c.cohort_id,
+            rows.c.level,
+            func.count(),
+            func.count().filter(rows.c.in_sequence),
+            func.count().filter(rows.c.to_send),
+            func.count().filter(rows.c.overdue),
+        )
+        .where(rows.c.cohort_id.is_not(None))
+        .group_by(rows.c.cohort_id, rows.c.level)
+    )
+    weeks = (
+        select(rows.c.due_week, func.count())
+        .where(rows.c.due_week.is_not(None))
+        .group_by(rows.c.due_week)
+        .order_by(rows.c.due_week)
     )
     with whole_base_plan(session):
-        row = session.execute(join_segment_sources(select(*counts)).where(*where)).one()._mapping
-        week_rows = session.execute(weeks_query).tuples().all()
-    options = []
-    for label, count in week_rows:
-        year, number = label.split("-W")
-        options.append(WeekOption(week=label, year=int(year), number=int(number), count=count))
+        total = session.execute(totals).one()._mapping
+        cohort_rows = session.execute(per_cohort).tuples().all()
+        week_rows = session.execute(weeks).tuples().all()
     return ContactDashboard(
         today=clock.today,
         current_week=clock.current_week.label,
-        counts={counter: row[counter.value] for counter in ContactCounter},
-        weeks=options,
+        week=WeekInfo(
+            week=window.week.label,
+            monday=window.monday,
+            sunday=window.sunday,
+            is_current=window.is_current,
+        ),
+        max_follow_ups=limit,
+        to_send=ToSend(
+            total=total["to_send"],
+            overdue=total["overdue"],
+            groups=[
+                RankGroup(
+                    rank=rank,
+                    step=step_code(rank),
+                    step_label=step_label(rank),
+                    count=total[f"rank_{rank}"],
+                    overdue=total[f"late_{rank}"],
+                )
+                for rank in ranks
+            ],
+        ),
+        levels=[LevelCount(key, level_label(key), total[f"level_{key}"]) for key in keys],
+        categories=[
+            CategoryCount(category, CATEGORY_LABELS[category], total[category.value])
+            for category in COUNTED_CATEGORIES
+        ],
+        cohorts=_cohort_summaries(session, list(cohort_rows), keys),
+        weeks=[_week_option(label, count) for label, count in week_rows],
     )
 
 
-def _page_statement(clock: ContactClock) -> Select[Any]:
-    due = func.coalesce(_due(clock), false())
+def _week_option(label: str, count: int) -> WeekOption:
+    year, number = label.split("-W")
+    week = IsoWeek(int(year), int(number))
+    return WeekOption(week=label, year=week.year, number=week.week, monday=week.monday, count=count)
+
+
+def _cohort_summaries(
+    session: Session, rows: list[tuple[Any, ...]], keys: list[str]
+) -> list[CohortSummary]:
+    """Per cohort holding prospects: totals and its sequences in progress by level."""
+    if not rows:
+        return []
+    facts: dict[uuid.UUID, dict[str, Any]] = {}
+    for cohort_id, level, count, active, sending, late in rows:
+        entry = facts.setdefault(
+            cohort_id,
+            {"prospects": 0, "in_sequence": 0, "to_send": 0, "overdue": 0, "levels": {}},
+        )
+        entry["prospects"] += count
+        entry["in_sequence"] += active
+        entry["to_send"] += sending
+        entry["overdue"] += late
+        if level is not None and active:
+            entry["levels"][level] = entry["levels"].get(level, 0) + active
+    cohorts = session.scalars(select(Cohort).where(Cohort.id.in_(facts))).all()
+    ordered = sorted(
+        cohorts,
+        key=lambda cohort: (
+            cohort.out_of_campaign,
+            cohort.starts_on is None,
+            cohort.starts_on or date.min,
+            cohort.code,
+        ),
+    )
+    return [
+        CohortSummary(
+            id=cohort.id,
+            code=cohort.code,
+            starts_on=cohort.starts_on,
+            out_of_campaign=cohort.out_of_campaign,
+            needs_review=cohort.needs_review,
+            prospects=facts[cohort.id]["prospects"],
+            in_sequence=facts[cohort.id]["in_sequence"],
+            to_send=facts[cohort.id]["to_send"],
+            overdue=facts[cohort.id]["overdue"],
+            levels=[]
+            if cohort.out_of_campaign
+            else [
+                LevelCount(key, level_label(key), facts[cohort.id]["levels"].get(key, 0))
+                for key in keys
+            ],
+        )
+        for cohort in ordered
+    ]
+
+
+# --- lists --------------------------------------------------------------------------------------
+
+
+def _page_statement(window: PlanningWeek) -> Select[Any]:
+    sending = to_send(window)
     return join_segment_sources(
         select(
             Prospect,
@@ -266,33 +613,59 @@ def _page_statement(clock: ContactClock) -> Select[Any]:
             Company.display_name,
             primary_email.address,
             ContactTracking.status,
+            Cohort.id,
             Cohort.code,
+            Cohort.starts_on,
             sent_count_sql(),
+            last_sent_at_sql(),
+            level_key_sql(),
             func.coalesce(finished_sql(), false()),
             next_rank_sql(),
             next_due_at_sql(),
-            due,
+            func.coalesce(sending, false()),
+            func.coalesce(and_(sending, overdue(window)), false()),
+            email_error_sql(),
             ContactSequence.id,
         )
     ).outerjoin(Role, Role.id == Prospect.role_id)
 
 
-def _message_statuses(
+def _order_by(sort: ContactSort) -> list[Any]:
+    person = [
+        label_key(Prospect.last_name).nulls_last(),
+        label_key(Prospect.first_name).nulls_last(),
+    ]
+    keys: list[Any]
+    match sort:
+        case ContactSort.DUE:
+            keys = [next_due_at_sql().asc().nulls_last(), *person]
+        case ContactSort.NAME:
+            keys = person
+        case ContactSort.COHORT:
+            keys = [
+                (Cohort.code == OUT_OF_CAMPAIGN_CODE).asc().nulls_last(),
+                Cohort.starts_on.asc().nulls_last(),
+                Cohort.code.asc().nulls_last(),
+                *person,
+            ]
+    return [*keys, Prospect.id]
+
+
+def _messages(
     session: Session, sequence_ids: list[uuid.UUID]
-) -> dict[uuid.UUID, dict[str, ContactMessageStatus]]:
-    """Per current sequence: the status of its Contact, R1 and R2 messages."""
-    statuses: dict[uuid.UUID, dict[str, ContactMessageStatus]] = {}
+) -> dict[uuid.UUID, list[MessageState]]:
+    """Per current sequence: its messages by rank (one statement for the page)."""
+    states: dict[uuid.UUID, list[MessageState]] = {}
     if not sequence_ids:
-        return statuses
-    rows = session.scalars(
-        select(ContactMessage).where(
-            ContactMessage.sequence_id.in_(sequence_ids),
-            ContactMessage.rank < len(NAMED_STEPS),
-        )
-    )
-    for message in rows:
-        statuses.setdefault(message.sequence_id, {})[message.step] = message.status
-    return statuses
+        return states
+    rows = session.execute(
+        select(ContactMessage.sequence_id, ContactMessage.rank, ContactMessage.status)
+        .where(ContactMessage.sequence_id.in_(sequence_ids))
+        .order_by(ContactMessage.sequence_id, ContactMessage.rank)
+    ).tuples()
+    for sequence_id, rank, status in rows:
+        states.setdefault(sequence_id, []).append(MessageState(rank, step_code(rank), status))
+    return states
 
 
 def list_contacts(
@@ -303,22 +676,23 @@ def list_contacts(
     limit: int = 50,
     offset: int = 0,
 ) -> ContactPage:
-    """One page of the Contact list and its total (three queries whatever the page size)."""
+    """One page of a planning list and its total (three statements whatever the page size)."""
     limit = max(1, min(limit, LIST_MAX_LIMIT))
     offset = max(0, offset)
-    where = list_conditions(filters, clock)
-    order: list[Any] = [
-        next_due_at_sql().asc().nulls_last(),
-        label_key(Prospect.last_name).nulls_last(),
-        label_key(Prospect.first_name).nulls_last(),
-        Prospect.id,
-    ]
-    page = _page_statement(clock).where(*where).order_by(*order).limit(limit).offset(offset)
+    window = clock.window(filters.week)
+    where = list_conditions(filters, window)
+    page = (
+        _page_statement(window)
+        .where(*where)
+        .order_by(*_order_by(filters.sort))
+        .limit(limit)
+        .offset(offset)
+    )
     count = join_segment_sources(select(func.count())).where(*where)
     with whole_base_plan(session):
         rows = session.execute(page).tuples().all()
         total = session.execute(count).scalar_one()
-    messages = _message_statuses(session, [row[-1] for row in rows if row[-1] is not None])
+    messages = _messages(session, [row[-1] for row in rows if row[-1] is not None])
     items = []
     for (
         prospect,
@@ -326,15 +700,24 @@ def list_contacts(
         company_name,
         email,
         state,
+        cohort_id,
         cohort_code,
+        cohort_starts_on,
         sent_count,
+        last_sent_at,
+        level,
         finished,
         next_rank,
         next_due,
-        due,
+        sending,
+        late,
+        email_error,
         sequence_id,
     ) in rows:
-        steps = messages.get(sequence_id, {}) if sequence_id else {}
+        states = messages.get(sequence_id, []) if sequence_id else []
+        next_status = next(
+            (message.status for message in states if message.rank == next_rank), None
+        )
         items.append(
             ContactRow(
                 id=prospect.id,
@@ -347,15 +730,27 @@ def list_contacts(
                 company_name=company_name,
                 primary_email=email,
                 activity_status=prospect.activity_status,
+                contactability_status=prospect.contactability_status,
                 tracking_status=state or S.NEUTRAL,
+                cohort_id=cohort_id,
                 cohort_code=cohort_code,
+                cohort_starts_on=cohort_starts_on,
+                out_of_campaign=cohort_code == OUT_OF_CAMPAIGN_CODE,
                 sent_count=sent_count,
+                last_sent_at=last_sent_at,
+                level=level,
+                level_label=level_label(level) if level else None,
                 finished=bool(finished),
-                next_due_at=next_due,
-                next_action_week=iso_week(next_due),
-                due=bool(due),
+                next_rank=next_rank,
                 next_step=step_code(next_rank) if next_rank is not None else None,
-                messages={step: steps.get(step) for step in NAMED_STEPS},
+                next_step_label=step_label(next_rank) if next_rank is not None else None,
+                next_due_at=next_due,
+                next_due_week=iso_week(next_due),
+                to_send=bool(sending),
+                overdue=bool(late),
+                email_error=bool(email_error),
+                next_message_status=next_status,
+                messages=states,
             )
         )
-    return ContactPage(items=items, total=total, limit=limit, offset=offset)
+    return ContactPage(items=items, total=total, limit=limit, offset=offset, week=window.week.label)

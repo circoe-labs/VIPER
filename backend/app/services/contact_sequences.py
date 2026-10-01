@@ -48,6 +48,7 @@ from sqlalchemy import (
     cast,
     exists,
     func,
+    literal,
     or_,
     select,
 )
@@ -57,6 +58,7 @@ from sqlalchemy.sql.expression import null
 from app.core.actor import ActorContext, ActorType
 from app.core.business_time import BUSINESS_TIMEZONE
 from app.core.cohort_codes import OUT_OF_CAMPAIGN_CODE
+from app.core.contact_steps import CONTACT_PENDING, CONTACT_SENT, FINISHED
 from app.models import (
     AppSetting,
     Cohort,
@@ -566,3 +568,21 @@ def next_due_at_sql() -> ColumnElement[datetime | None]:
 def next_rank_sql() -> ColumnElement[int | None]:
     """The rank to send next; NULL without a cohort or when finished."""
     return case((~has_cohort_sql(), null()), (finished_sql(), null()), else_=sent_count_sql())
+
+
+def level_key_sql() -> ColumnElement[str | None]:
+    """The level key (`contact_pending`, `contact_sent`, `r<n>_sent`, `finished`); NULL without a
+    cohort. The twin of `contact_steps.level_key` (`Progress.level`)."""
+    sent = sent_count_sql()
+    return case(
+        (~has_cohort_sql(), null()),
+        (finished_sql(), literal(FINISHED)),
+        (sent == 0, literal(CONTACT_PENDING)),
+        (sent == 1, literal(CONTACT_SENT)),
+        else_=func.concat("r", sent - 1, "_sent"),
+    )
+
+
+def last_sent_at_sql() -> ColumnElement[datetime | None]:
+    """The latest real send of the current sequence (NULL when nothing was sent)."""
+    return SENDS.c.last_sent_at

@@ -120,7 +120,8 @@ def test_counts_are_the_prospection_counters(db_session: Session) -> None:
     assert summary.counts == count_segments(db_session, ProspectFilters(), CONTEXT).counts
     assert summary.counts == {segment: len(EXPECTED[segment]) for segment in Segment}
     # Opposed people are never due, to contact or awaiting an answer, but stay in the outcomes.
-    assert summary.counts[Segment.DUE] == 2
+    # Due = something to send (Contact or follow-up) no later than today (sequences rework S3).
+    assert summary.counts[Segment.DUE] == 5
     assert summary.counts[Segment.DO_NOT_CONTACT] == 3
     assert (summary.today, summary.stale_threshold_days) == (TODAY, None)
 
@@ -346,8 +347,9 @@ def names(group: home.ActionGroup) -> list[str | None]:
 def test_next_actions_on_the_prospection_cases(db_session: Session) -> None:
     actions = next_actions(db_session, CONTEXT)
 
-    # The `due` segment, oldest planned contact first (the opposed and inactive ones never).
-    assert names(actions.due) == ["due_past", "due_today"]
+    # The `due` segment — Contact or follow-up to send — oldest next due date first (the opposed
+    # and inactive ones never): R1 due 24 Aug, R3 and R2 due 31 Aug, Contacts of 1 and 10 Sept.
+    assert names(actions.due) == ["waiting", "follow_up", "answered", "due_past", "due_today"]
     assert actions.due.total == len(EXPECTED[Segment.DUE])
     # Appointments of the coming week, soonest first — today's included.
     assert names(actions.appointments) == ["appointment_date_only", "appointment"]
@@ -495,9 +497,9 @@ def test_statement_count_does_not_grow_with_rows(db_session: Session, size: int)
     with statements(db_session) as executed:
         home_summary(db_session, CONTEXT)
 
-    # Segments, companies, months (contacts, appointments), 3 action groups, imports, edits,
-    # subject names; the segments, the months and the action groups inside `whole_base_plan`
-    # (its settings, then their reset).
+    # Segments, companies, months (contacts, appointments), the week's Contact planning, 3 action
+    # groups, imports, edits, subject names; the segments, the months, the planning and the
+    # action groups inside `whole_base_plan` (its settings, then their reset).
     settings = [index for index, statement in enumerate(executed) if "set_config" in statement]
-    assert len(executed) - len(settings) == 10
-    assert settings == [0, 2, 4, 7, 8, 12]
+    assert len(executed) - len(settings) == 11
+    assert settings == [0, 2, 4, 7, 8, 10, 11, 15]

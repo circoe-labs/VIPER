@@ -1,5 +1,5 @@
-"""Prospection counters and pages, and Home, stay interactive on a synthetic base far above V1
-scale — whatever the planner's statistics say (ADR-0019).
+"""Prospection counters and pages, Home and the Contact planning stay interactive on a synthetic
+base far above V1 scale — whatever the planner's statistics say (ADR-0019).
 
 The seed is uncommitted (the test transaction is rolled back), which production rows never are, so
 each service is measured in the three planner states a real base goes through:
@@ -188,3 +188,27 @@ def test_home_on_20k_prospects(client: TestClient, db_session: Session, engine: 
         assert sum(month["contacted"] for month in home.json()["progress"]["months"]) > 0
         assert len(home.json()["recent_edits"]) == 8
         assert elapsed < BUDGET_SECONDS, f"{state}: home took {elapsed:.2f}s"
+
+
+def test_contact_planning_on_20k_prospects(
+    client: TestClient, db_session: Session, engine: Engine
+) -> None:
+    """The weekly planning (sequences rework S3): its counts, cohorts and weeks in four
+    statements, and a deep page of a list, over the same base (ten cohorts, up to three sends)."""
+    seed_base(db_session)
+
+    for state in planner_states(db_session, engine):
+        planning, planning_elapsed = timed(lambda: client.get("/api/contact/dashboard"))
+        page, page_elapsed = timed(
+            lambda: client.get(
+                "/api/contact/prospects",
+                params={"category": "in_sequence", "offset": 2_000, "limit": 50},
+            )
+        )
+
+        assert planning.status_code == page.status_code == 200
+        assert planning.json()["to_send"]["total"] > 0
+        assert len(planning.json()["cohorts"]) == 10
+        assert len(page.json()["items"]) == 50
+        assert planning_elapsed < BUDGET_SECONDS, f"{state}: planning took {planning_elapsed:.2f}s"
+        assert page_elapsed < BUDGET_SECONDS, f"{state}: page took {page_elapsed:.2f}s"

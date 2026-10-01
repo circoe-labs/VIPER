@@ -88,6 +88,7 @@ def test_list_rows_carry_the_view_model(client: TestClient, db_session: Session)
     assert row["contactability_status"] == "do_not_contact"
     assert row["tracking_status"] is None
     assert (row["cohort_code"], row["next_due_week"], row["next_step"]) == (None, None, None)
+    assert (row["level"], row["level_label"]) == (None, None)
 
 
 def test_none_filters_and_validation(client: TestClient, db_session: Session) -> None:

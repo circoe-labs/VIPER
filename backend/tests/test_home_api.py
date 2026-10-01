@@ -73,11 +73,20 @@ def test_contract_and_agreement_with_prospection(client: TestClient, db_session:
         "counts",
         "companies",
         "progress",
+        "contact_week",
         "next_actions",
         "recent_imports",
         "recent_edits",
     }
     assert body["counts"] == counters["counts"]
+    # The week's Contact planning is the Contact page's own « à envoyer ».
+    planning = client.get("/api/contact/dashboard").json()
+    assert body["contact_week"] == {
+        "week": planning["current_week"],
+        "monday": planning["week"]["monday"],
+        "to_send": planning["to_send"]["total"],
+        "overdue": planning["to_send"]["overdue"],
+    }
     assert set(body["counts"]) == {segment.value for segment in Segment}
     assert body["today"] == counters["today"]
     assert body["companies"] == 1

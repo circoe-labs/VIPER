@@ -64,6 +64,8 @@ class ProspectRowOut(BaseModel):
     sent_count: int
     next_step: str | None
     finished: bool
+    level: str | None
+    level_label: str | None
     next_due_at: datetime | None
     next_due_week: str | None
     due: bool

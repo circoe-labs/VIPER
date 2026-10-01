@@ -2,8 +2,9 @@
 
 Every prospect count is a canonical Prospection segment (`prospection.query.count_segments`), so
 Home and Prospection always agree. Home adds what Prospection does not count — companies, monthly
-progress read from the real sends and the status history, next actions and the recent imports and
-edits — in a fixed number of explicit statements whatever the base size. (The « Suivi commercial
+progress read from the real sends and the status history, the week's Contact planning (what to
+send this week, the Contact page's own `to_send` definition), next actions and the recent imports
+and edits — in a fixed number of explicit statements whatever the base size. (The « Suivi commercial
 léger » group of post-appointment stages was removed with the Contact model, decision P3.)
 Definitions: doc/features/home-dashboard.md (decisions I-110 … I-117).
 """
@@ -36,6 +37,7 @@ from app.models.enums import (
 )
 from app.services import audit, history, import_batches
 from app.services.audit import AuditSource
+from app.services.contact_dashboard import ContactClock, overdue, to_send
 from app.services.contact_sequences import next_due_at_sql
 from app.services.contact_workflow import (
     APPOINTMENT_CODES,
@@ -108,7 +110,7 @@ class ActionGroup:
 @dataclass(frozen=True, slots=True)
 class NextActions:
     appointments: ActionGroup  # actionable, appointment in the next 7 days, soonest first
-    due: ActionGroup  # the `due` segment, oldest planned contact first
+    due: ActionGroup  # the `due` segment (Contact or follow-up to send), oldest due date first
     responses: ActionGroup  # actionable, answered, no appointment yet, oldest answer first
 
 
@@ -128,12 +130,25 @@ class EditItem:
 
 
 @dataclass(frozen=True, slots=True)
+class ContactWeek:
+    """The Contact planning of the current week (sequences rework S3): the Contacts and
+    follow-ups to send this week, overdue ones included, and how many of them are overdue —
+    the totals of the Contact page's « À envoyer »."""
+
+    week: str
+    monday: date
+    to_send: int
+    overdue: int
+
+
+@dataclass(frozen=True, slots=True)
 class HomeSummary:
     today: date
     stale_threshold_days: int | None
     counts: dict[Segment, int]
     companies: int
     months: list[MonthProgress]  # oldest first; the last one is the current month
+    contact_week: ContactWeek
     next_actions: NextActions
     recent_imports: list[ImportBatch]
     recent_edits: list[EditItem]
@@ -148,6 +163,7 @@ def home_summary(session: Session, context: SegmentContext) -> HomeSummary:
         counts=counted.counts,
         companies=companies,
         months=monthly_progress(session, context.today),
+        contact_week=contact_week(session, context.today),
         next_actions=next_actions(session, context),
         recent_imports=import_batches.list_batches(session, limit=IMPORT_LIMIT),
         recent_edits=recent_edits(session),
@@ -237,6 +253,26 @@ def monthly_progress(session: Session, today: date) -> list[MonthProgress]:
         MonthProgress(month=month, contacted=contacted[index], appointments=obtained[index])
         for index, month in enumerate(months)
     ]
+
+
+# --- the week's Contact planning ---------------------------------------------------------------
+
+
+def contact_week(session: Session, today: date) -> ContactWeek:
+    """What to send this week (overdue included) and how much of it is overdue, in one statement
+    with the Contact planning's own predicates."""
+    window = ContactClock(today).window()
+    sending = to_send(window)
+    with whole_base_plan(session):
+        total, late = session.execute(
+            join_segment_sources(
+                select(
+                    func.count().filter(sending),
+                    func.count().filter(and_(sending, overdue(window))),
+                )
+            )
+        ).one()
+    return ContactWeek(week=window.week.label, monday=window.monday, to_send=total, overdue=late)
 
 
 # --- next actions -------------------------------------------------------------------------------

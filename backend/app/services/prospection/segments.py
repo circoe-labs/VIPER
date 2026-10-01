@@ -210,6 +210,15 @@ def needs_recheck(context: SegmentContext) -> ColumnElement[bool]:
     )
 
 
+def to_send_before(bound: datetime) -> ColumnElement[bool]:
+    """Something to send — the Contact or a follow-up Rn — whose derived next due date is before
+    `bound`, for an actionable prospect: the one definition of « à envoyer » shared by the Contact
+    planning (`bound` = next week's Monday), Prospection's `due` and Home (`bound` = tomorrow).
+    Never NULL-true: nothing is due without a cohort, in S0, under a state other than `neutral`,
+    after « Relance terminée », under the opposition or while an « Erreur sur le mail » is open."""
+    return and_(actionable(), next_due_at_sql() < bound)
+
+
 def to_contact() -> ColumnElement[bool]:
     """A first contact is planned: actionable, in a campaign cohort with an open sequence where
     nothing was sent yet, nothing pausing it (state, « Erreur sur le mail »). A prospect without
@@ -258,7 +267,7 @@ def predicate(segment: Segment, context: SegmentContext) -> ColumnElement[bool]:
         case Segment.TO_CONTACT:
             return to_contact()
         case Segment.DUE:
-            return and_(to_contact(), next_due_at_sql() < context.due_before)
+            return to_send_before(context.due_before)
         case Segment.CONTACTED:
             return contacted()
         case Segment.NO_RESPONSE:

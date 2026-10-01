@@ -32,6 +32,7 @@ from app.models.enums import (
     SequenceEndReason,
     VerificationStatus,
 )
+from app.services import contact_dashboard
 from app.services import prospects as prospect_service
 from app.services.prospection.query import (
     NONE,
@@ -282,7 +283,10 @@ EXPECTED: dict[Segment, set[str]] = {
     Segment.EMAIL_INVALID: {"invalid_email"},
     Segment.EMAIL_UNVERIFIED: {"reset", "moved", "unknown_email"},
     Segment.TO_CONTACT: {"due_today", "due_past", "planned_tomorrow"},
-    Segment.DUE: {"due_today", "due_past"},
+    # Something to send (the Contact or a follow-up) due no later than today: the Contact
+    # planning's « à envoyer » (sequences rework S3). `answered` only has a response date: its
+    # state is still `neutral`, so its R2 is due like on its sheet.
+    Segment.DUE: {"due_today", "due_past", "waiting", "follow_up", "answered"},
     Segment.CONTACTED: CONTACTED_CASES,
     Segment.NO_RESPONSE: {"waiting", "follow_up"},
     Segment.RESPONSES: {"answered", "appointment", "appointment_date_only"},
@@ -306,6 +310,19 @@ def test_counters_equal_the_expected_members(
 
     assert counted.counts == {segment: len(EXPECTED[segment]) for segment in Segment}
     assert (counted.today, counted.stale_threshold_days) == (TODAY, None)
+
+
+def test_due_is_the_contact_plannings_to_send_up_to_today(
+    db_session: Session, cases: dict[str, Prospect]
+) -> None:
+    """One definition of « à envoyer » (sequences rework S3): `due` is a planned Contact or a
+    follow-up already contacted, and every due person is in the Contact planning of the week."""
+    due = names(db_session, Segment.DUE)
+    assert due <= names(db_session, Segment.TO_CONTACT) | names(db_session, Segment.CONTACTED)
+    planning = contact_dashboard.list_contacts(
+        db_session, contact_dashboard.ContactFilters(), contact_dashboard.ContactClock(TODAY)
+    )
+    assert due <= {row.last_name for row in planning.items}
 
 
 def test_company_change_is_never_verified_until_verified_again(
@@ -415,6 +432,7 @@ def test_row_view_model_resolves_labels_and_week(db_session: Session) -> None:
     assert (row.tracking_status, row.cohort_code) == (S.NEUTRAL, "S39866")
     # Contact sent on 7 September: R1 due on Monday 14 September (week 38).
     assert (row.sent_count, row.next_step, row.finished) == (1, "r1", False)
+    assert (row.level, row.level_label) == ("contact_sent", "Contact envoyé")
     assert (row.next_due_at, row.next_due_week) == (at(date(2026, 9, 14), 0), "2026-W38")
     assert (row.referent_id, row.referent_name) == (referent.id, "Camille Référente")
 
@@ -532,7 +550,7 @@ def test_filters_combine(db_session: Session) -> None:
         (ProspectFilters(tracking_status=S.NEUTRAL), Segment.ALL, {"a", "b", "c", "d"}),
         (ProspectFilters(company_id=logistique.id), Segment.ALL, {"c", "d"}),
         (ProspectFilters(import_batch_id=batch.id), Segment.ALL, {"a", "c"}),
-        (ProspectFilters(company_id=transports.id, role=role.id), Segment.DUE, {"b"}),
+        (ProspectFilters(company_id=transports.id, role=role.id), Segment.DUE, {"a", "b"}),
         (
             ProspectFilters(import_batch_id=batch.id, activity=ActivityStatus.ACTIVE),
             Segment.NO_RESPONSE,

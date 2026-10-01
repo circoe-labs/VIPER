@@ -39,7 +39,9 @@ from app.services import (
 from app.services.contact_messages import MessageEdit
 from app.services.contact_sequences import (
     join_sequence_sources,
+    level_key_sql,
     next_due_at_sql,
+    next_rank_sql,
     prospect_sequence,
 )
 from app.services.contact_workflow import PauseReason
@@ -517,7 +519,7 @@ def test_alert_subjects_and_types(db_session: Session) -> None:
 # --- Python and SQL agree ------------------------------------------------------------------------
 
 
-def test_the_sql_next_due_date_is_the_python_one(db_session: Session) -> None:
+def test_the_sql_next_due_date_rank_and_level_are_the_python_ones(db_session: Session) -> None:
     rng = random.Random(10)
     s0 = cohorts.find_by_code(db_session, "S0")
     assert s0 is not None
@@ -555,13 +557,15 @@ def test_the_sql_next_due_date_is_the_python_one(db_session: Session) -> None:
     db_session.flush()
 
     statement = join_sequence_sources(
-        select(Prospect.id, next_due_at_sql())
+        select(Prospect.id, next_due_at_sql(), next_rank_sql(), level_key_sql())
         .select_from(Prospect)
         .outerjoin(ContactTracking, ContactTracking.prospect_id == Prospect.id)
     )
-    rows = {prospect_id: due for prospect_id, due in db_session.execute(statement).tuples()}
+    rows = {prospect_id: rest for prospect_id, *rest in db_session.execute(statement).tuples()}
 
     for prospect in prospects:
-        expected = prospect_sequence(db_session, prospect.id).progress.next_due_at
+        progress = prospect_sequence(db_session, prospect.id).progress
+        expected = [progress.next_due_at, progress.next_rank, progress.level]
         assert rows[prospect.id] == expected, prospect.last_name
-    assert any(value is not None for value in rows.values())
+    assert any(due is not None for due, _, _ in rows.values())
+    assert {level for _, _, level in rows.values()} >= {"contact_pending", "finished", "r1_sent"}
