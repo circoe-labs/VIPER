@@ -74,6 +74,10 @@ class Reason:
 
 
 def is_empty(name: str, value: object) -> bool:
+    # Collections (a company's category ids in an audit change set) are unhashable: empty when
+    # they hold nothing.
+    if isinstance(value, list | tuple | set | frozenset | dict):
+        return not value
     return value in EMPTY_VALUES.get(name, DEFAULT_EMPTY)
 
 

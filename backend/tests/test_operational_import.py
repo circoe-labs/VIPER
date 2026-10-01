@@ -539,6 +539,93 @@ def test_company_fields_follow_the_same_precedence(
     }
 
 
+def test_categories_a_person_chose_or_removed_are_kept(
+    db_session: Session, ids: dict[str, uuid.UUID]
+) -> None:
+    """A person's creation event lists the categories (an id list): reading it must not break
+    the import, whatever the person did with them afterwards."""
+    chosen = companies.create_company(
+        db_session,
+        OPERATOR,
+        companies.CompanyInput(
+            display_name="Atelier Choisi", activity_category_ids=[ids["storage"]]
+        ),
+    )
+    emptied = companies.create_company(
+        db_session,
+        OPERATOR,
+        companies.CompanyInput(display_name="Atelier Vidé", activity_category_ids=[ids["road"]]),
+    )
+    stored = db_session.get(Company, emptied.id)
+    assert stored is not None
+    stored.activity_categories = []  # a person removed them
+    db_session.flush()
+    category = "Transport routier de marchandises"
+    rows = [
+        {
+            "company": "Atelier Choisi",
+            "category": category,
+            "last_name": "Choix",
+            "first_name": "A",
+        },
+        {"company": "Atelier Vidé", "category": category, "last_name": "Vide", "first_name": "B"},
+    ]
+
+    run(db_session, rows)
+
+    kept = db_session.get(Company, chosen.id)
+    assert kept is not None
+    db_session.refresh(kept)
+    db_session.refresh(stored)
+    assert [c.id for c in kept.activity_categories] == [ids["storage"]]
+    assert stored.activity_categories == []
+    found = {
+        (a.company_id, a.detail["field"], a.detail["reason"])
+        for a in alerts(db_session, type=QualityAlertType.IMPORT_CONFLICT)
+    }
+    assert found == {
+        (chosen.id, "activity_category_ids", "different"),
+        (emptied.id, "activity_category_ids", "human_cleared"),
+    }
+
+
+def test_e_mails_a_person_removed_are_not_brought_back(
+    db_session: Session, ids: dict[str, uuid.UUID]
+) -> None:
+    company = companies.create_company(
+        db_session, OPERATOR, companies.CompanyInput(display_name="Atelier Iris")
+    )
+    person = prospects.create_prospect(
+        db_session,
+        OPERATOR,
+        prospects.ProspectInput(
+            first_name="Iris",
+            last_name="Retirée",
+            company_id=company.id,
+            emails=[prospects.ChannelInput(value="iris.retiree@example.com", is_primary=True)],
+        ),
+    )
+    stored = db_session.get(Prospect, person.id)
+    assert stored is not None
+    for email in list(stored.emails):  # a person deleted the address
+        db_session.delete(email)
+    db_session.flush()
+    db_session.expire(stored)
+    row = {
+        "company": "Atelier Iris",
+        "last_name": "Retirée",
+        "first_name": "Iris",
+        "email": "iris.retiree@example.com",
+    }
+
+    run(db_session, [row])
+
+    db_session.refresh(stored)
+    assert stored.emails == []
+    [alert] = alerts(db_session, prospect_id=person.id)
+    assert (alert.detail["field"], alert.detail["reason"]) == ("emails", "human_cleared")
+
+
 def test_a_referent_set_by_hand_is_left_alone(
     db_session: Session, ids: dict[str, uuid.UUID]
 ) -> None:
