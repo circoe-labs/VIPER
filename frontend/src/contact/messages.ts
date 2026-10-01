@@ -96,6 +96,8 @@ export function messageRefusal(error: unknown): MessageRefusal {
       return plain('Action impossible dans l’état actuel du message : l’affichage est actualisé.', true)
     case 'dispatch_in_progress':
       return plain('Envoi en cours : le message est verrouillé le temps de l’envoi.', true)
+    case 'dispatch_not_unconfirmed':
+      return plain('L’envoi de ce message n’attend plus de décision (il vient d’être tranché ou est encore en cours) : l’affichage est actualisé.', true)
     case 'prospect_do_not_contact':
       return plain('Ce prospect est en opposition (« Ne pas contacter ») : aucun message ne peut être préparé.', true)
     case 'prospect_sequence_closed':

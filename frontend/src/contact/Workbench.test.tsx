@@ -40,7 +40,7 @@ function open(detail: Prospect, messages: Partial<Record<MessageStep, Message>> 
     dashboard: contactDashboard(),
     details: [detail],
     messages: { [detail.id]: messages },
-    defaults: { from_email: 'prospection@exemple.example', to: ['claire@exemple.example'], generation_available: false, toolbox_connected: false, toolbox_state: 'disabled' as const },
+    defaults: { from_email: 'prospection@exemple.example', to: ['claire@exemple.example'], generation_available: false, toolbox_connected: false, toolbox_state: 'disabled' as const, automatic_sending_active: false, dispatch_max_lateness_minutes: 360, dispatch_claim_ttl_seconds: 600 },
     ...extra,
   })
   const view = renderApp(`/contact?prospect=${detail.id}`)
@@ -323,6 +323,9 @@ describe('Contact workbench', () => {
         generation_available: false,
         toolbox_connected: true,
         toolbox_state: 'connected' as const,
+        automatic_sending_active: false,
+        dispatch_max_lateness_minutes: 360,
+        dispatch_claim_ttl_seconds: 600,
       },
     }
 
@@ -375,6 +378,95 @@ describe('Contact workbench', () => {
       open(detail, { contact: message('contact', 'validated', { prospect_id: detail.id }) })
       expect(await screen.findByText(/prêt à être programmé/)).toBeInTheDocument()
       expect(screen.queryByText(/Infomaniak/)).not.toBeInTheDocument()
+    })
+  })
+  describe('scheduled sending (S7)', () => {
+    const active = {
+      defaults: {
+        from_email: 'prospection@exemple.example',
+        to: ['claire@exemple.example'],
+        generation_available: false,
+        toolbox_connected: true,
+        toolbox_state: 'connected' as const,
+        automatic_sending_active: true,
+        dispatch_max_lateness_minutes: 360,
+        dispatch_claim_ttl_seconds: 600,
+      },
+    }
+
+    async function scheduleTomorrow() {
+      const tomorrow = new Date(Date.now() + 86_400_000)
+      const day = `${String(tomorrow.getFullYear())}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`
+      await userEvent.type(await screen.findByLabelText('Date d’envoi'), day)
+      await userEvent.type(screen.getByLabelText('Heure'), '09:30')
+      await userEvent.click(screen.getByRole('button', { name: 'Programmer…' }))
+      return screen.findByRole('dialog', { name: /Programmer le message Contact/ })
+    }
+
+    it('promises an automatic send only when the server really sends', async () => {
+      const detail = person()
+      open(detail, { contact: message('contact', 'validated', { prospect_id: detail.id, has_remote_draft: true }) }, active)
+      const dialog = await scheduleTomorrow()
+      expect(dialog).toHaveTextContent('Le mail partira automatiquement à cette date depuis la boîte Infomaniak connectée')
+      expect(dialog).toHaveTextContent('S’il ne peut pas partir dans les 6 heures qui suivent')
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Programmer l’envoi' }))
+      expect(await screen.findByText(/^Programmé : le mail partira automatiquement le .* déprogrammable jusqu’à l’envoi\.$/)).toBeInTheDocument()
+    })
+
+    it('says plainly that nothing leaves while automatic sending is off', async () => {
+      const detail = person()
+      open(detail, { contact: message('contact', 'validated', { prospect_id: detail.id }) })
+      const dialog = await scheduleTomorrow()
+      expect(dialog).toHaveTextContent('L’envoi automatique n’est pas actif sur ce serveur')
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Programmer l’envoi' }))
+      expect(await screen.findByText(/^Envoi automatique inactif : la Toolbox n’est pas connectée/)).toBeInTheDocument()
+    })
+
+    it('locks a message being sent', async () => {
+      const detail = person()
+      open(detail, { contact: message('contact', 'scheduled', { prospect_id: detail.id, dispatch_claimed_at: new Date().toISOString() }) }, active)
+      expect(await screen.findByText('Envoi en cours par la Toolbox…')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Déprogrammer' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /Marquer envoyé/ })).not.toBeInTheDocument()
+      expect(field('Objet')).toHaveAttribute('readonly')
+    })
+
+    it('lets a person settle an unconfirmed send, after a confirmation', async () => {
+      const detail = person()
+      const unconfirmed = message('contact', 'scheduled', {
+        prospect_id: detail.id,
+        dispatch_claimed_at: new Date().toISOString(),
+        last_error_code: 'send_outcome_unknown',
+        has_remote_draft: true,
+      })
+      const { api } = open(detail, { contact: unconfirmed, r1: message('r1', 'scheduled', { prospect_id: detail.id, dispatch_claimed_at: new Date().toISOString(), last_error_code: 'send_reconcile_inconclusive' }) }, active)
+      expect(await screen.findByText(/^Envoi non confirmé : la Toolbox n’a pas donné de réponse sûre/)).toBeInTheDocument()
+
+      await userEvent.click(screen.getByRole('button', { name: 'Remettre en Validé…' }))
+      const dialog = await screen.findByRole('dialog', { name: /Remettre le message Contact en Validé/ })
+      expect(dialog).toHaveTextContent('le reprogrammer l’enverrait une seconde fois')
+      expect(within(dialog).getByRole('button', { name: 'Retour' })).toHaveFocus()
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Remettre en Validé' }))
+      await waitFor(() => {
+        expect(tab('Contact')).toHaveTextContent('Validé')
+      })
+      expect(screen.getByText(/^Remis en Validé par une personne après un envoi non confirmé/)).toBeInTheDocument()
+      expect(sent(api.requests, 'POST', `/api/prospects/${detail.id}/messages/contact/release`)).toHaveLength(1)
+
+      await userEvent.click(tab('R1'))
+      await userEvent.click(await screen.findByRole('button', { name: 'Marquer envoyé…' }))
+      await confirmDialog(/Marquer le message R1 comme envoyé/, 'Marquer envoyé')
+      await waitFor(() => {
+        expect(tab('R1')).toHaveTextContent('Envoyé')
+      })
+      expect(screen.getByText('Envoi confirmé par une personne après vérification dans la boîte Infomaniak.')).toBeInTheDocument()
+    })
+
+    it('says a deduced send', async () => {
+      const detail = person()
+      open(detail, { contact: message('contact', 'sent', { prospect_id: detail.id, last_error_code: 'send_reconciled_draft_absent' }) }, active)
+      expect(await screen.findByText(/^Envoi déduit : la Toolbox n’a pas confirmé l’envoi/)).toBeInTheDocument()
+      expect(screen.getByText(/^Envoyé le /)).toBeInTheDocument()
     })
   })
 })

@@ -35,6 +35,38 @@ describe('Paramètres › Connexions', () => {
     expect(card()).toHaveTextContent('30 jours')
   })
 
+  it('says whether scheduled messages really leave, the last pass and what waits (S7)', async () => {
+    stub({
+      status: {
+        ...CONNECTED,
+        dispatch: {
+          running: true,
+          active: true,
+          interval_seconds: 30,
+          last_pass_at: '2026-10-01T07:05:00+00:00',
+          last_outcome: 'ok',
+          scheduled: 3,
+          unconfirmed: 1,
+        },
+      },
+    })
+    renderApp('/settings/connections')
+
+    expect(await within(panel()).findByText('Actif')).toBeInTheDocument()
+    expect(card()).toHaveTextContent('partent automatiquement à l’heure choisie (vérification toutes les 30 s)')
+    expect(card()).toHaveTextContent('Messages programmés3')
+    expect(card()).toHaveTextContent('1 à trancher dans Contact')
+  })
+
+  it('says the scheduled sending is off on the server', async () => {
+    stub({ status: CONNECTED })
+    renderApp('/settings/connections')
+
+    expect(await within(panel()).findByText('Inactif')).toBeInTheDocument()
+    expect(card()).toHaveTextContent('VIPER_CONTACT_DISPATCH_INTERVAL_MS')
+    expect(card()).toHaveTextContent('aucune depuis le démarrage')
+  })
+
   it('names the missing settings when not configured', async () => {
     stub({ status: toolboxStatus({ state: 'not_configured', configured: false, missing: ['VIPER_TOOLBOX_MCP_URL'] }) })
     renderApp('/settings/connections')

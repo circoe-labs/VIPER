@@ -6,7 +6,9 @@
 //   immediate redirect to the redirect URI with `code`, `state`, `iss`), `/token` (PKCE S256 checked, 30-day token);
 // - MCP (`POST /mcp`, JSON-RPC): initialize, notifications, tools/call for create/send/delete/list drafts; a 401 on an
 //   unknown token;
-// - test controls: `GET /drafts` (draft ids and subjects held, the ids deleted), `POST /mode` `{toolErrorText}` (every
+// - test controls: `GET /drafts` (draft ids and subjects held, the ids deleted, the ids sent), `POST /mode`
+//   `{toolErrorText?, sendAnswerStatus?, listFails?}` (every tool call fails with that text; `send_draft` sends, then
+//   answers that HTTP status — an outcome VIPER cannot know (S7); `list_drafts` fails;
 //   tool call fails with that text; `{}` resets), `GET /health` (readiness). Synthetic values only; tokens never logged.
 import { createHash, randomBytes } from 'node:crypto'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
@@ -31,7 +33,12 @@ const tokens = new Map<string, number>()
 const drafts = new Map<string, Draft>()
 const deleted: string[] = []
 const sent: string[] = []
-const mode: { toolErrorText?: string } = {}
+interface Mode {
+  toolErrorText?: string
+  sendAnswerStatus?: number
+  listFails?: boolean
+}
+const mode: Mode = {}
 
 // Answers JSON; returns the response so a handler can `return send(…)`.
 function send(response: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}): ServerResponse {
@@ -80,6 +87,7 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
       return toolOk({ deleted: true, draftId: id })
     }
     case 'infomaniak.mail.list_drafts':
+      if (mode.listFails) return toolError('L’API Infomaniak Mail a répondu 503 : {"result":"error"}')
       return toolOk({
         folder: 'Drafts',
         drafts: [...drafts.entries()].slice(0, Number(args.limit ?? 20)).map(([draftId, d]) => ({ draftId, subject: d.subject, to: d.to, date: null })),
@@ -97,8 +105,10 @@ async function answer(request: IncomingMessage, response: ServerResponse) {
     return send(response, 200, { drafts: [...drafts.entries()].map(([id, d]) => ({ id, subject: d.subject, to: d.to })), deleted, sent })
   }
   if (request.method === 'POST' && path === '/mode') {
-    const body = JSON.parse((await readBody(request)) || '{}') as { toolErrorText?: string }
+    const body = JSON.parse((await readBody(request)) || '{}') as Mode
     mode.toolErrorText = body.toolErrorText
+    mode.sendAnswerStatus = body.sendAnswerStatus
+    mode.listFails = body.listFails
     return send(response, 200, mode)
   }
   if (request.method === 'GET' && path === '/.well-known/oauth-protected-resource') {
@@ -184,6 +194,10 @@ async function answer(request: IncomingMessage, response: ServerResponse) {
     } else if (message.method === 'tools/call') {
       const name = message.params?.name ?? ''
       result = runTool(name, message.params?.arguments ?? {})
+      // The send happened, but its answer is a gateway failure: VIPER cannot know the outcome (S7).
+      if (name === 'infomaniak.mail.send_draft' && mode.sendAnswerStatus) {
+        return send(response, mode.sendAnswerStatus, { error: 'bad_gateway' })
+      }
       if (result === null) return send(response, 200, { jsonrpc: '2.0', id: message.id, error: { code: -32602, message: `Tool ${name} not found` } })
     } else {
       return send(response, 200, { jsonrpc: '2.0', id: message.id, error: { code: -32601, message: 'Method not found' } })

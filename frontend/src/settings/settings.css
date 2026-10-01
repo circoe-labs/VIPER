@@ -325,6 +325,21 @@ tr[data-inactive] .settings-table__label {
   font-weight: var(--weight-medium);
 }
 
+/* The scheduled sending (S7): a sub-block of the Toolbox card, separated by a hairline. */
+.settings-connection__dispatch {
+  display: grid;
+  gap: var(--space-3);
+  padding-top: var(--space-4);
+  border-top: var(--border-width) solid var(--color-border);
+}
+
+.settings-connection__dispatch-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-weight: var(--weight-semibold);
+}
+
 .settings-connection__mono {
   font-family: var(--font-mono);
   font-size: var(--text-sm);

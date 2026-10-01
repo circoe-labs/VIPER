@@ -22,6 +22,7 @@ export function toolboxStatus(fields: Partial<ToolboxStatus> = {}): ToolboxStatu
     account_label: null,
     last_error: null,
     cleanups: { pending: 0, failing: 0 },
+    dispatch: { running: false, active: false, interval_seconds: 0, last_pass_at: null, last_outcome: null, scheduled: 0, unconfirmed: 0 },
     ...fields,
   }
 }

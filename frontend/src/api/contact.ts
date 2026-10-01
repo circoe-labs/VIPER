@@ -103,6 +103,10 @@ export interface Message {
   generation_prompt_version: string | null
   generated_at: string | null
   has_remote_draft: boolean
+  // Scheduled sending (S7): the dispatcher's claim (a send running, or unconfirmed) and the attempts of this schedule.
+  dispatch_claimed_at: string | null
+  dispatch_attempts: number
+  // `toolbox_*`: the Infomaniak draft could not be created (S6); `send_*` / `dispatch_*`: the scheduled send (S7).
   last_error_code: string | null
   last_error_at: string | null
   created_at: string
@@ -126,6 +130,12 @@ export interface MessageSequence {
     generation_available: boolean
     toolbox_connected: boolean
     toolbox_state: ToolboxState
+    // S7: a scheduled message really leaves (the dispatcher runs on the server and the Toolbox is connected).
+    automatic_sending_active: boolean
+    // A scheduled message more late than this goes back to Validé instead of leaving.
+    dispatch_max_lateness_minutes: number
+    // After this long, a claimed send nobody finished counts as unconfirmed.
+    dispatch_claim_ttl_seconds: number
   }
   steps: { step: MessageStep; message: Message | null }[]
 }
@@ -174,8 +184,9 @@ export interface MessageContent {
   bcc: string[]
 }
 
-// `remote-draft` (S6): create again the Infomaniak draft of a validated message (« Réessayer »).
-export type MessageAction = 'validate' | 'unschedule' | 'cancel' | 'reopen' | 'remote-draft'
+// `remote-draft` (S6): create again the Infomaniak draft of a validated message (« Réessayer »). `mark-sent` /
+// `release` (S7): a person settles a send the dispatcher could not confirm.
+export type MessageAction = 'validate' | 'unschedule' | 'cancel' | 'reopen' | 'remote-draft' | 'mark-sent' | 'release'
 
 export const contactKeys = {
   // Invalidate after any prospect or message write: the counters, the list's state and message chips move.
@@ -252,12 +263,28 @@ function messagesPath(prospectId: string): `/${string}` {
   return `/prospects/${encodeURIComponent(prospectId)}/messages`
 }
 
+// While the server sends automatically (S7), a scheduled message about to leave (within 2 minutes, or already due) or
+// being sent is read again every few seconds, so « Envoyé » (or the failure) shows up without a reload.
+export const DISPATCH_WATCH_MS = 3000
+const DISPATCH_WATCH_AHEAD_MS = 2 * 60 * 1000
+
+export function dispatchWatchInterval(sequence: MessageSequence | undefined, now: number): number | false {
+  if (!sequence?.defaults.automatic_sending_active) return false
+  const watched = sequence.steps.some(({ message }) => {
+    if (message?.status !== 'scheduled') return false
+    if (message.dispatch_claimed_at) return true
+    return message.scheduled_at !== null && new Date(message.scheduled_at).getTime() - now <= DISPATCH_WATCH_AHEAD_MS
+  })
+  return watched ? DISPATCH_WATCH_MS : false
+}
+
 export function useMessageSequence(prospectId: string) {
   return useQuery({
     queryKey: contactKeys.messages(prospectId),
     queryFn: ({ signal }) => apiGet<MessageSequence>(messagesPath(prospectId), signal),
     // The editor keeps its own unsaved drafts; a refetch under it never overwrites them (MailSequence.tsx).
     refetchOnWindowFocus: false,
+    refetchInterval: (query) => dispatchWatchInterval(query.state.data, Date.now()),
   })
 }
 

@@ -84,6 +84,8 @@ export function message(step: MessageStep, status: MessageStatus, fields: Partia
     generation_prompt_version: null,
     generated_at: null,
     has_remote_draft: false,
+    dispatch_claimed_at: null,
+    dispatch_attempts: 0,
     last_error_code: null,
     last_error_at: null,
     created_at: STAMP,
@@ -134,7 +136,7 @@ export function stubContactApi(options: ContactStubOptions = {}) {
   const requests: RecordedRequest[] = []
   // Replaces the answer of the next message write (a refusal the fake would not produce).
   const next: { reply: [number, unknown] | null } = { reply: null }
-  const defaults = options.defaults ?? { from_email: 'prospection@exemple.example', to: ['jean@exemple.example'], generation_available: false, toolbox_connected: false, toolbox_state: 'disabled' as const }
+  const defaults = options.defaults ?? { from_email: 'prospection@exemple.example', to: ['jean@exemple.example'], generation_available: false, toolbox_connected: false, toolbox_state: 'disabled' as const, automatic_sending_active: false, dispatch_max_lateness_minutes: 360, dispatch_claim_ttl_seconds: 600 }
 
   function sequenceOf(id: string): MessageSequence['sequence'] {
     const detail = prospects.store.get(id)
@@ -247,6 +249,17 @@ export function stubContactApi(options: ContactStubOptions = {}) {
       case 'cancel':
         if (current.status === 'sent' || current.status === 'cancelled') return refusal(409, 'invalid_transition')
         return write(id, step, { ...current, status: 'cancelled', cancelled_at: STAMP, cancel_reason: 'manual', scheduled_at: null })
+      // S7: a person settles a send the dispatcher could not confirm.
+      case 'mark-sent':
+      case 'release': {
+        const unconfirmed = current.status === 'scheduled' && current.dispatch_claimed_at !== null
+        if (!unconfirmed) return refusal(409, 'dispatch_not_unconfirmed')
+        const settled: Partial<Message> =
+          action === 'mark-sent'
+            ? { status: 'sent', sent_at: STAMP, last_error_code: 'send_marked_by_person', last_error_at: STAMP }
+            : { status: 'validated', scheduled_at: null, last_error_code: 'send_released_by_person', last_error_at: STAMP }
+        return write(id, step, { ...current, ...settled, dispatch_claimed_at: null })
+      }
       case 'reopen':
         if (current.status !== 'cancelled') return refusal(409, 'invalid_transition')
         return write(id, step, { ...current, status: 'draft', revision: current.revision + 1, cancelled_at: null, cancel_reason: null, validated_revision: null })

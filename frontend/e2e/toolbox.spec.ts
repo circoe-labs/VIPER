@@ -174,6 +174,7 @@ test('design: the disabled, not configured and expired cards', async ({ page }) 
     account_label: null,
     last_error: null,
     cleanups: { pending: 0, failing: 0 },
+    dispatch: { running: true, active: false, interval_seconds: 30, last_pass_at: null, last_outcome: null, scheduled: 0, unconfirmed: 0 },
   }
   const states = {
     disabled: { ...base, enabled: false, configured: false, state: 'disabled', toolbox_origin: null },

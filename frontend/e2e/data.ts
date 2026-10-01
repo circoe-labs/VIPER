@@ -39,14 +39,14 @@ export function syntheticSiret(siren: string, nic: number): string {
   return withCheckDigit(`${siren}${String(nic).padStart(4, '0')}`)
 }
 
-async function csrfToken(page: Page): Promise<string> {
+export async function csrfToken(page: Page): Promise<string> {
   const session = await page.request.get('/api/auth/session')
   expect(session.ok()).toBe(true)
   return ((await session.json()) as { csrf_token: string }).csrf_token
 }
 
 // Writes through the real, audited API as the signed-in page (its session cookie and CSRF token).
-async function post<T>(page: Page, path: string, data: object): Promise<T> {
+export async function post<T>(page: Page, path: string, data: object): Promise<T> {
   const response = await page.request.post(path, { data, headers: { 'X-CSRF-Token': await csrfToken(page) } })
   expect(response.ok(), await response.text()).toBe(true)
   return (await response.json()) as T

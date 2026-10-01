@@ -72,9 +72,27 @@ export function stateSentence(status: ToolboxStatus): string {
   }
 }
 
+// The scheduled sending (S7) in one badge and one sentence.
+export function dispatchBadge(status: ToolboxStatus): { tone: StatusTone; label: string } {
+  if (status.dispatch.active) return { tone: 'success', label: 'Actif' }
+  return status.dispatch.running ? { tone: 'warning', label: 'En attente' } : { tone: 'neutral', label: 'Inactif' }
+}
+
+export function dispatchSentence(status: ToolboxStatus): string {
+  const { dispatch } = status
+  if (dispatch.active) {
+    return `Les messages programmés partent automatiquement à l’heure choisie (vérification toutes les ${String(dispatch.interval_seconds)} s), tant que le serveur VIPER est en marche.`
+  }
+  if (dispatch.running) {
+    return 'L’envoi programmé est prêt mais attend une Toolbox connectée : aucun message programmé ne part pour l’instant.'
+  }
+  return 'L’envoi programmé est désactivé sur ce serveur (VIPER_CONTACT_DISPATCH_INTERVAL_MS) : les dates d’envoi sont enregistrées, aucun mail ne part.'
+}
+
 export const LIMITATIONS = [
   'Expéditeur : la boîte Infomaniak par défaut du compte connecté. Le champ « De » de VIPER n’est pas transmis à la Toolbox.',
   'La connexion dure 30 jours, sans renouvellement automatique : il faut la refaire à l’échéance.',
   'Une seule connexion pour tout VIPER, celle de la personne qui l’a établie.',
   '« Oublier la connexion » l’efface dans VIPER seulement : la Toolbox ne propose pas de révocation, l’accès expire de lui-même.',
+  'Un message programmé ne part que si le serveur VIPER est en marche ; trop en retard, il revient à « Validé » sans partir.',
 ]

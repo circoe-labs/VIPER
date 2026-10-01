@@ -14,6 +14,8 @@ import {
   MailIcon,
   RefreshIcon,
   SaveIcon,
+
+  SpinnerIcon,
   UndoIcon,
 } from '../ui/icons'
 import { toolboxErrorLabel } from '../settings/toolboxCopy'
@@ -34,7 +36,10 @@ import {
   ADDRESS_MAX_LENGTH,
   BODY_MAX_LENGTH,
   contentOf,
+  type DispatchState,
+  dispatchLine,
   isDirty,
+  latenessLabel,
   localDay,
   localErrors,
   localZoneLabel,
@@ -56,6 +61,8 @@ interface MailEditorProps {
   sequence: MessageSequence
   message: Message | null
   actions: MailActions
+  // Where the scheduled send stands (S7), judged when the sequence was read.
+  dispatch: DispatchState
   // The saved version as a form, and the form shown (the saved one while nothing is edited).
   saved: MailForm
   form: MailForm
@@ -71,7 +78,7 @@ interface MailEditorProps {
   onInstruction: (instruction: AiInstruction) => void
 }
 
-type Pending = 'validate' | 'schedule' | 'cancel' | 'generate'
+type Pending = 'validate' | 'schedule' | 'cancel' | 'generate' | 'mark-sent' | 'release'
 
 export interface SendMoment {
   date: string
@@ -88,6 +95,7 @@ export function MailEditor({
   sequence,
   message,
   actions,
+  dispatch: dispatchNow,
   saved,
   form,
   onForm,
@@ -169,7 +177,7 @@ export function MailEditor({
     }
   }
 
-  async function act(action: 'validate' | 'unschedule' | 'cancel' | 'reopen' | 'remote-draft') {
+  async function act(action: 'validate' | 'unschedule' | 'cancel' | 'reopen' | 'remote-draft' | 'mark-sent' | 'release') {
     if (!message) return
     setNotice(null)
     setRefusal(null)
@@ -195,6 +203,11 @@ export function MailEditor({
           'remote-draft': created
             ? `Brouillon du message ${label} ${outcome.status === 'recovered' ? 'retrouvé et rattaché' : 'créé'} dans Infomaniak.`
             : `Le brouillon Infomaniak du message ${label} n’a pas pu être créé : ${reason}.`,
+          'mark-sent': `Message ${label} marqué envoyé : il ne peut plus être modifié.`,
+          release:
+            result.message.status === 'cancelled'
+              ? `Message ${label} remis en Validé puis annulé : la séquence du prospect est close.`
+              : `Message ${label} remis en Validé, sans date d’envoi : vérifiez la boîte Infomaniak avant de le reprogrammer.`,
         }[action],
       })
     } catch (caught) {
@@ -269,14 +282,39 @@ export function MailEditor({
       }
     }
     if (pending === 'schedule' && parsed.ok) {
+      const lines = [`Envoi prévu le ${formatDateTime(parsed.iso)} (${localZoneLabel(parsed.at)}).`]
+      if (sequence.defaults.automatic_sending_active) {
+        lines.push(
+          'Le mail partira automatiquement à cette date depuis la boîte Infomaniak connectée à la Toolbox (le serveur VIPER doit être en marche).',
+          `S’il ne peut pas partir dans les ${latenessLabel(sequence.defaults.dispatch_max_lateness_minutes)} qui suivent, il ne part pas et revient à « Validé ».`,
+          'Vous pourrez le déprogrammer jusqu’à l’envoi.',
+        )
+      } else {
+        lines.push(
+          'L’envoi automatique n’est pas actif sur ce serveur (Toolbox non connectée ou envoi programmé désactivé) : la date est enregistrée, mais aucun mail ne part tant qu’il ne l’est pas. Vous pourrez déprogrammer tant que le message n’est pas envoyé.',
+        )
+      }
+      return { title: `Programmer le message ${label} ?`, lines, warning, confirmLabel: 'Programmer l’envoi' }
+    }
+    if (pending === 'mark-sent') {
       return {
-        title: `Programmer le message ${label} ?`,
+        title: `Marquer le message ${label} comme envoyé ?`,
         lines: [
-          `Envoi prévu le ${formatDateTime(parsed.iso)} (${localZoneLabel(parsed.at)}).`,
-          'L’envoi automatique n’est pas encore actif dans VIPER : la date est enregistrée, mais aucun mail ne part tant qu’il ne l’est pas. Vous pourrez déprogrammer tant que le message n’est pas envoyé.',
+          'Confirmez seulement après l’avoir trouvé dans les éléments envoyés de la boîte Infomaniak.',
+          'Il passera en « Envoyé » et ne pourra plus être modifié. VIPER ne l’enverra pas.',
         ],
-        warning,
-        confirmLabel: 'Programmer l’envoi',
+        confirmLabel: 'Marquer envoyé',
+      }
+    }
+    if (pending === 'release') {
+      return {
+        title: `Remettre le message ${label} en Validé ?`,
+        lines: [
+          'Confirmez seulement après avoir vérifié qu’il n’est pas dans les éléments envoyés de la boîte Infomaniak : s’il était parti, le reprogrammer l’enverrait une seconde fois.',
+          'Il redevient « Validé », sans date d’envoi, et pourra être reprogrammé.',
+        ],
+        confirmLabel: 'Remettre en Validé',
+        danger: true,
       }
     }
     if (pending === 'generate') {
@@ -314,11 +352,14 @@ export function MailEditor({
       setPending(null)
       void generate()
     }
-    else if (pending === 'validate' || pending === 'cancel') void act(pending)
+    else if (pending === 'validate' || pending === 'cancel' || pending === 'mark-sent' || pending === 'release') {
+      void act(pending)
+    }
   }
 
   const toolboxConnected = sequence.defaults.toolbox_state === 'connected'
   const remote = remoteDraftLine(message, sequence.defaults.toolbox_state)
+  const dispatch = dispatchLine(message, sequence.defaults, dispatchNow)
   const retrying = mutations.act.isPending && mutations.act.variables.action === 'remote-draft'
   const errorOf = (field: MailField) => refusal?.fields[field] ?? local[field]
   const readOnly = !actions.editable || busy
@@ -328,8 +369,61 @@ export function MailEditor({
   return (
     <div className="contact-mail">
       <p ref={statusRef} tabIndex={-1} className="contact-mail__status">
-        {statusLine(message, sequence.sequence.closed || sequence.sequence.do_not_contact)}
+        {statusLine(
+          message,
+          sequence.sequence.closed || sequence.sequence.do_not_contact,
+          // Once the dispatcher holds it, « partira » is no longer the news: the dispatch line says what happens.
+          sequence.defaults.automatic_sending_active && dispatchNow === 'none',
+        )}
       </p>
+
+      {dispatch && actions.settle ? (
+        <div className="contact-mail__banner contact-mail__settle" role="note">
+          <AlertIcon size={16} />
+          <div className="contact-mail__settle-body">
+            <p>{dispatch.text}</p>
+            <div className="contact-mail__settle-actions">
+              <Button
+                size="sm"
+                variant="primary"
+                icon={CheckCircleIcon}
+                disabled={busy}
+                onClick={() => {
+                  setPending('mark-sent')
+                }}
+              >
+                Marquer envoyé…
+              </Button>
+              <Button
+                size="sm"
+                icon={UndoIcon}
+                disabled={busy}
+                onClick={() => {
+                  setPending('release')
+                }}
+              >
+                Remettre en Validé…
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        dispatch && (
+          <p
+            className={`contact-mail__remote contact-mail__remote--${dispatch.tone === 'progress' ? 'muted' : dispatch.tone}`}
+            role={dispatch.tone === 'progress' ? 'status' : undefined}
+          >
+            {dispatch.tone === 'progress' ? (
+              <SpinnerIcon size={16} className="btn__spinner" />
+            ) : dispatch.tone === 'warning' ? (
+              <AlertIcon size={16} />
+            ) : (
+              <InfoIcon size={16} />
+            )}
+            <span>{dispatch.text}</span>
+          </p>
+        )
+      )}
 
       {remote && (
         <p className={`contact-mail__remote contact-mail__remote--${remote.tone}`}>
@@ -535,7 +629,7 @@ export function MailEditor({
         }}
       />
 
-      {(ai.show || Object.values(actions).some((value) => value === true)) && (
+      {(ai.show || Object.entries(actions).some(([name, value]) => name !== 'settle' && value === true)) && (
         <div className="contact-mail__actions">
           <div className="contact-mail__assist">
             <AiButtons

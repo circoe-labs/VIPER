@@ -24,6 +24,17 @@ export interface ToolboxStatus {
   last_error: { code: string; at: string } | null
   // Obsolete Infomaniak drafts still to delete.
   cleanups: { pending: number; failing: number }
+  // The scheduled sending (S7): `running` = the worker runs in the API process; `active` = and the Toolbox is
+  // connected (a scheduled message really leaves). `unconfirmed` = sends a person may have to settle.
+  dispatch: {
+    running: boolean
+    active: boolean
+    interval_seconds: number
+    last_pass_at: string | null
+    last_outcome: 'ok' | 'error' | null
+    scheduled: number
+    unconfirmed: number
+  }
 }
 
 // The query of the OAuth return (`/settings/connections?code=…&state=…&iss=…` or `?error=…&state=…`).

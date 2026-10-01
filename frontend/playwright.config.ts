@@ -26,13 +26,24 @@ export default defineConfig({
   // dataset is read-only and each test writes only rows it owns (e2e/data.ts, decision I-81).
   fullyParallel: true,
   // The CIRCOE Toolbox spec connects the server-wide Toolbox (S6): it runs after every other spec, so their
-  // screens never show a Toolbox connected by it (`--no-deps` runs it alone).
+  // screens never show a Toolbox connected by it (`--no-deps` runs it alone). The full Contact scenario (S7) connects it
+  // too and lets the dispatcher really send (to the fake): it runs last, after the Toolbox spec has forgotten it.
   projects: [
-    { name: 'chromium', testIgnore: /toolbox\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
+    {
+      name: 'chromium',
+      testIgnore: [/toolbox\.spec\.ts/, /contact-flow\.spec\.ts/],
+      use: { ...devices['Desktop Chrome'] },
+    },
     {
       name: 'toolbox',
       testMatch: /toolbox\.spec\.ts/,
       dependencies: ['chromium'],
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'contact-flow',
+      testMatch: /contact-flow\.spec\.ts/,
+      dependencies: ['toolbox'],
       use: { ...devices['Desktop Chrome'] },
     },
   ],
@@ -73,6 +84,10 @@ export default defineConfig({
         VIPER_TOOLBOX_TOKEN_STORE_PATH: E2E_TOOLBOX_STORE,
         VIPER_TOOLBOX_TIMEOUT_MS: '10000',
         VIPER_TOOLBOX_CLEANUP_INTERVAL_MS: '1000',
+        // Scheduled sending (S7): a pass every second, quick retries; it sends only while the Toolbox is connected
+        // (the Toolbox and contact-flow projects), and only to the fake.
+        VIPER_CONTACT_DISPATCH_INTERVAL_MS: '1000',
+        VIPER_CONTACT_DISPATCH_RETRY_BASE_MS: '1000',
       },
       url: `http://127.0.0.1:${String(E2E_API_PORT)}/api/health`,
       reuseExistingServer: !process.env.CI,

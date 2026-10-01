@@ -508,6 +508,25 @@
   color: var(--color-warning-fg);
 }
 
+/* An unconfirmed scheduled send (S7): the reason, then the two ways a person settles it. */
+.contact-mail__settle-body {
+  display: grid;
+  flex: 1 1 auto;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.contact-mail__settle-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.contact-mail__settle-actions .btn svg {
+  margin-top: 0;
+  color: currentColor;
+}
+
 .contact-mail__fields {
   display: grid;
   gap: var(--space-4);

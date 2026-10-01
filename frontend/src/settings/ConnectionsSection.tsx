@@ -10,7 +10,15 @@ import { Button } from '../ui/Button'
 import { Modal } from '../ui/Dialog'
 import { AlertIcon, LinkIcon, MailIcon, RefreshIcon, SpinnerIcon, TrashIcon } from '../ui/icons'
 import { type Feedback, FeedbackBanner } from './shared'
-import { LIMITATIONS, STATE_BADGES, stateSentence, toolboxErrorLabel, toolboxFailure } from './toolboxCopy'
+import {
+  dispatchBadge,
+  dispatchSentence,
+  LIMITATIONS,
+  STATE_BADGES,
+  stateSentence,
+  toolboxErrorLabel,
+  toolboxFailure,
+} from './toolboxCopy'
 
 // The OAuth return parameters this page consumes (and then removes from the address bar).
 const CALLBACK_KEYS = ['code', 'state', 'iss', 'error', 'error_description'] as const
@@ -177,6 +185,41 @@ export function ConnectionsSection() {
   )
 }
 
+// The scheduled sending (S7): whether a scheduled message really leaves, the dispatcher's last pass, and what waits.
+function DispatchFacts({ status }: { status: ToolboxStatus }) {
+  const { dispatch } = status
+  const badge = dispatchBadge(status)
+  return (
+    <div className="settings-connection__dispatch">
+      <p className="settings-connection__dispatch-title">
+        <span>Envoi programmé</span>
+        <StatusBadge tone={badge.tone}>{badge.label}</StatusBadge>
+      </p>
+      <p className="settings-connection__sentence">{dispatchSentence(status)}</p>
+      <dl className="settings-connection__facts">
+        <div>
+          <dt>Dernière passe</dt>
+          <dd>
+            {dispatch.last_pass_at
+              ? `${formatDateTime(dispatch.last_pass_at)}${dispatch.last_outcome === 'error' ? ' (en échec : voir les journaux du serveur)' : ''}`
+              : 'aucune depuis le démarrage'}
+          </dd>
+        </div>
+        <div>
+          <dt>Messages programmés</dt>
+          <dd>{String(dispatch.scheduled)}</dd>
+        </div>
+        {dispatch.unconfirmed > 0 && (
+          <div>
+            <dt>Envois non confirmés</dt>
+            <dd>{String(dispatch.unconfirmed)} à trancher dans Contact</dd>
+          </div>
+        )}
+      </dl>
+    </div>
+  )
+}
+
 interface ToolboxCardProps {
   status: ToolboxStatus
   redirecting: boolean
@@ -242,6 +285,8 @@ function ToolboxCard({ status, redirecting, redirectingFor, busy, onConnect, onF
           Dernier échec ({formatDateTime(status.last_error.at)}) : {toolboxErrorLabel(status.last_error.code)}.
         </p>
       )}
+
+      {status.configured && <DispatchFacts status={status} />}
 
       {status.cleanups.pending > 0 && (
         <p className="settings-connection__note">

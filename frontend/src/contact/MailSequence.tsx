@@ -1,6 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
+import { useEffect, useRef, useState } from 'react'
 
 import { MESSAGE_STEPS, type MessageSequence, type MessageStep, useMessageMutations, useMessageSequence } from '../api/contact'
+import { historyKeys } from '../api/history'
+import { refreshAfterWrite } from '../api/refresh'
 import type { TrackingStatus } from '../api/prospection'
 import { EditorSection } from '../prospects/EditorSection'
 import { Button } from '../ui/Button'
@@ -9,7 +12,7 @@ import { Tabs } from '../ui/Tabs'
 import { STEP_LABELS } from './labels'
 import { type AiInstruction, NO_INSTRUCTION } from './aiDraftModel'
 import { MailEditor, type SendMoment } from './MailEditor'
-import { formOf, isDirty, type MailForm, mailActions } from './mailModel'
+import { dispatchState, formOf, isDirty, type MailForm, mailActions } from './mailModel'
 import { MessageBadge } from './MessageBadge'
 
 // The step the next action prepares, opened first (the R2 review and the closed states show Contact).
@@ -41,6 +44,22 @@ export function MailSequence({ prospectId, onDirtyChange }: MailSequenceProps) {
   // The AI « consigne » per step (S5), kept across tab switches like the text.
   const [instructions, setInstructions] = useState<Partial<Record<MessageStep, AiInstruction>>>({})
   const sequence = query.data
+  // A status changed by the server itself (the dispatcher sent a message, S7) moves the list's message chips, the
+  // counters and the history too: read them again, as after a person's write.
+  const queryClient = useQueryClient()
+  const statuses = sequence ? sequence.steps.map((entry) => entry.message?.status ?? '-').join('|') : null
+  const seenStatuses = useRef(statuses)
+  useEffect(() => {
+    if (statuses === null || seenStatuses.current === statuses) return
+    const first = seenStatuses.current === null
+    seenStatuses.current = statuses
+    if (first) return
+    void refreshAfterWrite(queryClient, [
+      ['contact', 'page'],
+      ['contact', 'dashboard'],
+      historyKeys.subject('prospects', prospectId),
+    ])
+  }, [statuses, queryClient, prospectId])
 
   const context = sequence
     ? { state: sequence.sequence.state, doNotContact: sequence.sequence.do_not_contact, closed: sequence.sequence.closed }
@@ -90,7 +109,13 @@ export function MailSequence({ prospectId, onDirtyChange }: MailSequenceProps) {
   const data = query.data
   const step = selected ?? firstStep(data.sequence.state)
   const message = messageOf(data, step)
-  const actions = mailActions(message, { state: data.sequence.state, doNotContact: data.sequence.do_not_contact, closed: data.sequence.closed })
+  // A claim is judged at the moment the sequence was read (the polling of `useMessageSequence` reads it again).
+  const clock = { now: query.dataUpdatedAt, claimTtlSeconds: data.defaults.dispatch_claim_ttl_seconds }
+  const actions = mailActions(
+    message,
+    { state: data.sequence.state, doNotContact: data.sequence.do_not_contact, closed: data.sequence.closed },
+    clock,
+  )
   const saved = formOf(message, data.defaults)
   const draft = actions.editable ? drafts[step] : undefined
 
@@ -121,6 +146,7 @@ export function MailSequence({ prospectId, onDirtyChange }: MailSequenceProps) {
           sequence={data}
           message={message}
           actions={actions}
+          dispatch={dispatchState(message, clock)}
           saved={saved}
           form={draft ?? saved}
           mutations={mutations}
