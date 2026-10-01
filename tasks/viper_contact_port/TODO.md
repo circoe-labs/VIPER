@@ -29,7 +29,7 @@ Chaque Slice = un agent d'implémentation, puis une revue QA indépendante, puis
 - [x] **S6 — CIRCOE Toolbox** : OAuth + client MCP + stockage du jeton hors base, création/mise à jour/suppression de
   brouillons Infomaniak à la validation, section Paramètres « Connexions », désactivé par défaut. Faux Toolbox en test.
   Réf. : handoff Task 15, `src/server/toolbox*.ts`, `references/toolbox-capabilities.md`.
-- [ ] **S7 — Envoi programmé + durcissement** : worker (P5) avec verrou idempotent, reprise, limites de retard,
+- [x] **S7 — Envoi programmé + durcissement** : worker (P5) avec verrou idempotent, reprise, limites de retard,
   réconciliation ; CLI `--once` ; scénario e2e complet ; doc, runbook, rapport final. Réf. : handoff Tasks 16-17.
 
 ## Journal
@@ -45,3 +45,4 @@ Chaque Slice = un agent d'implémentation, puis une revue QA indépendante, puis
 - 2026-10-01 : S5 accepté (`8674e6f`, correctifs QA `eb72995`) — génération OpenAI (prompt identique octet pour octet à la référence, `store: false`, aucun appel réel). Une modification humaine du texte efface la provenance IA ; adresses e-mail refusées dans la sortie IA. **Configuration Humaine avant production** : `VIPER_OPENAI_API_KEY`, `VIPER_OPENAI_MODEL` (aucun défaut), `VIPER_CONTACT_BOOKING_URL`, éventuel proxy (`VIPER_OPENAI_TRUST_ENV`).
 - 2026-10-01 : **Décisions Humaines (S6)** — expéditeur réel = boîte par défaut du compte Infomaniak (le « De » de VIPER est indicatif) : accepté ; connexion Toolbox unique côté serveur, à renouveler tous les 30 jours : acceptée pour le pilote. `dist-client/` et `dist-server/` (ajoutés par erreur dans `657779d`) retirés du suivi et ignorés (`bc1bef2`).
 - 2026-10-01 : S6 accepté (`0b6b08e`, `97bc22e`, correctifs QA `ae825eb`) — OAuth Toolbox (callback via la SPA + POST avec session/CSRF), jeton hors base, brouillons Infomaniak à la validation, file de nettoyage (trigger `0011` : la suppression d'un prospect nettoie ses brouillons), issue inconnue récupérée par `list_drafts` (objet + À). Instabilité connue sous charge : `auth.spec.ts:50` (passe seul). Pour S7 : recréer le brouillon avant `send_draft` si absent ; même règle de récupération.
+- 2026-10-01 : S7 accepté (`1b49b9e`, `f5600c9`, `c960110`…, correctifs QA `2641d05`) — envoi programmé : une issue d'envoi inconnue n'est **jamais** rejouée automatiquement (décision orchestrateur, C-25 révisé) ; ordre de verrouillage corrigé (plus d'interblocage). Gate finale : pytest 1286, vitest 770, Playwright 106 — verts. Rapport : `FINAL_REPORT.md`. **En attente de validation Humaine** (pas de fusion ni de push sans accord).
