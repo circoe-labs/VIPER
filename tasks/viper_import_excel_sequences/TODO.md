@@ -53,7 +53,7 @@ Orchestrateur (défauts appliqués, à contester par l'Humain) :
 
 ## Slices
 
-- [ ] **S1 — Modèle backend** : cohortes, séquences, envois et niveau dérivé, états D7, alertes D8/D9, paramètre max
+- [x] **S1 — Modèle backend** : cohortes, séquences, envois et niveau dérivé, états D7, alertes D8/D9, paramètre max
   relances, migration Alembic `0010` (données existantes, historique jamais réécrit), services + API REST + audit ;
   adaptation de tous les consommateurs backend (dashboard, segments Prospection, Accueil, export, historique) pour
   garder la gate verte. Le frontend n'est touché que si la gate l'exige.
@@ -76,3 +76,11 @@ Orchestrateur (défauts appliqués, à contester par l'Humain) :
 
 - 2026-10-01 : handoff local créé par l'orchestrateur sur `lucie` (= `task/contact-port`, à jour de `main`). Analyse
   S0 consignée dans `README.md`. Décisions D1-D4 Humaines, D5-D12 par défaut.
+- 2026-10-01 : S1 accepté (`f2ec5cf`, `2a6f72b`, `02aa8b2`, correctifs QA `21da384`, `bbfb956`, `d9192b6`, `714272b`,
+  `8fd2637`) — migration 0010 (cohortes, séquences, messages par rang, `quality_alerts`, max relances), API, décisions
+  R-01…R-11 dans `doc/product/decision-log.md`. Arbitrages : Q1 fusion d'un même code sur deux années (cohorte à
+  revoir) ; Q2 changer de Sxx reprend Défaillant/Réponse/RDV en séquence, refusé sous `ignored`/`do_not_contact` ;
+  Q3 « Marquer envoyé » refusé après réponse/RDV ; Q4 max relances 0..20. Gate : pytest 1289 + 1 test de perf hors
+  budget sous charge mémoire (2,15 s / 2 s, vert seul), vitest 734, eslint/tsc/build verts. **Frontend et e2e cassés
+  jusqu'à S4/S5** (anciens états, planificateur de semaine). Non corrigés : pas de `version` sur `PUT …/cohort` ;
+  rattachement des messages par la migration non audité.
