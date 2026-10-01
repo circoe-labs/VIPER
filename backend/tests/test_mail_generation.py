@@ -186,6 +186,9 @@ def invalid(text: str, booking_url: str | None = None) -> MailGenerationError:
         json.dumps({"subject": "s", "body": "Bonjour <nom>,"}),
         json.dumps({"subject": "s", "body": "Voir https://invente.example.test/offre"}),
         json.dumps({"subject": "s", "body": "Voir www.invente.example.test"}),
+        json.dumps({"subject": "s", "body": "Écrivez-moi : jean.dupont@exemple.example."}),
+        json.dumps({"subject": "Contact : contact@circoe.example", "body": "Bonjour,"}),
+        json.dumps({"subject": "s", "body": "Voir «https://invente.example.test»"}),
     ],
 )
 def test_an_invalid_output_is_refused(answer: str) -> None:
@@ -200,6 +203,16 @@ def test_a_valid_output_is_trimmed_and_the_booking_link_allowed() -> None:
         booking_url=link,
     ) == ("Objet", f"Bonjour,\n\nRéservez : {link}.")
     invalid(json.dumps({"subject": "s", "body": f"{link}/autre"}), booking_url=link)
+    # A link right inside French guillemets is the link itself, not « link» .
+    for quoted in (f"«{link}»", f"« {link} »"):
+        assert validate_output(
+            json.dumps({"subject": "s", "body": f"Réservez ici : {quoted}."}), booking_url=link
+        )
+    # An « @ » inside the booking link is no e-mail address.
+    at_link = "https://rdv.example.test/@circoe/30min"
+    assert validate_output(
+        json.dumps({"subject": "s", "body": f"Réservez : {at_link}"}), booking_url=at_link
+    )
     # Parentheses are prose, not a placeholder.
     assert validate_output(
         json.dumps({"subject": "s", "body": "Nous (Circoe) intégrons l’IA."}), booking_url=None
@@ -511,6 +524,31 @@ def test_generation_settings(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_bad_generation_settings_are_refused_at_startup(values: dict[str, Any]) -> None:
     with pytest.raises(ValidationError):
         settings(**values)
+
+
+def test_the_environment_is_trusted_only_when_asked() -> None:
+    base = {"openai_api_key": KEY, "openai_model": "m"}
+
+    assert config_from_settings(settings(**base)) == OpenAIConfig(
+        KEY, "m", "https://api.openai.com/v1", 60.0, 2, trust_env=False
+    )
+    trusted = config_from_settings(settings(**base, openai_trust_env=True))
+    assert trusted is not None and trusted.trust_env is True
+
+
+def test_the_client_honours_the_trust_env_setting(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[bool] = []
+    real = httpx2.Client
+
+    def spy(*args: Any, **kwargs: Any) -> httpx2.Client:
+        seen.append(kwargs["trust_env"])
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(httpx2, "Client", spy)
+    for trust in (False, True):
+        fake = FakeOpenAI([ok(responses_payload(VALID))])
+        fake.generator(trust_env=trust).generate(PROMPT)
+    assert seen == [False, True]
 
 
 def test_the_booking_url_is_kept_as_typed() -> None:

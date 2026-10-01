@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import type { Message } from '../api/contact'
 import { Button } from '../ui/Button'
 import { TextAreaField } from '../ui/fields'
 import { ChevronDownIcon, InfoIcon, SparklesIcon, SpinnerIcon } from '../ui/icons'
-import { type AiAvailability, generatedNote, INSTRUCTION_MAX_LENGTH } from './aiDraftModel'
+import { type AiAvailability, formatCount, generatedNote, INSTRUCTION_MAX_LENGTH } from './aiDraftModel'
 
 // The AI drafting controls of the mail editor (Contact port S5): the button in the action bar's left slot (secondary —
 // the primary action of a draft stays « Valider… »), the optional « consigne » behind a disclosure, the running state
@@ -77,6 +77,8 @@ interface AiPanelProps {
 }
 
 // Above the action bar: why the button is disabled, the running state, or the « consigne » field. Empty otherwise.
+// Accessibility: one always-mounted live region says when the AI starts (the outcome is the editor's Notice); the
+// clicked button turns disabled while it runs, so the focus moves to the running block instead of the page body.
 export function AiPanel({
   stepLabel,
   availability,
@@ -88,9 +90,28 @@ export function AiPanel({
 }: AiPanelProps) {
   const running = startedAt !== null
   const elapsed = useElapsed(startedAt)
-  if (!availability.show) return null
+  const progressRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!running) return
+    // After the confirmation dialog has given the focus back to the (now disabled) button.
+    const timer = window.setTimeout(() => {
+      const active = document.activeElement
+      const lost = !active || active === document.body || (active instanceof HTMLButtonElement && active.disabled)
+      if (lost) progressRef.current?.focus()
+    }, 0)
+    return () => {
+      window.clearTimeout(timer)
+    }
+  }, [running])
+  const live = (
+    <p className="visually-hidden" role="status">
+      {running ? `L’IA rédige le message ${stepLabel}…` : ''}
+    </p>
+  )
+  if (!availability.show) return live
   return (
     <>
+      {live}
       {availability.note && (
         <p className="contact-ai__note">
           <InfoIcon size={16} />
@@ -98,8 +119,8 @@ export function AiPanel({
         </p>
       )}
       {running && (
-        <div className="contact-ai__progress">
-          <p role="status">
+        <div ref={progressRef} tabIndex={-1} className="contact-ai__progress">
+          <p>
             <SpinnerIcon size={16} className="btn__spinner" />
             <span>L’IA rédige le message {stepLabel}…</span>
             <span className="contact-ai__elapsed" aria-hidden="true">
@@ -117,7 +138,7 @@ export function AiPanel({
           <TextAreaField
             id={`${instructionId}-field`}
             label="Consigne pour l’IA (facultatif)"
-            hint={`Ex. : plus court, insister sur la logistique. ${INSTRUCTION_MAX_LENGTH.toLocaleString('fr-FR')} caractères au plus ; l’IA n’invente aucun fait.`}
+            hint={`Ex. : plus court, insister sur la logistique. ${formatCount(INSTRUCTION_MAX_LENGTH)} caractères au plus ; l’IA n’invente aucun fait.`}
             value={instruction}
             maxLength={INSTRUCTION_MAX_LENGTH}
             rows={2}
@@ -133,8 +154,8 @@ export function AiPanel({
 }
 
 // « Rédigé par l'IA — à relire », with the model and prompt version as a subtle hint.
-export function GeneratedNote({ message }: { message: Message | null }) {
-  const note = generatedNote(message)
+export function GeneratedNote({ message, textEdited }: { message: Message | null; textEdited: boolean }) {
+  const note = generatedNote(message, textEdited)
   if (!note) return null
   return (
     <p className="contact-ai__generated">

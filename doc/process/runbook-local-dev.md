@@ -51,8 +51,10 @@ Configuration comes from `VIPER_*` environment variables or an optional `backend
 
 **AI drafting of Contact mails** (optional, Contact port S5): set `VIPER_OPENAI_API_KEY` and `VIPER_OPENAI_MODEL`
 (both required; no default model) in `backend/.env`; optional `VIPER_OPENAI_BASE_URL` (official API by default),
-`VIPER_OPENAI_TIMEOUT_MS` (60000), `VIPER_OPENAI_MAX_RETRIES` (2) and `VIPER_CONTACT_BOOKING_URL` (the booking link
-the AI may copy; unset = no link). Unset, *Générer avec l’IA* is disabled. The key stays on the server and is
+`VIPER_OPENAI_TIMEOUT_MS` (60000, per read/write, not a total), `VIPER_OPENAI_MAX_RETRIES` (2) and
+`VIPER_CONTACT_BOOKING_URL` (the booking link the AI may copy; unset = no link). Behind a corporate proxy or with a
+private CA, set `VIPER_OPENAI_TRUST_ENV=true` so the OpenAI calls honour `HTTPS_PROXY` / `NO_PROXY` / `SSL_CERT_FILE`
+(off by default: a direct connection). Unset, *Générer avec l’IA* is disabled. The key stays on the server and is
 never logged. Tests never call OpenAI (a fake transport / server); Playwright starts `e2e/fake-openai.ts` on 8046
 (`VIPER_E2E_OPENAI_PORT`). Details: [`contact.md`](../features/contact.md) § AI drafting.
 

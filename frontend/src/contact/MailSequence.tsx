@@ -7,6 +7,7 @@ import { Button } from '../ui/Button'
 import { AlertIcon, SpinnerIcon } from '../ui/icons'
 import { Tabs } from '../ui/Tabs'
 import { STEP_LABELS } from './labels'
+import { type AiInstruction, NO_INSTRUCTION } from './aiDraftModel'
 import { MailEditor, type SendMoment } from './MailEditor'
 import { formOf, isDirty, type MailForm, mailActions } from './mailModel'
 import { MessageBadge } from './MessageBadge'
@@ -37,6 +38,8 @@ export function MailSequence({ prospectId, onDirtyChange }: MailSequenceProps) {
   const [drafts, setDrafts] = useState<Partial<Record<MessageStep, MailForm>>>({})
   // The send moment typed per step, kept across tab switches like the text.
   const [moments, setMoments] = useState<Partial<Record<MessageStep, SendMoment>>>({})
+  // The AI « consigne » per step (S5), kept across tab switches like the text.
+  const [instructions, setInstructions] = useState<Partial<Record<MessageStep, AiInstruction>>>({})
   const sequence = query.data
 
   const context = sequence
@@ -128,6 +131,10 @@ export function MailSequence({ prospectId, onDirtyChange }: MailSequenceProps) {
           }}
           onForm={(form) => {
             setDrafts((current) => ({ ...current, [step]: form }))
+          }}
+          instruction={instructions[step] ?? NO_INSTRUCTION}
+          onInstruction={(instruction) => {
+            setInstructions((current) => ({ ...current, [step]: instruction }))
           }}
         />
       </Tabs>

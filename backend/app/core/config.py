@@ -70,9 +70,13 @@ class Settings(BaseSettings):
     openai_api_key: SecretStr | None = None
     openai_model: Annotated[str, Field(min_length=1, max_length=200)] | None = None
     openai_base_url: str = OPENAI_OFFICIAL_BASE_URL
-    # Per attempt; bounded retries on transient failures only (a timeout is not replayed).
+    # Per network operation (connect ≤ 10 s, then each read/write), not a total per attempt;
+    # bounded retries on transient failures only (a timeout is not replayed).
     openai_timeout_ms: Annotated[int, Field(ge=1000, le=300_000)] = 60_000
     openai_max_retries: Annotated[int, Field(ge=0, le=5)] = 2
+    # Honour the server's HTTPS_PROXY / NO_PROXY / SSL_CERT_FILE… for the OpenAI calls; off by
+    # default (a direct connection, the environment cannot redirect the key elsewhere).
+    openai_trust_env: bool = False
     # The booking link the AI may copy into a mail; unset = no link at all.
     contact_booking_url: Annotated[str, Field(max_length=2000)] | None = None
 

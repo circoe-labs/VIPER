@@ -11,6 +11,19 @@ export const INSTRUCTION_MAX_LENGTH = 1000
 // default); a proposal that still arrives later is saved as a Brouillon and shows on reload.
 export const GENERATION_DEADLINE_MS = 5 * 60 * 1000
 
+// « 1 000 » (French grouping with a narrow no-break space, also below 10 000).
+export function formatCount(value: number): string {
+  return new Intl.NumberFormat('fr-FR', { useGrouping: 'always' }).format(value)
+}
+
+// The « consigne » of one step, kept by the sequence across tab switches (like the unsaved text).
+export interface AiInstruction {
+  text: string
+  open: boolean
+}
+
+export const NO_INSTRUCTION: AiInstruction = { text: '', open: false }
+
 export interface AiAvailability {
   // Shown at all (the step can be edited).
   show: boolean
@@ -29,6 +42,9 @@ export function aiAvailability(input: {
   editable: boolean
   available: boolean
   busy: boolean
+  // The step the AI is writing now (the request is shared by the sequence's tabs), null while idle.
+  generatingStep?: MessageStep | null
+  step?: MessageStep
 }): AiAvailability {
   const label = hasText(input.message) ? 'Régénérer avec l’IA' : 'Générer avec l’IA'
   if (!input.editable) return { show: false, enabled: false, label, note: null }
@@ -38,6 +54,14 @@ export function aiAvailability(input: {
       enabled: false,
       label,
       note: 'La rédaction par l’IA n’est pas configurée sur ce serveur (clé et modèle OpenAI) : rédigez le message vous-même.',
+    }
+  }
+  if (input.generatingStep && input.step && input.generatingStep !== input.step) {
+    return {
+      show: true,
+      enabled: false,
+      label,
+      note: `L’IA rédige déjà le message ${STEP_LABELS[input.generatingStep]} : attendez qu’elle ait fini pour générer celui-ci.`,
     }
   }
   if (input.message?.status === 'scheduled') {
@@ -117,9 +141,12 @@ export function generationRefusal(error: unknown): MessageRefusal {
 }
 
 // « Rédigé par l’IA — à relire » while the AI's text awaits its review; the model and prompt version as a subtle hint.
-export function generatedNote(message: Message | null): { text: string; hint: string } | null {
+// A person's rewrite of the subject or body ends the mention once saved (the server clears the provenance; recipients-only
+// edits keep it); `textEdited` says so beforehand.
+export function generatedNote(message: Message | null, textEdited = false): { text: string; hint: string } | null {
   if (!message?.generation_model) return null
   const hint = `Modèle ${message.generation_model} · prompt ${message.generation_prompt_version ?? 'inconnu'}`
+  if (textEdited) return { text: 'Rédigé par l’IA, modifié par vous : la mention disparaîtra à l’enregistrement.', hint }
   return {
     text: message.status === 'draft' ? 'Rédigé par l’IA — à relire avant de valider.' : 'Rédigé par l’IA.',
     hint,

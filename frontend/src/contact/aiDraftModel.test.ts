@@ -5,6 +5,7 @@ import type { GenerationResult } from '../api/contact'
 import { message } from '../test/contactApi'
 import {
   aiAvailability,
+  formatCount,
   generatedNote,
   generationConfirmation,
   generationNotice,
@@ -30,6 +31,19 @@ describe('AI drafting: the button', () => {
       enabled: false,
     })
     expect(aiAvailability({ message: message('contact', 'sent'), editable: false, available: true, busy: false }).show).toBe(false)
+  })
+
+  it('disabled on the other tabs while the AI writes one step, saying which', () => {
+    expect(
+      aiAvailability({ message: null, editable: true, available: true, busy: true, generatingStep: 'contact', step: 'r1' }),
+    ).toMatchObject({ enabled: false, note: 'L’IA rédige déjà le message Contact : attendez qu’elle ait fini pour générer celui-ci.' })
+    expect(
+      aiAvailability({ message: null, editable: true, available: true, busy: true, generatingStep: 'contact', step: 'contact' }),
+    ).toMatchObject({ enabled: false, note: null })
+  })
+
+  it('formats counts the French way', () => {
+    expect(formatCount(1000)).toBe('1 000')
   })
 
   it('disabled with its reason: not configured, or scheduled (unschedule first)', () => {
@@ -119,5 +133,7 @@ describe('AI drafting: outcomes', () => {
       hint: 'Modèle fake-model · prompt contact-mail-fr-2026-09-v1',
     })
     expect(generatedNote({ ...ai, status: 'validated' })?.text).toBe('Rédigé par l’IA.')
+    // A rewrite of the text, not saved yet: the mention will go.
+    expect(generatedNote(ai, true)?.text).toBe('Rédigé par l’IA, modifié par vous : la mention disparaîtra à l’enregistrement.')
   })
 })

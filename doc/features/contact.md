@@ -104,6 +104,9 @@ draft|validated|scheduled --cancel--> cancelled --reopen--> draft (revision+1)
 - **Edit ⇒ revalidation** (H-24): saving a different content of a `validated`/`scheduled` message puts it back to
   `draft`, bumps `revision`, clears the validation and the send moment (`unvalidated: true`). An identical save
   changes nothing (`changed: false`).
+- **AI provenance** (S5): a save that changes the subject or the body clears `generation_model`,
+  `generation_prompt_version` and `generated_at` (the text is now the person's); a recipients-only edit keeps them. The
+  audit event of that edit keeps the provenance (the fields' before values).
 - **Validation** (H-23) confirms the current revision (`validated_revision = revision`), by a person, one message at a
   time; it needs `from_email`, at least one `to`, a subject and a body (else 422 `message_incomplete` + `fields`).
 - **Schedule** (H-25): from `validated` only, an explicit ISO 8601 moment **with offset**, strictly in the future and
@@ -223,17 +226,22 @@ website, size, segment, activity categories, project done with Circoe, project t
 approach (each line only when filled, plus « Informations non disponibles (ne pas les deviner) » for a missing function
 or activity context); for R1/R2 the earlier steps' recorded messages (subject, body, status label; cancelled or empty
 ones left out); on a regeneration the step's current subject and body; the « consigne »; `store: false`; and
-`text.format` = strict `json_schema` `contact_mail` `{subject, body}`. **Never sent**: e-mail addresses (recipients
-included), phone numbers, postal addresses, SIREN/SIRET, the tracking state and history, notes, the sender, any other
-prospect. The key travels only in the `Authorization` header.
+`text.format` = strict `json_schema` `contact_mail` `{subject, body}`. **Structured contact fields are never sent**:
+the e-mail addresses (recipients included), phone numbers, postal addresses, SIREN/SIRET, the tracking state and
+history, notes, the sender, any other prospect. **Free text typed by people is sent as is**, unfiltered: the earlier
+steps' subjects and bodies, the step's current version, the « consigne », the company's `client_approach`,
+`circoe_references`, `project_done_with_circoe` and `website_url` — whatever someone wrote there (a name, an address
+pasted in a body…) reaches the model. The key travels only in the `Authorization` header.
 
-**Adapter.** Timeout per attempt (`VIPER_OPENAI_TIMEOUT_MS`, connect ≤ 10 s); a timeout is not replayed (504
-`ai_timeout`); network errors, 408/409/429 (except `insufficient_quota`) and 5xx are retried `VIPER_OPENAI_MAX_RETRIES`
+**Adapter.** Timeouts are per network operation, not a total per attempt: connect ≤ 10 s, then each read / write
+(and the wait for a pooled connection) ≤ `VIPER_OPENAI_TIMEOUT_MS` — a slow answer that keeps sending bytes can last
+longer. A timeout is not replayed (504 `ai_timeout`); network errors, 408/409/429 (except `insufficient_quota`) and 5xx are retried `VIPER_OPENAI_MAX_RETRIES`
 times with exponential backoff (0.5 s, 1 s, … ≤ 10 s; `Retry-After` honoured and capped). The output is checked before
 anything is written: a JSON object with exactly `subject` and `body` (strings), subject 1–200 characters on one line
 without control characters, body 1–10 000 characters (line breaks and tabs only), **no field left to complete**
-(`[…]`, `{…}`, `<…>`, `XXX`) and **no link but the configured booking link** (a link would be a fact VIPER does not
-hold) — the last two are server guardrails beyond the reference's schema check; the prompt already forbids both. The
+(`[…]`, `{…}`, `<…>`, `XXX`), **no link but the configured booking link** (also accepted right inside « »
+guillemets) and **no e-mail address** outside that link (VIPER sends none: a link or an address would be a fact it
+does not hold) — the last three are server guardrails beyond the reference's schema check. The
 model recorded is the one OpenAI names in its answer (snapshot), else the configured one.
 
 | HTTP | `code` | When |
@@ -278,8 +286,9 @@ AI drafting (S5), all optional — unset, the button is disabled and the route a
 | `VIPER_OPENAI_API_KEY` | unset | OpenAI key (secret: never logged, never returned, never in the browser). A blank value counts as unset. |
 | `VIPER_OPENAI_MODEL` | unset | Model id, **required when the key is set** (startup error otherwise). No default: chosen by the operator (handoff docs/08 §4). |
 | `VIPER_OPENAI_BASE_URL` | `https://api.openai.com/v1` | API root (`/responses` is appended); tests and E2E point it at a local fake. |
-| `VIPER_OPENAI_TIMEOUT_MS` | `60000` | Per attempt, 1 000–300 000. |
+| `VIPER_OPENAI_TIMEOUT_MS` | `60000` | Per network operation (each read / write; connect ≤ 10 s), 1 000–300 000. |
 | `VIPER_OPENAI_MAX_RETRIES` | `2` | Retries on transient failures, 0–5. |
+| `VIPER_OPENAI_TRUST_ENV` | `false` | `true`: the OpenAI calls honour the server's `HTTPS_PROXY`, `NO_PROXY`, `SSL_CERT_FILE`… (a corporate proxy or CA). Off: a direct connection the environment cannot redirect. |
 | `VIPER_CONTACT_BOOKING_URL` | unset | Booking link the AI may copy into a mail; an `http(s)` URL (anything else is refused at startup). Unset: no link at all. |
 
 ## Concurrency note
@@ -359,16 +368,20 @@ says that automatic sending is not active yet (S7).
 **AI drafting (S5)** (`AiDraft.tsx`, rules in `aiDraftModel.ts`), in the action bar's left side
 (`.contact-mail__assist`): the secondary *Générer avec l’IA* (empty step) / *Régénérer avec l’IA* (a saved text) and
 the ghost disclosure *Consigne* (`aria-expanded`) that opens *Consigne pour l’IA (facultatif)* (≤ 1 000 characters)
-above the bar. Hidden when the step cannot be edited (sent, cancelled, closed sequence); disabled with its reason when
-`defaults.generation_available` is false (*… pas configurée sur ce serveur …*) or the message is scheduled
-(*déprogrammez-le avant de le régénérer*). A confirmation (*Régénérer le message Contact ?*, *Retour* focused) comes
-first when a saved text, unsaved edits or a validation would be lost; it says the result stays a Brouillon. While
-the AI writes: *L’IA rédige le message Contact…* with a live seconds counter, the editor read-only, and a sentence
+above the bar; the « consigne » and its disclosure are kept per step across tab switches. Hidden when the step cannot
+be edited (sent, cancelled, closed sequence); disabled with its reason when `defaults.generation_available` is false
+(*… pas configurée sur ce serveur …*), the message is scheduled (*déprogrammez-le avant de le régénérer*) or the AI is
+writing another step (*L’IA rédige déjà le message Contact : attendez…* — one request at a time per sequence). A confirmation (*Régénérer le message Contact ?*, *Retour* focused) comes
+first when a saved text, unsaved edits or a validation would be lost; it says the result stays a Brouillon, and closes
+as soon as it is confirmed. While the AI writes: *L’IA rédige le message Contact…* with a live seconds counter, the editor read-only, and a sentence
 saying that nothing changes before it arrives and that switching tabs is safe (the answer lands in the cache whatever
 editor is shown); the browser stops waiting after 5 min (the server bounds its own wait) and reloads the sequence. The
 result replaces the shown text and is announced (*Brouillon Contact rédigé par l’IA : relisez-le…*, plus *repassé en
 Brouillon* after a validation); an AI text carries *Rédigé par l’IA — à relire avant de valider.* with the model and
-prompt version as a muted monospace hint. Every `ai_*` code has its French sentence saying that nothing was changed;
+prompt version as a muted monospace hint (*Rédigé par l’IA, modifié par vous : la mention disparaîtra à
+l’enregistrement.* while the subject or body is being rewritten). Accessibility: an always-mounted live region says
+when the AI starts, the editor's live region says the outcome; the clicked button turns disabled while it runs, so
+the focus moves to the running block, then to the draft's status sentence once it has arrived. Every `ai_*` code has its French sentence saying that nothing was changed;
 the message codes reuse `contact/messages.ts`.
 
 **Unsaved text**: kept per step — switching tabs loses nothing, a dot marks a tab with unsaved changes; leaving the

@@ -188,10 +188,12 @@ export function stubContactApi(options: ContactStubOptions = {}) {
       const changed = JSON.stringify(edited) !== JSON.stringify(current)
       if (!changed) return write(id, step, current, false, false)
       const unvalidated = current.status !== 'draft'
+      const rewritten = edited.subject !== current.subject || edited.body_text !== current.body_text
+      const provenance = rewritten ? { generation_model: null, generation_prompt_version: null, generated_at: null } : {}
       return write(
         id,
         step,
-        { ...edited, status: 'draft', revision: current.revision + 1, validated_revision: null, validated_at: null, validated_by: null, scheduled_at: null },
+        { ...edited, ...provenance, status: 'draft', revision: current.revision + 1, validated_revision: null, validated_at: null, validated_by: null, scheduled_at: null },
         false,
         true,
         unvalidated,

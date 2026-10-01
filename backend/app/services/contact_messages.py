@@ -4,7 +4,8 @@ The only application write path of `contact_messages`. One durable message per p
 (`contact`, `r1`, `r2`). Statuses and transitions:
 
     (none)    -> draft       create: `save_message` without `expected_revision`
-    draft     -> draft       edit: content saved, `revision` + 1
+    draft     -> draft       edit: content saved, `revision` + 1 (a new subject or body clears the
+                             AI provenance `generation_*`; a recipients-only edit keeps it)
     validated|scheduled -> draft
                              edit: `revision` + 1, validation and send moment cleared, remote
                              draft detached (decision 24) — audited `contact_message.unvalidated`
@@ -398,6 +399,12 @@ def _clear_validation(message: ContactMessage) -> None:
     message.remote_draft_id = None
 
 
+def _clear_generation(message: ContactMessage) -> None:
+    message.generation_model = None
+    message.generation_prompt_version = None
+    message.generated_at = None
+
+
 def _log(action: str, message: ContactMessage, actor: ActorContext) -> None:
     # Identifiers and codes only: never an address, a subject or a body.
     logger.info(
@@ -493,6 +500,10 @@ def save_message(
     audit.annotate(
         session, actor, message, AuditAction.CONTACT_MESSAGE_UNVALIDATED if unvalidated else None
     )
+    if (content["subject"], content["body_text"]) != (message.subject, message.body_text):
+        # A person rewrote the text: it is no longer the AI's (decision S5 QA). The audit event
+        # of this edit keeps the provenance (the generation fields' before values).
+        _clear_generation(message)
     for name, value in content.items():
         setattr(message, name, value)
     message.revision += 1

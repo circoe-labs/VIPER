@@ -6,6 +6,7 @@ import { TextAreaField, TextField } from '../ui/fields'
 import { AlertIcon, CalendarIcon, CheckIcon, CloseIcon, LockIcon, RefreshIcon, SaveIcon, UndoIcon } from '../ui/icons'
 import { AiButtons, AiPanel, GeneratedNote } from './AiDraft'
 import {
+  type AiInstruction,
   aiAvailability,
   GENERATION_DEADLINE_MS,
   generationConfirmation,
@@ -51,6 +52,9 @@ interface MailEditorProps {
   // The send moment typed for this step (kept by the sequence across tab switches).
   when: SendMoment
   onWhen: (when: SendMoment) => void
+  // The AI « consigne » of this step (kept by the sequence across tab switches).
+  instruction: AiInstruction
+  onInstruction: (instruction: AiInstruction) => void
 }
 
 type Pending = 'validate' | 'schedule' | 'cancel' | 'generate'
@@ -77,6 +81,8 @@ export function MailEditor({
   onReload,
   when,
   onWhen,
+  instruction,
+  onInstruction,
 }: MailEditorProps) {
   const [refusal, setRefusal] = useState<MessageRefusal | null>(null)
   // The outcome of the last action, kept while the message stays in the status that action left it in (a state
@@ -88,27 +94,30 @@ export function MailEditor({
   // which reads the new status, once the confirmation has closed.
   const statusRef = useRef<HTMLParagraphElement>(null)
   const focusStatus = useRef(false)
+  // Bumped when an outcome without a confirmation (an AI draft) should take the focus too.
+  const [focusTick, setFocusTick] = useState(0)
   useEffect(() => {
     if (pending !== null || !focusStatus.current) return
     focusStatus.current = false
     statusRef.current?.focus()
-  }, [pending])
+  }, [pending, focusTick])
   const [scheduleError, setScheduleError] = useState<string | null>(null)
-  // The AI « consigne » (S5), kept while the editor stays on this step.
-  const [instruction, setInstruction] = useState('')
-  const [instructionOpen, setInstructionOpen] = useState(false)
   const label = STEP_LABELS[step]
   const dirty = actions.editable && isDirty(form, saved)
   const generating = mutations.generate.isPending
   const busy = mutations.save.isPending || mutations.act.isPending || mutations.schedule.isPending || generating
+  // The running AI request's step (the mutation is shared by the sequence's tabs).
+  const generatingStep = generating ? mutations.generate.variables.step : null
+  const generatingHere = generatingStep === step
   const ai = aiAvailability({
     message,
     editable: actions.editable,
     available: sequence.defaults.generation_available,
     busy,
+    generatingStep,
+    step,
   })
-  // The running AI request is this step's (the mutation is shared by the sequence's tabs).
-  const generatingHere = generating && mutations.generate.variables.step === step
+  const textEdited = actions.editable && (form.subject !== saved.subject || form.body !== saved.body)
   const local = actions.editable ? localErrors(form) : {}
   const status = message?.status ?? null
   const fieldId = (field: string) => `contact-mail-${step}-${field}`
@@ -176,11 +185,14 @@ export function MailEditor({
     try {
       const result = await mutations.generate.mutateAsync({
         step,
-        request: generationPayload(message, instruction),
+        request: generationPayload(message, instruction.text),
         deadline: GENERATION_DEADLINE_MS,
       })
       onForm(undefined)
       setNotice({ status: result.message.status, text: generationNotice(step, result) })
+      // The draft's status sentence takes the focus (the button that started it was disabled meanwhile).
+      focusStatus.current = true
+      setFocusTick((tick) => tick + 1)
     } catch (caught) {
       const view = generationRefusal(caught)
       setRefusal(view)
@@ -271,7 +283,11 @@ export function MailEditor({
 
   function onConfirm() {
     if (pending === 'schedule' && parsed.ok) void schedule(parsed.iso)
-    else if (pending === 'generate') void generate()
+    else if (pending === 'generate') {
+      // The AI can take minutes: the dialog closes at once, the running state says the rest.
+      setPending(null)
+      void generate()
+    }
     else if (pending === 'validate' || pending === 'cancel') void act(pending)
   }
 
@@ -293,7 +309,7 @@ export function MailEditor({
         </p>
       )}
 
-      <GeneratedNote message={message} />
+      <GeneratedNote message={message} textEdited={textEdited} />
 
       {dirty && (status === 'validated' || status === 'scheduled') && (
         <p className="contact-mail__banner" role="note">
@@ -447,10 +463,12 @@ export function MailEditor({
         stepLabel={label}
         availability={ai}
         startedAt={generatingHere ? mutations.generate.submittedAt : null}
-        instructionOpen={instructionOpen}
+        instructionOpen={instruction.open}
         instructionId={fieldId('ai')}
-        instruction={instruction}
-        onInstruction={setInstruction}
+        instruction={instruction.text}
+        onInstruction={(text) => {
+          onInstruction({ ...instruction, text })
+        }}
       />
 
       {(ai.show || Object.values(actions).some((value) => value === true)) && (
@@ -459,10 +477,10 @@ export function MailEditor({
             <AiButtons
               availability={ai}
               running={generatingHere}
-              instructionOpen={instructionOpen}
+              instructionOpen={instruction.open}
               instructionId={fieldId('ai')}
               onToggleInstruction={() => {
-                setInstructionOpen((open) => !open)
+                onInstruction({ ...instruction, open: !instruction.open })
               }}
               onGenerate={requestGenerate}
             />

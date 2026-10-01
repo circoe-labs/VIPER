@@ -8,9 +8,10 @@ Port of the reference `src/server/openaiMailGenerator.ts`:
   (developers.openai.com/api/docs/guides/structured-outputs and /guides/text);
 - configuration from `Settings` (`VIPER_OPENAI_*`): key and model both required, no model id
   hard-coded (handoff docs/08 §4);
-- timeout per attempt; bounded retries on transient failures only (network error, 408/409/429
-  except an exhausted quota, 5xx) with exponential backoff and a capped `Retry-After`; a timeout
-  is not replayed (the person's wait stays bounded);
+- timeouts per network operation (connect ≤ 10 s; each read / write / pool wait ≤
+  `VIPER_OPENAI_TIMEOUT_MS`), not a total per attempt; bounded retries on transient failures
+  only (network error, 408/409/429 except an exhausted quota, 5xx) with exponential backoff and a
+  capped `Retry-After`; a timeout is not replayed (the person's wait stays bounded);
 - typed `MailGenerationError` (stable code + HTTP status); never the key, the prompt or the raw
   answer in an error message or a log line — only the code, the upstream status and the upstream
   error type;
@@ -110,11 +111,14 @@ class OpenAIConfig:
     base_url: str
     timeout_seconds: float
     max_retries: int
+    # Read HTTPS_PROXY, NO_PROXY, SSL_CERT_FILE… from the environment (off by default).
+    trust_env: bool = False
 
     def __repr__(self) -> str:
         return (
             f"OpenAIConfig(model={self.model!r}, base_url={self.base_url!r}, "
-            f"timeout_seconds={self.timeout_seconds}, max_retries={self.max_retries})"
+            f"timeout_seconds={self.timeout_seconds}, max_retries={self.max_retries}, "
+            f"trust_env={self.trust_env})"
         )
 
 
@@ -138,6 +142,7 @@ def config_from_settings(settings: Settings) -> OpenAIConfig | None:
         base_url=settings.openai_base_url,
         timeout_seconds=settings.openai_timeout_ms / 1000,
         max_retries=settings.openai_max_retries,
+        trust_env=settings.openai_trust_env,
     )
 
 
@@ -164,7 +169,10 @@ _BODY_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 # « [Prénom] », « {entreprise} », « <nom> », « XXX »: a field left to complete (the prompt forbids
 # them). Short bracketed texts only, so a sentence in parentheses is never caught.
 _PLACEHOLDER = re.compile(r"\[[^\]\n]{1,60}\]|\{[^}\n]{0,60}\}|<[^>\n]{1,40}>|\bX{3,}\b")
-_URL = re.compile(r"(?:https?://|www\.)[^\s<>()\"']+", re.IGNORECASE)
+# A link ends at a space, a bracket, a quote or a French guillemet (« https://… » or «https://…»).
+_URL = re.compile(r"(?:https?://|www\.)[^\s<>()\"'«»]+", re.IGNORECASE)
+# An e-mail address: VIPER never sends one to the model, so one in the answer is invented.
+_EMAIL = re.compile(r"[^\s@<>()\"'«»,;:]+@[^\s@<>()\"'«»,;:]+\.[^\s@<>()\"'«»,;:.]{2,}")
 
 
 def _invalid(message: str) -> MailGenerationError:
@@ -174,9 +182,9 @@ def _invalid(message: str) -> MailGenerationError:
 def validate_output(text: str, *, booking_url: str | None) -> tuple[str, str]:
     """The `{subject, body}` answer, checked independently of OpenAI's strict mode.
 
-    Guardrails beyond the reference's schema check (the prompt forbids both; an output breaking
-    them is refused, never repaired): no field left to complete, and no link but the configured
-    booking link (a link would be a fact VIPER does not hold).
+    Guardrails beyond the reference's schema check (an output breaking them is refused, never
+    repaired): no field left to complete, no link but the configured booking link, and no e-mail
+    address (VIPER sends none to the model: a link or an address would be a fact it does not hold).
     """
     try:
         data = json.loads(text)
@@ -195,9 +203,13 @@ def validate_output(text: str, *, booking_url: str | None) -> tuple[str, str]:
     if _PLACEHOLDER.search(subject) or _PLACEHOLDER.search(body):
         raise _invalid("The AI text holds a field left to complete.")
     allowed = (booking_url or "").rstrip("/.")
-    for match in _URL.finditer(f"{subject}\n{body}"):
+    text = f"{subject}\n{body}"
+    for match in _URL.finditer(text):
         if not allowed or match.group(0).rstrip("/.,;:!?") != allowed:
             raise _invalid("The AI text holds a link that was not provided.")
+    # The booking link may hold an `@` (a path segment): addresses are looked for outside links.
+    if _EMAIL.search(_URL.sub(" ", text)):
+        raise _invalid("The AI text holds an e-mail address.")
     return subject, body
 
 
@@ -301,7 +313,10 @@ class OpenAIMailGenerator:
         timeout = httpx2.Timeout(
             config.timeout_seconds, connect=min(CONNECT_TIMEOUT_SECONDS, config.timeout_seconds)
         )
-        with httpx2.Client(timeout=timeout, transport=self._transport, trust_env=False) as client:
+        # `trust_env` (VIPER_OPENAI_TRUST_ENV): honour the server's HTTPS_PROXY, SSL_CERT_FILE…
+        with httpx2.Client(
+            timeout=timeout, transport=self._transport, trust_env=config.trust_env
+        ) as client:
             attempt = 0
             while True:
                 can_retry = attempt < config.max_retries

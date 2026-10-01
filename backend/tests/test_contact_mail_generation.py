@@ -558,3 +558,36 @@ def test_typed_errors_carry_no_secret() -> None:
 
     assert isinstance(error, MailGenerationError)
     assert (error.http_status, error.upstream_status) == (502, 401)
+
+
+# --- a person's rewrite ends the AI provenance -------------------------------------------------
+
+
+def test_a_human_text_edit_clears_the_ai_provenance_and_the_history_keeps_it(
+    ai_app: FastAPI, client: TestClient, db_session: Session, prospect: uuid.UUID
+) -> None:
+    ok(generate(client, prospect), 201)
+    path = f"{messages(prospect)}/contact"
+
+    # Recipients only: still the AI's text.
+    kept = ok(client.put(path, json={"expected_revision": 1, "cc": ["copie@exemple.example"]}))
+    assert kept["message"]["generation_model"] == "fake-model"
+    assert kept["message"]["generation_prompt_version"] == PROMPT_VERSION
+    assert kept["message"]["generated_at"] is not None
+
+    edited = ok(
+        client.put(path, json={"expected_revision": 2, "body_text": "Corps relu et réécrit"})
+    )
+    message = edited["message"]
+    assert (message["generation_model"], message["generation_prompt_version"]) == (None, None)
+    assert message["generated_at"] is None
+
+    updates = [
+        str(event.changes)
+        for event in db_session.scalars(
+            select(AuditLogEntry).where(AuditLogEntry.action == "contact_message.updated")
+        )
+    ]
+    # Only the text edit changed the generation fields; its before values keep the provenance.
+    assert [("fake-model" in changes) for changes in updates].count(True) == 1
+    assert not any("Corps relu" in changes for changes in updates)
