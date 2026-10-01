@@ -1,6 +1,8 @@
 """Typed runtime configuration read from `VIPER_*` environment variables and `backend/.env`."""
 
+import re
 from functools import lru_cache
+from pathlib import Path
 from typing import Annotated, Self
 from urllib.parse import urlsplit
 
@@ -20,6 +22,45 @@ def _http_url(value: str) -> str:
     if url.scheme not in ("http", "https") or not url.netloc or any(c.isspace() for c in value):
         raise ValueError("must be an absolute http(s) URL")
     return value
+
+
+LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "[::1]", "::1"})
+# backend/app/core/config.py → the checkout root (the Toolbox token file may not live inside).
+REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_TOOLBOX_TOKEN_STORE = Path.home() / ".viper" / "toolbox-oauth.json"
+_ALLOWLIST_ADDRESS = re.compile(r"^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$")
+_ALLOWLIST_DOMAIN = re.compile(r"^@[^@\s,;]+\.[^@\s,;]+$")
+
+
+def toolbox_url(value: str) -> str:
+    """HTTPS, or plain HTTP on the loopback only (the Toolbox's own rule for redirect URIs)."""
+    value = value.strip()
+    url = urlsplit(value)
+    if any(c.isspace() for c in value) or not url.netloc:
+        raise ValueError("must be an absolute https URL (http only on localhost)")
+    if url.scheme == "https" or (url.scheme == "http" and url.hostname in LOOPBACK_HOSTS):
+        return value
+    raise ValueError("must be an absolute https URL (http only on localhost)")
+
+
+def parse_allowlist(value: str) -> tuple[str, ...]:
+    """`a@x.fr, @y.fr` → `("a@x.fr", "@y.fr")` (lowercase); a malformed entry is refused."""
+    entries = tuple(entry.lower() for entry in re.split(r"[\s,;]+", value.strip()) if entry)
+    for entry in entries:
+        if not (_ALLOWLIST_ADDRESS.match(entry) or _ALLOWLIST_DOMAIN.match(entry)):
+            raise ValueError("entries must be e-mail addresses or @domain rules")
+    return entries
+
+
+def allowlist_permits(allowlist: tuple[str, ...] | None, addresses: list[str]) -> bool:
+    """Every address matches an exact entry or an `@domain` rule (None = no restriction)."""
+    if allowlist is None:
+        return True
+    return all(
+        address.lower() in allowlist
+        or any(rule.startswith("@") and address.lower().endswith(rule) for rule in allowlist)
+        for address in addresses
+    )
 
 
 class Settings(BaseSettings):
@@ -80,7 +121,37 @@ class Settings(BaseSettings):
     # The booking link the AI may copy into a mail; unset = no link at all.
     contact_booking_url: Annotated[str, Field(max_length=2000)] | None = None
 
-    @field_validator("openai_api_key", "openai_model", "contact_booking_url", mode="before")
+    # CIRCOE Toolbox (S6, handoff Task 15): Infomaniak drafts of validated messages through the
+    # Toolbox MCP server (OAuth 2.1 + PKCE). Off by default: everything stays local. Enabled but
+    # without both URLs, the Settings page says « non configurée » and nothing leaves.
+    toolbox_mail_enabled: bool = False
+    # The exact MCP URL (the OAuth resource the Toolbox announces): HTTPS, or http on loopback.
+    toolbox_mcp_url: str | None = None
+    # Where the Toolbox sends the browser back: the SPA page `/settings/connections` as the
+    # browser sees it (e.g. http://localhost:5173/settings/connections in development).
+    toolbox_oauth_redirect_uri: str | None = None
+    # The OAuth token file: outside the database (never in a backup, the explorer or a response)
+    # and outside the repository checkout; owner-only permissions. Default `~/.viper/…`.
+    toolbox_token_store_path: Path | None = None
+    # Total bound of one Toolbox operation (initialize + tool call).
+    toolbox_timeout_ms: Annotated[int, Field(ge=1000, le=120_000)] = 20_000
+    # Period of the obsolete-draft cleanup worker in the API process; 0 = no worker (the CLI
+    # `python -m app.cli toolbox-cleanup --once` still runs one pass).
+    toolbox_cleanup_interval_ms: Annotated[int, Field(ge=0, le=86_400_000)] = 60_000
+    # Optional VIPER-side allowlist of recipients for the scheduled send (S7): comma-separated
+    # addresses or `@domain` rules. Unset = no VIPER-side restriction (the Toolbox keeps its own).
+    infomaniak_send_allowlist: str | None = None
+
+    @field_validator(
+        "openai_api_key",
+        "openai_model",
+        "contact_booking_url",
+        "toolbox_mcp_url",
+        "toolbox_oauth_redirect_uri",
+        "toolbox_token_store_path",
+        "infomaniak_send_allowlist",
+        mode="before",
+    )
     @classmethod
     def _blank_is_unset(cls, value: object) -> object:
         # `VIPER_OPENAI_API_KEY=` in a .env means « not configured », not an empty key.
@@ -100,6 +171,28 @@ class Settings(BaseSettings):
         # Refused at startup rather than silently ignored (the reference dropped a bad value).
         return None if value is None else _http_url(value)
 
+    @field_validator("toolbox_mcp_url", "toolbox_oauth_redirect_uri")
+    @classmethod
+    def _toolbox_url(cls, value: str | None) -> str | None:
+        return None if value is None else toolbox_url(value)
+
+    @field_validator("toolbox_token_store_path")
+    @classmethod
+    def _token_store_outside_checkout(cls, value: Path | None) -> Path | None:
+        if value is None:
+            return None
+        path = value.expanduser().resolve()
+        if path.is_relative_to(REPOSITORY_ROOT):
+            raise ValueError("must be outside the repository checkout (it holds an OAuth token)")
+        return path
+
+    @field_validator("infomaniak_send_allowlist")
+    @classmethod
+    def _allowlist(cls, value: str | None) -> str | None:
+        if value is not None:
+            parse_allowlist(value)
+        return value
+
     @model_validator(mode="after")
     def _model_with_key(self) -> Self:
         if self.openai_api_key is not None and self.openai_model is None:
@@ -110,6 +203,27 @@ class Settings(BaseSettings):
     def generation_available(self) -> bool:
         """The AI drafting is configured (key and model)."""
         return self.openai_api_key is not None and self.openai_model is not None
+
+    @property
+    def toolbox_missing_settings(self) -> list[str]:
+        """Names (never values) of the unset settings an enabled Toolbox needs."""
+        missing = []
+        if self.toolbox_mcp_url is None:
+            missing.append("VIPER_TOOLBOX_MCP_URL")
+        if self.toolbox_oauth_redirect_uri is None:
+            missing.append("VIPER_TOOLBOX_OAUTH_REDIRECT_URI")
+        return missing
+
+    @property
+    def toolbox_token_store(self) -> Path:
+        return self.toolbox_token_store_path or DEFAULT_TOOLBOX_TOKEN_STORE
+
+    @property
+    def send_allowlist(self) -> tuple[str, ...] | None:
+        """The parsed `VIPER_INFOMANIAK_SEND_ALLOWLIST` (S7 checks it before a send); None = unset."""
+        return None if self.infomaniak_send_allowlist is None else (
+            parse_allowlist(self.infomaniak_send_allowlist)
+        )
 
     @property
     def sql_reader_url(self) -> str:

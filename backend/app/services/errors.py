@@ -113,6 +113,31 @@ class MailGenerationError(DomainError):
         self.upstream_code = upstream_code
 
 
+class ToolboxError(DomainError):
+    """A CIRCOE Toolbox operation (OAuth or MCP) failed or is not possible. `code` is stable
+    (`toolbox_*`, `app.services.toolbox.errors`), `http_status` its HTTP status. `retryable`: the
+    same call may be replayed safely; `outcome_unknown`: the Toolbox may have executed it without
+    answering (a `send_draft` timeout) — never replayed blindly. `upstream_status` is the
+    Toolbox's HTTP status, for the log only: never a token, an address or the Toolbox's text."""
+
+    def __init__(
+        self,
+        code: str,
+        http_status: int,
+        message: str,
+        *,
+        retryable: bool = False,
+        outcome_unknown: bool = False,
+        upstream_status: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.http_status = http_status
+        self.retryable = retryable
+        self.outcome_unknown = outcome_unknown
+        self.upstream_status = upstream_status
+
+
 class ActorNotAllowedError(DomainError):
     """This kind of actor may not make this change (e.g. a contact state chosen by an agent)."""
 
