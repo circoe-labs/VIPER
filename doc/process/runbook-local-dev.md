@@ -49,6 +49,13 @@ Configuration comes from `VIPER_*` environment variables or an optional `backend
 `.env` is git-ignored — never commit it). Defaults already match `docker-compose.yml`. Run backend commands from
 `backend/` so `.env` and `alembic.ini` are found.
 
+**AI drafting of Contact mails** (optional, Contact port S5): set `VIPER_OPENAI_API_KEY` and `VIPER_OPENAI_MODEL`
+(both required; no default model) in `backend/.env`; optional `VIPER_OPENAI_BASE_URL` (official API by default),
+`VIPER_OPENAI_TIMEOUT_MS` (60000), `VIPER_OPENAI_MAX_RETRIES` (2) and `VIPER_CONTACT_BOOKING_URL` (the booking link
+the AI may copy; unset = no link). Unset, *Générer avec l’IA* is disabled. The key stays on the server and is
+never logged. Tests never call OpenAI (a fake transport / server); Playwright starts `e2e/fake-openai.ts` on 8046
+(`VIPER_E2E_OPENAI_PORT`). Details: [`contact.md`](../features/contact.md) § AI drafting.
+
 Health: <http://127.0.0.1:8042/api/health> → `{"status":"ok","database":"ok"}` (HTTP 503 with
 `"database":"unavailable"` when PostgreSQL is down). OpenAPI docs: <http://127.0.0.1:8042/api/docs>. Every other
 `/api/*` route answers 401 without a session (sign in through the UI, or `POST /api/auth/login`).
@@ -75,6 +82,7 @@ Every port is overridable, so a second checkout (e.g. a `git worktree`) can run 
 | `VIPER_WEB_PORT` | `5173` | `npm run dev` (Vite, `strictPort`) |
 | `VIPER_API_TARGET` | `http://127.0.0.1:8042` | Vite's `/api` proxy target |
 | `VIPER_E2E_WEB_PORT` / `VIPER_E2E_API_PORT` | `5180` / `8044` | Playwright's own Vite and API |
+| `VIPER_E2E_OPENAI_PORT` | `8046` | Playwright's fake OpenAI server (`e2e/fake-openai.ts`) |
 | `VIPER_E2E_DATABASE_URL` | `…/viper_e2e` | Playwright's database (name must end in `_e2e`) |
 | `VIPER_E2E_PYTHON` | `backend/.venv` Python, else `python` | interpreter for the Playwright API server and setup |
 

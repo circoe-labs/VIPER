@@ -1,6 +1,7 @@
 import { expect, type Page, test } from '@playwright/test'
 
 import { createContactProspect, uniqueSuffix } from './data'
+import { E2E_BOOKING_URL, E2E_OPENAI_PORT } from './env'
 import { SCREENSHOTS, useTheme } from './helpers'
 import { signIn } from './session'
 
@@ -193,3 +194,82 @@ for (const theme of ['dark', 'light'] as const) {
     }
   })
 }
+
+// AI drafting (S5) against the fake OpenAI server started by playwright.config.ts (e2e/fake-openai.ts): never OpenAI.
+// The draft lands as a Brouillon with the AI note, the « consigne » and the booking link reach the model, no e-mail
+// address does; a regeneration of a validated message is confirmed and puts it back to Brouillon; a failing AI is said.
+test('AI drafting: generate with a « consigne », regenerate after validation, a failure is said', async ({ page }) => {
+  const suffix = uniqueSuffix()
+  const tag = `CA2E${suffix}`
+  const email = `ines.${suffix}@contact-e2e.example`
+  const { id, company } = await createContactProspect(page, tag, { civility: 'ms', first_name: 'Inès', last_name: `Redac${suffix}`, email })
+  await page.goto(`/contact?q=${tag}&prospect=${id}`)
+
+  const generate = page.getByRole('button', { name: 'Générer avec l’IA' })
+  await expect(generate).toBeEnabled()
+  await page.getByRole('button', { name: 'Consigne' }).click()
+  await page.getByRole('textbox', { name: 'Consigne pour l’IA (facultatif)' }).fill('Plus court')
+  await generate.click()
+
+  await expect(page.getByRole('textbox', { name: 'Objet' })).toHaveValue(`Agents IA pour ${company}`)
+  const body = page.getByRole('textbox', { name: 'Corps' })
+  await expect(body).toHaveValue(new RegExp(`^Bonjour Madame Redac${suffix},`))
+  await expect(body).toHaveValue(/\(Consigne appliquée : Plus court\)/)
+  await expect(body).toHaveValue(new RegExp(E2E_BOOKING_URL.replaceAll('.', '\\.')))
+  await expect(page.getByText('Rédigé par l’IA — à relire avant de valider.')).toBeVisible()
+  await expect(page.getByText(/Modèle fake-e2e-model-snapshot · prompt contact-mail-fr-2026-09-v1/)).toBeVisible()
+  await expect(mailTab(page, 'Contact')).toContainText('Brouillon')
+
+  // What reached the model: the step and the facts, never the e-mail address.
+  const received = (await (await page.request.get(`http://127.0.0.1:${String(E2E_OPENAI_PORT)}/requests`)).json()) as {
+    input: string
+    store: boolean
+  }[]
+  const mine = received.filter((request) => request.input.includes(`Redac${suffix}`))
+  expect(mine).toHaveLength(1)
+  expect(mine[0]?.input).toContain('Étape : Contact')
+  expect(mine[0]?.input).not.toContain(email)
+  expect(mine[0]?.store).toBe(false)
+
+  // Design review, both themes: the generated draft, then the « consigne » open (tall enough for the action bar); no
+  // horizontal overflow down to 1280 px.
+  for (const theme of ['dark', 'light'] as const) {
+    await useTheme(page, theme)
+    await page.reload()
+    await expect(page.getByText('Rédigé par l’IA — à relire avant de valider.')).toBeVisible()
+    for (const width of [1440, 1280]) {
+      await page.setViewportSize({ width, height: 1500 })
+      await page.screenshot({ path: `${SCREENSHOTS}/contact-ai-draft-${theme}-${String(width)}.png`, animations: 'disabled' })
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
+      expect(overflow, `no horizontal overflow at ${String(width)} px`).toBe(0)
+    }
+    await page.setViewportSize({ width: 1440, height: 1500 })
+    await page.getByRole('button', { name: 'Consigne' }).click()
+    await page.getByRole('textbox', { name: 'Consigne pour l’IA (facultatif)' }).fill('Insister sur la logistique')
+    await page.screenshot({ path: `${SCREENSHOTS}/contact-ai-consigne-${theme}-1440.png`, animations: 'disabled' })
+  }
+  await useTheme(page, 'dark')
+  await page.reload()
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await expect(page.getByText('Rédigé par l’IA — à relire avant de valider.')).toBeVisible()
+
+  // Validate, then regenerate: confirmed first, back to Brouillon.
+  await page.getByRole('button', { name: 'Valider…' }).click()
+  await confirm(page, /Valider le message Contact/, 'Valider le message')
+  await expect(mailTab(page, 'Contact')).toContainText('Validé')
+  await page.getByRole('button', { name: 'Régénérer avec l’IA' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Régénérer le message Contact ?' })
+  await expect(dialog).toContainText('Le message repassera en Brouillon')
+  await dialog.getByRole('button', { name: 'Remplacer par la proposition' }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Il est repassé en Brouillon : à revalider.' })).toHaveCount(1)
+  await expect(mailTab(page, 'Contact')).toContainText('Brouillon')
+
+  // A failing AI (the fake answers 503 to this « consigne »): said on screen, the saved text stays.
+  const saved = await body.inputValue()
+  await page.getByRole('button', { name: 'Consigne' }).click()
+  await page.getByRole('textbox', { name: 'Consigne pour l’IA (facultatif)' }).fill('FAKE_AI_FAIL')
+  await page.getByRole('button', { name: 'Régénérer avec l’IA' }).click()
+  await page.getByRole('dialog', { name: 'Régénérer le message Contact ?' }).getByRole('button', { name: 'Remplacer par la proposition' }).click()
+  await expect(page.getByRole('alert')).toContainText('Le service d’IA a échoué ou est injoignable. Rien n’a été modifié')
+  await expect(body).toHaveValue(saved)
+})

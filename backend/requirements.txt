@@ -8,3 +8,5 @@ psycopg[binary]==3.3.5
 argon2-cffi==25.1.0
 openpyxl==3.1.5
 python-multipart==0.0.32
+# Outbound HTTP (OpenAI drafting, S5); also the test client of FastAPI (ADR-0001).
+httpx2==2.12.0

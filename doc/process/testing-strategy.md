@@ -122,7 +122,11 @@
   and closed-sequence locks, refusals on their fields, revision conflict keeping the text), the unsaved-text guard;
   `src/ui/Tabs.test.tsx` (roles, roving tab stop, arrows/Home/End). Playwright `e2e/contact.spec.ts` drives the
   operator flow on the real stack (a prospect planned this week through the API: draft → validate → schedule →
-  unschedule → edit back to draft → « Réponse reçue » cancels and locks), the guard, `/exploitation` redirecting, and
+  unschedule → edit back to draft → « Réponse reçue » cancels and locks), the AI drafting (S5) against
+  `e2e/fake-openai.ts` — a local fake of the Responses API started as a Playwright web server, the E2E backend's
+  `VIPER_OPENAI_*` pointing at it (never OpenAI, Contact port P6): generate with a « consigne », what reached the
+  model (no e-mail address, `store: false`), regenerate a validated message after its confirmation, a failing AI
+  said on screen —, the guard, `/exploitation` redirecting, and
   screenshots (draft at 1440 and 1280, locked, list) in both themes with a no-horizontal-overflow check.
 - Excel import engine (Task 08): synthetic workbooks generated in memory by
   `tests/fixtures/synthetic/legacy_workbook.py` (the 24-column historical layout, an `actualité` sheet, one row per
@@ -196,6 +200,13 @@
   context menu → staged edit cancelled, Paramètres — and requires a visible focus change at every stop (the element or
   its `:focus-within` frame, compared focused vs blurred under reduced motion). Finer keyboard behaviour stays covered
   by the component tests and the feature specs (grid, menus, editors, dialogs).
+- AI drafting (Contact port S5): no test reaches OpenAI — the `app` fixture forces `openai_api_key=None` whatever
+  `backend/.env` says. `test_mail_generation.py` (prompt text and data, output checks, the adapter on an
+  `httpx2.MockTransport` — request shape, retries/backoff, no retry on timeout or lasting 4xx — and on a local
+  `ThreadingHTTPServer` for a real round trip and a timeout, settings), `test_contact_mail_generation.py` (the route
+  with a fake `MailGenerator`: draft only, minimal data, refusals before any call, nothing written on failure, the
+  replace confirmation, no transaction open during the call, a person's concurrent edit or schedule wins, audit
+  masking and history); `src/contact/aiDraftModel.test.ts`, `src/contact/AiDraft.test.tsx`.
 - Privacy: `scripts/check_private_data.py` in CI; synthetic fixtures only under `*/tests/fixtures/synthetic/`.
 - Commands: `doc/process/runbook-local-dev.md`.
 

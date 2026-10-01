@@ -8,23 +8,44 @@ dispatcher's internal operation (S7).
                                      new message and whether the sequence is closed;
 - `GET  …/messages/{step}`           one step's message (null when never created);
 - `PUT  …/messages/{step}`           create (no `expected_revision`, 201) or edit the content (200);
-- `POST …/messages/{step}/validate|schedule|unschedule|cancel|reopen` with `expected_revision`.
+- `POST …/messages/{step}/validate|schedule|unschedule|cancel|reopen` with `expected_revision`;
+- `POST …/messages/{step}/generate`   the AI draft of the step (S5): always a draft, to review.
 """
 
 import uuid
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.dependencies import CurrentActor, SessionDep, SettingsDep
 from app.api.errors import business_errors
+from app.core.actor import ActorContext
+from app.core.config import Settings
+from app.db.session import unit_of_work
 from app.models import ContactMessage
 from app.models.contact_messages import EMAIL_MAX_LENGTH, SUBJECT_MAX_LENGTH
 from app.models.enums import ContactMessageStatus, ContactMessageStep, ContactTrackingStatus
+from app.services import audit
+from app.services import contact_mail_generation as generation
 from app.services import contact_messages as service
-from app.services.contact_messages import MAX_RECIPIENTS, MessageEdit, MessageResult
+from app.services.contact_messages import (
+    MAX_RECIPIENTS,
+    GeneratedContent,
+    MessageEdit,
+    MessageResult,
+)
+from app.services.mail_generation.openai_client import (
+    GeneratedMail,
+    MailGenerator,
+    OpenAIMailGenerator,
+    config_from_settings,
+    missing_settings,
+    not_configured,
+)
+from app.services.mail_generation.prompt import MAX_INSTRUCTION_LENGTH, PROMPT_VERSION
 
 router = APIRouter(prefix="/prospects/{prospect_id}/messages", tags=["contact"])
 
@@ -103,6 +124,8 @@ class SequenceOut(BaseModel):
 class DefaultsOut(BaseModel):
     from_email: str | None
     to: list[str]
+    # The AI drafting is configured (`VIPER_OPENAI_API_KEY` and `VIPER_OPENAI_MODEL`).
+    generation_available: bool
 
 
 class StepOut(BaseModel):
@@ -116,6 +139,20 @@ class MessagesOut(BaseModel):
     steps: list[StepOut]
 
 
+class GenerateIn(StrictModel):
+    # Omitted/null: the step has no message yet. Else the revision the client read.
+    expected_revision: Revision | None = None
+    # The person's short instruction (« consigne ») for this version.
+    instruction: Annotated[str, StringConstraints(max_length=MAX_INSTRUCTION_LENGTH)] | None = None
+    # Confirms that the saved subject/body are replaced (required when the step has a text).
+    replace: bool = False
+
+
+class GenerationOut(BaseModel):
+    model: str
+    prompt_version: str
+
+
 class StepMessageOut(BaseModel):
     message: MessageOut | None
 
@@ -125,6 +162,21 @@ class MessageResultOut(BaseModel):
     created: bool
     changed: bool
     unvalidated: bool
+
+
+class GenerationResultOut(MessageResultOut):
+    generation: GenerationOut
+
+
+def get_mail_generator(settings: SettingsDep) -> MailGenerator | None:
+    """The OpenAI adapter, or None when the drafting is not configured (tests override this)."""
+    config = config_from_settings(settings)
+    if config is None:
+        return None
+    return OpenAIMailGenerator(config, booking_url=settings.contact_booking_url)
+
+
+MailGeneratorDep = Annotated[MailGenerator | None, Depends(get_mail_generator)]
 
 
 def message_out(message: ContactMessage) -> MessageOut:
@@ -181,7 +233,11 @@ def list_messages(
             do_not_contact=context.do_not_contact,
             closed=context.closed,
         ),
-        defaults=DefaultsOut(from_email=read.defaults.from_email, to=read.defaults.to),
+        defaults=DefaultsOut(
+            from_email=read.defaults.from_email,
+            to=read.defaults.to,
+            generation_available=settings.generation_available,
+        ),
         steps=[
             StepOut(step=step, message=message_out(message) if message else None)
             for step, message in read.messages.items()
@@ -300,3 +356,83 @@ def reopen(
     with business_errors():
         result = service.reopen(session, actor, prospect_id, step, body.expected_revision)
     return result_out(result)
+
+
+@router.post("/{step}/generate")
+def generate(
+    prospect_id: uuid.UUID,
+    step: ContactMessageStep,
+    body: GenerateIn,
+    request: Request,
+    response: Response,
+    session: SessionDep,
+    settings: SettingsDep,
+    actor: CurrentActor,
+    generator: MailGeneratorDep,
+) -> GenerationResultOut:
+    """The AI draft of the step (decision 22): subject and body written by the AI, always a
+    `draft` to review and validate — 201 when it creates the step's message, else 200; a validated
+    message goes back to draft (`unvalidated: true`).
+    A failed or unconfigured AI answers its `ai_*` code and changes nothing."""
+    with business_errors():
+        prompt = generation.prepare(
+            session,
+            actor,
+            prospect_id,
+            step,
+            generation.GenerationRequest(
+                expected_revision=body.expected_revision,
+                instruction=body.instruction,
+                replace=body.replace,
+            ),
+            booking_url=settings.contact_booking_url,
+        )
+        if generator is None:
+            raise not_configured(missing_settings(settings))
+    audit_binding = audit.binding(session)
+    # The AI call can last a minute: the request's transaction (which may hold the session row
+    # lock of the auth's last-seen update) ends here, and the write below runs in its own unit of
+    # work, which checks every rule again. `session` is not used after this commit.
+    session.commit()
+    with business_errors():
+        mail = generation.draft(generator, prompt, prospect_id=prospect_id, step=step)
+    result = _save_generated(request, settings, actor, audit_binding, prospect_id, step, body, mail)
+    if result.created:
+        response.status_code = status.HTTP_201_CREATED
+    return result
+
+
+def _save_generated(
+    request: Request,
+    settings: Settings,
+    actor: ActorContext,
+    audit_binding: tuple[ActorContext, audit.AuditContext] | None,
+    prospect_id: uuid.UUID,
+    step: ContactMessageStep,
+    body: GenerateIn,
+    mail: GeneratedMail,
+) -> GenerationResultOut:
+    session_factory: sessionmaker[Session] = request.app.state.session_factory
+    with unit_of_work(session_factory) as write:
+        # Same actor and request id as the request's binding (one save, one history entry).
+        audit.bind(write, actor, audit_binding[1] if audit_binding else None)
+        with business_errors():
+            result = service.save_generated(
+                write,
+                actor,
+                prospect_id,
+                step,
+                GeneratedContent(
+                    subject=mail.subject,
+                    body_text=mail.body,
+                    model=mail.model,
+                    prompt_version=PROMPT_VERSION,
+                ),
+                body.expected_revision,
+                default_from=settings.default_outbound_email,
+            )
+        out = result_out(result)
+    return GenerationResultOut(
+        **out.model_dump(),
+        generation=GenerationOut(model=mail.model, prompt_version=PROMPT_VERSION),
+    )

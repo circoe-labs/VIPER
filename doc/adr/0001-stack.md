@@ -11,6 +11,9 @@
 - Amended: 2026-09-10 by Task 04 (decision I-25, [ADR-0004](0004-authentication-sessions.md)) — Playwright runs full
   stack (real backend on the `viper_e2e` database, ports 8044/5180), locally and in CI; the CI `e2e` job has a
   PostgreSQL service. Dependency added: `argon2-cffi` 25.1.0.
+- Amended: 2026-10-01 by the Contact port Slice S5 — `httpx2` 2.12.0 (already the test client's HTTP library) moves
+  to the runtime requirements as the outbound HTTP client of the OpenAI drafting: no new package, typed timeouts and
+  `MockTransport` for tests (the standard library's `urllib` has neither).
 
 ## Context
 
@@ -36,6 +39,7 @@ database; and a Windows development machine (PowerShell 5.1, Git Bash, no `make`
 | Driver | psycopg 3.3.5 (`psycopg[binary]`), URL scheme `postgresql+psycopg://` |
 | Config | pydantic 2.13.5 + pydantic-settings 2.15.0; env prefix `VIPER_`, optional `backend/.env` |
 | Tests | pytest 9.1.1; FastAPI `TestClient` backed by **httpx2** 2.12.0 (Starlette 1.6 deprecates `httpx` for its test client) |
+| Outbound HTTP | **httpx2** 2.12.0, runtime since the Contact port S5 (OpenAI drafting) |
 | Quality | ruff 0.16.6 (lint + format, line length 100), mypy 2.3.1 `strict = true` + pydantic plugin |
 
 Package layout (dependencies point downward only):

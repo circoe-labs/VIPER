@@ -1,9 +1,19 @@
-import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import type { Message, MessageSequence, MessageStatus, MessageStep, useMessageMutations } from '../api/contact'
 import { Button } from '../ui/Button'
 import { TextAreaField, TextField } from '../ui/fields'
 import { AlertIcon, CalendarIcon, CheckIcon, CloseIcon, LockIcon, RefreshIcon, SaveIcon, UndoIcon } from '../ui/icons'
+import { AiButtons, AiPanel, GeneratedNote } from './AiDraft'
+import {
+  aiAvailability,
+  GENERATION_DEADLINE_MS,
+  generationConfirmation,
+  generationNotice,
+  generationPayload,
+  generationRefusal,
+  hasText,
+} from './aiDraftModel'
 import { type Confirmation, ConfirmDialog } from './ConfirmDialog'
 import { formatDateTime, STEP_LABELS } from './labels'
 import {
@@ -41,11 +51,9 @@ interface MailEditorProps {
   // The send moment typed for this step (kept by the sequence across tab switches).
   when: SendMoment
   onWhen: (when: SendMoment) => void
-  // Slot of the action bar's left side, for the AI drafting of Slice S5 (« Générer avec l'IA »). Empty until then.
-  assist?: ReactNode
 }
 
-type Pending = 'validate' | 'schedule' | 'cancel'
+type Pending = 'validate' | 'schedule' | 'cancel' | 'generate'
 
 export interface SendMoment {
   date: string
@@ -69,7 +77,6 @@ export function MailEditor({
   onReload,
   when,
   onWhen,
-  assist,
 }: MailEditorProps) {
   const [refusal, setRefusal] = useState<MessageRefusal | null>(null)
   // The outcome of the last action, kept while the message stays in the status that action left it in (a state
@@ -87,9 +94,21 @@ export function MailEditor({
     statusRef.current?.focus()
   }, [pending])
   const [scheduleError, setScheduleError] = useState<string | null>(null)
+  // The AI « consigne » (S5), kept while the editor stays on this step.
+  const [instruction, setInstruction] = useState('')
+  const [instructionOpen, setInstructionOpen] = useState(false)
   const label = STEP_LABELS[step]
   const dirty = actions.editable && isDirty(form, saved)
-  const busy = mutations.save.isPending || mutations.act.isPending || mutations.schedule.isPending
+  const generating = mutations.generate.isPending
+  const busy = mutations.save.isPending || mutations.act.isPending || mutations.schedule.isPending || generating
+  const ai = aiAvailability({
+    message,
+    editable: actions.editable,
+    available: sequence.defaults.generation_available,
+    busy,
+  })
+  // The running AI request is this step's (the mutation is shared by the sequence's tabs).
+  const generatingHere = generating && mutations.generate.variables.step === step
   const local = actions.editable ? localErrors(form) : {}
   const status = message?.status ?? null
   const fieldId = (field: string) => `contact-mail-${step}-${field}`
@@ -150,6 +169,32 @@ export function MailEditor({
     }
   }
 
+  // The AI draft (decision 22): the answer replaces the shown text and stays a Brouillon to review.
+  async function generate() {
+    setNotice(null)
+    setRefusal(null)
+    try {
+      const result = await mutations.generate.mutateAsync({
+        step,
+        request: generationPayload(message, instruction),
+        deadline: GENERATION_DEADLINE_MS,
+      })
+      onForm(undefined)
+      setNotice({ status: result.message.status, text: generationNotice(step, result) })
+    } catch (caught) {
+      const view = generationRefusal(caught)
+      setRefusal(view)
+      if (view.reload) onReload()
+    } finally {
+      setPending(null)
+    }
+  }
+
+  function requestGenerate() {
+    if (generationConfirmation(step, message, dirty)) setPending('generate')
+    else void generate()
+  }
+
   async function schedule(iso: string) {
     if (!message) return
     setNotice(null)
@@ -196,6 +241,12 @@ export function MailEditor({
         confirmLabel: 'Programmer l’envoi',
       }
     }
+    if (pending === 'generate') {
+      const asked = generationConfirmation(step, message, dirty)
+      if (asked) {
+        return { ...asked, confirmLabel: hasText(message) ? 'Remplacer par la proposition' : 'Générer avec l’IA' }
+      }
+    }
     if (pending === 'cancel') {
       return {
         title: `Annuler le message ${label} ?`,
@@ -220,6 +271,7 @@ export function MailEditor({
 
   function onConfirm() {
     if (pending === 'schedule' && parsed.ok) void schedule(parsed.iso)
+    else if (pending === 'generate') void generate()
     else if (pending === 'validate' || pending === 'cancel') void act(pending)
   }
 
@@ -240,6 +292,8 @@ export function MailEditor({
           {actions.lock}
         </p>
       )}
+
+      <GeneratedNote message={message} />
 
       {dirty && (status === 'validated' || status === 'scheduled') && (
         <p className="contact-mail__banner" role="note">
@@ -389,9 +443,30 @@ export function MailEditor({
       )}
       <Notice text={notice && notice.status === status ? notice.text : null} />
 
-      {(assist ?? Object.values(actions).some((value) => value === true)) && (
+      <AiPanel
+        stepLabel={label}
+        availability={ai}
+        startedAt={generatingHere ? mutations.generate.submittedAt : null}
+        instructionOpen={instructionOpen}
+        instructionId={fieldId('ai')}
+        instruction={instruction}
+        onInstruction={setInstruction}
+      />
+
+      {(ai.show || Object.values(actions).some((value) => value === true)) && (
         <div className="contact-mail__actions">
-          <div className="contact-mail__assist">{assist}</div>
+          <div className="contact-mail__assist">
+            <AiButtons
+              availability={ai}
+              running={generatingHere}
+              instructionOpen={instructionOpen}
+              instructionId={fieldId('ai')}
+              onToggleInstruction={() => {
+                setInstructionOpen((open) => !open)
+              }}
+              onGenerate={requestGenerate}
+            />
+          </div>
           <div className="contact-mail__buttons">
             {actions.cancel && (
               <Button

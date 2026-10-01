@@ -90,6 +90,29 @@ class ContactMessageError(DomainError):
         self.details = details
 
 
+class MailGenerationError(DomainError):
+    """The AI drafting of a Contact message failed or is not configured; nothing was saved.
+    `code` is stable (`ai_not_configured`, `ai_timeout`, `ai_rate_limited`, `ai_auth_failed`,
+    `ai_upstream_error`, `ai_refused`, `ai_invalid_output`: `app.services.mail_generation`),
+    `http_status` its HTTP status. `upstream_status` / `upstream_code` (the provider's HTTP status
+    and error type) are for the log only: never the key, the prompt or the provider's text."""
+
+    def __init__(
+        self,
+        code: str,
+        http_status: int,
+        message: str,
+        *,
+        upstream_status: int | None = None,
+        upstream_code: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.http_status = http_status
+        self.upstream_status = upstream_status
+        self.upstream_code = upstream_code
+
+
 class ActorNotAllowedError(DomainError):
     """This kind of actor may not make this change (e.g. a contact state chosen by an agent)."""
 

@@ -60,8 +60,11 @@ def db_session(session_factory: sessionmaker[Session]) -> Iterator[Session]:
 
 @pytest.fixture
 def app(test_database_url: str, session_factory: sessionmaker[Session]) -> FastAPI:
-    """The real app, with the per-request unit of work running inside the per-test transaction."""
-    app = create_app(Settings(database_url=test_database_url))
+    """The real app, with the per-request unit of work running inside the per-test transaction.
+
+    The AI drafting is never configured here, whatever `backend/.env` says: no test may reach
+    OpenAI (Contact port P6); generation tests inject a fake generator or a local fake server."""
+    app = create_app(Settings(database_url=test_database_url, openai_api_key=None))
     app.state.session_factory = session_factory
     return app
 

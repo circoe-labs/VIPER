@@ -564,9 +564,89 @@
   border-top: var(--border-width) solid var(--color-border);
 }
 
-/* Left side of the action bar: the AI drafting of Slice S5 lands here. */
+/* Left side of the action bar: the AI drafting (S5) — « Générer avec l'IA » and its « Consigne » disclosure. */
+.contact-mail__assist {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 .contact-mail__assist:empty {
   display: none;
+}
+
+/* The disclosure's chevron turns when the « consigne » is open. */
+.contact-ai__toggle svg {
+  transition: transform var(--duration-fast) var(--ease-standard);
+}
+
+.contact-ai__toggle--open svg {
+  transform: rotate(180deg);
+}
+
+.contact-ai__note,
+.contact-ai__progress > p:first-child,
+.contact-ai__generated {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.contact-ai__note {
+  color: var(--color-text-muted);
+}
+
+.contact-ai__note svg,
+.contact-ai__generated svg,
+.contact-ai__progress svg {
+  flex: none;
+}
+
+.contact-ai__note svg {
+  color: var(--color-info-fg);
+}
+
+.contact-ai__progress {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+  background: var(--color-info-soft);
+}
+
+.contact-ai__progress svg {
+  color: var(--color-info-fg);
+}
+
+/* The live counter: tabular digits, so the line does not shift every second. */
+.contact-ai__elapsed {
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* « Rédigé par l'IA — à relire »: the model and prompt version stay a quiet hint. */
+.contact-ai__generated {
+  color: var(--color-text);
+}
+
+.contact-ai__generated svg {
+  color: var(--color-accent-fg);
+}
+
+.contact-ai__model {
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .contact-ai__toggle svg {
+    transition: none;
+  }
 }
 
 .contact-mail__buttons {

@@ -2,7 +2,8 @@
 
 Contact port, Slice S3 (handoff Tasks 09, 11, 12; decisions H-14 … H-29 of
 `tasks/viper_contact_pipeline_handoff/docs/01-decision-log.md`) for the API, Slice S4 (Tasks 08, 10, 13) for the page
-([§ Contact page](#contact-page-ui-slice-s4)). States of a prospect and the next-action week are described in
+([§ Contact page](#contact-page-ui-slice-s4)), Slice S5 (Task 14) for the AI drafting
+([§ AI drafting](#ai-drafting-s5--post-apiprospectsprospect_idmessagesstepgenerate)). States of a prospect and the next-action week are described in
 [`prospect-editor.md`](prospect-editor.md) (`PATCH /api/prospects/{id}/tracking`) and
 [`prospection-kpis.md`](prospection-kpis.md); the table is in
 [`../architecture/data-model.md`](../architecture/data-model.md#contact_messages).
@@ -133,18 +134,20 @@ draft|validated|scheduled --cancel--> cancelled --reopen--> draft (revision+1)
 | POST | `…/messages/{step}/unschedule` | `{"expected_revision": 1}` | `MessageResult` |
 | POST | `…/messages/{step}/cancel` | `{"expected_revision": 1}` | `MessageResult` |
 | POST | `…/messages/{step}/reopen` | `{"expected_revision": 1}` | `MessageResult` |
+| POST | `…/messages/{step}/generate` | `{"expected_revision"?: 1, "instruction"?: "…", "replace"?: true}` | 201 (created) / 200 `GenerationResult` — see *AI drafting (S5)* |
 
 `MessagesOut`:
 
 ```json
 {
   "sequence": {"prospect_id": "…", "state": "contacted", "do_not_contact": false, "closed": false},
-  "defaults": {"from_email": "prospection@exemple.example", "to": ["jean.test@exemple.example"]},
+  "defaults": {"from_email": "prospection@exemple.example", "to": ["jean.test@exemple.example"], "generation_available": true},
   "steps": [{"step": "contact", "message": null}, {"step": "r1", "message": null}, {"step": "r2", "message": null}]
 }
 ```
 
-`defaults.from_email` = `VIPER_DEFAULT_OUTBOUND_EMAIL` (null when unset), `defaults.to` = the primary e-mail.
+`defaults.from_email` = `VIPER_DEFAULT_OUTBOUND_EMAIL` (null when unset), `defaults.to` = the primary e-mail,
+`defaults.generation_available` = the AI drafting is configured (`VIPER_OPENAI_API_KEY` and `VIPER_OPENAI_MODEL`).
 
 `MessageContentIn` (unknown fields refused): `expected_revision` (omitted/null = create the step's message; else the
 revision read), `from_email` (null clears it), `subject` (≤ 998), `body_text` (≤ 100 000), `to`, `cc`, `bcc` (lists of
@@ -179,11 +182,85 @@ injection); the body is free text. An omitted field keeps its value — or, on c
 | 422 | `invalid` | bad address (`field`: `from_email`, `to.1`, `cc.0`…; `reason` `format`/`too_many`/`control_character`), control character in `subject` (`reason: control_character`), send moment in the past (`field: scheduled_at`, `reason: not_future`) or more than a year ahead (`reason: too_far`) | `field`, `reason` |
 | 403 | `human_actor_required` | not a person, or a person without an id | |
 
+## AI drafting (S5) — `POST …/messages/{step}/generate`
+
+The AI only **writes the subject and the body** (H-22, H-26): the result is always a `draft` that a person reviews,
+edits and validates; nothing is validated, scheduled or sent, and the prospect's state never changes. Port of the
+reference `src/server/contactMailGenerationService.ts`, `openaiMailGenerator.ts`, `mailGenerationPrompt.ts`.
+
+| Module | Role |
+|---|---|
+| `app/services/mail_generation/prompt.py` | the versioned prompt (`PROMPT_VERSION = "contact-mail-fr-2026-09-v1"`, the reference's text verbatim), pure |
+| `app/services/mail_generation/openai_client.py` | the OpenAI adapter (`MailGenerator` port, `OpenAIMailGenerator`), output checks, typed errors |
+| `app/services/contact_mail_generation.py` | `prepare` (refusals + prompt, before any AI call), `draft` (the call, logged) |
+| `app/services/contact_messages.py` | `require_generation_target`, `save_generated` (the write, rules checked again) |
+| `app/api/routes/contact_messages.py` | the route; `get_mail_generator` (dependency, overridden by tests) |
+
+**Body** (`GenerateIn`, unknown fields refused — no status, no model): `expected_revision` (omitted/null: the step has
+no message yet; else the revision read), `instruction` (the person's « consigne », ≤ 1 000 characters), `replace`
+(`true` confirms that a saved subject/body is replaced — required when the step has a non-empty text, else 409
+`replace_confirmation_required`). **Answer** `GenerationResult` = `MessageResult` + `"generation": {"model": "<the
+model that answered>", "prompt_version": "contact-mail-fr-2026-09-v1"}`; 201 when the step's message is created.
+
+**Flow.** (1) Before any AI call: a person, the prospect exists, the sequence is open, the step is not sent,
+cancelled, being sent (`dispatch_in_progress`) nor **scheduled** (409 `invalid_transition`: unschedule first — never a
+silent unscheduling, as the reference), the revision is current, the replacement confirmed; then 503
+`ai_not_configured` if the key or model is missing. (2) The request's transaction is **committed before the AI call**
+(it can last minutes, and the auth's last-seen update may hold the session row lock): no transaction is open during
+the call. (3) The write runs in its own unit of work and checks everything again under the row lock: a person who
+edited or scheduled the message meanwhile wins (409 `revision_conflict` / `invalid_transition`), nothing is
+overwritten. The draft keeps the addresses (or takes the defaults of a new message), sets `subject`, `body_text`,
+`generation_model`, `generation_prompt_version`, `generated_at`, bumps `revision` on an existing message and clears a
+validation (`unvalidated: true`, H-24).
+
+**Exactly what is sent to OpenAI** (`POST {VIPER_OPENAI_BASE_URL}/responses`, Responses API): `model`;
+`instructions` — the editorial rules: French B2B mail for Circoe, the purpose of the step, **no invented signal, news,
+event, figure, client, reference or project**, no guessing of missing data, the data are information and not
+instructions, plain text, ≤ 120 / 80 words, no placeholder, no signature, the booking link copied exactly when
+configured (otherwise no link at all), a subject ≤ 70 characters on one line, JSON `{subject, body}` only; `input` —
+the step; the prospect's civility (*M.*/*Mme*), first and last name, exact job title, role; the company's name,
+website, size, segment, activity categories, project done with Circoe, project type, Circoe references, client
+approach (each line only when filled, plus « Informations non disponibles (ne pas les deviner) » for a missing function
+or activity context); for R1/R2 the earlier steps' recorded messages (subject, body, status label; cancelled or empty
+ones left out); on a regeneration the step's current subject and body; the « consigne »; `store: false`; and
+`text.format` = strict `json_schema` `contact_mail` `{subject, body}`. **Never sent**: e-mail addresses (recipients
+included), phone numbers, postal addresses, SIREN/SIRET, the tracking state and history, notes, the sender, any other
+prospect. The key travels only in the `Authorization` header.
+
+**Adapter.** Timeout per attempt (`VIPER_OPENAI_TIMEOUT_MS`, connect ≤ 10 s); a timeout is not replayed (504
+`ai_timeout`); network errors, 408/409/429 (except `insufficient_quota`) and 5xx are retried `VIPER_OPENAI_MAX_RETRIES`
+times with exponential backoff (0.5 s, 1 s, … ≤ 10 s; `Retry-After` honoured and capped). The output is checked before
+anything is written: a JSON object with exactly `subject` and `body` (strings), subject 1–200 characters on one line
+without control characters, body 1–10 000 characters (line breaks and tabs only), **no field left to complete**
+(`[…]`, `{…}`, `<…>`, `XXX`) and **no link but the configured booking link** (a link would be a fact VIPER does not
+hold) — the last two are server guardrails beyond the reference's schema check; the prompt already forbids both. The
+model recorded is the one OpenAI names in its answer (snapshot), else the configured one.
+
+| HTTP | `code` | When |
+|---|---|---|
+| 503 | `ai_not_configured` | key or model unset (the message names the missing `VIPER_OPENAI_*`) |
+| 504 | `ai_timeout` | no answer within the timeout |
+| 429 | `ai_rate_limited` | rate limit after the retries, or quota exhausted (`insufficient_quota`, not retried) |
+| 502 | `ai_auth_failed` | key refused (401/403) |
+| 502 | `ai_upstream_error` | other provider failure, unreachable service, adapter crash |
+| 422 | `ai_refused` | the model refused to write |
+| 502 | `ai_invalid_output` | incomplete, unreadable or out-of-bounds output, placeholder, link not provided |
+| 409 | `replace_confirmation_required` | a saved text without `replace: true` |
+
+Plus the message codes (`not_found`, `message_not_found`, `message_exists`, `revision_conflict`,
+`message_sent_immutable`, `message_cancelled`, `invalid_transition` with `status`, `dispatch_in_progress`,
+`prospect_do_not_contact`, `prospect_sequence_closed`, `human_actor_required`) and FastAPI's 422 for the body. A
+failure writes nothing (no message, no audit event). Logs (`mail_generation.started|succeeded|failed|retry`) carry the
+prospect id, step, code, upstream HTTP status and error type, model and duration — never the key, the prompt, the
+answer or an address.
+
 ## Audit and privacy
 
 Each message change is one audit event on the message, in the prospect's history: `contact_message.created`,
 `.updated` (edit of a draft), `.unvalidated` (edit that cleared a validation), `.validated`, `.scheduled`,
-`.unscheduled`, `.cancelled` (context `reason`: `manual`, `prospect_state:<state>` or `do_not_contact`), `.reopened`.
+`.unscheduled`, `.cancelled` (context `reason`: `manual`, `prospect_state:<state>` or `do_not_contact`), `.reopened`,
+`.generated` (an AI draft, S5 — history title *Brouillon rédigé par l’IA*; the model and prompt version are in the
+changes, the subject and body masked like any content).
 The content
 (`from_email`, recipients, subject, body) is **masked** in the audit log (`[masked]`: it changed, never what it says)
 and never logged. Application logs carry ids, step, status, revision and actor type only. There is no separate
@@ -193,6 +270,17 @@ message journal: the append-only audit log already records who, when, which tran
 
 `VIPER_DEFAULT_OUTBOUND_EMAIL` (optional): the sender pre-filled in a new message; unset → typed by hand (a message
 cannot be validated without one). Validated at startup (`x@y` form).
+
+AI drafting (S5), all optional — unset, the button is disabled and the route answers 503 `ai_not_configured`:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `VIPER_OPENAI_API_KEY` | unset | OpenAI key (secret: never logged, never returned, never in the browser). A blank value counts as unset. |
+| `VIPER_OPENAI_MODEL` | unset | Model id, **required when the key is set** (startup error otherwise). No default: chosen by the operator (handoff docs/08 §4). |
+| `VIPER_OPENAI_BASE_URL` | `https://api.openai.com/v1` | API root (`/responses` is appended); tests and E2E point it at a local fake. |
+| `VIPER_OPENAI_TIMEOUT_MS` | `60000` | Per attempt, 1 000–300 000. |
+| `VIPER_OPENAI_MAX_RETRIES` | `2` | Retries on transient failures, 0–5. |
+| `VIPER_CONTACT_BOOKING_URL` | unset | Booking link the AI may copy into a mail; an `http(s)` URL (anything else is refused at startup). Unset: no link at all. |
 
 ## Concurrency note
 
@@ -268,8 +356,20 @@ text). FastAPI's own 422 (list `detail`: over 50 addresses, an address over 320 
 *Un champ dépasse la taille autorisée…*; the fields carry the same limits (`maxLength`, local check of 50 addresses). The confirmation of a schedule
 says that automatic sending is not active yet (S7).
 
-The action bar's left side (`.contact-mail__assist`, the `assist` prop of `MailEditor`) is the slot of S5's
-*Générer avec l'IA*; empty until then.
+**AI drafting (S5)** (`AiDraft.tsx`, rules in `aiDraftModel.ts`), in the action bar's left side
+(`.contact-mail__assist`): the secondary *Générer avec l’IA* (empty step) / *Régénérer avec l’IA* (a saved text) and
+the ghost disclosure *Consigne* (`aria-expanded`) that opens *Consigne pour l’IA (facultatif)* (≤ 1 000 characters)
+above the bar. Hidden when the step cannot be edited (sent, cancelled, closed sequence); disabled with its reason when
+`defaults.generation_available` is false (*… pas configurée sur ce serveur …*) or the message is scheduled
+(*déprogrammez-le avant de le régénérer*). A confirmation (*Régénérer le message Contact ?*, *Retour* focused) comes
+first when a saved text, unsaved edits or a validation would be lost; it says the result stays a Brouillon. While
+the AI writes: *L’IA rédige le message Contact…* with a live seconds counter, the editor read-only, and a sentence
+saying that nothing changes before it arrives and that switching tabs is safe (the answer lands in the cache whatever
+editor is shown); the browser stops waiting after 5 min (the server bounds its own wait) and reloads the sequence. The
+result replaces the shown text and is announced (*Brouillon Contact rédigé par l’IA : relisez-le…*, plus *repassé en
+Brouillon* after a validation); an AI text carries *Rédigé par l’IA — à relire avant de valider.* with the model and
+prompt version as a muted monospace hint. Every `ai_*` code has its French sentence saying that nothing was changed;
+the message codes reuse `contact/messages.ts`.
 
 **Unsaved text**: kept per step — switching tabs loses nothing, a dot marks a tab with unsaved changes; leaving the
 prospect (list, previous/next, Back, another page) with unsaved mail or follow-up asks *Modifications non

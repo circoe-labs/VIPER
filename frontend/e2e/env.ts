@@ -6,6 +6,9 @@ import path from 'node:path'
 // overridable, so a second checkout (git worktree) can run its own stack on other ports and another `*_e2e` DB.
 export const E2E_WEB_PORT = Number(process.env.VIPER_E2E_WEB_PORT ?? 5180)
 export const E2E_API_PORT = Number(process.env.VIPER_E2E_API_PORT ?? 8044)
+// The fake OpenAI server (e2e/fake-openai.ts): the E2E backend drafts against it, never against OpenAI (P6).
+export const E2E_OPENAI_PORT = Number(process.env.VIPER_E2E_OPENAI_PORT ?? 8046)
+export const E2E_BOOKING_URL = 'https://rdv.exemple.example/circoe'
 export const E2E_DATABASE_URL =
   process.env.VIPER_E2E_DATABASE_URL ?? 'postgresql+psycopg://viper:viper@127.0.0.1:5442/viper_e2e'
 

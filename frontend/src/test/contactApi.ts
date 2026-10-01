@@ -4,6 +4,7 @@ import type {
   ContactCounter,
   ContactDashboard,
   ContactRow,
+  GenerateRequest,
   Message,
   MessageContent,
   MessageSequence,
@@ -101,6 +102,8 @@ interface ContactStubOptions {
   // Sequence state per prospect id (open by default).
   sequences?: Record<string, Partial<MessageSequence['sequence']>>
   defaults?: MessageSequence['defaults']
+  // The answer of `POST …/generate` (S5): a fake AI draft by default, else a refusal, or a request that never ends.
+  generation?: { status: number; code: string } | 'hang'
 }
 
 function json(status: number, body?: unknown): Promise<Response> {
@@ -129,7 +132,7 @@ export function stubContactApi(options: ContactStubOptions = {}) {
   const requests: RecordedRequest[] = []
   // Replaces the answer of the next message write (a refusal the fake would not produce).
   const next: { reply: [number, unknown] | null } = { reply: null }
-  const defaults = options.defaults ?? { from_email: 'prospection@exemple.example', to: ['jean@exemple.example'] }
+  const defaults = options.defaults ?? { from_email: 'prospection@exemple.example', to: ['jean@exemple.example'], generation_available: false }
 
   function sequenceOf(id: string): MessageSequence['sequence'] {
     const detail = prospects.store.get(id)
@@ -170,6 +173,7 @@ export function stubContactApi(options: ContactStubOptions = {}) {
     const seq = sequenceOf(id)
     const closedCode = seq.do_not_contact ? 'prospect_do_not_contact' : 'prospect_sequence_closed'
     const revision = (body as { expected_revision?: number } | undefined)?.expected_revision
+    if (action === 'generate') return generate(id, step, current, seq, closedCode, body as GenerateRequest)
     if (method === 'PUT') {
       const content = body as MessageContent
       if (seq.closed) return refusal(409, closedCode)
@@ -225,6 +229,54 @@ export function stubContactApi(options: ContactStubOptions = {}) {
       default:
         return json(405, { detail: 'Method Not Allowed' })
     }
+  }
+
+  let generated = 0
+  function generate(
+    id: string,
+    step: MessageStep,
+    current: Message | undefined,
+    seq: MessageSequence['sequence'],
+    closedCode: string,
+    request: GenerateRequest,
+  ): Promise<Response> {
+    if (options.generation === 'hang') return new Promise<Response>(() => undefined)
+    if (options.generation) return refusal(options.generation.status, options.generation.code)
+    if (seq.closed) return refusal(409, closedCode)
+    if (!current && request.expected_revision !== undefined) return refusal(404, 'message_not_found')
+    if (current) {
+      if (request.expected_revision === undefined) return refusal(409, 'message_exists')
+      if (request.expected_revision !== current.revision) return refusal(409, 'revision_conflict')
+      if (current.status === 'scheduled') return refusal(409, 'invalid_transition', { status: 'scheduled' })
+      if ((current.subject || current.body_text) && !request.replace) return refusal(409, 'replace_confirmation_required')
+    }
+    generated += 1
+    const ai: Partial<Message> = {
+      subject: `Objet IA ${String(generated)}`,
+      body_text: `Bonjour,\n\nCorps IA ${String(generated)}.`,
+      generation_model: 'fake-model',
+      generation_prompt_version: 'contact-mail-fr-2026-09-v1',
+      generated_at: STAMP,
+    }
+    const base = current ?? message(step, 'draft', { prospect_id: id, from_email: defaults.from_email, to: defaults.to })
+    const draft: Message = {
+      ...base,
+      ...ai,
+      status: 'draft',
+      revision: current ? current.revision + 1 : 1,
+      validated_revision: null,
+      validated_at: null,
+      validated_by: null,
+      scheduled_at: null,
+    }
+    store.set(id, { ...store.get(id), [step]: draft })
+    return json(current ? 200 : 201, {
+      message: draft,
+      created: !current,
+      changed: true,
+      unvalidated: current?.status === 'validated',
+      generation: { model: 'fake-model', prompt_version: 'contact-mail-fr-2026-09-v1' },
+    })
   }
 
   function listed(url: URL): ContactRow[] {

@@ -1,14 +1,25 @@
 """Typed runtime configuration read from `VIPER_*` environment variables and `backend/.env`."""
 
 from functools import lru_cache
-from typing import Annotated
+from typing import Annotated, Self
+from urllib.parse import urlsplit
 
-from pydantic import Field, PositiveInt, SecretStr
+from pydantic import Field, PositiveInt, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import make_url
 
 LOCAL_DATABASE = "postgresql+psycopg://viper:viper@127.0.0.1:5442"
 RoleName = Annotated[str, Field(pattern=r"^[a-z_][a-z0-9_]{0,62}$")]
+OPENAI_OFFICIAL_BASE_URL = "https://api.openai.com/v1"
+
+
+def _http_url(value: str) -> str:
+    """An absolute http(s) URL without spaces (a scheme like `javascript:` is refused)."""
+    value = value.strip()
+    url = urlsplit(value)
+    if url.scheme not in ("http", "https") or not url.netloc or any(c.isspace() for c in value):
+        raise ValueError("must be an absolute http(s) URL")
+    return value
 
 
 class Settings(BaseSettings):
@@ -52,6 +63,49 @@ class Settings(BaseSettings):
     default_outbound_email: (
         Annotated[str, Field(max_length=320, pattern=r"^[^@\s]+@[^@\s]+$")] | None
     ) = None
+
+    # AI drafting of Contact messages (S5, handoff Task 14). Key and model are both needed; unset,
+    # « Générer avec l'IA » answers 503 `ai_not_configured` and nothing changes. No model id is
+    # hard-coded (handoff docs/08 §4): the operator chooses it. The key is never logged or returned.
+    openai_api_key: SecretStr | None = None
+    openai_model: Annotated[str, Field(min_length=1, max_length=200)] | None = None
+    openai_base_url: str = OPENAI_OFFICIAL_BASE_URL
+    # Per attempt; bounded retries on transient failures only (a timeout is not replayed).
+    openai_timeout_ms: Annotated[int, Field(ge=1000, le=300_000)] = 60_000
+    openai_max_retries: Annotated[int, Field(ge=0, le=5)] = 2
+    # The booking link the AI may copy into a mail; unset = no link at all.
+    contact_booking_url: Annotated[str, Field(max_length=2000)] | None = None
+
+    @field_validator("openai_api_key", "openai_model", "contact_booking_url", mode="before")
+    @classmethod
+    def _blank_is_unset(cls, value: object) -> object:
+        # `VIPER_OPENAI_API_KEY=` in a .env means « not configured », not an empty key.
+        if isinstance(value, SecretStr):
+            value = value.get_secret_value()
+        return (value.strip() or None) if isinstance(value, str) else value
+
+    @field_validator("openai_base_url")
+    @classmethod
+    def _base_url(cls, value: str) -> str:
+        # `…/v1/` and `…/v1` name the same API root; requests append `/responses`.
+        return _http_url(value).rstrip("/")
+
+    @field_validator("contact_booking_url")
+    @classmethod
+    def _booking_url(cls, value: str | None) -> str | None:
+        # Refused at startup rather than silently ignored (the reference dropped a bad value).
+        return None if value is None else _http_url(value)
+
+    @model_validator(mode="after")
+    def _model_with_key(self) -> Self:
+        if self.openai_api_key is not None and self.openai_model is None:
+            raise ValueError("VIPER_OPENAI_MODEL is required when VIPER_OPENAI_API_KEY is set")
+        return self
+
+    @property
+    def generation_available(self) -> bool:
+        """The AI drafting is configured (key and model)."""
+        return self.openai_api_key is not None and self.openai_model is not None
 
     @property
     def sql_reader_url(self) -> str:

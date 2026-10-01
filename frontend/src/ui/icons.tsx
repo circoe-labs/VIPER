@@ -371,3 +371,11 @@ export const MailIcon = (props: IconProps) => (
     <path d="m3.5 6.5 8.5 6.5 8.5-6.5" />
   </Svg>
 )
+
+// AI drafting of a Contact mail (Contact port S5): « Générer avec l'IA »
+export const SparklesIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M10 3.5 11.6 8.4 16.5 10l-4.9 1.6L10 16.5l-1.6-4.9L3.5 10l4.9-1.6z" />
+    <path d="M18 14.5v5M15.5 17h5" />
+  </Svg>
+)

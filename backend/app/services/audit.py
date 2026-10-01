@@ -90,6 +90,8 @@ class AuditAction(StrEnum):
     CONTACT_MESSAGE_UNSCHEDULED = "contact_message.unscheduled"
     CONTACT_MESSAGE_CANCELLED = "contact_message.cancelled"
     CONTACT_MESSAGE_REOPENED = "contact_message.reopened"
+    # The AI wrote the subject and body (S5): always a draft, the model and prompt version recorded.
+    CONTACT_MESSAGE_GENERATED = "contact_message.generated"
     IMPORT_BATCH_STARTED = "import_batch.started"
     IMPORT_BATCH_COMMITTED = "import_batch.committed"
     IMPORT_BATCH_FAILED = "import_batch.failed"

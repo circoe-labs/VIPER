@@ -116,7 +116,8 @@ export interface MessageSequence {
     // No message may be created, edited, validated, scheduled or reopened.
     closed: boolean
   }
-  defaults: { from_email: string | null; to: string[] }
+  // `generation_available`: the AI drafting is configured on the server (S5).
+  defaults: { from_email: string | null; to: string[]; generation_available: boolean }
   steps: { step: MessageStep; message: Message | null }[]
 }
 
@@ -126,6 +127,18 @@ export interface MessageResult {
   changed: boolean
   // An edit put a validated/scheduled message back to draft.
   unvalidated: boolean
+}
+
+// `POST …/messages/{step}/generate` (S5): the AI draft of the step, always a draft. `replace` confirms that a saved
+// subject/body is replaced; `instruction` is the person's « consigne » (≤ 1000 characters).
+export interface GenerateRequest {
+  expected_revision?: number
+  instruction?: string
+  replace?: boolean
+}
+
+export interface GenerationResult extends MessageResult {
+  generation: { model: string; prompt_version: string }
 }
 
 // `PUT …/messages/{step}` body: without `expected_revision` it creates the step's message.
@@ -258,6 +271,13 @@ export function useMessageMutations(prospectId: string) {
     act: useMutation({
       mutationFn: ({ step, action, revision }: { step: MessageStep; action: MessageAction; revision: number }) =>
         apiRequest<MessageResult>('POST', path(step, action), { body: { expected_revision: revision } }),
+      onSuccess: saved,
+    }),
+    // The AI draft (S5). Bounded wait: the browser gives up after `deadline` ms (the server keeps its own bound). The
+    // result lands in the cache even when the editor that asked is gone (tab switched).
+    generate: useMutation({
+      mutationFn: ({ step, request, deadline }: { step: MessageStep; request: GenerateRequest; deadline: number }) =>
+        apiRequest<GenerationResult>('POST', path(step, 'generate'), { body: request, signal: AbortSignal.timeout(deadline) }),
       onSuccess: saved,
     }),
     schedule: useMutation({

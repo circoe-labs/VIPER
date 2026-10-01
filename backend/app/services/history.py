@@ -692,6 +692,7 @@ MESSAGE_TITLES: dict[str, str] = {
     AuditAction.CONTACT_MESSAGE_UNSCHEDULED: "Message déprogrammé",
     AuditAction.CONTACT_MESSAGE_CANCELLED: "Message annulé",
     AuditAction.CONTACT_MESSAGE_REOPENED: "Message rouvert",
+    AuditAction.CONTACT_MESSAGE_GENERATED: "Brouillon rédigé par l’IA",
     "contact_message.created": "Message créé",
     "contact_message.updated": "Message modifié",
 }

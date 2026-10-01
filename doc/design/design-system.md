@@ -132,7 +132,7 @@ Set: navigation (`Home`, `Users`, `Bolt`, `Database`, `Sliders`), status (`Check
 (`Search`, `Refresh`, `Download`, `Filter`, `Key`, `Link`, `ArrowUp/Down/Left`, `ChevronLeft/Right`, `Columns`, `Pin`,
 `More`, `Copy`, `Expand`, `Table`), companies (`Building`), establishments (`MapPin`, global search), Contact
 (`Mail` — the *Contact* navigation item, message states —, `Calendar` for weeks and scheduling, `Undo`, `Save`,
-`Lock`). Add icons in the same file and style.
+`Lock`, `Sparkles` for the AI drafting). Add icons in the same file and style.
 
 ## Primitives catalogue (`src/ui/`)
 
@@ -224,11 +224,16 @@ text; a muted status sentence; the lock reason on neutral-soft with a lock glyph
 warning-soft (like the editor's banners); fields De / À and Cc / Cci in two columns, Objet, a ≥ 18 rem Corps; read-only
 messages keep full-contrast text on the surface colour (not the faded disabled look). Scheduling is a bordered
 fieldset (*Envoi programmé*: date, time, zone hint, errors and the non-blocking order reminder). The action bar sits
-under a divider: left the AI slot (S5), right the actions with **one primary** — *Enregistrer* while edits are pending,
+under a divider: left the AI drafting (S5: the secondary *Générer / Régénérer avec l’IA* with the Sparkles glyph and
+the ghost *Consigne* disclosure, whose chevron turns; never the primary), right the actions with **one primary** — *Enregistrer* while edits are pending,
 otherwise the next step (*Créer le brouillon*, *Valider…*, *Programmer…*, *Rouvrir*); *Annuler le message…* and
 *Abandonner les modifications* are ghost. Confirmations are small `Modal`s whose *Retour* has the initial focus (the
 cancel of a message uses the danger button). Outcomes are one line with a mint check glyph, announced by a hidden live
-region. Styles: `frontend/src/contact/contact.css` (feature doc: `doc/features/contact.md`).
+region. **AI drafting** blocks sit above the bar: the reason a disabled button is disabled (muted, info glyph), the
+running state on info-soft (spinner, *L’IA rédige le message …*, a tabular-digit monospace seconds counter, a muted
+hint), the full-width *Consigne pour l’IA* field; an AI text shows under the status sentence *Rédigé par l’IA — à
+relire avant de valider.* with an accent-fg Sparkles glyph and the model · prompt version in 12 px muted monospace.
+Styles: `frontend/src/contact/contact.css` (feature doc: `doc/features/contact.md`).
 
 ## Home dashboard
 Spacious, global state first: eyebrow-labelled rows of six link cards (14 px glyph + 13 px muted label, 26 px

@@ -8,6 +8,10 @@ The only application write path of `contact_messages`. One durable message per p
     validated|scheduled -> draft
                              edit: `revision` + 1, validation and send moment cleared, remote
                              draft detached (decision 24) — audited `contact_message.unvalidated`
+    (none)|draft|validated -> draft
+                             `save_generated`: an AI draft (S5, decision 22) replaces subject and
+                             body, records model and prompt version; `revision` + 1 on an existing
+                             message, a validation is cleared (a scheduled message is refused)
     draft     -> validated   `validate`: explicit human validation of the current revision (23)
     validated -> scheduled   `schedule`: explicit future moment, never a default (14, 25)
     scheduled -> validated   `unschedule`: the validation stays current
@@ -496,6 +500,104 @@ def save_message(
     _clear_validation(message)
     session.flush()
     _log("unvalidated" if unvalidated else "edited", message, actor)
+    return MessageResult(message, unvalidated=unvalidated)
+
+
+@dataclass(frozen=True, slots=True)
+class GeneratedContent:
+    """A validated AI draft (`app.services.contact_mail_generation`)."""
+
+    subject: str
+    body_text: str
+    model: str
+    prompt_version: str
+
+
+def require_generation_target(
+    context: SequenceContext, message: ContactMessage | None, expected_revision: int | None
+) -> None:
+    """The refusals of an AI drafting, the same before the (long) AI call and again in the write
+    transaction: open sequence, a known step revision, not sent / cancelled / being sent, and not
+    scheduled — a scheduled message is unscheduled by a person first, never silently."""
+    _require_open(context)
+    if message is None:
+        if expected_revision is not None:
+            raise _refusal(
+                "message_not_found", HTTPStatus.NOT_FOUND, "No message for this step yet."
+            )
+        return
+    _require_not_sent(message)
+    if message.status is M.CANCELLED:
+        raise _refusal(
+            "message_cancelled",
+            HTTPStatus.CONFLICT,
+            "The message is cancelled: reopen it before drafting it again.",
+        )
+    _require_not_claimed(message)
+    if expected_revision is None:
+        raise _message_exists()
+    _require_revision(message, expected_revision)
+    if message.status is M.SCHEDULED:
+        raise _invalid_transition(message, "draft with the AI")
+
+
+def save_generated(
+    session: Session,
+    actor: ActorContext,
+    prospect_id: uuid.UUID,
+    step: ContactMessageStep,
+    content: GeneratedContent,
+    expected_revision: int | None,
+    *,
+    default_from: str | None = None,
+    now: datetime | None = None,
+) -> MessageResult:
+    """Write an AI draft (decision 22): the subject and body replace the step's text, the result is
+    always a `draft` (a validated message loses its validation, decision 24), the model and prompt
+    version are recorded; addresses are kept (or the defaults of a new message). Audited
+    `contact_message.generated`; the prospect's state never changes."""
+    _require_human(actor)
+    context = sequence_context(session, prospect_id)
+    message = _locked(session, prospect_id, step)
+    require_generation_target(context, message, expected_revision)
+    _no_control_characters("subject", content.subject)
+    generation: dict[str, object] = {
+        "subject": content.subject,
+        "body_text": content.body_text,
+        "generation_model": content.model,
+        "generation_prompt_version": content.prompt_version,
+        "generated_at": now or datetime.now(UTC),
+    }
+    if message is None:
+        defaults = message_defaults(session, prospect_id, default_from)
+        message = ContactMessage(
+            prospect_id=prospect_id,
+            step=step,
+            from_email=defaults.from_email,
+            to_recipients=defaults.to,
+            cc_recipients=[],
+            bcc_recipients=[],
+            **generation,
+        )
+        audit.annotate(session, actor, message, AuditAction.CONTACT_MESSAGE_GENERATED)
+
+        def duplicate(error: IntegrityError) -> DomainError | None:
+            return _message_exists() if violated_constraint(error) == UNIQUE_STEP else None
+
+        with translated_violations(session, duplicate):
+            session.add(message)
+        session.refresh(message)
+        _log("generated", message, actor)
+        return MessageResult(message, created=True)
+    unvalidated = message.status in VALIDATED
+    audit.annotate(session, actor, message, AuditAction.CONTACT_MESSAGE_GENERATED)
+    for name, value in generation.items():
+        setattr(message, name, value)
+    message.revision += 1
+    message.status = M.DRAFT
+    _clear_validation(message)
+    session.flush()
+    _log("generated", message, actor)
     return MessageResult(message, unvalidated=unvalidated)
 
 

@@ -7,7 +7,8 @@ inactive); 409 `in_use` (with usage counts); 409 `conflict` (the record changed 
 for a Contact tracking rule (`ignored_is_terminal`, `ignored_has_no_next_action`); 403
 `human_actor_required` (a change only a person may make); a Contact message refusal with its own
 status and code (`app.services.contact_messages`, e.g. 409 `revision_conflict`, 422
-`message_incomplete` with its `fields`). Raising inside
+`message_incomplete` with its `fields`); an AI drafting failure with its own status and code
+(`app.services.mail_generation`, e.g. 503 `ai_not_configured`, 504 `ai_timeout`). Raising inside
 `business_errors()` also rolls the request's transaction back.
 """
 
@@ -28,6 +29,7 @@ from app.services.errors import (
     DuplicateValueError,
     InUseError,
     InvalidFieldError,
+    MailGenerationError,
     NotFoundError,
     TrackingRuleError,
 )
@@ -73,6 +75,8 @@ def business_errors() -> Iterator[None]:
         raise refusal(status.HTTP_409_CONFLICT, error.code, str(error)) from error
     except ContactMessageError as error:
         raise refusal(error.http_status, error.code, str(error), **error.details) from error
+    except MailGenerationError as error:
+        raise refusal(error.http_status, error.code, str(error)) from error
     except ActorNotAllowedError as error:
         raise refusal(status.HTTP_403_FORBIDDEN, "human_actor_required", str(error)) from error
 

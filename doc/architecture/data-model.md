@@ -139,7 +139,8 @@ application write path — Database Explorer shows the table read-only).
   `validated_revision`, `validated_at`, `validated_by_actor_id`, `validated_by_display`;
 - `scheduled_at` (send moment, never the next-action week — H-14), `sent_at`, `cancelled_at`, `cancel_reason`
   (`manual` | `prospect_state:<state>` | `do_not_contact`);
-- AI drafting (S5): `generation_model`, `generation_prompt_version`, `generated_at`;
+- AI drafting (S5): `generation_model` (the model OpenAI named), `generation_prompt_version`
+  (`contact-mail-fr-2026-09-v1`), `generated_at` — set by `contact_messages.save_generated` only;
 - CIRCOE Toolbox (S6): `remote_provider`, `remote_draft_id`, `remote_message_id`;
 - dispatch (S7): `dispatch_claim_id uuid`, `dispatch_claimed_at`, `dispatch_attempts int DEFAULT 0`,
   `last_error_code` (a code, never a raw provider message), `last_error_at`.

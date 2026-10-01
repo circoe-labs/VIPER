@@ -70,7 +70,11 @@ def test_the_sequence_read_model(
         "do_not_contact": False,
         "closed": False,
     }
-    assert body["defaults"] == {"from_email": SENDER, "to": ["jean.test@exemple.example"]}
+    assert body["defaults"] == {
+        "from_email": SENDER,
+        "to": ["jean.test@exemple.example"],
+        "generation_available": False,
+    }
     assert body["steps"] == [
         {"step": "contact", "message": None},
         {"step": "r1", "message": None},
