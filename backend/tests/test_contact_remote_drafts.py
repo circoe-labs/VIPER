@@ -44,34 +44,15 @@ def toolbox_settings(database_url: str, tmp_path: Path, **overrides: Any) -> Set
         "toolbox_oauth_redirect_uri": REDIRECT,
         "toolbox_token_store_path": tmp_path / "toolbox-oauth.json",
         "toolbox_cleanup_interval_ms": 0,
+        # No background thread on the per-test connection: dispatcher tests run passes by hand.
+        "contact_dispatch_interval_ms": 0,
     }
     return Settings(**(values | overrides))
-
-
-@pytest.fixture
-def fake() -> FakeToolbox:
-    return FakeToolbox()
-
-
-@pytest.fixture
-def toolbox_app(app: FastAPI, fake: FakeToolbox, tmp_path: Path) -> FastAPI:
-    settings = toolbox_settings(app.state.settings.database_url, tmp_path)
-    app.state.settings = settings
-    app.state.toolbox = ToolboxIntegration(
-        settings, store=MemoryTokenStore(), transport=fake.transport
-    )
-    return app
 
 
 def connect(client: TestClient, fake: FakeToolbox) -> dict[str, Any]:
     url = ok(client.post(f"{STATUS}/connect"))["authorization_url"]
     return ok(client.post(f"{STATUS}/callback", json=fake.authorize(url)))
-
-
-@pytest.fixture
-def connected(toolbox_app: FastAPI, client: TestClient, fake: FakeToolbox) -> TestClient:
-    connect(client, fake)
-    return client
 
 
 def validated(client: TestClient, prospect: uuid.UUID, step: str = "contact") -> dict[str, Any]:

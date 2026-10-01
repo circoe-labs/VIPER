@@ -32,6 +32,8 @@ from app.api.dependencies import CurrentActor, SessionDep
 from app.api.errors import business_errors
 from app.services import audit
 from app.services.audit import AuditAction
+from app.services.contact_dispatch import dispatch_counts
+from app.services.contact_dispatch_worker import ContactDispatcher
 from app.services.contact_remote_drafts import queue_counts
 from app.services.toolbox.integration import ToolboxIntegration
 
@@ -49,6 +51,14 @@ def get_toolbox(request: Request) -> ToolboxIntegration:
 ToolboxDep = Annotated[ToolboxIntegration, Depends(get_toolbox)]
 
 
+def get_dispatcher(request: Request) -> ContactDispatcher | None:
+    dispatcher: ContactDispatcher | None = request.app.state.contact_dispatcher
+    return dispatcher
+
+
+DispatcherDep = Annotated[ContactDispatcher | None, Depends(get_dispatcher)]
+
+
 class LastErrorOut(BaseModel):
     code: str
     at: datetime
@@ -58,6 +68,22 @@ class CleanupsOut(BaseModel):
     # Obsolete Infomaniak drafts still to delete, and how many of them failed at least once.
     pending: int
     failing: int
+
+
+class DispatchOut(BaseModel):
+    """The scheduled sending (S7). `running`: the worker runs in this API process
+    (`VIPER_CONTACT_DISPATCH_INTERVAL_MS` > 0 and the Toolbox configured); `active`: and the
+    Toolbox is connected, so a scheduled message really leaves."""
+
+    running: bool
+    active: bool
+    interval_seconds: float
+    last_pass_at: datetime | None
+    # `ok` | `error` (see the server log) | None before the first pass.
+    last_outcome: str | None
+    # Messages scheduled, and those whose send is unconfirmed (a person may settle them).
+    scheduled: int
+    unconfirmed: int
 
 
 class ToolboxStatusOut(BaseModel):
@@ -76,6 +102,7 @@ class ToolboxStatusOut(BaseModel):
     account_label: str | None
     last_error: LastErrorOut | None
     cleanups: CleanupsOut
+    dispatch: DispatchOut
 
 
 class ConnectOut(BaseModel):
@@ -91,9 +118,13 @@ class CallbackIn(BaseModel):
     error: Param = ""
 
 
-def status_out(integration: ToolboxIntegration, session: SessionDep) -> ToolboxStatusOut:
+def status_out(
+    integration: ToolboxIntegration, session: SessionDep, dispatcher: ContactDispatcher | None
+) -> ToolboxStatusOut:
     status = integration.status()
     counts = queue_counts(session)
+    worker = dispatcher.status() if dispatcher else None
+    pending = dispatch_counts(session)
     return ToolboxStatusOut(
         enabled=status.enabled,
         state=status.state,
@@ -109,12 +140,23 @@ def status_out(integration: ToolboxIntegration, session: SessionDep) -> ToolboxS
         if status.last_error
         else None,
         cleanups=CleanupsOut(pending=counts.pending, failing=counts.failing),
+        dispatch=DispatchOut(
+            running=worker.running if worker else False,
+            active=worker.active if worker else False,
+            interval_seconds=dispatcher.interval_seconds if dispatcher else 0,
+            last_pass_at=worker.last_pass_at if worker else None,
+            last_outcome=worker.last_outcome if worker else None,
+            scheduled=pending.scheduled,
+            unconfirmed=pending.unconfirmed,
+        ),
     )
 
 
 @router.get("")
-def toolbox_status(integration: ToolboxDep, session: SessionDep) -> ToolboxStatusOut:
-    return status_out(integration, session)
+def toolbox_status(
+    integration: ToolboxDep, session: SessionDep, dispatcher: DispatcherDep
+) -> ToolboxStatusOut:
+    return status_out(integration, session, dispatcher)
 
 
 @router.post("/connect")
@@ -125,7 +167,11 @@ def connect(integration: ToolboxDep, actor: CurrentActor) -> ConnectOut:
 
 @router.post("/callback")
 def callback(
-    body: CallbackIn, integration: ToolboxDep, session: SessionDep, actor: CurrentActor
+    body: CallbackIn,
+    integration: ToolboxDep,
+    session: SessionDep,
+    actor: CurrentActor,
+    dispatcher: DispatcherDep,
 ) -> ToolboxStatusOut:
     with business_errors():
         integration.complete(body.model_dump(), actor)
@@ -144,11 +190,13 @@ def callback(
             "toolbox_origin": {"before": None, "after": status.toolbox_origin},
         },
     )
-    return status_out(integration, session)
+    return status_out(integration, session, dispatcher)
 
 
 @router.post("/forget")
-def forget(integration: ToolboxDep, session: SessionDep, actor: CurrentActor) -> ToolboxStatusOut:
+def forget(
+    integration: ToolboxDep, session: SessionDep, actor: CurrentActor, dispatcher: DispatcherDep
+) -> ToolboxStatusOut:
     with business_errors():
         had = integration.forget()
     if had:
@@ -159,4 +207,4 @@ def forget(integration: ToolboxDep, session: SessionDep, actor: CurrentActor) ->
             entity_type=TOOLBOX_ENTITY,
             entity_id=None,
         )
-    return status_out(integration, session)
+    return status_out(integration, session, dispatcher)

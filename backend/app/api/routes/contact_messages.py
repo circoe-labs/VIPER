@@ -11,7 +11,12 @@ dispatcher's internal operation (S7).
 - `POST …/messages/{step}/validate|schedule|unschedule|cancel|reopen` with `expected_revision`;
 - `POST …/messages/{step}/generate`   the AI draft of the step (S5): always a draft, to review;
 - `POST …/messages/{step}/remote-draft` creates again the Infomaniak draft of a validated message
-                                     whose creation failed (S6, « Réessayer »).
+                                     whose creation failed (S6, « Réessayer »);
+- `POST …/messages/{step}/mark-sent|release` a person settles a send the dispatcher could not
+                                     confirm (S7): « Marquer envoyé » / « Remettre en Validé ».
+
+Scheduled sending (S7, `app.services.contact_dispatch`): only the dispatcher sends; the messages'
+defaults say whether a scheduled message will really leave (`automatic_sending_active`).
 
 CIRCOE Toolbox (S6): `validate` and `schedule` create the Infomaniak draft of the validated
 revision after their commit (`app.services.contact_remote_drafts.sync_remote_draft`) and answer
@@ -37,6 +42,7 @@ from app.models import ContactMessage
 from app.models.contact_messages import EMAIL_MAX_LENGTH, SUBJECT_MAX_LENGTH
 from app.models.enums import ContactMessageStatus, ContactMessageStep, ContactTrackingStatus
 from app.services import audit
+from app.services import contact_dispatch as dispatch
 from app.services import contact_mail_generation as generation
 from app.services import contact_messages as service
 from app.services import contact_remote_drafts as remote_drafts
@@ -116,6 +122,10 @@ class MessageOut(BaseModel):
     generation_prompt_version: str | None
     generated_at: datetime | None
     has_remote_draft: bool
+    # Scheduled sending (S7): the dispatcher's claim (a send running or unconfirmed) and the
+    # attempts of the current schedule.
+    dispatch_claimed_at: datetime | None
+    dispatch_attempts: int
     last_error_code: str | None
     last_error_at: datetime | None
     created_at: datetime
@@ -142,6 +152,13 @@ class DefaultsOut(BaseModel):
     # `disabled` | `not_configured` | `disconnected` | `connected` | `expired` (Settings >
     # Connexions): enabled but not connected or expired, the editor says no draft is created.
     toolbox_state: str
+    # A scheduled message will really leave (S7): the dispatcher runs in this API process and the
+    # Toolbox is connected. False: the send moment is recorded, nothing leaves.
+    automatic_sending_active: bool
+    # A message more late than this goes back to Validé instead of leaving.
+    dispatch_max_lateness_minutes: int
+    # After this long, a claimed send nobody finished counts as unconfirmed (a person may settle).
+    dispatch_claim_ttl_seconds: int
 
 
 class StepOut(BaseModel):
@@ -230,6 +247,8 @@ def message_out(message: ContactMessage) -> MessageOut:
         generation_prompt_version=message.generation_prompt_version,
         generated_at=message.generated_at,
         has_remote_draft=message.remote_draft_id is not None,
+        dispatch_claimed_at=message.dispatch_claimed_at,
+        dispatch_attempts=message.dispatch_attempts,
         last_error_code=message.last_error_code,
         last_error_at=message.last_error_at,
         created_at=message.created_at,
@@ -244,6 +263,11 @@ def result_out(result: MessageResult) -> MessageResultOut:
         changed=result.changed,
         unvalidated=result.unvalidated,
     )
+
+
+def automatic_sending_active(request: Request) -> bool:
+    dispatcher = request.app.state.contact_dispatcher
+    return dispatcher is not None and bool(dispatcher.status().active)
 
 
 @router.get("")
@@ -267,6 +291,9 @@ def list_messages(
             generation_available=settings.generation_available,
             toolbox_connected=toolbox_state == "connected",
             toolbox_state=toolbox_state,
+            automatic_sending_active=automatic_sending_active(request),
+            dispatch_max_lateness_minutes=settings.contact_dispatch_max_lateness_ms // 60_000,
+            dispatch_claim_ttl_seconds=int(settings.contact_dispatch_claim_ttl.total_seconds()),
         ),
         steps=[
             StepOut(step=step, message=message_out(message) if message else None)
@@ -409,6 +436,52 @@ def retry_remote_draft(
         )
         integration.required_mail_toolbox()
     return _with_remote_draft(request, session, actor, result)
+
+
+@router.post("/{step}/mark-sent")
+def mark_sent(
+    prospect_id: uuid.UUID,
+    step: ContactMessageStep,
+    body: RevisionIn,
+    session: SessionDep,
+    settings: SettingsDep,
+    actor: CurrentActor,
+) -> MessageResultOut:
+    """« Marquer envoyé » (S7): a person found the mail in the mailbox's sent items. Only for a
+    send the dispatcher could not confirm (409 `dispatch_not_unconfirmed` otherwise)."""
+    with business_errors():
+        message = dispatch.mark_sent(
+            session,
+            actor,
+            prospect_id,
+            step,
+            body.expected_revision,
+            claim_ttl=settings.contact_dispatch_claim_ttl,
+        )
+    return result_out(MessageResult(message))
+
+
+@router.post("/{step}/release")
+def release(
+    prospect_id: uuid.UUID,
+    step: ContactMessageStep,
+    body: RevisionIn,
+    session: SessionDep,
+    settings: SettingsDep,
+    actor: CurrentActor,
+) -> MessageResultOut:
+    """« Remettre en Validé » (S7): a person checked that the mail did not leave; the validation
+    and the Infomaniak draft stay (a closed sequence then cancels it)."""
+    with business_errors():
+        message = dispatch.release(
+            session,
+            actor,
+            prospect_id,
+            step,
+            body.expected_revision,
+            claim_ttl=settings.contact_dispatch_claim_ttl,
+        )
+    return result_out(MessageResult(message))
 
 
 @router.post("/{step}/unschedule")

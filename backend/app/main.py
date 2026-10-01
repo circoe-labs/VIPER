@@ -12,6 +12,8 @@ from app.api.security_headers import SecurityHeadersMiddleware
 from app.api.worker_wake import WakeCleanupWorkerMiddleware
 from app.core.config import Settings, get_settings
 from app.db.session import create_db_engine, create_session_factory
+from app.services.contact_dispatch import DispatchConfig
+from app.services.contact_dispatch_worker import ContactDispatcher
 from app.services.explorer.sql_console import create_reader_engine
 from app.services.login_throttle import LoginThrottle
 from app.services.toolbox.integration import ToolboxIntegration
@@ -36,7 +38,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
             worker.start()
         app.state.toolbox_worker = worker
+        # Scheduled sending (S7): same conditions, `VIPER_CONTACT_DISPATCH_INTERVAL_MS` > 0. A
+        # pass sends nothing while the Toolbox is not connected.
+        dispatch_config = DispatchConfig.from_settings(app.state.settings)
+        dispatcher = None
+        if integration.configured and dispatch_config.interval.total_seconds() > 0:
+            dispatcher = ContactDispatcher(integration, app.state.session_factory, dispatch_config)
+            dispatcher.start()
+        app.state.contact_dispatcher = dispatcher
         yield
+        # Graceful shutdown: each worker lets its running pass finish (a send included).
+        if dispatcher is not None:
+            dispatcher.stop()
         if worker is not None:
             worker.stop()
         engine.dispose()
@@ -56,6 +69,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.login_throttle = LoginThrottle()
     app.state.toolbox = ToolboxIntegration(settings)
     app.state.toolbox_worker = None
+    app.state.contact_dispatcher = None
 
     app.add_middleware(WakeCleanupWorkerMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)

@@ -66,6 +66,8 @@ class AuditSource(StrEnum):
     DATABASE_EXPLORER = "database_explorer"
     CLI = "cli"
     AGENT = "agent"
+    # The scheduled sending of Contact messages (S7, `app.services.contact_dispatch`).
+    DISPATCHER = "dispatcher"
 
 
 class Lifecycle(StrEnum):
@@ -95,6 +97,14 @@ class AuditAction(StrEnum):
     # CIRCOE Toolbox (S6): the validated revision's Infomaniak draft was created / could not be.
     CONTACT_MESSAGE_REMOTE_DRAFT_CREATED = "contact_message.remote_draft_created"
     CONTACT_MESSAGE_REMOTE_DRAFT_FAILED = "contact_message.remote_draft_failed"
+    # Scheduled sending (S7, `app.services.contact_dispatch`): the dispatcher took the message to
+    # send it; it left (`sent`, also a person's « Marquer envoyé » or a reconciliation, said in the
+    # reason); an attempt failed (retry planned, or back to Validé — the code in the reason); a
+    # person put a message whose send was not confirmed back to Validé.
+    CONTACT_MESSAGE_DISPATCH_CLAIMED = "contact_message.dispatch_claimed"
+    CONTACT_MESSAGE_SENT = "contact_message.sent"
+    CONTACT_MESSAGE_DISPATCH_FAILED = "contact_message.dispatch_failed"
+    CONTACT_MESSAGE_DISPATCH_RELEASED = "contact_message.dispatch_released"
     # The Toolbox connection was established / forgotten on VIPER's side (no token in the event).
     TOOLBOX_CONNECTED = "toolbox.connected"
     TOOLBOX_FORGOTTEN = "toolbox.forgotten"

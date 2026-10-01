@@ -686,6 +686,11 @@ TITLES: dict[str, str] = {
 # Titles of a save that only touched Contact messages (a state change that cancels messages keeps
 # the prospect's title: the state is what the person chose).
 MESSAGE_TITLES: dict[str, str] = {
+    # Scheduled sending (S7): a claim followed by its outcome reads as the outcome.
+    AuditAction.CONTACT_MESSAGE_SENT: "Message envoyé",
+    AuditAction.CONTACT_MESSAGE_DISPATCH_FAILED: "Envoi non effectué",
+    AuditAction.CONTACT_MESSAGE_DISPATCH_RELEASED: "Envoi non confirmé, remis en Validé",
+    AuditAction.CONTACT_MESSAGE_DISPATCH_CLAIMED: "Envoi lancé",
     AuditAction.CONTACT_MESSAGE_VALIDATED: "Message validé",
     AuditAction.CONTACT_MESSAGE_UNVALIDATED: "Message modifié après validation",
     AuditAction.CONTACT_MESSAGE_SCHEDULED: "Message programmé",

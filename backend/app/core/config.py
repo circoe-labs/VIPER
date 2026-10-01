@@ -1,6 +1,7 @@
 """Typed runtime configuration read from `VIPER_*` environment variables and `backend/.env`."""
 
 import re
+from datetime import timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Self
@@ -141,6 +142,23 @@ class Settings(BaseSettings):
     # Optional VIPER-side allowlist of recipients for the scheduled send (S7): comma-separated
     # addresses or `@domain` rules. Unset = no VIPER-side restriction (the Toolbox keeps its own).
     infomaniak_send_allowlist: str | None = None
+    # Scheduled sending (S7, decision 25: VIPER schedules, the Toolbox's `send_draft` executes):
+    # the dispatcher worker of the API process runs a pass every interval while the Toolbox is
+    # enabled, configured and connected; 0 = no worker (the CLI `python -m app.cli contact-dispatch
+    # --once` still runs one pass). Names and defaults mirror the reference
+    # (`src/server/contactMessageDispatcher.ts`).
+    contact_dispatch_interval_ms: Annotated[int, Field(ge=0, le=3_600_000)] = 30_000
+    # A message more late than this does not leave: it goes back to Validé (`dispatch_overdue`).
+    contact_dispatch_max_lateness_ms: Annotated[int, Field(ge=60_000, le=7 * 86_400_000)] = (
+        6 * 3_600_000
+    )
+    # Age after which a send claim nobody finished is reconciled (`dispatch_claim_ttl`: never less
+    # than twice the Toolbox timeout).
+    contact_dispatch_claim_ttl_ms: Annotated[int, Field(ge=1000, le=86_400_000)] = 600_000
+    # Send attempts (certain transient failures included) before going back to Validé.
+    contact_dispatch_max_attempts: Annotated[int, Field(ge=1, le=20)] = 5
+    # Base of the exponential backoff between two attempts (base x 2^(n-1), at most 1 h).
+    contact_dispatch_retry_base_ms: Annotated[int, Field(ge=1000, le=3_600_000)] = 60_000
 
     @field_validator(
         "openai_api_key",
@@ -193,6 +211,14 @@ class Settings(BaseSettings):
             parse_allowlist(value)
         return value
 
+    @field_validator("contact_dispatch_interval_ms")
+    @classmethod
+    def _dispatch_interval(cls, value: int) -> int:
+        # The reference raises a small positive period to 500 ms; refused here rather than changed.
+        if 0 < value < 500:
+            raise ValueError("must be 0 (no worker) or at least 500 ms")
+        return value
+
     @model_validator(mode="after")
     def _model_with_key(self) -> Self:
         if self.openai_api_key is not None and self.openai_model is None:
@@ -226,6 +252,14 @@ class Settings(BaseSettings):
             None
             if self.infomaniak_send_allowlist is None
             else (parse_allowlist(self.infomaniak_send_allowlist))
+        )
+
+    @property
+    def contact_dispatch_claim_ttl(self) -> timedelta:
+        """The effective claim TTL: never less than twice the Toolbox timeout (a send still
+        running is never taken for a dead one)."""
+        return timedelta(
+            milliseconds=max(self.contact_dispatch_claim_ttl_ms, 2 * self.toolbox_timeout_ms)
         )
 
     @property

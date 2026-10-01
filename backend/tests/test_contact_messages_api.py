@@ -76,6 +76,10 @@ def test_the_sequence_read_model(
         "generation_available": False,
         "toolbox_connected": False,
         "toolbox_state": "disabled",
+        # S7: no dispatcher in this app, so a scheduled message would not leave.
+        "automatic_sending_active": False,
+        "dispatch_max_lateness_minutes": 360,
+        "dispatch_claim_ttl_seconds": 600,
     }
     assert body["steps"] == [
         {"step": "contact", "message": None},

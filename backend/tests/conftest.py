@@ -2,6 +2,7 @@
 clients — `client` signed in as the pilot user (default), `anonymous_client` without a session."""
 
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
@@ -18,6 +19,7 @@ from app.models import User
 from app.services import audit
 from app.services.auth import SessionPolicy, open_session
 from tests.builders import FIXTURE_ACTOR, add_user
+from tests.fake_toolbox import FakeToolbox
 from tests.support import (
     TEST_BASE_URL,
     require_test_database,
@@ -100,3 +102,35 @@ def client(
         headers={CSRF_HEADER: csrf_token(token)},
     ) as test_client:
         yield test_client
+
+
+# --- CIRCOE Toolbox (S6/S7): the app against the local fake Toolbox, never a real one (P6) --------
+
+
+@pytest.fixture
+def fake() -> FakeToolbox:
+    return FakeToolbox()
+
+
+@pytest.fixture
+def toolbox_app(app: FastAPI, fake: FakeToolbox, tmp_path: Path) -> FastAPI:
+    """The app with the Toolbox enabled against `fake` (token in memory, no worker thread)."""
+    from app.services.toolbox.integration import ToolboxIntegration
+    from app.services.toolbox.token_store import MemoryTokenStore
+    from tests.test_contact_remote_drafts import toolbox_settings
+
+    settings = toolbox_settings(app.state.settings.database_url, tmp_path)
+    app.state.settings = settings
+    app.state.toolbox = ToolboxIntegration(
+        settings, store=MemoryTokenStore(), transport=fake.transport
+    )
+    return app
+
+
+@pytest.fixture
+def connected(toolbox_app: FastAPI, client: TestClient, fake: FakeToolbox) -> TestClient:
+    """`client` with the Toolbox connected through the real OAuth routes."""
+    from tests.test_contact_remote_drafts import connect
+
+    connect(client, fake)
+    return client

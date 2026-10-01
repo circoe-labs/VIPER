@@ -397,6 +397,10 @@ def _clear_validation(session: Session, message: ContactMessage) -> None:
     message.scheduled_at = None
     # The remote draft was the validated revision's: queued for deletion (S6).
     detach_remote_draft(session, message, "edited")
+    # A dispatch outcome (S7: overdue, send failure, unconfirmed send) was about that validation.
+    message.last_error_code = None
+    message.last_error_at = None
+    message.dispatch_attempts = 0
 
 
 def _clear_generation(message: ContactMessage) -> None:
