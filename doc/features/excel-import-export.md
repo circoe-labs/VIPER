@@ -541,7 +541,8 @@ complete) → tracking → **cohorts, sequences, sends and « Défaillant »** (
 in source order) → one trace per source row → batch committed.
 
 - **Cohort** (R-15): a prospect without any sequence history and in no state other than `neutral` opens a sequence in
-  the row's cohort (import actor). Cohort date strictly before today (business date) → its Contact (rank 0) is
+  the row's cohort (import actor); a new prospect whose row also gives an appointment gets both (sequence open,
+  nothing sent nor due). Cohort date strictly before today (business date) → its Contact (rank 0) is
   recorded `sent` at that date's business midnight, `sent_source = import`. S0: a sequence, no send. A prospect whose
   current cohort differs, whose cohort a person removed, or whose state a person chose keeps it: `import_conflict`
   (`cohort`). Two rows of one prospect with different codes: the first applies, an `import_conflict` for the others.

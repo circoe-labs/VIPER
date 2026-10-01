@@ -421,14 +421,22 @@ def change_cohort(
 
 
 def open_imported_sequence(
-    session: Session, actor: ActorContext, prospect_id: uuid.UUID, cohort_id: uuid.UUID
+    session: Session,
+    actor: ActorContext,
+    prospect_id: uuid.UUID,
+    cohort_id: uuid.UUID,
+    *,
+    state_from_this_import: bool = False,
 ) -> ContactSequence:
     """An import puts a prospect **without any cohort** in the file's cohort (D3, D11: an empty
     value is filled, never a cohort or a sequence set before). Only for the import actor (403
     `human_actor_required` wording aside: a person uses `change_cohort`); refused for a prospect
     that already has or had a sequence (409 `sequence_exists`), under the do-not-contact
     opposition (409 `prospect_do_not_contact`) or in a state other than `neutral` (409
-    `prospect_sequence_closed`). Audited `contact_sequence.created`."""
+    `prospect_sequence_closed`) — unless that state comes from the same import
+    (`state_from_this_import`: a prospect it created, whose row gave an appointment): the cohort
+    is then recorded like a person's state set during a sequence, which leaves it open (nothing
+    is due under a closing state). Audited `contact_sequence.created`."""
     if actor.type is not ActorType.IMPORT:
         raise ActorNotAllowedError("Only an import opens a sequence this way.")
     prospect = _locked_prospect(session, prospect_id)
@@ -443,7 +451,7 @@ def open_imported_sequence(
             "sequence_exists", HTTPStatus.CONFLICT, "The prospect already has a cohort history."
         )
     tracking = prospect.contact_tracking
-    if tracking is not None and tracking.status is not S.NEUTRAL:
+    if tracking is not None and tracking.status is not S.NEUTRAL and not state_from_this_import:
         raise BusinessRuleError(
             "prospect_sequence_closed",
             HTTPStatus.CONFLICT,

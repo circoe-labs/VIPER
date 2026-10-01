@@ -143,7 +143,11 @@ class OperationalReconciler:
                 return
         cohort = self.cohort(code)
         contact_sequences.open_imported_sequence(
-            self.session, self.importer, prospect.id, cohort.id
+            self.session,
+            self.importer,
+            prospect.id,
+            cohort.id,
+            state_from_this_import=claims.created,  # an appointment of the same file
         )
         self.counts["sequences_opened"] += 1
         past = cohort.starts_on is not None and cohort.starts_on < self.today

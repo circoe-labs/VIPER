@@ -329,6 +329,49 @@ def test_cohorts_open_sequences_and_a_past_cohort_records_its_contact(
     assert progress.sent_count == 1  # the level counts the imported Contact (D1)
 
 
+def test_a_new_prospect_with_a_cohort_and_an_appointment_keeps_both(
+    db_session: Session, ids: dict[str, uuid.UUID]
+) -> None:
+    """The row's appointment does not refuse its cohort (the import gave both): the sequence is
+    recorded, nothing is sent nor due under the appointment."""
+    row = {"week": "S37", "rdv": "oui", "company": "Atelier Rdv", "last_name": "Rdv"}
+
+    result = run(db_session, [row])
+
+    person = by_name(db_session, "Rdv")
+    assert state_of(db_session, person) is S.APPOINTMENT_OBTAINED
+    sequence = sequence_of(db_session, person)
+    assert sequence is not None and sequence.cohort.code == "S37"
+    assert sends(db_session, person) == []
+    assert (result.counts["sequences_opened"], result.counts.get("sends_recorded", 0)) == (1, 0)
+
+
+def test_an_existing_prospect_s_state_keeps_the_file_s_cohort_out(
+    db_session: Session, ids: dict[str, uuid.UUID]
+) -> None:
+    save_contact_tracking(
+        db_session, OPERATOR, ids["luc"], ContactTrackingInput(S.APPOINTMENT_OBTAINED)
+    )
+    again = {
+        "week": "S37",
+        "company": "Logistique Démo",
+        "last_name": "Exemple",
+        "first_name": "Luc",
+    }
+
+    run(db_session, [again])
+
+    luc = db_session.get(Prospect, ids["luc"])
+    assert luc is not None
+    assert sequence_of(db_session, luc) is None and sends(db_session, luc) == []
+    [alert] = alerts(db_session, prospect_id=luc.id)
+    assert (alert.detail["field"], alert.detail["viper_value"], alert.detail["file_value"]) == (
+        "cohort",
+        "appointment_obtained",
+        "S37",
+    )
+
+
 def test_a_value_that_is_not_a_cohort_raises_a_data_alert_and_stays_raw(
     db_session: Session, ids: dict[str, uuid.UUID]
 ) -> None:
