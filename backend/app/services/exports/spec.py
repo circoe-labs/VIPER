@@ -17,7 +17,7 @@ from datetime import date, datetime
 from enum import StrEnum
 from typing import Any, Protocol
 
-from app.core.business_time import BUSINESS_TIMEZONE
+from app.core.business_time import start_of_day
 from app.models.enums import (
     ActivityStatus,
     Civility,
@@ -114,14 +114,6 @@ def full_name(referent: InternalReferent | None) -> str | None:
     return f"{referent.first_name} {referent.last_name}" if referent else None
 
 
-def week_label(moment: datetime | None) -> str | None:
-    """ISO week of the planned contact in Europe/Paris, e.g. `S37 2026` (week-numbering year)."""
-    if moment is None:
-        return None
-    year, week, _ = moment.astimezone(BUSINESS_TIMEZONE).isocalendar()
-    return f"S{week:02d} {year}"
-
-
 def joined(parts: Iterable[str | None], separator: str = ", ") -> str | None:
     return separator.join(part for part in parts if part) or None
 
@@ -170,17 +162,13 @@ type P = ProspectRecord
 PROSPECT_COLUMNS: tuple[Column[P], ...] = (
     # Referent: the internal Circoe person only — legacy markers never reach this column.
     Column[P]("Référent", lambda r: full_name(r.referent), width=22),
-    # Contact planning: the real date and its derived ISO week.
+    # Contact planning (sequences rework): the cohort `Sxx` and its real date — never an ISO week.
+    Column[P]("Cohorte", lambda r: r.contact.cohort_code, width=10),
     Column[P](
-        "Date de contact prévue",
-        lambda r: r.tracking.planned_contact_at if r.tracking else None,
+        "Date de cohorte",
+        lambda r: start_of_day(r.contact.cohort_starts_on) if r.contact.cohort_starts_on else None,
         Kind.DATE,
         14,
-    ),
-    Column[P](
-        "Semaine",
-        lambda r: week_label(r.tracking.planned_contact_at if r.tracking else None),
-        width=11,
     ),
     Column[P]("Entreprise", of_company(lambda c: c.company.display_name), width=30),
     # Classification.
@@ -233,6 +221,15 @@ PROSPECT_COLUMNS: tuple[Column[P], ...] = (
         width=18,
     ),
     Column[P]("Statut depuis le", lambda r: r.status_since, Kind.DATE, 14),
+    # The level derived from the real sends, their number and the next due date (D1, D2).
+    Column[P]("Niveau", lambda r: r.contact.level_label, width=16),
+    Column[P](
+        "Envois",
+        lambda r: r.contact.sent_count if r.contact.cohort_code else None,
+        Kind.INTEGER,
+        8,
+    ),
+    Column[P]("Prochaine échéance", lambda r: r.contact.next_due_at, Kind.DATE, 14),
     Column[P](
         "Date de réponse",
         lambda r: r.tracking.response_received_at if r.tracking else None,

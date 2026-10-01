@@ -3,7 +3,6 @@ workbooks only (`tests/fixtures/synthetic/legacy_workbook.py`); every value is i
 
 import uuid
 from collections.abc import Sequence
-from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -211,7 +210,8 @@ def test_defaults_apply_only_exact_matches_and_never_invent(
     jean_tracking = tracking(db_session, jean)
     assert jean_tracking is not None
     assert jean_tracking.referent_id == ids["claire"]  # exact referent
-    assert jean_tracking.planned_contact_at is None  # `S37`: never a guessed year
+    # `S37`: never a guessed year, never a state; kept raw until the cohorts of the import (S2).
+    assert trace(db_session, 2).legacy_metadata["planned_contact"]["value"] == "S37"
     assert jean_tracking.status is ContactTrackingStatus.NEUTRAL
     nina = person(db_session, "Nina", "Homonyme")  # homonym of a blocked person: a warning only
     assert nina.contactability_status is ContactabilityStatus.CONTACTABLE
@@ -462,7 +462,9 @@ def test_referent_civility_week_and_inactive_decisions(
     assert person(db_session, "Claire", "Exemple").activity_status is ActivityStatus.INACTIVE
     jean_tracking = tracking(db_session, person(db_session, "Jean", "Test"))
     assert jean_tracking is not None
-    assert jean_tracking.planned_contact_at == datetime(2026, 9, 7, tzinfo=PARIS)  # S37 2026
+    # Sequences rework: a week is not written any more (a cohort is the import redesign, S2);
+    # the decided year is accepted and the raw cell kept, so nothing is lost.
+    assert trace(db_session, 2).legacy_metadata["planned_contact"]["value"] == "S37"
     marc_tracking = tracking(db_session, person(db_session, "Marc", "Démo"))
     assert marc_tracking is None  # S39 left without year, `xxx` is not a referent
 
@@ -476,8 +478,9 @@ def test_week_53_needs_a_year_that_has_one(db_session: Session, ids: dict[str, u
     }
     commit(db_session, file, review, week_year=2026)
 
-    iso = tracking(db_session, person(db_session, "Iso", "Essai"))
-    assert iso is not None and iso.planned_contact_at == datetime(2026, 12, 28, tzinfo=PARIS)
+    iso = person(db_session, "Iso", "Essai")
+    assert tracking(db_session, iso) is None  # a week alone writes nothing (S2: a cohort)
+    assert trace(db_session, 2).legacy_metadata["planned_contact"]["value"] == "S53"
 
 
 def test_unknown_keys_and_values_are_refused(
@@ -561,9 +564,7 @@ def test_attaching_to_an_existing_prospect_fills_empty_fields_only(
     demo = db_session.get(Company, ids["demo"])
     assert demo is not None and demo.email_domain == "logistique-demo.example"  # was empty
     assert demo.project_type == "Étude fictive"
-    luc_tracking = tracking(db_session, luc)
-    assert luc_tracking is not None
-    assert luc_tracking.planned_contact_at == datetime(2026, 9, 28, tzinfo=PARIS)
+    assert trace(db_session, 2).legacy_metadata["planned_contact"]["value"] == "S40 2026"
     assert count(db_session, Prospect) == 3 and count(db_session, Company) == 1
     assert result.counts["prospects_attached"] == 1 and result.counts["companies_linked"] == 1
     assert trace(db_session, 2).prospect_id == luc.id
@@ -572,14 +573,14 @@ def test_attaching_to_an_existing_prospect_fills_empty_fields_only(
 @pytest.mark.parametrize(
     ("current", "expected"),
     [
-        # Nothing chosen yet: the file's stage columns advance the state (reference Task 03).
-        (ContactTrackingStatus.NEUTRAL, ContactTrackingStatus.R1),
-        # A chosen state is never rewritten; the file's stage stays in the row metadata.
-        (ContactTrackingStatus.R2, ContactTrackingStatus.R2),
-        (ContactTrackingStatus.FAILURE, ContactTrackingStatus.FAILURE),
+        # A follow-up stage is a send, not a state (rework D1/D7): nothing advances, and the
+        # stage cells stay in the row metadata until the import records sends (S2).
+        (ContactTrackingStatus.NEUTRAL, ContactTrackingStatus.NEUTRAL),
+        (ContactTrackingStatus.RESPONSE_RECEIVED, ContactTrackingStatus.RESPONSE_RECEIVED),
+        (ContactTrackingStatus.DISQUALIFIED, ContactTrackingStatus.DISQUALIFIED),
     ],
 )
-def test_an_import_advances_only_a_neutral_tracking(
+def test_a_follow_up_stage_never_changes_the_state(
     db_session: Session,
     ids: dict[str, uuid.UUID],
     current: ContactTrackingStatus,
@@ -596,7 +597,7 @@ def test_an_import_advances_only_a_neutral_tracking(
     luc_tracking = tracking(db_session, luc)
     assert luc_tracking is not None and luc_tracking.status is expected
     kept = trace(db_session, 2).legacy_metadata
-    assert ("stage_follow_up_1" in kept) is (current is not ContactTrackingStatus.NEUTRAL)
+    assert "stage_follow_up_1" in kept
 
 
 def test_duplicates_can_be_created_merged_into_another_row_or_excluded(

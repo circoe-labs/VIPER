@@ -7,11 +7,12 @@ inactive); 409 `in_use` (with usage counts); 409 `conflict` (the record changed 
 for a Contact tracking rule (`ignored_is_terminal`, `ignored_has_no_next_action`); 403
 `human_actor_required` (a change only a person may make); a Contact message refusal with its own
 status and code (`app.services.contact_messages`, e.g. 409 `revision_conflict`, 422
-`message_incomplete` with its `fields`); an AI drafting failure with its own status and code
-(`app.services.mail_generation`, e.g. 503 `ai_not_configured`, 504 `ai_timeout`); a CIRCOE Toolbox
-failure with its own status and code (`app.services.toolbox.errors`, e.g. 409 `toolbox_not_connected`,
-502 `toolbox_unavailable`). Raising inside
-`business_errors()` also rolls the request's transaction back.
+`message_incomplete` with its `fields`); a cohort, sequence or alert rule with its own status and
+code (`BusinessRuleError`, e.g. 409 `alert_exists`, 409 `cohort_s0_fixed`); an AI drafting failure
+with its own status and code (`app.services.mail_generation`, e.g. 503 `ai_not_configured`, 504
+`ai_timeout`); a CIRCOE Toolbox failure with its own status and code
+(`app.services.toolbox.errors`, e.g. 409 `toolbox_not_connected`, 502 `toolbox_unavailable`).
+Raising inside `business_errors()` also rolls the request's transaction back.
 """
 
 from collections.abc import Iterator
@@ -25,6 +26,7 @@ from fastapi.responses import JSONResponse
 
 from app.services.errors import (
     ActorNotAllowedError,
+    BusinessRuleError,
     ConflictError,
     ContactMessageError,
     DoNotContactError,
@@ -77,6 +79,8 @@ def business_errors() -> Iterator[None]:
     except TrackingRuleError as error:
         raise refusal(status.HTTP_409_CONFLICT, error.code, str(error)) from error
     except ContactMessageError as error:
+        raise refusal(error.http_status, error.code, str(error), **error.details) from error
+    except BusinessRuleError as error:
         raise refusal(error.http_status, error.code, str(error), **error.details) from error
     except MailGenerationError as error:
         raise refusal(error.http_status, error.code, str(error)) from error

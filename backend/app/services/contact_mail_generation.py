@@ -42,6 +42,7 @@ from app.services.contact_messages import (
     require_generation_target,
     sequence_context,
 )
+from app.services.contact_sequences import current_sequence
 from app.services.contact_workflow import MESSAGE_STATUS_LABELS
 from app.services.errors import ActorNotAllowedError, ContactMessageError, MailGenerationError
 from app.services.mail_generation.openai_client import (
@@ -127,21 +128,26 @@ def load_context(
         if company_id is not None
         else []
     )
+    # The current sequence's messages only: a former sequence's mails belong to another cohort.
+    sequence = current_sequence(session, prospect_id)
     messages = {
-        message.step: message
-        for message in session.scalars(
-            select(ContactMessage).where(ContactMessage.prospect_id == prospect_id)
+        message_step: message
+        for message in (
+            session.scalars(select(ContactMessage).where(ContactMessage.sequence_id == sequence.id))
+            if sequence is not None
+            else []
         )
+        if (message_step := message.step) is not None
     }
     earlier = STEPS[: STEPS.index(step)]
     previous = [
         PreviousMessage(
-            step=message.step,
+            step=earlier_step,
             status_label=MESSAGE_STATUS_LABELS[message.status],
             subject=message.subject,
             body=message.body_text,
         )
-        for message in (messages.get(s) for s in earlier)
+        for earlier_step, message in ((s, messages.get(s)) for s in earlier)
         if message is not None
         and message.status is not ContactMessageStatus.CANCELLED
         and _has_text(message)

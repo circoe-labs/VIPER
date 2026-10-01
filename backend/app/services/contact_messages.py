@@ -1,7 +1,9 @@
-"""Contact message state machine (Contact port Slice S3; handoff Tasks 11-12, decisions 20-29).
+"""Contact message state machine (Contact port Slice S3; handoff Tasks 11-12, decisions 20-29;
+sequences rework D1, D3, D6).
 
-The only application write path of `contact_messages`. One durable message per prospect and step
-(`contact`, `r1`, `r2`). Statuses and transitions:
+The only application write path of `contact_messages`. One durable message per sequence and rank;
+the editor addresses the ranks of the prospect's **current** sequence by step name (`contact` = 0,
+`r1` = 1, `r2` = 2; S3 opens the later ranks). Statuses and transitions:
 
     (none)    -> draft       create: `save_message` without `expected_revision`
     draft     -> draft       edit: content saved, `revision` + 1 (a new subject or body clears the
@@ -20,7 +22,11 @@ The only application write path of `contact_messages`. One durable message per p
                              `cancel` (a person) or `cancel_future_messages` (decision 29)
     cancelled -> draft       `reopen`: explicit re-creation of the step's message by a person,
                              content kept, `revision` + 1, to be validated again
-    scheduled -> sent        dispatcher only (S7), no route; `sent` is immutable (21, trigger)
+    (none)|draft|validated|scheduled|cancelled -> sent
+                             `mark_sent`: a person declares that the next step was really sent
+                             (« Marquer comme envoyé », date editable, default now; source
+                             `manual`); the dispatcher (S7) will mark its own sends (`worker`).
+                             `sent` is immutable (21, trigger) and counts for the level (D1)
 
 Cross-cutting rules:
 
@@ -28,10 +34,13 @@ Cross-cutting rules:
   one answers 409 `revision_conflict` (the row is locked while checked). `revision` changes only
   with the content (and a reopening): validating or scheduling keeps it;
 - only a person (`ActorType.HUMAN`) edits, validates, schedules, unschedules, cancels, reopens;
-- a closed sequence — prospect state `response_received`/`appointment_obtained`/`ignored`, or the
-  durable opposition `do_not_contact` — refuses creating, editing, validating, scheduling and
-  reopening (409 `prospect_sequence_closed` / `prospect_do_not_contact`); unscheduling and
-  cancelling stay possible (they only reduce what may be sent);
+- a closed sequence — no open current sequence (no cohort, or the sequence closed: 409
+  `no_open_sequence`), the out-of-campaign cohort S0 (409 `out_of_campaign`), a prospect state
+  `response_received`/`appointment_obtained`/`ignored`/`disqualified` (409
+  `prospect_sequence_closed`), or the durable opposition `do_not_contact` (409
+  `prospect_do_not_contact`) — refuses creating, editing, validating, scheduling, reopening and
+  marking sent; unscheduling and cancelling stay possible (they only reduce what may be sent).
+  « Relance terminée » does not close it: the prospect stays contactable;
 - a message claimed by the dispatcher (`dispatch_claim_id`) is not changed (409
   `dispatch_in_progress`) — the dispatcher resolves it (S7);
 - defaults of a new message: `From` = `VIPER_DEFAULT_OUTBOUND_EMAIL` when set, `To` = the
@@ -41,9 +50,10 @@ Cross-cutting rules:
 Refusal codes (`ContactMessageError`, `{detail: {code, message, …}}`): 404 `message_not_found`,
 409 `message_exists`, `revision_conflict`, `message_sent_immutable`, `message_cancelled`,
 `invalid_transition` (with the current `status`), `dispatch_in_progress`,
-`prospect_do_not_contact`, `prospect_sequence_closed`; 422 `message_incomplete` (with `fields`).
-Plus the shared ones: 404 `not_found` (prospect), 422 `invalid` (`to.1`, `from_email`,
-`scheduled_at` with reason `not_future`), 403 `human_actor_required`.
+`prospect_do_not_contact`, `prospect_sequence_closed`, `no_open_sequence`, `out_of_campaign`;
+422 `message_incomplete` (with `fields`). Plus the shared ones: 404 `not_found` (prospect), 422
+`invalid` (`to.1`, `from_email`, `scheduled_at` with reason `not_future`, `sent_at` with reason
+`in_future` / `before_previous_send` / `time_zone`), 403 `human_actor_required`.
 
 Audit: one event per changed message through the flush hook (`contact_message.created|updated`
 or the semantic actions of `AuditAction`), subject = the prospect; content and addresses are
@@ -66,14 +76,16 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.actor import ActorContext, ActorType
-from app.models import ContactMessage, Email
+from app.models import ContactMessage, ContactSequence, Email
+from app.models.contact_messages import STEP_RANKS
 from app.models.enums import (
     ContactabilityStatus,
     ContactMessageStatus,
     ContactMessageStep,
     ContactTrackingStatus,
+    SendSource,
 )
-from app.services import audit
+from app.services import audit, contact_sequences
 from app.services.audit import AuditAction
 from app.services.contact_channels import normalize_email_address
 from app.services.contact_message_cancellation import (
@@ -102,7 +114,7 @@ STEPS = tuple(ContactMessageStep)
 VALIDATED = (M.VALIDATED, M.SCHEDULED)
 MANUAL_CANCEL_REASON = "manual"
 MAX_RECIPIENTS = 50
-UNIQUE_STEP = "uq_contact_messages_prospect_id_step"
+UNIQUE_STEP = "uq_contact_messages_sequence_id_rank"
 
 
 # --- inputs and results ------------------------------------------------------------------------
@@ -141,10 +153,18 @@ class SequenceContext:
     prospect_id: uuid.UUID
     state: ContactTrackingStatus | None
     do_not_contact: bool
+    # The open current sequence the editor works on; None without one.
+    sequence_id: uuid.UUID | None = None
+    out_of_campaign: bool = False
 
     @property
     def closed(self) -> bool:
-        return self.do_not_contact or self.state in SEQUENCE_CLOSING_STATES
+        return (
+            self.do_not_contact
+            or self.state in SEQUENCE_CLOSING_STATES
+            or self.sequence_id is None
+            or self.out_of_campaign
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -201,11 +221,23 @@ def _require_open(context: SequenceContext) -> None:
             HTTPStatus.CONFLICT,
             "The prospect must not be contacted: no message is possible.",
         )
-    if context.closed:
+    if context.state in SEQUENCE_CLOSING_STATES:
         raise _refusal(
             "prospect_sequence_closed",
             HTTPStatus.CONFLICT,
             "The prospect's state closed the sequence: no message is possible.",
+        )
+    if context.sequence_id is None:
+        raise _refusal(
+            "no_open_sequence",
+            HTTPStatus.CONFLICT,
+            "The prospect has no open sequence: put it in a cohort first.",
+        )
+    if context.out_of_campaign:
+        raise _refusal(
+            "out_of_campaign",
+            HTTPStatus.CONFLICT,
+            "The prospect is in S0 (out of campaign): no message is possible.",
         )
 
 
@@ -242,10 +274,14 @@ def sequence_context(session: Session, prospect_id: uuid.UUID) -> SequenceContex
     edited afterwards (the sequence is closed), only read or cancelled."""
     prospect = get_prospect(session, prospect_id)
     tracking = prospect.contact_tracking
+    sequence = contact_sequences.current_sequence(session, prospect.id)
+    open_sequence = sequence if sequence is not None and sequence.is_open else None
     return SequenceContext(
         prospect_id=prospect.id,
         state=tracking.status if tracking else None,
         do_not_contact=prospect.contactability_status is ContactabilityStatus.DO_NOT_CONTACT,
+        sequence_id=open_sequence.id if open_sequence else None,
+        out_of_campaign=open_sequence.cohort.out_of_campaign if open_sequence else False,
     )
 
 
@@ -259,16 +295,26 @@ def message_defaults(
     return MessageDefaults(from_email=default_from, to=[primary] if primary else [])
 
 
-def _messages(session: Session, prospect_id: uuid.UUID) -> dict[ContactMessageStep, ContactMessage]:
-    rows = session.scalars(select(ContactMessage).where(ContactMessage.prospect_id == prospect_id))
-    return {row.step: row for row in rows}
+def _messages(
+    session: Session, context: SequenceContext
+) -> dict[ContactMessageStep, ContactMessage]:
+    """The current open sequence's messages the editor names (Contact, R1, R2)."""
+    if context.sequence_id is None:
+        return {}
+    rows = session.scalars(
+        select(ContactMessage).where(
+            ContactMessage.sequence_id == context.sequence_id,
+            ContactMessage.rank < len(STEPS),
+        )
+    )
+    return {step: row for row in rows if (step := row.step) is not None}
 
 
 def prospect_messages(
     session: Session, prospect_id: uuid.UUID, default_from: str | None
 ) -> ProspectMessages:
     context = sequence_context(session, prospect_id)
-    existing = _messages(session, prospect_id)
+    existing = _messages(session, context)
     return ProspectMessages(
         context=context,
         defaults=message_defaults(session, prospect_id, default_from),
@@ -279,24 +325,33 @@ def prospect_messages(
 def get_message(
     session: Session, prospect_id: uuid.UUID, step: ContactMessageStep
 ) -> ContactMessage | None:
-    sequence_context(session, prospect_id)
-    return _messages(session, prospect_id).get(step)
+    context = sequence_context(session, prospect_id)
+    return _messages(session, context).get(step)
 
 
-def _locked(
-    session: Session, prospect_id: uuid.UUID, step: ContactMessageStep
-) -> ContactMessage | None:
-    """The step's message, row-locked and re-read, so the revision check and the write are one."""
+def _locked_rank(session: Session, context: SequenceContext, rank: int) -> ContactMessage | None:
+    """The rank's message in the open sequence, row-locked and re-read, so the checks and the
+    write are one."""
+    if context.sequence_id is None:
+        return None
     return session.scalar(
         select(ContactMessage)
-        .where(ContactMessage.prospect_id == prospect_id, ContactMessage.step == step)
+        .where(ContactMessage.sequence_id == context.sequence_id, ContactMessage.rank == rank)
         .with_for_update()
         .execution_options(populate_existing=True)
     )
 
 
-def _required(session: Session, prospect_id: uuid.UUID, step: ContactMessageStep) -> ContactMessage:
-    message = _locked(session, prospect_id, step)
+def _locked(
+    session: Session, context: SequenceContext, step: ContactMessageStep
+) -> ContactMessage | None:
+    return _locked_rank(session, context, STEP_RANKS[step])
+
+
+def _required(
+    session: Session, context: SequenceContext, step: ContactMessageStep
+) -> ContactMessage:
+    message = _locked(session, context, step)
     if message is None:
         raise _refusal("message_not_found", HTTPStatus.NOT_FOUND, "No message for this step yet.")
     return message
@@ -408,11 +463,11 @@ def _clear_generation(message: ContactMessage) -> None:
 def _log(action: str, message: ContactMessage, actor: ActorContext) -> None:
     # Identifiers and codes only: never an address, a subject or a body.
     logger.info(
-        "contact_message.%s message=%s prospect=%s step=%s status=%s revision=%s actor=%s",
+        "contact_message.%s message=%s prospect=%s rank=%s status=%s revision=%s actor=%s",
         action,
         message.id,
         message.prospect_id,
-        message.step.value,
+        message.rank,
         message.status.value,
         message.revision,
         actor.type.value,
@@ -429,7 +484,13 @@ def _create(
     step: ContactMessageStep,
     content: dict[str, object],
 ) -> MessageResult:
-    message = ContactMessage(prospect_id=context.prospect_id, step=step, **content)
+    assert context.sequence_id is not None  # `_require_open` ran before
+    message = ContactMessage(
+        prospect_id=context.prospect_id,
+        sequence_id=context.sequence_id,
+        rank=STEP_RANKS[step],
+        **content,
+    )
     audit.annotate(session, actor, message)
 
     def duplicate(error: IntegrityError) -> DomainError | None:
@@ -464,7 +525,7 @@ def save_message(
     `draft`) or edit its content (with the current `expected_revision`)."""
     _require_human(actor)
     context = sequence_context(session, prospect_id)
-    message = _locked(session, prospect_id, step)
+    message = _locked(session, context, step)
     if message is None:
         if edit.expected_revision is not None:
             raise _refusal(
@@ -569,7 +630,7 @@ def save_generated(
     `contact_message.generated`; the prospect's state never changes."""
     _require_human(actor)
     context = sequence_context(session, prospect_id)
-    message = _locked(session, prospect_id, step)
+    message = _locked(session, context, step)
     require_generation_target(context, message, expected_revision)
     _no_control_characters("subject", content.subject)
     generation: dict[str, object] = {
@@ -581,9 +642,11 @@ def save_generated(
     }
     if message is None:
         defaults = message_defaults(session, prospect_id, default_from)
+        assert context.sequence_id is not None  # `require_generation_target` checked it
         message = ContactMessage(
             prospect_id=prospect_id,
-            step=step,
+            sequence_id=context.sequence_id,
+            rank=STEP_RANKS[step],
             from_email=defaults.from_email,
             to_recipients=defaults.to,
             cc_recipients=[],
@@ -621,7 +684,7 @@ def _transition_target(
 ) -> tuple[SequenceContext, ContactMessage]:
     _require_human(actor)
     context = sequence_context(session, prospect_id)
-    message = _required(session, prospect_id, step)
+    message = _required(session, context, step)
     _require_not_sent(message)
     _require_revision(message, expected_revision)
     return context, message
@@ -763,6 +826,84 @@ def reopen(
     _clear_validation(message)
     session.flush()
     _log("reopened", message, actor)
+    return MessageResult(message)
+
+
+def _next_send(session: Session, context: SequenceContext) -> tuple[int, datetime | None]:
+    """The first rank of the open sequence not sent yet, and the latest send moment. The sequence
+    row is locked first, so two « Marquer comme envoyé » of the same prospect serialize."""
+    sequence = select(ContactSequence.id).where(ContactSequence.id == context.sequence_id)
+    session.execute(sequence.with_for_update())
+    sent = session.execute(
+        select(ContactMessage.rank, ContactMessage.sent_at).where(
+            ContactMessage.sequence_id == context.sequence_id,
+            ContactMessage.status == M.SENT,
+        )
+    ).all()
+    ranks = {rank for rank, _ in sent}
+    rank = next(candidate for candidate in range(len(ranks) + 1) if candidate not in ranks)
+    latest = max((moment for _, moment in sent if moment is not None), default=None)
+    return rank, latest
+
+
+def mark_sent(
+    session: Session,
+    actor: ActorContext,
+    prospect_id: uuid.UUID,
+    *,
+    sent_at: datetime | None = None,
+    now: datetime | None = None,
+) -> MessageResult:
+    """« Marquer comme envoyé » (D3): a person declares that the next step of the open sequence
+    (the first rank not sent yet: Contact, then R1, R2…) was really sent at `sent_at` (default
+    now; not in the future, not before the previous send). The step's unsent message becomes that
+    send (its text kept); without one, a send record without text is created. Source `manual`;
+    audited `contact_message.sent`. The level moves by one (D1); « Relance terminée » does not
+    prevent it (the prospect stays contactable)."""
+    _require_human(actor)
+    context = sequence_context(session, prospect_id)
+    _require_open(context)
+    current = now or datetime.now(UTC)
+    moment = sent_at or current
+    if moment.tzinfo is None:
+        raise InvalidFieldError("sent_at", "A time zone is required.", "time_zone")
+    if moment > current:
+        raise InvalidFieldError("sent_at", "A send moment cannot be in the future.", "in_future")
+    rank, previous = _next_send(session, context)
+    if previous is not None and moment < previous:
+        raise InvalidFieldError(
+            "sent_at", "A send cannot precede the previous send.", "before_previous_send"
+        )
+    message = _locked_rank(session, context, rank)
+    if message is None:
+        assert context.sequence_id is not None  # `_require_open` checked it
+        message = ContactMessage(
+            prospect_id=prospect_id,
+            sequence_id=context.sequence_id,
+            rank=rank,
+            status=M.SENT,
+            sent_at=moment,
+            sent_source=SendSource.MANUAL,
+        )
+        audit.annotate(session, actor, message, AuditAction.CONTACT_MESSAGE_SENT)
+
+        def duplicate(error: IntegrityError) -> DomainError | None:
+            return _message_exists() if violated_constraint(error) == UNIQUE_STEP else None
+
+        with translated_violations(session, duplicate):
+            session.add(message)
+        session.refresh(message)
+        _log("sent", message, actor)
+        return MessageResult(message, created=True)
+    _require_not_claimed(message)
+    audit.annotate(session, actor, message, AuditAction.CONTACT_MESSAGE_SENT)
+    message.status = M.SENT
+    message.sent_at = moment
+    message.sent_source = SendSource.MANUAL
+    message.cancelled_at = None
+    message.cancel_reason = None
+    session.flush()
+    _log("sent", message, actor)
     return MessageResult(message)
 
 

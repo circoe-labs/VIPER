@@ -8,11 +8,19 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.core.business_time import business_day
 from app.core.config import Settings
 from app.models import ContactTracking
 from app.models.enums import ContactabilityStatus, ContactTrackingStatus
 from app.services.prospection.segments import Segment
-from tests.builders import add_company, add_email, add_prospect, add_role
+from tests.builders import (
+    add_cohort,
+    add_company,
+    add_email,
+    add_prospect,
+    add_role,
+    start_sequence,
+)
 
 COUNTERS = "/api/prospection/counters"
 PROSPECTS = "/api/prospection/prospects"
@@ -38,13 +46,12 @@ def test_counters_and_list_agree_for_every_segment(client: TestClient, db_sessio
             add_email(db_session, prospect, f"api{n}@exemple.example", is_primary=True)
         if n >= 2:
             db_session.add(
-                ContactTracking(
-                    prospect_id=prospect.id,
-                    status=ContactTrackingStatus.NEUTRAL,
-                    # Relative to the real clock: the API compares with the business day.
-                    planned_contact_at=datetime.now(UTC) - timedelta(days=n),
-                )
+                ContactTracking(prospect_id=prospect.id, status=ContactTrackingStatus.NEUTRAL)
             )
+            # A cohort started n days ago (relative to the real clock: the API compares with the
+            # business day), nothing sent yet: the Contact is due.
+            day = business_day(datetime.now(UTC)) - timedelta(days=n)
+            start_sequence(db_session, prospect, add_cohort(db_session, f"S{n}", day))
     db_session.flush()
 
     counters = get(client, COUNTERS, q="api")
@@ -80,7 +87,7 @@ def test_list_rows_carry_the_view_model(client: TestClient, db_session: Session)
     assert row["email_state"] == "missing"
     assert row["contactability_status"] == "do_not_contact"
     assert row["tracking_status"] is None
-    assert row["planned_contact_week"] is None
+    assert (row["cohort_code"], row["next_due_week"], row["next_step"]) == (None, None, None)
 
 
 def test_none_filters_and_validation(client: TestClient, db_session: Session) -> None:
@@ -89,13 +96,16 @@ def test_none_filters_and_validation(client: TestClient, db_session: Session) ->
     assert (
         get(client, PROSPECTS, role="none", referent="none", tracking_status="none")["total"] == 1
     )
-    assert get(client, COUNTERS, tracking_status="contacted")["counts"]["all"] == 0
-    # « Aucun état » includes a prospect without any tracking row.
+    assert get(client, COUNTERS, tracking_status="response_received")["counts"]["all"] == 0
+    assert get(client, COUNTERS, cohort="none")["counts"]["all"] == 1
+    # « En séquence » (no badge) includes a prospect without any tracking row.
     assert get(client, COUNTERS, tracking_status="neutral")["counts"]["all"] == 1
     for params in (
         {"segment": "inconnu"},
         {"role": "pas-un-uuid"},
         {"tracking_status": "do_not_contact"},  # an opposition is not a stage
+        {"tracking_status": "contacted"},  # a former state (sequences rework D7)
+        {"cohort": "S39"},  # a cohort id, not a code
         {"sort": "prenom"},
         {"limit": 0},
         {"limit": 201},

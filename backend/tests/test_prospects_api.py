@@ -43,7 +43,6 @@ def body_of(view: dict[str, Any], **changes: Any) -> dict[str, Any]:
         if tracking is None
         else {
             "status": tracking["status"],
-            "planned_contact_on": tracking["planned_contact_on"],
             "response_received_on": tracking["response_received_on"],
             "appointment_on": tracking["appointment_on"],
             "appointment_time": tracking["appointment_time"],
@@ -102,7 +101,7 @@ def test_lifecycle_is_attributed_to_the_signed_in_user(
             "employment_verification": {"action": "verified_now"},
             "emails": [{"address": "Jean.Api@Exemple.example", "verified_now": True}],
             "phones": [{"number": "06 00 00 00 01", "type": "mobile"}],
-            "tracking": {"status": "neutral", "planned_contact_on": "2026-09-21"},
+            "tracking": {"status": "neutral", "planned_contact_on": "2026-09-21"},  # ignored
             "provenance": {"legal_basis_or_collection_context": CONTEXT},
         },
     )
@@ -111,7 +110,10 @@ def test_lifecycle_is_attributed_to_the_signed_in_user(
     assert view["emails"][0]["address"] == "jean.api@exemple.example"
     assert view["emails"][0]["verification_status"] == "verified"
     assert view["phones"][0]["number"] == "+33600000001"
-    assert view["tracking"]["planned_contact_week"] == "2026-W39"
+    # A former client's planned day is ignored: the next due date is derived (rework D1).
+    assert view["tracking"]["status"] == "neutral"
+    assert "planned_contact_week" not in view["tracking"]
+    assert view["contact"]["cohort"] is None and view["contact"]["next_due_on"] is None
     assert view["sources"][0]["source_type"] == "manual"
     assert view["sources"][0]["recorded_by"] == {
         "kind": "human",

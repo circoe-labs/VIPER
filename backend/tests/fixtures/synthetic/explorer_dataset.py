@@ -166,7 +166,6 @@ def seed_explorer_dataset(session: Session) -> ExplorerDataset:
                 prospect.id,
                 ContactTrackingInput(
                     status=STATUSES[i % len(STATUSES)],
-                    planned_contact_at=REFERENCE_TIME + timedelta(days=i % 30),
                     referent_id=referents[i % 2].id,
                 ),
             )

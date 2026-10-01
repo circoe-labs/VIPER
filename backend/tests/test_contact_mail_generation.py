@@ -33,13 +33,22 @@ from app.models.enums import (
     ContactMessageStatus,
     ContactMessageStep,
     ContactTrackingStatus,
+    SendSource,
 )
 from app.services import audit, contact_messages
 from app.services.contact_messages import MessageEdit
 from app.services.errors import MailGenerationError
 from app.services.mail_generation.openai_client import GeneratedMail, generation_error
 from app.services.mail_generation.prompt import PROMPT_VERSION, MailPrompt
-from tests.builders import OPERATOR, add_company, add_email, add_phone, add_prospect, add_role
+from tests.builders import (
+    OPERATOR,
+    add_company,
+    add_email,
+    add_phone,
+    add_prospect,
+    add_role,
+    start_sequence,
+)
 from tests.test_contact_messages_api import SENDER, messages, ok, refused
 
 SECRET_EMAIL = "claire.secret@exemple.example"
@@ -110,6 +119,7 @@ def prospect(db_session: Session) -> uuid.UUID:
     add_phone(db_session, person, SECRET_PHONE)
     db_session.add(ContactTracking(prospect_id=person.id, status=ContactTrackingStatus.NEUTRAL))
     db_session.flush()
+    start_sequence(db_session, person)
     return person.id
 
 
@@ -121,11 +131,11 @@ def snapshot(session: Session) -> tuple[Any, ...]:
     session.expire_all()
     return (
         [
-            (m.step, m.status, m.revision, m.subject, m.body_text, m.generation_model)
-            for m in session.scalars(select(ContactMessage).order_by(ContactMessage.step))
+            (m.rank, m.status, m.revision, m.subject, m.body_text, m.generation_model)
+            for m in session.scalars(select(ContactMessage).order_by(ContactMessage.rank))
         ],
         session.scalar(select(func.count()).select_from(AuditLogEntry)),
-        [(t.status, t.planned_contact_at) for t in session.scalars(select(ContactTracking))],
+        [(t.status, t.updated_at) for t in session.scalars(select(ContactTracking))],
         session.scalar(select(func.count()).select_from(ContactTrackingStatusHistory)),
     )
 
@@ -398,6 +408,7 @@ def test_a_sent_message_is_immutable(
     message.sent_at = message.validated_at = now
     message.validated_revision = message.revision
     message.validated_by_actor_id = "x"
+    message.sent_source = SendSource.WORKER
     db_session.flush()
 
     refused(

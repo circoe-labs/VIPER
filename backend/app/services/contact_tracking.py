@@ -1,21 +1,18 @@
-"""Contact tracking (`Suivi de contact`): the current row per prospect and its status history.
+"""Contact tracking (`Suivi de contact`): the commercial state per prospect and its history.
 
 `save_contact_tracking` is the only write path of `contact_tracking` (Prospect editor, the
 dedicated tracking endpoint, Database Explorer, imports), so the Contact rules hold everywhere
-(handoff decision log; reference `src/server/contactTrackingService.ts`):
+(sequences rework D7; former handoff decisions 7, 10, 29):
 
 - a state change is a decision of a person, an import or a system job — an agent actor is refused
-  (decision 10: no automatic classification); nothing here changes a state from a date or a mail;
-- `ignored` is terminal (no way out, never a next action) and reinforces the durable opposition
-  `do_not_contact` through `prospects.mark_do_not_contact` (decision 7; never lifted here);
-- entering a state without a default next action (`response_received`, `appointment_obtained`,
-  `failure`, `ignored`) clears the next action when the input only echoes the stored one (the
-  editor's full-form save, Explorer, imports); a different one is kept. A caller that knows the
-  week was given explicitly (`PATCH …/tracking`) passes `explicit_next_action=True` and it is
-  kept even when equal — on `ignored` that week is refused (`ignored_has_no_next_action`);
+  (no automatic classification); « Défaillant » (`disqualified`) is chosen by a person only (D4,
+  D7: never an import, a job or the AI); nothing here changes a state from a date or a mail;
+- `ignored` is terminal (no way out) and reinforces the durable opposition `do_not_contact`
+  through `prospects.mark_do_not_contact` (decision 7; never lifted here);
 - entering `response_received` without a response date records the caller's `now`;
-- choosing `response_received`, `appointment_obtained` or `ignored` cancels the prospect's future
-  unsent messages (decision 29) through `cancel_future_messages`, in the same transaction.
+- choosing `response_received`, `appointment_obtained`, `ignored` or `disqualified` cancels the
+  prospect's future unsent messages (decision 29) through `cancel_future_messages`, in the same
+  transaction. The cohort and the sequence are never touched (`contact_sequences`).
 
 Operations flush; the caller owns the transaction.
 """
@@ -33,7 +30,7 @@ from app.services import audit, contact_messages
 from app.services.audit import AuditAction
 from app.services.contact_message_cancellation import NOTHING, Cancellation
 from app.services.contact_workflow import (
-    NEXT_ACTION_STATES,
+    HUMAN_ONLY_STATES,
     SEQUENCE_CLOSING_STATES,
     TERMINAL_STATES,
 )
@@ -48,7 +45,6 @@ IGNORED_REASON = "Suivi de contact : Ignoré"
 @dataclass(frozen=True, slots=True)
 class ContactTrackingInput:
     status: ContactTrackingStatus
-    planned_contact_at: datetime | None = None
     referent_id: uuid.UUID | None = None
     response_received_at: datetime | None = None
     appointment_at: datetime | None = None
@@ -78,7 +74,6 @@ def _checked(
     actor: ActorContext,
     data: ContactTrackingInput,
     *,
-    explicit_next_action: bool,
     now: datetime,
 ) -> ContactTrackingInput:
     """`data` with the mechanical effects of the state change applied, or a refusal."""
@@ -86,25 +81,14 @@ def _checked(
     moved = previous != data.status
     if moved and actor.type is ActorType.AGENT:
         raise ActorNotAllowedError("A contact state is chosen by a person, never by an agent.")
+    if moved and data.status in HUMAN_ONLY_STATES and actor.type is not ActorType.HUMAN:
+        raise ActorNotAllowedError("« Défaillant » is a decision of a person.")
     if moved and previous in TERMINAL_STATES:
         raise TrackingRuleError("ignored_is_terminal", "An ignored prospect keeps its state.")
-    planned = data.planned_contact_at
-    if (
-        moved
-        and tracking is not None
-        and data.status not in NEXT_ACTION_STATES
-        and planned == tracking.planned_contact_at
-        and not explicit_next_action
-    ):
-        planned = None
-    if data.status in TERMINAL_STATES and planned is not None:
-        raise TrackingRuleError(
-            "ignored_has_no_next_action", "An ignored prospect has no next action."
-        )
     response = data.response_received_at
     if moved and data.status is S.RESPONSE_RECEIVED and response is None:
         response = now
-    return replace(data, planned_contact_at=planned, response_received_at=response)
+    return replace(data, response_received_at=response)
 
 
 def save_contact_tracking(
@@ -113,13 +97,10 @@ def save_contact_tracking(
     prospect_id: uuid.UUID,
     data: ContactTrackingInput,
     *,
-    explicit_next_action: bool = False,
     now: datetime | None = None,
 ) -> ContactTracking:
     """`apply_contact_tracking` for callers that only need the row."""
-    return apply_contact_tracking(
-        session, actor, prospect_id, data, explicit_next_action=explicit_next_action, now=now
-    ).tracking
+    return apply_contact_tracking(session, actor, prospect_id, data, now=now).tracking
 
 
 def apply_contact_tracking(
@@ -128,7 +109,6 @@ def apply_contact_tracking(
     prospect_id: uuid.UUID,
     data: ContactTrackingInput,
     *,
-    explicit_next_action: bool = False,
     now: datetime | None = None,
 ) -> TrackingSaved:
     """Create or replace the prospect's current tracking; log a history row on status change.
@@ -136,15 +116,16 @@ def apply_contact_tracking(
     Audit: `contact_tracking.created`, `contact_tracking.status_changed` when the state moves, or
     `contact_tracking.updated` when only dates/referent change (no event when nothing changes);
     `prospect.do_not_contact.set` when `ignored` reinforces the opposition.
-    Refusals: `ActorNotAllowedError` (agent), `TrackingRuleError` (`ignored_is_terminal`,
-    `ignored_has_no_next_action`). Returns the row and the number of messages cancelled by a
+    Refusals: `ActorNotAllowedError` (agent; `disqualified` by anyone but a person),
+    `TrackingRuleError` (`ignored_is_terminal`). Returns the row and the number of messages
+    cancelled by a
     sequence-closing state. `now` is the caller's clock (the request's moment); callers
     without one (Explorer, imports) get the current time.
     """
     prospect = get_prospect(session, prospect_id)
     tracking = prospect.contact_tracking
     moment = now if now is not None else datetime.now(UTC)
-    data = _checked(tracking, actor, data, explicit_next_action=explicit_next_action, now=moment)
+    data = _checked(tracking, actor, data, now=moment)
     previous_status = tracking.status if tracking else None
     moved = previous_status != data.status
     if tracking is None:
@@ -156,7 +137,6 @@ def apply_contact_tracking(
             session, actor, tracking, AuditAction.CONTACT_TRACKING_STATUS_CHANGED if moved else None
         )
     tracking.status = data.status
-    tracking.planned_contact_at = data.planned_contact_at
     tracking.referent_id = data.referent_id
     tracking.response_received_at = data.response_received_at
     tracking.appointment_at = data.appointment_at

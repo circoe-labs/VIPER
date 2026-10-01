@@ -25,6 +25,7 @@ from app.api.routes import (
     prospection,
     prospects,
     search,
+    sequences,
     settings,
 )
 
@@ -48,4 +49,5 @@ api_router.include_router(imports.router)
 api_router.include_router(prospection.router)
 api_router.include_router(prospects.router)
 api_router.include_router(search.router)
+api_router.include_router(sequences.router)
 api_router.include_router(settings.router)

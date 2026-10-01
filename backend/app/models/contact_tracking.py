@@ -1,4 +1,9 @@
-"""Lightweight contact tracking (`Suivi de contact`): one current row per prospect + history."""
+"""Lightweight contact tracking (`Suivi de contact`): one current row per prospect + history.
+
+The row holds the commercial state chosen by a person (D7), the referent and the response and
+appointment dates. The cohort, the sequence and the level live in `contact_sequences` and
+`contact_messages`; the next due date is derived from them (D1), never stored.
+"""
 
 import uuid
 from datetime import datetime
@@ -16,13 +21,10 @@ from app.models.prospects import Prospect
 class ContactTracking(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "contact_tracking"
 
-    # UNIQUE: V1 keeps a single current tracking cycle per prospect (multi-cycle is deferred).
+    # UNIQUE: one commercial state per prospect (its sequences are in `contact_sequences`).
     prospect_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("prospects.id", ondelete="CASCADE"), unique=True
     )
-    # The next action (P1): first contact, follow-up or review. Written by the week planner and the
-    # cadence as the Monday of the chosen ISO week (business midnight); the week is derived.
-    planned_contact_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[ContactTrackingStatus] = mapped_column(
         text_enum(ContactTrackingStatus, "status"),
         server_default=ContactTrackingStatus.NEUTRAL.value,
@@ -63,8 +65,8 @@ class ContactTrackingStatusHistory(UUIDPrimaryKeyMixin, Base):
             name="fk_contact_tracking_status_history_contact_tracking_id",
         )
     )
-    # NULL for the initial status of a new tracking row. Rows written before migration 0008 keep
-    # their legacy code (history is never rewritten), hence the wider `TrackingHistoryStatus`.
+    # NULL for the initial status of a new tracking row. Rows written before migrations 0008 and
+    # 0010 keep their legacy code (history is never rewritten), hence `TrackingHistoryStatus`.
     from_status: Mapped[TrackingHistoryStatus | None] = mapped_column(
         text_enum(TrackingHistoryStatus, "from_status")
     )

@@ -90,6 +90,20 @@ class ContactMessageError(DomainError):
         self.details = details
 
 
+class BusinessRuleError(DomainError):
+    """A cohort, sequence, send or quality-alert rule refused the operation (sequences rework).
+    `code` is stable (the UI turns it into French copy), `http_status` its HTTP status and
+    `details` add machine-readable context. Codes: `app.services.cohorts`,
+    `app.services.contact_sequences`, `app.services.quality_alerts`, `app.services.app_settings`.
+    """
+
+    def __init__(self, code: str, http_status: int, message: str, **details: object) -> None:
+        super().__init__(message)
+        self.code = code
+        self.http_status = http_status
+        self.details = details
+
+
 class MailGenerationError(DomainError):
     """The AI drafting of a Contact message failed or is not configured; nothing was saved.
     `code` is stable (`ai_not_configured`, `ai_timeout`, `ai_rate_limited`, `ai_auth_failed`,

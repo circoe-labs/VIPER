@@ -1,32 +1,33 @@
-"""Contact dashboard (Contact port Slice S3; handoff Task 09, decisions 16-18): the Contact page's
-counters, week options and people list, read-only (no filter or counter ever changes a state).
+"""Contact dashboard (Contact port Slice S3; handoff Task 09, decisions 16-18; adapted to the
+sequences rework D1-D9 — the full weekly planning by level is Slice S3 of the rework): the Contact
+page's counters, week options and people list, read-only (no filter or counter ever changes a
+state, a cohort or a sequence).
 
-Scope: prospects with a contact tracking whose state is not `ignored` (terminal, outside
-Contact — the reference's rule) and without the durable opposition `do_not_contact` (nobody to
-write to; `ignored` implies it anyway) — except `appointment_obtained`, which stays counted and
-listed whatever the opposition (« RDV pris » is a cumulative fact). `failure` stays in scope: it
-is filterable, has no next action by default and is never due.
+Scope: prospects in a cohort (a current sequence) or with a contact tracking, whose state is
+neither `ignored` (terminal) nor `disqualified` (« Défaillant », out of the pipeline), and without
+the durable opposition `do_not_contact` (nobody to write to) — except `appointment_obtained`,
+which stays counted and listed whatever the opposition (« RDV pris » is a cumulative fact).
 
-Counters — each equals the total of the list opened with the same `counter` key (same SQL):
+The next due date is derived (`contact_sequences.next_due_at_sql`): the cohort's date for the
+Contact, then the Monday of the calendar week after the last real send; nothing is due when the
+sequence is finished (« Relance terminée »), the cohort is S0, the state is not `neutral` or an
+« Erreur sur le mail » is open. Counters — each equals the total of the list opened with the same
+`counter` key (same SQL):
 
-- `first_contact`: `neutral` with a next-action week reached or overdue (week ≤ current ISO week);
-- `follow_up`: `contacted` (R1 to prepare) or `r1` (R2 to prepare), week reached or overdue;
-- `review`: `r2`, week reached or overdue — a human review/closing, not another mail (decision 13);
-- `to_handle`: « À traiter cette semaine » = the exact, disjoint union of the three above;
-- `appointments`: « RDV pris », cumulative = current state `appointment_obtained`, no time window
-  (a corrected choice stops counting), opposed or not.
+- `first_contact`: nothing sent yet in the sequence, Contact due this week or overdue;
+- `follow_up`: at least one send, the next follow-up (R1, R2…) due this week or overdue;
+- `to_handle`: « À traiter cette semaine » = the exact, disjoint union of the two above;
+- `appointments`: « RDV pris », cumulative = current state `appointment_obtained`, no time window,
+  opposed or not.
 
-The four « due » counters also exclude prospects known to have left their role (`inactive`),
-exactly as Prospection's `actionable()`. "Reached or overdue" compares the stored next action
-(P1: Monday of the week, business midnight) with the start of next week's Monday, so any moment
-inside the current ISO week counts, whatever was stored. Nothing becomes due or overdue by itself
-in the state: an overdue week stays « à traiter » until a person acts (decision 10).
+The « due » counters also exclude prospects known to have left their role (`inactive`), exactly
+as Prospection's `actionable()`. "This week or overdue" compares the next due date with the start
+of next week's Monday. An overdue step stays « à traiter » until a person records the send.
 
-List criteria (AND): `counter`, `week` (exact ISO week of the next action, business time), `state`
-(any state but `ignored`), `q` (the Prospection search: names, company, e-mail, phone). Without
-`counter`, `week` or `state`, the list is the planning: prospects with a next-action week only
-(a prospect without one appears only under an explicit state filter). Order: next action
-(soonest first, none last), then last name, first name, id. Pagination like Prospection.
+List criteria (AND): `counter`, `week` (exact ISO calendar week of the next due date, business
+time), `state` (any state but `ignored`/`disqualified`), `q` (the Prospection search). Without
+`counter`, `week` or `state`, the list is the planning: prospects with a next due date only.
+Order: next due date (soonest first, none last), then last name, first name, id.
 """
 
 import uuid
@@ -40,7 +41,7 @@ from sqlalchemy.orm import Session
 
 from app.core.business_time import BUSINESS_TIMEZONE, business_day, start_of_day
 from app.db.session import whole_base_plan
-from app.models import ContactMessage, ContactTracking, Prospect, Role
+from app.models import Cohort, ContactMessage, ContactSequence, ContactTracking, Prospect, Role
 from app.models.companies import Company
 from app.models.enums import (
     ActivityStatus,
@@ -51,11 +52,20 @@ from app.models.enums import (
     ContactTrackingStatus,
 )
 from app.repositories.taxonomies import label_key
-from app.services.contact_workflow import IsoWeek
+from app.services.contact_sequences import (
+    finished_sql,
+    has_cohort_sql,
+    next_due_at_sql,
+    next_rank_sql,
+    sent_count_sql,
+)
+from app.services.contact_workflow import IsoWeek, step_code
 from app.services.prospection.query import LIST_MAX_LIMIT, iso_week, search_condition
 from app.services.prospection.segments import actionable, join_segment_sources, primary_email
 
 S = ContactTrackingStatus
+# Outside Contact: terminal or eliminated.
+OUT_OF_SCOPE_STATES = (S.IGNORED, S.DISQUALIFIED)
 
 
 class ContactCounter(StrEnum):
@@ -64,38 +74,16 @@ class ContactCounter(StrEnum):
     TO_HANDLE = "to_handle"
     FIRST_CONTACT = "first_contact"
     FOLLOW_UP = "follow_up"
-    REVIEW = "review"
     APPOINTMENTS = "appointments"
 
 
-class NextStep(StrEnum):
-    """What the next action of a state prepares: the mail of a step, or the R2 review."""
-
-    CONTACT = "contact"
-    R1 = "r1"
-    R2 = "r2"
-    REVIEW = "review"
-
-
-NEXT_STEPS: dict[ContactTrackingStatus, NextStep] = {
-    S.NEUTRAL: NextStep.CONTACT,
-    S.CONTACTED: NextStep.R1,
-    S.R1: NextStep.R2,
-    S.R2: NextStep.REVIEW,
-}
-DUE_STATES: dict[ContactCounter, tuple[ContactTrackingStatus, ...]] = {
-    ContactCounter.TO_HANDLE: (S.NEUTRAL, S.CONTACTED, S.R1, S.R2),
-    ContactCounter.FIRST_CONTACT: (S.NEUTRAL,),
-    ContactCounter.FOLLOW_UP: (S.CONTACTED, S.R1),
-    ContactCounter.REVIEW: (S.R2,),
-}
-# States a Contact list may be filtered on: all but `ignored` (outside Contact).
-FILTERABLE_STATES = tuple(state for state in S if state is not S.IGNORED)
+# States a Contact list may be filtered on.
+FILTERABLE_STATES = tuple(state for state in S if state not in OUT_OF_SCOPE_STATES)
 
 
 @dataclass(frozen=True, slots=True)
 class ContactClock:
-    """« This week »: the ISO week of the business day."""
+    """« This week »: the ISO calendar week of the business day."""
 
     today: date
 
@@ -109,7 +97,7 @@ class ContactClock:
 
     @property
     def due_before(self) -> datetime:
-        """Start of next week's Monday: a next action before it is reached or overdue."""
+        """Start of next week's Monday: a due date before it is this week or overdue."""
         return start_of_day(self.current_week.monday + timedelta(weeks=1))
 
 
@@ -134,7 +122,7 @@ class ContactDashboard:
     today: date
     current_week: str
     counts: dict[ContactCounter, int]
-    # Weeks present in the planning (in scope, under `q`), oldest first, for the week selector.
+    # Weeks of the next due dates (in scope, under `q`), oldest first, for the week selector.
     weeks: list[WeekOption]
 
 
@@ -151,12 +139,16 @@ class ContactRow:
     primary_email: str | None
     activity_status: ActivityStatus
     tracking_status: ContactTrackingStatus
-    planned_contact_at: datetime | None
+    cohort_code: str | None
+    sent_count: int
+    finished: bool
+    next_due_at: datetime | None
     next_action_week: str | None
-    # In `to_handle`: next action reached or overdue, and actionable.
+    # In `to_handle`: due this week or overdue, and actionable.
     due: bool
-    next_step: NextStep | None
-    # Status of each step's message; None = never created.
+    # The step to send next (`contact`, `r1`…), None when finished or without cohort.
+    next_step: str | None
+    # Status of each named step's message in the current sequence; None = never created.
     messages: dict[ContactMessageStep, ContactMessageStatus | None]
 
 
@@ -173,8 +165,8 @@ class ContactPage:
 
 def in_scope() -> ColumnElement[bool]:
     return and_(
-        ContactTracking.id.is_not(None),
-        ContactTracking.status != S.IGNORED,
+        or_(has_cohort_sql(), ContactTracking.id.is_not(None)),
+        or_(ContactTracking.id.is_(None), ContactTracking.status.not_in(OUT_OF_SCOPE_STATES)),
         or_(
             Prospect.contactability_status == ContactabilityStatus.CONTACTABLE,
             # An appointment obtained stays a fact after a later opposition (« RDV pris »).
@@ -183,26 +175,26 @@ def in_scope() -> ColumnElement[bool]:
     )
 
 
-def _due(states: tuple[ContactTrackingStatus, ...], clock: ContactClock) -> ColumnElement[bool]:
-    return and_(
-        actionable(),
-        ContactTracking.status.in_(states),
-        ContactTracking.planned_contact_at < clock.due_before,
-    )
+def _due(clock: ContactClock) -> ColumnElement[bool]:
+    return and_(actionable(), next_due_at_sql() < clock.due_before)
 
 
 def counter_condition(counter: ContactCounter, clock: ContactClock) -> ColumnElement[bool]:
-    if counter is ContactCounter.APPOINTMENTS:
-        return ContactTracking.status == S.APPOINTMENT_OBTAINED
-    return _due(DUE_STATES[counter], clock)
+    match counter:
+        case ContactCounter.APPOINTMENTS:
+            return ContactTracking.status == S.APPOINTMENT_OBTAINED
+        case ContactCounter.FIRST_CONTACT:
+            return and_(_due(clock), sent_count_sql() == 0)
+        case ContactCounter.FOLLOW_UP:
+            return and_(_due(clock), sent_count_sql() > 0)
+        case ContactCounter.TO_HANDLE:
+            return _due(clock)
 
 
 def week_condition(week: IsoWeek) -> ColumnElement[bool]:
     start = start_of_day(week.monday)
-    return and_(
-        ContactTracking.planned_contact_at >= start,
-        ContactTracking.planned_contact_at < start_of_day(week.monday + timedelta(weeks=1)),
-    )
+    due = next_due_at_sql()
+    return and_(due >= start, due < start_of_day(week.monday + timedelta(weeks=1)))
 
 
 def _search(filters: ContactFilters) -> list[ColumnElement[bool]]:
@@ -217,14 +209,18 @@ def list_conditions(filters: ContactFilters, clock: ContactClock) -> list[Column
     if filters.week is not None:
         conditions.append(week_condition(filters.week))
     if filters.state is not None:
-        conditions.append(ContactTracking.status == filters.state)
+        if filters.state is S.NEUTRAL:
+            no_state = or_(ContactTracking.id.is_(None), ContactTracking.status == S.NEUTRAL)
+            conditions.append(no_state)
+        else:
+            conditions.append(ContactTracking.status == filters.state)
     if filters.counter is None and filters.week is None and filters.state is None:
-        conditions.append(ContactTracking.planned_contact_at.is_not(None))
+        conditions.append(next_due_at_sql().is_not(None))
     return conditions
 
 
 def _week_label() -> ColumnElement[str]:
-    local = func.timezone(str(BUSINESS_TIMEZONE), ContactTracking.planned_contact_at)
+    local = func.timezone(str(BUSINESS_TIMEZONE), next_due_at_sql())
     return func.to_char(local, 'IYYY-"W"IW')
 
 
@@ -239,10 +235,10 @@ def dashboard(session: Session, clock: ContactClock, search: str | None = None) 
         func.count().filter(counter_condition(counter, clock)).label(counter.value)
         for counter in ContactCounter
     ]
-    week = _week_label()
+    week = _week_label().label("week")
     weeks_query = (
         join_segment_sources(select(week, func.count()))
-        .where(*where, ContactTracking.planned_contact_at.is_not(None))
+        .where(*where, next_due_at_sql().is_not(None))
         .group_by(week)
         .order_by(week)
     )
@@ -262,7 +258,7 @@ def dashboard(session: Session, clock: ContactClock, search: str | None = None) 
 
 
 def _page_statement(clock: ContactClock) -> Select[Any]:
-    due = func.coalesce(_due(DUE_STATES[ContactCounter.TO_HANDLE], clock), false())
+    due = func.coalesce(_due(clock), false())
     return join_segment_sources(
         select(
             Prospect,
@@ -270,25 +266,34 @@ def _page_statement(clock: ContactClock) -> Select[Any]:
             Company.display_name,
             primary_email.address,
             ContactTracking.status,
-            ContactTracking.planned_contact_at,
+            Cohort.code,
+            sent_count_sql(),
+            func.coalesce(finished_sql(), false()),
+            next_rank_sql(),
+            next_due_at_sql(),
             due,
+            ContactSequence.id,
         )
     ).outerjoin(Role, Role.id == Prospect.role_id)
 
 
 def _message_statuses(
-    session: Session, prospect_ids: list[uuid.UUID]
+    session: Session, sequence_ids: list[uuid.UUID]
 ) -> dict[uuid.UUID, dict[ContactMessageStep, ContactMessageStatus]]:
+    """Per current sequence: the status of its Contact, R1 and R2 messages."""
     statuses: dict[uuid.UUID, dict[ContactMessageStep, ContactMessageStatus]] = {}
-    if not prospect_ids:
+    if not sequence_ids:
         return statuses
-    rows = session.execute(
-        select(ContactMessage.prospect_id, ContactMessage.step, ContactMessage.status).where(
-            ContactMessage.prospect_id.in_(prospect_ids)
+    rows = session.scalars(
+        select(ContactMessage).where(
+            ContactMessage.sequence_id.in_(sequence_ids),
+            ContactMessage.rank < len(ContactMessageStep),
         )
-    ).tuples()
-    for prospect_id, step, status in rows:
-        statuses.setdefault(prospect_id, {})[step] = status
+    )
+    for message in rows:
+        step = message.step
+        if step is not None:
+            statuses.setdefault(message.sequence_id, {})[step] = message.status
     return statuses
 
 
@@ -305,7 +310,7 @@ def list_contacts(
     offset = max(0, offset)
     where = list_conditions(filters, clock)
     order: list[Any] = [
-        ContactTracking.planned_contact_at.asc().nulls_last(),
+        next_due_at_sql().asc().nulls_last(),
         label_key(Prospect.last_name).nulls_last(),
         label_key(Prospect.first_name).nulls_last(),
         Prospect.id,
@@ -315,26 +320,44 @@ def list_contacts(
     with whole_base_plan(session):
         rows = session.execute(page).tuples().all()
         total = session.execute(count).scalar_one()
-    messages = _message_statuses(session, [row[0].id for row in rows])
-    items = [
-        ContactRow(
-            id=prospect.id,
-            civility=prospect.civility,
-            first_name=prospect.first_name,
-            last_name=prospect.last_name,
-            exact_job_title=prospect.exact_job_title,
-            role_label=role_label,
-            company_id=prospect.company_id,
-            company_name=company_name,
-            primary_email=email,
-            activity_status=prospect.activity_status,
-            tracking_status=state,
-            planned_contact_at=planned,
-            next_action_week=iso_week(planned),
-            due=bool(due),
-            next_step=NEXT_STEPS.get(state),
-            messages={step: messages.get(prospect.id, {}).get(step) for step in ContactMessageStep},
+    messages = _message_statuses(session, [row[-1] for row in rows if row[-1] is not None])
+    items = []
+    for (
+        prospect,
+        role_label,
+        company_name,
+        email,
+        state,
+        cohort_code,
+        sent_count,
+        finished,
+        next_rank,
+        next_due,
+        due,
+        sequence_id,
+    ) in rows:
+        steps = messages.get(sequence_id, {}) if sequence_id else {}
+        items.append(
+            ContactRow(
+                id=prospect.id,
+                civility=prospect.civility,
+                first_name=prospect.first_name,
+                last_name=prospect.last_name,
+                exact_job_title=prospect.exact_job_title,
+                role_label=role_label,
+                company_id=prospect.company_id,
+                company_name=company_name,
+                primary_email=email,
+                activity_status=prospect.activity_status,
+                tracking_status=state or S.NEUTRAL,
+                cohort_code=cohort_code,
+                sent_count=sent_count,
+                finished=bool(finished),
+                next_due_at=next_due,
+                next_action_week=iso_week(next_due),
+                due=bool(due),
+                next_step=step_code(next_rank) if next_rank is not None else None,
+                messages={step: steps.get(step) for step in ContactMessageStep},
+            )
         )
-        for prospect, role_label, company_name, email, state, planned, due in rows
-    ]
     return ContactPage(items=items, total=total, limit=limit, offset=offset)

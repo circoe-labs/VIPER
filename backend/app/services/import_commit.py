@@ -22,7 +22,7 @@ import logging
 import uuid
 from collections import Counter
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, datetime, time
 from functools import partial
 
@@ -72,6 +72,8 @@ from app.services.imports.text import fold
 from app.services.imports.workbook import ImportLimits
 
 logger = logging.getLogger(__name__)
+# Follow-up stage columns: sends, recorded by the import redesign (S2), kept raw until then.
+SEND_STAGES = (ImportField.STAGE_FOLLOW_UP_1, ImportField.STAGE_FOLLOW_UP_2)
 TRACKING_FIELDS = (
     ImportField.STAGE_APPOINTMENT,
     ImportField.STAGE_QUOTE_SENT,
@@ -141,21 +143,9 @@ def review_upload(
 
 
 @dataclass(frozen=True, slots=True)
-class FileTracking:
-    """What one prospect's tracking holds *from the file* after the commit: the planned contact
-    of its row (written now, or already equal), and whether the row's referent was written now
-    (a referent already there — e.g. set by hand — is never the file's)."""
-
-    planned_contact_at: datetime | None = None
-    referent_written: bool = False
-
-
-@dataclass(frozen=True, slots=True)
 class CommitResult:
     batch: ImportBatch
     counts: dict[str, int]
-    # Per prospect: the file's tracking values (read by the operational reconciliation).
-    file_tracking: dict[uuid.UUID, FileTracking] = field(default_factory=dict)
 
 
 def commit_import(
@@ -274,7 +264,6 @@ class Committer:
         self.receivers: dict[int, Prospect] = {}  # row → the prospect it created or merged into
         self.extra: dict[int, dict[str, LegacyValue]] = {}
         self.attached: set[uuid.UUID] = set()
-        self.file_tracking: dict[uuid.UUID, FileTracking] = {}
 
     def run(self) -> CommitResult:
         self.create_taxonomies()
@@ -306,7 +295,7 @@ class Committer:
         self.counts["rows_imported"] = imported
         self.counts["rows_excluded"] = len(self.plan.rows) - imported
         self.counts["prospects_attached"] = len(self.attached)
-        return CommitResult(finished, dict(self.counts), dict(self.file_tracking))
+        return CommitResult(finished, dict(self.counts))
 
     @staticmethod
     def guarded(row: int, step: Callable[[], None]) -> None:
@@ -536,20 +525,30 @@ class Committer:
     def tracking(self, plan: RowPlan, prospect: Prospect) -> None:
         """Create the tracking (status history included) or fill its empty dates/referent. The
         state of an existing tracking is never changed, except a `neutral` one that the file's
-        stage columns advance (nothing was chosen yet); a do-not-contact prospect (hence every
-        `ignored` one) gets no tracking change from an import."""
+        appointment stages advance (nothing was chosen yet); a do-not-contact prospect (hence
+        every `ignored` one) gets no tracking change from an import.
+
+        Sequences rework (S1): the planned week (`Sxx`) and the follow-up stage columns are no
+        longer written — a state is never derived from them (D7) and a cohort or a send needs the
+        import redesign of Slice S2 (D3, D5). Until then their raw cells are kept in the row's
+        legacy metadata, so nothing is lost. TODO(S2): cohorts and imported sends."""
         row = plan.row
         proposal = row.tracking
         # A stage only when a legacy stage column said so; a suggestion alone creates nothing.
         status = proposal.status if proposal and proposal.stages else None
-        planned = at_midnight(plan.planned_date)
         appointment = at_midnight(proposal.appointment_date if proposal else None)
         referent = plan.referent_id
-        if status is None and planned is None and referent is None:
+        if plan.planned_date is not None or (proposal and proposal.planned_contact):
+            self.keep(row, ImportField.PLANNED_CONTACT)
+        if proposal and any(stage in SEND_STAGES for stage in proposal.stages):
+            self.keep_tracking(row, stages=True, referent=False)
+        if status is ContactTrackingStatus.NEUTRAL:
+            status = None
+        if status is None and referent is None and appointment is None:
             return
         current = prospect.contact_tracking
         if prospect.contactability_status is ContactabilityStatus.DO_NOT_CONTACT:
-            self.keep_tracking(row, stages=True, planned=True, referent=True)
+            self.keep_tracking(row, stages=True, referent=True)
             return
         if current is None:
             save_contact_tracking(
@@ -558,18 +557,15 @@ class Committer:
                 prospect.id,
                 ContactTrackingInput(
                     status=status or ContactTrackingStatus.NEUTRAL,
-                    planned_contact_at=planned,
                     referent_id=referent,
                     appointment_at=appointment,
                 ),
             )
             self.counts["trackings_created"] += 1
-            self.from_file(prospect.id, planned, referent_written=referent is not None)
             return
         neutral = current.status is ContactTrackingStatus.NEUTRAL
         filled = ContactTrackingInput(
             status=status if neutral and status is not None else current.status,
-            planned_contact_at=current.planned_contact_at or planned,
             referent_id=current.referent_id or referent,
             response_received_at=current.response_received_at,
             appointment_at=current.appointment_at or appointment,
@@ -577,36 +573,16 @@ class Committer:
         self.keep_tracking(
             row,
             stages=status is not None and status != filled.status,
-            planned=planned is not None and filled.planned_contact_at != planned,
             referent=referent is not None and filled.referent_id != referent,
         )
-        kept = ("status", "planned_contact_at", "referent_id", "appointment_at")
+        kept = ("status", "referent_id", "appointment_at")
         if any(getattr(filled, name) != getattr(current, name) for name in kept):
             save_contact_tracking(self.session, self.importer, prospect.id, filled)
-        self.from_file(
-            prospect.id,
-            planned if planned is not None and filled.planned_contact_at == planned else None,
-            referent_written=referent is not None and current.referent_id is None,
-        )
 
-    def from_file(
-        self, prospect_id: uuid.UUID, planned: datetime | None, *, referent_written: bool
-    ) -> None:
-        """Record what the tracking now holds from this row (merged rows add up)."""
-        known = self.file_tracking.get(prospect_id, FileTracking())
-        self.file_tracking[prospect_id] = FileTracking(
-            planned_contact_at=known.planned_contact_at or planned,
-            referent_written=known.referent_written or referent_written,
-        )
-
-    def keep_tracking(
-        self, row: PreviewRow, *, stages: bool, planned: bool, referent: bool
-    ) -> None:
+    def keep_tracking(self, row: PreviewRow, *, stages: bool, referent: bool) -> None:
         if stages:
             for stage in TRACKING_FIELDS:
                 self.keep(row, stage)
-        if planned:
-            self.keep(row, ImportField.PLANNED_CONTACT)
         if referent:
             self.keep(row, ImportField.REFERENT)
 

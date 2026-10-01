@@ -54,6 +54,8 @@ POLICY = AuditPayloadPolicy(
     masked_fields=frozenset(
         {
             "legacy_metadata",
+            # A quality alert's structured detail (e.g. the two values of an import conflict).
+            "detail",
             "from_email",
             "to_recipients",
             "cc_recipients",

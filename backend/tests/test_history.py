@@ -21,22 +21,41 @@ from app.models import (
     AuditLogEntry,
     Company,
     ContactMessage,
+    ContactSequence,
     ContactTracking,
     Email,
     Establishment,
     Phone,
     Prospect,
     ProspectSource,
+    QualityAlert,
 )
-from app.models.enums import ContactTrackingStatus, OriginType, VerificationStatus
-from app.services import audit, history, home, import_batches, provenance
+from app.models.enums import ContactTrackingStatus, OriginType, QualityAlertType, VerificationStatus
+from app.services import (
+    audit,
+    contact_messages,
+    contact_sequences,
+    history,
+    home,
+    import_batches,
+    provenance,
+    quality_alerts,
+)
 from app.services import prospects as prospect_service
 from app.services.audit import AuditContext, AuditSource
 from app.services.audit_changes import TECHNICAL_FIELDS
 from app.services.contact_tracking import ContactTrackingInput, save_contact_tracking
 from app.services.history import HistoryChange, HistoryEntry, HistoryPage
 from app.services.prospects import ChannelInput, ProspectInput
-from tests.builders import OPERATOR, add_company, add_email, add_phone, add_prospect, add_role
+from tests.builders import (
+    OPERATOR,
+    add_cohort,
+    add_company,
+    add_email,
+    add_phone,
+    add_prospect,
+    add_role,
+)
 
 S = ContactTrackingStatus
 CLI = ActorContext(type=ActorType.SYSTEM, display="Ligne de commande", id="app.cli")
@@ -125,7 +144,9 @@ def test_an_import_creation_names_the_file_and_the_person_who_confirmed_it(
                 ],
             ),
         )
-        save_contact_tracking(db_session, importer, prospect.id, ContactTrackingInput(S.CONTACTED))
+        save_contact_tracking(
+            db_session, importer, prospect.id, ContactTrackingInput(S.RESPONSE_RECEIVED)
+        )
         provenance.add_import_source(
             db_session,
             importer,
@@ -148,7 +169,7 @@ def test_an_import_creation_names_the_file_and_the_person_who_confirmed_it(
     assert ("Prénom", None, "Jean") in changes
     assert ("Entreprise", None, "Transports Exemple SARL") in changes
     assert ("E-mail ajouté", None, "jean.import@exemple.example · principal") in changes
-    assert ("État", None, "Contacté") in changes
+    assert ("État", None, "Réponse reçue") in changes
     assert (
         "Provenance ajoutée",
         None,
@@ -160,7 +181,7 @@ def test_an_import_creation_names_the_file_and_the_person_who_confirmed_it(
     assert entry.summary == [
         "Fiche créée",
         "E-mail ajouté",
-        "Suivi : Contacté",
+        "Suivi : Réponse reçue",
         "Provenance ajoutée",
     ]
 
@@ -247,23 +268,23 @@ def test_deactivated_and_removed_aliases(db_session: Session) -> None:
 
 def test_a_tracking_stage_change_and_its_dates(db_session: Session) -> None:
     prospect = add_prospect(db_session, add_company(db_session))
-    save_contact_tracking(db_session, OPERATOR, prospect.id, ContactTrackingInput(S.CONTACTED))
-    planned = datetime(2026, 9, 13, 22, 0, tzinfo=UTC)  # 14 Sept., midnight in Paris
+    save_contact_tracking(db_session, OPERATOR, prospect.id, ContactTrackingInput(S.NEUTRAL))
+    answered = datetime(2026, 9, 13, 22, 0, tzinfo=UTC)  # 14 Sept., midnight in Paris
 
     with saving(db_session):
         save_contact_tracking(
             db_session,
             OPERATOR,
             prospect.id,
-            ContactTrackingInput(S.R1, planned_contact_at=planned),
+            ContactTrackingInput(S.RESPONSE_RECEIVED, response_received_at=answered),
         )
 
     entry = latest(db_session, prospect)
     assert lines(entry) == [
-        ("État", "Contacté", "R1"),
-        ("Contact prévu le", "—", "14 sept. 2026"),
+        ("État", "En séquence", "Réponse reçue"),
+        ("Réponse reçue le", "—", "14 sept. 2026"),
     ]
-    assert entry.summary == ["Suivi : Contacté → R1", "Contact planifié"]
+    assert entry.summary == ["Suivi : En séquence → Réponse reçue", "Réponse enregistrée"]
     assert entry.actions == ["contact_tracking.status_changed"]
 
 
@@ -524,6 +545,8 @@ def test_every_audited_column_of_a_history_is_labelled_or_deliberately_hidden() 
         "phone": Phone,
         "contact_tracking": ContactTracking,
         "contact_message": ContactMessage,
+        "contact_sequence": ContactSequence,
+        "quality_alert": QualityAlert,
         "prospect_source": ProspectSource,
         "company": Company,
         "establishment": Establishment,
@@ -536,3 +559,50 @@ def test_every_audited_column_of_a_history_is_labelled_or_deliberately_hidden() 
         shown = set(history.FIELDS[kind])
         assert columns | many == shown | history.NOT_SHOWN.get(kind, frozenset()), kind
         assert not any(audit_policy.is_secret(name, audit_policy.POLICY) for name in shown)
+
+
+# --- sequences rework: cohorts, sends, alerts ------------------------------------------------
+
+
+def test_a_cohort_change_and_a_send_read_in_the_history(db_session: Session) -> None:
+    prospect = add_prospect(db_session, add_company(db_session))
+    s39 = add_cohort(db_session, "S39", datetime(2026, 9, 28).date())
+    s41 = add_cohort(db_session, "S41", datetime(2026, 10, 5).date())
+    with saving(db_session):
+        contact_sequences.change_cohort(db_session, OPERATOR, prospect.id, s39.id)
+    with saving(db_session):
+        contact_messages.mark_sent(
+            db_session, OPERATOR, prospect.id, sent_at=datetime(2026, 9, 28, 8, tzinfo=UTC)
+        )
+    with saving(db_session):
+        contact_sequences.change_cohort(db_session, OPERATOR, prospect.id, s41.id)
+
+    changed, sent, entered = entries(db_session, prospect)[:3]
+
+    assert (entered.title, lines(entered)) == ("Cohorte attribuée", [("cohorte", None, "S39")])
+    assert sent.title == "Envoi enregistré"
+    assert ("Message Contact · envoyé le", "—", "28 sept. 2026 à 10:00") in lines(sent)
+    assert ("Message Contact · envoi", "—", "Marqué envoyé") in lines(sent)
+    assert changed.title == "Changement de cohorte"
+    assert ("Séquence · motif de fin", "—", "Changement de cohorte") in lines(changed)
+    assert ("cohorte", None, "S41") in lines(changed)
+
+
+def test_an_alert_raised_then_resolved(db_session: Session) -> None:
+    prospect = add_prospect(db_session, add_company(db_session))
+    with saving(db_session):
+        alert = quality_alerts.raise_alert(
+            db_session,
+            OPERATOR,
+            quality_alerts.AlertInput(QualityAlertType.EMAIL_ERROR, prospect_id=prospect.id),
+        )
+    with saving(db_session):
+        quality_alerts.resolve_alert(db_session, OPERATOR, alert.id, note="Nouvelle adresse")
+
+    resolved, raised = entries(db_session, prospect)[:2]
+
+    assert raised.title == "Alerte qualité ajoutée"
+    assert resolved.title == "Alerte qualité résolue"
+    assert ("Alerte Erreur sur le mail · note de résolution", "—", "Nouvelle adresse") in lines(
+        resolved
+    )

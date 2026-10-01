@@ -10,9 +10,26 @@ from collections.abc import Iterator
 
 import pytest
 from alembic import command
-from sqlalchemy import Engine, text
+from sqlalchemy import Connection, Engine, text
 
 from tests.support import alembic_config, reset_database
+
+
+def in_a_sequence(connection: Connection, prospect: object) -> object:
+    """A current sequence of `prospect` in a cohort (messages belong to one since 0010)."""
+    cohort = connection.execute(
+        text(
+            "INSERT INTO cohorts (code, starts_on) VALUES ('S77', '2026-10-05') "
+            "ON CONFLICT (code) DO UPDATE SET code = excluded.code RETURNING id"
+        )
+    ).scalar_one()
+    return connection.execute(
+        text(
+            "INSERT INTO contact_sequences (prospect_id, cohort_id) VALUES (:id, :cohort) "
+            "RETURNING id"
+        ),
+        {"id": prospect, "cohort": cohort},
+    ).scalar_one()
 
 
 @pytest.fixture
@@ -31,9 +48,13 @@ def test_0009_is_additive_and_downgrades_cleanly(engine: Engine, migration_datab
             text("INSERT INTO prospects (id, last_name) VALUES (:id, 'Migration')"),
             {"id": prospect},
         )
+        sequence = in_a_sequence(connection, prospect)
         connection.execute(
-            text("INSERT INTO contact_messages (prospect_id, step) VALUES (:id, 'contact')"),
-            {"id": prospect},
+            text(
+                "INSERT INTO contact_messages (prospect_id, sequence_id, rank)"
+                " VALUES (:id, :sequence, 0)"
+            ),
+            {"id": prospect, "sequence": sequence},
         )
 
     command.downgrade(config, "0008")
@@ -60,12 +81,14 @@ def test_0009_defaults_of_a_raw_insert(engine: Engine) -> None:
         prospect = connection.execute(
             text("INSERT INTO prospects (last_name) VALUES ('Brut') RETURNING id")
         ).scalar_one()
+        sequence = in_a_sequence(connection, prospect)
         row = connection.execute(
             text(
-                "INSERT INTO contact_messages (prospect_id, step) VALUES (:id, 'r2') "
-                "RETURNING status, revision, subject, body_text, to_recipients, dispatch_attempts"
+                "INSERT INTO contact_messages (prospect_id, sequence_id, rank)"
+                " VALUES (:id, :sequence, 2) RETURNING status, revision, subject, body_text,"
+                " to_recipients, dispatch_attempts, sent_source"
             ),
-            {"id": prospect},
+            {"id": prospect, "sequence": sequence},
         ).one()
         transaction.rollback()
-    assert tuple(row) == ("draft", 1, "", "", [], 0)
+    assert tuple(row) == ("draft", 1, "", "", [], 0, None)

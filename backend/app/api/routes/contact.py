@@ -1,8 +1,9 @@
 """Contact dashboard API (`/api/contact`, Contact port Slice S3): counters and people list.
 
-`GET /dashboard` answers the cards (« À traiter cette semaine » split first contact / follow-ups /
-R2 reviews, cumulative « RDV pris ») and the weeks of the planning; `GET /prospects` one page of
-the list under `counter`, `week` (`2026-W41`), `state` and `q`. Both are read-only. Definitions:
+`GET /dashboard` answers the cards (« À traiter cette semaine » split first contact / follow-ups,
+cumulative « RDV pris ») and the weeks of the planning (calendar weeks of the derived next due
+dates); `GET /prospects` one page of the list under `counter`, `week` (`2026-W41`), `state` and
+`q`. Both are read-only. Definitions:
 `app.services.contact_dashboard`, doc/features/contact.md. The prospect detail (left panel) is
 `GET /api/prospects/{id}`; its mail sequence is `GET /api/prospects/{id}/messages`.
 """
@@ -26,10 +27,10 @@ from app.models.enums import (
 )
 from app.services import contact_dashboard
 from app.services.contact_dashboard import (
+    OUT_OF_SCOPE_STATES,
     ContactClock,
     ContactCounter,
     ContactFilters,
-    NextStep,
 )
 from app.services.contact_workflow import IsoWeek
 from app.services.errors import InvalidFieldError
@@ -70,10 +71,13 @@ class ContactRowOut(BaseModel):
     primary_email: str | None
     activity_status: ActivityStatus
     tracking_status: ContactTrackingStatus
-    planned_contact_at: datetime | None
+    cohort_code: str | None
+    sent_count: int
+    finished: bool
+    next_due_at: datetime | None
     next_action_week: str | None
     due: bool
-    next_step: NextStep | None
+    next_step: str | None
     messages: dict[ContactMessageStep, ContactMessageStatus | None]
 
 
@@ -103,8 +107,10 @@ def parse_week(value: str | None) -> IsoWeek | None:
 
 
 def parse_state(value: ContactTrackingStatus | None) -> ContactTrackingStatus | None:
-    if value is ContactTrackingStatus.IGNORED:
-        raise InvalidFieldError("state", "Ignored prospects are outside Contact.", "not_filterable")
+    if value in OUT_OF_SCOPE_STATES:
+        raise InvalidFieldError(
+            "state", "Ignored and Défaillant prospects are outside Contact.", "not_filterable"
+        )
     return value
 
 
@@ -125,7 +131,7 @@ def prospects(
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> ContactPageOut:
     """One page of the Contact list; without `counter`, `week` or `state`: the planning (people
-    with a next-action week)."""
+    with a next due date)."""
     with business_errors():
         filters = ContactFilters(
             counter=counter, week=parse_week(week), state=parse_state(state), search=q

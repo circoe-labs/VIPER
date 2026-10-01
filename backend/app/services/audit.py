@@ -34,9 +34,12 @@ from app.core.actor import ActorContext, ActorType
 from app.db.session import unit_of_work
 from app.models import (
     ActivityCategory,
+    AppSetting,
+    Cohort,
     CommercialSegment,
     Company,
     ContactMessage,
+    ContactSequence,
     ContactTracking,
     Email,
     Establishment,
@@ -45,6 +48,7 @@ from app.models import (
     Phone,
     Prospect,
     ProspectSource,
+    QualityAlert,
     Role,
 )
 from app.models.audit import AuditLogEntry
@@ -92,6 +96,12 @@ class AuditAction(StrEnum):
     CONTACT_MESSAGE_REOPENED = "contact_message.reopened"
     # The AI wrote the subject and body (S5): always a draft, the model and prompt version recorded.
     CONTACT_MESSAGE_GENERATED = "contact_message.generated"
+    # A real send recorded (« Marquer comme envoyé », import, migration, dispatcher): sequences D1.
+    CONTACT_MESSAGE_SENT = "contact_message.sent"
+    # A person changed or removed the prospect's cohort: its current sequence is closed.
+    CONTACT_SEQUENCE_CLOSED = "contact_sequence.closed"
+    # A person resolved a data-quality alert (D8).
+    QUALITY_ALERT_RESOLVED = "quality_alert.resolved"
     IMPORT_BATCH_STARTED = "import_batch.started"
     IMPORT_BATCH_COMMITTED = "import_batch.committed"
     IMPORT_BATCH_FAILED = "import_batch.failed"
@@ -131,6 +141,16 @@ class AuditedEntity:
     # Whose history shows the event, and the attribute holding that record's id.
     subject_type: str
     subject_key: str = "id"
+    # For a row about one of two kinds of record (an alert on a prospect or a company): the
+    # subject used when `subject_key` is empty.
+    fallback_subject: tuple[str, str] | None = None
+
+    def subject(self, values: Mapping[str, Any]) -> tuple[str, Any]:
+        subject_id = values.get(self.subject_key)
+        if subject_id is None and self.fallback_subject is not None:
+            subject_type, key = self.fallback_subject
+            return subject_type, values.get(key)
+        return self.subject_type, subject_id
 
 
 # The audited tables, in the order events of one flush are written (parents first). A change to
@@ -143,13 +163,19 @@ AUDITED_ENTITIES: dict[type[Any], AuditedEntity] = {
     Email: AuditedEntity("email", "prospect", "prospect_id"),
     Phone: AuditedEntity("phone", "prospect", "prospect_id"),
     ContactTracking: AuditedEntity("contact_tracking", "prospect", "prospect_id"),
+    Cohort: AuditedEntity("cohort", "cohort"),
+    ContactSequence: AuditedEntity("contact_sequence", "prospect", "prospect_id"),
     ContactMessage: AuditedEntity("contact_message", "prospect", "prospect_id"),
+    QualityAlert: AuditedEntity(
+        "quality_alert", "prospect", "prospect_id", fallback_subject=("company", "company_id")
+    ),
     ProspectSource: AuditedEntity("prospect_source", "prospect", "prospect_id"),
     Role: AuditedEntity("role", "role"),
     CommercialSegment: AuditedEntity("commercial_segment", "commercial_segment"),
     ActivityCategory: AuditedEntity("activity_category", "activity_category"),
     InternalReferent: AuditedEntity("internal_referent", "internal_referent"),
     ImportBatch: AuditedEntity("import_batch", "import_batch"),
+    AppSetting: AuditedEntity("app_setting", "app_setting"),
 }
 ENTITY_ORDER = {model: position for position, model in enumerate(AUDITED_ENTITIES)}
 NOT_AUDITED_TABLES = {
@@ -444,6 +470,7 @@ def _record_flushed_changes(session: Session, _: UOWTransaction) -> None:
                     "bind one (attributed_unit_of_work / bound) or annotate the row."
                 )
             action = annotation.action if annotation else None
+            subject_type, subject_id = entity.subject(values)
             rows.append(
                 _row(
                     actor,
@@ -451,8 +478,8 @@ def _record_flushed_changes(session: Session, _: UOWTransaction) -> None:
                     action or lifecycle_action(entity.entity_type, lifecycle),
                     entity.entity_type,
                     values.get("id"),
-                    entity.subject_type,
-                    values.get(entity.subject_key),
+                    subject_type,
+                    subject_id,
                     _with_labels(changes, annotation),
                     annotation.reason if annotation else None,
                 )

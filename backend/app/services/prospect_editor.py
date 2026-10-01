@@ -9,12 +9,13 @@ transaction: any refusal rolls every step back), in this order:
 3. identity and employment fields, with the explicit employment-verification action;
 4. e-mails and phones as full lists (`contact_channels.save_channels`);
 5. contact tracking through `contact_tracking.save_contact_tracking` (status history kept, Contact
-   rules applied: `ignored` terminal and reinforcing do-not-contact, next action cleared by
-   states without one);
+   rules applied: `ignored` terminal and reinforcing do-not-contact, « Défaillant » by a person);
 6. on creation, the `manual` provenance record (`provenance.add_manual_source`).
 
-`update_tracking` is the lighter write of the tracking alone (state and/or next-action week, the
-week planner and the state picker), with the same version check and rules.
+`update_tracking` is the lighter write of the state alone (the state picker), with the same version
+check and rules. The cohort, the sequence and the next due date are not part of the save: the view
+shows them (`contact`, derived — sequences rework D1) and `contact_sequences.change_cohort` changes
+the cohort.
 
 Contactability never travels with the save: `set_contactability` calls the dedicated
 `mark_do_not_contact` / `clear_do_not_contact` operations, with a mandatory reason. Every write
@@ -52,14 +53,9 @@ from app.repositories import taxonomies as taxonomy_repository
 from app.services import audit, contact_channels, prospects, provenance, taxonomies
 from app.services.contact_channels import EMAILS, PHONES, ChannelItem
 from app.services.contact_message_cancellation import NOTHING, Cancellation
+from app.services.contact_sequences import CohortRef, prospect_sequence
 from app.services.contact_tracking import ContactTrackingInput, apply_contact_tracking
-from app.services.contact_workflow import (
-    DEFAULT_STATE,
-    IsoWeek,
-    next_action_at,
-    state_reached_at,
-    suggest_next_action,
-)
+from app.services.contact_workflow import DEFAULT_STATE, PauseReason, state_reached_at, step_code
 from app.services.errors import (
     ActorNotAllowedError,
     ConflictError,
@@ -78,7 +74,6 @@ TITLE_MAX_LENGTH = 255
 TEXT_MAX_LENGTH = 2000  # reasons, collection context, provenance reference
 TRACKING_FIELDS = (
     "status",
-    "planned_contact_at",
     "referent_id",
     "response_received_at",
     "appointment_at",
@@ -110,7 +105,6 @@ class TrackingForm:
     """Suivi de contact as edited: days in business time, the appointment with an optional time."""
 
     status: ContactTrackingStatus
-    planned_contact_on: date | None = None
     response_received_on: date | None = None
     appointment_on: date | None = None
     appointment_time: time | None = None
@@ -119,12 +113,9 @@ class TrackingForm:
 
 @dataclass(frozen=True, slots=True)
 class TrackingUpdate:
-    """A change of the tracking alone. `status` None keeps the state; `next_action` applies only
-    when `set_next_action` (a week, or None to clear it)."""
+    """A change of the commercial state alone."""
 
-    status: ContactTrackingStatus | None = None
-    set_next_action: bool = False
-    next_action: IsoWeek | None = None
+    status: ContactTrackingStatus
 
 
 @dataclass(frozen=True, slots=True)
@@ -224,9 +215,6 @@ class PhoneView:
 @dataclass(frozen=True, slots=True)
 class TrackingView:
     status: ContactTrackingStatus
-    planned_contact_on: date | None
-    # ISO week of the planned contact, e.g. `2026-W38`.
-    planned_contact_week: str | None
     response_received_on: date | None
     appointment_on: date | None
     # None when the appointment has no time (stored at midnight).
@@ -234,10 +222,27 @@ class TrackingView:
     referent: ValueRef | None
     # When the current stage was reached (last status-history entry).
     status_since: datetime | None
-    # Default cadence proposal for `contacted` / `r1` / `r2` (+2, +2, +4 weeks from the week the
-    # state was reached): Monday and ISO week. Offered by the UI, never applied automatically.
-    suggested_next_contact_on: date | None
-    suggested_next_contact_week: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class ContactProgressView:
+    """Where the prospect stands in Contact, derived (D1, D2, D7, D9): the current cohort (none:
+    not validated), the messages really sent in the current sequence, the step to send next
+    (`contact`, `r1`… — the level), « Relance terminée », the next due day and why nothing is
+    due."""
+
+    cohort: CohortRef | None
+    sequence_open: bool
+    sent_count: int
+    level_label: str | None
+    next_step: str | None
+    finished: bool
+    next_due_on: date | None
+    # ISO calendar week of the next due day, e.g. `2026-W41`.
+    next_due_week: str | None
+    pause_reason: PauseReason | None
+    email_error: bool
+    max_follow_ups: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -276,6 +281,7 @@ class ProspectView:
     emails: list[EmailView]
     phones: list[PhoneView]
     tracking: TrackingView | None
+    contact: ContactProgressView
     # Oldest first.
     sources: list[SourceView]
     # Import-row traces deleted with the prospect.
@@ -359,17 +365,9 @@ def _tracking_view(session: Session, tracking: ContactTracking | None) -> Tracki
         else None
     )
     appointment = _local_parts(tracking.appointment_at) if tracking.appointment_at else None
-    history = tracking.status_history
-    since = state_reached_at(history)
-    suggestion = suggest_next_action(
-        tracking.status, business_day(since) if since else business_day(tracking.updated_at)
-    )
+    since = state_reached_at(tracking.status_history)
     return TrackingView(
         status=tracking.status,
-        planned_contact_on=(
-            business_day(tracking.planned_contact_at) if tracking.planned_contact_at else None
-        ),
-        planned_contact_week=iso_week(tracking.planned_contact_at),
         response_received_on=(
             business_day(tracking.response_received_at) if tracking.response_received_at else None
         ),
@@ -381,8 +379,25 @@ def _tracking_view(session: Session, tracking: ContactTracking | None) -> Tracki
             else None
         ),
         status_since=since,
-        suggested_next_contact_on=suggestion.monday if suggestion else None,
-        suggested_next_contact_week=suggestion.label if suggestion else None,
+    )
+
+
+def contact_progress_view(session: Session, prospect_id: uuid.UUID) -> ContactProgressView:
+    place = prospect_sequence(session, prospect_id)
+    progress = place.progress
+    due = progress.next_due_at
+    return ContactProgressView(
+        cohort=place.cohort,
+        sequence_open=place.sequence_open,
+        sent_count=progress.sent_count,
+        level_label=progress.level_label,
+        next_step=step_code(progress.next_rank) if progress.next_rank is not None else None,
+        finished=progress.finished,
+        next_due_on=business_day(due) if due else None,
+        next_due_week=iso_week(due),
+        pause_reason=progress.pause,
+        email_error=place.email_error,
+        max_follow_ups=place.max_follow_ups,
     )
 
 
@@ -454,6 +469,7 @@ def get_view(session: Session, prospect_id: uuid.UUID, clock: EditorClock) -> Pr
             for phone in sorted(prospect.phones, key=_channel_order)
         ],
         tracking=_tracking_view(session, prospect.contact_tracking),
+        contact=contact_progress_view(session, prospect.id),
         sources=sources,
         import_row_count=repository.count_import_rows(session, prospect.id),
         today=clock.segments.today,
@@ -616,9 +632,6 @@ def _save_tracking(
     current = prospect.contact_tracking
     data = ContactTrackingInput(
         status=form.status,
-        planned_contact_at=_kept_day(
-            current.planned_contact_at if current else None, form.planned_contact_on
-        ),
         referent_id=form.referent_id,
         response_received_at=_kept_day(
             current.response_received_at if current else None, form.response_received_on
@@ -752,33 +765,24 @@ def update_tracking(
     update: TrackingUpdate,
     clock: EditorClock,
 ) -> EditorResult:
-    """Choose a state and/or set or clear the next-action week (stored as its Monday, P1). Only a
-    person may do it (decision 10); dates and referent are kept. A new tracking starts `neutral`.
-    Refusals: `ActorNotAllowedError`, `InvalidFieldError` (`empty`: nothing to change),
-    `TrackingRuleError` (`ignored_is_terminal`, `ignored_has_no_next_action`), `ConflictError`.
-    Answers the view and the number of unsent messages a sequence-closing state cancelled."""
+    """Choose the commercial state (« Défaillant » included). Only a person may do it (D7); dates
+    and referent are kept. A new tracking starts `neutral`. Refusals: `ActorNotAllowedError`,
+    `TrackingRuleError` (`ignored_is_terminal`), `ConflictError`. Answers the view and the number
+    of unsent messages a sequence-closing state cancelled."""
     if actor.type is not ActorType.HUMAN:
-        raise ActorNotAllowedError("Only a person changes a contact state or its next week.")
-    if update.status is None and not update.set_next_action:
-        raise InvalidFieldError("status", "Nothing to change.", "empty")
+        raise ActorNotAllowedError("Only a person changes a contact state.")
     prospect = _locked(session, prospect_id, version)
     current = prospect.contact_tracking
-    planned = current.planned_contact_at if current else None
-    if update.set_next_action:
-        planned = next_action_at(update.next_action) if update.next_action else None
     saved = apply_contact_tracking(
         session,
         actor,
         prospect.id,
         ContactTrackingInput(
             status=update.status or (current.status if current else DEFAULT_STATE),
-            planned_contact_at=planned,
             referent_id=current.referent_id if current else None,
             response_received_at=current.response_received_at if current else None,
             appointment_at=current.appointment_at if current else None,
         ),
-        # A week given in the body is a choice, even when equal to the stored one.
-        explicit_next_action=update.set_next_action,
         now=clock.now,
     )
     return EditorResult(get_view(session, prospect.id, clock), saved.messages)

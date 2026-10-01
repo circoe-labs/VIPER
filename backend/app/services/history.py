@@ -28,7 +28,14 @@ from sqlalchemy.orm import Session
 from app.core import audit_policy
 from app.core.actor import ActorType
 from app.core.business_time import BUSINESS_TIMEZONE
-from app.models import ActivityCategory, CommercialSegment, Company, InternalReferent, Role
+from app.models import (
+    ActivityCategory,
+    Cohort,
+    CommercialSegment,
+    Company,
+    InternalReferent,
+    Role,
+)
 from app.models.audit import AuditLogEntry
 from app.models.enums import (
     ActivityStatus,
@@ -38,6 +45,10 @@ from app.models.enums import (
     OriginType,
     PhoneType,
     ProspectSourceType,
+    QualityAlertSource,
+    QualityAlertType,
+    SendSource,
+    SequenceEndReason,
     VerificationStatus,
 )
 from app.repositories import audit as audit_repository
@@ -48,6 +59,7 @@ from app.services.contact_workflow import (
     MESSAGE_STATUS_LABELS,
     MESSAGE_STEP_LABELS,
     STATE_LABELS,
+    step_label,
 )
 from app.services.import_batches import IMPORT_ACTOR_PREFIX
 
@@ -225,6 +237,29 @@ MESSAGE_STEPS: dict[str, str] = {step.value: label for step, label in MESSAGE_ST
 MESSAGE_STATUSES: dict[str, str] = {
     status.value: label for status, label in MESSAGE_STATUS_LABELS.items()
 }
+SEND_SOURCES: dict[str, str] = {
+    SendSource.MANUAL: "Marqué envoyé",
+    SendSource.IMPORT: "Import",
+    SendSource.MIGRATION: "Reprise de l’ancien suivi",
+    SendSource.WORKER: "Envoi programmé",
+}
+END_REASONS: dict[str, str] = {
+    SequenceEndReason.COHORT_CHANGED: "Changement de cohorte",
+    SequenceEndReason.COHORT_REMOVED: "Cohorte retirée",
+    SequenceEndReason.COMPLETED: "Relance terminée",
+}
+ALERT_TYPES: dict[str, str] = {
+    QualityAlertType.EMAIL_ERROR: "Erreur sur le mail",
+    QualityAlertType.FUNCTION_TO_CHECK: "Fonction à vérifier",
+    QualityAlertType.DATA_INCONSISTENT: "Donnée incohérente",
+    QualityAlertType.COMPANY_TO_CHECK: "Entreprise à vérifier",
+    QualityAlertType.IMPORT_CONFLICT: "Conflit d’import",
+}
+ALERT_SOURCES: dict[str, str] = {
+    QualityAlertSource.HUMAN: "Humain",
+    QualityAlertSource.IMPORT: "Import",
+    QualityAlertSource.AI: "IA (proposition)",
+}
 SOURCE_TYPES: dict[str, str] = {
     ProspectSourceType.EXCEL_IMPORT: "Import Excel",
     ProspectSourceType.MANUAL: "Saisie manuelle",
@@ -234,6 +269,11 @@ SOURCE_TYPES: dict[str, str] = {
 
 
 # --- field catalogue ---------------------------------------------------------------------------
+
+
+def _rank(value: Any, _: Lookups) -> str | None:
+    """A message rank as its step: « Contact », « R1 »…"""
+    return step_label(value) if isinstance(value, int) and not isinstance(value, bool) else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -289,18 +329,33 @@ FIELDS: dict[str, dict[str, Field]] = {
     | {"type": Field("type", "Téléphone modifié", _choice(PHONE_TYPES))},
     "contact_tracking": {
         "status": Field("État", "État modifié", _choice(STAGES)),
-        "planned_contact_at": Field("Contact prévu le", "Contact planifié", _moment),
         "response_received_at": Field("Réponse reçue le", "Réponse enregistrée", _moment),
         "appointment_at": Field("Rendez-vous le", "Rendez-vous planifié", _moment),
         "referent_id": Field("Référent Circoe", "Référent modifié", _reference("referent")),
     },
-    # A Contact message: its step, status, send moment and revision. The content and addresses
-    # are masked in the audit log, so they are never shown (NOT_SHOWN).
+    # A Contact message: its step (rank), status, send moments and revision. The content and
+    # addresses are masked in the audit log, so they are never shown (NOT_SHOWN).
     "contact_message": {
-        "step": Field("étape", "Message modifié", _choice(MESSAGE_STEPS)),
+        "rank": Field("étape", "Message modifié", _rank),
         "status": Field("statut", "Statut du message modifié", _choice(MESSAGE_STATUSES)),
         "scheduled_at": Field("envoi programmé le", "Envoi programmé", _moment),
+        "sent_at": Field("envoyé le", "Envoi enregistré", _moment),
+        "sent_source": Field("envoi", "Envoi enregistré", _choice(SEND_SOURCES)),
         "revision": Field("révision", "Message modifié"),
+    },
+    # A contact sequence (sequences rework D6): its cohort and how it ended.
+    "contact_sequence": {
+        "cohort_id": Field("cohorte", "Cohorte modifiée", _reference("cohort")),
+        "closed_at": Field("close le", "Séquence close", _moment),
+        "end_reason": Field("motif de fin", "Séquence close", _choice(END_REASONS)),
+    },
+    # A data-quality alert (D8): never a state; its detail and actors stay out of the history.
+    "quality_alert": {
+        "type": Field("type", "Alerte qualité", _choice(ALERT_TYPES)),
+        "source": Field("source", "Alerte qualité", _choice(ALERT_SOURCES)),
+        "note": Field("note", "Alerte qualité"),
+        "resolved_at": Field("résolue le", "Alerte qualité résolue", _moment),
+        "resolution_note": Field("note de résolution", "Alerte qualité résolue"),
     },
     "prospect_source": {
         "source_type": Field("type", "Provenance modifiée", _choice(SOURCE_TYPES)),
@@ -347,9 +402,23 @@ NOT_SHOWN: dict[str, frozenset[str]] = {
     "email": frozenset({"prospect_id"}),
     "phone": frozenset({"prospect_id"}),
     "contact_tracking": frozenset({"prospect_id"}),
+    "contact_sequence": frozenset({"prospect_id", "is_current"}),
+    "quality_alert": frozenset(
+        {
+            "prospect_id",
+            "company_id",
+            "detail",
+            "raised_by_type",
+            "raised_by_id",
+            "raised_by_display",
+            "resolved_by_id",
+            "resolved_by_display",
+        }
+    ),
     "contact_message": frozenset(
         {
             "prospect_id",
+            "sequence_id",
             "from_email",
             "to_recipients",
             "cc_recipients",
@@ -360,7 +429,6 @@ NOT_SHOWN: dict[str, frozenset[str]] = {
             "validated_at",
             "validated_by_actor_id",
             "validated_by_display",
-            "sent_at",
             "cancelled_at",
             "cancel_reason",
             "generation_model",
@@ -386,12 +454,34 @@ IDENTITY_FIELDS = {
     "email": "address",
     "phone": "number",
     "establishment": "name",
-    "contact_message": "step",
+    "contact_message": "rank",
+    "quality_alert": "type",
+}
+# Columns dropped by a migration, still found in older events: shown with these labels (never
+# required by the column check of `FIELDS`). Migration 0010 dropped the planned week and the
+# message step (now a rank).
+LEGACY_FIELDS: dict[str, dict[str, Field]] = {
+    "contact_tracking": {
+        "planned_contact_at": Field("Contact prévu le", "Contact planifié", _moment),
+    },
+    "contact_message": {
+        "step": Field("étape", "Message modifié", _choice(MESSAGE_STEPS)),
+    },
+}
+LEGACY_IDENTITY_FIELDS = {"contact_message": "step"}
+DISPLAY_FIELDS: dict[str, dict[str, Field]] = {
+    kind: {**fields, **LEGACY_FIELDS.get(kind, {})} for kind, fields in FIELDS.items()
 }
 # Row kinds with one primary row per parent: a switch reads as one line.
 PRIMARY_NOUNS = {"email": "E-mail", "phone": "Téléphone", "establishment": "Établissement"}
 # Rows whose changes read « <Noun> <identity> · <field> ».
-PREFIXED = {**PRIMARY_NOUNS, "prospect_source": "Provenance", "contact_message": "Message"}
+PREFIXED = {
+    **PRIMARY_NOUNS,
+    "prospect_source": "Provenance",
+    "contact_message": "Message",
+    "contact_sequence": "Séquence",
+    "quality_alert": "Alerte",
+}
 # (noun, feminine) for lifecycle phrases.
 NOUNS = {
     "prospect": ("Fiche", True),
@@ -399,6 +489,8 @@ NOUNS = {
     "phone": ("Téléphone", False),
     "contact_tracking": ("Suivi de contact", False),
     "contact_message": ("Message", False),
+    "contact_sequence": ("Séquence", True),
+    "quality_alert": ("Alerte qualité", True),
     "prospect_source": ("Provenance", True),
     "company": ("Entreprise", True),
     "establishment": ("Établissement", False),
@@ -487,7 +579,7 @@ def actor_of(event: AuditLogEntry) -> HistoryActor:
 
 def _shown(event: AuditLogEntry) -> dict[str, dict[str, Any]]:
     """The event's changes that have a label (never a secret-looking name), in display order."""
-    fields = FIELDS.get(event.entity_type, {})
+    fields = DISPLAY_FIELDS.get(event.entity_type, {})
     changes = event.changes
     return {
         name: changes[name]
@@ -504,7 +596,7 @@ def _value(event: AuditLogEntry, name: str, side: str, lookups: Lookups) -> str 
     label = change.get(f"{side}_label")  # a readable snapshot given by the service
     if isinstance(label, str):
         return label
-    return FIELDS[event.entity_type][name].render(change.get(side), lookups)
+    return DISPLAY_FIELDS[event.entity_type][name].render(change.get(side), lookups)
 
 
 def _identity(event: AuditLogEntry, lookups: Lookups) -> str | None:
@@ -512,6 +604,9 @@ def _identity(event: AuditLogEntry, lookups: Lookups) -> str | None:
     if name is None:
         return None
     shown = _value(event, name, "after", lookups) or _value(event, name, "before", lookups)
+    legacy = LEGACY_IDENTITY_FIELDS.get(event.entity_type)
+    if shown is None and legacy is not None:
+        shown = _value(event, legacy, "after", lookups) or _value(event, legacy, "before", lookups)
     if shown is None and event.id in lookups.identities:
         shown = FIELDS[event.entity_type][name].render(lookups.identities[event.id], lookups)
     return shown
@@ -568,7 +663,9 @@ def _created(event: AuditLogEntry, lines: _Lines, switched: frozenset[uuid.UUID]
     kind, lookups = event.entity_type, lines.lookups
 
     def value(name: str) -> str | None:
-        return _value(event, name, "after", lookups) if name in FIELDS.get(kind, {}) else None
+        return (
+            _value(event, name, "after", lookups) if name in DISPLAY_FIELDS.get(kind, {}) else None
+        )
 
     if kind in PRIMARY_NOUNS:
         status = value("verification_status")
@@ -641,7 +738,7 @@ def _updated(event: AuditLogEntry, lines: _Lines, switched: frozenset[uuid.UUID]
     identity = _identity(event, lookups)
     prefix = " ".join(part for part in (PREFIXED.get(kind), identity) if part)
     shown = _shown(event)
-    for name, spec in FIELDS.get(kind, {}).items():
+    for name, spec in DISPLAY_FIELDS.get(kind, {}).items():
         if name not in shown or (name == "is_primary" and event.id in switched):
             continue
         if name == "last_verified_at" and "verification_status" in shown:
@@ -682,6 +779,10 @@ TITLES: dict[str, str] = {
     "company.deleted": "Entreprise supprimée",
     **OPPOSITIONS,
     AuditAction.PROSPECT_COMPANY_CHANGED: "Changement d’entreprise",
+    AuditAction.CONTACT_SEQUENCE_CLOSED: "Changement de cohorte",
+    "contact_sequence.created": "Cohorte attribuée",
+    "quality_alert.created": "Alerte qualité ajoutée",
+    AuditAction.QUALITY_ALERT_RESOLVED: "Alerte qualité résolue",
 }
 # Titles of a save that only touched Contact messages (a state change that cancels messages keeps
 # the prospect's title: the state is what the person chose).
@@ -693,6 +794,7 @@ MESSAGE_TITLES: dict[str, str] = {
     AuditAction.CONTACT_MESSAGE_CANCELLED: "Message annulé",
     AuditAction.CONTACT_MESSAGE_REOPENED: "Message rouvert",
     AuditAction.CONTACT_MESSAGE_GENERATED: "Brouillon rédigé par l’IA",
+    AuditAction.CONTACT_MESSAGE_SENT: "Envoi enregistré",
     "contact_message.created": "Message créé",
     "contact_message.updated": "Message modifié",
 }
@@ -755,8 +857,10 @@ REFERENCE_LABELS: dict[str, tuple[Any, Any]] = {
         InternalReferent.id,
         func.concat_ws(" ", InternalReferent.first_name, InternalReferent.last_name),
     ),
+    "cohort": (Cohort.id, Cohort.code),
 }
 REFERENCE_FIELDS = {
+    "cohort_id": "cohort",
     "company_id": "company",
     "role_id": "role",
     "commercial_segment_id": "segment",

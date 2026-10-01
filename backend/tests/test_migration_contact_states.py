@@ -241,7 +241,8 @@ def test_0008_downgrade_maps_back_then_upgrade_again(
 
     with engine.connect() as connection:
         states = statuses(connection)
-        assert states[trackings[9]] == "r2"
+        # Migration 0010 then turns the state `r2` into three sends of a sequence (`neutral`).
+        assert states[trackings[9]] == "neutral"
         assert states[trackings[10]] == "ignored"
         converted = rows(
             connection,
@@ -249,4 +250,8 @@ def test_0008_downgrade_maps_back_then_upgrade_again(
             id=CONTACT_STATES_MIGRATION_ID,
         )
         assert converted == [(6,)]  # quotes and wins stayed `appointment_obtained`
-        assert rows(connection, "SELECT count(*) FROM audit_log") == [(15,)]
+        assert rows(
+            connection,
+            "SELECT count(*) FROM audit_log WHERE actor_id = :id",
+            id=CONTACT_STATES_MIGRATION_ID,
+        ) == [(15,)]  # 0010 then writes its own events

@@ -7,15 +7,12 @@ and the resolved contact week:
 - Validé -> employment checked, active, imported e-mail verified;
 - Inactif -> employment checked, inactive, imported e-mail invalid;
 - Inconnus -> employment checked, outcome unknown, imported e-mail unknown;
-- blank/unrecognised -> no verification claim;
-- the row's own contact week in the past -> ``contacted`` when the tracking is still ``neutral``,
-  with the next action moved to the default cadence (that week + 2 weeks, its Monday: the R1
-  week, decision P7) instead of the past week;
-- the row's referent is not assigned while the prospect stays ``neutral`` (not contacted); a
-  referent already on the tracking (e.g. set by hand) is never removed.
+- blank/unrecognised -> no verification claim.
 
-Only values that come from the file for that row are read (``CommitResult.file_tracking``): a week
-or referent set earlier, by hand or by another import, is left alone.
+The former contact-week rule (« semaine passée → contacté », decision P7) is gone with the
+sequences rework (D7, D10): a state is never derived from a week, and the cohorts, imported sends
+and Défaillant rows of the workbook are the import redesign of Slice S2.
+TODO(S2): D10 also stops ``Statut_verification`` from touching e-mail verification.
 
 All changes happen in the same request transaction as the normal import and are audited.
 """
@@ -26,13 +23,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.actor import ActorContext
-from app.core.business_time import BUSINESS_TIMEZONE, business_day
-from app.models.enums import ContactTrackingStatus, OriginType, VerificationStatus
+from app.core.business_time import BUSINESS_TIMEZONE
+from app.models.enums import OriginType, VerificationStatus
 from app.models.imports import ImportRowMetadata
 from app.models.prospects import Prospect
 from app.services import audit, import_commit, prospects
-from app.services.contact_tracking import ContactTrackingInput, save_contact_tracking
-from app.services.contact_workflow import next_action_at, suggest_next_action
 from app.services.imports.decisions import ImportDecisions
 from app.services.imports.fields import ImportField
 from app.services.imports.preview import ImportFile
@@ -68,7 +63,6 @@ def reconcile_batch(
         .order_by(ImportRowMetadata.source_row_number)
     ).all()
     checked_at = datetime.now(BUSINESS_TIMEZONE)
-    today = checked_at.date()
 
     for trace in metadata:
         if trace.prospect_id is None:
@@ -84,46 +78,6 @@ def reconcile_batch(
             prospect.employment_verified_at = checked_at
             _apply_imported_email_verification(session, actor, prospect, outcome, checked_at)
             session.flush()
-
-        tracking = prospect.contact_tracking
-        from_file = result.file_tracking.get(prospect.id)
-        if tracking is None or from_file is None:
-            continue
-
-        next_status = tracking.status
-        next_action = tracking.planned_contact_at
-        week = from_file.planned_contact_at
-        if (
-            week is not None
-            and tracking.planned_contact_at == week
-            and business_day(week) < today
-            and tracking.status is ContactTrackingStatus.NEUTRAL
-        ):
-            next_status = ContactTrackingStatus.CONTACTED
-            follow_up = suggest_next_action(next_status, business_day(week))
-            assert follow_up is not None  # `contacted` always has a cadence
-            next_action = next_action_at(follow_up)
-
-        next_referent = tracking.referent_id
-        if next_status is ContactTrackingStatus.NEUTRAL and from_file.referent_written:
-            next_referent = None
-        if (next_status, next_action, next_referent) != (
-            tracking.status,
-            tracking.planned_contact_at,
-            tracking.referent_id,
-        ):
-            save_contact_tracking(
-                session,
-                actor,
-                prospect.id,
-                ContactTrackingInput(
-                    status=next_status,
-                    planned_contact_at=next_action,
-                    referent_id=next_referent,
-                    response_received_at=tracking.response_received_at,
-                    appointment_at=tracking.appointment_at,
-                ),
-            )
 
 
 def _apply_imported_email_verification(

@@ -14,19 +14,29 @@ import uuid
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
+from sqlalchemy import false, func, select
 from sqlalchemy.orm import Session
 
 from app.db.session import whole_base_plan
+from app.models import Cohort
+from app.models import Prospect as ProspectModel
 from app.models.companies import Company, Establishment
 from app.models.contact_tracking import ContactTracking
 from app.models.imports import ImportBatch, ImportRowMetadata
 from app.models.prospects import Email, Phone, Prospect, ProspectSource
 from app.models.taxonomies import ActivityCategory, CommercialSegment, InternalReferent, Role
 from app.repositories import exports as repository
-from app.services.contact_workflow import state_reached_at
+from app.services.contact_sequences import (
+    finished_sql,
+    join_sequence_sources,
+    next_due_at_sql,
+    next_rank_sql,
+    sent_count_sql,
+)
+from app.services.contact_workflow import FINISHED_LABEL, state_reached_at, step_label
 from app.services.imports.text import fold
 
 type LegacyScalar = str | int | float | bool | None
@@ -46,6 +56,30 @@ class CompanyRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class ContactProgressRecord:
+    """The derived Contact progress of one prospect (sequences rework D1): its current cohort,
+    the messages really sent in the current sequence and the next due date."""
+
+    cohort_code: str | None
+    cohort_starts_on: date | None
+    sent_count: int
+    finished: bool
+    next_rank: int | None
+    next_due_at: datetime | None
+
+    @property
+    def level_label(self) -> str | None:
+        if self.cohort_code is None:
+            return None
+        if self.finished:
+            return FINISHED_LABEL
+        return step_label(self.sent_count)
+
+
+NO_PROGRESS = ContactProgressRecord(None, None, 0, False, None, None)
+
+
+@dataclass(frozen=True, slots=True)
 class ProspectRecord:
     prospect: Prospect
     company: CompanyRecord | None
@@ -55,6 +89,7 @@ class ProspectRecord:
     emails: tuple[Email, ...]  # primary first, then active ones, then by address
     phones: tuple[Phone, ...]  # primary first, then active ones, then by number
     sources: tuple[ProspectSource, ...]  # oldest first
+    contact: ContactProgressRecord = NO_PROGRESS
 
     @property
     def primary_email(self) -> Email | None:
@@ -155,6 +190,7 @@ def load_export_data(session: Session) -> ExportData:
         source_rows = repository.sources(session)
         batches = {row.id: row for row in repository.import_batches(session)}
         metadata = repository.row_metadata(session)
+        progress = _contact_progress(session)
     counts: dict[uuid.UUID, int] = defaultdict(int)
     for prospect in prospects:
         if prospect.company_id is not None:
@@ -169,7 +205,14 @@ def load_export_data(session: Session) -> ExportData:
         sources[source.prospect_id].append(source)
     records = sorted(
         (
-            _prospect(prospect, by_company, roles, referents, sources[prospect.id])
+            _prospect(
+                prospect,
+                by_company,
+                roles,
+                referents,
+                sources[prospect.id],
+                progress.get(prospect.id, NO_PROGRESS),
+            )
             for prospect in prospects
         ),
         key=_prospect_order,
@@ -210,6 +253,7 @@ def _prospect(
     roles: dict[uuid.UUID, Role],
     referents: dict[uuid.UUID, InternalReferent],
     sources: list[ProspectSource],
+    contact: ContactProgressRecord,
 ) -> ProspectRecord:
     tracking = prospect.contact_tracking
     return ProspectRecord(
@@ -233,7 +277,32 @@ def _prospect(
             )
         ),
         sources=tuple(sorted(sources, key=lambda row: (row.collected_at, str(row.id)))),
+        contact=contact,
     )
+
+
+def _contact_progress(session: Session) -> dict[uuid.UUID, ContactProgressRecord]:
+    """Every prospect's derived Contact progress, in one statement (the Prospection SQL)."""
+    rows = session.execute(
+        join_sequence_sources(
+            select(
+                ProspectModel.id,
+                Cohort.code,
+                Cohort.starts_on,
+                sent_count_sql(),
+                func.coalesce(finished_sql(), false()),
+                next_rank_sql(),
+                next_due_at_sql(),
+            )
+            .select_from(ProspectModel)
+            .outerjoin(ContactTracking, ContactTracking.prospect_id == ProspectModel.id)
+        )
+    ).tuples()
+    return {
+        prospect_id: ContactProgressRecord(code, starts_on, sent, bool(finished), rank, due)
+        for prospect_id, code, starts_on, sent, finished, rank, due in rows
+        if code is not None
+    }
 
 
 def _prospect_order(record: ProspectRecord) -> tuple[Any, ...]:

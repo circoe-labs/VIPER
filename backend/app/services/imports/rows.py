@@ -67,10 +67,12 @@ COMPANY_TEXT_FIELDS = (
 )
 COMPANY_FIELDS = (*COMPANY_TEXT_FIELDS, ImportField.CATEGORY, ImportField.ADDRESS)
 # Legacy stage columns → Contact state. Post-appointment stages (quote sent, its follow-up) are
-# outside the Contact scope and converge on `appointment_obtained` (handoff 06 §2).
+# outside the Contact scope and converge on `appointment_obtained` (handoff 06 §2). Follow-up
+# stages are sends, not states (sequences rework D1/D7): they leave the state `neutral` and the
+# commit keeps their raw cells until the import redesign records them as sends (S2).
 STAGE_STATUS = {
-    ImportField.STAGE_FOLLOW_UP_1: ContactTrackingStatus.R1,
-    ImportField.STAGE_FOLLOW_UP_2: ContactTrackingStatus.R2,
+    ImportField.STAGE_FOLLOW_UP_1: ContactTrackingStatus.NEUTRAL,
+    ImportField.STAGE_FOLLOW_UP_2: ContactTrackingStatus.NEUTRAL,
     ImportField.STAGE_APPOINTMENT: ContactTrackingStatus.APPOINTMENT_OBTAINED,
     ImportField.STAGE_QUOTE_SENT: ContactTrackingStatus.APPOINTMENT_OBTAINED,
     ImportField.STAGE_QUOTE_FOLLOW_UP: ContactTrackingStatus.APPOINTMENT_OBTAINED,

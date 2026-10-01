@@ -1,7 +1,8 @@
 """Prospection semantics and ProspectQueryService (Task 14) against the real test database.
 
 One synthetic person per edge case ("Cas <key>"), each segment's expected members written out, and
-counters compared with list totals — the definitions in doc/features/prospection-kpis.md.
+counters compared with list totals — the definitions in doc/features/prospection-kpis.md. Contact
+segments read cohorts and real sends (sequences rework D1): `in_cohort` builds them.
 """
 
 import random
@@ -16,6 +17,7 @@ from app.core.actor import ActorType
 from app.core.business_time import BUSINESS_TIMEZONE
 from app.models import (
     Company,
+    ContactSequence,
     ContactTracking,
     ImportBatch,
     InternalReferent,
@@ -27,6 +29,7 @@ from app.models.enums import (
     ContactabilityStatus,
     ContactTrackingStatus,
     ProspectSourceType,
+    SequenceEndReason,
     VerificationStatus,
 )
 from app.services import prospects as prospect_service
@@ -45,11 +48,13 @@ from app.services.prospection.segments import (
 )
 from tests.builders import (
     OPERATOR,
+    add_cohort,
     add_company,
     add_email,
     add_phone,
     add_prospect,
     add_role,
+    add_send,
     statements,
 )
 
@@ -67,6 +72,28 @@ def at(day: date, hour: int = 9) -> datetime:
 def track(session: Session, prospect: Prospect, status: S = S.NEUTRAL, **fields: Any) -> None:
     session.add(ContactTracking(prospect_id=prospect.id, status=status, **fields))
     session.flush()
+
+
+def in_cohort(
+    session: Session,
+    prospect: Prospect,
+    starts_on: date,
+    sends: int = 0,
+    *,
+    completed: bool = False,
+) -> ContactSequence:
+    """The prospect's current sequence in the cohort starting on `starts_on` (code derived from
+    the date: one cohort per date), with `sends` real sends one week apart from that date."""
+    cohort = add_cohort(session, f"S{starts_on.toordinal() % 100000}", starts_on)
+    sequence = ContactSequence(prospect_id=prospect.id, cohort_id=cohort.id)
+    if completed:
+        sequence.closed_at = at(starts_on)
+        sequence.end_reason = SequenceEndReason.COMPLETED
+    session.add(sequence)
+    session.flush()
+    for rank in range(sends):
+        add_send(session, sequence, rank, at(starts_on + timedelta(weeks=rank)))
+    return sequence
 
 
 def block(**fields: Any) -> dict[str, Any]:
@@ -156,30 +183,36 @@ def cases(db_session: Session) -> dict[str, Prospect]:
     made["secondary_email"] = case(s, company, "secondary_email")
     add_email(s, made["secondary_email"], "second@exemple.example", **VERIFIED)
 
+    # In a cohort, nothing sent yet: the Contact is due on the cohort's date.
     made["due_today"] = case(s, company, "due_today")
-    track(s, made["due_today"], planned_contact_at=at(TODAY, 18))
+    track(s, made["due_today"])
+    in_cohort(s, made["due_today"], TODAY)
     made["due_past"] = case(s, company, "due_past", activity_status="active")
-    track(s, made["due_past"], planned_contact_at=at(TODAY - timedelta(days=9)))
+    in_cohort(s, made["due_past"], TODAY - timedelta(days=9))
     made["planned_tomorrow"] = case(s, company, "planned_tomorrow")
-    track(s, made["planned_tomorrow"], planned_contact_at=at(TODAY + timedelta(days=1), 0))
+    in_cohort(s, made["planned_tomorrow"], TODAY + timedelta(days=1))
+    # Without cohort: not validated, nothing planned.
     made["unplanned"] = case(s, company, "unplanned")
     track(s, made["unplanned"])
     made["blocked_due"] = case(s, company, "blocked_due", **block())
-    track(s, made["blocked_due"], planned_contact_at=at(TODAY - timedelta(days=2)))
+    in_cohort(s, made["blocked_due"], TODAY - timedelta(days=2))
     made["inactive_due"] = case(s, company, "inactive_due", activity_status="inactive")
-    track(s, made["inactive_due"], planned_contact_at=at(TODAY - timedelta(days=2)))
+    in_cohort(s, made["inactive_due"], TODAY - timedelta(days=2))
 
+    # Contact sent; Contact, R1 and R2 sent.
     made["waiting"] = case(s, company, "waiting")
-    track(s, made["waiting"], S.CONTACTED)
+    in_cohort(s, made["waiting"], TODAY - timedelta(weeks=3), sends=1)
     made["follow_up"] = case(s, company, "follow_up")
-    track(s, made["follow_up"], S.R2)
+    in_cohort(s, made["follow_up"], TODAY - timedelta(weeks=4), sends=3)
     made["blocked_waiting"] = case(s, company, "blocked_waiting", **block())
-    track(s, made["blocked_waiting"], S.CONTACTED)
+    in_cohort(s, made["blocked_waiting"], TODAY - timedelta(weeks=3), sends=1)
     made["answered"] = case(s, company, "answered")
-    track(s, made["answered"], S.R1, response_received_at=at(TODAY))
-    # A sequence closed without outcome: contacted, but not an answer.
+    track(s, made["answered"], response_received_at=at(TODAY))
+    in_cohort(s, made["answered"], TODAY - timedelta(weeks=3), sends=2)
+    # A sequence ended without outcome (« Relance terminée », the former `failure`): contacted,
+    # but not an answer and no longer waiting for one.
     made["failure"] = case(s, company, "failure")
-    track(s, made["failure"], S.FAILURE)
+    in_cohort(s, made["failure"], TODAY - timedelta(weeks=8), sends=3, completed=True)
     # Set aside for good: terminal and do-not-contact, never contacted as such.
     made["ignored"] = case(s, company, "ignored", **block())
     track(s, made["ignored"], S.IGNORED)
@@ -198,7 +231,8 @@ def cases(db_session: Session) -> dict[str, Prospect]:
     return made
 
 
-# Every case, then each segment's members. `to_contact` = actionable, neutral, with a planned week.
+# Every case, then each segment's members. `to_contact` = actionable, in a campaign cohort, nothing
+# sent yet, nothing pausing it.
 ALL_CASES = {
     "plain",
     "verified",
@@ -362,13 +396,8 @@ def test_row_view_model_resolves_labels_and_week(db_session: Session) -> None:
     add_email(db_session, prospect, "elodie@temoin.example", is_primary=True)
     add_email(db_session, prospect, "autre@temoin.example")
     add_phone(db_session, prospect, "+33600000001", type="mobile", is_primary=True)
-    track(
-        db_session,
-        prospect,
-        S.APPOINTMENT_OBTAINED,
-        planned_contact_at=at(date(2026, 9, 14)),
-        referent_id=referent.id,
-    )
+    track(db_session, prospect, referent_id=referent.id)
+    in_cohort(db_session, prospect, date(2026, 9, 7), sends=1)
 
     (row,) = list_prospects(db_session, ProspectFilters(), CONTEXT).items
 
@@ -383,18 +412,30 @@ def test_row_view_model_resolves_labels_and_week(db_session: Session) -> None:
         VerificationStatus.UNVERIFIED,
     )
     assert (row.primary_phone, row.primary_phone_type) == ("+33600000001", "mobile")
-    assert (row.tracking_status, row.planned_contact_week) == (S.APPOINTMENT_OBTAINED, "2026-W38")
+    assert (row.tracking_status, row.cohort_code) == (S.NEUTRAL, "S39866")
+    # Contact sent on 7 September: R1 due on Monday 14 September (week 38).
+    assert (row.sent_count, row.next_step, row.finished) == (1, "r1", False)
+    assert (row.next_due_at, row.next_due_week) == (at(date(2026, 9, 14), 0), "2026-W38")
     assert (row.referent_id, row.referent_name) == (referent.id, "Camille Référente")
 
 
 def test_week_uses_the_business_day(db_session: Session) -> None:
-    prospect = add_prospect(db_session)
-    # Sunday 23:30 UTC is already Monday in Paris: week 38, not 37.
-    track(db_session, prospect, planned_contact_at=datetime(2026, 9, 13, 23, 30, tzinfo=UTC))
+    sunday, monday = add_prospect(db_session), add_prospect(db_session, last_name="Lundi")
+    # Sunday 23:30 in Paris is still week 37: R1 due in week 38. Sunday 22:30 UTC is already
+    # Monday 00:30 in Paris (week 38): R1 due in week 39.
+    for prospect, sent in (
+        (sunday, datetime(2026, 9, 13, 21, 30, tzinfo=UTC)),
+        (monday, datetime(2026, 9, 13, 22, 30, tzinfo=UTC)),
+    ):
+        sequence = in_cohort(db_session, prospect, date(2026, 9, 7))
+        add_send(db_session, sequence, 0, sent)
 
-    (row,) = list_prospects(db_session, ProspectFilters(), CONTEXT).items
+    rows = {
+        row.last_name: row.next_due_week
+        for row in list_prospects(db_session, ProspectFilters(), CONTEXT).items
+    }
 
-    assert row.planned_contact_week == "2026-W38"
+    assert rows == {"Test": "2026-W38", "Lundi": "2026-W39"}
 
 
 # --- search and filters -------------------------------------------------------------------------
@@ -461,9 +502,13 @@ def test_filters_combine(db_session: Session) -> None:
     b = person("b", transports, role_id=role.id)
     c = person("c", logistique)
     person("d", logistique, activity_status="active")
-    track(s, a, S.CONTACTED, referent_id=referent.id)
-    track(s, b, planned_contact_at=at(TODAY))
-    track(s, c, S.CONTACTED)
+    earlier = TODAY - timedelta(weeks=2)
+    track(s, a, referent_id=referent.id)
+    in_cohort(s, a, earlier, sends=1)
+    track(s, b)
+    planned = in_cohort(s, b, TODAY)
+    track(s, c)
+    contacted = in_cohort(s, c, earlier, sends=1)
     s.add(ProspectSource(prospect_id=b.id, source_type=ProspectSourceType.EXCEL_IMPORT))
     s.add_all(
         ProspectSource(
@@ -479,10 +524,12 @@ def test_filters_combine(db_session: Session) -> None:
         (ProspectFilters(activity=ActivityStatus.ACTIVE), Segment.ALL, {"a", "d"}),
         (ProspectFilters(referent=referent.id), Segment.ALL, {"a"}),
         (ProspectFilters(referent=NONE), Segment.ALL, {"b", "c", "d"}),
-        (ProspectFilters(tracking_status=S.CONTACTED), Segment.ALL, {"a", "c"}),
+        (ProspectFilters(cohort=contacted.cohort_id), Segment.ALL, {"a", "c"}),
+        (ProspectFilters(cohort=planned.cohort_id), Segment.ALL, {"b"}),
+        (ProspectFilters(cohort=NONE), Segment.ALL, {"d"}),
         (ProspectFilters(tracking_status=NONE), Segment.ALL, {"d"}),
-        # « Aucun état »: neutral or no tracking row (Contact decision 4).
-        (ProspectFilters(tracking_status=S.NEUTRAL), Segment.ALL, {"b", "d"}),
+        # « En séquence » (no badge): neutral or no tracking row.
+        (ProspectFilters(tracking_status=S.NEUTRAL), Segment.ALL, {"a", "b", "c", "d"}),
         (ProspectFilters(company_id=logistique.id), Segment.ALL, {"c", "d"}),
         (ProspectFilters(import_batch_id=batch.id), Segment.ALL, {"a", "c"}),
         (ProspectFilters(company_id=transports.id, role=role.id), Segment.DUE, {"b"}),
@@ -528,16 +575,29 @@ def random_base(session: Session, seed: int, size: int = 60) -> None:
                 verification_status=rng.choice(list(VerificationStatus)),
                 last_verified_at=rng.choice([None, at(TODAY - timedelta(days=30))]),
             )
+        day = TODAY + timedelta(days=rng.randrange(-40, 20))
         if rng.random() < 0.6:
-            day = TODAY + timedelta(days=rng.randrange(-20, 20))
             track(
                 session,
                 prospect,
                 rng.choice(list(S)),
-                planned_contact_at=rng.choice([None, at(day)]),
                 response_received_at=rng.choice([None, None, at(TODAY)]),
                 appointment_at=rng.choice([None, None, None, at(day)]),
             )
+        if rng.random() < 0.6:
+            if rng.random() < 0.1:
+                session.add(
+                    ContactSequence(prospect_id=prospect.id, cohort_id=add_cohort(session, "S0").id)
+                )
+                session.flush()
+            else:
+                in_cohort(
+                    session,
+                    prospect,
+                    day,
+                    sends=rng.randrange(0, 7),
+                    completed=rng.random() < 0.1,
+                )
 
 
 @pytest.mark.parametrize("seed", [1, 2, 3])
@@ -589,8 +649,8 @@ def test_sort_orders(db_session: Session) -> None:
         last_name="Martin",
         employment_verified_at=at(TODAY - timedelta(days=5)),
     )
-    track(db_session, early, planned_contact_at=at(TODAY))
-    track(db_session, late, planned_contact_at=at(TODAY + timedelta(days=2)))
+    in_cohort(db_session, early, TODAY)
+    in_cohort(db_session, late, TODAY + timedelta(days=2))
 
     def order(sort: ProspectSort) -> list[str | None]:
         page = list_prospects(db_session, ProspectFilters(), CONTEXT, sort=sort)
@@ -598,7 +658,8 @@ def test_sort_orders(db_session: Session) -> None:
 
     assert order(ProspectSort.NAME) == ["Ábel", "Martin", "Zola"]  # accents ignored
     assert order(ProspectSort.COMPANY) == ["Ábel", "Zola", "Martin"]  # no company last
-    assert order(ProspectSort.PLANNED_CONTACT) == ["Zola", "Ábel", "Martin"]
+    assert order(ProspectSort.NEXT_DUE) == ["Zola", "Ábel", "Martin"]
+    assert order(ProspectSort.PLANNED_CONTACT) == order(ProspectSort.NEXT_DUE)  # former key
     assert order(ProspectSort.VERIFICATION) == ["Ábel", "Martin", "Zola"]
 
 

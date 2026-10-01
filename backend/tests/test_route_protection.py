@@ -110,7 +110,7 @@ def test_mutation_services_receive_the_authenticated_actor_not_the_payload(
     def track(
         prospect_id: uuid.UUID, payload: dict[str, Any], session: SessionDep, actor: CurrentActor
     ) -> None:
-        tracking = ContactTrackingInput(status=ContactTrackingStatus.CONTACTED)
+        tracking = ContactTrackingInput(status=ContactTrackingStatus.RESPONSE_RECEIVED)
         save_contact_tracking(session, actor, prospect_id, tracking)
 
     prospect_id = add_prospect(db_session).id

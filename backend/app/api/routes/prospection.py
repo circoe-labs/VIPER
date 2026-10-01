@@ -1,8 +1,10 @@
 """Prospection API (`/api/prospection`, Task 14): the workspace's counters and people list.
 
 Both endpoints take the same criteria (`q`, `role`, `activity`, `referent`, `tracking_status`,
-`company`, `import_batch`), so each counter equals the total of the list opened with its segment.
-`role`, `referent` and `tracking_status` also accept `none` (no role, no referent, no tracking).
+`cohort`, `company`, `import_batch`), so each counter equals the total of the list opened with its
+segment. `role`, `referent`, `tracking_status` and `cohort` also accept `none` (no role, no
+referent, no tracking, no cohort). A row carries the derived Contact progress (cohort, sends, next
+step, « Relance terminée », next due date: sequences rework D1).
 Segment definitions: `app.services.prospection.segments`, doc/features/prospection-kpis.md.
 """
 
@@ -58,9 +60,13 @@ class ProspectRowOut(BaseModel):
     primary_phone: str | None
     primary_phone_type: PhoneType | None
     tracking_status: ContactTrackingStatus | None
-    planned_contact_at: datetime | None
+    cohort_code: str | None
+    sent_count: int
+    next_step: str | None
+    finished: bool
+    next_due_at: datetime | None
+    next_due_week: str | None
     due: bool
-    planned_contact_week: str | None
     response_received_at: datetime | None
     appointment_at: datetime | None
     referent_id: uuid.UUID | None
@@ -83,6 +89,7 @@ def prospect_filters(
     activity: ActivityStatus | None = None,
     referent: uuid.UUID | OrNone | None = None,
     tracking_status: ContactTrackingStatus | OrNone | None = None,
+    cohort: uuid.UUID | OrNone | None = None,
     company: uuid.UUID | None = None,
     import_batch: uuid.UUID | None = None,
 ) -> ProspectFilters:
@@ -92,6 +99,7 @@ def prospect_filters(
         activity=activity,
         referent=referent,
         tracking_status=tracking_status,
+        cohort=cohort,
         company_id=company,
         import_batch_id=import_batch,
     )

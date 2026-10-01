@@ -2,6 +2,7 @@
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import date, datetime
 from functools import cache
 from typing import Any
 
@@ -12,8 +13,19 @@ from sqlalchemy.orm import Session
 
 from app.core.actor import ActorContext, ActorType
 from app.core.security import hash_password
-from app.models import AuditLogEntry, Company, Email, Phone, Prospect, Role, User
-from app.models.enums import OriginType, PhoneType
+from app.models import (
+    AuditLogEntry,
+    Cohort,
+    Company,
+    ContactMessage,
+    ContactSequence,
+    Email,
+    Phone,
+    Prospect,
+    Role,
+    User,
+)
+from app.models.enums import ContactMessageStatus, OriginType, PhoneType, SendSource
 from app.services import audit
 from app.services.audit import AuditContext, AuditSource
 from app.services.companies import luhn_valid
@@ -130,6 +142,51 @@ def add_role(session: Session, slug: str = "role-test", label: str = "Rôle test
     session.add(role)
     session.flush()
     return role
+
+
+def add_cohort(session: Session, code: str = "S41", starts_on: date | None = None) -> Cohort:
+    """A cohort with its real start date (default: Monday 5 October 2026); `S0` exists already
+    (migration 0010) and is returned as is."""
+    existing = session.scalar(select(Cohort).where(Cohort.code == code))
+    if existing is not None:
+        return existing
+    cohort = Cohort(code=code, starts_on=starts_on or date(2026, 10, 5))
+    session.add(cohort)
+    session.flush()
+    return cohort
+
+
+def start_sequence(
+    session: Session, prospect: Prospect, cohort: Cohort | None = None
+) -> ContactSequence:
+    """Put the prospect in `cohort` (default `S41`) as its current, open sequence."""
+    sequence = ContactSequence(
+        prospect_id=prospect.id, cohort_id=(cohort or add_cohort(session)).id
+    )
+    session.add(sequence)
+    session.flush()
+    return sequence
+
+
+def add_send(
+    session: Session,
+    sequence: ContactSequence,
+    rank: int,
+    sent_at: datetime,
+    source: SendSource = SendSource.MANUAL,
+) -> ContactMessage:
+    """A real send of `rank` in the sequence (a send record without text)."""
+    message = ContactMessage(
+        prospect_id=sequence.prospect_id,
+        sequence_id=sequence.id,
+        rank=rank,
+        status=ContactMessageStatus.SENT,
+        sent_at=sent_at,
+        sent_source=source,
+    )
+    session.add(message)
+    session.flush()
+    return message
 
 
 # Synthetic pilot account for tests only (never used outside the test database).

@@ -1,11 +1,15 @@
 """Contact messages API (`/api/prospects/{id}/messages`, Contact port Slice S3; handoff Task 12).
 
 Thin routes over `app.services.contact_messages` (the state machine, its rules and refusal
-codes). No route writes a status directly and none marks a message `sent`: that is the
-dispatcher's internal operation (S7).
+codes). The steps are the ranks of the prospect's current open sequence (sequences rework D6).
+No route writes a status directly; « Marquer comme envoyé » is the explicit human declaration of
+a real send (the dispatcher, S7, marks its own).
 
-- `GET  …/messages`                  the three steps (always Contact, R1, R2), the defaults of a
-                                     new message and whether the sequence is closed;
+- `GET  …/messages`                  the three steps (always Contact, R1, R2) of the current
+                                     sequence, the defaults of a new message and whether the
+                                     sequence is closed (no cohort, S0, state, opposition);
+- `POST …/messages/mark-sent`        the next step was really sent (`sent_at`, default now): the
+                                     step's message becomes the send, or a send record is created;
 - `GET  …/messages/{step}`           one step's message (null when never created);
 - `PUT  …/messages/{step}`           create (no `expected_revision`, 201) or edit the content (200);
 - `POST …/messages/{step}/validate|schedule|unschedule|cancel|reopen` with `expected_revision`;
@@ -27,7 +31,12 @@ from app.core.config import Settings
 from app.db.session import unit_of_work
 from app.models import ContactMessage
 from app.models.contact_messages import EMAIL_MAX_LENGTH, SUBJECT_MAX_LENGTH
-from app.models.enums import ContactMessageStatus, ContactMessageStep, ContactTrackingStatus
+from app.models.enums import (
+    ContactMessageStatus,
+    ContactMessageStep,
+    ContactTrackingStatus,
+    SendSource,
+)
 from app.services import audit
 from app.services import contact_mail_generation as generation
 from app.services import contact_messages as service
@@ -83,10 +92,19 @@ class ScheduleIn(RevisionIn):
     scheduled_at: AwareDatetime
 
 
+class MarkSentIn(StrictModel):
+    # When the mail left (ISO 8601 with a time zone); omitted: now. Never in the future, never
+    # before the sequence's previous send.
+    sent_at: AwareDatetime | None = None
+
+
 class MessageOut(BaseModel):
     id: uuid.UUID
     prospect_id: uuid.UUID
-    step: ContactMessageStep
+    sequence_id: uuid.UUID
+    # 0 = Contact, n = Rn; `step` names the ranks the editor shows (null beyond R2).
+    rank: int
+    step: ContactMessageStep | None
     status: ContactMessageStatus
     from_email: str | None
     to: list[str]
@@ -100,6 +118,7 @@ class MessageOut(BaseModel):
     validated_by: str | None
     scheduled_at: datetime | None
     sent_at: datetime | None
+    sent_source: SendSource | None
     cancelled_at: datetime | None
     cancel_reason: str | None
     generation_model: str | None
@@ -117,7 +136,10 @@ class SequenceOut(BaseModel):
     # The prospect's Contact state; null without a tracking.
     state: ContactTrackingStatus | None
     do_not_contact: bool
-    # Closed: no message may be created, edited, validated, scheduled or reopened.
+    # The open current sequence the steps belong to; null without one (no cohort, or closed).
+    sequence_id: uuid.UUID | None
+    out_of_campaign: bool
+    # Closed: no message may be created, edited, validated, scheduled, reopened or marked sent.
     closed: bool
 
 
@@ -183,6 +205,8 @@ def message_out(message: ContactMessage) -> MessageOut:
     return MessageOut(
         id=message.id,
         prospect_id=message.prospect_id,
+        sequence_id=message.sequence_id,
+        rank=message.rank,
         step=message.step,
         status=message.status,
         from_email=message.from_email,
@@ -197,6 +221,7 @@ def message_out(message: ContactMessage) -> MessageOut:
         validated_by=message.validated_by_display,
         scheduled_at=message.scheduled_at,
         sent_at=message.sent_at,
+        sent_source=message.sent_source,
         cancelled_at=message.cancelled_at,
         cancel_reason=message.cancel_reason,
         generation_model=message.generation_model,
@@ -231,6 +256,8 @@ def list_messages(
             prospect_id=context.prospect_id,
             state=context.state,
             do_not_contact=context.do_not_contact,
+            sequence_id=context.sequence_id,
+            out_of_campaign=context.out_of_campaign,
             closed=context.closed,
         ),
         defaults=DefaultsOut(
@@ -243,6 +270,26 @@ def list_messages(
             for step, message in read.messages.items()
         ],
     )
+
+
+@router.post("/mark-sent")
+def mark_sent(
+    prospect_id: uuid.UUID,
+    body: MarkSentIn,
+    response: Response,
+    session: SessionDep,
+    actor: CurrentActor,
+) -> MessageResultOut:
+    """« Marquer comme envoyé » (D3): the next step of the open sequence was really sent — its
+    message becomes the send (200), or a send record without text is created (201). The level
+    moves by one (D1)."""
+    with business_errors():
+        result = service.mark_sent(
+            session, actor, prospect_id, sent_at=body.sent_at, now=datetime.now(UTC)
+        )
+    if result.created:
+        response.status_code = status.HTTP_201_CREATED
+    return result_out(result)
 
 
 @router.get("/{step}")

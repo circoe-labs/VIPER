@@ -62,10 +62,32 @@ def seed_base(db_session: Session) -> None:
     )
     db_session.execute(
         text(
-            "INSERT INTO contact_tracking (prospect_id, status, planned_contact_at)"
-            " SELECT id, (ARRAY['neutral', 'contacted', 'r1', 'response_received'])"
-            "[(random() * 3)::int + 1], now() + ((random() * 60)::int - 30) * interval '1 day'"
-            " FROM prospects TABLESAMPLE BERNOULLI (60)"
+            "INSERT INTO contact_tracking (prospect_id, status)"
+            " SELECT id, (ARRAY['neutral', 'neutral', 'response_received', 'appointment_obtained'])"
+            "[(random() * 3)::int + 1] FROM prospects TABLESAMPLE BERNOULLI (60)"
+        )
+    )
+    # Ten weekly cohorts; most prospects in one, with up to three real sends (sequences rework).
+    db_session.execute(
+        text(
+            "INSERT INTO cohorts (code, starts_on)"
+            " SELECT 'S' || g, current_date - g * 7 FROM generate_series(1, 10) AS g"
+        )
+    )
+    db_session.execute(
+        text(
+            "INSERT INTO contact_sequences (prospect_id, cohort_id)"
+            " SELECT p.id, c.id FROM prospects p"
+            " JOIN cohorts c ON c.code = 'S' || (1 + abs(hashtext(p.id::text)) % 10)"
+            " WHERE random() < 0.7"
+        )
+    )
+    db_session.execute(
+        text(
+            "INSERT INTO contact_messages (prospect_id, sequence_id, rank, status, sent_at,"
+            " sent_source) SELECT s.prospect_id, s.id, r, 'sent',"
+            " now() - (5 - r) * interval '7 days', 'migration'"
+            " FROM contact_sequences s CROSS JOIN generate_series(0, 2) AS r WHERE random() < 0.5"
         )
     )
     # Every tracking entered its stage at some point of the last 200 days.

@@ -114,7 +114,14 @@ PROVENANCE = _fixed("Trace de provenance : non modifiable.")
 # Domain tables of the shared prospecting database (doc/architecture/data-model.md).
 EXPOSED_TABLES: Mapping[str, TablePolicy] = {
     "activity_categories": TAXONOMY,
+    # Parameters, cohorts, sequences and alerts change only through their audited services and
+    # their rules (Paramètres, the prospect sheet): read-only here (sequences rework).
+    "app_settings": TablePolicy(writes=read_only("Paramètre : modifiable depuis Paramètres.")),
     "audit_log": TablePolicy(writes=read_only("Journal d’audit : en ajout seul, jamais modifié.")),
+    "cohorts": TablePolicy(
+        writes=read_only("Cohortes : modifiables depuis Paramètres (code et date réelle)."),
+        label_columns=("code",),
+    ),
     "commercial_segments": TAXONOMY,
     "companies": TablePolicy(writes=ALL_WRITES, label_columns=("display_name",)),
     # Not audited as rows: written through the company's collection (company.updated).
@@ -129,6 +136,9 @@ EXPOSED_TABLES: Mapping[str, TablePolicy] = {
     # revision, sent immutable, decisions 21-24); a grid edit could fake a validation.
     "contact_messages": TablePolicy(
         writes=read_only("Messages Contact : modifiables uniquement depuis la page Contact.")
+    ),
+    "contact_sequences": TablePolicy(
+        writes=read_only("Séquences : changez la cohorte depuis la fiche prospect.")
     ),
     # Stage changes go through the contact-tracking service, which keeps the status history.
     "contact_tracking": TablePolicy(columns={"prospect_id": PARENT_FIXED}, writes=ALL_WRITES),
@@ -186,6 +196,9 @@ EXPOSED_TABLES: Mapping[str, TablePolicy] = {
             delete=None,
         ),
         label_columns=("first_name", "last_name"),
+    ),
+    "quality_alerts": TablePolicy(
+        writes=read_only("Alertes qualité : posées et résolues depuis la fiche.")
     ),
     "roles": TAXONOMY,
 }

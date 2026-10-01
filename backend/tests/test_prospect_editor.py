@@ -31,6 +31,7 @@ from app.models.enums import (
 )
 from app.services import import_batches, provenance
 from app.services.contact_channels import ChannelItem
+from app.services.contact_workflow import PauseReason
 from app.services.errors import (
     ConflictError,
     DoNotContactError,
@@ -55,12 +56,15 @@ from app.services.prospect_editor import (
 from app.services.prospection.segments import VerificationState
 from tests.builders import (
     OPERATOR,
+    add_cohort,
     add_company,
     add_email,
     add_phone,
     add_prospect,
     add_role,
+    add_send,
     audit_events,
+    start_sequence,
 )
 
 NOW = datetime(2026, 9, 11, 8, 30, tzinfo=UTC)  # 10:30 in Paris
@@ -105,7 +109,6 @@ def form_of(view: ProspectView, **changes: object) -> ProspectForm:
         ],
         tracking=TrackingForm(
             status=tracking.status,
-            planned_contact_on=tracking.planned_contact_on,
             response_received_on=tracking.response_received_on,
             appointment_on=tracking.appointment_on,
             appointment_time=tracking.appointment_time,
@@ -156,11 +159,7 @@ def test_creation_records_the_person_their_aliases_tracking_and_manual_provenanc
             ChannelItem(value="06 12 34 56 78", phone_type=PhoneType.MOBILE),
             ChannelItem(value="01 23 45 67 89", phone_type=PhoneType.LANDLINE),
         ],
-        tracking=TrackingForm(
-            status=ContactTrackingStatus.NEUTRAL,
-            planned_contact_on=date(2026, 9, 16),
-            referent_id=referent.id,
-        ),
+        tracking=TrackingForm(status=ContactTrackingStatus.NEUTRAL, referent_id=referent.id),
     )
 
     view = create_prospect(
@@ -184,10 +183,10 @@ def test_creation_records_the_person_their_aliases_tracking_and_manual_provenanc
         ("+33123456789", False),
     ]
     assert view.tracking is not None
-    assert (view.tracking.planned_contact_on, view.tracking.planned_contact_week) == (
-        date(2026, 9, 16),
-        "2026-W38",
-    )
+    assert view.tracking.referent is not None and view.tracking.referent.id == referent.id
+    # No cohort yet: not validated, nothing due (the cohort is a separate, human change).
+    assert (view.contact.cohort, view.contact.next_due_on) == (None, None)
+    assert view.contact.pause_reason is PauseReason.NO_COHORT
     [source] = view.sources
     assert (source.source_type, source.legal_basis_or_collection_context) == (
         ProspectSourceType.MANUAL,
@@ -641,17 +640,12 @@ def test_tracking_records_dates_in_business_time_referent_and_history(db_session
     db_session.add(referent)
     db_session.flush()
 
-    save(
-        db_session,
-        prospect,
-        tracking=TrackingForm(ContactTrackingStatus.NEUTRAL, planned_contact_on=date(2026, 9, 14)),
-    )
+    save(db_session, prospect, tracking=TrackingForm(ContactTrackingStatus.NEUTRAL))
     view = save(
         db_session,
         prospect,
         tracking=TrackingForm(
             ContactTrackingStatus.APPOINTMENT_OBTAINED,
-            planned_contact_on=date(2026, 9, 14),
             response_received_on=date(2026, 9, 15),
             appointment_on=date(2026, 9, 22),
             appointment_time=time(10, 30),
@@ -661,17 +655,14 @@ def test_tracking_records_dates_in_business_time_referent_and_history(db_session
 
     tracking = view.tracking
     assert tracking is not None
-    # « RDV pris » has no default next action: the echoed planned day is cleared.
-    assert (tracking.status, tracking.planned_contact_on, tracking.response_received_on) == (
+    assert (tracking.status, tracking.response_received_on) == (
         ContactTrackingStatus.APPOINTMENT_OBTAINED,
-        None,
         date(2026, 9, 15),
     )
     assert (tracking.appointment_on, tracking.appointment_time) == (date(2026, 9, 22), time(10, 30))
     assert tracking.referent is not None and tracking.referent.label == "Claire Référente"
     row = prospect.contact_tracking
     assert row is not None
-    assert row.planned_contact_at is None
     assert row.appointment_at == business_moment(date(2026, 9, 22), time(10, 30))
     transitions = db_session.execute(
         select(ContactTrackingStatusHistory.from_status, ContactTrackingStatusHistory.to_status)
@@ -691,20 +682,37 @@ def test_an_unchanged_day_keeps_the_stored_moment(db_session: Session) -> None:
         db_session,
         prospect,
         tracking=TrackingForm(
-            ContactTrackingStatus.CONTACTED, planned_contact_on=date(2026, 9, 14)
+            ContactTrackingStatus.RESPONSE_RECEIVED, response_received_on=date(2026, 9, 14)
         ),
     )
     stored = prospect.contact_tracking
     assert stored is not None
     # e.g. set to 15:00 through the Database Explorer: the editor shows its day only.
-    stored.planned_contact_at = datetime(2026, 9, 14, 13, 0, tzinfo=UTC)
+    stored.response_received_at = datetime(2026, 9, 14, 13, 0, tzinfo=UTC)
     db_session.flush()
     before = len(audit_events(db_session))
 
     save(db_session, prospect)
 
-    assert stored.planned_contact_at == datetime(2026, 9, 14, 13, 0, tzinfo=UTC)
+    assert stored.response_received_at == datetime(2026, 9, 14, 13, 0, tzinfo=UTC)
     assert len(audit_events(db_session)) == before
+
+
+def test_the_view_derives_the_contact_progress(db_session: Session) -> None:
+    prospect = add_prospect(db_session, add_company(db_session))
+    sequence = start_sequence(
+        db_session, prospect, add_cohort(db_session, "S39", date(2026, 9, 28))
+    )
+
+    before = get_view(db_session, prospect.id, CLOCK).contact
+    add_send(db_session, sequence, 0, datetime(2026, 9, 29, 9, tzinfo=UTC))
+    after = get_view(db_session, prospect.id, CLOCK).contact
+
+    assert before.cohort is not None and before.cohort.code == "S39"
+    assert (before.sent_count, before.level_label, before.next_step) == (0, "Contact", "contact")
+    assert (before.next_due_on, before.next_due_week) == (date(2026, 9, 28), "2026-W40")
+    assert (after.sent_count, after.level_label, after.next_step) == (1, "R1", "r1")
+    assert (after.next_due_on, after.max_follow_ups) == (date(2026, 10, 5), 4)
 
 
 def test_an_appointment_time_needs_its_day_and_referents_must_exist(db_session: Session) -> None:
@@ -714,13 +722,13 @@ def test_an_appointment_time_needs_its_day_and_referents_must_exist(db_session: 
         save(
             db_session,
             prospect,
-            tracking=TrackingForm(ContactTrackingStatus.CONTACTED, appointment_time=time(9, 0)),
+            tracking=TrackingForm(ContactTrackingStatus.NEUTRAL, appointment_time=time(9, 0)),
         )
     with pytest.raises(InvalidFieldError) as referent:
         save(
             db_session,
             prospect,
-            tracking=TrackingForm(ContactTrackingStatus.CONTACTED, referent_id=uuid.uuid4()),
+            tracking=TrackingForm(ContactTrackingStatus.NEUTRAL, referent_id=uuid.uuid4()),
         )
 
     assert refused(no_day) == ("tracking.appointment_time", "without_day")
@@ -781,7 +789,7 @@ def test_the_save_never_touches_an_opposition(db_session: Session) -> None:
         db_session,
         prospect,
         last_name="Renommé",
-        tracking=TrackingForm(ContactTrackingStatus.FAILURE),
+        tracking=TrackingForm(ContactTrackingStatus.DISQUALIFIED),
     )
 
     assert view.contactability_status is ContactabilityStatus.DO_NOT_CONTACT
@@ -823,7 +831,7 @@ def test_deleting_takes_the_person_s_records_and_leaves_one_event(db_session: Se
     provenance.add_manual_source(
         db_session, OPERATOR, prospect.id, legal_basis_or_collection_context=CONTEXT
     )
-    save(db_session, prospect, tracking=TrackingForm(ContactTrackingStatus.CONTACTED))
+    save(db_session, prospect, tracking=TrackingForm(ContactTrackingStatus.RESPONSE_RECEIVED))
     events_before = len(audit_events(db_session))
     version = get_view(db_session, prospect.id, CLOCK).version
     prospect_id = prospect.id

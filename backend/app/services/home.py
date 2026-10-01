@@ -2,9 +2,9 @@
 
 Every prospect count is a canonical Prospection segment (`prospection.query.count_segments`), so
 Home and Prospection always agree. Home adds what Prospection does not count — companies, monthly
-progress read from the status history, next actions and the recent imports and edits — in a fixed
-number of explicit statements whatever the base size. (The « Suivi commercial léger » group of
-post-appointment stages was removed with the Contact model, decision P3.)
+progress read from the real sends and the status history, next actions and the recent imports and
+edits — in a fixed number of explicit statements whatever the base size. (The « Suivi commercial
+léger » group of post-appointment stages was removed with the Contact model, decision P3.)
 Definitions: doc/features/home-dashboard.md (decisions I-110 … I-117).
 """
 
@@ -13,23 +13,38 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import ColumnElement, and_, func, or_, select
+from sqlalchemy import ColumnElement, and_, func, or_, select, union_all
 from sqlalchemy.orm import Session
 
 from app.core.actor import ActorType
 from app.core.business_time import start_of_day
 from app.db.session import whole_base_plan
-from app.models import Company, ContactTracking, ImportBatch, InternalReferent, Prospect
+from app.models import (
+    Company,
+    ContactMessage,
+    ContactTracking,
+    ImportBatch,
+    InternalReferent,
+    Prospect,
+)
 from app.models.contact_tracking import ContactTrackingStatusHistory
-from app.models.enums import ContactTrackingStatus
+from app.models.enums import (
+    ContactMessageStatus,
+    ContactTrackingStatus,
+    SendSource,
+    TrackingHistoryStatus,
+)
 from app.services import audit, history, import_batches
 from app.services.audit import AuditSource
-from app.services.contact_workflow import CONTACT_STATES_MIGRATION_ID, history_codes
+from app.services.contact_sequences import next_due_at_sql
+from app.services.contact_workflow import (
+    APPOINTMENT_CODES,
+    CONTACT_ATTEMPT_CODES,
+    RESTATEMENT_ACTOR_IDS,
+)
 from app.services.history import HistoryActor
 from app.services.prospection.query import ProspectFilters, count_segments
 from app.services.prospection.segments import (
-    APPOINTMENT_STAGES,
-    CONTACTED_STAGES,
     Segment,
     SegmentContext,
     actionable,
@@ -43,7 +58,10 @@ S = ContactTrackingStatus
 History = ContactTrackingStatusHistory
 
 # Outcomes that leave nothing to do: never listed as next actions.
-CLOSED_STAGES = (S.FAILURE, S.IGNORED)
+CLOSED_STAGES = (S.IGNORED, S.DISQUALIFIED)
+# Sends recorded when they happened (a person's « Marquer comme envoyé », the dispatcher); an
+# import or a migration restates a send made at an earlier, uncertain moment.
+RECORDED_SEND_SOURCES = (SendSource.MANUAL, SendSource.WORKER)
 # The current month and the five before it.
 TREND_MONTHS = 6
 # Appointments from the start of today to the end of the 6th day after it.
@@ -76,7 +94,7 @@ class ActionItem:
     last_name: str | None
     company_name: str | None
     tracking_status: ContactTrackingStatus | None
-    # The date the group is ordered by: appointment, planned contact or response.
+    # The date the group is ordered by: appointment, next due date or response.
     at: datetime | None
     referent_name: str | None
 
@@ -145,60 +163,78 @@ def month_start(day: date, months_back: int = 0) -> date:
     return date(index // 12, index % 12 + 1, 1)
 
 
-def _first_transitions(stages: tuple[ContactTrackingStatus, ...]) -> tuple[Any, Any]:
-    """Per tracking: when it first entered one of `stages`, and when it first did so other than
-    by an import. The two are equal only when the first entry was recorded in VIPER — an import
-    restates a legacy stage reached at an unknown earlier date. History rows written before
-    migration 0008 keep their legacy codes, read through their equivalent state; the rows that
-    migration appended restate a conversion, like an import, so they are never a first entry."""
-    into = History.to_status.in_(history_codes(stages))
-    restated = or_(
+def _restated() -> ColumnElement[bool]:
+    """A history row that restates a state reached earlier: written by an import, or appended by
+    migration 0008/0010 (a conversion)."""
+    return or_(
         History.actor_type == ActorType.IMPORT,
-        and_(
-            History.actor_type == ActorType.SYSTEM,
-            History.actor_id == CONTACT_STATES_MIGRATION_ID,
-        ),
+        and_(History.actor_type == ActorType.SYSTEM, History.actor_id.in_(RESTATEMENT_ACTOR_IDS)),
     )
-    first = func.min(History.changed_at).filter(into)
-    recorded = func.min(History.changed_at).filter(into, ~restated)
-    return first, recorded
+
+
+def _history_events(codes: tuple[TrackingHistoryStatus, ...]) -> Any:
+    """(prospect, moment, recorded) of every history row entering one of `codes`."""
+    return (
+        select(
+            ContactTracking.prospect_id.label("prospect_id"),
+            History.changed_at.label("at"),
+            (~_restated()).label("recorded"),
+        )
+        .join(ContactTracking, ContactTracking.id == History.contact_tracking_id)
+        .where(History.to_status.in_(codes))
+    )
+
+
+def _firsts(events: Any) -> Any:
+    """Per prospect: the first event, and the first one recorded when it happened. The two are
+    equal only when the first one was recorded in VIPER — an import or a migration restates a
+    contact made at an unknown earlier date."""
+    rows = events.subquery()
+    return (
+        select(
+            func.min(rows.c.at).label("first"),
+            func.min(rows.c.at).filter(rows.c.recorded).label("recorded"),
+        )
+        .group_by(rows.c.prospect_id)
+        .subquery()
+    )
 
 
 def monthly_progress(session: Session, today: date) -> list[MonthProgress]:
-    """Prospects newly contacted and appointments obtained per month (business time), for the
-    current month and the ones before it, in one statement over the status history."""
-    contacted, contacted_recorded = _first_transitions(CONTACTED_STAGES)
-    appointment, appointment_recorded = _first_transitions(APPOINTMENT_STAGES)
-    firsts = (
-        select(
-            contacted.label("contacted"),
-            contacted_recorded.label("contacted_recorded"),
-            appointment.label("appointment"),
-            appointment_recorded.label("appointment_recorded"),
-        )
-        .group_by(History.contact_tracking_id)
-        .subquery()
-    )
+    """Prospects contacted for the first time and appointments obtained per month (business
+    time), for the current month and the ones before it. A first contact is the first message
+    really sent (any sequence) or, for contacts made before the sends existed, the first history
+    row of a contact-attempt state; an appointment is read from the status history."""
+    sends = select(
+        ContactMessage.prospect_id.label("prospect_id"),
+        ContactMessage.sent_at.label("at"),
+        ContactMessage.sent_source.in_(RECORDED_SEND_SOURCES).label("recorded"),
+    ).where(ContactMessage.status == ContactMessageStatus.SENT)
+    contacts = _firsts(union_all(sends, _history_events(CONTACT_ATTEMPT_CODES)))
+    appointments = _firsts(_history_events(APPOINTMENT_CODES))
     months = [month_start(today, back) for back in range(TREND_MONTHS - 1, -1, -1)]
 
-    def per_month(first: Any, recorded: Any) -> list[ColumnElement[int]]:
-        return [
-            func.count().filter(
-                first == recorded,
-                first >= start_of_day(month),
-                first < start_of_day(month_start(month, -1)),
-            )
-            for month in months
-        ]
+    def per_month(firsts: Any) -> list[int]:
+        row = session.execute(
+            select(
+                *(
+                    func.count().filter(
+                        firsts.c.first == firsts.c.recorded,
+                        firsts.c.first >= start_of_day(month),
+                        firsts.c.first < start_of_day(month_start(month, -1)),
+                    )
+                    for month in months
+                )
+            ).select_from(firsts)
+        ).one()
+        return list(row)
 
-    row = session.execute(
-        select(
-            *per_month(firsts.c.contacted, firsts.c.contacted_recorded),
-            *per_month(firsts.c.appointment, firsts.c.appointment_recorded),
-        ).select_from(firsts)
-    ).one()
+    # Whole-base reads over the history and the sends (joins included): no nested loops.
+    with whole_base_plan(session):
+        contacted = per_month(contacts)
+        obtained = per_month(appointments)
     return [
-        MonthProgress(month=month, contacted=row[index], appointments=row[TREND_MONTHS + index])
+        MonthProgress(month=month, contacted=contacted[index], appointments=obtained[index])
         for index, month in enumerate(months)
     ]
 
@@ -265,9 +301,7 @@ def next_actions(session: Session, context: SegmentContext) -> NextActions:
     with whole_base_plan(session):
         return NextActions(
             appointments=_action_group(session, upcoming, ContactTracking.appointment_at),
-            due=_action_group(
-                session, predicate(Segment.DUE, context), ContactTracking.planned_contact_at
-            ),
+            due=_action_group(session, predicate(Segment.DUE, context), next_due_at_sql()),
             responses=_action_group(
                 session, awaiting, ContactTracking.response_received_at, nulls_last=True
             ),

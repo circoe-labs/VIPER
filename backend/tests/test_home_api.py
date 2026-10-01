@@ -10,12 +10,22 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.actor import ActorContext, ActorType
+from app.core.business_time import business_day
 from app.core.config import Settings
 from app.models import ContactTracking, ContactTrackingStatusHistory
 from app.models.enums import ContactTrackingStatus
 from app.services.contact_tracking import ContactTrackingInput, save_contact_tracking
 from app.services.prospection.segments import Segment, SegmentContext
-from tests.builders import OPERATOR, add_company, add_email, add_prospect, bind_operator
+from tests.builders import (
+    OPERATOR,
+    add_cohort,
+    add_company,
+    add_email,
+    add_prospect,
+    add_send,
+    bind_operator,
+    start_sequence,
+)
 from tests.test_explorer_writes import save, update
 
 HOME = "/api/home"
@@ -45,13 +55,13 @@ def test_contract_and_agreement_with_prospection(client: TestClient, db_session:
         prospect = add_prospect(db_session, company, first_name="Accueil", last_name=f"Test{n}")
         if n % 2:
             add_email(db_session, prospect, f"accueil{n}@exemple.example", is_primary=True)
-        db_session.add(
-            ContactTracking(
-                prospect_id=prospect.id,
-                status=[S.NEUTRAL, S.CONTACTED, S.APPOINTMENT_OBTAINED][n % 3],
-                planned_contact_at=now - timedelta(days=n + 1),
-            )
-        )
+        state = S.APPOINTMENT_OBTAINED if n % 3 == 2 else S.NEUTRAL
+        db_session.add(ContactTracking(prospect_id=prospect.id, status=state))
+        # In a cohort that started n + 1 days ago; every third one already contacted.
+        cohort = add_cohort(db_session, f"S{n + 1}", business_day(now - timedelta(days=n + 1)))
+        sequence = start_sequence(db_session, prospect, cohort)
+        if n % 3 == 1:
+            add_send(db_session, sequence, 0, now - timedelta(hours=1))
     db_session.flush()
 
     body = get_home(client)
@@ -107,14 +117,14 @@ def test_recent_edits_carry_no_raw_payload(client: TestClient, db_session: Sessi
     add_email(db_session, prospect, "jean.temoin@exemple.example", is_primary=True)
     bind_operator(db_session)
     save_contact_tracking(
-        db_session, OPERATOR, prospect.id, ContactTrackingInput(status=S.CONTACTED)
+        db_session, OPERATOR, prospect.id, ContactTrackingInput(status=S.APPOINTMENT_OBTAINED)
     )
 
     body = get_home(client)
 
     (edit,) = body["recent_edits"]
     assert edit["subject_label"] == "Jean Témoin"
-    assert edit["summary"] == ["Suivi : Contacté"]
+    assert edit["summary"] == ["Suivi : RDV pris"]
     assert edit["actor"] == {
         "kind": "human",
         "label": "Opératrice Test",
@@ -144,9 +154,9 @@ def test_database_explorer_stage_changes_count_in_the_month(
     to_contact = save_contact_tracking(
         db_session, importer, waiting.id, ContactTrackingInput(status=S.NEUTRAL)
     )
-    # Imported as already contacted: not a new contact, but its appointment is new.
+    # Imported as already answered: not a new contact, but its appointment is new.
     contacted = save_contact_tracking(
-        db_session, importer, answered.id, ContactTrackingInput(status=S.CONTACTED)
+        db_session, importer, answered.id, ContactTrackingInput(status=S.RESPONSE_RECEIVED)
     )
     before = get_home(client)["progress"]["months"][-1]
     assert (before["contacted"], before["appointments"]) == (0, 0)  # imported stages
@@ -156,7 +166,7 @@ def test_database_explorer_stage_changes_count_in_the_month(
         client,
         "contact_tracking",
         updates=[
-            update(to_contact, status="contacted"),
+            update(to_contact, status="response_received"),
             update(contacted, status="appointment_obtained"),
         ],
     )
@@ -165,6 +175,9 @@ def test_database_explorer_stage_changes_count_in_the_month(
     moves = db_session.execute(
         select(History.to_status, History.actor_type).where(History.from_status.is_not(None))
     ).all()
-    assert set(moves) == {(S.CONTACTED, ActorType.HUMAN), (S.APPOINTMENT_OBTAINED, ActorType.HUMAN)}
+    assert set(moves) == {
+        (S.RESPONSE_RECEIVED, ActorType.HUMAN),
+        (S.APPOINTMENT_OBTAINED, ActorType.HUMAN),
+    }
     month = get_home(client)["progress"]["months"][-1]
     assert (month["contacted"], month["appointments"]) == (1, 1)

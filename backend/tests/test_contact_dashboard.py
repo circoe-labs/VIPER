@@ -1,99 +1,153 @@
-"""Contact dashboard (Contact port Slice S3, handoff Task 09): counters = totals of the lists they
-open, ISO-week boundaries (week 53, year change), scope (ignored, do-not-contact, inactive), list
-criteria, message statuses per step, pagination and the HTTP contract."""
+"""Contact dashboard (Contact port Slice S3, handoff Task 09; sequences rework D1-D9): counters =
+totals of the lists they open, next due dates derived from the cohort and the real sends, ISO
+calendar-week boundaries (week 53, year change), scope (ignored, Défaillant, do-not-contact,
+inactive), pauses (S0, finished, state, « Erreur sur le mail »), list criteria, message statuses
+per step, pagination and the HTTP contract."""
 
 import uuid
-from datetime import date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.core.business_time import start_of_day
-from app.models import ContactMessage, ContactTracking
+from app.core.business_time import BUSINESS_TIMEZONE
+from app.models import ContactMessage, ContactSequence, ContactTracking, QualityAlert
 from app.models.enums import (
     ActivityStatus,
     ContactabilityStatus,
     ContactMessageStatus,
     ContactMessageStep,
     ContactTrackingStatus,
+    QualityAlertSource,
+    QualityAlertType,
+    SequenceEndReason,
 )
 from app.services.contact_dashboard import (
     ContactClock,
     ContactCounter,
     ContactFilters,
-    NextStep,
     dashboard,
     list_contacts,
 )
-from app.services.contact_workflow import IsoWeek, next_action_at
-from tests.builders import add_company, add_prospect
+from app.services.contact_workflow import IsoWeek
+from tests.builders import FIXTURE_ACTOR, add_cohort, add_company, add_prospect, add_send
 
 S = ContactTrackingStatus
 C = ContactCounter
 # Thursday 31 December 2026: ISO week 2026-W53 (2026 has 53 weeks), which ends on 3 January 2027.
 CLOCK = ContactClock(today=date(2026, 12, 31))
-W52 = next_action_at(IsoWeek(2026, 52))
-W53 = next_action_at(IsoWeek(2026, 53))
-W01 = next_action_at(IsoWeek(2027, 1))
-# A legacy next action on the last evening of the current week (not a Monday): still this week.
-SUNDAY_EVENING = datetime(2027, 1, 3, 23, 30, tzinfo=W53.tzinfo)
+MONDAY_W52 = date(2026, 12, 21)
+MONDAY_W53 = date(2026, 12, 28)
+SUNDAY_W53 = date(2027, 1, 3)
+MONDAY_W01 = date(2027, 1, 4)
+
+
+def at(day: date, hour: int = 10) -> datetime:
+    return datetime(day.year, day.month, day.day, hour, tzinfo=BUSINESS_TIMEZONE)
 
 
 def person(
     session: Session,
     name: str,
     state: S | None,
-    planned: datetime | None = None,
+    cohort: tuple[str, date | None] | None = None,
+    sends: tuple[datetime, ...] = (),
     **fields: object,
 ) -> uuid.UUID:
+    """A prospect with a tracking in `state` (None: no tracking) and, when given, a current
+    sequence in the cohort `(code, start date)` with `sends` really sent."""
     prospect = add_prospect(session, add_company(session), last_name=name, **fields)
     if state is not None:
-        session.add(
-            ContactTracking(prospect_id=prospect.id, status=state, planned_contact_at=planned)
+        session.add(ContactTracking(prospect_id=prospect.id, status=state))
+    if cohort is not None:
+        code, starts_on = cohort
+        sequence = ContactSequence(
+            prospect_id=prospect.id, cohort_id=add_cohort(session, code, starts_on).id
         )
+        session.add(sequence)
         session.flush()
+        for rank, moment in enumerate(sends):
+            add_send(session, sequence, rank, moment)
+    session.flush()
     return prospect.id
+
+
+S52 = ("S52", MONDAY_W52)
+S53 = ("S53", MONDAY_W53)
+S54 = ("S54", SUNDAY_W53)
+S55 = ("S55", MONDAY_W01)
 
 
 @pytest.fixture
 def planning(db_session: Session) -> dict[str, uuid.UUID]:
     people = {
-        "overdue": person(db_session, "Aaa", S.NEUTRAL, W52),
-        "this_week": person(db_session, "Bbb", S.NEUTRAL, W53),
-        "sunday": person(db_session, "Ccc", S.NEUTRAL, SUNDAY_EVENING),
-        "next_week": person(db_session, "Ddd", S.NEUTRAL, W01),
-        "unplanned": person(db_session, "Eee", S.NEUTRAL),
-        "contacted": person(db_session, "Fff", S.CONTACTED, W53),
-        "r1": person(db_session, "Ggg", S.R1, W52),
-        "r2": person(db_session, "Hhh", S.R2, W53),
-        "r2_later": person(db_session, "Iii", S.R2, W01),
-        "appointment": person(db_session, "Jjj", S.APPOINTMENT_OBTAINED),
-        "appointment_dated": person(db_session, "Kkk", S.APPOINTMENT_OBTAINED, W52),
-        "failure": person(db_session, "Lll", S.FAILURE, W53),
-        "response": person(db_session, "Mmm", S.RESPONSE_RECEIVED, W53),
-        "inactive": person(
-            db_session, "Nnn", S.NEUTRAL, W53, activity_status=ActivityStatus.INACTIVE
+        "overdue": person(db_session, "Aaa", S.NEUTRAL, S52),
+        "this_week": person(db_session, "Bbb", S.NEUTRAL, S53),
+        "sunday": person(db_session, "Ccc", S.NEUTRAL, S54),
+        "next_week": person(db_session, "Ddd", S.NEUTRAL, S55),
+        "unvalidated": person(db_session, "Eee", S.NEUTRAL),
+        # Contact sent on Tuesday of W52: R1 due on Monday of W53.
+        "contacted": person(db_session, "Fff", S.NEUTRAL, S52, (at(date(2026, 12, 22)),)),
+        # Contact and R1 sent; R1 on Tuesday of W51: R2 due on Monday of W52 (overdue).
+        "r1": person(
+            db_session,
+            "Ggg",
+            S.NEUTRAL,
+            ("S50", date(2026, 12, 7)),
+            (at(date(2026, 12, 8)), at(date(2026, 12, 15))),
         ),
-        # Outside Contact: ignored, opposed, untracked.
+        # Contact and R1…R4 sent (max 4): « Relance terminée ».
+        "finished": person(
+            db_session,
+            "Hhh",
+            S.NEUTRAL,
+            ("S45", date(2026, 11, 2)),
+            tuple(at(date(2026, 11, 3) + timedelta(weeks=week)) for week in range(5)),
+        ),
+        "appointment": person(db_session, "Jjj", S.APPOINTMENT_OBTAINED),
+        "appointment_in_cohort": person(db_session, "Kkk", S.APPOINTMENT_OBTAINED, S52),
+        "completed": person(db_session, "Lll", S.NEUTRAL, S52),
+        "response": person(db_session, "Mmm", S.RESPONSE_RECEIVED, S53),
+        "inactive": person(
+            db_session, "Nnn", S.NEUTRAL, S53, activity_status=ActivityStatus.INACTIVE
+        ),
+        # Outside Contact: ignored, Défaillant, opposed, neither cohort nor tracking.
         "ignored": person(
             db_session,
             "Ooo",
             S.IGNORED,
-            None,
+            S53,
             contactability_status=ContactabilityStatus.DO_NOT_CONTACT,
-            do_not_contact_at=W52,
+            do_not_contact_at=at(MONDAY_W52),
         ),
         "opposed": person(
             db_session,
             "Ppp",
             S.NEUTRAL,
-            W53,
+            S53,
             contactability_status=ContactabilityStatus.DO_NOT_CONTACT,
-            do_not_contact_at=W52,
+            do_not_contact_at=at(MONDAY_W52),
         ),
         "untracked": person(db_session, "Qqq", None),
+        "disqualified": person(db_session, "Rrq", S.DISQUALIFIED, S53),
+        # In scope, nothing due: S0, an open « Erreur sur le mail ».
+        "s0": person(db_session, "Sss", S.NEUTRAL, ("S0", None)),
+        "email_error": person(db_session, "Ttt", S.NEUTRAL, S53),
     }
+    completed = db_session.query(ContactSequence).filter_by(prospect_id=people["completed"]).one()
+    completed.closed_at = at(MONDAY_W52)
+    completed.end_reason = SequenceEndReason.COMPLETED
+    db_session.add(
+        QualityAlert(
+            prospect_id=people["email_error"],
+            type=QualityAlertType.EMAIL_ERROR,
+            source=QualityAlertSource.HUMAN,
+            raised_by_type=FIXTURE_ACTOR.type,
+            raised_by_display=FIXTURE_ACTOR.display,
+        )
+    )
+    db_session.flush()
     return people
 
 
@@ -110,11 +164,10 @@ def test_counters_split_this_weeks_work(
 
     assert result.current_week == "2026-W53"
     assert result.counts == {
-        C.TO_HANDLE: 6,
-        C.FIRST_CONTACT: 3,  # overdue, this week, Sunday evening — not next week nor unplanned
-        C.FOLLOW_UP: 2,  # contacted (R1 to prepare), r1 (R2 to prepare)
-        C.REVIEW: 1,  # r2 reached; the later one is not
-        C.APPOINTMENTS: 2,  # cumulative, with or without a date
+        C.TO_HANDLE: 5,
+        C.FIRST_CONTACT: 3,  # overdue, this week, Sunday — not next week, not unvalidated
+        C.FOLLOW_UP: 2,  # R1 due this week, R2 overdue — never the finished sequence
+        C.APPOINTMENTS: 2,  # cumulative, with or without a cohort
     }
 
 
@@ -130,36 +183,20 @@ def test_each_counter_equals_the_list_it_opens(
 def test_the_lists_of_each_card(db_session: Session, planning: dict[str, uuid.UUID]) -> None:
     assert names(db_session, ContactFilters(counter=C.FIRST_CONTACT)) == ["Aaa", "Bbb", "Ccc"]
     assert names(db_session, ContactFilters(counter=C.FOLLOW_UP)) == ["Ggg", "Fff"]
-    assert names(db_session, ContactFilters(counter=C.REVIEW)) == ["Hhh"]
-    assert names(db_session, ContactFilters(counter=C.APPOINTMENTS)) == ["Kkk", "Jjj"]
+    assert names(db_session, ContactFilters(counter=C.APPOINTMENTS)) == ["Jjj", "Kkk"]
 
 
 def test_the_default_list_is_the_planning(
     db_session: Session, planning: dict[str, uuid.UUID]
 ) -> None:
-    listed = names(db_session, ContactFilters())
-    # Next action first (soonest), then name; never without a week; never ignored or opposed.
-    assert listed[:3] == ["Aaa", "Ggg", "Kkk"]
-    assert set(listed) == {
-        "Aaa",
-        "Bbb",
-        "Ccc",
-        "Ddd",
-        "Fff",
-        "Ggg",
-        "Hhh",
-        "Iii",
-        "Kkk",
-        "Lll",
-        "Mmm",
-        "Nnn",
-    }
+    # Next due date first (soonest), then name; never without one (paused, finished, S0,
+    # unvalidated); never ignored, Défaillant or opposed.
+    assert names(db_session, ContactFilters()) == ["Aaa", "Ggg", "Bbb", "Fff", "Nnn", "Ccc", "Ddd"]
 
 
 def test_week_filter_uses_iso_years(db_session: Session, planning: dict[str, uuid.UUID]) -> None:
-    this_week = names(db_session, ContactFilters(week=IsoWeek(2026, 53)))
-    assert this_week == ["Bbb", "Fff", "Hhh", "Lll", "Mmm", "Nnn", "Ccc"]
-    assert names(db_session, ContactFilters(week=IsoWeek(2027, 1))) == ["Ddd", "Iii"]
+    assert names(db_session, ContactFilters(week=IsoWeek(2026, 53))) == ["Bbb", "Fff", "Nnn", "Ccc"]
+    assert names(db_session, ContactFilters(week=IsoWeek(2027, 1))) == ["Ddd"]
     assert names(db_session, ContactFilters(week=IsoWeek(2027, 2))) == []
     # Combined with a card: only what is due in that week.
     due = ContactFilters(week=IsoWeek(2026, 53), counter=C.FIRST_CONTACT)
@@ -171,13 +208,19 @@ def test_state_filter_shows_the_unplanned_too(
 ) -> None:
     assert names(db_session, ContactFilters(state=S.NEUTRAL)) == [
         "Aaa",
+        "Ggg",
         "Bbb",
+        "Fff",
         "Nnn",
         "Ccc",
         "Ddd",
         "Eee",
+        "Hhh",
+        "Lll",
+        "Sss",
+        "Ttt",
     ]
-    assert names(db_session, ContactFilters(state=S.FAILURE)) == ["Lll"]
+    assert names(db_session, ContactFilters(state=S.RESPONSE_RECEIVED)) == ["Mmm"]
 
 
 def test_search_narrows_counters_and_list(
@@ -187,66 +230,80 @@ def test_search_narrows_counters_and_list(
     assert names(db_session, ContactFilters(search="ggg")) == ["Ggg"]
 
 
-def test_rows_carry_the_step_to_prepare_and_the_message_statuses(
+def test_rows_carry_the_level_and_the_message_statuses(
     db_session: Session, planning: dict[str, uuid.UUID]
 ) -> None:
+    sequence = db_session.query(ContactSequence).filter_by(prospect_id=planning["contacted"]).one()
     db_session.add(
         ContactMessage(
             prospect_id=planning["contacted"],
-            step=ContactMessageStep.R1,
+            sequence_id=sequence.id,
+            rank=1,
             status=ContactMessageStatus.DRAFT,
         )
     )
     db_session.flush()
     rows = {
         row.last_name: row
-        for row in list_contacts(db_session, ContactFilters(), CLOCK, limit=200).items
+        for row in list_contacts(db_session, ContactFilters(state=S.NEUTRAL), CLOCK).items
     }
 
     contacted = rows["Fff"]
     assert (contacted.next_step, contacted.due, contacted.next_action_week) == (
-        NextStep.R1,
+        "r1",
         True,
         "2026-W53",
     )
+    assert (contacted.cohort_code, contacted.sent_count, contacted.finished) == ("S52", 1, False)
+    assert contacted.next_due_at == at(MONDAY_W53, 0)
     assert contacted.messages == {
-        ContactMessageStep.CONTACT: None,
+        ContactMessageStep.CONTACT: ContactMessageStatus.SENT,
         ContactMessageStep.R1: ContactMessageStatus.DRAFT,
         ContactMessageStep.R2: None,
     }
-    assert (rows["Aaa"].next_step, rows["Hhh"].next_step, rows["Lll"].next_step) == (
-        NextStep.CONTACT,
-        NextStep.REVIEW,
-        None,
-    )
-    assert (rows["Ddd"].due, rows["Nnn"].due, rows["Lll"].due) == (False, False, False)
+    assert (rows["Aaa"].next_step, rows["Ggg"].next_step) == ("contact", "r2")
+    assert (rows["Hhh"].next_step, rows["Hhh"].finished, rows["Hhh"].sent_count) == (None, True, 5)
+    assert (rows["Lll"].next_step, rows["Lll"].finished) == (None, True)
+    assert (rows["Eee"].cohort_code, rows["Eee"].next_step) == (None, None)
+    assert (rows["Ddd"].due, rows["Nnn"].due, rows["Ttt"].due) == (False, False, False)
+    assert rows["Ttt"].next_due_at is None
 
 
 def test_week_options_and_pagination(db_session: Session, planning: dict[str, uuid.UUID]) -> None:
     weeks = dashboard(db_session, CLOCK).weeks
     assert [(week.week, week.count) for week in weeks] == [
-        ("2026-W52", 3),
-        ("2026-W53", 7),
-        ("2027-W01", 2),
+        ("2026-W52", 2),
+        ("2026-W53", 4),
+        ("2027-W01", 1),
     ]
     assert (weeks[1].year, weeks[1].number) == (2026, 53)
 
     first = list_contacts(db_session, ContactFilters(), CLOCK, limit=5)
     second = list_contacts(db_session, ContactFilters(), CLOCK, limit=5, offset=5)
-    assert (first.total, len(first.items), len(second.items)) == (12, 5, 5)
+    assert (first.total, len(first.items), len(second.items)) == (7, 5, 2)
     assert not {row.id for row in first.items} & {row.id for row in second.items}
 
 
 def test_nothing_changes_a_state(db_session: Session, planning: dict[str, uuid.UUID]) -> None:
     dashboard(db_session, CLOCK)
     list_contacts(db_session, ContactFilters(counter=C.TO_HANDLE), CLOCK)
-    tracking = db_session.get(
-        ContactTracking,
-        db_session.query(ContactTracking.id)
-        .filter(ContactTracking.prospect_id == planning["overdue"])
-        .scalar(),
-    )
-    assert tracking is not None and tracking.status is S.NEUTRAL
+    tracking = db_session.query(ContactTracking).filter_by(prospect_id=planning["overdue"]).one()
+    assert tracking.status is S.NEUTRAL
+
+
+def test_the_maximum_of_follow_ups_is_read_from_the_settings(
+    db_session: Session, planning: dict[str, uuid.UUID]
+) -> None:
+    from app.models import AppSetting
+
+    db_session.add(AppSetting(key="contact.max_follow_ups", value=1))
+    db_session.flush()
+
+    counts = dashboard(db_session, CLOCK).counts
+
+    # R2 of « r1 » is beyond the maximum: finished, no longer due.
+    assert counts[C.FOLLOW_UP] == 1
+    assert names(db_session, ContactFilters(counter=C.FOLLOW_UP)) == ["Fff"]
 
 
 # --- HTTP ---------------------------------------------------------------------------------------
@@ -255,12 +312,13 @@ CONTACT = "/api/contact"
 
 
 def test_the_dashboard_over_http(client: TestClient, db_session: Session) -> None:
-    person(db_session, "Zzz", S.NEUTRAL, start_of_day(date(2020, 1, 6)))
+    person(db_session, "Zzz", S.NEUTRAL, ("S2", date(2020, 1, 6)))
 
     body = client.get(f"{CONTACT}/dashboard").json()
 
     assert set(body) == {"today", "current_week", "counts", "weeks"}
     assert body["counts"]["first_contact"] >= 1
+    assert "review" not in body["counts"]
     assert body["weeks"][0] == {"week": "2020-W02", "year": 2020, "number": 2, "count": 1}
     page = client.get(f"{CONTACT}/prospects", params={"counter": "first_contact", "q": "zzz"})
     assert page.status_code == 200, page.text
@@ -271,6 +329,7 @@ def test_the_dashboard_over_http(client: TestClient, db_session: Session) -> Non
         "contact",
         "2020-W02",
     )
+    assert (row["cohort_code"], row["sent_count"], row["finished"]) == ("S2", 0, False)
     assert row["messages"] == {"contact": None, "r1": None, "r2": None}
     assert client.get(f"{CONTACT}/prospects", params={"week": "2020-W02"}).json()["total"] == 1
 
@@ -281,6 +340,7 @@ def test_the_dashboard_over_http(client: TestClient, db_session: Session) -> Non
         ({"week": "2025-W53"}, "week", "iso_week"),  # 2025 has 52 ISO weeks
         ({"week": "2026-41"}, "week", "iso_week"),
         ({"state": "ignored"}, "state", "not_filterable"),
+        ({"state": "disqualified"}, "state", "not_filterable"),
     ],
 )
 def test_invalid_criteria_are_refused(
@@ -290,7 +350,8 @@ def test_invalid_criteria_are_refused(
     assert response.status_code == 422
     detail = response.json()["detail"]
     assert (detail["code"], detail["field"], detail["reason"]) == ("invalid", field, reason)
-    assert client.get(f"{CONTACT}/prospects", params={"counter": "other"}).status_code == 422
+    assert client.get(f"{CONTACT}/prospects", params={"counter": "review"}).status_code == 422
+    assert client.get(f"{CONTACT}/prospects", params={"state": "contacted"}).status_code == 422
 
 
 def test_the_dashboard_needs_a_session(anonymous_client: TestClient) -> None:
@@ -305,17 +366,17 @@ def test_an_appointment_counts_whatever_the_opposition(
         db_session,
         "Rrr",
         S.APPOINTMENT_OBTAINED,
-        W52,
+        S52,
         contactability_status=ContactabilityStatus.DO_NOT_CONTACT,
-        do_not_contact_at=W52,
+        do_not_contact_at=datetime(2026, 12, 1, tzinfo=UTC),
     )
 
     counts = dashboard(db_session, CLOCK).counts
 
     assert counts[C.APPOINTMENTS] == 3
-    assert names(db_session, ContactFilters(counter=C.APPOINTMENTS)) == ["Kkk", "Rrr", "Jjj"]
+    assert names(db_session, ContactFilters(counter=C.APPOINTMENTS)) == ["Jjj", "Kkk", "Rrr"]
     # The due cards still leave out the opposed (and the inactive).
-    assert counts[C.TO_HANDLE] == 6
+    assert counts[C.TO_HANDLE] == 5
 
 
 @pytest.mark.parametrize("week", ["1999-W10", "2101-W01", "9999-W52"])

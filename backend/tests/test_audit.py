@@ -482,7 +482,7 @@ def test_a_failed_audited_mutation_rolls_back_its_events(
         bind_operator(session)
         prospect_service.mark_do_not_contact(session, OPERATOR, prospect_id, reason="Opposition")
         unknown_referent = ContactTrackingInput(
-            status=ContactTrackingStatus.CONTACTED, referent_id=uuid.uuid4()
+            status=ContactTrackingStatus.NEUTRAL, referent_id=uuid.uuid4()
         )
         save_contact_tracking(session, OPERATOR, prospect_id, unknown_referent)
 

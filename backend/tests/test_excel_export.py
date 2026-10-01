@@ -4,7 +4,7 @@ formula guard, audit, protection and scale. Synthetic data only; every value is 
 import time as clock
 import uuid
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from io import BytesIO
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -35,7 +35,7 @@ from app.models.enums import (
     PhoneType,
     ProspectSourceType,
 )
-from app.services import excel_export, import_commit, prospects
+from app.services import contact_messages, contact_sequences, excel_export, import_commit, prospects
 from app.services.contact_tracking import ContactTrackingInput, save_contact_tracking
 from app.services.exports.spec import SHEETS
 from app.services.imports.decisions import ImportDecisions, PreviewOptions
@@ -44,12 +44,14 @@ from app.services.imports.workbook import ImportLimits
 from tests.builders import (
     OPERATOR,
     SIREN,
+    add_cohort,
     add_company,
     add_email,
     add_phone,
     add_prospect,
     audit_events,
     bind_operator,
+    start_sequence,
     with_key,
 )
 from tests.fixtures.synthetic.legacy_workbook import SAMPLE_ROWS, legacy_xlsx
@@ -128,10 +130,10 @@ def test_values_are_typed_dates_and_texts_keep_leading_zeros(db_session: Session
         prospect.id,
         ContactTrackingInput(
             status=ContactTrackingStatus.APPOINTMENT_OBTAINED,
-            planned_contact_at=datetime(2026, 1, 1, tzinfo=PARIS),
             appointment_at=datetime(2026, 9, 15, 14, 30, tzinfo=PARIS),
         ),
     )
+    start_sequence(db_session, prospect, add_cohort(db_session, "S1", date(2026, 1, 1)))
 
     book = build(db_session)
 
@@ -141,7 +143,12 @@ def test_values_are_typed_dates_and_texts_keep_leading_zeros(db_session: Session
     appointment = cell_of(book, "Prospects", "Date de rendez-vous")
     assert appointment.value == datetime(2026, 9, 15, 14, 30)
     assert appointment.number_format == "dd/mm/yyyy hh:mm"
-    assert cell_of(book, "Prospects", "Semaine").value == "S01 2026"
+    # The cohort and its real date (never an ISO week); an appointment leaves nothing due.
+    assert cell_of(book, "Prospects", "Cohorte").value == "S1"
+    assert cell_of(book, "Prospects", "Date de cohorte").value == datetime(2026, 1, 1)
+    assert cell_of(book, "Prospects", "Niveau").value == "Contact"
+    assert cell_of(book, "Prospects", "Envois").value == 0
+    assert cell_of(book, "Prospects", "Prochaine échéance").value is None
     for header, value in (("Téléphone", "0100000001"), ("SIREN", siren), ("Code postal", "01000")):
         cell = cell_of(book, "Prospects", header)
         assert (cell.value, cell.data_type, cell.number_format) == (value, "s", "@")
@@ -236,34 +243,25 @@ def test_an_import_edited_by_hand_is_exported_with_the_edits_and_clean_semantics
     )
     jean_tracking = jean.contact_tracking
     assert jean_tracking is not None
-    planned = jean_tracking.planned_contact_at
+    # A person puts Jean in S37 (real date 7 September) and records the Contact as sent.
+    s37 = add_cohort(db_session, "S37", date(2026, 9, 7))
+    contact_sequences.change_cohort(db_session, OPERATOR, jean.id, s37.id)
+    contact_messages.mark_sent(
+        db_session, OPERATOR, jean.id, sent_at=datetime(2026, 9, 7, 9, 0, tzinfo=PARIS)
+    )
     save_contact_tracking(
         db_session,
         OPERATOR,
         jean.id,
         ContactTrackingInput(
             status=ContactTrackingStatus.APPOINTMENT_OBTAINED,
-            planned_contact_at=jean_tracking.planned_contact_at,
-            referent_id=jean_tracking.referent_id,
-            response_received_at=datetime(2026, 9, 8, 9, 0, tzinfo=PARIS),
-            appointment_at=datetime(2026, 9, 15, 14, 30, tzinfo=PARIS),
-        ),
-    )
-    # The appointment cleared the echoed next action; a person sets the week again.
-    save_contact_tracking(
-        db_session,
-        OPERATOR,
-        jean.id,
-        ContactTrackingInput(
-            status=ContactTrackingStatus.APPOINTMENT_OBTAINED,
-            planned_contact_at=planned,
             referent_id=jean_tracking.referent_id,
             response_received_at=datetime(2026, 9, 8, 9, 0, tzinfo=PARIS),
             appointment_at=datetime(2026, 9, 15, 14, 30, tzinfo=PARIS),
         ),
     )
     save_contact_tracking(
-        db_session, OPERATOR, lea.id, ContactTrackingInput(ContactTrackingStatus.FAILURE)
+        db_session, OPERATOR, lea.id, ContactTrackingInput(ContactTrackingStatus.DISQUALIFIED)
     )
     save_contact_tracking(
         db_session,
@@ -299,8 +297,9 @@ def test_an_import_edited_by_hand_is_exported_with_the_edits_and_clean_semantics
     people = records(book, "Prospects")
     jean_row = row_of(people, jean)
     assert jean_row["Référent"] == "Claire Référente"
-    assert jean_row["Date de contact prévue"] == datetime(2026, 9, 7)  # S37 with the chosen year
-    assert jean_row["Semaine"] == "S37 2026"
+    assert (jean_row["Cohorte"], jean_row["Date de cohorte"]) == ("S37", datetime(2026, 9, 7))
+    assert (jean_row["Niveau"], jean_row["Envois"]) == ("R1", 1)
+    assert jean_row["Prochaine échéance"] is None  # « RDV pris »: nothing due
     assert (jean_row["Entreprise"], jean_row["Catégories d'activité"]) == (
         "Transports Exemple SARL",
         "Transport routier de marchandises",
@@ -344,7 +343,8 @@ def test_an_import_edited_by_hand_is_exported_with_the_edits_and_clean_semantics
     assert row_of(people, nina)["Référent"] == "Paul Démo"
     # Opposition is distinct from non-interest.
     lea_row = row_of(people, lea)
-    assert (lea_row["Suivi de contact"], lea_row["Ne pas contacter"]) == ("Failure", "Non")
+    assert (lea_row["Suivi de contact"], lea_row["Ne pas contacter"]) == ("Défaillant", "Non")
+    assert (lea_row["Cohorte"], lea_row["Niveau"], lea_row["Envois"]) == (None, None, None)
     paul_row = row_of(people, paul)
     assert (paul_row["Ne pas contacter"], paul_row["Motif d'opposition"]) == (
         "Oui",
@@ -526,7 +526,10 @@ def test_a_few_thousand_prospects_export_in_reasonable_time(db_session: Session)
     )
     db_session.execute(
         insert(ContactTracking),
-        [{"prospect_id": p["id"], "status": ContactTrackingStatus.CONTACTED} for p in people[::2]],
+        [
+            {"prospect_id": p["id"], "status": ContactTrackingStatus.RESPONSE_RECEIVED}
+            for p in people[::2]
+        ],
     )
     db_session.execute(
         insert(ImportBatch),
