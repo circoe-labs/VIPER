@@ -28,7 +28,7 @@ from app.models.enums import (
     VerificationStatus,
 )
 from app.models.taxonomies import InternalReferent
-from app.services.contact_workflow import STATE_LABELS
+from app.services.contact_workflow import ALERT_TYPE_LABELS, STATE_LABELS
 from app.services.exports.projection import (
     CompanyRecord,
     EmailRecord,
@@ -230,6 +230,12 @@ PROSPECT_COLUMNS: tuple[Column[P], ...] = (
         8,
     ),
     Column[P]("Prochaine échéance", lambda r: r.contact.next_due_at, Kind.DATE, 14),
+    # Open quality alerts (« Erreur sur le mail », « Conflit d’import »…), labels joined by `; `.
+    Column[P](
+        "Alertes ouvertes",
+        lambda r: "; ".join(ALERT_TYPE_LABELS[kind] for kind in r.open_alerts) or None,
+        width=28,
+    ),
     Column[P](
         "Date de réponse",
         lambda r: r.tracking.response_received_at if r.tracking else None,

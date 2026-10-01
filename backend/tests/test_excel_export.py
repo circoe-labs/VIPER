@@ -14,7 +14,7 @@ from openpyxl import Workbook, load_workbook
 from sqlalchemy import func, insert, select
 from sqlalchemy.orm import Session
 
-from app.core.actor import ActorType
+from app.core.actor import ActorContext, ActorType
 from app.models import (
     Company,
     ContactTracking,
@@ -34,8 +34,16 @@ from app.models.enums import (
     OriginType,
     PhoneType,
     ProspectSourceType,
+    QualityAlertType,
 )
-from app.services import contact_messages, contact_sequences, excel_export, import_commit, prospects
+from app.services import (
+    contact_messages,
+    contact_sequences,
+    excel_export,
+    import_commit,
+    prospects,
+    quality_alerts,
+)
 from app.services.contact_tracking import ContactTrackingInput, save_contact_tracking
 from app.services.exports.spec import SHEETS
 from app.services.imports.decisions import ImportDecisions, PreviewOptions
@@ -134,6 +142,17 @@ def test_values_are_typed_dates_and_texts_keep_leading_zeros(db_session: Session
         ),
     )
     start_sequence(db_session, prospect, add_cohort(db_session, "S1", date(2026, 1, 1)))
+    # Open alerts are exported by type, whatever their source; a resolved one is not.
+    agent = ActorContext(type=ActorType.AGENT, display="Agent (test)", id="agent.test")
+    for actor, kind in (
+        (OPERATOR, QualityAlertType.EMAIL_ERROR),
+        (agent, QualityAlertType.FUNCTION_TO_CHECK),
+        (OPERATOR, QualityAlertType.DATA_INCONSISTENT),
+    ):
+        alert = quality_alerts.raise_alert(
+            db_session, actor, quality_alerts.AlertInput(kind, prospect_id=prospect.id)
+        )
+    quality_alerts.resolve_alert(db_session, OPERATOR, alert.id)
 
     book = build(db_session)
 
@@ -149,6 +168,10 @@ def test_values_are_typed_dates_and_texts_keep_leading_zeros(db_session: Session
     assert cell_of(book, "Prospects", "Niveau").value == "Contact"
     assert cell_of(book, "Prospects", "Envois").value == 0
     assert cell_of(book, "Prospects", "Prochaine échéance").value is None
+    assert cell_of(book, "Prospects", "Suivi de contact").value == "RDV pris"
+    assert cell_of(book, "Prospects", "Alertes ouvertes").value == (
+        "Erreur sur le mail; Fonction à vérifier"
+    )
     for header, value in (("Téléphone", "0100000001"), ("SIREN", siren), ("Code postal", "01000")):
         cell = cell_of(book, "Prospects", header)
         assert (cell.value, cell.data_type, cell.number_format) == (value, "s", "@")

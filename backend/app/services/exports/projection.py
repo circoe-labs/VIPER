@@ -21,10 +21,11 @@ from sqlalchemy import false, func, select
 from sqlalchemy.orm import Session
 
 from app.db.session import whole_base_plan
-from app.models import Cohort
+from app.models import Cohort, QualityAlert
 from app.models import Prospect as ProspectModel
 from app.models.companies import Company, Establishment
 from app.models.contact_tracking import ContactTracking
+from app.models.enums import QualityAlertType
 from app.models.imports import ImportBatch, ImportRowMetadata
 from app.models.prospects import Email, Phone, Prospect, ProspectSource
 from app.models.taxonomies import ActivityCategory, CommercialSegment, InternalReferent, Role
@@ -90,6 +91,8 @@ class ProspectRecord:
     phones: tuple[Phone, ...]  # primary first, then active ones, then by number
     sources: tuple[ProspectSource, ...]  # oldest first
     contact: ContactProgressRecord = NO_PROGRESS
+    # Types of the prospect's open quality alerts (any source), in the enum's order.
+    open_alerts: tuple[QualityAlertType, ...] = ()
 
     @property
     def primary_email(self) -> Email | None:
@@ -191,6 +194,7 @@ def load_export_data(session: Session) -> ExportData:
         batches = {row.id: row for row in repository.import_batches(session)}
         metadata = repository.row_metadata(session)
         progress = _contact_progress(session)
+        alerts = _open_alerts(session)
     counts: dict[uuid.UUID, int] = defaultdict(int)
     for prospect in prospects:
         if prospect.company_id is not None:
@@ -212,6 +216,7 @@ def load_export_data(session: Session) -> ExportData:
                 referents,
                 sources[prospect.id],
                 progress.get(prospect.id, NO_PROGRESS),
+                alerts.get(prospect.id, ()),
             )
             for prospect in prospects
         ),
@@ -254,6 +259,7 @@ def _prospect(
     referents: dict[uuid.UUID, InternalReferent],
     sources: list[ProspectSource],
     contact: ContactProgressRecord,
+    open_alerts: tuple[QualityAlertType, ...] = (),
 ) -> ProspectRecord:
     tracking = prospect.contact_tracking
     return ProspectRecord(
@@ -278,7 +284,24 @@ def _prospect(
         ),
         sources=tuple(sorted(sources, key=lambda row: (row.collected_at, str(row.id)))),
         contact=contact,
+        open_alerts=open_alerts,
     )
+
+
+def _open_alerts(session: Session) -> dict[uuid.UUID, tuple[QualityAlertType, ...]]:
+    """Every prospect's open alert types, in one statement (an alert is never invented: only the
+    rows of `quality_alerts` not resolved)."""
+    found: dict[uuid.UUID, set[QualityAlertType]] = defaultdict(set)
+    rows = session.execute(
+        select(QualityAlert.prospect_id, QualityAlert.type)
+        .where(QualityAlert.prospect_id.is_not(None), QualityAlert.resolved_at.is_(None))
+        .distinct()
+    ).tuples()
+    for prospect_id, kind in rows:
+        if prospect_id is not None:
+            found[prospect_id].add(kind)
+    order = list(QualityAlertType)
+    return {key: tuple(sorted(kinds, key=order.index)) for key, kinds in found.items()}
 
 
 def _contact_progress(session: Session) -> dict[uuid.UUID, ContactProgressRecord]:
