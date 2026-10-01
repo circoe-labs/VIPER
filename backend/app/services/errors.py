@@ -69,8 +69,7 @@ class DoNotContactError(DomainError):
 
 
 class TrackingRuleError(DomainError):
-    """A Contact tracking rule refused the change; `code` is stable (`ignored_is_terminal`,
-    `ignored_has_no_next_action`)."""
+    """A Contact tracking rule refused the change; `code` is stable (`ignored_is_terminal`)."""
 
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)

@@ -26,7 +26,6 @@ from app.services.contact_workflow import (
     progress,
     step_code,
     step_label,
-    weeks_in_year,
 )
 from app.services.exports import spec
 
@@ -232,7 +231,6 @@ def test_iso_week_of_a_day(day: date, year: int, week: int) -> None:
 
 
 def test_weeks_per_iso_year_and_validation() -> None:
-    assert (weeks_in_year(2026), weeks_in_year(2025), weeks_in_year(2020)) == (53, 52, 53)
     assert IsoWeek(2026, 53).label == "2026-W53"
     for year, week in ((2025, 53), (2026, 0), (2026, 54)):
         with pytest.raises(ValueError):
@@ -240,8 +238,6 @@ def test_weeks_per_iso_year_and_validation() -> None:
 
 
 def test_weeks_cross_year_boundaries() -> None:
-    assert IsoWeek(2025, 52).plus(1) == IsoWeek(2026, 1)
-    assert IsoWeek(2026, 53).plus(1) == IsoWeek(2027, 1)
     assert IsoWeek(2026, 1).monday == date(2025, 12, 29)
     assert IsoWeek(2026, 1).label == "2026-W01"
 

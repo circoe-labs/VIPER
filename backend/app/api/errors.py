@@ -4,7 +4,7 @@
 409 `duplicate` (with the `field` and the `existing` row holding the value, which may be
 inactive); 409 `in_use` (with usage counts); 409 `conflict` (the record changed since it was read);
 409 `do_not_contact` (the operation would erase a durable opposition); 409 with the rule's own code
-for a Contact tracking rule (`ignored_is_terminal`, `ignored_has_no_next_action`); 403
+for a Contact tracking rule (`ignored_is_terminal`); 403
 `human_actor_required` (a change only a person may make); a Contact message refusal with its own
 status and code (`app.services.contact_messages`, e.g. 409 `revision_conflict`, 422
 `message_incomplete` with its `fields`); a cohort, sequence or alert rule with its own status and

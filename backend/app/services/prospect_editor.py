@@ -55,7 +55,7 @@ from app.services.contact_channels import EMAILS, PHONES, ChannelItem
 from app.services.contact_message_cancellation import NOTHING, Cancellation
 from app.services.contact_sequences import CohortRef, prospect_sequence
 from app.services.contact_tracking import ContactTrackingInput, apply_contact_tracking
-from app.services.contact_workflow import DEFAULT_STATE, PauseReason, state_reached_at, step_code
+from app.services.contact_workflow import PauseReason, state_reached_at, step_code
 from app.services.errors import (
     ActorNotAllowedError,
     ConflictError,
@@ -778,7 +778,7 @@ def update_tracking(
         actor,
         prospect.id,
         ContactTrackingInput(
-            status=update.status or (current.status if current else DEFAULT_STATE),
+            status=update.status,
             referent_id=current.referent_id if current else None,
             response_received_at=current.response_received_at if current else None,
             appointment_at=current.appointment_at if current else None,

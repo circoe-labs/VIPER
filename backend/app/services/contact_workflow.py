@@ -271,11 +271,3 @@ class IsoWeek:
     def label(self) -> str:
         """`2026-W41`."""
         return f"{self.year}-W{self.week:02d}"
-
-    def plus(self, weeks: int) -> IsoWeek:
-        return IsoWeek.of(self.monday + timedelta(weeks=weeks))
-
-
-def weeks_in_year(year: int) -> int:
-    """52 or 53: December 28 always falls in the last ISO week of its year."""
-    return date(year, 12, 28).isocalendar().week
