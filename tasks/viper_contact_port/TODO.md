@@ -23,7 +23,7 @@ Chaque Slice = un agent d'implémentation, puis une revue QA indépendante, puis
   filtres, liste, fiche prospect à gauche + séquence mail à droite (onglets Contact/R1/R2, éditeur De/À/Cc/Cci/objet/
   corps, actions Enregistrer/Valider/Programmer/Déprogrammer/Annuler/Rouvrir avec confirmations), tests + e2e.
   Réf. : handoff Tasks 08, 10, 13.
-- [ ] **S5 — Génération OpenAI** : service backend (prompt versionné, aucune donnée inventée, résultat toujours
+- [x] **S5 — Génération OpenAI** : service backend (prompt versionné, aucune donnée inventée, résultat toujours
   Brouillon), configuration `VIPER_OPENAI_*`, bouton « Générer / Régénérer avec l'IA » + consigne. Faux serveur en test.
   Réf. : handoff Task 14, `src/server/openaiMailGenerator.ts`, `mailGenerationPrompt.ts`.
 - [ ] **S6 — CIRCOE Toolbox** : OAuth + client MCP + stockage du jeton hors base, création/mise à jour/suppression de
@@ -42,3 +42,4 @@ Chaque Slice = un agent d'implémentation, puis une revue QA indépendante, puis
 - 2026-09-30 : gate orchestrateur après S2+S3 : pytest 1121, vitest 633, Playwright 95 — verts. Machine à mémoire saturée : lancer vitest avec `--maxWorkers=3` et Playwright avec `--workers=3`, et **ne jamais lancer deux gates en parallèle** (base `viper_test` partagée).
 - 2026-09-30 : **Décision Humaine** — pas de limite au nombre de cartes-compteurs de Prospection : le point « ≤ 6 cartes » de la Task 07 du handoff est abandonné. Les 16 compteurs actuels restent.
 - 2026-09-30 : S4 accepté (`125ce74`, correctifs QA `48c65fd`) — page Contact (compteurs, liste, poste de travail fiche + séquence Contact/R1/R2) dans la DA existante, vérifiée sur captures ; bug réel corrigé dans la recherche globale (valeur vide retardée par le debounce). Gate : vitest 710, Playwright 99. À reprendre en S7 : texte de confirmation de programmation selon que l'envoi automatique est actif (drapeau backend).
+- 2026-10-01 : S5 accepté (`8674e6f`, correctifs QA `eb72995`) — génération OpenAI (prompt identique octet pour octet à la référence, `store: false`, aucun appel réel). Une modification humaine du texte efface la provenance IA ; adresses e-mail refusées dans la sortie IA. **Configuration Humaine avant production** : `VIPER_OPENAI_API_KEY`, `VIPER_OPENAI_MODEL` (aucun défaut), `VIPER_CONTACT_BOOKING_URL`, éventuel proxy (`VIPER_OPENAI_TRUST_ENV`).
