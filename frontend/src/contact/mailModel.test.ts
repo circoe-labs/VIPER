@@ -12,13 +12,14 @@ import {
   mailActions,
   orderWarning,
   parseRecipients,
+  remoteDraftLine,
   scheduleToIso,
   statusLine,
   utcOffset,
 } from './mailModel'
 
 const OPEN = { state: 'neutral' as const, doNotContact: false, closed: false }
-const DEFAULTS = { from_email: 'prospection@exemple.example', to: ['jean@exemple.example'], generation_available: false }
+const DEFAULTS = { from_email: 'prospection@exemple.example', to: ['jean@exemple.example'], generation_available: false, toolbox_connected: false }
 
 function sequence(steps: Partial<Record<'contact' | 'r1' | 'r2', ReturnType<typeof message>>>): MessageSequence {
   return {
@@ -150,5 +151,26 @@ describe('send moment', () => {
     expect(new Date(parsed.iso).getTime()).toBe(new Date(2026, 9, 1, 9, 30).getTime())
     expect(utcOffset(120)).toBe('+02:00')
     expect(utcOffset(-330)).toBe('-05:30')
+  })
+})
+
+describe('remoteDraftLine (S6)', () => {
+  it('says the Infomaniak draft of a validated or scheduled message only', () => {
+    expect(remoteDraftLine(message('contact', 'draft'), true)).toBeNull()
+    expect(remoteDraftLine(message('contact', 'validated', { has_remote_draft: true }), false)).toEqual({
+      tone: 'ok',
+      text: 'Brouillon créé dans Infomaniak.',
+      retry: false,
+    })
+    expect(remoteDraftLine(message('contact', 'scheduled', { last_error_code: 'toolbox_outbound_blocked' }), true)).toEqual({
+      tone: 'warning',
+      text: 'Brouillon Infomaniak non créé : un destinataire n’est pas autorisé par la liste d’envoi de la Toolbox.',
+      retry: true,
+    })
+    expect(remoteDraftLine(message('contact', 'validated'), true)?.tone).toBe('muted')
+    // Toolbox off: nothing (everything stays local).
+    expect(remoteDraftLine(message('contact', 'validated'), false)).toBeNull()
+    // A dispatch error (S7) is not a remote draft failure.
+    expect(remoteDraftLine(message('contact', 'validated', { last_error_code: 'send_failed' }), false)).toBeNull()
   })
 })

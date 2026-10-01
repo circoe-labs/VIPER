@@ -63,4 +63,10 @@ describe('messageRefusal', () => {
     expect(messageRefusal(new TypeError('Failed to fetch')).message).toContain('Vérifiez la connexion')
     expect(messageRefusal(refused(403, { code: 'human_actor_required' })).message).toContain('Seule une personne')
   })
+
+  it('says why the Infomaniak draft could not be created again (S6)', () => {
+    const view = messageRefusal(refused(409, { code: 'toolbox_not_connected' }))
+    expect(view.message).toBe('Brouillon Infomaniak non créé : la Toolbox n’est pas connectée.')
+    expect(view.reload).toBe(true)
+  })
 })

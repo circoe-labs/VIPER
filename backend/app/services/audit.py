@@ -92,6 +92,12 @@ class AuditAction(StrEnum):
     CONTACT_MESSAGE_REOPENED = "contact_message.reopened"
     # The AI wrote the subject and body (S5): always a draft, the model and prompt version recorded.
     CONTACT_MESSAGE_GENERATED = "contact_message.generated"
+    # CIRCOE Toolbox (S6): the validated revision's Infomaniak draft was created / could not be.
+    CONTACT_MESSAGE_REMOTE_DRAFT_CREATED = "contact_message.remote_draft_created"
+    CONTACT_MESSAGE_REMOTE_DRAFT_FAILED = "contact_message.remote_draft_failed"
+    # The Toolbox connection was established / forgotten on VIPER's side (no token in the event).
+    TOOLBOX_CONNECTED = "toolbox.connected"
+    TOOLBOX_FORGOTTEN = "toolbox.forgotten"
     IMPORT_BATCH_STARTED = "import_batch.started"
     IMPORT_BATCH_COMMITTED = "import_batch.committed"
     IMPORT_BATCH_FAILED = "import_batch.failed"
@@ -159,6 +165,8 @@ NOT_AUDITED_TABLES = {
     "contact_tracking_status_history": "derived from the audited contact_tracking change",
     "company_activity_categories": "link table; recorded on the company as activity_categories_ids",
     "audit_log": "the audit log itself",
+    "contact_message_remote_draft_cleanups": "technical queue of remote draft ids to delete; the "
+    "message's own events record why",
 }
 
 

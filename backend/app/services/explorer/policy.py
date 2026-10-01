@@ -130,6 +130,10 @@ EXPOSED_TABLES: Mapping[str, TablePolicy] = {
     "contact_messages": TablePolicy(
         writes=read_only("Messages Contact : modifiables uniquement depuis la page Contact.")
     ),
+    # The Toolbox worker's queue (S6): identifiers and codes only; written by the message service.
+    "contact_message_remote_draft_cleanups": TablePolicy(
+        writes=read_only("File technique de suppression des brouillons Infomaniak.")
+    ),
     # Stage changes go through the contact-tracking service, which keeps the status history.
     "contact_tracking": TablePolicy(columns={"prospect_id": PARENT_FIXED}, writes=ALL_WRITES),
     "contact_tracking_status_history": TablePolicy(

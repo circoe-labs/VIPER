@@ -104,6 +104,8 @@ interface ContactStubOptions {
   defaults?: MessageSequence['defaults']
   // The answer of `POST …/generate` (S5): a fake AI draft by default, else a refusal, or a request that never ends.
   generation?: { status: number; code: string } | 'hang'
+  // With `defaults.toolbox_connected` (S6): the Infomaniak draft at validation is created, or fails with this code.
+  remoteDraftFailure?: string
 }
 
 function json(status: number, body?: unknown): Promise<Response> {
@@ -132,7 +134,7 @@ export function stubContactApi(options: ContactStubOptions = {}) {
   const requests: RecordedRequest[] = []
   // Replaces the answer of the next message write (a refusal the fake would not produce).
   const next: { reply: [number, unknown] | null } = { reply: null }
-  const defaults = options.defaults ?? { from_email: 'prospection@exemple.example', to: ['jean@exemple.example'], generation_available: false }
+  const defaults = options.defaults ?? { from_email: 'prospection@exemple.example', to: ['jean@exemple.example'], generation_available: false, toolbox_connected: false }
 
   function sequenceOf(id: string): MessageSequence['sequence'] {
     const detail = prospects.store.get(id)
@@ -159,6 +161,21 @@ export function stubContactApi(options: ContactStubOptions = {}) {
   function write(id: string, step: MessageStep, updated: Message, created = false, changed = true, unvalidated = false) {
     store.set(id, { ...store.get(id), [step]: updated })
     return json(created ? 201 : 200, { message: updated, created, changed, unvalidated })
+  }
+
+  // A validated message and its Infomaniak draft (S6): created when the Toolbox is connected, or the failure recorded.
+  function withRemoteDraft(id: string, step: MessageStep, validated: Message) {
+    let updated = validated
+    let remote: { status: string; code: string | null } = { status: 'disabled', code: null }
+    if (defaults.toolbox_connected) {
+      const code = options.remoteDraftFailure ?? null
+      updated = code
+        ? { ...validated, has_remote_draft: false, last_error_code: code, last_error_at: STAMP }
+        : { ...validated, has_remote_draft: true, last_error_code: null, last_error_at: null }
+      remote = code ? { status: 'failed', code } : { status: 'created', code: null }
+    }
+    store.set(id, { ...store.get(id), [step]: updated })
+    return json(200, { message: updated, created: false, changed: true, unvalidated: false, remote_draft: remote })
   }
 
   function handleMessages(method: string, id: string, step: MessageStep | undefined, action: string | undefined, body: unknown) {
@@ -212,8 +229,13 @@ export function stubContactApi(options: ContactStubOptions = {}) {
         ].filter(Boolean)
         if (missing.length > 0) return refusal(422, 'message_incomplete', { fields: missing })
         if (current.status !== 'draft') return refusal(409, 'invalid_transition', { status: current.status })
-        return write(id, step, { ...current, status: 'validated', validated_revision: current.revision, validated_by: 'Pilote Test', validated_at: STAMP })
+        return withRemoteDraft(id, step, { ...current, status: 'validated', validated_revision: current.revision, validated_by: 'Pilote Test', validated_at: STAMP })
       }
+      case 'remote-draft':
+        if (current.status !== 'validated' && current.status !== 'scheduled') return refusal(409, 'invalid_transition', { status: current.status })
+        if (!defaults.toolbox_connected) return refusal(409, 'toolbox_not_connected')
+        options.remoteDraftFailure = undefined
+        return withRemoteDraft(id, step, current)
       case 'schedule': {
         if (current.status !== 'validated') return refusal(409, 'invalid_transition', { status: current.status })
         const at = (body as { scheduled_at: string }).scheduled_at
@@ -309,7 +331,7 @@ export function stubContactApi(options: ContactStubOptions = {}) {
       const offset = Number(url.searchParams.get('offset') ?? 0)
       return json(200, { items: all.slice(offset, offset + limit), total: all.length, limit, offset })
     }
-    const found = /^\/api\/prospects\/([^/]+)\/messages(?:\/(contact|r1|r2))?(?:\/(\w+))?$/.exec(url.pathname)
+    const found = /^\/api\/prospects\/([^/]+)\/messages(?:\/(contact|r1|r2))?(?:\/([\w-]+))?$/.exec(url.pathname)
     if (found?.[1]) {
       requests.push({ method, path: url.pathname, search: url.search, body })
       return handleMessages(method, found[1], found[2] as MessageStep | undefined, found[3], body)

@@ -58,6 +58,18 @@ private CA, set `VIPER_OPENAI_TRUST_ENV=true` so the OpenAI calls honour `HTTPS_
 never logged. Tests never call OpenAI (a fake transport / server); Playwright starts `e2e/fake-openai.ts` on 8046
 (`VIPER_E2E_OPENAI_PORT`). Details: [`contact.md`](../features/contact.md) § AI drafting.
 
+**CIRCOE Toolbox — Infomaniak drafts** (optional, Contact port S6): off by default (`VIPER_TOOLBOX_MAIL_ENABLED`).
+To use it, set in `backend/.env` `VIPER_TOOLBOX_MAIL_ENABLED=true`, `VIPER_TOOLBOX_MCP_URL` (the Toolbox's exact
+MCP URL) and `VIPER_TOOLBOX_OAUTH_REDIRECT_URI=http://localhost:5173/settings/connections`, restart the API, then
+Paramètres › Connexions › *Connecter la Toolbox*. The token file defaults to `~/.viper/toolbox-oauth.json`
+(`VIPER_TOOLBOX_TOKEN_STORE_PATH`; refused inside the checkout). Obsolete drafts are deleted by the API's worker
+(`VIPER_TOOLBOX_CLEANUP_INTERVAL_MS`, 60 s; `0` = none) or by `python -m app.cli toolbox-cleanup --once`.
+**During development, only a local fake**: pytest uses `backend/tests/fake_toolbox.py` (an `httpx2` transport,
+no socket) and Playwright starts `e2e/fake-toolbox.ts` on 8047 (`VIPER_E2E_TOOLBOX_PORT`) with its token file in
+the system temp folder; never point a development VIPER at the real Toolbox or a real Infomaniak mailbox without
+the Human's go-ahead. Details: [`settings-connections.md`](../features/settings-connections.md),
+[`contact.md`](../features/contact.md) § CIRCOE Toolbox.
+
 Health: <http://127.0.0.1:8042/api/health> → `{"status":"ok","database":"ok"}` (HTTP 503 with
 `"database":"unavailable"` when PostgreSQL is down). OpenAPI docs: <http://127.0.0.1:8042/api/docs>. Every other
 `/api/*` route answers 401 without a session (sign in through the UI, or `POST /api/auth/login`).
@@ -85,6 +97,7 @@ Every port is overridable, so a second checkout (e.g. a `git worktree`) can run 
 | `VIPER_API_TARGET` | `http://127.0.0.1:8042` | Vite's `/api` proxy target |
 | `VIPER_E2E_WEB_PORT` / `VIPER_E2E_API_PORT` | `5180` / `8044` | Playwright's own Vite and API |
 | `VIPER_E2E_OPENAI_PORT` | `8046` | Playwright's fake OpenAI server (`e2e/fake-openai.ts`) |
+| `VIPER_E2E_TOOLBOX_PORT` | `8047` | Playwright's fake CIRCOE Toolbox (`e2e/fake-toolbox.ts`) |
 | `VIPER_E2E_DATABASE_URL` | `…/viper_e2e` | Playwright's database (name must end in `_e2e`) |
 | `VIPER_E2E_PYTHON` | `backend/.venv` Python, else `python` | interpreter for the Playwright API server and setup |
 

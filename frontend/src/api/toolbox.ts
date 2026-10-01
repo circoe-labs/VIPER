@@ -1,0 +1,82 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+
+import { apiGet, apiRequest } from './client'
+import { refreshAfterWrite } from './refresh'
+
+// Mirrors backend/app/api/routes/toolbox.py: the CIRCOE Toolbox connection (Contact port S6). No token ever reaches
+// the browser; the OAuth return lands on /settings/connections, which posts its query to the API (session + CSRF).
+
+export type ToolboxState = 'disabled' | 'not_configured' | 'disconnected' | 'connected' | 'expired'
+
+export interface ToolboxStatus {
+  enabled: boolean
+  state: ToolboxState
+  configured: boolean
+  connected: boolean
+  // Names of the missing server settings (never a value).
+  missing: string[]
+  toolbox_origin: string | null
+  connected_at: string | null
+  connected_by: string | null
+  expires_at: string | null
+  // The Toolbox names no mailbox in its answer: null for now.
+  account_label: string | null
+  last_error: { code: string; at: string } | null
+  // Obsolete Infomaniak drafts still to delete.
+  cleanups: { pending: number; failing: number }
+}
+
+// The query of the OAuth return (`/settings/connections?code=…&state=…&iss=…` or `?error=…&state=…`).
+export interface ToolboxCallback {
+  state: string
+  code: string
+  iss: string
+  error: string
+}
+
+export const toolboxKeys = { status: ['toolbox', 'status'] as const }
+
+// The browser gives up after this long on a connection call (the server bounds each Toolbox request by
+// VIPER_TOOLBOX_TIMEOUT_MS, 20 s by default; starting a connection makes up to four of them).
+export const TOOLBOX_DEADLINE_MS = 90_000
+
+export function useToolboxStatus() {
+  return useQuery({
+    queryKey: toolboxKeys.status,
+    queryFn: ({ signal }) => apiGet<ToolboxStatus>('/settings/toolbox', signal),
+  })
+}
+
+export function useToolboxMutations() {
+  const queryClient = useQueryClient()
+  const settled = (status: ToolboxStatus) => {
+    queryClient.setQueryData(toolboxKeys.status, status)
+    // The mail editor's « Toolbox connectée » flag comes with the message sequence.
+    void refreshAfterWrite(queryClient, [['contact', 'messages']])
+  }
+  return {
+    // Answers the Toolbox URL the browser goes to (the Toolbox, then Infomaniak).
+    connect: useMutation({
+      mutationFn: () =>
+        apiRequest<{ authorization_url: string }>('POST', '/settings/toolbox/connect', {
+          signal: AbortSignal.timeout(TOOLBOX_DEADLINE_MS),
+        }),
+      // A failure is recorded server-side (`last_error`): read the state again.
+      onError: () => void refreshAfterWrite(queryClient, [toolboxKeys.status]),
+    }),
+    callback: useMutation({
+      mutationFn: (params: ToolboxCallback) =>
+        apiRequest<ToolboxStatus>('POST', '/settings/toolbox/callback', {
+          body: params,
+          signal: AbortSignal.timeout(TOOLBOX_DEADLINE_MS),
+        }),
+      onSuccess: settled,
+      // A failure is recorded server-side (`last_error`): read the state again.
+      onError: () => void refreshAfterWrite(queryClient, [toolboxKeys.status]),
+    }),
+    forget: useMutation({
+      mutationFn: () => apiRequest<ToolboxStatus>('POST', '/settings/toolbox/forget'),
+      onSuccess: settled,
+    }),
+  }
+}

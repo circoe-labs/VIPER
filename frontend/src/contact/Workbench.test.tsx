@@ -40,7 +40,7 @@ function open(detail: Prospect, messages: Partial<Record<MessageStep, Message>> 
     dashboard: contactDashboard(),
     details: [detail],
     messages: { [detail.id]: messages },
-    defaults: { from_email: 'prospection@exemple.example', to: ['claire@exemple.example'], generation_available: false },
+    defaults: { from_email: 'prospection@exemple.example', to: ['claire@exemple.example'], generation_available: false, toolbox_connected: false },
     ...extra,
   })
   const view = renderApp(`/contact?prospect=${detail.id}`)
@@ -313,5 +313,54 @@ describe('Contact workbench', () => {
     })
     const patch = api.prospects.requests.filter((request) => request.method === 'PATCH').at(-1)
     expect(patch?.body).toEqual({ next_action_week: { year: 2026, week: 41 }, version: detail.version })
+  })
+
+  describe('with the CIRCOE Toolbox connected (S6)', () => {
+    const connected = {
+      defaults: {
+        from_email: 'prospection@exemple.example',
+        to: ['claire@exemple.example'],
+        generation_available: false,
+        toolbox_connected: true,
+      },
+    }
+
+    it('says the real sender, then that the validation created the Infomaniak draft', async () => {
+      const detail = person()
+      open(detail, { contact: message('contact', 'draft', { prospect_id: detail.id }) }, connected)
+      expect(await screen.findByText(/boîte Infomaniak par défaut du compte connecté/)).toBeInTheDocument()
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Valider…' }))
+      await confirmDialog(/Valider le message Contact/, 'Valider le message')
+
+      expect(await screen.findByText('Brouillon créé dans Infomaniak.')).toBeInTheDocument()
+      expect(screen.getAllByText(/validé et brouillon créé dans Infomaniak/).length).toBeGreaterThan(0)
+    })
+
+    it('says a failed draft and creates it again on « Réessayer »', async () => {
+      const detail = person()
+      const { api } = open(
+        detail,
+        { contact: message('contact', 'draft', { prospect_id: detail.id }) },
+        { ...connected, remoteDraftFailure: 'toolbox_unavailable' },
+      )
+      await userEvent.click(await screen.findByRole('button', { name: 'Valider…' }))
+      await confirmDialog(/Valider le message Contact/, 'Valider le message')
+
+      expect(await screen.findByText('Brouillon Infomaniak non créé : la Toolbox ne répond pas.')).toBeInTheDocument()
+      // The validation stands.
+      expect(tab('Contact')).toHaveTextContent('Validé')
+      await userEvent.click(screen.getByRole('button', { name: 'Réessayer' }))
+
+      expect(await screen.findByText('Brouillon créé dans Infomaniak.')).toBeInTheDocument()
+      expect(sent(api.requests, 'POST', `/api/prospects/${detail.id}/messages/contact/remote-draft`)).toHaveLength(1)
+    })
+
+    it('says nothing about Infomaniak while the Toolbox is not connected', async () => {
+      const detail = person()
+      open(detail, { contact: message('contact', 'validated', { prospect_id: detail.id }) })
+      expect(await screen.findByText(/prêt à être programmé/)).toBeInTheDocument()
+      expect(screen.queryByText(/Infomaniak/)).not.toBeInTheDocument()
+    })
   })
 })

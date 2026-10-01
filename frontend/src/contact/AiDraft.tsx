@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 
 import type { Message } from '../api/contact'
+import { useElapsed } from '../lib/useElapsed'
 import { Button } from '../ui/Button'
 import { TextAreaField } from '../ui/fields'
 import { ChevronDownIcon, InfoIcon, SparklesIcon, SpinnerIcon } from '../ui/icons'
@@ -48,21 +49,6 @@ export function AiButtons({
       ) : null}
     </>
   )
-}
-
-// Whole seconds since `startedAt` (epoch ms), ticking every second; 0 while idle.
-function useElapsed(startedAt: number | null): number {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    if (startedAt === null) return
-    const timer = window.setInterval(() => {
-      setNow(Date.now())
-    }, 1000)
-    return () => {
-      window.clearInterval(timer)
-    }
-  }, [startedAt])
-  return startedAt === null ? 0 : Math.max(0, Math.floor((now - startedAt) / 1000))
 }
 
 interface AiPanelProps {

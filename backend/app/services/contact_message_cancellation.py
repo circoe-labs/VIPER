@@ -30,6 +30,7 @@ from app.models.contact_messages import ContactMessage
 from app.models.enums import ContactMessageStatus, ContactTrackingStatus
 from app.services import audit
 from app.services.audit import AuditAction
+from app.services.contact_remote_drafts import detach_remote_draft
 
 logger = logging.getLogger(__name__)
 
@@ -61,14 +62,15 @@ class Cancellation:
 NOTHING = Cancellation()
 
 
-def cancel_message(message: ContactMessage, reason: str, moment: datetime) -> None:
+def cancel_message(
+    session: Session, message: ContactMessage, reason: str, moment: datetime
+) -> None:
     """Move one unsent message to `cancelled` (the caller annotates the audit and checks the
-    status). The remote draft is detached — S6 queues its deletion here."""
+    status). Its remote draft (S6) is queued for deletion and detached."""
     message.status = M.CANCELLED
     message.cancelled_at = moment
     message.cancel_reason = reason
-    message.remote_provider = None
-    message.remote_draft_id = None
+    detach_remote_draft(session, message, "cancelled")
 
 
 def cancel_unsent_messages(
@@ -96,7 +98,7 @@ def cancel_unsent_messages(
         audit.annotate(
             session, actor, message, AuditAction.CONTACT_MESSAGE_CANCELLED, reason=reason
         )
-        cancel_message(message, reason, moment)
+        cancel_message(session, message, reason, moment)
         cancelled += 1
     session.flush()
     if rows:

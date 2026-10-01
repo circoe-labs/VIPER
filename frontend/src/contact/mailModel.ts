@@ -7,6 +7,7 @@
 import { MESSAGE_STEPS, type Message, type MessageContent, type MessageSequence, type MessageStep } from '../api/contact'
 import type { TrackingStatus } from '../api/prospection'
 import { TRACKING_LABELS } from '../prospection/labels'
+import { toolboxErrorLabel } from '../settings/toolboxCopy'
 import { formatDateTime, MESSAGE_STATUS_LABELS, STEP_LABELS } from './labels'
 import type { MailField } from './messages'
 
@@ -184,6 +185,26 @@ export function statusLine(message: Message | null, closed: boolean): string {
       return `Annulé le ${formatDateTime(message.cancelled_at ?? '')}${reason ? ` (${reason})` : ''}.`
     }
   }
+}
+
+export interface RemoteDraftLine {
+  tone: 'ok' | 'warning' | 'muted'
+  text: string
+  // « Réessayer » is offered (the Toolbox is connected and the draft is missing).
+  retry: boolean
+}
+
+// The Infomaniak draft of a validated or scheduled message (CIRCOE Toolbox, S6), said discreetly under the status.
+// Nothing while the Toolbox is off and no draft exists (everything stays local, as before S6).
+export function remoteDraftLine(message: Message | null, toolboxConnected: boolean): RemoteDraftLine | null {
+  if (!message || (message.status !== 'validated' && message.status !== 'scheduled')) return null
+  if (message.has_remote_draft) return { tone: 'ok', text: 'Brouillon créé dans Infomaniak.', retry: false }
+  const code = message.last_error_code
+  if (code?.startsWith('toolbox_')) {
+    return { tone: 'warning', text: `Brouillon Infomaniak non créé : ${toolboxErrorLabel(code)}.`, retry: toolboxConnected }
+  }
+  if (!toolboxConnected) return null
+  return { tone: 'muted', text: 'Brouillon Infomaniak pas encore créé.', retry: true }
 }
 
 // `manual`, `prospect_state:<state>` or `do_not_contact` (decision 29 and the opposition).

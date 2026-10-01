@@ -116,8 +116,9 @@ export interface MessageSequence {
     // No message may be created, edited, validated, scheduled or reopened.
     closed: boolean
   }
-  // `generation_available`: the AI drafting is configured on the server (S5).
-  defaults: { from_email: string | null; to: string[]; generation_available: boolean }
+  // `generation_available`: the AI drafting is configured on the server (S5). `toolbox_connected`: the CIRCOE Toolbox
+  // is connected (S6) — a validation creates the Infomaniak draft, sent from the account's default mailbox.
+  defaults: { from_email: string | null; to: string[]; generation_available: boolean; toolbox_connected: boolean }
   steps: { step: MessageStep; message: Message | null }[]
 }
 
@@ -127,6 +128,11 @@ export interface MessageResult {
   changed: boolean
   // An edit put a validated/scheduled message back to draft.
   unvalidated: boolean
+  // validate / schedule / remote-draft (S6): what happened to the Infomaniak draft. `failed` carries a `toolbox_*` code.
+  remote_draft?: {
+    status: 'disabled' | 'not_connected' | 'not_applicable' | 'already_present' | 'created' | 'stale' | 'failed'
+    code: string | null
+  }
 }
 
 // `POST …/messages/{step}/generate` (S5): the AI draft of the step, always a draft. `replace` confirms that a saved
@@ -152,7 +158,8 @@ export interface MessageContent {
   bcc: string[]
 }
 
-export type MessageAction = 'validate' | 'unschedule' | 'cancel' | 'reopen'
+// `remote-draft` (S6): create again the Infomaniak draft of a validated message (« Réessayer »).
+export type MessageAction = 'validate' | 'unschedule' | 'cancel' | 'reopen' | 'remote-draft'
 
 export const contactKeys = {
   // Invalidate after any prospect or message write: the counters, the list's state and message chips move.

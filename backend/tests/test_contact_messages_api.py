@@ -74,6 +74,7 @@ def test_the_sequence_read_model(
         "from_email": SENDER,
         "to": ["jean.test@exemple.example"],
         "generation_available": False,
+        "toolbox_connected": False,
     }
     assert body["steps"] == [
         {"step": "contact", "message": None},

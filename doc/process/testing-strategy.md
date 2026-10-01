@@ -207,6 +207,22 @@
   with a fake `MailGenerator`: draft only, minimal data, refusals before any call, nothing written on failure, the
   replace confirmation, no transaction open during the call, a person's concurrent edit or schedule wins, audit
   masking and history); `src/contact/aiDraftModel.test.ts`, `src/contact/AiDraft.test.tsx`.
+- CIRCOE Toolbox (Contact port S6): no test reaches the Toolbox or Infomaniak — the `app` fixture forces
+  `toolbox_mail_enabled=False`; Toolbox tests use `tests/fake_toolbox.py`, a port of the reference fake as an
+  `httpx2.MockTransport` (OAuth metadata, registration, `/authorize` as a consenting person, `/token` with PKCE,
+  MCP tools with the Toolbox's French error texts, failure modes, expiry on its own clock, `revoke_all`).
+  `test_toolbox_client.py` (OAuth flow, single-use state bound to the person, refused returns, discovery errors,
+  expiry/401 → reconnect, refresh when offered, forget, token file privacy/atomicity, MCP tools, SSE, error
+  classification never keeping the text, timeouts with `outcome_unknown`, local input bounds, no token in logs),
+  `test_contact_remote_drafts.py` (settings validation, the status API in each state, callback failures recorded,
+  audit without secret, draft at validation without `from`, failure kept on the validated message + retry route,
+  queueing on edit/cancel/state change, the cleanup pass: idempotent delete, backoff, connection blocking,
+  still-attached ids, the worker and the CLI), `test_migration_remote_draft_cleanups.py`;
+  `src/settings/ConnectionsSection.test.tsx` (states, connect redirect, the OAuth return posted once, refusals,
+  forget), `remoteDraftLine` in `mailModel.test.ts`, the Toolbox block of `Workbench.test.tsx`.
+  E2E `e2e/toolbox.spec.ts` (serial) against `e2e/fake-toolbox.ts` started as a Playwright web server: the real
+  browser redirect flow, the draft created at validation, deleted by the worker after a cancellation, a failure
+  said then retried, « Oublier la connexion »; screenshots of Settings › Connexions and the editor.
 - Privacy: `scripts/check_private_data.py` in CI; synthetic fixtures only under `*/tests/fixtures/synthetic/`.
 - Commands: `doc/process/runbook-local-dev.md`.
 

@@ -26,6 +26,7 @@ from app.api.routes import (
     prospects,
     search,
     settings,
+    toolbox,
 )
 
 public_router = APIRouter()
@@ -48,4 +49,6 @@ api_router.include_router(imports.router)
 api_router.include_router(prospection.router)
 api_router.include_router(prospects.router)
 api_router.include_router(search.router)
+# Before `settings`: its `/settings/{taxonomy}` would otherwise capture `/settings/toolbox`.
+api_router.include_router(toolbox.router)
 api_router.include_router(settings.router)

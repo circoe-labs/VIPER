@@ -1,4 +1,5 @@
 import { ApiError } from '../api/client'
+import { toolboxErrorLabel } from '../settings/toolboxCopy'
 
 // French copy for the mail sequence's refusals (codes of doc/features/contact.md § Refusal codes), placed on the field
 // the API names when there is one.
@@ -106,6 +107,10 @@ export function messageRefusal(error: unknown): MessageRefusal {
     case 'human_actor_required':
       return plain('Seule une personne connectée peut préparer, valider ou programmer un message.')
     default:
+      // « Réessayer » the Infomaniak draft (S6) without a usable Toolbox: the reason, in the Settings page's words.
+      if (refusal?.code.startsWith('toolbox_')) {
+        return plain(`Brouillon Infomaniak non créé : ${toolboxErrorLabel(refusal.code)}.`, true)
+      }
       // FastAPI's own validation (a list `detail`): the schema's size limits — more than 50 addresses in a field, an
       // address over 320 characters, a body over 100 000.
       if (error instanceof ApiError && error.status === 422 && Array.isArray(error.detail)) {

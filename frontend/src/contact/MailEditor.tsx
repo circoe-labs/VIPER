@@ -3,7 +3,19 @@ import { useEffect, useRef, useState } from 'react'
 import type { Message, MessageSequence, MessageStatus, MessageStep, useMessageMutations } from '../api/contact'
 import { Button } from '../ui/Button'
 import { TextAreaField, TextField } from '../ui/fields'
-import { AlertIcon, CalendarIcon, CheckIcon, CloseIcon, LockIcon, RefreshIcon, SaveIcon, UndoIcon } from '../ui/icons'
+import {
+  AlertIcon,
+  CalendarIcon,
+  CheckCircleIcon,
+  CheckIcon,
+  CloseIcon,
+  InfoIcon,
+  LockIcon,
+  MailIcon,
+  RefreshIcon,
+  SaveIcon,
+  UndoIcon,
+} from '../ui/icons'
 import { AiButtons, AiPanel, GeneratedNote } from './AiDraft'
 import {
   type AiInstruction,
@@ -29,6 +41,7 @@ import {
   type MailForm,
   orderWarning,
   RECIPIENTS_MAX_LENGTH,
+  remoteDraftLine,
   scheduleToIso,
   statusLine,
 } from './mailModel'
@@ -155,20 +168,26 @@ export function MailEditor({
     }
   }
 
-  async function act(action: 'validate' | 'unschedule' | 'cancel' | 'reopen') {
+  async function act(action: 'validate' | 'unschedule' | 'cancel' | 'reopen' | 'remote-draft') {
     if (!message) return
     setNotice(null)
     setRefusal(null)
     try {
       const result = await mutations.act.mutateAsync({ step, action, revision: message.revision })
-      focusStatus.current = action !== 'unschedule'
+      focusStatus.current = action !== 'unschedule' && action !== 'remote-draft'
+      const created = result.remote_draft?.status === 'created'
       setNotice({
         status: result.message.status,
         text: {
-          validate: `Message ${label} validé : il peut maintenant être programmé.`,
+          validate: created
+            ? `Message ${label} validé et brouillon créé dans Infomaniak : il peut maintenant être programmé.`
+            : `Message ${label} validé : il peut maintenant être programmé.`,
           unschedule: `Programmation du message ${label} retirée : il reste validé.`,
           cancel: `Message ${label} annulé : il ne partira pas.`,
           reopen: `Message ${label} rouvert en Brouillon : à relire puis revalider.`,
+          'remote-draft': created
+            ? `Brouillon du message ${label} créé dans Infomaniak.`
+            : `Le brouillon Infomaniak du message ${label} n’a pas pu être créé.`,
         }[action],
       })
     } catch (caught) {
@@ -291,6 +310,9 @@ export function MailEditor({
     else if (pending === 'validate' || pending === 'cancel') void act(pending)
   }
 
+  const toolboxConnected = sequence.defaults.toolbox_connected
+  const remote = remoteDraftLine(message, toolboxConnected)
+  const retrying = mutations.act.isPending && mutations.act.variables.action === 'remote-draft'
   const errorOf = (field: MailField) => refusal?.fields[field] ?? local[field]
   const readOnly = !actions.editable || busy
   const hasLocalErrors = Object.keys(local).length > 0
@@ -301,6 +323,31 @@ export function MailEditor({
       <p ref={statusRef} tabIndex={-1} className="contact-mail__status">
         {statusLine(message, sequence.sequence.closed || sequence.sequence.do_not_contact)}
       </p>
+
+      {remote && (
+        <p className={`contact-mail__remote contact-mail__remote--${remote.tone}`}>
+          {remote.tone === 'ok' ? (
+            <CheckCircleIcon size={16} />
+          ) : remote.tone === 'warning' ? (
+            <AlertIcon size={16} />
+          ) : (
+            <MailIcon size={16} />
+          )}
+          <span>{remote.text}</span>
+          {remote.retry && (
+            <Button
+              size="sm"
+              variant="ghost"
+              icon={RefreshIcon}
+              loading={retrying}
+              disabled={busy}
+              onClick={() => void act('remote-draft')}
+            >
+              {retrying ? 'Création dans Infomaniak…' : 'Réessayer'}
+            </Button>
+          )}
+        </p>
+      )}
 
       {actions.lock && (
         <p className="contact-mail__lock">
@@ -334,6 +381,13 @@ export function MailEditor({
             edit({ from: event.target.value })
           }}
         />
+        {toolboxConnected && actions.editable && (
+          <p className="contact-mail__hint contact-mail__from-note">
+            <InfoIcon size={14} />
+            Envoi réel depuis la boîte Infomaniak par défaut du compte connecté à la Toolbox : ce champ n’est pas
+            transmis.
+          </p>
+        )}
         <TextField
           id={fieldId('to')}
           label={FIELD_LABELS.to}

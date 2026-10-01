@@ -693,6 +693,8 @@ MESSAGE_TITLES: dict[str, str] = {
     AuditAction.CONTACT_MESSAGE_CANCELLED: "Message annulé",
     AuditAction.CONTACT_MESSAGE_REOPENED: "Message rouvert",
     AuditAction.CONTACT_MESSAGE_GENERATED: "Brouillon rédigé par l’IA",
+    AuditAction.CONTACT_MESSAGE_REMOTE_DRAFT_CREATED: "Brouillon créé dans Infomaniak",
+    AuditAction.CONTACT_MESSAGE_REMOTE_DRAFT_FAILED: "Brouillon Infomaniak non créé",
     "contact_message.created": "Message créé",
     "contact_message.updated": "Message modifié",
 }

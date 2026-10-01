@@ -11,6 +11,12 @@ up in shell history or process listings.
 `provision-sql-reader` creates or aligns the SQL console's read-only role (`VIPER_SQL_READER_ROLE`,
 password `VIPER_SQL_READER_PASSWORD`) and resets its grants to the explorer's exposed tables. Run it
 after every migration. Target database of both: `VIPER_DATABASE_URL`.
+
+`toolbox-cleanup --once` runs one pass of the CIRCOE Toolbox remote-draft cleanup queue (S6) —
+the same pass the API's worker runs every `VIPER_TOOLBOX_CLEANUP_INTERVAL_MS` — and prints its
+counts. It uses the token file of the API (`VIPER_TOOLBOX_TOKEN_STORE_PATH`): connect from the
+Settings page first. Exit code 1 when the Toolbox is disabled, not configured, not connected, or
+the pass was stopped by the connection (`blocked`).
 """
 
 import argparse
@@ -25,8 +31,10 @@ from app.core.config import Settings, get_settings
 from app.db.session import create_db_engine, create_session_factory
 from app.services.audit import attributed_unit_of_work
 from app.services.auth import create_or_reset_user
+from app.services.contact_remote_drafts import process_cleanups
 from app.services.errors import DomainError
 from app.services.explorer.sql_reader import provision_sql_reader, provisioning_lock
+from app.services.toolbox.integration import ToolboxIntegration
 
 # Whoever runs the command on the server; the OS account is not known to VIPER.
 CLI_ACTOR = ActorContext(type=ActorType.SYSTEM, display="Ligne de commande", id="app.cli")
@@ -66,8 +74,22 @@ def provision_reader(session_factory: sessionmaker[Session], settings: Settings)
     return f"{action} role {settings.sql_reader_role}: SELECT on {report.tables} exposed tables."
 
 
+def toolbox_cleanup(session_factory: sessionmaker[Session], integration: ToolboxIntegration) -> str:
+    toolbox = integration.required_mail_toolbox()
+    report = process_cleanups(session_factory, toolbox)
+    summary = (
+        f"Toolbox cleanup: processed {report.processed}, deleted {report.deleted}, already absent "
+        f"{report.already_absent}, failed {report.failed}, skipped {report.skipped}."
+    )
+    if report.blocked:
+        raise DomainError(f"{summary} Stopped: {report.blocked} (reconnect the Toolbox).")
+    return summary
+
+
 def main(
-    argv: list[str] | None = None, session_factory: sessionmaker[Session] | None = None
+    argv: list[str] | None = None,
+    session_factory: sessionmaker[Session] | None = None,
+    toolbox: ToolboxIntegration | None = None,
 ) -> int:
     parser = argparse.ArgumentParser(description="VIPER operator commands.")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -80,6 +102,12 @@ def main(
     commands.add_parser(
         "provision-sql-reader", help="create/align the SQL console's read-only role and its grants"
     )
+    cleanup = commands.add_parser(
+        "toolbox-cleanup", help="delete the obsolete Infomaniak drafts queued by VIPER (one pass)"
+    )
+    cleanup.add_argument(
+        "--once", action="store_true", required=True, help="one pass, then exit (no loop)"
+    )
     args = parser.parse_args(argv)
 
     settings = get_settings()
@@ -90,6 +118,8 @@ def main(
     try:
         if args.command == "provision-sql-reader":
             print(provision_reader(session_factory, settings))
+        elif args.command == "toolbox-cleanup":
+            print(toolbox_cleanup(session_factory, toolbox or ToolboxIntegration(settings)))
         else:
             print(create_user(session_factory, args, read_password(args.password_stdin)))
     except DomainError as error:

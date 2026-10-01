@@ -48,6 +48,11 @@ Set them in the process environment (systemd unit, container env, secret store) 
 | `VIPER_IMPORT_MAX_FILE_MB` / `VIPER_IMPORT_MAX_ROWS` / `VIPER_IMPORT_MAX_COLUMNS` | 10 / 5000 / 100 by default; the proxy's body limit must be at least the file limit + 2 MiB |
 | `VIPER_VERIFICATION_STALE_DAYS` | unset until product chooses the threshold (open question #9) |
 | `VIPER_MONTHLY_CONTACT_TARGET` / `VIPER_MONTHLY_APPOINTMENT_TARGET` | 100 / 10 (informative Home targets) |
+| `VIPER_TOOLBOX_MAIL_ENABLED` | `false` until the Human decides to connect the CIRCOE Toolbox (Infomaniak drafts, S6) |
+| `VIPER_TOOLBOX_MCP_URL` / `VIPER_TOOLBOX_OAUTH_REDIRECT_URI` | the Toolbox's exact MCP URL / `https://<host>/settings/connections` (both HTTPS) |
+| `VIPER_TOOLBOX_TOKEN_STORE_PATH` | **secret file**: a path under the service account's home, outside the checkout and the backups of the database (default `~/.viper/toolbox-oauth.json`, `0600`) |
+| `VIPER_TOOLBOX_TIMEOUT_MS` / `VIPER_TOOLBOX_CLEANUP_INTERVAL_MS` | 20000 / 60000 by default (`0` = no cleanup worker; run the CLI instead) |
+| `VIPER_INFOMANIAK_SEND_ALLOWLIST` | optional VIPER-side recipient allowlist of the scheduled send (S7) |
 
 `VIPER_TEST_DATABASE_URL` and the `VIPER_E2E_*` / `VIPER_WEB_PORT` / `VIPER_API_TARGET` variables are for development
 and tests only.
@@ -80,7 +85,9 @@ uvicorn app.main:create_app --factory --host 127.0.0.1 --port 8042 \
   --proxy-headers --forwarded-allow-ips=<proxy address> --no-access-log
 ```
 
-- Under a process manager (systemd, NSSM, container restart policy) with automatic restart; one process.
+- Under a process manager (systemd, NSSM, container restart policy) with automatic restart; one process. The
+  CIRCOE Toolbox's pending OAuth attempts live in that process (a restart during a connection: connect again) and
+  its cleanup worker is a thread of it (S6); `python -m app.cli toolbox-cleanup --once` runs one pass by hand.
 - `--proxy-headers` with the proxy's address, so the sign-in throttle sees the real client address; otherwise every
   user shares one bucket.
 - `--no-access-log`: access lines carry query strings such as `/api/search?q=<a name>`. If requests must be logged,

@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 
 // Full-stack E2E settings, shared by playwright.config.ts, the E2E Vite config, global setup and the specs.
@@ -8,6 +9,10 @@ export const E2E_WEB_PORT = Number(process.env.VIPER_E2E_WEB_PORT ?? 5180)
 export const E2E_API_PORT = Number(process.env.VIPER_E2E_API_PORT ?? 8044)
 // The fake OpenAI server (e2e/fake-openai.ts): the E2E backend drafts against it, never against OpenAI (P6).
 export const E2E_OPENAI_PORT = Number(process.env.VIPER_E2E_OPENAI_PORT ?? 8046)
+// The fake CIRCOE Toolbox (e2e/fake-toolbox.ts): the E2E backend connects to it, never to the Toolbox (P6). Its OAuth
+// token file lives in the system temp folder (outside the checkout, as the backend requires), one per API port.
+export const E2E_TOOLBOX_PORT = Number(process.env.VIPER_E2E_TOOLBOX_PORT ?? 8047)
+export const E2E_TOOLBOX_STORE = path.join(tmpdir(), `viper-e2e-toolbox-${String(E2E_API_PORT)}.json`)
 export const E2E_BOOKING_URL = 'https://rdv.exemple.example/circoe'
 export const E2E_DATABASE_URL =
   process.env.VIPER_E2E_DATABASE_URL ?? 'postgresql+psycopg://viper:viper@127.0.0.1:5442/viper_e2e'

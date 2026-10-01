@@ -132,25 +132,27 @@ draft|validated|scheduled --cancel--> cancelled --reopen--> draft (revision+1)
 | GET | `…/messages` | — | `MessagesOut` |
 | GET | `…/messages/{step}` | — | `{"message": Message \| null}` |
 | PUT | `…/messages/{step}` | `MessageContentIn` | 201 (created) / 200 `MessageResult` |
-| POST | `…/messages/{step}/validate` | `{"expected_revision": 1}` | `MessageResult` |
-| POST | `…/messages/{step}/schedule` | `{"expected_revision": 1, "scheduled_at": "2026-10-06T09:30:00+02:00"}` | `MessageResult` |
+| POST | `…/messages/{step}/validate` | `{"expected_revision": 1}` | `RemoteDraftResult` — see *CIRCOE Toolbox (S6)* |
+| POST | `…/messages/{step}/schedule` | `{"expected_revision": 1, "scheduled_at": "2026-10-06T09:30:00+02:00"}` | `RemoteDraftResult` |
 | POST | `…/messages/{step}/unschedule` | `{"expected_revision": 1}` | `MessageResult` |
 | POST | `…/messages/{step}/cancel` | `{"expected_revision": 1}` | `MessageResult` |
 | POST | `…/messages/{step}/reopen` | `{"expected_revision": 1}` | `MessageResult` |
 | POST | `…/messages/{step}/generate` | `{"expected_revision"?: 1, "instruction"?: "…", "replace"?: true}` | 201 (created) / 200 `GenerationResult` — see *AI drafting (S5)* |
+| POST | `…/messages/{step}/remote-draft` | `{"expected_revision": 1}` | `RemoteDraftResult` — « Réessayer » the Infomaniak draft (S6) |
 
 `MessagesOut`:
 
 ```json
 {
   "sequence": {"prospect_id": "…", "state": "contacted", "do_not_contact": false, "closed": false},
-  "defaults": {"from_email": "prospection@exemple.example", "to": ["jean.test@exemple.example"], "generation_available": true},
+  "defaults": {"from_email": "prospection@exemple.example", "to": ["jean.test@exemple.example"], "generation_available": true, "toolbox_connected": false},
   "steps": [{"step": "contact", "message": null}, {"step": "r1", "message": null}, {"step": "r2", "message": null}]
 }
 ```
 
 `defaults.from_email` = `VIPER_DEFAULT_OUTBOUND_EMAIL` (null when unset), `defaults.to` = the primary e-mail,
-`defaults.generation_available` = the AI drafting is configured (`VIPER_OPENAI_API_KEY` and `VIPER_OPENAI_MODEL`).
+`defaults.generation_available` = the AI drafting is configured (`VIPER_OPENAI_API_KEY` and `VIPER_OPENAI_MODEL`),
+`defaults.toolbox_connected` = the CIRCOE Toolbox is enabled, configured and connected (S6).
 
 `MessageContentIn` (unknown fields refused): `expected_revision` (omitted/null = create the step's message; else the
 revision read), `from_email` (null clears it), `subject` (≤ 998), `body_text` (≤ 100 000), `to`, `cc`, `bcc` (lists of
@@ -164,7 +166,8 @@ injection); the body is free text. An omitted field keeps its value — or, on c
 `Message`: `id`, `prospect_id`, `step`, `status`, `from_email`, `to`, `cc`, `bcc`, `subject`, `body_text`,
 `revision`, `validated_revision`, `validated_at`, `validated_by` (display name), `scheduled_at`, `sent_at`,
 `cancelled_at`, `cancel_reason` (`manual` | `prospect_state:<state>` | `do_not_contact`), `generation_model`,
-`generation_prompt_version`, `generated_at` (S5), `has_remote_draft` (S6), `last_error_code`, `last_error_at` (S7),
+`generation_prompt_version`, `generated_at` (S5), `has_remote_draft` (S6), `last_error_code`, `last_error_at` (S6: a
+`toolbox_*` code when the Infomaniak draft of the validated revision could not be created; S7: dispatch codes),
 `created_at`, `updated_at`.
 
 ### Refusal codes
@@ -184,6 +187,7 @@ injection); the body is free text. An omitted field keeps its value — or, on c
 | 422 | `message_incomplete` | validate without from/to/subject/body | `fields`: `from_email`, `to`, `subject`, `body_text` |
 | 422 | `invalid` | bad address (`field`: `from_email`, `to.1`, `cc.0`…; `reason` `format`/`too_many`/`control_character`), control character in `subject` (`reason: control_character`), send moment in the past (`field: scheduled_at`, `reason: not_future`) or more than a year ahead (`reason: too_far`) | `field`, `reason` |
 | 403 | `human_actor_required` | not a person, or a person without an id | |
+| 503 / 409 | `toolbox_not_configured` / `toolbox_not_connected`, `toolbox_auth_expired` | `…/remote-draft` without a usable Toolbox (S6) | |
 
 ## AI drafting (S5) — `POST …/messages/{step}/generate`
 
@@ -262,13 +266,109 @@ failure writes nothing (no message, no audit event). Logs (`mail_generation.star
 prospect id, step, code, upstream HTTP status and error type, model and duration — never the key, the prompt, the
 answer or an address.
 
+## CIRCOE Toolbox (S6) — Infomaniak drafts of validated messages
+
+Port of the reference `src/server/toolboxAuth.ts`, `toolboxMcpClient.ts`, `toolboxIntegration.ts` and the remote-draft
+parts of `contactMessageService.ts` (handoff Task 15, decision 25, `references/toolbox-capabilities.md`). **Off by
+default** (`VIPER_TOOLBOX_MAIL_ENABLED=false`): disabled, not configured or not connected, every message stays in VIPER
+exactly as before S6 and nothing leaves the server. Tests and E2E use local fakes only (Contact port P6). Connection,
+OAuth and token storage: [`settings-connections.md`](settings-connections.md).
+
+| Module | Role |
+|---|---|
+| `app/services/toolbox/oauth.py` | OAuth 2.1 client (discovery, dynamic registration, PKCE S256, state, token, expiry) |
+| `app/services/toolbox/token_store.py` | the token file (outside the database and the checkout, `0600`, atomic writes) |
+| `app/services/toolbox/mcp_client.py` | MCP mail client (`MailToolbox` port, `McpMailToolbox`), typed errors |
+| `app/services/toolbox/errors.py` | the `toolbox_*` codes and their HTTP status |
+| `app/services/toolbox/integration.py` | the per-process integration (`app.state.toolbox`): settings, state, `mail_toolbox()` |
+| `app/services/toolbox/worker.py` | the cleanup worker thread of the API process |
+| `app/services/contact_remote_drafts.py` | queueing, creation after validation, the deletion queue pass |
+| `app/api/routes/toolbox.py` | `/api/settings/toolbox` (status, connect, callback, forget) |
+
+### Lifecycle of a remote draft
+
+A remote draft belongs to the **validated revision** (handoff docs/07 « Usage recommandé »): none for a draft, none
+for an AI generation.
+
+- **Validate** (and **schedule** a message that has none) → after the local commit, `infomaniak.mail.create_draft`
+  with `to`/`cc`/`bcc`/subject/body (**no `from`**: the Toolbox has none, the sender is the default mailbox of the
+  Infomaniak account behind the connection) → `remote_provider = circoe_toolbox`, `remote_draft_id` set
+  (`has_remote_draft: true`), audit `contact_message.remote_draft_created` (history *Brouillon créé dans Infomaniak*).
+  The attach re-reads the message under a row lock and only attaches to the same validated revision; a draft made for
+  a revision that changed meanwhile is queued for deletion (`replaced`, answer `stale`).
+- **Edit** of a validated/scheduled message, **AI redraft**, **cancel** (a person, decision 29, the opposition) →
+  the old id is queued in `contact_message_remote_draft_cleanups` (`edited` / `cancelled`) **in the same transaction**
+  and detached (`_clear_validation`, `cancel_message` → `detach_remote_draft`). Re-validating creates a new draft: the
+  Toolbox has no update tool, so « replace » = delete the old one + create a new one (as the reference).
+- **Deletion queue** (migration `0010`): after commit, `process_cleanups` calls `infomaniak.mail.delete_draft` for the
+  due entries — the worker every `VIPER_TOOLBOX_CLEANUP_INTERVAL_MS`, woken right after a successful write under
+  `/api/prospects`, or `python -m app.cli toolbox-cleanup --once`. An already-gone draft counts as done
+  (`outcome = already_absent`); an id attached to a message again is never deleted (`still_attached`); a failure is
+  retried with backoff (30 s, doubling, at most 6 h; `attempts`, `last_error_code`, `next_attempt_at`); a connection
+  problem (`toolbox_not_connected`, `toolbox_auth_expired`, `toolbox_not_configured`) stops the pass without counting
+  an attempt. Entries are taken one by one with `FOR UPDATE SKIP LOCKED`: the API's worker and a CLI pass never delete
+  the same draft twice. Deleting the prospect keeps its queued ids (`message_id` set to NULL).
+
+### Failure semantics (decided for S6)
+
+The **human validation is the local truth** and is never rolled back by a Toolbox failure: the message stays
+`validated`, without a remote draft; the failure code is recorded on it (`last_error_code = toolbox_*`,
+`last_error_at`, audit `contact_message.remote_draft_failed`, history *Brouillon Infomaniak non créé*); the answer says
+`remote_draft: {"status": "failed", "code": "toolbox_unavailable"}` and the editor shows *Brouillon Infomaniak non
+créé : …* with **Réessayer** (`POST …/remote-draft`). Scheduling tries again; S7 recreates a missing draft before
+sending (reference `syncRemoteDraft`). A later success, an edit or a cancellation clears that code. This is the
+reference's behaviour (« un échec de création de brouillon laisse le statut intact »), made visible and durable.
+
+`RemoteDraftResult` = `MessageResult` + `remote_draft: {status, code}`, `status` among `disabled` (Toolbox off or not
+configured), `not_connected`, `not_applicable` (not validated/scheduled), `already_present`, `created`, `stale`,
+`failed` (+ `code`). The message in the answer is read again after the Toolbox call. The request's transaction is
+committed before the Toolbox call (same pattern as the AI drafting).
+
+### MCP client
+
+JSON-RPC 2.0 over Streamable HTTP (`httpx2`, JSON or SSE answers): `initialize` → `notifications/initialized` →
+`tools/call` per operation (the Toolbox is stateless), one total deadline (`VIPER_TOOLBOX_TIMEOUT_MS`). Tools and
+arguments exactly as the Toolbox (commit 60ad176): `infomaniak.mail.create_draft {to[1..50], cc?, bcc?, subject
+1..500, text 1..200000}` (bounds checked before any call: 422 `toolbox_invalid_input`), `delete_draft {draftId}`
+(idempotent), and for S7 `send_draft {draftId}` and `list_drafts {limit 1..100}` (implemented and tested against the
+fake, not called by S6). A tool error is `isError` + a French text, classified by pattern and **never kept or logged**
+(it may quote an address). A 401 refreshes once when the server offers a refresh token (the Toolbox does not), else
+marks the connection *à reconnecter*. Logs: tool name and duration, codes and upstream status only.
+
+Codes (`ToolboxError`, with `retryable` and `outcome_unknown`):
+
+| HTTP | `code` | Meaning |
+|---|---|---|
+| 503 | `toolbox_not_configured` | disabled or a setting missing (the message names the variables, never a value) |
+| 409 | `toolbox_not_connected` | nobody connected, or the connection was forgotten |
+| 409 | `toolbox_auth_expired` | the 30-day token ended, or the Toolbox refused it (401/403) |
+| 502 | `toolbox_unavailable` | network error, 5xx/429/408, Infomaniak 5xx (`retryable`) |
+| 504 | `toolbox_timeout` | no answer within the deadline (`retryable`; `outcome_unknown` for a `send_draft`) |
+| 502 | `toolbox_invalid_response` | unreadable JSON-RPC or tool result |
+| 422 | `toolbox_rejected` / `toolbox_outbound_blocked` / `toolbox_invalid_input` | refused by the Toolbox (its allowlist for `outbound_blocked`) or by the local bounds |
+| 404 | `toolbox_draft_not_found` | `send_draft` of a gone draft (a delete of a gone draft is a success) |
+
+### Limitations (handoff FINAL_REPORT)
+
+- No `from`: the real sender is the default mailbox of the Infomaniak account behind the connection (the editor says
+  so under *De* when the Toolbox is connected); `VIPER_DEFAULT_OUTBOUND_EMAIL` still fills *De* for the record.
+- The token lasts 30 days without refresh: reconnect at expiry (Settings shows the end date; the tab is flagged
+  *À reconnecter*).
+- One server-side connection for the whole VIPER (whoever connected it).
+- No remote revocation: « Oublier » deletes the token on VIPER's side only; it expires by itself.
+- No Message-ID from `send_draft` (S7).
+- The Toolbox names no mailbox in its answers: `account_label` stays null.
+
 ## Audit and privacy
 
 Each message change is one audit event on the message, in the prospect's history: `contact_message.created`,
 `.updated` (edit of a draft), `.unvalidated` (edit that cleared a validation), `.validated`, `.scheduled`,
 `.unscheduled`, `.cancelled` (context `reason`: `manual`, `prospect_state:<state>` or `do_not_contact`), `.reopened`,
 `.generated` (an AI draft, S5 — history title *Brouillon rédigé par l’IA*; the model and prompt version are in the
-changes, the subject and body masked like any content).
+changes, the subject and body masked like any content), `.remote_draft_created` / `.remote_draft_failed` (S6, the
+Infomaniak draft of the validated revision; the failure's `toolbox_*` code in `context.reason`). Connecting and
+forgetting the Toolbox are `toolbox.connected` / `toolbox.forgotten` (entity `toolbox_connection`, no token). The
+cleanup queue is a technical table outside the audit (ids and codes only), read-only in the Database Explorer.
 The content
 (`from_email`, recipients, subject, body) is **masked** in the audit log (`[masked]`: it changed, never what it says)
 and never logged. Application logs carry ids, step, status, revision and actor type only. There is no separate
@@ -290,6 +390,20 @@ AI drafting (S5), all optional — unset, the button is disabled and the route a
 | `VIPER_OPENAI_MAX_RETRIES` | `2` | Retries on transient failures, 0–5. |
 | `VIPER_OPENAI_TRUST_ENV` | `false` | `true`: the OpenAI calls honour the server's `HTTPS_PROXY`, `NO_PROXY`, `SSL_CERT_FILE`… (a corporate proxy or CA). Off: a direct connection the environment cannot redirect. |
 | `VIPER_CONTACT_BOOKING_URL` | unset | Booking link the AI may copy into a mail; an `http(s)` URL (anything else is refused at startup). Unset: no link at all. |
+
+CIRCOE Toolbox (S6), all optional — see [`settings-connections.md`](settings-connections.md):
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `VIPER_TOOLBOX_MAIL_ENABLED` | `false` | Feature flag. Off: nothing leaves VIPER. |
+| `VIPER_TOOLBOX_MCP_URL` | unset | Exact MCP URL (the OAuth resource the Toolbox announces); https, or http on localhost. Required when enabled (else *non configurée*). |
+| `VIPER_TOOLBOX_OAUTH_REDIRECT_URI` | unset | The SPA page `/settings/connections` as the browser sees it; https, or http on localhost. Required when enabled. |
+| `VIPER_TOOLBOX_TOKEN_STORE_PATH` | `~/.viper/toolbox-oauth.json` | Token file; refused inside the checkout (startup error). |
+| `VIPER_TOOLBOX_TIMEOUT_MS` | `20000` | Total bound of one Toolbox operation, 1 000–120 000. |
+| `VIPER_TOOLBOX_CLEANUP_INTERVAL_MS` | `60000` | Cleanup worker period; `0` = no worker (CLI only). |
+| `VIPER_INFOMANIAK_SEND_ALLOWLIST` | unset | VIPER-side recipient allowlist of the scheduled send (S7): addresses or `@domain`, comma-separated; parsed and validated at startup now (`Settings.send_allowlist`, `allowlist_permits`). |
+
+A malformed URL or allowlist is a startup error; an unset URL while enabled is the *non configurée* state.
 
 ## Concurrency note
 
@@ -384,6 +498,15 @@ when the AI starts, the editor's live region says the outcome; the clicked butto
 the focus moves to the running block, then to the draft's status sentence once it has arrived. Every `ai_*` code has its French sentence saying that nothing was changed;
 the message codes reuse `contact/messages.ts`.
 
+**CIRCOE Toolbox (S6)** (`remoteDraftLine` in `mailModel.ts`): under the status sentence of a validated or scheduled
+message, one discreet line — *Brouillon créé dans Infomaniak.* (success-fg, check glyph); *Brouillon Infomaniak non
+créé : <raison>.* (warning-fg, alert glyph; the `toolbox_*` code in French from `settings/toolboxCopy.ts`) with a ghost
+**Réessayer** while the Toolbox is connected (*Création dans Infomaniak…* while it runs); *Brouillon Infomaniak pas
+encore créé.* (muted) for a message validated before the connection. Nothing is said while the Toolbox is off (all
+local, as before). When the Toolbox is connected, *De* carries the hint *Envoi réel depuis la boîte Infomaniak par
+défaut du compte connecté à la Toolbox : ce champ n’est pas transmis.* The validation notice says *… validé et
+brouillon créé dans Infomaniak* when it was.
+
 **Unsaved text**: kept per step — switching tabs loses nothing, a dot marks a tab with unsaved changes; leaving the
 prospect (list, previous/next, Back, another page) with unsaved mail or follow-up asks *Modifications non
 enregistrées* (*Rester sur ce prospect* / *Quitter sans enregistrer*); reload or close triggers the browser prompt.
@@ -394,10 +517,11 @@ and Home.
 
 ## Reste à faire (later Slices)
 
-- **S6 (Toolbox)**: add `contact_message_remote_draft_cleanups` (the reference's queue) and enqueue the old remote draft
-  id wherever it is detached today — `contact_messages._clear_validation` (edit, reopen),
-  `contact_message_cancellation.cancel_message` (manual cancel, decision 29, opposition) — then delete them after
-  commit.
+- **S7 (dispatch, Toolbox side)**: `McpMailToolbox.send_draft` / `list_drafts` are ready (fake-tested) for the send
+  and the reconciliation; before `send_draft`, recreate a missing remote draft (`sync_remote_draft`) and check
+  `Settings.send_allowlist` (`allowlist_permits`); never replay a send whose `ToolboxError.outcome_unknown` is true;
+  the dispatcher writes its own `last_error_code` (`send_*`), which the UI must not read as a remote-draft failure
+  (only `toolbox_*` codes are). The schedule confirmation still says the automatic send is not active (S4 note).
 - **S7 (dispatch)**: inside the claim transaction, re-read the prospect state **and** `do_not_contact` and refuse to
   send on a closed sequence; send `r1`/`r2` only once the previous step is `sent`; after a definitive failure, cancel
   the message if the sequence closed meanwhile; reclaim stale claims after a TTL based on `dispatch_claimed_at`

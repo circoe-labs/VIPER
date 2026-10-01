@@ -1,6 +1,16 @@
 import { defineConfig, devices } from '@playwright/test'
 
-import { BACKEND_DIR, E2E_API_PORT, E2E_BOOKING_URL, E2E_DATABASE_URL, E2E_OPENAI_PORT, E2E_WEB_PORT, PYTHON } from './e2e/env'
+import {
+  BACKEND_DIR,
+  E2E_API_PORT,
+  E2E_BOOKING_URL,
+  E2E_DATABASE_URL,
+  E2E_OPENAI_PORT,
+  E2E_TOOLBOX_PORT,
+  E2E_TOOLBOX_STORE,
+  E2E_WEB_PORT,
+  PYTHON,
+} from './e2e/env'
 
 const BASE_URL = `http://localhost:${String(E2E_WEB_PORT)}`
 
@@ -24,6 +34,13 @@ export default defineConfig({
       url: `http://127.0.0.1:${String(E2E_OPENAI_PORT)}/health`,
       reuseExistingServer: !process.env.CI,
     },
+    // A local fake of the CIRCOE Toolbox (OAuth + MCP mail tools): Infomaniak drafts never leave the machine (P6).
+    {
+      command: 'node e2e/fake-toolbox.ts',
+      env: { VIPER_E2E_TOOLBOX_PORT: String(E2E_TOOLBOX_PORT) },
+      url: `http://127.0.0.1:${String(E2E_TOOLBOX_PORT)}/health`,
+      reuseExistingServer: !process.env.CI,
+    },
     {
       command: `"${PYTHON}" -m uvicorn app.main:create_app --factory --host 127.0.0.1 --port ${String(E2E_API_PORT)}`,
       cwd: BACKEND_DIR,
@@ -38,6 +55,14 @@ export default defineConfig({
         VIPER_OPENAI_TIMEOUT_MS: '20000',
         VIPER_OPENAI_MAX_RETRIES: '1',
         VIPER_CONTACT_BOOKING_URL: E2E_BOOKING_URL,
+        // The CIRCOE Toolbox (S6) against the fake: the browser comes back to the E2E Vite page; obsolete drafts are
+        // deleted every second so a spec sees it happen.
+        VIPER_TOOLBOX_MAIL_ENABLED: 'true',
+        VIPER_TOOLBOX_MCP_URL: `http://127.0.0.1:${String(E2E_TOOLBOX_PORT)}/mcp`,
+        VIPER_TOOLBOX_OAUTH_REDIRECT_URI: `${BASE_URL}/settings/connections`,
+        VIPER_TOOLBOX_TOKEN_STORE_PATH: E2E_TOOLBOX_STORE,
+        VIPER_TOOLBOX_TIMEOUT_MS: '10000',
+        VIPER_TOOLBOX_CLEANUP_INTERVAL_MS: '1000',
       },
       url: `http://127.0.0.1:${String(E2E_API_PORT)}/api/health`,
       reuseExistingServer: !process.env.CI,

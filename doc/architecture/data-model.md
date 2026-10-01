@@ -139,6 +139,12 @@ application write path — Database Explorer shows the table read-only).
   `validated_revision`, `validated_at`, `validated_by_actor_id`, `validated_by_display`;
 - `scheduled_at` (send moment, never the next-action week — H-14), `sent_at`, `cancelled_at`, `cancel_reason`
   (`manual` | `prospect_state:<state>` | `do_not_contact`);
+- CIRCOE Toolbox (S6): `remote_provider` (`circoe_toolbox`) and `remote_draft_id` — the Infomaniak draft of the
+  validated revision, set by `contact_remote_drafts.sync_remote_draft`; a creation failure leaves a `toolbox_*`
+  `last_error_code`. **`contact_message_remote_draft_cleanups`** (migration `0010`): the queue of remote draft ids
+  to delete (`message_id` → `contact_messages` `ON DELETE SET NULL`, `remote_provider` + `remote_draft_id` unique,
+  `reason` `edited`/`cancelled`/`replaced`, `attempts`, `next_attempt_at`, `last_attempt_at`, `last_error_code`,
+  `completed_at` + `outcome` `deleted`/`already_absent`); not audited, read-only in the explorer.
 - AI drafting (S5): `generation_model` (the model OpenAI named), `generation_prompt_version`
   (`contact-mail-fr-2026-09-v1`), `generated_at` — set by `contact_messages.save_generated` only;
 - CIRCOE Toolbox (S6): `remote_provider`, `remote_draft_id`, `remote_message_id`;

@@ -667,3 +667,41 @@
   display: grid;
   gap: var(--space-3);
 }
+
+/* The Infomaniak draft of a validated message (CIRCOE Toolbox, S6): one discreet line under the status. */
+.contact-mail__remote {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.contact-mail__remote svg {
+  flex: none;
+}
+
+.contact-mail__remote--ok {
+  color: var(--color-success-fg);
+}
+
+.contact-mail__remote--warning {
+  color: var(--color-warning-fg);
+  font-weight: var(--weight-medium);
+}
+
+.contact-mail__remote--muted {
+  color: var(--color-text-muted);
+}
+
+.contact-mail__from-note {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin-top: calc(-1 * var(--space-2));
+}
+
+.contact-mail__from-note svg {
+  flex: none;
+  margin-top: 0.1875rem;
+}

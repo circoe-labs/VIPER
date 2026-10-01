@@ -83,6 +83,7 @@ from app.services.contact_message_cancellation import (
     cancel_unsent_messages,
     state_cancel_reason,
 )
+from app.services.contact_remote_drafts import detach_remote_draft
 from app.services.contact_workflow import SEQUENCE_CLOSING_STATES
 from app.services.errors import (
     ActorNotAllowedError,
@@ -388,15 +389,14 @@ def _missing_for_validation(message: ContactMessage) -> list[str]:
     return missing
 
 
-def _clear_validation(message: ContactMessage) -> None:
+def _clear_validation(session: Session, message: ContactMessage) -> None:
     message.validated_revision = None
     message.validated_at = None
     message.validated_by_actor_id = None
     message.validated_by_display = None
     message.scheduled_at = None
-    # The remote draft was the validated revision's; S6 queues its deletion.
-    message.remote_provider = None
-    message.remote_draft_id = None
+    # The remote draft was the validated revision's: queued for deletion (S6).
+    detach_remote_draft(session, message, "edited")
 
 
 def _clear_generation(message: ContactMessage) -> None:
@@ -508,7 +508,7 @@ def save_message(
         setattr(message, name, value)
     message.revision += 1
     message.status = M.DRAFT
-    _clear_validation(message)
+    _clear_validation(session, message)
     session.flush()
     _log("unvalidated" if unvalidated else "edited", message, actor)
     return MessageResult(message, unvalidated=unvalidated)
@@ -606,7 +606,7 @@ def save_generated(
         setattr(message, name, value)
     message.revision += 1
     message.status = M.DRAFT
-    _clear_validation(message)
+    _clear_validation(session, message)
     session.flush()
     _log("generated", message, actor)
     return MessageResult(message, unvalidated=unvalidated)
@@ -698,6 +698,23 @@ def schedule(
     return MessageResult(message)
 
 
+def remote_draft_target(
+    session: Session,
+    actor: ActorContext,
+    prospect_id: uuid.UUID,
+    step: ContactMessageStep,
+    expected_revision: int,
+) -> MessageResult:
+    """The validated/scheduled message whose Infomaniak draft a person asks to create again
+    (S6 « Réessayer »); nothing changes here (`changed: false`)."""
+    context, message = _transition_target(session, actor, prospect_id, step, expected_revision)
+    if message.status not in VALIDATED:
+        raise _invalid_transition(message, "create the remote draft of")
+    _require_open(context)
+    _require_not_claimed(message)
+    return MessageResult(message, changed=False)
+
+
 def unschedule(
     session: Session,
     actor: ActorContext,
@@ -736,7 +753,7 @@ def cancel(
     audit.annotate(
         session, actor, message, AuditAction.CONTACT_MESSAGE_CANCELLED, reason=MANUAL_CANCEL_REASON
     )
-    cancel_message(message, MANUAL_CANCEL_REASON, now or datetime.now(UTC))
+    cancel_message(session, message, MANUAL_CANCEL_REASON, now or datetime.now(UTC))
     session.flush()
     _log("cancelled", message, actor)
     return MessageResult(message)
@@ -760,7 +777,7 @@ def reopen(
     message.revision += 1
     message.cancelled_at = None
     message.cancel_reason = None
-    _clear_validation(message)
+    _clear_validation(session, message)
     session.flush()
     _log("reopened", message, actor)
     return MessageResult(message)

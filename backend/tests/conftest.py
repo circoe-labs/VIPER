@@ -62,9 +62,12 @@ def db_session(session_factory: sessionmaker[Session]) -> Iterator[Session]:
 def app(test_database_url: str, session_factory: sessionmaker[Session]) -> FastAPI:
     """The real app, with the per-request unit of work running inside the per-test transaction.
 
-    The AI drafting is never configured here, whatever `backend/.env` says: no test may reach
-    OpenAI (Contact port P6); generation tests inject a fake generator or a local fake server."""
-    app = create_app(Settings(database_url=test_database_url, openai_api_key=None))
+    The AI drafting and the CIRCOE Toolbox are never configured here, whatever `backend/.env`
+    says: no test may reach OpenAI or the Toolbox (Contact port P6); generation tests inject a
+    fake generator or a local fake server, Toolbox tests the fake of `tests/fake_toolbox.py`."""
+    app = create_app(
+        Settings(database_url=test_database_url, openai_api_key=None, toolbox_mail_enabled=False)
+    )
     app.state.session_factory = session_factory
     return app
 

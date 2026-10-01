@@ -50,6 +50,20 @@ It cancels the requests in flight before invalidating, because TanStack Query ke
 - Transaction-local database state set by a service (e.g. the do-not-contact clearing flag) is reset before the
   service returns, so later statements of the same transaction stay guarded.
 
+### Background work (Contact port P5)
+
+Background jobs run **inside the API process**, off by default, each with a `python -m app.cli … --once` twin:
+
+- **Toolbox cleanup worker** (S6, `app/services/toolbox/worker.py`): a daemon thread started by the app lifespan
+  when the CIRCOE Toolbox is enabled and configured and `VIPER_TOOLBOX_CLEANUP_INTERVAL_MS` > 0; it drains
+  `contact_message_remote_draft_cleanups` (`contact_remote_drafts.process_cleanups`), woken after any successful
+  unsafe request under `/api/prospects` (`app/api/worker_wake.py`). One pass at a time; rows taken with
+  `SKIP LOCKED`, so a CLI pass can run beside it. CLI: `toolbox-cleanup --once`.
+- The scheduled dispatcher (S7) follows the same model.
+
+Network calls to external services (OpenAI S5, Toolbox S6) never run inside a database transaction: the request
+commits first, the call runs, then a new unit of work re-checks the rules before writing.
+
 ### Import/export adapters
 Legacy file names/columns are adapter concerns. Domain services must not depend on Excel column names.
 The import engine (Task 08, [ADR-0007](../adr/0007-import-engine.md)) is `app/services/imports/`: a pure

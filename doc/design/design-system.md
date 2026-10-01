@@ -233,7 +233,20 @@ region. **AI drafting** blocks sit above the bar: the reason a disabled button i
 running state on info-soft (spinner, *L’IA rédige le message …*, a tabular-digit monospace seconds counter, a muted
 hint), the full-width *Consigne pour l’IA* field; an AI text shows under the status sentence *Rédigé par l’IA — à
 relire avant de valider.* with an accent-fg Sparkles glyph and the model · prompt version in 12 px muted monospace.
-Styles: `frontend/src/contact/contact.css` (feature doc: `doc/features/contact.md`).
+**CIRCOE Toolbox** (S6): one 14 px line under the status sentence of a validated message — success-fg check
+*Brouillon créé dans Infomaniak.*, warning-fg alert *Brouillon Infomaniak non créé : …* with a small ghost
+*Réessayer*, or muted mail glyph *pas encore créé* — and, while connected, a muted info hint under *De* (the real
+sender is the Infomaniak account's default mailbox). Styles: `frontend/src/contact/contact.css` (feature doc:
+`doc/features/contact.md`).
+
+**Paramètres › Connexions** (S6, `settings.css`): the fifth `.settings-tabs` link (an *À reconnecter* warning
+badge on the tab when the connection expired). Inside the panel, one `.settings-connection` card per service:
+canvas background with a border (a surface inside the surface panel), header = accent-soft 40 px icon tile + 18 px
+title + muted subtitle + `StatusBadge` on the right; a one-sentence meaning of the state; facts as a grid of
+uppercase 12 px muted labels over medium values (the origin in monospace); the last failure on danger-soft; the
+limitations as a muted bullet list; actions right-aligned (ghost *Oublier la connexion…*, then *Connecter la
+Toolbox* primary or *Reconnecter* secondary). Waits show a spinner and a live seconds counter (*Ouverture de la
+Toolbox… n s*, *Finalisation de la connexion… n s*, `lib/useElapsed.ts`).
 
 ## Home dashboard
 Spacious, global state first: eyebrow-labelled rows of six link cards (14 px glyph + 13 px muted label, 26 px
