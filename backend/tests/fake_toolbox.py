@@ -47,6 +47,8 @@ class Mode:
     refuse_token: bool = False
     # This tool runs, then its answer is lost (the client times out after the draft exists).
     lose_answer_of: str | None = None
+    # `send_draft` answers this raw tool result (an unrecognised error text, a non-JSON body).
+    send_result: dict[str, Any] | None = None
 
 
 @dataclass
@@ -282,6 +284,8 @@ class FakeToolbox:
     def _tool(self, name: str, args: dict[str, Any]) -> dict[str, Any] | None:
         if self.mode.tool_error_text:
             return self._error(self.mode.tool_error_text)
+        if name == "infomaniak.mail.send_draft" and self.mode.send_result is not None:
+            return self.mode.send_result
         if name == "infomaniak.mail.create_draft":
             draft = Draft(
                 to=list(args["to"]),

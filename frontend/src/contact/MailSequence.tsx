@@ -12,7 +12,7 @@ import { Tabs } from '../ui/Tabs'
 import { STEP_LABELS } from './labels'
 import { type AiInstruction, NO_INSTRUCTION } from './aiDraftModel'
 import { MailEditor, type SendMoment } from './MailEditor'
-import { dispatchState, formOf, isDirty, type MailForm, mailActions } from './mailModel'
+import { dispatchState, formOf, isDirty, type MailForm, mailActions, releaseAvailableAt } from './mailModel'
 import { MessageBadge } from './MessageBadge'
 
 // The step the next action prepares, opened first (the R2 review and the closed states show Contact).
@@ -49,11 +49,21 @@ export function MailSequence({ prospectId, onDirtyChange }: MailSequenceProps) {
   const queryClient = useQueryClient()
   const statuses = sequence ? sequence.steps.map((entry) => entry.message?.status ?? '-').join('|') : null
   const seenStatuses = useRef(statuses)
+  // A persistent live region says what the server did (« Message Contact envoyé. »), whatever editor is shown.
+  const [serverNews, setServerNews] = useState('')
   useEffect(() => {
     if (statuses === null || seenStatuses.current === statuses) return
-    const first = seenStatuses.current === null
+    const before = seenStatuses.current?.split('|') ?? null
     seenStatuses.current = statuses
-    if (first) return
+    if (before === null) return
+    const after = statuses.split('|')
+    const news = MESSAGE_STEPS.flatMap((step, index) => {
+      if (before[index] !== 'scheduled' || after[index] === 'scheduled') return []
+      if (after[index] === 'sent') return [`Message ${STEP_LABELS[step]} envoyé.`]
+      if (after[index] === 'validated') return [`Message ${STEP_LABELS[step]} revenu en Validé : envoi non effectué.`]
+      return []
+    })
+    if (news.length > 0) setServerNews(news.join(' '))
     void refreshAfterWrite(queryClient, [
       ['contact', 'page'],
       ['contact', 'dashboard'],
@@ -111,6 +121,7 @@ export function MailSequence({ prospectId, onDirtyChange }: MailSequenceProps) {
   const message = messageOf(data, step)
   // A claim is judged at the moment the sequence was read (the polling of `useMessageSequence` reads it again).
   const clock = { now: query.dataUpdatedAt, claimTtlSeconds: data.defaults.dispatch_claim_ttl_seconds }
+  const releaseFrom = releaseAvailableAt(message, data.defaults.dispatch_claim_ttl_seconds, query.dataUpdatedAt)
   const actions = mailActions(
     message,
     { state: data.sequence.state, doNotContact: data.sequence.do_not_contact, closed: data.sequence.closed },
@@ -121,6 +132,9 @@ export function MailSequence({ prospectId, onDirtyChange }: MailSequenceProps) {
 
   return (
     <EditorSection title="Séquence mail">
+      <p className="visually-hidden" role="status" aria-live="polite">
+        {serverNews}
+      </p>
       <Tabs
         label="Étapes de la séquence"
         selected={step}
@@ -147,6 +161,7 @@ export function MailSequence({ prospectId, onDirtyChange }: MailSequenceProps) {
           message={message}
           actions={actions}
           dispatch={dispatchState(message, clock)}
+          releaseFrom={releaseFrom}
           saved={saved}
           form={draft ?? saved}
           mutations={mutations}

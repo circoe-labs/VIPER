@@ -104,6 +104,11 @@ class MailToolbox(Protocol):
     def list_drafts(self, limit: int = 100) -> list[DraftSummary]: ...
 
 
+# Tool error codes that do not prove a sensitive call (create/send) did nothing: an upstream
+# failure, or a text no pattern recognises (the `toolbox_rejected` fallback).
+UNKNOWN_WHEN_SENSITIVE = frozenset({"toolbox_unavailable", "toolbox_rejected"})
+
+
 def classify_tool_error(text: str) -> str:
     """The `toolbox_*` code of a Toolbox tool error text (French); the text is never kept."""
     patterns = (
@@ -361,7 +366,9 @@ class McpMailToolbox:
     def _tool_result(raw: object, sensitive: bool) -> dict[str, Any]:
         if not isinstance(raw, dict):
             raise toolbox_error(
-                "toolbox_invalid_response", "The Toolbox tool result is unreadable."
+                "toolbox_invalid_response",
+                "The Toolbox tool result is unreadable.",
+                outcome_unknown=sensitive,
             )
         content = raw.get("content")
         parts = content if isinstance(content, list) else []
@@ -371,7 +378,10 @@ class McpMailToolbox:
             raise toolbox_error(
                 code,
                 f"The Toolbox refused the operation ({code}).",
-                outcome_unknown=sensitive and code == "toolbox_unavailable",
+                # A sensitive call (create/send) is known not to have run only when the text is a
+                # recognised refusal; an unrecognised text (`toolbox_rejected`, the fallback, e.g.
+                # « terminated ») or an upstream failure may hide an executed call.
+                outcome_unknown=sensitive and code in UNKNOWN_WHEN_SENSITIVE,
             )
         structured = raw.get("structuredContent")
         if isinstance(structured, dict):
@@ -382,7 +392,11 @@ class McpMailToolbox:
             value = None
         if isinstance(value, dict):
             return value
-        raise toolbox_error("toolbox_invalid_response", "The Toolbox tool result is not JSON.")
+        raise toolbox_error(
+            "toolbox_invalid_response",
+            "The Toolbox tool result is not JSON.",
+            outcome_unknown=sensitive,
+        )
 
     # --- the tools ---
 

@@ -435,7 +435,8 @@ describe('Contact workbench', () => {
       const detail = person()
       const unconfirmed = message('contact', 'scheduled', {
         prospect_id: detail.id,
-        dispatch_claimed_at: new Date().toISOString(),
+        // Claimed 11 minutes ago: past the delay, « Remettre en Validé » is open.
+        dispatch_claimed_at: new Date(Date.now() - 11 * 60_000).toISOString(),
         last_error_code: 'send_outcome_unknown',
         has_remote_draft: true,
       })
@@ -460,6 +461,26 @@ describe('Contact workbench', () => {
         expect(tab('R1')).toHaveTextContent('Envoyé')
       })
       expect(screen.getByText('Envoi confirmé par une personne après vérification dans la boîte Infomaniak.')).toBeInTheDocument()
+    })
+
+    it('waits for the claim’s delay before « Remettre en Validé », and hides the draft line meanwhile', async () => {
+      const detail = person()
+      open(
+        detail,
+        {
+          contact: message('contact', 'scheduled', {
+            prospect_id: detail.id,
+            dispatch_claimed_at: new Date().toISOString(),
+            last_error_code: 'send_outcome_unknown',
+            has_remote_draft: true,
+          }),
+        },
+        active,
+      )
+      expect(await screen.findByRole('button', { name: 'Remettre en Validé…' })).toBeDisabled()
+      expect(screen.getByRole('button', { name: 'Marquer envoyé…' })).toBeEnabled()
+      expect(screen.getByText(/^« Remettre en Validé » possible à partir de /)).toBeInTheDocument()
+      expect(screen.queryByText('Brouillon créé dans Infomaniak.')).not.toBeInTheDocument()
     })
 
     it('says a deduced send', async () => {

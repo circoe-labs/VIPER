@@ -15,9 +15,12 @@ One pass (`run_pass`; never two at once in one process, `ContactDispatcher` in t
    not recorded). `list_drafts` decides — never a blind resend:
    - the draft is gone and the listing is complete → `sent` (« envoyé (déduit) »,
      `send_reconciled_draft_absent`);
-   - the draft is still there → the send did not happen: the claim is released for a new attempt
-     (`send_not_confirmed`, backoff; back to Validé once the attempts are spent — lateness still
-     bounds it);
+   - the draft is still in the mailbox → if a send outcome was recorded (`send_outcome_unknown`,
+     `send_reconcile_inconclusive`, `send_probably_sent`) the message goes **back to Validé**
+     (`send_not_confirmed`: a person checks the sent items, then reschedules) — an unknown outcome
+     is never retried automatically (decision C-25). Only a claim *without* a recorded outcome (the
+     process died around `send_draft`) is released for a new attempt (`send_not_confirmed`,
+     backoff, attempts and lateness still bound it);
    - the listing is full (100, truncated) or unreadable, or the message holds no draft id → the
      claim stays (`send_reconcile_inconclusive`); a person can settle it (below).
 2. **Due messages** (`scheduled`, `scheduled_at <= now`, unclaimed), oldest first (Contact before
@@ -37,10 +40,12 @@ One pass (`run_pass`; never two at once in one process, `ContactDispatcher` in t
    - no Infomaniak draft (validated while the Toolbox was off, creation failed) → it is created
      now (`sync_remote_draft`, with S6's `list_drafts` recovery after an unknown outcome); a
      certain failure is retried with backoff, then back to Validé (`send_draft_not_created`);
-   - **claim**: in one short transaction, the row locked, every condition checked again —
-     still `scheduled`, due, unclaimed, the validation is the current revision, same draft, same
-     attempt count — and the prospect's state and opposition re-read under a share lock (a
-     concurrent state change waits for the claim, then sees the message in flight); the claim id
+   - **claim**: in one short transaction, the prospect and its tracking share-locked **first**
+     (the order of the closing writes and the opposition: no deadlock), then the message row
+     locked, every condition checked again — still `scheduled`, due, unclaimed, the validation is
+     the current revision, a draft attached, recipients and allowlist, step order — and the state
+     and opposition read under those locks (a concurrent state change waits for the claim, then
+     sees the message in flight); the claim id
      and moment are set, `dispatch_attempts` + 1, audited `contact_message.dispatch_claimed`,
      committed. Two passes (threads, processes) can never both claim: the row lock and the
      conditional checks let one win;
@@ -51,16 +56,21 @@ One pass (`run_pass`; never two at once in one process, `ContactDispatcher` in t
      connection) → claim released, `send_*` code, retry after backoff, at most `max_attempts`;
      definitive (`rejected`, `outbound_blocked`, `invalid_input`, `draft_not_found`) or attempts
      spent → back to Validé with the code; then, if the sequence closed meanwhile, the message is
-     cancelled;
-   - unknown outcome (timeout or 5xx during `send_draft`, unreadable answer, unexpected error) →
-     the claim is **kept** (`send_outcome_unknown`), reconciled after the TTL, never resent.
+     cancelled. A `draft_not_found` right after a `send_not_confirmed` retry means the earlier
+     attempt probably sent it: the claim is kept (`send_probably_sent`) for the reconciliation or a
+     person, never back to Validé;
+   - unknown outcome (timeout or 5xx during `send_draft`, an unrecognised Toolbox error text, an
+     unreadable answer, an unexpected error) → the claim is **kept** (`send_outcome_unknown`),
+     reconciled after the TTL, never resent automatically.
 
 A person can settle a message whose send is unconfirmed (claimed with an unknown outcome, or a
 claim older than the TTL): **« Marquer envoyé »** (`mark_sent`, after checking the mailbox's sent
-items) or **« Remettre en Validé »** (`release`). Both are refused while a send is running.
+items) at any time, **« Remettre en Validé »** (`release`) only once the claim is older than the
+TTL (the Toolbox's own Infomaniak call has no timeout: a send may still be finishing).
 
 Exactly-once: a `send_draft` needs a claim won under the row lock; a claim is released for a new
-attempt only after a *certain* failure or a reconciliation that still sees the draft; `sent` is
+attempt only after a *certain* failure, or by a reconciliation that still sees the draft of a
+claim whose send outcome was never recorded; `sent` is
 immutable (trigger). Every write is attributed to the system actor `DISPATCH_ACTOR`
 (`AuditSource.DISPATCHER`); logs and audit carry ids, codes and statuses only — never a subject,
 a body or an address.
@@ -74,6 +84,7 @@ from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.actor import ActorContext, ActorType
@@ -117,11 +128,13 @@ PREVIOUS_STEP_PENDING = "send_previous_step_pending"
 DRAFT_NOT_CREATED = "send_draft_not_created"
 INTERNAL = "dispatch_internal_error"
 MARKED_SENT = "send_marked_by_person"
+# `draft_not_found` on a retry after `send_not_confirmed`: the earlier attempt probably sent it.
+PROBABLY_SENT = "send_probably_sent"
 # Scheduling withdrawn by the operator (`contact-dispatch --hold-scheduled`, e.g. after a restore).
 HELD = "dispatch_held"
 RELEASED = "send_released_by_person"
 # A claim whose send call is over without a known outcome: a person may settle it at once.
-UNCONFIRMED = frozenset({OUTCOME_UNKNOWN, RECONCILE_INCONCLUSIVE})
+UNCONFIRMED = frozenset({OUTCOME_UNKNOWN, RECONCILE_INCONCLUSIVE, PROBABLY_SENT})
 
 # Certain refusals of `send_draft` (nothing left) that may resolve by themselves.
 TRANSIENT = frozenset(
@@ -279,11 +292,21 @@ def _cancel_if_closed(
     now: datetime,
     actor: ActorContext = DISPATCH_ACTOR,
 ) -> int:
-    """Decision 29 applied after the fact: the closed sequence's unclaimed messages."""
-    sequence = _sequence(session, prospect_id, lock=True)
+    """Decision 29 applied after the fact: the closed sequence's unclaimed messages. Called with a
+    message row already locked, so the prospect is read without a share lock (taking one after
+    the message would invert the lock order of the closing writes)."""
+    sequence = _sequence(session, prospect_id, lock=False)
     if not sequence.closed or sequence.reason is None:
         return 0
     return cancel_unsent_messages(session, actor, prospect_id, sequence.reason, now=now).cancelled
+
+
+# deadlock_detected, lock_not_available, serialization_failure.
+LOCK_CONFLICTS = frozenset({"40P01", "55P03", "40001"})
+
+
+def _is_lock_conflict(error: OperationalError) -> bool:
+    return getattr(error.orig, "sqlstate", None) in LOCK_CONFLICTS
 
 
 def _locked(
@@ -397,6 +420,17 @@ class Dispatcher:
         for message_id in due:
             try:
                 self._dispatch_one(toolbox, message_id, report)
+            except OperationalError as error:
+                if not _is_lock_conflict(error):
+                    raise
+                # A concurrent person's write won a lock race (PostgreSQL aborted this side): the
+                # message is left as it is and looked at again by the next pass.
+                report.deferred += 1
+                logger.warning(
+                    "contact_dispatch.lock_conflict message=%s sqlstate=%s",
+                    message_id,
+                    getattr(error.orig, "sqlstate", None),
+                )
             except Exception as error:
                 # One message's unexpected failure must not stop the pass; if it struck after a
                 # claim, the claim stays and the reconciliation settles it.
@@ -570,6 +604,15 @@ class Dispatcher:
         with audit.attributed_unit_of_work(
             self.session_factory, DISPATCH_ACTOR, DISPATCH_CONTEXT
         ) as session:
+            prospect_id = session.scalar(
+                select(ContactMessage.prospect_id).where(ContactMessage.id == message_id)
+            )
+            if prospect_id is None:
+                return None
+            # Lock order of the closing writes (state change, opposition): prospect and tracking
+            # first (share locks: the state and opposition read now hold until the claim commits),
+            # then the message row.
+            sequence = _sequence(session, prospect_id, lock=True)
             message = _locked(session, message_id)
             if (
                 message is None
@@ -582,10 +625,15 @@ class Dispatcher:
                 or not message.to_recipients
             ):
                 return None
-            # The state and the opposition, read again under share locks right before the send.
-            if _sequence(session, message.prospect_id, lock=True).closed:
-                cancelled = _cancel_if_closed(session, message.prospect_id, now)
-                report.cancelled += cancelled
+            if sequence.closed:
+                report.cancelled += _cancel_if_closed(session, message.prospect_id, now)
+                return None
+            # Recipients, allowlist and step order, checked again right before the send.
+            if (
+                self._recipients_refusal(message) is not None
+                or self._order(session, message) is not None
+            ):
+                report.deferred += 1
                 return None
             claim_id = uuid.uuid4()
             audit.annotate(
@@ -659,6 +707,25 @@ class Dispatcher:
                     reason=outcome.code,
                 )
                 message.last_error_code = OUTCOME_UNKNOWN
+                message.last_error_at = now
+                session.flush()
+                report.uncertain += 1
+                return
+            if (
+                outcome.code == send_code("toolbox_draft_not_found")
+                and message.last_error_code == NOT_CONFIRMED
+            ):
+                # Retried after a claim whose send was never recorded, and the draft is gone now:
+                # that earlier attempt probably sent it. Kept for the reconciliation (draft gone:
+                # deduced sent) or a person, never back to Validé where it could be resent.
+                audit.annotate(
+                    session,
+                    DISPATCH_ACTOR,
+                    message,
+                    AuditAction.CONTACT_MESSAGE_DISPATCH_FAILED,
+                    reason=PROBABLY_SENT,
+                )
+                message.last_error_code = PROBABLY_SENT
                 message.last_error_at = now
                 session.flush()
                 report.uncertain += 1
@@ -739,9 +806,14 @@ class Dispatcher:
             draft_id = message.remote_draft_id
             present = draft_id is not None and any(d.draft_id == draft_id for d in drafts)
             if present:
-                # Still in the mailbox: the send did not happen. Retried (backoff, attempts and
-                # lateness still bound it), never on the spot.
-                if message.dispatch_attempts >= self.config.max_attempts:
+                # Still in the mailbox. A recorded unknown outcome is never retried automatically
+                # (C-25): back to Validé, a person checks the sent items and reschedules. A claim
+                # without a recorded outcome (its process died) is retried: backoff, attempts and
+                # lateness still bound it.
+                if (
+                    message.last_error_code in UNCONFIRMED
+                    or message.dispatch_attempts >= self.config.max_attempts
+                ):
                     _back_to_validated(
                         session,
                         message,
@@ -880,12 +952,25 @@ def release(
     claim_ttl: timedelta,
     now: datetime | None = None,
 ) -> ContactMessage:
-    """« Remettre en Validé »: the person checked that the mail did not leave. The validation and
-    the Infomaniak draft stay; a closed sequence then cancels it (decision 29)."""
+    """« Remettre en Validé »: the person checked that the mail did not leave. Only once the claim
+    is older than the TTL: the Toolbox's own call to Infomaniak has no timeout, so a send VIPER
+    gave up on may still be finishing (409 `dispatch_release_too_early` with `available_at`).
+    The validation and the Infomaniak draft stay; a closed sequence then cancels it (decision
+    29)."""
     moment = now or datetime.now(UTC)
     message = _settle_target(
         session, actor, prospect_id, step, expected_revision, moment, claim_ttl
     )
+    claimed_at = message.dispatch_claimed_at
+    if claimed_at is not None and moment - claimed_at < claim_ttl:
+        available_at = claimed_at + claim_ttl
+        raise ContactMessageError(
+            "dispatch_release_too_early",
+            HTTPStatus.CONFLICT,
+            "The send may still be finishing on the Toolbox's side: put it back to Validé only "
+            "after the claim's delay (or mark it sent if it is in the sent items).",
+            available_at=available_at.isoformat(),
+        )
     audit.annotate(
         session, actor, message, AuditAction.CONTACT_MESSAGE_DISPATCH_RELEASED, reason=RELEASED
     )
@@ -912,11 +997,20 @@ class DispatchCounts:
     unconfirmed: int
 
 
-def dispatch_counts(session: Session) -> DispatchCounts:
+def dispatch_counts(
+    session: Session, *, claim_ttl: timedelta, now: datetime | None = None
+) -> DispatchCounts:
+    """`unconfirmed` = claimed with an unknown outcome, or a claim older than the TTL (the same
+    rule as `is_unconfirmed`)."""
+    stale_before = (now or datetime.now(UTC)) - claim_ttl
     row = session.execute(
         select(
             func.count(),
-            func.count().filter(ContactMessage.last_error_code.in_(tuple(UNCONFIRMED))),
+            func.count().filter(
+                ContactMessage.dispatch_claim_id.is_not(None),
+                ContactMessage.last_error_code.in_(tuple(UNCONFIRMED))
+                | (ContactMessage.dispatch_claimed_at <= stale_before),
+            ),
         ).where(ContactMessage.status == M.SCHEDULED)
     ).one()
     return DispatchCounts(scheduled=row[0], unconfirmed=row[1])

@@ -194,6 +194,7 @@ could not be created; S7: the `send_*` / `dispatch_*` codes of [§ Scheduled sen
 | 409 | `invalid_transition` | action not allowed from the current status | `status` |
 | 409 | `dispatch_in_progress` | message claimed by the dispatcher (S7) | |
 | 409 | `dispatch_not_unconfirmed` | `mark-sent` / `release` of a message whose send is not unconfirmed (not claimed, or still running) | |
+| 409 | `dispatch_release_too_early` | `release` before the claim is older than the TTL | `available_at` |
 | 409 | `prospect_do_not_contact` | write on a do-not-contact prospect | |
 | 409 | `prospect_sequence_closed` | write after `response_received` / `appointment_obtained` / `ignored` | |
 | 422 | `message_incomplete` | validate without from/to/subject/body | `fields`: `from_email`, `to`, `subject`, `body_text` |
@@ -417,10 +418,15 @@ overdue processing either — a reconnection then applies the lateness rule).
    resend.
    - the draft is gone and the listing is complete (< 100) → `sent`, `last_error_code = send_reconciled_draft_absent`
      (« envoyé (déduit) »);
-   - the draft is still in the mailbox → the send did not happen: the claim is released for a **new attempt**
-     (`send_not_confirmed`, backoff; back to Validé once `max_attempts` are spent; the lateness rule still bounds it).
-     *Deviation from the reference* (which sent it back to Validé): an Infomaniak draft that is still there after the
-     TTL was not sent — `send_draft` consumes it (C-25);
+   - the draft is still in the mailbox and **a send outcome was recorded** (`send_outcome_unknown`,
+     `send_reconcile_inconclusive`, `send_probably_sent`) → **back to Validé** with `send_not_confirmed` (« envoi non
+     confirmé, brouillon toujours présent : vérifiez les éléments envoyés puis reprogrammez »): an unknown outcome is
+     **never retried automatically** (C-25, as the reference);
+   - the draft is still in the mailbox and the claim has **no recorded outcome** (its process died around
+     `send_draft`) → released for a new attempt (`send_not_confirmed`, backoff; back to Validé once `max_attempts`
+     are spent; the lateness rule still bounds it). If that retry then finds the draft gone (`draft_not_found`), the
+     dead process probably sent it: the claim is kept (`send_probably_sent`), deduced sent by the next reconciliation
+     or settled by a person — never back to Validé;
    - the listing is full (truncated) or unreadable, or the message holds no draft id → the claim stays
      (`send_reconcile_inconclusive`), retried at every pass; a person can settle it.
 2. **Due messages** (`scheduled`, `scheduled_at` ≤ now, unclaimed; oldest first, Contact before R1 before R2 at the
@@ -442,10 +448,13 @@ overdue processing either — a reconnection then applies the lateness rule).
      (`sync_remote_draft`, with S6's `list_drafts` recovery after a `toolbox_outcome_unknown`); a failure counts an
      attempt and keeps its `toolbox_*` code (retry), or goes back to Validé with `send_draft_not_created` when
      definitive or the attempts are spent;
-   - **claim**: one short transaction, the row locked, every condition checked again (still `scheduled`, due,
-     unclaimed, the validation is the current revision, a draft attached, recipients), the prospect's state and
-     opposition **re-read under share locks** (a concurrent state change waits for the claim, then finds the message
-     in flight — `in_flight_messages`); `dispatch_claim_id` (new UUID), `dispatch_claimed_at`, `dispatch_attempts` + 1,
+   - **claim**: one short transaction; the prospect and its tracking are share-locked **first** (the lock order of
+     the state changes and the opposition, which lock the prospect then its messages: no deadlock — QA probe turned
+     into a test), then the message row; every condition is checked again (still `scheduled`, due, unclaimed, the
+     validation is the current revision, a draft attached, recipients, allowlist, step order) and the state and
+     opposition are read under those locks (a concurrent state change waits for the claim, then finds the message in
+     flight — `in_flight_messages`). A lock conflict PostgreSQL still aborts (deadlock, lock timeout) leaves the
+     message for the next pass (`contact_dispatch.lock_conflict`, a warning, no traceback); `dispatch_claim_id` (new UUID), `dispatch_claimed_at`, `dispatch_attempts` + 1,
      audited `contact_message.dispatch_claimed`, committed;
    - **`send_draft`** outside any transaction;
    - **success** → `sent`, `sent_at`, `remote_message_id` null (the Toolbox returns none), audited
@@ -457,19 +466,27 @@ overdue processing either — a reconnection then applies the lateness rule).
      `toolbox_outbound_blocked`, `toolbox_invalid_input`, `toolbox_draft_not_found` — the draft id is then dropped) or
      attempts spent → back to Validé with the code. Then, if the sequence closed during the call, the message is
      cancelled (the state change had left it to the dispatcher);
-   - **unknown outcome** (timeout or 5xx during `send_draft`, unreadable answer, MCP error, unexpected exception) → the
-     claim is **kept**, `send_outcome_unknown`: never resent; reconciled after the TTL, or settled by a person.
+   - **unknown outcome** (timeout or 5xx during `send_draft`, a Toolbox error text no pattern recognises — e.g.
+     « terminated » —, a non-JSON or unreadable answer, MCP error, unexpected exception) → the claim is **kept**,
+     `send_outcome_unknown`: never resent automatically; after the TTL the reconciliation deduces the send (draft
+     gone) or puts it back to Validé (draft present), or a person settles it. Only a *recognised* refusal (allowlist,
+     draft not found, invalid input, authentication) counts as « nothing left ».
 
 **Exactly once.** A `send_draft` needs a claim won under the row lock with every condition re-checked — two passes,
 threads or processes never both claim (tested with two database sessions); a claim is released for a new attempt
-only after a *certain* failure or a reconciliation that still sees the draft; `sent` is immutable (trigger
+only after a *certain* failure, or by a reconciliation that still sees the draft of a claim **without** a recorded
+outcome; an unknown outcome is never retried; `sent` is immutable (trigger
 `reject_sent_change`). Only a validated message of the **current** revision is ever sent: an edit puts it back to
 draft and detaches (queues for deletion) its draft, so the old revision's draft can never be the one sent.
 
 ### A person settles an unconfirmed send
 
-An unconfirmed send = claimed with `send_outcome_unknown` / `send_reconcile_inconclusive`, or a claim older than the
-TTL (its process died). A send still running is never settled (409 `dispatch_not_unconfirmed`).
+An unconfirmed send = claimed with `send_outcome_unknown` / `send_reconcile_inconclusive` / `send_probably_sent`, or a
+claim older than the TTL (its process died). A send still running is never settled (409 `dispatch_not_unconfirmed`).
+*Marquer envoyé* is open as soon as the send is unconfirmed; *Remettre en Validé* only once the claim is older than
+the TTL (409 `dispatch_release_too_early` with `available_at`): the Toolbox's own call to Infomaniak has no timeout,
+so a send VIPER gave up on may still be finishing — rescheduling it then could send it twice. The editor shows the
+button disabled with *« Remettre en Validé » possible à partir de …*.
 
 | Route | Effect |
 |---|---|
@@ -477,7 +494,7 @@ TTL (its process died). A send still running is never settled (409 `dispatch_not
 | `POST …/messages/{step}/release` `{expected_revision}` | *Remettre en Validé* — the person checked it did not leave: `validated` (validation and Infomaniak draft kept, no send moment), `send_released_by_person`, audited `contact_message.dispatch_released`; cancelled at once if the sequence has closed |
 
 Both: a person only (403 `human_actor_required`), 404 `not_found` / `message_not_found`, 409 `revision_conflict`,
-`invalid_transition` (not scheduled), `dispatch_not_unconfirmed`.
+`invalid_transition` (not scheduled), `dispatch_not_unconfirmed`; `release` also `dispatch_release_too_early`.
 
 ### Codes (`last_error_code`) and what the editor says
 
@@ -485,8 +502,9 @@ Both: a person only (403 `human_actor_required`), 404 `not_found` / `message_not
 |---|---|---|
 | `send_unavailable`, `send_timeout`, `send_not_connected`, `send_auth_expired`, `send_not_configured` | scheduled (retry) / validated (attempts spent) | certain transient refusal of `send_draft` |
 | `send_rejected`, `send_outbound_blocked`, `send_invalid_input`, `send_draft_not_found` | validated | definitive refusal |
-| `send_outcome_unknown`, `send_reconcile_inconclusive` | scheduled, claimed | unconfirmed: locked, never resent |
-| `send_not_confirmed` | scheduled (retry) / validated | reconciliation found the draft still there |
+| `send_outcome_unknown`, `send_reconcile_inconclusive` | scheduled, claimed | unconfirmed: locked, never resent automatically |
+| `send_probably_sent` | scheduled, claimed | a retry found the draft gone: probably sent by the earlier attempt; deduced or settled, never back to Validé |
+| `send_not_confirmed` | validated (unknown outcome, draft still present: check the sent items, then reschedule) / scheduled (retry of a claim without a recorded outcome) | reconciliation found the draft still there |
 | `send_reconciled_draft_absent` | sent | « envoyé (déduit) » |
 | `send_marked_by_person` / `send_released_by_person` | sent / validated | a person settled it |
 | `dispatch_overdue` | validated | more late than the max lateness, not sent |
@@ -665,7 +683,11 @@ Toolbox n’a pas donné de réponse sûre. VIPER ne le renverra jamais de lui-m
 and **Remettre en Validé…**, each behind a confirmation (*Retour* focused; the release is the danger button and warns
 that rescheduling a mail that did leave sends it twice). While the server sends and a message is due within 2 minutes
 or claimed, the sequence is read again every 3 s (`dispatchWatchInterval`): *Envoyé* appears without a reload, and a
-status changed by the server refreshes the list's message chips, the counters and the history.
+status changed by the server refreshes the list's message chips, the counters and the history, and is said by a
+persistent live region (*Message Contact envoyé.*, *… revenu en Validé : envoi non effectué.*). Once past its time
+without being taken, a message is read every 30 s; an unconfirmed or stuck send is not polled; the interval runs only
+while the editor is open and the browser tab visible. Under a send in progress or unconfirmed, the *Brouillon créé
+dans Infomaniak* line is hidden.
 
 **AI drafting (S5)** (`AiDraft.tsx`, rules in `aiDraftModel.ts`), in the action bar's left side
 (`.contact-mail__assist`): the secondary *Générer avec l’IA* (empty step) / *Régénérer avec l’IA* (a saved text) and
@@ -719,6 +741,9 @@ All S3-S7 items are done; what remains is known and accepted for the pilot, or l
   (VIPER cannot see it).
 - **Deduced send**: an unknown outcome whose draft has left the mailbox is « envoyé (déduit) »; a draft deleted by
   hand in the webmail meanwhile would be counted sent (no double send, a missed one is possible). No Message-ID.
+- **A claim without a recorded outcome** (a process killed during `send_draft`) whose draft is still there after the
+  TTL is retried: if Infomaniak ever kept a draft that was being sent, a double send would be possible (bounded by
+  the lateness). Recorded unknown outcomes are never retried.
 - **More than 100 drafts in the mailbox** make a reconciliation inconclusive: the message stays locked until a person
   settles it (*Marquer envoyé* / *Remettre en Validé*); *Envois non confirmés* in Settings counts them.
 - **A state change during the `send_draft` round trip** cannot stop that send: it is reported (`in_flight_messages`)

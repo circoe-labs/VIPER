@@ -96,6 +96,11 @@ export function messageRefusal(error: unknown): MessageRefusal {
       return plain('Action impossible dans l’état actuel du message : l’affichage est actualisé.', true)
     case 'dispatch_in_progress':
       return plain('Envoi en cours : le message est verrouillé le temps de l’envoi.', true)
+    case 'dispatch_release_too_early':
+      return plain(
+        'La Toolbox peut encore être en train d’envoyer ce message : « Remettre en Validé » n’est possible qu’après le délai de vérification. S’il est déjà dans les éléments envoyés, « Marquer envoyé ».',
+        true,
+      )
     case 'dispatch_not_unconfirmed':
       return plain('L’envoi de ce message n’attend plus de décision (il vient d’être tranché ou est encore en cours) : l’affichage est actualisé.', true)
     case 'prospect_do_not_contact':

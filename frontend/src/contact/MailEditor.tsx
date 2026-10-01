@@ -63,6 +63,8 @@ interface MailEditorProps {
   actions: MailActions
   // Where the scheduled send stands (S7), judged when the sequence was read.
   dispatch: DispatchState
+  // When « Remettre en Validé » of an unconfirmed send becomes possible (epoch ms); null = now.
+  releaseFrom: number | null
   // The saved version as a form, and the form shown (the saved one while nothing is edited).
   saved: MailForm
   form: MailForm
@@ -96,6 +98,7 @@ export function MailEditor({
   message,
   actions,
   dispatch: dispatchNow,
+  releaseFrom,
   saved,
   form,
   onForm,
@@ -124,6 +127,20 @@ export function MailEditor({
     statusRef.current?.focus()
   }, [pending, focusTick])
   const [scheduleError, setScheduleError] = useState<string | null>(null)
+  // « Remettre en Validé » opens at `releaseFrom`: a timer re-renders the editor then.
+  const [openedAt, setOpenedAt] = useState<number | null>(null)
+  useEffect(() => {
+    if (releaseFrom === null) return
+    const timer = window.setTimeout(
+      () => {
+        setOpenedAt(releaseFrom)
+      },
+      Math.max(0, releaseFrom - Date.now()),
+    )
+    return () => {
+      window.clearTimeout(timer)
+    }
+  }, [releaseFrom])
   const label = STEP_LABELS[step]
   const dirty = actions.editable && isDirty(form, saved)
   const generating = mutations.generate.isPending
@@ -358,7 +375,9 @@ export function MailEditor({
   }
 
   const toolboxConnected = sequence.defaults.toolbox_state === 'connected'
-  const remote = remoteDraftLine(message, sequence.defaults.toolbox_state)
+  // Under a send in progress or unconfirmed, the draft line would only distract (« créé » reads as reassuring).
+  const remote = dispatchNow === 'none' ? remoteDraftLine(message, sequence.defaults.toolbox_state) : null
+  const releaseLocked = releaseFrom !== null && openedAt !== releaseFrom
   const dispatch = dispatchLine(message, sequence.defaults, dispatchNow)
   const retrying = mutations.act.isPending && mutations.act.variables.action === 'remote-draft'
   const errorOf = (field: MailField) => refusal?.fields[field] ?? local[field]
@@ -397,7 +416,7 @@ export function MailEditor({
               <Button
                 size="sm"
                 icon={UndoIcon}
-                disabled={busy}
+                disabled={busy || releaseLocked}
                 onClick={() => {
                   setPending('release')
                 }}
@@ -405,6 +424,12 @@ export function MailEditor({
                 Remettre en Validé…
               </Button>
             </div>
+            {releaseLocked && (
+              <p className="contact-mail__hint">
+                « Remettre en Validé » possible à partir de {formatDateTime(new Date(releaseFrom).toISOString())} : la
+                Toolbox peut encore être en train de l’envoyer.
+              </p>
+            )}
           </div>
         </div>
       ) : (

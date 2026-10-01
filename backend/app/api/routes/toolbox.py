@@ -22,7 +22,7 @@ Refusals: 503 `toolbox_not_configured`; the OAuth codes of `app.services.toolbox
 `toolbox.forgotten`), without any token.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
@@ -30,6 +30,7 @@ from pydantic import BaseModel, ConfigDict, StringConstraints
 
 from app.api.dependencies import CurrentActor, SessionDep
 from app.api.errors import business_errors
+from app.core.config import Settings
 from app.services import audit
 from app.services.audit import AuditAction
 from app.services.contact_dispatch import dispatch_counts
@@ -57,6 +58,14 @@ def get_dispatcher(request: Request) -> ContactDispatcher | None:
 
 
 DispatcherDep = Annotated[ContactDispatcher | None, Depends(get_dispatcher)]
+
+
+def get_claim_ttl(request: Request) -> timedelta:
+    settings: Settings = request.app.state.settings
+    return settings.contact_dispatch_claim_ttl
+
+
+ClaimTtlDep = Annotated[timedelta, Depends(get_claim_ttl)]
 
 
 class LastErrorOut(BaseModel):
@@ -119,12 +128,15 @@ class CallbackIn(BaseModel):
 
 
 def status_out(
-    integration: ToolboxIntegration, session: SessionDep, dispatcher: ContactDispatcher | None
+    integration: ToolboxIntegration,
+    session: SessionDep,
+    dispatcher: ContactDispatcher | None,
+    claim_ttl: timedelta,
 ) -> ToolboxStatusOut:
     status = integration.status()
     counts = queue_counts(session)
     worker = dispatcher.status() if dispatcher else None
-    pending = dispatch_counts(session)
+    pending = dispatch_counts(session, claim_ttl=claim_ttl)
     return ToolboxStatusOut(
         enabled=status.enabled,
         state=status.state,
@@ -154,9 +166,9 @@ def status_out(
 
 @router.get("")
 def toolbox_status(
-    integration: ToolboxDep, session: SessionDep, dispatcher: DispatcherDep
+    integration: ToolboxDep, session: SessionDep, dispatcher: DispatcherDep, claim_ttl: ClaimTtlDep
 ) -> ToolboxStatusOut:
-    return status_out(integration, session, dispatcher)
+    return status_out(integration, session, dispatcher, claim_ttl)
 
 
 @router.post("/connect")
@@ -172,6 +184,7 @@ def callback(
     session: SessionDep,
     actor: CurrentActor,
     dispatcher: DispatcherDep,
+    claim_ttl: ClaimTtlDep,
 ) -> ToolboxStatusOut:
     with business_errors():
         integration.complete(body.model_dump(), actor)
@@ -190,12 +203,16 @@ def callback(
             "toolbox_origin": {"before": None, "after": status.toolbox_origin},
         },
     )
-    return status_out(integration, session, dispatcher)
+    return status_out(integration, session, dispatcher, claim_ttl)
 
 
 @router.post("/forget")
 def forget(
-    integration: ToolboxDep, session: SessionDep, actor: CurrentActor, dispatcher: DispatcherDep
+    integration: ToolboxDep,
+    session: SessionDep,
+    actor: CurrentActor,
+    dispatcher: DispatcherDep,
+    claim_ttl: ClaimTtlDep,
 ) -> ToolboxStatusOut:
     with business_errors():
         had = integration.forget()
@@ -207,4 +224,4 @@ def forget(
             entity_type=TOOLBOX_ENTITY,
             entity_id=None,
         )
-    return status_out(integration, session, dispatcher)
+    return status_out(integration, session, dispatcher, claim_ttl)

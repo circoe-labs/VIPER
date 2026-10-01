@@ -228,10 +228,14 @@
 - Scheduled sending (Contact port S7): `test_contact_dispatch.py` drives `Dispatcher.run_pass` against the fake
   Toolbox with an injected clock — due / not due, lateness, step order (C-24), closed sequence and opposition, the
   allowlist, transient retries with backoff and attempts, definitive refusals, a missing or lost remote draft, an
-  edit after scheduling, unknown outcomes and their reconciliation (gone ⇒ sent deduced, present ⇒ retried, truncated
-  ⇒ locked), the people's settlement routes, the CLI, the worker, and **two passes in two database sessions**
-  (a committed fixture, cleaned up afterwards: another session's row lock is skipped; a pass started while another
-  is sending sends nothing). The shared `fake`, `toolbox_app` and `connected` fixtures live in `tests/conftest.py`.
+  edit after scheduling, unknown outcomes and their reconciliation (gone ⇒ sent deduced; present after an unknown
+  outcome ⇒ back to Validé, never resent; present without a recorded outcome ⇒ retried; a retry finding the draft
+  gone ⇒ probably sent; truncated ⇒ locked), the claim's re-checks (allowlist, step order), the people's settlement
+  routes (release only after the TTL), the CLI, the worker, **two passes in two database sessions** and **a claim
+  racing an opposition** (QA's deadlock probe: the claim waits, nobody is aborted); `test_toolbox_client.py` checks
+  that an unrecognised `send_draft` error text or a non-JSON answer is an unknown outcome. The two-session tests use a
+  committed fixture, cleaned up afterwards (another session's row lock is skipped; a pass started while another is
+  sending sends nothing). The shared `fake`, `toolbox_app` and `connected` fixtures live in `tests/conftest.py`.
   Front: `mailModel.test.ts` (dispatch state, lines, wording, polling), the S7 block of `Workbench.test.tsx`, the
   dispatch facts of `ConnectionsSection.test.tsx`. E2E `e2e/contact-flow.spec.ts` (project `contact-flow`, after
   `toolbox`): the full operator scenario — import, plan the week in Prospection, connect, AI draft, edit, validate,

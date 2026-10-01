@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { DISPATCH_WATCH_MS, dispatchWatchInterval, type MessageSequence } from '../api/contact'
+import { DISPATCH_LATE_WATCH_MS, DISPATCH_WATCH_MS, dispatchWatchInterval, type MessageSequence } from '../api/contact'
 import { message } from '../test/contactApi'
 import {
   cancelReasonLabel,
@@ -15,6 +15,7 @@ import {
   mailActions,
   orderWarning,
   parseRecipients,
+  releaseAvailableAt,
   remoteDraftLine,
   scheduleToIso,
   sendErrorLabel,
@@ -270,5 +271,30 @@ describe('scheduled sending (S7)', () => {
     expect(watched({ contact: later })).toBe(false)
     expect(watched({ contact: { ...later, dispatch_claimed_at: claimed } })).toBe(DISPATCH_WATCH_MS)
     expect(watched({ contact: soon }, DEFAULTS)).toBe(false)
+    // Past its time without being taken: slower.
+    expect(watched({ contact: { ...soon, scheduled_at: '2026-10-06T07:00:00Z' } })).toBe(DISPATCH_LATE_WATCH_MS)
+    // Unconfirmed or stuck: a person settles it, nothing to poll.
+    expect(watched({ contact: { ...later, dispatch_claimed_at: claimed, last_error_code: 'send_outcome_unknown' } })).toBe(false)
+    expect(watched({ contact: { ...later, dispatch_claimed_at: '2026-10-06T07:00:00Z' } })).toBe(false)
+    // The quickest need wins.
+    expect(watched({ contact: { ...soon, scheduled_at: '2026-10-06T07:00:00Z' }, r1: soon })).toBe(DISPATCH_WATCH_MS)
+  })
+
+  it('opens « Remettre en Validé » only after the claim’s delay', () => {
+    const at = new Date('2026-10-06T07:30:00Z').getTime()
+    const unconfirmed = message('contact', 'scheduled', { dispatch_claimed_at: '2026-10-06T07:30:00Z', last_error_code: 'send_outcome_unknown' })
+    expect(releaseAvailableAt(unconfirmed, 600, at + 60_000)).toBe(at + 600_000)
+    expect(releaseAvailableAt(unconfirmed, 600, at + 600_000)).toBeNull()
+    expect(releaseAvailableAt(message('contact', 'scheduled'), 600, at)).toBeNull()
+  })
+
+  it('says a send not confirmed with its draft still there, and a probable send', () => {
+    expect(dispatchLine(message('contact', 'validated', { last_error_code: 'send_not_confirmed' }), active, 'none')?.text).toMatch(
+      /^Envoi non confirmé, brouillon toujours présent dans Infomaniak : vérifiez les éléments envoyés/,
+    )
+    expect(
+      dispatchLine(message('contact', 'scheduled', { dispatch_claimed_at: claimed, last_error_code: 'send_probably_sent' }), active, 'unconfirmed')
+        ?.text,
+    ).toMatch(/^Probablement envoyé/)
   })
 })

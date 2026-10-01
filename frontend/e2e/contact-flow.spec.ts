@@ -163,6 +163,8 @@ test('the operator scenario: import, plan, draft with the AI, validate, schedule
 
   // 7. The API's dispatcher sends it at the chosen minute; the page shows it without a reload.
   await expect(mailTab(page, 'Contact')).toContainText('Envoyé', { timeout: 150_000 })
+  // Said by the persistent live region, whatever the editor shows.
+  await expect(page.getByRole('status').filter({ hasText: 'Message Contact envoyé.' })).toHaveCount(1)
   expect((await fakeDrafts(page)).sent.filter((id) => id === contactDraft)).toHaveLength(1)
   await expect(page.getByText(/^Envoyé le /)).toBeVisible()
   await expect(page.getByText('Message envoyé : il reste consultable mais ne peut plus être modifié.')).toBeVisible()
@@ -256,6 +258,9 @@ test('a send whose outcome is unknown is never resent and a person settles it', 
     await page.reload()
     await expect(page.getByText(/^Envoi non confirmé : la Toolbox n’a pas donné de réponse sûre/)).toBeVisible({ timeout: 60_000 })
     await expect(page.getByRole('button', { name: 'Déprogrammer' })).toHaveCount(0)
+    // Right after an unknown outcome the Toolbox may still be sending: only « Marquer envoyé » is open.
+    await expect(page.getByRole('button', { name: 'Remettre en Validé…' })).toBeDisabled()
+    await expect(page.getByText('Brouillon créé dans Infomaniak.')).toHaveCount(0)
     await capture(page, 'contact-unconfirmed', async () => {
       await expect(page.getByRole('button', { name: 'Marquer envoyé…' })).toBeVisible()
     })

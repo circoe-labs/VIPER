@@ -6,6 +6,7 @@ after scheduling, the people's « Marquer envoyé » / « Remettre en Validé »
 and two passes in two processes (two database sessions) at once."""
 
 import threading
+import time
 import uuid
 from collections.abc import Iterator
 from datetime import datetime, timedelta
@@ -31,6 +32,7 @@ from app.services.contact_dispatch import (
     DispatchReport,
     backoff,
     classify_send_error,
+    dispatch_counts,
     hold_scheduled,
 )
 from app.services.contact_dispatch_worker import ContactDispatcher
@@ -538,6 +540,77 @@ def test_an_unknown_outcome_keeps_the_claim_and_is_never_resent(
     assert len(fake.sent) == 1
 
 
+def test_an_unknown_outcome_whose_draft_is_still_there_goes_back_to_validated(
+    connected: TestClient, toolbox_app: FastAPI, fake: FakeToolbox, db_session: Session
+) -> None:
+    prospect = prospect_id(db_session)
+    message = scheduled(connected, prospect)
+    clock = Clock(DUE)
+    pass_ = dispatcher(toolbox_app, clock)
+    toolbox = toolbox_of(toolbox_app)
+    # The Toolbox answers a 5xx during `send_draft`, nothing left (the draft stays): unknown.
+    fake.mode.send_result = {"isError": True, "content": [{"type": "text", "text": "terminated"}]}
+    assert pass_.run_pass(toolbox).uncertain == 1
+    fake.mode.send_result = None
+    assert row(db_session, message["id"]).last_error_code == "send_outcome_unknown"
+    clock.at = DUE + timedelta(minutes=11)
+    report = pass_.run_pass(toolbox)
+    # Never retried automatically (C-25): back to Validé, a person checks the sent items.
+    assert (report.reconciled_retry, report.failed, report.sent) == (1, 1, 0)
+    back = row(db_session, message["id"])
+    assert (back.status, back.last_error_code, back.dispatch_claim_id) == (
+        M.VALIDATED,
+        "send_not_confirmed",
+        None,
+    )
+    assert back.remote_draft_id is not None
+    clock.at = DUE + timedelta(minutes=30)
+    assert pass_.run_pass(toolbox).sent == 0
+    assert fake.sent == []
+
+
+def test_a_retry_that_finds_the_draft_gone_is_probably_sent_not_validated(
+    connected: TestClient, toolbox_app: FastAPI, fake: FakeToolbox, db_session: Session
+) -> None:
+    prospect = prospect_id(db_session)
+    message = scheduled(connected, prospect)
+    clock = Clock(DUE)
+    # A claim without a recorded outcome (its process died), released for a retry...
+    assert dispatcher(toolbox_app, clock)._claim(uuid.UUID(message["id"]), DispatchReport())
+    clock.at = DUE + timedelta(minutes=11)
+    pass_ = dispatcher(toolbox_app, clock)
+    toolbox = toolbox_of(toolbox_app)
+    assert pass_.run_pass(toolbox).reconciled_retry == 1
+    # ...whose draft has gone meanwhile (the dead process had sent it after all).
+    fake.drafts.clear()
+    clock.at = DUE + timedelta(minutes=13)
+    report = pass_.run_pass(toolbox)
+    assert (report.uncertain, report.failed) == (1, 0)
+    kept = row(db_session, message["id"])
+    assert (kept.status, kept.last_error_code) == (M.SCHEDULED, "send_probably_sent")
+    assert kept.dispatch_claim_id is not None and kept.remote_draft_id is not None
+    # After the TTL the reconciliation deduces the send (the draft is gone, the listing complete).
+    clock.at = DUE + timedelta(minutes=25)
+    assert pass_.run_pass(toolbox).reconciled_sent == 1
+    assert row(db_session, message["id"]).status is M.SENT
+
+
+def test_the_claim_checks_the_allowlist_and_the_step_order_again(
+    connected: TestClient, toolbox_app: FastAPI, db_session: Session
+) -> None:
+    prospect = prospect_id(db_session)
+    message = scheduled(connected, prospect, "r1")
+    validated(connected, prospect, "contact")  # prepared, not sent: R1 must not leave
+    report = DispatchReport()
+    assert dispatcher(toolbox_app, Clock(DUE))._claim(uuid.UUID(message["id"]), report) is None
+    other = prospect_id(db_session)
+    allowed = scheduled(connected, other)
+    blocked = dispatcher(toolbox_app, Clock(DUE), allowlist=("@autre.example",))
+    assert blocked._claim(uuid.UUID(allowed["id"]), report) is None
+    assert report.deferred == 2
+    assert row(db_session, allowed["id"]).dispatch_claim_id is None
+
+
 def test_a_stale_claim_with_its_draft_still_there_is_retried(
     connected: TestClient, toolbox_app: FastAPI, fake: FakeToolbox, db_session: Session
 ) -> None:
@@ -613,11 +686,25 @@ def test_a_person_puts_an_unconfirmed_send_back_to_validated(
     refused(
         connected.post(f"{path}/release", json={"expected_revision": 2}), 409, "revision_conflict"
     )
-    # The send call ended without an answer: a person may settle it at once.
+    # The send call ended without an answer, a moment ago: the Toolbox may still be sending, so
+    # « Remettre en Validé » waits for the claim's delay (« Marquer envoyé » would be accepted).
     db_session.execute(
         text(
             "UPDATE contact_messages SET last_error_code = 'send_outcome_unknown', "
-            "last_error_at = now() WHERE id = :i"
+            "last_error_at = now(), dispatch_claimed_at = now() WHERE id = :i"
+        ),
+        {"i": uuid.UUID(message["id"])},
+    )
+    early = refused(
+        connected.post(f"{path}/release", json={"expected_revision": 1}),
+        409,
+        "dispatch_release_too_early",
+    )
+    assert early["available_at"]
+    db_session.execute(
+        text(
+            "UPDATE contact_messages SET dispatch_claimed_at = now() - interval '11 minutes' "
+            "WHERE id = :i"
         ),
         {"i": uuid.UUID(message["id"])},
     )
@@ -764,6 +851,67 @@ def test_two_processes_at_once_send_once(
     with factory() as session:
         message = session.get(ContactMessage, message_id)
         assert message is not None and message.status is M.SENT
+
+
+def test_a_claim_racing_an_opposition_waits_instead_of_deadlocking(
+    engine: Engine, committed: tuple[sessionmaker[Session], uuid.UUID]
+) -> None:
+    """QA m1: the opposition locks the prospect, then the prospect's messages; the claim takes the
+    prospect and tracking share locks first, so it waits and nobody is aborted."""
+    factory, message_id = committed
+    with factory() as session:
+        prospect = session.scalar(
+            select(ContactMessage.prospect_id).where(ContactMessage.id == message_id)
+        )
+    outcome: dict[str, object] = {}
+
+    def claim() -> None:
+        try:
+            outcome["claim"] = Dispatcher(factory, config(), now=Clock(DUE))._claim(
+                message_id, DispatchReport()
+            )
+        except Exception as error:
+            outcome["claim_error"] = type(error).__name__
+
+    with engine.connect() as opposition:
+        opposition.execute(
+            text("UPDATE prospects SET updated_at = now() WHERE id = :p"), {"p": prospect}
+        )
+        thread = threading.Thread(target=claim)
+        thread.start()
+        assert a_lock_request_waits(engine)
+        opposition.execute(
+            text("SELECT id FROM contact_messages WHERE prospect_id = :p FOR UPDATE"),
+            {"p": prospect},
+        )
+        opposition.rollback()
+    thread.join(15)
+    assert "claim_error" not in outcome
+    assert outcome.get("claim") is not None
+
+
+def a_lock_request_waits(engine: Engine) -> bool:
+    deadline = time.monotonic() + 10
+    with engine.connect() as connection:
+        while time.monotonic() < deadline:
+            if connection.scalar(text("SELECT EXISTS (SELECT 1 FROM pg_locks WHERE NOT granted)")):
+                return True
+            time.sleep(0.02)
+    return False
+
+
+def test_settings_count_stale_claims_as_unconfirmed(
+    connected: TestClient, toolbox_app: FastAPI, db_session: Session
+) -> None:
+    prospect = prospect_id(db_session)
+    message = scheduled(connected, prospect)
+    assert dispatcher(toolbox_app, Clock(DUE))._claim(uuid.UUID(message["id"]), DispatchReport())
+    claimed_at = row(db_session, message["id"]).dispatch_claimed_at
+    assert claimed_at is not None
+    ttl = timedelta(minutes=10)
+    assert dispatch_counts(db_session, claim_ttl=ttl, now=claimed_at).unconfirmed == 0
+    stale = dispatch_counts(db_session, claim_ttl=ttl, now=claimed_at + timedelta(minutes=11))
+    assert (stale.scheduled, stale.unconfirmed) == (1, 1)
 
 
 # --- operators: CLI, worker, settings status, restore safeguard -----------------------------------

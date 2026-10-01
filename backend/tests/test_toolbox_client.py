@@ -6,6 +6,7 @@ import os
 import stat
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -360,6 +361,34 @@ def test_transport_failures(fake: FakeToolbox, mail: McpMailToolbox) -> None:
     fake.mode.unreachable = True
     with refused("toolbox_unavailable"):
         mail.list_drafts()
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        # An error text no pattern recognises (e.g. the Toolbox's fetch « terminated »).
+        {"isError": True, "content": [{"type": "text", "text": "terminated"}]},
+        # A 2xx answer whose tool result is not JSON.
+        {"content": [{"type": "text", "text": "OK, c'est parti"}]},
+    ],
+)
+def test_an_unrecognised_send_answer_is_an_unknown_outcome(
+    fake: FakeToolbox, mail: McpMailToolbox, result: dict[str, Any]
+) -> None:
+    draft_id = mail.create_draft(DRAFT)
+    fake.mode.send_result = result
+    with pytest.raises(ToolboxError) as raised:
+        mail.send_draft(draft_id)
+    # Never a definitive refusal: the dispatcher keeps the claim and never resends.
+    assert raised.value.outcome_unknown
+    # A recognised refusal still is one (nothing left).
+    fake.mode.send_result = {
+        "isError": True,
+        "content": [{"type": "text", "text": "Brouillon introuvable : x"}],
+    }
+    with pytest.raises(ToolboxError) as known:
+        mail.send_draft(draft_id)
+    assert (known.value.code, known.value.outcome_unknown) == ("toolbox_draft_not_found", False)
 
 
 def test_inputs_are_checked_before_any_call(fake: FakeToolbox, mail: McpMailToolbox) -> None:

@@ -123,7 +123,11 @@ the Toolbox or Infomaniak was ever made during development (fakes only): the fir
    recipient — `send_recipient_not_allowed`, back to « Validé »). Schedule the test message a few minutes ahead,
    then run **one pass by hand** at that time: `python -m app.cli contact-dispatch --once` (prints `sent=1`). Check
    the mail in the recipient's inbox **and** in the mailbox's sent items, the message *Envoyé* in VIPER, nothing
-   else sent. Optionally test an unconfirmed send's settlement on a second test message.
+   else sent. **Also check, right after the send, that the draft has left Infomaniak's Drafts folder and is no longer
+   returned by `list_drafts`** — the reconciliation of unknown outcomes relies on it (« brouillon disparu = envoyé »);
+   if the draft lingers (Infomaniak's undo-send delay), report it before going further. Note whether the Toolbox's
+   answer carries `provider.etop` / `provider.cancelResource` (undo-send): VIPER ignores them today. Optionally test
+   an unconfirmed send's settlement on a second test message.
 5. **Automatic sending**: `VIPER_CONTACT_DISPATCH_INTERVAL_MS=30000` (restart). Paramètres › Connexions shows
    *Envoi programmé — Actif* and the last pass; the schedule confirmation now says the mail will leave
    automatically. Repeat step 4 with the worker instead of the CLI.

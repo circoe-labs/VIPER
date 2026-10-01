@@ -6,7 +6,14 @@
 // - nothing here changes the prospect's state;
 // - the scheduled send (S7) belongs to the server's dispatcher: a claimed message is locked; a send it could not confirm
 //   is settled by a person (« Marquer envoyé » / « Remettre en Validé »), after checking the Infomaniak mailbox.
-import { MESSAGE_STEPS, type Message, type MessageContent, type MessageSequence, type MessageStep } from '../api/contact'
+import {
+  MESSAGE_STEPS,
+  type Message,
+  type MessageContent,
+  type MessageSequence,
+  type MessageStep,
+  UNCONFIRMED_SEND_CODES,
+} from '../api/contact'
 import type { TrackingStatus } from '../api/prospection'
 import type { ToolboxState } from '../api/toolbox'
 import { TRACKING_LABELS } from '../prospection/labels'
@@ -145,7 +152,7 @@ const NONE: MailActions = {
 // --- the scheduled send (S7) ---
 
 // The dispatcher's codes saying a send ended without a known outcome: a person may settle it at once.
-const UNCONFIRMED_CODES = new Set(['send_outcome_unknown', 'send_reconcile_inconclusive'])
+const UNCONFIRMED_CODES = UNCONFIRMED_SEND_CODES
 
 export type DispatchState = 'none' | 'sending' | 'unconfirmed'
 
@@ -273,7 +280,8 @@ export function sendErrorLabel(code: string, latenessMinutes: number): string {
     send_draft_not_found:
       'le brouillon n’existait plus dans Infomaniak (supprimé, ou envoyé depuis le webmail : vérifiez les éléments envoyés)',
     send_invalid_response: 'la réponse de la Toolbox était illisible',
-    send_not_confirmed: 'un envoi précédent n’a pas été confirmé et le brouillon était toujours dans Infomaniak',
+    send_not_confirmed:
+      'envoi non confirmé, brouillon toujours présent dans Infomaniak : vérifiez les éléments envoyés de la boîte',
     send_missing_recipients: 'le message n’a aucun destinataire',
     send_recipient_not_allowed:
       'un destinataire ne figure pas dans la liste d’envoi autorisée du serveur (VIPER_INFOMANIAK_SEND_ALLOWLIST)',
@@ -314,6 +322,12 @@ export function dispatchLine(
   }
   if (message.status === 'scheduled') {
     if (state === 'sending') return { tone: 'progress', text: 'Envoi en cours par la Toolbox…' }
+    if (state === 'unconfirmed' && code === 'send_probably_sent') {
+      return {
+        tone: 'warning',
+        text: 'Probablement envoyé : une tentative précédente n’avait pas été confirmée et le brouillon a maintenant quitté Infomaniak. VIPER ne le renverra pas ; il le déduira envoyé à la vérification suivante. Après avoir vérifié les éléments envoyés de la boîte, vous pouvez trancher :',
+      }
+    }
     if (state === 'unconfirmed') {
       return {
         tone: 'warning',
@@ -345,6 +359,12 @@ export function dispatchLine(
         text: 'Remis en Validé par une personne après un envoi non confirmé : vérifiez la boîte Infomaniak avant de le reprogrammer.',
       }
     }
+    if (code === 'send_not_confirmed') {
+      return {
+        tone: 'warning',
+        text: 'Envoi non confirmé, brouillon toujours présent dans Infomaniak : vérifiez les éléments envoyés de la boîte, puis reprogrammez-le si le mail n’est pas parti. VIPER ne le renvoie jamais de lui-même.',
+      }
+    }
     if (code === 'dispatch_held') {
       return {
         tone: 'warning',
@@ -359,6 +379,14 @@ export function dispatchLine(
     }
   }
   return null
+}
+
+// « Remettre en Validé » of an unconfirmed send waits for the claim's delay (the Toolbox may still be finishing it):
+// the moment it becomes possible, or null when it already is (or nothing to release).
+export function releaseAvailableAt(message: Message | null, claimTtlSeconds: number, now: number): number | null {
+  if (message?.status !== 'scheduled' || !message.dispatch_claimed_at) return null
+  const at = new Date(message.dispatch_claimed_at).getTime() + claimTtlSeconds * 1000
+  return at > now ? at : null
 }
 
 // `manual`, `prospect_state:<state>` or `do_not_contact` (decision 29 and the opposition).

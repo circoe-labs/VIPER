@@ -263,19 +263,43 @@ function messagesPath(prospectId: string): `/${string}` {
   return `/prospects/${encodeURIComponent(prospectId)}/messages`
 }
 
-// While the server sends automatically (S7), a scheduled message about to leave (within 2 minutes, or already due) or
-// being sent is read again every few seconds, so « Envoyé » (or the failure) shows up without a reload.
+// The dispatcher's codes of a send that ended without a known outcome (backend contact_dispatch.UNCONFIRMED): a person
+// settles it, nothing changes by itself before the claim's delay.
+export const UNCONFIRMED_SEND_CODES: ReadonlySet<string> = new Set([
+  'send_outcome_unknown',
+  'send_reconcile_inconclusive',
+  'send_probably_sent',
+])
+
+// While the server sends automatically (S7), a scheduled message about to leave (within 2 minutes) or being sent is
+// read again every 3 s, so « Envoyé » (or the failure) shows up without a reload; once past its time without being
+// taken (Toolbox busy, backoff) every 30 s; an unconfirmed or stuck send is not polled (a person settles it). TanStack
+// Query runs the interval only while the editor is mounted and the browser tab visible.
 export const DISPATCH_WATCH_MS = 3000
+export const DISPATCH_LATE_WATCH_MS = 30_000
 const DISPATCH_WATCH_AHEAD_MS = 2 * 60 * 1000
+
+function watchOf(message: Message | null, now: number, claimTtlMs: number): number | false {
+  if (message?.status !== 'scheduled') return false
+  if (message.dispatch_claimed_at) {
+    const stuck =
+      (message.last_error_code !== null && UNCONFIRMED_SEND_CODES.has(message.last_error_code)) ||
+      now - new Date(message.dispatch_claimed_at).getTime() >= claimTtlMs
+    return stuck ? false : DISPATCH_WATCH_MS
+  }
+  if (message.scheduled_at === null) return false
+  const until = new Date(message.scheduled_at).getTime() - now
+  if (until < 0) return DISPATCH_LATE_WATCH_MS
+  return until <= DISPATCH_WATCH_AHEAD_MS ? DISPATCH_WATCH_MS : false
+}
 
 export function dispatchWatchInterval(sequence: MessageSequence | undefined, now: number): number | false {
   if (!sequence?.defaults.automatic_sending_active) return false
-  const watched = sequence.steps.some(({ message }) => {
-    if (message?.status !== 'scheduled') return false
-    if (message.dispatch_claimed_at) return true
-    return message.scheduled_at !== null && new Date(message.scheduled_at).getTime() - now <= DISPATCH_WATCH_AHEAD_MS
-  })
-  return watched ? DISPATCH_WATCH_MS : false
+  const ttl = sequence.defaults.dispatch_claim_ttl_seconds * 1000
+  const intervals = sequence.steps
+    .map(({ message }) => watchOf(message, now, ttl))
+    .filter((value): value is number => value !== false)
+  return intervals.length > 0 ? Math.min(...intervals) : false
 }
 
 export function useMessageSequence(prospectId: string) {
