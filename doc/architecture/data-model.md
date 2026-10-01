@@ -80,34 +80,33 @@ These are Circoe meeting/dossier referents, not application login accounts.
 
 ## `contact_tracking` (`prospections` internally if preferred)
 - `id`
-- `prospect_id`
-- `planned_contact_at` nullable — the **next action** (first contact, R1, R2 or review), written by the week planner
-  and the cadence as the **Monday of the chosen ISO week** at business midnight; the week (`2026-W41`) is always
-  derived (Contact port decision P1). It is not the send time of a message.
+- `prospect_id` (unique: one commercial state per prospect)
 - `status`
 - `referent_id` nullable
 - `response_received_at` nullable
 - `appointment_at` nullable
 - timestamps
 
-Contact states (migration `0008`, handoff decisions 4-10, `app/services/contact_workflow.py`), in display order:
-`neutral` (default, « Aucun état », no badge in the UI), `contacted` (Contacté), `r1` (R1), `r2` (R2),
-`response_received` (Réponse reçue), `appointment_obtained` (RDV pris), `failure` (Failure), `ignored` (Ignoré).
-The state and the next-action week are independent. Every state change is a decision of a person (or of an import /
-system job on their existing paths) — never of an agent, a date or a mail. `ignored` is terminal and implies
-`do_not_contact` (see *Domain rules*). The former 10-stage taxonomy (`to_contact`, `follow_up_1/2`, `quote_sent`,
-`quote_follow_up`, `won`, `not_interested`) was converted by `0008` and only survives in old history rows.
+Commercial states (sequences rework D7, migration `0010`; `app/services/contact_workflow.py`), in display order:
+`neutral` (default, « En séquence », no badge in the UI), `response_received` (Réponse reçue),
+`appointment_obtained` (RDV pris), `ignored` (Ignoré), `disqualified` (« Défaillant »: a contact to eliminate, out of
+every sequence, chosen by a person only). Every state change is a decision of a person (or of an import / system job
+on their existing paths) — never of an agent, a date or a mail; `disqualified` is refused to anyone but a person.
+`ignored` is terminal and implies `do_not_contact` (see *Domain rules*). The former states `contacted`, `r1`, `r2`,
+`failure` (migration `0008`) and the 10-stage taxonomy before them only survive in old history rows.
+
+The **level** (Contact, R1, R2…, « Relance terminée ») and the **next due date** are never stored: they derive from the
+cohort and the messages really sent in the current sequence ([`contact_sequences`](#cohorts-and-contact_sequences)).
+The former `planned_contact_at` (next-action week, decision P1) was dropped by `0010`.
 
 `do_not_contact` is **not a state**; use the durable prospect contactability restriction.
-
-V1 default: one current contact-tracking row per prospect + history. Multiple independent cycles remain deferred.
 
 ## `contact_tracking_status_history`
 - `id`, `contact_tracking_id`
 - `from_status`, `to_status` — current codes, or a legacy code in rows written before `0008` (never rewritten)
 - `changed_at`
 - `actor_id/type` or audit link (`0008` appended one `system` row `legacy → new`, actor id `0008_contact_states`,
-  per converted tracking)
+  per converted tracking; `0010` one row `contacted|r1|r2|failure → neutral`, actor id `0010_contact_sequences`)
 
 Allows derivation of first contact/follow-up/status dates without duplicating five legacy booleans.
 
@@ -124,29 +123,69 @@ effort: it deletes the appended rows, maps states back (`neutral → to_contact`
 `failure/ignored → not_interested`, dropping history rows that would no longer change status); quotes/wins stay
 `appointment_obtained`, cleared weeks and audit events are not restored. Tests: `tests/test_migration_contact_states.py`.
 
+## Cohorts and `contact_sequences`
+
+Sequences rework (decisions D1-D9 of `tasks/viper_import_excel_sequences/TODO.md`, migration `0010`). Rules and
+API: [`../features/contact.md`](../features/contact.md#cohorts-sequences-and-alerts-sequences-rework).
+
+`cohorts`: `id`, `code varchar(16)` unique, normalized `S<n>` (CHECK `ck_cohorts_code_format`), `starts_on date` —
+the **real date of the first send**, entered by a person, never derived from an ISO week; `S0` is the fixed
+out-of-campaign cohort without date (CHECK `ck_cohorts_date_unless_s0`, seeded by `0010`); `needs_review boolean`
+(cohorts created by `0010` from former planned weeks, cleared when a person confirms code or date); timestamps.
+
+`contact_sequences`: `id`, `prospect_id` (CASCADE), `cohort_id` (RESTRICT, indexed), `is_current boolean`,
+`closed_at`, `end_reason` (`cohort_changed`, `cohort_removed`, `completed`), timestamps (`created_at` = opened).
+At most one current and one open sequence per prospect (partial unique indexes `uq_contact_sequences_current`,
+`uq_contact_sequences_open`); `(closed_at IS NULL) = (end_reason IS NULL)`; an open sequence is current. The current
+sequence gives the prospect its cohort (« validation métier »: `Sxx` in campaign, `S0` out of campaign, none = not
+validated); a completed current sequence is « Relance terminée ». Changing the cohort closes the current sequence and
+opens a new one (counter at zero): closed sequences and their messages stay. `UNIQUE (prospect_id, id)` is the target
+of the messages' composite key.
+
+## `quality_alerts`
+
+Data-quality alerts (D8-D9): `prospect_id` or `company_id` (exactly one, CASCADE, both indexed), `type`
+(`email_error`, `function_to_check`, `data_inconsistent`, `company_to_check`, `import_conflict`; the first two on a
+prospect, `company_to_check` on a company), `source` (`human`, `import`, `ai` — from the actor, never the client),
+`note`, `detail jsonb` (masked in the audit log), `raised_by_type/id/display`, `resolved_at`, `resolved_by_id`,
+`resolved_by_display` (CHECK both or neither), `resolution_note`, timestamps. One open `email_error` per prospect
+and source (`uq_quality_alerts_open_email_error`). An alert never changes a state, a cohort or a sequence; an open
+`email_error` raised by a person or an import pauses the prospect's automatic actions (nothing due).
+
+## `app_settings`
+
+One row per known key (CHECK `ck_app_settings_known_key`), `value jsonb`; a missing row = the default. Today only
+`contact.max_follow_ups` (« max relances », default 4, 0-20), edited by a person in Paramètres.
+
 ## `contact_messages`
 
-One durable mail per prospect and sequence step (Contact port S3, migration `0009_contact_messages`; handoff
-Tasks 11-12, decisions H-20 … H-29). Separate from the prospect's Contact state. Contract and state machine:
-[`../features/contact.md`](../features/contact.md); rules in `app/services/contact_messages.py` (the only
-application write path — Database Explorer shows the table read-only).
+One durable mail per **sequence and rank** (Contact port S3, migration `0009_contact_messages`, reshaped by `0010`;
+handoff Tasks 11-12, decisions H-20 … H-29, rework D1/D3/D6). Separate from the prospect's commercial state. A
+`sent` row is also the record of a real send: the prospect's level is the number of sent rows of its current
+sequence. Contract and state machine: [`../features/contact.md`](../features/contact.md); rules in
+`app/services/contact_messages.py` (the only application write path — Database Explorer shows the table read-only).
 
-- `prospect_id` (CASCADE), `step` (`contact`, `r1`, `r2`), UNIQUE `(prospect_id, step)`;
+- `prospect_id`, `sequence_id` — composite foreign key `(prospect_id, sequence_id) → contact_sequences(prospect_id, id)`
+  (CASCADE; a message's sequence is its prospect's), index `(prospect_id, sequence_id)`;
+- `rank int ≥ 0` (0 = Contact, n = Rn), UNIQUE `(sequence_id, rank)`; the API names ranks 0-2 `contact`/`r1`/`r2`;
 - `status` (`draft` default, `validated`, `scheduled`, `sent`, `cancelled`);
 - content: `from_email`, `to_recipients` / `cc_recipients` / `bcc_recipients` (`varchar(320)[]`, default `{}`),
   `subject varchar(998)`, `body_text text` (both default `''`) — masked in the audit log;
 - `revision int DEFAULT 1` (bumped by every content change and a reopening; the optimistic-concurrency token),
   `validated_revision`, `validated_at`, `validated_by_actor_id`, `validated_by_display`;
-- `scheduled_at` (send moment, never the next-action week — H-14), `sent_at`, `cancelled_at`, `cancel_reason`
-  (`manual` | `prospect_state:<state>` | `do_not_contact`);
+- `scheduled_at` (send moment, never the next due date — H-14), `sent_at`, `sent_source` (`manual`, `import`,
+  `migration`, `worker`), `cancelled_at`, `cancel_reason` (`manual` | `prospect_state:<state>` | `do_not_contact` |
+  `sequence_closed`);
 - AI drafting (S5): `generation_model` (the model OpenAI named), `generation_prompt_version`
   (`contact-mail-fr-2026-09-v1`), `generated_at` — set by `contact_messages.save_generated` only;
 - CIRCOE Toolbox (S6): `remote_provider`, `remote_draft_id`, `remote_message_id`;
 - dispatch (S7): `dispatch_claim_id uuid`, `dispatch_claimed_at`, `dispatch_attempts int DEFAULT 0`,
   `last_error_code` (a code, never a raw provider message), `last_error_at`.
 
-SQL invariants: `validated`/`scheduled`/`sent` ⇒ current validation (`validated_revision = revision`, `validated_at`,
-`validated_by_actor_id`); `draft` ⇒ no validation; `scheduled` ⇒ `scheduled_at`; `sent` ⇔ `sent_at`;
+SQL invariants: `validated`/`scheduled` and a `sent` row of source `worker` ⇒ current validation
+(`validated_revision = revision`, `validated_at`, `validated_by_actor_id`) — a send declared by a person, an import or
+a migration may have none (the mail left outside VIPER); `draft` ⇒ no validation; `scheduled` ⇒ `scheduled_at`;
+`sent` ⇔ `sent_at` ⇔ `sent_source`;
 `cancelled` ⇔ `cancelled_at`; a remote draft only on validated/scheduled/sent; a complete dispatch claim only on
 scheduled/sent; `last_error_code` ⇔ `last_error_at`; trigger `reject_sent_change` makes a sent row immutable
 (H-21; deleting the prospect still cascades). Partial indexes: `ix_contact_messages_scheduled_at_due`
@@ -220,7 +259,11 @@ erDiagram
     prospects ||--o| contact_tracking : "CASCADE"
     internal_referents |o--o{ contact_tracking : "referent RESTRICT"
     contact_tracking ||--o{ contact_tracking_status_history : "CASCADE"
-    prospects ||--o{ contact_messages : "CASCADE (one per step)"
+    prospects ||--o{ contact_sequences : "CASCADE (one current)"
+    cohorts ||--o{ contact_sequences : "RESTRICT"
+    contact_sequences ||--o{ contact_messages : "CASCADE (one per rank)"
+    prospects ||--o{ quality_alerts : "CASCADE"
+    companies ||--o{ quality_alerts : "CASCADE"
     prospects ||--o{ prospect_sources : "CASCADE"
     import_batches |o--o{ prospect_sources : "RESTRICT"
     import_batches ||--o{ import_row_metadata : "CASCADE"
@@ -271,13 +314,37 @@ erDiagram
         timestamptz response_received_at
         timestamptz appointment_at
     }
+    cohorts {
+        uuid id PK
+        varchar code UK "S<n>, S0 out of campaign"
+        date starts_on "real first-send date"
+        bool needs_review
+    }
+    contact_sequences {
+        uuid id PK
+        uuid prospect_id FK
+        uuid cohort_id FK
+        bool is_current "one per prospect"
+        timestamptz closed_at
+        varchar end_reason
+    }
     contact_messages {
         uuid id PK
         uuid prospect_id FK
-        varchar step "contact, r1, r2"
+        uuid sequence_id FK
+        int rank "0 Contact, n Rn"
         varchar status "draft, validated, scheduled, sent, cancelled"
+        varchar sent_source "manual, import, migration, worker"
         int revision
         timestamptz scheduled_at
+    }
+    quality_alerts {
+        uuid id PK
+        uuid prospect_id FK
+        uuid company_id FK
+        varchar type
+        varchar source "human, import, ai"
+        timestamptz resolved_at
     }
     contact_tracking_status_history {
         uuid id PK
@@ -332,9 +399,13 @@ on purpose.
 | `prospects` | `company_id NULL`, `civility (mr/ms) NULL`, `first_name`, `last_name varchar(100) NULL`, `role_id NULL`, `exact_job_title varchar(255)`, `activity_status DEFAULT 'unknown'`, `employment_verified_at NULL`, `contactability_status DEFAULT 'contactable'`, `do_not_contact_at`, `do_not_contact_reason text` | CHECK `has_name` (at least one non-blank name); CHECK `do_not_contact_consistency`; trigger `guard_do_not_contact`; `ix_prospects_lower_last_name_first_name` |
 | `emails` | `prospect_id`, `address varchar(320)`, `is_primary DEFAULT false`, `is_active DEFAULT true`, `verification_status DEFAULT 'unverified'`, `origin_type` (no default), `last_verified_at`, `source_reference text` | `uq_emails_prospect_id_address`; `uq_emails_prospect_id_primary` (partial); CHECK address lowercase `x@y`, primary ⇒ active; `ix_emails_address` |
 | `phones` | as `emails`, with `number varchar(21)` and `type` | `uq_phones_prospect_id_number`; `uq_phones_prospect_id_primary` (partial); CHECK number `^\+?[0-9]{4,20}$`, primary ⇒ active; `ix_phones_number` |
-| `contact_tracking` | `prospect_id`, `planned_contact_at`, `status DEFAULT 'neutral'`, `referent_id NULL`, `response_received_at`, `appointment_at` | `uq_contact_tracking_prospect_id` (one current row per prospect); `ix_contact_tracking_referent_id` |
+| `contact_tracking` | `prospect_id`, `status DEFAULT 'neutral'`, `referent_id NULL`, `response_received_at`, `appointment_at` | `uq_contact_tracking_prospect_id` (one current row per prospect); `ix_contact_tracking_referent_id` |
+| `cohorts` | `code`, `starts_on NULL` (S0 only), `needs_review DEFAULT false` | `uq_cohorts_code`; CHECKs `code_format`, `date_unless_s0` |
+| `contact_sequences` | `prospect_id`, `cohort_id`, `is_current DEFAULT true`, `closed_at`, `end_reason` | `uq_contact_sequences_prospect_id_id`; partial unique `uq_contact_sequences_current`, `uq_contact_sequences_open`; `ix_contact_sequences_cohort_id` |
+| `quality_alerts` | `prospect_id NULL`, `company_id NULL`, `type`, `source`, `note`, `detail jsonb`, `raised_by_*`, `resolved_at`, `resolved_by_*`, `resolution_note` | CHECKs `one_subject`, `resolved_has_actor`, `prospect_types`, `company_types`; partial unique `uq_quality_alerts_open_email_error` |
+| `app_settings` | `key`, `value jsonb` | `uq_app_settings_key`; CHECK `known_key` |
 | `contact_tracking_status_history` | `contact_tracking_id`, `from_status NULL` (initial), `to_status`, `changed_at DEFAULT clock_timestamp()`, `actor_type`, `actor_id`, `actor_display` | CHECK `from_status IS DISTINCT FROM to_status`; index `(contact_tracking_id, changed_at)`; no `updated_at` |
-| `contact_messages` | `prospect_id`, `step`, `status DEFAULT 'draft'`, `from_email`, `to/cc/bcc_recipients varchar(320)[] DEFAULT '{}'`, `subject`, `body_text`, `revision DEFAULT 1`, validation (`validated_revision/at/by_actor_id/by_display`), `scheduled_at`, `sent_at`, `cancelled_at`, `cancel_reason`, generation, remote and dispatch columns (migration 0009) | `uq_contact_messages_prospect_id_step`; the CHECKs listed in [`contact_messages`](#contact_messages); partial indexes on `scheduled_at` (scheduled), remote draft, dispatch claim; triggers `set_updated_at`, `reject_sent_change` |
+| `contact_messages` | `prospect_id`, `sequence_id`, `rank`, `status DEFAULT 'draft'`, `from_email`, `to/cc/bcc_recipients varchar(320)[] DEFAULT '{}'`, `subject`, `body_text`, `revision DEFAULT 1`, validation (`validated_revision/at/by_actor_id/by_display`), `scheduled_at`, `sent_at`, `sent_source`, `cancelled_at`, `cancel_reason`, generation, remote and dispatch columns (migrations 0009, 0010) | `uq_contact_messages_sequence_id_rank`; composite FK `fk_contact_messages_sequence`; the CHECKs listed in [`contact_messages`](#contact_messages); partial indexes on `scheduled_at` (scheduled), remote draft, dispatch claim; triggers `set_updated_at`, `reject_sent_change` |
 | `prospect_sources` | `prospect_id`, `source_type`, `source_reference text`, `import_batch_id NULL`, `collected_at DEFAULT now()`, `legal_basis_or_collection_context text`, `actor_type/actor_id/actor_display NULL`, `notes text` | FK indexes |
 | `import_batches` | `filename`, `sheet_names text[] DEFAULT '{}'`, `file_fingerprint varchar(64) NULL`, `status DEFAULT 'pending'`, `rows_total/rows_imported/rows_skipped int DEFAULT 0`, `committed_at NULL`, `legal_basis_or_collection_context text NULL`, `source_reference text NULL` (migration 0006, Task 09), `actor_type/actor_id/actor_display` | CHECK fingerprint `^[0-9a-f]{64}$`, counts ≥ 0, `committed` ⇔ `committed_at`. No workbook bytes |
 | `import_row_metadata` | `import_batch_id`, `source_sheet`, `source_row_number int`, `prospect_id NULL`, `company_id NULL`, `legacy_metadata jsonb DEFAULT '{}'`, `created_at` only | `uq_import_row_metadata_batch_sheet_row`; CHECK row number > 0 |
@@ -364,9 +435,11 @@ search labels through it; behaviour of the Settings values (stable slug, deactiv
 | `emails/phones.verification_status` | `unverified`, `verified`, `invalid`, `unknown` |
 | `emails/phones.origin_type` | `imported`, `manual`, `published`, `inferred`, `other` |
 | `phones.type` | `mobile`, `landline`, `other` |
-| `contact_tracking.status` (`ContactTrackingStatus`) | `neutral`, `contacted`, `r1`, `r2`, `response_received`, `appointment_obtained`, `failure`, `ignored` — **no `do_not_contact`** |
-| history `from_status` / `to_status` (`TrackingHistoryStatus`) | the 8 states above plus the read-only legacy codes `to_contact`, `follow_up_1`, `follow_up_2`, `quote_sent`, `quote_follow_up`, `won`, `not_interested` |
-| `contact_messages.step` (`ContactMessageStep`) | `contact`, `r1`, `r2` |
+| `contact_tracking.status` (`ContactTrackingStatus`) | `neutral`, `response_received`, `appointment_obtained`, `ignored`, `disqualified` — **no `do_not_contact`** |
+| history `from_status` / `to_status` (`TrackingHistoryStatus`) | the 5 states above plus the read-only former codes `contacted`, `r1`, `r2`, `failure` (before `0010`) and `to_contact`, `follow_up_1`, `follow_up_2`, `quote_sent`, `quote_follow_up`, `won`, `not_interested` (before `0008`) |
+| `contact_messages.sent_source` (`SendSource`) | `manual`, `import`, `migration`, `worker` |
+| `contact_sequences.end_reason` (`SequenceEndReason`) | `cohort_changed`, `cohort_removed`, `completed` |
+| `quality_alerts.type` / `source` | `email_error`, `function_to_check`, `data_inconsistent`, `company_to_check`, `import_conflict` / `human`, `import`, `ai` |
 | `contact_messages.status` (`ContactMessageStatus`) | `draft`, `validated`, `scheduled`, `sent`, `cancelled` |
 | `prospect_sources.source_type` | `excel_import`, `manual`, `future_agent`, `other` |
 | `import_batches.status` | `pending`, `committed`, `failed`, `cancelled` |
@@ -398,15 +471,20 @@ tracking and its history, Contact messages, sources, import row metadata) and fo
   Prospection counters and list and by Home ([prospection-kpis.md](../features/prospection-kpis.md)).
 - **Contact tracking** (`save_contact_tracking`, the only write path — editor, `PATCH …/tracking`, Database
   Explorer, imports): creates or replaces the single current row and appends a status-history row (with the actor
-  snapshot) whenever the status changes. Contact rules (reference `src/server/contactTrackingService.ts`): an
-  `agent` actor may not change a state (`ActorNotAllowedError`, 403 `human_actor_required`); nothing leaves
-  `ignored` (409 `ignored_is_terminal`) and `ignored` has no next action (409 `ignored_has_no_next_action`);
-  entering `response_received`, `appointment_obtained`, `failure` or `ignored` clears the next action when the input
-  only echoes the stored one (an explicit different one is kept, except on `ignored`); entering `response_received`
-  without a response date records now; choosing `response_received`, `appointment_obtained` or `ignored` calls
-  `cancel_future_messages` in the same transaction (decision 29 — a no-op seam until the messages table of Slice S3).
-  The default cadence (contacted/R1 +2 weeks, R2 +4 weeks review) is only *suggested*
-  (`contact_workflow.suggest_next_action`, exposed as `tracking.suggested_next_contact_*`).
+  snapshot) whenever the status changes. Contact rules: an `agent` actor may not change a state
+  (`ActorNotAllowedError`, 403 `human_actor_required`), `disqualified` is chosen by a person only; nothing leaves
+  `ignored` (409 `ignored_is_terminal`); entering `response_received` without a response date records now; choosing
+  `response_received`, `appointment_obtained`, `ignored` or `disqualified` cancels the prospect's unsent messages in
+  the same transaction (decision 29). The cohort and the sequences are never touched by a state change.
+- **Cohorts and sequences** (`app/services/cohorts.py`, `contact_sequences.py`): cohorts are created, renamed and
+  re-dated by a person (S0 fixed; a used cohort is never deleted); `change_cohort` (a person only) closes the current
+  sequence (`cohort_changed` / `cohort_removed`), cancels its unsent messages (`sequence_closed`) and opens a new one.
+  The level and the next due date are computed by `contact_workflow.progress` (one prospect) and its SQL twin
+  `contact_sequences.next_due_at_sql` (lists), tested for parity.
+- **Sends** (`contact_messages.mark_sent`, « Marquer comme envoyé »): a person declares the next step of the open
+  sequence sent at a date (not future, not before the previous send); source `manual`.
+- **Quality alerts** (`app/services/quality_alerts.py`): raised by a person, an import or the AI (source from the
+  actor; a system job raises none), resolved by a person only.
 - **Prospect editor** (Task 15, `app/services/prospect_editor.py` + `contact_channels.py`,
   [prospect-editor.md](../features/prospect-editor.md), [ADR-0015](../adr/0015-prospect-editor-save.md)): one atomic save
   composing an inline role creation, `change_company`, the identity/employment fields, the e-mail and phone **full

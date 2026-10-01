@@ -17,9 +17,11 @@ and its primary e-mail (at most one, always active). Terms used below:
 - **actionable** — `contactability_status = contactable` **and** `activity_status ≠ inactive`: someone to contact or
   follow up now. A do-not-contact prospect is never actionable (durable opposition), nor someone known to have left
   the role (still visible under *Inactifs*);
-- **contacted** — the tracking exists and its Contact state is `contacted`, `r1`, `r2`, `response_received`,
-  `appointment_obtained` or `failure`, or it has a response or an appointment date (`neutral` is before any contact;
-  `ignored` may be chosen without any contact, so it proves nothing);
+- **contacted** — a message of the prospect was **really sent** (any sequence, `contact_messages.status = sent`), or
+  its state is `response_received`/`appointment_obtained`, or it has a response or an appointment date (sequences
+  rework, decision log R-08: `neutral` proves nothing; `ignored` and `disqualified` may be chosen without any contact);
+- **cohort, sends, next due date** — the current sequence's cohort, its real sends and the derived next due date
+  (`contact_sequences.next_due_at_sql`, [`contact.md`](contact.md#cohorts-sequences-and-alerts-sequences-rework));
 - **reset channel** — an **active** e-mail or phone whose status is `unverified` while it keeps a `last_verified_at`:
   the trace a company change leaves (I-13: verified active channels go back to `unverified`, keeping the date).
 
@@ -33,11 +35,11 @@ and its primary e-mail (at most one, always active). Terms used below:
 | `email_missing` | E-mail manquant | No primary e-mail (a person with only non-primary or former addresses counts as missing). |
 | `email_invalid` | E-mail invalide | Primary e-mail `verification_status = invalid`. |
 | `email_unverified` | E-mail non vérifié | Primary e-mail `unverified` **or** `unknown` (not known to be deliverable). |
-| `to_contact` | À contacter | A **planned first contact**: actionable, state `neutral`, a next-action week set (`planned_contact_at`), not contacted. A neutral prospect without a week, or without tracking, is not planned (Contact decisions 4-5: « un prospect neutre avec une semaine signifie qu'un premier contact est prévu »). The segment key stays `to_contact` (URL/API). |
-| `due` | Échus | `to_contact` and `planned_contact_at` before the start of tomorrow (business day): planned today or earlier. Follow-ups due (R1, R2, review) belong to the Contact page (Slice S3). |
+| `to_contact` | À contacter | A **planned first contact**: actionable, in a campaign cohort (not S0) with an open sequence where **nothing was sent yet**, and nothing pausing it (state `neutral`, no open « Erreur sur le mail »). A prospect without cohort is not validated, hence not planned. The segment key stays `to_contact` (URL/API). |
+| `due` | Échus | `to_contact` and its next due date (the cohort's date) before the start of tomorrow (business day). Follow-ups due (R1, R2…) belong to the Contact page. |
 | `contacted` | Contactés | Contacted (see above), do-not-contact included — a historical fact. |
-| `no_response` | Sans réponse | Actionable, state `contacted`, `r1` or `r2`, and neither a response nor an appointment date: the follow-up queue. |
-| `responses` | Réponses | A response date, an appointment date, or state `response_received` or `appointment_obtained`. `failure` (a sequence closed without outcome, decision 13) is not an answer. |
+| `no_response` | Sans réponse | Actionable, at least one real send in the current sequence, state `neutral`, the sequence not finished (« Relance terminée » waits for nothing more), and neither a response nor an appointment date: the follow-up queue. |
+| `responses` | Réponses | A response date, an appointment date, or state `response_received` or `appointment_obtained`. A finished sequence is not an answer. |
 | `appointments` | Rendez-vous | An appointment date, or state `appointment_obtained` (« RDV pris »). |
 
 **Home (Task 16)** shows these same counts (`count_segments` without criteria), each card linking to
@@ -64,20 +66,22 @@ Both endpoints take the same **criteria**, so a counter always equals the total 
 | `role` | Role id, or `none` (no role). |
 | `activity` | `active`, `unknown`, `inactive`. |
 | `referent` | Referent id of the tracking, or `none`. |
-| `tracking_status` | A Contact state (`neutral` … `ignored`). `neutral` is « Aucun état » for the user and also matches prospects **without any tracking row** (Contact decision 4); `none` (no tracking row only) stays accepted for old URLs but is no longer offered. |
+| `tracking_status` | A commercial state (`neutral`, `response_received`, `appointment_obtained`, `ignored`, `disqualified`). `neutral` (« En séquence », no badge) also matches prospects **without any tracking row**; `none` (no tracking row only) stays accepted for old URLs but is no longer offered. Former states (`contacted`…) answer 422. |
+| `cohort` | Cohort id of the current sequence, or `none` (no cohort: not validated). |
 | `company` | Company id. |
 | `import_batch` | Import batch id (a prospect source of that batch). |
 
 - `GET /api/prospection/counters` → `{counts: {<segment>: n}, today, stale_threshold_days}` — **one** aggregate query
   (`count(*) FILTER (WHERE …)` per segment).
 - `GET /api/prospection/prospects` + `segment` (default `all`), `sort` (`name` — last then first name, accents
-  ignored; `company`; `planned_contact` — soonest first, none last; `verification` — never verified first, then
+  ignored; `company`; `next_due` — soonest next due date first, nothing due last (`planned_contact` stays accepted as the same order); `verification` — never verified first, then
   oldest; `updated` — latest change first; every order ends with the id, so pages never overlap), `limit` 1–200 (50),
   `offset` → `{items, total, limit, offset}`. **Two** queries per page (rows with every joined label, then the total),
   whatever the page size. Each item: `id`, `civility`, names, `role_label`, `exact_job_title`, `company_id`,
   `company_name`, `activity_status`, `employment_verified_at`, `verification_state`, `primary_email`,
-  `primary_email_status`, `email_state`, `primary_phone`, `primary_phone_type`, `tracking_status`,
-  `planned_contact_at`, `due`, `planned_contact_week` (ISO `2026-W38`, business time), `response_received_at`,
+  `primary_email_status`, `email_state`, `primary_phone`, `primary_phone_type`, `tracking_status`, `cohort_code`,
+  `sent_count`, `next_step` (`contact`, `r1`…), `finished`, `next_due_at`, `next_due_week` (ISO `2026-W38`, business
+  time), `due`, `response_received_at`,
   `appointment_at`, `referent_id`, `referent_name`, `contactability_status`, `do_not_contact_at`, `updated_at`.
 
 No index was added: on 20 000 synthetic prospects the counters (with `q`) answer in ≈ 0.17–0.21 s and a deep page in

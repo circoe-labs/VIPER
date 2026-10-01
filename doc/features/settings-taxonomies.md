@@ -35,6 +35,16 @@ Decisions: I-32 … I-36 in the decision log. Uniqueness mechanism: [ADR-0009](.
 | `PATCH /settings/referents/{id}` | `{active}` | referent |
 | `DELETE /settings/referents/{id}` | — | 204 |
 
+| `GET /settings/cohorts` | — | `[{id, code, starts_on, out_of_campaign, needs_review, current_count, sequence_count}]`, S0 first then by date |
+| `POST /settings/cohorts` | `{code, starts_on}` (`S37`, « s 37 »… normalized to `S<n>`; the real date, required except S0) | 201 cohort |
+| `PATCH /settings/cohorts/{id}` | `{code?, starts_on?}` (at least one) | cohort — confirms a migrated cohort (`needs_review` cleared) |
+| `DELETE /settings/cohorts/{id}` | — | 204; 409 `in_use` once a sequence used it, 409 `cohort_s0_fixed` |
+| `GET /settings/contact` · `PUT /settings/contact` | `{max_follow_ups}` (0-20) | `{max_follow_ups}` — « max relances », 4 by default |
+
+Cohorts and « max relances » come with the sequences rework (decision log R-02, R-01; rules in
+[`contact.md`](contact.md#cohorts-sequences-and-alerts-sequences-rework)); both are written by a person only (403
+`human_actor_required`) and audited (`cohort.*`, `app_setting.*`). Their Paramètres UI is Slice S4.
+
 `{taxonomy}` is `roles`, `activity-categories` or `commercial-segments`. Business refusals carry a stable `detail.code`
 that the UI turns into French copy (`frontend/src/settings/messages.ts`):
 

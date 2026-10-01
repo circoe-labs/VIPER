@@ -438,25 +438,24 @@ One savepoint of the request's transaction (ADR-0012): Settings values to create
 tracking through `save_contact_tracking` (status history) → per imported row an `excel_import` source (legal basis,
 `file / sheet / ligne n`) and an `import_row_metadata` row (lossless legacy metadata, prospect and company ids) →
 batch `committed` with `rows_total`, `rows_imported`, `rows_skipped` (+ the batch's legal basis and source reference,
-migration 0006). A contact tracking is created only when a legacy stage, a dated planned contact or a referent is
-applied. Dates without time (planned contact, appointment) are stored at midnight Europe/Paris.
+migration 0006). A contact tracking is created only when an appointment stage or a referent is applied. Dates without
+time (appointment) are stored at midnight Europe/Paris.
+
+**Sequences rework, Slice S1 (until the import redesign of S2, decision log R-09)**: the planned week (`A contacter`)
+and the follow-up stage columns (`Relance 1`, `relance 2`) are **no longer written** — a week is not a cohort (D5) and a
+follow-up is a send, not a state (D1/D7); their raw cells are kept in the row's legacy metadata (`planned_contact`,
+`stage_follow_up_1/2`), so nothing is lost before S2 turns them into cohorts and imported sends. The review still
+reads and diagnoses them (weeks without year…). Appointment stages still set `appointment_obtained`.
 
 Operational reconciliation (`services/operational_import.py`, same transaction, audited), run by
 `POST /api/imports/commit` after the generic commit, row by row in source order: a recognised `Statut_verification`
 value marks employment checked now and sets the activity status and the imported e-mails' verification (never
-downgrading a verified e-mail, never touching a non-imported one). Tracking rules read **only what the row itself
-put on the tracking** (`CommitResult.file_tracking`: the row's week when the tracking now holds it — written by this
-import or already equal —, and whether the row's referent was written by this import):
+downgrading a verified e-mail, never touching a non-imported one) — D10 (S2) will stop it touching the e-mails. The
+former rule P7 (« a past week makes a neutral tracking `contacted` with the R1 week as next action ») and its referent
+rule are gone with the sequences rework: a file week never changes a state nor plans anything, and the row's referent
+fills an empty one like any field (a referent set by hand is never replaced).
 
-- a tracking still `neutral` whose row week falls **before today** becomes `contacted` (the workbook's past week is a
-  contact already made) and its next action moves to the default cadence — that week + 2 weeks, its Monday (the R1
-  week; Contact port decision P7) — instead of staying on the past week, which would show as an overdue R1;
-- while the tracking stays `neutral`, the row's referent is not kept (a referent owns an actual contact, not an
-  untouched lead); a referent already on the tracking — set by hand or earlier — is never removed;
-- a week or referent that did not come from the row (set by hand, by an earlier import, or a row week the import did
-  not apply because the tracking already had one) is left alone: no contact is inferred from it.
-
-An imported person is therefore never « Échu » right after the import. Tests: `tests/test_operational_import.py`.
+Tests: `tests/test_operational_import.py`.
 
 Losslessness at commit: besides the engine's legacy metadata, a row keeps the raw value of anything the commit does
 not apply — another spelling of its company, a company text that differs from the stored one, a second address, an
@@ -549,8 +548,8 @@ ignored — and the id as last tie-breaker).
 | # | Header | Content | Cell |
 |---|---|---|---|
 | 1 | Référent | internal referent of the contact tracking, `Prénom Nom` — **never** a legacy marker, note, week or e-mail | text |
-| 2 | Date de contact prévue | planned contact | date |
-| 3 | Semaine | ISO week of that date, `S37 2026` (week-numbering year) | text |
+| 2 | Cohorte | the current cohort `Sxx` (`S0` out of campaign; blank: not validated) — never an ISO week (sequences rework) | text |
+| 3 | Date de cohorte | the cohort's real start date | date |
 | 4 | Entreprise | company display name | text |
 | 5 | Segment commercial | | text |
 | 6 | Catégories d'activité | labels joined by `; `, alphabetical | text |
@@ -567,8 +566,11 @@ ignored — and the id as last tie-breaker).
 | 20 | SIREN | | code |
 | 21–22 | Site web · Domaine e-mail | | text |
 | 23–26 | Projet déjà réalisé avec l'entreprise · Type de projet · Références Circoe · Approche client | company Circoe context | text |
-| 27 | Suivi de contact | one Contact state label (`contact_workflow.STATE_LABELS`): `Aucun état`, `Contacté`, `R1`, `R2`, `Réponse reçue`, `RDV pris`, `Failure`, `Ignoré`; blank without tracking | text |
-| 28 | Statut depuis le | when the current status was reached (latest status-history row) | date |
+| 27 | Suivi de contact | one commercial state label (`contact_workflow.STATE_LABELS`): `En séquence`, `Réponse reçue`, `RDV pris`, `Ignoré`, `Défaillant`; blank without tracking | text |
+| 28 | Statut depuis le | when the current status was reached (latest status-history row not written by a migration) | date |
+| 28a | Niveau | derived level: `Contact`, `R1`… (the step to send), `Relance terminée`; blank without cohort | text |
+| 28b | Envois | messages really sent in the current sequence; blank without cohort | integer |
+| 28c | Prochaine échéance | derived next due date (blank when nothing is due) | date |
 | 29 | Date de réponse | | date |
 | 30 | Date de rendez-vous | date and time (shown as a date when at midnight) | date/time |
 | 31 | Ne pas contacter | `Oui` / `Non` — the durable opposition, **distinct** from `Non intéressé` | text |

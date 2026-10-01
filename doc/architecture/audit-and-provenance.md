@@ -78,6 +78,10 @@ Small on purpose (Task 19: "no infinite event taxonomy"); the service rejects an
 | `email`, `phone` | `emails`, `phones` | their `prospect` |
 | `contact_tracking` | `contact_tracking` | its `prospect` |
 | `contact_message` | `contact_messages` (S3) | its `prospect` |
+| `contact_sequence` | `contact_sequences` (sequences rework) | its `prospect` |
+| `quality_alert` | `quality_alerts` (sequences rework) | its `prospect`, else its `company` (`AuditedEntity.fallback_subject`) |
+| `cohort` | `cohorts` (sequences rework) | itself |
+| `app_setting` | `app_settings` (« max relances ») | itself |
 | `prospect_source` | `prospect_sources` | its `prospect` |
 | `role`, `commercial_segment`, `activity_category`, `internal_referent` | taxonomy/referent tables | itself |
 | `import_batch` | `import_batches` | itself |
@@ -102,6 +106,9 @@ raises `UnattributedMutationError` and the transaction rolls back.
 | `prospect.do_not_contact.cleared` | `prospects.clear_do_not_contact` | the mandatory clearing reason is kept **only** here, in `context.reason` (I-28) |
 | `contact_tracking.status_changed` | `contact_tracking.save_contact_tracking` | stage change (+ any date changed in the same save); `.created` for a new row, `.updated` for date/referent-only changes |
 | `contact_message.unvalidated` / `.validated` / `.scheduled` / `.unscheduled` / `.cancelled` / `.reopened` | `contact_messages` state machine (S3, [`contact.md`](../features/contact.md)) | status, revision, validation and send moment; content masked; `.cancelled` has `context.reason` `manual`, `prospect_state:<state>` (decision 29) or `do_not_contact` (opposition); `.created` for a new message, `.updated` for an edit of a draft |
+| `contact_message.sent` | `contact_messages.mark_sent` (« Marquer comme envoyé »), migration `0010` | `status`, `sent_at`, `sent_source` (`manual`, `migration`…); content masked |
+| `contact_sequence.closed` | `contact_sequences.change_cohort` | `is_current`, `closed_at`, `end_reason` of the former sequence; the new one is `contact_sequence.created` (with the cohort code as label) |
+| `quality_alert.resolved` | `quality_alerts.resolve_alert` | `resolved_at`, resolver, `resolution_note`; `.created` when raised (`detail` masked) |
 | `import_batch.started` / `.committed` / `.failed` / `.cancelled` | `import_batches.start_batch` / `finish_batch` | file name, sheets, fingerprint, status, counts |
 | `auth.login` / `auth.logout` | `auth.open_session` / `auth.sign_out` | who and when only — no token, session id, IP or user agent; failed sign-ins are not audited (I-30) |
 | `auth.user_created` / `auth.password_reset` | `auth.create_or_reset_user` (CLI) | no field values |
@@ -116,7 +123,8 @@ Applied to every event when it is stored:
 1. **Excluded entities** `user`, `user_session`: no field values at all.
 2. **Secret fields** dropped at any depth: `password_hash`, `token_hash`, `csrf_token`, and any field whose name
    contains `password`, `token`, `secret` or `csrf`.
-3. **Masked fields** (value replaced by `[masked]`, the change stays visible): `legacy_metadata`, and a Contact
+3. **Masked fields** (value replaced by `[masked]`, the change stays visible): `legacy_metadata`, a quality alert's
+   `detail` (e.g. the two values of an import conflict), and a Contact
    message's `from_email`, `to_recipients`, `cc_recipients`, `bcc_recipients`, `subject`, `body_text` (the mail
    content stays in `contact_messages` only — handoff Task 11).
 4. **Personal fields** — prospect `first_name`/`last_name`, email `address`, phone `number`, and `source_reference`

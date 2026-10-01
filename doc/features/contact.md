@@ -3,14 +3,73 @@
 Contact port, Slice S3 (handoff Tasks 09, 11, 12; decisions H-14 … H-29 of
 `tasks/viper_contact_pipeline_handoff/docs/01-decision-log.md`) for the API, Slice S4 (Tasks 08, 10, 13) for the page
 ([§ Contact page](#contact-page-ui-slice-s4)), Slice S5 (Task 14) for the AI drafting
-([§ AI drafting](#ai-drafting-s5--post-apiprospectsprospect_idmessagesstepgenerate)). States of a prospect and the next-action week are described in
-[`prospect-editor.md`](prospect-editor.md) (`PATCH /api/prospects/{id}/tracking`) and
-[`prospection-kpis.md`](prospection-kpis.md); the table is in
-[`../architecture/data-model.md`](../architecture/data-model.md#contact_messages).
+([§ AI drafting](#ai-drafting-s5--post-apiprospectsprospect_idmessagesstepgenerate)). The **sequences rework**
+(Slice S1 of `tasks/viper_import_excel_sequences/`, decisions D1-D12, [decision log R-01 … R-09](../product/decision-log.md#sequences-rework-decisions-import-excel-and-contact-sequences-2026-10-01))
+replaced the next-action week and the states `contacted`/`r1`/`r2`/`failure` by cohorts, sequences and real sends:
+[§ Cohorts, sequences and alerts](#cohorts-sequences-and-alerts-sequences-rework). The commercial state is chosen with
+`PATCH /api/prospects/{id}/tracking` ([`prospect-editor.md`](prospect-editor.md)); segments are in
+[`prospection-kpis.md`](prospection-kpis.md); the tables in
+[`../architecture/data-model.md`](../architecture/data-model.md#cohorts-and-contact_sequences).
 
 Every endpoint below requires a session; `PUT`/`POST` also the CSRF header (`X-CSRF-Token`). Refusals use the
 shared shape `{"detail": {"code": "...", "message": "...", ...}}`; a malformed request (unknown field, wrong type,
 missing `expected_revision`, naive `scheduled_at`, unknown step/counter) is FastAPI's 422 `{"detail": [...]}`.
+
+## Cohorts, sequences and alerts (sequences rework)
+
+- **Cohort** `Sxx`: a prospecting session with the **real date** of its first send, entered by a person (never an ISO
+  week: S39 may start on 28 September, ISO week 40). `S0` = validated but out of campaign (no date, never contacted,
+  not Défaillant). The prospect's cohort is the cohort of its **current sequence**: `Sxx` = validated and in the
+  pipeline, `S0` = validated out of campaign, none = not validated.
+- **Sequence**: one prospect's run in one cohort. Changing the cohort (a person, `PUT /api/prospects/{id}/cohort`)
+  closes the current sequence (`cohort_changed`, or `cohort_removed` with `cohort_id: null`), cancels its unsent
+  messages (`cancel_reason = "sequence_closed"`) and opens a new one: the counter restarts at zero, the history (closed
+  sequences, their messages) stays. Choosing the cohort of the open sequence changes nothing (`changed: false`). The
+  commercial state is never touched.
+- **Level** = the number of messages **really sent** in the current sequence (`status = sent`, whatever their source):
+  0 → *Contact* to send, n → *Rn* to send, more than « max relances » (`/api/settings/contact`, default 4) →
+  « Relance terminée » (still contactable, out of the automatic actions). A drafted or scheduled message moves
+  nothing. A current sequence closed `completed` (the former `failure`) is « Relance terminée » too.
+- **Next due date**: the cohort's date for the Contact, then the **Monday of the calendar week after the last send**
+  (business midnight, Europe/Paris). Nothing is due (`pause_reason`) without cohort (`no_cohort`), in S0
+  (`out_of_campaign`), when the state is not `neutral` (`state`: response, RDV, ignored, Défaillant), when the sequence
+  is closed (`sequence_closed`) or finished (`finished`), or while an « Erreur sur le mail » raised by a person or an
+  import is open (`email_error`).
+- **« Marquer comme envoyé »** (`POST …/messages/mark-sent`): see [§ Mail sequence](#mail-sequence--apiprospectsprospect_idmessages).
+- **Commercial state** (`PATCH …/tracking`): `neutral` (« En séquence »), `response_received`, `appointment_obtained`,
+  `ignored`, `disqualified` (« Défaillant », a person only). Closing states cancel the unsent messages.
+- **Quality alerts** (`email_error` « Erreur sur le mail », `function_to_check`, `data_inconsistent`,
+  `company_to_check`, `import_conflict`): on a prospect or a company, source from the signed-in actor (`human`;
+  `import`; `ai` for an agent — a proposal, without effect on the due date), resolved by a person. An alert never
+  changes a state, a cohort or a sequence.
+
+| Method | Path | Body | Answer |
+|---|---|---|---|
+| GET | `/api/settings/cohorts` | — | `[Cohort]` (S0 first, then by date): `id`, `code`, `starts_on`, `out_of_campaign`, `needs_review`, `current_count`, `sequence_count` |
+| POST | `/api/settings/cohorts` | `{"code": "S39", "starts_on": "2026-09-28"}` | 201 `Cohort` |
+| PATCH | `/api/settings/cohorts/{id}` | `{"code"?: "S40", "starts_on"?: "…"}` | `Cohort` (`needs_review` cleared) |
+| DELETE | `/api/settings/cohorts/{id}` | — | 204 (409 `in_use` once a sequence used it, 409 `cohort_s0_fixed`) |
+| GET / PUT | `/api/settings/contact` | `{"max_follow_ups": 4}` (0-20) | `{"max_follow_ups": 4}` |
+| GET | `/api/prospects/{id}/sequences` | — | `{"prospect_id", "place": Place, "sequences": [Sequence]}` (current first, then newest) |
+| PUT | `/api/prospects/{id}/cohort` | `{"cohort_id": "…" \| null}` | `{"place": Place, "changed", "cancelled_messages", "in_flight_messages"}` |
+| GET | `/api/alerts` | query `prospect`, `company`, `type`, `state` (`open` default, `resolved`, `all`), `limit`, `offset` | `{"items": [Alert], "total", "limit", "offset"}` |
+| POST | `/api/alerts` | `{"type", "prospect_id" \| "company_id", "note"?, "detail"?}` | 201 `Alert` |
+| POST | `/api/alerts/{id}/resolve` | `{"note"?}` | `Alert` |
+
+`Place` = `cohort` (`{id, code, starts_on, out_of_campaign, needs_review}` or null), `sequence_id`, `sequence_open`,
+`sent_count`, `level_label` (« Contact », « R2 », « Relance terminée »), `next_step` (`contact`, `r1`…; null when
+finished or without cohort), `finished`, `next_due_at`, `next_due_on`, `next_due_week`, `pause_reason`, `email_error`,
+`max_follow_ups`. The editor view `GET /api/prospects/{id}` carries the same facts as `contact`. `Sequence` = `id`,
+`cohort`, `is_current`, `opened_at`, `closed_at`, `end_reason`, `sent_count`, `messages` (`message_id`, `rank`, `step`,
+`step_label`, `status`, `sent_at`, `sent_source`, `has_content`). `Alert` = `id`, `prospect_id`, `company_id`, `type`,
+`source`, `note`, `detail`, `raised_by_type`, `raised_by`, `raised_at`, `open`, `resolved_at`, `resolved_by`,
+`resolution_note`.
+
+Refusals: 403 `human_actor_required` (a cohort, a cohort change, « max relances », Défaillant, resolving an alert:
+a person only; a system job raises no alert); 404 `not_found`; 409 `duplicate` (cohort code, with `existing`), `in_use`,
+`cohort_s0_fixed`, `alert_exists` (with `alert_id`), `alert_resolved`; 422 `invalid` (`code` reason `cohort_code`,
+`starts_on` reason `required` / `s0_without_date`, `max_follow_ups` reason `out_of_range`, alert `type` reason
+`subject_type`, `prospect_id` reason `subject`).
 
 ## Dashboard — `GET /api/contact/dashboard`
 
@@ -21,47 +80,49 @@ number).
 {
   "today": "2026-12-31",
   "current_week": "2026-W53",
-  "counts": {"to_handle": 6, "first_contact": 3, "follow_up": 2, "review": 1, "appointments": 2},
+  "counts": {"to_handle": 5, "first_contact": 3, "follow_up": 2, "appointments": 2},
   "weeks": [{"week": "2026-W52", "year": 2026, "number": 52, "count": 3}]
 }
 ```
 
-**Scope** of Contact: prospects with a contact tracking whose state is not `ignored` (terminal, outside Contact) and
-who are not `do_not_contact` — except `appointment_obtained`, kept whatever the opposition (« RDV pris » is a
-cumulative fact). `failure`, `response_received`, `appointment_obtained` stay in scope (filterable).
+**Scope** of Contact: prospects in a cohort or with a contact tracking, whose state is neither `ignored` (terminal)
+nor `disqualified` (Défaillant), and who are not `do_not_contact` — except `appointment_obtained`, kept whatever the
+opposition (« RDV pris » is a cumulative fact). `response_received`, `appointment_obtained` stay in scope
+(filterable). The full weekly planning by level (R1, R2, R3… to send, categories Erreur sur le mail / Relance
+terminée / Défaillant / S0) is Slice S3 of the rework.
 
 **Counters** (read-only; each equals the `total` of `GET /api/contact/prospects?counter=<key>` under the same `q`):
 
 | Key | Card | Definition |
 |---|---|---|
-| `to_handle` | À traiter cette semaine | union of the three below (disjoint by state) |
-| `first_contact` | Premier contact | `neutral`, next action reached or overdue |
-| `follow_up` | Relances | `contacted` (R1 to prepare) or `r1` (R2 to prepare), reached or overdue |
-| `review` | Revues R2 | `r2`, reached or overdue — a human review/closing, not another mail (H-13) |
-| `appointments` | RDV pris | current state `appointment_obtained`, cumulative, no time window (H-18), opposed or not (only `ignored` is excluded) |
+| `to_handle` | À traiter cette semaine | union of the two below (disjoint by sends) |
+| `first_contact` | Premier contact | nothing sent yet in the sequence, Contact due this week or overdue |
+| `follow_up` | Relances | at least one send, the next follow-up (R1, R2…) due this week or overdue |
+| `appointments` | RDV pris | current state `appointment_obtained`, cumulative, no time window (H-18), opposed or not (only `ignored`/`disqualified` are excluded) |
 
-« Reached or overdue » = `planned_contact_at` before next week's Monday (business time, Europe/Paris), i.e. the
-next-action ISO week ≤ the current ISO week. The four due counters exclude `do_not_contact` and `inactive`
-prospects (Prospection's `actionable()`). An overdue week never changes a state (H-10): it stays « à traiter » until a
-person acts. `weeks` = the ISO weeks present in the planning (scope, under `q`), oldest first — the week selector's
-options; `current_week` is the server's « cette semaine ».
+« This week or overdue » = the derived next due date before next week's Monday (business time, Europe/Paris). The due
+counters exclude `do_not_contact` and `inactive` prospects (Prospection's `actionable()`). An overdue step never
+changes a state: it stays « à traiter » until a person records the send. `weeks` = the ISO calendar weeks of the next
+due dates (scope, under `q`), oldest first — the week selector's options; `current_week` is the server's « cette
+semaine ». The former `review` counter (R2 review) is gone: after R<max> the sequence is « Relance terminée ».
 
 ## List — `GET /api/contact/prospects`
 
-Query (combined with AND): `counter` (a key above), `week` (`YYYY-Www`, exact ISO week of the next action),
-`state` (any Contact state but `ignored`), `q`, `limit` (1-200, default 50), `offset` (≥ 0). Without `counter`,
-`week` and `state` the list is **the planning**: only prospects with a next-action week (a prospect without one
-appears only under an explicit `state`). The server does not default `week` to the current week: the page sends
+Query (combined with AND): `counter` (a key above), `week` (`YYYY-Www`, exact ISO week of the next due date),
+`state` (any state but `ignored`/`disqualified`), `q`, `limit` (1-200, default 50), `offset` (≥ 0). Without
+`counter`, `week` and `state` the list is **the planning**: only prospects with a next due date (a prospect without
+one appears only under an explicit `state`). The server does not default `week` to the current week: the page sends
 `current_week` from the dashboard when its selector is on « cette semaine » (so the « à traiter » cards keep the
-overdue weeks). Order: next action (soonest first, none last), last name, first name, id.
+overdue weeks). Order: next due date (soonest first, none last), last name, first name, id.
 
 ```json
 {
   "items": [{
     "id": "…", "civility": "ms", "first_name": "…", "last_name": "…", "exact_job_title": "…",
     "role_label": "…", "company_id": "…", "company_name": "…", "primary_email": "…",
-    "activity_status": "active", "tracking_status": "contacted",
-    "planned_contact_at": "2026-12-27T23:00:00Z", "next_action_week": "2026-W53",
+    "activity_status": "active", "tracking_status": "neutral",
+    "cohort_code": "S52", "sent_count": 1, "finished": false,
+    "next_due_at": "2026-12-27T23:00:00Z", "next_action_week": "2026-W53",
     "due": true, "next_step": "r1",
     "messages": {"contact": "sent", "r1": "draft", "r2": null}
   }],
@@ -69,15 +130,15 @@ overdue weeks). Order: next action (soonest first, none last), last name, first 
 }
 ```
 
-`due` = in `to_handle`. `next_step` = what the next action prepares: `contact` (neutral), `r1` (contacted), `r2`
-(r1), `review` (r2), `null` otherwise. `messages` = status of each step's message, `null` = never created.
+`due` = in `to_handle`. `next_step` = the step to send next (`contact`, `r1`, `r2`, `r3`…; `null` when finished or
+without cohort). `messages` = status of each named step's message in the current sequence, `null` = never created.
 
 Refusals: 422 `invalid` with `field: "week"`, `reason: "iso_week"` (malformed or non-existent week, e.g. `2025-W53`,
 or a year outside 2000-2100);
-422 `invalid` with `field: "state"`, `reason: "not_filterable"` (`ignored`).
+422 `invalid` with `field: "state"`, `reason: "not_filterable"` (`ignored`, `disqualified`).
 
-The left panel uses `GET /api/prospects/{id}` (editor view, with tracking and cadence suggestion) and changes the
-state/week with `PATCH /api/prospects/{id}/tracking`.
+The left panel uses `GET /api/prospects/{id}` (editor view, with the tracking and the derived `contact` progress) and
+changes the state with `PATCH /api/prospects/{id}/tracking`.
 
 **Effect on the messages** (additive fields, S3): `PATCH /api/prospects/{id}/tracking`, the editor save
 `PUT /api/prospects/{id}` and the opposition `PUT /api/prospects/{id}/contactability` answer the editor view plus
@@ -87,14 +148,17 @@ answers the plain view.
 
 ## Mail sequence — `/api/prospects/{prospect_id}/messages`
 
-One durable message per prospect and step `contact` | `r1` | `r2` (H-20). No step ordering is enforced (R1 can be
-prepared before the Contact mail is sent). Message statuses: `draft` (Brouillon), `validated` (Validé), `scheduled`
-(Programmé), `sent` (Envoyé), `cancelled` (Annulé) — distinct from the prospect's state.
+One durable message per **sequence and rank** (rework D6; H-20); the routes address the ranks of the prospect's
+**current open sequence** by step name `contact` (0) | `r1` (1) | `r2` (2) — the ranks beyond R2 come with S3. No step
+ordering is enforced (R1 can be prepared before the Contact mail is sent). Message statuses: `draft` (Brouillon),
+`validated` (Validé), `scheduled` (Programmé), `sent` (Envoyé), `cancelled` (Annulé) — distinct from the prospect's
+state. A `sent` message is a real send and counts for the level.
 
 ### State machine
 
 ```
 (none) --PUT--> draft --validate--> validated --schedule--> scheduled --(dispatcher, S7)--> sent (immutable)
+(none)|draft|validated|scheduled|cancelled --mark-sent (a person)--> sent (source manual)
                   ^                     |  ^                    |
                   |                     |  +----unschedule------+
                   +------PUT (edit)-----+-----------------------+   edit => draft, revision+1, validation cleared
@@ -111,15 +175,23 @@ draft|validated|scheduled --cancel--> cancelled --reopen--> draft (revision+1)
   time; it needs `from_email`, at least one `to`, a subject and a body (else 422 `message_incomplete` + `fields`).
 - **Schedule** (H-25): from `validated` only, an explicit ISO 8601 moment **with offset**, strictly in the future and
   at most one year ahead; no default time, unrelated to the next-action week (H-14). **Unschedule** keeps the validation.
-- **Sent** is immutable (H-21: service + database trigger). No route marks a message sent.
+- **Sent** is immutable (H-21: service + database trigger). **« Marquer comme envoyé »**
+  (`POST …/messages/mark-sent`, body `{"sent_at"?: "<ISO 8601 with offset>"}`): a person declares that the **next
+  step** of the open sequence (its first rank not sent yet) was really sent at `sent_at` (default now; 422 `invalid`
+  `sent_at` reason `in_future`, `before_previous_send`, `time_zone`). The step's unsent message becomes that send
+  (200, its text kept, a claimed one refused with `dispatch_in_progress`); without one a send record without text is
+  created (201). `sent_source` = `manual`; the dispatcher (S7) will record `worker`, the import (S2) `import`, migration
+  `0010` wrote `migration`. Only a dispatcher send needs the human validation (SQL CHECK).
 - **Cancel** (a person, or decision 29 below) keeps the content; **reopen** brings a cancelled step back to `draft`.
 - **Optimistic concurrency**: every change of an existing message sends the `expected_revision` it read.
   `revision` changes with the content (and a reopening), never with validate/schedule/unschedule/cancel.
 - **Human actor** only (403 `human_actor_required`).
-- **Closed sequence**: prospect state `response_received`, `appointment_obtained` or `ignored`, or the opposition
-  `do_not_contact` — create, edit, validate, schedule and reopen are refused; unschedule and cancel stay possible.
-- **Decision 29 and the opposition**: when a person (or an import) sets `response_received`, `appointment_obtained`
-  or `ignored`, every `draft`/`validated`/`scheduled` message of the prospect is cancelled in the same transaction
+- **Closed sequence**: no open current sequence (no cohort, or a completed one: `no_open_sequence`), the cohort S0
+  (`out_of_campaign`), prospect state `response_received`, `appointment_obtained`, `ignored` or `disqualified`
+  (`prospect_sequence_closed`), or the opposition `do_not_contact` — create, edit, validate, schedule, reopen and mark
+  sent are refused; unschedule and cancel stay possible. « Relance terminée » closes nothing (still contactable).
+- **Decision 29 and the opposition**: when a person (or an import) sets `response_received`, `appointment_obtained`,
+  `ignored` or `disqualified`, every `draft`/`validated`/`scheduled` message of the prospect is cancelled in the same transaction
   (`cancel_reason = "prospect_state:<state>"`). Recording the opposition `do_not_contact` (the editor's opposition, or the
   `ignored` state from any path) does the same with `cancel_reason = "do_not_contact"`; on the `ignored` path the state cancels
   first, so its messages carry `prospect_state:ignored`. `sent`/`cancelled` are untouched; a message claimed by the
@@ -137,13 +209,14 @@ draft|validated|scheduled --cancel--> cancelled --reopen--> draft (revision+1)
 | POST | `…/messages/{step}/unschedule` | `{"expected_revision": 1}` | `MessageResult` |
 | POST | `…/messages/{step}/cancel` | `{"expected_revision": 1}` | `MessageResult` |
 | POST | `…/messages/{step}/reopen` | `{"expected_revision": 1}` | `MessageResult` |
+| POST | `…/messages/mark-sent` | `{"sent_at"?: "2026-09-28T10:00:00+02:00"}` | 201 (send record created) / 200 `MessageResult` |
 | POST | `…/messages/{step}/generate` | `{"expected_revision"?: 1, "instruction"?: "…", "replace"?: true}` | 201 (created) / 200 `GenerationResult` — see *AI drafting (S5)* |
 
 `MessagesOut`:
 
 ```json
 {
-  "sequence": {"prospect_id": "…", "state": "contacted", "do_not_contact": false, "closed": false},
+  "sequence": {"prospect_id": "…", "state": "neutral", "do_not_contact": false, "sequence_id": "…", "out_of_campaign": false, "closed": false},
   "defaults": {"from_email": "prospection@exemple.example", "to": ["jean.test@exemple.example"], "generation_available": true},
   "steps": [{"step": "contact", "message": null}, {"step": "r1", "message": null}, {"step": "r2", "message": null}]
 }
@@ -161,9 +234,9 @@ injection); the body is free text. An omitted field keeps its value — or, on c
 
 `MessageResult`: `{"message": Message, "created": bool, "changed": bool, "unvalidated": bool}`.
 
-`Message`: `id`, `prospect_id`, `step`, `status`, `from_email`, `to`, `cc`, `bcc`, `subject`, `body_text`,
+`Message`: `id`, `prospect_id`, `sequence_id`, `rank`, `step` (null beyond R2), `status`, `sent_source`, `from_email`, `to`, `cc`, `bcc`, `subject`, `body_text`,
 `revision`, `validated_revision`, `validated_at`, `validated_by` (display name), `scheduled_at`, `sent_at`,
-`cancelled_at`, `cancel_reason` (`manual` | `prospect_state:<state>` | `do_not_contact`), `generation_model`,
+`cancelled_at`, `cancel_reason` (`manual` | `prospect_state:<state>` | `do_not_contact` | `sequence_closed`), `generation_model`,
 `generation_prompt_version`, `generated_at` (S5), `has_remote_draft` (S6), `last_error_code`, `last_error_at` (S7),
 `created_at`, `updated_at`.
 
@@ -180,7 +253,9 @@ injection); the body is free text. An omitted field keeps its value — or, on c
 | 409 | `invalid_transition` | action not allowed from the current status | `status` |
 | 409 | `dispatch_in_progress` | message claimed by the dispatcher (S7) | |
 | 409 | `prospect_do_not_contact` | write on a do-not-contact prospect | |
-| 409 | `prospect_sequence_closed` | write after `response_received` / `appointment_obtained` / `ignored` | |
+| 409 | `prospect_sequence_closed` | write after `response_received` / `appointment_obtained` / `ignored` / `disqualified` | |
+| 409 | `no_open_sequence` | write without an open current sequence (no cohort, or completed) | |
+| 409 | `out_of_campaign` | write while the prospect is in S0 | |
 | 422 | `message_incomplete` | validate without from/to/subject/body | `fields`: `from_email`, `to`, `subject`, `body_text` |
 | 422 | `invalid` | bad address (`field`: `from_email`, `to.1`, `cc.0`…; `reason` `format`/`too_many`/`control_character`), control character in `subject` (`reason: control_character`), send moment in the past (`field: scheduled_at`, `reason: not_future`) or more than a year ahead (`reason: too_far`) | `field`, `reason` |
 | 403 | `human_actor_required` | not a person, or a person without an id | |
@@ -402,3 +477,12 @@ and Home.
   send on a closed sequence; send `r1`/`r2` only once the previous step is `sent`; after a definitive failure, cancel
   the message if the sequence closed meanwhile; reclaim stale claims after a TTL based on `dispatch_claimed_at`
   (a stale claim may have sent: reconcile, never resend blindly); report the in-flight messages the UI was told about.
+- **S7 (dispatch), sequences rework**: mark the sends `sent_source = worker` (the only source that needs the human
+  validation); never dispatch for a prospect whose open « Erreur sur le mail » (`email_error`, source human/import)
+  pauses the sequence, nor in S0 or after « Relance terminée » without a person's action.
+- **Sequences rework S2-S5**: import of cohorts (dates asked in the review), imported sends (`import`), Défaillant
+  when the file is checked by a person, conflicts as `import_conflict` alerts (S2); messages beyond R2, cancellations
+  and the weekly planning by level with the categories Erreur sur le mail / Relance terminée / Défaillant / S0 (S3);
+  the UI — cohort, level, « Marquer comme envoyé », alerts, « À vérifier », Paramètres (S4/S5). Until S4 the page and
+  the prospect editor still show the former states and the week planner: a former state answers 422, a week is
+  ignored by the editor save and refused by `PATCH …/tracking` (422 `derived`).

@@ -33,15 +33,15 @@ Two figures for the current month (Europe/Paris, `app/core/business_time.py`), e
 (`VIPER_MONTHLY_CONTACT_TARGET` = 100, `VIPER_MONTHLY_APPOINTMENT_TARGET` = 10 — the source requirement "100 contacts /
 10 rendez-vous"), plus the five months before as small columns:
 
-- **Prospects contacted for the first time** in month M: prospects whose tracking **first** entered a contacted state
-  (`contacted`, `r1`, `r2`, `response_received`, `appointment_obtained`, `failure` — `CONTACTED_STAGES` of the
-  segments) in M, according to `contact_tracking_status_history`, **unless that first entry was written by an import**
-  (or is a row appended by migration `0008`, which restates a conversion). History rows written before `0008` keep
-  their legacy codes and are read through their equivalent state (`contact_workflow.history_codes`: `follow_up_1/2` as
-  R1/R2, `quote_sent`/`quote_follow_up`/`won` as an appointment, `not_interested` as a failure). An imported stage restates a
-  legacy contact made at an unknown earlier date: neither the import's history row nor a later follow-up makes the
-  person newly contacted. A person imported at *À contacter* and contacted by hand this month counts. Later moves
-  (relance, réponse) never count again. Opposed or inactive people still count (a historical fact, like the
+- **Prospects contacted for the first time** in month M (sequences rework, decision log R-08): prospects whose
+  **first contact** falls in M — the first message **really sent** (any sequence, `contact_messages.status = sent`) or,
+  for contacts made before the sends existed, the first history row entering a contact-attempt code
+  (`contact_workflow.CONTACT_ATTEMPT_CODES`: the former `contacted`, `r1`, `r2`, `failure`, the 0008 legacy codes,
+  `response_received`, `appointment_obtained`) — **unless that first contact is a restatement**: a send recorded by an
+  import or by migration `0010` (sources `import`/`migration`), a history row written by an import or appended by
+  migrations `0008`/`0010`. Migration `0010` dates its sends from the human history rows they restate, so those rows
+  still count in their own month. A person imported at *À contacter* and contacted by hand this month counts; a second
+  sequence (new cohort) never counts again. Opposed or inactive people still count (a historical fact, like the
   `contacted` segment).
 - **Appointments obtained** (meter *RDV pris*) in month M: prospects whose tracking first entered `appointment_obtained`
   (`APPOINTMENT_STAGES`; legacy history `quote_sent`, `quote_follow_up`, `won` too) in M, same import rule. Chosen
@@ -52,7 +52,8 @@ Two figures for the current month (Europe/Paris, `app/core/business_time.py`), e
 - Month boundaries are midnight in Paris (DST-aware): 31 Aug 22:30 UTC is September.
 - Every stage change is in the history, whatever the screen: the Prospect editor and Database Explorer edits of
   `contact_tracking` both go through `contact_tracking.save_contact_tracking` (I-64), which writes the row with the
-  signed-in user as actor — an explorer change into `contacted` or `appointment_obtained` counts this month (tested).
+  signed-in user as actor — an explorer change into `response_received` or `appointment_obtained` counts this month
+  (tested); « Marquer comme envoyé » records a `manual` send, which counts.
 - Limit: an appointment (or a response) recorded **only as a date**, with the stage left behind, is not in the monthly
   figure — no stage entered an appointment stage — but it is in the `appointments` (`responses`) segment. V1 keeps one
   tracking cycle per prospect: "first" means first in that cycle.
@@ -69,7 +70,7 @@ then conversions waiting; within a group the oldest (or soonest) first, ties by 
 | Group | People | Order |
 |---|---|---|
 | *Rendez-vous des 7 prochains jours* | *actionable* (segments: contactable and not inactive) with `appointment_at` from the start of today to the end of the 6th day after | soonest first |
-| *Contacts échus* | segment `due` | oldest planned contact first; shown as its week (*Semaine S37*), a next action being a week |
+| *Contacts échus* | segment `due` | oldest next due date (the cohort's date) first |
 | *Réponses sans rendez-vous* | actionable, answered (`responses` predicate), no appointment (`appointments` predicate false), state not `failure` / `ignored` | oldest response first, no date last |
 
 Each person shows the date of the group and, for the appointments and responses groups, the Contact state label
@@ -110,9 +111,10 @@ tracking_status, at, referent_name}]}}, recent_imports: [import batch as in /api
 actor: {kind, label, id, on_behalf_of}, source, subject_type, subject_id, subject_label, summary: [phrase]}]}` (Task 19,
 I-135).
 
-Cost: **9 queries** whatever the base size (segments aggregate, companies, monthly progress — one pass
-over the status history grouped by tracking —, 3 action groups with `count(*) OVER ()`, imports, audit events, current
-names of the edited prospects/companies), plus the 4 planner-setting statements of `whole_base_plan` (below).
+Cost: **10 queries** whatever the base size (segments aggregate, companies, monthly progress — one pass over the sends
+and the status history for the contacts, one over the history for the appointments, inside `whole_base_plan` —, 3 action
+groups with `count(*) OVER ()`, imports, audit events, current names of the edited prospects/companies), plus the 6
+planner-setting statements of `whole_base_plan` (below).
 
 ## Performance
 
