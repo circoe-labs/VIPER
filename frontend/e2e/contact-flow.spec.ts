@@ -2,7 +2,7 @@ import { expect, type Page, test } from '@playwright/test'
 
 import { createContactProspect, importProspects, isoWeekOf, post, uniqueSuffix } from './data'
 import { E2E_TOOLBOX_PORT } from './env'
-import { SCREENSHOTS, useTheme } from './helpers'
+import { blockRealToolbox, SCREENSHOTS, useTheme } from './helpers'
 import { signIn } from './session'
 
 // The whole Contact lot, as an operator drives it (Contact port S7), against the real backend and the local fakes
@@ -77,13 +77,15 @@ async function capture(page: Page, name: string, ready: () => Promise<void>) {
   await ready()
 }
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page, context }) => {
+  await blockRealToolbox(context)
   await signIn(page)
 })
 
 test.afterAll(async ({ browser }) => {
   // Leave the server as found: no failure mode on the fake, no Toolbox connection.
   const page = await browser.newPage()
+  await blockRealToolbox(page.context())
   await page.request.post(`${FAKE}/mode`, { data: {} })
   await signIn(page)
   await page.goto('/settings/connections')

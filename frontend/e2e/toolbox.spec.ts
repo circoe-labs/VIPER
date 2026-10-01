@@ -4,7 +4,7 @@ import { expect, type Page, test } from '@playwright/test'
 
 import { createContactProspect, uniqueSuffix } from './data'
 import { E2E_TOOLBOX_PORT, E2E_TOOLBOX_STORE } from './env'
-import { SCREENSHOTS, useTheme } from './helpers'
+import { blockRealToolbox, SCREENSHOTS, useTheme } from './helpers'
 import { signIn } from './session'
 
 // CIRCOE Toolbox (Contact port S6) against the fake Toolbox started by playwright.config.ts (e2e/fake-toolbox.ts): the
@@ -73,7 +73,8 @@ test.beforeAll(() => {
   rmSync(E2E_TOOLBOX_STORE, { force: true })
 })
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page, context }) => {
+  await blockRealToolbox(context)
   await signIn(page)
 })
 

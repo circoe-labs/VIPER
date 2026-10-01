@@ -142,7 +142,11 @@ export function ConnectionsSection() {
           <AlertIcon size={16} />
           Les réglages enregistrés ici n’ont pas pu être relus au démarrage du serveur (
           {integrations.data.load_error === 'unreadable' ? 'fichier illisible' : 'contenu refusé'}) : les valeurs par
-          défaut s’appliquent. Enregistrez-les à nouveau.
+          défaut s’appliquent
+          {integrations.data.load_dropped.length > 0
+            ? ` pour : ${integrations.data.load_dropped.map((name) => SETTING_LABELS[name] ?? name).join(', ')}`
+            : ''}
+          . Enregistrez-les à nouveau.
         </p>
       )}
       {integrations.data && (
@@ -206,6 +210,22 @@ export function ConnectionsSection() {
       </Modal>
     </>
   )
+}
+
+// The names of the settings, as the page shows them (for the « dropped at startup » warning).
+const SETTING_LABELS: Record<string, string> = {
+  openai_api_key: 'clé d’API OpenAI',
+  openai_model: 'modèle',
+  openai_base_url: 'adresse de l’API',
+  openai_timeout_ms: 'délai d’attente',
+  openai_max_retries: 'nouvelles tentatives',
+  contact_booking_url: 'lien de prise de rendez-vous',
+  default_outbound_email: 'adresse « De » par défaut',
+  toolbox_mail_enabled: 'activation de la Toolbox',
+  toolbox_mcp_url: 'adresse du serveur CIRCOE Toolbox',
+  toolbox_oauth_redirect_uri: 'adresse de retour',
+  contact_dispatch_interval_ms: 'fréquence de vérification',
+  infomaniak_send_allowlist: 'adresses autorisées',
 }
 
 // Where the settings live and who changed them last.
@@ -295,7 +315,7 @@ function ToolboxCard({ status, integrations, redirecting, redirectingFor, busy, 
         ))}
       </ul>
 
-      <ToolboxAdvanced data={integrations} open={status.state === 'not_configured'} />
+      <ToolboxAdvanced data={integrations} open={status.state === 'not_configured'} linked={linked} />
 
       <div className="settings-connection__actions">
         {linked && (

@@ -178,7 +178,7 @@ async function answer(request: IncomingMessage, response: ServerResponse) {
     tokens.set(access, Date.now() + TOKEN_TTL_S * 1000)
     return send(response, 200, { access_token: access, token_type: 'Bearer', expires_in: TOKEN_TTL_S, scope: record.scope })
   }
-  if (request.method === 'POST' && path === '/mcp') {
+  if (request.method === 'POST' && (path === '/mcp' || path === '/mcp/')) {
     const auth = request.headers.authorization ?? ''
     const token = auth.startsWith('Bearer ') ? auth.slice(7) : ''
     const message = JSON.parse(await readBody(request)) as { id?: number; method: string; params?: { name?: string; arguments?: Record<string, unknown> } }

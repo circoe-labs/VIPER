@@ -46,6 +46,7 @@ export function integrations(
     updated_at: null,
     updated_by: null,
     load_error: null,
+    load_dropped: [],
     storage_path: 'C:\\Users\\pilote\\.viper\\runtime-settings.json',
     fields: all,
     openai_api_key: NO_KEY,
@@ -60,6 +61,10 @@ interface IntegrationsStubOptions {
   initial?: Integrations
   // `PUT` answers 422 `invalid` for this field (the server's rule), whatever the value.
   refuseField?: IntegrationField | 'openai_api_key'
+  // With `refuseField`: the refusal's `reason` (e.g. `required_with_base_url`).
+  refuseReason?: string
+  // `PUT` answers 503 `settings_storage_unavailable`.
+  storageUnavailable?: boolean
   // `PUT` answers 409 `conflict`.
   conflict?: boolean
   // The answer of « Tester la clé ».
@@ -90,8 +95,9 @@ export function stubIntegrationsApi(options: IntegrationsStubOptions = {}) {
       if (options.conflict || body.version !== state.data.version) {
         return json(409, { detail: { code: 'conflict', message: 'changed' } })
       }
-      if (options.refuseField && options.refuseField in body) {
-        return json(422, { detail: { code: 'invalid', message: 'refused', field: options.refuseField } })
+      if (options.storageUnavailable) return json(503, { detail: { code: 'settings_storage_unavailable', message: 'unwritable' } })
+      if (options.refuseField && (options.refuseField in body || options.refuseReason)) {
+        return json(422, { detail: { code: 'invalid', message: 'refused', field: options.refuseField, reason: options.refuseReason } })
       }
       const next: Integrations = structuredClone(state.data)
       for (const [name, value] of Object.entries(body)) {

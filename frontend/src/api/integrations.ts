@@ -49,6 +49,8 @@ export interface Integrations {
   updated_by: string | null
   // The stored file was ignored at startup (`unreadable` | `invalid`); the next save rewrites it.
   load_error: 'unreadable' | 'invalid' | null
+  // The stored settings dropped at startup because they broke a rule (names only).
+  load_dropped: string[]
   storage_path: string
   fields: Record<IntegrationField, IntegrationSetting>
   openai_api_key: SecretSetting

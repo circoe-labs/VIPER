@@ -31,6 +31,7 @@ import {
   type FormField,
   fromDraft,
   intervalOptions,
+  KEY_REQUIRED_WITH_BASE_URL,
   saveRefusal,
   sourceText,
   toDraft,
@@ -114,7 +115,12 @@ function useCardSave(data: Integrations, form: CardForm) {
   const [startedAt, setStartedAt] = useState<number | null>(null)
   const elapsed = useElapsed(startedAt)
 
-  async function submit(changes: IntegrationsChanges, success: string, clear: readonly FormField[]): Promise<boolean> {
+  // Answers the refused field (if any) on failure, null on success.
+  async function submit(
+    changes: IntegrationsChanges,
+    success: string,
+    clear: readonly FormField[],
+  ): Promise<{ ok: boolean; field?: string }> {
     setFeedback(null)
     setStartedAt(Date.now())
     try {
@@ -122,18 +128,19 @@ function useCardSave(data: Integrations, form: CardForm) {
       form.forget(clear)
       form.setErrors({})
       setFeedback({ tone: 'success', text: success })
-      return true
+      return { ok: true }
     } catch (error) {
       const refusal = saveRefusal(error)
       if (refusal.field) form.setErrors({ [refusal.field]: refusal.message })
       setFeedback({ tone: 'error', text: refusal.field ? 'Rien n’a été enregistré : corrigez le champ signalé.' : refusal.message })
-      return false
+      return { ok: false, field: refusal.field }
     } finally {
       setStartedAt(null)
     }
   }
 
-  return { submit, feedback, saving: startedAt !== null, elapsed }
+  // `clearMutation`: forget the last request's variables (a typed key must not stay in memory, S8 QA m3).
+  return { submit, feedback, saving: startedAt !== null, elapsed, clearMutation: save.reset }
 }
 
 interface HintProps {
@@ -159,13 +166,13 @@ function SettingHint({ data, field, help, busy, onReset }: HintProps) {
               type="button"
               className="settings-setting__reset"
               disabled={busy}
-              title={`Revenir à : ${fallbackText(field, setting.fallback)}`}
+              title={`Rétablir la valeur par défaut : ${fallbackText(field, setting.fallback)}`}
               onClick={() => {
                 onReset(field)
               }}
             >
               <UndoIcon size={14} />
-              Rétablir la valeur par défaut
+              Rétablir
             </button>
           </>
         )}
@@ -230,6 +237,7 @@ interface KeyFieldProps {
   draft: string
   replacing: boolean
   error?: string
+  warning?: string
   busy: boolean
   onDraft: (value: string) => void
   onReplace: () => void
@@ -239,7 +247,7 @@ interface KeyFieldProps {
 
 // The OpenAI key, write-only: the server never sends it back. Saved: a masked placeholder with its last four
 // characters, « Remplacer » and « Effacer… » (a key set here only).
-function KeyField({ data, draft, replacing, error, busy, onDraft, onReplace, onCancel, onClear }: KeyFieldProps) {
+function KeyField({ data, draft, replacing, error, warning, busy, onDraft, onReplace, onCancel, onClear }: KeyFieldProps) {
   const key = data.openai_api_key
   const inputRef = useRef<HTMLInputElement>(null)
   const editable = !key.set || replacing
@@ -255,6 +263,7 @@ function KeyField({ data, draft, replacing, error, busy, onDraft, onReplace, onC
       <FieldFrame
         label="Clé d’API OpenAI"
         error={error}
+        warning={warning}
         hint={
           <>
             <span className="settings-setting__help">
@@ -336,11 +345,19 @@ export function OpenAICard({ data }: { data: Integrations }) {
     const changes: IntegrationsChanges = { ...pending.changes }
     // « Remplacer » left empty keeps the saved key.
     if (keyTyped) changes.openai_api_key = keyDraft.trim()
-    const saved = await card.submit(changes, keyTyped ? 'Clé et réglages OpenAI enregistrés : ils s’appliquent dès maintenant.' : 'Réglages OpenAI enregistrés : ils s’appliquent dès maintenant.', OPENAI_FIELDS)
-    if (saved) {
+    const saved = await card.submit(
+      changes,
+      keyTyped ? 'Clé et réglages OpenAI enregistrés : ils s’appliquent dès maintenant.' : 'Réglages OpenAI enregistrés : ils s’appliquent dès maintenant.',
+      OPENAI_FIELDS,
+    )
+    if (saved.ok) {
       setKeyDraft('')
       setReplacing(false)
       setCheck(null)
+      if (keyTyped) card.clearMutation()
+    } else if (saved.field === 'openai_api_key' && data.openai_api_key.set) {
+      // The key must be typed again (e.g. a new API address): open the field for it.
+      setReplacing(true)
     }
   }
 
@@ -350,7 +367,7 @@ export function OpenAICard({ data }: { data: Integrations }) {
 
   async function clearKey() {
     const done = await card.submit({ openai_api_key: null }, 'Clé OpenAI effacée.', [])
-    if (done) setCheck(null)
+    if (done.ok) setCheck(null)
     setClearing(false)
   }
 
@@ -404,6 +421,9 @@ export function OpenAICard({ data }: { data: Integrations }) {
           draft={keyDraft}
           replacing={replacing}
           error={form.errors.openai_api_key}
+          warning={
+            'openai_base_url' in pending.changes && data.openai_api_key.set && !keyTyped ? KEY_REQUIRED_WITH_BASE_URL : undefined
+          }
           busy={busy}
           onDraft={(value) => {
             setKeyDraft(value)
@@ -659,12 +679,24 @@ const TOOLBOX_FIELDS = ['toolbox_mcp_url', 'toolbox_oauth_redirect_uri'] as cons
 
 // Inside the Toolbox card, collapsed: the server address (built in) and the return address (this page's, sent when
 // connecting). Its save button is secondary: « Se connecter à CIRCOE Toolbox » stays the card's primary action.
-export function ToolboxAdvanced({ data, open }: { data: Integrations; open: boolean }) {
+export function ToolboxAdvanced({ data, open, linked }: { data: Integrations; open: boolean; linked: boolean }) {
   const form = useCardForm(data)
   const card = useCardSave(data, form)
   const pending = form.changes(TOOLBOX_FIELDS)
   const dirty = Object.keys(pending.changes).length > 0
-  const reset = (field: FormField) => void card.submit({ [field]: null }, 'Valeur par défaut rétablie.', [field])
+  // A save that changes the server address while connected waits for a confirmation (S8 QA B1).
+  const [confirming, setConfirming] = useState<{ changes: IntegrationsChanges; success: string; clear: readonly FormField[] } | null>(null)
+  const backRef = useRef<HTMLButtonElement>(null)
+  function submit(changes: IntegrationsChanges, success: string, clear: readonly FormField[]) {
+    if (linked && 'toolbox_mcp_url' in changes) {
+      setConfirming({ changes, success, clear })
+      return
+    }
+    void card.submit(changes, success, clear)
+  }
+  const reset = (field: FormField) => {
+    submit({ [field]: null }, 'Valeur par défaut rétablie.', [field])
+  }
   const disclosure = useDisclosure(open)
   const field = (name: (typeof TOOLBOX_FIELDS)[number], label: string, help: ReactNode, placeholder?: string) => (
     <TextField
@@ -702,12 +734,54 @@ export function ToolboxAdvanced({ data, open }: { data: Integrations; open: bool
             saving={card.saving}
             elapsed={card.elapsed}
             disabled={!dirty}
-            onClick={() => void card.submit(pending.changes, 'Paramètres de la Toolbox enregistrés.', TOOLBOX_FIELDS)}
+            onClick={() => {
+              submit(pending.changes, 'Paramètres de la Toolbox enregistrés.', TOOLBOX_FIELDS)
+            }}
           >
             Enregistrer les paramètres avancés
           </SaveButton>
         </div>
       </div>
+      <Modal
+        open={confirming !== null}
+        size="sm"
+        title="Changer l’adresse du serveur ?"
+        initialFocusRef={backRef}
+        onClose={() => {
+          setConfirming(null)
+        }}
+        footer={
+          <>
+            <Button
+              ref={backRef}
+              onClick={() => {
+                setConfirming(null)
+              }}
+            >
+              Retour
+            </Button>
+            <Button
+              variant="danger"
+              icon={SaveIcon}
+              onClick={() => {
+                const pendingSave = confirming
+                setConfirming(null)
+                if (pendingSave) void card.submit(pendingSave.changes, pendingSave.success, pendingSave.clear)
+              }}
+            >
+              Changer et déconnecter
+            </Button>
+          </>
+        }
+      >
+        <div className="settings-dialog">
+          <p>
+            Changer l’adresse du serveur déconnecte la Toolbox : l’accès actuel a été délivré pour l’ancienne adresse et
+            n’est jamais envoyé à une autre. Les brouillons et l’envoi programmé s’arrêtent jusqu’à une nouvelle
+            connexion.
+          </p>
+        </div>
+      </Modal>
     </details>
   )
 }

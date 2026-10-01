@@ -40,13 +40,18 @@ export function toDraft(field: FormField, value: SettingValue): string {
 export function fromDraft(field: FormField, draft: string): SettingValue | Error {
   const text = draft.trim()
   const kind = KINDS[field]
-  if (kind === 'text') return text
+  // An emptied text goes back to the default (S8 QA M2): never a typed "".
+  if (kind === 'text') return text === '' ? null : text
   const number = Number(text.replace(',', '.'))
   if (text === '' || !Number.isFinite(number)) return new Error(FIELD_ERRORS[field])
   if (kind === 'seconds') return Math.round(number * 1000)
   if (!Number.isInteger(number)) return new Error(FIELD_ERRORS[field])
   return number
 }
+
+// The key is never sent to another API address than the one it was saved with (S8 QA M1).
+export const KEY_REQUIRED_WITH_BASE_URL =
+  'Changer l’adresse de l’API demande de saisir la clé à nouveau : une clé n’est jamais envoyée à une autre adresse que celle avec laquelle elle a été enregistrée.'
 
 export const FIELD_ERRORS: Record<FormField | 'openai_api_key', string> = {
   openai_api_key: 'Saisissez une clé d’API OpenAI (elle commence en général par « sk- »).',
@@ -113,11 +118,24 @@ export interface SaveRefusal {
 export function saveRefusal(error: unknown): SaveRefusal {
   if (error instanceof ApiError) {
     const detail = error.detail
+    // FastAPI's own 422 (a malformed value, e.g. a key too long): the field it names.
+    if (Array.isArray(detail)) {
+      const location = (detail[0] as { loc?: unknown[] } | undefined)?.loc
+      const field = Array.isArray(location) ? String(location[location.length - 1]) : undefined
+      const message = field ? (FIELD_ERRORS as Record<string, string | undefined>)[field] : undefined
+      if (field && message) return { field, message }
+    }
     if (typeof detail === 'object' && detail !== null && 'code' in detail) {
-      const refusal = detail as { code: string; field?: string }
+      const refusal = detail as { code: string; field?: string; reason?: string }
       if (refusal.code === 'invalid' && refusal.field) {
+        if (refusal.reason === 'required_with_base_url') return { field: refusal.field, message: KEY_REQUIRED_WITH_BASE_URL }
         const message = (FIELD_ERRORS as Record<string, string>)[refusal.field] ?? 'Valeur refusée par le serveur.'
         return { field: refusal.field, message }
+      }
+      if (refusal.code === 'settings_storage_unavailable') {
+        return {
+          message: 'Le fichier des réglages ne peut pas être écrit sur le serveur (droits, disque) : rien n’a été enregistré ni appliqué.',
+        }
       }
       if (refusal.code === 'conflict') {
         return {

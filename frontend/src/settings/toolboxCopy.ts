@@ -1,5 +1,6 @@
 import { ApiError } from '../api/client'
 import { TOOLBOX_DEADLINE_MS, type ToolboxState, type ToolboxStatus } from '../api/toolbox'
+import { FIELD_ERRORS } from './integrationsModel'
 import type { StatusTone } from '../ui/Badge'
 
 // French copy of the CIRCOE Toolbox connection (Contact port S6): the `toolbox_*` codes of
@@ -16,6 +17,7 @@ const ERROR_LABELS: Record<string, string> = {
   toolbox_outbound_blocked: 'un destinataire n’est pas autorisé par la liste d’envoi de la Toolbox',
   toolbox_invalid_input: 'le message dépasse les limites de la Toolbox (objet de 500 caractères au plus, adresses valides)',
   toolbox_draft_not_found: 'brouillon introuvable dans Infomaniak',
+  toolbox_connection_interrupted: 'connexion interrompue par un changement de réglage de la Toolbox : recommencez',
   toolbox_state_invalid: 'tentative de connexion inconnue, expirée ou commencée par une autre personne : recommencez',
   toolbox_access_denied: 'connexion refusée dans la Toolbox ou chez Infomaniak',
   toolbox_authorization_failed: 'la Toolbox n’a pas accordé la connexion',
@@ -34,6 +36,10 @@ export function toolboxFailure(error: unknown): string {
   if (error instanceof ApiError) {
     const { detail } = error
     if (typeof detail === 'object' && detail !== null && 'code' in detail && typeof detail.code === 'string') {
+      // A refused setting while connecting (S8 QA M3), e.g. the page opened over http on the LAN: the field's rule.
+      const field = 'field' in detail && typeof detail.field === 'string' ? detail.field : null
+      const rule = field ? (FIELD_ERRORS as Record<string, string>)[field] : undefined
+      if (detail.code === 'invalid' && rule) return `${rule.charAt(0).toLowerCase()}${rule.slice(1).replace(/\.$/, '')}`
       return toolboxErrorLabel(detail.code)
     }
     return `le serveur VIPER a répondu ${String(error.status)}`

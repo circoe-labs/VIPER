@@ -1,4 +1,15 @@
-import { expect, type Locator, type Page } from '@playwright/test'
+import { type BrowserContext, expect, type Locator, type Page } from '@playwright/test'
+
+// The real CIRCOE Toolbox (the built-in server address, S8): never reached from an E2E browser (Contact port P6). The
+// specs that connect the Toolbox abort any request to it, so a wrong address fails loudly instead of leaving.
+export const REAL_TOOLBOX_HOST = 'circoetoolbox-server-production.up.railway.app'
+
+export async function blockRealToolbox(context: BrowserContext) {
+  await context.route(
+    (url) => url.hostname === REAL_TOOLBOX_HOST,
+    (route) => route.abort('blockedbyclient'),
+  )
+}
 
 // Screenshots for design review land in the git-ignored test-results/ folder (recreated on every run).
 export const SCREENSHOTS = 'test-results/screenshots'

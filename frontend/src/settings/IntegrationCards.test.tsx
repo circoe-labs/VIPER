@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { integrations, stubIntegrationsApi } from '../test/integrationsApi'
 import { renderApp } from '../test/render'
 import { stubSettingsApi } from '../test/settingsApi'
-import { stubToolboxApi } from '../test/toolboxApi'
+import { CONNECTED, stubToolboxApi } from '../test/toolboxApi'
 
 // Paramètres › Connexions (Contact port S8): the integration settings typed in the browser.
 
@@ -83,7 +83,9 @@ describe('Rédaction IA (OpenAI)', () => {
     expect(model).toHaveAccessibleDescription(/Défini ici par Pilote Test/)
     expect(within(openai()).getByRole('textbox', { name: 'Lien de prise de rendez-vous' })).toHaveAccessibleDescription(/Valeur par défaut/)
 
-    await userEvent.click(within(openai()).getByRole('button', { name: 'Rétablir la valeur par défaut' }))
+    const reset = within(openai()).getByRole('button', { name: 'Rétablir' })
+    expect(reset).toHaveAttribute('title', 'Rétablir la valeur par défaut : aucune valeur')
+    await userEvent.click(reset)
 
     expect(await within(openai()).findByText('Valeur par défaut rétablie.')).toBeInTheDocument()
     expect(api.puts).toEqual([{ version: 0, openai_model: null }])
@@ -163,7 +165,53 @@ describe('Rédaction IA (OpenAI)', () => {
   })
 })
 
+describe('the key and its API address (S8 QA M1)', () => {
+  it('warns that a new API address needs the key again, and opens the key when the server says so', async () => {
+    const api = stub({ initial: SAVED_KEY, refuseField: 'openai_api_key', refuseReason: 'required_with_base_url' })
+    renderApp('/settings/connections')
+
+    const card = await screen.findByRole('region', { name: 'Rédaction IA (OpenAI)' })
+    await userEvent.click(within(card).getByText('Paramètres avancés', { exact: true }))
+    const base = within(card).getByRole('textbox', { name: 'Adresse de l’API' })
+    await userEvent.clear(base)
+    await userEvent.type(base, 'https://proxy.exemple.example/v1')
+    const key = within(card).getByLabelText('Clé d’API OpenAI')
+    expect(key).toHaveAccessibleDescription(/demande de saisir la clé à nouveau/)
+
+    await userEvent.click(within(card).getByRole('button', { name: 'Enregistrer' }))
+
+    expect(await within(card).findByText(/une clé n’est jamais envoyée à une autre adresse/)).toBeInTheDocument()
+    expect(key).toBeEnabled()
+    expect(api.puts).toEqual([{ version: 0, openai_base_url: 'https://proxy.exemple.example/v1' }])
+  })
+})
+
 describe('Expéditeur and Envoi programmé', () => {
+  it('an emptied field goes back to the default (null), never an empty text', async () => {
+    const api = stub({
+      initial: integrations({ default_outbound_email: { value: 'ancien@exemple.example', source: 'ui', updated_by: 'Pilote Test' } }),
+    })
+    renderApp('/settings/connections')
+
+    const card = await screen.findByRole('region', { name: 'Expéditeur' })
+    await userEvent.clear(within(card).getByRole('textbox', { name: 'Adresse « De » par défaut' }))
+    await userEvent.click(within(card).getByRole('button', { name: 'Enregistrer' }))
+
+    expect(await within(card).findByText(/Expéditeur enregistré/)).toBeInTheDocument()
+    expect(api.puts).toEqual([{ version: 0, default_outbound_email: null }])
+  })
+
+  it('says a settings file the server cannot write, in French', async () => {
+    stub({ storageUnavailable: true })
+    renderApp('/settings/connections')
+
+    const card = await screen.findByRole('region', { name: 'Expéditeur' })
+    await userEvent.type(within(card).getByRole('textbox', { name: 'Adresse « De » par défaut' }), 'a@exemple.example')
+    await userEvent.click(within(card).getByRole('button', { name: 'Enregistrer' }))
+
+    expect(await within(card).findByText(/ne peut pas être écrit sur le serveur/)).toBeInTheDocument()
+  })
+
   it('saves the default sender', async () => {
     const api = stub()
     renderApp('/settings/connections')
@@ -201,6 +249,28 @@ describe('Expéditeur and Envoi programmé', () => {
 })
 
 describe('CIRCOE Toolbox › Paramètres avancés', () => {
+  it('asks before changing the server address of a connected Toolbox (it disconnects it)', async () => {
+    stubSettingsApi({})
+    stubToolboxApi({ status: CONNECTED })
+    const api = stubIntegrationsApi()
+    renderApp('/settings/connections')
+
+    const card = await screen.findByRole('region', { name: 'CIRCOE Toolbox' })
+    await userEvent.click(within(card).getByText('Paramètres avancés', { exact: true }))
+    const server = within(card).getByRole('textbox', { name: 'Adresse du serveur CIRCOE Toolbox' })
+    await userEvent.clear(server)
+    await userEvent.type(server, 'https://autre.exemple.example/mcp')
+    await userEvent.click(within(card).getByRole('button', { name: 'Enregistrer les paramètres avancés' }))
+
+    const dialog = screen.getByRole('dialog', { name: 'Changer l’adresse du serveur ?' })
+    expect(dialog).toHaveTextContent('déconnecte la Toolbox')
+    expect(api.puts).toEqual([])
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Changer et déconnecter' }))
+
+    expect(await within(card).findByText('Paramètres de la Toolbox enregistrés.')).toBeInTheDocument()
+    expect(api.puts).toEqual([{ version: 0, toolbox_mcp_url: 'https://autre.exemple.example/mcp' }])
+  })
+
   it('shows the built-in server address and saves a typed one', async () => {
     const api = stub()
     renderApp('/settings/connections')

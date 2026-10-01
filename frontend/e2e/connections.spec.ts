@@ -5,7 +5,7 @@ import { expect, type Page, test } from '@playwright/test'
 
 import { createContactProspect, csrfToken, uniqueSuffix } from './data'
 import { E2E_OPENAI_PORT, E2E_TOOLBOX_PORT } from './env'
-import { SCREENSHOTS, useTheme } from './helpers'
+import { blockRealToolbox, REAL_TOOLBOX_HOST, SCREENSHOTS, useTheme } from './helpers'
 import { signIn } from './session'
 
 // Paramètres › Connexions (Contact port S8): everything typed in the browser and applied at once, without a restart —
@@ -18,7 +18,6 @@ test.use({ viewport: { width: 1440, height: 900 } })
 
 const FAKE_OPENAI = `http://127.0.0.1:${String(E2E_OPENAI_PORT)}`
 const FAKE_TOOLBOX = `http://127.0.0.1:${String(E2E_TOOLBOX_PORT)}`
-const REAL_TOOLBOX_HOST = 'circoetoolbox-server-production.up.railway.app'
 const REFUSED_KEY = 'sk-e2e-refusee-cle-0001'
 const BROWSER_KEY = 'sk-e2e-navigateur-cle-4242'
 // Design review copies, outside the repository (the orchestrator's scratchpad), besides test-results/screenshots.
@@ -83,12 +82,14 @@ async function capture(page: Page, name: string) {
   await page.reload()
 }
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page, context }) => {
+  await blockRealToolbox(context)
   await signIn(page)
 })
 
 test.beforeAll(async ({ browser }) => {
   const page = await browser.newPage()
+  await blockRealToolbox(page.context())
   await signIn(page)
   await resetAll(page)
   await page.close()
@@ -97,6 +98,7 @@ test.beforeAll(async ({ browser }) => {
 test.afterAll(async ({ browser }) => {
   // Leave the server as found: no Toolbox connection, every value back to the environment's.
   const page = await browser.newPage()
+  await blockRealToolbox(page.context())
   await signIn(page)
   await page.goto('/settings/connections')
   const disconnect = page.getByRole('button', { name: 'Se déconnecter…' })
@@ -163,34 +165,27 @@ test('an OpenAI key typed in the browser drafts at once, without a restart', asy
 
 test('« Se connecter à CIRCOE Toolbox » from the settings, with the advanced address typed here', async ({ page }) => {
   // Start without any server address (the E2E server's own points at the fake): the page says what is missing.
-  const current = await integrations(page)
-  const cleared = await page.request.put('/api/settings/integrations', {
-    data: { version: current.version, toolbox_mcp_url: '' },
-    headers: { 'X-CSRF-Token': await csrfToken(page) },
-  })
-  expect(cleared.ok()).toBe(true)
   await page.goto('/settings/connections')
   const toolbox = card(page, 'CIRCOE Toolbox')
-  await expect(toolbox).toContainText('Non configurée')
-  await expect(toolbox).toContainText('Il manque l’adresse du serveur CIRCOE Toolbox')
+  await expect(toolbox.getByRole('button', { name: 'Se connecter à CIRCOE Toolbox' })).toBeVisible()
 
-  // The server address, typed in « Paramètres avancés » (open since it is missing): a refused one is said under the
-  // field; then the local fake — never the real Toolbox.
+  // The server address, typed in « Paramètres avancés »: a refused one is said under the field; then the local fake
+  // (written with a final slash, so it differs from the E2E server's own value and is saved here) — never the real
+  // Toolbox.
+  await toolbox.getByText('Paramètres avancés', { exact: true }).click()
   const server = toolbox.getByRole('textbox', { name: 'Adresse du serveur CIRCOE Toolbox' })
-  await expect(server).toBeVisible()
-  await expect(server).toHaveValue('')
+  await expect(server).not.toHaveValue(new RegExp(REAL_TOOLBOX_HOST))
   await server.fill('http://toolbox.exemple.example/mcp')
   await toolbox.getByRole('button', { name: 'Enregistrer les paramètres avancés' }).click()
   await expect(toolbox.getByText('Adresse https attendue (http seulement sur localhost).')).toBeVisible()
   await expect(server).toHaveAttribute('aria-invalid', 'true')
   await toolbox.screenshot({ path: `${SCREENSHOTS}/connections-toolbox-refused-dark-1440.png`, animations: 'disabled' })
   if (REVIEW_DIR) await toolbox.screenshot({ path: path.join(REVIEW_DIR, 'connections-toolbox-refused-dark-1440.png'), animations: 'disabled' })
-  await server.fill(`${FAKE_TOOLBOX}/mcp`)
-  await expect(server).not.toHaveValue(new RegExp(REAL_TOOLBOX_HOST))
+  await server.fill(`${FAKE_TOOLBOX}/mcp/`)
   await toolbox.getByRole('button', { name: 'Enregistrer les paramètres avancés' }).click()
   await expect(toolbox.getByText('Paramètres de la Toolbox enregistrés.')).toBeVisible()
   const saved = await integrations(page)
-  expect(saved.fields.toolbox_mcp_url).toMatchObject({ value: `${FAKE_TOOLBOX}/mcp`, source: 'ui' })
+  expect(saved.fields.toolbox_mcp_url).toMatchObject({ value: `${FAKE_TOOLBOX}/mcp/`, source: 'ui' })
 
   // The scheduled sending, off until chosen here.
   const dispatch = card(page, 'Envoi programmé')

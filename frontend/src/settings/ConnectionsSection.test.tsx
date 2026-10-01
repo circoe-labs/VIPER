@@ -181,10 +181,10 @@ describe('Paramètres › Connexions', () => {
   })
 
   it('says where the settings live and that a file left unread was ignored', async () => {
-    stub({}, { initial: integrations({}, { load_error: 'invalid', updated_at: '2026-10-01T08:00:00+00:00', updated_by: 'Pilote Test' }) })
+    stub({}, { initial: integrations({}, { load_error: 'invalid', load_dropped: ['openai_timeout_ms'], updated_at: '2026-10-01T08:00:00+00:00', updated_by: 'Pilote Test' }) })
     renderApp('/settings/connections')
 
-    expect(await within(panel()).findByText(/n’ont pas pu être relus au démarrage du serveur/)).toBeInTheDocument()
+    expect(await within(panel()).findByText(/n’ont pas pu être relus au démarrage du serveur/)).toHaveTextContent('pour : délai d’attente.')
     expect(panel()).toHaveTextContent('runtime-settings.json')
     expect(panel()).toHaveTextContent('par Pilote Test')
   })
