@@ -33,7 +33,7 @@ Historical columns:
 ## Important observed anomalies
 
 - `Référent` mixes real internal names with `v`, `xxx`, `?`, retirement/death/RDV notes and even email-like text. Only genuine internal referents may map to Referent.
-- first `A contacter ` contains `s37`, `s39`, and `retraité`; `retraité` is not a week and must be flagged, with a possible user-confirmed suggestion of `Inactive`.
+- first `A contacter ` contains `s37`, `s39`, and `retraité`; `retraité` is not a cohort and must be flagged, with a possible user-confirmed suggestion of `Inactive`.
 - second `A contacter` contains `Oui/OUI`; its semantics remain legacy metadata until confirmed.
 - `Mode de contact` contains `Commercial`, `Commerciale`, `Auto`; preserve raw and do not silently map to commercial segment.
 - civilities are inconsistent (`M.`, `MR`, `MME`, `MME.`, `M`, `0`-style anomaly); normalize only through explicit rules and flag invalid values.
@@ -53,7 +53,9 @@ Historical columns:
 - `Adresse` → company Establishment/address, never Prospect.
 - project/type/references/approach → company fields/legacy metadata as appropriate.
 - `Référent` → internal referent only for recognized values.
-- `S37/S39` → planned-contact candidate requiring year/context; never invent year.
+- `S37/S39` → cohort code (`S<n>`, `S0` = validated out of campaign) with a real date given by a person; never an
+  ISO week, never an invented year (Slice S2, see
+  [Import redesign](#import-redesign--cohorts-sequences-and-human-precedence-slice-s2)).
 - stage booleans → normalized contact-tracking status when data exists; conflicts require visible review.
 - unknown/ambiguous columns → lossless `import_row_metadata.legacy_metadata`.
 
@@ -65,7 +67,8 @@ Preview must show machine-readable + human-readable diagnostics for missing iden
 
 Import must never reactivate a permanently blocked/do-not-contact prospect.
 
-The extra `actualité` sheet is outside the V1 prospect-import model. The UI must explicitly say it is skipped rather than silently ignoring it.
+Only the **first sheet** of the workbook is imported (decision D10); the extra `actualité` sheet (and any other) is
+outside the prospect-import model. The UI must explicitly say it is skipped rather than silently ignoring it.
 
 ## Export semantics
 
@@ -133,10 +136,11 @@ Pipeline: `workbook.py` (adapters) → `layout.py` (sheet + columns; legacy head
 
 ### Sheet recognition
 
-The prospect sheet is the one whose header row — searched in its first 10 non-empty rows — names the most known
-fields, at least 3 of them including one identity field (`Entreprise`, `Nom`, `Prénom`, `Mail`). Ties go to the
-first sheet. Every other sheet gets `sheet.skipped` (the historical `actualité` sheet included); no candidate at
-all gives `sheet.not_found` and no rows. The historical sheet name `Base client ` (trailing space) plays no role.
+Only the **first sheet** is imported (decision D10, Slice S2): its header row is the one, among its first 10
+non-empty rows, that names the most known fields — at least 3 of them including one identity field (`Entreprise`,
+`Nom`, `Prénom`, `Mail`). Every other sheet gets `sheet.skipped` (the historical `actualité` sheet included) and never
+feeds the CRM, even when it looks like a prospect list; a first sheet without such a header gives `sheet.not_found` and
+no rows. The sheet name (`Base client `, trailing space) plays no role.
 
 ### Column mapping
 
@@ -146,7 +150,7 @@ columns, in workbook order:
 | Col | Historical header | Field (`ImportField`) | Target |
 |---|---|---|---|
 | A | `Référent` | `referent` | contact tracking `referent_id` — recognised internal referents only |
-| B | `A contacter ` (1st) | `planned_contact` | contact tracking `planned_contact_at` candidate (week/date) |
+| B | `A contacter ` (1st) | `planned_contact` | **cohort** code (`Sxx`, `S0`) → the prospect's sequence (Slice S2; historical key) |
 | C | `Entreprise` | `company_name` | company `display_name` (+ in-file company key) |
 | D | `rdv obtenu` | `stage_appointment` | tracking status `appointment_obtained` (a date → `appointment_date`) |
 | E | `Devis envoyé` | `stage_quote_sent` | tracking status `appointment_obtained` (post-appointment, out of the Contact scope) |
@@ -172,10 +176,11 @@ columns, in workbook order:
 
 The current operational workbook adds an optional `Statut_verification` column (aliases `Statut vérification`,
 `Statut de vérification`) **before** `Référent` (so the columns above shift by one). It maps to
-`verification_status` by header, is kept raw in legacy metadata (`column.legacy_preserved`) and its operational
-values (`Validé`, `Inactif`, `Inconnus`, blank) set the activity and e-mail verification status on commit
-(`services/imports/verification.py`, `services/operational_import.py`). Older workbooks without it stay valid: it is
-only reported as `column.missing` (info).
+`verification_status` by header and is kept raw in legacy metadata (`column.legacy_preserved`). Its only effect
+(decision D10, R-13) is the prospect's **activity**: `Validé` → active, `Inactif` → inactive (`Inconnus`, blank or a
+note claim nothing), applied with the human-precedence rule (D11) — it never touches an e-mail's verification nor the
+employment verification date (`services/imports/verification.py`). Older workbooks without it stay valid: it is only
+reported as `column.missing` (info).
 
 Accepted aliases (e.g. `Société`, `E-mail`, `Courriel`, `Portable`, `Rendez-vous obtenu`, `Poste`) are listed in
 `fields.py`. The repeated `A contacter` header is disambiguated **by position** (`matched_by = position`). Any
@@ -200,7 +205,7 @@ header row or a field mapped twice → `ImportRejectedError` (`mapping.*`).
 | `Fonction` | `exact_job_title` = trimmed text. Role suggestions against the reference roles: exact folded label or slug (active → no confirmation; inactive → `role.inactive_match`), then every word of a role label present in the title (`contains`, 0.9) or close spelling (`similar`, ratio ≥ 0.8), ranked; none → `role.unmatched`. **Never** a new role. |
 | `Catégorie` | Numeric prefix `N. ` removed. The whole cell is matched first; otherwise split on `/`, `;`, `,`, `+`, `\|`, line break — **never** on `&` or `et` (historical labels contain them). Each part: exact category, suggestion (`category.suggested`), inactive (`category.inactive_match`), exact commercial-segment label (`category.segment_suggested`, company segment suggestion to confirm) or unmatched (`category.unmatched`, listed in `unmatched_categories`). Yes/no markers, `x`, `?`, numbers, `n/a`… → `category.invalid`. Raw kept unless every part matched exactly. |
 | `Référent` | Only a recognised internal referent: full name in either order (exact), or a unique first name / last name / initial + last name (`referent.partial_match`, to confirm); several → `referent.ambiguous`; only a deactivated one → `referent.inactive`. Markers `v`, `x`, `xxx`, `?`, `ok`… → `referent.marker`; anything with `@` → `referent.email_like` (even a referent's own address); week codes → `referent.week_marker`; one to three words of letters → `referent.unknown`; other text → `referent.note` (a departure hint also suggests `inactive`). Unmatched values are kept raw and **never** become a referent. |
-| 1st `A contacter` | `S37`, `s39`, `S 37`, `sem. 37` → week **without year** (`planned_contact.week_without_year`, `requires_year`, no date, raw kept — the year is never guessed). `S37 2026`, `S37/26`, `2026-W37` → Monday of that ISO week. A date cell or `dd/mm/yyyy` → that date. Impossible week → `planned_contact.invalid_week`. Anything else → `planned_contact.not_a_week`, raw kept; `retraité`, `décédé`, `plus en poste`… also suggest activity `inactive` (`activity.inactive_suggested`, to confirm; import never sets activity). |
+| 1st `A contacter` | **Cohort code** (Slice S2, R-14): `S37`, `s39`, ` S 39 `, `Sem 037`, `S0` → `S37`, `S39`, `S0` (`PreviewRow.cohort_code`; rule shared with Paramètres, `app/core/cohort_codes.py`) — a session name, never an ISO week, no year inferred. Anything else — a date, `S37 2026`, a number, a note — is **not a cohort**: `cohort.not_a_cohort`, raw kept (a `data_inconsistent` alert at commit); `retraité`, `décédé`, `plus en poste`… also suggest activity `inactive` (`activity.inactive_suggested`, to confirm in the review). |
 | Stage columns | Positive: `oui`, `x`, `ok`, `fait`, `1`, `v`, check marks, `TRUE`, non-zero numbers, dates, `oui …`. Negative: `non`, `0`, `FALSE`, dashes. Other text → `tracking.stage_unrecognized`, raw kept. The **most advanced positive stage column wins** (column order `Relance 1` < `relance 2` < `rdv obtenu` < `Devis envoyé` < `Suivi`, `STAGE_RANK`), then maps to its Contact state (`r1`, `r2`, `appointment_obtained` for the last three). Conflict (`tracking.stage_conflict`, `requires_review`): a negative stage below the winning one, `Relance 2` without `Relance 1`, `Suivi` without `Devis envoyé`. Dates and non-plain values of stages other than `rdv obtenu` are kept raw. A tracking proposal exists when a stage is positive, a planned contact was read or a referent was recognised (status `neutral` otherwise). |
 | `Mail` | Split on spaces, `;`, `,`, `/`, `\|`; lowercased; `mailto:` and wrapping punctuation removed; syntax-checked (`local@domain.tld`, ≤ 320). Valid addresses kept in order, first = primary (`email.multiple_in_cell`); any invalid part → `email.invalid`, raw kept. The company `email_domain` is the first non-webmail domain of the row. |
 | `Téléphone`, `Mobile` | Split on `/`, `;`, `,`, `\|`, line break, ` ou `, ` - `. French numbers (`06 00 00 00 01`, `+33 (0)6…`, `0033…`) → `+33XXXXXXXXX`; other `+`/`00` numbers keep their digits; a number typed as a number that lost its leading zero (9 digits) is restored (`phone.leading_zero_restored`); other digit strings not starting with `0` are kept as typed (`phone.unrecognized_format`); letters or wrong length → `phone.invalid`, raw kept. Type by the French numbering plan (06/07 mobile, 01–05/09 landline, 08 other), else by column (`Mobile` → mobile, `Téléphone` → other). Duplicates across both columns dropped. **Primary = first mobile number, else the first number.** |
@@ -214,10 +219,13 @@ header row or a field mapped twice → `ImportRejectedError` (`mapping.*`).
 - key = the field value for mapped columns (`contact_mode`, `legacy_to_contact_flag`, `referent`, `civility`, …),
   `column_<letter>` for unmapped ones;
 - reason `opaque_field` (kept raw by design), `unmapped_column`, or `not_mapped_value` (the value was invalid,
-  partial, a guess or not storable as is — e.g. a week without its year).
+  partial, a guess or not storable as is — e.g. a value of the cohort column that is not a cohort).
 
 Every non-empty source cell is listed in `PreviewRow.cells` with `mapped` (a proposed field carries it) and/or
-`preserved` (it is in legacy metadata); a final pass preserves any cell no rule consumed. A property test over 300
+`preserved` (it is in legacy metadata); a final pass preserves any cell no rule consumed. At commit (Slice S2, R-12)
+every source row — **excluded ones included** — also keeps the raw snapshot of all its non-empty cells in
+`import_row_metadata.raw_cells` (`{letter: {header, value[, merged]}}`), so nothing of the file is lost even when the
+row does not feed the CRM. A property test over 300
 generated rows checks that every cell is mapped or preserved, that preserved values equal the source, and that
 `mapped` cells are really represented in the proposal.
 
@@ -261,9 +269,9 @@ remains the last guard). A same-name-only match with a blocked prospect gives
   `duplicate_email_groups`, batch `notices`.
 - `rows[]`: `row_number`, `status` (worst severity), `company` (with categories, segment suggestion,
   establishment, candidates, `match_key`), `prospect` (civility, names, exact job title, role suggestions,
-  activity suggestion), `emails`, `phones`, `tracking` (status, positive stages, `requires_review`, planned
-  contact, appointment date, referent + suggestions), `legacy_metadata`, `duplicates`, `blocked_by_do_not_contact`,
-  `diagnostics`, `cells`.
+  activity suggestion), `emails`, `phones`, `tracking` (status, positive stages, `requires_review`, appointment
+  date, referent + suggestions), `cohort_code` (Slice S2), `legacy_metadata`, `duplicates`,
+  `blocked_by_do_not_contact`, `diagnostics`, `cells`.
 - Diagnostics: `{code, severity, message, row, column, field, value}` — the message is French and never contains a
   cell value; the offending raw value is in `value`.
 
@@ -285,10 +293,11 @@ table lists every code).
 | `file.encoding_fallback` | info | Fichier CSV lu en Windows-1252 (il n'est pas en UTF-8) : vérifiez les accents. |
 | `sheet.too_many_rows` | error | La feuille « {sheet} » dépasse le nombre maximal de lignes ({limit}). |
 | `sheet.too_many_columns` | error | La feuille « {sheet} » dépasse le nombre maximal de colonnes ({limit}). |
-| `sheet.not_found` | error | Aucune feuille ne ressemble à une liste de prospects : en-têtes attendus introuvables. |
-| `sheet.skipped` | info | Feuille « {sheet} » ignorée : elle ne fait pas partie du modèle d'import des prospects. |
+| `sheet.not_found` | error | La première feuille du classeur ne ressemble pas à une liste de prospects : en-têtes attendus introuvables. |
+| `sheet.skipped` | info | Feuille « {sheet} » ignorée : seule la première feuille du classeur est importée. |
 | `sheet.merged_cells` | info | Feuille « {sheet} » : {count} plage(s) de cellules fusionnées ; la valeur d'une fusion verticale est recopiée sur chacune de ses lignes. |
 | `mapping.unknown_sheet` | error | Feuille « {sheet} » introuvable. |
+| `mapping.not_first_sheet` | error | Feuille « {sheet} » : seule la première feuille du classeur peut être importée. |
 | `mapping.invalid_header_row` | error | La ligne {row} ne peut pas servir de ligne d'en-têtes (vide ou hors de la feuille). |
 | `mapping.unknown_column` | error | Colonne {column} inexistante. |
 | `mapping.duplicate_field` | error | Le champ « {label} » est associé à plusieurs colonnes. |
@@ -323,9 +332,7 @@ table lists every code).
 | `referent.partial_match` | warning | Référent reconnu partiellement (prénom, nom ou initiale seul) : à confirmer. |
 | `referent.ambiguous` | warning | Plusieurs référents internes correspondent : à choisir ; valeur d'origine conservée. |
 | `referent.inactive` | warning | Le référent correspond à une personne désactivée : à confirmer. |
-| `planned_contact.week_without_year` | warning | Semaine de contact sans année : préciser l'année (jamais devinée) ; valeur d'origine conservée. |
-| `planned_contact.not_a_week` | warning | Ni une semaine ni une date de contact : ignorée, valeur d'origine conservée. |
-| `planned_contact.invalid_week` | warning | Numéro de semaine impossible : ignoré, valeur d'origine conservée. |
+| `cohort.not_a_cohort` | warning | Valeur qui n'est pas une cohorte (S37, S0…) : aucune cohorte, alerte « Donnée incohérente » à l'import ; valeur d'origine conservée. |
 | `activity.inactive_suggested` | warning | Statut d'activité « Inactif » suggéré (retraite, départ…) : à confirmer. |
 | `tracking.stage_conflict` | warning | Étapes de suivi contradictoires : l'étape la plus avancée est proposée, à vérifier. |
 | `tracking.stage_unrecognized` | warning | Valeur d'étape de suivi non reconnue : ignorée, valeur d'origine conservée. |
@@ -400,7 +407,9 @@ Excel » in the Prospection header (Task 14) and the Entreprises header). Design
 | Category | folded category token | `ignore` · `existing(category_ids)` · `create(label)` · `segment(segment_id)` | the exact active category, else ignore |
 | Referent | folded raw value | `ignore` · `existing(referent_id)` | the exact active referent, else ignore (markers, notes, e-mails, partial/ambiguous/inactive matches) |
 | Civility | folded invalid value | `mr` · `ms` · `null` | `null` |
-| Week year | batch `week_year`, per week `weeks[n]` | a year (2000–2100) or `null` | no year → no date (never guessed) |
+| Cohort dates (S2) | cohort code (`S41`) | its real start date (`YYYY-MM-DD`) | none: **required** for every new code an imported row carries (S0 excepted) |
+| File verified by a person (S2) | batch `human_verified` | `true` / `false` | `false` (rows of new prospects without a valid `Sxx` stay without cohort) |
+| *Deprecated* | `week_year`, `weeks` | accepted, ignored | — (removed with the S5 screen) |
 | Company | company key | `create` · `link(company_id)` | link to the single best existing company with the same key, else create |
 | Row resolution | row | `create` · `attach(prospect_id)` · `attach_row(row)` · `exclude` | do-not-contact match → exclude; same e-mail or same names + company as an existing prospect → attach to the best one; same names + company as an earlier row → merge into it; else create |
 | Inactive | row | `true` confirms the engine's `inactive` suggestion | `false` |
@@ -408,7 +417,8 @@ Excel » in the Prospection header (Task 14) and the Entreprises header). Design
 | Re-import | batch | `acknowledge_reimport` | `false` |
 
 Validation (`review.plan_import`, 422 `invalid_decisions` with `{code, row, group, key}`): `unknown_row`,
-`unknown_key`, `unknown_value` (id not in the snapshot), `invalid_week_year` (week 53), `inactive_not_suggested`,
+`unknown_key`, `unknown_value` (id not in the snapshot), `cohort_date_required` (group `cohorts`, key the code),
+`cohort_exists` (a date for a cohort VIPER already has), `inactive_not_suggested`,
 `missing_name` (create without any name), `blocked_by_do_not_contact` (a blocked row may only be excluded or attached
 to the blocked prospect), `not_a_candidate` (attach target not among the row's candidates), `attached_to_excluded`,
 `attach_cycle`, `nothing_to_import`. A role or category to create whose label already exists → 409 `duplicate`.
@@ -422,6 +432,9 @@ to the blocked prospect), `not_a_candidate` (attach target not among the row's c
 - E-mails and phones: added when the prospect does not have them (same address/number, active or not, is left as it
   is — never reactivated), `origin_type=imported`, `verification_status=unverified`, source reference
   `file / sheet / ligne n`; a new one becomes primary only when the prospect has no primary of that kind.
+- **Superseded by Slice S2 for existing prospects and companies**: see
+  [Human precedence](#human-precedence-d11) — a different value now raises an `import_conflict` alert, a field a
+  person set or emptied is never filled, and e-mails/phones are no longer added beside different ones.
 - Activity: `inactive` only when confirmed and the prospect's activity is `unknown`.
 - Contact tracking: created when absent; an existing tracking keeps its state — except a `neutral` one, which the
   file's stage columns advance (nothing was chosen yet; reference Task 03) — and only gets empty dates/referent
@@ -441,21 +454,11 @@ batch `committed` with `rows_total`, `rows_imported`, `rows_skipped` (+ the batc
 migration 0006). A contact tracking is created only when an appointment stage or a referent is applied. Dates without
 time (appointment) are stored at midnight Europe/Paris.
 
-**Sequences rework, Slice S1 (until the import redesign of S2, decision log R-09)**: the planned week (`A contacter`)
-and the follow-up stage columns (`Relance 1`, `relance 2`) are **no longer written** — a week is not a cohort (D5) and a
-follow-up is a send, not a state (D1/D7); their raw cells are kept in the row's legacy metadata (`planned_contact`,
-`stage_follow_up_1/2`), so nothing is lost before S2 turns them into cohorts and imported sends. The review still
-reads and diagnoses them (weeks without year…). Appointment stages still set `appointment_obtained`.
-
-Operational reconciliation (`services/operational_import.py`, same transaction, audited), run by
-`POST /api/imports/commit` after the generic commit, row by row in source order: a recognised `Statut_verification`
-value marks employment checked now and sets the activity status and the imported e-mails' verification (never
-downgrading a verified e-mail, never touching a non-imported one) — D10 (S2) will stop it touching the e-mails. The
-former rule P7 (« a past week makes a neutral tracking `contacted` with the R1 week as next action ») and its referent
-rule are gone with the sequences rework: a file week never changes a state nor plans anything, and the row's referent
-fills an empty one like any field (a referent set by hand is never replaced).
-
-Tests: `tests/test_operational_import.py`.
+The follow-up stage columns (`Relance 1`, `relance 2`) are sends of an unknown date, not states (D1/D7): never
+written, kept raw (`stage_follow_up_1/2`). Appointment stages still set `appointment_obtained` (on a `neutral` state no
+person chose). The cohort column, the imported sends, « Défaillant » and the conflicts are the import redesign of
+Slice S2: [below](#import-redesign--cohorts-sequences-and-human-precedence-slice-s2). Tests:
+`tests/test_import_commit.py`, `tests/test_operational_import.py`.
 
 Losslessness at commit: besides the engine's legacy metadata, a row keeps the raw value of anything the commit does
 not apply — another spelling of its company, a company text that differs from the stored one, a second address, an
@@ -470,10 +473,10 @@ the request commits; the API answers 500 `commit_failed` (422 when a value was r
 
 | Method & path | Body | Answer |
 |---|---|---|
-| `POST /imports/preview` | multipart `file`, optional `options` (JSON `{mapping, corrections}`) | `{review: {preview, digest, roles, categories, referents, weeks, civilities, companies, prospects, rows}, previous_imports}` |
-| `POST /imports/commit` | multipart `file`, `decisions` (JSON `ImportDecisions`) | `{batch, counts}` (`prospects_created`, `prospects_attached`, `rows_merged`, `companies_created`, `companies_linked`, `emails_added`, `phones_added`, `trackings_created`, `roles_created`, `categories_created`, `rows_*`) |
+| `POST /imports/preview` | multipart `file`, optional `options` (JSON `{mapping, corrections}`) | `{review: {preview, digest, roles, categories, referents, weeks (deprecated, `[]`), civilities, companies, prospects, rows, cohorts, not_cohorts, disqualified_if_verified}, previous_imports}` |
+| `POST /imports/commit` | multipart `file`, `decisions` (JSON `ImportDecisions`) | `{batch, counts}` (`prospects_created`, `prospects_attached`, `rows_merged`, `companies_created`, `companies_linked`, `emails_added`, `phones_added`, `trackings_created`, `roles_created`, `categories_created`, `cohorts_created`, `sequences_opened`, `sends_recorded`, `prospects_disqualified`, `alerts_raised`, `rows_*`; a key is absent when its count is 0) |
 | `GET /imports?limit=1..200` | — | batches, newest first (metadata only) |
-| `GET /imports/{id}` | — | batch + `rows_traced`, `prospect_count`, `company_count` |
+| `GET /imports/{id}` | — | batch + `rows_traced` (every source row, excluded ones included), `prospect_count`, `company_count` (of the imported rows) |
 
 Refusals: `file_rejected` (422, or 413 when `Content-Length` exceeds the file limit + 2 MiB; carries the engine's
 French `diagnostic`), `length_required` (411), `invalid_request` (422; schema errors with locations and types only,
@@ -499,6 +502,81 @@ Commit: 328 rows imported, 11 excluded, 324 prospects, 247 companies, 233 e-mail
 metadata, 0 contact tracking (weeks left without year, no referent recognised); invariants checked (no opposition
 touched, every row imported or excluded, one row metadata and one source per imported row, channels imported and
 unverified, no employment verified).
+
+## Import redesign — cohorts, sequences and human precedence (Slice S2)
+
+Sequences rework, Slice S2 (`tasks/viper_import_excel_sequences/`, decisions D3, D4, D5, D10, D11, D12; decision log
+[R-12 … R-19](../product/decision-log.md#sequences-rework-decisions-import-excel-and-contact-sequences-2026-10-01)).
+Code: `services/imports/` (engine, review), `services/import_commit.py` (writes),
+`services/import_precedence.py` (D11), `services/operational_import.py` (cohorts, sends, Défaillant). Tests on
+synthetic workbooks only: `tests/fixtures/synthetic/operational_workbook.py` mirrors the operational file's structure
+(first sheet `Base client ` with `Statut_verification`, the cohort column, a hidden column, a merged cell, rows without
+identity, `Feuil1` and `actualité` sheets) — `tests/test_operational_import.py`.
+
+### What the file means
+
+| Source | Effect |
+|---|---|
+| First sheet | The only one read (R-12). Other sheets: `sheet.skipped`, nothing written. |
+| Every non-empty cell | Kept raw per source row (`import_row_metadata.raw_cells`), excluded rows included (`excluded`). |
+| `A contacter ` (1st) | A cohort code (`S37`, `S0`) or `cohort.not_a_cohort` (R-14). |
+| `Statut_verification` | The activity only (R-13). |
+| `Mode de contact`, 2nd `A contacter`, unnamed columns | Raw metadata only: no effect, not shown. |
+| Missing job title / e-mail / phone, `0` placeholders | Stored empty (D12: shown « À vérifier » by the UI); `0` civility or text placeholders never become values. |
+
+### Review (preview) and decisions
+
+- `review.cohorts[]`: each code of the file with its rows; `existing` cohorts (S0 always) are reused with their date;
+  a new code has `needs_date = true` and the commit requires its **real date** in `cohort_dates` (never derived from
+  an ISO week) — else 422 `invalid_decisions` `cohort_date_required`. The validating person creates it with that date.
+- `review.not_cohorts[]`: values of the cohort column that are not codes (`retraité`), each with its rows.
+- `review.disqualified_if_verified[]`: the rows that, with their default resolution, create a prospect without any
+  cohort — they become « Défaillant » if the person ticks « Fichier vérifié humainement » (`human_verified`, default
+  `false`). Per row: `cohort_key`, `cohort_status` (`cohort` / `missing` / `not_a_cohort`), `not_cohort_key`.
+
+### Commit
+
+Order inside the savepoint: Settings values and new cohorts (by the person) → batch → companies → prospects (create or
+complete) → tracking → **cohorts, sequences, sends and « Défaillant »** (`OperationalReconciler`, per prospect, its rows
+in source order) → one trace per source row → batch committed.
+
+- **Cohort** (R-15): a prospect without any sequence history and in no state other than `neutral` opens a sequence in
+  the row's cohort (import actor). Cohort date strictly before today (business date) → its Contact (rank 0) is
+  recorded `sent` at that date's business midnight, `sent_source = import`. S0: a sequence, no send. A prospect whose
+  current cohort differs, whose cohort a person removed, or whose state a person chose keeps it: `import_conflict`
+  (`cohort`). Two rows of one prospect with different codes: the first applies, an `import_conflict` for the others.
+- **Not a cohort**: a `data_inconsistent` alert on the prospect (`field = cohort`, `file_value` = the text).
+- **« Défaillant »** (R-16): only with `human_verified`, for new prospects without a valid code and without a state
+  from the file; the state is set **by the validating person** (history row, audit), never by the import or the AI.
+  An existing prospect only when it has no cohort history and no state a person chose — otherwise an
+  `import_conflict` (`contact_state`).
+- **Do-not-contact** prospects are never put in a cohort nor touched; an excluded row matching one is traced with
+  that prospect (`excluded = true`, raw snapshot only).
+
+### Human precedence (D11)
+
+For prospect fields (civility, names, job title, activity, company), contact tracking (referent, appointment date,
+state), company fields (Circoe texts, segment, activity categories, address) and channels (R-17):
+
+| VIPER | File | Result |
+|---|---|---|
+| empty | filled | filled — unless a person set or emptied that field: kept empty, `import_conflict` (`reason = human_cleared`) |
+| same value (case and spacing ignored) | same | nothing |
+| a value | another value | VIPER's value kept, `import_conflict` (`reason = different`); the file's raw cell stays in the row's legacy metadata |
+
+« Set or emptied by a person » is read from the audit log (`human` events touching the field; for e-mails, phones and
+establishments, a person's change of any of them; for the state, a person's status-history row). Activity `unknown`
+counts as empty. The e-mail domain and the role are only filled (derived values, no alert). Rows merged into a
+prospect created by the same import keep the former rule (fill, raw kept, no alert). Alerts (`source = import`,
+detail `{field, viper_value, file_value, reason, import_batch_id, file, sheet, row}`) are raised **once**: the same
+subject, type, field, values and reason — open or resolved — is never raised again (R-18), so re-importing a file
+changes nothing.
+
+### Not yet in the UI (S5)
+
+The current review screen still shows the former « Semaines sans année » section (always empty now) and cannot give
+cohort dates nor tick « Fichier vérifié humainement »: a file carrying a new cohort code is refused at commit
+(`cohort_date_required`) until the S5 screen, or once a person has created the cohort in Paramètres.
 
 ---
 

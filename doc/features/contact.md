@@ -49,6 +49,15 @@ missing `expected_revision`, naive `scheduled_at`, unknown step/counter) is Fast
   `company_to_check`, `import_conflict`): on a prospect or a company, source from the signed-in actor (`human`;
   `import`; `ai` for an agent — a proposal, without effect on the due date), resolved by a person. An alert never
   changes a state, a cohort or a sequence.
+- **From the Excel import** (Slice S2, [R-12 … R-19](../product/decision-log.md#sequences-rework-decisions-import-excel-and-contact-sequences-2026-10-01),
+  details in [`excel-import-export.md`](excel-import-export.md#import-redesign--cohorts-sequences-and-human-precedence-slice-s2)):
+  a row's `Sxx` puts a prospect **without any cohort history** in that cohort (a sequence opened by the import
+  actor); when the cohort's date is past, its Contact is recorded as sent that day at business midnight
+  (`sent_source = import`, rank 0) — S0 records nothing. A prospect's cohort, sequence or state set before is never
+  changed by an import: a different `Sxx` raises an `import_conflict` alert. « Défaillant » comes from an import only
+  when the person validating it declared the file « vérifié humainement », for new prospects without a valid `Sxx`,
+  and is attributed to **that person**. A value of the cohort column that is not a cohort (`retraité`) raises a
+  `data_inconsistent` alert.
 
 | Method | Path | Body | Answer |
 |---|---|---|---|
@@ -488,8 +497,7 @@ and Home.
 - **S7 (dispatch), sequences rework**: mark the sends `sent_source = worker` (the only source that needs the human
   validation); never dispatch for a prospect whose open « Erreur sur le mail » (`email_error`, source human/import)
   pauses the sequence, nor in S0 or after « Relance terminée » without a person's action.
-- **Sequences rework S2-S5**: import of cohorts (dates asked in the review), imported sends (`import`), Défaillant
-  when the file is checked by a person, conflicts as `import_conflict` alerts (S2); messages beyond R2, cancellations
+- **Sequences rework S3-S5** (S2, the import, is done — above): messages beyond R2, cancellations
   and the weekly planning by level with the categories Erreur sur le mail / Relance terminée / Défaillant / S0 (S3);
   the UI — cohort, level, « Marquer comme envoyé », alerts, « À vérifier », Paramètres (S4/S5). Until S4 the page and
   the prospect editor still show the former states and the week planner: a former state answers 422, a week is

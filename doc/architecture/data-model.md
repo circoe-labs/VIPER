@@ -211,6 +211,8 @@ A prospect may have multiple provenance records over time.
 ## `import_row_metadata`
 - batch_id, source_sheet, source_row_number, linked prospect/company IDs
 - `legacy_metadata` JSON/object for unknown or intentionally opaque legacy columns
+- `raw_cells` JSON: every non-empty cell of the source row (`{letter: {header, value}}`), and `excluded` for the rows
+  excluded in the review — traced too, with their snapshot only (migration `0011`, sequences rework S2, decision D10)
 
 This supports no-silent-loss without polluting first-class tables.
 
@@ -371,6 +373,8 @@ erDiagram
         uuid import_batch_id FK
         int source_row_number
         jsonb legacy_metadata
+        jsonb raw_cells
+        boolean excluded
     }
     audit_log {
         uuid id PK
@@ -408,7 +412,7 @@ on purpose.
 | `contact_messages` | `prospect_id`, `sequence_id`, `rank`, `status DEFAULT 'draft'`, `from_email`, `to/cc/bcc_recipients varchar(320)[] DEFAULT '{}'`, `subject`, `body_text`, `revision DEFAULT 1`, validation (`validated_revision/at/by_actor_id/by_display`), `scheduled_at`, `sent_at`, `sent_source`, `cancelled_at`, `cancel_reason`, generation, remote and dispatch columns (migrations 0009, 0010) | `uq_contact_messages_sequence_id_rank`; composite FK `fk_contact_messages_sequence`; the CHECKs listed in [`contact_messages`](#contact_messages); partial indexes on `scheduled_at` (scheduled), remote draft, dispatch claim; triggers `set_updated_at`, `reject_sent_change` |
 | `prospect_sources` | `prospect_id`, `source_type`, `source_reference text`, `import_batch_id NULL`, `collected_at DEFAULT now()`, `legal_basis_or_collection_context text`, `actor_type/actor_id/actor_display NULL`, `notes text` | FK indexes |
 | `import_batches` | `filename`, `sheet_names text[] DEFAULT '{}'`, `file_fingerprint varchar(64) NULL`, `status DEFAULT 'pending'`, `rows_total/rows_imported/rows_skipped int DEFAULT 0`, `committed_at NULL`, `legal_basis_or_collection_context text NULL`, `source_reference text NULL` (migration 0006, Task 09), `actor_type/actor_id/actor_display` | CHECK fingerprint `^[0-9a-f]{64}$`, counts ≥ 0, `committed` ⇔ `committed_at`. No workbook bytes |
-| `import_row_metadata` | `import_batch_id`, `source_sheet`, `source_row_number int`, `prospect_id NULL`, `company_id NULL`, `legacy_metadata jsonb DEFAULT '{}'`, `created_at` only | `uq_import_row_metadata_batch_sheet_row`; CHECK row number > 0 |
+| `import_row_metadata` | `import_batch_id`, `source_sheet`, `source_row_number int`, `prospect_id NULL`, `company_id NULL`, `legacy_metadata jsonb DEFAULT '{}'`, `raw_cells jsonb DEFAULT '{}'`, `excluded boolean DEFAULT false` (0011), `created_at` only | `uq_import_row_metadata_batch_sheet_row`; CHECK row number > 0 |
 | `audit_log` | `occurred_at DEFAULT clock_timestamp()`, `actor_type`, `actor_id varchar(128) NULL`, `actor_display`, `entity_type varchar(64)`, `entity_id uuid NULL`, `subject_type varchar(64) NULL`, `subject_id uuid NULL` (migration 0004), `action varchar(64)`, `changes jsonb DEFAULT '{}'`, `context jsonb DEFAULT '{}'` | triggers `append_only` (UPDATE/DELETE) and `no_truncate`; indexes `occurred_at`, `(entity_type, entity_id, occurred_at)`, `(subject_type, subject_id, occurred_at)`; no FKs. Event schema, vocabulary and payload policy: [audit-and-provenance.md](audit-and-provenance.md) |
 
 Every FK column is the leading column of a non-partial index (checked by a test).
