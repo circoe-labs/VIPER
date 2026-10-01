@@ -378,6 +378,9 @@ def test_mark_sent_over_http(
     assert (bare["created"], bare["message"]["rank"], bare["message"]["step"]) == (True, 1, "r1")
     place = ok(client.get(f"{PROSPECTS}/{prospect}/sequences"))["place"]
     assert (place["sent_count"], place["next_step"], place["level_label"]) == (2, "r2", "R2")
+    # The planning's level key, as in `GET …/messages` and the Contact / Prospection lists.
+    listed = ok(client.get(messages(prospect)))["sequence"]
+    assert place["level"] == listed["level"] == "r1_sent"
     detail = refused(
         client.post(f"{messages(prospect)}/mark-sent", json={"sent_at": "2020-01-01T00:00:00Z"}),
         422,

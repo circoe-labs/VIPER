@@ -235,6 +235,9 @@ class ContactProgressView:
     sequence_open: bool
     sent_count: int
     level_label: str | None
+    # The Contact planning's level key (`contact_sent`, `r2_sent`, `finished`…); None without
+    # cohort.
+    level: str | None
     next_step: str | None
     finished: bool
     next_due_on: date | None
@@ -391,6 +394,7 @@ def contact_progress_view(session: Session, prospect_id: uuid.UUID) -> ContactPr
         sequence_open=place.sequence_open,
         sent_count=progress.sent_count,
         level_label=progress.level_label,
+        level=progress.level,
         next_step=step_code(progress.next_rank) if progress.next_rank is not None else None,
         finished=progress.finished,
         next_due_on=business_day(due) if due else None,

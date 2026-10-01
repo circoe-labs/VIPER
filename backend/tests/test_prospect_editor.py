@@ -711,6 +711,8 @@ def test_the_view_derives_the_contact_progress(db_session: Session) -> None:
     assert before.cohort is not None and before.cohort.code == "S39"
     assert (before.sent_count, before.level_label, before.next_step) == (0, "Contact", "contact")
     assert (before.next_due_on, before.next_due_week) == (date(2026, 9, 28), "2026-W40")
+    # The Contact planning's level key, the same on the sheet as in the lists.
+    assert (before.level, after.level) == ("contact_pending", "contact_sent")
     assert (after.sent_count, after.level_label, after.next_step) == (1, "R1", "r1")
     assert (after.next_due_on, after.max_follow_ups) == (date(2026, 10, 5), 4)
 

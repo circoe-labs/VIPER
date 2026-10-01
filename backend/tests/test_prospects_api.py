@@ -114,6 +114,7 @@ def test_lifecycle_is_attributed_to_the_signed_in_user(
     assert view["tracking"]["status"] == "neutral"
     assert "planned_contact_week" not in view["tracking"]
     assert view["contact"]["cohort"] is None and view["contact"]["next_due_on"] is None
+    assert (view["contact"]["level_label"], view["contact"]["level"]) == (None, None)
     assert view["sources"][0]["source_type"] == "manual"
     assert view["sources"][0]["recorded_by"] == {
         "kind": "human",

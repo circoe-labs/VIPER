@@ -77,6 +77,9 @@ class PlaceOut(BaseModel):
     sent_count: int
     # « Contact », « R2 », « Relance terminée »; null without cohort.
     level_label: str | None
+    # The level key of the Contact planning (`contact_pending`, `contact_sent`, `r2_sent`,
+    # `finished`); null without cohort.
+    level: str | None
     # The step to send next (`contact`, `r1`…); null when finished or without cohort.
     next_step: str | None
     finished: bool
@@ -184,6 +187,7 @@ def place_out(place: ProspectSequence) -> PlaceOut:
         sequence_open=place.sequence_open,
         sent_count=progress.sent_count,
         level_label=progress.level_label,
+        level=progress.level,
         next_step=step_code(progress.next_rank) if progress.next_rank is not None else None,
         finished=progress.finished,
         next_due_at=due,

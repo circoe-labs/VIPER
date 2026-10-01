@@ -74,8 +74,10 @@ missing `expected_revision`, naive `scheduled_at`, unknown step/counter) is Fast
 | POST | `/api/alerts/{id}/resolve` | `{"note"?}` | `Alert` |
 
 `Place` = `cohort` (`{id, code, starts_on, out_of_campaign, needs_review}` or null), `sequence_id`, `sequence_open`,
-`sent_count`, `level_label` (« Contact », « R2 », « Relance terminée »), `next_step` (`contact`, `r1`…; null when
-finished or without cohort), `finished`, `next_due_at`, `next_due_on`, `next_due_week`, `pause_reason`, `email_error`,
+`sent_count`, `level_label` (« Contact », « R2 », « Relance terminée » — the step to send, not the label of `level`),
+`level` (the weekly planning's level key, `contact_pending`, `contact_sent`, `r<n>_sent`, `finished`; null without
+cohort — the same key as the Contact and Prospection lists, whose `level_label` is that key's label, « R1 envoyée »),
+`next_step` (`contact`, `r1`…; null when finished or without cohort), `finished`, `next_due_at`, `next_due_on`, `next_due_week`, `pause_reason`, `email_error`,
 `max_follow_ups`. The editor view `GET /api/prospects/{id}` carries the same facts as `contact`. `Sequence` = `id`,
 `cohort`, `is_current`, `opened_at`, `closed_at`, `end_reason`, `sent_count`, `messages` (`message_id`, `rank`, `step`,
 `step_label`, `status`, `sent_at`, `sent_source`, `has_content`). `Alert` = `id`, `prospect_id`, `company_id`, `type`,

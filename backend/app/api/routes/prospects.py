@@ -232,6 +232,7 @@ class ContactProgressOut(BaseModel):
     sequence_open: bool
     sent_count: int
     level_label: str | None
+    level: str | None
     next_step: str | None
     finished: bool
     next_due_on: date | None
