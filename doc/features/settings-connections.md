@@ -33,8 +33,20 @@ sessions, token store, SQL reader, import limits, dispatcher tuning, `VIPER_OPEN
   the fact that anyone signed in to VIPER can replace it.
 - **Precedence**: a value saved here > the `VIPER_*` variable > the built-in default. Each field says its source
   (« Défini ici par … le … » / « Valeur fournie par la configuration du serveur » / « Valeur par défaut ») and, when
-  set here, offers « Rétablir la valeur par défaut » (`null`). An empty optional text (`""`) means « none » even over a
-  variable. The UI never asks to set a variable or to restart.
+  set here, offers « Rétablir » (tooltip: the value it gives back; `null`). **An emptied field is « Rétablir »** too
+  (`""` is never stored: QA M2 — an emptied return address now lets the page send its own). The UI never asks to set
+  a variable or to restart.
+- **The key follows its API address only** (QA M1): a key saved here is stored with the API address of that save
+  (`bound_base_url`) and is never sent to another one; the environment's key only goes to the environment's / the
+  default address. Changing (or resetting) the API address without typing the key again in the same save is 422
+  `invalid`, `field: openai_api_key`, `reason: required_with_base_url`; the page warns under the key field and opens it.
+- **The Toolbox token follows its server only** (QA B1): the token is bound to the resource it was issued for — a
+  token for another address counts as « not connected » and is never sent (status, `access_token`, the workers);
+  changing or resetting `toolbox_mcp_url` deletes the token (audit `toolbox.forgotten`, reason
+  `toolbox_mcp_url changed`) and stops the workers; the page asks first (« Changer l’adresse du serveur ? … déconnecte
+  la Toolbox »). A connection started before a rebuild of the integration still finishes when the server and return
+  addresses did not change, else its return is 409 `toolbox_connection_interrupted` (« connexion interrompue par un
+  changement de réglage, recommencez »). « Se déconnecter » empties the token file even while the integration is off.
 - **Validation**: the merge is validated by `Settings.model_validate` — the **same validators as at startup**, not a
   copy (http(s) URLs; https or http on loopback for the Toolbox URLs; allowlist syntax; ranges; a model whenever a key
   is set). A refusal is 422 `invalid` with the `field` (never the submitted value); the page shows French copy under
@@ -49,15 +61,19 @@ sessions, token store, SQL reader, import limits, dispatcher tuning, `VIPER_OPEN
   values, except the key, recorded in the reason as `openai_api_key: replaced|removed`. `api_key` is also a secret
   fragment of the audit policy. A save that changes nothing is not audited.
 - **Unreadable file**: reported (`load_error`: `unreadable` | `invalid`), ignored until the next save (the API still
-  starts); the page shows a warning.
+  starts); the page shows a warning. A value that breaks a rule at startup is dropped **alone** (`load_dropped` names
+  it; a key saved without a model or bound to another address drops with it), the others apply.
+- **Unwritable file**: 503 `settings_storage_unavailable` (« Le fichier des réglages ne peut pas être écrit… »);
+  nothing is saved or applied.
 - **Live application** (`IntegrationRuntime`, `app.state.integrations`): `app.state.settings` is replaced by the new
   effective settings (every route reads it per request: OpenAI client, booking link, default sender, flags of the
   mail editor); a change of the Toolbox switch or URLs rebuilds `app.state.toolbox` (the token file is kept; an OAuth
   flow started but not finished is lost); the cleanup and dispatch workers run **only while the Toolbox is
   connected** — started at startup if it already is or right after the OAuth return, restarted when the dispatch
   settings change, stopped by *Se déconnecter*. Stopping waits for a running pass (bounded by the Toolbox timeout).
-  One lock, one process (as already required by the Toolbox and the login throttle); the CLI (`--once`) reads the
-  same file.
+  One lock held around the save **and** the switch (QA m6: the file, `app.state.settings` — which every route,
+  `GET /settings/integrations` included, reads — and the integration change together), one process (as already
+  required by the Toolbox and the login throttle); the CLI (`--once`) reads the same file.
 
 ### API — `/api/settings/integrations` (session + CSRF, a person only)
 

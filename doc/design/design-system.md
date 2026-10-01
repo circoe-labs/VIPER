@@ -256,8 +256,8 @@ limitations as a muted bullet list; actions right-aligned (ghost *Se déconnecte
 à CIRCOE Toolbox* primary or *Reconnecter* secondary). Waits show a spinner and a live seconds counter (*Ouverture de la
 Toolbox… n s*, *Finalisation de la connexion… n s*, `lib/useElapsed.ts`). **Settings forms in cards (S8)**: the same card hosts its settings as a `.settings-form` (one column, ≤ 40rem,
 `ui/fields`), each field's hint ending with its source in 12 px (« Défini ici par … » / « Valeur fournie par la
-configuration du serveur » / « Valeur par défaut ») and, for a value set here, an accent text button *Rétablir la
-valeur par défaut* (undo glyph). Rarely changed fields go in a native `<details>` « Paramètres avancés » (muted
+configuration du serveur » / « Valeur par défaut ») and, for a value set here, an accent text button *Rétablir* (undo glyph; its tooltip says the
+value it gives back). Rarely changed fields go in a native `<details>` « Paramètres avancés » (muted
 summary, rotating chevron, a hairline above the opened fields). A **write-only secret** is a password field left
 empty with the placeholder « •••• 1234 (enregistrée) », disabled until *Remplacer* (secondary sm), with a ghost
 *Effacer…* that confirms in a `Modal`. One primary button per card (*Enregistrer*, disabled until something

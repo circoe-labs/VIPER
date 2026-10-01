@@ -368,3 +368,50 @@ configuration est appliquée sans événement d'audit (fichier et base ne sont p
 laisse les workers tourner à vide jusqu'à la reconnexion. L'adresse de retour exige VIPER en https ou sur localhost.
 Les variables `VIPER_*` restent des valeurs par défaut, utiles aux tests et à l'E2E : une variable fixée côté
 serveur s'affiche « Valeur fournie par la configuration du serveur ».
+
+### S8 — reprise après QA indépendante (verdict REWORK : 1 bloquant, 3 majeurs)
+
+- **B1 (bloquant) — le jeton Toolbox suivait l'URL MCP enregistrée.** (a) Le jeton est désormais lié à la ressource
+  pour laquelle il a été délivré (`ToolboxAuth.bound`, `same_url`) : un jeton émis pour une autre adresse compte comme
+  « non connecté » et n'est jamais envoyé (état, `access_token`, `refresh_after_unauthorized`, donc les workers). (b)
+  Un changement ou une réinitialisation de `toolbox_mcp_url` efface le jeton dans `IntegrationRuntime.apply` (audit
+  `toolbox.forgotten`, raison `toolbox_mcp_url changed`) et arrête les workers. La page demande une confirmation
+  avant (« Changer l'adresse du serveur ? … déconnecte la Toolbox »). Tests : `seen == []` sur le faux après
+  changement d'adresse ; jeton lié à A, serveur B → état, accès, `CleanupWorker.run_once` et client MCP ne font
+  aucun appel.
+- **M1 — la clé OpenAI pouvait partir vers n'importe quelle adresse d'API.** Une clé saisie ici est stockée avec
+  l'adresse d'API de cet enregistrement (`bound_base_url`) ; la clé de l'environnement ne part que vers l'adresse de
+  l'environnement ou l'adresse par défaut. Changer ou rétablir l'adresse sans ressaisir la clé dans le même
+  enregistrement renvoie 422 `field: openai_api_key`, `reason: required_with_base_url`. La page l'annonce sous le
+  champ clé et l'ouvre à la saisie. Tests : *Tester la clé* et rédaction n'utilisent que la nouvelle clé, vers la
+  nouvelle adresse ; clé d'environnement face à une adresse saisie ici refusée ; clé liée ailleurs écartée au
+  démarrage.
+- **M2 — une « Adresse de retour » vidée cassait la connexion.** Un champ vidé équivaut désormais à « Rétablir »
+  (`null`) pour tous les réglages, côté serveur comme côté page ; la connexion reprend l'adresse de la page.
+- **M3 — VIPER ouvert en http sur le réseau local.** La 422 du *connect* sur `toolbox_oauth_redirect_uri` affiche le
+  texte du champ (« ouvrez VIPER en https ou sur localhost »).
+- **Mineurs.** m1 : seule la valeur fautive est écartée au démarrage, et `load_dropped` la nomme dans le bandeau
+  (une clé sans modèle, ou liée à une autre adresse, part avec elle). m2 : un fichier impossible à écrire renvoie 503
+  `settings_storage_unavailable` avec un texte en français, et rien n'est appliqué. m3 : `save.reset()` après
+  l'enregistrement d'une clé. m4 : `blockRealToolbox` (`context.route` → abort vers l'hôte réel) dans les specs
+  toolbox, contact-flow et connections. m5 : une connexion OAuth commencée survit à une reconstruction quand le
+  serveur et l'adresse de retour ne changent pas ; sinon son retour donne 409 `toolbox_connection_interrupted`
+  (« connexion interrompue par un changement de réglage : recommencez »). m6 : un seul verrou (ré-entrant) couvre
+  `update` + `apply`, et `GET /settings/integrations`, *Tester la clé* et *connect* lisent `app.state.settings` comme
+  toutes les routes.
+- **Détails.** La 422 de FastAPI (clé trop longue) s'affiche sous le champ ; le lien se nomme « Rétablir » (son
+  infobulle donne la valeur rétablie) ; « Se déconnecter » vide le fichier de jeton même intégration désactivée ;
+  `StoredValue.__repr__` masque la valeur. Barre latérale : elle est `position: sticky; height: 100vh`. Dans le
+  navigateur elle couvre toujours la hauteur visible ; la bande vide sous elle n'apparaît que sur les captures pleine
+  page (`fullPage`). Ce n'est pas un défaut : rien n'a été changé.
+- **E2E** : comme un champ vidé revient désormais à sa valeur par défaut, l'état « Non configurée » n'est plus
+  atteignable depuis la page. La spec `connections` saisit donc l'adresse du faux avec une barre finale
+  (`…/mcp/`, équivalente par `same_url`) ; le faux accepte `/mcp/`.
+
+**Gate de la reprise.** `verify.py` vert du premier coup : ruff, ruff format, mypy, **pytest 1334 passed / 2 skipped**,
+eslint, tsc, **vitest 799/799**, vite build. Playwright `--workers=3` : 99 passed, 1 failed
+(`accessibility.spec.ts` « base de données (dark) », zone non touchée), 8 non lancés (projets dépendants). Relances
+isolées : projets `toolbox` 4/4, `contact-flow` 2/2, `connections` 2/2 ; `accessibility.spec.ts` seul en
+`--workers=3` : une première relance a échoué sur les 3 premiers tests, lancés à froid pendant que le backend
+signalait `Database health check failed`, puis **22/22** à la relance suivante. Instabilité de démarrage sous charge,
+sans lien avec S8.
