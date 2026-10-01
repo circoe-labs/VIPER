@@ -605,8 +605,9 @@ and records one audit event `export.generated` (signed-in user, `source=ui`; cha
 
 **Reads and size** (Task 20, I-155): the projection reads each table once; the prospects' e-mails, phones, trackings
 (+ history) and the companies' categories and establishments come with one statement per collection joined to the
-parents (`subqueryload`), planned by `whole_base_plan` ([ADR-0019](../adr/0019-whole-base-statement-plans.md)) — 16
-statements whatever the base, ≈ 0.25 s of database time on 20 000 prospects in every planner state. The rest of the
+parents (`subqueryload`), planned by `whole_base_plan` ([ADR-0019](../adr/0019-whole-base-statement-plans.md)) — a
+fixed number of statements whatever the base (at most 20, the derived Contact progress and the open alerts
+included), ≈ 0.25 s of database time on 20 000 prospects in every planner state. The rest of the
 time is Python (ORM objects, openpyxl): ≈ 4 s for the projection and ≈ 20 s for the whole download on 20 000
 prospects, a few seconds at V1 scale (hundreds to a few thousand rows). `tests/test_export_explorer_statistics.py`
 keeps it so.
@@ -652,9 +653,10 @@ ignored — and the id as last tie-breaker).
 | 23–26 | Projet déjà réalisé avec l'entreprise · Type de projet · Références Circoe · Approche client | company Circoe context | text |
 | 27 | Suivi de contact | one commercial state label (`contact_workflow.STATE_LABELS`): `En séquence`, `Réponse reçue`, `RDV pris`, `Ignoré`, `Défaillant`; blank without tracking | text |
 | 28 | Statut depuis le | when the current status was reached (latest status-history row not written by a migration) | date |
-| 28a | Niveau | derived level: `Contact`, `R1`… (the step to send), `Relance terminée`; blank without cohort | text |
+| 28a | Niveau | derived level: `Contact`, `R1` … `R<max>` (the step to send), `Relance terminée`; blank without cohort | text |
 | 28b | Envois | messages really sent in the current sequence; blank without cohort | integer |
 | 28c | Prochaine échéance | derived next due date (blank when nothing is due) | date |
+| 28d | Alertes ouvertes | the types of the prospect's **open** quality alerts, any source (`Erreur sur le mail`, `Fonction à vérifier`, `Donnée incohérente`, `Entreprise à vérifier`, `Conflit d’import`), joined by `; ` in that order; blank when none — read from `quality_alerts`, nothing inferred (sequences rework S3) | text |
 | 29 | Date de réponse | | date |
 | 30 | Date de rendez-vous | date and time (shown as a date when at midnight) | date/time |
 | 31 | Ne pas contacter | `Oui` / `Non` — the durable opposition, **distinct** from `Non intéressé` | text |

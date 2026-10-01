@@ -36,7 +36,7 @@ and its primary e-mail (at most one, always active). Terms used below:
 | `email_invalid` | E-mail invalide | Primary e-mail `verification_status = invalid`. |
 | `email_unverified` | E-mail non vérifié | Primary e-mail `unverified` **or** `unknown` (not known to be deliverable). |
 | `to_contact` | À contacter | A **planned first contact**: actionable, in a campaign cohort (not S0) with an open sequence where **nothing was sent yet**, and nothing pausing it (state `neutral`, no open « Erreur sur le mail »). A prospect without cohort is not validated, hence not planned. The segment key stays `to_contact` (URL/API). |
-| `due` | Échus | `to_contact` and its next due date (the cohort's date) before the start of tomorrow (business day). Follow-ups due (R1, R2…) belong to the Contact page. |
+| `due` | Échus | **Something to send** — the Contact or a follow-up Rn — whose derived next due date is before the start of tomorrow (business day), for an actionable prospect: `segments.to_send_before`, the very predicate of the Contact planning's « à envoyer » ([`contact.md`](contact.md#weekly-planning--get-apicontactdashboard), [R-24](../product/decision-log.md#sequences-rework-decisions-import-excel-and-contact-sequences-2026-10-01)). Never without a cohort, in S0, in a state other than `neutral`, after « Relance terminée », under the opposition or with an open « Erreur sur le mail ». |
 | `contacted` | Contactés | Contacted (see above), do-not-contact included — a historical fact. |
 | `no_response` | Sans réponse | Actionable, at least one real send in the current sequence, state `neutral`, the sequence not finished (« Relance terminée » waits for nothing more), and neither a response nor an appointment date: the follow-up queue. |
 | `responses` | Réponses | A response date, an appointment date, or state `response_received` or `appointment_obtained`. A finished sequence is not an answer. |
@@ -47,8 +47,9 @@ and its primary e-mail (at most one, always active). Terms used below:
 next actions — are defined in [home-dashboard.md](home-dashboard.md) on top of these predicates (`actionable`,
 `responded`, `has_appointment`, `CONTACTED_STAGES`, `APPOINTMENT_STAGES`).
 
-Invariants (tested): `appointments ⊆ responses ⊆ contacted`; `due ⊆ to_contact`; `to_contact` and `contacted` never
-overlap; a do-not-contact person is never in `to_contact`, `due` or `no_response`; `never_verified` and
+Invariants (tested): `appointments ⊆ responses ⊆ contacted`; `due ⊆ to_contact ∪ contacted` (a Contact to send, or a
+follow-up of someone already contacted), and every `due` person is in the Contact planning's « à envoyer » of the
+current week; `to_contact` and `contacted` never overlap; a do-not-contact person is never in `to_contact`, `due` or `no_response`; `never_verified` and
 `needs_recheck` never overlap. Outcome segments (`contacted`, `responses`, `appointments`) keep opposed and inactive
 people: they count what happened, not what to do.
 
@@ -80,8 +81,9 @@ Both endpoints take the same **criteria**, so a counter always equals the total 
   whatever the page size. Each item: `id`, `civility`, names, `role_label`, `exact_job_title`, `company_id`,
   `company_name`, `activity_status`, `employment_verified_at`, `verification_state`, `primary_email`,
   `primary_email_status`, `email_state`, `primary_phone`, `primary_phone_type`, `tracking_status`, `cohort_code`,
-  `sent_count`, `next_step` (`contact`, `r1`…), `finished`, `next_due_at`, `next_due_week` (ISO `2026-W38`, business
-  time), `due`, `response_received_at`,
+  `sent_count`, `next_step` (`contact`, `r1`…), `finished`, `level` / `level_label` (the Contact planning's level:
+  `contact_pending` « Contact à envoyer », `r2_sent` « R2 envoyée », `finished` « Relance terminée »; null without
+  cohort), `next_due_at`, `next_due_week` (ISO `2026-W38`, business time), `due`, `response_received_at`,
   `appointment_at`, `referent_id`, `referent_name`, `contactability_status`, `do_not_contact_at`, `updated_at`.
 
 No index was added: on 20 000 synthetic prospects the counters (with `q`) answer in ≈ 0.17–0.21 s and a deep page in
@@ -115,7 +117,7 @@ The `q` search keeps its `label_key`/`strpos` semantics; the trigram indexes of 
   independent indicators (Contact decisions 4-5, `frontend/src/prospection/TrackingBadges.tsx`): the **state badge**
   (none while `neutral`; tones in the design system) and the **week badge** *S41* (calendar glyph, accent tag; the year
   is written when it is not the current one, *S02 · 2027*, and always in the tooltip and for screen readers), the
-  *Échu* warning badge when due — the `due` segment (a planned first contact), or, display only and computed in the
+  *Échu* warning badge when due — the `due` segment (a Contact or follow-up to send, since S3 of the sequences rework), or, display only and computed in the
   browser, a state with a next action (`neutral`, *Contacté*, *R1*, *R2*) whose week is before the current ISO week;
   the `due` segment itself is unchanged — and *Aucun état · aucune semaine* when there is neither; response and
   appointment dates, *Référent : …*. Every status is glyph + text. **Quick planning**: *Planifier* / *Replanifier*

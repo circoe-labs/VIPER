@@ -58,6 +58,13 @@ Two figures for the current month (Europe/Paris, `app/core/business_time.py`), e
   figure — no stage entered an appointment stage — but it is in the `appointments` (`responses`) segment. V1 keeps one
   tracking cycle per prospect: "first" means first in that cycle.
 
+## Contact this week (sequences rework S3)
+
+`contact_week` = the Contact planning of the current ISO week (`GET /api/contact/dashboard` `to_send`, same SQL
+predicates, [`contact.md`](contact.md#weekly-planning--get-apicontactdashboard)): `week` (`2026-W40`), `monday`,
+`to_send` (Contacts and follow-ups due this week, overdue ones included) and `overdue` (due before this week's Monday).
+One aggregate statement. The UI shows it from S5 of the rework.
+
 The meter's full track is the target (the fill stops there; the text says `12 sur un objectif indicatif de 10 (120 %)`).
 The figure sits in a panel of the same weight as the recent activity, below the KPIs and next actions — never the
 page's headline (interface spec: "do not make 10 meetings the sole dominant UI metric").
@@ -70,7 +77,7 @@ then conversions waiting; within a group the oldest (or soonest) first, ties by 
 | Group | People | Order |
 |---|---|---|
 | *Rendez-vous des 7 prochains jours* | *actionable* (segments: contactable and not inactive) with `appointment_at` from the start of today to the end of the 6th day after | soonest first |
-| *Contacts échus* | segment `due` | oldest next due date (the cohort's date) first |
+| *Contacts échus* | segment `due`: a Contact or a follow-up (R1, R2…) to send no later than today — the Contact planning's predicate (sequences rework S3) | oldest next due date first |
 | *Réponses sans rendez-vous* | actionable, answered (`responses` predicate), no appointment (`appointments` predicate false), state not `failure` / `ignored` | oldest response first, no date last |
 
 Each person shows the date of the group and, for the appointments and responses groups, the Contact state label
@@ -106,13 +113,14 @@ failed import still shows) and no figure at all. Empty groups say so (*Aucun con
 ## API — `GET /api/home` (session required, read-only)
 
 `{today, stale_threshold_days, counts: {<segment>: n}, companies, progress: {contact_target, appointment_target, months: [{month, contacted, appointments}] (6, oldest
-first)}, next_actions: {appointments|due|responses: {total, items: [{prospect_id, first_name, last_name, company_name,
+first)}, contact_week: {week, monday, to_send, overdue}, next_actions: {appointments|due|responses: {total, items: [{prospect_id, first_name, last_name, company_name,
 tracking_status, at, referent_name}]}}, recent_imports: [import batch as in /api/imports], recent_edits: [{occurred_at,
 actor: {kind, label, id, on_behalf_of}, source, subject_type, subject_id, subject_label, summary: [phrase]}]}` (Task 19,
 I-135).
 
-Cost: **10 queries** whatever the base size (segments aggregate, companies, monthly progress — one pass over the sends
-and the status history for the contacts, one over the history for the appointments, inside `whole_base_plan` —, 3 action
+Cost: **11 queries** whatever the base size (segments aggregate, companies, monthly progress — one pass over the sends
+and the status history for the contacts, one over the history for the appointments, inside `whole_base_plan` —, the
+week's Contact planning (inside `whole_base_plan`), 3 action
 groups with `count(*) OVER ()`, imports, audit events, current names of the edited prospects/companies), plus the 6
 planner-setting statements of `whole_base_plan` (below).
 
@@ -173,7 +181,7 @@ the base and the contact activity. Styles: `frontend/src/home/home.css` (see the
   date without stage, all through legacy history codes); legacy history counted and `0008` rows never a first entry;
   history from the real tracking service; next actions on the edge cases (DNC and inactive
   excluded) and ordering / limit / window bounds; recent edits grouping and summaries, import writes excluded, no
-  e-mail, reason or other company name in the output, deleted subject; latest imports; 9 queries for 3 and 60
+  e-mail, reason or other company name in the output, deleted subject; latest imports; 11 queries for 3 and 60
   prospects (the formatter's summaries need no query), the segments and the action groups inside `whole_base_plan`. `tests/test_history.py`: an agent's save on Home.
   `tests/test_home_api.py`: 401, GET only, contract and counts == `/api/prospection/counters`, targets from settings,
   no raw payload, staged Database Explorer stage changes (into `contacted`, into `appointment_obtained` after an
