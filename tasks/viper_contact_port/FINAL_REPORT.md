@@ -39,7 +39,7 @@ Branche `task/contact-port`, créée depuis `claude` @ `2bd1c3b`, non poussée (
 | S5 — OpenAI | `8674e6f` génération · `eb72995` corrections QA · `3f7624b` acceptation |
 | (hors Slice) | `657779d` « fix trash from ChatGPT+ start work on CONTACT page » — commit Humain intercalé (config Toolbox, erreurs, sorties de build ajoutées par erreur, retirées en `bc1bef2`) |
 | S6 — CIRCOE Toolbox | `0b6b08e` OAuth et brouillons Infomaniak · `97bc22e` stabilisation e2e · `bc1bef2` `dist-*` hors suivi · `54c47b0` décisions Humaines · `ae825eb` corrections QA · `8843f13` acceptation |
-| S7 — envoi programmé + clôture | `1b49b9e` dispatcher, réconciliation, CLI · `f5600c9` UI et scénario de bout en bout · `c0dbc8b` docs, runbook, décisions C-24…C-27 · (ce commit) rapport final |
+| S7 — envoi programmé + clôture | `1b49b9e` dispatcher, réconciliation, CLI · `f5600c9` UI et scénario de bout en bout · `c0dbc8b` docs, runbook, décisions C-24…C-27 · `0f8154e` test du worker sur ses propres sessions · `f3e461c` rapport final · `2641d05` corrections QA (issue inconnue jamais rejouée, ordre des verrous, texte d'erreur non reconnu = issue inconnue, « Remettre en Validé » après le délai, relecture) · (commit suivant) rapport final mis à jour |
 
 ## Ce qui a été porté (vs l'implémentation de référence)
 
@@ -73,10 +73,14 @@ Journal produit (`doc/product/decision-log.md`) : **C-01…C-27**. Les principau
   `list_drafts` après issue inconnue ;
 - **C-24** ordre des étapes à l'envoi (R1/R2 attendent ou reviennent en Validé si l'étape précédente est préparée
   mais non envoyée ; une étape précédente absente ou annulée ne bloque pas) ;
-- **C-25** verrou PostgreSQL (`FOR UPDATE SKIP LOCKED` + revérifications + verrous partagés sur l'état et
-  l'opposition) ; **un verrou périmé dont le brouillon est toujours dans la boîte est réessayé** (la référence le
-  renvoyait en Validé) ; codes d'envoi `send_*` / `dispatch_*` distincts des `toolbox_*` ;
-- **C-26** « Marquer envoyé » / « Remettre en Validé » (recommandation 3 du rapport de référence) ;
+- **C-25** verrou PostgreSQL (le prospect et le suivi verrouillés en partage **avant** le message, puis toutes les
+  conditions revérifiées) ; **une issue inconnue n'est jamais rejouée automatiquement** (comme la référence, après
+  retour QA) : après le délai, brouillon disparu ⇒ envoyé (déduit), brouillon présent ⇒ retour en Validé
+  (`send_not_confirmed`), liste tronquée ⇒ reste verrouillé ; seul un verrou **sans issue enregistrée** (process mort)
+  est réessayé ; pour `send_draft`, tout texte d'erreur non reconnu est une issue inconnue ; codes `send_*` /
+  `dispatch_*` distincts des `toolbox_*` ;
+- **C-26** « Marquer envoyé » (à tout moment) / « Remettre en Validé » (seulement après le délai du verrou : l'appel
+  Infomaniak de la Toolbox n'a pas de timeout) — recommandation 3 du rapport de référence ;
 - **C-27** source d'audit `dispatcher`, drapeau `automatic_sending_active`, garde-fou `--hold-scheduled`
   (recommandation 4).
 
@@ -134,11 +138,15 @@ envoie ; `mark-sent` n'existe que pour trancher un envoi non confirmé.
 - **mécanisme** : thread du process API (`VIPER_CONTACT_DISPATCH_INTERVAL_MS`, 30 s ; 0 = aucun), démarré seulement
   si la Toolbox est activée et configurée, inactif tant qu'elle n'est pas connectée ; CLI `contact-dispatch --once` ;
   arrêt propre (la passe en cours se termine) ;
-- **idempotence** : verrou par ligne (`SKIP LOCKED`), toutes les conditions revérifiées, état et opposition relus sous
-  verrou partagé juste avant `send_draft` ; `send_draft` hors transaction ; un verrou n'est relâché qu'après un échec
-  **certain** ; issue inconnue ⇒ verrou conservé, jamais de renvoi ; testé avec deux sessions de base concurrentes ;
+- **idempotence** : prospect et suivi verrouillés en partage, puis la ligne du message (`SKIP LOCKED`), toutes les
+  conditions revérifiées (dont allowlist et ordre des étapes) juste avant `send_draft` ; `send_draft` hors
+  transaction ; un verrou n'est relâché pour un nouvel essai qu'après un échec **certain**, ou par la réconciliation
+  d'un verrou **sans issue enregistrée** dont le brouillon est encore là ; issue inconnue ⇒ verrou conservé, jamais
+  de renvoi automatique ; testé avec deux sessions concurrentes et contre la sonde d'interblocage de la QA ;
 - **reprise** : verrou périmé (TTL 10 min ≥ 2 × délai Toolbox) réconcilié par `list_drafts` : brouillon absent et
-  liste complète ⇒ « envoyé (déduit) » ; présent ⇒ nouvel essai borné ; liste tronquée/illisible ⇒ reste verrouillé,
+  liste complète ⇒ « envoyé (déduit) » ; présent après une issue inconnue ⇒ retour en Validé (vérifier les éléments
+  envoyés puis reprogrammer) ; présent sans issue enregistrée ⇒ nouvel essai borné (et si ce réessai trouve le
+  brouillon disparu ⇒ « probablement envoyé », verrou conservé) ; liste tronquée/illisible ⇒ reste verrouillé,
   réglable par une personne ;
 - **garde-fous** : retard maximal 6 h (jamais d'envoi tardif), 5 tentatives avec backoff, allowlist
   `VIPER_INFOMANIAK_SEND_ALLOWLIST` appliquée à To/Cc/Cci, ordre des étapes, recréation du brouillon manquant (avec la
@@ -147,18 +155,26 @@ envoie ; `mark-sent` n'existe que pour trancher un envoi non confirmé.
   « Envoi non confirmé » avec « Marquer envoyé… » / « Remettre en Validé… » (confirmations), état du dispatcher dans
   Paramètres › Connexions.
 
-## Tests exécutés (gate finale S7, 2026-10-01, Windows 11)
+## Tests exécutés (gate finale après les corrections QA, 2026-10-01, Windows 11, lancée seule)
+
+Commandes : `python scripts/check_private_data.py` ; dans `backend/` : `ruff check . ../scripts`,
+`ruff format --check . ../scripts`, `mypy` (configuration de `pyproject.toml`), `pytest` ; dans `frontend/` :
+`npm run lint`, `npm run typecheck`, `npx vitest run --maxWorkers=3`, `npm run build`,
+`npx playwright test --workers=3`. Les nombres de fichiers sont ceux qu'affichent ruff format (« 237 files already
+formatted ») et mypy (« no issues found in 237 source files »), le garde de confidentialité (« 791 tracked files »).
 
 ```text
-privacy guard      OK (790 fichiers suivis)
+privacy guard      OK (791 fichiers suivis)
 ruff check         OK            ruff format --check  OK (237 fichiers)
 mypy               OK (237 fichiers)
-pytest             1279 passed, 2 skipped (≈ 4 min) — dont 27 tests du dispatcher (test_contact_dispatch.py)
+pytest             1286 passed, 2 skipped (≈ 5 min) — dont 32 tests du dispatcher (test_contact_dispatch.py)
 eslint             0 erreur      tsc -b               OK
-vitest --maxWorkers=3   767 passed (63 fichiers)
+vitest --maxWorkers=3   770 passed (63 fichiers)
 vite build         OK (avertissement préexistant de taille de chunk)
-playwright --workers=3  106 passed (projets chromium, toolbox, contact-flow ; 5,8 min)
+playwright --workers=3  106 passed (projets chromium, toolbox, contact-flow ; 6,1 min)
 ```
+
+Gate précédente (avant les corrections QA) : pytest 1279, vitest 767, Playwright 106 — verte aussi.
 
 ## Scénarios de bout en bout
 
@@ -204,7 +220,9 @@ pipeline), commentaires de code.
    boîte par défaut doit envoyer**.
 4. **`VIPER_CONTACT_DISPATCH_INTERVAL_MS=0` et `VIPER_INFOMANIAK_SEND_ALLOWLIST=<adresse interne>`** pour le premier
    envoi réel, lancé à la main (`python -m app.cli contact-dispatch --once`) ; vérifier boîte de réception et éléments
-   envoyés.
+   envoyés, **et que le brouillon a quitté le dossier Brouillons et n'apparaît plus dans `list_drafts` juste après
+   l'envoi** (la réconciliation en dépend) ; noter si la réponse porte `provider.etop` / `cancelResource`
+   (annulation d'envoi d'Infomaniak), que VIPER ignore aujourd'hui.
 5. Puis `VIPER_CONTACT_DISPATCH_INTERVAL_MS=30000`, refaire le test avec le worker, puis retirer l'allowlist.
 6. Sauvegardes : après toute restauration, `python -m app.cli contact-dispatch --hold-scheduled` **avant** de
    démarrer l'API.
@@ -216,8 +234,12 @@ Pas à pas détaillé : `doc/process/runbook-production.md` § *Enabling the Con
 
 - Envoi déduit par absence du brouillon : un brouillon supprimé à la main pendant une issue inconnue est compté envoyé
   (jamais de double envoi, un envoi manqué possible).
-- Brouillon présent après le TTL ⇒ nouvel essai (C-25) : si Infomaniak gardait un brouillon déjà envoyé (comportement
-  non observé), un double envoi serait possible dans la fenêtre de retard ; à vérifier lors du premier test réel.
+- Une issue inconnue n'est jamais rejouée (C-25) ; reste un cas : un verrou **sans issue enregistrée** (process tué
+  pendant `send_draft`) dont le brouillon est encore là après le délai est réessayé — si Infomaniak gardait un
+  brouillon en cours d'envoi (non observé ; la Toolbox envoie le brouillon sur place), un double envoi serait possible
+  dans la fenêtre de retard. À vérifier au premier envoi réel (checklist, point 4).
+- Un brouillon resté présent après une issue inconnue revient en Validé : un humain doit vérifier les éléments envoyés
+  avant de reprogrammer (dit dans l'éditeur).
 - Le brouillon est envoyé tel qu'il est dans Infomaniak (une modification dans le webmail part avec lui).
 - Plus de 100 brouillons dans la boîte ⇒ réconciliation non concluante ⇒ décision humaine nécessaire.
 - Un changement d'état pendant l'aller-retour `send_draft` n'arrête pas cet envoi (signalé, `in_flight_messages`).
@@ -228,14 +250,15 @@ Pas à pas détaillé : `doc/process/runbook-production.md` § *Enabling the Con
   finale, aucune relance nécessaire. Pendant la gate, un premier `vitest` complet a fini avec 3 erreurs de worker
   (716 tests exécutés, aucun en échec ; machine saturée) ; relancé seul : 767/767. Un test du dispatcher qui démarrait
   le thread du worker sur la connexion partagée du test a échoué une fois (savepoint concurrent) : corrigé (le thread
-  a ses propres sessions), 3 passages verts puis gate verte.
+  a ses propres sessions), 3 passages verts puis gate verte. Gate finale après corrections QA : verte du premier coup.
 
 ## Vérifications Humaines requises
 
 1. Relire les captures `test-results/screenshots/contact-sent-*`, `contact-unconfirmed-*`,
    `settings-connections-dispatch-*` (DA Neon Command).
-2. Valider C-24 (ordre des étapes, étape précédente absente non bloquante) et C-25 (réessai d'un verrou périmé dont le
-   brouillon est présent) — ce sont des choix d'orchestration, pas des décisions produit du handoff.
+2. Valider C-24 (ordre des étapes, étape précédente absente non bloquante) et C-25 tel que réécrit (issue inconnue
+   jamais rejouée ; seul un verrou sans issue enregistrée est réessayé) — choix d'orchestration, pas des décisions
+   produit du handoff.
 3. Premier envoi réel encadré (checklist ci-dessus), avec un compte Infomaniak de test.
 4. Choisir le modèle OpenAI et relire quelques brouillons réels.
 
