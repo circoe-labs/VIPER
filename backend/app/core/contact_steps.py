@@ -76,15 +76,3 @@ def level_label(key: str) -> str:
     if match is None or match[1] is None:
         raise ValueError(f"Unknown level {key!r}.")
     return f"R{match[1]} envoyée"
-
-
-def level_sent_count(key: str) -> int | None:
-    """The number of real sends of a level (None for `finished`, which depends on the maximum)."""
-    if key == CONTACT_PENDING:
-        return 0
-    if key == CONTACT_SENT:
-        return 1
-    match = LEVEL_CODE.fullmatch(key)
-    if match is None or match[1] is None:
-        return None
-    return int(match[1]) + 1

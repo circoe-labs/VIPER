@@ -17,7 +17,6 @@ from app.core.contact_steps import (
     level_key,
     level_keys,
     level_label,
-    level_sent_count,
     parse_step,
     step_code,
     step_label,
@@ -83,7 +82,7 @@ def test_levels_follow_the_real_sends_up_to_the_maximum() -> None:
     ]
     assert level_keys(0) == ["contact_pending", "finished"]
     assert (level_key(3, False), level_key(3, True)) == ("r2_sent", "finished")
-    assert [level_sent_count(key) for key in level_keys(3)] == [0, 1, 2, 3, None]
+    assert [level_key(sent, False) for sent in range(4)] == level_keys(3)[:-1]
 
 
 # --- ranks up to « max relances » ---------------------------------------------------------------

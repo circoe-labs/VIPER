@@ -42,7 +42,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.core.contact_steps import CONTACT_RANK, step_code
+from app.core.contact_steps import step_code
 from app.db.base import Base
 from app.models.common import TimestampMixin, UUIDPrimaryKeyMixin, text_enum
 from app.models.enums import ContactMessageStatus, SendSource
@@ -50,7 +50,6 @@ from app.models.enums import ContactMessageStatus, SendSource
 EMAIL_MAX_LENGTH = 320
 SUBJECT_MAX_LENGTH = 998  # RFC 5322 line limit
 VALIDATED_STATUSES_SQL = "'validated', 'scheduled', 'sent'"
-__all__ = ["CONTACT_RANK", "ContactMessage"]
 
 
 def _recipients() -> Mapped[list[str]]:

@@ -143,7 +143,7 @@ class ProspectRow:
     # Derived next due date (business midnight) and its ISO calendar week, e.g. `2026-W41`.
     next_due_at: datetime | None
     next_due_week: str | None
-    # In the `due` segment: first contact due no later than today.
+    # In the `due` segment: the Contact or a follow-up to send, due no later than today.
     due: bool
     response_received_at: datetime | None
     appointment_at: datetime | None

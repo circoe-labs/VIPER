@@ -103,7 +103,7 @@ class SegmentContext:
 
     @property
     def due_before(self) -> datetime:
-        """Start of tomorrow (business time): a contact planned before it is due."""
+        """Start of tomorrow (business time): a step (Contact or Rn) due before it is « échu »."""
         return start_of_day(self.today + timedelta(days=1))
 
     @property
