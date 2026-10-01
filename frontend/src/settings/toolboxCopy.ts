@@ -22,6 +22,7 @@ const ERROR_LABELS: Record<string, string> = {
   toolbox_issuer_mismatch: 'la réponse ne vient pas de la Toolbox attendue',
   toolbox_token_exchange_failed: 'la Toolbox n’a pas délivré d’accès',
   toolbox_scope_missing: 'la Toolbox n’a pas accordé l’accès au mail',
+  toolbox_outcome_unknown: 'création non confirmée par la Toolbox (« Réessayer » cherche d’abord le brouillon dans Infomaniak)',
 }
 
 export function toolboxErrorLabel(code: string): string {
@@ -36,6 +37,10 @@ export function toolboxFailure(error: unknown): string {
       return toolboxErrorLabel(detail.code)
     }
     return `le serveur VIPER a répondu ${String(error.status)}`
+  }
+  // `leaveFor` refused the address the server answered (not an http(s) URL).
+  if (error instanceof Error && error.message.startsWith('Adresse de redirection')) {
+    return `${error.message.charAt(0).toLowerCase()}${error.message.slice(1).replace(/\.$/, '')}`
   }
   if (error instanceof DOMException && error.name === 'TimeoutError') {
     return `aucune réponse après ${String(TOOLBOX_DEADLINE_MS / 1000)} s`

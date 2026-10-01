@@ -45,6 +45,7 @@ import httpx2
 from pydantic import BaseModel, ValidationError
 
 from app.core.actor import ActorContext
+from app.core.config import toolbox_url
 from app.services.toolbox.errors import toolbox_error
 from app.services.toolbox.token_store import (
     ConnectedBy,
@@ -115,6 +116,18 @@ def well_known(base: str, name: str) -> str:
     url = urlsplit(base)
     suffix = url.path.rstrip("/")
     return f"{url.scheme}://{url.netloc}/.well-known/{name}{suffix}"
+
+
+def _endpoint(value: str, name: str) -> str:
+    """A metadata URL VIPER will call or send the browser to: the same rule as the settings
+    (https, or http on the loopback only), so a tampered or misconfigured metadata document cannot
+    redirect the code, the verifier or the person elsewhere."""
+    try:
+        return toolbox_url(value)
+    except ValueError:
+        raise toolbox_error(
+            "toolbox_rejected", f"The Toolbox announces an unsafe {name} (https required)."
+        ) from None
 
 
 def pkce_challenge(verifier: str) -> str:
@@ -227,7 +240,7 @@ class ToolboxAuth:
                 "toolbox_not_configured",
                 "VIPER_TOOLBOX_MCP_URL is not the resource the Toolbox announces.",
             )
-        issuer = resource.authorization_servers[0]
+        issuer = _endpoint(resource.authorization_servers[0], "authorization server")
         status, payload = self._request("GET", well_known(issuer, "oauth-authorization-server"))
         server = _parse(_AuthorizationServer, payload) if status == 200 else None
         if server is None or not same_url(server.issuer, issuer):
@@ -237,6 +250,14 @@ class ToolboxAuth:
         if "S256" not in (server.code_challenge_methods_supported or []):
             raise toolbox_error(
                 "toolbox_rejected", "The Toolbox authorization server does not offer PKCE S256."
+            )
+        server.authorization_endpoint = _endpoint(
+            server.authorization_endpoint, "authorization endpoint"
+        )
+        server.token_endpoint = _endpoint(server.token_endpoint, "token endpoint")
+        if server.registration_endpoint is not None:
+            server.registration_endpoint = _endpoint(
+                server.registration_endpoint, "registration endpoint"
             )
         return Discovery(resource=resource.resource, server=server)
 
@@ -339,7 +360,10 @@ class ToolboxAuth:
         state = params.get("state", "")
         with self._lock:
             self._drop_expired_pending()
-            item = self._pending.pop(state, None) if state else None
+            item = self._pending.get(state) if state else None
+            # Someone else's state is refused without being consumed (it stays usable by its owner).
+            if item is not None and item.actor.id == actor.id:
+                del self._pending[state]
         if item is None or item.actor.id != actor.id:
             raise toolbox_error(
                 "toolbox_state_invalid",
@@ -511,6 +535,11 @@ class ToolboxAuth:
             self._store.write(file)
         logger.info("toolbox.token_refreshed")
         return answer.access_token
+
+    def report_rejected(self, access_token: str, code: str) -> None:
+        """A tool call said the connection behind this token is no longer valid (e.g. the
+        Toolbox has no Infomaniak connection for the member any more): to reconnect, recorded."""
+        self._invalidate(access_token, code)
 
     def access_token(self) -> str | None:
         """The usable bearer token, refreshed when it can be; None = (re)connection needed."""

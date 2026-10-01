@@ -134,7 +134,7 @@ export function stubContactApi(options: ContactStubOptions = {}) {
   const requests: RecordedRequest[] = []
   // Replaces the answer of the next message write (a refusal the fake would not produce).
   const next: { reply: [number, unknown] | null } = { reply: null }
-  const defaults = options.defaults ?? { from_email: 'prospection@exemple.example', to: ['jean@exemple.example'], generation_available: false, toolbox_connected: false }
+  const defaults = options.defaults ?? { from_email: 'prospection@exemple.example', to: ['jean@exemple.example'], generation_available: false, toolbox_connected: false, toolbox_state: 'disabled' as const }
 
   function sequenceOf(id: string): MessageSequence['sequence'] {
     const detail = prospects.store.get(id)

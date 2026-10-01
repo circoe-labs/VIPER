@@ -57,8 +57,9 @@ Background jobs run **inside the API process**, off by default, each with a `pyt
 - **Toolbox cleanup worker** (S6, `app/services/toolbox/worker.py`): a daemon thread started by the app lifespan
   when the CIRCOE Toolbox is enabled and configured and `VIPER_TOOLBOX_CLEANUP_INTERVAL_MS` > 0; it drains
   `contact_message_remote_draft_cleanups` (`contact_remote_drafts.process_cleanups`), woken after any successful
-  unsafe request under `/api/prospects` (`app/api/worker_wake.py`). One pass at a time; rows taken with
-  `SKIP LOCKED`, so a CLI pass can run beside it. CLI: `toolbox-cleanup --once`.
+  unsafe request under `/api/prospects` (`app/api/worker_wake.py`). One pass at a time; each entry is claimed
+  (`SKIP LOCKED` + a lease), committed, deleted outside any transaction, then recorded, so a CLI pass can run
+  beside it. CLI: `toolbox-cleanup --once`.
 - The scheduled dispatcher (S7) follows the same model.
 
 Network calls to external services (OpenAI S5, Toolbox S6) never run inside a database transaction: the request

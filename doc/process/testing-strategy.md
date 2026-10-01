@@ -220,7 +220,9 @@
   still-attached ids, the worker and the CLI), `test_migration_remote_draft_cleanups.py`;
   `src/settings/ConnectionsSection.test.tsx` (states, connect redirect, the OAuth return posted once, refusals,
   forget), `remoteDraftLine` in `mailModel.test.ts`, the Toolbox block of `Workbench.test.tsx`.
-  E2E `e2e/toolbox.spec.ts` (serial) against `e2e/fake-toolbox.ts` started as a Playwright web server: the real
+  E2E `e2e/toolbox.spec.ts` (serial, its own Playwright project `toolbox` that depends on — runs after — every
+  other spec, so their screenshots never show a connected Toolbox; `--no-deps` runs it alone) against
+  `e2e/fake-toolbox.ts` started as a Playwright web server: the real
   browser redirect flow, the draft created at validation, deleted by the worker after a cancellation, a failure
   said then retried, « Oublier la connexion »; screenshots of Settings › Connexions and the editor.
 - Privacy: `scripts/check_private_data.py` in CI; synthetic fixtures only under `*/tests/fixtures/synthetic/`.

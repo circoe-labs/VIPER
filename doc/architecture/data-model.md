@@ -143,7 +143,7 @@ application write path — Database Explorer shows the table read-only).
   validated revision, set by `contact_remote_drafts.sync_remote_draft`; a creation failure leaves a `toolbox_*`
   `last_error_code`. **`contact_message_remote_draft_cleanups`** (migration `0010`): the queue of remote draft ids
   to delete (`message_id` → `contact_messages` `ON DELETE SET NULL`, `remote_provider` + `remote_draft_id` unique,
-  `reason` `edited`/`cancelled`/`replaced`, `attempts`, `next_attempt_at`, `last_attempt_at`, `last_error_code`,
+  `reason` `edited`/`cancelled`/`replaced`/`deleted` (the last from the `BEFORE DELETE` trigger of migration `0011`), `attempts`, `next_attempt_at`, `last_attempt_at`, `last_error_code`,
   `completed_at` + `outcome` `deleted`/`already_absent`); not audited, read-only in the explorer.
 - AI drafting (S5): `generation_model` (the model OpenAI named), `generation_prompt_version`
   (`contact-mail-fr-2026-09-v1`), `generated_at` — set by `contact_messages.save_generated` only;

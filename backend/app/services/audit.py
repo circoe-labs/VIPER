@@ -110,6 +110,8 @@ class AuditAction(StrEnum):
     EXPLORER_SQL_EXECUTED = "explorer.sql_executed"
     # A downloaded Excel export (Task 10): rows per sheet and size, never a value.
     EXPORT_GENERATED = "export.generated"
+    # « Réinitialiser les données de prospection » (Base de données): counts only.
+    PROSPECTING_RESET = "prospecting.reset"
 
 
 @dataclass(frozen=True, slots=True)

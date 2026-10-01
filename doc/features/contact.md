@@ -152,7 +152,8 @@ draft|validated|scheduled --cancel--> cancelled --reopen--> draft (revision+1)
 
 `defaults.from_email` = `VIPER_DEFAULT_OUTBOUND_EMAIL` (null when unset), `defaults.to` = the primary e-mail,
 `defaults.generation_available` = the AI drafting is configured (`VIPER_OPENAI_API_KEY` and `VIPER_OPENAI_MODEL`),
-`defaults.toolbox_connected` = the CIRCOE Toolbox is enabled, configured and connected (S6).
+`defaults.toolbox_connected` = the CIRCOE Toolbox is enabled, configured and connected (S6), `defaults.toolbox_state`
+= its state (`disabled`, `not_configured`, `disconnected`, `connected`, `expired`).
 
 `MessageContentIn` (unknown fields refused): `expected_revision` (omitted/null = create the step's message; else the
 revision read), `from_email` (null clears it), `subject` (≤ 998), `body_text` (≤ 100 000), `to`, `cc`, `bcc` (lists of
@@ -306,8 +307,15 @@ for an AI generation.
   (`outcome = already_absent`); an id attached to a message again is never deleted (`still_attached`); a failure is
   retried with backoff (30 s, doubling, at most 6 h; `attempts`, `last_error_code`, `next_attempt_at`); a connection
   problem (`toolbox_not_connected`, `toolbox_auth_expired`, `toolbox_not_configured`) stops the pass without counting
-  an attempt. Entries are taken one by one with `FOR UPDATE SKIP LOCKED`: the API's worker and a CLI pass never delete
-  the same draft twice. Deleting the prospect keeps its queued ids (`message_id` set to NULL).
+  an attempt (a tool-level refusal is also recorded on the connection: Settings says *À reconnecter*). Each entry is
+  **claimed** (row taken with `FOR UPDATE SKIP LOCKED`, `next_attempt_at` pushed one 10-minute lease ahead,
+  committed), then deleted **outside any transaction**, then the outcome is recorded: the API's worker and a CLI pass
+  never take the same entry, and a pass that dies mid-way leaves it due again after the lease (the delete is
+  idempotent). Deleting the prospect keeps its queued ids (`message_id` set to NULL).
+- **Deleted message** (prospect deleted from the editor, *Réinitialiser les données de prospection*, a Database
+  Explorer row delete, any cascade or raw `DELETE`): the `BEFORE DELETE` trigger `queue_remote_draft_on_delete`
+  (migration `0011`) queues its attached draft (`reason = deleted`, `message_id` NULL), whatever the path; a sent
+  message is skipped (its draft left the mailbox when it was sent).
 
 ### Failure semantics (decided for S6)
 
@@ -319,9 +327,21 @@ créé : …* with **Réessayer** (`POST …/remote-draft`). Scheduling tries ag
 sending (reference `syncRemoteDraft`). A later success, an edit or a cancellation clears that code. This is the
 reference's behaviour (« un échec de création de brouillon laisse le statut intact »), made visible and durable.
 
+**Unknown outcome** (QA rework): a `create_draft` that times out or gets a 5xx may have created the draft anyway. The
+message then records `last_error_code = toolbox_outcome_unknown`; the next attempt (*Réessayer*, a schedule, S7)
+first lists the mailbox's drafts (`list_drafts`, 100) and **attaches a draft with the same subject and the same `To`**
+that no message holds and no cleanup entry names (the Toolbox returns no client reference and the reference adds no
+VIPER marker, so these fields are the match); only if none is found is a new draft created (answer `recovered` vs
+`created`). **S7** must apply the same rule before re-creating a missing draft, and never replay a `send_draft` whose
+error has `outcome_unknown`.
+
+A tool-level authentication refusal (`toolbox_auth_expired` from the Toolbox's text, e.g. no Infomaniak connection
+for the member any more) marks the connection *à reconnecter* and records it as the last error, from any caller
+(validation, *Réessayer*, the cleanup worker, the CLI).
+
 `RemoteDraftResult` = `MessageResult` + `remote_draft: {status, code}`, `status` among `disabled` (Toolbox off or not
-configured), `not_connected`, `not_applicable` (not validated/scheduled), `already_present`, `created`, `stale`,
-`failed` (+ `code`). The message in the answer is read again after the Toolbox call. The request's transaction is
+configured), `not_connected`, `not_applicable` (not validated/scheduled), `already_present`, `created`, `recovered`
+(an unseen draft found and attached), `stale`, `failed` (+ `code`, `toolbox_outcome_unknown` included). The message in the answer is read again after the Toolbox call. The request's transaction is
 committed before the Toolbox call (same pattern as the AI drafting).
 
 ### MCP client
@@ -348,7 +368,7 @@ Codes (`ToolboxError`, with `retryable` and `outcome_unknown`):
 | 422 | `toolbox_rejected` / `toolbox_outbound_blocked` / `toolbox_invalid_input` | refused by the Toolbox (its allowlist for `outbound_blocked`) or by the local bounds |
 | 404 | `toolbox_draft_not_found` | `send_draft` of a gone draft (a delete of a gone draft is a success) |
 
-### Limitations (handoff FINAL_REPORT)
+### Limitations (handoff FINAL_REPORT) — accepted by the Human on 2026-10-01 for the pilot
 
 - No `from`: the real sender is the default mailbox of the Infomaniak account behind the connection (the editor says
   so under *De* when the Toolbox is connected); `VIPER_DEFAULT_OUTBOUND_EMAIL` still fills *De* for the record.
@@ -498,14 +518,17 @@ when the AI starts, the editor's live region says the outcome; the clicked butto
 the focus moves to the running block, then to the draft's status sentence once it has arrived. Every `ai_*` code has its French sentence saying that nothing was changed;
 the message codes reuse `contact/messages.ts`.
 
-**CIRCOE Toolbox (S6)** (`remoteDraftLine` in `mailModel.ts`): under the status sentence of a validated or scheduled
-message, one discreet line — *Brouillon créé dans Infomaniak.* (success-fg, check glyph); *Brouillon Infomaniak non
+**CIRCOE Toolbox (S6)** (`remoteDraftLine` in `mailModel.ts`, from `defaults.toolbox_state`): under the status
+sentence of a validated or scheduled message, one discreet line — *Brouillon Infomaniak non créé : Toolbox à
+reconnecter.* (muted, no button) while the Toolbox is enabled but not connected or expired; *Brouillon créé dans Infomaniak.* (success-fg, check glyph); *Brouillon Infomaniak non
 créé : <raison>.* (warning-fg, alert glyph; the `toolbox_*` code in French from `settings/toolboxCopy.ts`) with a ghost
 **Réessayer** while the Toolbox is connected (*Création dans Infomaniak…* while it runs); *Brouillon Infomaniak pas
 encore créé.* (muted) for a message validated before the connection. Nothing is said while the Toolbox is off (all
 local, as before). When the Toolbox is connected, *De* carries the hint *Envoi réel depuis la boîte Infomaniak par
 défaut du compte connecté à la Toolbox : ce champ n’est pas transmis.* The validation notice says *… validé et
-brouillon créé dans Infomaniak* when it was.
+brouillon créé dans Infomaniak* when it was; when the validation succeeded but the draft failed, the notice is a
+warning (alert glyph) *Message … validé, mais le brouillon Infomaniak n’a pas été créé : <raison>. La validation est
+conservée ; « Réessayer » le recrée.*, announced by the live region.
 
 **Unsaved text**: kept per step — switching tabs loses nothing, a dot marks a tab with unsaved changes; leaving the
 prospect (list, previous/next, Back, another page) with unsaved mail or follow-up asks *Modifications non

@@ -134,7 +134,9 @@ test('validating creates the Infomaniak draft; cancelling deletes it; a failure 
   await fakeMode(page, { toolErrorText: 'L\'API Infomaniak Mail a répondu 503' })
   try {
     await writeAndValidate(page, 'R1', `Relance ${tag}`)
-    await expect(page.getByText('Brouillon Infomaniak non créé : la Toolbox ne répond pas.')).toBeVisible()
+    // An Infomaniak 5xx during the creation: the draft may exist, « Réessayer » looks for it first.
+    await expect(page.getByText(/^Brouillon Infomaniak non créé : création non confirmée par la Toolbox/)).toBeVisible()
+    await expect(page.getByRole('status').filter({ hasText: /validé, mais le brouillon Infomaniak n’a pas été créé/ })).toHaveCount(1)
     await page.setViewportSize({ width: 1440, height: 1250 })
     await page.screenshot({ path: `${SCREENSHOTS}/contact-remote-draft-failed-dark-1440.png`, animations: 'disabled' })
     await page.setViewportSize({ width: 1440, height: 900 })

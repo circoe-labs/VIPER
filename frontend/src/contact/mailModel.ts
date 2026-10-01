@@ -6,6 +6,7 @@
 // - nothing here changes the prospect's state.
 import { MESSAGE_STEPS, type Message, type MessageContent, type MessageSequence, type MessageStep } from '../api/contact'
 import type { TrackingStatus } from '../api/prospection'
+import type { ToolboxState } from '../api/toolbox'
 import { TRACKING_LABELS } from '../prospection/labels'
 import { toolboxErrorLabel } from '../settings/toolboxCopy'
 import { formatDateTime, MESSAGE_STATUS_LABELS, STEP_LABELS } from './labels'
@@ -195,15 +196,20 @@ export interface RemoteDraftLine {
 }
 
 // The Infomaniak draft of a validated or scheduled message (CIRCOE Toolbox, S6), said discreetly under the status.
-// Nothing while the Toolbox is off and no draft exists (everything stays local, as before S6).
-export function remoteDraftLine(message: Message | null, toolboxConnected: boolean): RemoteDraftLine | null {
+// Nothing while the Toolbox is off or not configured and no draft exists (everything stays local, as before S6);
+// enabled but not connected (or expired), the person learns that no draft is created.
+export function remoteDraftLine(message: Message | null, toolboxState: ToolboxState): RemoteDraftLine | null {
   if (!message || (message.status !== 'validated' && message.status !== 'scheduled')) return null
   if (message.has_remote_draft) return { tone: 'ok', text: 'Brouillon créé dans Infomaniak.', retry: false }
+  const connected = toolboxState === 'connected'
   const code = message.last_error_code
-  if (code?.startsWith('toolbox_')) {
-    return { tone: 'warning', text: `Brouillon Infomaniak non créé : ${toolboxErrorLabel(code)}.`, retry: toolboxConnected }
+  if (code?.startsWith('toolbox_') && (connected || code !== 'toolbox_auth_expired')) {
+    return { tone: 'warning', text: `Brouillon Infomaniak non créé : ${toolboxErrorLabel(code)}.`, retry: connected }
   }
-  if (!toolboxConnected) return null
+  if (toolboxState === 'disconnected' || toolboxState === 'expired') {
+    return { tone: 'muted', text: 'Brouillon Infomaniak non créé : Toolbox à reconnecter.', retry: false }
+  }
+  if (!connected) return null
   return { tone: 'muted', text: 'Brouillon Infomaniak pas encore créé.', retry: true }
 }
 

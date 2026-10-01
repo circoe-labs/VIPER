@@ -64,6 +64,8 @@ class TokenProvider(Protocol):
 
     def refresh_after_unauthorized(self, rejected: str) -> str | None: ...
 
+    def report_rejected(self, access_token: str, code: str) -> None: ...
+
 
 @dataclass(frozen=True, slots=True)
 class DraftInput:
@@ -79,6 +81,7 @@ class DraftSummary:
     draft_id: str
     subject: str
     date: str | None
+    to: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -341,11 +344,18 @@ class McpMailToolbox:
                 refreshed = self._tokens.refresh_after_unauthorized(token)
                 if refreshed is None:
                     raise
+                token = refreshed
                 raw = self._call_once(client, refreshed, tool, arguments, deadline, sensitive)
         logger.info(
             "toolbox.call tool=%s duration_ms=%s", tool, round((self._clock() - started) * 1000)
         )
-        return self._tool_result(raw, sensitive)
+        try:
+            return self._tool_result(raw, sensitive)
+        except ToolboxError as error:
+            if error.code == "toolbox_auth_expired":
+                # The Toolbox accepted the token but its Infomaniak side refused: reconnect.
+                self._tokens.report_rejected(token, error.code)
+            raise
 
     @staticmethod
     def _tool_result(raw: object, sensitive: bool) -> dict[str, Any]:
@@ -393,7 +403,9 @@ class McpMailToolbox:
             cleaned = _addresses(name, values, required=False)
             if cleaned:
                 arguments[name] = cleaned
-        result = self._call(TOOLS["create_draft"], arguments)
+        # A timeout or a 5xx may hide a draft created anyway: `outcome_unknown` (the caller looks
+        # for it before creating another one).
+        result = self._call(TOOLS["create_draft"], arguments, sensitive=True)
         draft_id = result.get("draftId")
         if not isinstance(draft_id, str | int) or not str(draft_id).strip():
             raise toolbox_error("toolbox_invalid_response", "The Toolbox returned no draft id.")
@@ -441,12 +453,13 @@ class McpMailToolbox:
         for item in drafts:
             if not isinstance(item, dict) or not item.get("draftId"):
                 continue
-            subject, date = item.get("subject"), item.get("date")
+            subject, date, to = item.get("subject"), item.get("date"), item.get("to")
             summaries.append(
                 DraftSummary(
                     draft_id=str(item["draftId"]),
                     subject=subject if isinstance(subject, str) else "",
                     date=date if isinstance(date, str) else None,
+                    to=[str(a) for a in to] if isinstance(to, list) else [],
                 )
             )
         return summaries

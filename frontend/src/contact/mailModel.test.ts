@@ -19,7 +19,7 @@ import {
 } from './mailModel'
 
 const OPEN = { state: 'neutral' as const, doNotContact: false, closed: false }
-const DEFAULTS = { from_email: 'prospection@exemple.example', to: ['jean@exemple.example'], generation_available: false, toolbox_connected: false }
+const DEFAULTS = { from_email: 'prospection@exemple.example', to: ['jean@exemple.example'], generation_available: false, toolbox_connected: false, toolbox_state: 'disabled' as const }
 
 function sequence(steps: Partial<Record<'contact' | 'r1' | 'r2', ReturnType<typeof message>>>): MessageSequence {
   return {
@@ -156,21 +156,36 @@ describe('send moment', () => {
 
 describe('remoteDraftLine (S6)', () => {
   it('says the Infomaniak draft of a validated or scheduled message only', () => {
-    expect(remoteDraftLine(message('contact', 'draft'), true)).toBeNull()
-    expect(remoteDraftLine(message('contact', 'validated', { has_remote_draft: true }), false)).toEqual({
+    expect(remoteDraftLine(message('contact', 'draft'), 'connected')).toBeNull()
+    expect(remoteDraftLine(message('contact', 'validated', { has_remote_draft: true }), 'disabled')).toEqual({
       tone: 'ok',
       text: 'Brouillon créé dans Infomaniak.',
       retry: false,
     })
-    expect(remoteDraftLine(message('contact', 'scheduled', { last_error_code: 'toolbox_outbound_blocked' }), true)).toEqual({
+    expect(remoteDraftLine(message('contact', 'scheduled', { last_error_code: 'toolbox_outbound_blocked' }), 'connected')).toEqual({
       tone: 'warning',
       text: 'Brouillon Infomaniak non créé : un destinataire n’est pas autorisé par la liste d’envoi de la Toolbox.',
       retry: true,
     })
-    expect(remoteDraftLine(message('contact', 'validated'), true)?.tone).toBe('muted')
-    // Toolbox off: nothing (everything stays local).
-    expect(remoteDraftLine(message('contact', 'validated'), false)).toBeNull()
+    expect(remoteDraftLine(message('contact', 'validated', { last_error_code: 'toolbox_outcome_unknown' }), 'connected')?.text).toContain(
+      'création non confirmée par la Toolbox',
+    )
+    expect(remoteDraftLine(message('contact', 'validated'), 'connected')?.tone).toBe('muted')
+    // Toolbox off or not configured: nothing (everything stays local).
+    expect(remoteDraftLine(message('contact', 'validated'), 'disabled')).toBeNull()
+    expect(remoteDraftLine(message('contact', 'validated'), 'not_configured')).toBeNull()
+    // Enabled but not connected, or expired: said, no retry.
+    for (const state of ['disconnected', 'expired'] as const) {
+      expect(remoteDraftLine(message('contact', 'validated'), state)).toEqual({
+        tone: 'muted',
+        text: 'Brouillon Infomaniak non créé : Toolbox à reconnecter.',
+        retry: false,
+      })
+    }
+    expect(remoteDraftLine(message('contact', 'validated', { last_error_code: 'toolbox_auth_expired' }), 'expired')?.text).toBe(
+      'Brouillon Infomaniak non créé : Toolbox à reconnecter.',
+    )
     // A dispatch error (S7) is not a remote draft failure.
-    expect(remoteDraftLine(message('contact', 'validated', { last_error_code: 'send_failed' }), false)).toBeNull()
+    expect(remoteDraftLine(message('contact', 'validated', { last_error_code: 'send_failed' }), 'disabled')).toBeNull()
   })
 })

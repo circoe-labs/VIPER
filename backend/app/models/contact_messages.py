@@ -158,7 +158,9 @@ class ContactMessage(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     last_error_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
-CLEANUP_REASONS = ("edited", "cancelled", "replaced")
+# `deleted`: queued by the `queue_remote_draft_on_delete` trigger (migration 0011) when a message
+# holding a draft is deleted (prospect deletion, prospecting reset, explorer, any cascade).
+CLEANUP_REASONS = ("edited", "cancelled", "replaced", "deleted")
 CLEANUP_OUTCOMES = ("deleted", "already_absent")
 
 

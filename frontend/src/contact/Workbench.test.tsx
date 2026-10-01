@@ -40,7 +40,7 @@ function open(detail: Prospect, messages: Partial<Record<MessageStep, Message>> 
     dashboard: contactDashboard(),
     details: [detail],
     messages: { [detail.id]: messages },
-    defaults: { from_email: 'prospection@exemple.example', to: ['claire@exemple.example'], generation_available: false, toolbox_connected: false },
+    defaults: { from_email: 'prospection@exemple.example', to: ['claire@exemple.example'], generation_available: false, toolbox_connected: false, toolbox_state: 'disabled' as const },
     ...extra,
   })
   const view = renderApp(`/contact?prospect=${detail.id}`)
@@ -322,6 +322,7 @@ describe('Contact workbench', () => {
         to: ['claire@exemple.example'],
         generation_available: false,
         toolbox_connected: true,
+        toolbox_state: 'connected' as const,
       },
     }
 
@@ -348,6 +349,8 @@ describe('Contact workbench', () => {
       await confirmDialog(/Valider le message Contact/, 'Valider le message')
 
       expect(await screen.findByText('Brouillon Infomaniak non créé : la Toolbox ne répond pas.')).toBeInTheDocument()
+      // The outcome, in the live region: validated, but the draft is missing.
+      expect(screen.getAllByText(/validé, mais le brouillon Infomaniak n’a pas été créé : la Toolbox ne répond pas/).length).toBeGreaterThan(0)
       // The validation stands.
       expect(tab('Contact')).toHaveTextContent('Validé')
       await userEvent.click(screen.getByRole('button', { name: 'Réessayer' }))
@@ -356,7 +359,18 @@ describe('Contact workbench', () => {
       expect(sent(api.requests, 'POST', `/api/prospects/${detail.id}/messages/contact/remote-draft`)).toHaveLength(1)
     })
 
-    it('says nothing about Infomaniak while the Toolbox is not connected', async () => {
+    it('says the draft is not created while the Toolbox is enabled but to reconnect', async () => {
+      const detail = person()
+      open(
+        detail,
+        { contact: message('contact', 'validated', { prospect_id: detail.id }) },
+        { defaults: { ...connected.defaults, toolbox_connected: false, toolbox_state: 'expired' as const } },
+      )
+      expect(await screen.findByText('Brouillon Infomaniak non créé : Toolbox à reconnecter.')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Réessayer' })).not.toBeInTheDocument()
+    })
+
+    it('says nothing about Infomaniak while the Toolbox is off', async () => {
       const detail = person()
       open(detail, { contact: message('contact', 'validated', { prospect_id: detail.id }) })
       expect(await screen.findByText(/prêt à être programmé/)).toBeInTheDocument()

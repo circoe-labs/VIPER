@@ -19,7 +19,8 @@ only — no real call to the Toolbox or Infomaniak was ever made (Contact port P
 The card also shows the **last failure** (date + French reason of the `toolbox_*` code), the **obsolete drafts still
 to delete** in Infomaniak (and how many failed at least once — retried automatically) and the **limitations**: the
 sender is the account's default mailbox (VIPER's *De* is not transmitted), 30 days without automatic renewal, one
-connection for the whole VIPER, « Oublier » is VIPER-side only (no revocation in the Toolbox).
+connection for the whole VIPER, « Oublier » is VIPER-side only (no revocation in the Toolbox). The sender rule and
+the single server-side connection renewed every 30 days were **accepted by the Human on 2026-10-01** for the pilot.
 
 ## OAuth flow (`app/services/toolbox/oauth.py`, port of the reference `toolboxAuth.ts`)
 
@@ -36,10 +37,16 @@ connection for the whole VIPER, « Oublier » is VIPER-side only (no revocation 
    `iss` (or `error`). The page posts them once to `POST /api/settings/toolbox/callback` (*Finalisation de la
    connexion… n s*), removes them from the address bar and says the outcome (*CIRCOE Toolbox connectée jusqu’au …* or
    *Connexion à la Toolbox impossible : …*).
-4. The API checks the `state` (known, not expired, **same VIPER user**, consumed even when refused), `error`
+4. The API checks the `state` (known, not expired, **same VIPER user** — someone else's state is refused without
+   being consumed, so it cannot be burnt; the owner's state is consumed even when the return is refused), `error`
    (`access_denied` → `toolbox_access_denied`), `iss` (RFC 9207, required when the server announces it), then
    exchanges the code at `/token` (`authorization_code` + `code_verifier` + `resource`): a Bearer token with the
    `mail` scope, stored with its expiry; audit `toolbox.connected`.
+
+**Metadata endpoints** (`authorization_endpoint`, `token_endpoint`, `registration_endpoint`, the issuer) must pass
+the same rule as the settings — https, or http on the loopback only — before VIPER calls them or sends the browser
+there (else 422 `toolbox_rejected`, recorded as the last error); the page also follows only an http(s)
+authorization URL (`lib/browser.ts`).
 
 **Why the return lands on the SPA, not the API**: the session cookie is `SameSite=Strict` and scoped to `/api`; a
 redirect initiated by the Toolbox's site reaches an API URL **without** it. The SPA page loads without the cookie,
@@ -64,6 +71,10 @@ The Toolbox has no revocation endpoint: the deleted token expires by itself at i
   Windows the modes are ignored: the file inherits the ACL of the user profile — keep it under the service account's
   profile.
 - Unreadable or malformed file = not connected (logged as a warning, never a crash).
+- Concurrency: one lock serializes the read-modify-writes **within a process** (the API, which runs as one process,
+  and its cleanup worker). A CLI `toolbox-cleanup --once` run beside the API is a second process: both only rewrite
+  the file atomically, and the CLI writes only when the Toolbox refuses the token (marking it to reconnect), so the
+  worst race is a lost « à reconnecter » mark that the next refused call sets again. No cross-process lock file.
 - Tokens are excluded from `repr`, never logged, never returned by an API (no route accepts or returns one), never
   sent to the browser.
 

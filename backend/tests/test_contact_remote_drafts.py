@@ -11,19 +11,21 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app import cli
 from app.core.config import Settings, allowlist_permits
-from app.models import AuditLogEntry, ContactMessage, ContactMessageRemoteDraftCleanup
-from app.models.enums import ContactTrackingStatus
-from app.services import contact_remote_drafts
+from app.models import AuditLogEntry, ContactMessage, ContactMessageRemoteDraftCleanup, Prospect
+from app.models.enums import ContactMessageStep, ContactTrackingStatus
+from app.services import audit, contact_messages, contact_remote_drafts
+from app.services.contact_messages import GeneratedContent
 from app.services.contact_remote_drafts import PROVIDER, backoff, process_cleanups
 from app.services.toolbox.integration import ToolboxIntegration
 from app.services.toolbox.mcp_client import DraftInput
 from app.services.toolbox.token_store import MemoryTokenStore
 from app.services.toolbox.worker import CleanupWorker
+from tests.builders import OPERATOR
 from tests.fake_toolbox import MCP_URL, FakeToolbox
 from tests.test_contact_messages_api import FUTURE, SENDER, messages, ok, prospect_id, refused
 from tests.test_prospects_api import PROSPECTS, load
@@ -521,3 +523,180 @@ def test_the_status_counts_the_queue(
     ok(connected.post(f"{messages(prospect)}/contact/cancel", json={"expected_revision": 1}))
 
     assert ok(connected.get(STATUS))["cleanups"] == {"pending": 1, "failing": 0}
+
+
+# --- QA rework: deletion, auth recording, unknown outcome, other queueing paths ------------------
+
+
+def queued_reasons(session: Session) -> dict[str, str]:
+    return {entry.remote_draft_id: entry.reason for entry in queue(session)}
+
+
+@pytest.mark.parametrize("path", ["editor", "reset", "explorer"])
+def test_deleting_the_prospect_queues_its_drafts(
+    connected: TestClient, db_session: Session, path: str
+) -> None:
+    prospect = prospect_id(db_session)
+    message = validated(connected, prospect)["message"]
+    draft_id = remote_id(db_session, message["id"])
+    assert draft_id is not None
+
+    if path == "editor":
+        view = load(connected, prospect)
+        response = connected.delete(f"{PROSPECTS}/{prospect}", params={"version": view["version"]})
+        assert response.status_code == 204, response.text
+    elif path == "reset":
+        body = {"confirmation": "RESET_PROSPECTING_DATA"}
+        ok(connected.post("/api/database/reset-prospecting", json=body))
+    else:
+        db_session.expire_all()
+        row = db_session.get(Prospect, prospect)
+        assert row is not None
+        deletes = [{"key": {"id": str(row.id)}, "version": row.updated_at.isoformat()}]
+        changes = {"updates": [], "inserts": [], "deletes": deletes}
+        ok(connected.post("/api/explorer/tables/prospects/changes", json=changes))
+
+    [entry] = queue(db_session)
+    assert (entry.remote_draft_id, entry.reason, entry.message_id) == (draft_id, "deleted", None)
+
+
+def test_a_sent_message_deleted_queues_nothing(db_session: Session) -> None:
+    prospect = prospect_id(db_session)
+    db_session.execute(
+        text(
+            "INSERT INTO contact_messages (prospect_id, step, status, from_email, subject, "
+            "body_text, revision, validated_revision, validated_at, validated_by_actor_id, "
+            "sent_at, remote_provider, remote_draft_id) VALUES (:p, 'contact', 'sent', "
+            "'a@ex.example', 's', 'b', 1, 1, now(), 'x', now(), 'circoe_toolbox', 'draft-sent')"
+        ),
+        {"p": prospect},
+    )
+    db_session.execute(text("DELETE FROM prospects WHERE id = :p"), {"p": prospect})
+    assert queue(db_session) == []
+
+
+def test_an_ai_redraft_the_opposition_and_a_reopening_queue_or_keep_the_old_draft(
+    connected: TestClient, toolbox_app: FastAPI, db_session: Session
+) -> None:
+    # AI redraft (S5 `save_generated`) of a validated message: its draft is queued as edited.
+    prospect = prospect_id(db_session, ContactTrackingStatus.CONTACTED)
+    first = validated(connected, prospect)["message"]
+    first_draft = remote_id(db_session, first["id"])
+    factory: sessionmaker[Session] = toolbox_app.state.session_factory
+    with factory.begin() as session:
+        audit.bind(session, OPERATOR)
+        contact_messages.save_generated(
+            session,
+            OPERATOR,
+            prospect,
+            ContactMessageStep.CONTACT,
+            GeneratedContent("IA", "Corps IA", "fake-model", "v1"),
+            1,
+        )
+    assert queued_reasons(db_session) == {first_draft: "edited"}
+
+    # Cancel then reopen: the cancel queues the draft, the reopening queues nothing more.
+    path = f"{messages(prospect)}/contact"
+    second = ok(connected.post(f"{path}/validate", json={"expected_revision": 2}))["message"]
+    second_draft = remote_id(db_session, second["id"])
+    ok(connected.post(f"{path}/cancel", json={"expected_revision": 2}))
+    ok(connected.post(f"{path}/reopen", json={"expected_revision": 2}))
+    assert queued_reasons(db_session) == {first_draft: "edited", second_draft: "cancelled"}
+
+    # The opposition cancels the validated R1 and queues its draft.
+    r1_draft = remote_id(db_session, validated(connected, prospect, "r1")["message"]["id"])
+    assert r1_draft is not None
+    view = load(connected, prospect)
+    ok(
+        connected.put(
+            f"{PROSPECTS}/{prospect}/contactability",
+            json={"do_not_contact": True, "reason": "Demande", "version": view["version"]},
+        )
+    )
+    assert queued_reasons(db_session)[r1_draft] == "cancelled"
+
+
+def test_a_tool_level_auth_refusal_is_recorded_and_asks_to_reconnect(
+    connected: TestClient, toolbox_app: FastAPI, fake: FakeToolbox, db_session: Session
+) -> None:
+    prospect = prospect_id(db_session)
+    fake.mode.tool_error_text = "Aucune connexion Infomaniak pour ce membre."
+
+    body = validated(connected, prospect)
+
+    assert body["remote_draft"] == {"status": "failed", "code": "toolbox_auth_expired"}
+    status = ok(connected.get(STATUS))
+    assert (status["state"], status["last_error"]["code"]) == ("expired", "toolbox_auth_expired")
+
+    # The cleanup pass records it too (a draft queued before, then the refusal).
+    fake.mode.tool_error_text = None
+    connect(connected, fake)
+    other = prospect_id(db_session)
+    validated(connected, other)
+    ok(connected.post(f"{messages(other)}/contact/cancel", json={"expected_revision": 1}))
+    integration: ToolboxIntegration = toolbox_app.state.toolbox
+    toolbox = integration.mail_toolbox()
+    assert toolbox is not None
+    fake.mode.tool_error_text = "Aucune connexion Infomaniak pour ce membre."
+    report = process_cleanups(toolbox_app.state.session_factory, toolbox)
+    assert report.blocked == "toolbox_auth_expired"
+    assert ok(connected.get(STATUS))["state"] == "expired"
+    [entry] = [e for e in queue(db_session) if e.reason == "cancelled"]
+    assert (entry.attempts, entry.completed_at) == (0, None)
+
+
+def test_an_unknown_creation_outcome_is_recovered_not_duplicated(
+    connected: TestClient, fake: FakeToolbox, db_session: Session
+) -> None:
+    prospect = prospect_id(db_session)
+    path = f"{messages(prospect)}/contact"
+    ok(connected.put(path, json={"subject": "Objet", "body_text": "Corps"}), 201)
+    # The Toolbox creates the draft, then the answer is lost (timeout after execution).
+    fake.mode.lose_answer_of = "infomaniak.mail.create_draft"
+
+    body = ok(connected.post(f"{path}/validate", json={"expected_revision": 1}))
+
+    assert body["remote_draft"] == {"status": "failed", "code": "toolbox_outcome_unknown"}
+    assert body["message"]["last_error_code"] == "toolbox_outcome_unknown"
+    assert len(fake.drafts) == 1
+    fake.mode.lose_answer_of = None
+
+    retried = ok(connected.post(f"{path}/remote-draft", json={"expected_revision": 1}))
+
+    assert retried["remote_draft"]["status"] == "recovered"
+    assert retried["message"]["has_remote_draft"] is True
+    assert len(fake.drafts) == 1  # no duplicate
+    assert remote_id(db_session, retried["message"]["id"]) == next(iter(fake.drafts))
+
+
+def test_unsafe_oauth_endpoints_are_refused(
+    toolbox_app: FastAPI, client: TestClient, fake: FakeToolbox
+) -> None:
+    fake.token_endpoint = "http://evil.example.test/token"
+
+    refused(client.post(f"{STATUS}/connect"), 422, "toolbox_rejected")
+    assert ok(client.get(STATUS))["last_error"]["code"] == "toolbox_rejected"
+
+
+def test_claimed_entries_are_left_to_their_pass(
+    connected: TestClient, toolbox_app: FastAPI, db_session: Session
+) -> None:
+    prospect = prospect_id(db_session)
+    validated(connected, prospect)
+    ok(connected.post(f"{messages(prospect)}/contact/cancel", json={"expected_revision": 1}))
+    factory: sessionmaker[Session] = toolbox_app.state.session_factory
+    toolbox = toolbox_app.state.toolbox.mail_toolbox()
+    seen: list[int] = []
+
+    class Spy:
+        """During the network delete the entry is claimed: another pass leaves it alone."""
+
+        def delete_draft(self, draft_id: str) -> bool:
+            seen.append(process_cleanups(factory, toolbox).processed)
+            return bool(toolbox.delete_draft(draft_id))
+
+    report = process_cleanups(factory, Spy())  # type: ignore[arg-type]
+
+    assert (report.deleted, seen) == (1, [0])
+    [entry] = queue(db_session)
+    assert (entry.outcome, entry.attempts) == ("deleted", 1)

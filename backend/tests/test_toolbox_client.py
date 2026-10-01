@@ -125,14 +125,17 @@ def test_the_state_is_single_use_and_bound_to_the_person(fake: FakeToolbox, cloc
     auth = make_auth(fake, clock)
     params = fake.authorize(auth.start(PERSON))
 
+    # Someone else's state is refused without being consumed…
     with refused("toolbox_state_invalid"):
         auth.complete(params, OTHER)
-    # Consumed by the refused attempt: replaying it fails too.
-    with refused("toolbox_state_invalid"):
-        auth.complete(params, PERSON)
     with refused("toolbox_state_invalid"):
         auth.complete({"state": "forged", "code": "x"}, PERSON)
     assert auth.status().state == "disconnected"
+    # …so its owner can still finish, once.
+    auth.complete(params, PERSON)
+    assert auth.status().state == "connected"
+    with refused("toolbox_state_invalid"):
+        auth.complete(params, PERSON)
 
 
 def test_a_pending_authorization_expires(fake: FakeToolbox, clock: Clock) -> None:

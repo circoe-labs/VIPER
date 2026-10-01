@@ -47,10 +47,14 @@ PROVIDER = "circoe_toolbox"
 M = ContactMessageStatus
 WITH_REMOTE_DRAFT = (M.VALIDATED, M.SCHEDULED)
 TOOLBOX_ERROR_PREFIX = "toolbox_"
+# `last_error_code` of a creation that timed out or got a 5xx: the draft may exist in Infomaniak.
+OUTCOME_UNKNOWN = "toolbox_outcome_unknown"
 # The batch stops on these: nothing is the draft's fault, the connection must be fixed first.
 BLOCKING = frozenset({"toolbox_not_configured", "toolbox_not_connected", "toolbox_auth_expired"})
 BACKOFF_BASE = timedelta(seconds=30)
 BACKOFF_MAX = timedelta(hours=6)
+# How long a claimed queue entry is left to the pass that claimed it (> the Toolbox timeout).
+CLAIM_LEASE = timedelta(minutes=10)
 
 
 def backoff(attempts: int) -> timedelta:
@@ -123,6 +127,8 @@ class _Snapshot:
     id: uuid.UUID
     revision: int
     draft: DraftInput
+    # The previous creation may have succeeded unseen (`toolbox_outcome_unknown`).
+    outcome_unknown: bool = False
 
 
 def _snapshot(session_factory: sessionmaker[Session], message_id: uuid.UUID) -> _Snapshot | str:
@@ -143,6 +149,7 @@ def _snapshot(session_factory: sessionmaker[Session], message_id: uuid.UUID) -> 
                 subject=message.subject,
                 text=message.body_text,
             ),
+            outcome_unknown=message.last_error_code == OUTCOME_UNKNOWN,
         )
 
 
@@ -182,16 +189,24 @@ def sync_remote_draft(
     if isinstance(found, str):
         return RemoteDraftSync(found)
     try:
-        draft_id = toolbox.create_draft(found.draft)
+        recovered = (
+            _find_unseen_draft(session_factory, toolbox, found.draft)
+            if found.outcome_unknown
+            else None
+        )
+        draft_id = recovered or toolbox.create_draft(found.draft)
     except ToolboxError as error:
+        code = OUTCOME_UNKNOWN if error.outcome_unknown else error.code
         logger.warning(
             "remote_draft.create_failed message=%s code=%s upstream_status=%s",
             message_id,
-            error.code,
+            code,
             error.upstream_status,
         )
-        _record_failure(session_factory, found, error.code, actor, audit_context, now)
-        return RemoteDraftSync("failed", error.code)
+        _record_failure(session_factory, found, code, actor, audit_context, now)
+        return RemoteDraftSync("failed", code)
+    if recovered:
+        logger.info("remote_draft.recovered message=%s", message_id)
     with unit_of_work(session_factory) as session:
         audit.bind(session, actor, audit_context)
         message = _current(session, found)
@@ -213,7 +228,46 @@ def sync_remote_draft(
             message.last_error_at = None
         session.flush()
     logger.info("remote_draft.created message=%s", message_id)
-    return RemoteDraftSync("created")
+    return RemoteDraftSync("recovered" if recovered else "created")
+
+
+def _normalized(addresses: list[str]) -> list[str]:
+    return sorted(address.strip().lower() for address in addresses if address.strip())
+
+
+def _find_unseen_draft(
+    session_factory: sessionmaker[Session], toolbox: MailToolbox, draft: DraftInput
+) -> str | None:
+    """After a creation whose outcome is unknown, the draft it may have left in Infomaniak:
+    same subject and same `To`, attached to no message and not queued for deletion (the Toolbox
+    returns no client reference and the reference adds no VIPER marker, so these two fields are
+    the match). None when there is none (a new one is then created)."""
+    candidates = [
+        summary
+        for summary in toolbox.list_drafts(100)
+        if summary.subject.strip() == draft.subject.strip()
+        and _normalized(summary.to) == _normalized(draft.to)
+    ]
+    if not candidates:
+        return None
+    ids = [candidate.draft_id for candidate in candidates]
+    with unit_of_work(session_factory) as session:
+        taken = set(
+            session.scalars(
+                select(ContactMessage.remote_draft_id).where(
+                    ContactMessage.remote_provider == PROVIDER,
+                    ContactMessage.remote_draft_id.in_(ids),
+                )
+            )
+        ) | set(
+            session.scalars(
+                select(ContactMessageRemoteDraftCleanup.remote_draft_id).where(
+                    ContactMessageRemoteDraftCleanup.remote_provider == PROVIDER,
+                    ContactMessageRemoteDraftCleanup.remote_draft_id.in_(ids),
+                )
+            )
+        )
+    return next((draft_id for draft_id in ids if draft_id not in taken), None)
 
 
 def _record_failure(
@@ -316,18 +370,24 @@ def _process_one(
     report: CleanupReport,
     moment: datetime,
 ) -> bool:
-    """Handle one entry; False stops the batch (the connection must be fixed first)."""
+    """Handle one entry; False stops the batch (the connection must be fixed first).
+
+    Claim → commit → network delete → record: no transaction or row lock is held during the
+    Toolbox call. The claim pushes `next_attempt_at` one lease ahead, so another pass (API worker,
+    CLI) does not take the entry meanwhile; a process that dies after the claim leaves it due again
+    once the lease ends (the delete is idempotent)."""
     with unit_of_work(session_factory) as session:
         entry = session.scalar(
             select(ContactMessageRemoteDraftCleanup)
             .where(
                 ContactMessageRemoteDraftCleanup.id == entry_id,
                 ContactMessageRemoteDraftCleanup.completed_at.is_(None),
+                ContactMessageRemoteDraftCleanup.next_attempt_at <= moment,
             )
             .with_for_update(skip_locked=True)
         )
         if entry is None:
-            report.skipped += 1  # done or being handled by another pass
+            report.skipped += 1  # done, or claimed by another pass
             return True
         attached = session.scalar(
             select(ContactMessage.id).where(
@@ -339,32 +399,46 @@ def _process_one(
             _failed_attempt(entry, "still_attached", moment)
             report.skipped += 1
             return True
-        try:
-            deleted = toolbox.delete_draft(entry.remote_draft_id)
-        except ToolboxError as error:
-            if error.code in BLOCKING:
-                report.blocked = error.code
-                return False
-            _failed_attempt(entry, error.code, moment)
-            report.processed += 1
-            report.failed += 1
-            logger.warning(
-                "remote_draft.cleanup_failed entry=%s code=%s attempts=%s",
-                entry.id,
-                error.code,
-                entry.attempts,
-            )
-            return True
+        draft_id = entry.remote_draft_id
         entry.attempts += 1
         entry.last_attempt_at = moment
-        entry.last_error_code = None
-        entry.completed_at = datetime.now(UTC)
-        entry.outcome = "deleted" if deleted else "already_absent"
+        entry.next_attempt_at = moment + CLAIM_LEASE
+    try:
+        deleted = toolbox.delete_draft(draft_id)
+    except ToolboxError as error:
+        with unit_of_work(session_factory) as session:
+            entry = session.get(ContactMessageRemoteDraftCleanup, entry_id, with_for_update=True)
+            if entry is None:
+                return True
+            if error.code in BLOCKING:
+                # Not the draft's fault: the claim is undone, the entry is due again.
+                entry.attempts -= 1
+                entry.next_attempt_at = moment
+                report.blocked = error.code
+                return False
+            entry.last_error_code = error.code
+            entry.next_attempt_at = moment + backoff(entry.attempts)
+            attempts = entry.attempts
         report.processed += 1
-        if deleted:
-            report.deleted += 1
-        else:
-            report.already_absent += 1
+        report.failed += 1
+        logger.warning(
+            "remote_draft.cleanup_failed entry=%s code=%s attempts=%s",
+            entry_id,
+            error.code,
+            attempts,
+        )
+        return True
+    with unit_of_work(session_factory) as session:
+        entry = session.get(ContactMessageRemoteDraftCleanup, entry_id, with_for_update=True)
+        if entry is not None and entry.completed_at is None:
+            entry.last_error_code = None
+            entry.completed_at = datetime.now(UTC)
+            entry.outcome = "deleted" if deleted else "already_absent"
+    report.processed += 1
+    if deleted:
+        report.deleted += 1
+    else:
+        report.already_absent += 1
     return True
 
 

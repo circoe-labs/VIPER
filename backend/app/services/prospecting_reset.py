@@ -14,6 +14,7 @@ from app.models.companies import Company
 from app.models.enums import ContactabilityStatus
 from app.models.prospects import Prospect
 from app.services import audit
+from app.services.audit import AuditAction
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,7 +50,7 @@ def reset_prospecting_data(session: Session, actor: ActorContext) -> ResetResult
     audit.record_event(
         session,
         actor,
-        "prospecting.reset",
+        AuditAction.PROSPECTING_RESET,
         entity_type="prospecting_database",
         entity_id=None,
         changes={

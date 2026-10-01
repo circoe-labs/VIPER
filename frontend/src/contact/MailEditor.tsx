@@ -16,6 +16,7 @@ import {
   SaveIcon,
   UndoIcon,
 } from '../ui/icons'
+import { toolboxErrorLabel } from '../settings/toolboxCopy'
 import { AiButtons, AiPanel, GeneratedNote } from './AiDraft'
 import {
   type AiInstruction,
@@ -100,7 +101,7 @@ export function MailEditor({
   const [refusal, setRefusal] = useState<MessageRefusal | null>(null)
   // The outcome of the last action, kept while the message stays in the status that action left it in (a state
   // change elsewhere that cancels the message makes it stale).
-  const [notice, setNotice] = useState<{ text: string; status: MessageStatus } | null>(null)
+  const [notice, setNotice] = useState<{ text: string; status: MessageStatus; warning?: boolean } | null>(null)
   const [pending, setPending] = useState<Pending | null>(null)
   const { date, time } = when
   // A confirmed action removes its own button (« Valider… » once validated…): the focus goes to the status sentence,
@@ -175,19 +176,25 @@ export function MailEditor({
     try {
       const result = await mutations.act.mutateAsync({ step, action, revision: message.revision })
       focusStatus.current = action !== 'unschedule' && action !== 'remote-draft'
-      const created = result.remote_draft?.status === 'created'
+      const outcome = result.remote_draft
+      const created = outcome?.status === 'created' || outcome?.status === 'recovered'
+      const remoteFailed = outcome?.status === 'failed'
+      const reason = outcome?.code ? toolboxErrorLabel(outcome.code) : 'erreur inattendue'
       setNotice({
         status: result.message.status,
+        warning: remoteFailed,
         text: {
           validate: created
             ? `Message ${label} validé et brouillon créé dans Infomaniak : il peut maintenant être programmé.`
-            : `Message ${label} validé : il peut maintenant être programmé.`,
+            : remoteFailed
+              ? `Message ${label} validé, mais le brouillon Infomaniak n’a pas été créé : ${reason}. La validation est conservée ; « Réessayer » le recrée.`
+              : `Message ${label} validé : il peut maintenant être programmé.`,
           unschedule: `Programmation du message ${label} retirée : il reste validé.`,
           cancel: `Message ${label} annulé : il ne partira pas.`,
           reopen: `Message ${label} rouvert en Brouillon : à relire puis revalider.`,
           'remote-draft': created
-            ? `Brouillon du message ${label} créé dans Infomaniak.`
-            : `Le brouillon Infomaniak du message ${label} n’a pas pu être créé.`,
+            ? `Brouillon du message ${label} ${outcome.status === 'recovered' ? 'retrouvé et rattaché' : 'créé'} dans Infomaniak.`
+            : `Le brouillon Infomaniak du message ${label} n’a pas pu être créé : ${reason}.`,
         }[action],
       })
     } catch (caught) {
@@ -310,8 +317,8 @@ export function MailEditor({
     else if (pending === 'validate' || pending === 'cancel') void act(pending)
   }
 
-  const toolboxConnected = sequence.defaults.toolbox_connected
-  const remote = remoteDraftLine(message, toolboxConnected)
+  const toolboxConnected = sequence.defaults.toolbox_state === 'connected'
+  const remote = remoteDraftLine(message, sequence.defaults.toolbox_state)
   const retrying = mutations.act.isPending && mutations.act.variables.action === 'remote-draft'
   const errorOf = (field: MailField) => refusal?.fields[field] ?? local[field]
   const readOnly = !actions.editable || busy
@@ -511,7 +518,10 @@ export function MailEditor({
           )}
         </div>
       )}
-      <Notice text={notice && notice.status === status ? notice.text : null} />
+      <Notice
+        text={notice && notice.status === status ? notice.text : null}
+        tone={notice?.warning ? 'warning' : 'success'}
+      />
 
       <AiPanel
         stepLabel={label}

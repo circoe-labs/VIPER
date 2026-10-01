@@ -25,7 +25,17 @@ export default defineConfig({
   // Every test runs on its own, in any order and alongside any other, on the one shared database: the synthetic
   // dataset is read-only and each test writes only rows it owns (e2e/data.ts, decision I-81).
   fullyParallel: true,
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  // The CIRCOE Toolbox spec connects the server-wide Toolbox (S6): it runs after every other spec, so their
+  // screens never show a Toolbox connected by it (`--no-deps` runs it alone).
+  projects: [
+    { name: 'chromium', testIgnore: /toolbox\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
+    {
+      name: 'toolbox',
+      testMatch: /toolbox\.spec\.ts/,
+      dependencies: ['chromium'],
+      use: { ...devices['Desktop Chrome'] },
+    },
+  ],
   webServer: [
     // A local fake of the OpenAI Responses API: the AI drafting (S5) never reaches OpenAI (Contact port P6).
     {

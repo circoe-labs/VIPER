@@ -139,6 +139,9 @@ class DefaultsOut(BaseModel):
     # The CIRCOE Toolbox is enabled, configured and connected (S6): a validation creates the
     # Infomaniak draft, sent from the account's default mailbox (the `from_email` is not used).
     toolbox_connected: bool
+    # `disabled` | `not_configured` | `disconnected` | `connected` | `expired` (Settings >
+    # Connexions): enabled but not connected or expired, the editor says no draft is created.
+    toolbox_state: str
 
 
 class StepOut(BaseModel):
@@ -249,6 +252,7 @@ def list_messages(
 ) -> MessagesOut:
     with business_errors():
         read = service.prospect_messages(session, prospect_id, settings.default_outbound_email)
+    toolbox_state = request.app.state.toolbox.status().state
     context = read.context
     return MessagesOut(
         sequence=SequenceOut(
@@ -261,7 +265,8 @@ def list_messages(
             from_email=read.defaults.from_email,
             to=read.defaults.to,
             generation_available=settings.generation_available,
-            toolbox_connected=request.app.state.toolbox.connected(),
+            toolbox_connected=toolbox_state == "connected",
+            toolbox_state=toolbox_state,
         ),
         steps=[
             StepOut(step=step, message=message_out(message) if message else None)

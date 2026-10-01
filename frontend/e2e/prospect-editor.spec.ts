@@ -46,6 +46,9 @@ test('verify, add a primary e-mail, plan the contact, then Save & Next through t
   ])
 
   await searchTag(page, tag)
+  // The page has rendered the search before the card is pressed (under load, a click on the previous render would
+  // carry that render's criteria).
+  await expect(people(page).getByRole('listitem')).toHaveCount(3)
   await card(page, 'Jamais vérifiés').click()
   await expect(people(page).getByRole('listitem')).toHaveCount(3)
   await people(page).getByRole('link', { name: `Jean Arnaud${suffix}` }).click()

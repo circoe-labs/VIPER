@@ -45,6 +45,8 @@ class Mode:
     unreachable: bool = False
     # The token endpoint refuses the code.
     refuse_token: bool = False
+    # This tool runs, then its answer is lost (the client times out after the draft exists).
+    lose_answer_of: str | None = None
 
 
 @dataclass
@@ -61,6 +63,8 @@ class FakeToolbox:
     registrations: list[dict[str, Any]] = field(default_factory=list)
     token_requests: list[str] = field(default_factory=list)
     mode: Mode = field(default_factory=Mode)
+    # Announced token endpoint (a test may make it unsafe).
+    token_endpoint: str = f"{ORIGIN}/token"
     _seq: int = 0
     _clients: dict[str, list[str]] = field(default_factory=dict)
     _codes: dict[str, dict[str, str]] = field(default_factory=dict)
@@ -110,7 +114,7 @@ class FakeToolbox:
                 json={
                     "issuer": ORIGIN,
                     "authorization_endpoint": f"{ORIGIN}/authorize",
-                    "token_endpoint": f"{ORIGIN}/token",
+                    "token_endpoint": self.token_endpoint,
                     "registration_endpoint": f"{ORIGIN}/register",
                     "response_types_supported": ["code"],
                     "authorization_response_iss_parameter_supported": True,
@@ -247,6 +251,8 @@ class FakeToolbox:
             if self.mode.hang_tool == name:
                 raise httpx2.ReadTimeout("fake toolbox hangs", request=request)
             result = self._tool(name, params.get("arguments") or {})
+            if self.mode.lose_answer_of == name:
+                raise httpx2.ReadTimeout("fake toolbox answer lost", request=request)
             if result is None:
                 return self._rpc(
                     message["id"], error={"code": -32602, "message": f"Tool {name} not found"}

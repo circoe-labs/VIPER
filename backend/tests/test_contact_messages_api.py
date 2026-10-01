@@ -75,6 +75,7 @@ def test_the_sequence_read_model(
         "to": ["jean.test@exemple.example"],
         "generation_available": False,
         "toolbox_connected": False,
+        "toolbox_state": "disabled",
     }
     assert body["steps"] == [
         {"step": "contact", "message": None},

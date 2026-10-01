@@ -4,6 +4,7 @@ import { apiGet, apiRequest } from './client'
 import { historyKeys } from './history'
 import type { ActivityStatus, TrackingStatus } from './prospection'
 import { refreshAfterWrite } from './refresh'
+import type { ToolboxState } from './toolbox'
 
 // Mirrors backend/app/api/routes/contact.py (the Contact dashboard and list) and contact_messages.py (the mail
 // sequence Contact / R1 / R2 of one prospect). Rules and refusal codes: doc/features/contact.md.
@@ -117,8 +118,15 @@ export interface MessageSequence {
     closed: boolean
   }
   // `generation_available`: the AI drafting is configured on the server (S5). `toolbox_connected`: the CIRCOE Toolbox
-  // is connected (S6) — a validation creates the Infomaniak draft, sent from the account's default mailbox.
-  defaults: { from_email: string | null; to: string[]; generation_available: boolean; toolbox_connected: boolean }
+  // is connected (S6) — a validation creates the Infomaniak draft, sent from the account's default mailbox;
+  // `toolbox_state` tells an enabled but unconnected (or expired) Toolbox from a disabled one.
+  defaults: {
+    from_email: string | null
+    to: string[]
+    generation_available: boolean
+    toolbox_connected: boolean
+    toolbox_state: ToolboxState
+  }
   steps: { step: MessageStep; message: Message | null }[]
 }
 
@@ -130,7 +138,15 @@ export interface MessageResult {
   unvalidated: boolean
   // validate / schedule / remote-draft (S6): what happened to the Infomaniak draft. `failed` carries a `toolbox_*` code.
   remote_draft?: {
-    status: 'disabled' | 'not_connected' | 'not_applicable' | 'already_present' | 'created' | 'stale' | 'failed'
+    status:
+      | 'disabled'
+      | 'not_connected'
+      | 'not_applicable'
+      | 'already_present'
+      | 'created'
+      | 'recovered'
+      | 'stale'
+      | 'failed'
     code: string | null
   }
 }

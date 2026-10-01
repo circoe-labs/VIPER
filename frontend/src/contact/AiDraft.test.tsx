@@ -32,7 +32,7 @@ function open(
     dashboard: contactDashboard(),
     details: [detail],
     messages: { [detail.id]: messages },
-    defaults: { from_email: 'prospection@exemple.example', to: ['claire@exemple.example'], generation_available: available, toolbox_connected: false },
+    defaults: { from_email: 'prospection@exemple.example', to: ['claire@exemple.example'], generation_available: available, toolbox_connected: false, toolbox_state: 'disabled' as const },
     ...extra,
   })
   renderApp(`/contact?prospect=${detail.id}`)

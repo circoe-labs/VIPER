@@ -432,6 +432,11 @@
   color: var(--color-success-fg);
 }
 
+/* An action that succeeded with a side failure (validated, Infomaniak draft not created). */
+.contact-panel__notice--warning svg {
+  color: var(--color-warning-fg);
+}
+
 .contact-panel__status svg,
 .contact-panel__error svg,
 .contact-panel__notice svg {
@@ -671,14 +676,25 @@
 /* The Infomaniak draft of a validated message (CIRCOE Toolbox, S6): one discreet line under the status. */
 .contact-mail__remote {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--space-2);
   font-size: var(--text-sm);
 }
 
+/* The glyph stays beside the first line of a long reason; « Réessayer » keeps its width. */
 .contact-mail__remote svg {
   flex: none;
+  margin-top: 0.1875rem;
+}
+
+.contact-mail__remote > span {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.contact-mail__remote > .btn {
+  flex: none;
+  margin-top: calc(-1 * var(--space-1));
 }
 
 .contact-mail__remote--ok {
