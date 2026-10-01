@@ -49,25 +49,23 @@ Configuration comes from `VIPER_*` environment variables or an optional `backend
 `.env` is git-ignored — never commit it). Defaults already match `docker-compose.yml`. Run backend commands from
 `backend/` so `.env` and `alembic.ini` are found.
 
-**AI drafting of Contact mails** (optional, Contact port S5): set `VIPER_OPENAI_API_KEY` and `VIPER_OPENAI_MODEL`
-(both required; no default model) in `backend/.env`; optional `VIPER_OPENAI_BASE_URL` (official API by default),
-`VIPER_OPENAI_TIMEOUT_MS` (60000, per read/write, not a total), `VIPER_OPENAI_MAX_RETRIES` (2) and
-`VIPER_CONTACT_BOOKING_URL` (the booking link the AI may copy; unset = no link). Behind a corporate proxy or with a
-private CA, set `VIPER_OPENAI_TRUST_ENV=true` so the OpenAI calls honour `HTTPS_PROXY` / `NO_PROXY` / `SSL_CERT_FILE`
-(off by default: a direct connection). Unset, *Générer avec l’IA* is disabled. The key stays on the server and is
-never logged. Tests never call OpenAI (a fake transport / server); Playwright starts `e2e/fake-openai.ts` on 8046
-(`VIPER_E2E_OPENAI_PORT`). Details: [`contact.md`](../features/contact.md) § AI drafting.
-
-**CIRCOE Toolbox — Infomaniak drafts** (optional, Contact port S6): off by default (`VIPER_TOOLBOX_MAIL_ENABLED`).
-To use it, set in `backend/.env` `VIPER_TOOLBOX_MAIL_ENABLED=true`, `VIPER_TOOLBOX_MCP_URL` (the Toolbox's exact
-MCP URL) and `VIPER_TOOLBOX_OAUTH_REDIRECT_URI=http://localhost:5173/settings/connections`, restart the API, then
-Paramètres › Connexions › *Connecter la Toolbox*. The token file defaults to `~/.viper/toolbox-oauth.json`
-(`VIPER_TOOLBOX_TOKEN_STORE_PATH`; refused inside the checkout). Obsolete drafts are deleted by the API's worker
-(`VIPER_TOOLBOX_CLEANUP_INTERVAL_MS`, 60 s; `0` = none) or by `python -m app.cli toolbox-cleanup --once`.
-Scheduled messages are sent by the API's dispatcher (S7) while the Toolbox is connected
-(`VIPER_CONTACT_DISPATCH_INTERVAL_MS`, 30 s; `0` = none, then `python -m app.cli contact-dispatch --once`); for a
-development VIPER connected to a real Toolbox, set `VIPER_CONTACT_DISPATCH_INTERVAL_MS=0` and
-`VIPER_INFOMANIAK_SEND_ALLOWLIST=<your own address>`. The E2E stack runs the dispatcher every second against the fake.
+**Integrations — set them in the UI** (Contact port S8): OpenAI (key, model, booking link), the default sender, the
+CIRCOE Toolbox (« Se connecter à CIRCOE Toolbox ») and the scheduled sending are all set in **Paramètres ›
+Connexions** and applied at once, without a restart; no `backend/.env` is needed. The values are saved in
+`~/.viper/runtime-settings.json` (`VIPER_RUNTIME_SETTINGS_PATH`; refused inside the checkout; **the OpenAI key is in
+clear there**, owner-only permissions on POSIX, the profile's ACL on Windows). The `VIPER_*` variables of
+`backend/.env.example` remain optional defaults (a value typed in the UI wins; « Rétablir la valeur par défaut » goes
+back to the variable) — the tests and the E2E stack use them. The built-in Toolbox address is the real CIRCOE Toolbox
+and the scheduled sending is off by default: for development, **keep it off** and fill « Adresses autorisées » with
+your own address before any real connection. Tokens and workers: the OAuth token file defaults to
+`~/.viper/toolbox-oauth.json` (`VIPER_TOOLBOX_TOKEN_STORE_PATH`); the cleanup and scheduled-sending workers run in
+the API process only while the Toolbox is connected; `python -m app.cli toolbox-cleanup --once` /
+`contact-dispatch --once` run one pass by hand (they read the same saved settings). Behind a corporate proxy,
+`VIPER_OPENAI_TRUST_ENV=true` (environment only). Tests never call OpenAI or the Toolbox: pytest uses a fake
+transport (`backend/tests/fake_toolbox.py`, and a guard fails any test reaching the real Toolbox host) and a
+temporary settings file; Playwright starts `e2e/fake-openai.ts` (8046) and `e2e/fake-toolbox.ts` (8047) and gives the
+E2E API its own temporary settings file. Details: [`settings-connections.md`](../features/settings-connections.md),
+[`contact.md`](../features/contact.md).
 **During development, only a local fake**: pytest uses `backend/tests/fake_toolbox.py` (an `httpx2` transport,
 no socket) and Playwright starts `e2e/fake-toolbox.ts` on 8047 (`VIPER_E2E_TOOLBOX_PORT`) with its token file in
 the system temp folder; never point a development VIPER at the real Toolbox or a real Infomaniak mailbox without

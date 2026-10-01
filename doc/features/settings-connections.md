@@ -1,30 +1,92 @@
-# Settings — Connexions: the CIRCOE Toolbox (Contact port S6)
+# Settings — Connexions: integrations set in the browser (Contact port S6, S7, S8)
 
-**Paramètres › Connexions** (`/settings/connections`) connects VIPER to the **CIRCOE Toolbox** (MCP server over HTTP,
-OAuth 2.1), through which a validated Contact/R1/R2 message becomes a draft in the linked **Infomaniak** mailbox and
-an invalidated or cancelled one loses it. What happens to the messages: [`contact.md`](contact.md) § CIRCOE Toolbox.
-Sending (`send_draft`) is S7. Decision: C-20 in the decision log. **Off by default**; tests and E2E use local fakes
-only — no real call to the Toolbox or Infomaniak was ever made (Contact port P6).
+**Paramètres › Connexions** (`/settings/connections`) is where VIPER is connected to the outside, **entirely from the
+UI** (S8, Human requests of 2026-10-01: « configurer mes API KEY directement dans le navigateur », then « me connecter
+à CIRCOE Toolbox depuis la configuration VIPER »). Four cards, each saving its own fields, applied at once without a
+restart:
+
+- **Rédaction IA (OpenAI)** — API key (write-only), model (no default), booking link; *Paramètres avancés*: API
+  address, timeout, retries. *Tester la clé* checks the saved key and model.
+- **Expéditeur** — the « De » pre-filled in new messages (indicative: the Toolbox sends from the account's default
+  mailbox).
+- **CIRCOE Toolbox** (S6) — **« Se connecter à CIRCOE Toolbox »** works out of the box (built-in server address, the
+  page's own return address); *Paramètres avancés*: server address, return address; *Se déconnecter…*.
+- **Envoi programmé** (S7) — frequency (« Désactivé » by default), allowlist of recipients, the dispatcher's state.
+
+Through the Toolbox (MCP server over HTTP, OAuth 2.1) a validated Contact/R1/R2 message becomes a draft in the linked
+**Infomaniak** mailbox and an invalidated or cancelled one loses it: [`contact.md`](contact.md) § CIRCOE Toolbox.
+Decision: C-20 in the decision log. Tests and E2E use local fakes only — no real call to OpenAI, the Toolbox or
+Infomaniak was ever made (Contact port P6).
+
+## Integration settings (S8) — `app/services/runtime_settings.py`, `app/services/integration_runtime.py`
+
+**Editable here**: `openai_api_key` (secret), `openai_model`, `openai_base_url`, `openai_timeout_ms`,
+`openai_max_retries`, `contact_booking_url`, `default_outbound_email`, `toolbox_mail_enabled`, `toolbox_mcp_url`,
+`toolbox_oauth_redirect_uri`, `contact_dispatch_interval_ms`, `infomaniak_send_allowlist`. Everything else (database,
+sessions, token store, SQL reader, import limits, dispatcher tuning, `VIPER_OPENAI_TRUST_ENV`) stays environment-only.
+
+- **Storage**: a private JSON file outside the database (never in a backup, the explorer or the SQL console) and
+  outside the checkout (refused by `Settings`): `VIPER_RUNTIME_SETTINGS_PATH`, default `~/.viper/runtime-settings.json`.
+  Atomic write (temporary file + `os.replace`, shared with the token store: `app/core/private_file.py`), directory
+  `0700`, file `0600` — **on Windows these modes are ignored**: the file inherits the profile's ACL. **The OpenAI key
+  is stored in clear** in it: accepted for the internal pilot (Human decision of 2026-10-01), to be revisited, as is
+  the fact that anyone signed in to VIPER can replace it.
+- **Precedence**: a value saved here > the `VIPER_*` variable > the built-in default. Each field says its source
+  (« Défini ici par … le … » / « Valeur fournie par la configuration du serveur » / « Valeur par défaut ») and, when
+  set here, offers « Rétablir la valeur par défaut » (`null`). An empty optional text (`""`) means « none » even over a
+  variable. The UI never asks to set a variable or to restart.
+- **Validation**: the merge is validated by `Settings.model_validate` — the **same validators as at startup**, not a
+  copy (http(s) URLs; https or http on loopback for the Toolbox URLs; allowlist syntax; ranges; a model whenever a key
+  is set). A refusal is 422 `invalid` with the `field` (never the submitted value); the page shows French copy under
+  the field (`settings/integrationsModel.ts`).
+- **Concurrency**: `version` (the file's revision) is sent back with every save; a stale one is 409 `conflict` (the
+  page reloads and says so).
+- **Write-only secret**: the API answers `{set, last4, source, updated_at, updated_by}` for the key, never the key; it
+  is not in a log line, an audit event or an error (`RuntimeFile.__repr__` hides values; validation errors are
+  rebuilt without `input`). The page: an empty password field with the placeholder « •••• 1234 (enregistrée) »,
+  *Remplacer*, *Effacer…* (confirmation; a key set here only).
+- **Audit**: `settings.integrations_changed` (entity `integration_settings`): the changed fields with before/after
+  values, except the key, recorded in the reason as `openai_api_key: replaced|removed`. `api_key` is also a secret
+  fragment of the audit policy. A save that changes nothing is not audited.
+- **Unreadable file**: reported (`load_error`: `unreadable` | `invalid`), ignored until the next save (the API still
+  starts); the page shows a warning.
+- **Live application** (`IntegrationRuntime`, `app.state.integrations`): `app.state.settings` is replaced by the new
+  effective settings (every route reads it per request: OpenAI client, booking link, default sender, flags of the
+  mail editor); a change of the Toolbox switch or URLs rebuilds `app.state.toolbox` (the token file is kept; an OAuth
+  flow started but not finished is lost); the cleanup and dispatch workers run **only while the Toolbox is
+  connected** — started at startup if it already is or right after the OAuth return, restarted when the dispatch
+  settings change, stopped by *Se déconnecter*. Stopping waits for a running pass (bounded by the Toolbox timeout).
+  One lock, one process (as already required by the Toolbox and the login throttle); the CLI (`--once`) reads the
+  same file.
+
+### API — `/api/settings/integrations` (session + CSRF, a person only)
+
+| Method & path | Body | Answer |
+|---|---|---|
+| `GET /settings/integrations` | — | `{version, updated_at, updated_by, load_error, storage_path, fields: {<name>: {value, source, fallback, updated_at, updated_by}}, openai_api_key: {set, last4, source, updated_at, updated_by}, generation_available, toolbox: {enabled, state, configured}, dispatch: {running, active}}` |
+| `PUT /settings/integrations` | `{version, <field>: value or null, openai_api_key?: string or null}` (unknown fields: 422) | same as GET |
+| `POST /settings/integrations/openai/check` | — | `{ok, code, model, elapsed_ms}` — one `GET {base_url}/models/{model}` with the saved key (nothing generated, ≤ 15 s, no retry); codes `ai_not_configured`, `ai_auth_failed`, `ai_model_not_found`, `ai_rate_limited`, `ai_timeout`, `ai_upstream_error` |
 
 ## States
 
 | `state` | Badge | Meaning |
 |---|---|---|
-| `disabled` | *Désactivée* | `VIPER_TOOLBOX_MAIL_ENABLED` is false: nothing leaves VIPER. No action. |
-| `not_configured` | *Non configurée* (warning) | enabled, but `VIPER_TOOLBOX_MCP_URL` and/or `VIPER_TOOLBOX_OAUTH_REDIRECT_URI` unset — the card names them. |
-| `disconnected` | *Non connectée* | configured, nobody connected (or forgotten). *Connecter la Toolbox*. |
-| `connected` | *Connectée* (success) | a usable token until `expires_at`: *Valable jusqu’au …*, *Connectée par*, *Depuis le*, the Toolbox origin. *Reconnecter*, *Oublier la connexion…*. |
+| `disabled` | *Désactivée* | the integration is off (the default, or after *Se déconnecter*): nothing leaves VIPER. *Se connecter à CIRCOE Toolbox* turns it on. |
+| `not_configured` | *Non configurée* (warning) | on, but the server address was emptied — the card names it in its own words and opens *Paramètres avancés*. |
+| `disconnected` | *Non connectée* | on and configured, nobody connected. *Se connecter à CIRCOE Toolbox*. |
+| `connected` | *Connectée* (success) | a usable token until `expires_at`: *Valable jusqu’au …*, *Connectée par*, *Depuis le*, the Toolbox origin. *Reconnecter*, *Se déconnecter…*. |
 | `expired` | *À reconnecter* (warning; also on the section tab) | the 30-day token ended, or the Toolbox refused it (401: archived member, rotated secret). |
 
 The card also shows the **last failure** (date + French reason of the `toolbox_*` code), the **obsolete drafts still
 to delete** in Infomaniak (and how many failed at least once — retried automatically) and the **limitations**: the
 sender is the account's default mailbox (VIPER's *De* is not transmitted), 30 days without automatic renewal, one
-connection for the whole VIPER, « Oublier » is VIPER-side only (no revocation in the Toolbox). The sender rule and
+connection for the whole VIPER, « Se déconnecter » is VIPER-side only (no revocation in the Toolbox). The sender rule and
 the single server-side connection renewed every 30 days were **accepted by the Human on 2026-10-01** for the pilot.
 
 ## OAuth flow (`app/services/toolbox/oauth.py`, port of the reference `toolboxAuth.ts`)
 
-1. **Connecter la Toolbox** → `POST /api/settings/toolbox/connect` (session + CSRF, the signed-in person): discovery
+1. **Se connecter à CIRCOE Toolbox** → `POST /api/settings/toolbox/connect` (S8: turns the integration on and
+   saves the page's return address first) (session + CSRF, the signed-in person): discovery
    (RFC 9728 `/.well-known/oauth-protected-resource` — its `resource` must equal `VIPER_TOOLBOX_MCP_URL` — then
    RFC 8414 metadata of the first authorization server; PKCE S256 required), **dynamic client registration**
    (RFC 7591, public client `VIPER`, `token_endpoint_auth_method=none`, kept in the token file and reused while the
@@ -58,8 +120,9 @@ authenticated by the `state` alone.)
 expiry (minus one minute) or on a 401 the token is marked invalidated → *À reconnecter*. A standard `refresh_token`
 grant is used only when a server offers one (tested with the fake), never assumed.
 
-**Oublier la connexion…** → confirmation (*Retour* focused) → `POST /api/settings/toolbox/forget`: the token, who
-connected and the last error are deleted from the file (the client registration stays); audit `toolbox.forgotten`.
+**Se déconnecter…** → confirmation (*Retour* focused) → `POST /api/settings/toolbox/forget`: the token, who
+connected and the last error are deleted from the file (the client registration stays); audit `toolbox.forgotten`;
+then the integration is turned off (S8: `toolbox_mail_enabled` saved `false`, workers stopped).
 The Toolbox has no revocation endpoint: the deleted token expires by itself at its end date.
 
 ## Token storage (`app/services/toolbox/token_store.py`)
@@ -83,9 +146,9 @@ The Toolbox has no revocation endpoint: the deleted token expires by itself at i
 | Method & path | Body | Answer |
 |---|---|---|
 | `GET /settings/toolbox` | — | `ToolboxStatus` |
-| `POST /settings/toolbox/connect` | — | `{authorization_url}` |
+| `POST /settings/toolbox/connect` | `{redirect_uri?}` — the page's own `/settings/connections` address (S8) | `{authorization_url}`; first turns the integration on and saves the return address (`auto`: replaced by a later connection from another address, unless one was typed in *Paramètres avancés* or the environment sets it; same https/loopback rule, else 422 `invalid` field `toolbox_oauth_redirect_uri`) |
 | `POST /settings/toolbox/callback` | `{state, code, iss, error}` (strings; unknown fields ignored) | `ToolboxStatus` |
-| `POST /settings/toolbox/forget` | — | `ToolboxStatus` |
+| `POST /settings/toolbox/forget` | — | `ToolboxStatus` — *Se déconnecter* (S8): forgets the token **and** turns the integration off (workers stopped) |
 
 ```json
 {
@@ -98,9 +161,9 @@ The Toolbox has no revocation endpoint: the deleted token expires by itself at i
 }
 ```
 
-`account_label` is always null: the Toolbox's answers name no mailbox. `missing` holds variable names, never values.
-`dispatch` (S7) is the scheduled sending: `running` = the dispatcher thread runs in this API process (Toolbox enabled
-and configured, `VIPER_CONTACT_DISPATCH_INTERVAL_MS` > 0); `active` = and the Toolbox is connected, so a scheduled
+`account_label` is always null: the Toolbox's answers name no mailbox. `missing` holds setting names, never values
+(the page translates them). `dispatch` (S7) is the scheduled sending: `running` = the dispatcher thread runs in this
+API process (Toolbox connected, frequency not « Désactivé »); `active` = and the Toolbox is connected, so a scheduled
 message really leaves; `last_pass_at` / `last_outcome` (`ok`, `error` — the traceback is in the server log, null before
 the first pass, per process); `scheduled` = messages in « Programmé », `unconfirmed` = those whose send is unconfirmed
 (a person settles them in Contact).
@@ -114,27 +177,32 @@ refused); 400 `toolbox_state_invalid`, 403 `toolbox_access_denied`, 400 `toolbox
 
 ## Front end
 
-`frontend/src/settings/ConnectionsSection.tsx` (the card, the OAuth return, the confirmation), copy in
-`settings/toolboxCopy.ts` (states, `toolbox_*` reasons, limitations — shared with the Contact editor),
-`api/toolbox.ts` (queries/mutations). Same `.settings-tabs` / `.settings-panel` pattern as the other sections; the
-card is `.settings-connection` (canvas background inside the surface panel, accent-soft icon tile, `StatusBadge`,
-uppercase muted fact labels, danger-soft last error) — `settings.css`. Under the facts, when the Toolbox is configured,
-the **Envoi programmé** block (S7, `.settings-connection__dispatch`, a hairline above): badge *Actif* (success) /
-*En attente* (warning: the worker runs, the Toolbox is not connected) / *Inactif* (neutral: no worker), one sentence
-(`dispatchSentence`), then *Dernière passe*, *Messages programmés* and, when there are some, *Envois non confirmés*
-(« à trancher dans Contact »). The limitations list adds that a scheduled message leaves only while VIPER runs.
+`frontend/src/settings/ConnectionsSection.tsx` (the section, the Toolbox card, the OAuth return, the confirmation),
+`settings/IntegrationCards.tsx` (card shell, *Rédaction IA*, *Expéditeur*, *Envoi programmé*, the Toolbox's advanced
+form, the write-only key field, the per-field source/reset hint), `settings/integrationsModel.ts` (form values,
+French refusals, sources), copy of the Toolbox in `settings/toolboxCopy.ts` (states, `toolbox_*` reasons,
+limitations — shared with the Contact editor), `api/integrations.ts` and `api/toolbox.ts`. Existing DA only: each card
+is `.settings-connection` (canvas background inside the surface panel, accent-soft icon tile, `StatusBadge`), fields
+are `ui/fields` (`TextField`, `SelectField`, `TextAreaField`, `FieldFrame` for the key), one primary button per card
+(*Enregistrer*; in the Toolbox card *Se connecter à CIRCOE Toolbox*, its advanced save being secondary), a native
+`<details>` for *Paramètres avancés*, `FeedbackBanner` for the outcome, confirmations in `Modal`. Waits show a live
+counter (*Enregistrement… n s*, *Test en cours… n s*, *Ouverture de la Toolbox… n s*) and have a deadline (60 s,
+30 s, 90 s). A save refreshes the Toolbox state and the mail editor's flags (AI available, default sender).
+
+The **Envoi programmé** card shows its badge (*Actif* success / *En attente* warning: a frequency is chosen but the
+Toolbox is not connected / *Désactivé* neutral), one sentence (`dispatchSentence`), *Dernière passe*, *Messages
+programmés* and, when there are some, *Envois non confirmés* (« à trancher dans Contact »).
 
 ## Connecting for real (operator)
 
-1. Ask the Toolbox owner which MCP URL to use (handoff docs/07: `https://circoetoolbox-server-production.up.railway.app/mcp`)
-   and make sure the Toolbox accepts VIPER's redirect URI (HTTPS, or `http://localhost` in development).
-2. On the server: `VIPER_TOOLBOX_MAIL_ENABLED=true`, `VIPER_TOOLBOX_MCP_URL=…`,
-   `VIPER_TOOLBOX_OAUTH_REDIRECT_URI=https://<viper host>/settings/connections` (development:
-   `http://localhost:5173/settings/connections`), optionally `VIPER_TOOLBOX_TOKEN_STORE_PATH`; restart the API.
-3. Paramètres › Connexions › *Connecter la Toolbox*; sign in at Infomaniak and paste a personal API token with the
-   Mail scope **of the mailbox that must send** (the sender is that account's default mailbox).
-4. Validate a test message to an internal address and check the draft in Infomaniak's Drafts folder; cancel it and
-   check it disappears (within `VIPER_TOOLBOX_CLEANUP_INTERVAL_MS`).
-5. Reconnect every 30 days (the tab says *À reconnecter*).
-6. Scheduled sending (S7): see [`runbook-production.md`](../process/runbook-production.md) § *Enabling the Contact
-   features* — first with `VIPER_INFOMANIAK_SEND_ALLOWLIST` restricted to an internal test address.
+1. Open VIPER over HTTPS (or on localhost): the return address must pass the https/loopback rule.
+2. Paramètres › Connexions › *Se connecter à CIRCOE Toolbox* (the built-in server address is
+   `https://circoetoolbox-server-production.up.railway.app/mcp`, handoff docs/07; change it only in *Paramètres
+   avancés*); sign in at Infomaniak and paste a personal API token with the Mail scope **of the mailbox that must
+   send** (the sender is that account's default mailbox).
+3. Validate a test message to an internal address and check the draft in Infomaniak's Drafts folder; cancel it and
+   check it disappears.
+4. Reconnect every 30 days (the tab says *À reconnecter*).
+5. Scheduled sending (S7): see [`runbook-production.md`](../process/runbook-production.md) § *Enabling the Contact
+   features* — first with *Adresses autorisées* restricted to an internal test address and the frequency on
+   « Désactivé » (one pass by hand).

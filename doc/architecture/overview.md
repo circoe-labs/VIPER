@@ -55,14 +55,15 @@ It cancels the requests in flight before invalidating, because TanStack Query ke
 Background jobs run **inside the API process**, off by default, each with a `python -m app.cli … --once` twin:
 
 - **Toolbox cleanup worker** (S6, `app/services/toolbox/worker.py`): a daemon thread started by the app lifespan
-  when the CIRCOE Toolbox is enabled and configured and `VIPER_TOOLBOX_CLEANUP_INTERVAL_MS` > 0; it drains
+  when the CIRCOE Toolbox is connected (S8: started right after the OAuth return, stopped by « Se déconnecter »;
+  `app/services/integration_runtime.py`) and `VIPER_TOOLBOX_CLEANUP_INTERVAL_MS` > 0; it drains
   `contact_message_remote_draft_cleanups` (`contact_remote_drafts.process_cleanups`), woken after any successful
   unsafe request under `/api/prospects` (`app/api/worker_wake.py`). One pass at a time; each entry is claimed
   (`SKIP LOCKED` + a lease), committed, deleted outside any transaction, then recorded, so a CLI pass can run
   beside it. CLI: `toolbox-cleanup --once`.
 - **Contact dispatcher** (S7, `app/services/contact_dispatch_worker.py` → `contact_dispatch.Dispatcher.run_pass`): a
-  daemon thread started under the same conditions when `VIPER_CONTACT_DISPATCH_INTERVAL_MS` > 0 (default 30 s); it
-  sends nothing while the Toolbox is not connected. A pass reconciles stale claims, then sends the due scheduled
+  daemon thread started under the same conditions when the dispatch frequency is not « Désactivé » (the default,
+  S8); it sends nothing while the Toolbox is not connected. A pass reconciles stale claims, then sends the due scheduled
   messages: each is claimed in a short transaction (row `FOR UPDATE SKIP LOCKED`, every condition re-checked, the
   prospect's state and opposition read under share locks), committed, sent with `send_draft` outside any transaction,
   then recorded. One pass at a time per process; across processes the claim lets one win. Writes are attributed to

@@ -55,17 +55,28 @@ cd frontend; npm ci; npm run dev                                # UI: http://loc
 
 ## Configuration (OpenAI, CIRCOE Toolbox, envoi programmé)
 
-Toute la configuration se fait par variables d’environnement préfixées `VIPER_`, lues par l’API dans
-**`backend/.env`** (à créer en copiant [`backend/.env.example`](backend/.env.example), jamais commité). Il n’y a pas
-d’écran pour saisir les clés : une clé API ne transite jamais par le navigateur. Redémarrer l’API après modification.
+**Tout se règle dans l’interface : Paramètres › Connexions.** Aucun fichier `backend/.env` n’est nécessaire pour ces
+réglages, et rien n’exige de redémarrer : chaque enregistrement s’applique aussitôt.
 
-- **Rédaction IA** : `VIPER_OPENAI_API_KEY`, `VIPER_OPENAI_MODEL` (obligatoires ensemble), `VIPER_CONTACT_BOOKING_URL`.
-- **CIRCOE Toolbox** : `VIPER_TOOLBOX_MAIL_ENABLED=true`, `VIPER_TOOLBOX_MCP_URL`, `VIPER_TOOLBOX_OAUTH_REDIRECT_URI`,
-  puis **Paramètres › Connexions › Connecter** (jeton Infomaniak saisi chez la Toolbox, pas dans VIPER).
-- **Envoi programmé** : `VIPER_CONTACT_DISPATCH_INTERVAL_MS` (0 = désactivé), `VIPER_INFOMANIAK_SEND_ALLOWLIST`
-  pour un premier test sans risque.
+- **Rédaction IA (OpenAI)** : saisir la clé d’API et le modèle (aucun modèle imposé), puis « Tester la clé ». Lien de
+  prise de rendez-vous facultatif ; adresse de l’API, délai et nouvelles tentatives dans « Paramètres avancés ».
+- **Expéditeur** : l’adresse « De » préremplie dans les nouveaux messages.
+- **CIRCOE Toolbox** : un clic sur **« Se connecter à CIRCOE Toolbox »** (le jeton Infomaniak se saisit chez la
+  Toolbox, pas dans VIPER). L’adresse du serveur Toolbox est connue de VIPER et l’adresse de retour est celle de la
+  page ; les deux restent modifiables dans « Paramètres avancés ». « Se déconnecter… » efface l’accès et désactive
+  l’intégration.
+- **Envoi programmé** : désactivé par défaut ; choisir une fréquence une fois un premier envoi vérifié. Une liste
+  d’adresses autorisées limite les destinataires pendant les essais.
 
-Étapes de mise en service et premier envoi réel : [runbook-production](doc/process/runbook-production.md).
+La clé OpenAI n’est jamais renvoyée au navigateur (seuls ses 4 derniers caractères sont affichés). Ces réglages sont
+conservés côté serveur dans un fichier privé, hors base et hors dépôt (`~/.viper/runtime-settings.json`) — **la clé y
+est en clair**, et toute personne connectée à VIPER peut la remplacer : choix accepté pour ce pilote interne
+(décision Humaine du 2026-10-01), le processus de gestion des secrets sera revu.
+
+Pour les tests, l’E2E et les déploiements automatisés, les variables `VIPER_*` de
+[`backend/.env.example`](backend/.env.example) restent possibles comme valeurs par défaut : une valeur saisie dans
+l’interface les remplace, « Rétablir la valeur par défaut » y revient. Mise en service et premier envoi réel :
+[runbook-production](doc/process/runbook-production.md).
 
 ## Quality gates
 

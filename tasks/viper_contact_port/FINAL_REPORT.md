@@ -286,3 +286,85 @@ les variables `VIPER_CONTACT_DISPATCH_*`.
 
 La base de développement `viper` a été migrée jusqu'à `0011` (elle était déjà en `0009`), après une sauvegarde
 `pg_dump` hors du dépôt (`C:\Users\Clarice\viper-backups\viper-before-0010-20261001-170303.dump`).
+
+## S8 — Réglages dans le navigateur (demandes Humaines du 2026-10-01)
+
+Demandes : « configurer mes API KEY directement dans le navigateur … outil interne, je reverrai le bon process plus
+tard », puis « laisse-moi me connecter à Circoe Toolbox DEPUIS la configuration VIPER … arrête la configuration côté
+variable d'environnement ». Décision : C-28 du decision log ; doc : `doc/features/settings-connections.md`.
+
+**Ce qui change pour l'utilisateur.** Une installation sans `backend/.env` se configure entièrement dans Paramètres ›
+Connexions, sans redémarrage. Quatre cartes, chacune avec son bouton principal : *Rédaction IA (OpenAI)* (clé en
+écriture seule, modèle sans valeur par défaut, lien RDV, plus en « Paramètres avancés » l'adresse de l'API, le délai et
+les nouvelles tentatives ; *Tester la clé*), *Expéditeur*, *CIRCOE Toolbox* (**« Se connecter à CIRCOE Toolbox »**
+fonctionne d'emblée : l'adresse de la Toolbox est intégrée au code et l'adresse de retour est celle de la page ; le
+clic active l'intégration ; « Se déconnecter… » efface le jeton et la désactive) et *Envoi programmé* (fréquence
+**désactivée par défaut**, liste d'adresses autorisées). Chaque champ indique sa provenance (défini ici / configuration
+du serveur / par défaut) et propose « Rétablir la valeur par défaut ». L'interface ne demande jamais de variable
+d'environnement ni de redémarrage.
+
+**Contrat d'API.** `GET/PUT /api/settings/integrations` (valeurs effectives, `source`, `fallback`, métadonnées de la
+clé `{set, last4, source, updated_at, updated_by}` mais jamais la clé, `generation_available`, résumés Toolbox et
+dispatcher ; PUT partiel, `null` = rétablir, `version` = jeton de concurrence → 409 `conflict`, 422 `invalid` +
+`field`, personne connectée seulement, CSRF). `POST /api/settings/integrations/openai/check` (`GET
+{base}/models/{model}`, rien n'est généré). `POST /api/settings/toolbox/connect {redirect_uri}` active l'intégration
+et enregistre l'adresse de retour (marquée `auto` : remplacée lors d'une connexion depuis une autre adresse, sauf si
+elle a été saisie à la main ou fixée par l'environnement). `POST …/forget` = se déconnecter **et** désactiver.
+
+**Stockage et précédence.** Fichier JSON privé `VIPER_RUNTIME_SETTINGS_PATH` (par défaut
+`~/.viper/runtime-settings.json`), hors base et hors dépôt (refusé dans le checkout), écriture atomique, `0600`/`0700`
+sous POSIX (sous Windows : l'ACL du profil). **La clé OpenAI y est en clair** : accepté pour le pilote interne, à
+revoir. Précédence : valeur saisie dans l'UI > `VIPER_*` > défaut. La validation passe par `Settings.model_validate`,
+donc **exactement les validateurs du démarrage** (aucune copie) ; un fichier illisible ou devenu invalide est signalé
+(`load_error`) puis ignoré jusqu'au prochain enregistrement. Audit `settings.integrations_changed` (valeurs avant et
+après, sauf la clé : `openai_api_key: replaced|removed` dans la raison) ; `api_key` est ajouté aux fragments secrets de
+la politique d'audit. Nouveaux défauts : URL MCP de la Toolbox CIRCOE, `contact_dispatch_interval_ms = 0`.
+
+**Application à chaud.** `IntegrationRuntime` (`app.state.integrations`, un verrou, un seul process) remplace
+`app.state.settings`, que les routes lisent à chaque requête (client OpenAI construit par requête, lien RDV,
+expéditeur). Un changement de l'interrupteur ou des URL Toolbox reconstruit `app.state.toolbox` ; une connexion OAuth
+en cours est alors perdue, le fichier de jeton est conservé. Les workers de nettoyage et d'envoi ne tournent **que
+lorsque la Toolbox est connectée** : ils démarrent au démarrage si elle l'est déjà ou juste après le retour OAuth,
+redémarrent quand les réglages d'envoi changent et s'arrêtent à la déconnexion. Le CLI `--once` lit le même fichier.
+
+**Tests.** pytest : `tests/test_runtime_settings.py` (35 tests). Ils couvrent le stockage (écriture atomique, refus
+dans le dépôt, permissions sous POSIX, fichier cassé), la précédence UI > env > défaut, la **parité de validation**
+(chaque valeur invalide est refusée à la fois par `Settings(...)` et par le PUT, avec le même `field`), une clé jamais
+présente dans les réponses, les logs, l'audit ni le `repr`, une clé saisie qui rédige sans redémarrage (transport
+simulé : le Bearer est bien la nouvelle clé), la connexion depuis la page qui active la Toolbox puis démarre les
+workers, le changement de fréquence qui recrée le dispatcher, l'allowlist qui l'atteint, « Désactivé », la
+déconnexion qui arrête tout, l'adresse de retour `auto` comparée à une adresse saisie, une adresse de page refusée,
+le 409 de concurrence, le CSRF, et *Tester la clé* (ok, 401, 404, 429, 500, injoignable). Un garde autouse fait
+échouer tout test qui toucherait l'hôte de la vraie Toolbox, et chaque test dispose de son propre fichier de
+réglages (jamais `~/.viper`). vitest : `IntegrationCards.test.tsx` (12 tests) et `ConnectionsSection.test.tsx`
+(13 tests, réécrit). Playwright : `e2e/connections.spec.ts`, projet `connections`, lancé en dernier et seul ; il
+remet tous les réglages aux défauts avant et après. Le spec saisit une clé refusée par le faux OpenAI : *Tester* et
+la génération le disent. Il saisit ensuite une autre clé, le modèle et l'adresse de l'API : la génération utilise
+cette clé (le faux le confirme par les 4 derniers caractères) sans redémarrage. Côté Toolbox : adresse vidée →
+« Non configurée » ; adresse http non locale refusée sous le champ ; adresse du faux saisie ; fréquence choisie ;
+« Se connecter à CIRCOE Toolbox » (la requête `/authorize` part bien vers le faux, jamais vers l'hôte réel) →
+« Connectée » et envoi *Actif* ; puis « Se déconnecter… ». Le fichier de réglages de l'E2E est temporaire et propre
+à chaque port. `toolbox.spec` et `contact-flow.spec` sont adaptés aux nouveaux libellés.
+
+**Gate.** `verify.py` : ruff, ruff format, mypy, **pytest 1321 passed / 2 skipped**, eslint et tsc verts ; le vitest
+de `verify.py` a fini avec 5 échecs de charge (des expirations de délai à 5 s sur des fichiers non modifiés ; machine
+saturée), relancé avec `npx vitest run --maxWorkers=3` : **788/788**, puis **789/789** après le correctif ci-dessous.
+Playwright `--workers=3` : **107 passed, 1 failed**. L'échec était un vrai défaut, pas la charge : après
+l'enregistrement de l'adresse manquante, la section « Paramètres avancés » se refermait (son `open` suivait l'état
+« Non configurée ») et masquait son propre message de succès. Corrigé (une section ouverte n'est jamais refermée
+sous l'utilisateur) et couvert par un test vitest. Le projet `connections` a été relancé seul : 2/2.
+
+**Captures** (revues contre la DA Neon Command : cartes `.settings-connection`, primitives `ui/fields`, un seul
+bouton principal par carte, aucune couleur en dur, pas de débordement à 1440) : `test-results/screenshots/
+connections-{openai,toolbox-connected,toolbox-disabled}-{dark,light}-1440.png` et
+`connections-toolbox-refused-dark-1440.png`.
+
+**Risques résiduels.** Clé OpenAI en clair dans un fichier du profil, remplaçable par toute personne connectée
+(décision Humaine, à revoir) ; sous Windows la protection repose sur l'ACL du profil. Hypothèse d'un seul process API
+(un second ne verrait les changements qu'à son redémarrage). L'enregistrement d'un réglage de la Toolbox ou de
+l'envoi peut attendre la fin d'une passe en cours (bornée par le délai de la Toolbox) ; une connexion OAuth commencée
+puis interrompue par une reconfiguration est à relancer. Si l'audit échoue après l'écriture du fichier, la
+configuration est appliquée sans événement d'audit (fichier et base ne sont pas atomiques ensemble). Un jeton expiré
+laisse les workers tourner à vide jusqu'à la reconnexion. L'adresse de retour exige VIPER en https ou sur localhost.
+Les variables `VIPER_*` restent des valeurs par défaut, utiles aux tests et à l'E2E : une variable fixée côté
+serveur s'affiche « Valeur fournie par la configuration du serveur ».

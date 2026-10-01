@@ -566,13 +566,14 @@ AI drafting (S5), all optional — unset, the button is disabled and the route a
 | `VIPER_OPENAI_TRUST_ENV` | `false` | `true`: the OpenAI calls honour the server's `HTTPS_PROXY`, `NO_PROXY`, `SSL_CERT_FILE`… (a corporate proxy or CA). Off: a direct connection the environment cannot redirect. |
 | `VIPER_CONTACT_BOOKING_URL` | unset | Booking link the AI may copy into a mail; an `http(s)` URL (anything else is refused at startup). Unset: no link at all. |
 
-CIRCOE Toolbox (S6), all optional — see [`settings-connections.md`](settings-connections.md):
+CIRCOE Toolbox (S6), all optional — **set in Paramètres › Connexions since S8** (the variables are only
+defaults; a value saved in the UI wins) — see [`settings-connections.md`](settings-connections.md):
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `VIPER_TOOLBOX_MAIL_ENABLED` | `false` | Feature flag. Off: nothing leaves VIPER. |
-| `VIPER_TOOLBOX_MCP_URL` | unset | Exact MCP URL (the OAuth resource the Toolbox announces); https, or http on localhost. Required when enabled (else *non configurée*). |
-| `VIPER_TOOLBOX_OAUTH_REDIRECT_URI` | unset | The SPA page `/settings/connections` as the browser sees it; https, or http on localhost. Required when enabled. |
+| `VIPER_TOOLBOX_MAIL_ENABLED` | `false` | Feature flag. Off: nothing leaves VIPER. « Se connecter à CIRCOE Toolbox » turns it on, « Se déconnecter » off (S8). |
+| `VIPER_TOOLBOX_MCP_URL` | the CIRCOE Toolbox (`https://circoetoolbox-server-production.up.railway.app/mcp`, S8) | Exact MCP URL (the OAuth resource the Toolbox announces); https, or http on localhost. Emptied: *non configurée*. |
+| `VIPER_TOOLBOX_OAUTH_REDIRECT_URI` | unset | The SPA page `/settings/connections` as the browser sees it; https, or http on localhost. Unset: sent by the page when connecting (S8). |
 | `VIPER_TOOLBOX_TOKEN_STORE_PATH` | `~/.viper/toolbox-oauth.json` | Token file; refused inside the checkout (startup error). |
 | `VIPER_TOOLBOX_TIMEOUT_MS` | `20000` | Total bound of one Toolbox operation, 1 000–120 000. |
 | `VIPER_TOOLBOX_CLEANUP_INTERVAL_MS` | `60000` | Cleanup worker period; `0` = no worker (CLI only). |
@@ -584,7 +585,7 @@ Scheduled sending (S7), names and defaults of the reference (`CONTACT_DISPATCH_*
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `VIPER_CONTACT_DISPATCH_INTERVAL_MS` | `30000` | Dispatcher period in the API process; `0` = no worker (CLI only). `1`-`499` refused at startup. Runs only when the Toolbox is enabled and configured; sends only while it is connected. |
+| `VIPER_CONTACT_DISPATCH_INTERVAL_MS` | `0` (S8; the reference used 30000) | Dispatcher period in the API process, « Fréquence de vérification » in the UI; `0` = no worker (CLI only). `1`-`499` refused. Runs only while the Toolbox is connected. |
 | `VIPER_CONTACT_DISPATCH_MAX_LATENESS_MS` | `21600000` (6 h) | Beyond this lateness a message goes back to Validé (`dispatch_overdue`). 1 min – 7 days. |
 | `VIPER_CONTACT_DISPATCH_CLAIM_TTL_MS` | `600000` (10 min) | Age after which a claim nobody finished is reconciled / settleable; never less than 2 × `VIPER_TOOLBOX_TIMEOUT_MS`. |
 | `VIPER_CONTACT_DISPATCH_MAX_ATTEMPTS` | `5` | Attempts (claims and draft creations) of one schedule before going back to Validé. 1-20. |

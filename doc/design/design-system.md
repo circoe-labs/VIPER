@@ -252,11 +252,19 @@ badge on the tab when the connection expired). Inside the panel, one `.settings-
 canvas background with a border (a surface inside the surface panel), header = accent-soft 40 px icon tile + 18 px
 title + muted subtitle + `StatusBadge` on the right; a one-sentence meaning of the state; facts as a grid of
 uppercase 12 px muted labels over medium values (the origin in monospace); the last failure on danger-soft; the
-limitations as a muted bullet list; actions right-aligned (ghost *Oublier la connexion…*, then *Connecter la
-Toolbox* primary or *Reconnecter* secondary). Waits show a spinner and a live seconds counter (*Ouverture de la
-Toolbox… n s*, *Finalisation de la connexion… n s*, `lib/useElapsed.ts`). The card's **Envoi programmé** block (S7, `.settings-connection__dispatch`) sits under the facts after a
-hairline: 600-weight title + `StatusBadge` (*Actif* success / *En attente* warning / *Inactif* neutral), one sentence,
-then the same fact grid (last pass, scheduled count, unconfirmed count).
+limitations as a muted bullet list; actions right-aligned (ghost *Se déconnecter…* when linked, then *Se connecter
+à CIRCOE Toolbox* primary or *Reconnecter* secondary). Waits show a spinner and a live seconds counter (*Ouverture de la
+Toolbox… n s*, *Finalisation de la connexion… n s*, `lib/useElapsed.ts`). **Settings forms in cards (S8)**: the same card hosts its settings as a `.settings-form` (one column, ≤ 40rem,
+`ui/fields`), each field's hint ending with its source in 12 px (« Défini ici par … » / « Valeur fournie par la
+configuration du serveur » / « Valeur par défaut ») and, for a value set here, an accent text button *Rétablir la
+valeur par défaut* (undo glyph). Rarely changed fields go in a native `<details>` « Paramètres avancés » (muted
+summary, rotating chevron, a hairline above the opened fields). A **write-only secret** is a password field left
+empty with the placeholder « •••• 1234 (enregistrée) », disabled until *Remplacer* (secondary sm), with a ghost
+*Effacer…* that confirms in a `Modal`. One primary button per card (*Enregistrer*, disabled until something
+changed; in the Toolbox card *Se connecter à CIRCOE Toolbox*, the advanced save being secondary); outcomes in a
+`FeedbackBanner` inside the card, refusals under the field. Cards: *Rédaction IA (OpenAI)* (sparkles), *Expéditeur*
+(mail), *CIRCOE Toolbox* (link), *Envoi programmé* (clock: `StatusBadge` *Actif* success / *En attente* warning /
+*Désactivé* neutral, one sentence, the fact grid — last pass, scheduled, unconfirmed — then its fields).
 
 ## Home dashboard
 Spacious, global state first: eyebrow-labelled rows of six link cards (14 px glyph + 13 px muted label, 26 px

@@ -48,16 +48,19 @@ Set them in the process environment (systemd unit, container env, secret store) 
 | `VIPER_IMPORT_MAX_FILE_MB` / `VIPER_IMPORT_MAX_ROWS` / `VIPER_IMPORT_MAX_COLUMNS` | 10 / 5000 / 100 by default; the proxy's body limit must be at least the file limit + 2 MiB |
 | `VIPER_VERIFICATION_STALE_DAYS` | unset until product chooses the threshold (open question #9) |
 | `VIPER_MONTHLY_CONTACT_TARGET` / `VIPER_MONTHLY_APPOINTMENT_TARGET` | 100 / 10 (informative Home targets) |
-| `VIPER_TOOLBOX_MAIL_ENABLED` | `false` until the Human decides to connect the CIRCOE Toolbox (Infomaniak drafts, S6) |
-| `VIPER_TOOLBOX_MCP_URL` / `VIPER_TOOLBOX_OAUTH_REDIRECT_URI` | the Toolbox's exact MCP URL / `https://<host>/settings/connections` (both HTTPS) |
-| `VIPER_TOOLBOX_TOKEN_STORE_PATH` | **secret file**: a path under the service account's home, outside the checkout and the backups of the database (default `~/.viper/toolbox-oauth.json`, `0600`) |
+| `VIPER_RUNTIME_SETTINGS_PATH` | **secret file**: where the integration settings typed in Paramètres › Connexions are kept (S8) — the OpenAI key **in clear**. Under the service account's home, outside the checkout and the database backups (default `~/.viper/runtime-settings.json`, `0600` on POSIX; on Windows the profile's ACL applies). Refused inside the checkout |
+| `VIPER_TOOLBOX_TOKEN_STORE_PATH` | **secret file**: the Toolbox OAuth token, same rules (default `~/.viper/toolbox-oauth.json`) |
 | `VIPER_TOOLBOX_TIMEOUT_MS` / `VIPER_TOOLBOX_CLEANUP_INTERVAL_MS` | 20000 / 60000 by default (`0` = no cleanup worker; run the CLI instead) |
-| `VIPER_INFOMANIAK_SEND_ALLOWLIST` | VIPER-side recipient allowlist of the scheduled send (S7): addresses or `@domain`, comma-separated. **Set it to an internal test address for the first real sends**, then unset it (unset = no VIPER-side restriction) |
-| `VIPER_CONTACT_DISPATCH_INTERVAL_MS` | 30000 by default; `0` = no dispatcher thread (nothing is sent automatically; `contact-dispatch --once` by hand). Keep `0` until the first controlled test |
 | `VIPER_CONTACT_DISPATCH_MAX_LATENESS_MS` / `…_CLAIM_TTL_MS` / `…_MAX_ATTEMPTS` / `…_RETRY_BASE_MS` | 6 h / 10 min (never below twice the Toolbox timeout) / 5 / 60 s by default |
-| `VIPER_DEFAULT_OUTBOUND_EMAIL` | the sender pre-filled in a new message (indicative: the real sender is the Toolbox account's default mailbox) |
-| `VIPER_OPENAI_API_KEY` / `VIPER_OPENAI_MODEL` | **secret** / the chosen model id; both or neither (unset: no AI drafting). Optional `VIPER_OPENAI_BASE_URL`, `VIPER_OPENAI_TIMEOUT_MS` (60000), `VIPER_OPENAI_MAX_RETRIES` (2), `VIPER_OPENAI_TRUST_ENV` (proxy/CA) |
-| `VIPER_CONTACT_BOOKING_URL` | the booking link the AI may copy into a mail (unset: no link) |
+| `VIPER_OPENAI_TRUST_ENV` | `true` only behind a corporate proxy / private CA (OpenAI calls then honour `HTTPS_PROXY`, `SSL_CERT_FILE`…) |
+
+**Integration settings are set in the UI** (Paramètres › Connexions, S8), not here: OpenAI key / model / API address /
+timeout / retries, booking link, default sender, CIRCOE Toolbox (« Se connecter à CIRCOE Toolbox »; built-in server
+address `https://circoetoolbox-server-production.up.railway.app/mcp`, return address = the page's own), scheduled
+sending frequency (off by default) and recipient allowlist. Each has an optional `VIPER_*` variable
+(`backend/.env.example`) used only as a default — a value typed in the UI wins until « Rétablir la valeur par
+défaut ». Anyone signed in to VIPER can replace these values (each change is audited, without the key): accepted for
+the internal pilot by the Human on 2026-10-01; the secret-management process is to be revisited before a wider use.
 
 `VIPER_TEST_DATABASE_URL` and the `VIPER_E2E_*` / `VIPER_WEB_PORT` / `VIPER_API_TARGET` variables are for development
 and tests only.
@@ -104,39 +107,37 @@ uvicorn app.main:create_app --factory --host 127.0.0.1 --port 8042 \
 
 ## Enabling the Contact features (step by step)
 
-Everything is off by default; enable one layer at a time, each verified before the next. No real call to OpenAI,
-the Toolbox or Infomaniak was ever made during development (fakes only): the first real calls are these steps.
+Everything is off by default and is turned on from **Paramètres › Connexions**, one layer at a time, each verified
+before the next — no restart. No real call to OpenAI, the Toolbox or Infomaniak was ever made during development
+(fakes only): the first real calls are these steps.
 
-1. **Sender and booking link**: `VIPER_DEFAULT_OUTBOUND_EMAIL` (indicative), `VIPER_CONTACT_BOOKING_URL` if the mails
-   may carry a booking link. Restart.
-2. **AI drafting**: `VIPER_OPENAI_API_KEY` (secret store) and `VIPER_OPENAI_MODEL` (the operator's choice; no default),
-   `VIPER_OPENAI_TRUST_ENV=true` behind a corporate proxy. Restart, open a test prospect in Contact, *Générer avec
-   l’IA*, read the draft (it is never validated or sent by itself). Check the server log shows
-   `mail_generation.succeeded` (no key, prompt or address in it).
-3. **CIRCOE Toolbox, drafts only**: keep `VIPER_CONTACT_DISPATCH_INTERVAL_MS=0`. Set `VIPER_TOOLBOX_MAIL_ENABLED=true`,
-   `VIPER_TOOLBOX_MCP_URL`, `VIPER_TOOLBOX_OAUTH_REDIRECT_URI=https://<host>/settings/connections`,
-   `VIPER_TOOLBOX_TOKEN_STORE_PATH` (outside the checkout and the backups). Restart; Paramètres › Connexions ›
-   *Connecter la Toolbox* with the Infomaniak account **whose default mailbox must send**. Validate a test message to
-   an internal address: its draft appears in Infomaniak's Drafts; cancel it: the draft disappears
+1. **Sender and booking link**: card *Expéditeur* (indicative « De »), *Rédaction IA › Lien de prise de rendez-vous*.
+2. **AI drafting**: card *Rédaction IA*: the API key and the model (the operator's choice; no default), *Enregistrer*,
+   then *Tester la clé* (one `GET /models/{model}`, nothing generated). Open a test prospect in Contact, *Générer avec
+   l’IA*, read the draft (never validated or sent by itself). The server log shows `mail_generation.succeeded` (no
+   key, prompt or address in it).
+3. **CIRCOE Toolbox, drafts only**: keep *Envoi programmé* on « Désactivé » (the default). *Se connecter à CIRCOE
+   Toolbox* with the Infomaniak account **whose default mailbox must send** (VIPER must be opened over HTTPS — or on
+   localhost — for the return address to be accepted). Validate a test message to an internal address: its draft
+   appears in Infomaniak's Drafts; cancel it: the draft disappears
    ([`settings-connections.md`](../features/settings-connections.md) § Connecting for real).
-4. **First real send, fenced**: `VIPER_INFOMANIAK_SEND_ALLOWLIST=<internal test address>` (VIPER refuses any other
-   recipient — `send_recipient_not_allowed`, back to « Validé »). Schedule the test message a few minutes ahead,
-   then run **one pass by hand** at that time: `python -m app.cli contact-dispatch --once` (prints `sent=1`). Check
-   the mail in the recipient's inbox **and** in the mailbox's sent items, the message *Envoyé* in VIPER, nothing
-   else sent. **Also check, right after the send, that the draft has left Infomaniak's Drafts folder and is no longer
-   returned by `list_drafts`** — the reconciliation of unknown outcomes relies on it (« brouillon disparu = envoyé »);
-   if the draft lingers (Infomaniak's undo-send delay), report it before going further. Note whether the Toolbox's
-   answer carries `provider.etop` / `provider.cancelResource` (undo-send): VIPER ignores them today. Optionally test
-   an unconfirmed send's settlement on a second test message.
-5. **Automatic sending**: `VIPER_CONTACT_DISPATCH_INTERVAL_MS=30000` (restart). Paramètres › Connexions shows
-   *Envoi programmé — Actif* and the last pass; the schedule confirmation now says the mail will leave
-   automatically. Repeat step 4 with the worker instead of the CLI.
-6. **Open to real prospects**: unset `VIPER_INFOMANIAK_SEND_ALLOWLIST` (restart). From then on, watch *Envois non
-   confirmés* in Paramètres › Connexions; reconnect the Toolbox every 30 days (*À reconnecter*): while it is not
-   connected nothing leaves, and a message more than 6 h late goes back to « Validé ».
+4. **First real send, fenced**: *Envoi programmé › Adresses autorisées* = the internal test address (VIPER refuses any
+   other recipient — `send_recipient_not_allowed`, back to « Validé »). Schedule the test message a few minutes ahead,
+   then run **one pass by hand** at that time: `python -m app.cli contact-dispatch --once` (prints `sent=1`; it reads
+   the settings saved from the UI). Check the mail in the recipient's inbox **and** in the mailbox's sent items, the
+   message *Envoyé* in VIPER, nothing else sent. **Also check, right after the send, that the draft has left
+   Infomaniak's Drafts folder and is no longer returned by `list_drafts`** — the reconciliation of unknown outcomes
+   relies on it (« brouillon disparu = envoyé »); if the draft lingers (Infomaniak's undo-send delay), report it before
+   going further. Note whether the Toolbox's answer carries `provider.etop` / `provider.cancelResource` (undo-send):
+   VIPER ignores them today.
+5. **Automatic sending**: *Envoi programmé › Fréquence* « Toutes les 30 secondes ». The card shows *Actif* and the last
+   pass; the schedule confirmation says the mail will leave automatically. Repeat step 4 with the worker.
+6. **Open to real prospects**: empty *Adresses autorisées*. From then on, watch *Envois non confirmés*; reconnect the
+   Toolbox every 30 days (*À reconnecter*): while it is not connected nothing leaves, and a message more than 6 h
+   late goes back to « Validé ».
 
-Turning it off: `VIPER_CONTACT_DISPATCH_INTERVAL_MS=0` stops automatic sending (drafts still created);
-`VIPER_TOOLBOX_MAIL_ENABLED=false` stops everything Toolbox-related; « Oublier la connexion » too, from the UI.
+Turning it off: *Fréquence* « Désactivé » stops automatic sending (drafts still created); *Se déconnecter…* forgets
+the token and turns the whole Toolbox integration off (its workers stop).
 
 ## Reverse proxy
 
@@ -179,7 +180,7 @@ Facts to account for:
   « Programmé » — started as is, the dispatcher would send it again. Before starting the API on a restored database:
   `python -m app.cli contact-dispatch --hold-scheduled` (every scheduled, unclaimed message back to « Validé »,
   `dispatch_held`, audited); claimed ones are listed for a person to settle. People then reschedule what must leave.
-  Keep `VIPER_CONTACT_DISPATCH_INTERVAL_MS=0` until it is done. VIPER has no restore command of its own.
+  Keep *Envoi programmé* on « Désactivé » until it is done. VIPER has no restore command of its own.
 
 ## Retention, anonymization, erasure (decision open)
 
