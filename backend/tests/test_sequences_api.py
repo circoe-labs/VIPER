@@ -55,6 +55,11 @@ def test_writes_need_the_csrf_token(client: TestClient) -> None:
     del client.headers[CSRF_HEADER]
     assert client.post(f"{SETTINGS}/cohorts", json={"code": "S1"}).status_code == 403
     assert client.put(f"{SETTINGS}/contact", json={"max_follow_ups": 3}).status_code == 403
+    prospect = f"{PROSPECTS}/{uuid.uuid4()}"
+    assert client.put(f"{prospect}/cohort", json={"cohort_id": None}).status_code == 403
+    assert client.post(f"{prospect}/messages/mark-sent", json={}).status_code == 403
+    assert client.post(ALERTS, json={"type": "email_error"}).status_code == 403
+    assert client.post(f"{ALERTS}/{uuid.uuid4()}/resolve", json={}).status_code == 403
 
 
 def test_cohorts_crud(client: TestClient) -> None:
@@ -238,3 +243,30 @@ def test_disqualified_over_http_is_a_state_of_a_person(
     # The cohort and the history stay; nothing is due.
     assert view["contact"]["cohort"]["code"] == "S39"
     assert (view["contact"]["pause_reason"], view["contact"]["next_due_on"]) == ("state", None)
+
+
+def test_a_new_cohort_resumes_a_defaillant_and_an_opposed_prospect_is_refused(
+    client: TestClient, db_session: Session
+) -> None:
+    prospect = add_prospect(db_session, add_company(db_session))
+    start_sequence(db_session, prospect, add_cohort(db_session, "S39"))
+    s41 = add_cohort(db_session, "S41")
+    path = f"{PROSPECTS}/{prospect.id}"
+    version = ok(client.get(path))["version"]
+    ok(client.patch(f"{path}/tracking", json={"version": version, "status": "disqualified"}))
+
+    moved = ok(client.put(f"{path}/cohort", json={"cohort_id": str(s41.id)}))
+
+    assert (moved["resumed_from"], moved["place"]["pause_reason"]) == ("disqualified", None)
+    view = ok(client.get(path))
+    assert view["tracking"]["status"] == "neutral"
+    ok(
+        client.put(
+            f"{path}/contactability",
+            json={"version": view["version"], "do_not_contact": True, "reason": "Demande (test)"},
+        )
+    )
+    detail = refused(
+        client.put(f"{path}/cohort", json={"cohort_id": None}), 409, "prospect_do_not_contact"
+    )
+    assert "restriction" in detail["message"]

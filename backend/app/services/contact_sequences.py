@@ -16,8 +16,14 @@ Write:
   AI) puts the prospect in a cohort: the current sequence is closed (`cohort_changed`, or
   `cohort_removed` when the cohort is cleared) and its unsent messages cancelled (reason
   `sequence_closed`), then a new sequence opens with its counter at zero. Choosing the cohort of
-  the open sequence changes nothing. The commercial state is never touched. Audited
-  `contact_sequence.closed` / `contact_sequence.created` (subject: the prospect).
+  the open sequence changes nothing. Putting the prospect in a cohort (S0 included) **resumes**
+  it (decision R-11): a state `disqualified`, `response_received` or `appointment_obtained` goes
+  back to `neutral` (« En séquence ») with an appended history row; removing the cohort keeps
+  the state. An `ignored` prospect (409 `ignored_is_terminal`) or one under the do-not-contact
+  opposition (409 `prospect_do_not_contact`: clear it first through its own path) is never
+  resumed by a cohort change: the change is refused. Audited `contact_sequence.closed` /
+  `contact_sequence.created` (subject: the prospect) and `contact_tracking.status_changed` for a
+  resumed state.
 
 The prospect row is locked first, so two changes of the same prospect serialize. Operations
 flush; the caller owns the transaction.
@@ -26,6 +32,7 @@ flush; the caller owns the transaction.
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
+from http import HTTPStatus
 from typing import Any
 
 from sqlalchemy import (
@@ -58,13 +65,16 @@ from app.models import (
 )
 from app.models.app_settings import MAX_FOLLOW_UPS_KEY
 from app.models.contact_sequences import OUT_OF_CAMPAIGN_CODE
+from app.models.contact_tracking import ContactTrackingStatusHistory
 from app.models.enums import (
+    ContactabilityStatus,
     ContactMessageStatus,
     ContactTrackingStatus,
     QualityAlertSource,
     QualityAlertType,
     SendSource,
     SequenceEndReason,
+    TrackingHistoryStatus,
 )
 from app.services import app_settings, audit, cohorts
 from app.services.audit import AuditAction
@@ -77,9 +87,20 @@ from app.services.contact_workflow import (
     step_code,
     step_label,
 )
-from app.services.errors import ActorNotAllowedError, NotFoundError
+from app.services.errors import (
+    ActorNotAllowedError,
+    BusinessRuleError,
+    NotFoundError,
+    TrackingRuleError,
+)
 
+S = ContactTrackingStatus
 SEQUENCE_CLOSED_REASON = "sequence_closed"
+# States a person's new cohort resumes to `neutral` (R-11): the handoff's « to resume, a person
+# changes the Sxx and a new sequence starts ». `ignored` is terminal and refuses the change.
+RESUMED_STATES = (S.DISQUALIFIED, S.RESPONSE_RECEIVED, S.APPOINTMENT_OBTAINED)
+# `context.reason` of the `contact_tracking.status_changed` event of a resumed state.
+RESUMED_REASON = "Changement de cohorte : reprise en séquence"
 # Alerts that take a prospect out of the automatic actions (D9): raised by a person or an import;
 # the AI's alerts are proposals until a person confirms them.
 EFFECTIVE_ALERT_SOURCES = (QualityAlertSource.HUMAN, QualityAlertSource.IMPORT)
@@ -277,15 +298,66 @@ class CohortChange:
     changed: bool
     # Unsent messages of the closed sequence that were cancelled / left to the dispatcher.
     messages: Cancellation = NOTHING
+    # The state the new cohort resumed to `neutral` (R-11); None when the state was kept.
+    resumed_from: ContactTrackingStatus | None = None
 
 
 def _locked_prospect(session: Session, prospect_id: uuid.UUID) -> Prospect:
     prospect = session.scalar(
-        select(Prospect).where(Prospect.id == prospect_id).with_for_update(of=Prospect)
+        select(Prospect)
+        .where(Prospect.id == prospect_id)
+        .with_for_update(of=Prospect)
+        .execution_options(populate_existing=True)
     )
     if prospect is None:
         raise NotFoundError("Unknown prospect.")
     return prospect
+
+
+def _require_resumable(prospect: Prospect) -> None:
+    """An `ignored` or opposed prospect is never put back in a sequence by a cohort change."""
+    tracking = prospect.contact_tracking
+    if tracking is not None and tracking.status is S.IGNORED:
+        raise TrackingRuleError(
+            "ignored_is_terminal", "An ignored prospect is not resumed by a change of cohort."
+        )
+    if prospect.contactability_status is ContactabilityStatus.DO_NOT_CONTACT:
+        raise BusinessRuleError(
+            "prospect_do_not_contact",
+            HTTPStatus.CONFLICT,
+            "The prospect must not be contacted: clear the restriction before changing its cohort.",
+        )
+
+
+def _resume_state(
+    session: Session, actor: ActorContext, prospect: Prospect
+) -> ContactTrackingStatus | None:
+    """Back to `neutral` from a state a new cohort resumes (R-11), with an appended history row;
+    returns the former state, None when nothing changed. `neutral` closes nothing: no message to
+    cancel."""
+    tracking = prospect.contact_tracking
+    if tracking is None or tracking.status not in RESUMED_STATES:
+        return None
+    previous = tracking.status
+    audit.annotate(
+        session,
+        actor,
+        tracking,
+        AuditAction.CONTACT_TRACKING_STATUS_CHANGED,
+        reason=RESUMED_REASON,
+    )
+    tracking.status = S.NEUTRAL
+    tracking.status_history.append(
+        ContactTrackingStatusHistory(
+            from_status=TrackingHistoryStatus(previous),
+            to_status=TrackingHistoryStatus(S.NEUTRAL),
+            actor_type=actor.type,
+            actor_id=actor.id,
+            actor_display=actor.display,
+        )
+    )
+    session.flush()
+    return previous
 
 
 def change_cohort(
@@ -296,11 +368,13 @@ def change_cohort(
     *,
     now: datetime | None = None,
 ) -> CohortChange:
-    """Put the prospect in `cohort_id` (a new sequence, counter at zero) or out of any cohort
-    (`None`). Refusals: 403 `human_actor_required`, 404 `not_found` (prospect or cohort)."""
+    """Put the prospect in `cohort_id` (a new sequence, counter at zero, the state resumed to
+    `neutral` — R-11) or out of any cohort (`None`, the state kept). Refusals: 403
+    `human_actor_required`, 404 `not_found` (prospect or cohort), 409 `ignored_is_terminal` /
+    `prospect_do_not_contact` (never resumed by a cohort change)."""
     if actor.type is not ActorType.HUMAN:
         raise ActorNotAllowedError("A prospect's cohort is changed by a person.")
-    _locked_prospect(session, prospect_id)
+    prospect = _locked_prospect(session, prospect_id)
     cohort = cohorts.get_cohort(session, cohort_id) if cohort_id is not None else None
     current = current_sequence(session, prospect_id, lock=True)
     same = current is not None and cohort is not None and current.cohort_id == cohort.id
@@ -308,6 +382,7 @@ def change_cohort(
         return CohortChange(current, changed=False)
     if current is None and cohort is None:
         return CohortChange(None, changed=False)
+    _require_resumable(prospect)
     moment = now or datetime.now(UTC)
     cancelled = NOTHING
     if current is not None:
@@ -326,12 +401,14 @@ def change_cohort(
             session, actor, prospect_id, SEQUENCE_CLOSED_REASON, now=moment
         )
     sequence = None
+    resumed = None
     if cohort is not None:
         sequence = ContactSequence(prospect_id=prospect_id, cohort_id=cohort.id, is_current=True)
         audit.annotate(session, actor, sequence, labels={"cohort_id": (None, cohort.code)})
         session.add(sequence)
         session.flush()
-    return CohortChange(sequence, changed=True, messages=cancelled)
+        resumed = _resume_state(session, actor, prospect)
+    return CohortChange(sequence, changed=True, messages=cancelled, resumed_from=resumed)
 
 
 # --- SQL twins (lists) ---------------------------------------------------------------------------

@@ -475,7 +475,9 @@ tracking and its history, Contact messages, sources, import row metadata) and fo
   (`ActorNotAllowedError`, 403 `human_actor_required`), `disqualified` is chosen by a person only; nothing leaves
   `ignored` (409 `ignored_is_terminal`); entering `response_received` without a response date records now; choosing
   `response_received`, `appointment_obtained`, `ignored` or `disqualified` cancels the prospect's unsent messages in
-  the same transaction (decision 29). The cohort and the sequences are never touched by a state change.
+  the same transaction (decision 29). The cohort and the sequences are never touched by a state change; a person's
+  new cohort resumes `disqualified`/`response_received`/`appointment_obtained` to `neutral` with an appended history
+  row (decision R-11; `ignored` or `do_not_contact` refuse the cohort change).
 - **Cohorts and sequences** (`app/services/cohorts.py`, `contact_sequences.py`): cohorts are created, renamed and
   re-dated by a person (S0 fixed; a used cohort is never deleted); `change_cohort` (a person only) closes the current
   sequence (`cohort_changed` / `cohort_removed`), cancels its unsent messages (`sequence_closed`) and opens a new one.

@@ -4,7 +4,7 @@ Contact port, Slice S3 (handoff Tasks 09, 11, 12; decisions H-14 … H-29 of
 `tasks/viper_contact_pipeline_handoff/docs/01-decision-log.md`) for the API, Slice S4 (Tasks 08, 10, 13) for the page
 ([§ Contact page](#contact-page-ui-slice-s4)), Slice S5 (Task 14) for the AI drafting
 ([§ AI drafting](#ai-drafting-s5--post-apiprospectsprospect_idmessagesstepgenerate)). The **sequences rework**
-(Slice S1 of `tasks/viper_import_excel_sequences/`, decisions D1-D12, [decision log R-01 … R-09](../product/decision-log.md#sequences-rework-decisions-import-excel-and-contact-sequences-2026-10-01))
+(Slice S1 of `tasks/viper_import_excel_sequences/`, decisions D1-D12, [decision log R-01 … R-11](../product/decision-log.md#sequences-rework-decisions-import-excel-and-contact-sequences-2026-10-01))
 replaced the next-action week and the states `contacted`/`r1`/`r2`/`failure` by cohorts, sequences and real sends:
 [§ Cohorts, sequences and alerts](#cohorts-sequences-and-alerts-sequences-rework). The commercial state is chosen with
 `PATCH /api/prospects/{id}/tracking` ([`prospect-editor.md`](prospect-editor.md)); segments are in
@@ -24,8 +24,14 @@ missing `expected_revision`, naive `scheduled_at`, unknown step/counter) is Fast
 - **Sequence**: one prospect's run in one cohort. Changing the cohort (a person, `PUT /api/prospects/{id}/cohort`)
   closes the current sequence (`cohort_changed`, or `cohort_removed` with `cohort_id: null`), cancels its unsent
   messages (`cancel_reason = "sequence_closed"`) and opens a new one: the counter restarts at zero, the history (closed
-  sequences, their messages) stays. Choosing the cohort of the open sequence changes nothing (`changed: false`). The
-  commercial state is never touched.
+  sequences, their messages) stays. Choosing the cohort of the open sequence changes nothing (`changed: false`).
+  **Resuming** ([R-11](../product/decision-log.md#sequences-rework-decisions-import-excel-and-contact-sequences-2026-10-01)):
+  putting the prospect in a cohort (S0 included) brings a state `disqualified`, `response_received` or
+  `appointment_obtained` back to `neutral` (« En séquence »), with an appended history row and the audit event
+  `contact_tracking.status_changed` (reason « Changement de cohorte : reprise en séquence »); the answer says which
+  (`resumed_from`). Removing the cohort keeps the state. An `ignored` prospect (409 `ignored_is_terminal`) or one
+  under the do-not-contact opposition (409 `prospect_do_not_contact`: clear it first with `PUT …/contactability`) is
+  never resumed by a cohort change: the change is refused.
 - **Level** = the number of messages **really sent** in the current sequence (`status = sent`, whatever their source):
   0 → *Contact* to send, n → *Rn* to send, more than « max relances » (`/api/settings/contact`, default 4) →
   « Relance terminée » (still contactable, out of the automatic actions). A drafted or scheduled message moves
@@ -51,7 +57,7 @@ missing `expected_revision`, naive `scheduled_at`, unknown step/counter) is Fast
 | DELETE | `/api/settings/cohorts/{id}` | — | 204 (409 `in_use` once a sequence used it, 409 `cohort_s0_fixed`) |
 | GET / PUT | `/api/settings/contact` | `{"max_follow_ups": 4}` (0-20) | `{"max_follow_ups": 4}` |
 | GET | `/api/prospects/{id}/sequences` | — | `{"prospect_id", "place": Place, "sequences": [Sequence]}` (current first, then newest) |
-| PUT | `/api/prospects/{id}/cohort` | `{"cohort_id": "…" \| null}` | `{"place": Place, "changed", "cancelled_messages", "in_flight_messages"}` |
+| PUT | `/api/prospects/{id}/cohort` | `{"cohort_id": "…" \| null}` | `{"place": Place, "changed", "resumed_from", "cancelled_messages", "in_flight_messages"}` |
 | GET | `/api/alerts` | query `prospect`, `company`, `type`, `state` (`open` default, `resolved`, `all`), `limit`, `offset` | `{"items": [Alert], "total", "limit", "offset"}` |
 | POST | `/api/alerts` | `{"type", "prospect_id" \| "company_id", "note"?, "detail"?}` | 201 `Alert` |
 | POST | `/api/alerts/{id}/resolve` | `{"note"?}` | `Alert` |
@@ -67,7 +73,8 @@ finished or without cohort), `finished`, `next_due_at`, `next_due_on`, `next_due
 
 Refusals: 403 `human_actor_required` (a cohort, a cohort change, « max relances », Défaillant, resolving an alert:
 a person only; a system job raises no alert); 404 `not_found`; 409 `duplicate` (cohort code, with `existing`), `in_use`,
-`cohort_s0_fixed`, `alert_exists` (with `alert_id`), `alert_resolved`; 422 `invalid` (`code` reason `cohort_code`,
+`cohort_s0_fixed`, `alert_exists` (with `alert_id`), `alert_resolved`, `ignored_is_terminal` /
+`prospect_do_not_contact` (cohort change); 422 `invalid` (`code` reason `cohort_code`,
 `starts_on` reason `required` / `s0_without_date`, `max_follow_ups` reason `out_of_range`, alert `type` reason
 `subject_type`, `prospect_id` reason `subject`).
 

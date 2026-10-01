@@ -27,7 +27,15 @@ from app.models.enums import (
     QualityAlertType,
     SequenceEndReason,
 )
-from app.services import app_settings, cohorts, contact_messages, contact_sequences, quality_alerts
+from app.services import (
+    app_settings,
+    cohorts,
+    contact_messages,
+    contact_sequences,
+    contact_tracking,
+    prospects,
+    quality_alerts,
+)
 from app.services.contact_messages import MessageEdit
 from app.services.contact_sequences import (
     join_sequence_sources,
@@ -42,6 +50,7 @@ from app.services.errors import (
     InUseError,
     InvalidFieldError,
     NotFoundError,
+    TrackingRuleError,
 )
 from tests.builders import (
     OPERATOR,
@@ -233,6 +242,83 @@ def test_only_a_person_changes_a_cohort(db_session: Session, actor: ActorContext
 
     with pytest.raises(ActorNotAllowedError):
         contact_sequences.change_cohort(db_session, actor, prospect.id, s41.id)
+
+
+def history_rows(db_session: Session, prospect: Prospect) -> list[tuple[str | None, str]]:
+    tracking = db_session.scalar(
+        select(ContactTracking).where(ContactTracking.prospect_id == prospect.id)
+    )
+    assert tracking is not None
+    return [(row.from_status, row.to_status) for row in tracking.status_history]
+
+
+@pytest.mark.parametrize("state", [S.DISQUALIFIED, S.RESPONSE_RECEIVED, S.APPOINTMENT_OBTAINED])
+@pytest.mark.parametrize("code", ["S41", "S0"])
+def test_a_new_cohort_resumes_the_prospect_in_sequence(
+    db_session: Session, state: ContactTrackingStatus, code: str
+) -> None:
+    prospect = prospect_in(db_session, "S39")
+    contact_tracking.save_contact_tracking(
+        db_session, OPERATOR, prospect.id, contact_tracking.ContactTrackingInput(status=state)
+    )
+    target = add_cohort(db_session, code, date(2026, 10, 5))
+
+    change = contact_sequences.change_cohort(db_session, OPERATOR, prospect.id, target.id)
+
+    assert (change.changed, change.resumed_from) == (True, state)
+    tracking = db_session.scalar(
+        select(ContactTracking).where(ContactTracking.prospect_id == prospect.id)
+    )
+    assert tracking is not None and tracking.status is S.NEUTRAL
+    # The history is appended, never rewritten: the person's choice, then the resumption.
+    assert history_rows(db_session, prospect) == [(None, state), (state, "neutral")]
+    [event] = audit_events(db_session, action="contact_tracking.status_changed")
+    assert event.changes["status"] == {"before": state.value, "after": "neutral"}
+    assert event.context["reason"] == contact_sequences.RESUMED_REASON
+    assert event.actor_type == ActorType.HUMAN
+    place = prospect_sequence(db_session, prospect.id)
+    expected = PauseReason.OUT_OF_CAMPAIGN if code == "S0" else None
+    assert place.progress.pause is expected
+
+
+def test_removing_the_cohort_keeps_the_state(db_session: Session) -> None:
+    prospect = prospect_in(db_session, "S39")
+    contact_tracking.save_contact_tracking(
+        db_session, OPERATOR, prospect.id, contact_tracking.ContactTrackingInput(S.DISQUALIFIED)
+    )
+
+    change = contact_sequences.change_cohort(db_session, OPERATOR, prospect.id, None)
+
+    assert (change.changed, change.resumed_from) == (True, None)
+    assert history_rows(db_session, prospect) == [(None, "disqualified")]
+
+
+def test_an_ignored_or_opposed_prospect_is_not_resumed_by_a_cohort_change(
+    db_session: Session,
+) -> None:
+    ignored = prospect_in(db_session, "S39")
+    contact_tracking.save_contact_tracking(
+        db_session, OPERATOR, ignored.id, contact_tracking.ContactTrackingInput(S.IGNORED)
+    )
+    opposed = prospect_in(db_session, "S39")
+    prospects.mark_do_not_contact(db_session, OPERATOR, opposed.id, reason="Demande (test)")
+    s41 = add_cohort(db_session, "S41", date(2026, 10, 5))
+    s0 = add_cohort(db_session, "S0")
+
+    for target in (s41.id, s0.id, None):
+        with pytest.raises(TrackingRuleError) as terminal:
+            contact_sequences.change_cohort(db_session, OPERATOR, ignored.id, target)
+        assert terminal.value.code == "ignored_is_terminal"
+        with pytest.raises(BusinessRuleError) as opposition:
+            contact_sequences.change_cohort(db_session, OPERATOR, opposed.id, target)
+        assert opposition.value.code == "prospect_do_not_contact"
+    for prospect in (ignored, opposed):
+        place = prospect_sequence(db_session, prospect.id)
+        assert place.cohort is not None and place.cohort.code == "S39"
+    assert audit_events(db_session, action="contact_sequence.closed") == []
+    # Once the opposition is cleared through its own path, the cohort may change.
+    prospects.clear_do_not_contact(db_session, OPERATOR, opposed.id, reason="Accord (test)")
+    assert contact_sequences.change_cohort(db_session, OPERATOR, opposed.id, s41.id).changed
 
 
 def test_unknown_prospect_or_cohort(db_session: Session) -> None:

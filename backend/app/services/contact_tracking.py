@@ -12,7 +12,9 @@ dedicated tracking endpoint, Database Explorer, imports), so the Contact rules h
 - entering `response_received` without a response date records the caller's `now`;
 - choosing `response_received`, `appointment_obtained`, `ignored` or `disqualified` cancels the
   prospect's future unsent messages (decision 29) through `cancel_future_messages`, in the same
-  transaction. The cohort and the sequence are never touched (`contact_sequences`).
+  transaction. The cohort and the sequence are never touched (`contact_sequences`); conversely a
+  person's new cohort resumes `disqualified`/`response_received`/`appointment_obtained` to
+  `neutral` (`contact_sequences.change_cohort`, decision R-11).
 
 Operations flush; the caller owns the transaction.
 """

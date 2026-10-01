@@ -4,8 +4,11 @@
   why nothing is due) and every sequence it ran, newest first, with its messages: a change of
   cohort never erases anything;
 - `PUT  /api/prospects/{id}/cohort` — a person puts the prospect in a cohort (`cohort_id`) or out
-  of any (`null`): the current sequence closes, a new one opens with its counter at zero; the
-  state is untouched. Answers the new place and the unsent messages cancelled;
+  of any (`null`): the current sequence closes, a new one opens with its counter at zero; a new
+  cohort resumes a `disqualified` / `response_received` / `appointment_obtained` state to
+  `neutral` (R-11), an `ignored` or opposed prospect is refused (409 `ignored_is_terminal` /
+  `prospect_do_not_contact`). Answers the new place, the resumed state and the unsent messages
+  cancelled;
 - `GET  /api/alerts` — alerts by `prospect`, `company`, `type` and `state` (`open` by default,
   `resolved`, `all`), newest first;
 - `POST /api/alerts` — raise an alert on a prospect or a company; its source comes from the signed
@@ -15,7 +18,8 @@
 « Marquer comme envoyé » is `POST /api/prospects/{id}/messages/mark-sent` and « Défaillant » is
 the state `disqualified` of `PATCH /api/prospects/{id}/tracking`; cohorts and « max relances »
 are under `/api/settings`. Refusals: `app.api.errors` (403 `human_actor_required`, 404
-`not_found`, 409 `alert_exists` / `alert_resolved`, 422 `invalid`).
+`not_found`, 409 `alert_exists` / `alert_resolved` / `ignored_is_terminal` /
+`prospect_do_not_contact`, 422 `invalid`).
 """
 
 import uuid
@@ -33,6 +37,7 @@ from app.core.business_time import business_day
 from app.models import QualityAlert
 from app.models.enums import (
     ContactMessageStatus,
+    ContactTrackingStatus,
     QualityAlertSource,
     QualityAlertType,
     SendSource,
@@ -120,6 +125,8 @@ class CohortChangeOut(BaseModel):
     place: PlaceOut
     # False when the cohort asked for already was the open sequence's.
     changed: bool
+    # The state the new cohort resumed to `neutral` (R-11); null when the state was kept.
+    resumed_from: ContactTrackingStatus | None
     cancelled_messages: int
     in_flight_messages: int
 
@@ -232,6 +239,7 @@ def change_cohort(
     return CohortChangeOut(
         place=place_out(contact_sequences.prospect_sequence(session, prospect_id)),
         changed=change.changed,
+        resumed_from=change.resumed_from,
         cancelled_messages=change.messages.cancelled,
         in_flight_messages=change.messages.in_flight,
     )
