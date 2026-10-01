@@ -14,8 +14,9 @@ Single Python source for what the Contact data means:
   contactable, out of the automatic actions). A planned but unsent message moves nothing;
 - the **next due date** is the cohort's date for the Contact, then the Monday (business midnight)
   of the calendar week after the last send — nothing is due when the sequence is finished or
-  closed, the cohort is S0, the state is not `neutral`, or an « Erreur sur le mail » alert raised
-  by a person (or an import) is open.
+  closed, the cohort is S0, the state is not `neutral`, the prospect is under the do-not-contact
+  opposition (no mail may be prepared for it), or an « Erreur sur le mail » alert raised by a
+  person (or an import) is open.
 
 Nothing here reads or writes the database: `app.services.contact_sequences` applies the rules (in
 Python for one prospect, in SQL for lists — both follow `next_due`).
@@ -170,6 +171,7 @@ class PauseReason(StrEnum):
     NO_COHORT = "no_cohort"  # not validated: no current sequence
     OUT_OF_CAMPAIGN = "out_of_campaign"  # S0
     STATE = "state"  # response, appointment, ignored, Défaillant
+    DO_NOT_CONTACT = "do_not_contact"  # the durable opposition: no mail may be prepared
     SEQUENCE_CLOSED = "sequence_closed"  # closed `completed` (« Relance terminée »)
     FINISHED = "finished"  # R<max> sent (« Relance terminée »)
     EMAIL_ERROR = "email_error"  # an open « Erreur sur le mail » (D9)
@@ -186,6 +188,7 @@ class SequenceFacts:
     sent_count: int = 0
     last_sent_at: datetime | None = None
     state: ContactTrackingStatus | None = None
+    do_not_contact: bool = False
     email_error: bool = False
 
 
@@ -223,6 +226,8 @@ def progress(facts: SequenceFacts, max_follow_ups: int) -> Progress:
         pause = PauseReason.OUT_OF_CAMPAIGN
     elif facts.state is not None and facts.state is not S.NEUTRAL:
         pause = PauseReason.STATE
+    elif facts.do_not_contact:
+        pause = PauseReason.DO_NOT_CONTACT
     elif not facts.sequence_open:
         pause = PauseReason.SEQUENCE_CLOSED
     elif finished:

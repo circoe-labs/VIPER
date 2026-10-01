@@ -189,10 +189,16 @@ def prospect_sequence(
     state = session.scalar(
         select(ContactTracking.status).where(ContactTracking.prospect_id == prospect_id)
     )
+    opposed = (
+        session.scalar(select(Prospect.contactability_status).where(Prospect.id == prospect_id))
+        is ContactabilityStatus.DO_NOT_CONTACT
+    )
     email_error = has_email_error(session, prospect_id)
     limit = max_follow_ups if max_follow_ups is not None else app_settings.max_follow_ups(session)
     if sequence is None:
-        facts = SequenceFacts(has_sequence=False, state=state, email_error=email_error)
+        facts = SequenceFacts(
+            has_sequence=False, state=state, do_not_contact=opposed, email_error=email_error
+        )
         return ProspectSequence(
             prospect_id, None, None, False, progress(facts, limit), limit, email_error
         )
@@ -205,6 +211,7 @@ def prospect_sequence(
         sent_count=count,
         last_sent_at=last,
         state=state,
+        do_not_contact=opposed,
         email_error=email_error,
     )
     return ProspectSequence(
@@ -476,7 +483,8 @@ def finished_sql() -> ColumnElement[bool]:
 
 def due_open_sql() -> ColumnElement[bool]:
     """Something is due at some date (see `contact_workflow.progress`); `next_due_at_sql` says
-    when. ContactTracking must be joined (a missing tracking reads as `neutral`)."""
+    when. ContactTracking must be joined (a missing tracking reads as `neutral`) and `Prospect` be
+    in the FROM."""
     return and_(
         has_cohort_sql(),
         ContactSequence.closed_at.is_(None),
@@ -485,6 +493,7 @@ def due_open_sql() -> ColumnElement[bool]:
             ContactTracking.status.is_(None),
             ContactTracking.status == ContactTrackingStatus.NEUTRAL,
         ),
+        Prospect.contactability_status == ContactabilityStatus.CONTACTABLE,
         sent_count_sql() <= max_follow_ups_sql(),
         ~email_error_sql(),
     )

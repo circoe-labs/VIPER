@@ -194,6 +194,7 @@ def test_a_completed_sequence_is_finished() -> None:
         ({"state": S.APPOINTMENT_OBTAINED}, PauseReason.STATE),
         ({"state": S.IGNORED}, PauseReason.STATE),
         ({"state": S.DISQUALIFIED}, PauseReason.STATE),
+        ({"do_not_contact": True}, PauseReason.DO_NOT_CONTACT),
         ({"email_error": True}, PauseReason.EMAIL_ERROR),
     ],
 )

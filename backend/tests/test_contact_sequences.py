@@ -20,6 +20,7 @@ from app.models import (
     Prospect,
 )
 from app.models.enums import (
+    ContactabilityStatus,
     ContactMessageStatus,
     ContactMessageStep,
     ContactTrackingStatus,
@@ -532,6 +533,9 @@ def test_the_sql_next_due_date_is_the_python_one(db_session: Session) -> None:
                     status=rng.choice([S.NEUTRAL, S.NEUTRAL, S.RESPONSE_RECEIVED, S.DISQUALIFIED]),
                 )
             )
+        if rng.random() < 0.1:
+            prospect.contactability_status = ContactabilityStatus.DO_NOT_CONTACT
+            prospect.do_not_contact_at = datetime(2026, 9, 1, tzinfo=UTC)
         if rng.random() < 0.15:
             continue
         start = date(2026, 8, 3) + timedelta(days=rng.randrange(0, 60))

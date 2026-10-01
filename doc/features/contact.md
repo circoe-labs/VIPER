@@ -38,7 +38,8 @@ missing `expected_revision`, naive `scheduled_at`, unknown step/counter) is Fast
   nothing. A current sequence closed `completed` (the former `failure`) is « Relance terminée » too.
 - **Next due date**: the cohort's date for the Contact, then the **Monday of the calendar week after the last send**
   (business midnight, Europe/Paris). Nothing is due (`pause_reason`) without cohort (`no_cohort`), in S0
-  (`out_of_campaign`), when the state is not `neutral` (`state`: response, RDV, ignored, Défaillant), when the sequence
+  (`out_of_campaign`), when the state is not `neutral` (`state`: response, RDV, ignored, Défaillant), under the
+  do-not-contact opposition (`do_not_contact`: no mail may be prepared for the prospect), when the sequence
   is closed (`sequence_closed`) or finished (`finished`), or while an « Erreur sur le mail » raised by a person or an
   import is open (`email_error`).
 - **« Marquer comme envoyé »** (`POST …/messages/mark-sent`): see [§ Mail sequence](#mail-sequence--apiprospectsprospect_idmessages).
