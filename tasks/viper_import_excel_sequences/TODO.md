@@ -60,7 +60,7 @@ Orchestrateur (défauts appliqués, à contester par l'Humain) :
 - [x] **S2 — Import Excel** : D3, D4, D10, D11 ; dates de cohortes inconnues dans la revue ; S0 ; `retraité` et autres
   valeurs non Sxx → alerte (+ Défaillant si fichier vérifié) ; tests sur fixtures synthétiques reproduisant la
   structure du classeur réel.
-- [ ] **S3 — Relances et tableau de bord backend** : messages par séquence et rang illimité, « Marquer comme envoyé »,
+- [x] **S3 — Relances et tableau de bord backend** : messages par séquence et rang illimité, « Marquer comme envoyé »,
   annulations, planning hebdomadaire (nouveaux contacts, R1, R2, R3… à envoyer cette semaine, répartition par niveau,
   catégories Erreur sur le mail / Relance terminée / Défaillant / S0).
 - [ ] **S4 — Frontend fiche et Prospection** : fiche prospect (cohorte, niveau, historique des séquences, alertes,
@@ -93,3 +93,10 @@ Orchestrateur (défauts appliqués, à contester par l'Humain) :
   commit. Gate : pytest 1317 ; vitest 733/734 (`ProspectionPage` recherche instable sous charge, 13/13 seul ×2,
   frontend inchangé depuis S1). Risques : ~0,1-0,2 s/ligne en réimport conflictuel (à mesurer en S6) ; migration
   `0011` à appliquer par l'Humain sur la base de dev ; écran d'import inadapté jusqu'à S5.
+- 2026-10-01 : S3 accepté (`0302ce3`, `224dca8`, `2d01669`, `3eaac3c`, correctifs QA `3e31fc0`, `7ad6ec1`, `1b16929`)
+  — messages par rang jusqu'au max, « Marquer comme envoyé » idempotent, planning hebdomadaire (`GET
+  /api/contact/dashboard`, `/api/contact/prospects`), « à envoyer » unique pour Contact/Prospection/Accueil/export,
+  décisions R-21…R-27. Arbitrages : « Ignoré » regroupe `ignored` + opposition ; brouillons au-delà d'un max abaissé
+  conservés ; `rank` (et `sequence_id`) obligatoires dans `mark-sent` en S4 ; en S4, « Réponses sans rendez-vous » de
+  l'Accueil ne lit que la séquence courante (prospect repris par changement de Sxx). Gate complète verte : pytest
+  1367, vitest 734, eslint/tsc/build. Pour S7 : refuser la programmation sous `email_error` ouverte et au-delà du max.
