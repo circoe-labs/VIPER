@@ -31,7 +31,7 @@ from enum import StrEnum
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.cohort_codes import OUT_OF_CAMPAIGN_CODE
-from app.models.enums import Civility, ContactabilityStatus
+from app.models.enums import Civility, ContactabilityStatus, ContactTrackingStatus
 from app.services.imports.decisions import (
     CategoryCreate,
     CategoryDecision,
@@ -592,7 +592,7 @@ def build_review(preview: ImportPreview, reference: ImportReferenceData) -> Impo
         rows=rows,
         cohorts=cohorts,
         not_cohorts=not_cohorts,
-        disqualified_if_verified=disqualified_if_verified(rows),
+        disqualified_if_verified=disqualified_if_verified(preview, rows),
     )
 
 
@@ -604,18 +604,35 @@ def cohort_status(row: PreviewRow, not_cohort_keys: Mapping[int, str]) -> Cohort
     return CohortStatus.MISSING
 
 
-def disqualified_if_verified(rows: list[RowReview]) -> list[int]:
-    """Rows creating a prospect by default with no cohort on it (nor on a row merged into it)."""
-    with_cohort = {row.row_number for row in rows if row.cohort_key is not None}
+def disqualified_if_verified(preview: ImportPreview, rows: list[RowReview]) -> list[int]:
+    """Rows creating a prospect by default that the commit would make « Défaillant »: no cohort
+    on it (nor on a row merged into it), no state from the file (an appointment stage, which
+    the commit keeps), and a name (a row without one cannot be created: it must be excluded)."""
+    source = {row.row_number: row for row in preview.rows}
+    kept = {
+        row.row_number
+        for row in rows
+        if row.cohort_key is not None or gives_state(source[row.row_number])
+    }
     for row in rows:
         resolution = row.default_resolution
-        if isinstance(resolution, ProspectAttachRow) and row.cohort_key is not None:
-            with_cohort.add(resolution.row)
+        if isinstance(resolution, ProspectAttachRow) and row.row_number in kept:
+            kept.add(resolution.row)
     return [
         row.row_number
         for row in rows
-        if isinstance(row.default_resolution, ProspectCreate) and row.row_number not in with_cohort
+        if isinstance(row.default_resolution, ProspectCreate)
+        and row.row_number not in kept
+        and row_diagnostic(source[row.row_number], [DiagnosticCode.PROSPECT_MISSING_NAME]) is None
     ]
+
+
+def gives_state(row: PreviewRow) -> bool:
+    """The row's stage columns set a state other than `neutral` (an appointment)."""
+    tracking = row.tracking
+    return bool(
+        tracking and tracking.stages and tracking.status is not ContactTrackingStatus.NEUTRAL
+    )
 
 
 # --- plan ---------------------------------------------------------------------------------------

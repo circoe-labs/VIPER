@@ -531,7 +531,7 @@ identity, `Feuil1` and `actualité` sheets) — `tests/test_operational_import.p
   an ISO week) — else 422 `invalid_decisions` `cohort_date_required`. The validating person creates it with that date.
 - `review.not_cohorts[]`: values of the cohort column that are not codes (`retraité`), each with its rows.
 - `review.disqualified_if_verified[]`: the rows that, with their default resolution, create a prospect without any
-  cohort — they become « Défaillant » if the person ticks « Fichier vérifié humainement » (`human_verified`, default
+  cohort nor appointment stage (rows without any name, which must be excluded, are not counted) — they become « Défaillant » if the person ticks « Fichier vérifié humainement » (`human_verified`, default
   `false`). Per row: `cohort_key`, `cohort_status` (`cohort` / `missing` / `not_a_cohort`), `not_cohort_key`.
 
 ### Commit

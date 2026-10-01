@@ -402,8 +402,9 @@ def test_rows_without_cohort_become_defaillant_only_in_a_verified_file(
     db_session: Session, ids: dict[str, uuid.UUID]
 ) -> None:
     review = review_of(db_session, upload())
-    # Announced before the commit: new prospects without a valid Sxx (blank or `retraité`).
-    assert review.disqualified_if_verified == [5, 6, 8, *JUNK_ROWS]
+    # Announced before the commit: new prospects without a valid Sxx (blank or `retraité`);
+    # rows without any identity cannot be created (to exclude), so they are not announced.
+    assert review.disqualified_if_verified == [5, 6, 8]
 
     result = run(db_session, human_verified=True)
 
@@ -419,6 +420,24 @@ def test_rows_without_cohort_become_defaillant_only_in_a_verified_file(
         assert (history.actor_type, history.actor_id) == (ActorType.HUMAN, OPERATOR.id)
     for last in ("Alpha", "Beta", "Gamma", "Zeta"):  # a cohort (S0 included) is no failure
         assert state_of(db_session, by_name(db_session, last)) in (None, S.NEUTRAL), last
+
+
+def test_the_announced_defaillant_rows_are_the_committed_ones(
+    db_session: Session, ids: dict[str, uuid.UUID]
+) -> None:
+    """A new prospect whose row gives an appointment keeps it: neither announced nor failed."""
+    rows = [
+        {"company": "Atelier Annonce", "last_name": "Annonce", "first_name": "Eva"},
+        {"rdv": "oui", "company": "Atelier Annonce", "last_name": "Rendez", "first_name": "Max"},
+    ]
+    review = review_of(db_session, upload(rows))
+    assert review.disqualified_if_verified == [2]
+
+    result = run(db_session, rows, human_verified=True)
+
+    assert result.counts["prospects_disqualified"] == 1
+    assert state_of(db_session, by_name(db_session, "Annonce")) is S.DISQUALIFIED
+    assert state_of(db_session, by_name(db_session, "Rendez")) is S.APPOINTMENT_OBTAINED
 
 
 def test_a_verified_file_never_overrides_an_existing_prospect_s_state(
