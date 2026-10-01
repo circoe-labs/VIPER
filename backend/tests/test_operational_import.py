@@ -4,6 +4,7 @@ real test database, on a synthetic workbook in the operational layout
 
 import io
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -67,7 +68,7 @@ def ids(db_session: Session) -> dict[str, uuid.UUID]:
     return found
 
 
-def upload(rows: tuple[Row, ...] | list[Row] = ROWS) -> ImportFile:
+def upload(rows: Sequence[Row] = ROWS) -> ImportFile:
     return ImportFile(FILENAME, operational_xlsx(rows))
 
 
@@ -98,9 +99,7 @@ def needs(review: ImportReview, code: str) -> bool:
     return any(group.key == code and group.needs_date for group in review.cohorts)
 
 
-def run(
-    session: Session, rows: tuple[Row, ...] | list[Row] = ROWS, **fields: Any
-) -> import_commit.CommitResult:
+def run(session: Session, rows: Sequence[Row] = ROWS, **fields: Any) -> import_commit.CommitResult:
     file = upload(rows)
     review = review_of(session, file)
     return import_commit.commit_import(session, OPERATOR, file, decide(review, **fields), LIMITS)
