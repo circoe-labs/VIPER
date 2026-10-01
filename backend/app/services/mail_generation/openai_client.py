@@ -30,6 +30,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from http import HTTPStatus
 from typing import Any, Protocol
+from urllib.parse import quote
 
 import httpx2
 
@@ -78,6 +79,8 @@ ERROR_STATUS: dict[str, HTTPStatus] = {
     "ai_upstream_error": HTTPStatus.BAD_GATEWAY,
     "ai_refused": HTTPStatus.UNPROCESSABLE_CONTENT,
     "ai_invalid_output": HTTPStatus.BAD_GATEWAY,
+    # « Tester la clé » (S8): the key is accepted but the service knows no such model.
+    "ai_model_not_found": HTTPStatus.UNPROCESSABLE_CONTENT,
 }
 
 
@@ -392,3 +395,49 @@ class OpenAIMailGenerator:
             else self._config.model
         )
         return GeneratedMail(subject=subject, body=body, model=model)
+
+
+# --- « Tester la clé » (S8) --------------------------------------------------------------------
+
+# The check is one cheap request, bounded independently of the drafting timeout, never retried.
+CHECK_TIMEOUT_SECONDS = 15.0
+
+
+def check_model(config: OpenAIConfig, *, transport: httpx2.BaseTransport | None = None) -> str:
+    """`GET {base_url}/models/{model}`: the key is accepted and the model exists. No token is
+    generated (nothing is billed). Answers the model id the service named; raises the same typed
+    errors as the drafting (`ai_auth_failed`, `ai_rate_limited`, `ai_timeout`,
+    `ai_upstream_error`) plus `ai_model_not_found`. Never the key in a message or a log line."""
+    timeout_seconds = min(CHECK_TIMEOUT_SECONDS, config.timeout_seconds)
+    timeout = httpx2.Timeout(timeout_seconds, connect=min(CONNECT_TIMEOUT_SECONDS, timeout_seconds))
+    with httpx2.Client(timeout=timeout, transport=transport, trust_env=config.trust_env) as client:
+        try:
+            response = client.get(
+                f"{config.base_url}/models/{quote(config.model, safe='')}",
+                headers={"Authorization": f"Bearer {config.api_key}"},
+            )
+        except httpx2.TimeoutException:
+            raise generation_error(
+                "ai_timeout", f"The AI service did not answer within {round(timeout_seconds)} s."
+            ) from None
+        except httpx2.TransportError as error:
+            raise generation_error(
+                "ai_upstream_error",
+                "The AI service cannot be reached.",
+                upstream_code=type(error).__name__,
+            ) from None
+    if response.status_code == 404:
+        raise generation_error(
+            "ai_model_not_found",
+            f"The AI service does not know the model {config.model!r} (or this key cannot use it).",
+            upstream_status=404,
+            upstream_code=_upstream_code(response),
+        )
+    if response.status_code >= 400:
+        raise OpenAIMailGenerator._status_error(response.status_code, _upstream_code(response))
+    try:
+        payload = response.json()
+    except ValueError:
+        raise _invalid("The AI service answer is unreadable.") from None
+    answered = payload.get("id") if isinstance(payload, dict) else None
+    return answered[:MODEL_MAX_LENGTH] if isinstance(answered, str) and answered else config.model

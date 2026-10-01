@@ -22,6 +22,7 @@ from app.api.routes import (
     health,
     home,
     imports,
+    integrations,
     prospection,
     prospects,
     search,
@@ -49,6 +50,8 @@ api_router.include_router(imports.router)
 api_router.include_router(prospection.router)
 api_router.include_router(prospects.router)
 api_router.include_router(search.router)
-# Before `settings`: its `/settings/{taxonomy}` would otherwise capture `/settings/toolbox`.
+# Before `settings`: its `/settings/{taxonomy}` would otherwise capture `/settings/toolbox` and
+# `/settings/integrations`.
 api_router.include_router(toolbox.router)
+api_router.include_router(integrations.router)
 api_router.include_router(settings.router)

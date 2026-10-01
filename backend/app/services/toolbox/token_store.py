@@ -10,22 +10,21 @@ an OAuth bearer token must reach neither. The file (`VIPER_TOOLBOX_TOKEN_STORE_P
 - `connected_by` / `connected_at`: who connected, for the Settings page;
 - `last_error`: the last connection failure code (never a text from the Toolbox).
 
-Writes are atomic (temporary file in the same directory, then `os.replace`), the directory is
-created `0700` and the file `0600` (on Windows these modes are ignored: the file inherits the
-user profile's ACL — keep the path under the service account's profile). An unreadable file means
+Writes are atomic and private (`app.core.private_file.write_private_json`: temporary file then
+`os.replace`, directory `0700`, file `0600`; on Windows the file inherits the user profile's ACL —
+keep the path under the service account's profile). An unreadable file means
 « not connected », never a crash. Tokens are excluded from `repr` and never logged.
 """
 
-import json
 import logging
-import os
-import tempfile
 import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 
 from pydantic import BaseModel, Field, ValidationError
+
+from app.core.private_file import write_private_json
 
 logger = logging.getLogger(__name__)
 
@@ -120,16 +119,4 @@ class FileTokenStore:
 
     def write(self, file: StoreFile) -> None:
         with self._lock:
-            directory = self.path.parent
-            directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-            descriptor, temporary = tempfile.mkstemp(
-                dir=directory, prefix=f".{self.path.name}.", suffix=".tmp"
-            )
-            try:
-                with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-                    json.dump(file.model_dump(mode="json"), handle)
-                os.chmod(temporary, 0o600)
-                os.replace(temporary, self.path)
-            except BaseException:
-                Path(temporary).unlink(missing_ok=True)
-                raise
+            write_private_json(self.path, file.model_dump(mode="json"))

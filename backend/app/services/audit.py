@@ -108,6 +108,9 @@ class AuditAction(StrEnum):
     # The Toolbox connection was established / forgotten on VIPER's side (no token in the event).
     TOOLBOX_CONNECTED = "toolbox.connected"
     TOOLBOX_FORGOTTEN = "toolbox.forgotten"
+    # Integration settings saved from Paramètres > Connexions (S8): the changed fields with their
+    # values, except a secret, recorded as `replaced` / `removed` only.
+    SETTINGS_INTEGRATIONS_CHANGED = "settings.integrations_changed"
     IMPORT_BATCH_STARTED = "import_batch.started"
     IMPORT_BATCH_COMMITTED = "import_batch.committed"
     IMPORT_BATCH_FAILED = "import_batch.failed"

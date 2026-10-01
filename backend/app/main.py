@@ -12,12 +12,11 @@ from app.api.security_headers import SecurityHeadersMiddleware
 from app.api.worker_wake import WakeCleanupWorkerMiddleware
 from app.core.config import Settings, get_settings
 from app.db.session import create_db_engine, create_session_factory
-from app.services.contact_dispatch import DispatchConfig
-from app.services.contact_dispatch_worker import ContactDispatcher
 from app.services.explorer.sql_console import create_reader_engine
+from app.services.integration_runtime import IntegrationRuntime
 from app.services.login_throttle import LoginThrottle
+from app.services.runtime_settings import RuntimeSettings
 from app.services.toolbox.integration import ToolboxIntegration
-from app.services.toolbox.worker import CleanupWorker
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -28,30 +27,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        # CIRCOE Toolbox (S6): the cleanup worker runs only when enabled and configured with a
-        # positive interval; tests may replace `app.state.toolbox` before startup.
-        integration: ToolboxIntegration = app.state.toolbox
-        worker = None
-        if integration.configured and integration.cleanup_interval_seconds > 0:
-            worker = CleanupWorker(
-                integration, app.state.session_factory, integration.cleanup_interval_seconds
-            )
-            worker.start()
-        app.state.toolbox_worker = worker
-        # Scheduled sending (S7): same conditions, `VIPER_CONTACT_DISPATCH_INTERVAL_MS` > 0. A
-        # pass sends nothing while the Toolbox is not connected.
-        dispatch_config = DispatchConfig.from_settings(app.state.settings)
-        dispatcher = None
-        if integration.configured and dispatch_config.interval.total_seconds() > 0:
-            dispatcher = ContactDispatcher(integration, app.state.session_factory, dispatch_config)
-            dispatcher.start()
-        app.state.contact_dispatcher = dispatcher
+        # CIRCOE Toolbox cleanup worker (S6) and scheduled-sending worker (S7): started when the
+        # effective settings call for them, restarted by a save from Paramètres > Connexions (S8);
+        # tests may replace `app.state.toolbox` before startup.
+        integrations: IntegrationRuntime = app.state.integrations
+        integrations.start()
         yield
         # Graceful shutdown: each worker lets its running pass finish (a send included).
-        if dispatcher is not None:
-            dispatcher.stop()
-        if worker is not None:
-            worker.stop()
+        integrations.stop()
         engine.dispose()
         sql_engine.dispose()
 
@@ -63,6 +46,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         swagger_ui_oauth2_redirect_url=None,
         openapi_url="/api/openapi.json",
     )
+    # Integration settings set from the browser (S8) override the environment's: `settings` is
+    # the effective configuration, replaced live by `app.state.integrations.apply`.
+    app.state.runtime_settings = RuntimeSettings(settings)
+    settings = app.state.runtime_settings.effective
     app.state.settings = settings
     app.state.session_factory = create_session_factory(engine)
     app.state.sql_engine = sql_engine
@@ -70,6 +57,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.toolbox = ToolboxIntegration(settings)
     app.state.toolbox_worker = None
     app.state.contact_dispatcher = None
+    app.state.integrations = IntegrationRuntime(app.state)
+    # Test seam of « Tester la clé » (an `httpx2.MockTransport`); None = the network.
+    app.state.openai_transport = None
 
     app.add_middleware(WakeCleanupWorkerMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)

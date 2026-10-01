@@ -43,6 +43,7 @@ def toolbox_settings(database_url: str, tmp_path: Path, **overrides: Any) -> Set
         "toolbox_mcp_url": MCP_URL,
         "toolbox_oauth_redirect_uri": REDIRECT,
         "toolbox_token_store_path": tmp_path / "toolbox-oauth.json",
+        "runtime_settings_path": tmp_path / "runtime-settings.json",
         "toolbox_cleanup_interval_ms": 0,
         # No background thread on the per-test connection: dispatcher tests run passes by hand.
         "contact_dispatch_interval_ms": 0,
@@ -149,8 +150,9 @@ def test_status_in_each_state(
     assert body["state"] == "expired"
     assert body["last_error"]["code"] == "toolbox_auth_expired"
 
+    # « Se déconnecter » (S8): the token is forgotten and the integration turned off.
     body = ok(client.post(f"{STATUS}/forget"))
-    assert (body["state"], body["last_error"]) == ("disconnected", None)
+    assert (body["state"], body["last_error"]) == ("disabled", None)
 
 
 def test_a_failed_return_is_recorded_and_said(

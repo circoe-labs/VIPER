@@ -42,6 +42,7 @@ from app.services.contact_dispatch import DispatchConfig, Dispatcher
 from app.services.contact_remote_drafts import process_cleanups
 from app.services.errors import DomainError
 from app.services.explorer.sql_reader import provision_sql_reader, provisioning_lock
+from app.services.runtime_settings import RuntimeSettings
 from app.services.toolbox.integration import ToolboxIntegration
 
 # Whoever runs the command on the server; the OS account is not known to VIPER.
@@ -145,7 +146,8 @@ def main(
     )
     args = parser.parse_args(argv)
 
-    settings = get_settings()
+    # The integration settings saved from Paramètres > Connexions (S8) apply here too.
+    settings = RuntimeSettings(get_settings()).effective
     engine = None
     if session_factory is None:
         engine = create_db_engine(settings.database_url)

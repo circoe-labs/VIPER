@@ -212,12 +212,18 @@ class GenerationResultOut(MessageResultOut):
     generation: GenerationOut
 
 
-def get_mail_generator(settings: SettingsDep) -> MailGenerator | None:
-    """The OpenAI adapter, or None when the drafting is not configured (tests override this)."""
+def get_mail_generator(request: Request, settings: SettingsDep) -> MailGenerator | None:
+    """The OpenAI adapter, or None when the drafting is not configured (tests override this).
+    Built per request from the effective settings: a key saved from Paramètres > Connexions (S8)
+    applies to the next drafting without a restart."""
     config = config_from_settings(settings)
     if config is None:
         return None
-    return OpenAIMailGenerator(config, booking_url=settings.contact_booking_url)
+    return OpenAIMailGenerator(
+        config,
+        booking_url=settings.contact_booking_url,
+        transport=request.app.state.openai_transport,
+    )
 
 
 MailGeneratorDep = Annotated[MailGenerator | None, Depends(get_mail_generator)]

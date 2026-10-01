@@ -3,13 +3,17 @@
 Session-protected like every feature route (CSRF on POST). No route returns or accepts a token.
 
 - `GET  /settings/toolbox`           the connection state for Settings > Connexions;
-- `POST /settings/toolbox/connect`   starts the OAuth flow: `{authorization_url}` the browser
-                                     goes to (the Toolbox, then Infomaniak);
+- `POST /settings/toolbox/connect`   « Se connecter à CIRCOE Toolbox »: turns the integration
+                                     on and records the page's return address `{redirect_uri}`
+                                     when needed (S8), then starts the OAuth flow:
+                                     `{authorization_url}` the browser goes to (the Toolbox,
+                                     then Infomaniak);
 - `POST /settings/toolbox/callback`  the SPA page the Toolbox redirected to (`/settings/
                                      connections?code=…&state=…&iss=…`) posts those parameters
                                      here: same signed-in person, single-use state, code exchange;
-- `POST /settings/toolbox/forget`    « Oublier la connexion » (VIPER side only: the Toolbox offers
-                                     no revocation, the token expires by itself).
+- `POST /settings/toolbox/forget`    « Se déconnecter »: forgets the token and turns the
+                                     integration off (VIPER side only: the Toolbox offers no
+                                     revocation, the token expires by itself).
 
 The browser's return lands on the SPA, not on the API: the session cookie is `SameSite=Strict`
 and scoped to `/api`, so a redirect from the Toolbox's site would reach the API without it. The
@@ -30,12 +34,15 @@ from pydantic import BaseModel, ConfigDict, StringConstraints
 
 from app.api.dependencies import CurrentActor, SessionDep
 from app.api.errors import business_errors
+from app.api.routes.integrations import save_and_apply
 from app.core.config import Settings
 from app.services import audit
 from app.services.audit import AuditAction
 from app.services.contact_dispatch import dispatch_counts
 from app.services.contact_dispatch_worker import ContactDispatcher
 from app.services.contact_remote_drafts import queue_counts
+from app.services.integration_runtime import IntegrationRuntime
+from app.services.runtime_settings import RuntimeSettings
 from app.services.toolbox.integration import ToolboxIntegration
 
 router = APIRouter(prefix="/settings/toolbox", tags=["settings"])
@@ -171,23 +178,54 @@ def toolbox_status(
     return status_out(integration, session, dispatcher, claim_ttl)
 
 
+class ConnectIn(BaseModel):
+    # The page's own `/settings/connections` address (`window.location.origin` + path): where the
+    # Toolbox sends the browser back. Used unless a value was typed in « Paramètres avancés » or
+    # the environment sets one. Same rule as the setting: https, or http on the loopback.
+    redirect_uri: Annotated[str, StringConstraints(max_length=2000)] | None = None
+
+
 @router.post("/connect")
-def connect(integration: ToolboxDep, actor: CurrentActor) -> ConnectOut:
+def connect(
+    request: Request, session: SessionDep, actor: CurrentActor, body: ConnectIn | None = None
+) -> ConnectOut:
+    """« Se connecter à CIRCOE Toolbox » (S8): turns the integration on and records the page's
+    return address when needed (saved like any setting, audited), then starts the OAuth flow."""
+    runtime: RuntimeSettings = request.app.state.runtime_settings
+    settings = runtime.effective
+    changes: dict[str, object] = {}
+    if not settings.toolbox_mail_enabled:
+        changes["toolbox_mail_enabled"] = True
+    redirect = body.redirect_uri.strip() if body and body.redirect_uri else None
+    name = "toolbox_oauth_redirect_uri"
+    if (
+        redirect
+        and redirect != settings.toolbox_oauth_redirect_uri
+        and runtime.source(name) != "env"
+        and not runtime.is_typed(name)
+    ):
+        changes[name] = redirect
+    if changes:
+        save_and_apply(request, session, actor, changes, auto=frozenset({name}))
+    integration: ToolboxIntegration = request.app.state.toolbox
     with business_errors():
         return ConnectOut(authorization_url=integration.start(actor))
 
 
 @router.post("/callback")
 def callback(
+    request: Request,
     body: CallbackIn,
     integration: ToolboxDep,
     session: SessionDep,
     actor: CurrentActor,
-    dispatcher: DispatcherDep,
     claim_ttl: ClaimTtlDep,
 ) -> ToolboxStatusOut:
     with business_errors():
         integration.complete(body.model_dump(), actor)
+    # Connected: the cleanup and scheduled-sending workers start now (S8).
+    integrations: IntegrationRuntime = request.app.state.integrations
+    integrations.sync()
     status = integration.status()
     audit.record_event(
         session,
@@ -203,19 +241,21 @@ def callback(
             "toolbox_origin": {"before": None, "after": status.toolbox_origin},
         },
     )
-    return status_out(integration, session, dispatcher, claim_ttl)
+    return status_out(integration, session, request.app.state.contact_dispatcher, claim_ttl)
 
 
 @router.post("/forget")
 def forget(
+    request: Request,
     integration: ToolboxDep,
     session: SessionDep,
     actor: CurrentActor,
-    dispatcher: DispatcherDep,
     claim_ttl: ClaimTtlDep,
 ) -> ToolboxStatusOut:
+    """« Se déconnecter » (S8): forgets the token and turns the integration off (its workers
+    stop); « Se connecter à CIRCOE Toolbox » turns it on again."""
     with business_errors():
-        had = integration.forget()
+        had = integration.forget() if integration.configured else False
     if had:
         audit.record_event(
             session,
@@ -224,4 +264,11 @@ def forget(
             entity_type=TOOLBOX_ENTITY,
             entity_id=None,
         )
-    return status_out(integration, session, dispatcher, claim_ttl)
+    runtime: RuntimeSettings = request.app.state.runtime_settings
+    if runtime.effective.toolbox_mail_enabled:
+        save_and_apply(request, session, actor, {"toolbox_mail_enabled": False})
+    integrations: IntegrationRuntime = request.app.state.integrations
+    integrations.sync()
+    return status_out(
+        request.app.state.toolbox, session, request.app.state.contact_dispatcher, claim_ttl
+    )

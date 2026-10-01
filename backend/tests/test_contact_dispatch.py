@@ -126,7 +126,8 @@ def set_state(session: Session, prospect: uuid.UUID, state: ContactTrackingStatu
 
 def test_settings_and_their_bounds() -> None:
     settings = Settings()
-    assert settings.contact_dispatch_interval_ms == 30_000
+    # Off by default (S8): the person turns the scheduled sending on in Paramètres > Connexions.
+    assert settings.contact_dispatch_interval_ms == 0
     assert settings.contact_dispatch_max_lateness_ms == 6 * 3_600_000
     assert settings.contact_dispatch_max_attempts == 5
     # Never less than twice the Toolbox timeout (a running send is never taken for a dead one).

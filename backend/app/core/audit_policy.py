@@ -47,7 +47,8 @@ class AuditPayloadPolicy:
 POLICY = AuditPayloadPolicy(
     excluded_entities=frozenset({"user", "user_session"}),
     secret_fields=frozenset({"password_hash", "token_hash", "csrf_token"}),
-    secret_fragments=("password", "token", "secret", "csrf"),
+    # `api_key`: an integration key set from the browser (S8) — never in the log, even by mistake.
+    secret_fragments=("password", "token", "secret", "csrf", "api_key"),
     # Raw legacy workbook columns may hold unmapped personal data. A Contact message's content
     # and addresses stay in `contact_messages` only: its events say that they changed, never what
     # they say (Contact handoff, Task 11).
