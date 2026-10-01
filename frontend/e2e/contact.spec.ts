@@ -71,6 +71,8 @@ test('Exploitation became Contact: the old path redirects, the navigation names 
 test('operator flow: draft, validate, schedule, unschedule, edit back to draft, then « Réponse reçue » cancels', async ({
   page,
 }) => {
+  // ≈ 23 s alone (eight design captures with reloads): beyond the 30 s default under three workers.
+  test.slow()
   const suffix = uniqueSuffix()
   const tag = `CE2E${suffix}`
   const email = `lina.${suffix}@contact-e2e.example`

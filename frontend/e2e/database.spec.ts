@@ -72,8 +72,10 @@ test('pick a table, filter, sort and read a long value', async ({ page }) => {
   // The six synthetic "Fret …" companies: other tests may create companies named "Fret …" too, so the second filter
   // keeps the synthetic dataset only (its e-mail domains).
   await addFilter(page, 'companies', 'display_name', 'contains', 'fret')
-  await addFilter(page, 'companies', 'email_domain', 'starts_with', 'societe')
   const criteria = page.getByRole('group', { name: 'Critères actifs' })
+  // The criteria live in the URL: the second filter is added once the first one has landed there.
+  await expect(criteria).toContainText('display_name contient « fret »')
+  await addFilter(page, 'companies', 'email_domain', 'starts_with', 'societe')
   await expect(criteria).toContainText('display_name contient « fret »')
   await expect(criteria).toContainText('email_domain commence par « societe »')
   await expect(status(page)).toHaveText(new RegExp(`^Lignes 1–6 sur 6 ${AMONG_ALL}$`))

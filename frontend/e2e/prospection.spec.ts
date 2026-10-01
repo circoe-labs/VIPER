@@ -118,6 +118,9 @@ test('counters narrow the list to the right people, kept in the URL; a person op
   await expect(people(page)).toContainText(`SansMail${suffix}`)
   await expect(people(page)).toContainText('Pas d’e-mail principal')
   await page.getByRole('button', { name: 'Réinitialiser' }).click()
+  // The reset clears the box and the URL: type once both are cleared (a keystroke racing the reset was lost).
+  await expect(page.getByRole('searchbox', { name: /Rechercher/ })).toHaveValue('')
+  await expect(page).not.toHaveURL(/[?&]q=/)
   await page.getByRole('searchbox', { name: /Rechercher/ }).fill(tag)
   await expectCount(page, 'Tous', 5)
 
