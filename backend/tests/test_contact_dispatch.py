@@ -770,6 +770,7 @@ def test_two_processes_at_once_send_once(
 
 
 def test_the_cli_pass_the_hold_and_the_worker(
+    engine: Engine,
     connected: TestClient,
     toolbox_app: FastAPI,
     fake: FakeToolbox,
@@ -793,6 +794,10 @@ def test_the_cli_pass_the_hold_and_the_worker(
     assert worker.run_once() is not None
     assert worker.status().last_outcome == "ok"
     assert worker.status().active is False  # not started
+    # The thread gets its own sessions: the per-test connection must not be shared across threads.
+    worker = ContactDispatcher(
+        integration, create_session_factory(engine), config(interval=timedelta(hours=1))
+    )
     worker.start()
     assert worker.status().active is True
     body = ok(connected.get("/api/settings/toolbox"))
