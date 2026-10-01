@@ -272,3 +272,17 @@ Pas à pas détaillé : `doc/process/runbook-production.md` § *Enabling the Con
 3. Tester une restauration de sauvegarde avec `--hold-scheduled` avant le pilote.
 4. Hors lot : signature et mention de désinscription, saisie de `appointment_at` depuis Contact, nettoyage des
    colonnes legacy, navigation mobile.
+
+## Suppression de l'ancienne application racine (2026-10-01, décision Humaine)
+
+L'application Node/SQLite à la racine (`src/`, `tests/`, `package.json`, `vite.config.ts`, `tsconfig.*.json`,
+`eslint.config.js`, `index.html`, `public/`, `docs/`, `tasks-status.md`, `.env.example` racine) a été supprimée à la
+demande de l'utilisateur, avec ses sorties de build non suivies (`dist-client/`, `dist-server/`, `node_modules/`).
+Le README racine est revenu à celui de la pile réelle (`eeb0123`), complété par la page Contact et une section
+Configuration. Les commentaires et documents qui citent `src/server/…`, `src/shared/…` ou les tests racine comme
+implémentation de référence renvoient désormais à l'historique Git : cette implémentation reste consultable au commit
+`2bd1c3b` (`git show 2bd1c3b:src/server/contactMessageDispatcher.ts`). `backend/.env.example` documente maintenant aussi
+les variables `VIPER_CONTACT_DISPATCH_*`.
+
+La base de développement `viper` a été migrée jusqu'à `0011` (elle était déjà en `0009`), après une sauvegarde
+`pg_dump` hors du dépôt (`C:\Users\Clarice\viper-backups\viper-before-0010-20261001-170303.dump`).

@@ -55,7 +55,3 @@ Thumbs.db
 # Local runtime data
 logs/
 *.log
-
-# Sorties de build de l'ancienne application racine (src/)
-/dist-client/
-/dist-server/
