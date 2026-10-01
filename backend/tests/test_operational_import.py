@@ -4,7 +4,7 @@ real test database, on a synthetic workbook in the operational layout
 
 import io
 import uuid
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
@@ -207,7 +207,8 @@ def test_the_status_column_sets_the_activity_never_the_e_mail_verification(
     for last, activity in expected.items():
         person = by_name(db_session, last)
         assert person.activity_status is activity, last
-        assert person.employment_verified_at is None, last
+        if last in ("Delta", "Eta"):  # no cohort: the status column verifies no function
+            assert person.employment_verified_at is None, last
         assert {e.verification_status for e in person.emails} <= {VerificationStatus.UNVERIFIED}
 
 
@@ -370,6 +371,86 @@ def test_an_existing_prospect_s_state_keeps_the_file_s_cohort_out(
         "appointment_obtained",
         "S37",
     )
+
+
+# --- handoff §6: a cohort means the function was verified (R-20) ---------------------------------
+
+
+def test_a_cohort_marks_the_function_verified(
+    db_session: Session, ids: dict[str, uuid.UUID]
+) -> None:
+    before = datetime.now(UTC)
+    result = run(db_session)
+    after = datetime.now(UTC)
+
+    # A past cohort: verified at the latest on its date (before its first send).
+    alpha = by_name(db_session, "Alpha")
+    assert alpha.employment_verified_at == datetime(2020, 1, 6, tzinfo=BUSINESS_TIMEZONE)
+    # A future cohort or S0: verified at the latest when the file was validated, never later.
+    for last in ("Beta", "Gamma", "Zeta"):
+        verified = by_name(db_session, last).employment_verified_at
+        assert verified is not None and before <= verified <= after, last
+    for last in ("Delta", "Epsilon", "Eta"):  # no cohort: nothing verified
+        assert by_name(db_session, last).employment_verified_at is None, last
+    assert result.counts["employments_verified"] == 4
+
+
+def test_a_verification_a_person_set_or_cleared_is_kept(
+    db_session: Session, ids: dict[str, uuid.UUID]
+) -> None:
+    set_by_person = datetime(2021, 3, 1, tzinfo=BUSINESS_TIMEZONE)
+    luc = db_session.get(Prospect, ids["luc"])
+    assert luc is not None
+    luc.employment_verified_at = set_by_person  # a person's date (OPERATOR is bound)
+    db_session.flush()
+    company = companies.create_company(
+        db_session, OPERATOR, companies.CompanyInput(display_name="Atelier Effacé")
+    )
+    cleared = prospects.create_prospect(
+        db_session,
+        OPERATOR,
+        prospects.ProspectInput(first_name="Lia", last_name="Effacée", company_id=company.id),
+    )
+    cleared.employment_verified_at = set_by_person
+    db_session.flush()
+    cleared.employment_verified_at = None  # then cleared by that person
+    db_session.flush()
+    rows = [
+        {"week": "S37", "company": "Logistique Démo", "last_name": "Exemple", "first_name": "Luc"},
+        {"week": "S37", "company": "Atelier Effacé", "last_name": "Effacée", "first_name": "Lia"},
+    ]
+
+    result = run(db_session, rows)
+
+    db_session.refresh(luc)
+    db_session.refresh(cleared)
+    assert luc.employment_verified_at == set_by_person  # a different date is no conflict
+    assert cleared.employment_verified_at is None
+    assert result.counts.get("employments_verified", 0) == 0
+    assert alerts(db_session, type=QualityAlertType.IMPORT_CONFLICT) == []
+    for person in (luc, cleared):  # the cohort itself still applies
+        sequence = sequence_of(db_session, person)
+        assert sequence is not None and sequence.cohort.code == "S37"
+
+
+def test_a_cohort_already_held_fills_an_empty_verification(
+    db_session: Session, ids: dict[str, uuid.UUID]
+) -> None:
+    s37 = cohorts.create_cohort(db_session, OPERATOR, "S37", PAST)
+    contact_sequences.change_cohort(db_session, OPERATOR, ids["luc"], s37.id)
+    again = {
+        "week": "S37",
+        "company": "Logistique Démo",
+        "last_name": "Exemple",
+        "first_name": "Luc",
+    }
+
+    run(db_session, [again])
+
+    luc = db_session.get(Prospect, ids["luc"])
+    assert luc is not None
+    db_session.refresh(luc)
+    assert luc.employment_verified_at == datetime(2020, 1, 6, tzinfo=BUSINESS_TIMEZONE)
 
 
 def test_a_value_that_is_not_a_cohort_raises_a_data_alert_and_stays_raw(
@@ -739,6 +820,7 @@ def test_importing_the_same_file_again_changes_nothing(
     assert counts.get("prospects_created", 0) == 0 and counts["prospects_attached"] == 7
     assert counts.get("sequences_opened", 0) == counts.get("sends_recorded", 0) == 0
     assert counts.get("prospects_disqualified", 0) == counts["alerts_raised"] == 0
+    assert counts.get("employments_verified", 0) == 0
 
 
 # --- D12: missing values stay empty --------------------------------------------------------------

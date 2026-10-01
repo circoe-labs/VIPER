@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.models import (
     Company,
+    ContactSequence,
     ContactTracking,
     Email,
     ImportRowMetadata,
@@ -96,7 +97,10 @@ def test_the_real_workbook_commits_with_the_default_decisions(db_session: Sessio
     )
     assert count(db_session, Email, Email.origin_type != OriginType.IMPORTED) == 0
     assert count(db_session, Email, Email.verification_status != VerificationStatus.UNVERIFIED) == 0
-    assert count(db_session, Prospect, Prospect.employment_verified_at.is_not(None)) == 0
+    # Exactly the prospects put in a cohort have their function verified (R-20).
+    assert count(db_session, Prospect, Prospect.employment_verified_at.is_not(None)) == count(
+        db_session, ContactSequence, ContactSequence.is_current
+    )
     groups = {
         name: dict(Counter(group.status.value for group in getattr(review, name)))
         for name in ("roles", "categories", "referents")

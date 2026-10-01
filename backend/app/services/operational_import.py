@@ -10,6 +10,9 @@ exist, per prospect created or completed by the file (its rows in source order):
   D3) — S0 has no date and nobody in it is contacted. An existing prospect whose cohort (or past
   sequence, or contact state) differs keeps it: an `import_conflict` alert says so (D11). Two rows
   of one prospect with different codes: the first applies, the others raise the same alert;
+- **function verified** (handoff §6): a prospect in the row's cohort after the import gets an empty
+  `employment_verified_at` filled — the cohort's past date, else the import's moment — unless a
+  person set or cleared it (D11; R-20);
 - **not a cohort** (`retraité`…): a `data_inconsistent` alert on the prospect, raw value kept;
 - **« Défaillant »** (D4): only when the person declared the file verified (« Fichier vérifié
   humainement »), a prospect the import created without any valid cohort becomes `disqualified`
@@ -28,7 +31,7 @@ import uuid
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import date, datetime, time
+from datetime import UTC, date, datetime, time
 
 from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
@@ -37,10 +40,16 @@ from app.core.actor import ActorContext
 from app.core.business_time import BUSINESS_TIMEZONE
 from app.models import Cohort, ContactSequence, Prospect
 from app.models.enums import ContactabilityStatus, ContactTrackingStatus
-from app.services import contact_messages, contact_sequences, prospects
+from app.services import audit, contact_messages, contact_sequences, prospects
 from app.services.contact_tracking import ContactTrackingInput, save_contact_tracking
 from app.services.contact_workflow import SEQUENCE_CLOSING_STATES
-from app.services.import_precedence import AlertRecorder, Reason, RowRef, human_state
+from app.services.import_precedence import (
+    AlertRecorder,
+    Reason,
+    RowRef,
+    human_fields,
+    human_state,
+)
 
 S = ContactTrackingStatus
 
@@ -79,6 +88,7 @@ class OperationalReconciler:
     human_verified: bool
     ref: Callable[[int], RowRef]
     today: date = field(default_factory=business_today)
+    now: datetime = field(default_factory=lambda: datetime.now(UTC))
     counts: Counter[str] = field(default_factory=Counter)
     # Rows whose cohort was not applied (their raw cell stays in the row's legacy metadata).
     unapplied: set[int] = field(default_factory=set)
@@ -111,13 +121,18 @@ class OperationalReconciler:
                         other.cohort_code,
                         prospect_id=prospect.id,
                     )
-            self.place_in_cohort(prospect, claims, first)
+            if (cohort := self.place_in_cohort(prospect, claims, first)) is not None:
+                self.verify_employment(prospect, claims, cohort)
         elif self.human_verified:
             self.disqualify(prospect, claims)
 
     # --- cohort ---
 
-    def place_in_cohort(self, prospect: Prospect, claims: ProspectClaims, claim: RowClaim) -> None:
+    def place_in_cohort(
+        self, prospect: Prospect, claims: ProspectClaims, claim: RowClaim
+    ) -> Cohort | None:
+        """The cohort the prospect is in after the row (opened now, or already the same), None
+        when the row's cohort was not applied (conflict)."""
         code = claim.cohort_code
         assert code is not None
         ref = self.ref(claim.row)
@@ -128,7 +143,8 @@ class OperationalReconciler:
                 self.alerts.conflict(
                     ref, "cohort", current.cohort.code, code, prospect_id=prospect.id
                 )
-            return
+                return None
+            return current.cohort
         state = prospect.contact_tracking.status if prospect.contact_tracking else None
         if not claims.created:
             if self.had_sequence(prospect.id):  # a person removed its cohort
@@ -136,11 +152,11 @@ class OperationalReconciler:
                 self.alerts.conflict(
                     ref, "cohort", None, code, prospect_id=prospect.id, reason=Reason.HUMAN_CLEARED
                 )
-                return
+                return None
             if state not in (None, S.NEUTRAL):
                 self.unapplied.add(claim.row)
                 self.alerts.conflict(ref, "cohort", state, code, prospect_id=prospect.id)
-                return
+                return None
         cohort = self.cohort(code)
         contact_sequences.open_imported_sequence(
             self.session,
@@ -157,6 +173,29 @@ class OperationalReconciler:
                 self.session, self.importer, prospect.id, sent_at=cohort_moment(cohort.starts_on)
             )
             self.counts["sends_recorded"] += 1
+        return cohort
+
+    # --- function verified (handoff §6, R-20) ---
+
+    def verify_employment(self, prospect: Prospect, claims: ProspectClaims, cohort: Cohort) -> None:
+        """A row with a valid cohort (S0 included) says that a person verified the prospect's
+        function in its company: `employment_verified_at` is filled when empty — at the cohort's
+        date when it is past (the function was verified before its first send), else at the
+        import's moment; never in the future. D11: a value already there is kept (a different
+        date is no conflict), and a moment a person set or cleared is never refilled."""
+        if prospect.employment_verified_at is not None:
+            return
+        if not claims.created and "employment_verified_at" in human_fields(
+            self.session, "prospect", prospect.id
+        ):
+            return
+        verified_at = self.now
+        if cohort.starts_on is not None:
+            verified_at = min(cohort_moment(cohort.starts_on), verified_at)
+        audit.annotate(self.session, self.importer, prospect)
+        prospect.employment_verified_at = verified_at
+        self.session.flush()
+        self.counts["employments_verified"] += 1
 
     def had_sequence(self, prospect_id: uuid.UUID) -> bool:
         return bool(

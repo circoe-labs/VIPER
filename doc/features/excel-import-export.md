@@ -179,7 +179,7 @@ The current operational workbook adds an optional `Statut_verification` column (
 `verification_status` by header and is kept raw in legacy metadata (`column.legacy_preserved`). Its only effect
 (decision D10, R-13) is the prospect's **activity**: `Validé` → active, `Inactif` → inactive (`Inconnus`, blank or a
 note claim nothing), applied with the human-precedence rule (D11) — it never touches an e-mail's verification nor the
-employment verification date (`services/imports/verification.py`). Older workbooks without it stay valid: it is only
+employment verification date (`services/imports/verification.py`; the cohort column does, R-20). Older workbooks without it stay valid: it is only
 reported as `column.missing` (info).
 
 Accepted aliases (e.g. `Société`, `E-mail`, `Courriel`, `Portable`, `Rendez-vous obtenu`, `Poste`) are listed in
@@ -447,7 +447,7 @@ to the blocked prospect), `not_a_candidate` (attach target not among the row's c
 
 One savepoint of the request's transaction (ADR-0012): Settings values to create (by the user, `source=ui`) → batch
 `pending` (by the user) → inside `import_batches.importing` (import actor on behalf of the user, I-29): companies
-(+ establishment from the address) → prospects (+ channels, `employment_verified_at` NULL) or merges → contact
+(+ establishment from the address) → prospects (+ channels, `employment_verified_at` NULL until the cohort step, R-20) or merges → contact
 tracking through `save_contact_tracking` (status history) → per imported row an `excel_import` source (legal basis,
 `file / sheet / ligne n`) and an `import_row_metadata` row (lossless legacy metadata, prospect and company ids) →
 batch `committed` with `rows_total`, `rows_imported`, `rows_skipped` (+ the batch's legal basis and source reference,
@@ -464,7 +464,8 @@ Losslessness at commit: besides the engine's legacy metadata, a row keeps the ra
 not apply — another spelling of its company, a company text that differs from the stored one, a second address, an
 ignored exact category or referent, a value an existing prospect already holds differently, tracking values an
 existing tracking or an opposition prevents. Every source row is either imported (created, attached or merged; one
-row metadata each) or excluded (counted in `rows_skipped`, nothing written).
+row metadata each) or excluded (counted in `rows_skipped`, nothing written to the CRM; since S2 its raw snapshot is
+traced, `excluded = true`, R-12).
 
 Failure: any exception rolls the savepoint back and records a `failed` batch (started/failed events, counts 0) that
 the request commits; the API answers 500 `commit_failed` (422 when a value was refused) with the batch id and row.
@@ -474,7 +475,7 @@ the request commits; the API answers 500 `commit_failed` (422 when a value was r
 | Method & path | Body | Answer |
 |---|---|---|
 | `POST /imports/preview` | multipart `file`, optional `options` (JSON `{mapping, corrections}`) | `{review: {preview, digest, roles, categories, referents, weeks (deprecated, `[]`), civilities, companies, prospects, rows, cohorts, not_cohorts, disqualified_if_verified}, previous_imports}` |
-| `POST /imports/commit` | multipart `file`, `decisions` (JSON `ImportDecisions`) | `{batch, counts}` (`prospects_created`, `prospects_attached`, `rows_merged`, `companies_created`, `companies_linked`, `emails_added`, `phones_added`, `trackings_created`, `roles_created`, `categories_created`, `cohorts_created`, `sequences_opened`, `sends_recorded`, `prospects_disqualified`, `alerts_raised`, `rows_*`; a key is absent when its count is 0) |
+| `POST /imports/commit` | multipart `file`, `decisions` (JSON `ImportDecisions`) | `{batch, counts}` (`prospects_created`, `prospects_attached`, `rows_merged`, `companies_created`, `companies_linked`, `emails_added`, `phones_added`, `trackings_created`, `roles_created`, `categories_created`, `cohorts_created`, `sequences_opened`, `sends_recorded`, `employments_verified`, `prospects_disqualified`, `alerts_raised`, `rows_*`; a key is absent when its count is 0) |
 | `GET /imports?limit=1..200` | — | batches, newest first (metadata only) |
 | `GET /imports/{id}` | — | batch + `rows_traced` (every source row, excluded ones included), `prospect_count`, `company_count` (of the imported rows) |
 
@@ -506,7 +507,7 @@ unverified, no employment verified).
 ## Import redesign — cohorts, sequences and human precedence (Slice S2)
 
 Sequences rework, Slice S2 (`tasks/viper_import_excel_sequences/`, decisions D3, D4, D5, D10, D11, D12; decision log
-[R-12 … R-19](../product/decision-log.md#sequences-rework-decisions-import-excel-and-contact-sequences-2026-10-01)).
+[R-12 … R-20](../product/decision-log.md#sequences-rework-decisions-import-excel-and-contact-sequences-2026-10-01)).
 Code: `services/imports/` (engine, review), `services/import_commit.py` (writes),
 `services/import_precedence.py` (D11), `services/operational_import.py` (cohorts, sends, Défaillant). Tests on
 synthetic workbooks only: `tests/fixtures/synthetic/operational_workbook.py` mirrors the operational file's structure
@@ -546,6 +547,10 @@ in source order) → one trace per source row → batch committed.
   recorded `sent` at that date's business midnight, `sent_source = import`. S0: a sequence, no send. A prospect whose
   current cohort differs, whose cohort a person removed, or whose state a person chose keeps it: `import_conflict`
   (`cohort`). Two rows of one prospect with different codes: the first applies, an `import_conflict` for the others.
+- **Function verified** (R-20, handoff §6): a prospect in the row's cohort after the import (opened now or already
+  the same, S0 included) gets an empty `employment_verified_at` filled — the cohort's date when it is past (business
+  midnight), else the import's moment, never in the future. A date already there is kept (no alert); a date a person
+  set or cleared is never refilled. Not on a cohort conflict nor on a do-not-contact prospect.
 - **Not a cohort**: a `data_inconsistent` alert on the prospect (`field = cohort`, `file_value` = the text).
 - **« Défaillant »** (R-16): only with `human_verified`, for new prospects without a valid code and without a state
   from the file; the state is set **by the validating person** (history row, audit), never by the import or the AI.

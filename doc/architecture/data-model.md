@@ -508,7 +508,7 @@ tracking and its history, Contact messages, sources, import row metadata) and fo
   primary when any; a company is deleted only without prospects, its establishments first (each audited).
 - **Import commit** (Task 09, `app/services/import_commit.py`, [excel-import-export.md](../features/excel-import-export.md)):
   one savepoint per commit; prospects created through `prospects.create_prospect` (channels `imported`,
-  `unverified`, employment never verified) or completed with fill-empty merge rules (`add_channels`,
+  `unverified`; employment verified only through a row's cohort, R-20) or completed with fill-empty merge rules (`add_channels`,
   `change_company` only when the prospect has no company); existing companies completed through
   `companies.complete_company`; a failed commit leaves only a `failed` batch.
 - **Audit and provenance** (Task 05): every service annotates the rows it changes and one flush hook writes the

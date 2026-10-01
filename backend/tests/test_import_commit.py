@@ -3,6 +3,7 @@ workbooks only (`tests/fixtures/synthetic/legacy_workbook.py`); every value is i
 
 import uuid
 from collections.abc import Sequence
+from datetime import date, datetime, time
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -11,6 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.actor import ActorType
+from app.core.business_time import BUSINESS_TIMEZONE
 from app.models import (
     ActivityCategory,
     Cohort,
@@ -176,7 +178,10 @@ def test_default_commit_creates_normalized_entities_with_provenance(
         ids["transport"],
         "Responsable transport",
     )
-    assert jean.employment_verified_at is None
+    # His row's cohort (past) says his function was verified, at the latest on its date (R-20).
+    assert jean.employment_verified_at == datetime.combine(
+        date.fromisoformat(COHORT_DATE), time(), tzinfo=BUSINESS_TIMEZONE
+    )
     assert jean.activity_status is ActivityStatus.UNKNOWN
     assert jean.contactability_status is ContactabilityStatus.CONTACTABLE
     emails = db_session.scalars(select(Email).where(Email.prospect_id == jean.id)).all()

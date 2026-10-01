@@ -49,7 +49,7 @@ missing `expected_revision`, naive `scheduled_at`, unknown step/counter) is Fast
   `company_to_check`, `import_conflict`): on a prospect or a company, source from the signed-in actor (`human`;
   `import`; `ai` for an agent — a proposal, without effect on the due date), resolved by a person. An alert never
   changes a state, a cohort or a sequence.
-- **From the Excel import** (Slice S2, [R-12 … R-19](../product/decision-log.md#sequences-rework-decisions-import-excel-and-contact-sequences-2026-10-01),
+- **From the Excel import** (Slice S2, [R-12 … R-20](../product/decision-log.md#sequences-rework-decisions-import-excel-and-contact-sequences-2026-10-01),
   details in [`excel-import-export.md`](excel-import-export.md#import-redesign--cohorts-sequences-and-human-precedence-slice-s2)):
   a row's `Sxx` puts a prospect **without any cohort history** in that cohort (a sequence opened by the import
   actor); when the cohort's date is past, its Contact is recorded as sent that day at business midnight
