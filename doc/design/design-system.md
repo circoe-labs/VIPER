@@ -264,7 +264,12 @@ empty with the placeholder « •••• 1234 (enregistrée) », disabled unti
 changed; in the Toolbox card *Se connecter à CIRCOE Toolbox*, the advanced save being secondary); outcomes in a
 `FeedbackBanner` inside the card, refusals under the field. Cards: *Rédaction IA (OpenAI)* (sparkles), *Expéditeur*
 (mail), *CIRCOE Toolbox* (link), *Envoi programmé* (clock: `StatusBadge` *Actif* success / *En attente* warning /
-*Désactivé* neutral, one sentence, the fact grid — last pass, scheduled, unconfirmed — then its fields).
+*Désactivé* neutral, one sentence, a warning `settings-feedback--warning` line when scheduled messages will not
+leave, a `Switch` *Envoi automatique des mails programmés* with one plain line, the allowlist, the delay in
+*Paramètres avancés*, the fact grid — last pass, scheduled, unconfirmed). **Will not leave** (S9): in Contact, a
+warning block `contact-mail__banner contact-dispatch-warning` (warning-soft background, the reason in plain words,
+a secondary sm link-button to the fix) — at the top of the page as a banner (`role="alert"`), and in the editor
+under the status sentence with a `StatusBadge` warning *Ne partira pas : …*.
 
 ## Home dashboard
 Spacious, global state first: eyebrow-labelled rows of six link cards (14 px glyph + 13 px muted label, 26 px

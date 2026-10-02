@@ -1,4 +1,4 @@
-# Settings — Connexions: integrations set in the browser (Contact port S6, S7, S8)
+# Settings — Connexions: integrations set in the browser (Contact port S6, S7, S8, S9)
 
 **Paramètres › Connexions** (`/settings/connections`) is where VIPER is connected to the outside, **entirely from the
 UI** (S8, Human requests of 2026-10-01: « configurer mes API KEY directement dans le navigateur », then « me connecter
@@ -11,7 +11,9 @@ restart:
   mailbox).
 - **CIRCOE Toolbox** (S6) — **« Se connecter à CIRCOE Toolbox »** works out of the box (built-in server address, the
   page's own return address); *Paramètres avancés*: server address, return address; *Se déconnecter…*.
-- **Envoi programmé** (S7) — frequency (« Désactivé » by default), allowlist of recipients, the dispatcher's state.
+- **Envoi programmé** (S7, S9) — one switch *Envoi automatique des mails programmés*, **on by default**; allowlist of
+  recipients; the dispatcher's state and the scheduled messages that will not leave; *Paramètres avancés*: *Délai
+  maximal avant envoi* (the dispatcher's period, 30 s by default).
 
 Through the Toolbox (MCP server over HTTP, OAuth 2.1) a validated Contact/R1/R2 message becomes a draft in the linked
 **Infomaniak** mailbox and an invalidated or cancelled one loses it: [`contact.md`](contact.md) § CIRCOE Toolbox.
@@ -22,7 +24,7 @@ Infomaniak was ever made (Contact port P6).
 
 **Editable here**: `openai_api_key` (secret), `openai_model`, `openai_base_url`, `openai_timeout_ms`,
 `openai_max_retries`, `contact_booking_url`, `default_outbound_email`, `toolbox_mail_enabled`, `toolbox_mcp_url`,
-`toolbox_oauth_redirect_uri`, `contact_dispatch_interval_ms`, `infomaniak_send_allowlist`. Everything else (database,
+`toolbox_oauth_redirect_uri`, `contact_dispatch_enabled`, `contact_dispatch_interval_ms`, `infomaniak_send_allowlist`. Everything else (database,
 sessions, token store, SQL reader, import limits, dispatcher tuning, `VIPER_OPENAI_TRUST_ENV`) stays environment-only.
 
 - **Storage**: a private JSON file outside the database (never in a backup, the explorer or the SQL console) and
@@ -70,7 +72,8 @@ sessions, token store, SQL reader, import limits, dispatcher tuning, `VIPER_OPEN
   mail editor); a change of the Toolbox switch or URLs rebuilds `app.state.toolbox` (the token file is kept; an OAuth
   flow started but not finished is lost); the cleanup and dispatch workers run **only while the Toolbox is
   connected** — started at startup if it already is or right after the OAuth return, restarted when the dispatch
-  settings change, stopped by *Se déconnecter*. Stopping waits for a running pass (bounded by the Toolbox timeout).
+  settings change, stopped by *Se déconnecter*. The dispatcher also needs the switch on (`contact_dispatch_enabled`,
+  default `true`) and a positive interval (default 30 s): with nothing chosen, connecting the Toolbox starts it (S9). Stopping waits for a running pass (bounded by the Toolbox timeout).
   One lock held around the save **and** the switch (QA m6: the file, `app.state.settings` — which every route,
   `GET /settings/integrations` included, reads — and the integration change together), one process (as already
   required by the Toolbox and the login throttle); the CLI (`--once`) reads the same file.
@@ -79,7 +82,7 @@ sessions, token store, SQL reader, import limits, dispatcher tuning, `VIPER_OPEN
 
 | Method & path | Body | Answer |
 |---|---|---|
-| `GET /settings/integrations` | — | `{version, updated_at, updated_by, load_error, storage_path, fields: {<name>: {value, source, fallback, updated_at, updated_by}}, openai_api_key: {set, last4, source, updated_at, updated_by}, generation_available, toolbox: {enabled, state, configured}, dispatch: {running, active}}` |
+| `GET /settings/integrations` | — | `{version, updated_at, updated_by, load_error, storage_path, fields: {<name>: {value, source, fallback, updated_at, updated_by}}, openai_api_key: {set, last4, source, updated_at, updated_by}, generation_available, toolbox: {enabled, state, configured}, dispatch: {running, active, reason, scheduled_count, overdue_count}}` |
 | `PUT /settings/integrations` | `{version, <field>: value or null, openai_api_key?: string or null}` (unknown fields: 422) | same as GET |
 | `POST /settings/integrations/openai/check` | — | `{ok, code, model, elapsed_ms}` — one `GET {base_url}/models/{model}` with the saved key (nothing generated, ≤ 15 s, no retry); codes `ai_not_configured`, `ai_auth_failed`, `ai_model_not_found`, `ai_rate_limited`, `ai_timeout`, `ai_upstream_error` |
 
@@ -179,7 +182,7 @@ The Toolbox has no revocation endpoint: the deleted token expires by itself at i
 
 `account_label` is always null: the Toolbox's answers name no mailbox. `missing` holds setting names, never values
 (the page translates them). `dispatch` (S7) is the scheduled sending: `running` = the dispatcher thread runs in this
-API process (Toolbox connected, frequency not « Désactivé »); `active` = and the Toolbox is connected, so a scheduled
+API process (Toolbox connected, switch on, interval > 0); `active` = and the Toolbox is connected, so a scheduled
 message really leaves; `last_pass_at` / `last_outcome` (`ok`, `error` — the traceback is in the server log, null before
 the first pass, per process); `scheduled` = messages in « Programmé », `unconfirmed` = those whose send is unconfirmed
 (a person settles them in Contact).
@@ -205,9 +208,17 @@ are `ui/fields` (`TextField`, `SelectField`, `TextAreaField`, `FieldFrame` for t
 counter (*Enregistrement… n s*, *Test en cours… n s*, *Ouverture de la Toolbox… n s*) and have a deadline (60 s,
 30 s, 90 s). A save refreshes the Toolbox state and the mail editor's flags (AI available, default sender).
 
-The **Envoi programmé** card shows its badge (*Actif* success / *En attente* warning: a frequency is chosen but the
-Toolbox is not connected / *Désactivé* neutral), one sentence (`dispatchSentence`), *Dernière passe*, *Messages
-programmés* and, when there are some, *Envois non confirmés* (« à trancher dans Contact »).
+The **Envoi programmé** card (S9, Human request « je ne comprends pas ce paramètre ») replaces the S8 frequency select
+by one `Switch` *Envoi automatique des mails programmés* (`role="switch"`, saved as soon as it is toggled), checked by
+default, with one plain line: « VIPER envoie chaque mail programmé à l’heure choisie (à 30 secondes près) via CIRCOE
+Toolbox. » Off = `contact_dispatch_enabled: false` (no worker); on again with an interval of 0 (set by the server)
+also sends 30 s. The period is *Délai maximal avant envoi (secondes)* in the card's collapsed *Paramètres avancés*
+(1 to 3 600 s, checked in the page before the save). The card shows its badge (*Actif* success / *En attente*
+warning: switched on but the Toolbox is not usable / *Désactivé* neutral), one sentence (`dispatchSentence`, naming
+the reason while waiting), and — when the sending is inactive and messages are scheduled — a warning line « N
+messages programmés ne partiront pas (M ont déjà dépassé leur heure) tant que l’envoi automatique est inactif. »
+(`dispatchBacklog`, from `GET /settings/integrations` → `dispatch`), then *Dernière passe*, *Messages programmés*
+and, when there are some, *Envois non confirmés* (« à trancher dans Contact »).
 
 ## Connecting for real (operator)
 
@@ -220,5 +231,7 @@ programmés* and, when there are some, *Envois non confirmés* (« à trancher d
    check it disappears.
 4. Reconnect every 30 days (the tab says *À reconnecter*).
 5. Scheduled sending (S7): see [`runbook-production.md`](../process/runbook-production.md) § *Enabling the Contact
-   features* — first with *Adresses autorisées* restricted to an internal test address and the frequency on
-   « Désactivé » (one pass by hand).
+   features* — the sending starts with the connection (S9); for a first cautious test, restrict *Adresses
+   autorisées* to an internal address, or switch *Envoi automatique des mails programmés* off and run one pass by
+   hand. Scheduled messages whose time passed while it was off leave at the next pass if they are less than 6 h
+   late; beyond that they go back to « Validé » (`dispatch_overdue`) and must be scheduled again — never sent late.

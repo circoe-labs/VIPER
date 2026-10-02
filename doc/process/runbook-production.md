@@ -116,7 +116,8 @@ before the next — no restart. No real call to OpenAI, the Toolbox or Infomania
    then *Tester la clé* (one `GET /models/{model}`, nothing generated). Open a test prospect in Contact, *Générer avec
    l’IA*, read the draft (never validated or sent by itself). The server log shows `mail_generation.succeeded` (no
    key, prompt or address in it).
-3. **CIRCOE Toolbox, drafts only**: keep *Envoi programmé* on « Désactivé » (the default). *Se connecter à CIRCOE
+3. **CIRCOE Toolbox, drafts only**: first switch *Envoi programmé › Envoi automatique des mails programmés* off
+   (it is **on by default** since S9 and starts with the connection). *Se connecter à CIRCOE
    Toolbox* with the Infomaniak account **whose default mailbox must send** (VIPER must be opened over HTTPS — or on
    localhost — for the return address to be accepted). Validate a test message to an internal address: its draft
    appears in Infomaniak's Drafts; cancel it: the draft disappears
@@ -130,13 +131,16 @@ before the next — no restart. No real call to OpenAI, the Toolbox or Infomania
    relies on it (« brouillon disparu = envoyé »); if the draft lingers (Infomaniak's undo-send delay), report it before
    going further. Note whether the Toolbox's answer carries `provider.etop` / `provider.cancelResource` (undo-send):
    VIPER ignores them today.
-5. **Automatic sending**: *Envoi programmé › Fréquence* « Toutes les 30 secondes ». The card shows *Actif* and the last
-   pass; the schedule confirmation says the mail will leave automatically. Repeat step 4 with the worker.
+5. **Automatic sending**: switch *Envoi automatique des mails programmés* back on (every 30 s by default; *Délai
+   maximal avant envoi* in its *Paramètres avancés*). The card shows *Actif* and the last pass; the schedule
+   confirmation says the mail will leave automatically. Repeat step 4 with the worker. While it is off, the Contact
+   page, the editor and the card say that scheduled messages will not leave (S9).
 6. **Open to real prospects**: empty *Adresses autorisées*. From then on, watch *Envois non confirmés*; reconnect the
    Toolbox every 30 days (*À reconnecter*): while it is not connected nothing leaves, and a message more than 6 h
    late goes back to « Validé ».
 
-Turning it off: *Fréquence* « Désactivé » stops automatic sending (drafts still created); *Se déconnecter…* forgets
+Turning it off: the switch *Envoi automatique des mails programmés* off stops automatic sending (drafts still
+created; every screen then warns that scheduled messages will not leave); *Se déconnecter…* forgets
 the token and turns the whole Toolbox integration off (its workers stop).
 
 ## Reverse proxy
@@ -180,7 +184,8 @@ Facts to account for:
   « Programmé » — started as is, the dispatcher would send it again. Before starting the API on a restored database:
   `python -m app.cli contact-dispatch --hold-scheduled` (every scheduled, unclaimed message back to « Validé »,
   `dispatch_held`, audited); claimed ones are listed for a person to settle. People then reschedule what must leave.
-  Keep *Envoi programmé* on « Désactivé » until it is done. VIPER has no restore command of its own.
+  Since the sending is on by default (S9), start the API with `VIPER_CONTACT_DISPATCH_ENABLED=false` (or the
+  Toolbox disconnected) until it is done, then switch it back on in Paramètres › Connexions. VIPER has no restore command of its own.
 
 ## Retention, anonymization, erasure (decision open)
 

@@ -62,8 +62,10 @@ Background jobs run **inside the API process**, off by default, each with a `pyt
   (`SKIP LOCKED` + a lease), committed, deleted outside any transaction, then recorded, so a CLI pass can run
   beside it. CLI: `toolbox-cleanup --once`.
 - **Contact dispatcher** (S7, `app/services/contact_dispatch_worker.py` → `contact_dispatch.Dispatcher.run_pass`): a
-  daemon thread started under the same conditions when the dispatch frequency is not « Désactivé » (the default,
-  S8); it sends nothing while the Toolbox is not connected. A pass reconciles stale claims, then sends the due scheduled
+  daemon thread started under the same conditions while *Envoi automatique des mails programmés* is on (the default
+  since S9, every 30 s; « off by default » in S8 let a scheduled message wait forever); it sends nothing while the
+  Toolbox is not connected, and `app/services/contact_dispatch_state.py` tells every screen why a scheduled message
+  will not leave. A pass reconciles stale claims, then sends the due scheduled
   messages: each is claimed in a short transaction (row `FOR UPDATE SKIP LOCKED`, every condition re-checked, the
   prospect's state and opposition read under share locks), committed, sent with `send_draft` outside any transaction,
   then recorded. One pass at a time per process; across processes the claim lets one win. Writes are attributed to

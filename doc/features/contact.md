@@ -24,9 +24,19 @@ number).
   "today": "2026-12-31",
   "current_week": "2026-W53",
   "counts": {"to_handle": 6, "first_contact": 3, "follow_up": 2, "review": 1, "appointments": 2},
-  "weeks": [{"week": "2026-W52", "year": 2026, "number": 52, "count": 3}]
+  "weeks": [{"week": "2026-W52", "year": 2026, "number": 52, "count": 3}],
+  "dispatch": {"active": false, "reason": "disabled", "scheduled_count": 2, "overdue_count": 1}
 }
 ```
+
+**`dispatch`** (S9, Human report of 2026-10-02: « J’ai programmé un mail de contact hier et il ne s’est jamais
+envoyé ») — will a scheduled message really leave? `app/services/contact_dispatch_state.py`, the one answer read by
+this banner, the editor (`defaults.dispatch_reason`) and Paramètres › Connexions: `active` = the dispatcher runs and
+the Toolbox is connected; `reason` when not, the person's choice first — `disabled` (switch *Envoi automatique des
+mails programmés* off, or an interval of 0), then `toolbox_disabled`, `toolbox_not_configured`,
+`toolbox_disconnected`, `toolbox_expired`, and `not_running` (switched on and connected but no worker: should not
+happen, see the server log); `scheduled_count` = messages in « Programmé » (all of them, not narrowed by `q`);
+`overdue_count` = of those, not claimed and whose `scheduled_at` has passed.
 
 **Scope** of Contact: prospects with a contact tracking whose state is not `ignored` (terminal, outside Contact) and
 who are not `do_not_contact` — except `appointment_obtained`, kept whatever the opposition (« RDV pris » is a
@@ -152,7 +162,7 @@ draft|validated|scheduled --cancel--> cancelled --reopen--> draft (revision+1)
   "sequence": {"prospect_id": "…", "state": "contacted", "do_not_contact": false, "closed": false},
   "defaults": {"from_email": "prospection@exemple.example", "to": ["jean.test@exemple.example"], "generation_available": true,
                "toolbox_connected": false, "toolbox_state": "disabled", "automatic_sending_active": false,
-               "dispatch_max_lateness_minutes": 360, "dispatch_claim_ttl_seconds": 600},
+               "dispatch_reason": "toolbox_disabled", "dispatch_max_lateness_minutes": 360, "dispatch_claim_ttl_seconds": 600},
   "steps": [{"step": "contact", "message": null}, {"step": "r1", "message": null}, {"step": "r2", "message": null}]
 }
 ```
@@ -161,7 +171,8 @@ draft|validated|scheduled --cancel--> cancelled --reopen--> draft (revision+1)
 `defaults.generation_available` = the AI drafting is configured (`VIPER_OPENAI_API_KEY` and `VIPER_OPENAI_MODEL`),
 `defaults.toolbox_connected` = the CIRCOE Toolbox is enabled, configured and connected (S6), `defaults.toolbox_state`
 = its state (`disabled`, `not_configured`, `disconnected`, `connected`, `expired`), `defaults.automatic_sending_active`
-= a scheduled message really leaves (S7: the dispatcher runs in this API process and the Toolbox is connected), with
+= a scheduled message really leaves (S7: the dispatcher runs in this API process and the Toolbox is connected),
+`defaults.dispatch_reason` = why not (S9, the `reason` of the dashboard's `dispatch`, null when active), with
 `dispatch_max_lateness_minutes` and `dispatch_claim_ttl_seconds`.
 
 `MessageContentIn` (unknown fields refused): `expected_revision` (omitted/null = create the step's message; else the
@@ -405,7 +416,8 @@ suggested week if they want it.
 |---|---|
 | `app/services/contact_dispatch.py` | `Dispatcher.run_pass` (one pass), the codes, `mark_sent` / `release` (a person settles), `hold_scheduled` (post-restore safeguard), `dispatch_counts` |
 | `app/services/contact_dispatch_worker.py` | `ContactDispatcher`: the daemon thread of the API process, one pass at a time, `status()` |
-| `app/main.py` | started by the lifespan when the Toolbox is enabled and configured and `VIPER_CONTACT_DISPATCH_INTERVAL_MS` > 0; stopped gracefully (the running pass finishes) |
+| `app/services/integration_runtime.py` | started once the Toolbox is connected — at startup (the lifespan) when it already is, or right after the OAuth return — when the sending is switched on (`contact_dispatch_enabled`, default true) with an interval > 0 (default 30 s, S9); restarted when these settings change; stopped gracefully (the running pass finishes) |
+| `app/services/contact_dispatch_state.py` | `sending_reason` / `dispatch_state` (S9): active or why not, and the scheduled / overdue counts |
 | `app/cli.py` | `python -m app.cli contact-dispatch --once` (one pass, prints its counts; exit 1 without a usable Toolbox) and `--hold-scheduled` |
 
 ### One pass
@@ -518,7 +530,8 @@ draft failure. A new schedule or an edit clears the code and the attempts.
 ### Read model
 
 `MessagesOut.defaults` adds `automatic_sending_active` (the dispatcher runs in this process **and** the Toolbox is
-connected: a scheduled message really leaves), `dispatch_max_lateness_minutes` and `dispatch_claim_ttl_seconds`.
+connected: a scheduled message really leaves), `dispatch_reason` (S9: why not), `dispatch_max_lateness_minutes` and
+`dispatch_claim_ttl_seconds`. The dashboard adds `dispatch` (S9, § Dashboard).
 `Message` adds `dispatch_claimed_at` and `dispatch_attempts`. Settings › Connexions shows the dispatcher's state, last
 pass and counts (`GET /api/settings/toolbox` → `dispatch`, [`settings-connections.md`](settings-connections.md)).
 
@@ -585,7 +598,8 @@ Scheduled sending (S7), names and defaults of the reference (`CONTACT_DISPATCH_*
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `VIPER_CONTACT_DISPATCH_INTERVAL_MS` | `0` (S8; the reference used 30000) | Dispatcher period in the API process, « Fréquence de vérification » in the UI; `0` = no worker (CLI only). `1`-`499` refused. Runs only while the Toolbox is connected. |
+| `VIPER_CONTACT_DISPATCH_ENABLED` | `true` (S9) | The switch *Envoi automatique des mails programmés* of Paramètres › Connexions; `false` = no worker (CLI only). |
+| `VIPER_CONTACT_DISPATCH_INTERVAL_MS` | `30000` (S9; `0` in S8) | Dispatcher period in the API process, *Délai maximal avant envoi* in *Paramètres avancés*; `0` = no worker (CLI only). `1`-`499` refused. Runs only while the Toolbox is connected. |
 | `VIPER_CONTACT_DISPATCH_MAX_LATENESS_MS` | `21600000` (6 h) | Beyond this lateness a message goes back to Validé (`dispatch_overdue`). 1 min – 7 days. |
 | `VIPER_CONTACT_DISPATCH_CLAIM_TTL_MS` | `600000` (10 min) | Age after which a claim nobody finished is reconciled / settleable; never less than 2 × `VIPER_TOOLBOX_TIMEOUT_MS`. |
 | `VIPER_CONTACT_DISPATCH_MAX_ATTEMPTS` | `5` | Attempts (claims and draft creations) of one schedule before going back to Validé. 1-20. |
@@ -666,16 +680,33 @@ message says the next save will replace the saved version and offers *Voir la ve
 text). FastAPI's own 422 (list `detail`: over 50 addresses, an address over 320 characters, a body over 100 000) reads
 *Un champ dépasse la taille autorisée…*; the fields carry the same limits (`maxLength`, local check of 50 addresses).
 
+**Will not leave (S9)** (`contact/dispatchCopy.ts`, `contact/DispatchWarning.tsx`). After the Human report of
+2026-10-02 (a message scheduled while the sending was off never left, and nothing said so), an inactive sending is
+said everywhere, in the warning tone of the DA (`contact-mail__banner`), always with the reason in plain words and a
+link to `/settings/connections` named after the fix (*Activer l’envoi automatique*, *Connecter / Reconnecter /
+Configurer CIRCOE Toolbox*): a **banner at the top of the Contact page** (`role="alert"`) when at least one message is
+scheduled — « N messages programmés ne partiront pas : <raison>. M ont déjà dépassé leur heure : au-delà du retard
+toléré, ils reviendront à « Validé » sans partir et devront être reprogrammés. »; in the editor, under the status
+sentence of a scheduled message, a `StatusBadge` warning *Ne partira pas : envoi automatique désactivé* (or *: Toolbox
+non connectée*, *: connexion Toolbox expirée*…) with *Envoi automatique inactif : <raison>. La date est enregistrée,
+mais aucun mail ne part tant que ce n’est pas réglé dans Paramètres › Connexions.* and, once its time has passed, *S’il
+ne peut pas partir dans les 6 heures qui la suivent, il reviendra à « Validé » sans partir.*; the same warning in the
+*Programmer l’envoi* block before scheduling and in the schedule confirmation. A message that went back to Validé
+because it was too late (`dispatch_overdue`) reads *Pas envoyé : l’heure prévue était dépassée de plus de 6 heures
+quand l’envoi automatique a pu le traiter (envoi désactivé, Toolbox déconnectée ou serveur arrêté). VIPER n’envoie
+jamais un mail en retard : le message est revenu à « Validé ». Choisissez une nouvelle date dans « Programmer
+l’envoi » pour le reprogrammer.* — the *Programmer l’envoi* block is right there. The message the Human scheduled
+on 2026-10-01 while the sending was off follows this path: at the first pass after the fix it is more than 6 h
+late, goes back to « Validé » with `dispatch_overdue` and waits to be scheduled again (never sent late).
+
 **Scheduled sending (S7)** (`dispatchState`, `dispatchLine`, `sendErrorLabel` in `mailModel.ts`). The schedule
 confirmation follows `defaults.automatic_sending_active`: active — *Le mail partira automatiquement à cette date
 depuis la boîte Infomaniak connectée à la Toolbox (le serveur VIPER doit être en marche).*, *S’il ne peut pas partir
 dans les 6 heures qui suivent, il ne part pas et revient à « Validé ».*, *Vous pourrez le déprogrammer jusqu’à
-l’envoi.*; inactive — *L’envoi automatique n’est pas actif sur ce serveur (Toolbox non connectée ou envoi programmé
-désactivé) : la date est enregistrée, mais aucun mail ne part…*. The status sentence of a scheduled message reads
-*Programmé : le mail partira automatiquement le … depuis la boîte Infomaniak connectée, déprogrammable jusqu’à
-l’envoi.* when active (and not yet taken by the dispatcher), else *Programmé pour le …* with a muted line *Envoi
-automatique inactif : la Toolbox n’est pas connectée (Paramètres › Connexions) / l’envoi programmé n’est pas actif sur
-ce serveur. La date est enregistrée, mais rien ne part tant que ce n’est pas le cas.* Under it, one dispatch line:
+l’envoi.*; inactive (S9) — the warning block below and *Programmer quand même* (scheduling stays possible). The status
+sentence of a scheduled message reads *Programmé : le mail partira automatiquement le … depuis la boîte Infomaniak
+connectée, déprogrammable jusqu’à l’envoi.* when active (and not yet taken by the dispatcher), else *Programmé pour le
+…*. Under it, one dispatch line:
 *Envoi en cours par la Toolbox…* (spinner, the editor locked); a failed attempt *Dernière tentative d’envoi échouée :
 <raison>. Nouvel essai automatique.*; back to Validé *Envoi programmé non effectué : <raison>. Le message reste
 validé : reprogrammez-le pour réessayer.* (overdue, allowlist, previous step, Toolbox refusals…); sent *Envoi déduit :
