@@ -2,15 +2,15 @@ import { type KeyboardEvent, useEffect, useRef } from 'react'
 import { Link } from 'react-router'
 
 import { type ContactRow, MESSAGE_STEPS } from '../api/contact'
-import { NEXT_ACTION_STATES } from '../api/prospection'
 import { parseIsoWeek, weeksFrom } from '../lib/isoWeek'
+import { StateBadge } from '../prospection/ContactBadges'
 import { civilityLabel, personName } from '../prospection/labels'
-import { StateBadge, WeekBadge } from '../prospection/TrackingBadges'
 import { StatusBadge } from '../ui/Badge'
 import { BuildingIcon, ClockIcon } from '../ui/icons'
 import { FROM_LIST } from './criteria'
 import { NEXT_STEP_LABELS, STEP_LABELS } from './labels'
 import { MessageBadge } from './MessageBadge'
+import { WeekBadge } from './WeekBadge'
 
 interface ContactListProps {
   rows: ContactRow[]
@@ -42,7 +42,7 @@ function moveFocus(event: KeyboardEvent<HTMLUListElement>) {
 // Past-week cue, display only: a state still waiting for its next action whose week is before the current one.
 function overdue(row: ContactRow, today: string): boolean {
   const week = parseIsoWeek(row.next_action_week)
-  return week !== null && NEXT_ACTION_STATES.includes(row.tracking_status) && weeksFrom(today, week) < 0
+  return week !== null && row.tracking_status === 'neutral' && weeksFrom(today, week) < 0
 }
 
 // The Contact list: one compact card per person, in the card language of Prospection — identity and company, the

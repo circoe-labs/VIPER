@@ -13,10 +13,11 @@ describe('Prospection URL state', () => {
       role: 'none',
       activity: 'active' as const,
       referent: ID,
-      tracking_status: 'r1' as const,
+      tracking_status: 'disqualified' as const,
+      cohort: ID,
       company: ID,
       import_batch: ID,
-      sort: 'planned_contact' as const,
+      sort: 'next_due' as const,
       page: 3,
       prospect: ID,
     }
@@ -37,9 +38,21 @@ describe('Prospection URL state', () => {
   })
 
   it('accepts « none » only where it means no value, and `new` for the prospect', () => {
-    const view = parseView(new URLSearchParams('role=none&referent=none&tracking_status=none&prospect=new'))
+    const view = parseView(new URLSearchParams('role=none&referent=none&tracking_status=none&cohort=none&prospect=new'))
 
-    expect([view.role, view.referent, view.tracking_status, view.prospect]).toEqual(['none', 'none', 'none', 'new'])
+    expect([view.role, view.referent, view.tracking_status, view.cohort, view.prospect]).toEqual([
+      'none',
+      'none',
+      'none',
+      'none',
+      'new',
+    ])
+  })
+
+  it('drops the former states and reads a former « planned_contact » sort as the next due date', () => {
+    const view = parseView(new URLSearchParams('tracking_status=contacted&sort=planned_contact'))
+
+    expect([view.tracking_status, view.sort]).toEqual([null, 'next_due'])
   })
 
   it('builds deep links for other pages (Home)', () => {
@@ -52,5 +65,6 @@ describe('Prospection URL state', () => {
     expect(hasFilters({ ...DEFAULT_VIEW, q: '  ' })).toBe(false)
     expect(hasFilters({ ...DEFAULT_VIEW, q: 'jean' })).toBe(true)
     expect(hasFilters({ ...DEFAULT_VIEW, import_batch: ID })).toBe(true)
+    expect(hasFilters({ ...DEFAULT_VIEW, cohort: 'none' })).toBe(true)
   })
 })

@@ -11,7 +11,6 @@ import {
   useProspectPage,
 } from '../api/prospection'
 import { ExportWorkbookButton } from '../exports/ExportWorkbookButton'
-import { businessToday } from '../lib/isoWeek'
 import { useDebouncedValue } from '../settings/shared'
 import { Button } from '../ui/Button'
 import { EmptyState } from '../ui/EmptyState'
@@ -225,7 +224,7 @@ export function ProspectionPage() {
               </p>
             )}
             {page && page.items.length > 0 && (
-              <ProspectList rows={page.items} openHref={openHref} today={counters.data?.today ?? businessToday()} />
+              <ProspectList rows={page.items} openHref={openHref} />
             )}
             {page && page.total > PROSPECT_PAGE_SIZE && (
               <nav className="prospection__pager" aria-label="Pages de la liste">

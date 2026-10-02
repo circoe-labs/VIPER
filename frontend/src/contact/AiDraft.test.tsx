@@ -17,7 +17,7 @@ function person(): Prospect {
     civility: 'ms',
     first_name: 'Claire',
     last_name: 'Démo',
-    tracking: trackingDetail({ status: 'neutral', planned_contact_on: '2026-09-28', planned_contact_week: '2026-W40' }),
+    tracking: trackingDetail({ status: 'neutral' }),
     today: '2026-09-30',
   })
 }

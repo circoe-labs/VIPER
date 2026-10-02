@@ -115,6 +115,8 @@ export interface MessageSequence {
     do_not_contact: boolean
     // No message may be created, edited, validated, scheduled or reopened.
     closed: boolean
+    // The step to send next (`contact`, `r1`…), derived from the real sends; null when finished or without cohort.
+    next_step?: string | null
   }
   // `generation_available`: the AI drafting is configured on the server (S5).
   defaults: { from_email: string | null; to: string[]; generation_available: boolean }

@@ -16,7 +16,7 @@ import * as icons from '../ui/icons'
 import { PageHeader } from '../ui/PageHeader'
 import { Table } from '../ui/Table'
 import { MessageBadge } from '../contact/MessageBadge'
-import { StateBadge, WeekBadge } from '../prospection/TrackingBadges'
+import { CohortBadge, DueBadge, EmailErrorBadge, LevelBadge, StateBadge } from '../prospection/ContactBadges'
 import { CounterCard, CounterGroup } from '../ui/CounterCards'
 import { Tabs } from '../ui/Tabs'
 import { ReferentSelect, TaxonomyMultiSelect, TaxonomySelect } from '../settings/selectors'
@@ -128,13 +128,21 @@ export function Showcase() {
           </div>
         </Card>
 
-        <Card title="États de contact et semaine">
+        <Card title="Cohorte, niveau et état commercial">
+          <div className="showcase__row">
+            <CohortBadge code="S41" startsOn="2026-10-12" />
+            <CohortBadge code="S0" />
+            <CohortBadge code={null} />
+            {['contact_pending', 'contact_sent', 'r2_sent', 'finished'].map((level) => (
+              <LevelBadge key={level} level={level} />
+            ))}
+          </div>
           <div className="showcase__row">
             {TRACKING_STATUSES.map((status) => (
               <StateBadge key={status} status={status} />
             ))}
-            <WeekBadge week={{ year: 2026, week: 41 }} today="2026-09-30" />
-            <WeekBadge week={{ year: 2027, week: 2 }} today="2026-09-30" />
+            <EmailErrorBadge />
+            <DueBadge />
           </div>
           <div className="showcase__row">
             {([null, 'draft', 'validated', 'scheduled', 'sent', 'cancelled'] as const).map((status) => (

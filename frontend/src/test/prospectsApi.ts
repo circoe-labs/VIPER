@@ -2,9 +2,9 @@ import { vi } from 'vitest'
 
 import type { Company } from '../api/companies'
 import type { HistoryEntry } from '../api/history'
-import type { Prospect, ProspectCreateInput, ProspectInput, Tracking, TrackingPatch } from '../api/prospects'
-import type { Referent, TaxonomyValue } from '../api/settings'
-import { isoWeekOf, weekMonday } from '../lib/isoWeek'
+import type { ContactProgress, Prospect, ProspectCreateInput, ProspectInput, Tracking, TrackingPatch } from '../api/prospects'
+import type { Place, ProspectSequences, QualityAlert, Sequence } from '../api/sequences'
+import type { Cohort, Referent, TaxonomyValue } from '../api/settings'
 import { stubCompaniesApi } from './companiesApi'
 import { historyPage } from './historyApi'
 import { type FakeProspect, stubProspectionApi } from './prospectionApi'
@@ -13,7 +13,9 @@ import type { RecordedRequest } from './settingsApi'
 // In-memory stand-in for /api/prospects (backend/app/api/routes/prospects.py) for component tests of the Prospect
 // editor, on top of the Prospection, Companies and Settings fakes. It records every write and answers with a view
 // rebuilt from the payload (verified_now → verified today); the server rules themselves are tested in the backend.
-// Synthetic values only.
+// It also plays the prospect's sequences (`…/sequences`, `…/cohort`, `…/messages/mark-sent`) and its quality alerts
+// (`/api/alerts`) with their main refusals (`sequence_changed`, `rank_not_next`, `ignored_is_terminal`,
+// `prospect_do_not_contact`, `alert_exists`). Synthetic values only.
 
 const STAMP = '2026-09-01T09:30:00+00:00'
 export const TODAY = '2026-09-11'
@@ -40,6 +42,7 @@ export function prospectDetail(fields: Partial<Prospect> = {}): Prospect {
     emails: [],
     phones: [],
     tracking: null,
+    contact: contactProgress(),
     sources: [],
     import_row_count: 0,
     today: TODAY,
@@ -64,25 +67,104 @@ export function companySummary(company: Company): NonNullable<Prospect['company'
   }
 }
 
-// `2026-09-14` → `2026-W38` (the API's week label).
-function weekLabel(day: string | null): string | null {
-  const week = day ? isoWeekOf(day) : null
-  return week ? `${String(week.year)}-W${String(week.week).padStart(2, '0')}` : null
-}
-
 // Blank tracking with the API's fields (a test overrides what it needs).
 export function trackingDetail(fields: Partial<Tracking> = {}): Tracking {
   return {
     status: 'neutral',
-    planned_contact_on: null,
-    planned_contact_week: null,
     response_received_on: null,
     appointment_on: null,
     appointment_time: null,
     referent: null,
     status_since: null,
-    suggested_next_contact_on: null,
-    suggested_next_contact_week: null,
+    ...fields,
+  }
+}
+
+// Where a prospect stands (the prospect view's `contact`); without cohort by default.
+export function contactProgress(fields: Partial<ContactProgress> = {}): ContactProgress {
+  return {
+    cohort: null,
+    sequence_open: false,
+    sent_count: 0,
+    level_label: null,
+    level: null,
+    next_step: null,
+    finished: false,
+    next_due_on: null,
+    next_due_week: null,
+    pause_reason: 'no_cohort',
+    email_error: false,
+    max_follow_ups: 4,
+    ...fields,
+  }
+}
+
+const LEVELS = ['contact_pending', 'contact_sent']
+
+// The place of a sequence in `cohort` after `sent` sends (max relances 4), due on `due` (a past day by default).
+export function placeIn(cohort: Cohort, sent = 0, fields: Partial<Place> = {}): Place {
+  const finished = sent > 4
+  return {
+    cohort: { id: cohort.id, code: cohort.code, starts_on: cohort.starts_on, out_of_campaign: cohort.out_of_campaign, needs_review: false },
+    sequence_id: `sequence-${cohort.code}`,
+    sequence_open: true,
+    sent_count: sent,
+    level_label: finished ? 'Relance terminée' : sent === 0 ? 'Contact' : `R${String(sent)}`,
+    level: finished ? 'finished' : (LEVELS[sent] ?? `r${String(sent - 1)}_sent`),
+    next_step: finished ? null : sent === 0 ? 'contact' : `r${String(sent)}`,
+    finished,
+    next_due_at: null,
+    next_due_on: cohort.out_of_campaign || finished ? null : (cohort.starts_on ?? null),
+    next_due_week: null,
+    pause_reason: cohort.out_of_campaign ? 'out_of_campaign' : finished ? 'finished' : null,
+    email_error: false,
+    max_follow_ups: 4,
+    ...fields,
+  }
+}
+
+// One sequence of the history, from its place.
+export function sequenceOf(place: Place, fields: Partial<Sequence> = {}): Sequence {
+  if (!place.cohort) throw new Error('A sequence needs a cohort.')
+  return {
+    id: place.sequence_id ?? 'sequence',
+    cohort: place.cohort,
+    is_current: true,
+    opened_at: '2026-09-01T08:00:00+00:00',
+    closed_at: null,
+    end_reason: null,
+    sent_count: place.sent_count,
+    messages: Array.from({ length: place.sent_count }, (_, rank) => ({
+      message_id: `${place.sequence_id ?? 'sequence'}-${String(rank)}`,
+      rank,
+      step: rank === 0 ? 'contact' : `r${String(rank)}`,
+      step_label: rank === 0 ? 'Contact' : `R${String(rank)}`,
+      status: 'sent' as const,
+      sent_at: '2026-09-07T08:00:00+00:00',
+      sent_source: 'import' as const,
+      has_content: false,
+    })),
+    ...fields,
+  }
+}
+
+export function qualityAlert(fields: Partial<QualityAlert> = {}): QualityAlert {
+  sequence += 1
+  return {
+    id: `00000000-0000-7000-e000-${String(sequence).padStart(12, '0')}`,
+    prospect_id: null,
+    company_id: null,
+    type: 'function_to_check',
+    source: 'human',
+    note: null,
+    detail: {},
+    raised_by_type: 'human',
+    raised_by: 'Opératrice Test',
+    raised_at: '2026-09-08T09:00:00+00:00',
+    open: true,
+    resolved_at: null,
+    resolved_by: null,
+    resolution_note: null,
     ...fields,
   }
 }
@@ -102,6 +184,11 @@ interface ProspectsStubOptions {
   referents?: Referent[]
   // History entries per prospect id, newest first (none by default).
   histories?: Record<string, HistoryEntry[]>
+  // Paramètres › Cohortes (S0 is always there when not given).
+  cohorts?: Cohort[]
+  // The sequences of a prospect id (default: none, from its `contact`).
+  sequences?: Record<string, Pick<ProspectSequences, 'place' | 'sequences'>>
+  alerts?: QualityAlert[]
 }
 
 export function stubProspectsApi(options: ProspectsStubOptions = {}) {
@@ -110,7 +197,10 @@ export function stubProspectsApi(options: ProspectsStubOptions = {}) {
     prospects: options.rows ?? [],
     roles: options.roles ?? [],
     referents: options.referents ?? [],
+    ...(options.cohorts ? { cohorts: options.cohorts } : {}),
   })
+  const sequences = new Map(Object.entries(structuredClone(options.sequences ?? {})))
+  const alerts: QualityAlert[] = structuredClone(options.alerts ?? [])
   const store = new Map((options.details ?? []).map((detail) => [detail.id, structuredClone(detail)]))
   const requests: RecordedRequest[] = []
   // Replaces the answer of the next write (e.g. a 409 or 422 the fake would not produce).
@@ -159,21 +249,131 @@ export function stubProspectsApi(options: ProspectsStubOptions = {}) {
         source_reference: phone.source_reference,
         imported_unverified: false,
       })),
-      tracking: input.tracking
-        ? {
-            ...input.tracking,
-            planned_contact_week: weekLabel(input.tracking.planned_contact_on),
-            referent: null,
-            status_since: null,
-            suggested_next_contact_on: null,
-            suggested_next_contact_week: null,
-          }
-        : previous.tracking,
+      tracking: input.tracking ? { ...input.tracking, referent: null, status_since: null } : previous.tracking,
     }
   }
 
+  function refusal(status: number, code: string, extra: Record<string, unknown> = {}): Promise<Response> {
+    return reply(status, { detail: { code, message: 'Refused.', ...extra } })
+  }
+
+  function placeOf(current: Prospect): { place: Place; sequences: Sequence[] } {
+    const known = sequences.get(current.id)
+    if (known) return known
+    return { place: { ...current.contact, sequence_id: null, next_due_at: null }, sequences: [] }
+  }
+
+  // The prospect's derived `contact` follows its place (a new version, as every write of the server).
+  function placed(current: Prospect, next: { place: Place; sequences: Sequence[] }, fields: Partial<Prospect> = {}) {
+    sequences.set(current.id, next)
+    const { place } = next
+    const contact = contactProgress({
+      cohort: place.cohort,
+      sequence_open: place.sequence_open,
+      sent_count: place.sent_count,
+      level_label: place.level_label,
+      level: place.level,
+      next_step: place.next_step,
+      finished: place.finished,
+      next_due_on: place.next_due_on,
+      pause_reason: place.pause_reason,
+      email_error: place.email_error,
+    })
+    const updated = { ...current, version: `${current.version}+`, contact, ...fields }
+    store.set(current.id, updated)
+    return updated
+  }
+
+  function changeCohort(current: Prospect, cohortId: string | null): Promise<Response> {
+    if (current.tracking?.status === 'ignored') return refusal(409, 'ignored_is_terminal')
+    if (current.contactability_status === 'do_not_contact') return refusal(409, 'prospect_do_not_contact')
+    const before = placeOf(current)
+    const target = prospection.settings.contact.cohorts.find((cohort) => cohort.id === cohortId) ?? null
+    if (cohortId !== null && !target) return refusal(404, 'not_found')
+    const closed = before.sequences.map((item) =>
+      item.is_current
+        ? { ...item, is_current: false, closed_at: `${TODAY}T10:00:00+00:00`, end_reason: target ? ('cohort_changed' as const) : ('cohort_removed' as const) }
+        : item,
+    )
+    const status = current.tracking?.status
+    const resumed = target && status && ['response_received', 'appointment_obtained', 'disqualified'].includes(status) ? status : null
+    const place: Place = target
+      ? { ...placeIn(target, 0, { sequence_id: `sequence-${target.code}-${String(closed.length + 1)}` }), email_error: before.place.email_error }
+      : { ...before.place, cohort: null, sequence_id: null, sequence_open: false, sent_count: 0, level: null, level_label: null, next_step: null, next_due_on: null, pause_reason: 'no_cohort' }
+    const history = target ? [{ ...sequenceOf(place), opened_at: `${TODAY}T10:00:00+00:00` }, ...closed] : closed
+    placed(current, { place, sequences: history }, resumed && current.tracking ? { tracking: { ...current.tracking, status: 'neutral' } } : {})
+    return reply(200, { place, changed: true, resumed_from: resumed, cancelled_messages: 0, in_flight_messages: 0 })
+  }
+
+  function markSent(current: Prospect, input: { rank: number; sequence_id?: string; sent_at?: string }): Promise<Response> {
+    const { place, sequences: history } = placeOf(current)
+    if (!place.sequence_open || place.sequence_id === null) return refusal(409, 'no_open_sequence')
+    if (input.sequence_id !== undefined && input.sequence_id !== place.sequence_id) {
+      return refusal(409, 'sequence_changed', { sequence_id: place.sequence_id })
+    }
+    if (input.rank !== place.sent_count) return refusal(409, 'rank_not_next', { next_rank: place.sent_count })
+    if (!place.cohort) return refusal(409, 'no_open_sequence')
+    const cohort = { ...place.cohort, current_count: 0, sequence_count: 1 }
+    const next = placeIn(cohort, place.sent_count + 1, { sequence_id: place.sequence_id, next_due_on: '2026-09-14' })
+    const sentAt = input.sent_at ?? `${TODAY}T10:00:00+00:00`
+    const updated = history.map((item) =>
+      item.id === place.sequence_id
+        ? {
+            ...item,
+            sent_count: next.sent_count,
+            messages: [
+              ...item.messages,
+              { message_id: `sent-${String(input.rank)}`, rank: input.rank, step: place.next_step ?? 'contact', step_label: input.rank === 0 ? 'Contact' : `R${String(input.rank)}`, status: 'sent' as const, sent_at: sentAt, sent_source: 'manual' as const, has_content: false },
+            ],
+          }
+        : item,
+    )
+    placed(current, { place: next, sequences: updated })
+    const message = { id: `sent-${String(input.rank)}`, rank: input.rank, step: place.next_step, status: 'sent', sent_at: sentAt }
+    return reply(201, { message, created: true, changed: true, unvalidated: false })
+  }
+
+  function raiseAlert(input: { type: QualityAlert['type']; prospect_id: string; note: string | null }): Promise<Response> {
+    const current = store.get(input.prospect_id)
+    if (!current) return refusal(404, 'not_found')
+    if (alerts.some((alert) => alert.open && alert.prospect_id === current.id && alert.type === input.type && alert.source === 'human')) {
+      return refusal(409, 'alert_exists')
+    }
+    const created = qualityAlert({ prospect_id: current.id, type: input.type, note: input.note, raised_at: `${TODAY}T10:00:00+00:00` })
+    alerts.unshift(created)
+    if (input.type === 'email_error') {
+      const before = placeOf(current)
+      placed(current, { ...before, place: { ...before.place, email_error: true, next_due_on: null, pause_reason: 'email_error' } })
+    }
+    return reply(201, created)
+  }
+
+  function resolveAlert(id: string, note: string | null): Promise<Response> {
+    const alert = alerts.find((item) => item.id === id)
+    if (!alert) return refusal(404, 'not_found')
+    if (!alert.open) return refusal(409, 'alert_resolved')
+    Object.assign(alert, { open: false, resolved_at: `${TODAY}T11:00:00+00:00`, resolved_by: 'Opératrice Test', resolution_note: note })
+    const current = alert.prospect_id ? store.get(alert.prospect_id) : undefined
+    if (current && alert.type === 'email_error') {
+      const before = placeOf(current)
+      placed(current, { ...before, place: { ...before.place, email_error: false, pause_reason: null } })
+    }
+    return reply(200, alert)
+  }
+
+  function handleAlerts(method: string, url: URL, body: unknown): Promise<Response> {
+    const [, , , id] = url.pathname.split('/')
+    if (method === 'GET') {
+      const prospectId = url.searchParams.get('prospect')
+      const items = alerts.filter((alert) => !prospectId || alert.prospect_id === prospectId)
+      return reply(200, { items, total: items.length, limit: 100, offset: 0 })
+    }
+    if (method === 'POST' && id) return resolveAlert(id, (body as { note: string | null }).note)
+    return raiseAlert(body as { type: QualityAlert['type']; prospect_id: string; note: string | null })
+  }
+
   function handle(method: string, url: URL, body: unknown): Promise<Response> {
-    const [, , , id, action] = url.pathname.split('/')
+    const [, , , id, action, sub] = url.pathname.split('/')
     if (method !== 'GET' && next.reply) {
       const [status, detail] = next.reply
       next.reply = null
@@ -187,6 +387,11 @@ export function stubProspectsApi(options: ProspectsStubOptions = {}) {
     const current = id ? store.get(id) : undefined
     if (!current) return reply(404, { detail: { code: 'not_found', message: 'Not found.' } })
     if (method === 'GET' && action === 'history') return reply(200, historyPage(options.histories?.[current.id] ?? [], url))
+    if (method === 'GET' && action === 'sequences') return reply(200, { prospect_id: current.id, ...placeOf(current) })
+    if (method === 'PUT' && action === 'cohort') return changeCohort(current, (body as { cohort_id: string | null }).cohort_id)
+    if (method === 'POST' && action === 'messages' && sub === 'mark-sent') {
+      return markSent(current, body as { rank: number; sequence_id?: string; sent_at?: string })
+    }
     if (method === 'GET') return reply(200, current)
     if (method === 'PUT' && action === 'contactability') {
       const { do_not_contact, reason } = body as { do_not_contact: boolean; reason: string }
@@ -201,24 +406,16 @@ export function stubProspectsApi(options: ProspectsStubOptions = {}) {
       return reply(200, updated)
     }
     if (method === 'PATCH' && action === 'tracking') {
-      // State and/or week only; the Contact rules themselves are tested in the backend.
+      // The state only; the Contact rules themselves are tested in the backend.
       const patch = body as TrackingPatch
+      if (current.tracking?.status === 'ignored') return refusal(409, 'ignored_is_terminal')
       const tracking = current.tracking ?? trackingDetail()
-      const planned =
-        patch.next_action_week === undefined
-          ? tracking.planned_contact_on
-          : patch.next_action_week && weekMonday(patch.next_action_week)
       const updated: Prospect & { cancelled_messages: number; in_flight_messages: number } = {
         ...current,
         version: `${current.version}+`,
         cancelled_messages: 0,
         in_flight_messages: 0,
-        tracking: {
-          ...tracking,
-          status: patch.status ?? tracking.status,
-          planned_contact_on: planned,
-          planned_contact_week: weekLabel(planned),
-        },
+        tracking: { ...tracking, status: patch.status },
       }
       store.set(current.id, updated)
       return reply(200, updated)
@@ -246,11 +443,17 @@ export function stubProspectsApi(options: ProspectsStubOptions = {}) {
       requests.push({ method, path: url.pathname, search: url.search, body })
       return handle(method, url, body)
     }
+    if (url.pathname.startsWith('/api/alerts')) {
+      const method = init?.method ?? 'GET'
+      const body: unknown = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined
+      requests.push({ method, path: url.pathname, search: url.search, body })
+      return handleAlerts(method, url, body)
+    }
     if (url.pathname.startsWith('/api/companies')) return companies.fetchMock(input, init)
     return prospection.fetchMock(input, init)
   })
   vi.stubGlobal('fetch', fetchMock)
-  return { store, requests, next, companies: companies.store }
+  return { store, requests, next, companies: companies.store, sequences, alerts, cohorts: prospection.settings.contact.cohorts }
 }
 
 // Body of the last `method` request to a prospect path.

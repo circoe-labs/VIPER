@@ -19,8 +19,8 @@ interface OppositionSectionProps {
   onSubmit: (doNotContact: boolean, reason: string) => Promise<void>
 }
 
-// Durable do-not-contact: independent of the activity status and of the contact state (« Failure » is an outcome, not
-// an opposition). Set and lifted only through a confirmation with a reason, never by the form's save. The state
+// Durable do-not-contact: independent of the activity status and of the commercial state (« Défaillant » and « Relance
+// terminée » are not oppositions). Set and lifted only through a confirmation with a reason, never by the form's save. The state
 // « Ignoré » sets it for good (Contact decision 7): it cannot be lifted then.
 export function OppositionSection({ prospect, busy, pendingChanges, onSubmit }: OppositionSectionProps) {
   const [dialog, setDialog] = useState<'set' | 'clear' | null>(null)

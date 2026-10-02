@@ -1,8 +1,9 @@
 import type { ReactNode } from 'react'
 import { Link, Navigate, useParams } from 'react-router'
 
-import { useReferents, useTaxonomyValues } from '../api/settings'
+import { useCohorts, useReferents, useTaxonomyValues } from '../api/settings'
 import { PageHeader } from '../ui/PageHeader'
+import { CohortSection } from './CohortSection'
 import { ReferentSection } from './ReferentSection'
 import { TaxonomySection, type TaxonomySectionConfig } from './TaxonomySection'
 import './settings.css'
@@ -45,19 +46,21 @@ const TAXONOMY_SECTIONS: TaxonomySectionConfig[] = [
 ]
 
 const REFERENTS_PATH = 'referents'
+const COHORTS_PATH = 'cohorts'
 
-// Paramètres (Task 06): the four administrable lists behind the record editors' pickers. `/settings` shows the
-// first section; `/settings/<section>` deep-links to one.
+// Paramètres (Task 06): the four administrable lists behind the record editors' pickers, and the cohorts with « max
+// relances » (sequences rework S4). `/settings` shows the first section; `/settings/<section>` deep-links to one.
 export function SettingsPage() {
   const { section = TAXONOMY_SECTIONS[0]?.kind } = useParams()
   const taxonomy = TAXONOMY_SECTIONS.find((config) => config.kind === section)
-  if (!taxonomy && section !== REFERENTS_PATH) return <Navigate to="/settings" replace />
+  if (!taxonomy && section !== REFERENTS_PATH && section !== COHORTS_PATH) return <Navigate to="/settings" replace />
+  const title = taxonomy?.title ?? (section === COHORTS_PATH ? 'Cohortes et relances' : 'Référents internes')
 
   return (
     <>
       <PageHeader
         title="Paramètres"
-        description="Listes de valeurs communes aux fiches entreprises et prospects, et référents internes Circoe. Chaque modification est tracée dans l’historique."
+        description="Listes de valeurs communes aux fiches entreprises et prospects, référents internes Circoe, cohortes de prospection et relances. Chaque modification est tracée dans l’historique."
       />
       <nav className="settings-tabs" aria-label="Sections des paramètres">
         {TAXONOMY_SECTIONS.map((config) => (
@@ -68,9 +71,18 @@ export function SettingsPage() {
         <SectionLink path={REFERENTS_PATH} title="Référents internes" current={section === REFERENTS_PATH}>
           <ReferentCount />
         </SectionLink>
+        <SectionLink path={COHORTS_PATH} title="Cohortes" current={section === COHORTS_PATH}>
+          <CohortCount />
+        </SectionLink>
       </nav>
-      <section className="settings-panel" aria-label={taxonomy?.title ?? 'Référents internes'}>
-        {taxonomy ? <TaxonomySection key={taxonomy.kind} config={taxonomy} /> : <ReferentSection />}
+      <section className="settings-panel" aria-label={title}>
+        {taxonomy ? (
+          <TaxonomySection key={taxonomy.kind} config={taxonomy} />
+        ) : section === COHORTS_PATH ? (
+          <CohortSection />
+        ) : (
+          <ReferentSection />
+        )}
       </section>
     </>
   )
@@ -110,4 +122,8 @@ function TaxonomyCount({ config }: { config: TaxonomySectionConfig }) {
 
 function ReferentCount() {
   return <Count total={useReferents().data?.length} />
+}
+
+function CohortCount() {
+  return <Count total={useCohorts().data?.length} />
 }

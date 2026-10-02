@@ -3,10 +3,9 @@ import { Link } from 'react-router'
 
 import type { ChannelVerification } from '../api/prospection'
 import type { Prospect } from '../api/prospects'
-import { parseIsoWeek } from '../lib/isoWeek'
-import { civilityLabel, formatPhone, personName } from '../prospection/labels'
+import { CohortBadge, EmailErrorBadge, LevelBadge, StateBadge } from '../prospection/ContactBadges'
 import { prospectionHref } from '../prospection/criteria'
-import { StateBadge, WeekBadge } from '../prospection/TrackingBadges'
+import { civilityLabel, formatPhone, personName, TO_VERIFY } from '../prospection/labels'
 import { EditorSection } from '../prospects/EditorSection'
 import { Badge, StatusBadge, type StatusTone } from '../ui/Badge'
 import { BanIcon, BuildingIcon, ExpandIcon } from '../ui/icons'
@@ -25,8 +24,9 @@ function initials(prospect: Prospect): string {
   return [prospect.first_name, prospect.last_name].map((part) => part?.trim()[0] ?? '').join('').toUpperCase() || '?'
 }
 
-// The read-mostly prospect sheet of the workbench (decision 19): who, where, how to reach them, and the two Contact
-// indicators. Nothing here edits the record — « Ouvrir dans Prospection » leads to the full editor to correct it.
+// The read-mostly prospect sheet of the workbench (decision 19): who, where, how to reach them, and the Contact
+// indicators (cohort, level, state, « Erreur sur le mail »). A missing function, e-mail or phone (without another
+// channel) reads « À vérifier » (D12). Nothing here edits the record — « Ouvrir dans Prospection » leads to the full editor to correct it.
 // The sheet's heading takes the focus when the prospect opens (from the list, « Précédent » / « Suivant »): keyboard and
 // screen-reader users start on the person, not on a button that no longer exists.
 export function ProspectSheet({ prospect }: { prospect: Prospect }) {
@@ -35,7 +35,8 @@ export function ProspectSheet({ prospect }: { prospect: Prospect }) {
     headingRef.current?.focus()
   }, [])
   const civility = civilityLabel(prospect.civility)
-  const week = parseIsoWeek(prospect.tracking?.planned_contact_week)
+  const contact = prospect.contact
+  const inCampaign = contact.cohort !== null && !contact.cohort.out_of_campaign
   const blocked = prospect.contactability_status === 'do_not_contact'
   const title = [prospect.role?.label, prospect.exact_job_title].filter(Boolean)
   const emails = prospect.emails.filter((email) => email.is_active)
@@ -52,7 +53,9 @@ export function ProspectSheet({ prospect }: { prospect: Prospect }) {
               {civility && <span className="contact-row__muted">{civility} </span>}
               {personName(prospect) || 'Nom non renseigné'}
             </h2>
-            <p className="contact-row__muted">{title.length > 0 ? title.join(' · ') : 'Rôle non renseigné'}</p>
+            <p className="contact-row__muted">
+              {[...title, prospect.exact_job_title ? null : `Fonction : ${TO_VERIFY}`].filter(Boolean).join(' · ')}
+            </p>
           </div>
         </div>
         <p className="contact-row__company">
@@ -61,15 +64,14 @@ export function ProspectSheet({ prospect }: { prospect: Prospect }) {
           {prospect.company?.city && <span className="contact-row__muted">· {prospect.company.city}</span>}
         </p>
         <div className="contact-row__badges">
+          <CohortBadge code={contact.cohort?.code ?? null} startsOn={contact.cohort?.starts_on ?? null} />
+          {inCampaign && <LevelBadge level={contact.level} />}
           <StateBadge status={prospect.tracking?.status ?? null} />
-          {week && <WeekBadge week={week} today={prospect.today} />}
+          {contact.email_error && <EmailErrorBadge />}
           {blocked && (
             <StatusBadge tone="danger" icon={BanIcon}>
               Ne pas contacter
             </StatusBadge>
-          )}
-          {!week && (prospect.tracking?.status ?? 'neutral') === 'neutral' && (
-            <span className="contact-row__muted">Aucun état · aucune semaine</span>
           )}
         </div>
         {blocked && prospect.do_not_contact_reason && (
@@ -82,8 +84,15 @@ export function ProspectSheet({ prospect }: { prospect: Prospect }) {
       </section>
 
       <EditorSection title="Coordonnées">
+        {emails.length === 0 && (
+          <p>
+            <StatusBadge tone="warning">E-mail : {TO_VERIFY}</StatusBadge>
+          </p>
+        )}
         {emails.length === 0 && phones.length === 0 && (
-          <p className="contact-row__muted">Aucune coordonnée active : complétez la fiche dans Prospection.</p>
+          <p>
+            <StatusBadge tone="warning">Téléphone : {TO_VERIFY}</StatusBadge>
+          </p>
         )}
         {emails.length > 0 && (
           <ul className="contact-sheet__channels" aria-label="E-mails">

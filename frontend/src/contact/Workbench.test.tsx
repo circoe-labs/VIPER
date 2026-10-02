@@ -29,7 +29,7 @@ function person(fields: Partial<Prospect> = {}): Prospect {
         imported_unverified: false,
       },
     ],
-    tracking: trackingDetail({ status: 'neutral', planned_contact_on: '2026-09-28', planned_contact_week: '2026-W40' }),
+    tracking: trackingDetail({ status: 'neutral' }),
     today: '2026-09-30',
     ...fields,
   })

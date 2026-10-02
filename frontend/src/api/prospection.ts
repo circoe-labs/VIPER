@@ -25,30 +25,21 @@ export const SEGMENTS = [
 ] as const
 export type Segment = (typeof SEGMENTS)[number]
 
-// The Contact states in display order (backend ContactTrackingStatus, doc/architecture/data-model.md). `neutral` is
-// the initial « no state »: no badge (Contact decision 4). `ignored` is terminal (decision 7).
-export const TRACKING_STATUSES = [
-  'neutral',
-  'contacted',
-  'r1',
-  'r2',
-  'response_received',
-  'appointment_obtained',
-  'failure',
-  'ignored',
-] as const
+// The commercial states in display order (backend ContactTrackingStatus, sequences rework D7), each chosen by a person.
+// `neutral` (« En séquence ») is the default: no badge. `ignored` is terminal; `disqualified` (« Défaillant ») is set
+// by its own confirmed action. The level (Contact, R1…) is not a state: it is derived from the real sends.
+export const TRACKING_STATUSES = ['neutral', 'response_received', 'appointment_obtained', 'ignored', 'disqualified'] as const
 export type TrackingStatus = (typeof TRACKING_STATUSES)[number]
-// States with a next action by default (backend contact_workflow.NEXT_ACTION_STATES): first contact, R1, R2, review.
-export const NEXT_ACTION_STATES: readonly TrackingStatus[] = ['neutral', 'contacted', 'r1', 'r2']
 
-export const PROSPECT_SORTS = ['name', 'company', 'planned_contact', 'verification', 'updated'] as const
+// `next_due` = the derived next due date (backend ProspectSort; `planned_contact` is its former alias).
+export const PROSPECT_SORTS = ['name', 'company', 'next_due', 'verification', 'updated'] as const
 export type ProspectSort = (typeof PROSPECT_SORTS)[number]
 
 export type ActivityStatus = 'active' | 'inactive' | 'unknown'
 export type VerificationState = 'never_verified' | 'stale' | 'channels_reset' | 'verified'
 export type EmailState = 'missing' | 'invalid' | 'unverified' | 'verified'
 export type ChannelVerification = 'unverified' | 'verified' | 'invalid' | 'unknown'
-// "No value" of the role, referent and tracking-status filters.
+// "No value" of the role, referent, tracking-status and cohort filters.
 export const NONE = 'none'
 
 // Criteria shared by the counters and the list (the segment only narrows the list).
@@ -58,6 +49,8 @@ export interface ProspectFilters {
   activity: ActivityStatus | null
   referent: string | null
   tracking_status: TrackingStatus | typeof NONE | null
+  // The current cohort's id; `none`: no cohort (not validated).
+  cohort: string | null
   company: string | null
   import_batch: string | null
 }
@@ -93,12 +86,24 @@ export interface ProspectRow {
   primary_phone: string | null
   primary_phone_type: 'mobile' | 'landline' | 'other' | null
   tracking_status: TrackingStatus | null
-  planned_contact_at: string | null
-  // In the `due` segment (a planned first contact — neutral with a week — due no later than today): computed by the
-  // backend's segment predicate.
+  // The current cohort (`S39`, `S0`); null: not validated.
+  cohort_code: string | null
+  // Messages really sent in the current sequence; the step to send next (`contact`, `r2`…; null when finished or
+  // without cohort); « Relance terminée ».
+  sent_count: number
+  next_step: string | null
+  finished: boolean
+  // The level key (`contact_pending`, `contact_sent`, `r2_sent`, `finished`): the UI words it itself (levelLabel).
+  // The API's `level_label` is the lists' wording of the same key, kept for exports and other readers.
+  level: string | null
+  level_label: string | null
+  // Derived next due date (business midnight) and its calendar week; null when nothing is due.
+  next_due_at: string | null
+  next_due_week: string | null
+  // In the `due` segment (« Échus »): the Contact or a follow-up to send, due no later than today.
   due: boolean
-  // The next-action week (ISO, business time), e.g. `2026-W38`; `planned_contact_at` is its Monday (P1).
-  planned_contact_week: string | null
+  // An open « Erreur sur le mail » raised by a person or an import (out of the automatic actions).
+  email_error: boolean
   response_received_at: string | null
   appointment_at: string | null
   referent_id: string | null
@@ -128,7 +133,7 @@ function filterParams(filters: ProspectFilters): URLSearchParams {
   const params = new URLSearchParams()
   const q = filters.q.trim()
   if (q) params.set('q', q)
-  for (const key of ['role', 'activity', 'referent', 'tracking_status', 'company', 'import_batch'] as const) {
+  for (const key of ['role', 'activity', 'referent', 'tracking_status', 'cohort', 'company', 'import_batch'] as const) {
     const value = filters[key]
     if (value) params.set(key, value)
   }
@@ -136,8 +141,8 @@ function filterParams(filters: ProspectFilters): URLSearchParams {
 }
 
 export function filtersOf(criteria: ProspectListCriteria): ProspectFilters {
-  const { q, role, activity, referent, tracking_status, company, import_batch } = criteria
-  return { q, role, activity, referent, tracking_status, company, import_batch }
+  const { q, role, activity, referent, tracking_status, cohort, company, import_batch } = criteria
+  return { q, role, activity, referent, tracking_status, cohort, company, import_batch }
 }
 
 export function useProspectionCounters(filters: ProspectFilters) {

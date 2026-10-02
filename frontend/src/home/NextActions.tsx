@@ -3,10 +3,9 @@ import { Link } from 'react-router'
 import type { ActionGroup, ActionItem, HomeData } from '../api/home'
 import type { ProspectSort, Segment } from '../api/prospection'
 import { prospectionHref } from '../prospection/criteria'
-import { personName, stateLabel } from '../prospection/labels'
+import { formatDay, personName, stateLabel } from '../prospection/labels'
 import { ChevronRightIcon } from '../ui/icons'
 import { formatMoment } from './activity'
-import { weekOfMoment } from './weekOfMoment'
 
 type GroupKey = keyof HomeData['next_actions']
 
@@ -19,13 +18,13 @@ interface GroupSpec {
   sort?: ProspectSort
   more: string
   when: (item: ActionItem) => string | null
-  // Whether the current state says more than the group title (every due contact is a planned first contact, with no
-  // state). `neutral` shows no label.
+  // Whether the current state says more than the group title (every due send is « En séquence »). `neutral` shows no
+  // label.
   stage: boolean
 }
 
-// Priority order (doc/features/home-dashboard.md): time-bound appointments first, then overdue contacts, then answers
-// still waiting for an appointment. Within a group, the oldest (or soonest) first — no other ranking is invented.
+// Priority order (doc/features/home-dashboard.md): time-bound appointments first, then due sends (Contact or follow-up),
+// then answers of the current sequence still waiting for an appointment. Within a group, the oldest (or soonest) first — no other ranking is invented.
 const GROUPS: GroupSpec[] = [
   {
     key: 'appointments',
@@ -39,11 +38,11 @@ const GROUPS: GroupSpec[] = [
   {
     key: 'due',
     title: 'Contacts échus',
-    empty: 'Aucun contact prévu au plus tard aujourd’hui.',
+    empty: 'Aucun Contact ni relance à envoyer au plus tard aujourd’hui.',
     segment: 'due',
-    sort: 'planned_contact',
+    sort: 'next_due',
     more: 'Tous les échus',
-    when: (item) => weekOfMoment(item.at),
+    when: (item) => (item.at ? `À envoyer depuis le ${formatDay(item.at)}` : null),
     stage: false,
   },
   {

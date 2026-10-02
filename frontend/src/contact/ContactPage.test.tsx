@@ -29,7 +29,7 @@ function rows() {
   return [
     contactRow('Jean', 'Exemple', { civility: 'mr', role_label: 'Responsable transport' }),
     contactRow('Claire', 'Démo', {
-      tracking_status: 'contacted',
+      tracking_status: 'neutral',
       next_step: 'r1',
       next_action_week: '2026-W39',
       messages: { contact: 'sent', r1: 'draft', r2: null },

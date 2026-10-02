@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 
 import { MESSAGE_STEPS, type MessageSequence, type MessageStep, useMessageMutations, useMessageSequence } from '../api/contact'
-import type { TrackingStatus } from '../api/prospection'
 import { EditorSection } from '../prospects/EditorSection'
 import { Button } from '../ui/Button'
 import { AlertIcon, SpinnerIcon } from '../ui/icons'
@@ -12,11 +11,9 @@ import { MailEditor, type SendMoment } from './MailEditor'
 import { formOf, isDirty, type MailForm, mailActions } from './mailModel'
 import { MessageBadge } from './MessageBadge'
 
-// The step the next action prepares, opened first (the R2 review and the closed states show Contact).
-function firstStep(state: TrackingStatus | null): MessageStep {
-  if (state === 'contacted') return 'r1'
-  if (state === 'r1') return 'r2'
-  return 'contact'
+// The step to send next (derived from the real sends), opened first; Contact when finished, closed or beyond R2.
+function firstStep(next: string | null | undefined): MessageStep {
+  return MESSAGE_STEPS.find((step) => step === next) ?? 'contact'
 }
 
 function messageOf(sequence: MessageSequence, step: MessageStep) {
@@ -88,7 +85,7 @@ export function MailSequence({ prospectId, onDirtyChange }: MailSequenceProps) {
   }
 
   const data = query.data
-  const step = selected ?? firstStep(data.sequence.state)
+  const step = selected ?? firstStep(data.sequence.next_step)
   const message = messageOf(data, step)
   const actions = mailActions(message, { state: data.sequence.state, doNotContact: data.sequence.do_not_contact, closed: data.sequence.closed })
   const saved = formOf(message, data.defaults)

@@ -12,7 +12,8 @@ import type { Segment, TrackingStatus } from './prospection'
 export interface MonthProgress {
   // First day of the month (ISO date, Europe/Paris).
   month: string
-  // Prospects contacted for the first time that month (status history, imports excluded).
+  // Prospects contacted for the first time that month (their first real send; before sends existed, the status
+  // history — imports excluded).
   contacted: number
   // Prospects whose state first became « RDV pris » that month.
   appointments: number
@@ -24,7 +25,7 @@ export interface ActionItem {
   last_name: string | null
   company_name: string | null
   tracking_status: TrackingStatus | null
-  // Appointment, planned contact or response date, depending on the group.
+  // Appointment, next due date or response date, depending on the group.
   at: string | null
   referent_name: string | null
 }
@@ -58,6 +59,9 @@ export interface HomeData {
     // Oldest first; the last one is the current month.
     months: MonthProgress[]
   }
+  // The Contact planning of the current calendar week: Contacts and follow-ups to send (overdue included) and how many
+  // are overdue — the Contact page's « À envoyer ».
+  contact_week: { week: string; monday: string; to_send: number; overdue: number }
   next_actions: { appointments: ActionGroup; due: ActionGroup; responses: ActionGroup }
   recent_imports: ImportBatch[]
   recent_edits: EditItem[]

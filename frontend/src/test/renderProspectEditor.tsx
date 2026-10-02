@@ -21,6 +21,7 @@ export function fakeQueue(ids: string[], segment: Segment = 'never_verified') {
     activity: null,
     referent: null,
     tracking_status: null,
+    cohort: null,
     company: null,
     import_batch: null,
     segment,

@@ -3,6 +3,7 @@ import { useBlocker, useLocation, useNavigate } from 'react-router'
 
 import { ApiError } from '../api/client'
 import { useProspect } from '../api/prospects'
+import { SequenceSection } from '../prospects/SequenceSection'
 import { Button } from '../ui/Button'
 import { Modal } from '../ui/Dialog'
 import { AlertIcon, ArrowLeftIcon, ChevronLeftIcon, ChevronRightIcon, SpinnerIcon } from '../ui/icons'
@@ -148,6 +149,7 @@ export function Workbench({ prospectId, listHref, openHref, neighbours }: Workbe
             <>
               <ProspectSheet prospect={loaded.data} />
               <TrackingPanel key={loaded.data.id} prospect={loaded.data} onDirtyChange={onTrackingDirty} />
+              <SequenceSection key={`sequence-${loaded.data.id}`} prospect={loaded.data} />
             </>
           )}
         </aside>

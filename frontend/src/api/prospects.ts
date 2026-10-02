@@ -7,6 +7,7 @@ import { type HistoryActor, historyKeys } from './history'
 import { homeKeys } from './home'
 import { type ActivityStatus, type ChannelVerification, prospectionKeys, type TrackingStatus, type VerificationState } from './prospection'
 import { refreshAfterWrite } from './refresh'
+import { sequenceKeys } from './sequences'
 import { settingsKeys } from './settings'
 
 // Mirrors backend/app/api/routes/prospects.py: the Prospect editor's view model and writes (Task 15). Rules:
@@ -59,20 +60,49 @@ export interface PhoneAlias extends AliasFields {
 export interface Tracking {
   status: TrackingStatus
   // Days in business time (Europe/Paris), `YYYY-MM-DD`.
-  planned_contact_on: string | null
-  // e.g. `2026-W38`.
-  planned_contact_week: string | null
   response_received_on: string | null
   appointment_on: string | null
   // `HH:MM:SS`, null when the appointment has no time.
   appointment_time: string | null
   referent: ValueRef | null
   status_since: string | null
-  // Cadence proposal after `contacted` / `r1` / `r2` (+2 / +2 / +4 weeks from the state's week), else null. Never
-  // applied by the server: the planner offers it, a person applies it (Contact decisions 10-13).
-  suggested_next_contact_on: string | null
-  // e.g. `2026-W41`.
-  suggested_next_contact_week: string | null
+}
+
+// The cohort a sequence runs in (`Sxx` with its real start date, or `S0`: validated, out of campaign).
+export interface CohortRef {
+  id: string
+  code: string
+  starts_on: string | null
+  out_of_campaign: boolean
+  // Created by the migration from a former week: a person confirms its date in Paramètres.
+  needs_review: boolean
+}
+
+// Why nothing is due (backend contact_workflow.PauseReason), the first that applies.
+export type PauseReason =
+  | 'no_cohort'
+  | 'out_of_campaign'
+  | 'state'
+  | 'do_not_contact'
+  | 'sequence_closed'
+  | 'finished'
+  | 'email_error'
+
+// Where the prospect stands, derived from the cohort and the real sends (sequences rework D1, D2, D9): never written.
+// `level` is the key the UI words (levelLabel); `level_label` here names the next step (« R2 »), unlike the lists'.
+export interface ContactProgress {
+  cohort: CohortRef | null
+  sequence_open: boolean
+  sent_count: number
+  level_label: string | null
+  level: string | null
+  next_step: string | null
+  finished: boolean
+  next_due_on: string | null
+  next_due_week: string | null
+  pause_reason: PauseReason | null
+  email_error: boolean
+  max_follow_ups: number
 }
 
 export interface ProspectSource {
@@ -107,6 +137,7 @@ export interface Prospect {
   emails: EmailAlias[]
   phones: PhoneAlias[]
   tracking: Tracking | null
+  contact: ContactProgress
   // Oldest first.
   sources: ProspectSource[]
   import_row_count: number
@@ -138,7 +169,6 @@ export interface PhoneInput extends AliasInput {
 
 export interface TrackingInput {
   status: TrackingStatus
-  planned_contact_on: string | null
   response_received_on: string | null
   appointment_on: string | null
   appointment_time: string | null
@@ -170,11 +200,10 @@ export interface TrackingPatched extends Prospect {
   in_flight_messages: number
 }
 
-// `PATCH /prospects/{id}/tracking`: the Contact state and/or the next-action week, nothing else. `status` omitted keeps
-// the state; `next_action_week` omitted keeps the week, null clears it (stored as the week's Monday, P1).
+// `PATCH /prospects/{id}/tracking`: the commercial state chosen by a person (« Défaillant » included), nothing else —
+// the next due date is derived (the server refuses `next_action_week`).
 export interface TrackingPatch {
-  status?: TrackingStatus
-  next_action_week?: { year: number; week: number } | null
+  status: TrackingStatus
 }
 
 export interface ProspectCreateInput extends ProspectInput {
@@ -203,7 +232,8 @@ export function useProspect(id: string | null) {
 
 // Writes refresh the Prospection counters and pages (prospectionKeys.all), the companies (prospect counts), the
 // Settings lists (a role created inline, usage counts), the prospect's history, the Contact page (its counters, list
-// and the prospect's messages — a sequence-closing state cancels the unsent ones) and Home.
+// and the prospect's messages — a sequence-closing state cancels the unsent ones), Home and the prospect's place in its
+// sequence (a state or the opposition pauses it).
 export function useProspectMutations() {
   const queryClient = useQueryClient()
   const saved = (prospect: Prospect) => {
@@ -215,6 +245,7 @@ export function useProspectMutations() {
       historyKeys.subject('prospects', prospect.id),
       contactKeys.all,
       homeKeys.all,
+      sequenceKeys.prospect(prospect.id),
     ])
   }
   return {
@@ -232,7 +263,8 @@ export function useProspectMutations() {
         apiRequest<Prospect>('PUT', `${prospectPath(id)}/contactability`, { body }),
       onSuccess: saved,
     }),
-    // Quick planning outside the editor's form (Prospection list): answers the whole view, like the other writes.
+    // The commercial state outside the form's save (« Défaillant », « Reprendre », the Contact workbench): answers the
+    // whole view, like the other writes.
     tracking: useMutation({
       mutationFn: ({ id, version, patch }: { id: string; version: string; patch: TrackingPatch }) =>
         apiRequest<TrackingPatched>('PATCH', `${prospectPath(id)}/tracking`, { body: { ...patch, version } }),

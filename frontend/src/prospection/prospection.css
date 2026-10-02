@@ -223,6 +223,10 @@
 }
 
 .prospect-row__title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
   color: var(--color-text-muted);
 }
 
@@ -282,46 +286,8 @@
   }
 }
 
-/* Quick week planning (Contact port S2): the card's « Planifier » button and the week badge (its tooltip) sit above
-   the card-wide link. */
-.prospect-row__plan,
+/* The cohort badge's tooltip sits above the card-wide link. */
 .prospect-row__stage .badge--tag {
   position: relative;
   z-index: 1;
-}
-
-.prospect-row__plan {
-  margin-left: calc(-1 * var(--space-3));
-}
-
-.quick-plan {
-  display: grid;
-  gap: var(--space-3);
-}
-
-.quick-plan__status,
-.quick-plan__hint,
-.quick-plan__error {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-2);
-  font-size: var(--text-sm);
-  color: var(--color-text-muted);
-}
-
-.quick-plan__error {
-  color: var(--color-danger-fg);
-  font-weight: var(--weight-medium);
-}
-
-.quick-plan__status svg,
-.quick-plan__error svg {
-  flex: none;
-  margin-top: 0.125rem;
-}
-
-.quick-plan__actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--space-2);
 }

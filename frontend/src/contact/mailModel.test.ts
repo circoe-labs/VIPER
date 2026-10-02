@@ -22,7 +22,7 @@ const DEFAULTS = { from_email: 'prospection@exemple.example', to: ['jean@exemple
 
 function sequence(steps: Partial<Record<'contact' | 'r1' | 'r2', ReturnType<typeof message>>>): MessageSequence {
   return {
-    sequence: { prospect_id: 'p', state: 'contacted', do_not_contact: false, closed: false },
+    sequence: { prospect_id: 'p', state: 'neutral', do_not_contact: false, closed: false },
     defaults: DEFAULTS,
     steps: (['contact', 'r1', 'r2'] as const).map((step) => ({ step, message: steps[step] ?? null })),
   }
@@ -96,7 +96,7 @@ describe('mail actions by status', () => {
     expect(scheduled.lock).toContain('« Réponse reçue »')
     expect(mailActions(null, closed)).toMatchObject({ editable: false, save: null, cancel: false })
     expect(mailActions(message('r1', 'cancelled'), closed)).toMatchObject({ reopen: false })
-    expect(closedReason({ state: 'contacted', doNotContact: true, closed: true })).toContain('opposition')
+    expect(closedReason({ state: 'neutral', doNotContact: true, closed: true })).toContain('opposition')
     expect(closedReason(OPEN)).toBeNull()
   })
 })

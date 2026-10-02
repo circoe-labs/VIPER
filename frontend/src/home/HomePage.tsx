@@ -10,8 +10,10 @@ import { EmptyState } from '../ui/EmptyState'
 import {
   AlertIcon,
   BuildingIcon,
+  ClockIcon,
   type IconComponent,
   InfoIcon,
+  MailIcon,
   PlusIcon,
   SpinnerIcon,
   UploadIcon,
@@ -25,6 +27,8 @@ import './home.css'
 
 const NUMBER = new Intl.NumberFormat('fr-FR')
 // The API's business day (Europe/Paris) is a calendar date: formatted as such, whatever the browser's zone.
+// « 28 sept. », the Monday of the planning's calendar week (never written « S40 »: a Sxx is a cohort).
+const MONDAY = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short', timeZone: 'UTC' })
 const TODAY = new Intl.DateTimeFormat('fr-FR', {
   weekday: 'long',
   day: 'numeric',
@@ -114,6 +118,24 @@ function Overview({ data }: { data: HomeData }) {
   const contact = (['to_contact', 'due', 'contacted', 'no_response', 'responses', 'appointments'] as const).map(
     (segment) => segmentKpi(data, segment),
   )
+  const week = data.contact_week
+  const planning: Kpi[] = [
+    {
+      label: 'À envoyer cette semaine',
+      hint: 'Contacts et relances dus cette semaine, retards compris (page Contact).',
+      icon: MailIcon,
+      count: week.to_send,
+      href: '/contact',
+    },
+    {
+      label: 'En retard',
+      hint: 'Dus avant lundi de cette semaine et toujours pas envoyés.',
+      icon: ClockIcon,
+      count: week.overdue,
+      href: '/contact',
+      attention: true,
+    },
+  ]
   return (
     <>
       <section className="home-section" aria-labelledby="home-base-title">
@@ -134,6 +156,10 @@ function Overview({ data }: { data: HomeData }) {
           Activité de contact
         </h2>
         <KpiGroup id="home-kpi-contact" title="Suivi de contact" kpis={contact} />
+        <KpiGroup id="home-kpi-week" title={`Planning de la semaine du ${MONDAY.format(new Date(`${week.monday}T00:00:00Z`))}`} kpis={planning} />
+        <p className="home-section__note">
+          Le planning compte les Contacts et relances à envoyer cette semaine, retards compris, comme la page Contact.
+        </p>
       </section>
 
       <NextActions actions={data.next_actions} />
@@ -221,8 +247,8 @@ export function HomePage() {
 
       <p className="home__scope">
         <InfoIcon size={16} />
-        L’accueil ne montre que les données de VIPER : imports Excel et saisies manuelles. Les envois d’e-mails,
-        Calendly et les agents de prospection ne font pas partie de la V1.
+        L’accueil ne montre que les données de VIPER : imports Excel, saisies manuelles et envois déclarés. L’envoi
+        automatique des e-mails, Calendly et les agents de prospection ne font pas partie de la V1.
       </p>
     </div>
   )

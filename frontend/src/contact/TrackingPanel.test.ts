@@ -2,35 +2,11 @@ import { describe, expect, it } from 'vitest'
 
 import { savedNotice, trackingPlan } from './TrackingPanel'
 
-const S40 = { year: 2026, week: 40 }
-const S41 = { year: 2026, week: 41 }
-
 describe('tracking plan', () => {
-  it('sends only what changed', () => {
-    expect(trackingPlan({ status: 'neutral', week: S40 }, { status: 'neutral', week: undefined })).toEqual({
-      shownWeek: S40,
-      patch: {},
-      dirty: false,
-    })
-    expect(trackingPlan({ status: 'neutral', week: S40 }, { status: 'neutral', week: S41 }).patch).toEqual({ next_action_week: S41 })
-    expect(trackingPlan({ status: 'neutral', week: S40 }, { status: 'contacted', week: undefined }).patch).toEqual({ status: 'contacted' })
-  })
-
-  it('shows the week cleared by a week-clearing state, and keeps one chosen on purpose', () => {
-    const cleared = trackingPlan({ status: 'r1', week: S40 }, { status: 'failure', week: undefined })
-    expect(cleared).toEqual({ shownWeek: null, patch: { status: 'failure' }, dirty: true })
-    expect(trackingPlan({ status: 'r1', week: S40 }, { status: 'failure', week: S40 }).patch).toEqual({
-      status: 'failure',
-      next_action_week: S40,
-    })
-  })
-
-  it('never sends a week with « Ignoré »', () => {
-    expect(trackingPlan({ status: 'r2', week: S40 }, { status: 'ignored', week: S41 })).toEqual({
-      shownWeek: null,
-      patch: { status: 'ignored' },
-      dirty: true,
-    })
+  it('sends the state only when it changed — never a week (the next due date is derived)', () => {
+    expect(trackingPlan('neutral', 'neutral')).toEqual({ patch: null, dirty: false })
+    expect(trackingPlan('neutral', 'response_received')).toEqual({ patch: { status: 'response_received' }, dirty: true })
+    expect(trackingPlan('disqualified', 'neutral')).toEqual({ patch: { status: 'neutral' }, dirty: true })
   })
 })
 

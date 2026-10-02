@@ -8,8 +8,8 @@ describe('Contact criteria', () => {
   it('reads the URL, dropping anything malformed', () => {
     expect(parseView(new URLSearchParams(''))).toEqual(DEFAULT_VIEW)
     expect(
-      parseView(new URLSearchParams(`counter=follow_up&week=2026-W41&state=r1&q=fret&page=2&prospect=${ID}`)),
-    ).toEqual({ counter: 'follow_up', week: '2026-W41', state: 'r1', q: 'fret', page: 2, prospect: ID })
+      parseView(new URLSearchParams(`counter=follow_up&week=2026-W41&state=disqualified&q=fret&page=2&prospect=${ID}`)),
+    ).toEqual({ counter: 'follow_up', week: '2026-W41', state: 'disqualified', q: 'fret', page: 2, prospect: ID })
     expect(parseView(new URLSearchParams('counter=nope&week=41&state=ignored&page=-1&prospect=new'))).toEqual(DEFAULT_VIEW)
     expect(parseView(new URLSearchParams('week=all')).week).toBe('all')
   })
@@ -34,7 +34,7 @@ describe('Contact criteria', () => {
   })
 
   it('opens a counter on every week (the card equals its list), and closes it back to this week', () => {
-    expect(selectCounter({ ...DEFAULT_VIEW, state: 'r1' }, 'to_handle')).toEqual({ counter: 'to_handle', week: 'all', state: null, page: 1 })
+    expect(selectCounter({ ...DEFAULT_VIEW, state: 'response_received' }, 'to_handle')).toEqual({ counter: 'to_handle', week: 'all', state: null, page: 1 })
     expect(selectCounter({ ...DEFAULT_VIEW, counter: 'to_handle', week: 'all' }, 'to_handle')).toEqual({
       counter: null,
       week: 'current',
@@ -45,7 +45,7 @@ describe('Contact criteria', () => {
   it('counts every narrowing criterion as a filter', () => {
     expect(hasFilters(DEFAULT_VIEW)).toBe(false)
     expect(hasFilters({ ...DEFAULT_VIEW, week: 'all' })).toBe(true)
-    expect(hasFilters({ ...DEFAULT_VIEW, state: 'r2' })).toBe(true)
+    expect(hasFilters({ ...DEFAULT_VIEW, state: 'disqualified' })).toBe(true)
     expect(hasFilters({ ...DEFAULT_VIEW, q: 'x' })).toBe(true)
   })
 })

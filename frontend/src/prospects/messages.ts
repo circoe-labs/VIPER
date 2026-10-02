@@ -47,8 +47,12 @@ const FIELD_INVALID: Record<string, string> = {
   'provenance.legal_basis_or_collection_context.blank': 'Indiquez le contexte de collecte (ou la base légale).',
   'provenance.legal_basis_or_collection_context.length': 'Texte trop long (2 000 caractères au plus).',
   'provenance.source_reference.length': 'Texte trop long (2 000 caractères au plus).',
-  'next_action_week.iso_week': 'Cette semaine n’existe pas cette année-là (la semaine 53 n’existe que certaines années).',
-  'status.empty': 'Rien à enregistrer : choisissez un état ou une semaine.',
+  'next_action_week.derived': 'La prochaine échéance se calcule depuis la cohorte et les envois réels.',
+  'status.empty': 'Rien à enregistrer : choisissez un état.',
+  'sent_at.in_future': 'La date d’envoi ne peut pas être dans le futur.',
+  'sent_at.before_previous_send': 'La date d’envoi ne peut pas précéder l’envoi précédent de la séquence.',
+  'sent_at.time_zone': 'Date d’envoi invalide.',
+  'note.length': 'Précision trop longue.',
   'reason.blank': 'Indiquez le motif.',
   'reason.length': 'Motif trop long (2 000 caractères au plus).',
 }
@@ -106,15 +110,10 @@ export function prospectRefusal(error: unknown, indexes: AliasIndexes = { emails
         field: null,
         message: 'Ce prospect est « Ignoré » : c’est définitif, son état ne change plus et son opposition reste enregistrée.',
       }
-    case 'ignored_has_no_next_action':
-      return {
-        field: 'tracking.planned_contact_on',
-        message: 'Un prospect « Ignoré » n’a pas de prochaine action : effacez la semaine.',
-      }
     case 'human_actor_required':
       return {
         field: null,
-        message: 'Seule une personne connectée peut changer l’état de contact ou sa semaine (pas un agent).',
+        message: 'Seule une personne connectée peut changer l’état, la cohorte ou déclarer un envoi (pas un agent).',
       }
     case 'not_found':
       return { field: null, message: 'Ce prospect n’existe plus : il a peut-être été supprimé entre-temps.' }

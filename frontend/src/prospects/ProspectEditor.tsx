@@ -24,6 +24,8 @@ import {
   toInput,
   validate,
 } from './prospectForm'
+import { AlertsSection } from './AlertsSection'
+import { SequenceSection } from './SequenceSection'
 import { TrackingSection } from './TrackingSection'
 import './prospects.css'
 
@@ -51,6 +53,20 @@ function nextSession(): number {
 function loadedForms(prospect: Prospect, session = nextSession()): Forms {
   const draft = draftFromProspect(prospect)
   return { target: prospect.id, prospect, baseline: draft, draft, session }
+}
+
+// The prospect read again after an operation outside the form's save (cohort, send, « Défaillant », alert): its new
+// version and derived contact, and its saved commercial state in the baseline — kept in the draft unless the person
+// chose another one there.
+export function withServerProspect(forms: Forms, prospect: Prospect): Forms {
+  const saved = draftFromProspect(prospect).tracking
+  const keep = forms.draft.tracking.status !== forms.baseline.tracking.status
+  return {
+    ...forms,
+    prospect,
+    baseline: { ...forms.baseline, tracking: saved },
+    draft: keep ? forms.draft : { ...forms.draft, tracking: { ...forms.draft.tracking, status: saved.status } },
+  }
 }
 
 function newForms(defaults: NewProspectDefaults = {}): Forms {
@@ -217,6 +233,13 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
     }
   }
 
+  // After a « Séquence de contact » or alert operation: the prospect's new version, state and derived contact.
+  async function syncFromServer() {
+    const result = await loaded.refetch()
+    const data = result.data
+    if (data) setForms((current) => (current?.target === data.id ? withServerProspect(current, data) : current))
+  }
+
   async function reload() {
     const result = await loaded.refetch()
     if (result.data) setForms(loadedForms(result.data))
@@ -368,7 +391,13 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
               pendingChanges={dirty}
               onSubmit={setOpposition}
             />
-            <TrackingSection draft={draft} errors={shown} fieldId={fieldId} onChange={change} prospect={prospect} today={today} />
+            <TrackingSection draft={draft} errors={shown} fieldId={fieldId} onChange={change} prospect={prospect} />
+            {prospect && (
+              <>
+                <SequenceSection prospect={prospect} pendingChanges={dirty} onChanged={() => void syncFromServer()} />
+                <AlertsSection prospectId={prospect.id} onChanged={() => void syncFromServer()} />
+              </>
+            )}
             <CompanySection companyId={draft.company_id} />
             <ProvenanceSection draft={draft} errors={shown} fieldId={fieldId} onChange={change} prospect={prospect} />
             {prospect && <HistorySection prospectId={prospect.id} />}

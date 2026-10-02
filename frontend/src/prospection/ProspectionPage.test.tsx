@@ -2,7 +2,7 @@ import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
-import { taxonomyValue } from '../test/settingsApi'
+import { cohort, S0, taxonomyValue } from '../test/settingsApi'
 import { lastParams, prospect, stubProspectionApi } from '../test/prospectionApi'
 import { prospectDetail, stubProspectsApi } from '../test/prospectsApi'
 import { renderApp } from '../test/render'
@@ -31,8 +31,10 @@ function people() {
         email_state: 'invalid',
         primary_phone: '+33612345678',
         tracking_status: 'neutral',
-        planned_contact_at: '2026-09-06T22:00:00+00:00',
-        planned_contact_week: '2026-W37',
+        cohort_code: 'S37',
+        level: 'contact_pending',
+        next_step: 'contact',
+        next_due_at: '2026-09-06T22:00:00+00:00',
         due: true,
         referent_name: 'Camille Référente',
       },
@@ -52,9 +54,12 @@ function people() {
         employment_verified_at: '2026-08-01T10:00:00+00:00',
         primary_email: 'luc@demo.example',
         email_state: 'unverified',
-        tracking_status: 'r1',
-        planned_contact_at: '2027-01-03T23:00:00+00:00',
-        planned_contact_week: '2027-W01',
+        tracking_status: 'neutral',
+        cohort_code: 'S36',
+        sent_count: 2,
+        level: 'r1_sent',
+        next_step: 'r2',
+        next_due_at: '2026-09-13T22:00:00+00:00',
       },
       ['needs_recheck', 'email_unverified', 'contacted', 'no_response'],
     ),
@@ -175,25 +180,31 @@ describe('Prospection page', () => {
     expect(within(jean).getByText('Actif')).toBeInTheDocument()
     expect(within(jean).getByText('Vérifié le 1 sept. 2026')).toBeInTheDocument()
     expect(within(jean).getByText('Invalide')).toBeInTheDocument()
-    // Neutral with a week: the week badge only, no state badge (Contact decisions 4-5).
+    // « En séquence »: the cohort and the level, no state badge; due, so « Échu » with the step since when.
     expect(within(jean).getByText('S37')).toBeInTheDocument()
-    expect(within(jean).getByTitle('Semaine 37 de 2026, du lun. 7 sept.')).toBeInTheDocument()
-    expect(jean.textContent).not.toMatch(/État :|À contacter|Aucun état/)
+    expect(within(jean).getByText('Contact à envoyer')).toBeInTheDocument()
+    expect(jean.textContent).not.toMatch(/État :|Semaine|W37/)
     expect(within(jean).getByText('Échu')).toBeInTheDocument()
+    expect(jean).toHaveTextContent('Contact à envoyer depuis le 7 sept. 2026')
     expect(jean).toHaveTextContent('Référent : Camille Référente')
 
     expect(within(claire).getByText('Ne pas contacter')).toBeInTheDocument()
     expect(within(claire).getByText('Inactif')).toBeInTheDocument()
     expect(within(claire).getByText('Emploi jamais vérifié')).toBeInTheDocument()
-    expect(within(claire).getByText('Pas d’e-mail principal')).toBeInTheDocument()
-    expect(claire).toHaveTextContent('Aucun état · aucune semaine')
-    expect(claire).toHaveTextContent('Rôle non renseigné')
+    // D12: nothing stored, shown « À vérifier » (no e-mail, so the missing phone too).
+    expect(within(claire).getByText('E-mail : À vérifier')).toBeInTheDocument()
+    expect(within(claire).getByText('Téléphone : À vérifier')).toBeInTheDocument()
+    expect(within(claire).getByText('Fonction : À vérifier')).toBeInTheDocument()
+    expect(within(claire).getByText('Non validé')).toBeInTheDocument()
 
     expect(within(luc).getByText('Coordonnées à revérifier')).toBeInTheDocument()
     expect(within(luc).getByText('Non vérifié')).toBeInTheDocument()
-    // A state and a week of another year: both badges, the year written out.
-    expect(within(luc).getByText('R1')).toBeInTheDocument()
-    expect(within(luc).getByText('S01 · 2027')).toBeInTheDocument()
+    // The level reached by the real sends and the next step, not yet due.
+    expect(within(luc).getByText('R1 envoyée')).toBeInTheDocument()
+    expect(luc).toHaveTextContent('R2 à envoyer le 14 sept. 2026')
+    expect(luc).not.toHaveTextContent('Échu')
+    // An e-mail is another channel: the missing phone is not « À vérifier ».
+    expect(luc).not.toHaveTextContent('Téléphone : À vérifier')
     // Every status badge carries a glyph next to its text.
     for (const badge of [jean, claire, luc].flatMap((row) => [...row.querySelectorAll('.badge:not(.badge--tag)')])) {
       expect(badge.querySelector('svg')).not.toBeNull()
@@ -201,43 +212,68 @@ describe('Prospection page', () => {
     }
   })
 
-  it('flags a past next-action week of a follow-up as « Échu », display only', async () => {
-    // The fake's business day is 2026-09-10 (week 37).
+  it('says what takes a person out of the automatic actions: S0, Défaillant, Relance terminée, Erreur sur le mail', async () => {
     stubProspectionApi({
       prospects: [
-        prospect('Rémi', 'Retard', { tracking_status: 'r2', planned_contact_week: '2026-W30' }),
-        prospect('Alice', 'Alheure', { tracking_status: 'contacted', planned_contact_week: '2026-W38' }),
-        prospect('Fanny', 'Fermée', { tracking_status: 'failure', planned_contact_week: '2026-W30' }),
+        prospect('Odile', 'Horscampagne', { cohort_code: 'S0', level: 'contact_pending' }),
+        prospect('Denis', 'Defaillant', { cohort_code: 'S37', level: 'contact_sent', tracking_status: 'disqualified' }),
+        prospect('Fanny', 'Finie', { cohort_code: 'S37', level: 'finished', finished: true }),
+        prospect('Emma', 'Erreur', { cohort_code: 'S39', level: 'contact_sent', email_error: true }),
       ],
     })
     renderApp('/prospection?segment=all&q=')
     const rows = within(await screen.findByRole('list', { name: 'Prospects' })).getAllByRole('listitem')
+    const [odile, denis, fanny, emma] = rows as [HTMLElement, HTMLElement, HTMLElement, HTMLElement]
 
-    expect(rows[0]).toHaveTextContent('Échu')
-    expect(rows[1]).not.toHaveTextContent('Échu')
-    // Failure has no next action: its old week is not overdue.
-    expect(rows[2]).not.toHaveTextContent('Échu')
+    expect(odile).toHaveTextContent('S0 · hors campagne')
+    // S0 is not in a campaign: no level shown.
+    expect(odile).not.toHaveTextContent('Contact à envoyer')
+    expect(within(denis).getByText('Défaillant')).toBeInTheDocument()
+    expect(within(fanny).getByText('Relance terminée')).toBeInTheDocument()
+    expect(within(emma).getByText('Erreur sur le mail')).toBeInTheDocument()
   })
 
-  it('offers « Aucun état » as one state filter, covering people without any tracking', async () => {
+  it('filters on the commercial state, « En séquence » covering people without any tracking', async () => {
     const api = stubProspectionApi({ prospects: people() })
     renderApp('/prospection?segment=all&q=')
     await userEvent.click(await screen.findByRole('button', { name: /^Filtres/ }))
-    const filter = screen.getByRole('combobox', { name: 'État de contact' })
+    const filter = screen.getByRole('combobox', { name: 'État commercial' })
     expect(within(filter).getAllByRole('option').map((option) => option.textContent)).toEqual([
       'Tous les états',
-      'Aucun état',
-      'Contacté',
-      'R1',
-      'R2',
+      'En séquence',
       'Réponse reçue',
       'RDV pris',
-      'Failure',
       'Ignoré',
+      'Défaillant',
     ])
-    await userEvent.selectOptions(filter, 'Aucun état')
+    await userEvent.selectOptions(filter, 'Défaillant')
     await waitFor(() => {
-      expect(lastParams(api.requests, PROSPECTS).get('tracking_status')).toBe('neutral')
+      expect(lastParams(api.requests, PROSPECTS).get('tracking_status')).toBe('disqualified')
+    })
+  })
+
+  it('filters on a cohort of Paramètres, or on people without any (not validated)', async () => {
+    const s39 = cohort('S39', '2026-09-28')
+    const api = stubProspectionApi({ prospects: people(), cohorts: [S0, s39] })
+    renderApp('/prospection?segment=all&q=')
+    await userEvent.click(await screen.findByRole('button', { name: /^Filtres/ }))
+    const filter = screen.getByRole('combobox', { name: 'Cohorte' })
+    await waitFor(() => {
+      expect(within(filter).getAllByRole('option').map((option) => option.textContent)).toEqual([
+        'Toutes les cohortes',
+        'Sans cohorte (non validé)',
+        'S0 — hors campagne',
+        'S39 — 28 sept. 2026',
+      ])
+    })
+
+    await userEvent.selectOptions(filter, 'S39 — 28 sept. 2026')
+    await waitFor(() => {
+      expect(lastParams(api.requests, COUNTERS).get('cohort')).toBe(s39.id)
+    })
+    await userEvent.selectOptions(filter, 'Sans cohorte (non validé)')
+    await waitFor(() => {
+      expect(lastParams(api.requests, PROSPECTS).get('cohort')).toBe('none')
     })
   })
 
@@ -266,49 +302,6 @@ describe('Prospection page', () => {
     expect(router.state.location.pathname).toBe('/prospection')
     expect(new URLSearchParams(router.state.location.search).get('prospect')).toBe(rows[0]?.id)
     expect(screen.getByRole('heading', { level: 1, name: 'Prospection' })).toBeInTheDocument()
-  })
-
-  it('plans a week from the list without touching the state (PATCH), and says why a save is refused', async () => {
-    const rows = [
-      ...people(),
-      prospect('Ida', 'Ignorée', { tracking_status: 'ignored', contactability_status: 'do_not_contact' }),
-    ]
-    const api = stubProspectsApi({
-      rows,
-      details: rows.map((row) => prospectDetail({ id: row.id, first_name: row.first_name, last_name: row.last_name })),
-    })
-    renderApp('/prospection?segment=all&q=')
-    const prospects = await screen.findByRole('list', { name: 'Prospects' })
-    await within(prospects).findByRole('link', { name: 'Luc Fictif' })
-    // « Ignoré » has no next action: nothing to plan.
-    expect(within(prospects).queryByRole('button', { name: /la semaine de Ida Ignorée/ })).toBeNull()
-
-    await userEvent.click(within(prospects).getByRole('button', { name: 'Planifier la semaine de Claire Démo' }))
-    const popover = await screen.findByRole('dialog', { name: 'Prochaine semaine de Claire Démo' })
-    // Once the prospect is read, its first control has the focus.
-    await waitFor(() => {
-      expect(within(popover).getByRole('combobox', { name: 'Année' })).toHaveFocus()
-    })
-    await userEvent.click(await within(popover).findByRole('button', { name: '+2 semaines' }))
-    await userEvent.click(within(popover).getByRole('button', { name: 'Enregistrer S39' }))
-
-    await waitFor(() => {
-      expect(screen.queryByRole('dialog', { name: 'Prochaine semaine de Claire Démo' })).toBeNull()
-    })
-    const patch = api.requests.find((request) => request.method === 'PATCH')
-    expect(patch?.path).toBe(`/api/prospects/${rows[1]?.id ?? ''}/tracking`)
-    // The week only: no `status`, so the person stays neutral (handoff Task 06).
-    expect(patch?.body).toEqual({ version: 'v1', next_action_week: { year: 2026, week: 39 } })
-    expect(await screen.findByText('Semaine S39 enregistrée.')).toBeInTheDocument()
-
-    await userEvent.click(within(prospects).getByRole('button', { name: 'Replanifier la semaine de Luc Fictif' }))
-    const again = await screen.findByRole('dialog', { name: 'Prochaine semaine de Luc Fictif' })
-    await userEvent.click(await within(again).findByRole('button', { name: 'Cette semaine' }))
-    api.next.reply = [409, { code: 'ignored_has_no_next_action', message: 'An ignored prospect has no next action.' }]
-    await userEvent.click(within(again).getByRole('button', { name: 'Enregistrer S37' }))
-    expect(await within(again).findByRole('alert')).toHaveTextContent(
-      'Un prospect « Ignoré » n’a pas de prochaine action : effacez la semaine.',
-    )
   })
 
   it('hands the prospect, the list queue and navigation to the editor implementation', async () => {

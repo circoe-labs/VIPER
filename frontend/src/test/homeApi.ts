@@ -20,6 +20,7 @@ export function homeData(overrides: Partial<HomeData> = {}): HomeData {
         appointments: 0,
       })),
     },
+    contact_week: { week: '2026-W37', monday: '2026-09-07', to_send: 0, overdue: 0 },
     next_actions: {
       appointments: { total: 0, items: [] },
       due: { total: 0, items: [] },

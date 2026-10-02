@@ -1,37 +1,35 @@
 import { TRACKING_STATUSES, type TrackingStatus } from '../api/prospection'
 import type { Prospect } from '../api/prospects'
-import { isoWeekOf, weekMonday } from '../lib/isoWeek'
 import { formatDay, TRACKING_LABELS } from '../prospection/labels'
 import { ReferentSelect } from '../settings/selectors'
 import { SelectField, TextField } from '../ui/fields'
-import { BanIcon, InfoIcon } from '../ui/icons'
+import { BanIcon } from '../ui/icons'
 import type { SectionProps } from './EmploymentSections'
 import { EditorSection } from './EditorSection'
-import { type TrackingDraft, withStatus } from './prospectForm'
-import { cadenceSuggestion, WeekPlanner } from './WeekPlanner'
+import type { TrackingDraft } from './prospectForm'
 
-// What choosing a state implies, said before saving (backend contact_tracking rules, Contact decisions 7-13, 29).
+// What choosing a state implies, said before saving (backend contact_tracking rules, sequences rework D7).
 const STATE_HINTS: Partial<Record<TrackingStatus, string>> = {
-  response_received: 'La date de réponse est celle du jour si vous n’en indiquez pas.',
+  neutral: 'La séquence reprend là où elle s’était arrêtée (le niveau est conservé).',
+  response_received: 'Sort la séquence des actions automatiques. La date de réponse est celle du jour si vous n’en indiquez pas.',
   appointment_obtained: 'Fin de la séquence de contact : indiquez le référent qui prend le rendez-vous.',
-  failure: 'Séquence close sans réponse. Ce n’est pas une opposition.',
-  ignored: 'Définitif : le prospect passe en « Ne pas contacter » et n’aura plus de prochaine action.',
+  ignored: 'Définitif : le prospect passe en « Ne pas contacter » et n’aura plus d’envoi.',
 }
 
-// Which states clear the saved week at the save (the echo rule of the PUT, backend contact_tracking).
-const WEEK_NOTE =
-  'Réponse reçue, RDV pris et Failure retirent la semaine enregistrée, sauf si vous en choisissez une autre ; ' +
-  'Ignoré la retire toujours.'
+// « Défaillant » is never chosen here: it is a person's confirmed decision (Séquence de contact). Shown only while it is
+// the saved state, so the form can leave it.
+function offeredStates(saved: TrackingStatus | null): readonly TrackingStatus[] {
+  return TRACKING_STATUSES.filter((status) => status !== 'disqualified' || saved === 'disqualified')
+}
 
 interface TrackingSectionProps extends SectionProps {
   prospect: Prospect | null
-  today: string
 }
 
-// Suivi de contact: the Contact state (no badge while `neutral`), the next-action week — separate from the state —
-// with the cadence proposal, the response and appointment dates, and the Circoe referent asked for once an appointment
-// exists. Saved with the form; the status history is kept by the server.
-export function TrackingSection({ draft, errors, fieldId, onChange, prospect, today }: TrackingSectionProps) {
+// Suivi de contact: the commercial state (« En séquence » by default), the response and appointment dates and the
+// Circoe referent asked for once an appointment exists. Saved with the form; the status history is kept by the server.
+// The cohort, the level and the sends are in « Séquence de contact » (their own operations, never this save).
+export function TrackingSection({ draft, errors, fieldId, onChange, prospect }: TrackingSectionProps) {
   const tracking = draft.tracking
   const set = (patch: Partial<TrackingDraft>) => {
     onChange({ tracking: { ...tracking, ...patch } })
@@ -40,67 +38,43 @@ export function TrackingSection({ draft, errors, fieldId, onChange, prospect, to
   const appointment = tracking.appointment_on !== '' || tracking.status === 'appointment_obtained'
   const since = saved?.status === tracking.status ? saved.status_since : null
   const blocked = prospect?.contactability_status === 'do_not_contact'
-  // `ignored` is terminal once saved (decision 7): the state and the week stay as they are.
+  // `ignored` is terminal once saved: the state stays as it is.
   const terminal = saved?.status === 'ignored'
-  const ignored = tracking.status === 'ignored'
   const stateHint = terminal
     ? '« Ignoré » est définitif : l’état ne peut plus changer.'
     : [
         since && `Depuis le ${formatDay(since)}.`,
-        tracking.status !== saved?.status && tracking.status && STATE_HINTS[tracking.status],
+        tracking.status !== (saved?.status ?? '') && tracking.status && STATE_HINTS[tracking.status],
       ]
         .filter(Boolean)
         .join(' ') || undefined
   return (
     <EditorSection title="Suivi de contact">
-      {blocked && !ignored && (
+      {blocked && tracking.status !== 'ignored' && (
         <p className="prospect-editor__note prospect-editor__note--danger">
           <BanIcon size={16} />
-          Opposition enregistrée : ne planifiez pas de contact.
+          Opposition enregistrée : aucun envoi n’est possible.
         </p>
       )}
       <div className="prospect-editor__grid">
         <SelectField
           id={fieldId('tracking.status')}
-          label="État"
+          label="État commercial"
           value={tracking.status}
           hint={stateHint}
           error={errors['tracking.status']}
           disabled={terminal}
           onChange={(event) => {
-            onChange({
-              tracking: withStatus(
-                tracking,
-                event.target.value as TrackingStatus | '',
-                saved?.planned_contact_on ?? null,
-              ),
-            })
+            set({ status: event.target.value as TrackingStatus | '' })
           }}
         >
           {!saved && <option value="">Aucun suivi</option>}
-          {TRACKING_STATUSES.map((status) => (
+          {offeredStates(saved?.status ?? null).map((status) => (
             <option key={status} value={status}>
               {TRACKING_LABELS[status]}
             </option>
           ))}
         </SelectField>
-        {ignored ? (
-          <p className="prospect-editor__note" id={fieldId('tracking.planned_contact_on')}>
-            <InfoIcon size={16} />
-            Prospect ignoré : aucune prochaine action ne peut être planifiée.
-          </p>
-        ) : (
-          <WeekPlanner
-            idPrefix={fieldId('tracking.planned_contact_on')}
-            value={isoWeekOf(tracking.planned_contact_on)}
-            today={today}
-            suggestion={cadenceSuggestion(prospect?.tracking ?? null, tracking.status)}
-            note={WEEK_NOTE}
-            onChange={(week) => {
-              set({ planned_contact_on: week ? weekMonday(week) : '' })
-            }}
-          />
-        )}
         <TextField
           id={fieldId('tracking.response_received_on')}
           type="date"

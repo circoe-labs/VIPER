@@ -4,7 +4,8 @@ import { foldText } from '../lib/text'
 import { ApiError, apiGet, apiRequest } from './client'
 import { refreshAfterWrite } from './refresh'
 
-// Mirrors backend/app/api/routes/settings.py: administrable taxonomies and Circoe internal referents (Task 06).
+// Mirrors backend/app/api/routes/settings.py: administrable taxonomies and Circoe internal referents (Task 06), the
+// cohorts `Sxx` and « max relances » (sequences rework D2, D5).
 
 export type TaxonomyKind = 'roles' | 'activity-categories' | 'commercial-segments'
 
@@ -33,6 +34,26 @@ export interface Referent {
   updated_at: string
 }
 
+// A prospecting session `Sxx` and its real start date (never an ISO week); `S0`: validated, out of campaign, fixed.
+export interface Cohort {
+  id: string
+  code: string
+  starts_on: string | null
+  out_of_campaign: boolean
+  // Created by the migration from a former week: its date is to be confirmed by a person.
+  needs_review: boolean
+  // Prospects whose current sequence is in the cohort, and every sequence ever in it (deletable when 0).
+  current_count: number
+  sequence_count: number
+}
+
+export interface ContactSettings {
+  // After R<max> is sent, the prospect is « Relance terminée » (0 … 20, 4 by default).
+  max_follow_ups: number
+}
+
+export const MAX_FOLLOW_UPS_LIMIT = 20
+
 export interface ReferentInput {
   first_name: string
   last_name: string
@@ -55,6 +76,7 @@ export const ALL_VALUES: ListFilters = { search: '', active: 'all' }
 export interface SettingsRefusal {
   // Codes of backend/app/api/errors.py; the last three are the Contact tracking rules (prospects only).
   code:
+    | 'cohort_s0_fixed'
     | 'duplicate'
     | 'in_use'
     | 'invalid'
@@ -62,7 +84,6 @@ export interface SettingsRefusal {
     | 'conflict'
     | 'do_not_contact'
     | 'ignored_is_terminal'
-    | 'ignored_has_no_next_action'
     | 'human_actor_required'
   field?: string
   // Why an `invalid` field was refused when it can fail in several ways (`format`, `checksum`, `webmail`…).
@@ -80,6 +101,8 @@ export function settingsRefusal(error: unknown): SettingsRefusal | null {
 
 export const settingsKeys = {
   all: ['settings'] as const,
+  cohorts: ['settings', 'cohorts'] as const,
+  contact: ['settings', 'contact'] as const,
   list: (resource: TaxonomyKind | 'referents') => ['settings', resource] as const,
   filtered: (resource: TaxonomyKind | 'referents', filters: ListFilters) => ['settings', resource, filters] as const,
 }
@@ -188,4 +211,56 @@ export function useReferentMutations() {
       onSuccess: refresh,
     }),
   }
+}
+
+// S0 first, then by start date and code (backend order).
+export function useCohorts() {
+  return useQuery({
+    queryKey: settingsKeys.cohorts,
+    queryFn: ({ signal }) => apiGet<Cohort[]>('/settings/cohorts', signal),
+  })
+}
+
+export function useContactSettings() {
+  return useQuery({
+    queryKey: settingsKeys.contact,
+    queryFn: ({ signal }) => apiGet<ContactSettings>('/settings/contact', signal),
+  })
+}
+
+// Cohort writes refresh the cohort list (and the pickers reading it); a re-dated cohort moves every due date it holds,
+// so the planning readers (Prospection, Contact, Home, the open prospects' sequences) are read again.
+export function useCohortMutations() {
+  const queryClient = useQueryClient()
+  const refresh = () =>
+    refreshAfterWrite(queryClient, [settingsKeys.cohorts, ['prospection'], ['contact'], ['home'], ['sequences']])
+  const cohortPath = (id: string): `/${string}` => `/settings/cohorts/${encodeURIComponent(id)}`
+  return {
+    create: useMutation({
+      mutationFn: (input: { code: string; starts_on: string }) =>
+        apiRequest<Cohort>('POST', '/settings/cohorts', { body: input }),
+      onSettled: refresh,
+    }),
+    update: useMutation({
+      mutationFn: ({ id, ...input }: { id: string; code?: string; starts_on?: string }) =>
+        apiRequest<Cohort>('PATCH', cohortPath(id), { body: input }),
+      onSuccess: refresh,
+    }),
+    remove: useMutation({
+      mutationFn: (id: string) => apiRequest<undefined>('DELETE', cohortPath(id)),
+      onSuccess: refresh,
+    }),
+  }
+}
+
+export function useContactSettingsMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: ContactSettings) => apiRequest<ContactSettings>('PUT', '/settings/contact', { body: input }),
+    onSuccess: (saved) => {
+      queryClient.setQueryData(settingsKeys.contact, saved)
+      // The maximum decides « Relance terminée » and the ranks offered everywhere.
+      void refreshAfterWrite(queryClient, [settingsKeys.contact, ['prospection'], ['contact'], ['home'], ['sequences']])
+    },
+  })
 }
