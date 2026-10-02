@@ -2,13 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 
 import { type Integrations, useIntegrations } from '../api/integrations'
-import { type ToolboxCallback, type ToolboxStatus, useToolboxMutations, useToolboxStatus } from '../api/toolbox'
+import { type ToolboxCallback, type ToolboxStatus, useToolboxMutations, useToolboxStatus, useToolboxTools } from '../api/toolbox'
 import { formatDateTime } from '../contact/labels'
 import { leaveFor } from '../lib/browser'
 import { useElapsed } from '../lib/useElapsed'
 import { Button } from '../ui/Button'
 import { Modal } from '../ui/Dialog'
-import { AlertIcon, LinkIcon, LogOutIcon, RefreshIcon, SpinnerIcon } from '../ui/icons'
+import { AlertIcon, ArrowLeftIcon, LinkIcon, LogOutIcon, RefreshIcon, SpinnerIcon, TerminalIcon } from '../ui/icons'
 import { DispatchCard, IntegrationCard, OpenAICard, SenderCard, ToolboxAdvanced } from './IntegrationCards'
 import { type Feedback, FeedbackBanner } from './shared'
 import { LIMITATIONS, STATE_BADGES, stateSentence, toolboxErrorLabel, toolboxFailure } from './toolboxCopy'
@@ -164,6 +164,7 @@ export function ConnectionsSection() {
               onForget={() => {
                 setForgetting(true)
               }}
+              onRefresh={() => status.refetch()}
             />
           )}
           <DispatchCard data={integrations.data} status={status.data} />
@@ -249,10 +250,66 @@ interface ToolboxCardProps {
   busy: boolean
   onConnect: () => void
   onForget: () => void
+  onRefresh: () => Promise<unknown>
 }
 
-function ToolboxCard({ status, integrations, redirecting, redirectingFor, busy, onConnect, onForget }: ToolboxCardProps) {
+// The back of the card: the MCP methods the Toolbox allows this connection, in a scrollable list.
+function ToolboxMethods({ tools }: { tools: ReturnType<typeof useToolboxTools> }) {
+  if (tools.isPending) {
+    return (
+      <p className="settings-state" role="status">
+        <SpinnerIcon size={18} className="settings-connection__spinner" />
+        Lecture des méthodes de la Toolbox…
+      </p>
+    )
+  }
+  if (tools.isError) {
+    return (
+      <p className="settings-connection__error" role="alert">
+        <AlertIcon size={16} />
+        Méthodes indisponibles : {toolboxFailure(tools.error)}.
+      </p>
+    )
+  }
+  return (
+    <>
+      <p className="settings-connection__note">
+        {tools.data.length === 1 ? '1 méthode autorisée' : `${String(tools.data.length)} méthodes autorisées`} pour cette
+        connexion.
+      </p>
+      <ul className="settings-connection__methods" tabIndex={0} aria-label="Méthodes MCP autorisées">
+        {tools.data.map((tool) => (
+          <li key={tool.name}>
+            <span className="settings-connection__mono">{tool.name}</span>
+            {tool.title && <strong>{tool.title}</strong>}
+            {tool.description && <span className="settings-connection__note">{tool.description}</span>}
+          </li>
+        ))}
+      </ul>
+    </>
+  )
+}
+
+function ToolboxCard({ status, integrations, redirecting, redirectingFor, busy, onConnect, onForget, onRefresh }: ToolboxCardProps) {
   const linked = status.state === 'connected' || status.state === 'expired'
+  const [flipped, setFlipped] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+  const showMethods = flipped && linked
+  const tools = useToolboxTools(showMethods)
+  const { refetch: refetchTools } = tools
+
+  // « Actualiser »: reads the state again and, when the methods are shown, asks the Toolbox for them again (they may
+  // have changed on its side). A refused token is marked by the server: the state read afterwards shows it.
+  async function refresh() {
+    setRefreshing(true)
+    try {
+      if (showMethods) await refetchTools()
+      await onRefresh()
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
   return (
     <IntegrationCard
       id="settings-connection-toolbox"
@@ -264,7 +321,9 @@ function ToolboxCard({ status, integrations, redirecting, redirectingFor, busy, 
 
       <p className="settings-connection__sentence">{stateSentence(status)}</p>
 
-      {linked && (
+      {showMethods && <ToolboxMethods tools={tools} />}
+
+      {!showMethods && linked && (
         <dl className="settings-connection__facts">
           {status.connected_by && (
             <div>
@@ -293,14 +352,14 @@ function ToolboxCard({ status, integrations, redirecting, redirectingFor, busy, 
         </dl>
       )}
 
-      {status.last_error && (
+      {!showMethods && status.last_error && (
         <p className="settings-connection__error" role="note">
           <AlertIcon size={16} />
           Dernier échec ({formatDateTime(status.last_error.at)}) : {toolboxErrorLabel(status.last_error.code)}.
         </p>
       )}
 
-      {status.cleanups.pending > 0 && (
+      {!showMethods && status.cleanups.pending > 0 && (
         <p className="settings-connection__note">
           {status.cleanups.pending === 1
             ? '1 brouillon obsolète en attente de suppression dans Infomaniak'
@@ -310,15 +369,34 @@ function ToolboxCard({ status, integrations, redirecting, redirectingFor, busy, 
         </p>
       )}
 
-      <ul className="settings-connection__limits">
-        {LIMITATIONS.map((line) => (
-          <li key={line}>{line}</li>
-        ))}
-      </ul>
+      {!showMethods && (
+        <>
+          <ul className="settings-connection__limits">
+            {LIMITATIONS.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
 
-      <ToolboxAdvanced data={integrations} open={status.state === 'not_configured'} linked={linked} />
+          <ToolboxAdvanced data={integrations} open={status.state === 'not_configured'} linked={linked} />
+        </>
+      )}
 
       <div className="settings-connection__actions">
+        {linked && (
+          <Button
+            variant="ghost"
+            icon={showMethods ? ArrowLeftIcon : TerminalIcon}
+            aria-pressed={showMethods}
+            onClick={() => {
+              setFlipped(!showMethods)
+            }}
+          >
+            {showMethods ? 'Retour à la connexion' : 'Méthodes autorisées'}
+          </Button>
+        )}
+        <Button variant="ghost" icon={RefreshIcon} loading={refreshing} disabled={busy || redirecting} onClick={() => void refresh()}>
+          Actualiser
+        </Button>
         {linked && (
           <Button variant="ghost" icon={LogOutIcon} disabled={busy || redirecting} onClick={onForget}>
             Se déconnecter…

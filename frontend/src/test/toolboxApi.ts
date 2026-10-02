@@ -41,7 +41,14 @@ interface ToolboxStubOptions {
   callbackRefusal?: string
   // A refusal code answered by `POST …/connect`.
   connectRefusal?: string
+  // A refusal code answered by `GET …/tools`.
+  toolsRefusal?: string
 }
+
+export const TOOLS = [
+  { name: 'infomaniak.mail.create_draft', title: null, description: 'Crée un brouillon.' },
+  { name: 'infomaniak.mail.list_drafts', title: 'Brouillons', description: '' },
+]
 
 function json(status: number, body: unknown): Promise<Response> {
   return Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }))
@@ -58,6 +65,11 @@ export function stubToolboxApi(options: ToolboxStubOptions = {}) {
     if (!url.pathname.startsWith('/api/settings/toolbox')) return previous(input, init)
     const action = url.pathname.slice('/api/settings/toolbox'.length)
     if (method === 'GET' && action === '') return json(200, state.status)
+    if (method === 'GET' && action === '/tools') {
+      return options.toolsRefusal
+        ? json(502, { detail: { code: options.toolsRefusal, message: options.toolsRefusal } })
+        : json(200, { tools: TOOLS })
+    }
     if (method === 'POST' && action === '/connect') {
       connects.push(JSON.parse(typeof init?.body === 'string' ? init.body : 'null'))
       return options.connectRefusal

@@ -248,6 +248,13 @@ class FakeToolbox:
                 "capabilities": {"tools": {}},
                 "serverInfo": {"name": "fake-toolbox", "version": "0"},
             }
+        elif message["method"] == "tools/list":
+            result = {
+                "tools": [
+                    {"name": "infomaniak.mail.create_draft", "description": "Crée un brouillon."},
+                    {"name": "infomaniak.mail.list_drafts", "title": "Brouillons"},
+                ]
+            }
         elif message["method"] == "tools/call":
             name = params.get("name", "")
             if self.mode.hang_tool == name:

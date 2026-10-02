@@ -26,6 +26,38 @@ afterEach(() => {
 })
 
 describe('Paramètres › Connexions', () => {
+  it('flips the card to the allowed MCP methods and refreshes them', async () => {
+    const { fetchMock } = stub({ status: CONNECTED })
+    const user = userEvent.setup()
+    renderApp('/settings/connections')
+
+    await user.click(await within(panel()).findByRole('button', { name: 'Méthodes autorisées' }))
+    const list = await within(card()).findByRole('list', { name: 'Méthodes MCP autorisées' })
+    expect(list).toHaveTextContent('infomaniak.mail.create_draft')
+    expect(list).toHaveTextContent('Brouillons')
+    expect(card()).toHaveTextContent('2 méthodes autorisées')
+    expect(card()).not.toHaveTextContent('30 jours')
+
+    const toolCalls = () => fetchMock.mock.calls.filter(([url]) => (url as string).endsWith('/settings/toolbox/tools')).length
+    const before = toolCalls()
+    await user.click(within(card()).getByRole('button', { name: 'Actualiser' }))
+    await waitFor(() => {
+      expect(toolCalls()).toBe(before + 1)
+    })
+
+    await user.click(within(card()).getByRole('button', { name: 'Retour à la connexion' }))
+    expect(card()).toHaveTextContent('30 jours')
+  })
+
+  it('says why the methods cannot be read', async () => {
+    stub({ status: CONNECTED, toolsRefusal: 'toolbox_unavailable' })
+    const user = userEvent.setup()
+    renderApp('/settings/connections')
+
+    await user.click(await within(panel()).findByRole('button', { name: 'Méthodes autorisées' }))
+    expect(await within(card()).findByRole('alert')).toHaveTextContent('la Toolbox ne répond pas')
+  })
+
   it('is the fifth section and offers to connect from a fresh install', async () => {
     stub({ status: toolboxStatus({ enabled: false, configured: false, state: 'disabled', toolbox_origin: null }) })
     renderApp('/settings/connections')

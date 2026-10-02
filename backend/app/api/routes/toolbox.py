@@ -3,6 +3,7 @@
 Session-protected like every feature route (CSRF on POST). No route returns or accepts a token.
 
 - `GET  /settings/toolbox`           the connection state for Settings > Connexions;
+- `GET  /settings/toolbox/tools`     the MCP methods the connection allows (live `tools/list`);
 - `POST /settings/toolbox/connect`   « Se connecter à CIRCOE Toolbox »: turns the integration
                                      on and records the page's return address `{redirect_uri}`
                                      when needed (S8), then starts the OAuth flow:
@@ -121,6 +122,16 @@ class ToolboxStatusOut(BaseModel):
     dispatch: DispatchOut
 
 
+class ToolOut(BaseModel):
+    name: str
+    title: str | None
+    description: str
+
+
+class ToolsOut(BaseModel):
+    tools: list[ToolOut]
+
+
 class ConnectOut(BaseModel):
     authorization_url: str
 
@@ -176,6 +187,16 @@ def toolbox_status(
     integration: ToolboxDep, session: SessionDep, dispatcher: DispatcherDep, claim_ttl: ClaimTtlDep
 ) -> ToolboxStatusOut:
     return status_out(integration, session, dispatcher, claim_ttl)
+
+
+@router.get("/tools")
+def toolbox_tools(integration: ToolboxDep) -> ToolsOut:
+    """The MCP methods the Toolbox allows this connection, read live (also checks the link)."""
+    with business_errors():
+        tools = integration.list_tools()
+    return ToolsOut(
+        tools=[ToolOut(name=t.name, title=t.title, description=t.description) for t in tools]
+    )
 
 
 class ConnectIn(BaseModel):

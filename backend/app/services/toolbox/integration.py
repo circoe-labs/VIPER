@@ -26,7 +26,7 @@ from app.core.actor import ActorContext
 from app.core.config import Settings
 from app.services.errors import ToolboxError
 from app.services.toolbox.errors import toolbox_error
-from app.services.toolbox.mcp_client import MailToolbox, McpMailToolbox
+from app.services.toolbox.mcp_client import MailToolbox, McpMailToolbox, ToolInfo
 from app.services.toolbox.oauth import AuthStatus, ToolboxAuth, forget_token
 from app.services.toolbox.token_store import FileTokenStore, LastError, TokenStore
 
@@ -178,3 +178,9 @@ class ToolboxIntegration:
                 "The Toolbox is not connected: connect it from Settings > Connexions.",
             )
         return client
+
+    def list_tools(self) -> list[ToolInfo]:
+        """The MCP methods the connected Toolbox allows (live `tools/list`)."""
+        self.required_mail_toolbox()
+        assert self._client is not None
+        return self._client.list_tools()

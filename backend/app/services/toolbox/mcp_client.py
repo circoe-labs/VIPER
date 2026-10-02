@@ -91,6 +91,13 @@ class SendResult:
     cancel_resource: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class ToolInfo:
+    name: str
+    title: str | None
+    description: str
+
+
 class MailToolbox(Protocol):
     """The mail operations VIPER needs. Tests inject a fake or the MCP client over a fake
     transport."""
@@ -293,8 +300,8 @@ class McpMailToolbox:
         self,
         client: httpx2.Client,
         token: str,
-        tool: str,
-        arguments: dict[str, Any],
+        method: str,
+        params: dict[str, Any],
         deadline: float,
         sensitive: bool,
     ) -> object:
@@ -322,16 +329,17 @@ class McpMailToolbox:
         call, _ = self._rpc(
             client,
             session,
-            "tools/call",
-            {"name": tool, "arguments": arguments},
+            method,
+            params,
             deadline,
             sensitive,
         )
         return call
 
-    def _call(
-        self, tool: str, arguments: dict[str, Any], *, sensitive: bool = False
-    ) -> dict[str, Any]:
+    def _exchange(
+        self, method: str, params: dict[str, Any], *, sensitive: bool = False
+    ) -> tuple[object, str]:
+        """One operation: `initialize`, then `method`; one token refresh on a 401."""
         token = self._tokens.access_token()
         if token is None:
             raise toolbox_error(
@@ -342,7 +350,7 @@ class McpMailToolbox:
         deadline = started + self._timeout
         with httpx2.Client(transport=self._transport, trust_env=False) as client:
             try:
-                raw = self._call_once(client, token, tool, arguments, deadline, sensitive)
+                raw = self._call_once(client, token, method, params, deadline, sensitive)
             except ToolboxError as error:
                 if error.code != "toolbox_auth_expired" or error.upstream_status is None:
                     raise
@@ -350,9 +358,17 @@ class McpMailToolbox:
                 if refreshed is None:
                     raise
                 token = refreshed
-                raw = self._call_once(client, refreshed, tool, arguments, deadline, sensitive)
+                raw = self._call_once(client, refreshed, method, params, deadline, sensitive)
         logger.info(
-            "toolbox.call tool=%s duration_ms=%s", tool, round((self._clock() - started) * 1000)
+            "toolbox.call method=%s duration_ms=%s", method, round((self._clock() - started) * 1000)
+        )
+        return raw, token
+
+    def _call(
+        self, tool: str, arguments: dict[str, Any], *, sensitive: bool = False
+    ) -> dict[str, Any]:
+        raw, token = self._exchange(
+            "tools/call", {"name": tool, "arguments": arguments}, sensitive=sensitive
         )
         try:
             return self._tool_result(raw, sensitive)
@@ -397,6 +413,26 @@ class McpMailToolbox:
             "The Toolbox tool result is not JSON.",
             outcome_unknown=sensitive,
         )
+
+    def list_tools(self) -> list[ToolInfo]:
+        """The MCP tools the Toolbox offers this connection (`tools/list`, first page)."""
+        raw, _ = self._exchange("tools/list", {})
+        tools = raw.get("tools") if isinstance(raw, dict) else None
+        if not isinstance(tools, list):
+            raise toolbox_error("toolbox_invalid_response", "The Toolbox tool list is unreadable.")
+        infos = []
+        for item in tools:
+            if not isinstance(item, dict) or not isinstance(item.get("name"), str):
+                continue
+            title, description = item.get("title"), item.get("description")
+            infos.append(
+                ToolInfo(
+                    name=item["name"],
+                    title=title if isinstance(title, str) else None,
+                    description=description if isinstance(description, str) else "",
+                )
+            )
+        return infos
 
     # --- the tools ---
 

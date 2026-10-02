@@ -378,6 +378,24 @@ tr[data-inactive] .settings-table__label {
   font-size: var(--text-sm);
 }
 
+/* The back of the Toolbox card: the allowed MCP methods, scrollable. */
+.settings-connection__methods {
+  display: grid;
+  gap: var(--space-3);
+  max-height: 20rem;
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  overflow-y: auto;
+  list-style: none;
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.settings-connection__methods li {
+  display: grid;
+  gap: var(--space-1);
+}
+
 .settings-connection__actions {
   display: flex;
   flex-wrap: wrap;

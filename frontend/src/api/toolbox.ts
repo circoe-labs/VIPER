@@ -45,7 +45,14 @@ export interface ToolboxCallback {
   error: string
 }
 
-export const toolboxKeys = { status: ['toolbox', 'status'] as const }
+// One MCP method the Toolbox allows this connection (`tools/list`).
+export interface ToolboxTool {
+  name: string
+  title: string | null
+  description: string
+}
+
+export const toolboxKeys = { status: ['toolbox', 'status'] as const, tools: ['toolbox', 'tools'] as const }
 
 // The browser gives up after this long on a connection call (the server bounds each Toolbox request, 20 s by default;
 // starting a connection makes up to four of them).
@@ -64,6 +71,17 @@ export function useToolboxStatus() {
   return useQuery({
     queryKey: toolboxKeys.status,
     queryFn: ({ signal }) => apiGet<ToolboxStatus>('/settings/toolbox', signal),
+  })
+}
+
+// The allowed MCP methods, read live from the Toolbox (it also proves the connection works). Only on demand.
+export function useToolboxTools(enabled: boolean) {
+  return useQuery({
+    queryKey: toolboxKeys.tools,
+    queryFn: ({ signal }) => apiGet<{ tools: ToolboxTool[] }>('/settings/toolbox/tools', signal).then((answer) => answer.tools),
+    enabled,
+    retry: false,
+    staleTime: 0,
   })
 }
 

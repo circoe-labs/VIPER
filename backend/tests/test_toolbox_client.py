@@ -286,6 +286,18 @@ def mail(fake: FakeToolbox, clock: Clock) -> McpMailToolbox:
     return client(auth, fake)
 
 
+def test_list_tools(fake: FakeToolbox, mail: McpMailToolbox) -> None:
+    tools = mail.list_tools()
+
+    assert [t.name for t in tools] == [
+        "infomaniak.mail.create_draft",
+        "infomaniak.mail.list_drafts",
+    ]
+    assert tools[0].description == "Crée un brouillon."
+    assert tools[1].title == "Brouillons"
+    assert fake.calls[-1][0] == "tools/list"
+
+
 def test_the_draft_tools(fake: FakeToolbox, mail: McpMailToolbox) -> None:
     draft_id = mail.create_draft(
         DraftInput(to=["jean@exemple.example"], cc=["c@exemple.example"], subject="S", text="T")
