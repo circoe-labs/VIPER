@@ -160,11 +160,18 @@ The Toolbox has no revocation endpoint: the deleted token expires by itself at i
 - Tokens are excluded from `repr`, never logged, never returned by an API (no route accepts or returns one), never
   sent to the browser.
 
+The Toolbox card (S9, Human request) has two more buttons when the connection exists. **Méthodes autorisées** flips the
+card's body to the allowed MCP methods (name in mono, title, description; a scrollable list, `max-height: 20rem`,
+*N méthodes autorisées pour cette connexion*, `aria-pressed`), **Retour à la connexion** flips back. **Actualiser**
+(always shown) reads the state again and, with the methods shown, asks the Toolbox for them again (it may have changed
+on its side); it does not renew the token. A failed read shows *Méthodes indisponibles : <reason>* in the card.
+
 ## API — `/api/settings/toolbox` (session + CSRF, `api_router`; registered before `/settings/{taxonomy}`)
 
 | Method & path | Body | Answer |
 |---|---|---|
 | `GET /settings/toolbox` | — | `ToolboxStatus` |
+| `GET /settings/toolbox/tools` | — | `{tools: [{name, title, description}]}` — the MCP methods the connection allows, read live (`tools/list`, first page; also proves the link works). 503/502/504 `toolbox_*` as elsewhere |
 | `POST /settings/toolbox/connect` | `{redirect_uri?}` — the page's own `/settings/connections` address (S8) | `{authorization_url}`; first turns the integration on and saves the return address (`auto`: replaced by a later connection from another address, unless one was typed in *Paramètres avancés* or the environment sets it; same https/loopback rule, else 422 `invalid` field `toolbox_oauth_redirect_uri`) |
 | `POST /settings/toolbox/callback` | `{state, code, iss, error}` (strings; unknown fields ignored) | `ToolboxStatus` |
 | `POST /settings/toolbox/forget` | — | `ToolboxStatus` — *Se déconnecter* (S8): forgets the token **and** turns the integration off (workers stopped) |

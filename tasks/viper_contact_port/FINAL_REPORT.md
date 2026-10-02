@@ -415,3 +415,17 @@ isolées : projets `toolbox` 4/4, `contact-flow` 2/2, `connections` 2/2 ; `acces
 `--workers=3` : une première relance a échoué sur les 3 premiers tests, lancés à froid pendant que le backend
 signalait `Database health check failed`, puis **22/22** à la relance suivante. Instabilité de démarrage sous charge,
 sans lien avec S8.
+
+## S9 — Envoi programmé actif par défaut, avertissements, méthodes de la Toolbox (2026-10-02)
+
+- **Bug Humain** : un mail programmé la veille n'était jamais parti (Toolbox connectée, mais fréquence « Désactivé »
+  par défaut en S8, et rien ne le disait). Décision **C-29** : l'envoi tourne toutes les 30 s dès que la Toolbox est
+  connectée, un seul interrupteur remplace le choix de fréquence, et tout écran dit pourquoi un message
+  *ne partira pas* (bandeau Contact, badge dans l'éditeur, confirmation *Programmer quand même*, carte Réglages).
+  Un message bloqué depuis plus de 6 h repasse en « Validé » (`dispatch_overdue`), jamais envoyé en retard.
+- **Demande Humaine** : la carte CIRCOE Toolbox a un bouton **Méthodes autorisées** (liste défilante des méthodes MCP,
+  `GET /api/settings/toolbox/tools` = `tools/list` en direct) et un bouton **Actualiser**.
+- **Gate** : ruff, mypy, pytest, tsc, eslint verts ; vitest 810/810 (65 fichiers). Playwright non relancé après S9
+  ni après les deux boutons ; la vraie Toolbox n'a pas été appelée (faux serveur seulement). Le message resté bloqué
+  repasse en « Validé » au premier passage : il faut le reprogrammer.
+

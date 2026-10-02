@@ -307,7 +307,7 @@ OAuth and token storage: [`settings-connections.md`](settings-connections.md).
 | `app/services/toolbox/integration.py` | the per-process integration (`app.state.toolbox`): settings, state, `mail_toolbox()` |
 | `app/services/toolbox/worker.py` | the cleanup worker thread of the API process |
 | `app/services/contact_remote_drafts.py` | queueing, creation after validation, the deletion queue pass |
-| `app/api/routes/toolbox.py` | `/api/settings/toolbox` (status, connect, callback, forget) |
+| `app/api/routes/toolbox.py` | `/api/settings/toolbox` (status, tools, connect, callback, forget) |
 
 ### Lifecycle of a remote draft
 
