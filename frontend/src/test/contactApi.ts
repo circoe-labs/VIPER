@@ -114,12 +114,14 @@ function refusal(status: number, code: string, extra: object = {}): Promise<Resp
   return json(status, { detail: { code, message: code, ...extra } })
 }
 
-const COUNTER_STATES: Record<ContactCounter, string[]> = {
-  to_handle: ['neutral', 'contacted', 'r1', 'r2'],
-  first_contact: ['neutral'],
-  follow_up: ['contacted', 'r1'],
-  review: ['r2'],
-  appointments: ['appointment_obtained'],
+// What each counter counts. The commercial state no longer tells the level (`neutral` covers every send): the counters
+// follow what the next action prepares, as the backend derives it from the real sends.
+const COUNTER_MATCHES: Record<ContactCounter, (row: ContactRow) => boolean> = {
+  to_handle: (row) => row.due,
+  first_contact: (row) => row.due && row.next_step === 'contact',
+  follow_up: (row) => row.due && (row.next_step === 'r1' || row.next_step === 'r2'),
+  review: (row) => row.due && row.next_step === 'review',
+  appointments: (row) => row.tracking_status === 'appointment_obtained',
 }
 
 export function stubContactApi(options: ContactStubOptions = {}) {
@@ -287,7 +289,7 @@ export function stubContactApi(options: ContactStubOptions = {}) {
     const week = url.searchParams.get('week')
     return rows.filter(
       (row) =>
-        (!counter || (COUNTER_STATES[counter].includes(row.tracking_status) && (counter === 'appointments' || row.due))) &&
+        (!counter || COUNTER_MATCHES[counter](row)) &&
         (!state || row.tracking_status === state) &&
         (!week || row.next_action_week === week),
     )

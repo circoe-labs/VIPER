@@ -294,7 +294,7 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
       footer={
         forms && (
           <div className="prospect-editor__bar">
-            <div className="prospect-editor__bar-status" role="status">
+            <div className="prospect-editor__bar-status" role="status" aria-label="Enregistrement de la fiche">
               <EditorStatus
                 dirty={dirty}
                 notice={notice}

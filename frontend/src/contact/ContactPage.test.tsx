@@ -113,11 +113,19 @@ describe('Contact page', () => {
     await waitFor(() => {
       expect(lastListParams(api.requests)).toMatchObject({ week: '2026-W42' })
     })
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'État' }), 'r1')
+    const state = screen.getByRole('combobox', { name: 'État' })
+    // The commercial states (sequences rework D7), never a level: « En séquence » is the default, « Ignoré » is out.
+    expect(within(state).getAllByRole('option').map((option) => option.textContent)).toEqual([
+      'Tous les états',
+      'En séquence',
+      'Réponse reçue',
+      'RDV pris',
+      'Défaillant',
+    ])
+    await userEvent.selectOptions(state, 'response_received')
     await waitFor(() => {
-      expect(lastListParams(api.requests)).toMatchObject({ week: '2026-W42', state: 'r1' })
+      expect(lastListParams(api.requests)).toMatchObject({ week: '2026-W42', state: 'response_received' })
     })
-    expect(within(screen.getByRole('combobox', { name: 'État' })).queryByRole('option', { name: 'Ignoré' })).not.toBeInTheDocument()
   })
 
   it('shows each person with state, week, what to prepare and the three messages', async () => {
@@ -131,7 +139,8 @@ describe('Contact page', () => {
     expect(jean).toHaveTextContent('Aucun message préparé')
     expect(within(jean).queryByText(/État :/)).not.toBeInTheDocument()
 
-    expect(claire).toHaveTextContent('État : Contacté')
+    // « En séquence » is the default state: no badge (the level is the next step prepared, not a state).
+    expect(claire).not.toHaveTextContent('État :')
     expect(claire).toHaveTextContent('Échu')
     expect(claire).toHaveTextContent('À préparer : Relance R1')
     expect(claire).toHaveTextContent(/ContactEnvoyé/)
@@ -169,7 +178,7 @@ describe('Contact page', () => {
 
   it('clears the state filter when a counter card is pressed (the card equals its list)', async () => {
     stubContactApi({ dashboard: DASHBOARD, rows: rows() })
-    const { router } = renderApp('/contact?state=r1')
+    const { router } = renderApp('/contact?state=response_received')
     await waitFor(() => {
       expect(counter('Relances')).toHaveTextContent('1')
     })

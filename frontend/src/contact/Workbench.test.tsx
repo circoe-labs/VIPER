@@ -285,16 +285,17 @@ describe('Contact workbench', () => {
     })
   })
 
-  it('confirms a sequence-closing state, then patches the state alone (the week is cleared by the server)', async () => {
+  it('confirms a sequence-closing state, then patches the state alone (the next due date is derived)', async () => {
     const detail = person()
     const { api } = open(detail)
-    const state = await screen.findByRole('combobox', { name: 'État' })
+    const state = await screen.findByRole('combobox', { name: 'État commercial' })
+    // « Défaillant » has its own confirmed action (Séquence de contact), it is not offered here.
+    expect(within(state).queryByRole('option', { name: 'Défaillant' })).not.toBeInTheDocument()
     await userEvent.selectOptions(state, 'response_received')
     expect(screen.getByText('Les messages non envoyés seront annulés.')).toBeInTheDocument()
-    expect(screen.getByText('Aucune semaine planifiée')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Enregistrer le suivi' }))
     const dialog = await screen.findByRole('dialog', { name: 'Passer à « Réponse reçue » ?' })
-    expect(dialog).toHaveTextContent('La prochaine semaine (S40 2026) sera retirée.')
+    expect(dialog).not.toHaveTextContent('semaine')
     await userEvent.click(within(dialog).getByRole('button', { name: 'Confirmer « Réponse reçue »' }))
     await waitFor(() => {
       expect(announced()).toContain('Suivi enregistré.')
@@ -303,15 +304,20 @@ describe('Contact workbench', () => {
     expect(patch?.body).toEqual({ status: 'response_received', version: detail.version })
   })
 
-  it('plans a week without changing the state, and needs no confirmation', async () => {
-    const detail = person()
+  it('offers no week planner, and resumes the sequence without a confirmation', async () => {
+    const detail = person({ tracking: trackingDetail({ status: 'response_received' }) })
     const { api } = open(detail)
-    await userEvent.click(await screen.findByRole('button', { name: '+1 semaine' }))
+    const state = await screen.findByRole('combobox', { name: 'État commercial' })
+    expect(screen.queryByRole('button', { name: '+1 semaine' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Enregistrer le suivi' })).toBeDisabled()
+    await userEvent.selectOptions(state, 'neutral')
+    expect(screen.getByText('La séquence reprend là où elle s’était arrêtée (le niveau est conservé).')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Enregistrer le suivi' }))
     await waitFor(() => {
       expect(announced()).toContain('Suivi enregistré.')
     })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     const patch = api.prospects.requests.filter((request) => request.method === 'PATCH').at(-1)
-    expect(patch?.body).toEqual({ next_action_week: { year: 2026, week: 41 }, version: detail.version })
+    expect(patch?.body).toEqual({ status: 'neutral', version: detail.version })
   })
 })

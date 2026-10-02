@@ -42,12 +42,12 @@ describe('Prospect editor — opposition and deletion', () => {
     expect(opposition()).toHaveTextContent('Motif : Demande par téléphone')
     expect(lastBody(api.requests, 'PUT')).toEqual({ do_not_contact: true, reason: 'Demande par téléphone', version: 'v1' })
     expect(screen.getByRole('textbox', { name: 'Nom' })).toHaveValue('Exemple-Test')
-    expect(screen.getByRole('status')).toHaveTextContent('Modifications non enregistrées')
+    expect(screen.getByRole('status', { name: 'Enregistrement de la fiche' })).toHaveTextContent('Modifications non enregistrées')
   })
 
   it('lifts an opposition with a reason', async () => {
     const { api } = await open(prospectDetail(OPPOSED))
-    expect(screen.getByRole('region', { name: 'Suivi de contact' })).toHaveTextContent('ne planifiez pas de contact')
+    expect(screen.getByRole('region', { name: 'Suivi de contact' })).toHaveTextContent('aucun envoi n’est possible')
 
     await userEvent.click(within(opposition()).getByRole('button', { name: 'Lever l’opposition…' }))
     const dialog = screen.getByRole('dialog', { name: 'Lever l’opposition ?' })
@@ -56,7 +56,7 @@ describe('Prospect editor — opposition and deletion', () => {
 
     expect(await within(opposition()).findByText('Contactable : aucune opposition enregistrée.')).toBeInTheDocument()
     expect(lastBody(api.requests, 'PUT')).toEqual({ do_not_contact: false, reason: 'Saisie par erreur', version: 'v1' })
-    expect(screen.getByRole('status')).toHaveTextContent('Opposition levée.')
+    expect(screen.getByRole('status', { name: 'Enregistrement de la fiche' })).toHaveTextContent('Opposition levée.')
   })
 
   it('refuses to delete an opposed prospect, and explains why', async () => {

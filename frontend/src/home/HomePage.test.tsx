@@ -37,6 +37,7 @@ function batch(fields: Partial<ImportBatch>): ImportBatch {
 const FILLED = homeData({
   counts: COUNTS,
   companies: 7,
+  contact_week: { week: '2026-W37', monday: '2026-09-07', to_send: 5, overdue: 2 },
   progress: {
     contact_target: 100,
     appointment_target: 10,
@@ -154,7 +155,16 @@ describe('Home page', () => {
 
     // The post-appointment group is gone (Contact port P3).
     expect(screen.queryByRole('heading', { name: 'Suivi commercial léger' })).not.toBeInTheDocument()
-    expect(card('Suivi de contact', 'Échus')).toHaveAttribute('title', 'À contacter, semaine prévue arrivée ou dépassée.')
+    expect(card('Suivi de contact', 'Échus')).toHaveAttribute(
+      'title',
+      'Contact ou relance à envoyer, échéance arrivée ou dépassée (hors opposition et inactifs).',
+    )
+
+    // The planning of the current calendar week (never written « S37 »: a Sxx is a cohort), as on the Contact page.
+    expect(screen.getByRole('list', { name: 'Planning de la semaine du 7 sept.' })).toBeInTheDocument()
+    expect(card('Planning de la semaine du 7 sept.', 'À envoyer cette semaine')).toHaveAttribute('href', '/contact')
+    expect(card('Planning de la semaine du 7 sept.', 'À envoyer cette semaine')).toHaveTextContent('5')
+    expect(card('Planning de la semaine du 7 sept.', 'En retard')).toHaveTextContent('2')
   })
 
   it('opens Prospection on the segment of a clicked card', async () => {
@@ -199,12 +209,12 @@ describe('Home page', () => {
     const actions = await screen.findByRole('region', { name: 'Prochaines actions' })
     const due = within(actions).getByRole('list', { name: /Contacts échus/ })
     const jean = within(due).getByRole('link', { name: 'Jean Echu' })
-    expect(jean).toHaveAttribute('href', `/prospection?segment=due&sort=planned_contact&prospect=${PERSON}`)
+    expect(jean).toHaveAttribute('href', `/prospection?segment=due&sort=next_due&prospect=${PERSON}`)
     expect(within(due).getByRole('listitem')).toHaveTextContent('Transports Exemple SARL')
-    expect(within(due).getByRole('listitem')).toHaveTextContent(/Semaine S37$/)
+    expect(within(due).getByRole('listitem')).toHaveTextContent(/À envoyer depuis le 8 sept\.?/)
     expect(within(actions).getByRole('link', { name: 'Tous les échus' })).toHaveAttribute(
       'href',
-      '/prospection?segment=due&sort=planned_contact',
+      '/prospection?segment=due&sort=next_due',
     )
     const appointment = within(actions).getByRole('list', { name: /Rendez-vous des 7 prochains jours/ })
     expect(within(appointment).getByRole('listitem')).toHaveTextContent(
@@ -269,7 +279,9 @@ describe('Home page', () => {
 
     await screen.findByRole('heading', { level: 2, name: 'État de la base' })
     const scope = screen.getByText(/ne font pas partie de la V1/)
-    expect(scope).toHaveTextContent('Les envois d’e-mails, Calendly et les agents de prospection ne font pas partie de la V1.')
+    expect(scope).toHaveTextContent(
+      'L’envoi automatique des e-mails, Calendly et les agents de prospection ne font pas partie de la V1.',
+    )
     expect(screen.getAllByRole('meter')).toHaveLength(2)
     const main = screen.getByRole('main')
     for (const widget of [/e-mails envoyés/i, /taux d.ouverture/i, /IProspect|IContact/, /agent actif/i]) {

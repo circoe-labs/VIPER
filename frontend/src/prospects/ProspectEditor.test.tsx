@@ -80,7 +80,7 @@ describe('Prospect editor', () => {
     })
     expect(region('Provenance')).toHaveTextContent('Import Excel · base.xlsx / Prospects / ligne 7')
     expect(within(region('Entreprise')).getByRole('button', { name: 'Ouvrir la fiche entreprise' })).toBeInTheDocument()
-    expect(screen.getByRole('status')).toHaveTextContent('Ctrl+S enregistrer')
+    expect(screen.getByRole('status', { name: 'Enregistrement de la fiche' })).toHaveTextContent('Ctrl+S enregistrer')
   })
 
   it('shows imported values never verified in warning style, with text and glyph', async () => {
@@ -97,7 +97,7 @@ describe('Prospect editor', () => {
 
     expect(verification).toHaveTextContent('Vérifié aujourd’hui — à enregistrer')
     expect(screen.getByRole('textbox', { name: 'Intitulé exact' })).not.toHaveAccessibleDescription(/Importé/)
-    expect(screen.getByRole('status')).toHaveTextContent('Modifications non enregistrées')
+    expect(screen.getByRole('status', { name: 'Enregistrement de la fiche' })).toHaveTextContent('Modifications non enregistrées')
   })
 
   it('says what to do with an imported field left empty instead of « Importé »', async () => {
