@@ -1,24 +1,31 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import type { MessageSequence } from '../api/contact'
+import { DISPATCH_LATE_WATCH_MS, DISPATCH_WATCH_MS, dispatchWatchInterval, type MessageSequence } from '../api/contact'
 import { message } from '../test/contactApi'
 import {
   cancelReasonLabel,
   closedReason,
   contentOf,
+  dispatchLine,
+  inactiveScheduleText,
+  dispatchState,
   formOf,
   isDirty,
+  latenessLabel,
   localErrors,
   mailActions,
   orderWarning,
   parseRecipients,
+  releaseAvailableAt,
+  remoteDraftLine,
   scheduleToIso,
+  sendErrorLabel,
   statusLine,
   utcOffset,
 } from './mailModel'
 
 const OPEN = { state: 'neutral' as const, doNotContact: false, closed: false }
-const DEFAULTS = { from_email: 'prospection@exemple.example', to: ['jean@exemple.example'], generation_available: false }
+const DEFAULTS = { from_email: 'prospection@exemple.example', to: ['jean@exemple.example'], generation_available: false, toolbox_connected: false, toolbox_state: 'disabled' as const, automatic_sending_active: false, dispatch_reason: 'toolbox_disabled' as const, dispatch_max_lateness_minutes: 360, dispatch_claim_ttl_seconds: 600 }
 
 function sequence(steps: Partial<Record<'contact' | 'r1' | 'r2', ReturnType<typeof message>>>): MessageSequence {
   return {
@@ -150,5 +157,159 @@ describe('send moment', () => {
     expect(new Date(parsed.iso).getTime()).toBe(new Date(2026, 9, 1, 9, 30).getTime())
     expect(utcOffset(120)).toBe('+02:00')
     expect(utcOffset(-330)).toBe('-05:30')
+  })
+})
+
+describe('remoteDraftLine (S6)', () => {
+  it('says the Infomaniak draft of a validated or scheduled message only', () => {
+    expect(remoteDraftLine(message('contact', 'draft'), 'connected')).toBeNull()
+    expect(remoteDraftLine(message('contact', 'validated', { has_remote_draft: true }), 'disabled')).toEqual({
+      tone: 'ok',
+      text: 'Brouillon créé dans Infomaniak.',
+      retry: false,
+    })
+    expect(remoteDraftLine(message('contact', 'scheduled', { last_error_code: 'toolbox_outbound_blocked' }), 'connected')).toEqual({
+      tone: 'warning',
+      text: 'Brouillon Infomaniak non créé : un destinataire n’est pas autorisé par la liste d’envoi de la Toolbox.',
+      retry: true,
+    })
+    expect(remoteDraftLine(message('contact', 'validated', { last_error_code: 'toolbox_outcome_unknown' }), 'connected')?.text).toContain(
+      'création non confirmée par la Toolbox',
+    )
+    expect(remoteDraftLine(message('contact', 'validated'), 'connected')?.tone).toBe('muted')
+    // Toolbox off or not configured: nothing (everything stays local).
+    expect(remoteDraftLine(message('contact', 'validated'), 'disabled')).toBeNull()
+    expect(remoteDraftLine(message('contact', 'validated'), 'not_configured')).toBeNull()
+    // Enabled but not connected, or expired: said, no retry.
+    for (const state of ['disconnected', 'expired'] as const) {
+      expect(remoteDraftLine(message('contact', 'validated'), state)).toEqual({
+        tone: 'muted',
+        text: 'Brouillon Infomaniak non créé : Toolbox à reconnecter.',
+        retry: false,
+      })
+    }
+    expect(remoteDraftLine(message('contact', 'validated', { last_error_code: 'toolbox_auth_expired' }), 'expired')?.text).toBe(
+      'Brouillon Infomaniak non créé : Toolbox à reconnecter.',
+    )
+    // A dispatch error (S7) is not a remote draft failure.
+    expect(remoteDraftLine(message('contact', 'validated', { last_error_code: 'send_failed' }), 'disabled')).toBeNull()
+  })
+})
+
+describe('scheduled sending (S7)', () => {
+  const claimed = '2026-10-06T07:30:05Z'
+  const clock = { now: new Date('2026-10-06T07:31:00Z').getTime(), claimTtlSeconds: 600 }
+  const active = { ...DEFAULTS, automatic_sending_active: true, dispatch_reason: null, toolbox_state: 'connected' as const }
+
+  it('tells a running send from an unconfirmed one', () => {
+    expect(dispatchState(message('contact', 'scheduled'), clock)).toBe('none')
+    expect(dispatchState(message('contact', 'scheduled', { dispatch_claimed_at: claimed }), clock)).toBe('sending')
+    expect(
+      dispatchState(message('contact', 'scheduled', { dispatch_claimed_at: claimed, last_error_code: 'send_outcome_unknown' }), clock),
+    ).toBe('unconfirmed')
+    // A claim older than the TTL: its process died.
+    expect(dispatchState(message('contact', 'scheduled', { dispatch_claimed_at: claimed }), { ...clock, now: clock.now + 600_000 })).toBe(
+      'unconfirmed',
+    )
+  })
+
+  it('locks a claimed message and offers the settlement only when unconfirmed', () => {
+    const sending = mailActions(message('contact', 'scheduled', { dispatch_claimed_at: claimed }), OPEN, clock)
+    expect(sending).toMatchObject({ editable: false, unschedule: false, cancel: false, settle: false })
+    expect(sending.lock).toMatch(/Envoi en cours/)
+    const unconfirmed = mailActions(
+      message('contact', 'scheduled', { dispatch_claimed_at: claimed, last_error_code: 'send_reconcile_inconclusive' }),
+      OPEN,
+      clock,
+    )
+    expect(unconfirmed).toMatchObject({ editable: false, settle: true })
+  })
+
+  it('words the scheduled status by whether the server really sends', () => {
+    const scheduled = message('contact', 'scheduled')
+    expect(statusLine(scheduled, false, true)).toMatch(/^Programmé : le mail partira automatiquement le .* déprogrammable jusqu’à l’envoi\.$/)
+    expect(statusLine(scheduled, false, false)).toMatch(/^Programmé pour le /)
+    // Inactive (S9): the editor shows « Ne partira pas » (inactiveScheduleText), not a dispatch line.
+    expect(dispatchLine(scheduled, DEFAULTS, 'none')).toBeNull()
+    expect(dispatchLine(scheduled, active, 'none')).toBeNull()
+  })
+
+  it('says why a scheduled message will not leave, and when its time has passed (S9)', () => {
+    const now = new Date('2026-10-02T10:00:00Z').getTime()
+    const future = message('contact', 'scheduled', { scheduled_at: '2026-10-03T08:00:00Z' })
+    const past = message('contact', 'scheduled', { scheduled_at: '2026-10-01T17:40:00Z' })
+    const disabled = { ...DEFAULTS, dispatch_reason: 'disabled' as const }
+    expect(inactiveScheduleText(future, disabled, now)).toBe(
+      'Envoi automatique inactif : l’envoi automatique des mails programmés est désactivé. La date est enregistrée, mais aucun mail ne part tant que ce n’est pas réglé dans Paramètres › Connexions.',
+    )
+    expect(inactiveScheduleText(past, disabled, now)).toMatch(
+      /L’heure prévue est passée : s’il ne peut pas partir dans les 6 heures qui la suivent, il reviendra à « Validé » sans partir\.$/,
+    )
+    expect(inactiveScheduleText(future, { ...DEFAULTS, dispatch_reason: 'toolbox_expired' }, now)).toMatch(
+      /la connexion à CIRCOE Toolbox a expiré/,
+    )
+  })
+
+  it('says each outcome without jargon', () => {
+    expect(dispatchLine(message('contact', 'scheduled'), active, 'sending')).toMatchObject({ tone: 'progress' })
+    expect(dispatchLine(message('contact', 'scheduled'), active, 'unconfirmed')?.text).toMatch(/ne le renverra jamais/)
+    expect(dispatchLine(message('contact', 'scheduled', { last_error_code: 'send_unavailable' }), active, 'none')?.text).toBe(
+      'Dernière tentative d’envoi échouée : la Toolbox ne répondait pas. Nouvel essai automatique.',
+    )
+    expect(dispatchLine(message('contact', 'validated', { last_error_code: 'dispatch_overdue' }), active, 'none')?.text).toMatch(
+      /^Pas envoyé : l’heure prévue était dépassée de plus de 6 heures .* VIPER n’envoie jamais un mail en retard .* pour le reprogrammer\.$/,
+    )
+    expect(
+      dispatchLine(message('contact', 'validated', { last_error_code: 'send_recipient_not_allowed' }), active, 'none')?.text,
+    ).toMatch(/liste d’adresses autorisées/)
+    expect(dispatchLine(message('contact', 'validated', { last_error_code: 'send_previous_step_pending' }), active, 'none')?.text).toMatch(
+      /message précédent/,
+    )
+    expect(dispatchLine(message('contact', 'validated', { last_error_code: 'send_released_by_person' }), active, 'none')?.tone).toBe('muted')
+    expect(dispatchLine(message('contact', 'validated', { last_error_code: 'dispatch_held' }), active, 'none')?.text).toMatch(/restaurée/)
+    expect(dispatchLine(message('contact', 'sent', { last_error_code: 'send_reconciled_draft_absent' }), active, 'none')?.text).toMatch(
+      /^Envoi déduit/,
+    )
+    expect(dispatchLine(message('contact', 'sent'), active, 'none')).toBeNull()
+    // A remote draft failure (S6) is not a send failure.
+    expect(dispatchLine(message('contact', 'validated', { last_error_code: 'toolbox_unavailable' }), active, 'none')).toBeNull()
+    expect(sendErrorLabel('send_something_new', 360)).toBe('erreur inattendue (send_something_new)')
+    expect([latenessLabel(60), latenessLabel(360), latenessLabel(90)]).toEqual(['1 heure', '6 heures', '90 minutes'])
+  })
+
+  it('watches a sequence about to leave while the server sends', () => {
+    const now = new Date('2026-10-06T07:29:00Z').getTime()
+    const soon = message('contact', 'scheduled', { scheduled_at: '2026-10-06T07:30:00Z' })
+    const later = message('contact', 'scheduled', { scheduled_at: '2026-10-07T07:30:00Z' })
+    const watched = (steps: Parameters<typeof sequence>[0], defaults: MessageSequence['defaults'] = active) => dispatchWatchInterval({ ...sequence(steps), defaults }, now)
+    expect(watched({ contact: soon })).toBe(DISPATCH_WATCH_MS)
+    expect(watched({ contact: later })).toBe(false)
+    expect(watched({ contact: { ...later, dispatch_claimed_at: claimed } })).toBe(DISPATCH_WATCH_MS)
+    expect(watched({ contact: soon }, DEFAULTS)).toBe(false)
+    // Past its time without being taken: slower.
+    expect(watched({ contact: { ...soon, scheduled_at: '2026-10-06T07:00:00Z' } })).toBe(DISPATCH_LATE_WATCH_MS)
+    // Unconfirmed or stuck: a person settles it, nothing to poll.
+    expect(watched({ contact: { ...later, dispatch_claimed_at: claimed, last_error_code: 'send_outcome_unknown' } })).toBe(false)
+    expect(watched({ contact: { ...later, dispatch_claimed_at: '2026-10-06T07:00:00Z' } })).toBe(false)
+    // The quickest need wins.
+    expect(watched({ contact: { ...soon, scheduled_at: '2026-10-06T07:00:00Z' }, r1: soon })).toBe(DISPATCH_WATCH_MS)
+  })
+
+  it('opens « Remettre en Validé » only after the claim’s delay', () => {
+    const at = new Date('2026-10-06T07:30:00Z').getTime()
+    const unconfirmed = message('contact', 'scheduled', { dispatch_claimed_at: '2026-10-06T07:30:00Z', last_error_code: 'send_outcome_unknown' })
+    expect(releaseAvailableAt(unconfirmed, 600, at + 60_000)).toBe(at + 600_000)
+    expect(releaseAvailableAt(unconfirmed, 600, at + 600_000)).toBeNull()
+    expect(releaseAvailableAt(message('contact', 'scheduled'), 600, at)).toBeNull()
+  })
+
+  it('says a send not confirmed with its draft still there, and a probable send', () => {
+    expect(dispatchLine(message('contact', 'validated', { last_error_code: 'send_not_confirmed' }), active, 'none')?.text).toMatch(
+      /^Envoi non confirmé, brouillon toujours présent dans Infomaniak : vérifiez les éléments envoyés/,
+    )
+    expect(
+      dispatchLine(message('contact', 'scheduled', { dispatch_claimed_at: claimed, last_error_code: 'send_probably_sent' }), active, 'unconfirmed')
+        ?.text,
+    ).toMatch(/^Probablement envoyé/)
   })
 })

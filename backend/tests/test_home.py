@@ -70,7 +70,7 @@ def moved(
     actor_id: str | None = None,
 ) -> None:
     """A status-history row at an explicit time (the tracking is created on first use). A former
-    code (history written before migrations 0008/0010) leaves the tracking `neutral`, or
+    code (history written before migrations 0008/0012) leaves the tracking `neutral`, or
     `appointment_obtained` for an appointment code."""
     code = H(to_status)
     if code.value in {state.value for state in S}:
@@ -305,7 +305,7 @@ def test_the_first_real_send_is_the_first_contact(db_session: Session) -> None:
     sequence = start_sequence(db_session, sent)
     add_send(db_session, sequence, 0, at(date(2026, 9, 2)))
     add_send(db_session, sequence, 1, at(date(2026, 9, 9)))
-    # A send restated by migration 0010 or an import is no new contact; the history row it
+    # A send restated by migration 0012 or an import is no new contact; the history row it
     # restates still counts in its own month.
     migrated = person(db_session, "Repris")
     moved(db_session, migrated, H.LEGACY_CONTACTED, at(date(2026, 8, 4)))

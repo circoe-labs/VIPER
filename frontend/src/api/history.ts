@@ -7,7 +7,7 @@ import { apiGet } from './client'
 // never raw audit JSON. Rules: doc/architecture/audit-and-provenance.md, *Visible history*.
 
 export type ActorKind = 'human' | 'import' | 'system' | 'agent'
-export type AuditSource = 'ui' | 'import' | 'database_explorer' | 'cli' | 'agent'
+export type AuditSource = 'ui' | 'import' | 'database_explorer' | 'cli' | 'agent' | 'dispatcher'
 
 export interface HistoryActor {
   kind: ActorKind

@@ -1,4 +1,5 @@
 import { ApiError } from '../api/client'
+import { toolboxErrorLabel } from '../settings/toolboxCopy'
 
 // French copy for the mail sequence's refusals (codes of doc/features/contact.md § Refusal codes), placed on the field
 // the API names when there is one.
@@ -95,6 +96,13 @@ export function messageRefusal(error: unknown): MessageRefusal {
       return plain('Action impossible dans l’état actuel du message : l’affichage est actualisé.', true)
     case 'dispatch_in_progress':
       return plain('Envoi en cours : le message est verrouillé le temps de l’envoi.', true)
+    case 'dispatch_release_too_early':
+      return plain(
+        'La Toolbox peut encore être en train d’envoyer ce message : « Remettre en Validé » n’est possible qu’après le délai de vérification. S’il est déjà dans les éléments envoyés, « Marquer envoyé ».',
+        true,
+      )
+    case 'dispatch_not_unconfirmed':
+      return plain('L’envoi de ce message n’attend plus de décision (il vient d’être tranché ou est encore en cours) : l’affichage est actualisé.', true)
     case 'prospect_do_not_contact':
       return plain('Ce prospect est en opposition (« Ne pas contacter ») : aucun message ne peut être préparé.', true)
     case 'prospect_sequence_closed':
@@ -106,6 +114,10 @@ export function messageRefusal(error: unknown): MessageRefusal {
     case 'human_actor_required':
       return plain('Seule une personne connectée peut préparer, valider ou programmer un message.')
     default:
+      // « Réessayer » the Infomaniak draft (S6) without a usable Toolbox: the reason, in the Settings page's words.
+      if (refusal?.code.startsWith('toolbox_')) {
+        return plain(`Brouillon Infomaniak non créé : ${toolboxErrorLabel(refusal.code)}.`, true)
+      }
       // FastAPI's own validation (a list `detail`): the schema's size limits — more than 50 addresses in a field, an
       // address over 320 characters, a body over 100 000.
       if (error instanceof ApiError && error.status === 422 && Array.isArray(error.detail)) {

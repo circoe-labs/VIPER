@@ -561,6 +561,7 @@ def test_the_planning_over_http(client: TestClient, db_session: Session) -> None
         "categories",
         "cohorts",
         "weeks",
+        "dispatch",
     }
     assert body["week"]["week"] == body["current_week"]
     assert body["max_follow_ups"] == 4

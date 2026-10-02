@@ -8,6 +8,8 @@ export const SOURCE_LABELS: Record<AuditSource, string> = {
   database_explorer: 'Base de données',
   cli: 'Ligne de commande',
   agent: 'Agent',
+  // The scheduled sending of Contact messages (S7).
+  dispatcher: 'Envoi programmé',
 }
 
 export interface ActorBadgeText {

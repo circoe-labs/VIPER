@@ -182,7 +182,7 @@ def month_start(day: date, months_back: int = 0) -> date:
 
 def _restated() -> ColumnElement[bool]:
     """A history row that restates a state reached earlier: written by an import, or appended by
-    migration 0008/0010 (a conversion)."""
+    migration 0008/0012 (a conversion)."""
     return or_(
         History.actor_type == ActorType.IMPORT,
         and_(History.actor_type == ActorType.SYSTEM, History.actor_id.in_(RESTATEMENT_ACTOR_IDS)),

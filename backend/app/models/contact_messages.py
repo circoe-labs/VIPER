@@ -1,7 +1,7 @@
 """Contact messages (`contact_messages`, Contact port Slice S3, reshaped by the sequences rework
 D6): one durable mail per contact sequence and rank (0 = Contact, 1 = R1, 2 = R2, …), separate
 from the prospect's commercial state. A `sent` row is also the record of a real send, whoever made
-it (`sent_source`: a person's « Marquer comme envoyé », an import, migration 0010 or the
+it (`sent_source`: a person's « Marquer comme envoyé », an import, migration 0012 or the
 dispatcher): the prospect's level is the number of sent rows of its current sequence.
 
 Integrity is enforced in SQL as well as in `app.services.contact_messages` (the only application
@@ -30,6 +30,7 @@ from datetime import datetime
 from sqlalchemy import (
     CheckConstraint,
     DateTime,
+    ForeignKey,
     ForeignKeyConstraint,
     Index,
     Integer,
@@ -181,3 +182,61 @@ class ContactMessage(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     def step(self) -> str:
         """The step code of the rank: `contact`, `r1`, `r2`…"""
         return step_code(self.rank)
+
+
+# `deleted`: queued by the `queue_remote_draft_on_delete` trigger (migration 0011) when a message
+# holding a draft is deleted (prospect deletion, prospecting reset, explorer, any cascade).
+CLEANUP_REASONS = ("edited", "cancelled", "replaced", "deleted")
+CLEANUP_OUTCOMES = ("deleted", "already_absent")
+
+
+class ContactMessageRemoteDraftCleanup(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """Queue of remote (Infomaniak) drafts to delete through the Toolbox (S6).
+
+    A remote draft belongs to the validated revision of a message. When that validation is lost
+    (an edit, an AI redraft), the message is cancelled (by a person, a sequence-closing state or
+    the opposition), or a draft created for a revision that changed meanwhile cannot be attached,
+    its id is queued here in the same transaction and detached from the message; the network call
+    cannot be part of that transaction. A worker (`app.services.contact_remote_drafts`) deletes
+    them after commit, with backoff, idempotently (an already-gone draft is a success).
+    `message_id` becomes NULL if the message is deleted: the remote id still has to go. Holds
+    identifiers and codes only, never content; not audited (a technical queue, like a log).
+    """
+
+    __tablename__ = "contact_message_remote_draft_cleanups"
+    __table_args__ = (
+        UniqueConstraint("remote_provider", "remote_draft_id"),
+        CheckConstraint(
+            f"reason IN ({', '.join(repr(r) for r in CLEANUP_REASONS)})", name="reason"
+        ),
+        CheckConstraint(
+            f"outcome IN ({', '.join(repr(o) for o in CLEANUP_OUTCOMES)})", name="outcome"
+        ),
+        CheckConstraint("attempts >= 0", name="attempts_non_negative"),
+        CheckConstraint("(completed_at IS NULL) = (outcome IS NULL)", name="completed_has_outcome"),
+        CheckConstraint(
+            "(last_error_code IS NULL) OR (last_attempt_at IS NOT NULL)",
+            name="error_has_attempt",
+        ),
+        # The worker's scan: pending entries by next attempt.
+        Index(
+            "ix_contact_message_remote_draft_cleanups_pending",
+            "next_attempt_at",
+            postgresql_where=text("completed_at IS NULL"),
+        ),
+    )
+
+    message_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("contact_messages.id", ondelete="SET NULL"), index=True
+    )
+    remote_provider: Mapped[str] = mapped_column(String(64))
+    remote_draft_id: Mapped[str] = mapped_column(String(255))
+    reason: Mapped[str] = mapped_column(String(32))
+    attempts: Mapped[int] = mapped_column(Integer, server_default=text("0"))
+    next_attempt_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error_code: Mapped[str | None] = mapped_column(String(64))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    outcome: Mapped[str | None] = mapped_column(String(32))

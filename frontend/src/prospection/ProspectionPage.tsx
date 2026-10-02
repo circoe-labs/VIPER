@@ -192,7 +192,10 @@ export function ProspectionPage() {
                   size="sm"
                   variant="ghost"
                   onClick={() => {
+                    // The box is cleared now: when the cleared URL lands (a navigation, maybe after the next
+                    // keystroke), it must not clear again what was typed meanwhile.
                     setDraft('')
+                    setUrlSearch('')
                     update({ ...DEFAULT_VIEW, sort: view.sort })
                   }}
                 >

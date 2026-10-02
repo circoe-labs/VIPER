@@ -1,6 +1,13 @@
-"""Typed runtime configuration read from `VIPER_*` environment variables and `backend/.env`."""
+"""Typed runtime configuration read from `VIPER_*` environment variables and `backend/.env`.
+
+The integration settings (OpenAI, sender, CIRCOE Toolbox, scheduled sending) may also be set from
+Paramètres > Connexions (Contact port S8): `app.services.runtime_settings` stores those values in
+a private file and validates the merge with this very class, so the startup rules below are the
+only rules. The environment then only gives the defaults.
+"""
 
 import re
+from datetime import timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Self
@@ -13,6 +20,9 @@ from sqlalchemy import make_url
 LOCAL_DATABASE = "postgresql+psycopg://viper:viper@127.0.0.1:5442"
 RoleName = Annotated[str, Field(pattern=r"^[a-z_][a-z0-9_]{0,62}$")]
 OPENAI_OFFICIAL_BASE_URL = "https://api.openai.com/v1"
+# The CIRCOE Toolbox MCP server (the OAuth resource it announces): « Se connecter à CIRCOE
+# Toolbox » works out of the box (S8). Tests and E2E always point elsewhere (a local fake).
+CIRCOE_TOOLBOX_MCP_URL = "https://circoetoolbox-server-production.up.railway.app/mcp"
 
 
 def _http_url(value: str) -> str:
@@ -28,6 +38,7 @@ LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "[::1]", "::1"})
 # backend/app/core/config.py → the checkout root (the Toolbox token file may not live inside).
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_TOOLBOX_TOKEN_STORE = Path.home() / ".viper" / "toolbox-oauth.json"
+DEFAULT_RUNTIME_SETTINGS = Path.home() / ".viper" / "runtime-settings.json"
 _ALLOWLIST_ADDRESS = re.compile(r"^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$")
 _ALLOWLIST_DOMAIN = re.compile(r"^@[^@\s,;]+\.[^@\s,;]+$")
 
@@ -41,6 +52,15 @@ def toolbox_url(value: str) -> str:
     if url.scheme == "https" or (url.scheme == "http" and url.hostname in LOOPBACK_HOSTS):
         return value
     raise ValueError("must be an absolute https URL (http only on localhost)")
+
+
+def outside_checkout(value: Path, holds: str) -> Path:
+    """The resolved path, refused inside the repository checkout (it would be committed or copied
+    with the code)."""
+    path = value.expanduser().resolve()
+    if path.is_relative_to(REPOSITORY_ROOT):
+        raise ValueError(f"must be outside the repository checkout (it holds {holds})")
+    return path
 
 
 def parse_allowlist(value: str) -> tuple[str, ...]:
@@ -122,13 +142,14 @@ class Settings(BaseSettings):
     contact_booking_url: Annotated[str, Field(max_length=2000)] | None = None
 
     # CIRCOE Toolbox (S6, handoff Task 15): Infomaniak drafts of validated messages through the
-    # Toolbox MCP server (OAuth 2.1 + PKCE). Off by default: everything stays local. Enabled but
-    # without both URLs, the Settings page says « non configurée » and nothing leaves.
+    # Toolbox MCP server (OAuth 2.1 + PKCE). Off by default: everything stays local. « Se connecter
+    # à CIRCOE Toolbox » (Paramètres > Connexions, S8) turns it on and supplies the redirect URI.
     toolbox_mail_enabled: bool = False
     # The exact MCP URL (the OAuth resource the Toolbox announces): HTTPS, or http on loopback.
-    toolbox_mcp_url: str | None = None
+    toolbox_mcp_url: str | None = CIRCOE_TOOLBOX_MCP_URL
     # Where the Toolbox sends the browser back: the SPA page `/settings/connections` as the
-    # browser sees it (e.g. http://localhost:5173/settings/connections in development).
+    # browser sees it (e.g. http://localhost:5173/settings/connections in development). Unset,
+    # the page sends its own address when the person connects (S8).
     toolbox_oauth_redirect_uri: str | None = None
     # The OAuth token file: outside the database (never in a backup, the explorer or a response)
     # and outside the repository checkout; owner-only permissions. Default `~/.viper/…`.
@@ -141,6 +162,30 @@ class Settings(BaseSettings):
     # Optional VIPER-side allowlist of recipients for the scheduled send (S7): comma-separated
     # addresses or `@domain` rules. Unset = no VIPER-side restriction (the Toolbox keeps its own).
     infomaniak_send_allowlist: str | None = None
+    # Scheduled sending (S7, decision 25: VIPER schedules, the Toolbox's `send_draft` executes):
+    # the dispatcher worker of the API process runs a pass every interval while the Toolbox is
+    # enabled, configured and connected. On by default (S9, supersedes the S8 « Désactivé par
+    # défaut »: a message scheduled while nothing could send it never left): the switch
+    # « Envoi automatique des mails programmés » of Paramètres > Connexions turns it off. Off, or an
+    # interval of 0 = no worker (the CLI `python -m app.cli contact-dispatch --once` still runs one
+    # pass). The interval is the « Délai maximal avant envoi » of « Paramètres avancés ».
+    contact_dispatch_enabled: bool = True
+    contact_dispatch_interval_ms: Annotated[int, Field(ge=0, le=3_600_000)] = 30_000
+    # A message more late than this does not leave: it goes back to Validé (`dispatch_overdue`).
+    contact_dispatch_max_lateness_ms: Annotated[int, Field(ge=60_000, le=7 * 86_400_000)] = (
+        6 * 3_600_000
+    )
+    # Age after which a send claim nobody finished is reconciled (`dispatch_claim_ttl`: never less
+    # than twice the Toolbox timeout).
+    contact_dispatch_claim_ttl_ms: Annotated[int, Field(ge=1000, le=86_400_000)] = 600_000
+    # Send attempts (certain transient failures included) before going back to Validé.
+    contact_dispatch_max_attempts: Annotated[int, Field(ge=1, le=20)] = 5
+    # Base of the exponential backoff between two attempts (base x 2^(n-1), at most 1 h).
+    contact_dispatch_retry_base_ms: Annotated[int, Field(ge=1000, le=3_600_000)] = 60_000
+
+    # The integration settings set from Paramètres > Connexions (S8): a private JSON file outside
+    # the database and outside the checkout, like the Toolbox token. Default `~/.viper/…`.
+    runtime_settings_path: Path | None = None
 
     @field_validator(
         "openai_api_key",
@@ -149,6 +194,7 @@ class Settings(BaseSettings):
         "toolbox_mcp_url",
         "toolbox_oauth_redirect_uri",
         "toolbox_token_store_path",
+        "runtime_settings_path",
         "infomaniak_send_allowlist",
         mode="before",
     )
@@ -179,12 +225,12 @@ class Settings(BaseSettings):
     @field_validator("toolbox_token_store_path")
     @classmethod
     def _token_store_outside_checkout(cls, value: Path | None) -> Path | None:
-        if value is None:
-            return None
-        path = value.expanduser().resolve()
-        if path.is_relative_to(REPOSITORY_ROOT):
-            raise ValueError("must be outside the repository checkout (it holds an OAuth token)")
-        return path
+        return None if value is None else outside_checkout(value, "an OAuth token")
+
+    @field_validator("runtime_settings_path")
+    @classmethod
+    def _runtime_settings_outside_checkout(cls, value: Path | None) -> Path | None:
+        return None if value is None else outside_checkout(value, "API keys")
 
     @field_validator("infomaniak_send_allowlist")
     @classmethod
@@ -193,11 +239,24 @@ class Settings(BaseSettings):
             parse_allowlist(value)
         return value
 
+    @field_validator("contact_dispatch_interval_ms")
+    @classmethod
+    def _dispatch_interval(cls, value: int) -> int:
+        # The reference raises a small positive period to 500 ms; refused here rather than changed.
+        if 0 < value < 500:
+            raise ValueError("must be 0 (no worker) or at least 500 ms")
+        return value
+
     @model_validator(mode="after")
     def _model_with_key(self) -> Self:
         if self.openai_api_key is not None and self.openai_model is None:
             raise ValueError("VIPER_OPENAI_MODEL is required when VIPER_OPENAI_API_KEY is set")
         return self
+
+    @property
+    def contact_dispatch_on(self) -> bool:
+        """The scheduled sending is switched on (a worker runs once the Toolbox is connected)."""
+        return self.contact_dispatch_enabled and self.contact_dispatch_interval_ms > 0
 
     @property
     def generation_available(self) -> bool:
@@ -219,6 +278,10 @@ class Settings(BaseSettings):
         return self.toolbox_token_store_path or DEFAULT_TOOLBOX_TOKEN_STORE
 
     @property
+    def runtime_settings_file(self) -> Path:
+        return self.runtime_settings_path or DEFAULT_RUNTIME_SETTINGS
+
+    @property
     def send_allowlist(self) -> tuple[str, ...] | None:
         """The parsed `VIPER_INFOMANIAK_SEND_ALLOWLIST` (S7 checks it before a send); None =
         unset."""
@@ -226,6 +289,14 @@ class Settings(BaseSettings):
             None
             if self.infomaniak_send_allowlist is None
             else (parse_allowlist(self.infomaniak_send_allowlist))
+        )
+
+    @property
+    def contact_dispatch_claim_ttl(self) -> timedelta:
+        """The effective claim TTL: never less than twice the Toolbox timeout (a send still
+        running is never taken for a dead one)."""
+        return timedelta(
+            milliseconds=max(self.contact_dispatch_claim_ttl_ms, 2 * self.toolbox_timeout_ms)
         )
 
     @property

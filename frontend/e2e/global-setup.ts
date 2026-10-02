@@ -1,7 +1,8 @@
 import { execFileSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
+import { rmSync } from 'node:fs'
 
-import { BACKEND_DIR, E2E_DATABASE_URL, E2E_USER, PASSWORD_ENV, PYTHON } from './env'
+import { BACKEND_DIR, E2E_DATABASE_URL, E2E_RUNTIME_SETTINGS, E2E_TOOLBOX_STORE, E2E_USER, PASSWORD_ENV, PYTHON } from './env'
 
 // Once per run: rebuild the dedicated E2E database through the migrations, provision the SQL console's reader role,
 // load the synthetic explorer dataset (backend/tests/fixtures/synthetic/), then create the pilot account with the
@@ -28,4 +29,9 @@ export default function globalSetup() {
   const createUser = ['--email', E2E_USER.email, '--display-name', E2E_USER.displayName, '--password-stdin']
   run(['-m', 'app.cli', 'create-user', ...createUser], `${password}\n`)
   process.env[PASSWORD_ENV] = password
+  // Every run starts with the CIRCOE Toolbox not connected (the backend reads this file on each request).
+  rmSync(E2E_TOOLBOX_STORE, { force: true })
+  // The settings saved from the browser by a previous run (S8). A backend left running by that run keeps them in memory:
+  // the connections spec puts every value back to its default before and after its own changes.
+  rmSync(E2E_RUNTIME_SETTINGS, { force: true })
 }

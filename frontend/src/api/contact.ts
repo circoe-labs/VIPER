@@ -4,6 +4,7 @@ import { apiGet, apiRequest } from './client'
 import { historyKeys } from './history'
 import type { ActivityStatus, TrackingStatus } from './prospection'
 import { refreshAfterWrite } from './refresh'
+import type { ToolboxState } from './toolbox'
 
 // Mirrors backend/app/api/routes/contact.py (the Contact dashboard and list) and contact_messages.py (the mail
 // sequence Contact / R1 / R2 of one prospect). Rules and refusal codes: doc/features/contact.md.
@@ -28,6 +29,24 @@ export interface ContactWeekOption {
   count: number
 }
 
+// Why a scheduled message will not leave (S9, backend app/services/contact_dispatch_state.py): the person switched
+// « Envoi automatique des mails programmés » off, or the CIRCOE Toolbox is not usable; `not_running` should not happen.
+export type DispatchReason =
+  | 'disabled'
+  | 'toolbox_disabled'
+  | 'toolbox_not_configured'
+  | 'toolbox_disconnected'
+  | 'toolbox_expired'
+  | 'not_running'
+
+export interface DispatchState {
+  active: boolean
+  reason: DispatchReason | null
+  scheduled_count: number
+  // Scheduled, not being sent, and their time has passed.
+  overdue_count: number
+}
+
 export interface ContactDashboard {
   // Business day, `YYYY-MM-DD`.
   today: string
@@ -36,6 +55,8 @@ export interface ContactDashboard {
   counts: Record<ContactCounter, number>
   // ISO weeks present in the planning, oldest first.
   weeks: ContactWeekOption[]
+  // S9: the page warns when scheduled messages will not leave.
+  dispatch: DispatchState
 }
 
 export interface ContactRow {
@@ -102,6 +123,10 @@ export interface Message {
   generation_prompt_version: string | null
   generated_at: string | null
   has_remote_draft: boolean
+  // Scheduled sending (S7): the dispatcher's claim (a send running, or unconfirmed) and the attempts of this schedule.
+  dispatch_claimed_at: string | null
+  dispatch_attempts: number
+  // `toolbox_*`: the Infomaniak draft could not be created (S6); `send_*` / `dispatch_*`: the scheduled send (S7).
   last_error_code: string | null
   last_error_at: string | null
   created_at: string
@@ -118,8 +143,24 @@ export interface MessageSequence {
     // The step to send next (`contact`, `r1`…), derived from the real sends; null when finished or without cohort.
     next_step?: string | null
   }
-  // `generation_available`: the AI drafting is configured on the server (S5).
-  defaults: { from_email: string | null; to: string[]; generation_available: boolean }
+  // `generation_available`: the AI drafting is configured on the server (S5). `toolbox_connected`: the CIRCOE Toolbox
+  // is connected (S6) — a validation creates the Infomaniak draft, sent from the account's default mailbox;
+  // `toolbox_state` tells an enabled but unconnected (or expired) Toolbox from a disabled one.
+  defaults: {
+    from_email: string | null
+    to: string[]
+    generation_available: boolean
+    toolbox_connected: boolean
+    toolbox_state: ToolboxState
+    // S7: a scheduled message really leaves (the dispatcher runs on the server and the Toolbox is connected).
+    automatic_sending_active: boolean
+    // S9: why not (null when active).
+    dispatch_reason: DispatchReason | null
+    // A scheduled message more late than this goes back to Validé instead of leaving.
+    dispatch_max_lateness_minutes: number
+    // After this long, a claimed send nobody finished counts as unconfirmed.
+    dispatch_claim_ttl_seconds: number
+  }
   steps: { step: MessageStep; message: Message | null }[]
 }
 
@@ -129,6 +170,19 @@ export interface MessageResult {
   changed: boolean
   // An edit put a validated/scheduled message back to draft.
   unvalidated: boolean
+  // validate / schedule / remote-draft (S6): what happened to the Infomaniak draft. `failed` carries a `toolbox_*` code.
+  remote_draft?: {
+    status:
+      | 'disabled'
+      | 'not_connected'
+      | 'not_applicable'
+      | 'already_present'
+      | 'created'
+      | 'recovered'
+      | 'stale'
+      | 'failed'
+    code: string | null
+  }
 }
 
 // `POST …/messages/{step}/generate` (S5): the AI draft of the step, always a draft. `replace` confirms that a saved
@@ -154,7 +208,9 @@ export interface MessageContent {
   bcc: string[]
 }
 
-export type MessageAction = 'validate' | 'unschedule' | 'cancel' | 'reopen'
+// `remote-draft` (S6): create again the Infomaniak draft of a validated message (« Réessayer »). `mark-sent` /
+// `release` (S7): a person settles a send the dispatcher could not confirm.
+export type MessageAction = 'validate' | 'unschedule' | 'cancel' | 'reopen' | 'remote-draft' | 'mark-sent' | 'release'
 
 export const contactKeys = {
   // Invalidate after any prospect or message write: the counters, the list's state and message chips move.
@@ -231,12 +287,52 @@ function messagesPath(prospectId: string): `/${string}` {
   return `/prospects/${encodeURIComponent(prospectId)}/messages`
 }
 
+// The dispatcher's codes of a send that ended without a known outcome (backend contact_dispatch.UNCONFIRMED): a person
+// settles it, nothing changes by itself before the claim's delay.
+export const UNCONFIRMED_SEND_CODES: ReadonlySet<string> = new Set([
+  'send_outcome_unknown',
+  'send_reconcile_inconclusive',
+  'send_probably_sent',
+])
+
+// While the server sends automatically (S7), a scheduled message about to leave (within 2 minutes) or being sent is
+// read again every 3 s, so « Envoyé » (or the failure) shows up without a reload; once past its time without being
+// taken (Toolbox busy, backoff) every 30 s; an unconfirmed or stuck send is not polled (a person settles it). TanStack
+// Query runs the interval only while the editor is mounted and the browser tab visible.
+export const DISPATCH_WATCH_MS = 3000
+export const DISPATCH_LATE_WATCH_MS = 30_000
+const DISPATCH_WATCH_AHEAD_MS = 2 * 60 * 1000
+
+function watchOf(message: Message | null, now: number, claimTtlMs: number): number | false {
+  if (message?.status !== 'scheduled') return false
+  if (message.dispatch_claimed_at) {
+    const stuck =
+      (message.last_error_code !== null && UNCONFIRMED_SEND_CODES.has(message.last_error_code)) ||
+      now - new Date(message.dispatch_claimed_at).getTime() >= claimTtlMs
+    return stuck ? false : DISPATCH_WATCH_MS
+  }
+  if (message.scheduled_at === null) return false
+  const until = new Date(message.scheduled_at).getTime() - now
+  if (until < 0) return DISPATCH_LATE_WATCH_MS
+  return until <= DISPATCH_WATCH_AHEAD_MS ? DISPATCH_WATCH_MS : false
+}
+
+export function dispatchWatchInterval(sequence: MessageSequence | undefined, now: number): number | false {
+  if (!sequence?.defaults.automatic_sending_active) return false
+  const ttl = sequence.defaults.dispatch_claim_ttl_seconds * 1000
+  const intervals = sequence.steps
+    .map(({ message }) => watchOf(message, now, ttl))
+    .filter((value): value is number => value !== false)
+  return intervals.length > 0 ? Math.min(...intervals) : false
+}
+
 export function useMessageSequence(prospectId: string) {
   return useQuery({
     queryKey: contactKeys.messages(prospectId),
     queryFn: ({ signal }) => apiGet<MessageSequence>(messagesPath(prospectId), signal),
     // The editor keeps its own unsaved drafts; a refetch under it never overwrites them (MailSequence.tsx).
     refetchOnWindowFocus: false,
+    refetchInterval: (query) => dispatchWatchInterval(query.state.data, Date.now()),
   })
 }
 

@@ -1,4 +1,4 @@
-"""Migration 0010 (cohorts and sequences) on seeded 0009 rows: former states become sends of a
+"""Migration 0012 (cohorts and sequences) on seeded 0009 rows: former states become sends of a
 sequence in a cohort created from the planning (to review), `failure` a sequence closed
 `completed`, history appended (never rewritten), existing messages attached at their rank, audit
 events written; then a best-effort downgrade and a new upgrade.
@@ -53,7 +53,7 @@ def pairs(connection: Connection, sql: str, **params: object) -> dict[object, ob
 
 def seed_0009(connection: Connection) -> dict[str, uuid.UUID]:
     """One prospect + tracking per case, with the history of its human steps; `r1` also has a
-    draft Contact message and a draft R2 message (no code sent anything before 0010)."""
+    draft Contact message and a draft R2 message (no code sent anything before 0012)."""
     prospects: dict[str, uuid.UUID] = {}
     for name, (state, planned) in CASES.items():
         prospect, tracking = uuid.uuid4(), uuid.uuid4()
@@ -123,7 +123,7 @@ def sends(connection: Connection, prospect: uuid.UUID) -> list[tuple[object, ...
     )
 
 
-def test_0010_turns_former_states_into_sequences_and_sends(
+def test_0012_turns_former_states_into_sequences_and_sends(
     engine: Engine, migration_database: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
     config = alembic_config(migration_database)
@@ -132,7 +132,7 @@ def test_0010_turns_former_states_into_sequences_and_sends(
         people = seed_0009(connection)
 
     capsys.readouterr()
-    command.upgrade(config, "0010")
+    command.upgrade(config, "0012")
     report = capsys.readouterr().err
 
     with engine.connect() as connection:
@@ -236,7 +236,7 @@ def test_0010_turns_former_states_into_sequences_and_sends(
     assert "'sequences': 6" in report and "'sends_created': 5" in report
 
 
-def test_0010_refuses_former_states_and_keeps_sends_immutable(engine: Engine) -> None:
+def test_0012_refuses_former_states_and_keeps_sends_immutable(engine: Engine) -> None:
     with engine.connect() as connection:
         transaction = connection.begin()
         try:
@@ -286,14 +286,14 @@ def test_0010_refuses_former_states_and_keeps_sends_immutable(engine: Engine) ->
             transaction.rollback()
 
 
-def test_0010_downgrade_maps_back_then_upgrade_again(
+def test_0012_downgrade_maps_back_then_upgrade_again(
     engine: Engine, migration_database: str
 ) -> None:
     config = alembic_config(migration_database)
     command.downgrade(config, "0009")
     with engine.begin() as connection:
         people = seed_0009(connection)
-    command.upgrade(config, "0010")
+    command.upgrade(config, "0012")
     # After the upgrade: a person marks Défaillant and records a send by hand.
     with engine.begin() as connection:
         connection.execute(
@@ -340,7 +340,7 @@ def test_0010_downgrade_maps_back_then_upgrade_again(
             id=people["r1"],
         )
         # The send with a text is kept as a cancelled message; the bare send records are gone.
-        assert messages == [("contact", "cancelled", "downgrade_0010"), ("r2", "draft", None)]
+        assert messages == [("contact", "cancelled", "downgrade_0012"), ("r2", "draft", None)]
         assert rows(
             connection,
             "SELECT count(*) FROM contact_tracking_status_history WHERE actor_id = :id",
@@ -354,7 +354,7 @@ def test_0010_downgrade_maps_back_then_upgrade_again(
         assert len(sends(connection, people["contacted"])) == 2
 
 
-def test_0010_merges_a_week_number_of_two_years_into_one_cohort_to_review(
+def test_0012_merges_a_week_number_of_two_years_into_one_cohort_to_review(
     engine: Engine, migration_database: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Decision R-10 (Q1): the code has no year, so week 41 of 2025 and of 2026 make one cohort
@@ -382,7 +382,7 @@ def test_0010_merges_a_week_number_of_two_years_into_one_cohort_to_review(
             people[name] = prospect
 
     capsys.readouterr()
-    command.upgrade(config, "0010")
+    command.upgrade(config, "0012")
     report = capsys.readouterr().err
 
     with engine.connect() as connection:

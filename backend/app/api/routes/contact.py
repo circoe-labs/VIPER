@@ -15,7 +15,7 @@ import uuid
 from datetime import UTC, date, datetime
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel
 
 from app.api.dependencies import SessionDep
@@ -36,6 +36,7 @@ from app.services.contact_dashboard import (
     ContactFilters,
     ContactSort,
 )
+from app.services.contact_dispatch_state import DispatchReason, dispatch_state
 from app.services.contact_workflow import IsoWeek
 from app.services.errors import InvalidFieldError
 from app.services.prospection.query import LIST_MAX_LIMIT
@@ -104,6 +105,17 @@ class WeekOptionOut(BaseModel):
     count: int
 
 
+class DispatchStateOut(BaseModel):
+    """Will a scheduled message really leave (S9)? `reason` when not: `disabled` |
+    `toolbox_disabled` | `toolbox_not_configured` | `toolbox_disconnected` | `toolbox_expired` |
+    `not_running`. `overdue_count`: scheduled, not claimed, time passed."""
+
+    active: bool
+    reason: DispatchReason | None
+    scheduled_count: int
+    overdue_count: int
+
+
 class ContactDashboardOut(BaseModel):
     # The business day and its ISO week (« cette semaine »), e.g. `2026-W40`.
     today: date
@@ -116,6 +128,8 @@ class ContactDashboardOut(BaseModel):
     categories: list[CategoryCountOut]
     cohorts: list[CohortSummaryOut]
     weeks: list[WeekOptionOut]
+    # The scheduled sending (S9): the page warns when scheduled messages will not leave.
+    dispatch: DispatchStateOut
 
 
 class MessageStateOut(BaseModel):
@@ -192,12 +206,22 @@ def _cohort(value: uuid.UUID | str | None) -> uuid.UUID | Literal["none"] | None
 
 @router.get("/dashboard")
 def dashboard(
-    session: SessionDep, q: Search = None, week: Week = None, cohort: CohortParam = None
+    request: Request,
+    session: SessionDep,
+    q: Search = None,
+    week: Week = None,
+    cohort: CohortParam = None,
 ) -> ContactDashboardOut:
     with business_errors():
         filters = ContactFilters(week=parse_week(week), cohort=_cohort(cohort), search=q)
     result = contact_dashboard.dashboard(session, contact_clock(), filters)
-    return ContactDashboardOut.model_validate(result, from_attributes=True)
+    state = dispatch_state(request.app.state, session)
+    payload = {
+        name: getattr(result, name)
+        for name in ContactDashboardOut.model_fields
+        if name != "dispatch"
+    }
+    return ContactDashboardOut.model_validate({**payload, "dispatch": state}, from_attributes=True)
 
 
 @router.get("/prospects")

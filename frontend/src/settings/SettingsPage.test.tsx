@@ -38,6 +38,7 @@ describe('SettingsPage', () => {
       'Segments commerciaux',
       'Référents internes',
       'Cohortes',
+      'Connexions',
     ])
     expect(screen.getByRole('heading', { level: 2, name: 'Rôles' })).toBeInTheDocument()
 

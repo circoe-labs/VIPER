@@ -3,7 +3,7 @@
 A **cohort** is a prospecting session named `S<n>` (`S37`, `S39`…) with the real date of its first
 send, entered by a person: never derived from an ISO week (S39 may start on any day). `S0` is the
 special cohort « validated, out of campaign »: it has no date and nobody in it is contacted.
-Cohorts created by migration 0010 from former planned weeks carry `needs_review` until a person
+Cohorts created by migration 0012 from former planned weeks carry `needs_review` until a person
 confirms their date or code.
 
 A **sequence** is one prospect's run in one cohort. A person changing the prospect's cohort closes

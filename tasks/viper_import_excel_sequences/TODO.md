@@ -54,7 +54,7 @@ Orchestrateur (défauts appliqués, à contester par l'Humain) :
 ## Slices
 
 - [x] **S1 — Modèle backend** : cohortes, séquences, envois et niveau dérivé, états D7, alertes D8/D9, paramètre max
-  relances, migration Alembic `0010` (données existantes, historique jamais réécrit), services + API REST + audit ;
+  relances, migration Alembic `0012` (données existantes, historique jamais réécrit), services + API REST + audit ;
   adaptation de tous les consommateurs backend (dashboard, segments Prospection, Accueil, export, historique) pour
   garder la gate verte. Le frontend n'est touché que si la gate l'exige.
 - [x] **S2 — Import Excel** : D3, D4, D10, D11 ; dates de cohortes inconnues dans la revue ; S0 ; `retraité` et autres
@@ -77,7 +77,7 @@ Orchestrateur (défauts appliqués, à contester par l'Humain) :
 - 2026-10-01 : handoff local créé par l'orchestrateur sur `lucie` (= `task/contact-port`, à jour de `main`). Analyse
   S0 consignée dans `README.md`. Décisions D1-D4 Humaines, D5-D12 par défaut.
 - 2026-10-01 : S1 accepté (`f2ec5cf`, `2a6f72b`, `02aa8b2`, correctifs QA `21da384`, `bbfb956`, `d9192b6`, `714272b`,
-  `8fd2637`) — migration 0010 (cohortes, séquences, messages par rang, `quality_alerts`, max relances), API, décisions
+  `8fd2637`) — migration 0012 (cohortes, séquences, messages par rang, `quality_alerts`, max relances), API, décisions
   R-01…R-11 dans `doc/product/decision-log.md`. Arbitrages : Q1 fusion d'un même code sur deux années (cohorte à
   revoir) ; Q2 changer de Sxx reprend Défaillant/Réponse/RDV en séquence, refusé sous `ignored`/`do_not_contact` ;
   Q3 « Marquer envoyé » refusé après réponse/RDV ; Q4 max relances 0..20. Gate : pytest 1289 + 1 test de perf hors
@@ -85,14 +85,14 @@ Orchestrateur (défauts appliqués, à contester par l'Humain) :
   jusqu'à S4/S5** (anciens états, planificateur de semaine). Non corrigés : pas de `version` sur `PUT …/cohort` ;
   rattachement des messages par la migration non audité.
 - 2026-10-01 : S2 accepté (`efe2b89`, `f649484`, correctifs QA `468c597`, `ad0f276`, `5638518`, `7dffa98`, `759e6c5`)
-  — première feuille seule, instantané brut (migration `0011`), cohortes Sxx/S0 avec date exigée pour un code
+  — première feuille seule, instantané brut (migration `0013`), cohortes Sxx/S0 avec date exigée pour un code
   nouveau, Contact importé si cohorte passée, Défaillant si « Fichier vérifié humainement », priorité humaine lue
   dans l'audit (alertes `import_conflict`), `Statut_verification` sans effet sur les e-mails, P7 supprimée.
   Arbitrage : une cohorte importée renseigne `employment_verified_at` vide (R-20). QA : 2 défauts bloquants corrigés
   (catégories d'entreprise dans l'audit, RDV + Sxx sur une ligne nouvelle) et annonce Défaillant alignée sur le
   commit. Gate : pytest 1317 ; vitest 733/734 (`ProspectionPage` recherche instable sous charge, 13/13 seul ×2,
   frontend inchangé depuis S1). Risques : ~0,1-0,2 s/ligne en réimport conflictuel (à mesurer en S6) ; migration
-  `0011` à appliquer par l'Humain sur la base de dev ; écran d'import inadapté jusqu'à S5.
+  `0013` à appliquer par l'Humain sur la base de dev ; écran d'import inadapté jusqu'à S5.
 - 2026-10-01 : S3 accepté (`0302ce3`, `224dca8`, `2d01669`, `3eaac3c`, correctifs QA `3e31fc0`, `7ad6ec1`, `1b16929`)
   — messages par rang jusqu'au max, « Marquer comme envoyé » idempotent, planning hebdomadaire (`GET
   /api/contact/dashboard`, `/api/contact/prospects`), « à envoyer » unique pour Contact/Prospection/Accueil/export,

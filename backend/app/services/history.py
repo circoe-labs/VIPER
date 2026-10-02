@@ -232,7 +232,7 @@ STAGES: dict[str, str] = {
     **{state.value: label for state, label in STATE_LABELS.items()},
     **{code.value: label for code, label in LEGACY_LABELS.items()},
 }
-# The former `step` column of messages (dropped by migration 0010), still in older events.
+# The former `step` column of messages (dropped by migration 0012), still in older events.
 MESSAGE_STEPS: dict[str, str] = {
     code: step_label(rank) for rank, code in enumerate(("contact", "r1", "r2"))
 }
@@ -454,7 +454,7 @@ IDENTITY_FIELDS = {
     "quality_alert": "type",
 }
 # Columns dropped by a migration, still found in older events: shown with these labels (never
-# required by the column check of `FIELDS`). Migration 0010 dropped the planned week and the
+# required by the column check of `FIELDS`). Migration 0012 dropped the planned week and the
 # message step (now a rank).
 LEGACY_FIELDS: dict[str, dict[str, Field]] = {
     "contact_tracking": {
@@ -783,6 +783,11 @@ TITLES: dict[str, str] = {
 # Titles of a save that only touched Contact messages (a state change that cancels messages keeps
 # the prospect's title: the state is what the person chose).
 MESSAGE_TITLES: dict[str, str] = {
+    # Scheduled sending (S7): a claim followed by its outcome reads as the outcome.
+    AuditAction.CONTACT_MESSAGE_DISPATCH_FAILED: "Envoi non effectué",
+    AuditAction.CONTACT_MESSAGE_DISPATCH_RELEASED: "Envoi non confirmé, remis en Validé",
+    AuditAction.CONTACT_MESSAGE_SENT: "Envoi enregistré",
+    AuditAction.CONTACT_MESSAGE_DISPATCH_CLAIMED: "Envoi lancé",
     AuditAction.CONTACT_MESSAGE_VALIDATED: "Message validé",
     AuditAction.CONTACT_MESSAGE_UNVALIDATED: "Message modifié après validation",
     AuditAction.CONTACT_MESSAGE_SCHEDULED: "Message programmé",
@@ -790,7 +795,8 @@ MESSAGE_TITLES: dict[str, str] = {
     AuditAction.CONTACT_MESSAGE_CANCELLED: "Message annulé",
     AuditAction.CONTACT_MESSAGE_REOPENED: "Message rouvert",
     AuditAction.CONTACT_MESSAGE_GENERATED: "Brouillon rédigé par l’IA",
-    AuditAction.CONTACT_MESSAGE_SENT: "Envoi enregistré",
+    AuditAction.CONTACT_MESSAGE_REMOTE_DRAFT_CREATED: "Brouillon créé dans Infomaniak",
+    AuditAction.CONTACT_MESSAGE_REMOTE_DRAFT_FAILED: "Brouillon Infomaniak non créé",
     "contact_message.created": "Message créé",
     "contact_message.updated": "Message modifié",
 }

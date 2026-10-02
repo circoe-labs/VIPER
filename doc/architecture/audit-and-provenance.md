@@ -46,7 +46,7 @@ occurred_at)`.
 
 | Key | When | Meaning |
 |---|---|---|
-| `source` | always | `ui` (signed-in request), `import`, `database_explorer`, `cli`, `agent` |
+| `source` | always | `ui` (signed-in request), `import`, `database_explorer`, `cli`, `agent`, `dispatcher` (the scheduled sending of Contact messages, S7) |
 | `request_id` | HTTP requests | UUIDv7 shared by every event of one request (one save) |
 | `import_batch_id` | import writes | The batch being imported |
 | `on_behalf_of` | import (future agents) | `{type, id, display}` of the human who confirmed the automated work |
@@ -106,7 +106,7 @@ raises `UnattributedMutationError` and the transaction rolls back.
 | `prospect.do_not_contact.cleared` | `prospects.clear_do_not_contact` | the mandatory clearing reason is kept **only** here, in `context.reason` (I-28) |
 | `contact_tracking.status_changed` | `contact_tracking.save_contact_tracking` | stage change (+ any date changed in the same save); `.created` for a new row, `.updated` for date/referent-only changes |
 | `contact_message.unvalidated` / `.validated` / `.scheduled` / `.unscheduled` / `.cancelled` / `.reopened` | `contact_messages` state machine (S3, [`contact.md`](../features/contact.md)) | status, revision, validation and send moment; content masked; `.cancelled` has `context.reason` `manual`, `prospect_state:<state>` (decision 29) or `do_not_contact` (opposition); `.created` for a new message, `.updated` for an edit of a draft |
-| `contact_message.sent` | `contact_messages.mark_sent` (« Marquer comme envoyé »), migration `0010` | `status`, `sent_at`, `sent_source` (`manual`, `migration`…); content masked |
+| `contact_message.sent` | `contact_messages.mark_sent` (« Marquer comme envoyé »), migration `0012` | `status`, `sent_at`, `sent_source` (`manual`, `migration`…); content masked |
 | `contact_sequence.closed` | `contact_sequences.change_cohort` | `is_current`, `closed_at`, `end_reason` of the former sequence; the new one is `contact_sequence.created` (with the cohort code as label) |
 | `quality_alert.resolved` | `quality_alerts.resolve_alert` | `resolved_at`, resolver, `resolution_note`; `.created` when raised (`detail` masked) |
 | `import_batch.started` / `.committed` / `.failed` / `.cancelled` | `import_batches.start_batch` / `finish_batch` | file name, sheets, fingerprint, status, counts |

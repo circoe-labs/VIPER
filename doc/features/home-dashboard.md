@@ -38,8 +38,8 @@ Two figures for the current month (Europe/Paris, `app/core/business_time.py`), e
   for contacts made before the sends existed, the first history row entering a contact-attempt code
   (`contact_workflow.CONTACT_ATTEMPT_CODES`: the former `contacted`, `r1`, `r2`, `failure`, the 0008 legacy codes,
   `response_received`, `appointment_obtained`) — **unless that first contact is a restatement**: a send recorded by an
-  import or by migration `0010` (sources `import`/`migration`), a history row written by an import or appended by
-  migrations `0008`/`0010`. Migration `0010` dates its sends from the human history rows they restate, so those rows
+  import or by migration `0012` (sources `import`/`migration`), a history row written by an import or appended by
+  migrations `0008`/`0012`. Migration `0012` dates its sends from the human history rows they restate, so those rows
   still count in their own month. A person imported at *À contacter* and contacted by hand this month counts; a second
   sequence (new cohort) never counts again. Opposed or inactive people still count (a historical fact, like the
   `contacted` segment).

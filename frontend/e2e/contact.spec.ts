@@ -7,7 +7,8 @@ import { signIn } from './session'
 
 // Contact page (Contact port S4) against the real backend: the operator's flow on a prospect the test creates and plans
 // for this week through the API (I-81: every row carries the test's suffix, and a search narrows the page to them).
-// Nothing is sent: scheduling only records the moment (the dispatcher arrives in S7).
+// Nothing is sent: the Toolbox is not connected in this project, so the dispatcher (S7) sends nothing; the full
+// scenario with real sending (to the fake Toolbox) is e2e/contact-flow.spec.ts.
 
 test.use({ viewport: { width: 1440, height: 900 } })
 
@@ -53,7 +54,7 @@ async function captureBoth(page: Page, name: string, widths: number[]) {
   await expect(page.getByRole('tablist', { name: 'Étapes de la séquence' })).toBeVisible()
 }
 
-async function confirm(page: Page, title: RegExp, button: string) {
+async function confirm(page: Page, title: RegExp, button: string | RegExp) {
   const dialog = page.getByRole('dialog', { name: title })
   await expect(dialog).toBeVisible()
   await dialog.getByRole('button', { name: button }).click()
@@ -71,6 +72,8 @@ test('Exploitation became Contact: the old path redirects, the navigation names 
 test('operator flow: draft, validate, schedule, unschedule, edit back to draft, then « Réponse reçue » cancels', async ({
   page,
 }) => {
+  // ≈ 23 s alone (eight design captures with reloads): beyond the 30 s default under three workers.
+  test.slow()
   const suffix = uniqueSuffix()
   const tag = `CE2E${suffix}`
   const email = `lina.${suffix}@contact-e2e.example`
@@ -119,7 +122,8 @@ test('operator flow: draft, validate, schedule, unschedule, edit back to draft, 
   await page.screenshot({ path: `${SCREENSHOTS}/contact-validated-dark-1440.png`, animations: 'disabled' })
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.getByRole('button', { name: 'Programmer…' }).click()
-  await confirm(page, /Programmer le message Contact/, 'Programmer l’envoi')
+  // Automatic sending inactive in this project (S9): « Programmer quand même » (« Programmer l’envoi » once it is active).
+  await confirm(page, /Programmer le message Contact/, /^Programmer (l’envoi|quand même)$/)
   await expect(mailTab(page, 'Contact')).toContainText('Programmé')
   await expect(page.getByText(/Programmé pour le/)).toBeVisible()
 

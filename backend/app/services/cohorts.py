@@ -7,7 +7,7 @@
   (409 `cohort_s0_fixed`);
 - codes are unique (409 `duplicate`, with the existing cohort): reusing `S37` next year means
   renaming the old one first;
-- confirming a date or a code clears `needs_review` (cohorts created by migration 0010);
+- confirming a date or a code clears `needs_review` (cohorts created by migration 0012);
 - a cohort in use by a sequence (current or past) cannot be deleted (409 `in_use`).
 
 Only a person writes cohorts (403 `human_actor_required`). Audited through the flush hook

@@ -1,6 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
+import { useEffect, useRef, useState } from 'react'
 
 import { MESSAGE_STEPS, type MessageSequence, type MessageStep, useMessageMutations, useMessageSequence } from '../api/contact'
+import { historyKeys } from '../api/history'
+import { refreshAfterWrite } from '../api/refresh'
 import { EditorSection } from '../prospects/EditorSection'
 import { Button } from '../ui/Button'
 import { AlertIcon, SpinnerIcon } from '../ui/icons'
@@ -8,7 +11,7 @@ import { Tabs } from '../ui/Tabs'
 import { STEP_LABELS } from './labels'
 import { type AiInstruction, NO_INSTRUCTION } from './aiDraftModel'
 import { MailEditor, type SendMoment } from './MailEditor'
-import { formOf, isDirty, type MailForm, mailActions } from './mailModel'
+import { dispatchState, formOf, isDirty, type MailForm, mailActions, releaseAvailableAt } from './mailModel'
 import { MessageBadge } from './MessageBadge'
 
 // The step to send next (derived from the real sends), opened first; Contact when finished, closed or beyond R2.
@@ -38,6 +41,32 @@ export function MailSequence({ prospectId, onDirtyChange }: MailSequenceProps) {
   // The AI « consigne » per step (S5), kept across tab switches like the text.
   const [instructions, setInstructions] = useState<Partial<Record<MessageStep, AiInstruction>>>({})
   const sequence = query.data
+  // A status changed by the server itself (the dispatcher sent a message, S7) moves the list's message chips, the
+  // counters and the history too: read them again, as after a person's write.
+  const queryClient = useQueryClient()
+  const statuses = sequence ? sequence.steps.map((entry) => entry.message?.status ?? '-').join('|') : null
+  const seenStatuses = useRef(statuses)
+  // A persistent live region says what the server did (« Message Contact envoyé. »), whatever editor is shown.
+  const [serverNews, setServerNews] = useState('')
+  useEffect(() => {
+    if (statuses === null || seenStatuses.current === statuses) return
+    const before = seenStatuses.current?.split('|') ?? null
+    seenStatuses.current = statuses
+    if (before === null) return
+    const after = statuses.split('|')
+    const news = MESSAGE_STEPS.flatMap((step, index) => {
+      if (before[index] !== 'scheduled' || after[index] === 'scheduled') return []
+      if (after[index] === 'sent') return [`Message ${STEP_LABELS[step]} envoyé.`]
+      if (after[index] === 'validated') return [`Message ${STEP_LABELS[step]} revenu en Validé : envoi non effectué.`]
+      return []
+    })
+    if (news.length > 0) setServerNews(news.join(' '))
+    void refreshAfterWrite(queryClient, [
+      ['contact', 'page'],
+      ['contact', 'dashboard'],
+      historyKeys.subject('prospects', prospectId),
+    ])
+  }, [statuses, queryClient, prospectId])
 
   const context = sequence
     ? { state: sequence.sequence.state, doNotContact: sequence.sequence.do_not_contact, closed: sequence.sequence.closed }
@@ -87,12 +116,22 @@ export function MailSequence({ prospectId, onDirtyChange }: MailSequenceProps) {
   const data = query.data
   const step = selected ?? firstStep(data.sequence.next_step)
   const message = messageOf(data, step)
-  const actions = mailActions(message, { state: data.sequence.state, doNotContact: data.sequence.do_not_contact, closed: data.sequence.closed })
+  // A claim is judged at the moment the sequence was read (the polling of `useMessageSequence` reads it again).
+  const clock = { now: query.dataUpdatedAt, claimTtlSeconds: data.defaults.dispatch_claim_ttl_seconds }
+  const releaseFrom = releaseAvailableAt(message, data.defaults.dispatch_claim_ttl_seconds, query.dataUpdatedAt)
+  const actions = mailActions(
+    message,
+    { state: data.sequence.state, doNotContact: data.sequence.do_not_contact, closed: data.sequence.closed },
+    clock,
+  )
   const saved = formOf(message, data.defaults)
   const draft = actions.editable ? drafts[step] : undefined
 
   return (
     <EditorSection title="Séquence mail">
+      <p className="visually-hidden" role="status" aria-live="polite">
+        {serverNews}
+      </p>
       <Tabs
         label="Étapes de la séquence"
         selected={step}
@@ -118,6 +157,8 @@ export function MailSequence({ prospectId, onDirtyChange }: MailSequenceProps) {
           sequence={data}
           message={message}
           actions={actions}
+          dispatch={dispatchState(message, clock)}
+          releaseFrom={releaseFrom}
           saved={saved}
           form={draft ?? saved}
           mutations={mutations}

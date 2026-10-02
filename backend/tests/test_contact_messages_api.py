@@ -93,6 +93,13 @@ def test_the_sequence_read_model(
         "from_email": SENDER,
         "to": ["jean.test@exemple.example"],
         "generation_available": False,
+        "toolbox_connected": False,
+        "toolbox_state": "disabled",
+        # S7: no dispatcher in this app, so a scheduled message would not leave.
+        "automatic_sending_active": False,
+        "dispatch_reason": "toolbox_disabled",
+        "dispatch_max_lateness_minutes": 360,
+        "dispatch_claim_ttl_seconds": 600,
     }
     # Every step from the Contact to R<max> (« max relances », 4 by default).
     assert body["steps"] == [

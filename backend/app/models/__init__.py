@@ -3,7 +3,7 @@
 from app.models.app_settings import AppSetting
 from app.models.audit import AuditLogEntry
 from app.models.companies import Company, Establishment, company_activity_categories
-from app.models.contact_messages import ContactMessage
+from app.models.contact_messages import ContactMessage, ContactMessageRemoteDraftCleanup
 from app.models.contact_sequences import Cohort, ContactSequence
 from app.models.contact_tracking import ContactTracking, ContactTrackingStatusHistory
 from app.models.imports import ImportBatch, ImportRowMetadata
@@ -20,6 +20,7 @@ __all__ = [
     "CommercialSegment",
     "Company",
     "ContactMessage",
+    "ContactMessageRemoteDraftCleanup",
     "ContactSequence",
     "ContactTracking",
     "ContactTrackingStatusHistory",

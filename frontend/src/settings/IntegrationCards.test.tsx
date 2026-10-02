@@ -1,0 +1,315 @@
+import { screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { describe, expect, it } from 'vitest'
+
+import { integrations, stubIntegrationsApi } from '../test/integrationsApi'
+import { renderApp } from '../test/render'
+import { stubSettingsApi } from '../test/settingsApi'
+import { CONNECTED, stubToolboxApi } from '../test/toolboxApi'
+
+// Paramètres › Connexions (Contact port S8): the integration settings typed in the browser.
+
+const KEY = 'sk-test-cle-synthetique-1234'
+const region = (name: string) => within(screen.getByRole('region', { name: 'Connexions' })).getByRole('region', { name })
+const openai = () => region('Rédaction IA (OpenAI)')
+
+function stub(options: Parameters<typeof stubIntegrationsApi>[0] = {}) {
+  stubSettingsApi({})
+  stubToolboxApi()
+  return stubIntegrationsApi(options)
+}
+
+const SAVED_KEY = integrations(
+  { openai_model: { value: 'modele-test', source: 'ui', updated_at: '2026-10-01T08:00:00+00:00', updated_by: 'Pilote Test' } },
+  {
+    openai_api_key: { set: true, last4: '1234', source: 'ui', updated_at: '2026-10-01T08:00:00+00:00', updated_by: 'Pilote Test' },
+    generation_available: true,
+  },
+)
+
+describe('Rédaction IA (OpenAI)', () => {
+  it('saves a key and a model typed here, then never shows the key again', async () => {
+    const api = stub()
+    renderApp('/settings/connections')
+
+    expect(await within(await screen.findByRole('region', { name: 'Rédaction IA (OpenAI)' })).findByText('Non configurée')).toBeInTheDocument()
+    const save = within(openai()).getByRole('button', { name: 'Enregistrer' })
+    expect(save).toBeDisabled()
+    await userEvent.type(within(openai()).getByLabelText('Clé d’API OpenAI'), KEY)
+    await userEvent.type(within(openai()).getByRole('textbox', { name: 'Modèle' }), 'modele-test')
+    await userEvent.click(save)
+
+    expect(await within(openai()).findByText(/Clé et réglages OpenAI enregistrés/)).toBeInTheDocument()
+    expect(api.puts).toEqual([{ version: 0, openai_model: 'modele-test', openai_api_key: KEY }])
+    expect(within(openai()).getByText('Configurée')).toBeInTheDocument()
+    const input = within(openai()).getByLabelText('Clé d’API OpenAI')
+    expect(input).toHaveValue('')
+    expect(input).toHaveAttribute('placeholder', '•••• 1234 (enregistrée)')
+    expect(input).toHaveAttribute('type', 'password')
+    expect(input).toBeDisabled()
+    expect(document.body.innerHTML).not.toContain(KEY)
+  })
+
+  it('replaces the key, and clears it after a confirmation', async () => {
+    const api = stub({ initial: SAVED_KEY })
+    renderApp('/settings/connections')
+
+    await userEvent.click(await within(await screen.findByRole('region', { name: 'Rédaction IA (OpenAI)' })).findByRole('button', { name: 'Remplacer' }))
+    const input = within(openai()).getByLabelText('Clé d’API OpenAI')
+    await waitFor(() => {
+      expect(input).toHaveFocus()
+    })
+    await userEvent.type(input, 'sk-test-nouvelle-cle-9876')
+    await userEvent.click(within(openai()).getByRole('button', { name: 'Enregistrer' }))
+    await waitFor(() => {
+      expect(input).toHaveAttribute('placeholder', '•••• 9876 (enregistrée)')
+    })
+
+    await userEvent.click(within(openai()).getByRole('button', { name: 'Effacer…' }))
+    const dialog = screen.getByRole('dialog', { name: 'Effacer la clé OpenAI ?' })
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Effacer la clé' }))
+
+    expect(await within(openai()).findByText('Clé OpenAI effacée.')).toBeInTheDocument()
+    expect(api.puts.at(-1)).toEqual({ version: 1, openai_api_key: null })
+    expect(within(openai()).getByText('Non configurée')).toBeInTheDocument()
+  })
+
+  it('says where a value comes from and puts it back to the default', async () => {
+    const api = stub({ initial: SAVED_KEY })
+    renderApp('/settings/connections')
+
+    const model = await within(await screen.findByRole('region', { name: 'Rédaction IA (OpenAI)' })).findByRole('textbox', { name: 'Modèle' })
+    expect(model).toHaveValue('modele-test')
+    expect(model).toHaveAccessibleDescription(/Défini ici par Pilote Test/)
+    expect(within(openai()).getByRole('textbox', { name: 'Lien de prise de rendez-vous' })).toHaveAccessibleDescription(/Valeur par défaut/)
+
+    const reset = within(openai()).getByRole('button', { name: 'Rétablir' })
+    expect(reset).toHaveAttribute('title', 'Rétablir la valeur par défaut : aucune valeur')
+    await userEvent.click(reset)
+
+    expect(await within(openai()).findByText('Valeur par défaut rétablie.')).toBeInTheDocument()
+    expect(api.puts).toEqual([{ version: 0, openai_model: null }])
+    expect(model).toHaveValue('')
+  })
+
+  it('puts a refused value’s message under its field', async () => {
+    stub({ refuseField: 'openai_base_url' })
+    renderApp('/settings/connections')
+
+    const card = await screen.findByRole('region', { name: 'Rédaction IA (OpenAI)' })
+    await userEvent.click(within(card).getByText('Paramètres avancés'))
+    const base = within(card).getByRole('textbox', { name: 'Adresse de l’API' })
+    await userEvent.clear(base)
+    await userEvent.type(base, 'ftp://ailleurs')
+    await userEvent.click(within(card).getByRole('button', { name: 'Enregistrer' }))
+
+    expect(await within(card).findByText(/Adresse http\(s\) complète attendue, par exemple/)).toBeInTheDocument()
+    expect(base).toHaveAttribute('aria-invalid', 'true')
+    expect(within(card).getByText(/Rien n’a été enregistré : corrigez le champ signalé/)).toBeInTheDocument()
+  })
+
+  it('refuses a timeout that is not a number before sending anything', async () => {
+    const api = stub()
+    renderApp('/settings/connections')
+
+    const card = await screen.findByRole('region', { name: 'Rédaction IA (OpenAI)' })
+    await userEvent.click(within(card).getByText('Paramètres avancés'))
+    const timeout = within(card).getByRole('textbox', { name: 'Délai d’attente (secondes)' })
+    expect(timeout).toHaveValue('60')
+    await userEvent.clear(timeout)
+    await userEvent.type(timeout, 'vite')
+    await userEvent.click(within(card).getByRole('button', { name: 'Enregistrer' }))
+
+    expect(await within(card).findByText('Indiquez un délai entre 1 et 300 secondes.')).toBeInTheDocument()
+    expect(api.puts).toEqual([])
+  })
+
+  it('says when the settings changed meanwhile', async () => {
+    stub({ conflict: true })
+    renderApp('/settings/connections')
+
+    const card = await screen.findByRole('region', { name: 'Rédaction IA (OpenAI)' })
+    await userEvent.type(within(card).getByRole('textbox', { name: 'Modèle' }), 'autre')
+    await userEvent.click(within(card).getByRole('button', { name: 'Enregistrer' }))
+
+    expect(await within(card).findByText(/modifiés entre-temps/)).toBeInTheDocument()
+  })
+
+  it('tests the saved key and says the outcome', async () => {
+    const api = stub({ initial: SAVED_KEY, check: { ok: false, code: 'ai_auth_failed', model: null, elapsed_ms: 300 } })
+    renderApp('/settings/connections')
+
+    const card = await screen.findByRole('region', { name: 'Rédaction IA (OpenAI)' })
+    await userEvent.click(within(card).getByRole('button', { name: 'Tester la clé' }))
+
+    expect(await within(card).findByText('Test échoué : la clé a été refusée par OpenAI.')).toBeInTheDocument()
+    expect(api.checks).toHaveLength(1)
+  })
+
+  it('tests only a saved configuration', async () => {
+    stub()
+    renderApp('/settings/connections')
+
+    const card = await screen.findByRole('region', { name: 'Rédaction IA (OpenAI)' })
+    expect(within(card).getByRole('button', { name: 'Tester la clé' })).toBeDisabled()
+  })
+
+  it('reports a key accepted with its model', async () => {
+    stub({ initial: SAVED_KEY })
+    renderApp('/settings/connections')
+
+    const card = await screen.findByRole('region', { name: 'Rédaction IA (OpenAI)' })
+    await userEvent.click(within(card).getByRole('button', { name: 'Tester la clé' }))
+
+    expect(await within(card).findByText(/Clé acceptée : le modèle « modele-test » est disponible/)).toBeInTheDocument()
+  })
+})
+
+describe('the key and its API address (S8 QA M1)', () => {
+  it('warns that a new API address needs the key again, and opens the key when the server says so', async () => {
+    const api = stub({ initial: SAVED_KEY, refuseField: 'openai_api_key', refuseReason: 'required_with_base_url' })
+    renderApp('/settings/connections')
+
+    const card = await screen.findByRole('region', { name: 'Rédaction IA (OpenAI)' })
+    await userEvent.click(within(card).getByText('Paramètres avancés', { exact: true }))
+    const base = within(card).getByRole('textbox', { name: 'Adresse de l’API' })
+    await userEvent.clear(base)
+    await userEvent.type(base, 'https://proxy.exemple.example/v1')
+    const key = within(card).getByLabelText('Clé d’API OpenAI')
+    expect(key).toHaveAccessibleDescription(/demande de saisir la clé à nouveau/)
+
+    await userEvent.click(within(card).getByRole('button', { name: 'Enregistrer' }))
+
+    expect(await within(card).findByText(/une clé n’est jamais envoyée à une autre adresse/)).toBeInTheDocument()
+    expect(key).toBeEnabled()
+    expect(api.puts).toEqual([{ version: 0, openai_base_url: 'https://proxy.exemple.example/v1' }])
+  })
+})
+
+describe('Expéditeur and Envoi programmé', () => {
+  it('an emptied field goes back to the default (null), never an empty text', async () => {
+    const api = stub({
+      initial: integrations({ default_outbound_email: { value: 'ancien@exemple.example', source: 'ui', updated_by: 'Pilote Test' } }),
+    })
+    renderApp('/settings/connections')
+
+    const card = await screen.findByRole('region', { name: 'Expéditeur' })
+    await userEvent.clear(within(card).getByRole('textbox', { name: 'Adresse « De » par défaut' }))
+    await userEvent.click(within(card).getByRole('button', { name: 'Enregistrer' }))
+
+    expect(await within(card).findByText(/Expéditeur enregistré/)).toBeInTheDocument()
+    expect(api.puts).toEqual([{ version: 0, default_outbound_email: null }])
+  })
+
+  it('says a settings file the server cannot write, in French', async () => {
+    stub({ storageUnavailable: true })
+    renderApp('/settings/connections')
+
+    const card = await screen.findByRole('region', { name: 'Expéditeur' })
+    await userEvent.type(within(card).getByRole('textbox', { name: 'Adresse « De » par défaut' }), 'a@exemple.example')
+    await userEvent.click(within(card).getByRole('button', { name: 'Enregistrer' }))
+
+    expect(await within(card).findByText(/ne peut pas être écrit sur le serveur/)).toBeInTheDocument()
+  })
+
+  it('saves the default sender', async () => {
+    const api = stub()
+    renderApp('/settings/connections')
+
+    const card = await screen.findByRole('region', { name: 'Expéditeur' })
+    await userEvent.type(within(card).getByRole('textbox', { name: 'Adresse « De » par défaut' }), 'prospection@exemple.example')
+    await userEvent.click(within(card).getByRole('button', { name: 'Enregistrer' }))
+
+    expect(await within(card).findByText(/Expéditeur enregistré/)).toBeInTheDocument()
+    expect(api.puts).toEqual([{ version: 0, default_outbound_email: 'prospection@exemple.example' }])
+  })
+
+  it('switches the scheduled sending off and on at once (S9)', async () => {
+    const api = stub()
+    renderApp('/settings/connections')
+
+    const card = await screen.findByRole('region', { name: 'Envoi programmé' })
+    const toggle = within(card).getByRole('switch', { name: 'Envoi automatique des mails programmés' })
+    await userEvent.click(toggle)
+    expect(await within(card).findByText(/^Envoi automatique désactivé : aucun mail programmé ne partira/)).toBeInTheDocument()
+    expect(toggle).not.toBeChecked()
+    expect(within(card).getByText('Désactivé')).toBeInTheDocument()
+    await userEvent.click(toggle)
+    expect(await within(card).findByText(/^Envoi automatique activé/)).toBeInTheDocument()
+    expect(toggle).toBeChecked()
+    expect(api.puts).toEqual([
+      { version: 0, contact_dispatch_enabled: false },
+      { version: 1, contact_dispatch_enabled: true },
+    ])
+  })
+
+  it('saves the delay (in seconds) of the advanced settings and an allowlist, and refuses an impossible delay (S9)', async () => {
+    const api = stub()
+    renderApp('/settings/connections')
+
+    const card = await screen.findByRole('region', { name: 'Envoi programmé' })
+    await userEvent.click(within(card).getByText('Paramètres avancés', { exact: true }))
+    const delay = within(card).getByRole('textbox', { name: 'Délai maximal avant envoi (secondes)' })
+    expect(delay).toHaveValue('30')
+    await userEvent.clear(delay)
+    await userEvent.type(delay, '0')
+    await userEvent.click(within(card).getByRole('button', { name: 'Enregistrer' }))
+    expect(within(card).getByText('Indiquez un délai entre 1 et 3 600 secondes.')).toBeInTheDocument()
+    expect(api.puts).toEqual([])
+
+    await userEvent.clear(delay)
+    await userEvent.type(delay, '10')
+    await userEvent.type(within(card).getByRole('textbox', { name: 'Adresses autorisées (facultatif)' }), '@exemple.example')
+    await userEvent.click(within(card).getByRole('button', { name: 'Enregistrer' }))
+
+    expect(await within(card).findByText(/Envoi programmé enregistré/)).toBeInTheDocument()
+    expect(api.puts).toEqual([
+      { version: 0, contact_dispatch_interval_ms: 10_000, infomaniak_send_allowlist: '@exemple.example' },
+    ])
+  })
+})
+
+describe('CIRCOE Toolbox › Paramètres avancés', () => {
+  it('asks before changing the server address of a connected Toolbox (it disconnects it)', async () => {
+    stubSettingsApi({})
+    stubToolboxApi({ status: CONNECTED })
+    const api = stubIntegrationsApi()
+    renderApp('/settings/connections')
+
+    const card = await screen.findByRole('region', { name: 'CIRCOE Toolbox' })
+    await userEvent.click(within(card).getByText('Paramètres avancés', { exact: true }))
+    const server = within(card).getByRole('textbox', { name: 'Adresse du serveur CIRCOE Toolbox' })
+    await userEvent.clear(server)
+    await userEvent.type(server, 'https://autre.exemple.example/mcp')
+    await userEvent.click(within(card).getByRole('button', { name: 'Enregistrer les paramètres avancés' }))
+
+    const dialog = screen.getByRole('dialog', { name: 'Changer l’adresse du serveur ?' })
+    expect(dialog).toHaveTextContent('déconnecte la Toolbox')
+    expect(api.puts).toEqual([])
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Changer et déconnecter' }))
+
+    expect(await within(card).findByText('Paramètres de la Toolbox enregistrés.')).toBeInTheDocument()
+    expect(api.puts).toEqual([{ version: 0, toolbox_mcp_url: 'https://autre.exemple.example/mcp' }])
+  })
+
+  it('shows the built-in server address and saves a typed one', async () => {
+    const api = stub()
+    renderApp('/settings/connections')
+
+    const card = await screen.findByRole('region', { name: 'CIRCOE Toolbox' })
+    await userEvent.click(within(card).getByText('Paramètres avancés'))
+    const server = within(card).getByRole('textbox', { name: 'Adresse du serveur CIRCOE Toolbox' })
+    expect(server).toHaveValue('https://toolbox.exemple.example/mcp')
+    const back = within(card).getByRole('textbox', { name: 'Adresse de retour' })
+    expect(back).toHaveAttribute('placeholder', `${window.location.origin}/settings/connections`)
+    // « Se connecter à CIRCOE Toolbox » stays the one primary action of the card.
+    expect(within(card).getByRole('button', { name: 'Enregistrer les paramètres avancés' })).toHaveClass('btn--secondary')
+
+    await userEvent.clear(server)
+    await userEvent.type(server, 'https://autre.exemple.example/mcp')
+    await userEvent.click(within(card).getByRole('button', { name: 'Enregistrer les paramètres avancés' }))
+
+    expect(await within(card).findByText('Paramètres de la Toolbox enregistrés.')).toBeInTheDocument()
+    expect(api.puts).toEqual([{ version: 0, toolbox_mcp_url: 'https://autre.exemple.example/mcp' }])
+  })
+})

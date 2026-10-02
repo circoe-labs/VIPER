@@ -146,7 +146,7 @@ def add_role(session: Session, slug: str = "role-test", label: str = "Rôle test
 
 def add_cohort(session: Session, code: str = "S41", starts_on: date | None = None) -> Cohort:
     """A cohort with its real start date (default: Monday 5 October 2026); `S0` exists already
-    (migration 0010) and is returned as is."""
+    (migration 0012) and is returned as is."""
     existing = session.scalar(select(Cohort).where(Cohort.code == code))
     if existing is not None:
         return existing

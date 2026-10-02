@@ -233,7 +233,43 @@ region. **AI drafting** blocks sit above the bar: the reason a disabled button i
 running state on info-soft (spinner, *L’IA rédige le message …*, a tabular-digit monospace seconds counter, a muted
 hint), the full-width *Consigne pour l’IA* field; an AI text shows under the status sentence *Rédigé par l’IA — à
 relire avant de valider.* with an accent-fg Sparkles glyph and the model · prompt version in 12 px muted monospace.
-Styles: `frontend/src/contact/contact.css` (feature doc: `doc/features/contact.md`).
+**CIRCOE Toolbox** (S6): one 14 px line under the status sentence of a validated message — success-fg check
+*Brouillon créé dans Infomaniak.*, warning-fg alert *Brouillon Infomaniak non créé : …* with a small ghost
+*Réessayer*, or muted mail glyph *pas encore créé* — and, while connected, a muted info hint under *De* (the real
+sender is the Infomaniak account's default mailbox). Styles: `frontend/src/contact/contact.css` (feature doc:
+`doc/features/contact.md`).
+
+**Scheduled sending** (S7): the dispatch line reuses the same 14 px `.contact-mail__remote` line — muted spinner
+*Envoi en cours par la Toolbox…*, warning-fg alert for a failed attempt or a send back in *Validé* with its reason,
+muted info for *Envoi automatique inactif…*, *Envoi déduit…*, *Envoi confirmé par une personne…*. An unconfirmed
+send is the one block with actions: a warning-soft `.contact-mail__banner` (alert glyph) holding the sentence, then a
+row of two small buttons (`.contact-mail__settle-actions`): *Marquer envoyé…* primary, *Remettre en Validé…*
+secondary — each opens the shared confirmation `Modal` (*Retour* focused; the release confirms with the danger
+button).
+
+**Paramètres › Connexions** (S6, `settings.css`): the fifth `.settings-tabs` link (an *À reconnecter* warning
+badge on the tab when the connection expired). Inside the panel, one `.settings-connection` card per service:
+canvas background with a border (a surface inside the surface panel), header = accent-soft 40 px icon tile + 18 px
+title + muted subtitle + `StatusBadge` on the right; a one-sentence meaning of the state; facts as a grid of
+uppercase 12 px muted labels over medium values (the origin in monospace); the last failure on danger-soft; the
+limitations as a muted bullet list; actions right-aligned (ghost *Se déconnecter…* when linked, then *Se connecter
+à CIRCOE Toolbox* primary or *Reconnecter* secondary). Waits show a spinner and a live seconds counter (*Ouverture de la
+Toolbox… n s*, *Finalisation de la connexion… n s*, `lib/useElapsed.ts`). **Settings forms in cards (S8)**: the same card hosts its settings as a `.settings-form` (one column, ≤ 40rem,
+`ui/fields`), each field's hint ending with its source in 12 px (« Défini ici par … » / « Valeur fournie par la
+configuration du serveur » / « Valeur par défaut ») and, for a value set here, an accent text button *Rétablir* (undo glyph; its tooltip says the
+value it gives back). Rarely changed fields go in a native `<details>` « Paramètres avancés » (muted
+summary, rotating chevron, a hairline above the opened fields). A **write-only secret** is a password field left
+empty with the placeholder « •••• 1234 (enregistrée) », disabled until *Remplacer* (secondary sm), with a ghost
+*Effacer…* that confirms in a `Modal`. One primary button per card (*Enregistrer*, disabled until something
+changed; in the Toolbox card *Se connecter à CIRCOE Toolbox*, the advanced save being secondary); outcomes in a
+`FeedbackBanner` inside the card, refusals under the field. Cards: *Rédaction IA (OpenAI)* (sparkles), *Expéditeur*
+(mail), *CIRCOE Toolbox* (link), *Envoi programmé* (clock: `StatusBadge` *Actif* success / *En attente* warning /
+*Désactivé* neutral, one sentence, a warning `settings-feedback--warning` line when scheduled messages will not
+leave, a `Switch` *Envoi automatique des mails programmés* with one plain line, the allowlist, the delay in
+*Paramètres avancés*, the fact grid — last pass, scheduled, unconfirmed). **Will not leave** (S9): in Contact, a
+warning block `contact-mail__banner contact-dispatch-warning` (warning-soft background, the reason in plain words,
+a secondary sm link-button to the fix) — at the top of the page as a banner (`role="alert"`), and in the editor
+under the status sentence with a `StatusBadge` warning *Ne partira pas : …*.
 
 ## Home dashboard
 Spacious, global state first: eyebrow-labelled rows of six link cards (14 px glyph + 13 px muted label, 26 px

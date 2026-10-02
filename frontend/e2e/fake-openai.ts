@@ -11,6 +11,11 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 
 const port = Number(process.env.VIPER_E2E_OPENAI_PORT ?? 8046)
 const received: unknown[] = []
+// S8: keys starting with this prefix are refused (401), like a revoked key; the last four characters of the keys that
+// drafted or were checked are kept (`GET /keys`), never a whole key.
+const REFUSED_KEY_PREFIX = 'sk-e2e-refusee'
+const draftKeys: string[] = []
+const keyChecks: string[] = []
 
 function send(response: ServerResponse, status: number, body: unknown) {
   const text = JSON.stringify(body)
@@ -54,10 +59,23 @@ function draft(instructions: string, input: string) {
 async function answer(request: IncomingMessage): Promise<[number, unknown]> {
   if (request.method === 'GET' && request.url === '/health') return [200, { ok: true }]
   if (request.method === 'GET' && request.url === '/requests') return [200, received]
-  if (request.method !== 'POST' || request.url !== '/v1/responses') return [404, { error: { type: 'not_found', code: null } }]
-  if (!request.headers.authorization?.startsWith('Bearer ')) {
+  if (request.method === 'GET' && request.url === '/keys') return [200, { drafted: draftKeys, checked: keyChecks }]
+  const authorization = request.headers.authorization ?? ''
+  // A key refused by this fake (S8: « Tester la clé » and the drafting say so), or no key at all.
+  if (!authorization.startsWith('Bearer ') || authorization.startsWith(`Bearer ${REFUSED_KEY_PREFIX}`)) {
     return [401, { error: { type: 'invalid_request_error', code: 'invalid_api_key' } }]
   }
+  // « Tester la clé » (S8): `GET /v1/models/{model}`; a model named `inconnu…` does not exist.
+  const model = /^\/v1\/models\/([^/?]+)$/.exec(request.url ?? '')?.[1]
+  if (request.method === 'GET' && model) {
+    const id = decodeURIComponent(model)
+    if (id.startsWith('inconnu')) return [404, { error: { type: 'invalid_request_error', code: 'model_not_found' } }]
+    keyChecks.push(authorization.slice('Bearer '.length).slice(-4))
+    return [200, { id, object: 'model', owned_by: 'fake' }]
+  }
+  if (request.method !== 'POST' || request.url !== '/v1/responses') return [404, { error: { type: 'not_found', code: null } }]
+  // The last four characters of the key that drafted (a spec checks a key saved in the browser is the one used).
+  draftKeys.push(authorization.slice('Bearer '.length).slice(-4))
   const body = await readJson(request)
   received.push(body)
   const instructions = typeof body.instructions === 'string' ? body.instructions : ''

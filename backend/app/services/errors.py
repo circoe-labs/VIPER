@@ -64,6 +64,10 @@ class ConflictError(DomainError):
     """The record changed since the client read it (optimistic concurrency): reload, then redo."""
 
 
+class SettingsStorageError(DomainError):
+    """The integration settings file cannot be written (S8): nothing was saved or applied."""
+
+
 class DoNotContactError(DomainError):
     """The operation would erase a durable do-not-contact restriction (e.g. deleting the person)."""
 

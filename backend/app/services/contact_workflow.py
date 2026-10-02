@@ -51,7 +51,7 @@ H = TrackingHistoryStatus
 # Alembic revisions that converted states; the `actor_id` of the `system` history rows they
 # appended (the migrations repeat these literals: migrations never import application code).
 CONTACT_STATES_MIGRATION_ID = "0008_contact_states"
-CONTACT_SEQUENCES_MIGRATION_ID = "0010_contact_sequences"
+CONTACT_SEQUENCES_MIGRATION_ID = "0012_contact_sequences"
 RESTATEMENT_ACTOR_IDS = (CONTACT_STATES_MIGRATION_ID, CONTACT_SEQUENCES_MIGRATION_ID)
 
 __all__ = [
@@ -89,7 +89,7 @@ ALERT_TYPE_LABELS: dict[QualityAlertType, str] = {
     QualityAlertType.COMPANY_TO_CHECK: "Entreprise à vérifier",
     QualityAlertType.IMPORT_CONFLICT: "Conflit d’import",
 }
-# Labels of the codes replaced by migrations 0008 and 0010, still found in old history rows and
+# Labels of the codes replaced by migrations 0008 and 0012, still found in old history rows and
 # audit events.
 LEGACY_LABELS: dict[TrackingHistoryStatus, str] = {
     H.LEGACY_CONTACTED: "Contacté (ancien)",
@@ -155,7 +155,7 @@ def history_label(code: str | None) -> str | None:
 
 
 def is_restatement(row: ContactTrackingStatusHistory) -> bool:
-    """A history row appended by migration 0008 or 0010: a code conversion, not a moment the
+    """A history row appended by migration 0008 or 0012: a code conversion, not a moment the
     prospect reached a state."""
     return row.actor_type is ActorType.SYSTEM and row.actor_id in RESTATEMENT_ACTOR_IDS
 

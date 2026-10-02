@@ -1,5 +1,5 @@
 """Contact port S1 rework, kept by the sequences rework: the state anchor skips migration
-restatements (0008 and 0010), the Database Explorer cannot bypass `ignored` nor write a former
+restatements (0008 and 0012), the Database Explorer cannot bypass `ignored` nor write a former
 state, and the injected clock dates a response."""
 
 from datetime import UTC, datetime
@@ -30,7 +30,7 @@ RESEQUENCED_AT = datetime(2026, 10, 1, 8, 0, tzinfo=UTC)
 
 
 def converted(session: Session, prospect: Prospect) -> ContactTracking:
-    """A tracking as migrations 0008 then 0010 leave it: legacy rows, then two `system`
+    """A tracking as migrations 0008 then 0012 leave it: legacy rows, then two `system`
     restatements (follow_up_1 -> r1, then r1 -> neutral)."""
     tracking = ContactTracking(prospect_id=prospect.id, status=S.NEUTRAL)
     session.add(tracking)

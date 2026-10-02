@@ -50,6 +50,34 @@ It cancels the requests in flight before invalidating, because TanStack Query ke
 - Transaction-local database state set by a service (e.g. the do-not-contact clearing flag) is reset before the
   service returns, so later statements of the same transaction stay guarded.
 
+### Background work (Contact port P5)
+
+Background jobs run **inside the API process**, off by default, each with a `python -m app.cli … --once` twin:
+
+- **Toolbox cleanup worker** (S6, `app/services/toolbox/worker.py`): a daemon thread started by the app lifespan
+  when the CIRCOE Toolbox is connected (S8: started right after the OAuth return, stopped by « Se déconnecter »;
+  `app/services/integration_runtime.py`) and `VIPER_TOOLBOX_CLEANUP_INTERVAL_MS` > 0; it drains
+  `contact_message_remote_draft_cleanups` (`contact_remote_drafts.process_cleanups`), woken after any successful
+  unsafe request under `/api/prospects` (`app/api/worker_wake.py`). One pass at a time; each entry is claimed
+  (`SKIP LOCKED` + a lease), committed, deleted outside any transaction, then recorded, so a CLI pass can run
+  beside it. CLI: `toolbox-cleanup --once`.
+- **Contact dispatcher** (S7, `app/services/contact_dispatch_worker.py` → `contact_dispatch.Dispatcher.run_pass`): a
+  daemon thread started under the same conditions while *Envoi automatique des mails programmés* is on (the default
+  since S9, every 30 s; « off by default » in S8 let a scheduled message wait forever); it sends nothing while the
+  Toolbox is not connected, and `app/services/contact_dispatch_state.py` tells every screen why a scheduled message
+  will not leave. A pass reconciles stale claims, then sends the due scheduled
+  messages: each is claimed in a short transaction (row `FOR UPDATE SKIP LOCKED`, every condition re-checked, the
+  prospect's state and opposition read under share locks), committed, sent with `send_draft` outside any transaction,
+  then recorded. One pass at a time per process; across processes the claim lets one win. Writes are attributed to
+  the system actor `contact-dispatcher` (`AuditSource.DISPATCHER`). CLI: `contact-dispatch --once` (and
+  `--hold-scheduled`, the post-restore safeguard). Semantics: [`contact.md`](../features/contact.md) § Scheduled
+  sending.
+- Shutdown: the lifespan stops both threads and lets the running pass finish (a send included, bounded by the
+  Toolbox timeout).
+
+Network calls to external services (OpenAI S5, Toolbox S6) never run inside a database transaction: the request
+commits first, the call runs, then a new unit of work re-checks the rules before writing.
+
 ### Import/export adapters
 Legacy file names/columns are adapter concerns. Domain services must not depend on Excel column names.
 The import engine (Task 08, [ADR-0007](../adr/0007-import-engine.md)) is `app/services/imports/`: a pure

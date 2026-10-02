@@ -50,6 +50,17 @@ Implemented in Task 04 — design and rationale in [ADR-0004](../adr/0004-authen
 - Test and E2E accounts are synthetic (`@example.com`); the E2E password is random per run and lives only in the
   Playwright process environment.
 
+### External service credentials (Contact port S5/S6)
+
+- OpenAI key: environment only (`VIPER_OPENAI_API_KEY`), never logged or returned.
+- CIRCOE Toolbox OAuth token: a private JSON file (`VIPER_TOOLBOX_TOKEN_STORE_PATH`, default
+  `~/.viper/toolbox-oauth.json`), **never in the database** (backups, Database Explorer and SQL console would
+  expose it), refused inside the repository checkout, `0600` in a `0700` directory (Windows: the profile's ACL),
+  atomic writes, excluded from `repr`, never logged, never returned (no route accepts or returns a token). The
+  OAuth return is finished by a session- and CSRF-protected API call from the SPA, with a single-use `state` bound
+  to the user ([`settings-connections.md`](../features/settings-connections.md)). Toolbox error texts (which may
+  quote an address) are classified into codes and never stored or logged.
+
 ### Local/admin setup
 - Create or reset the login account (from `backend/`, venv active; targets `VIPER_DATABASE_URL`):
   `python -m app.cli create-user --email <email> --display-name "<Prénom Nom>"` — prompts twice for the password

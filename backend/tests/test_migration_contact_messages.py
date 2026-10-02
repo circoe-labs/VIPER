@@ -16,7 +16,7 @@ from tests.support import alembic_config, reset_database
 
 
 def in_a_sequence(connection: Connection, prospect: object) -> object:
-    """A current sequence of `prospect` in a cohort (messages belong to one since 0010)."""
+    """A current sequence of `prospect` in a cohort (messages belong to one since 0012)."""
     cohort = connection.execute(
         text(
             "INSERT INTO cohorts (code, starts_on) VALUES ('S77', '2026-10-05') "

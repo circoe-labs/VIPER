@@ -66,7 +66,7 @@ class ContactTrackingStatusHistory(UUIDPrimaryKeyMixin, Base):
         )
     )
     # NULL for the initial status of a new tracking row. Rows written before migrations 0008 and
-    # 0010 keep their legacy code (history is never rewritten), hence `TrackingHistoryStatus`.
+    # 0012 keep their legacy code (history is never rewritten), hence `TrackingHistoryStatus`.
     from_status: Mapped[TrackingHistoryStatus | None] = mapped_column(
         text_enum(TrackingHistoryStatus, "from_status")
     )

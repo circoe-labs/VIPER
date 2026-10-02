@@ -48,6 +48,19 @@ Set them in the process environment (systemd unit, container env, secret store) 
 | `VIPER_IMPORT_MAX_FILE_MB` / `VIPER_IMPORT_MAX_ROWS` / `VIPER_IMPORT_MAX_COLUMNS` | 10 / 5000 / 100 by default; the proxy's body limit must be at least the file limit + 2 MiB |
 | `VIPER_VERIFICATION_STALE_DAYS` | unset until product chooses the threshold (open question #9) |
 | `VIPER_MONTHLY_CONTACT_TARGET` / `VIPER_MONTHLY_APPOINTMENT_TARGET` | 100 / 10 (informative Home targets) |
+| `VIPER_RUNTIME_SETTINGS_PATH` | **secret file**: where the integration settings typed in Paramètres › Connexions are kept (S8) — the OpenAI key **in clear**. Under the service account's home, outside the checkout and the database backups (default `~/.viper/runtime-settings.json`, `0600` on POSIX; on Windows the profile's ACL applies). Refused inside the checkout |
+| `VIPER_TOOLBOX_TOKEN_STORE_PATH` | **secret file**: the Toolbox OAuth token, same rules (default `~/.viper/toolbox-oauth.json`) |
+| `VIPER_TOOLBOX_TIMEOUT_MS` / `VIPER_TOOLBOX_CLEANUP_INTERVAL_MS` | 20000 / 60000 by default (`0` = no cleanup worker; run the CLI instead) |
+| `VIPER_CONTACT_DISPATCH_MAX_LATENESS_MS` / `…_CLAIM_TTL_MS` / `…_MAX_ATTEMPTS` / `…_RETRY_BASE_MS` | 6 h / 10 min (never below twice the Toolbox timeout) / 5 / 60 s by default |
+| `VIPER_OPENAI_TRUST_ENV` | `true` only behind a corporate proxy / private CA (OpenAI calls then honour `HTTPS_PROXY`, `SSL_CERT_FILE`…) |
+
+**Integration settings are set in the UI** (Paramètres › Connexions, S8), not here: OpenAI key / model / API address /
+timeout / retries, booking link, default sender, CIRCOE Toolbox (« Se connecter à CIRCOE Toolbox »; built-in server
+address `https://circoetoolbox-server-production.up.railway.app/mcp`, return address = the page's own), scheduled
+sending frequency (off by default) and recipient allowlist. Each has an optional `VIPER_*` variable
+(`backend/.env.example`) used only as a default — a value typed in the UI wins until « Rétablir la valeur par
+défaut ». Anyone signed in to VIPER can replace these values (each change is audited, without the key): accepted for
+the internal pilot by the Human on 2026-10-01; the secret-management process is to be revisited before a wider use.
 
 `VIPER_TEST_DATABASE_URL` and the `VIPER_E2E_*` / `VIPER_WEB_PORT` / `VIPER_API_TARGET` variables are for development
 and tests only.
@@ -80,12 +93,55 @@ uvicorn app.main:create_app --factory --host 127.0.0.1 --port 8042 \
   --proxy-headers --forwarded-allow-ips=<proxy address> --no-access-log
 ```
 
-- Under a process manager (systemd, NSSM, container restart policy) with automatic restart; one process.
+- Under a process manager (systemd, NSSM, container restart policy) with automatic restart; one process. The
+  CIRCOE Toolbox's pending OAuth attempts live in that process (a restart during a connection: connect again) and
+  its cleanup worker and the Contact dispatcher are threads of it (S6, S7); `python -m app.cli toolbox-cleanup
+  --once` and `python -m app.cli contact-dispatch --once` run one pass by hand. A scheduled message leaves only while
+  this process runs: stopped longer than the max lateness (6 h), it goes back to « Validé » without leaving. Stop the
+  process gracefully (SIGTERM): the running pass finishes first.
 - `--proxy-headers` with the proxy's address, so the sign-in throttle sees the real client address; otherwise every
   user shares one bucket.
 - `--no-access-log`: access lines carry query strings such as `/api/search?q=<a name>`. If requests must be logged,
   log them at the proxy without the query string.
 - Health for monitoring: `GET /api/health` → `200 {"status":"ok","database":"ok"}` (`503` when PostgreSQL is down).
+
+## Enabling the Contact features (step by step)
+
+Everything is off by default and is turned on from **Paramètres › Connexions**, one layer at a time, each verified
+before the next — no restart. No real call to OpenAI, the Toolbox or Infomaniak was ever made during development
+(fakes only): the first real calls are these steps.
+
+1. **Sender and booking link**: card *Expéditeur* (indicative « De »), *Rédaction IA › Lien de prise de rendez-vous*.
+2. **AI drafting**: card *Rédaction IA*: the API key and the model (the operator's choice; no default), *Enregistrer*,
+   then *Tester la clé* (one `GET /models/{model}`, nothing generated). Open a test prospect in Contact, *Générer avec
+   l’IA*, read the draft (never validated or sent by itself). The server log shows `mail_generation.succeeded` (no
+   key, prompt or address in it).
+3. **CIRCOE Toolbox, drafts only**: first switch *Envoi programmé › Envoi automatique des mails programmés* off
+   (it is **on by default** since S9 and starts with the connection). *Se connecter à CIRCOE
+   Toolbox* with the Infomaniak account **whose default mailbox must send** (VIPER must be opened over HTTPS — or on
+   localhost — for the return address to be accepted). Validate a test message to an internal address: its draft
+   appears in Infomaniak's Drafts; cancel it: the draft disappears
+   ([`settings-connections.md`](../features/settings-connections.md) § Connecting for real).
+4. **First real send, fenced**: *Envoi programmé › Adresses autorisées* = the internal test address (VIPER refuses any
+   other recipient — `send_recipient_not_allowed`, back to « Validé »). Schedule the test message a few minutes ahead,
+   then run **one pass by hand** at that time: `python -m app.cli contact-dispatch --once` (prints `sent=1`; it reads
+   the settings saved from the UI). Check the mail in the recipient's inbox **and** in the mailbox's sent items, the
+   message *Envoyé* in VIPER, nothing else sent. **Also check, right after the send, that the draft has left
+   Infomaniak's Drafts folder and is no longer returned by `list_drafts`** — the reconciliation of unknown outcomes
+   relies on it (« brouillon disparu = envoyé »); if the draft lingers (Infomaniak's undo-send delay), report it before
+   going further. Note whether the Toolbox's answer carries `provider.etop` / `provider.cancelResource` (undo-send):
+   VIPER ignores them today.
+5. **Automatic sending**: switch *Envoi automatique des mails programmés* back on (every 30 s by default; *Délai
+   maximal avant envoi* in its *Paramètres avancés*). The card shows *Actif* and the last pass; the schedule
+   confirmation says the mail will leave automatically. Repeat step 4 with the worker. While it is off, the Contact
+   page, the editor and the card say that scheduled messages will not leave (S9).
+6. **Open to real prospects**: empty *Adresses autorisées*. From then on, watch *Envois non confirmés*; reconnect the
+   Toolbox every 30 days (*À reconnecter*): while it is not connected nothing leaves, and a message more than 6 h
+   late goes back to « Validé ».
+
+Turning it off: the switch *Envoi automatique des mails programmés* off stops automatic sending (drafts still
+created; every screen then warns that scheduled messages will not leave); *Se déconnecter…* forgets
+the token and turns the whole Toolbox integration off (its workers stop).
 
 ## Reverse proxy
 
@@ -124,6 +180,12 @@ Facts to account for:
 - `pg_dump` of the database does not contain roles or their settings: after a restore into a new cluster, create
   the application role, then run `provision-sql-reader` (and `create-user` if the `users` table was not restored).
 - A restore must be tested at least once before the pilot relies on it.
+- **Scheduled Contact messages after a restore** (S7): a backup taken before a send restores that message as
+  « Programmé » — started as is, the dispatcher would send it again. Before starting the API on a restored database:
+  `python -m app.cli contact-dispatch --hold-scheduled` (every scheduled, unclaimed message back to « Validé »,
+  `dispatch_held`, audited); claimed ones are listed for a person to settle. People then reschedule what must leave.
+  Since the sending is on by default (S9), start the API with `VIPER_CONTACT_DISPATCH_ENABLED=false` (or the
+  Toolbox disconnected) until it is done, then switch it back on in Paramètres › Connexions. VIPER has no restore command of its own.
 
 ## Retention, anonymization, erasure (decision open)
 

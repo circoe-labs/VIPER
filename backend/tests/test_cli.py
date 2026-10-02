@@ -182,7 +182,7 @@ def test_provision_sql_reader_aligns_the_role_and_its_grants(
     assert output.startswith("Created role viper_sql_reader") or output.startswith(
         "Updated role viper_sql_reader"
     )
-    assert output.rstrip().endswith("SELECT on 21 exposed tables.")
+    assert output.rstrip().endswith("SELECT on 22 exposed tables.")
 
 
 def databases_holding_the_provisioning_lock(engine: Engine) -> set[str]:

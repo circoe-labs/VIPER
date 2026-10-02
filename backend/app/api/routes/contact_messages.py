@@ -17,7 +17,20 @@ a real send (the dispatcher, S7, marks its own).
 - `GET  …/messages/{step}`           one step's message (null when never created);
 - `PUT  …/messages/{step}`           create (no `expected_revision`, 201) or edit the content (200);
 - `POST …/messages/{step}/validate|schedule|unschedule|cancel|reopen` with `expected_revision`;
-- `POST …/messages/{step}/generate`   the AI draft of the step (S5): always a draft, to review.
+- `POST …/messages/{step}/generate`   the AI draft of the step (S5): always a draft, to review;
+- `POST …/messages/{step}/remote-draft` creates again the Infomaniak draft of a validated message
+                                     whose creation failed (S6, « Réessayer »);
+- `POST …/messages/{step}/mark-sent|release` a person settles a send the dispatcher could not
+                                     confirm (S7): « Marquer envoyé » / « Remettre en Validé ».
+
+Scheduled sending (S7, `app.services.contact_dispatch`): only the dispatcher sends; the messages'
+defaults say whether a scheduled message will really leave (`automatic_sending_active`).
+
+CIRCOE Toolbox (S6): `validate` and `schedule` create the Infomaniak draft of the validated
+revision after their commit (`app.services.contact_remote_drafts.sync_remote_draft`) and answer
+`remote_draft: {status, code}`; a Toolbox failure never undoes the validation (it is recorded on
+the message: `last_error_code = toolbox_*`). Toolbox off or not connected: `status: disabled`
+and nothing leaves VIPER.
 """
 
 import uuid
@@ -42,8 +55,11 @@ from app.models.enums import (
     SendSource,
 )
 from app.services import audit
+from app.services import contact_dispatch as dispatch
 from app.services import contact_mail_generation as generation
 from app.services import contact_messages as service
+from app.services import contact_remote_drafts as remote_drafts
+from app.services.contact_dispatch_state import DispatchReason, sending_reason
 from app.services.contact_messages import (
     MAX_RECIPIENTS,
     GeneratedContent,
@@ -59,6 +75,7 @@ from app.services.mail_generation.openai_client import (
     not_configured,
 )
 from app.services.mail_generation.prompt import MAX_INSTRUCTION_LENGTH, PROMPT_VERSION
+from app.services.toolbox.integration import ToolboxIntegration
 
 router = APIRouter(prefix="/prospects/{prospect_id}/messages", tags=["contact"])
 
@@ -147,6 +164,10 @@ class MessageOut(BaseModel):
     generation_prompt_version: str | None
     generated_at: datetime | None
     has_remote_draft: bool
+    # Scheduled sending (S7): the dispatcher's claim (a send running or unconfirmed) and the
+    # attempts of the current schedule.
+    dispatch_claimed_at: datetime | None
+    dispatch_attempts: int
     last_error_code: str | None
     last_error_at: datetime | None
     created_at: datetime
@@ -180,6 +201,22 @@ class DefaultsOut(BaseModel):
     to: list[str]
     # The AI drafting is configured (`VIPER_OPENAI_API_KEY` and `VIPER_OPENAI_MODEL`).
     generation_available: bool
+    # The CIRCOE Toolbox is enabled, configured and connected (S6): a validation creates the
+    # Infomaniak draft, sent from the account's default mailbox (the `from_email` is not used).
+    toolbox_connected: bool
+    # `disabled` | `not_configured` | `disconnected` | `connected` | `expired` (Settings >
+    # Connexions): enabled but not connected or expired, the editor says no draft is created.
+    toolbox_state: str
+    # A scheduled message will really leave (S7): the dispatcher runs in this API process and the
+    # Toolbox is connected. False: the send moment is recorded, nothing leaves.
+    automatic_sending_active: bool
+    # Why not (S9), the `reason` of `contact_dispatch_state`: `disabled` | `toolbox_disabled` |
+    # `toolbox_not_configured` | `toolbox_disconnected` | `toolbox_expired` | `not_running`.
+    dispatch_reason: DispatchReason | None
+    # A message more late than this goes back to Validé instead of leaving.
+    dispatch_max_lateness_minutes: int
+    # After this long, a claimed send nobody finished counts as unconfirmed (a person may settle).
+    dispatch_claim_ttl_seconds: int
 
 
 class StepOut(BaseModel):
@@ -220,16 +257,33 @@ class MessageResultOut(BaseModel):
     unvalidated: bool
 
 
+class RemoteDraftOut(BaseModel):
+    # `disabled` | `not_connected` | `not_applicable` | `already_present` | `created` | `stale`
+    # | `failed` (with the `toolbox_*` code).
+    status: str
+    code: str | None
+
+
+class RemoteDraftResultOut(MessageResultOut):
+    remote_draft: RemoteDraftOut
+
+
 class GenerationResultOut(MessageResultOut):
     generation: GenerationOut
 
 
-def get_mail_generator(settings: SettingsDep) -> MailGenerator | None:
-    """The OpenAI adapter, or None when the drafting is not configured (tests override this)."""
+def get_mail_generator(request: Request, settings: SettingsDep) -> MailGenerator | None:
+    """The OpenAI adapter, or None when the drafting is not configured (tests override this).
+    Built per request from the effective settings: a key saved from Paramètres > Connexions (S8)
+    applies to the next drafting without a restart."""
     config = config_from_settings(settings)
     if config is None:
         return None
-    return OpenAIMailGenerator(config, booking_url=settings.contact_booking_url)
+    return OpenAIMailGenerator(
+        config,
+        booking_url=settings.contact_booking_url,
+        transport=request.app.state.openai_transport,
+    )
 
 
 MailGeneratorDep = Annotated[MailGenerator | None, Depends(get_mail_generator)]
@@ -263,6 +317,8 @@ def message_out(message: ContactMessage) -> MessageOut:
         generation_prompt_version=message.generation_prompt_version,
         generated_at=message.generated_at,
         has_remote_draft=message.remote_draft_id is not None,
+        dispatch_claimed_at=message.dispatch_claimed_at,
+        dispatch_attempts=message.dispatch_attempts,
         last_error_code=message.last_error_code,
         last_error_at=message.last_error_at,
         created_at=message.created_at,
@@ -281,10 +337,12 @@ def result_out(result: MessageResult) -> MessageResultOut:
 
 @router.get("")
 def list_messages(
-    prospect_id: uuid.UUID, session: SessionDep, settings: SettingsDep
+    prospect_id: uuid.UUID, request: Request, session: SessionDep, settings: SettingsDep
 ) -> MessagesOut:
     with business_errors():
         read = service.prospect_messages(session, prospect_id, settings.default_outbound_email)
+    toolbox_state = request.app.state.toolbox.status().state
+    reason = sending_reason(request.app.state)
     context = read.context
     progress = read.place.progress
     return MessagesOut(
@@ -307,6 +365,12 @@ def list_messages(
             from_email=read.defaults.from_email,
             to=read.defaults.to,
             generation_available=settings.generation_available,
+            toolbox_connected=toolbox_state == "connected",
+            toolbox_state=toolbox_state,
+            automatic_sending_active=reason is None,
+            dispatch_reason=reason,
+            dispatch_max_lateness_minutes=settings.contact_dispatch_max_lateness_ms // 60_000,
+            dispatch_claim_ttl_seconds=int(settings.contact_dispatch_claim_ttl.total_seconds()),
         ),
         steps=[
             StepOut(
@@ -390,19 +454,58 @@ def save_message(
     return result_out(result)
 
 
+def _with_remote_draft(
+    request: Request,
+    session: Session,
+    actor: ActorContext,
+    result: MessageResult,
+) -> RemoteDraftResultOut:
+    """Commit the local change, then create the remote draft outside any transaction (the
+    Toolbox call can last `VIPER_TOOLBOX_TIMEOUT_MS`) and answer the message as it is then."""
+    integration: ToolboxIntegration = request.app.state.toolbox
+    toolbox = integration.mail_toolbox()
+    out = result_out(result)
+    if toolbox is None:
+        status = "not_connected" if integration.configured else "disabled"
+        return RemoteDraftResultOut(
+            **out.model_dump(), remote_draft=RemoteDraftOut(status=status, code=None)
+        )
+    audit_binding = audit.binding(session)
+    message_id = result.message.id
+    # `session` is not used after this commit (same pattern as `generate`).
+    session.commit()
+    session_factory: sessionmaker[Session] = request.app.state.session_factory
+    sync = remote_drafts.sync_remote_draft(
+        session_factory,
+        toolbox,
+        message_id,
+        actor,
+        audit_binding[1] if audit_binding else None,
+    )
+    with unit_of_work(session_factory) as read:
+        message = read.get(ContactMessage, message_id)
+        if message is not None:
+            out = out.model_copy(update={"message": message_out(message)})
+    return RemoteDraftResultOut(
+        **out.model_dump(), remote_draft=RemoteDraftOut(status=sync.status, code=sync.code)
+    )
+
+
 @router.post("/{step}/validate")
 def validate(
     prospect_id: uuid.UUID,
     step: StepPath,
     body: RevisionIn,
+    request: Request,
     session: SessionDep,
     actor: CurrentActor,
-) -> MessageResultOut:
+) -> RemoteDraftResultOut:
+    """Human validation; then the Infomaniak draft when the Toolbox is connected (S6)."""
     with business_errors():
         result = service.validate(
             session, actor, prospect_id, rank_of(step), body.expected_revision
         )
-    return result_out(result)
+    return _with_remote_draft(request, session, actor, result)
 
 
 @router.post("/{step}/schedule")
@@ -410,9 +513,11 @@ def schedule(
     prospect_id: uuid.UUID,
     step: StepPath,
     body: ScheduleIn,
+    request: Request,
     session: SessionDep,
     actor: CurrentActor,
-) -> MessageResultOut:
+) -> RemoteDraftResultOut:
+    """validated -> scheduled; a missing Infomaniak draft is created again (S6)."""
     with business_errors():
         result = service.schedule(
             session,
@@ -423,7 +528,74 @@ def schedule(
             body.scheduled_at,
             now=datetime.now(UTC),
         )
-    return result_out(result)
+    return _with_remote_draft(request, session, actor, result)
+
+
+@router.post("/{step}/remote-draft")
+def retry_remote_draft(
+    prospect_id: uuid.UUID,
+    step: StepPath,
+    body: RevisionIn,
+    request: Request,
+    session: SessionDep,
+    actor: CurrentActor,
+) -> RemoteDraftResultOut:
+    """« Réessayer »: create the Infomaniak draft of a validated/scheduled message that has none.
+    409 `invalid_transition` if the message is not validated/scheduled; 503
+    `toolbox_not_configured`, 409 `toolbox_not_connected` / `toolbox_auth_expired`."""
+    integration: ToolboxIntegration = request.app.state.toolbox
+    with business_errors():
+        result = service.remote_draft_target(
+            session, actor, prospect_id, rank_of(step), body.expected_revision
+        )
+        integration.required_mail_toolbox()
+    return _with_remote_draft(request, session, actor, result)
+
+
+@router.post("/{step}/mark-sent")
+def mark_unconfirmed_sent(
+    prospect_id: uuid.UUID,
+    step: StepPath,
+    body: RevisionIn,
+    session: SessionDep,
+    settings: SettingsDep,
+    actor: CurrentActor,
+) -> MessageResultOut:
+    """« Marquer envoyé » (S7): a person found the mail in the mailbox's sent items. Only for a
+    send the dispatcher could not confirm (409 `dispatch_not_unconfirmed` otherwise)."""
+    with business_errors():
+        message = dispatch.mark_sent(
+            session,
+            actor,
+            prospect_id,
+            rank_of(step),
+            body.expected_revision,
+            claim_ttl=settings.contact_dispatch_claim_ttl,
+        )
+    return result_out(MessageResult(message))
+
+
+@router.post("/{step}/release")
+def release(
+    prospect_id: uuid.UUID,
+    step: StepPath,
+    body: RevisionIn,
+    session: SessionDep,
+    settings: SettingsDep,
+    actor: CurrentActor,
+) -> MessageResultOut:
+    """« Remettre en Validé » (S7): a person checked that the mail did not leave; the validation
+    and the Infomaniak draft stay (a closed sequence then cancels it)."""
+    with business_errors():
+        message = dispatch.release(
+            session,
+            actor,
+            prospect_id,
+            rank_of(step),
+            body.expected_revision,
+            claim_ttl=settings.contact_dispatch_claim_ttl,
+        )
+    return result_out(MessageResult(message))
 
 
 @router.post("/{step}/unschedule")

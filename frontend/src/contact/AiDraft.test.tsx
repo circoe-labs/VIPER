@@ -32,7 +32,7 @@ function open(
     dashboard: contactDashboard(),
     details: [detail],
     messages: { [detail.id]: messages },
-    defaults: { from_email: 'prospection@exemple.example', to: ['claire@exemple.example'], generation_available: available },
+    defaults: { from_email: 'prospection@exemple.example', to: ['claire@exemple.example'], generation_available: available, toolbox_connected: false, toolbox_state: 'disabled' as const, automatic_sending_active: false, dispatch_reason: 'toolbox_disabled' as const, dispatch_max_lateness_minutes: 360, dispatch_claim_ttl_seconds: 600 },
     ...extra,
   })
   renderApp(`/contact?prospect=${detail.id}`)
@@ -185,7 +185,7 @@ describe('AI drafting in the mail editor', () => {
   })
 
   it.each([
-    [503, 'ai_not_configured', /pas configurée sur le serveur/],
+    [503, 'ai_not_configured', /saisissez la clé et le modèle OpenAI dans Paramètres › Connexions/],
     [504, 'ai_timeout', /pas répondu à temps/],
     [502, 'ai_invalid_output', /inutilisable/],
   ])('says a failure (%s %s) and keeps the saved text', async (status, code, text) => {
@@ -200,7 +200,7 @@ describe('AI drafting in the mail editor', () => {
   it('is disabled with its reason when the server has no AI configured', async () => {
     open({}, {}, false)
     expect(await screen.findByRole('button', { name: 'Générer avec l’IA' })).toBeDisabled()
-    expect(screen.getByText(/La rédaction par l’IA n’est pas configurée sur ce serveur/)).toBeInTheDocument()
+    expect(screen.getByText(/La rédaction par l’IA n’est pas configurée \(clé et modèle OpenAI/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Consigne' })).toBeNull()
   })
 

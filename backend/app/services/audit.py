@@ -70,6 +70,8 @@ class AuditSource(StrEnum):
     DATABASE_EXPLORER = "database_explorer"
     CLI = "cli"
     AGENT = "agent"
+    # The scheduled sending of Contact messages (S7, `app.services.contact_dispatch`).
+    DISPATCHER = "dispatcher"
 
 
 class Lifecycle(StrEnum):
@@ -96,8 +98,25 @@ class AuditAction(StrEnum):
     CONTACT_MESSAGE_REOPENED = "contact_message.reopened"
     # The AI wrote the subject and body (S5): always a draft, the model and prompt version recorded.
     CONTACT_MESSAGE_GENERATED = "contact_message.generated"
-    # A real send recorded (« Marquer comme envoyé », import, migration, dispatcher): sequences D1.
+    # CIRCOE Toolbox (S6): the validated revision's Infomaniak draft was created / could not be.
+    CONTACT_MESSAGE_REMOTE_DRAFT_CREATED = "contact_message.remote_draft_created"
+    CONTACT_MESSAGE_REMOTE_DRAFT_FAILED = "contact_message.remote_draft_failed"
+    # Scheduled sending (S7, `app.services.contact_dispatch`): the dispatcher took the message to
+    # send it; it left (`sent`, also a person's « Marquer envoyé » or a reconciliation, said in the
+    # reason); an attempt failed (retry planned, or back to Validé — the code in the reason); a
+    # person put a message whose send was not confirmed back to Validé.
+    CONTACT_MESSAGE_DISPATCH_CLAIMED = "contact_message.dispatch_claimed"
+    # Also, with the sequences rework: any real send recorded (« Marquer comme envoyé », import,
+    # migration, dispatcher).
     CONTACT_MESSAGE_SENT = "contact_message.sent"
+    CONTACT_MESSAGE_DISPATCH_FAILED = "contact_message.dispatch_failed"
+    CONTACT_MESSAGE_DISPATCH_RELEASED = "contact_message.dispatch_released"
+    # The Toolbox connection was established / forgotten on VIPER's side (no token in the event).
+    TOOLBOX_CONNECTED = "toolbox.connected"
+    TOOLBOX_FORGOTTEN = "toolbox.forgotten"
+    # Integration settings saved from Paramètres > Connexions (S8): the changed fields with their
+    # values, except a secret, recorded as `replaced` / `removed` only.
+    SETTINGS_INTEGRATIONS_CHANGED = "settings.integrations_changed"
     # A person changed or removed the prospect's cohort: its current sequence is closed.
     CONTACT_SEQUENCE_CLOSED = "contact_sequence.closed"
     # A person resolved a data-quality alert (D8).
@@ -114,6 +133,8 @@ class AuditAction(StrEnum):
     EXPLORER_SQL_EXECUTED = "explorer.sql_executed"
     # A downloaded Excel export (Task 10): rows per sheet and size, never a value.
     EXPORT_GENERATED = "export.generated"
+    # « Réinitialiser les données de prospection » (Base de données): counts only.
+    PROSPECTING_RESET = "prospecting.reset"
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,6 +206,8 @@ NOT_AUDITED_TABLES = {
     "contact_tracking_status_history": "derived from the audited contact_tracking change",
     "company_activity_categories": "link table; recorded on the company as activity_categories_ids",
     "audit_log": "the audit log itself",
+    "contact_message_remote_draft_cleanups": "technical queue of remote draft ids to delete; the "
+    "message's own events record why",
 }
 
 

@@ -3,7 +3,22 @@ import { useEffect, useRef, useState } from 'react'
 import type { Message, MessageSequence, MessageStatus, MessageStep, useMessageMutations } from '../api/contact'
 import { Button } from '../ui/Button'
 import { TextAreaField, TextField } from '../ui/fields'
-import { AlertIcon, CalendarIcon, CheckIcon, CloseIcon, LockIcon, RefreshIcon, SaveIcon, UndoIcon } from '../ui/icons'
+import {
+  AlertIcon,
+  CalendarIcon,
+  CheckCircleIcon,
+  CheckIcon,
+  CloseIcon,
+  InfoIcon,
+  LockIcon,
+  MailIcon,
+  RefreshIcon,
+  SaveIcon,
+
+  SpinnerIcon,
+  UndoIcon,
+} from '../ui/icons'
+import { toolboxErrorLabel } from '../settings/toolboxCopy'
 import { AiButtons, AiPanel, GeneratedNote } from './AiDraft'
 import {
   type AiInstruction,
@@ -16,12 +31,18 @@ import {
   hasText,
 } from './aiDraftModel'
 import { type Confirmation, ConfirmDialog } from './ConfirmDialog'
+import { inactiveSentence } from './dispatchCopy'
+import { DispatchWarning } from './DispatchWarning'
 import { formatDateTime, STEP_LABELS } from './labels'
 import {
   ADDRESS_MAX_LENGTH,
   BODY_MAX_LENGTH,
   contentOf,
+  type DispatchState,
+  dispatchLine,
+  inactiveScheduleText,
   isDirty,
+  latenessLabel,
   localDay,
   localErrors,
   localZoneLabel,
@@ -29,6 +50,7 @@ import {
   type MailForm,
   orderWarning,
   RECIPIENTS_MAX_LENGTH,
+  remoteDraftLine,
   scheduleToIso,
   statusLine,
 } from './mailModel'
@@ -42,6 +64,10 @@ interface MailEditorProps {
   sequence: MessageSequence
   message: Message | null
   actions: MailActions
+  // Where the scheduled send stands (S7), judged when the sequence was read.
+  dispatch: DispatchState
+  // When « Remettre en Validé » of an unconfirmed send becomes possible (epoch ms); null = now.
+  releaseFrom: number | null
   // The saved version as a form, and the form shown (the saved one while nothing is edited).
   saved: MailForm
   form: MailForm
@@ -57,7 +83,7 @@ interface MailEditorProps {
   onInstruction: (instruction: AiInstruction) => void
 }
 
-type Pending = 'validate' | 'schedule' | 'cancel' | 'generate'
+type Pending = 'validate' | 'schedule' | 'cancel' | 'generate' | 'mark-sent' | 'release'
 
 export interface SendMoment {
   date: string
@@ -74,6 +100,8 @@ export function MailEditor({
   sequence,
   message,
   actions,
+  dispatch: dispatchNow,
+  releaseFrom,
   saved,
   form,
   onForm,
@@ -87,7 +115,7 @@ export function MailEditor({
   const [refusal, setRefusal] = useState<MessageRefusal | null>(null)
   // The outcome of the last action, kept while the message stays in the status that action left it in (a state
   // change elsewhere that cancels the message makes it stale).
-  const [notice, setNotice] = useState<{ text: string; status: MessageStatus } | null>(null)
+  const [notice, setNotice] = useState<{ text: string; status: MessageStatus; warning?: boolean } | null>(null)
   const [pending, setPending] = useState<Pending | null>(null)
   const { date, time } = when
   // A confirmed action removes its own button (« Valider… » once validated…): the focus goes to the status sentence,
@@ -102,6 +130,20 @@ export function MailEditor({
     statusRef.current?.focus()
   }, [pending, focusTick])
   const [scheduleError, setScheduleError] = useState<string | null>(null)
+  // « Remettre en Validé » opens at `releaseFrom`: a timer re-renders the editor then.
+  const [openedAt, setOpenedAt] = useState<number | null>(null)
+  useEffect(() => {
+    if (releaseFrom === null) return
+    const timer = window.setTimeout(
+      () => {
+        setOpenedAt(releaseFrom)
+      },
+      Math.max(0, releaseFrom - Date.now()),
+    )
+    return () => {
+      window.clearTimeout(timer)
+    }
+  }, [releaseFrom])
   const label = STEP_LABELS[step]
   const dirty = actions.editable && isDirty(form, saved)
   const generating = mutations.generate.isPending
@@ -155,20 +197,37 @@ export function MailEditor({
     }
   }
 
-  async function act(action: 'validate' | 'unschedule' | 'cancel' | 'reopen') {
+  async function act(action: 'validate' | 'unschedule' | 'cancel' | 'reopen' | 'remote-draft' | 'mark-sent' | 'release') {
     if (!message) return
     setNotice(null)
     setRefusal(null)
     try {
       const result = await mutations.act.mutateAsync({ step, action, revision: message.revision })
-      focusStatus.current = action !== 'unschedule'
+      focusStatus.current = action !== 'unschedule' && action !== 'remote-draft'
+      const outcome = result.remote_draft
+      const created = outcome?.status === 'created' || outcome?.status === 'recovered'
+      const remoteFailed = outcome?.status === 'failed'
+      const reason = outcome?.code ? toolboxErrorLabel(outcome.code) : 'erreur inattendue'
       setNotice({
         status: result.message.status,
+        warning: remoteFailed,
         text: {
-          validate: `Message ${label} validé : il peut maintenant être programmé.`,
+          validate: created
+            ? `Message ${label} validé et brouillon créé dans Infomaniak : il peut maintenant être programmé.`
+            : remoteFailed
+              ? `Message ${label} validé, mais le brouillon Infomaniak n’a pas été créé : ${reason}. La validation est conservée ; « Réessayer » le recrée.`
+              : `Message ${label} validé : il peut maintenant être programmé.`,
           unschedule: `Programmation du message ${label} retirée : il reste validé.`,
           cancel: `Message ${label} annulé : il ne partira pas.`,
           reopen: `Message ${label} rouvert en Brouillon : à relire puis revalider.`,
+          'remote-draft': created
+            ? `Brouillon du message ${label} ${outcome.status === 'recovered' ? 'retrouvé et rattaché' : 'créé'} dans Infomaniak.`
+            : `Le brouillon Infomaniak du message ${label} n’a pas pu être créé : ${reason}.`,
+          'mark-sent': `Message ${label} marqué envoyé : il ne peut plus être modifié.`,
+          release:
+            result.message.status === 'cancelled'
+              ? `Message ${label} remis en Validé puis annulé : la séquence du prospect est close.`
+              : `Message ${label} remis en Validé, sans date d’envoi : vérifiez la boîte Infomaniak avant de le reprogrammer.`,
         }[action],
       })
     } catch (caught) {
@@ -243,14 +302,44 @@ export function MailEditor({
       }
     }
     if (pending === 'schedule' && parsed.ok) {
+      const lines = [`Envoi prévu le ${formatDateTime(parsed.iso)} (${localZoneLabel(parsed.at)}).`]
+      if (sequence.defaults.automatic_sending_active) {
+        lines.push(
+          'Le mail partira automatiquement à cette date depuis la boîte Infomaniak connectée à la Toolbox (le serveur VIPER doit être en marche).',
+          `S’il ne peut pas partir dans les ${latenessLabel(sequence.defaults.dispatch_max_lateness_minutes)} qui suivent, il ne part pas et revient à « Validé ».`,
+          'Vous pourrez le déprogrammer jusqu’à l’envoi.',
+        )
+        return { title: `Programmer le message ${label} ?`, lines, warning, confirmLabel: 'Programmer l’envoi' }
+      }
+      lines.push('Vous pourrez déprogrammer tant que le message n’est pas envoyé.')
+      // S9: scheduling stays possible, but the person reads that it will not leave, and where to fix it.
       return {
         title: `Programmer le message ${label} ?`,
-        lines: [
-          `Envoi prévu le ${formatDateTime(parsed.iso)} (${localZoneLabel(parsed.at)}).`,
-          'L’envoi automatique n’est pas encore actif dans VIPER : la date est enregistrée, mais aucun mail ne part tant qu’il ne l’est pas. Vous pourrez déprogrammer tant que le message n’est pas envoyé.',
-        ],
+        lines,
         warning,
-        confirmLabel: 'Programmer l’envoi',
+        dispatch: { reason: sequence.defaults.dispatch_reason, text: inactiveSentence(sequence.defaults.dispatch_reason) },
+        confirmLabel: 'Programmer quand même',
+      }
+    }
+    if (pending === 'mark-sent') {
+      return {
+        title: `Marquer le message ${label} comme envoyé ?`,
+        lines: [
+          'Confirmez seulement après l’avoir trouvé dans les éléments envoyés de la boîte Infomaniak.',
+          'Il passera en « Envoyé » et ne pourra plus être modifié. VIPER ne l’enverra pas.',
+        ],
+        confirmLabel: 'Marquer envoyé',
+      }
+    }
+    if (pending === 'release') {
+      return {
+        title: `Remettre le message ${label} en Validé ?`,
+        lines: [
+          'Confirmez seulement après avoir vérifié qu’il n’est pas dans les éléments envoyés de la boîte Infomaniak : s’il était parti, le reprogrammer l’enverrait une seconde fois.',
+          'Il redevient « Validé », sans date d’envoi, et pourra être reprogrammé.',
+        ],
+        confirmLabel: 'Remettre en Validé',
+        danger: true,
       }
     }
     if (pending === 'generate') {
@@ -288,9 +377,17 @@ export function MailEditor({
       setPending(null)
       void generate()
     }
-    else if (pending === 'validate' || pending === 'cancel') void act(pending)
+    else if (pending === 'validate' || pending === 'cancel' || pending === 'mark-sent' || pending === 'release') {
+      void act(pending)
+    }
   }
 
+  const toolboxConnected = sequence.defaults.toolbox_state === 'connected'
+  // Under a send in progress or unconfirmed, the draft line would only distract (« créé » reads as reassuring).
+  const remote = dispatchNow === 'none' ? remoteDraftLine(message, sequence.defaults.toolbox_state) : null
+  const releaseLocked = releaseFrom !== null && openedAt !== releaseFrom
+  const dispatch = dispatchLine(message, sequence.defaults, dispatchNow)
+  const retrying = mutations.act.isPending && mutations.act.variables.action === 'remote-draft'
   const errorOf = (field: MailField) => refusal?.fields[field] ?? local[field]
   const readOnly = !actions.editable || busy
   const hasLocalErrors = Object.keys(local).length > 0
@@ -299,8 +396,98 @@ export function MailEditor({
   return (
     <div className="contact-mail">
       <p ref={statusRef} tabIndex={-1} className="contact-mail__status">
-        {statusLine(message, sequence.sequence.closed || sequence.sequence.do_not_contact)}
+        {statusLine(
+          message,
+          sequence.sequence.closed || sequence.sequence.do_not_contact,
+          // Once the dispatcher holds it, « partira » is no longer the news: the dispatch line says what happens.
+          sequence.defaults.automatic_sending_active && dispatchNow === 'none',
+        )}
       </p>
+
+      {message?.status === 'scheduled' && !sequence.defaults.automatic_sending_active && dispatchNow === 'none' && (
+        <DispatchWarning reason={sequence.defaults.dispatch_reason} badge>
+          {inactiveScheduleText(message, sequence.defaults, new Date().getTime())}
+        </DispatchWarning>
+      )}
+
+      {dispatch && actions.settle ? (
+        <div className="contact-mail__banner contact-mail__settle" role="note">
+          <AlertIcon size={16} />
+          <div className="contact-mail__settle-body">
+            <p>{dispatch.text}</p>
+            <div className="contact-mail__settle-actions">
+              <Button
+                size="sm"
+                variant="primary"
+                icon={CheckCircleIcon}
+                disabled={busy}
+                onClick={() => {
+                  setPending('mark-sent')
+                }}
+              >
+                Marquer envoyé…
+              </Button>
+              <Button
+                size="sm"
+                icon={UndoIcon}
+                disabled={busy || releaseLocked}
+                onClick={() => {
+                  setPending('release')
+                }}
+              >
+                Remettre en Validé…
+              </Button>
+            </div>
+            {releaseLocked && (
+              <p className="contact-mail__hint">
+                « Remettre en Validé » possible à partir de {formatDateTime(new Date(releaseFrom).toISOString())} : la
+                Toolbox peut encore être en train de l’envoyer.
+              </p>
+            )}
+          </div>
+        </div>
+      ) : (
+        dispatch && (
+          <p
+            className={`contact-mail__remote contact-mail__remote--${dispatch.tone === 'progress' ? 'muted' : dispatch.tone}`}
+            role={dispatch.tone === 'progress' ? 'status' : undefined}
+          >
+            {dispatch.tone === 'progress' ? (
+              <SpinnerIcon size={16} className="btn__spinner" />
+            ) : dispatch.tone === 'warning' ? (
+              <AlertIcon size={16} />
+            ) : (
+              <InfoIcon size={16} />
+            )}
+            <span>{dispatch.text}</span>
+          </p>
+        )
+      )}
+
+      {remote && (
+        <p className={`contact-mail__remote contact-mail__remote--${remote.tone}`}>
+          {remote.tone === 'ok' ? (
+            <CheckCircleIcon size={16} />
+          ) : remote.tone === 'warning' ? (
+            <AlertIcon size={16} />
+          ) : (
+            <MailIcon size={16} />
+          )}
+          <span>{remote.text}</span>
+          {remote.retry && (
+            <Button
+              size="sm"
+              variant="ghost"
+              icon={RefreshIcon}
+              loading={retrying}
+              disabled={busy}
+              onClick={() => void act('remote-draft')}
+            >
+              {retrying ? 'Création dans Infomaniak…' : 'Réessayer'}
+            </Button>
+          )}
+        </p>
+      )}
 
       {actions.lock && (
         <p className="contact-mail__lock">
@@ -334,6 +521,13 @@ export function MailEditor({
             edit({ from: event.target.value })
           }}
         />
+        {toolboxConnected && actions.editable && (
+          <p className="contact-mail__hint contact-mail__from-note">
+            <InfoIcon size={14} />
+            Envoi réel depuis la boîte Infomaniak par défaut du compte connecté à la Toolbox : ce champ n’est pas
+            transmis.
+          </p>
+        )}
         <TextField
           id={fieldId('to')}
           label={FIELD_LABELS.to}
@@ -431,6 +625,11 @@ export function MailEditor({
               {scheduleError ?? refusal?.fields.schedule}
             </p>
           )}
+          {!sequence.defaults.automatic_sending_active && (
+            <DispatchWarning reason={sequence.defaults.dispatch_reason}>
+              {inactiveSentence(sequence.defaults.dispatch_reason)} Vous pouvez programmer quand même.
+            </DispatchWarning>
+          )}
           {warning && (
             <p className="field__warning">
               <AlertIcon size={16} />
@@ -457,7 +656,10 @@ export function MailEditor({
           )}
         </div>
       )}
-      <Notice text={notice && notice.status === status ? notice.text : null} />
+      <Notice
+        text={notice && notice.status === status ? notice.text : null}
+        tone={notice?.warning ? 'warning' : 'success'}
+      />
 
       <AiPanel
         stepLabel={label}
@@ -471,7 +673,7 @@ export function MailEditor({
         }}
       />
 
-      {(ai.show || Object.values(actions).some((value) => value === true)) && (
+      {(ai.show || Object.entries(actions).some(([name, value]) => name !== 'settle' && value === true)) && (
         <div className="contact-mail__actions">
           <div className="contact-mail__assist">
             <AiButtons

@@ -60,7 +60,7 @@ class ContactTrackingStatus(StrEnum):
 
 class TrackingHistoryStatus(StrEnum):
     """A status as recorded in `contact_tracking_status_history`: the current states plus the codes
-    replaced by migrations 0008 and 0010. History rows are never rewritten, so older rows keep
+    replaced by migrations 0008 and 0012. History rows are never rewritten, so older rows keep
     their original code (read-only compatibility; nothing writes a legacy code)."""
 
     NEUTRAL = "neutral"
@@ -68,7 +68,7 @@ class TrackingHistoryStatus(StrEnum):
     APPOINTMENT_OBTAINED = "appointment_obtained"
     IGNORED = "ignored"
     DISQUALIFIED = "disqualified"
-    # Contact states replaced by migration 0010 (the level is derived from real sends), readable.
+    # Contact states replaced by migration 0012 (the level is derived from real sends), readable.
     LEGACY_CONTACTED = "contacted"
     LEGACY_R1 = "r1"
     LEGACY_R2 = "r2"
@@ -99,7 +99,7 @@ class SendSource(StrEnum):
 
     MANUAL = "manual"  # « Marquer comme envoyé » by a person
     IMPORT = "import"  # a past cohort date at import (S2)
-    MIGRATION = "migration"  # implied by a former state (migration 0010)
+    MIGRATION = "migration"  # implied by a former state (migration 0012)
     WORKER = "worker"  # the scheduled dispatcher (S7)
 
 
