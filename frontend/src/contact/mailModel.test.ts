@@ -7,6 +7,7 @@ import {
   closedReason,
   contentOf,
   dispatchLine,
+  inactiveScheduleText,
   dispatchState,
   formOf,
   isDirty,
@@ -24,7 +25,7 @@ import {
 } from './mailModel'
 
 const OPEN = { state: 'neutral' as const, doNotContact: false, closed: false }
-const DEFAULTS = { from_email: 'prospection@exemple.example', to: ['jean@exemple.example'], generation_available: false, toolbox_connected: false, toolbox_state: 'disabled' as const, automatic_sending_active: false, dispatch_max_lateness_minutes: 360, dispatch_claim_ttl_seconds: 600 }
+const DEFAULTS = { from_email: 'prospection@exemple.example', to: ['jean@exemple.example'], generation_available: false, toolbox_connected: false, toolbox_state: 'disabled' as const, automatic_sending_active: false, dispatch_reason: 'toolbox_disabled' as const, dispatch_max_lateness_minutes: 360, dispatch_claim_ttl_seconds: 600 }
 
 function sequence(steps: Partial<Record<'contact' | 'r1' | 'r2', ReturnType<typeof message>>>): MessageSequence {
   return {
@@ -198,7 +199,7 @@ describe('remoteDraftLine (S6)', () => {
 describe('scheduled sending (S7)', () => {
   const claimed = '2026-10-06T07:30:05Z'
   const clock = { now: new Date('2026-10-06T07:31:00Z').getTime(), claimTtlSeconds: 600 }
-  const active = { ...DEFAULTS, automatic_sending_active: true, toolbox_state: 'connected' as const }
+  const active = { ...DEFAULTS, automatic_sending_active: true, dispatch_reason: null, toolbox_state: 'connected' as const }
 
   it('tells a running send from an unconfirmed one', () => {
     expect(dispatchState(message('contact', 'scheduled'), clock)).toBe('none')
@@ -228,11 +229,25 @@ describe('scheduled sending (S7)', () => {
     const scheduled = message('contact', 'scheduled')
     expect(statusLine(scheduled, false, true)).toMatch(/^Programmé : le mail partira automatiquement le .* déprogrammable jusqu’à l’envoi\.$/)
     expect(statusLine(scheduled, false, false)).toMatch(/^Programmé pour le /)
-    expect(dispatchLine(scheduled, DEFAULTS, 'none')?.text).toMatch(/Envoi automatique inactif : la Toolbox n’est pas connectée/)
-    expect(dispatchLine(scheduled, { ...DEFAULTS, toolbox_state: 'connected' }, 'none')?.text).toMatch(
-      /l’envoi programmé n’est pas actif sur ce serveur/,
-    )
+    // Inactive (S9): the editor shows « Ne partira pas » (inactiveScheduleText), not a dispatch line.
+    expect(dispatchLine(scheduled, DEFAULTS, 'none')).toBeNull()
     expect(dispatchLine(scheduled, active, 'none')).toBeNull()
+  })
+
+  it('says why a scheduled message will not leave, and when its time has passed (S9)', () => {
+    const now = new Date('2026-10-02T10:00:00Z').getTime()
+    const future = message('contact', 'scheduled', { scheduled_at: '2026-10-03T08:00:00Z' })
+    const past = message('contact', 'scheduled', { scheduled_at: '2026-10-01T17:40:00Z' })
+    const disabled = { ...DEFAULTS, dispatch_reason: 'disabled' as const }
+    expect(inactiveScheduleText(future, disabled, now)).toBe(
+      'Envoi automatique inactif : l’envoi automatique des mails programmés est désactivé. La date est enregistrée, mais aucun mail ne part tant que ce n’est pas réglé dans Paramètres › Connexions.',
+    )
+    expect(inactiveScheduleText(past, disabled, now)).toMatch(
+      /L’heure prévue est passée : s’il ne peut pas partir dans les 6 heures qui la suivent, il reviendra à « Validé » sans partir\.$/,
+    )
+    expect(inactiveScheduleText(future, { ...DEFAULTS, dispatch_reason: 'toolbox_expired' }, now)).toMatch(
+      /la connexion à CIRCOE Toolbox a expiré/,
+    )
   })
 
   it('says each outcome without jargon', () => {
@@ -242,7 +257,7 @@ describe('scheduled sending (S7)', () => {
       'Dernière tentative d’envoi échouée : la Toolbox ne répondait pas. Nouvel essai automatique.',
     )
     expect(dispatchLine(message('contact', 'validated', { last_error_code: 'dispatch_overdue' }), active, 'none')?.text).toMatch(
-      /dépassée de plus de 6 heures .* reprogrammez-le pour réessayer\.$/,
+      /^Pas envoyé : l’heure prévue était dépassée de plus de 6 heures .* VIPER n’envoie jamais un mail en retard .* pour le reprogrammer\.$/,
     )
     expect(
       dispatchLine(message('contact', 'validated', { last_error_code: 'send_recipient_not_allowed' }), active, 'none')?.text,

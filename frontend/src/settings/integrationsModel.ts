@@ -12,9 +12,10 @@ import { formatDateTime } from '../contact/labels'
 // Paramètres › Connexions (Contact port S8): the form values of the integration settings, their French refusals and
 // where each value comes from. Pure functions; the cards are in IntegrationCards.tsx.
 
-type Kind = 'text' | 'seconds' | 'integer' | 'interval'
+type Kind = 'text' | 'seconds' | 'integer'
 
-const KINDS: Record<Exclude<IntegrationField, 'toolbox_mail_enabled'>, Kind> = {
+// The switches (`toolbox_mail_enabled`, `contact_dispatch_enabled`) are saved as they are toggled: not form fields.
+const KINDS: Record<Exclude<IntegrationField, 'toolbox_mail_enabled' | 'contact_dispatch_enabled'>, Kind> = {
   openai_model: 'text',
   openai_base_url: 'text',
   openai_timeout_ms: 'seconds',
@@ -23,7 +24,7 @@ const KINDS: Record<Exclude<IntegrationField, 'toolbox_mail_enabled'>, Kind> = {
   default_outbound_email: 'text',
   toolbox_mcp_url: 'text',
   toolbox_oauth_redirect_uri: 'text',
-  contact_dispatch_interval_ms: 'interval',
+  contact_dispatch_interval_ms: 'seconds',
   infomaniak_send_allowlist: 'text',
 }
 
@@ -64,23 +65,15 @@ export const FIELD_ERRORS: Record<FormField | 'openai_api_key', string> = {
   toolbox_mcp_url: 'Adresse https attendue (http seulement sur localhost).',
   toolbox_oauth_redirect_uri:
     'Adresse https attendue (http seulement sur localhost) : ouvrez VIPER en https ou sur localhost pour vous connecter.',
-  contact_dispatch_interval_ms: 'Choisissez une des fréquences proposées.',
+  contact_dispatch_interval_ms: 'Indiquez un délai entre 1 et 3 600 secondes.',
   infomaniak_send_allowlist: 'Adresses e-mail ou règles « @domaine » séparées par des virgules.',
 }
 
-export const INTERVAL_OPTIONS: { value: number; label: string }[] = [
-  { value: 0, label: 'Désactivé' },
-  { value: 10_000, label: 'Toutes les 10 secondes' },
-  { value: 30_000, label: 'Toutes les 30 secondes' },
-  { value: 60_000, label: 'Toutes les minutes' },
-  { value: 300_000, label: 'Toutes les 5 minutes' },
-]
-
-// The options of the frequency select; a value set elsewhere (not in the list) is kept as an option of its own.
-export function intervalOptions(current: number): { value: number; label: string }[] {
-  if (INTERVAL_OPTIONS.some((option) => option.value === current)) return INTERVAL_OPTIONS
-  return [...INTERVAL_OPTIONS, { value: current, label: `Toutes les ${(current / 1000).toLocaleString('fr-FR')} s` }]
-}
+// The « Délai maximal avant envoi » (S9): the dispatcher's period, 1 s to 1 h (0 is the switch's « off »).
+export const DISPATCH_DELAY_MIN_MS = 1000
+// The server's default delay (backend `contact_dispatch_interval_ms`).
+export const DEFAULT_DISPATCH_INTERVAL_MS = 30_000
+export const DISPATCH_DELAY_MAX_MS = 3_600_000
 
 // Where the value comes from, in one short sentence.
 export function sourceText(setting: Pick<IntegrationSetting, 'source' | 'updated_at' | 'updated_by'>): string {
@@ -99,10 +92,7 @@ export function sourceText(setting: Pick<IntegrationSetting, 'source' | 'updated
 
 export function fallbackText(field: FormField, fallback: SettingValue): string {
   if (fallback === null || fallback === '') return 'aucune valeur'
-  if (field === 'contact_dispatch_interval_ms' && typeof fallback === 'number') {
-    return intervalOptions(fallback).find((option) => option.value === fallback)?.label ?? String(fallback)
-  }
-  if (field === 'openai_timeout_ms' && typeof fallback === 'number') return `${String(fallback / 1000)} s`
+  if (KINDS[field] === 'seconds' && typeof fallback === 'number') return `${String(fallback / 1000)} s`
   return String(fallback)
 }
 

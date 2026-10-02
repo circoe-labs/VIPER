@@ -259,7 +259,7 @@ def test_the_dashboard_over_http(client: TestClient, db_session: Session) -> Non
 
     body = client.get(f"{CONTACT}/dashboard").json()
 
-    assert set(body) == {"today", "current_week", "counts", "weeks"}
+    assert set(body) == {"today", "current_week", "counts", "weeks", "dispatch"}
     assert body["counts"]["first_contact"] >= 1
     assert body["weeks"][0] == {"week": "2020-W02", "year": 2020, "number": 2, "count": 1}
     page = client.get(f"{CONTACT}/prospects", params={"counter": "first_contact", "q": "zzz"})

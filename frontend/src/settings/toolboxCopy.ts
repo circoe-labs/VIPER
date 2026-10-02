@@ -1,5 +1,7 @@
 import { ApiError } from '../api/client'
+import type { Integrations } from '../api/integrations'
 import { TOOLBOX_DEADLINE_MS, type ToolboxState, type ToolboxStatus } from '../api/toolbox'
+import { reasonCopy } from '../contact/dispatchCopy'
 import { FIELD_ERRORS } from './integrationsModel'
 import type { StatusTone } from '../ui/Badge'
 
@@ -86,22 +88,34 @@ export function stateSentence(status: ToolboxStatus): string {
   }
 }
 
-// The scheduled sending (S7) in one badge and one sentence. `intervalMs`: the frequency chosen on this page (0 = off).
-export function dispatchBadge(status: ToolboxStatus, intervalMs: number): { tone: StatusTone; label: string } {
-  if (status.dispatch.active) return { tone: 'success', label: 'Actif' }
-  if (intervalMs > 0) return { tone: 'warning', label: 'En attente' }
+// The scheduled sending (S7, switch since S9) in one badge and one sentence, from the integration settings.
+export function dispatchOn(data: Integrations): boolean {
+  return data.fields.contact_dispatch_enabled.value === true && Number(data.fields.contact_dispatch_interval_ms.value ?? 0) > 0
+}
+
+export function dispatchBadge(data: Integrations): { tone: StatusTone; label: string } {
+  if (data.dispatch.active) return { tone: 'success', label: 'Actif' }
+  if (dispatchOn(data)) return { tone: 'warning', label: 'En attente' }
   return { tone: 'neutral', label: 'Désactivé' }
 }
 
-export function dispatchSentence(status: ToolboxStatus, intervalMs: number): string {
-  const { dispatch } = status
-  if (dispatch.active) {
-    return `Les messages programmés partent automatiquement à l’heure choisie (vérification toutes les ${String(dispatch.interval_seconds)} s), tant que le serveur VIPER est en marche.`
+export function dispatchSentence(data: Integrations): string {
+  if (data.dispatch.active) {
+    return 'Actif : chaque mail programmé part à l’heure choisie, tant que le serveur VIPER est en marche.'
   }
-  if (intervalMs > 0) {
-    return 'L’envoi programmé démarrera dès que CIRCOE Toolbox sera connectée : aucun message programmé ne part pour l’instant.'
+  if (dispatchOn(data)) {
+    return `En attente : ${reasonCopy(data.dispatch.reason).why}. Aucun mail programmé ne part pour l’instant ; l’envoi démarre dès que c’est réglé.`
   }
-  return 'L’envoi programmé est désactivé : les dates d’envoi sont enregistrées, aucun mail ne part. Choisissez une fréquence pour l’activer, de préférence après un premier envoi vérifié.'
+  return 'Désactivé : les dates d’envoi sont enregistrées, mais aucun mail programmé ne part.'
+}
+
+// S9: the scheduled messages waiting while the sending is inactive (null when there are none, or when it is active).
+export function dispatchBacklog(data: Integrations): string | null {
+  const { active, scheduled_count: count, overdue_count: overdue } = data.dispatch
+  if (active || count === 0) return null
+  const head = count > 1 ? `${String(count)} messages programmés ne partiront pas` : '1 message programmé ne partira pas'
+  const late = overdue > 0 ? ` (${overdue > 1 ? `${String(overdue)} ont déjà dépassé leur heure` : '1 a déjà dépassé son heure'})` : ''
+  return `${head}${late} tant que l’envoi automatique est inactif.`
 }
 
 export const LIMITATIONS = [

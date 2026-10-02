@@ -23,7 +23,8 @@ const DEFAULTS: Record<IntegrationField, SettingValue> = {
   toolbox_mail_enabled: false,
   toolbox_mcp_url: 'https://toolbox.exemple.example/mcp',
   toolbox_oauth_redirect_uri: null,
-  contact_dispatch_interval_ms: 0,
+  contact_dispatch_enabled: true,
+  contact_dispatch_interval_ms: 30_000,
   infomaniak_send_allowlist: null,
 }
 
@@ -52,7 +53,7 @@ export function integrations(
     openai_api_key: NO_KEY,
     generation_available: false,
     toolbox: { enabled: false, state: 'disabled', configured: false },
-    dispatch: { running: false, active: false },
+    dispatch: { running: false, active: false, reason: 'toolbox_disabled', scheduled_count: 0, overdue_count: 0 },
     ...extra,
   }
 }
@@ -119,6 +120,12 @@ export function stubIntegrationsApi(options: IntegrationsStubOptions = {}) {
       next.updated_at = STAMP
       next.updated_by = 'Pilote Test'
       next.generation_available = next.openai_api_key.set && Boolean(next.fields.openai_model.value)
+      // S9: the switch off stops the sending; on again, it waits for the Toolbox (this fake never runs a worker).
+      if (next.fields.contact_dispatch_enabled.value === false) {
+        next.dispatch = { ...next.dispatch, running: false, active: false, reason: 'disabled' }
+      } else if (next.dispatch.reason === 'disabled') {
+        next.dispatch = { ...next.dispatch, reason: 'toolbox_disconnected' }
+      }
       state.data = next
       return json(200, next)
     }

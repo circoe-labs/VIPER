@@ -72,7 +72,7 @@ export function useToolboxMutations() {
   const settled = (status: ToolboxStatus) => {
     queryClient.setQueryData(toolboxKeys.status, status)
     // The mail editor's « Toolbox connectée » flag comes with the message sequence.
-    void refreshAfterWrite(queryClient, [['contact', 'messages'], INTEGRATIONS_KEY])
+    void refreshAfterWrite(queryClient, [['contact', 'messages'], ['contact', 'dashboard'], INTEGRATIONS_KEY])
   }
   return {
     // « Se connecter à CIRCOE Toolbox »: turns the integration on and sends this page's address, then answers the

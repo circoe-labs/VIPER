@@ -1,13 +1,17 @@
 import { useRef } from 'react'
 
+import type { DispatchReason } from '../api/contact'
 import { Button } from '../ui/Button'
 import { Modal } from '../ui/Dialog'
+import { DispatchWarning } from './DispatchWarning'
 
 export interface Confirmation {
   title: string
   lines: string[]
   // A remark that does not block (e.g. R1 scheduled while Contact has not left).
   warning?: string | null
+  // S9: the scheduled message will not leave (automatic sending inactive): the reason and the link that fixes it.
+  dispatch?: { reason: DispatchReason | null; text: string }
   confirmLabel: string
   // Destructive confirmations use the danger button.
   danger?: boolean
@@ -45,6 +49,9 @@ export function ConfirmDialog({ confirmation, busy, onConfirm, onClose }: Confir
       <div className="contact-confirm">
         {confirmation?.lines.map((line) => <p key={line}>{line}</p>)}
         {confirmation?.warning && <p className="contact-confirm__warning">{confirmation.warning}</p>}
+        {confirmation?.dispatch && (
+          <DispatchWarning reason={confirmation.dispatch.reason}>{confirmation.dispatch.text}</DispatchWarning>
+        )}
       </div>
     </Modal>
   )

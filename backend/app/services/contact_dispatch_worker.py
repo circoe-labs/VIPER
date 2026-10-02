@@ -1,10 +1,12 @@
 """The scheduled-sending worker of the API process (Contact port S7, P5: background work runs in the
-API process, off by default, with a `--once` CLI twin: `python -m app.cli contact-dispatch --once`).
+API process, on by default since S9, with a `--once` CLI twin: `python -m app.cli contact-dispatch
+--once`).
 
 A daemon thread runs `contact_dispatch.Dispatcher.run_pass` every
 `VIPER_CONTACT_DISPATCH_INTERVAL_MS` while the Toolbox is enabled, configured and connected (a
 pass does nothing otherwise — no message is touched while nothing can be sent). It is started by
-the app lifespan only when the Toolbox is enabled and configured and the interval is positive.
+`IntegrationRuntime` once the Toolbox is connected (at startup, or right after the OAuth return)
+when the sending is switched on (`contact_dispatch_enabled`) with a positive interval.
 Never two passes at once in one process (a lock); across processes (two API instances, the CLI)
 the claim's row lock lets one win. A pass that crashes is logged with its traceback and the loop
 goes on; `stop()` lets the running pass finish (a send is bounded by the Toolbox timeout).

@@ -54,7 +54,7 @@ async function captureBoth(page: Page, name: string, widths: number[]) {
   await expect(page.getByRole('tablist', { name: 'Étapes de la séquence' })).toBeVisible()
 }
 
-async function confirm(page: Page, title: RegExp, button: string) {
+async function confirm(page: Page, title: RegExp, button: string | RegExp) {
   const dialog = page.getByRole('dialog', { name: title })
   await expect(dialog).toBeVisible()
   await dialog.getByRole('button', { name: button }).click()
@@ -122,7 +122,8 @@ test('operator flow: draft, validate, schedule, unschedule, edit back to draft, 
   await page.screenshot({ path: `${SCREENSHOTS}/contact-validated-dark-1440.png`, animations: 'disabled' })
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.getByRole('button', { name: 'Programmer…' }).click()
-  await confirm(page, /Programmer le message Contact/, 'Programmer l’envoi')
+  // Automatic sending inactive in this project (S9): « Programmer quand même » (« Programmer l’envoi » once it is active).
+  await confirm(page, /Programmer le message Contact/, /^Programmer (l’envoi|quand même)$/)
   await expect(mailTab(page, 'Contact')).toContainText('Programmé')
   await expect(page.getByText(/Programmé pour le/)).toBeVisible()
 

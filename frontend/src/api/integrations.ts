@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiGet, apiRequest } from './client'
+import type { DispatchReason } from './contact'
 import { refreshAfterWrite } from './refresh'
 import { toolboxKeys } from './toolbox'
 
@@ -19,6 +20,7 @@ export type IntegrationField =
   | 'toolbox_mail_enabled'
   | 'toolbox_mcp_url'
   | 'toolbox_oauth_redirect_uri'
+  | 'contact_dispatch_enabled'
   | 'contact_dispatch_interval_ms'
   | 'infomaniak_send_allowlist'
 
@@ -56,7 +58,14 @@ export interface Integrations {
   openai_api_key: SecretSetting
   generation_available: boolean
   toolbox: { enabled: boolean; state: string; configured: boolean }
-  dispatch: { running: boolean; active: boolean }
+  // S9: `reason` why a scheduled message will not leave, and how many wait (`overdue_count`: their time has passed).
+  dispatch: {
+    running: boolean
+    active: boolean
+    reason: DispatchReason | null
+    scheduled_count: number
+    overdue_count: number
+  }
 }
 
 // A partial save: only the fields present change; `null` = back to the default. `openai_api_key` replaces the key
@@ -96,7 +105,7 @@ export function useIntegrationsMutations() {
       onSuccess: (data) => {
         queryClient.setQueryData(integrationsKeys.all, data)
         // The Toolbox state, the dispatcher and the mail editor's flags (AI available, default sender) follow.
-        void refreshAfterWrite(queryClient, [toolboxKeys.status, ['contact', 'messages']])
+        void refreshAfterWrite(queryClient, [toolboxKeys.status, ['contact', 'messages'], ['contact', 'dashboard']])
       },
       // A conflict or a refusal: read the current settings again.
       onError: () => void refreshAfterWrite(queryClient, [integrationsKeys.all]),

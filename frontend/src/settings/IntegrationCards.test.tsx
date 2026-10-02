@@ -224,26 +224,47 @@ describe('Expéditeur and Envoi programmé', () => {
     expect(api.puts).toEqual([{ version: 0, default_outbound_email: 'prospection@exemple.example' }])
   })
 
-  it('turns the scheduled sending on with a frequency and an allowlist', async () => {
+  it('switches the scheduled sending off and on at once (S9)', async () => {
     const api = stub()
     renderApp('/settings/connections')
 
     const card = await screen.findByRole('region', { name: 'Envoi programmé' })
-    const frequency = within(card).getByRole('combobox', { name: 'Fréquence de vérification' })
-    expect(within(frequency).getAllByRole('option').map((option) => option.textContent)).toEqual([
-      'Désactivé',
-      'Toutes les 10 secondes',
-      'Toutes les 30 secondes',
-      'Toutes les minutes',
-      'Toutes les 5 minutes',
+    const toggle = within(card).getByRole('switch', { name: 'Envoi automatique des mails programmés' })
+    await userEvent.click(toggle)
+    expect(await within(card).findByText(/^Envoi automatique désactivé : aucun mail programmé ne partira/)).toBeInTheDocument()
+    expect(toggle).not.toBeChecked()
+    expect(within(card).getByText('Désactivé')).toBeInTheDocument()
+    await userEvent.click(toggle)
+    expect(await within(card).findByText(/^Envoi automatique activé/)).toBeInTheDocument()
+    expect(toggle).toBeChecked()
+    expect(api.puts).toEqual([
+      { version: 0, contact_dispatch_enabled: false },
+      { version: 1, contact_dispatch_enabled: true },
     ])
-    await userEvent.selectOptions(frequency, 'Toutes les 30 secondes')
+  })
+
+  it('saves the delay (in seconds) of the advanced settings and an allowlist, and refuses an impossible delay (S9)', async () => {
+    const api = stub()
+    renderApp('/settings/connections')
+
+    const card = await screen.findByRole('region', { name: 'Envoi programmé' })
+    await userEvent.click(within(card).getByText('Paramètres avancés', { exact: true }))
+    const delay = within(card).getByRole('textbox', { name: 'Délai maximal avant envoi (secondes)' })
+    expect(delay).toHaveValue('30')
+    await userEvent.clear(delay)
+    await userEvent.type(delay, '0')
+    await userEvent.click(within(card).getByRole('button', { name: 'Enregistrer' }))
+    expect(within(card).getByText('Indiquez un délai entre 1 et 3 600 secondes.')).toBeInTheDocument()
+    expect(api.puts).toEqual([])
+
+    await userEvent.clear(delay)
+    await userEvent.type(delay, '10')
     await userEvent.type(within(card).getByRole('textbox', { name: 'Adresses autorisées (facultatif)' }), '@exemple.example')
     await userEvent.click(within(card).getByRole('button', { name: 'Enregistrer' }))
 
     expect(await within(card).findByText(/Envoi programmé enregistré/)).toBeInTheDocument()
     expect(api.puts).toEqual([
-      { version: 0, contact_dispatch_interval_ms: 30_000, infomaniak_send_allowlist: '@exemple.example' },
+      { version: 0, contact_dispatch_interval_ms: 10_000, infomaniak_send_allowlist: '@exemple.example' },
     ])
   })
 })

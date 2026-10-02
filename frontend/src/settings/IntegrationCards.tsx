@@ -12,8 +12,9 @@ import { useElapsed } from '../lib/useElapsed'
 import { StatusBadge, type StatusTone } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { Modal } from '../ui/Dialog'
-import { FieldFrame, SelectField, TextAreaField, TextField } from '../ui/fields'
+import { FieldFrame, Switch, TextAreaField, TextField } from '../ui/fields'
 import {
+  AlertIcon,
   ChevronDownIcon,
   ClockIcon,
   type IconComponent,
@@ -27,17 +28,20 @@ import {
 import {
   checkFailure,
   checkText,
+  DEFAULT_DISPATCH_INTERVAL_MS,
+  DISPATCH_DELAY_MAX_MS,
+  DISPATCH_DELAY_MIN_MS,
   fallbackText,
+  FIELD_ERRORS,
   type FormField,
   fromDraft,
-  intervalOptions,
   KEY_REQUIRED_WITH_BASE_URL,
   saveRefusal,
   sourceText,
   toDraft,
 } from './integrationsModel'
 import { type Feedback, FeedbackBanner } from './shared'
-import { dispatchBadge, dispatchSentence } from './toolboxCopy'
+import { dispatchBacklog, dispatchBadge, dispatchOn, dispatchSentence } from './toolboxCopy'
 
 // Paramètres › Connexions (Contact port S8): the integration settings typed in the browser — OpenAI, the default
 // sender, the scheduled sending, and the Toolbox's advanced addresses. Each card saves its own fields (one primary
@@ -567,71 +571,80 @@ export function SenderCard({ data }: { data: Integrations }) {
 
 const DISPATCH_FIELDS = ['contact_dispatch_interval_ms', 'infomaniak_send_allowlist'] as const
 
+// S9 (Human report of 2026-10-02 and « je ne comprends pas ce paramètre »): one switch, on by default, instead of a
+// frequency select whose default « Désactivé » let scheduled messages wait forever. The period is the « Délai maximal
+// avant envoi » of « Paramètres avancés »; off = no worker on the server.
 export function DispatchCard({ data, status }: { data: Integrations; status: ToolboxStatus | undefined }) {
   const form = useCardForm(data)
   const card = useCardSave(data, form)
   const pending = form.changes(DISPATCH_FIELDS)
-  const dirty = Object.keys(pending.changes).length > 0
+  const dirty = Object.keys(pending.changes).length > 0 || Object.keys(pending.invalid).length > 0
+  const on = dispatchOn(data)
   const savedInterval = Number(data.fields.contact_dispatch_interval_ms.value ?? 0)
-  const interval = Number(form.value('contact_dispatch_interval_ms'))
-  const badge = status ? dispatchBadge(status, savedInterval) : undefined
+  const seconds = (savedInterval > 0 ? savedInterval : DEFAULT_DISPATCH_INTERVAL_MS) / 1000
+  const backlog = dispatchBacklog(data)
   const reset = (field: FormField) => void card.submit({ [field]: null }, 'Valeur par défaut rétablie.', [field])
+
+  function toggle(next: boolean) {
+    const changes: IntegrationsChanges = { contact_dispatch_enabled: next }
+    // Switched on with a delay of 0 (set by the server's configuration): back to a working delay.
+    if (next && savedInterval <= 0) changes.contact_dispatch_interval_ms = DEFAULT_DISPATCH_INTERVAL_MS
+    void card.submit(
+      changes,
+      next
+        ? 'Envoi automatique activé : les mails programmés partiront à leur heure dès que CIRCOE Toolbox est connectée.'
+        : 'Envoi automatique désactivé : aucun mail programmé ne partira tant qu’il n’est pas réactivé.',
+      [],
+    )
+  }
+
+  function save() {
+    const interval = pending.changes.contact_dispatch_interval_ms
+    const outOfRange =
+      typeof interval === 'number' && (interval < DISPATCH_DELAY_MIN_MS || interval > DISPATCH_DELAY_MAX_MS)
+    if (Object.keys(pending.invalid).length > 0 || outOfRange) {
+      form.setErrors({
+        ...pending.invalid,
+        ...(outOfRange ? { contact_dispatch_interval_ms: FIELD_ERRORS.contact_dispatch_interval_ms } : {}),
+      })
+      return
+    }
+    void card.submit(pending.changes, 'Envoi programmé enregistré : il s’applique dès maintenant.', DISPATCH_FIELDS)
+  }
+
   return (
     <IntegrationCard
       id="settings-connection-dispatch"
       icon={ClockIcon}
       title="Envoi programmé"
       subtitle="Départ automatique des messages programmés dans Contact, par CIRCOE Toolbox"
-      badge={badge}
+      badge={dispatchBadge(data)}
     >
-      {status && <p className="settings-connection__sentence">{dispatchSentence(status, savedInterval)}</p>}
-      {status && (
-        <dl className="settings-connection__facts">
-          <div>
-            <dt>Dernière passe</dt>
-            <dd>
-              {status.dispatch.last_pass_at
-                ? `${formatDateTime(status.dispatch.last_pass_at)}${status.dispatch.last_outcome === 'error' ? ' (en échec : voir les journaux du serveur)' : ''}`
-                : 'aucune depuis le démarrage'}
-            </dd>
-          </div>
-          <div>
-            <dt>Messages programmés</dt>
-            <dd>{String(status.dispatch.scheduled)}</dd>
-          </div>
-          {status.dispatch.unconfirmed > 0 && (
-            <div>
-              <dt>Envois non confirmés</dt>
-              <dd>{String(status.dispatch.unconfirmed)} à trancher dans Contact</dd>
-            </div>
-          )}
-        </dl>
+      <p className="settings-connection__sentence">{dispatchSentence(data)}</p>
+      {backlog && (
+        <p className="settings-feedback settings-feedback--warning">
+          <AlertIcon size={18} />
+          {backlog}
+        </p>
       )}
       <div className="settings-form">
-        <SelectField
-          label="Fréquence de vérification"
-          value={String(interval)}
-          error={form.errors.contact_dispatch_interval_ms}
+        <Switch
+          label="Envoi automatique des mails programmés"
+          checked={on}
           disabled={card.saving}
           hint={
-            <SettingHint
-              data={data}
-              field="contact_dispatch_interval_ms"
-              busy={card.saving}
-              help="Désactivé par défaut : activez-le après avoir vérifié un premier envoi."
-              onReset={reset}
-            />
+            <>
+              <span className="settings-setting__help">
+                VIPER envoie chaque mail programmé à l’heure choisie (à {seconds.toLocaleString('fr-FR')} secondes près)
+                via CIRCOE Toolbox.
+              </span>{' '}
+              <span className="settings-setting__source">{sourceText(data.fields.contact_dispatch_enabled)}</span>
+            </>
           }
           onChange={(event) => {
-            form.edit('contact_dispatch_interval_ms', event.target.value)
+            toggle(event.target.checked)
           }}
-        >
-          {intervalOptions(interval).map((option) => (
-            <option key={option.value} value={String(option.value)}>
-              {option.label}
-            </option>
-          ))}
-        </SelectField>
+        />
         <TextAreaField
           label="Adresses autorisées (facultatif)"
           rows={2}
@@ -653,19 +666,57 @@ export function DispatchCard({ data, status }: { data: Integrations; status: Too
             form.edit('infomaniak_send_allowlist', event.target.value)
           }}
         />
+        <Advanced open={form.errors.contact_dispatch_interval_ms !== undefined}>
+          <TextField
+            label="Délai maximal avant envoi (secondes)"
+            inputMode="decimal"
+            value={form.value('contact_dispatch_interval_ms')}
+            error={form.errors.contact_dispatch_interval_ms}
+            disabled={card.saving}
+            hint={
+              <SettingHint
+                data={data}
+                field="contact_dispatch_interval_ms"
+                busy={card.saving}
+                help="VIPER regarde à ce rythme s’il y a des mails à envoyer : un mail part au plus tard ce délai après l’heure choisie. Entre 1 et 3 600 secondes."
+                onReset={reset}
+              />
+            }
+            onChange={(event) => {
+              form.edit('contact_dispatch_interval_ms', event.target.value)
+            }}
+          />
+        </Advanced>
       </div>
+      {status && (
+        <dl className="settings-connection__facts">
+          <div>
+            <dt>Dernière passe</dt>
+            <dd>
+              {status.dispatch.last_pass_at
+                ? `${formatDateTime(status.dispatch.last_pass_at)}${status.dispatch.last_outcome === 'error' ? ' (en échec : voir les journaux du serveur)' : ''}`
+                : 'aucune depuis le démarrage'}
+            </dd>
+          </div>
+          <div>
+            <dt>Messages programmés</dt>
+            <dd>{String(data.dispatch.scheduled_count)}</dd>
+          </div>
+          {status.dispatch.unconfirmed > 0 && (
+            <div>
+              <dt>Envois non confirmés</dt>
+              <dd>{String(status.dispatch.unconfirmed)} à trancher dans Contact</dd>
+            </div>
+          )}
+        </dl>
+      )}
       <p className="settings-connection__note">
         Un message programmé ne part que si le serveur VIPER est en marche ; trop en retard, il revient à « Validé » sans
         partir.
       </p>
       <FeedbackBanner feedback={card.feedback} />
       <div className="settings-connection__actions">
-        <SaveButton
-          saving={card.saving}
-          elapsed={card.elapsed}
-          disabled={!dirty}
-          onClick={() => void card.submit(pending.changes, 'Envoi programmé enregistré : il s’applique dès maintenant.', DISPATCH_FIELDS)}
-        >
+        <SaveButton saving={card.saving} elapsed={card.elapsed} disabled={!dirty} onClick={save}>
           Enregistrer
         </SaveButton>
       </div>

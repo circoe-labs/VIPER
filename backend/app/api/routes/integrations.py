@@ -35,6 +35,7 @@ from app.core.actor import ActorContext, ActorType
 from app.core.config import Settings
 from app.services import audit
 from app.services.audit import AuditAction
+from app.services.contact_dispatch_state import DispatchReason, dispatch_state
 from app.services.contact_dispatch_worker import ContactDispatcher
 from app.services.errors import ActorNotAllowedError, MailGenerationError
 from app.services.integration_runtime import IntegrationRuntime
@@ -85,6 +86,10 @@ class ToolboxSummaryOut(BaseModel):
 class DispatchSummaryOut(BaseModel):
     running: bool
     active: bool
+    # Why a scheduled message will not leave, and how many wait (S9, `contact_dispatch_state`).
+    reason: DispatchReason | None
+    scheduled_count: int
+    overdue_count: int
 
 
 class IntegrationsOut(BaseModel):
@@ -121,6 +126,7 @@ class IntegrationsIn(BaseModel):
     toolbox_mail_enabled: bool | None = None
     toolbox_mcp_url: Text | None = None
     toolbox_oauth_redirect_uri: Text | None = None
+    contact_dispatch_enabled: bool | None = None
     contact_dispatch_interval_ms: int | None = None
     infomaniak_send_allowlist: Text | None = None
 
@@ -139,7 +145,7 @@ def _runtime(request: Request) -> RuntimeSettings:
     return runtime
 
 
-def integrations_out(request: Request) -> IntegrationsOut:
+def integrations_out(request: Request, session: Session) -> IntegrationsOut:
     runtime = _runtime(request)
     file = runtime.file
     # The same source as every other route (S8 QA m6).
@@ -161,6 +167,7 @@ def integrations_out(request: Request) -> IntegrationsOut:
     status = integration.status()
     dispatcher: ContactDispatcher | None = request.app.state.contact_dispatcher
     worker = dispatcher.status() if dispatcher else None
+    sending = dispatch_state(request.app.state, session)
     return IntegrationsOut(
         version=file.revision,
         updated_at=file.updated_at,
@@ -183,13 +190,16 @@ def integrations_out(request: Request) -> IntegrationsOut:
         dispatch=DispatchSummaryOut(
             running=worker.running if worker else False,
             active=worker.active if worker else False,
+            reason=sending.reason,
+            scheduled_count=sending.scheduled_count,
+            overdue_count=sending.overdue_count,
         ),
     )
 
 
 @router.get("")
-def read_integrations(request: Request) -> IntegrationsOut:
-    return integrations_out(request)
+def read_integrations(request: Request, session: SessionDep) -> IntegrationsOut:
+    return integrations_out(request, session)
 
 
 @router.put("")
@@ -200,7 +210,7 @@ def update_integrations(
         name: getattr(body, name) for name in body.model_fields_set if name != "version"
     }
     save_and_apply(request, session, actor, changes, expected_revision=body.version)
-    return integrations_out(request)
+    return integrations_out(request, session)
 
 
 def save_and_apply(

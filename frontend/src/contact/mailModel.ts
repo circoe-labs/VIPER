@@ -18,6 +18,7 @@ import type { TrackingStatus } from '../api/prospection'
 import type { ToolboxState } from '../api/toolbox'
 import { TRACKING_LABELS } from '../prospection/labels'
 import { toolboxErrorLabel } from '../settings/toolboxCopy'
+import { inactiveSentence } from './dispatchCopy'
 import { formatDateTime, MESSAGE_STATUS_LABELS, STEP_LABELS } from './labels'
 import type { MailField } from './messages'
 
@@ -334,16 +335,8 @@ export function dispatchLine(
         text: 'Envoi non confirmé : la Toolbox n’a pas donné de réponse sûre. VIPER ne le renverra jamais de lui-même et vérifie dans Infomaniak (brouillon disparu = envoyé). Après avoir vérifié les éléments envoyés de la boîte, vous pouvez trancher :',
       }
     }
-    if (!defaults.automatic_sending_active) {
-      const why =
-        defaults.toolbox_state === 'connected'
-          ? 'l’envoi programmé n’est pas actif sur ce serveur'
-          : 'la Toolbox n’est pas connectée (Paramètres › Connexions)'
-      return {
-        tone: 'muted',
-        text: `Envoi automatique inactif : ${why}. La date est enregistrée, mais rien ne part tant que ce n’est pas le cas.`,
-      }
-    }
+    // Inactive sending (S9): the editor shows « Ne partira pas » with its reason and link (inactiveScheduleText).
+    if (!defaults.automatic_sending_active) return null
     if (code && (code.startsWith('send_') || code.startsWith('dispatch_'))) {
       return {
         tone: 'warning',
@@ -363,6 +356,12 @@ export function dispatchLine(
       return {
         tone: 'warning',
         text: 'Envoi non confirmé, brouillon toujours présent dans Infomaniak : vérifiez les éléments envoyés de la boîte, puis reprogrammez-le si le mail n’est pas parti. VIPER ne le renvoie jamais de lui-même.',
+      }
+    }
+    if (code === 'dispatch_overdue') {
+      return {
+        tone: 'warning',
+        text: `Pas envoyé : l’heure prévue était dépassée de plus de ${latenessLabel(lateness)} quand l’envoi automatique a pu le traiter (envoi désactivé, Toolbox déconnectée ou serveur arrêté). VIPER n’envoie jamais un mail en retard : le message est revenu à « Validé ». Choisissez une nouvelle date dans « Programmer l’envoi » pour le reprogrammer.`,
       }
     }
     if (code === 'dispatch_held') {
@@ -466,4 +465,17 @@ export function scheduleToIso(date: string, time: string, now: Date): SchedulePa
   if (at.getTime() <= now.getTime()) return { ok: false, error: 'La date et l’heure d’envoi doivent être dans le futur.' }
   if (at.getTime() - now.getTime() > YEAR_MS) return { ok: false, error: 'L’envoi ne peut pas être programmé à plus d’un an.' }
   return { ok: true, iso: `${date}T${pad(hour)}:${pad(minute)}:00${utcOffset(-at.getTimezoneOffset())}`, at }
+}
+
+// « Ne partira pas » (S9): what the editor says under a scheduled message the server will not send. `now` in ms.
+export function inactiveScheduleText(
+  message: Message,
+  defaults: Pick<MessageSequence['defaults'], 'dispatch_reason' | 'dispatch_max_lateness_minutes'>,
+  now: number,
+): string {
+  const late = message.scheduled_at !== null && new Date(message.scheduled_at).getTime() < now
+  const overdue = late
+    ? ` L’heure prévue est passée : s’il ne peut pas partir dans les ${latenessLabel(defaults.dispatch_max_lateness_minutes)} qui la suivent, il reviendra à « Validé » sans partir.`
+    : ''
+  return `${inactiveSentence(defaults.dispatch_reason)}${overdue}`
 }

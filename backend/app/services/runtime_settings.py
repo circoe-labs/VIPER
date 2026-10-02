@@ -54,7 +54,11 @@ OPENAI_FIELDS = (
 )
 SENDER_FIELDS = ("default_outbound_email",)
 TOOLBOX_FIELDS = ("toolbox_mail_enabled", "toolbox_mcp_url", "toolbox_oauth_redirect_uri")
-DISPATCH_FIELDS = ("contact_dispatch_interval_ms", "infomaniak_send_allowlist")
+DISPATCH_FIELDS = (
+    "contact_dispatch_enabled",
+    "contact_dispatch_interval_ms",
+    "infomaniak_send_allowlist",
+)
 EDITABLE_FIELDS = OPENAI_FIELDS + SENDER_FIELDS + TOOLBOX_FIELDS + DISPATCH_FIELDS
 SECRET_FIELDS = frozenset({"openai_api_key"})
 # Shown to the person, never a value: the string the audit event keeps for a changed secret.

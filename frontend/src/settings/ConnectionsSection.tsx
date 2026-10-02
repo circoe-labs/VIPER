@@ -224,7 +224,8 @@ const SETTING_LABELS: Record<string, string> = {
   toolbox_mail_enabled: 'activation de la Toolbox',
   toolbox_mcp_url: 'adresse du serveur CIRCOE Toolbox',
   toolbox_oauth_redirect_uri: 'adresse de retour',
-  contact_dispatch_interval_ms: 'fréquence de vérification',
+  contact_dispatch_enabled: 'envoi automatique des mails programmés',
+  contact_dispatch_interval_ms: 'délai maximal avant envoi',
   infomaniak_send_allowlist: 'adresses autorisées',
 }
 

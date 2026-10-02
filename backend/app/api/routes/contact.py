@@ -12,7 +12,7 @@ import uuid
 from datetime import UTC, date, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel
 
 from app.api.dependencies import SessionDep
@@ -31,6 +31,7 @@ from app.services.contact_dashboard import (
     ContactFilters,
     NextStep,
 )
+from app.services.contact_dispatch_state import DispatchReason, dispatch_state
 from app.services.contact_workflow import IsoWeek
 from app.services.errors import InvalidFieldError
 from app.services.prospection.query import LIST_MAX_LIMIT
@@ -50,12 +51,25 @@ class WeekOptionOut(BaseModel):
     count: int
 
 
+class DispatchStateOut(BaseModel):
+    """Will a scheduled message really leave (S9)? `reason` when not: `disabled` |
+    `toolbox_disabled` | `toolbox_not_configured` | `toolbox_disconnected` | `toolbox_expired` |
+    `not_running`. `overdue_count`: scheduled, not claimed, time passed."""
+
+    active: bool
+    reason: DispatchReason | None
+    scheduled_count: int
+    overdue_count: int
+
+
 class ContactDashboardOut(BaseModel):
     # The business day and its ISO week (« cette semaine »), e.g. `2026-W40`.
     today: date
     current_week: str
     counts: dict[ContactCounter, int]
     weeks: list[WeekOptionOut]
+    # The scheduled sending (S9): the page warns when scheduled messages will not leave.
+    dispatch: DispatchStateOut
 
 
 class ContactRowOut(BaseModel):
@@ -109,9 +123,16 @@ def parse_state(value: ContactTrackingStatus | None) -> ContactTrackingStatus | 
 
 
 @router.get("/dashboard")
-def dashboard(session: SessionDep, q: Search = None) -> ContactDashboardOut:
+def dashboard(request: Request, session: SessionDep, q: Search = None) -> ContactDashboardOut:
     result = contact_dashboard.dashboard(session, contact_clock(), q)
-    return ContactDashboardOut.model_validate(result, from_attributes=True)
+    state = dispatch_state(request.app.state, session)
+    return ContactDashboardOut(
+        today=result.today,
+        current_week=result.current_week,
+        counts=result.counts,
+        weeks=[WeekOptionOut.model_validate(week, from_attributes=True) for week in result.weeks],
+        dispatch=DispatchStateOut.model_validate(state, from_attributes=True),
+    )
 
 
 @router.get("/prospects")

@@ -176,7 +176,12 @@ class DispatchConfig:
     @classmethod
     def from_settings(cls, settings: Settings) -> DispatchConfig:
         return cls(
-            interval=timedelta(milliseconds=settings.contact_dispatch_interval_ms),
+            # Switched off = no worker (S9): the same as an interval of 0.
+            interval=timedelta(
+                milliseconds=settings.contact_dispatch_interval_ms
+                if settings.contact_dispatch_on
+                else 0
+            ),
             max_lateness=timedelta(milliseconds=settings.contact_dispatch_max_lateness_ms),
             claim_ttl=settings.contact_dispatch_claim_ttl,
             max_attempts=settings.contact_dispatch_max_attempts,
@@ -995,6 +1000,9 @@ class DispatchCounts:
     scheduled: int
     # Claimed without a known outcome: a person may have to settle them.
     unconfirmed: int
+    # Not claimed and already due (`scheduled_at` passed): waiting for a pass — the ones of a
+    # stopped dispatcher (S9); beyond the maximal lateness the next pass puts them back in Validé.
+    overdue: int = 0
 
 
 def dispatch_counts(
@@ -1002,7 +1010,8 @@ def dispatch_counts(
 ) -> DispatchCounts:
     """`unconfirmed` = claimed with an unknown outcome, or a claim older than the TTL (the same
     rule as `is_unconfirmed`)."""
-    stale_before = (now or datetime.now(UTC)) - claim_ttl
+    moment = now or datetime.now(UTC)
+    stale_before = moment - claim_ttl
     row = session.execute(
         select(
             func.count(),
@@ -1011,9 +1020,13 @@ def dispatch_counts(
                 ContactMessage.last_error_code.in_(tuple(UNCONFIRMED))
                 | (ContactMessage.dispatch_claimed_at <= stale_before),
             ),
+            func.count().filter(
+                ContactMessage.dispatch_claim_id.is_(None),
+                ContactMessage.scheduled_at <= moment,
+            ),
         ).where(ContactMessage.status == M.SCHEDULED)
     ).one()
-    return DispatchCounts(scheduled=row[0], unconfirmed=row[1])
+    return DispatchCounts(scheduled=row[0], unconfirmed=row[1], overdue=row[2])
 
 
 # --- the operator's safeguard (after a database restore, before maintenance) ---------------------

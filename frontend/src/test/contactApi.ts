@@ -31,6 +31,7 @@ export function contactDashboard(overrides: Partial<ContactDashboard> = {}): Con
     current_week: CURRENT_WEEK,
     counts: { to_handle: 0, first_contact: 0, follow_up: 0, review: 0, appointments: 0 },
     weeks: [],
+    dispatch: { active: true, reason: null, scheduled_count: 0, overdue_count: 0 },
     ...overrides,
   }
 }
@@ -136,7 +137,7 @@ export function stubContactApi(options: ContactStubOptions = {}) {
   const requests: RecordedRequest[] = []
   // Replaces the answer of the next message write (a refusal the fake would not produce).
   const next: { reply: [number, unknown] | null } = { reply: null }
-  const defaults = options.defaults ?? { from_email: 'prospection@exemple.example', to: ['jean@exemple.example'], generation_available: false, toolbox_connected: false, toolbox_state: 'disabled' as const, automatic_sending_active: false, dispatch_max_lateness_minutes: 360, dispatch_claim_ttl_seconds: 600 }
+  const defaults = options.defaults ?? { from_email: 'prospection@exemple.example', to: ['jean@exemple.example'], generation_available: false, toolbox_connected: false, toolbox_state: 'disabled' as const, automatic_sending_active: false, dispatch_reason: 'toolbox_disabled' as const, dispatch_max_lateness_minutes: 360, dispatch_claim_ttl_seconds: 600 }
 
   function sequenceOf(id: string): MessageSequence['sequence'] {
     const detail = prospects.store.get(id)

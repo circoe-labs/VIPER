@@ -11,6 +11,8 @@ import { AlertIcon, ChevronLeftIcon, ChevronRightIcon, SpinnerIcon } from '../ui
 import { PageHeader } from '../ui/PageHeader'
 import { SearchField } from '../ui/SearchField'
 import { ContactFilters } from './ContactFilters'
+import { bannerText } from './dispatchCopy'
+import { DispatchWarning } from './DispatchWarning'
 import { ContactList } from './ContactList'
 import {
   type ContactView,
@@ -143,6 +145,13 @@ export function ContactPage() {
             Réessayer
           </Button>
         </div>
+      )}
+
+      {dashboard.data && !dashboard.data.dispatch.active && dashboard.data.dispatch.scheduled_count > 0 && (
+        // S9: scheduled messages the server will not send — said before anything else on the page.
+        <DispatchWarning reason={dashboard.data.dispatch.reason} role="alert" className="contact__dispatch-banner">
+          {bannerText(dashboard.data.dispatch)}
+        </DispatchWarning>
       )}
 
       <section className="counters contact-counters" aria-label="Compteurs">

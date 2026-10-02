@@ -31,6 +31,8 @@ import {
   hasText,
 } from './aiDraftModel'
 import { type Confirmation, ConfirmDialog } from './ConfirmDialog'
+import { inactiveSentence } from './dispatchCopy'
+import { DispatchWarning } from './DispatchWarning'
 import { formatDateTime, STEP_LABELS } from './labels'
 import {
   ADDRESS_MAX_LENGTH,
@@ -38,6 +40,7 @@ import {
   contentOf,
   type DispatchState,
   dispatchLine,
+  inactiveScheduleText,
   isDirty,
   latenessLabel,
   localDay,
@@ -306,12 +309,17 @@ export function MailEditor({
           `S’il ne peut pas partir dans les ${latenessLabel(sequence.defaults.dispatch_max_lateness_minutes)} qui suivent, il ne part pas et revient à « Validé ».`,
           'Vous pourrez le déprogrammer jusqu’à l’envoi.',
         )
-      } else {
-        lines.push(
-          'L’envoi automatique n’est pas actif sur ce serveur (Toolbox non connectée ou envoi programmé désactivé) : la date est enregistrée, mais aucun mail ne part tant qu’il ne l’est pas. Vous pourrez déprogrammer tant que le message n’est pas envoyé.',
-        )
+        return { title: `Programmer le message ${label} ?`, lines, warning, confirmLabel: 'Programmer l’envoi' }
       }
-      return { title: `Programmer le message ${label} ?`, lines, warning, confirmLabel: 'Programmer l’envoi' }
+      lines.push('Vous pourrez déprogrammer tant que le message n’est pas envoyé.')
+      // S9: scheduling stays possible, but the person reads that it will not leave, and where to fix it.
+      return {
+        title: `Programmer le message ${label} ?`,
+        lines,
+        warning,
+        dispatch: { reason: sequence.defaults.dispatch_reason, text: inactiveSentence(sequence.defaults.dispatch_reason) },
+        confirmLabel: 'Programmer quand même',
+      }
     }
     if (pending === 'mark-sent') {
       return {
@@ -395,6 +403,12 @@ export function MailEditor({
           sequence.defaults.automatic_sending_active && dispatchNow === 'none',
         )}
       </p>
+
+      {message?.status === 'scheduled' && !sequence.defaults.automatic_sending_active && dispatchNow === 'none' && (
+        <DispatchWarning reason={sequence.defaults.dispatch_reason} badge>
+          {inactiveScheduleText(message, sequence.defaults, new Date().getTime())}
+        </DispatchWarning>
+      )}
 
       {dispatch && actions.settle ? (
         <div className="contact-mail__banner contact-mail__settle" role="note">
@@ -610,6 +624,11 @@ export function MailEditor({
               <AlertIcon size={16} />
               {scheduleError ?? refusal?.fields.schedule}
             </p>
+          )}
+          {!sequence.defaults.automatic_sending_active && (
+            <DispatchWarning reason={sequence.defaults.dispatch_reason}>
+              {inactiveSentence(sequence.defaults.dispatch_reason)} Vous pouvez programmer quand même.
+            </DispatchWarning>
           )}
           {warning && (
             <p className="field__warning">

@@ -46,6 +46,7 @@ from app.services import contact_dispatch as dispatch
 from app.services import contact_mail_generation as generation
 from app.services import contact_messages as service
 from app.services import contact_remote_drafts as remote_drafts
+from app.services.contact_dispatch_state import DispatchReason, sending_reason
 from app.services.contact_messages import (
     MAX_RECIPIENTS,
     GeneratedContent,
@@ -155,6 +156,9 @@ class DefaultsOut(BaseModel):
     # A scheduled message will really leave (S7): the dispatcher runs in this API process and the
     # Toolbox is connected. False: the send moment is recorded, nothing leaves.
     automatic_sending_active: bool
+    # Why not (S9), the `reason` of `contact_dispatch_state`: `disabled` | `toolbox_disabled` |
+    # `toolbox_not_configured` | `toolbox_disconnected` | `toolbox_expired` | `not_running`.
+    dispatch_reason: DispatchReason | None
     # A message more late than this goes back to Validé instead of leaving.
     dispatch_max_lateness_minutes: int
     # After this long, a claimed send nobody finished counts as unconfirmed (a person may settle).
@@ -271,11 +275,6 @@ def result_out(result: MessageResult) -> MessageResultOut:
     )
 
 
-def automatic_sending_active(request: Request) -> bool:
-    dispatcher = request.app.state.contact_dispatcher
-    return dispatcher is not None and bool(dispatcher.status().active)
-
-
 @router.get("")
 def list_messages(
     prospect_id: uuid.UUID, request: Request, session: SessionDep, settings: SettingsDep
@@ -283,6 +282,7 @@ def list_messages(
     with business_errors():
         read = service.prospect_messages(session, prospect_id, settings.default_outbound_email)
     toolbox_state = request.app.state.toolbox.status().state
+    reason = sending_reason(request.app.state)
     context = read.context
     return MessagesOut(
         sequence=SequenceOut(
@@ -297,7 +297,8 @@ def list_messages(
             generation_available=settings.generation_available,
             toolbox_connected=toolbox_state == "connected",
             toolbox_state=toolbox_state,
-            automatic_sending_active=automatic_sending_active(request),
+            automatic_sending_active=reason is None,
+            dispatch_reason=reason,
             dispatch_max_lateness_minutes=settings.contact_dispatch_max_lateness_ms // 60_000,
             dispatch_claim_ttl_seconds=int(settings.contact_dispatch_claim_ttl.total_seconds()),
         ),

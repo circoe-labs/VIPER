@@ -1,3 +1,6 @@
+import { mkdirSync } from 'node:fs'
+import path from 'node:path'
+
 import { expect, type Page, test } from '@playwright/test'
 
 import { createContactProspect, importProspects, isoWeekOf, post, uniqueSuffix } from './data'
@@ -17,6 +20,7 @@ test.describe.configure({ mode: 'serial' })
 test.use({ viewport: { width: 1440, height: 900 } })
 
 const FAKE = `http://127.0.0.1:${String(E2E_TOOLBOX_PORT)}`
+const REVIEW_DIR = process.env.VIPER_E2E_REVIEW_DIR
 
 interface FakeDrafts {
   drafts: { id: string; subject: string }[]
@@ -68,6 +72,11 @@ async function capture(page: Page, name: string, ready: () => Promise<void>) {
     await ready()
     await page.setViewportSize({ width: 1440, height: 1250 })
     await page.screenshot({ path: `${SCREENSHOTS}/${name}-${theme}-1440.png`, animations: 'disabled' })
+    // Design review copies, outside the repository (the orchestrator's scratchpad): test-results is emptied by every run.
+    if (REVIEW_DIR) {
+      mkdirSync(REVIEW_DIR, { recursive: true })
+      await page.screenshot({ path: path.join(REVIEW_DIR, `${name}-${theme}-1440.png`), animations: 'disabled' })
+    }
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
     expect(overflow, 'no horizontal overflow at 1440 px').toBe(0)
   }
@@ -127,6 +136,8 @@ test('the operator scenario: import, plan, draft with the AI, validate, schedule
   await page.getByRole('button', { name: 'Se connecter à CIRCOE Toolbox' }).click()
   await expect(page.getByRole('status').filter({ hasText: /CIRCOE Toolbox connectée jusqu’au/ })).toHaveCount(1)
   const dispatch = page.getByRole('region', { name: 'Envoi programmé' })
+  // S9: nothing chosen in « Envoi programmé »: the sending is on by default once the Toolbox is connected.
+  await expect(dispatch.getByRole('switch', { name: 'Envoi automatique des mails programmés' })).toBeChecked()
   await expect(dispatch).toContainText('Actif')
   await capture(page, 'settings-connections-dispatch', async () => {
     await expect(page.getByRole('region', { name: 'Envoi programmé' })).toContainText('Actif')
@@ -283,4 +294,87 @@ test('a send whose outcome is unknown is never resent and a person settles it', 
   await expect(mailTab(page, 'Contact')).toContainText('Envoyé')
   await expect(page.getByText('Envoi confirmé par une personne après vérification dans la boîte Infomaniak.')).toBeVisible()
   expect((await fakeDrafts(page)).sent.filter((sent) => sent === draft)).toHaveLength(1)
+})
+
+// S9 (Human report of 2026-10-02: a message scheduled while nothing could send it never left, and nothing said so).
+test('switched off, every screen says a scheduled message will not leave, and it does not leave', async ({ page }) => {
+  test.setTimeout(150_000)
+  const suffix = uniqueSuffix()
+  const tag = `FLO${suffix}`
+  const { id } = await createContactProspect(page, tag, {
+    civility: 'ms',
+    first_name: 'Inès',
+    last_name: `Arret${suffix}`,
+    email: `ines.${suffix}@flux-e2e.example`,
+  })
+  await page.goto('/settings/connections')
+  const toolbox = page.getByRole('region', { name: 'CIRCOE Toolbox' })
+  if (!(await toolbox.textContent())?.includes('Valable jusqu’au')) {
+    await page.getByRole('button', { name: 'Se connecter à CIRCOE Toolbox' }).click()
+    await expect(page.getByRole('status').filter({ hasText: /CIRCOE Toolbox connectée jusqu’au/ })).toHaveCount(1)
+  }
+  const dispatch = page.getByRole('region', { name: 'Envoi programmé' })
+  const toggle = dispatch.getByRole('switch', { name: 'Envoi automatique des mails programmés' })
+  await expect(toggle).toBeChecked()
+  await toggle.click()
+  await expect(dispatch.getByText(/^Envoi automatique désactivé : aucun mail programmé ne partira/)).toBeVisible()
+  await expect(toggle).not.toBeChecked()
+
+  try {
+    await page.goto(`/contact?prospect=${id}`)
+    const subject = `Arrêt ${tag}`
+    await page.getByRole('textbox', { name: 'Objet' }).fill(subject)
+    await page.getByRole('textbox', { name: 'Corps' }).fill('Bonjour,\n\nMessage synthétique de test.\n\nCordialement')
+    await page.getByRole('button', { name: 'Créer le brouillon' }).click()
+    await page.getByRole('button', { name: 'Valider…' }).click()
+    await confirm(page, /Valider le message Contact/, 'Valider le message')
+    await expect(page.getByText('Brouillon créé dans Infomaniak.')).toBeVisible()
+    const draft = await draftIdOf(page, subject)
+
+    // Before scheduling: the warning and the link that fixes it, under the date and time and in the confirmation.
+    const schedule = page.getByRole('group', { name: 'Programmer l’envoi' })
+    await expect(schedule).toContainText('Envoi automatique inactif : l’envoi automatique des mails programmés est désactivé')
+    await expect(schedule.getByRole('link', { name: 'Activer l’envoi automatique' })).toHaveAttribute('href', '/settings/connections')
+    const at = nextMinute()
+    await page.getByLabel('Date d’envoi').fill(dayOf(at))
+    await page.getByLabel('Heure').fill(timeOf(at))
+    await page.getByRole('button', { name: 'Programmer…' }).click()
+    const scheduling = page.getByRole('dialog', { name: /Programmer le message Contact/ })
+    await expect(scheduling.getByRole('link', { name: 'Activer l’envoi automatique' })).toBeVisible()
+    await scheduling.getByRole('button', { name: 'Programmer quand même' }).click()
+    await expect(page.getByText('Ne partira pas : envoi automatique désactivé')).toBeVisible()
+
+    // Its time passes, the server runs (a pass would come every second): nothing leaves.
+    await page.waitForTimeout(Math.max(0, at.getTime() - Date.now()) + 4000)
+    expect((await fakeDrafts(page)).sent).not.toContain(draft)
+    await page.reload()
+    await expect(mailTab(page, 'Contact')).toContainText('Programmé')
+    await expect(page.getByText(/L’heure prévue est passée : s’il ne peut pas partir dans les 6 heures/)).toBeVisible()
+    await capture(page, 's9-contact-warning-line', async () => {
+      await expect(page.getByText('Ne partira pas : envoi automatique désactivé')).toBeVisible()
+    })
+
+    // The Contact page warns at the top, with the link to the switch.
+    await page.goto(`/contact?q=${tag}`)
+    const banner = page.getByRole('alert').filter({ hasText: /ne partir(a|ont) pas/ })
+    await expect(banner).toContainText('l’envoi automatique des mails programmés est désactivé')
+    await expect(banner).toContainText(/déjà dépassé (son|leur) heure/)
+    await capture(page, 's9-contact-banner', async () => {
+      await expect(page.getByRole('alert').filter({ hasText: /ne partir(a|ont) pas/ })).toBeVisible()
+    })
+    await page.getByRole('alert').filter({ hasText: /ne partir(a|ont) pas/ }).getByRole('link', { name: 'Activer l’envoi automatique' }).click()
+    await expect(page).toHaveURL(/\/settings\/connections$/)
+    await expect(page.getByRole('region', { name: 'Envoi programmé' })).toContainText(/ne partir(a|ont) pas .*tant que l’envoi automatique est inactif/)
+
+    // Unscheduled before switching back on (only seconds late, it would leave at the next pass).
+    await page.goto(`/contact?prospect=${id}`)
+    await page.getByRole('button', { name: 'Déprogrammer' }).click()
+    await expect(mailTab(page, 'Contact')).toContainText('Validé')
+    expect((await fakeDrafts(page)).sent).not.toContain(draft)
+  } finally {
+    await page.goto('/settings/connections')
+    const back = page.getByRole('region', { name: 'Envoi programmé' }).getByRole('switch', { name: 'Envoi automatique des mails programmés' })
+    if (!(await back.isChecked())) await back.click()
+    await expect(back).toBeChecked()
+  }
 })

@@ -88,7 +88,7 @@ class CleanupsOut(BaseModel):
 
 class DispatchOut(BaseModel):
     """The scheduled sending (S7). `running`: the worker runs in this API process
-    (`VIPER_CONTACT_DISPATCH_INTERVAL_MS` > 0 and the Toolbox configured); `active`: and the
+    (switched on, interval > 0, the Toolbox connected); `active`: and the
     Toolbox is connected, so a scheduled message really leaves."""
 
     running: bool

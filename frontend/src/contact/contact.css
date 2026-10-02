@@ -508,6 +508,28 @@
   color: var(--color-warning-fg);
 }
 
+/* « Ne partira pas » (S9): a scheduled message the server cannot send, its reason and the link that fixes it. */
+.contact-dispatch-warning__body {
+  display: grid;
+  flex: 1 1 auto;
+  justify-items: start;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.contact-dispatch-warning__body p {
+  margin: 0;
+}
+
+.contact-dispatch-warning__link {
+  text-decoration: none;
+}
+
+/* The Contact page banner sits between the header and the counters. */
+.contact__dispatch-banner {
+  margin-bottom: var(--space-4);
+}
+
 /* An unconfirmed scheduled send (S7): the reason, then the two ways a person settles it. */
 .contact-mail__settle-body {
   display: grid;

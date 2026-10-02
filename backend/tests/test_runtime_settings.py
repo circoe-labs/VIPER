@@ -165,7 +165,13 @@ def test_the_api_reports_values_sources_and_fallbacks(client: TestClient) -> Non
     }
     assert body["generation_available"] is False
     assert body["toolbox"] == {"enabled": False, "state": "disabled", "configured": False}
-    assert body["dispatch"] == {"running": False, "active": False}
+    assert body["dispatch"] == {
+        "running": False,
+        "active": False,
+        "reason": "toolbox_disabled",
+        "scheduled_count": 0,
+        "overdue_count": 0,
+    }
     # Environment-only settings are not exposed.
     assert set(body["fields"]) == {
         "openai_model",
@@ -177,6 +183,7 @@ def test_the_api_reports_values_sources_and_fallbacks(client: TestClient) -> Non
         "toolbox_mail_enabled",
         "toolbox_mcp_url",
         "toolbox_oauth_redirect_uri",
+        "contact_dispatch_enabled",
         "contact_dispatch_interval_ms",
         "infomaniak_send_allowlist",
     }
@@ -384,7 +391,7 @@ def test_connecting_from_the_page_turns_the_toolbox_on_then_starts_the_workers(
     app: FastAPI, client: TestClient, fake_toolbox: FakeToolbox, db_session: Session
 ) -> None:
     state = app.state
-    ok(put(client, contact_dispatch_interval_ms=30_000))
+    # S9: nothing to choose: the sending is on by default (30 s).
     assert (state.toolbox_worker, state.contact_dispatcher) == (None, None)
 
     # « Se connecter à CIRCOE Toolbox » from a fresh install: no switch, no URL to type.
@@ -407,7 +414,9 @@ def test_connecting_from_the_page_turns_the_toolbox_on_then_starts_the_workers(
     assert connected["state"] == "connected"
     assert connected["dispatch"]["running"] is True
     assert state.toolbox_worker is not None and state.contact_dispatcher is not None
-    assert ok(client.get(URL))["dispatch"]["active"] is True
+    assert state.contact_dispatcher.interval_seconds == 30
+    dispatch = ok(client.get(URL))["dispatch"]
+    assert (dispatch["active"], dispatch["reason"]) == (True, None)
 
     # Another interval: a new dispatcher, the same integration (still connected).
     integration, dispatcher = state.toolbox, state.contact_dispatcher
@@ -419,7 +428,14 @@ def test_connecting_from_the_page_turns_the_toolbox_on_then_starts_the_workers(
     ok(put(client, infomaniak_send_allowlist="@exemple.example"))
     assert state.contact_dispatcher._dispatcher.config.allowlist == ("@exemple.example",)
 
-    # « Désactivé »: no dispatcher; the cleanup worker stays.
+    # The switch off (S9): no dispatcher; the cleanup worker stays; on again: a new one.
+    ok(put(client, contact_dispatch_enabled=False))
+    assert state.contact_dispatcher is None and state.toolbox_worker is not None
+    assert ok(client.get(URL))["dispatch"]["reason"] == "disabled"
+    ok(put(client, contact_dispatch_enabled=True))
+    assert state.contact_dispatcher is not None
+    assert state.contact_dispatcher.interval_seconds == 10
+    # An interval of 0 (still accepted, e.g. from the environment): no dispatcher either.
     ok(put(client, contact_dispatch_interval_ms=0))
     assert state.contact_dispatcher is None and state.toolbox_worker is not None
 
@@ -461,7 +477,9 @@ def test_a_page_address_off_the_rules_is_refused(
 def test_the_built_in_toolbox_url_is_the_circoe_one_and_never_reached_in_tests() -> None:
     fields = Settings.model_fields
     assert fields["toolbox_mcp_url"].default == CIRCOE_TOOLBOX_MCP_URL
-    assert fields["contact_dispatch_interval_ms"].default == 0
+    # S9: the scheduled sending is on by default (supersedes the S8 « Désactivé par défaut »).
+    assert fields["contact_dispatch_enabled"].default is True
+    assert fields["contact_dispatch_interval_ms"].default == 30_000
     with pytest.raises(AssertionError, match="real CIRCOE Toolbox"):
         httpx2.Client().get(CIRCOE_TOOLBOX_MCP_URL)
 

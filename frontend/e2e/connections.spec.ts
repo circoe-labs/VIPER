@@ -187,9 +187,12 @@ test('« Se connecter à CIRCOE Toolbox » from the settings, with the advanced 
   const saved = await integrations(page)
   expect(saved.fields.toolbox_mcp_url).toMatchObject({ value: `${FAKE_TOOLBOX}/mcp/`, source: 'ui' })
 
-  // The scheduled sending, off until chosen here.
+  // The scheduled sending (S9): on by default, one switch; its delay is in « Paramètres avancés ».
   const dispatch = card(page, 'Envoi programmé')
-  await dispatch.getByRole('combobox', { name: 'Fréquence de vérification' }).selectOption({ label: 'Toutes les 10 secondes' })
+  await expect(dispatch.getByRole('switch', { name: 'Envoi automatique des mails programmés' })).toBeChecked()
+  await expect(dispatch).not.toContainText('Fréquence de vérification')
+  await dispatch.getByText('Paramètres avancés', { exact: true }).click()
+  await dispatch.getByRole('textbox', { name: 'Délai maximal avant envoi (secondes)' }).fill('10')
   await dispatch.getByRole('button', { name: 'Enregistrer' }).click()
   await expect(dispatch.getByText(/Envoi programmé enregistré/)).toBeVisible()
 
@@ -203,7 +206,7 @@ test('« Se connecter à CIRCOE Toolbox » from the settings, with the advanced 
   await expect(page.getByRole('status').filter({ hasText: /CIRCOE Toolbox connectée jusqu’au/ })).toHaveCount(1)
   await expect(toolbox).toContainText('Connectée')
   await expect(dispatch).toContainText('Actif')
-  await expect(dispatch).toContainText('vérification toutes les 10 s')
+  await expect(dispatch).toContainText('VIPER envoie chaque mail programmé à l’heure choisie (à 10 secondes près) via CIRCOE Toolbox.')
   await capture(page, 'toolbox-connected')
 
   // « Se déconnecter… »: token forgotten, integration off, the scheduled sending stopped.

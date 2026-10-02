@@ -78,6 +78,7 @@ def test_the_sequence_read_model(
         "toolbox_state": "disabled",
         # S7: no dispatcher in this app, so a scheduled message would not leave.
         "automatic_sending_active": False,
+        "dispatch_reason": "toolbox_disabled",
         "dispatch_max_lateness_minutes": 360,
         "dispatch_claim_ttl_seconds": 600,
     }

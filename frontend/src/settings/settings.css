@@ -253,6 +253,12 @@ tr[data-inactive] .settings-table__label {
   color: var(--color-danger-fg);
 }
 
+/* S9: scheduled messages that will not leave (Envoi programmé card). */
+.settings-feedback--warning {
+  background: var(--color-warning-soft);
+  color: var(--color-warning-fg);
+}
+
 .settings-dialog {
   display: grid;
   gap: var(--space-4);

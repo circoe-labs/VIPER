@@ -58,31 +58,67 @@ describe('Paramètres › Connexions', () => {
           },
         },
       },
-      { initial: integrations({ contact_dispatch_interval_ms: { value: 30_000, source: 'ui' } }) },
+      { initial: integrations({}, { dispatch: { running: true, active: true, reason: null, scheduled_count: 3, overdue_count: 0 } }) },
     )
     renderApp('/settings/connections')
 
     expect(await within(panel()).findByText('Actif')).toBeInTheDocument()
-    expect(dispatchCard()).toHaveTextContent('partent automatiquement à l’heure choisie (vérification toutes les 30 s)')
+    expect(dispatchCard()).toHaveTextContent('Actif : chaque mail programmé part à l’heure choisie')
     expect(dispatchCard()).toHaveTextContent('Messages programmés3')
     expect(dispatchCard()).toHaveTextContent('1 à trancher dans Contact')
+    expect(dispatchCard()).not.toHaveTextContent('ne partiront pas')
   })
 
-  it('says the scheduled sending is off until a frequency is chosen', async () => {
+  it('is on by default: one switch, explained in plain words, the delay in the advanced settings (S9)', async () => {
     stub({ status: CONNECTED })
     renderApp('/settings/connections')
 
-    expect(await within(panel()).findByText('L’envoi programmé est désactivé', { exact: false })).toBeInTheDocument()
+    const toggle = await within(await screen.findByRole('region', { name: 'Envoi programmé' })).findByRole('switch', {
+      name: 'Envoi automatique des mails programmés',
+    })
+    expect(toggle).toBeChecked()
+    expect(dispatchCard()).toHaveTextContent(
+      'VIPER envoie chaque mail programmé à l’heure choisie (à 30 secondes près) via CIRCOE Toolbox.',
+    )
+    expect(dispatchCard()).not.toHaveTextContent(/Fréquence de vérification|désactivé par défaut/i)
+    expect(within(dispatchCard()).getByRole('textbox', { name: 'Délai maximal avant envoi (secondes)' })).not.toBeVisible()
     expect(dispatchCard()).toHaveTextContent('aucune depuis le démarrage')
-    expect(within(dispatchCard()).getByRole('combobox', { name: 'Fréquence de vérification' })).toHaveValue('0')
   })
 
-  it('waits for the Toolbox when a frequency is chosen but nothing is connected', async () => {
-    stub({}, { initial: integrations({ contact_dispatch_interval_ms: { value: 30_000, source: 'ui' } }) })
+  it('waits for the Toolbox when switched on but nothing is connected, and counts what will not leave (S9)', async () => {
+    stub(
+      {},
+      {
+        initial: integrations(
+          {},
+          { dispatch: { running: false, active: false, reason: 'toolbox_disconnected', scheduled_count: 2, overdue_count: 1 } },
+        ),
+      },
+    )
     renderApp('/settings/connections')
 
     expect(await within(panel()).findByText('En attente')).toBeInTheDocument()
-    expect(dispatchCard()).toHaveTextContent('démarrera dès que CIRCOE Toolbox sera connectée')
+    expect(dispatchCard()).toHaveTextContent('En attente : CIRCOE Toolbox n’est pas connectée.')
+    expect(within(dispatchCard()).getByText(/^2 messages programmés ne partiront pas \(1 a déjà dépassé son heure\)/)).toHaveClass(
+      'settings-feedback--warning',
+    )
+  })
+
+  it('says the sending is off when the person switched it off, and how many messages wait (S9)', async () => {
+    stub(
+      { status: CONNECTED },
+      {
+        initial: integrations(
+          { contact_dispatch_enabled: { value: false, source: 'ui' } },
+          { dispatch: { running: false, active: false, reason: 'disabled', scheduled_count: 1, overdue_count: 0 } },
+        ),
+      },
+    )
+    renderApp('/settings/connections')
+
+    expect(await within(panel()).findByText('Désactivé : les dates d’envoi sont enregistrées', { exact: false })).toBeInTheDocument()
+    expect(within(dispatchCard()).getByRole('switch', { name: 'Envoi automatique des mails programmés' })).not.toBeChecked()
+    expect(dispatchCard()).toHaveTextContent('1 message programmé ne partira pas tant que l’envoi automatique est inactif.')
   })
 
   it('names a missing address in the page’s words and opens the advanced settings', async () => {

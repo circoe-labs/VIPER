@@ -40,7 +40,7 @@ function open(detail: Prospect, messages: Partial<Record<MessageStep, Message>> 
     dashboard: contactDashboard(),
     details: [detail],
     messages: { [detail.id]: messages },
-    defaults: { from_email: 'prospection@exemple.example', to: ['claire@exemple.example'], generation_available: false, toolbox_connected: false, toolbox_state: 'disabled' as const, automatic_sending_active: false, dispatch_max_lateness_minutes: 360, dispatch_claim_ttl_seconds: 600 },
+    defaults: { from_email: 'prospection@exemple.example', to: ['claire@exemple.example'], generation_available: false, toolbox_connected: false, toolbox_state: 'disabled' as const, automatic_sending_active: false, dispatch_reason: 'toolbox_disabled' as const, dispatch_max_lateness_minutes: 360, dispatch_claim_ttl_seconds: 600 },
     ...extra,
   })
   const view = renderApp(`/contact?prospect=${detail.id}`)
@@ -141,7 +141,8 @@ describe('Contact workbench', () => {
     expect(screen.getByLabelText('Date d’envoi')).toHaveValue(day)
     expect(screen.getByLabelText('Heure')).toHaveValue('09:30')
     await userEvent.click(screen.getByRole('button', { name: 'Programmer…' }))
-    await confirmDialog(/Programmer le message Contact/, 'Programmer l’envoi')
+    // Automatic sending inactive (S9): scheduling stays possible, « quand même ».
+    await confirmDialog(/Programmer le message Contact/, 'Programmer quand même')
     await waitFor(() => {
       expect(tab('Contact')).toHaveTextContent('Programmé')
     })
@@ -324,6 +325,7 @@ describe('Contact workbench', () => {
         toolbox_connected: true,
         toolbox_state: 'connected' as const,
         automatic_sending_active: false,
+        dispatch_reason: 'disabled' as const,
         dispatch_max_lateness_minutes: 360,
         dispatch_claim_ttl_seconds: 600,
       },
@@ -389,6 +391,7 @@ describe('Contact workbench', () => {
         toolbox_connected: true,
         toolbox_state: 'connected' as const,
         automatic_sending_active: true,
+        dispatch_reason: null,
         dispatch_max_lateness_minutes: 360,
         dispatch_claim_ttl_seconds: 600,
       },
@@ -413,13 +416,37 @@ describe('Contact workbench', () => {
       expect(await screen.findByText(/^Programmé : le mail partira automatiquement le .* déprogrammable jusqu’à l’envoi\.$/)).toBeInTheDocument()
     })
 
-    it('says plainly that nothing leaves while automatic sending is off', async () => {
+    it('says plainly that nothing leaves while automatic sending is off, with the link that fixes it (S9)', async () => {
       const detail = person()
       open(detail, { contact: message('contact', 'validated', { prospect_id: detail.id }) })
+      // Before « Programmer… »: the warning and its link under the date and time.
+      const schedule = await screen.findByRole('group', { name: 'Programmer l’envoi' })
+      expect(await within(schedule).findByText(/Envoi automatique inactif : CIRCOE Toolbox n’est pas connectée/)).toBeInTheDocument()
+      expect(within(schedule).getByRole('link', { name: 'Connecter CIRCOE Toolbox' })).toHaveAttribute('href', '/settings/connections')
       const dialog = await scheduleTomorrow()
-      expect(dialog).toHaveTextContent('L’envoi automatique n’est pas actif sur ce serveur')
-      await userEvent.click(within(dialog).getByRole('button', { name: 'Programmer l’envoi' }))
-      expect(await screen.findByText(/^Envoi automatique inactif : la Toolbox n’est pas connectée/)).toBeInTheDocument()
+      expect(dialog).toHaveTextContent('Envoi automatique inactif : CIRCOE Toolbox n’est pas connectée')
+      expect(within(dialog).getByRole('link', { name: 'Connecter CIRCOE Toolbox' })).toHaveAttribute('href', '/settings/connections')
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Programmer quand même' }))
+      expect(await screen.findByText('Ne partira pas : Toolbox non connectée')).toBeInTheDocument()
+      expect(screen.getByText(/^Programmé pour le /)).toBeInTheDocument()
+    })
+
+    it('warns that a scheduled message will not leave when the person switched sending off (S9)', async () => {
+      const detail = person()
+      const past = new Date(Date.now() - 3_600_000).toISOString()
+      open(detail, { contact: message('contact', 'scheduled', { prospect_id: detail.id, scheduled_at: past }) }, { defaults: { ...active.defaults, automatic_sending_active: false, dispatch_reason: 'disabled' } })
+      expect(await screen.findByText('Ne partira pas : envoi automatique désactivé')).toBeInTheDocument()
+      expect(screen.getByText(/L’heure prévue est passée : s’il ne peut pas partir dans les 6 heures/)).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: 'Activer l’envoi automatique' })).toHaveAttribute('href', '/settings/connections')
+    })
+
+    it('explains an overdue message went back to Validé and offers to schedule it again (S9)', async () => {
+      const detail = person()
+      open(detail, { contact: message('contact', 'validated', { prospect_id: detail.id, last_error_code: 'dispatch_overdue' }) }, active)
+      expect(await screen.findByText(/^Pas envoyé : l’heure prévue était dépassée de plus de 6 heures/)).toBeInTheDocument()
+      expect(screen.getByText(/VIPER n’envoie jamais un mail en retard/)).toBeInTheDocument()
+      expect(screen.getByRole('group', { name: 'Programmer l’envoi' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Programmer…' })).toBeInTheDocument()
     })
 
     it('locks a message being sent', async () => {

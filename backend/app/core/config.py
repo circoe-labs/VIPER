@@ -164,10 +164,13 @@ class Settings(BaseSettings):
     infomaniak_send_allowlist: str | None = None
     # Scheduled sending (S7, decision 25: VIPER schedules, the Toolbox's `send_draft` executes):
     # the dispatcher worker of the API process runs a pass every interval while the Toolbox is
-    # enabled, configured and connected; 0 = no worker (the CLI `python -m app.cli contact-dispatch
-    # --once` still runs one pass). Off by default (S8, Human request): the person turns it on in
-    # Paramètres > Connexions, which is safer for the first real send. The reference used 30 s.
-    contact_dispatch_interval_ms: Annotated[int, Field(ge=0, le=3_600_000)] = 0
+    # enabled, configured and connected. On by default (S9, supersedes the S8 « Désactivé par
+    # défaut »: a message scheduled while nothing could send it never left): the switch
+    # « Envoi automatique des mails programmés » of Paramètres > Connexions turns it off. Off, or an
+    # interval of 0 = no worker (the CLI `python -m app.cli contact-dispatch --once` still runs one
+    # pass). The interval is the « Délai maximal avant envoi » of « Paramètres avancés ».
+    contact_dispatch_enabled: bool = True
+    contact_dispatch_interval_ms: Annotated[int, Field(ge=0, le=3_600_000)] = 30_000
     # A message more late than this does not leave: it goes back to Validé (`dispatch_overdue`).
     contact_dispatch_max_lateness_ms: Annotated[int, Field(ge=60_000, le=7 * 86_400_000)] = (
         6 * 3_600_000
@@ -249,6 +252,11 @@ class Settings(BaseSettings):
         if self.openai_api_key is not None and self.openai_model is None:
             raise ValueError("VIPER_OPENAI_MODEL is required when VIPER_OPENAI_API_KEY is set")
         return self
+
+    @property
+    def contact_dispatch_on(self) -> bool:
+        """The scheduled sending is switched on (a worker runs once the Toolbox is connected)."""
+        return self.contact_dispatch_enabled and self.contact_dispatch_interval_ms > 0
 
     @property
     def generation_available(self) -> bool:

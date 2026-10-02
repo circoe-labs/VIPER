@@ -56,6 +56,39 @@ describe('Contact page', () => {
     expect(within(navigation).queryByRole('link', { name: 'Exploitation' })).not.toBeInTheDocument()
   })
 
+  it('warns at the top when scheduled messages will not leave, with the link that fixes it (S9)', async () => {
+    stubContactApi({
+      dashboard: contactDashboard({
+        ...DASHBOARD,
+        dispatch: { active: false, reason: 'disabled', scheduled_count: 2, overdue_count: 1 },
+      }),
+    })
+    renderApp('/contact')
+    const banner = await screen.findByRole('alert')
+    expect(banner).toHaveTextContent(
+      '2 messages programmés ne partiront pas : l’envoi automatique des mails programmés est désactivé. 1 a déjà dépassé son heure',
+    )
+    expect(within(banner).getByRole('link', { name: 'Activer l’envoi automatique' })).toHaveAttribute('href', '/settings/connections')
+  })
+
+  it('names the Toolbox when it is the reason, and says nothing while sending is active or nothing waits (S9)', async () => {
+    stubContactApi({
+      dashboard: contactDashboard({ dispatch: { active: false, reason: 'toolbox_expired', scheduled_count: 1, overdue_count: 0 } }),
+    })
+    const { unmount } = renderApp('/contact')
+    const banner = await screen.findByRole('alert')
+    expect(banner).toHaveTextContent('1 message programmé ne partira pas : la connexion à CIRCOE Toolbox a expiré.')
+    expect(within(banner).getByRole('link', { name: 'Reconnecter CIRCOE Toolbox' })).toBeInTheDocument()
+    unmount()
+
+    stubContactApi({ dashboard: contactDashboard({ dispatch: { active: false, reason: 'disabled', scheduled_count: 0, overdue_count: 0 } }) })
+    renderApp('/contact')
+    await waitFor(() => {
+      expect(counter('À traiter cette semaine')).toHaveTextContent('0')
+    })
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
   it('shows the counters and lists this week by default (the server’s current week is sent)', async () => {
     const api = stubContactApi({ dashboard: DASHBOARD, rows: rows() })
     renderApp('/contact')

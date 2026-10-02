@@ -29,6 +29,24 @@ export interface ContactWeekOption {
   count: number
 }
 
+// Why a scheduled message will not leave (S9, backend app/services/contact_dispatch_state.py): the person switched
+// « Envoi automatique des mails programmés » off, or the CIRCOE Toolbox is not usable; `not_running` should not happen.
+export type DispatchReason =
+  | 'disabled'
+  | 'toolbox_disabled'
+  | 'toolbox_not_configured'
+  | 'toolbox_disconnected'
+  | 'toolbox_expired'
+  | 'not_running'
+
+export interface DispatchState {
+  active: boolean
+  reason: DispatchReason | null
+  scheduled_count: number
+  // Scheduled, not being sent, and their time has passed.
+  overdue_count: number
+}
+
 export interface ContactDashboard {
   // Business day, `YYYY-MM-DD`.
   today: string
@@ -37,6 +55,8 @@ export interface ContactDashboard {
   counts: Record<ContactCounter, number>
   // ISO weeks present in the planning, oldest first.
   weeks: ContactWeekOption[]
+  // S9: the page warns when scheduled messages will not leave.
+  dispatch: DispatchState
 }
 
 export interface ContactRow {
@@ -132,6 +152,8 @@ export interface MessageSequence {
     toolbox_state: ToolboxState
     // S7: a scheduled message really leaves (the dispatcher runs on the server and the Toolbox is connected).
     automatic_sending_active: boolean
+    // S9: why not (null when active).
+    dispatch_reason: DispatchReason | null
     // A scheduled message more late than this goes back to Validé instead of leaving.
     dispatch_max_lateness_minutes: number
     // After this long, a claimed send nobody finished counts as unconfirmed.
