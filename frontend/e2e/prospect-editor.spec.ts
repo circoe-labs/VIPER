@@ -180,6 +180,73 @@ async function screenshots(page: Page, state: string) {
   }
 }
 
+test('notes: quick add with Enter (the editor stays open), edit in place, delete after confirmation, and a long list stays bounded', async ({ page }) => {
+  test.setTimeout(90_000)
+  const suffix = uniqueSuffix()
+  const tag = `PEQ${suffix}`
+  await importProspects(page, `notes-${suffix}.xlsx`, [
+    { company: `Transports ${tag}`, civility: 'M.', first_name: 'Noé', last_name: `Notes${suffix}`, email: `noe@${tag.toLowerCase()}.example` },
+  ])
+  await searchTag(page, tag)
+  await people(page).getByRole('link', { name: `Noé Notes${suffix}` }).click()
+  const editor = page.getByRole('dialog', { name: `M. Noé Notes${suffix}` })
+  const notes = region(editor, 'Notes')
+  await expect(notes).toContainText('Aucune note pour l’instant.')
+
+  // Enter adds the note: the prospect is neither saved nor left, and the form stays clean.
+  const fact = notes.getByRole('textbox', { name: 'Nouveau fait' })
+  await fact.fill('A liké notre post LinkedIn')
+  await fact.press('Enter')
+  await expect(notes.getByRole('list', { name: 'Liste des notes' })).toContainText('A liké notre post LinkedIn')
+  await expect(editor).toContainText('Prospect 1 sur 1')
+  await expect(editor.getByRole('button', { name: 'Enregistrer', exact: true })).toBeDisabled()
+  await expect(fact).toBeFocused()
+
+  // A score impact, then an edit in place.
+  await fact.fill('Texte très long '.repeat(30))
+  await notes.getByRole('button', { name: 'Impact sur le score…' }).click()
+  await notes.getByRole('textbox', { name: 'Impact sur le score' }).fill('-10')
+  await fact.press('Enter')
+  await expect(notes.getByRole('img', { name: 'Impact sur le score : -10' })).toBeVisible()
+  const first = notes.getByRole('listitem').filter({ hasText: 'A liké' })
+  await first.hover()
+  await first.getByRole('button', { name: /^Actions : / }).click()
+  await page.getByRole('menuitem', { name: 'Modifier' }).click()
+  const edit = notes.getByRole('group', { name: 'Modifier la note' })
+  await edit.getByRole('textbox', { name: 'Fait', exact: true }).fill('A liké notre post LinkedIn sur IGuard')
+  await edit.getByRole('textbox', { name: 'Impact sur le score' }).fill('+5')
+  await edit.getByRole('button', { name: 'Enregistrer la note' }).click()
+  await expect(notes.getByRole('img', { name: 'Impact sur le score : +5' })).toBeVisible()
+  await expect(notes).toContainText('sur IGuard')
+
+  // Many notes: the list scrolls inside the section, the page does not grow sideways.
+  for (let index = 0; index < 12; index += 1) {
+    await fact.fill(`Fait de remplissage numéro ${String(index)}`)
+    await fact.press('Enter')
+    await expect(notes.getByRole('list', { name: 'Liste des notes' })).toContainText(`numéro ${String(index)}`)
+  }
+  const list = notes.getByRole('list', { name: 'Liste des notes' })
+  const box = await list.evaluate((element) => ({ client: element.clientHeight, scroll: element.scrollHeight, width: element.scrollWidth, shown: element.clientWidth }))
+  expect(box.scroll).toBeGreaterThan(box.client)
+  expect(box.client).toBeLessThanOrEqual(360)
+  expect(box.width).toBeLessThanOrEqual(box.shown)
+
+  await notes.screenshot({ path: `${SCREENSHOTS}/prospect-editor-notes.png`, animations: 'disabled' })
+
+  // Deletion asks first.
+  const filler = notes.getByRole('listitem').filter({ hasText: 'numéro 0' })
+  await filler.hover()
+  await filler.getByRole('button', { name: /^Actions : / }).click()
+  await page.getByRole('menuitem', { name: 'Supprimer' }).click()
+  await page.getByRole('dialog', { name: 'Supprimer cette note ?' }).getByRole('button', { name: 'Supprimer la note' }).click()
+  await expect(notes).not.toContainText('numéro 0')
+  await expect(page.getByRole('dialog', { name: 'Supprimer cette note ?' })).toBeHidden()
+
+  // The notes are stored: a fresh read of the prospect shows them again.
+  await page.reload()
+  await expect(region(page.getByRole('dialog').first(), 'Notes')).toContainText('sur IGuard')
+})
+
 test('editor screenshots: imported values to verify, then verified (dark/light, 1440 and 1280 px)', async ({ page }) => {
   test.setTimeout(90_000)
   const suffix = uniqueSuffix()

@@ -1,0 +1,162 @@
+/* Notes of the Prospect editor: a dense list (one line per fact, the fact dominant) and a one-line quick add. Pattern
+   documented in doc/design/design-system.md. */
+
+.prospect-notes__add {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.prospect-notes__add-line {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+
+.prospect-notes__add-line > .field {
+  flex: 1;
+}
+
+.prospect-notes__add-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-2) var(--space-3);
+}
+
+.prospect-notes__add-options .field {
+  width: 9.25rem;
+}
+
+.prospect-notes__error {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  color: var(--color-danger-fg);
+  font-size: var(--text-sm);
+}
+
+.prospect-notes__error svg {
+  flex: none;
+  margin-top: 0.125rem;
+}
+
+/* A long list scrolls here, not the column. */
+.prospect-notes {
+  display: grid;
+  max-height: 22rem;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border-top: var(--border-width) solid var(--color-border);
+  list-style: none;
+}
+
+.prospect-notes:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
+}
+
+.prospect-note {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-2) var(--space-1);
+  border-bottom: var(--border-width) solid var(--color-border);
+}
+
+.prospect-note:last-child {
+  border-bottom: 0;
+}
+
+.prospect-note[data-editing] {
+  display: block;
+  padding: var(--space-3) var(--space-1);
+}
+
+.prospect-note__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.prospect-note__fact {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--text-md);
+  overflow-wrap: anywhere;
+}
+
+.prospect-note__meta {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+
+/* The sign is the text (+5 / -10 / 0): colour only reinforces it. */
+.prospect-note__delta {
+  flex: none;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-neutral-soft);
+  color: var(--color-neutral-fg);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-medium);
+  line-height: 1.375rem;
+}
+
+.prospect-note__delta[data-sign='1'] {
+  background: var(--color-success-soft);
+  color: var(--color-success-fg);
+}
+
+.prospect-note__delta[data-sign='-1'] {
+  background: var(--color-danger-soft);
+  color: var(--color-danger-fg);
+}
+
+/* Secondary actions: shown on hover or keyboard focus (always where there is no hover). Never display:none, so the
+   button stays in the tab order. */
+.prospect-note__actions {
+  flex: none;
+  opacity: 0;
+}
+
+.prospect-note:hover .prospect-note__actions,
+.prospect-note:focus-within .prospect-note__actions {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .prospect-note__actions {
+    opacity: 1;
+  }
+}
+
+.prospect-note__edit {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.prospect-note__edit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+  align-items: start;
+}
+
+.prospect-note__edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.prospect-note__quote {
+  margin: 0;
+  padding-left: var(--space-3);
+  border-left: 3px solid var(--color-border-strong);
+  overflow-wrap: anywhere;
+}

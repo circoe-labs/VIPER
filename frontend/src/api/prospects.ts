@@ -86,6 +86,26 @@ export interface ProspectSource {
   import_filename: string | null
 }
 
+// Explainable score computed by the backend (app/services/prospect_score.py); the UI only displays it (S4).
+export type ScoreBand = 'red' | 'yellow' | 'green'
+
+export interface ScoreContribution {
+  id: string
+  delta: number
+  reason: string
+  source_type: string | null
+  source_ref: string | null
+  created_at: string | null
+  origin: 'manual'
+}
+
+export interface ProspectScore {
+  total: number
+  summary: string
+  band: ScoreBand
+  contributions: ScoreContribution[]
+}
+
 export interface Prospect {
   id: string
   // Opaque aggregate version, sent back with every write (409 `conflict` when stale).
@@ -113,6 +133,7 @@ export interface Prospect {
   // Business day, `YYYY-MM-DD`.
   today: string
   stale_threshold_days: number | null
+  score: ProspectScore
   created_at: string
   updated_at: string
 }

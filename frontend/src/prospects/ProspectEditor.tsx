@@ -24,6 +24,7 @@ import {
   toInput,
   validate,
 } from './prospectForm'
+import { ProspectNotes } from './ProspectNotes'
 import { TrackingSection } from './TrackingSection'
 import './prospects.css'
 
@@ -369,6 +370,8 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
               onSubmit={setOpposition}
             />
             <TrackingSection draft={draft} errors={shown} fieldId={fieldId} onChange={change} prospect={prospect} today={today} />
+            {/* Notes are saved by their own API, outside this form (never dirty, never part of the version). */}
+            <ProspectNotes prospectId={prospect?.id ?? null} today={today} />
             <CompanySection companyId={draft.company_id} />
             <ProvenanceSection draft={draft} errors={shown} fieldId={fieldId} onChange={change} prospect={prospect} />
             {prospect && <HistorySection prospectId={prospect.id} />}

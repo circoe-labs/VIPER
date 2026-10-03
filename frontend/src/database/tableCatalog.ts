@@ -3,7 +3,13 @@
 const GROUPS: { label: string; tables: Record<string, string> }[] = [
   {
     label: 'Prospects & contacts',
-    tables: { prospects: 'Prospects', emails: 'E-mails', phones: 'Téléphones', prospect_sources: 'Provenances' },
+    tables: {
+      prospects: 'Prospects',
+      emails: 'E-mails',
+      phones: 'Téléphones',
+      prospect_sources: 'Provenances',
+      prospect_notes: 'Notes de prospect',
+    },
   },
   {
     label: 'Entreprises',
