@@ -28,3 +28,11 @@ excluent les notes internes du prompt ; à réécrire si les notes y entrent.
 
 ## Décisions/points à trancher par l'Humain avant Task 01-02
 Voir message de l'orchestrateur : (1) onglets vs disposition actuelle, (2) notes = nouvelle table `prospect_notes`, (3) score : persisté vs calculé, base, seuils, source des contributions.
+
+## Décisions Humaines (2026-10-03)
+- D-UX1 : introduire des onglets **Profil / Suivi** dans le drawer (`ui/Tabs`) ; sélecteurs e2e/vitest à adapter.
+- D-UX2 : score **calculé côté backend**, contributions **manuelles**. Orchestrateur : base 50, seuils rouge <40 / jaune <70 / vert ≥70,
+  configurables (settings), total borné 0-100 par le service. Contribution = `score_delta` optionnel saisi sur une note (source_ref = note) ;
+  contrat `ProspectScore{total,summary,band,contributions[]}` indépendant de ces règles.
+- D-UX3 : carte « Vérification de l'emploi » supprimée ; état + action en statut secondaire dans la carte Emploi ; donnée et API conservées.
+- Ordre : S1 (01 + socle notes backend) → S2 (02 notes UI) → S3 (03 profil + onglets) → S4 (04 score UI) → S5 (05 agent) → S6 (06).
