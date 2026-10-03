@@ -127,6 +127,11 @@ class Settings(BaseSettings):
     prospect_score_red_below: Annotated[int, Field(ge=1, le=100)] = 40
     prospect_score_green_from: Annotated[int, Field(ge=1, le=100)] = 70
 
+    # AI mail drafting context (prospect-contact-ux S5): how many of the prospect's notes (newest
+    # first) and how many score contributions (largest |delta| first) reach the prompt.
+    contact_mail_max_notes: Annotated[int, Field(ge=1, le=100)] = 20
+    contact_mail_max_score_contributions: Annotated[int, Field(ge=1, le=20)] = 5
+
     # Contact messages (S3): the sender pre-filled in a new message (`From`). Unset: the person
     # types it; a message cannot be validated without one. Never hard-coded (handoff Task 12).
     default_outbound_email: (

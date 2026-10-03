@@ -221,7 +221,7 @@ reference `src/server/contactMailGenerationService.ts`, `openaiMailGenerator.ts`
 
 | Module | Role |
 |---|---|
-| `app/services/mail_generation/prompt.py` | the versioned prompt (`PROMPT_VERSION = "contact-mail-fr-2026-09-v1"`, the reference's text verbatim), pure |
+| `app/services/mail_generation/prompt.py` | the versioned prompt (`PROMPT_VERSION = "contact-mail-fr-2026-10-v2"`, v1 = the reference's text, v2 adds the notes and score context), pure |
 | `app/services/mail_generation/openai_client.py` | the OpenAI adapter (`MailGenerator` port, `OpenAIMailGenerator`), output checks, typed errors |
 | `app/services/contact_mail_generation.py` | `prepare` (refusals + prompt, before any AI call), `draft` (the call, logged) |
 | `app/services/contact_messages.py` | `require_generation_target`, `save_generated` (the write, rules checked again) |
@@ -231,7 +231,7 @@ reference `src/server/contactMailGenerationService.ts`, `openaiMailGenerator.ts`
 no message yet; else the revision read), `instruction` (the person's « consigne », ≤ 1 000 characters), `replace`
 (`true` confirms that a saved subject/body is replaced — required when the step has a non-empty text, else 409
 `replace_confirmation_required`). **Answer** `GenerationResult` = `MessageResult` + `"generation": {"model": "<the
-model that answered>", "prompt_version": "contact-mail-fr-2026-09-v1"}`; 201 when the step's message is created.
+model that answered>", "prompt_version": "contact-mail-fr-2026-10-v2"}`; 201 when the step's message is created.
 
 **Flow.** (1) Before any AI call: a person, the prospect exists, the sequence is open, the step is not sent,
 cancelled, being sent (`dispatch_in_progress`) nor **scheduled** (409 `invalid_transition`: unschedule first — never a
@@ -253,10 +253,22 @@ the step; the prospect's civility (*M.*/*Mme*), first and last name, exact job t
 website, size, segment, activity categories, project done with Circoe, project type, Circoe references, client
 approach (each line only when filled, plus « Informations non disponibles (ne pas les deviner) » for a missing function
 or activity context); for R1/R2 the earlier steps' recorded messages (subject, body, status label; cancelled or empty
-ones left out); on a regeneration the step's current subject and body; the « consigne »; `store: false`; and
+ones left out); **since prompt v2 (prospect-contact-ux S5)** the prospect's fact notes (« Faits connus sur la personne »:
+most recent first, at most `VIPER_CONTACT_MAIL_MAX_NOTES` = 20, each fact cut at 300 characters, with its date and
+source when set; no section when there is no note) and the prospect score as `prospect_score` computed by
+`services/prospect_score.py` (« Score prospect (contexte interne, non prescriptif) »: total, band, summary, and the
+`VIPER_CONTACT_MAIL_MAX_SCORE_CONTRIBUTIONS` = 5 strongest contributions, largest |delta| first, ties in API order;
+a score without contribution sends the total and the summary only); on a regeneration the step's current subject and
+body; the « consigne »; `store: false`; and
 `text.format` = strict `json_schema` `contact_mail` `{subject, body}`. **Structured contact fields are never sent**:
 the e-mail addresses (recipients included), phone numbers, postal addresses, SIREN/SIRET, the tracking state and
-history, notes, the sender, any other prospect. **Free text typed by people is sent as is**, unfiltered: the earlier
+history (the follow-up of the sending, the state history), the audit history, the sender, any other prospect. The fact
+notes and the score are the only internal data that enter (v2): they are context to choose a personalisation angle,
+not instructions. **Rules in `instructions` (v2)**: cite a note's fact only when it is provided, as written, never
+enriched; the notes are internal and possibly sensitive, so no private fact (family, spouse, health, opinions, personal
+life) is ever evoked — only a professional or public one, worded with caution (« j'ai vu que… ») and never suggesting
+the person is monitored; the score, a total, a band, a delta or a reason is **never mentioned** in the mail.
+**Free text typed by people is sent as is**, unfiltered: the notes' facts and sources, the earlier
 steps' subjects and bodies, the step's current version, the « consigne », the company's `client_approach`,
 `circoe_references`, `project_done_with_circoe` and `website_url` — whatever someone wrote there (a name, an address
 pasted in a body…) reaches the model. The key travels only in the `Authorization` header.
@@ -577,6 +589,8 @@ AI drafting (S5), all optional — unset, the button is disabled and the route a
 | `VIPER_OPENAI_TIMEOUT_MS` | `60000` | Per network operation (each read / write; connect ≤ 10 s), 1 000–300 000. |
 | `VIPER_OPENAI_MAX_RETRIES` | `2` | Retries on transient failures, 0–5. |
 | `VIPER_OPENAI_TRUST_ENV` | `false` | `true`: the OpenAI calls honour the server's `HTTPS_PROXY`, `NO_PROXY`, `SSL_CERT_FILE`… (a corporate proxy or CA). Off: a direct connection the environment cannot redirect. |
+| `VIPER_CONTACT_MAIL_MAX_NOTES` | `20` | Notes (most recent first) sent to the AI as « Faits connus », 1–100. |
+| `VIPER_CONTACT_MAIL_MAX_SCORE_CONTRIBUTIONS` | `5` | Score contributions (largest absolute delta first) sent to the AI, 1–20. |
 | `VIPER_CONTACT_BOOKING_URL` | unset | Booking link the AI may copy into a mail; an `http(s)` URL (anything else is refused at startup). Unset: no link at all. |
 
 CIRCOE Toolbox (S6), all optional — **set in Paramètres › Connexions since S8** (the variables are only

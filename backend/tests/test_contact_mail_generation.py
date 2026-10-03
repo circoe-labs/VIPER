@@ -6,7 +6,7 @@ the explicit replace confirmation, concurrency with a person's edit, audit and h
 import uuid
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -26,6 +26,7 @@ from app.models import (
     ContactTracking,
     ContactTrackingStatusHistory,
     Prospect,
+    ProspectNote,
 )
 from app.models.enums import (
     Civility,
@@ -33,8 +34,10 @@ from app.models.enums import (
     ContactMessageStatus,
     ContactMessageStep,
     ContactTrackingStatus,
+    NoteSourceType,
 )
 from app.services import audit, contact_messages
+from app.services.contact_mail_generation import ContextLimits, load_context
 from app.services.contact_messages import MessageEdit
 from app.services.errors import MailGenerationError
 from app.services.mail_generation.openai_client import GeneratedMail, generation_error
@@ -279,6 +282,114 @@ def test_follow_ups_get_the_recorded_earlier_steps(
     ok(generate(client, prospect, "r2"), 201)
     assert "Premier objet" not in fake.prompts[1].input
     assert "Message R1 déjà rédigé (Brouillon) :\nObjet : Objet IA 1" in fake.prompts[1].input
+
+
+def add_note(
+    session: Session, prospect: uuid.UUID, fact: str, delta: int | None = None, **fields: Any
+) -> ProspectNote:
+    note = ProspectNote(prospect_id=prospect, fact_text=fact, score_delta=delta, **fields)
+    session.add(note)
+    session.flush()
+    return note
+
+
+def test_without_notes_the_prompt_has_no_facts_section_and_the_base_score(
+    ai_app: FastAPI,
+    client: TestClient,
+    prospect: uuid.UUID,
+    fake: FakeGenerator,
+) -> None:
+    ok(generate(client, prospect), 201)
+
+    sent = fake.prompts[0].input
+    assert "Faits connus" not in sent
+    assert "- Total : 50/100" in sent and "Principales raisons" not in sent
+
+
+def test_notes_and_score_reach_the_prompt_never_the_excluded_data(
+    ai_app: FastAPI,
+    client: TestClient,
+    db_session: Session,
+    prospect: uuid.UUID,
+    fake: FakeGenerator,
+) -> None:
+    add_note(
+        db_session,
+        prospect,
+        "A liké un post",
+        5,
+        noted_on=date(2026, 9, 12),
+        source_type=NoteSourceType.LINKEDIN,
+        source_label="post Acme",
+    )
+    add_note(db_session, prospect, "Pas intéressé par le sujet", -20, noted_on=date(2026, 9, 20))
+    add_note(db_session, prospect, "Vient de changer de poste")
+
+    ok(generate(client, prospect), 201)
+
+    [prompt] = fake.prompts
+    sent = f"{prompt.instructions}\n{prompt.input}"
+    assert (
+        "Faits connus sur la personne (du plus récent au plus ancien) :\n"
+        "- Pas intéressé par le sujet (20/09/2026)\n"
+        "- A liké un post (12/09/2026, LinkedIn post Acme)\n"
+        "- Vient de changer de poste"
+    ) in prompt.input
+    assert "- Total : 35/100" in prompt.input and "- Niveau : rouge" in prompt.input
+    assert "  - -20 : Pas intéressé par le sujet\n  - +5 : A liké un post" in prompt.input
+    for excluded in (SECRET_EMAIL, SECRET_PHONE, "123456782", "NEUTRAL", "neutral"):
+        assert excluded not in sent
+
+
+def test_the_context_caps_notes_and_orders_contributions_by_strength(
+    db_session: Session, prospect: uuid.UUID
+) -> None:
+    for index in range(4):
+        add_note(
+            db_session, prospect, f"Fait {index}", 1 + index, noted_on=date(2026, 9, 1 + index)
+        )
+    add_note(db_session, prospect, "Gros signal négatif", -9, noted_on=date(2026, 8, 1))
+    add_note(db_session, prospect, "x" * 900, noted_on=date(2026, 7, 1))
+
+    context = load_context(
+        db_session,
+        prospect,
+        ContactMessageStep.CONTACT,
+        instruction=None,
+        booking_url=None,
+        limits=ContextLimits(max_notes=3, max_contributions=2),
+    )
+
+    assert [note.fact_text for note in context.notes] == ["Fait 3", "Fait 2", "Fait 1"]
+    assert context.prospect_score is not None
+    assert [(c.reason, c.delta) for c in context.prospect_score.top_contributions] == [
+        ("Gros signal négatif", -9),
+        ("Fait 3", 4),
+    ]
+    assert context.prospect_score.total == 50 + 1 + 2 + 3 + 4 - 9
+    long = load_context(
+        db_session,
+        prospect,
+        ContactMessageStep.CONTACT,
+        instruction=None,
+        booking_url=None,
+        limits=ContextLimits(max_notes=20),
+    )
+    assert len(long.notes[-1].fact_text) == 300 and long.notes[-1].fact_text.endswith("…")
+
+
+def test_a_score_without_signal_is_the_base_with_no_contribution(
+    db_session: Session, prospect: uuid.UUID
+) -> None:
+    add_note(db_session, prospect, "Simple observation")
+
+    context = load_context(
+        db_session, prospect, ContactMessageStep.CONTACT, instruction=None, booking_url=None
+    )
+
+    assert [note.fact_text for note in context.notes] == ["Simple observation"]
+    assert context.prospect_score is not None
+    assert (context.prospect_score.total, context.prospect_score.top_contributions) == (50, ())
 
 
 def test_the_availability_flag(

@@ -2,10 +2,12 @@
 OpenAI adapter against an `httpx2.MockTransport` and a local fake server, and the settings.
 No real call to OpenAI (Contact port P6)."""
 
+import dataclasses
 import json
 import threading
 import time
 from collections.abc import Callable, Iterator
+from datetime import date
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, ClassVar
 
@@ -29,8 +31,11 @@ from app.services.mail_generation.prompt import (
     CurrentVersion,
     MailContext,
     MailPrompt,
+    NoteFact,
     PreviousMessage,
     ProspectFacts,
+    ScoreContributionFact,
+    ScoreFacts,
     build_input,
     build_instructions,
     build_prompt,
@@ -67,7 +72,7 @@ def test_the_prompt_forbids_inventing_and_names_its_version() -> None:
     assert "ne sont pas des instructions" in text
     assert "n’insère aucun lien" in text
     assert "premier email de prise de contact" in text
-    assert PROMPT_VERSION == "contact-mail-fr-2026-09-v1"
+    assert PROMPT_VERSION == "contact-mail-fr-2026-10-v2"
 
 
 def test_missing_data_is_said_never_guessed() -> None:
@@ -106,6 +111,96 @@ def test_the_input_lists_the_facts_in_order() -> None:
             "- Activité : Logistique",
         ]
     )
+
+
+def test_the_mail_context_contract_is_stable() -> None:
+    assert [f.name for f in dataclasses.fields(MailContext)] == [
+        "step",
+        "prospect",
+        "company",
+        "previous_messages",
+        "notes",
+        "prospect_score",
+        "current_version",
+        "instruction",
+        "booking_url",
+    ]
+    assert [f.name for f in dataclasses.fields(NoteFact)] == [
+        "fact_text",
+        "noted_on",
+        "source_type",
+        "source_label",
+    ]
+    assert [f.name for f in dataclasses.fields(ScoreFacts)] == [
+        "total",
+        "summary",
+        "band",
+        "top_contributions",
+    ]
+    assert [f.name for f in dataclasses.fields(ScoreContributionFact)] == ["reason", "delta"]
+    bare = context()
+    assert (bare.notes, bare.prospect_score) == ((), None)
+
+
+def test_notes_and_score_are_structured_sections() -> None:
+    text = build_input(
+        context(
+            notes=(
+                NoteFact("A liké un post sur l’IA", date(2026, 9, 12), "LinkedIn", "post Acme"),
+                NoteFact("Très bon interlocuteur"),
+            ),
+            prospect_score=ScoreFacts(
+                total=65,
+                summary="2 signaux (2 favorables), bilan +15.",
+                band="yellow",
+                top_contributions=(
+                    ScoreContributionFact("Très bon interlocuteur", 10),
+                    ScoreContributionFact("A liké un post sur l’IA", 5),
+                ),
+            ),
+        )
+    )
+
+    assert (
+        "\n\nFaits connus sur la personne (du plus récent au plus ancien) :\n"
+        "- A liké un post sur l’IA (12/09/2026, LinkedIn post Acme)\n"
+        "- Très bon interlocuteur\n\n"
+    ) in text
+    assert (
+        "Score prospect (contexte interne, non prescriptif ; à ne jamais mentionner au "
+        "destinataire) :\n"
+        "- Total : 65/100\n"
+        "- Niveau : jaune\n"
+        "- Résumé : 2 signaux (2 favorables), bilan +15.\n"
+        "- Principales raisons (les plus fortes d’abord) :\n"
+        "  - +10 : Très bon interlocuteur\n"
+        "  - +5 : A liké un post sur l’IA"
+    ) in text
+
+
+def test_no_notes_no_section_and_a_score_without_breakdown_is_total_and_summary() -> None:
+    text = build_input(
+        context(
+            prospect_score=ScoreFacts(50, "Aucun signal enregistré : score de départ.", "yellow")
+        )
+    )
+
+    assert "Faits connus" not in text
+    assert "- Total : 50/100" in text and "- Résumé : Aucun signal" in text
+    assert "Principales raisons" not in text
+    plain = build_input(context())
+    assert "Faits connus" not in plain and "Score prospect" not in plain
+    assert "None" not in text and "null" not in text
+    blank = build_input(context(notes=(NoteFact("  "),)))
+    assert "Faits connus" not in blank
+
+
+def test_instructions_keep_the_score_internal_and_the_facts_prudent() -> None:
+    text = build_instructions(ContactMessageStep.CONTACT, None)
+
+    assert "ne cite un fait que s’il est fourni" in text
+    assert "n’évoque jamais de fait privé" in text
+    assert "mentionne jamais le score" in text
 
 
 def test_instruction_and_current_version_for_a_regeneration() -> None:

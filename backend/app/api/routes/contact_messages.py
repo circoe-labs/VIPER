@@ -62,6 +62,7 @@ from app.services.mail_generation.openai_client import (
     not_configured,
 )
 from app.services.mail_generation.prompt import MAX_INSTRUCTION_LENGTH, PROMPT_VERSION
+from app.services.prospect_score import ScoreConfig
 from app.services.toolbox.integration import ToolboxIntegration
 
 router = APIRouter(prefix="/prospects/{prospect_id}/messages", tags=["contact"])
@@ -558,6 +559,8 @@ def generate(
                 replace=body.replace,
             ),
             booking_url=settings.contact_booking_url,
+            score_config=ScoreConfig.from_settings(settings),
+            limits=generation.ContextLimits.from_settings(settings),
         )
         if generator is None:
             raise not_configured(missing_settings(settings))

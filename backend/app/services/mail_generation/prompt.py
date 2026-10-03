@@ -9,19 +9,25 @@ Data sent (minimal, no contact details): civility / first name / last name, exac
 role, company (name, website, size, segment, activity categories, the Circoe context already
 typed in VIPER: project done with Circoe, project type, Circoe references, client approach), the
 messages of the previous steps actually recorded (R1/R2, cancelled ones excluded), the step's
-current version and the person's instruction (regeneration), the configured booking link.
-Never: e-mail addresses, phone numbers, postal addresses, SIREN/SIRET, the tracking history,
-internal notes.
+current version and the person's instruction (regeneration), the configured booking link, and
+(prospect-contact-ux S5) the prospect's fact notes (`NoteFact`: fact, date, source) and the
+explainable prospect score (`ScoreFacts`: total, band, summary, main contributions). Both are
+context to pick a personalisation angle, never instructions; the score is internal and must never
+reach the recipient (see `build_instructions`).
+Never: e-mail addresses, phone numbers, postal addresses, SIREN/SIRET, the contact-tracking state
+and history (sending follow-up), the audit history. Free text typed by people (notes included) is
+sent as is.
 """
 
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from datetime import date
 
 from app.models.enums import ContactMessageStep
 from app.services.contact_workflow import MESSAGE_STEP_LABELS
 
-PROMPT_VERSION = "contact-mail-fr-2026-09-v1"
+PROMPT_VERSION = "contact-mail-fr-2026-10-v2"
 MAX_INSTRUCTION_LENGTH = 1000
 
 
@@ -62,12 +68,44 @@ class CurrentVersion:
 
 
 @dataclass(frozen=True, slots=True)
+class NoteFact:
+    """One fact note of the prospect (`prospect_notes`), already bounded by the loader."""
+
+    fact_text: str
+    noted_on: date | None = None
+    # The source's label (« LinkedIn ») and the free detail typed with it; both optional.
+    source_type: str | None = None
+    source_label: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ScoreContributionFact:
+    reason: str
+    delta: int
+
+
+@dataclass(frozen=True, slots=True)
+class ScoreFacts:
+    """The prospect score as the backend computed it (`prospect_score`); never recomputed here."""
+
+    total: int
+    summary: str
+    band: str  # `red` | `yellow` | `green`
+    # Largest |delta| first, capped by the loader; empty = a total and a summary only.
+    top_contributions: Sequence[ScoreContributionFact] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class MailContext:
     step: ContactMessageStep
     prospect: ProspectFacts
     company: CompanyFacts
     # The recorded messages of the earlier steps, in sequence order (R1/R2 only).
     previous_messages: Sequence[PreviousMessage] = field(default_factory=tuple)
+    # The prospect's fact notes, most recent first (capped); empty = no « facts » section.
+    notes: Sequence[NoteFact] = field(default_factory=tuple)
+    # The prospect's score; None = no score section.
+    prospect_score: ScoreFacts | None = None
     # The step's saved version (regeneration); None for a first generation.
     current_version: CurrentVersion | None = None
     # The person's short instruction for this version.
@@ -94,6 +132,8 @@ STEP_PURPOSE = {
         "seconde et dernière relance (R2), très courte, qui clôt poliment la séquence sans insister"
     ),
 }
+
+BAND_LABELS = {"red": "rouge", "yellow": "jaune", "green": "vert"}
 
 _SPACES = re.compile(r"\s+")
 
@@ -143,6 +183,17 @@ def build_instructions(step: ContactMessageStep, booking_url: str | None) -> str
             "maximum, sans « Objet : ».",
             "- Pour une relance, tiens compte des messages précédents fournis : ne les recopie pas "
             "et ne prétends pas qu’ils ont été lus.",
+            "- Les faits connus sur la personne (notes) servent à choisir un angle de "
+            "personnalisation : ne cite un fait que s’il est fourni, tel quel, sans l’enrichir "
+            "ni l’extrapoler ; n’en cite aucun si rien n’est pertinent pour l’objet du message. "
+            "Ces notes sont internes et peuvent être sensibles : n’évoque jamais de fait privé "
+            "(famille, conjoint, santé, opinions, vie personnelle) ; ne cite qu’un fait "
+            "professionnel ou public (publication, poste, centre d’intérêt métier), "
+            "formulé avec prudence (« j’ai vu que… », « il me semble que… »), sans laisser "
+            "entendre que la personne est suivie ou surveillée.",
+            "- Le score prospect et ses raisons sont un contexte interne, non prescriptif : ne "
+            "mentionne jamais le score, un total, un niveau, un delta ni ces raisons "
+            "dans le message ; ils n’imposent ni le ton ni le contenu.",
             "- Si une consigne de l’utilisateur est fournie, applique-la tant qu’elle ne contredit "
             "pas ces règles.",
             "",
@@ -151,6 +202,50 @@ def build_instructions(step: ContactMessageStep, booking_url: str | None) -> str
             'Réponds uniquement avec l’objet JSON demandé : { "subject": "...", "body": "..." }.',
         ]
     )
+
+
+def _note_line(note: NoteFact) -> str | None:
+    text = _clean(note.fact_text)
+    if not text:
+        return None
+    source = " ".join(
+        part for part in (_clean(note.source_type), _clean(note.source_label)) if part
+    )
+    meta = ", ".join(
+        part
+        for part in (note.noted_on.strftime("%d/%m/%Y") if note.noted_on else "", source)
+        if part
+    )
+    return f"- {text} ({meta})" if meta else f"- {text}"
+
+
+def _notes_section(notes: Sequence[NoteFact]) -> list[str]:
+    rows = [row for note in notes if (row := _note_line(note))]
+    if not rows:
+        return []
+    return ["", "Faits connus sur la personne (du plus récent au plus ancien) :", *rows]
+
+
+def _score_section(score: ScoreFacts | None) -> list[str]:
+    if score is None:
+        return []
+    lines = [
+        "",
+        "Score prospect (contexte interne, non prescriptif ; à ne jamais mentionner au "
+        "destinataire) :",
+        f"- Total : {score.total}/100",
+        f"- Niveau : {BAND_LABELS.get(score.band, _clean(score.band))}",
+    ]
+    if _clean(score.summary):
+        lines.append(f"- Résumé : {_clean(score.summary)}")
+    reasons = [
+        f"  - {item.delta:+d} : {_clean(item.reason)}"
+        for item in score.top_contributions
+        if _clean(item.reason)
+    ]
+    if reasons:
+        lines += ["- Principales raisons (les plus fortes d’abord) :", *reasons]
+    return lines
 
 
 def build_input(context: MailContext) -> str:
@@ -196,6 +291,8 @@ def build_input(context: MailContext) -> str:
     ]
     if missing:
         lines += ["", f"Informations non disponibles (ne pas les deviner) : {', '.join(missing)}."]
+    lines += _notes_section(context.notes)
+    lines += _score_section(context.prospect_score)
     for previous in context.previous_messages:
         lines += [
             "",

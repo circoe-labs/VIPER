@@ -21,11 +21,13 @@ import time
 import uuid
 from dataclasses import dataclass
 from http import HTTPStatus
+from typing import Self
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.actor import ActorContext, ActorType
+from app.core.config import Settings
 from app.models import (
     ActivityCategory,
     CommercialSegment,
@@ -36,6 +38,7 @@ from app.models import (
     company_activity_categories,
 )
 from app.models.enums import Civility, ContactMessageStatus, ContactMessageStep
+from app.repositories import notes as notes_repository
 from app.services.contact_messages import (
     STEPS,
     get_message,
@@ -44,6 +47,7 @@ from app.services.contact_messages import (
 )
 from app.services.contact_workflow import MESSAGE_STATUS_LABELS
 from app.services.errors import ActorNotAllowedError, ContactMessageError, MailGenerationError
+from app.services.history import NOTE_SOURCE_TYPES
 from app.services.mail_generation.openai_client import (
     GeneratedMail,
     MailGenerator,
@@ -54,15 +58,59 @@ from app.services.mail_generation.prompt import (
     CurrentVersion,
     MailContext,
     MailPrompt,
+    NoteFact,
     PreviousMessage,
     ProspectFacts,
+    ScoreContributionFact,
+    ScoreFacts,
     build_prompt,
 )
+from app.services.prospect_score import ProspectScore, ScoreConfig, score_from_notes
 
 logger = logging.getLogger(__name__)
 
 # As written in a salutation's data (« Mme Martin »), like the export and the history.
 CIVILITY_LABELS = {Civility.MR: "M.", Civility.MS: "Mme"}
+
+
+# A note's fact is bounded for the prompt (the column allows 1000 characters).
+MAX_CONTEXT_TEXT_LENGTH = 300
+
+
+@dataclass(frozen=True, slots=True)
+class ContextLimits:
+    """How much of the notes and of the score breakdown reaches the prompt."""
+
+    max_notes: int = 20
+    max_contributions: int = 5
+
+    @classmethod
+    def from_settings(cls, settings: Settings) -> Self:
+        return cls(
+            max_notes=settings.contact_mail_max_notes,
+            max_contributions=settings.contact_mail_max_score_contributions,
+        )
+
+
+def _bounded(text: str) -> str:
+    text = " ".join(text.split())
+    if len(text) <= MAX_CONTEXT_TEXT_LENGTH:
+        return text
+    return text[: MAX_CONTEXT_TEXT_LENGTH - 1].rstrip() + "…"
+
+
+def _score_facts(score: ProspectScore, limits: ContextLimits) -> ScoreFacts:
+    # `sorted` is stable: equal |delta| keep the API order (newest first).
+    strongest = sorted(score.contributions, key=lambda item: abs(item.delta), reverse=True)
+    return ScoreFacts(
+        total=score.total,
+        summary=score.summary,
+        band=score.band.value,
+        top_contributions=tuple(
+            ScoreContributionFact(reason=_bounded(item.reason), delta=item.delta)
+            for item in strongest[: limits.max_contributions]
+        ),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,9 +134,14 @@ def load_context(
     *,
     instruction: str | None,
     booking_url: str | None,
+    score_config: ScoreConfig | None = None,
+    limits: ContextLimits | None = None,
 ) -> MailContext:
-    """The prompt's data: the minimal facts, never an address, a phone, a SIREN or a note; the
-    earlier steps' recorded messages (cancelled or empty ones excluded)."""
+    """The prompt's data: the minimal facts, never an address, a phone, a SIREN or the tracking
+    state; the earlier steps' recorded messages (cancelled or empty ones excluded); the prospect's
+    fact notes (newest first, capped) and its score, read from `prospect_score` (never computed
+    twice)."""
+    limits = limits or ContextLimits()
     row = session.execute(
         select(
             Prospect.civility,
@@ -147,6 +200,7 @@ def load_context(
         and _has_text(message)
     ]
     current = messages.get(step)
+    notes = notes_repository.list_notes(session, prospect_id)
     return MailContext(
         step=step,
         prospect=ProspectFacts(
@@ -168,6 +222,16 @@ def load_context(
             client_approach=row[13],
         ),
         previous_messages=tuple(previous),
+        notes=tuple(
+            NoteFact(
+                fact_text=_bounded(note.fact_text),
+                noted_on=note.noted_on,
+                source_type=NOTE_SOURCE_TYPES[note.source_type] if note.source_type else None,
+                source_label=_bounded(note.source_label) if note.source_label else None,
+            )
+            for note in notes[: limits.max_notes]
+        ),
+        prospect_score=_score_facts(score_from_notes(notes, score_config or ScoreConfig()), limits),
         current_version=(
             CurrentVersion(subject=current.subject, body=current.body_text) if current else None
         ),
@@ -184,6 +248,8 @@ def prepare(
     request: GenerationRequest,
     *,
     booking_url: str | None,
+    score_config: ScoreConfig | None = None,
+    limits: ContextLimits | None = None,
 ) -> MailPrompt:
     """The refusals before any AI call, then the prompt. Reads only (no lock is taken)."""
     if actor.type is not ActorType.HUMAN or not actor.id:
@@ -199,7 +265,15 @@ def prepare(
         )
     instruction = (request.instruction or "").strip() or None
     return build_prompt(
-        load_context(session, prospect_id, step, instruction=instruction, booking_url=booking_url)
+        load_context(
+            session,
+            prospect_id,
+            step,
+            instruction=instruction,
+            booking_url=booking_url,
+            score_config=score_config,
+            limits=limits,
+        )
     )
 
 
