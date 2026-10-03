@@ -156,6 +156,18 @@ Set: navigation (`Home`, `Users`, `Bolt`, `Database`, `Sliders`), status (`Check
 | `Popover` | `anchor`, `label`, `onClose`, `alignRight?` | Small **non-modal** dialog under a control (filter editor, column chooser): first field focused, Esc/outside press close, focus restored, Tab not trapped. |
 | `Combobox` | `label`, `options` (`id`, `label`, `hint?`, `inactive?`), `value`/`onChange` (single) or `multiple` + `value[]`, `status`, `create?` (`run`, `label?`, `refuse?`), `hint`, `error`, `required` | Searchable picker (WAI-ARIA combobox + listbox, Task 06): filtering ignores case and accents, ↓/↑/Enter/Esc/Tab, Backspace removes the last chip; inactive options appear only while selected (*Inactif* tag); `create` adds a « Créer « … » » option, only once `status` is `ready`, whose failure shows as the field error. Domain pickers on top of it: `TaxonomySelect`, `TaxonomyMultiSelect`, `ReferentSelect` (`src/settings/selectors.tsx`, see `doc/features/settings-taxonomies.md`). |
 
+### Dense fact list with quick add (Notes of the Prospect editor, prospect-contact-ux S2)
+Reusable pattern for short facts about a record (`frontend/src/prospects/ProspectNotes.tsx`, `prospect-notes.css`,
+`noteForm.ts`): not one card per fact but one **row** per fact. Hierarchy: the fact at `--text-md` in `--color-text`
+(wraps with `overflow-wrap: anywhere`, never truncated), then metadata (date · source) at `--text-xs` muted, then a
+discreet delta tag (`+5` / `-10` / `0`: the sign is the text, `success`/`danger` soft colours only reinforce it), then a
+`MoreIcon` `IconButton` opening a `Menu` (*Modifier*, *Supprimer*), shown on hover / `:focus-within` (`opacity`, never
+`display: none`; always shown with `@media (hover: none)`). Rows are separated by hairlines inside a bounded
+(`max-height: 22rem`), focusable, scrolling `<ul>`. Quick add sits above: one line (field + `Button`), Enter submits and
+is stopped from reaching a surrounding form; secondary inputs (date, optional impact) stay on a second line and fold away
+until needed. Edit is in place (the row turns into a small form; Échap cancels it alone); deletion goes through a `Modal`
+with the safe button focused first. Empty state: a single muted line, not an `EmptyState` block.
+
 ## Database explorer grid
 Denser than Prospection but legible: 13 px data on 36 px rows, 56 px two-line headers (name + SQL type), subtle
 zebra and grid lines derived with `color-mix()` from surface/border tokens, row numbers and pinned columns on the

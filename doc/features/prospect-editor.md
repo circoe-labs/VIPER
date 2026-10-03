@@ -205,7 +205,7 @@ Refusals (`app/api/errors.py`, French copy in `frontend/src/prospects/messages.t
 
 ## Notes and score
 
-*Backend delivered by prospect-contact-ux S1; the UI follows (S2 notes, S4 score).*
+*Backend delivered by prospect-contact-ux S1; the notes UI by S2 (below); the score UI follows (S4).*
 
 **Notes** (`prospect_notes`, [data model](../architecture/data-model.md#prospect_notes-migration-0012-prospect-contact-ux-s1))
 are short facts: `fact_text` (required, trimmed, ≤ 1000), `noted_on` (optional day), `source_type` (optional) and
@@ -224,6 +224,35 @@ Refusals: 404 `not_found` (prospect, or a note of another prospect); 422 `invali
 (`blank`, `length`) or `source_label` (`length`); a `score_delta` outside `-50..50`, an unknown `source_type` or an
 unknown field is a plain 422 validation error. Writes are audited (`prospect_note.created|updated|deleted`, shown in
 the prospect's history as « Note ... ») and logged at info with ids only.
+
+**Notes UI** (`ProspectNotes.tsx`, prospect-contact-ux S2). The *Notes* section sits in the right column, under *Suivi
+de contact* (S3 moves it into the *Suivi* tab). It is **not part of the form**: notes are read and written through their
+own API (`api/prospectNotes.ts`: `useProspectNotes`, `useNoteMutations`), immediately, so they never make the editor dirty,
+never change its `version`, and are not touched by *Enregistrer* / *Enregistrer et suivant*. A write refreshes the notes,
+the prospect's history and the prospect's cached view (its `score`). A prospect not saved yet shows *Possible une fois le
+prospect enregistré.*
+
+- **List**: one dense row per fact, in the API's order. The fact is the dominant text (wraps, never overflows); under it,
+  in muted small text, the date (*Sans date* when none), the source type and its label; a discreet delta badge `+5` /
+  `-10` / `0` (the sign is the text; the accessible name is *Impact sur le score : +5*); the overflow button (*Actions :
+  …*, `ui/Menu`: *Modifier*, *Supprimer*) is visible on hover and on keyboard focus (always on touch). The list is
+  bounded (22 rem) and scrolls inside the section (focusable, *Liste des notes*); the section title carries the count.
+  Zero notes: one muted line, *Aucune note pour l'instant.*
+- **Quick add**: *Nouveau fait* + *Ajouter*; **Entrée adds the note** (it never reaches the editor's form: no save, no
+  *suivant*); **Ctrl/⌘+Entrée with a typed fact also adds the note** (so a typed fact cannot be dropped by the
+  *Enregistrer et suivant* shortcut), with an empty fact it keeps its editor meaning. The date defaults to the prospect's
+  business day (`today`) and can be changed or cleared; *Impact sur le score…* unfolds an optional integer `-50..50`.
+  After a successful add the field is cleared and refocused, the date goes back to today and the impact is folded away.
+- **Edit in place** (*Modifier*): the row becomes a small form (fact, date, impact, source type, source label); Entrée
+  or *Enregistrer la note* saves (PATCH with all five fields, empty optional ones as `null` = cleared), Échap or
+  *Annuler* cancels the edit only (the drawer stays open).
+- **Delete**: a confirmation dialog (*Supprimer cette note ?*, the note quoted, its impact named, *Retour* focused
+  first); on failure the dialog stays open with the reason.
+- **Errors**: client checks first (*Saisissez le fait.*, *1000 caractères au plus.*, impact outside `-50..50`); then the
+  server's refusal worded in French (`noteForm.noteRefusalMessage`: blank / length / range / not found), else *L'opération
+  sur la note a échoué…*; shown inline (`role="alert"`) with what was typed kept and the buttons released. A list that
+  cannot be loaded shows *Les notes n'ont pas pu être chargées.* with *Réessayer*. (The repo has no client-side error
+  logging channel yet: the failures are visible on screen only.)
 
 **Score**: `GET /prospects/{id}` carries `score: ProspectScore`, **computed by the backend** on every read (never
 stored, never computed by the UI; decision D-UX2). Contract (`app/services/prospect_score.py`):
@@ -268,7 +297,7 @@ that changes nothing writes nothing.
 | Services | `backend/app/services/prospect_notes.py` (notes CRUD), `backend/app/services/prospect_score.py` (score contract and rules), `backend/app/services/prospect_editor.py` (view model, `create_prospect`, `update_prospect`, `set_contactability`, `delete_prospect`, `aggregate_version`), `backend/app/services/contact_channels.py` (alias normalization and full-list save), existing domain operations in `prospects.py`, `contact_tracking.py`, `provenance.py`, `taxonomies.py` |
 | Repositories | `backend/app/repositories/notes.py`, `backend/app/repositories/prospects.py` (`lock_prospect`, `version_rows`, `sources_with_batches`, `count_import_rows`), `companies.company_summary`; `prospection.query.prospect_verification_state` |
 | Router | `backend/app/api/routes/prospects.py` |
-| Frontend | `frontend/src/prospects/` (`ProspectEditor`, `EmploymentSections`, `AliasList`, `TrackingSection`, `WeekPlanner` (+ `week-planner.css`), `OppositionSection`, `ContextSections`, `pickers`, `EditorSection`, `prospectForm.ts`, `verification.ts`, `messages.ts`, `prospects.css`), API hooks `frontend/src/api/prospects.ts`; history: `frontend/src/history/` (`HistoryTimeline`, `format.ts`), `frontend/src/api/history.ts`, backend `app/services/history.py` |
+| Frontend | `frontend/src/prospects/` (`ProspectEditor`, `EmploymentSections`, `AliasList`, `TrackingSection`, `WeekPlanner` (+ `week-planner.css`), `OppositionSection`, `ProspectNotes` (+ `prospect-notes.css`, `noteForm.ts`), `ContextSections`, `pickers`, `EditorSection`, `prospectForm.ts`, `verification.ts`, `messages.ts`, `prospects.css`), API hooks `frontend/src/api/prospects.ts` and `frontend/src/api/prospectNotes.ts`; history: `frontend/src/history/` (`HistoryTimeline`, `format.ts`), `frontend/src/api/history.ts`, backend `app/services/history.py` |
 
 ## Tests
 
@@ -284,6 +313,9 @@ that changes nothing writes nothing.
   provenance in the view), `tests/test_prospects_api.py` (401 on every route, 403 without/with a forged CSRF token,
   lifecycle attributed to the signed-in user with `source=ui`, contactability refused in the save payload, a failing alias
   rolling back role + company + identity, stable refusal codes, concurrent change → 409, delete refused then allowed).
+- Frontend notes (S2): `src/prospects/ProspectNotes.test.tsx` (0 / 1 / many notes, long text, with and without date, delta
+  +/-/0, add by Enter / Ctrl+Entrée / button, validation, server refusal, edit, Échap, delete and its failure, keyboard
+  access to the row actions, list load error), `noteForm.test.ts`; e2e `prospect-editor.spec.ts` (*notes:*).
 - Frontend: `src/prospects/prospectForm.test.ts`, `verification.test.ts` (pure rules and labels);
   `ProspectEditor.test.tsx` (prefilled sections, imported warning treatment and one-click verification, verified state,
   one-request save + list refresh, dirty bar / revert / guarded Esc, refusal on its field, conflict reload),
