@@ -69,7 +69,7 @@ Prospect editor over the list (Task 15).
 
 ### Prospect editor
 Wide drawer/modal preserving current filtered queue. Reuse same component for create/edit. Two tabs, **Profil** (a compact
-summary on top, then identity + e-mails + phones, employment with its verification on a secondary line, company) and
+summary on top, then identity + e-mails + phones, the **Score prospect** card above employment with its verification on a secondary line, company) and
 **Suivi** (contact tracking, notes, opposition, provenance, history); Profil sections read as facts and show inputs only
 while edited (new or invalid prospects open as inputs). Details: [prospect-editor.md](prospect-editor.md#layout).
 

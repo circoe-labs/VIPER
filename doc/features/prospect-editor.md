@@ -30,7 +30,7 @@ below 1100 px). The form, the draft and the footer are shared by both tabs.
 |---|---|---|
 | **Profil** | top, full width | **Résumé du profil**: full name, *rôle · entreprise* (two lines at most, the full text in the tooltip), main e-mail and phone (*+N* when there are others, *Aucun e-mail* / *Aucun téléphone* when missing), and the secondary status — the Contact state and *Ne pas contacter*. Hidden for a new person. |
 | | left | **Identité** (Civilité, Prénom, Nom) · **E-mails** · **Téléphones** — identity and contact details together |
-| | right | the reserved slot of the **Score prospect** card (`ProspectScoreCard`, empty until Task 04: no room, no text) · **Emploi** (Entreprise *, Rôle, Intitulé exact, Activité, and on a secondary line the employment verification) · **Entreprise** (summary + *Ouvrir la fiche entreprise*) |
+| | right | the **Score prospect** card (`ProspectScoreCard`, S4; no room while the prospect is not saved) · **Emploi** (Entreprise *, Rôle, Intitulé exact, Activité, and on a secondary line the employment verification) · **Entreprise** (summary + *Ouvrir la fiche entreprise*) |
 | **Suivi** | left | **Suivi de contact** · **Notes** |
 | | right | **Opposition** · **Provenance** (sources) · **Historique** (the latest saves, Task 19) |
 
@@ -250,7 +250,7 @@ Refusals (`app/api/errors.py`, French copy in `frontend/src/prospects/messages.t
 
 ## Notes and score
 
-*Backend delivered by prospect-contact-ux S1; the notes UI by S2 (below); the score UI follows (S4).*
+*Backend delivered by prospect-contact-ux S1; the notes UI by S2 and the score card by S4 (below).*
 
 **Notes** (`prospect_notes`, [data model](../architecture/data-model.md#prospect_notes-migration-0012-prospect-contact-ux-s1))
 are short facts: `fact_text` (required, trimmed, ≤ 1000), `noted_on` (optional day), `source_type` (optional) and
@@ -322,6 +322,32 @@ ProspectScore { total: 0..100, summary: str, band: "red"|"yellow"|"green",
 than green-from. These defaults come from the orchestrator (D-UX2) and are **to be confirmed by the product**. Not
 editable in Paramètres.
 
+**Score card UI** (`ProspectScoreCard.tsx`, `scoreView.ts`, `prospect-score.css`, primitive `ui/ScoreRing`;
+prospect-contact-ux S4). Top of the Profil tab's right column, above *Emploi*; a prospect not saved yet has no card
+(the slot stays and takes no room). The score read is the prospect's own query (`useProspect`), which every note write
+invalidates (`useNoteMutations`): the card follows a note added, edited or deleted without saving the prospect; if that
+refresh fails the last figure stays with *Mise à jour impossible : ce score peut être périmé.*
+
+- **Card**: one button (`aria-haspopup="dialog"`, name *Score prospect : 50 sur 100, niveau moyen. Voir le détail*, the
+  summary as its description) holding the ring (0-100), the band **word** (*Faible* red / *Moyen* yellow / *Élevé*
+  green), the summary (cut after three lines, whole as the tooltip and in the detail) and the *Voir le détail ›*
+  affordance. The band is `score.band` as sent: the front knows **no threshold**; colour (token `danger-fg` /
+  `warning-fg` / `success-fg`) only reinforces the word and the figure.
+- **Detail** (*Détail du score*): a `Modal` `lg`, not a `Popover`: the list can be long, the contributions hold actions,
+  and the focus must be trapped (the Popover is non-modal and not trapped). It opens on click, Entrée or Espace; Échap
+  (or *Fermer*, or the backdrop) closes **only the detail** (the `Modal` stops the key: the drawer stays open and the
+  unsaved-changes confirmation does not appear) and the focus returns to the card. It shows the ring, *N sur 100 · niveau
+  …*, the summary, then the contributions.
+- **Contribution order** (`sortContributions`): positives and zeros by decreasing delta, then negatives from the most
+  damaging (lowest delta); equal deltas keep the API order. Each line: the signed delta as text (*+25*, *-10*; accessible
+  name *+25 points*), the reason (wraps, never cut), the source in words (*Note du prospect*, *Source : …*, *Source non
+  précisée*). No contribution: *Aucun signal enregistré : le score est à sa valeur de départ.* (also the case of a score
+  sent without breakdown).
+- **Voir la note** (only when `source_type === "note"` and `source_ref` is set): closes the detail, switches to the
+  *Suivi* tab (`ProspectEditor` `noteToShow`) and `ProspectNotes` (`showNoteId` / `onNoteShown`) scrolls the row into
+  view, focuses it and marks it `data-highlight` (focus-ring outline + soft accent background) until it loses focus. A
+  note that no longer exists just drops the request.
+
 **Open points**: product-confirmed base/thresholds; the `NoteSourceType` vocabulary; whether notes enter the AI mail
 context (handoff Task 05: `PROMPT_VERSION` and the « notes internes exclues » rule of `contact.md` then change);
 automatic contributions (other `origin`s) are out of scope.
@@ -342,7 +368,7 @@ that changes nothing writes nothing.
 | Services | `backend/app/services/prospect_notes.py` (notes CRUD), `backend/app/services/prospect_score.py` (score contract and rules), `backend/app/services/prospect_editor.py` (view model, `create_prospect`, `update_prospect`, `set_contactability`, `delete_prospect`, `aggregate_version`), `backend/app/services/contact_channels.py` (alias normalization and full-list save), existing domain operations in `prospects.py`, `contact_tracking.py`, `provenance.py`, `taxonomies.py` |
 | Repositories | `backend/app/repositories/notes.py`, `backend/app/repositories/prospects.py` (`lock_prospect`, `version_rows`, `sources_with_batches`, `count_import_rows`), `companies.company_summary`; `prospection.query.prospect_verification_state` |
 | Router | `backend/app/api/routes/prospects.py` |
-| Frontend | `frontend/src/prospects/` (`ProspectEditor`, `EmploymentSections`, `AliasList`, `TrackingSection`, `WeekPlanner` (+ `week-planner.css`), `OppositionSection`, `ProspectNotes` (+ `prospect-notes.css`, `noteForm.ts`), `ContextSections`, `pickers`, `EditorSection` (read/edit switch), `ProfileSummary` (summary + `useEmploymentLabels`, `profile-summary.css`), `ProspectScoreCard` (reserved slot), `profileEditing.ts` (field → tab / section, per-tab dirty), `prospectForm.ts`, `verification.ts`, `messages.ts`, `prospects.css`), API hooks `frontend/src/api/prospects.ts` and `frontend/src/api/prospectNotes.ts`; history: `frontend/src/history/` (`HistoryTimeline`, `format.ts`), `frontend/src/api/history.ts`, backend `app/services/history.py` |
+| Frontend | `frontend/src/prospects/` (`ProspectEditor`, `EmploymentSections`, `AliasList`, `TrackingSection`, `WeekPlanner` (+ `week-planner.css`), `OppositionSection`, `ProspectNotes` (+ `prospect-notes.css`, `noteForm.ts`), `ContextSections`, `pickers`, `EditorSection` (read/edit switch), `ProfileSummary` (summary + `useEmploymentLabels`, `profile-summary.css`), `ProspectScoreCard` (+ `scoreView.ts`, `prospect-score.css`), `ui/ScoreRing`, `profileEditing.ts` (field → tab / section, per-tab dirty), `prospectForm.ts`, `verification.ts`, `messages.ts`, `prospects.css`), API hooks `frontend/src/api/prospects.ts` and `frontend/src/api/prospectNotes.ts`; history: `frontend/src/history/` (`HistoryTimeline`, `format.ts`), `frontend/src/api/history.ts`, backend `app/services/history.py` |
 
 ## Tests
 
@@ -361,8 +387,14 @@ that changes nothing writes nothing.
 - Frontend notes (S2): `src/prospects/ProspectNotes.test.tsx` (0 / 1 / many notes, long text, with and without date, delta
   +/-/0, add by Enter / Ctrl+Entrée / button, validation, server refusal, edit, Échap, delete and its failure, keyboard
   access to the row actions, list load error), `noteForm.test.ts`; e2e `prospect-editor.spec.ts` (*notes:*).
+- Frontend score (S4): `src/prospects/ProspectScoreCard.test.tsx` (scores 0 / 1 / 50 / 99 / 100 with their bands, band
+  from the API and no threshold, long summary, no score, outdated, open by click / Entrée / Espace, Échap and focus
+  return, focus trap, empty breakdown, order and signs, long reason, *Voir la note*), `ProspectScore.test.tsx` (in the
+  editor: follows a note added / deleted, no card for a new prospect, Échap leaves the drawer and its confirmation alone,
+  *Voir la note* brings the note into focus), `scoreView.test.ts`, `ui/ScoreRing.test.tsx`; e2e
+  `prospect-editor.spec.ts` (*score:*, screenshots dark/light 1440 / 1280) and the axe case *détail du score*.
 - Frontend profile and tabs (S3): `src/prospects/ProspectProfile.test.tsx` (complete profile, e-mail / phone missing, other
-  addresses and inactive ones, long name / role / company, verification as a secondary line without a card, the empty score
+  addresses and inactive ones, long name / role / company, verification as a secondary line without a card, the score card in its
   slot, read → edit → save → read, *Terminer*, invalid prospect opening as inputs, new prospect all inputs, tabs by keyboard,
   mark on an inactive tab with changes, refused field of the other tab brought into view, two tabs in error),
   `profileEditing.test.ts`; helpers `src/test/prospectEditorUi.ts` (`editorReady`, `showTab`, `editSection`). The older

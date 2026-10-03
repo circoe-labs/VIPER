@@ -48,6 +48,15 @@ const PAGES: { name: string; open: (page: Page) => Promise<void> }[] = [
     },
   },
   {
+    name: 'éditeur de prospect — détail du score',
+    open: async (page) => {
+      await page.goto('/prospection')
+      await page.getByRole('list', { name: 'Prospects' }).getByRole('link').first().click()
+      await page.getByRole('dialog').getByRole('button', { name: /^Score prospect/ }).click()
+      await expect(page.getByRole('dialog', { name: 'Détail du score' })).toBeVisible()
+    },
+  },
+  {
     name: 'éditeur de prospect — onglet Suivi et sections en édition',
     open: async (page) => {
       await page.goto('/prospection')

@@ -160,3 +160,18 @@
   border-left: 3px solid var(--color-border-strong);
   overflow-wrap: anywhere;
 }
+
+/* The note a score contribution points to: a focus-ring shape and a soft background (never colour alone). */
+.prospect-note[data-highlight] {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
+  background: var(--color-accent-soft);
+}
+
+.prospect-note:focus {
+  outline: none;
+}
+
+.prospect-note[data-highlight]:focus {
+  outline: 2px solid var(--color-focus);
+}

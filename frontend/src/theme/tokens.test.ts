@@ -66,6 +66,8 @@ const TEXT_PAIRS: [string, string][] = [
   // Field warnings and editor status text sit on drawers (Company editor, Task 07).
   ['warning-fg', 'surface-raised'],
   ['success-fg', 'surface-raised'],
+  // The score ring's band label and arc sit on the Profil card (surface) and in its detail dialog (surface-raised).
+  ['success-fg', 'surface'],
   ['on-accent', 'accent'],
   ['on-accent', 'accent-hover'],
   ['on-danger', 'danger'],
@@ -82,6 +84,9 @@ const UI_PAIRS: [string, string][] = [
   ...SURFACES.map((bg): [string, string] => ['focus', bg]),
   ['border-strong', 'field'],
   ['border-strong', 'surface'],
+  ['danger-fg', 'surface-raised'],
+  ['warning-fg', 'surface-raised'],
+  ['success-fg', 'surface-raised'],
   ['accent-fg', 'accent-soft'],
 ]
 

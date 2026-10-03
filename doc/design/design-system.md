@@ -154,6 +154,7 @@ Set: navigation (`Home`, `Users`, `Bolt`, `Database`, `Sliders`), status (`Check
 | `Tabs` | `label` (the tab list's name), `tabs` (`id`, `label`, `extra?` — a count, a status badge, an unsaved mark), `selected`, `onSelect`, children = the selected panel | In-page tabs (WAI-ARIA tabs, automatic activation, Contact port S4): one tab stop (the selected tab), ←/→ move and select with wrap, Home/End; the panel is labelled by its tab. Selected = 2 px accent bar + full-strength text (a shape, not colour alone), others muted. Used by the Contact mail sequence, the import review and the Prospect editor (Profil / Suivi, `extra` = a mark for pending changes or fields to correct on the inactive tab; both panels stay mounted, the inactive one `hidden`). Sections that must be deep-linkable use links instead (Paramètres' tab bar). |
 | `CounterGroup` / `CounterCard` | group: `id`, `title`, `note?`; card: `label`, `hint`, `icon`, `count`, `pressed`, `onSelect` | The actionable counters of Prospection and Contact (`src/ui/CounterCards.tsx`, `counter-cards.css`): eyebrow-titled groups of toggle cards, `aria-pressed` + check mark + accent outline when active; a card equals the list it opens. Columns per group: `--counters-columns` (6 by default). |
 | `Popover` | `anchor`, `label`, `onClose`, `alignRight?` | Small **non-modal** dialog under a control (filter editor, column chooser): first field focused, Esc/outside press close, focus restored, Tab not trapped. |
+| `ScoreRing` | `value` (0-100, clamped and rounded), `tone` (`danger` / `warning` / `success` / `neutral`), `size?` (`md` 5.5 rem, `lg` 7 rem) | Ring gauge 0-100 (`src/ui/ScoreRing.tsx`, `score-ring.css`): SVG, track `border-strong`, arc `danger-fg` / `warning-fg` / `success-fg` (starts at 12 o'clock, absent at 0), value as centred text. `aria-hidden`: the owner says the value in words. The caller picks the tone (the band comes from the backend); colour only reinforces the figure and the arc length. |
 | `Combobox` | `label`, `options` (`id`, `label`, `hint?`, `inactive?`), `value`/`onChange` (single) or `multiple` + `value[]`, `status`, `create?` (`run`, `label?`, `refuse?`), `hint`, `error`, `required` | Searchable picker (WAI-ARIA combobox + listbox, Task 06): filtering ignores case and accents, ↓/↑/Enter/Esc/Tab, Backspace removes the last chip; inactive options appear only while selected (*Inactif* tag); `create` adds a « Créer « … » » option, only once `status` is `ready`, whose failure shows as the field error. Domain pickers on top of it: `TaxonomySelect`, `TaxonomyMultiSelect`, `ReferentSelect` (`src/settings/selectors.tsx`, see `doc/features/settings-taxonomies.md`). |
 
 ### Read / edit section (Prospect editor Profil, prospect-contact-ux S3)
@@ -166,6 +167,19 @@ inputs and cannot be closed; a new record is all inputs, with no switch. Facts a
 (`minmax(7.5rem, 1fr)`), values wrap (`overflow-wrap: anywhere`), a missing value says *Non renseigné* (never a hole).
 A one-line summary block above the sections (name, role · company clamped to two lines with the full text as tooltip,
 main contact details) is derived from the same draft.
+
+### Score card (Prospect editor Profil, prospect-contact-ux S4)
+`frontend/src/prospects/ProspectScoreCard.tsx`, `prospect-score.css`, `scoreView.ts`. One bordered **button** (hover
+`surface-hover`, 2 px focus ring) in an `EditorSection` titled *Score prospect*: `ScoreRing` on the left; on the
+right the band word (*Faible* / *Moyen* / *Élevé*, tinted by the band token, the word is the carrier), the summary at
+`--text-sm` muted (three lines max, `overflow-wrap: anywhere`, full text as tooltip) and *Voir le détail ›* in
+`accent-fg`. The whole card opens a `Modal lg` (*Détail du score*: focus trapped, Échap closes it alone, focus back on
+the card): ring `lg` + *N sur 100 · niveau …* + summary, then the contribution rows (signed delta tag with the same
+soft success/danger tones as the Notes' delta, reason, source, ghost *Voir la note* `sm` button). States: normal;
+no signal (*Aucun signal enregistré : le score est à sa valeur de départ.*); outdated (*Mise à jour impossible…* with a
+warning glyph); no score / unsaved prospect (nothing, no room). Contrast: arc and band tones (`danger-fg`, `warning-fg`,
+`success-fg`) are checked at 4.5:1 on `surface` and `surface-raised` in both themes (`tokens.test.ts`); the track is
+decoration (the figure and the word carry the value). No new token.
 
 ### Dense fact list with quick add (Notes of the Prospect editor, prospect-contact-ux S2)
 Reusable pattern for short facts about a record (`frontend/src/prospects/ProspectNotes.tsx`, `prospect-notes.css`,

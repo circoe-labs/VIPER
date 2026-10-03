@@ -1,4 +1,4 @@
-import { type KeyboardEvent, useRef, useState } from 'react'
+import { type KeyboardEvent, useEffect, useRef, useState } from 'react'
 
 import { type ProspectNote, useNoteMutations, useProspectNotes } from '../api/prospectNotes'
 import { formatDay } from '../prospection/labels'
@@ -27,14 +27,17 @@ interface ProspectNotesProps {
   prospectId: string | null
   // The prospect's business day: the default date of a new note.
   today: string
+  // A note to show and focus (from the score detail's « Voir la note »); `onNoteShown` tells it was handled.
+  showNoteId?: string | null
+  onNoteShown?: () => void
 }
 
 // Notes: short facts about the prospect as a dense list (the fact first, date / source / score impact discreet, the
 // actions in an overflow menu), with a one-line quick add. Notes are saved by their own API, immediately and outside
 // the editor's form (they never make it dirty nor change its version). Reusable pattern: doc/design/design-system.md.
-export function ProspectNotes({ prospectId, today }: ProspectNotesProps) {
+export function ProspectNotes({ prospectId, today, showNoteId = null, onNoteShown }: ProspectNotesProps) {
   return prospectId ? (
-    <NotesPanel prospectId={prospectId} today={today} />
+    <NotesPanel prospectId={prospectId} today={today} showNoteId={showNoteId} onNoteShown={onNoteShown} />
   ) : (
     <EditorSection title="Notes">
       <p className="prospect-editor__muted">Possible une fois le prospect enregistré.</p>
@@ -42,14 +45,29 @@ export function ProspectNotes({ prospectId, today }: ProspectNotesProps) {
   )
 }
 
-function NotesPanel({ prospectId, today }: { prospectId: string; today: string }) {
+function NotesPanel({ prospectId, today, showNoteId, onNoteShown }: { prospectId: string; today: string; showNoteId: string | null; onNoteShown?: () => void }) {
   const notes = useProspectNotes(prospectId)
   const mutations = useNoteMutations(prospectId)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [menu, setMenu] = useState<{ note: ProspectNote; at: Point } | null>(null)
   const [deleting, setDeleting] = useState<ProspectNote | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [highlightId, setHighlightId] = useState<string | null>(null)
   const list = notes.data ?? []
+  const listRef = useRef<HTMLUListElement>(null)
+
+  // Shows a requested note: scrolled into view, highlighted and focused once the list holds it (a note that is gone,
+  // or a list that failed to load, just drops the request).
+  useEffect(() => {
+    if (showNoteId === null || notes.isPending) return
+    const row = [...(listRef.current?.querySelectorAll<HTMLElement>('[data-note-id]') ?? [])].find((item) => item.dataset.noteId === showNoteId)
+    if (row) {
+      setHighlightId(showNoteId)
+      row.scrollIntoView({ block: 'nearest' })
+      row.focus()
+    }
+    onNoteShown?.()
+  }, [showNoteId, notes.isPending, notes.data, onNoteShown])
 
   async function remove(note: ProspectNote) {
     setDeleteError(null)
@@ -83,9 +101,19 @@ function NotesPanel({ prospectId, today }: { prospectId: string; today: string }
       {notes.data && list.length === 0 && <p className="prospect-editor__muted">Aucune note pour l’instant.</p>}
       {list.length > 0 && (
         // Bounded height: a long list scrolls inside the section instead of pushing the rest of the column away.
-        <ul className="prospect-notes" aria-label="Liste des notes" tabIndex={0}>
+        <ul ref={listRef} className="prospect-notes" aria-label="Liste des notes" tabIndex={0}>
           {list.map((note) => (
-            <li key={note.id} className="prospect-note" data-editing={note.id === editingId ? '' : undefined}>
+            <li
+              key={note.id}
+              className="prospect-note"
+              data-note-id={note.id}
+              data-editing={note.id === editingId ? '' : undefined}
+              data-highlight={note.id === highlightId ? '' : undefined}
+              tabIndex={-1}
+              onBlur={() => {
+                if (note.id === highlightId) setHighlightId(null)
+              }}
+            >
               {note.id === editingId ? (
                 <NoteEditor
                   prospectId={prospectId}

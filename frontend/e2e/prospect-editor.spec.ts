@@ -367,3 +367,70 @@ test('long name, company, role and address wrap inside the drawer on both tabs (
     await showTab(editor, 'Profil')
   }
 })
+
+test('score: a note with an impact changes the score, its detail lists it and leads back to the note (dark/light, 1440 and 1280 px)', async ({ page }) => {
+  test.setTimeout(90_000)
+  const suffix = uniqueSuffix()
+  const tag = `PES${suffix}`
+  await importProspects(page, `score-${suffix}.xlsx`, [
+    { company: `Transports ${tag}`, civility: 'M.', first_name: 'Léa', last_name: `Score${suffix}`, email: `lea@${tag.toLowerCase()}.example` },
+  ])
+  await searchTag(page, tag)
+  await people(page).getByRole('link', { name: `Léa Score${suffix}` }).click()
+  const editor = page.getByRole('dialog', { name: `M. Léa Score${suffix}` })
+  const scoreCard = editor.getByRole('button', { name: /^Score prospect/ })
+
+  // No signal yet: the starting score, in words as well as in figures.
+  await expect(scoreCard).toContainText('50')
+  await expect(scoreCard).toContainText('Moyen')
+  await scoreCard.click()
+  const detail = page.getByRole('dialog', { name: 'Détail du score' })
+  await expect(detail).toContainText('Aucun signal enregistré')
+  await page.keyboard.press('Escape')
+  await expect(detail).toBeHidden()
+  await expect(editor).toBeVisible()
+  await expect(scoreCard).toBeFocused()
+
+  // A note with an impact: the score follows (the backend computes it), without saving the prospect.
+  await showTab(editor, 'Suivi')
+  const notes = region(editor, 'Notes')
+  await notes.getByRole('textbox', { name: 'Nouveau fait' }).fill('A demandé une démonstration')
+  await notes.getByRole('button', { name: 'Impact sur le score…' }).click()
+  await notes.getByRole('textbox', { name: 'Impact sur le score' }).fill('25')
+  await notes.getByRole('button', { name: 'Ajouter' }).click()
+  await expect(notes.getByRole('img', { name: 'Impact sur le score : +25' })).toBeVisible()
+  await showTab(editor, 'Profil')
+  await expect(scoreCard).toContainText('75')
+  await expect(scoreCard).toContainText('Élevé')
+
+  for (const theme of ['dark', 'light'] as const) {
+    await page.evaluate((value) => {
+      window.localStorage.setItem('viper.theme', value)
+    }, theme)
+    for (const [width, height] of VIEWPORTS) {
+      await page.setViewportSize({ width, height })
+      await page.reload()
+      const opened = page.getByRole('dialog').first()
+      await expect(opened.getByRole('button', { name: /^Score prospect/ })).toContainText('75')
+      await page.mouse.move(0, 0)
+      await region(opened, 'Score prospect').screenshot({ path: `${SCREENSHOTS}/prospect-score-card-${theme}-${String(width)}.png`, animations: 'disabled' })
+      await expectNoOverflow(page, opened, width)
+      await opened.getByRole('button', { name: /^Score prospect/ }).click()
+      const dialog = page.getByRole('dialog', { name: 'Détail du score' })
+      await expect(dialog).toContainText('A demandé une démonstration')
+      await expect(dialog.getByRole('img', { name: '+25 points' })).toBeVisible()
+      await page.screenshot({ path: `${SCREENSHOTS}/prospect-score-detail-${theme}-${String(width)}.png`, animations: 'disabled' })
+      await page.keyboard.press('Escape')
+      await expect(dialog).toBeHidden()
+    }
+  }
+
+  // From the detail to the note it comes from.
+  await page.getByRole('dialog').first().getByRole('button', { name: /^Score prospect/ }).click()
+  await page.getByRole('dialog', { name: 'Détail du score' }).getByRole('button', { name: 'Voir la note' }).click()
+  const opened = page.getByRole('dialog').first()
+  await expect(opened.getByRole('tab', { name: /^Suivi/ })).toHaveAttribute('aria-selected', 'true')
+  const row = region(opened, 'Notes').getByRole('listitem').filter({ hasText: 'A demandé une démonstration' })
+  await expect(row).toBeFocused()
+  await expect(row).toHaveAttribute('data-highlight', '')
+})

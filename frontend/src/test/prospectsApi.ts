@@ -144,6 +144,28 @@ export function stubProspectsApi(options: ProspectsStubOptions = {}) {
   const next: { reply: [number, unknown] | null; notesReply: [number, unknown] | null } = { reply: null, notesReply: null }
   const notes = new Map(Object.entries(options.notes ?? {}).map(([id, list]) => [id, structuredClone(list)]))
 
+  // The score the backend would compute from the notes (a stand-in: base 50, red < 40, yellow < 70; the real rules are
+  // tested in the backend). A note write refreshes the stored prospect, as the real API's next read shows it.
+  function rescore(prospectId: string) {
+    const current = store.get(prospectId)
+    if (!current) return
+    const contributions = (notes.get(prospectId) ?? [])
+      .filter((note) => note.score_delta !== null)
+      .map((note) => ({
+        id: note.id,
+        delta: note.score_delta ?? 0,
+        reason: note.fact_text,
+        source_type: 'note',
+        source_ref: note.id,
+        created_at: note.created_at,
+        origin: 'manual' as const,
+      }))
+    const total = Math.min(100, Math.max(0, 50 + contributions.reduce((sum, item) => sum + item.delta, 0)))
+    const band = total < 40 ? 'red' : total < 70 ? 'yellow' : 'green'
+    const summary = contributions.length === 0 ? 'Aucun signal enregistré.' : `${String(contributions.length)} signal(s) enregistré(s).`
+    store.set(prospectId, { ...current, score: { total, summary, band, contributions } })
+  }
+
   // /api/prospects/{id}/notes[/{note_id}]: the fake keeps the list per prospect and answers like the API.
   function handleNotes(method: string, prospectId: string, noteId: string | undefined, body: unknown): Promise<Response> {
     if (next.notesReply) {
@@ -164,6 +186,7 @@ export function stubProspectsApi(options: ProspectsStubOptions = {}) {
         score_delta: input.score_delta ?? null,
       })
       notes.set(prospectId, [...list, created])
+      rescore(prospectId)
       return reply(201, created)
     }
     const current = list.find((note) => note.id === noteId)
@@ -171,9 +194,11 @@ export function stubProspectsApi(options: ProspectsStubOptions = {}) {
     if (method === 'PATCH') {
       const updated: ProspectNote = { ...current, ...(body as NoteInput) }
       notes.set(prospectId, list.map((note) => (note.id === current.id ? updated : note)))
+      rescore(prospectId)
       return reply(200, updated)
     }
     notes.set(prospectId, list.filter((note) => note.id !== current.id))
+    rescore(prospectId)
     return reply(204)
   }
 

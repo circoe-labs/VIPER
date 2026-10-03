@@ -92,6 +92,8 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
   const [moving, setMoving] = useState(false)
   // The open tab: Profil whenever another prospect (or a fresh form) is shown; kept while the same one is saved.
   const [tab, setTab] = useState<EditorTab>('profile')
+  // « Voir la note » of the score detail: the note the Suivi tab must show and focus (ProspectNotes clears it once done).
+  const [noteToShow, setNoteToShow] = useState<string | null>(null)
 
   // Another person (Save & Next, Back/Forward): drop the previous one's form and messages — unless the form already
   // shows it (a prospect just created here).
@@ -426,7 +428,14 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
                 ))}
               </div>
               <div className="prospect-editor__side">
-                <ProspectScoreCard />
+                <ProspectScoreCard
+                  score={prospect ? (loaded.data?.id === prospect.id ? loaded.data.score : prospect.score) : null}
+                  outdated={loaded.isRefetchError}
+                  onShowNote={(noteId) => {
+                    setTab('tracking')
+                    setNoteToShow(noteId)
+                  }}
+                />
                 <EmploymentSection
                   draft={draft}
                   errors={shown}
@@ -445,7 +454,14 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
               <div className="prospect-editor__main">
                 <TrackingSection draft={draft} errors={shown} fieldId={fieldId} onChange={change} prospect={prospect} today={today} />
                 {/* Notes are saved by their own API, outside this form (never dirty, never part of the version). */}
-                <ProspectNotes prospectId={prospect?.id ?? null} today={today} />
+                <ProspectNotes
+                  prospectId={prospect?.id ?? null}
+                  today={today}
+                  showNoteId={noteToShow}
+                  onNoteShown={() => {
+                    setNoteToShow(null)
+                  }}
+                />
               </div>
               <div className="prospect-editor__side">
                 <OppositionSection

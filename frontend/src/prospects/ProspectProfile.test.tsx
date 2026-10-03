@@ -145,13 +145,14 @@ describe('Prospect editor — Profil summary', () => {
     expect(within(verification).getByLabelText('ou vérifié le')).toBeInTheDocument()
   })
 
-  it('reserves the score card slot in the right column, empty for now', async () => {
+  it('holds the score card in the right column, above the Emploi section', async () => {
     await open(complete())
 
     const slot = document.querySelector('[data-slot="prospect-score"]')
     expect(slot).not.toBeNull()
-    expect(slot).toBeEmptyDOMElement()
     expect(slot?.closest('.prospect-editor__side')).not.toBeNull()
+    expect(within(slot as HTMLElement).getByRole('region', { name: 'Score prospect' })).toBeInTheDocument()
+    expect(slot?.nextElementSibling).toBe(region('Emploi'))
   })
 })
 

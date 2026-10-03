@@ -1,0 +1,45 @@
+/* ScoreRing: track + arc + value, all from tokens. Contrast of the arc tones is covered by theme/tokens.test.ts. */
+.score-ring {
+  flex: none;
+  width: 5.5rem;
+  height: 5.5rem;
+}
+
+.score-ring--lg {
+  width: 7rem;
+  height: 7rem;
+}
+
+.score-ring__track,
+.score-ring__arc {
+  fill: none;
+  stroke-width: 9;
+}
+
+.score-ring__track {
+  stroke: var(--color-border-strong);
+}
+
+.score-ring__arc {
+  stroke: var(--score-ring-color, var(--color-neutral-fg));
+  stroke-linecap: butt;
+}
+
+.score-ring[data-tone='danger'] {
+  --score-ring-color: var(--color-danger-fg);
+}
+
+.score-ring[data-tone='warning'] {
+  --score-ring-color: var(--color-warning-fg);
+}
+
+.score-ring[data-tone='success'] {
+  --score-ring-color: var(--color-success-fg);
+}
+
+.score-ring__value {
+  fill: var(--color-text);
+  font-size: 34px;
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-semibold);
+}

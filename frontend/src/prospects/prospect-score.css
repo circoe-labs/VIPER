@@ -1,0 +1,185 @@
+/* « Score prospect » card and its detail dialog (ProspectScoreCard.tsx). Colours come from tokens; the band is also
+   written (label) and the delta is signed text. */
+
+.prospect-score {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  width: 100%;
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.prospect-score:hover {
+  background: var(--color-surface-hover);
+}
+
+.prospect-score:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.prospect-score__text {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.prospect-score__band {
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+
+.prospect-score[data-band='red'] .prospect-score__band {
+  color: var(--color-danger-fg);
+}
+
+.prospect-score[data-band='yellow'] .prospect-score__band {
+  color: var(--color-warning-fg);
+}
+
+.prospect-score[data-band='green'] .prospect-score__band {
+  color: var(--color-success-fg);
+}
+
+/* A long summary is cut after three lines (the full text is the tooltip and the detail). */
+.prospect-score__summary {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+}
+
+.prospect-score__more {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-accent-fg);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.prospect-score__outdated {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  color: var(--color-warning-fg);
+  font-size: var(--text-sm);
+}
+
+.prospect-score-detail {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.prospect-score-detail__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.prospect-score-detail__text {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.prospect-score-detail__total {
+  margin: 0;
+  font-size: var(--text-md);
+}
+
+.prospect-score-detail__summary {
+  margin: 0;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.prospect-score-detail__title {
+  margin: var(--space-2) 0 0;
+  padding-top: var(--space-3);
+  border-top: var(--border-width) solid var(--color-border);
+  font-size: var(--text-md);
+}
+
+.prospect-score-detail__empty {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.prospect-score-detail__list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.prospect-score-detail__item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-2) 0;
+  border-bottom: var(--border-width) solid var(--color-border);
+}
+
+.prospect-score-detail__item:last-child {
+  border-bottom: 0;
+}
+
+.prospect-score-detail__delta {
+  flex: none;
+  min-width: 3rem;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-neutral-soft);
+  color: var(--color-neutral-fg);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-semibold);
+  line-height: 1.5rem;
+  text-align: center;
+}
+
+.prospect-score-detail__delta[data-sign='1'] {
+  background: var(--color-success-soft);
+  color: var(--color-success-fg);
+}
+
+.prospect-score-detail__delta[data-sign='-1'] {
+  background: var(--color-danger-soft);
+  color: var(--color-danger-fg);
+}
+
+.prospect-score-detail__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.prospect-score-detail__reason {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.prospect-score-detail__source {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}

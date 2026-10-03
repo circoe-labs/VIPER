@@ -12,3 +12,9 @@ afterEach(() => {
   setCsrfToken(null)
   delete document.documentElement.dataset.theme
 })
+
+// jsdom has no layout: scrolling an element into view is a no-op there.
+Element.prototype.scrollIntoView = () => undefined
+
+// jsdom has no layout: scrolling an element into view is a no-op there.
+Element.prototype.scrollIntoView = () => undefined
