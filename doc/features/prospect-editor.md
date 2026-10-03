@@ -349,7 +349,7 @@ refresh fails the last figure stays with *Mise à jour impossible : ce score peu
   note that no longer exists just drops the request.
 
 **AI mail context** (handoff Task 05, prompt `contact-mail-fr-2026-10-v3`): the notes and the score (same service, no
-second computation) enter the drafting context; rules and limits in [`contact.md`](contact.md) § AI drafting.
+second computation) enter the drafting context; since v3 a score with no contribution is left out and a contribution that comes from a listed note points to it (« voir fait n°2 ») instead of repeating its text; rules and limits in [`contact.md`](contact.md) § AI drafting.
 
 **Open points**: product-confirmed base/thresholds; the `NoteSourceType` vocabulary; automatic contributions (other `origin`s) are out of scope.
 

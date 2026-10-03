@@ -17,12 +17,15 @@ Cette refonte vise la fiche contact/prospect montree dans les deux captures de r
 ## Ordre des taches
 
 - [x] 00 — Orchestration et audit initial
-- [ ] 01 — Contrat de scoring prospect
-- [ ] 02 — Refonte de l'affichage des notes
-- [ ] 03 — Resume compact du profil et coordonnees
-- [ ] 04 — Carte Score prospect et detail des contributions
-- [ ] 05 — Exposition notes + score au contexte de l'agent de redaction
-- [ ] 06 — Regressions, etats limites et qualite UX
+- [x] 01 — Contrat de scoring prospect
+- [x] 02 — Refonte de l'affichage des notes
+- [x] 03 — Resume compact du profil et coordonnees
+- [x] 04 — Carte Score prospect et detail des contributions
+- [x] 05 — Exposition notes + score au contexte de l'agent de redaction
+- [x] 06 — Regressions, etats limites et qualite UX
+
+> S6 (2026-10-04) : les cases 01 a 06 signifient « implemente et valide techniquement » (tests, e2e, captures reelles),
+> **pas accepte** : l'acceptation reste Humaine. Voir `FINAL_REPORT.md` (points ouverts, verifications Humaines).
 
 ## Comment choisir la prochaine tache
 

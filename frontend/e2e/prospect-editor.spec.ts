@@ -182,7 +182,8 @@ const VIEWPORTS = [
 
 // Nothing widens the page or the drawer's scrolling body: the content wraps instead.
 async function expectNoOverflow(page: Page, editor: Locator, width: number, { wholePage = true } = {}) {
-  if (wholePage) expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+  // Polled: the drawer slides in on opening and, under load, still overhangs the page for a moment.
+  if (wholePage) await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
   const body = await editor.locator('.dialog__body').evaluate((element) => ({ scroll: element.scrollWidth, shown: element.clientWidth }))
   expect(body.scroll).toBeLessThanOrEqual(body.shown)
 }
@@ -433,4 +434,81 @@ test('score: a note with an impact changes the score, its detail lists it and le
   const row = region(opened, 'Notes').getByRole('listitem').filter({ hasText: 'A demandé une démonstration' })
   await expect(row).toBeFocused()
   await expect(row).toHaveAttribute('data-highlight', '')
+})
+
+test('QA S6: Ctrl+S saves a section edited in place, notes with +, - and 0 impact feed the score, the score detail opens from the keyboard', async ({ page }) => {
+  test.setTimeout(90_000)
+  const suffix = uniqueSuffix()
+  const tag = `PEK${suffix}`
+  await importProspects(page, `qa-${suffix}.xlsx`, [
+    { company: `Transports ${tag}`, civility: 'M.', first_name: 'Ugo', last_name: `Clavier${suffix}`, email: `ugo@${tag.toLowerCase()}.example` },
+  ])
+  await searchTag(page, tag)
+  await people(page).getByRole('link', { name: `Ugo Clavier${suffix}` }).click()
+  // The dialog is named after the person: it changes with the saved first name.
+  const editor = page.getByRole('dialog').first()
+  await expect(editor).toContainText(`Ugo Clavier${suffix}`)
+
+  await expect(region(editor, 'Entreprise')).not.toContainText('Chargement')
+  // Read -> edit -> Ctrl+S: the section goes back to a summary and the value is stored.
+  await editSection(editor, 'Identité')
+  await editor.getByRole('textbox', { name: 'Prénom' }).fill('Hugues')
+  await page.keyboard.press('Control+s')
+  await expect(editor.getByRole('textbox', { name: 'Prénom' })).toHaveCount(0)
+  await expect(editor.getByRole('button', { name: 'Enregistrer', exact: true })).toBeDisabled()
+  await expect(region(editor, 'Résumé du profil')).toContainText('Hugues')
+
+  // Notes: +, - and 0 impacts; only the figures change the total (50 + 20 - 5 + 0 = 65).
+  await showTab(editor, 'Suivi')
+  const notes = region(editor, 'Notes')
+  const fact = notes.getByRole('textbox', { name: 'Nouveau fait' })
+  for (const [text, impact] of [['Signal positif', '20'], ['Signal négatif', '-5'], ['Signal neutre', '0']] as const) {
+    await fact.fill(text)
+    await notes.getByRole('button', { name: 'Impact sur le score…' }).click()
+    await notes.getByRole('textbox', { name: 'Impact sur le score' }).fill(impact)
+    await fact.press('Enter')
+    await expect(notes.getByRole('list', { name: 'Liste des notes' })).toContainText(text)
+  }
+  await showTab(editor, 'Profil')
+  const scoreCard = editor.getByRole('button', { name: /^Score prospect/ })
+  await expect(scoreCard).toContainText('65')
+
+  // Keyboard: Space opens the detail, Escape closes it and gives the focus back; Enter opens it again.
+  await scoreCard.focus()
+  await page.keyboard.press('Space')
+  const detail = page.getByRole('dialog', { name: 'Détail du score' })
+  await expect(detail).toContainText('Signal positif')
+  await expect(detail).toContainText('Signal négatif')
+  await page.keyboard.press('Escape')
+  await expect(detail).toBeHidden()
+  await expect(scoreCard).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(detail).toBeVisible()
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+})
+
+test('QA S6: the drawer stays readable on narrow screens (768 and 390 px): no sideways scrolling, tabs and score reachable', async ({ page }) => {
+  test.setTimeout(90_000)
+  const suffix = uniqueSuffix()
+  const tag = `PER${suffix}`
+  await importProspects(page, `narrow-${suffix}.xlsx`, [
+    { company: `Transports ${tag}`, civility: 'Mme', first_name: 'Rose', last_name: `Etroit${suffix}`, email: `rose@${tag.toLowerCase()}.example`, mobile: '06 00 00 00 09' },
+  ])
+  await searchTag(page, tag)
+  await people(page).getByRole('link', { name: `Rose Etroit${suffix}` }).click()
+  const editor = page.getByRole('dialog').first()
+  await expect(region(editor, 'Entreprise')).not.toContainText('Chargement')
+  for (const [width, height] of [[768, 900], [390, 800]] as const) {
+    await page.setViewportSize({ width, height })
+    await expectNoOverflow(page, editor, width, { wholePage: false })
+    await expect(editor.getByRole('button', { name: /^Score prospect/ })).toBeVisible()
+    await showTab(editor, 'Suivi')
+    await expect(region(editor, 'Notes')).toBeVisible()
+    await expectNoOverflow(page, editor, width, { wholePage: false })
+    await page.screenshot({ path: `${SCREENSHOTS}/prospect-editor-narrow-suivi-${String(width)}.png`, animations: 'disabled' })
+    await showTab(editor, 'Profil')
+    await page.screenshot({ path: `${SCREENSHOTS}/prospect-editor-narrow-profil-${String(width)}.png`, animations: 'disabled' })
+  }
 })
