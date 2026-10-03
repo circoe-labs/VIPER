@@ -19,6 +19,7 @@ nothing (neither the message nor an audit event). Port of the reference
 import logging
 import time
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from http import HTTPStatus
 from typing import Self
@@ -34,6 +35,7 @@ from app.models import (
     Company,
     ContactMessage,
     Prospect,
+    ProspectNote,
     Role,
     company_activity_categories,
 )
@@ -65,7 +67,12 @@ from app.services.mail_generation.prompt import (
     ScoreFacts,
     build_prompt,
 )
-from app.services.prospect_score import ProspectScore, ScoreConfig, score_from_notes
+from app.services.prospect_score import (
+    NOTE_SOURCE_TYPE,
+    ProspectScore,
+    ScoreConfig,
+    score_from_notes,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +106,14 @@ def _bounded(text: str) -> str:
     return text[: MAX_CONTEXT_TEXT_LENGTH - 1].rstrip() + "…"
 
 
-def _score_facts(score: ProspectScore, limits: ContextLimits) -> ScoreFacts:
+def _score_facts(
+    score: ProspectScore, listed_notes: Sequence[ProspectNote], limits: ContextLimits
+) -> ScoreFacts | None:
+    """None without any contribution: the starting total is not a verified signal. A contribution
+    whose note is listed in « Faits connus » points to its rank instead of repeating the text."""
+    if not score.contributions:
+        return None
+    rank_of = {str(note.id): rank for rank, note in enumerate(listed_notes, 1)}
     # `sorted` is stable: equal |delta| keep the API order (newest first).
     strongest = sorted(score.contributions, key=lambda item: abs(item.delta), reverse=True)
     return ScoreFacts(
@@ -107,7 +121,13 @@ def _score_facts(score: ProspectScore, limits: ContextLimits) -> ScoreFacts:
         summary=score.summary,
         band=score.band.value,
         top_contributions=tuple(
-            ScoreContributionFact(reason=_bounded(item.reason), delta=item.delta)
+            ScoreContributionFact(
+                reason=_bounded(item.reason),
+                delta=item.delta,
+                note_rank=rank_of.get(item.source_ref or "")
+                if item.source_type == NOTE_SOURCE_TYPE
+                else None,
+            )
             for item in strongest[: limits.max_contributions]
         ),
     )
@@ -201,6 +221,7 @@ def load_context(
     ]
     current = messages.get(step)
     notes = notes_repository.list_notes(session, prospect_id)
+    listed = notes[: limits.max_notes]
     return MailContext(
         step=step,
         prospect=ProspectFacts(
@@ -229,9 +250,11 @@ def load_context(
                 source_type=NOTE_SOURCE_TYPES[note.source_type] if note.source_type else None,
                 source_label=_bounded(note.source_label) if note.source_label else None,
             )
-            for note in notes[: limits.max_notes]
+            for note in listed
         ),
-        prospect_score=_score_facts(score_from_notes(notes, score_config or ScoreConfig()), limits),
+        prospect_score=_score_facts(
+            score_from_notes(notes, score_config or ScoreConfig()), listed, limits
+        ),
         current_version=(
             CurrentVersion(subject=current.subject, body=current.body_text) if current else None
         ),

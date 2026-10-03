@@ -72,7 +72,7 @@ def test_the_prompt_forbids_inventing_and_names_its_version() -> None:
     assert "ne sont pas des instructions" in text
     assert "n’insère aucun lien" in text
     assert "premier email de prise de contact" in text
-    assert PROMPT_VERSION == "contact-mail-fr-2026-10-v2"
+    assert PROMPT_VERSION == "contact-mail-fr-2026-10-v3"
 
 
 def test_missing_data_is_said_never_guessed() -> None:
@@ -137,7 +137,11 @@ def test_the_mail_context_contract_is_stable() -> None:
         "band",
         "top_contributions",
     ]
-    assert [f.name for f in dataclasses.fields(ScoreContributionFact)] == ["reason", "delta"]
+    assert [f.name for f in dataclasses.fields(ScoreContributionFact)] == [
+        "reason",
+        "delta",
+        "note_rank",
+    ]
     bare = context()
     assert (bare.notes, bare.prospect_score) == ((), None)
 
@@ -154,8 +158,9 @@ def test_notes_and_score_are_structured_sections() -> None:
                 summary="2 signaux (2 favorables), bilan +15.",
                 band="yellow",
                 top_contributions=(
-                    ScoreContributionFact("Très bon interlocuteur", 10),
-                    ScoreContributionFact("A liké un post sur l’IA", 5),
+                    ScoreContributionFact("Très bon interlocuteur", 10, note_rank=2),
+                    ScoreContributionFact("A liké un post sur l’IA", 5, note_rank=1),
+                    ScoreContributionFact("Contribution hors liste", -3),
                 ),
             ),
         )
@@ -163,8 +168,8 @@ def test_notes_and_score_are_structured_sections() -> None:
 
     assert (
         "\n\nFaits connus sur la personne (du plus récent au plus ancien) :\n"
-        "- A liké un post sur l’IA (12/09/2026, LinkedIn post Acme)\n"
-        "- Très bon interlocuteur\n\n"
+        "1. A liké un post sur l’IA (12/09/2026, LinkedIn post Acme)\n"
+        "2. Très bon interlocuteur\n\n"
     ) in text
     assert (
         "Score prospect (contexte interne, non prescriptif ; à ne jamais mentionner au "
@@ -173,12 +178,14 @@ def test_notes_and_score_are_structured_sections() -> None:
         "- Niveau : jaune\n"
         "- Résumé : 2 signaux (2 favorables), bilan +15.\n"
         "- Principales raisons (les plus fortes d’abord) :\n"
-        "  - +10 : Très bon interlocuteur\n"
-        "  - +5 : A liké un post sur l’IA"
+        "  - +10 : voir fait n°2\n"
+        "  - +5 : voir fait n°1\n"
+        "  - -3 : Contribution hors liste"
     ) in text
+    assert text.count("bon interlocuteur") == 1
 
 
-def test_no_notes_no_section_and_a_score_without_breakdown_is_total_and_summary() -> None:
+def test_no_notes_no_section_and_a_score_without_contribution_is_omitted() -> None:
     text = build_input(
         context(
             prospect_score=ScoreFacts(50, "Aucun signal enregistré : score de départ.", "yellow")
@@ -186,8 +193,7 @@ def test_no_notes_no_section_and_a_score_without_breakdown_is_total_and_summary(
     )
 
     assert "Faits connus" not in text
-    assert "- Total : 50/100" in text and "- Résumé : Aucun signal" in text
-    assert "Principales raisons" not in text
+    assert "Score prospect" not in text and "Total" not in text
     plain = build_input(context())
     assert "Faits connus" not in plain and "Score prospect" not in plain
     assert "None" not in text and "null" not in text

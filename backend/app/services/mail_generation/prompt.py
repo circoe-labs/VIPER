@@ -27,7 +27,7 @@ from datetime import date
 from app.models.enums import ContactMessageStep
 from app.services.contact_workflow import MESSAGE_STEP_LABELS
 
-PROMPT_VERSION = "contact-mail-fr-2026-10-v2"
+PROMPT_VERSION = "contact-mail-fr-2026-10-v3"
 MAX_INSTRUCTION_LENGTH = 1000
 
 
@@ -82,6 +82,9 @@ class NoteFact:
 class ScoreContributionFact:
     reason: str
     delta: int
+    # 1-based rank of the fact (`MailContext.notes`) this contribution comes from, when that fact is
+    # listed in « Faits connus » : the line then points to it instead of repeating its text.
+    note_rank: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,7 +94,8 @@ class ScoreFacts:
     total: int
     summary: str
     band: str  # `red` | `yellow` | `green`
-    # Largest |delta| first, capped by the loader; empty = a total and a summary only.
+    # Largest |delta| first, capped by the loader. A score without any contribution is not given to
+    # the prompt at all (the starting total is not a verified signal).
     top_contributions: Sequence[ScoreContributionFact] = ()
 
 
@@ -104,7 +108,7 @@ class MailContext:
     previous_messages: Sequence[PreviousMessage] = field(default_factory=tuple)
     # The prospect's fact notes, most recent first (capped); empty = no « facts » section.
     notes: Sequence[NoteFact] = field(default_factory=tuple)
-    # The prospect's score; None = no score section.
+    # The prospect's score; None = no score section (always the case without a contribution).
     prospect_score: ScoreFacts | None = None
     # The step's saved version (regeneration); None for a first generation.
     current_version: CurrentVersion | None = None
@@ -216,18 +220,19 @@ def _note_line(note: NoteFact) -> str | None:
         for part in (note.noted_on.strftime("%d/%m/%Y") if note.noted_on else "", source)
         if part
     )
-    return f"- {text} ({meta})" if meta else f"- {text}"
+    return f"{text} ({meta})" if meta else text
 
 
 def _notes_section(notes: Sequence[NoteFact]) -> list[str]:
-    rows = [row for note in notes if (row := _note_line(note))]
+    # Numbered by position so that a score contribution can point to « fait n°2 ».
+    rows = [f"{rank}. {row}" for rank, note in enumerate(notes, 1) if (row := _note_line(note))]
     if not rows:
         return []
     return ["", "Faits connus sur la personne (du plus récent au plus ancien) :", *rows]
 
 
 def _score_section(score: ScoreFacts | None) -> list[str]:
-    if score is None:
+    if score is None or not score.top_contributions:
         return []
     lines = [
         "",
@@ -239,9 +244,10 @@ def _score_section(score: ScoreFacts | None) -> list[str]:
     if _clean(score.summary):
         lines.append(f"- Résumé : {_clean(score.summary)}")
     reasons = [
-        f"  - {item.delta:+d} : {_clean(item.reason)}"
+        f"  - {item.delta:+d} : "
+        + (f"voir fait n°{item.note_rank}" if item.note_rank else _clean(item.reason))
         for item in score.top_contributions
-        if _clean(item.reason)
+        if item.note_rank or _clean(item.reason)
     ]
     if reasons:
         lines += ["- Principales raisons (les plus fortes d’abord) :", *reasons]

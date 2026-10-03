@@ -348,7 +348,7 @@ refresh fails the last figure stays with *Mise à jour impossible : ce score peu
   view, focuses it and marks it `data-highlight` (focus-ring outline + soft accent background) until it loses focus. A
   note that no longer exists just drops the request.
 
-**AI mail context** (handoff Task 05, prompt `contact-mail-fr-2026-10-v2`): the notes and the score (same service, no
+**AI mail context** (handoff Task 05, prompt `contact-mail-fr-2026-10-v3`): the notes and the score (same service, no
 second computation) enter the drafting context; rules and limits in [`contact.md`](contact.md) § AI drafting.
 
 **Open points**: product-confirmed base/thresholds; the `NoteSourceType` vocabulary; automatic contributions (other `origin`s) are out of scope.

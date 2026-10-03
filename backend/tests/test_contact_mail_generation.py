@@ -293,7 +293,7 @@ def add_note(
     return note
 
 
-def test_without_notes_the_prompt_has_no_facts_section_and_the_base_score(
+def test_without_notes_the_prompt_has_no_facts_and_no_score_section(
     ai_app: FastAPI,
     client: TestClient,
     prospect: uuid.UUID,
@@ -303,7 +303,7 @@ def test_without_notes_the_prompt_has_no_facts_section_and_the_base_score(
 
     sent = fake.prompts[0].input
     assert "Faits connus" not in sent
-    assert "- Total : 50/100" in sent and "Principales raisons" not in sent
+    assert "Score prospect" not in sent and "Total" not in sent
 
 
 def test_notes_and_score_reach_the_prompt_never_the_excluded_data(
@@ -331,12 +331,13 @@ def test_notes_and_score_reach_the_prompt_never_the_excluded_data(
     sent = f"{prompt.instructions}\n{prompt.input}"
     assert (
         "Faits connus sur la personne (du plus récent au plus ancien) :\n"
-        "- Pas intéressé par le sujet (20/09/2026)\n"
-        "- A liké un post (12/09/2026, LinkedIn post Acme)\n"
-        "- Vient de changer de poste"
+        "1. Pas intéressé par le sujet (20/09/2026)\n"
+        "2. A liké un post (12/09/2026, LinkedIn post Acme)\n"
+        "3. Vient de changer de poste"
     ) in prompt.input
     assert "- Total : 35/100" in prompt.input and "- Niveau : rouge" in prompt.input
-    assert "  - -20 : Pas intéressé par le sujet\n  - +5 : A liké un post" in prompt.input
+    assert "  - -20 : voir fait n°1\n  - +5 : voir fait n°2" in prompt.input
+    assert prompt.input.count("Pas int") == 1
     for excluded in (SECRET_EMAIL, SECRET_PHONE, "123456782", "NEUTRAL", "neutral"):
         assert excluded not in sent
 
@@ -362,9 +363,10 @@ def test_the_context_caps_notes_and_orders_contributions_by_strength(
 
     assert [note.fact_text for note in context.notes] == ["Fait 3", "Fait 2", "Fait 1"]
     assert context.prospect_score is not None
-    assert [(c.reason, c.delta) for c in context.prospect_score.top_contributions] == [
-        ("Gros signal négatif", -9),
-        ("Fait 3", 4),
+    # « Gros signal négatif » is beyond the 3 listed notes: its text stays; « Fait 3 » is fact 1.
+    assert [(c.reason, c.delta, c.note_rank) for c in context.prospect_score.top_contributions] == [
+        ("Gros signal négatif", -9, None),
+        ("Fait 3", 4, 1),
     ]
     assert context.prospect_score.total == 50 + 1 + 2 + 3 + 4 - 9
     long = load_context(
@@ -378,7 +380,7 @@ def test_the_context_caps_notes_and_orders_contributions_by_strength(
     assert len(long.notes[-1].fact_text) == 300 and long.notes[-1].fact_text.endswith("…")
 
 
-def test_a_score_without_signal_is_the_base_with_no_contribution(
+def test_a_score_without_signal_is_not_given_to_the_prompt(
     db_session: Session, prospect: uuid.UUID
 ) -> None:
     add_note(db_session, prospect, "Simple observation")
@@ -388,8 +390,7 @@ def test_a_score_without_signal_is_the_base_with_no_contribution(
     )
 
     assert [note.fact_text for note in context.notes] == ["Simple observation"]
-    assert context.prospect_score is not None
-    assert (context.prospect_score.total, context.prospect_score.top_contributions) == (50, ())
+    assert context.prospect_score is None
 
 
 def test_the_availability_flag(

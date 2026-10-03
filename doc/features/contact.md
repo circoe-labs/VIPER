@@ -221,7 +221,7 @@ reference `src/server/contactMailGenerationService.ts`, `openaiMailGenerator.ts`
 
 | Module | Role |
 |---|---|
-| `app/services/mail_generation/prompt.py` | the versioned prompt (`PROMPT_VERSION = "contact-mail-fr-2026-10-v2"`, v1 = the reference's text, v2 adds the notes and score context), pure |
+| `app/services/mail_generation/prompt.py` | the versioned prompt (`PROMPT_VERSION = "contact-mail-fr-2026-10-v3"`, v1 = the reference's text, v2 adds the notes and score context, v3 omits an empty score and points score lines to their fact), pure |
 | `app/services/mail_generation/openai_client.py` | the OpenAI adapter (`MailGenerator` port, `OpenAIMailGenerator`), output checks, typed errors |
 | `app/services/contact_mail_generation.py` | `prepare` (refusals + prompt, before any AI call), `draft` (the call, logged) |
 | `app/services/contact_messages.py` | `require_generation_target`, `save_generated` (the write, rules checked again) |
@@ -231,7 +231,7 @@ reference `src/server/contactMailGenerationService.ts`, `openaiMailGenerator.ts`
 no message yet; else the revision read), `instruction` (the person's « consigne », ≤ 1 000 characters), `replace`
 (`true` confirms that a saved subject/body is replaced — required when the step has a non-empty text, else 409
 `replace_confirmation_required`). **Answer** `GenerationResult` = `MessageResult` + `"generation": {"model": "<the
-model that answered>", "prompt_version": "contact-mail-fr-2026-10-v2"}`; 201 when the step's message is created.
+model that answered>", "prompt_version": "contact-mail-fr-2026-10-v3"}`; 201 when the step's message is created.
 
 **Flow.** (1) Before any AI call: a person, the prospect exists, the sequence is open, the step is not sent,
 cancelled, being sent (`dispatch_in_progress`) nor **scheduled** (409 `invalid_transition`: unschedule first — never a
@@ -253,12 +253,14 @@ the step; the prospect's civility (*M.*/*Mme*), first and last name, exact job t
 website, size, segment, activity categories, project done with Circoe, project type, Circoe references, client
 approach (each line only when filled, plus « Informations non disponibles (ne pas les deviner) » for a missing function
 or activity context); for R1/R2 the earlier steps' recorded messages (subject, body, status label; cancelled or empty
-ones left out); **since prompt v2 (prospect-contact-ux S5)** the prospect's fact notes (« Faits connus sur la personne »:
+ones left out); **since prompt v2 (prospect-contact-ux S5, refined in v3)** the prospect's fact notes (« Faits connus sur la personne »:
 most recent first, at most `VIPER_CONTACT_MAIL_MAX_NOTES` = 20, each fact cut at 300 characters, with its date and
-source when set; no section when there is no note) and the prospect score as `prospect_score` computed by
+source when set, numbered 1., 2.…; no section when there is no note) and the prospect score as `prospect_score` computed by
 `services/prospect_score.py` (« Score prospect (contexte interne, non prescriptif) »: total, band, summary, and the
 `VIPER_CONTACT_MAIL_MAX_SCORE_CONTRIBUTIONS` = 5 strongest contributions, largest |delta| first, ties in API order;
-a score without contribution sends the total and the summary only); on a regeneration the step's current subject and
+a contribution whose note is listed in the facts reads « +10 : voir fait n°2 » instead of repeating the text, a contribution
+whose note is beyond the cap keeps its text; **v3: a score with no contribution is omitted entirely**, the starting
+total not being a verified signal); on a regeneration the step's current subject and
 body; the « consigne »; `store: false`; and
 `text.format` = strict `json_schema` `contact_mail` `{subject, body}`. **Structured contact fields are never sent**:
 the e-mail addresses (recipients included), phone numbers, postal addresses, SIREN/SIRET, the tracking state and
