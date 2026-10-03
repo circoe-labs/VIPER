@@ -79,6 +79,7 @@ Small on purpose (Task 19: "no infinite event taxonomy"); the service rejects an
 | `contact_tracking` | `contact_tracking` | its `prospect` |
 | `contact_message` | `contact_messages` (S3) | its `prospect` |
 | `prospect_source` | `prospect_sources` | its `prospect` |
+| `prospect_note` | `prospect_notes` (prospect-contact-ux S1) | its `prospect` |
 | `role`, `commercial_segment`, `activity_category`, `internal_referent` | taxonomy/referent tables | itself |
 | `import_batch` | `import_batches` | itself |
 
@@ -120,7 +121,7 @@ Applied to every event when it is stored:
    message's `from_email`, `to_recipients`, `cc_recipients`, `bcc_recipients`, `subject`, `body_text` (the mail
    content stays in `contact_messages` only — handoff Task 11).
 4. **Personal fields** — prospect `first_name`/`last_name`, email `address`, phone `number`, and `source_reference`
-   of emails/phones/sources — follow one switch, `POLICY.personal_values`:
+   of emails/phones/sources, and a note's `fact_text` / `source_label` (free text about a person) — follow one switch, `POLICY.personal_values`:
    `full` (V1 default, decision I-27) · `masked` (`j•••@example.com`, `•••42`, `E•••`) · `omitted` (`[personal]`).
    Tightening applies to new events only; existing ones need an explicit redaction migration.
 

@@ -174,6 +174,20 @@ Minimal provenance required by the functional spec:
 
 A prospect may have multiple provenance records over time.
 
+## `prospect_notes` (migration `0012`, prospect-contact-ux S1)
+Short dated facts about a prospect (« a liké un post », « très bon interlocuteur ») :
+- `id`, `prospect_id` (FK `CASCADE`, indexed), `created_at`, `updated_at` (`set_updated_at` trigger)
+- `fact_text` not null: one fact, trimmed, 1-1000 characters (CHECK `fact_text_valid`)
+- `noted_on date` nullable: the business day the fact was observed
+- `source_type` nullable (`linkedin | email | phone | meeting | web | other`) and `source_label varchar(200)` nullable
+- `score_delta smallint` nullable, `-50..50` (CHECK `score_delta_range`): when set, the note is a **manual
+  contribution** to the prospect's score. The score itself is **never stored**: it is computed on read by
+  `app/services/prospect_score.py` (rules in [prospect-editor.md](../features/prospect-editor.md#notes-and-score)).
+
+Notes are audited (`prospect_note.*`, subject = the prospect), cascade with the prospect, and are not part of the
+editor's aggregate `version`. They are read-only in the Database Explorer. They are unrelated to
+`prospect_sources.notes` (provenance remarks).
+
 ## `import_batches`
 - id, filename, sheet(s), imported_at, actor, row counts, status
 - optional file fingerprint; never store sensitive raw workbook bytes in DB unless explicitly chosen
@@ -231,6 +245,7 @@ erDiagram
     contact_tracking ||--o{ contact_tracking_status_history : "CASCADE"
     prospects ||--o{ contact_messages : "CASCADE (one per step)"
     prospects ||--o{ prospect_sources : "CASCADE"
+    prospects ||--o{ prospect_notes : "CASCADE"
     import_batches |o--o{ prospect_sources : "RESTRICT"
     import_batches ||--o{ import_row_metadata : "CASCADE"
     prospects |o--o{ import_row_metadata : "CASCADE"
@@ -302,6 +317,14 @@ erDiagram
         uuid import_batch_id FK
         text legal_basis_or_collection_context
     }
+    prospect_notes {
+        uuid id PK
+        uuid prospect_id FK
+        text fact_text
+        date noted_on
+        varchar source_type
+        smallint score_delta
+    }
     import_batches {
         uuid id PK
         varchar filename
@@ -345,6 +368,7 @@ on purpose.
 | `contact_tracking_status_history` | `contact_tracking_id`, `from_status NULL` (initial), `to_status`, `changed_at DEFAULT clock_timestamp()`, `actor_type`, `actor_id`, `actor_display` | CHECK `from_status IS DISTINCT FROM to_status`; index `(contact_tracking_id, changed_at)`; no `updated_at` |
 | `contact_messages` | `prospect_id`, `step`, `status DEFAULT 'draft'`, `from_email`, `to/cc/bcc_recipients varchar(320)[] DEFAULT '{}'`, `subject`, `body_text`, `revision DEFAULT 1`, validation (`validated_revision/at/by_actor_id/by_display`), `scheduled_at`, `sent_at`, `cancelled_at`, `cancel_reason`, generation, remote and dispatch columns (migration 0009) | `uq_contact_messages_prospect_id_step`; the CHECKs listed in [`contact_messages`](#contact_messages); partial indexes on `scheduled_at` (scheduled), remote draft, dispatch claim; triggers `set_updated_at`, `reject_sent_change` |
 | `prospect_sources` | `prospect_id`, `source_type`, `source_reference text`, `import_batch_id NULL`, `collected_at DEFAULT now()`, `legal_basis_or_collection_context text`, `actor_type/actor_id/actor_display NULL`, `notes text` | FK indexes |
+| `prospect_notes` | `prospect_id`, `fact_text text`, `noted_on date NULL`, `source_type NULL`, `source_label varchar(200) NULL`, `score_delta smallint NULL`, timestamps (migration 0012) | `ix_prospect_notes_prospect_id`; CHECK `fact_text_valid` (non-blank, ≤ 1000), `score_delta_range` (-50..50); trigger `set_updated_at` |
 | `import_batches` | `filename`, `sheet_names text[] DEFAULT '{}'`, `file_fingerprint varchar(64) NULL`, `status DEFAULT 'pending'`, `rows_total/rows_imported/rows_skipped int DEFAULT 0`, `committed_at NULL`, `legal_basis_or_collection_context text NULL`, `source_reference text NULL` (migration 0006, Task 09), `actor_type/actor_id/actor_display` | CHECK fingerprint `^[0-9a-f]{64}$`, counts ≥ 0, `committed` ⇔ `committed_at`. No workbook bytes |
 | `import_row_metadata` | `import_batch_id`, `source_sheet`, `source_row_number int`, `prospect_id NULL`, `company_id NULL`, `legacy_metadata jsonb DEFAULT '{}'`, `created_at` only | `uq_import_row_metadata_batch_sheet_row`; CHECK row number > 0 |
 | `audit_log` | `occurred_at DEFAULT clock_timestamp()`, `actor_type`, `actor_id varchar(128) NULL`, `actor_display`, `entity_type varchar(64)`, `entity_id uuid NULL`, `subject_type varchar(64) NULL`, `subject_id uuid NULL` (migration 0004), `action varchar(64)`, `changes jsonb DEFAULT '{}'`, `context jsonb DEFAULT '{}'` | triggers `append_only` (UPDATE/DELETE) and `no_truncate`; indexes `occurred_at`, `(entity_type, entity_id, occurred_at)`, `(subject_type, subject_id, occurred_at)`; no FKs. Event schema, vocabulary and payload policy: [audit-and-provenance.md](audit-and-provenance.md) |
@@ -378,6 +402,7 @@ search labels through it; behaviour of the Settings values (stable slug, deactiv
 | `contact_messages.step` (`ContactMessageStep`) | `contact`, `r1`, `r2` |
 | `contact_messages.status` (`ContactMessageStatus`) | `draft`, `validated`, `scheduled`, `sent`, `cancelled` |
 | `prospect_sources.source_type` | `excel_import`, `manual`, `future_agent`, `other` |
+| `prospect_notes.source_type` (`NoteSourceType`) | `linkedin`, `email`, `phone`, `meeting`, `web`, `other` (nullable) |
 | `import_batches.status` | `pending`, `committed`, `failed`, `cancelled` |
 | `*.actor_type` | `human`, `import`, `system`, `agent` |
 
@@ -387,7 +412,7 @@ Python source of truth: `backend/app/models/enums.py` and `backend/app/core/acto
 
 RESTRICT for every taxonomy/referent reference, company → prospects and import batch → prospect sources; CASCADE
 for a company's establishments and category links, for everything owned by a prospect (emails, phones, contact
-tracking and its history, Contact messages, sources, import row metadata) and for a batch's row metadata; SET NULL for
+tracking and its history, Contact messages, sources, notes, import row metadata) and for a batch's row metadata; SET NULL for
 `import_row_metadata.company_id`. A `do_not_contact` prospect cannot be deleted. Rationale: ADR-0002.
 
 ### Domain rules at the service boundary

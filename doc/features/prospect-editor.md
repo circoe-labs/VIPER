@@ -175,7 +175,8 @@ their e-mails, phones, contact tracking and sources.
 
 | Method & path | Body / query | Answer |
 |---|---|---|
-| `GET /prospects/{id}` | — | The view model: identity, `company` summary, `role`, employment and `verification_state`, `employment_imported_unverified`, contactability, `emails` / `phones` (primary first, each with `imported_unverified`), `tracking` (days in business time, `appointment_time`, `planned_contact_week`, `referent`, `status_since`, `suggested_next_contact_on` / `suggested_next_contact_week` — the cadence proposal for `contacted`/`r1`/`r2`, else null), `sources` (oldest first, with the import file name and `recorded_by` — a history actor), `import_row_count`, `today`, `stale_threshold_days`, timestamps, **`version`** |
+| `GET /prospects/{id}` | — | The view model: identity, `company` summary, `role`, employment and `verification_state`, `employment_imported_unverified`, contactability, `emails` / `phones` (primary first, each with `imported_unverified`), `tracking` (days in business time, `appointment_time`, `planned_contact_week`, `referent`, `status_since`, `suggested_next_contact_on` / `suggested_next_contact_week` — the cadence proposal for `contacted`/`r1`/`r2`, else null), `sources` (oldest first, with the import file name and `recorded_by` — a history actor), `import_row_count`, `today`, `stale_threshold_days`, **`score`** (backend-computed `ProspectScore`), timestamps, **`version`** |
+| `GET/POST /prospects/{id}/notes`, `PATCH/DELETE …/notes/{note_id}` | see [Notes and score](#notes-and-score) | |
 | `GET /prospects/{id}/history` | `limit` 1–50 (10), `before` (a `next_cursor`) | `{items: [{id, occurred_at, actor: {kind, label, id, on_behalf_of}, source, actions, title, summary, changes: [{label, before, after}]}], next_cursor}` (Task 19) |
 | `POST /prospects` | the form + `provenance: {legal_basis_or_collection_context, source_reference}` | 201 view |
 | `PUT /prospects/{id}` | `version` + the whole editable state; `emails` and `phones` required (full lists) | view |
@@ -202,26 +203,76 @@ Refusals (`app/api/errors.py`, French copy in `frontend/src/prospects/messages.t
 | 422 | `{code: "invalid", field: "next_action_week", reason: "iso_week"}` (week 53 of a 52-week year) · `{code: "invalid", field: "status", reason: "empty"}` (PATCH without change) | *Cette semaine n'existe pas cette année-là…* · *Rien à enregistrer : choisissez un état ou une semaine.* |
 | 404 | `{code: "not_found"}` | *Ce prospect n'existe plus…* |
 
+## Notes and score
+
+*Backend delivered by prospect-contact-ux S1; the UI follows (S2 notes, S4 score).*
+
+**Notes** (`prospect_notes`, [data model](../architecture/data-model.md#prospect_notes-migration-0012-prospect-contact-ux-s1))
+are short facts: `fact_text` (required, trimmed, ≤ 1000), `noted_on` (optional day), `source_type` (optional) and
+`source_label`, `score_delta` (optional integer `-50..50`). They live **outside the editor's `version`**: a note write
+never makes an open editor stale and needs no `version`.
+
+| Method & path | Body | Answer |
+|---|---|---|
+| `GET /prospects/{id}/notes` | - | `[note]` newest observed first (`noted_on` desc, undated last, then `created_at`) |
+| `POST /prospects/{id}/notes` | `{fact_text, noted_on?, source_type?, source_label?, score_delta?}` | 201 note |
+| `PATCH /prospects/{id}/notes/{note_id}` | any of the fields: omitted = kept, `null` = cleared (not for `fact_text`) | note |
+| `DELETE /prospects/{id}/notes/{note_id}` | - | 204 |
+
+A note: `{id, prospect_id, fact_text, noted_on, source_type, source_label, score_delta, created_at, updated_at}`.
+Refusals: 404 `not_found` (prospect, or a note of another prospect); 422 `invalid` with `field` `fact_text`
+(`blank`, `length`) or `source_label` (`length`); a `score_delta` outside `-50..50`, an unknown `source_type` or an
+unknown field is a plain 422 validation error. Writes are audited (`prospect_note.created|updated|deleted`, shown in
+the prospect's history as « Note ... ») and logged at info with ids only.
+
+**Score**: `GET /prospects/{id}` carries `score: ProspectScore`, **computed by the backend** on every read (never
+stored, never computed by the UI; decision D-UX2). Contract (`app/services/prospect_score.py`):
+
+```
+ProspectScore { total: 0..100, summary: str, band: "red"|"yellow"|"green",
+                contributions: [{ id, delta, reason, source_type?, source_ref?, created_at?, origin: "manual" }] }
+```
+
+- A note with a `score_delta` is one contribution: `delta` = the delta, `reason` = the fact, `source_type = "note"`,
+  `source_ref` = the note id, `id = "note:<note id>"`, `origin = "manual"`. A note without delta contributes nothing.
+  `source_type`/`source_ref` are optional in the contract (a future automatic signal may have no note).
+- `total = clamp(base + sum of deltas, 0, 100)`; a delta is shown as entered even when the clamp absorbs part of it.
+- No contribution: `contributions = []`, `total = base`, summary « Aucun signal enregistré : score de départ. ».
+  Otherwise the summary is a short factual sentence generated from the lines, e.g. « 3 signaux (2 favorables,
+  1 défavorable), bilan +7. ». "Score absent" does not exist in the API: the view always has a score.
+- Contributions are ordered newest observed first (same order as the notes).
+
+**Configuration** (environment, `core/config.py`; the contract does not contain these numbers):
+`VIPER_PROSPECT_SCORE_BASE` (default **50**), `VIPER_PROSPECT_SCORE_RED_BELOW` (**40**) and
+`VIPER_PROSPECT_SCORE_GREEN_FROM` (**70**): red below 40, yellow from 40 to 69, green from 70; red-below must be lower
+than green-from. These defaults come from the orchestrator (D-UX2) and are **to be confirmed by the product**. Not
+editable in Paramètres.
+
+**Open points**: product-confirmed base/thresholds; the `NoteSourceType` vocabulary; whether notes enter the AI mail
+context (handoff Task 05: `PROMPT_VERSION` and the « notes internes exclues » rule of `contact.md` then change);
+automatic contributions (other `origin`s) are out of scope.
+
 ## Audit
 
 Every write is attributed to the signed-in user (`source=ui`, one `request_id` per save), one event per changed row:
 `role.created` (inline role), `prospect.company_changed` (both company names, `employment_verified_at` cleared, each reset
 alias its own `email/phone.updated`), `prospect.updated` (identity/employment fields; a role change carries both role
 labels), `email/phone.created/updated/deleted`, `contact_tracking.created/status_changed/updated` (+ status history),
-`prospect_source.created` (creation), `prospect.do_not_contact.set/cleared` (`context.reason`), `prospect.deleted`. A save
+`prospect_source.created` (creation), `prospect_note.created/updated/deleted`, `prospect.do_not_contact.set/cleared` (`context.reason`), `prospect.deleted`. A save
 that changes nothing writes nothing.
 
 ## Code
 
 | Layer | Where |
 |---|---|
-| Services | `backend/app/services/prospect_editor.py` (view model, `create_prospect`, `update_prospect`, `set_contactability`, `delete_prospect`, `aggregate_version`), `backend/app/services/contact_channels.py` (alias normalization and full-list save), existing domain operations in `prospects.py`, `contact_tracking.py`, `provenance.py`, `taxonomies.py` |
-| Repositories | `backend/app/repositories/prospects.py` (`lock_prospect`, `version_rows`, `sources_with_batches`, `count_import_rows`), `companies.company_summary`; `prospection.query.prospect_verification_state` |
+| Services | `backend/app/services/prospect_notes.py` (notes CRUD), `backend/app/services/prospect_score.py` (score contract and rules), `backend/app/services/prospect_editor.py` (view model, `create_prospect`, `update_prospect`, `set_contactability`, `delete_prospect`, `aggregate_version`), `backend/app/services/contact_channels.py` (alias normalization and full-list save), existing domain operations in `prospects.py`, `contact_tracking.py`, `provenance.py`, `taxonomies.py` |
+| Repositories | `backend/app/repositories/notes.py`, `backend/app/repositories/prospects.py` (`lock_prospect`, `version_rows`, `sources_with_batches`, `count_import_rows`), `companies.company_summary`; `prospection.query.prospect_verification_state` |
 | Router | `backend/app/api/routes/prospects.py` |
 | Frontend | `frontend/src/prospects/` (`ProspectEditor`, `EmploymentSections`, `AliasList`, `TrackingSection`, `WeekPlanner` (+ `week-planner.css`), `OppositionSection`, `ContextSections`, `pickers`, `EditorSection`, `prospectForm.ts`, `verification.ts`, `messages.ts`, `prospects.css`), API hooks `frontend/src/api/prospects.ts`; history: `frontend/src/history/` (`HistoryTimeline`, `format.ts`), `frontend/src/api/history.ts`, backend `app/services/history.py` |
 
 ## Tests
 
+- Backend notes and score: `tests/test_prospect_score.py` (contract, clamp, bands, config), `tests/test_prospect_notes_api.py` (CRUD, refusals, score in the view, cascade), `tests/test_schema_constraints.py` (CHECKs, cascade).
 - Backend: `tests/test_prospect_editor.py` (creation with manual provenance and one event per row, required name /
   company / context, identity edit, unchanged save writes nothing, inline role audited and labelled, duplicate role,
   every verification action and the future/missing date, alias add + primary switch without clash, deactivated primary
