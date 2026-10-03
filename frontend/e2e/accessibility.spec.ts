@@ -44,7 +44,21 @@ const PAGES: { name: string; open: (page: Page) => Promise<void> }[] = [
     open: async (page) => {
       await page.goto('/prospection')
       await page.getByRole('list', { name: 'Prospects' }).getByRole('link').first().click()
-      await expect(page.getByRole('dialog').getByRole('region', { name: 'Historique' })).toBeVisible()
+      await expect(page.getByRole('dialog').getByRole('region', { name: 'Résumé du profil' })).toBeVisible()
+    },
+  },
+  {
+    name: 'éditeur de prospect — onglet Suivi et sections en édition',
+    open: async (page) => {
+      await page.goto('/prospection')
+      await page.getByRole('list', { name: 'Prospects' }).getByRole('link').first().click()
+      const editor = page.getByRole('dialog')
+      for (const name of ['Identité', 'E-mails', 'Téléphones', 'Emploi']) {
+        await editor.getByRole('region', { name }).getByRole('button', { name: `Modifier : ${name}` }).click()
+      }
+      await expect(editor.getByRole('textbox', { name: 'Prénom' })).toBeVisible()
+      await editor.getByRole('tab', { name: /^Suivi/ }).click()
+      await expect(editor.getByRole('region', { name: 'Historique' })).toBeVisible()
     },
   },
   {

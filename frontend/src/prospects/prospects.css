@@ -1,11 +1,16 @@
-/* Prospect editor (Task 15): a wide drawer in two columns — the person (identity, employment, verification, e-mails,
-   phones) on the left, the context (opposition, contact tracking, company, provenance, history) on the right. */
+/* Prospect editor (Task 15, tabs and read/edit in Task 03): a wide drawer with two tabs, each in two columns. Profil —
+   the summary on top, then identity and contacts on the left, the score slot, employment and company on the right.
+   Suivi — contact tracking and notes on the left, opposition, provenance and history on the right. */
 
 .prospect-editor {
   display: grid;
   grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
   gap: var(--space-8);
   align-items: start;
+}
+
+.prospect-editor__summary {
+  grid-column: 1 / -1;
 }
 
 .prospect-editor__main,
@@ -159,16 +164,79 @@
   accent-color: var(--color-accent);
 }
 
-/* Employment verification: one click, or a date. */
+/* Employment verification: the Emploi section's secondary line — state, one click, or a date while editing. */
 .prospect-verify {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
-  gap: var(--space-3) var(--space-4);
+  gap: var(--space-2) var(--space-3);
+  padding-top: var(--space-3);
+  border-top: var(--border-width) solid var(--color-border);
+}
+
+.prospect-verify > .badge {
+  align-self: center;
 }
 
 .prospect-verify .field {
   width: 11rem;
+}
+
+.prospect-verify__scope {
+  flex-basis: 100%;
+}
+
+/* --- read view of a section (facts) and of e-mail / phone lists --- */
+
+.prospect-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
+  gap: var(--space-2) var(--space-5);
+  min-width: 0;
+  margin: 0;
+}
+
+.prospect-facts__item {
+  display: grid;
+  gap: 0.125rem;
+  min-width: 0;
+}
+
+.prospect-facts dt {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.prospect-facts dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.prospect-alias-summary {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.prospect-alias-summary__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  min-width: 0;
+}
+
+.prospect-alias-summary__value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.prospect-alias-summary__item[data-inactive] .prospect-alias-summary__value {
+  color: var(--color-text-muted);
+  text-decoration: line-through;
 }
 
 /* --- e-mail and phone aliases --- */
@@ -436,4 +504,26 @@
   background: var(--color-surface);
   font-family: inherit;
   font-size: var(--text-xs);
+}
+
+/* The inactive tab's mark: fields to correct, or unsaved changes. */
+.prospect-editor__tab-mark {
+  display: inline-flex;
+  align-items: center;
+}
+
+.prospect-editor__tab-mark[data-state='invalid'] {
+  color: var(--color-danger-fg);
+}
+
+.prospect-editor[hidden] {
+  display: none;
+}
+
+/* The verification state may be long (« Vérifié le … · coordonnées à revérifier »): it wraps in a narrow column. */
+.prospect-verify > .badge {
+  max-width: 100%;
+  padding-block: var(--space-1);
+  line-height: 1.25;
+  white-space: normal;
 }

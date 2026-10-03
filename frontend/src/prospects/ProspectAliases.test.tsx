@@ -6,6 +6,7 @@ import type { PhoneAlias, Prospect, ProspectInput } from '../api/prospects'
 import { company } from '../test/companiesApi'
 import { fill } from '../test/fill'
 import { companySummary, lastBody, prospectDetail, stubProspectsApi } from '../test/prospectsApi'
+import { editorReady, editSection } from '../test/prospectEditorUi'
 import { renderProspectEditor } from '../test/renderProspectEditor'
 
 const VERIFIED = '2026-06-01T08:00:00+00:00'
@@ -51,7 +52,7 @@ function person(fields: Partial<Prospect> = {}): Prospect {
 async function open(detail: Prospect) {
   const api = stubProspectsApi({ details: [detail], companies: [employer, other] })
   renderProspectEditor(detail.id)
-  await screen.findByRole('textbox', { name: 'Prénom' })
+  await editorReady()
   return api
 }
 
@@ -64,6 +65,7 @@ describe('Prospect editor — e-mails and phones', () => {
     const api = await open(person())
     const emails = region('E-mails')
 
+    await editSection('E-mails')
     await userEvent.click(within(emails).getByRole('button', { name: 'Ajouter un e-mail' }))
     const added = within(emails).getAllByRole('textbox', { name: 'Adresse e-mail' })[1]
     expect(added).toHaveFocus()
@@ -83,6 +85,8 @@ describe('Prospect editor — e-mails and phones', () => {
     await open(person({ phones: [phone('p1', '+33612345678', { is_primary: true }), phone('p2', '+33123456789', { type: 'landline' })] }))
     const phones = region('Téléphones')
 
+    expect(phones).toHaveTextContent('+33 6 12 34 56 78')
+    await editSection('Téléphones')
     await userEvent.click(within(phones).getByRole('button', { name: 'Autres actions : Téléphone 1' }))
     await userEvent.click(screen.getByRole('menuitem', { name: 'Désactiver (ancien numéro)' }))
 
@@ -101,10 +105,12 @@ describe('Prospect editor — e-mails and phones', () => {
     await open(person())
     const phones = region('Téléphones')
 
+    await editSection('Téléphones')
     await userEvent.click(within(phones).getByRole('button', { name: 'Ajouter un téléphone' }))
     await userEvent.type(within(phones).getByRole('textbox', { name: 'Numéro' }), '01 23 45 67 89')
     expect(within(phones).getByRole('combobox', { name: 'Type' })).toHaveValue('landline')
 
+    await editSection('E-mails')
     await userEvent.click(within(region('E-mails')).getByRole('button', { name: 'Autres actions : E-mail 1' }))
     await userEvent.click(screen.getByRole('menuitem', { name: 'Marquer invalide' }))
     expect(region('E-mails')).toHaveTextContent('Invalide')
@@ -113,13 +119,17 @@ describe('Prospect editor — e-mails and phones', () => {
   it('shows the effect of a company change before saving it', async () => {
     const api = await open(person({ verification_state: 'verified', employment_verified_at: VERIFIED }))
 
+    await editSection('Emploi')
     const picker = screen.getByRole('combobox', { name: /Entreprise/ })
     await userEvent.clear(picker)
     await userEvent.type(picker, 'Autre')
     await userEvent.click(await screen.findByRole('option', { name: /Autre Employeur SAS/ }))
 
     expect(screen.getByRole('note')).toHaveTextContent('Entreprise modifiée.')
-    expect(region('Vérification de l’emploi')).toHaveTextContent('Nouvelle entreprise : emploi à vérifier')
+    expect(screen.getByRole('group', { name: 'Vérification de l’emploi' })).toHaveTextContent(
+      'Nouvelle entreprise : emploi à vérifier',
+    )
+    await editSection('E-mails')
     const emails = region('E-mails')
     expect(emails).toHaveTextContent('À revérifier (vérifié le 1 juin 2026)')
     await waitFor(() => {

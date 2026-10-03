@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { Prospect } from '../api/prospects'
 import { lastBody, prospectDetail, stubProspectsApi } from '../test/prospectsApi'
+import { editorReady, editSection, showTab } from '../test/prospectEditorUi'
 import { renderProspectEditor } from '../test/renderProspectEditor'
 
 const OPPOSED: Partial<Prospect> = {
@@ -15,7 +16,7 @@ const OPPOSED: Partial<Prospect> = {
 async function open(detail: Prospect) {
   const api = stubProspectsApi({ details: [detail] })
   const view = renderProspectEditor(detail.id)
-  await screen.findByRole('textbox', { name: 'Prénom' })
+  await editorReady()
   return { api, ...view }
 }
 
@@ -26,7 +27,9 @@ function opposition() {
 describe('Prospect editor — opposition and deletion', () => {
   it('records an opposition only with a reason, through its own operation, keeping the form as typed', async () => {
     const { api } = await open(prospectDetail())
+    await editSection('Identité')
     await userEvent.type(screen.getByRole('textbox', { name: 'Nom' }), '-Test')
+    await showTab('Suivi')
 
     await userEvent.click(within(opposition()).getByRole('button', { name: 'Enregistrer une opposition…' }))
     const dialog = screen.getByRole('dialog', { name: 'Enregistrer une opposition ?' })
@@ -41,12 +44,16 @@ describe('Prospect editor — opposition and deletion', () => {
     expect(await within(opposition()).findByText('Ne pas contacter')).toBeInTheDocument()
     expect(opposition()).toHaveTextContent('Motif : Demande par téléphone')
     expect(lastBody(api.requests, 'PUT')).toEqual({ do_not_contact: true, reason: 'Demande par téléphone', version: 'v1' })
+    await showTab('Profil')
     expect(screen.getByRole('textbox', { name: 'Nom' })).toHaveValue('Exemple-Test')
     expect(screen.getByRole('status')).toHaveTextContent('Modifications non enregistrées')
   })
 
   it('lifts an opposition with a reason', async () => {
     const { api } = await open(prospectDetail(OPPOSED))
+    // The summary shows the opposition on Profil too.
+    expect(screen.getByRole('region', { name: 'Résumé du profil' })).toHaveTextContent('Ne pas contacter')
+    await showTab('Suivi')
     expect(screen.getByRole('region', { name: 'Suivi de contact' })).toHaveTextContent('ne planifiez pas de contact')
 
     await userEvent.click(within(opposition()).getByRole('button', { name: 'Lever l’opposition…' }))

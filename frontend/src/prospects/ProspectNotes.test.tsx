@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import type { ProspectNote } from '../api/prospectNotes'
 import { fill } from '../test/fill'
 import { lastBody, noteDetail, prospectDetail, stubProspectsApi, TODAY } from '../test/prospectsApi'
+import { editorReady, editSection, showTab } from '../test/prospectEditorUi'
 import { fakeQueue, renderProspectEditor } from '../test/renderProspectEditor'
 
 async function open(notes: Partial<ProspectNote>[] = [], options: { notesReply?: [number, unknown] } = {}) {
@@ -13,8 +14,17 @@ async function open(notes: Partial<ProspectNote>[] = [], options: { notesReply?:
   api.next.notesReply = options.notesReply ?? null
   const queue = fakeQueue([detail.id, 'next-prospect'])
   const view = renderProspectEditor(detail.id, queue.queue)
-  await screen.findByRole('textbox', { name: 'Prénom' })
+  await editorReady()
+  await showTab('Suivi')
   return { api, detail, ...view }
+}
+
+// A pending change of the prospect form (Profil tab), then back on Suivi where the notes are.
+async function typeSurname() {
+  await showTab('Profil')
+  await editSection('Identité')
+  await userEvent.type(screen.getByRole('textbox', { name: 'Nom' }), '-Test')
+  await showTab('Suivi')
 }
 
 function panel() {
@@ -91,6 +101,8 @@ describe('Prospect editor — notes list', () => {
   it('says why a prospect not saved yet has no notes', async () => {
     stubProspectsApi()
     renderProspectEditor('new')
+    await editorReady()
+    await showTab('Suivi')
 
     expect(await within(await screen.findByRole('region', { name: 'Notes' })).findByText('Possible une fois le prospect enregistré.')).toBeInTheDocument()
   })
@@ -109,7 +121,7 @@ describe('Prospect editor — notes list', () => {
 describe('Prospect editor — adding a note', () => {
   it('adds with Enter, dated today by default, without saving or leaving the prospect and keeping the form as typed', async () => {
     const { api, detail, onNavigate } = await open()
-    await userEvent.type(screen.getByRole('textbox', { name: 'Nom' }), '-Test')
+    await typeSurname()
     await within(panel()).findByText('Aucune note pour l’instant.')
 
     await addFact('  A demandé une démo  ')
@@ -120,11 +132,12 @@ describe('Prospect editor — adding a note', () => {
     expect(api.requests.find((request) => request.method === 'POST')?.path).toBe(`/api/prospects/${detail.id}/notes`)
     expect(api.requests.filter((request) => request.method === 'PUT')).toEqual([])
     expect(onNavigate).not.toHaveBeenCalled()
-    expect(screen.getByRole('textbox', { name: 'Nom' })).toHaveValue('Exemple-Test')
     expect(within(panel()).getByRole('textbox', { name: 'Nouveau fait' })).toHaveValue('')
     expect(within(panel()).getByRole('textbox', { name: 'Nouveau fait' })).toHaveFocus()
     // Only the prospect form's own change is pending: the note is saved.
     expect(screen.getByRole('status')).toHaveTextContent('Modifications non enregistrées')
+    await showTab('Profil')
+    expect(screen.getByRole('textbox', { name: 'Nom' })).toHaveValue('Exemple-Test')
   })
 
   it('does not make the editor dirty and does not change the prospect’s version', async () => {
@@ -166,7 +179,7 @@ describe('Prospect editor — adding a note', () => {
 
   it('adds a typed note with Ctrl+Entrée instead of saving and moving on', async () => {
     const { api, onNavigate } = await open()
-    await userEvent.type(screen.getByRole('textbox', { name: 'Nom' }), '-Test')
+    await typeSurname()
     await addFact('Ne pas perdre ce fait')
 
     await userEvent.type(within(panel()).getByRole('textbox', { name: 'Nouveau fait' }), '{Control>}{Enter}{/Control}')

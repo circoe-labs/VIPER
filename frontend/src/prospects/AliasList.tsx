@@ -2,13 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 
 import type { ChannelVerification } from '../api/prospection'
 import type { PhoneType } from '../api/prospects'
-import { StatusBadge } from '../ui/Badge'
+import { Badge, StatusBadge } from '../ui/Badge'
 import { Button, IconButton } from '../ui/Button'
 import { SelectField, TextField } from '../ui/fields'
 import { AlertIcon, CheckCircleIcon, MoreIcon, PlusIcon, TrashIcon } from '../ui/icons'
 import { Menu, type MenuItem } from '../ui/Menu'
 import type { Point } from '../ui/floating'
-import { EditorSection } from './EditorSection'
+import { EditorSection, type SectionEdit } from './EditorSection'
 import {
   type AliasDraft,
   type AliasKind,
@@ -58,12 +58,13 @@ interface AliasListProps {
   companyDomain: string | null
   today: string
   staleDays: number | null
+  edit: SectionEdit
 }
 
 // E-mail or phone aliases: add, edit, choose the primary one (radio), verify in one click, mark invalid/unknown,
 // deactivate (a former address is kept) or remove an entry error. Exactly one active primary: the first active alias
 // takes the flag when the primary one is removed or deactivated.
-export function AliasList({ kind, aliases, onChange, errors, fieldId, companyMoved, companyDomain, today, staleDays }: AliasListProps) {
+export function AliasList({ kind, aliases, onChange, errors, fieldId, companyMoved, companyDomain, today, staleDays, edit }: AliasListProps) {
   const copy = COPY[kind]
   const addRef = useRef<HTMLButtonElement>(null)
   const pendingFocus = useRef<string | null>(null)
@@ -115,8 +116,29 @@ export function AliasList({ kind, aliases, onChange, errors, fieldId, companyMov
       title={copy.title}
       count={aliases.filter((alias) => alias.stored || alias.value.trim()).length}
       state={sectionState}
+      edit={edit}
     >
       {aliases.length === 0 && <p className="prospect-editor__muted">{copy.empty}</p>}
+      {!edit.editing && (
+        <ul className="prospect-alias-summary">
+          {aliases
+            .filter((alias) => alias.value.trim())
+            .map((alias) => {
+              const state = aliasState(alias, context)
+              return (
+                <li key={alias.key} className="prospect-alias-summary__item" data-inactive={alias.is_active ? undefined : ''}>
+                  <span className="prospect-alias-summary__value">{alias.value.trim()}</span>
+                  {kind === 'phones' && <span className="prospect-editor__muted">{PHONE_TYPES[alias.type]}</span>}
+                  {alias.is_primary && alias.is_active && <Badge tone="accent">Principal</Badge>}
+                  <StatusBadge tone={state.tone} icon={state.icon}>
+                    {state.text}
+                  </StatusBadge>
+                </li>
+              )
+            })}
+        </ul>
+      )}
+      {edit.editing && (<>
       <div className="prospect-aliases">
         {aliases.map((alias, index) => {
           const path = `${kind}.${String(index)}`
@@ -228,7 +250,8 @@ export function AliasList({ kind, aliases, onChange, errors, fieldId, companyMov
           {copy.add}
         </Button>
       </div>
-      {menuAlias && menu && (
+      </>)}
+      {edit.editing && menuAlias && menu && (
         <AliasMenu
           kind={kind}
           alias={menuAlias}

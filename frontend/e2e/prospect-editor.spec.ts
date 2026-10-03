@@ -35,6 +35,18 @@ function region(scope: Locator, name: string) {
   return scope.getByRole('region', { name })
 }
 
+// The editor's tabs (Profil / Suivi) and the read/edit switch of its Profil sections.
+async function showTab(editor: Locator, name: 'Profil' | 'Suivi') {
+  await editor.getByRole('tab', { name: new RegExp(`^${name}`) }).click()
+  await expect(editor.getByRole('tab', { name: new RegExp(`^${name}`) })).toHaveAttribute('aria-selected', 'true')
+}
+
+// Opens a Profil section as inputs (nothing to do when it already is: an invalid one opens that way).
+async function editSection(editor: Locator, name: string) {
+  const edit = region(editor, name).getByRole('button', { name: `Modifier : ${name}` })
+  if (await edit.isVisible()) await edit.click()
+}
+
 test('verify, add a primary e-mail, plan the contact, then Save & Next through the filtered queue', async ({ page }) => {
   const suffix = uniqueSuffix()
   const tag = `PED${suffix}`
@@ -55,19 +67,26 @@ test('verify, add a primary e-mail, plan the contact, then Save & Next through t
 
   const editor = page.getByRole('dialog', { name: `M. Jean Arnaud${suffix}` })
   await expect(editor).toHaveAccessibleDescription('Prospect 1 sur 3 · Jamais vérifiés')
-  const verification = region(editor, 'Vérification de l’emploi')
+  // The profile reads as a summary; the employment verification is a secondary line of the Emploi section.
+  await expect(region(editor, 'Résumé du profil')).toContainText(`jean@${tag.toLowerCase()}.example`)
+  await expect(editor.getByRole('textbox', { name: 'Prénom' })).toHaveCount(0)
+  const verification = region(editor, 'Emploi').getByRole('group', { name: 'Vérification de l’emploi' })
   await expect(verification).toContainText('Valeurs importées, jamais vérifiées')
   await verification.getByRole('button', { name: 'Vérifié aujourd’hui' }).click()
 
+  await editSection(editor, 'E-mails')
   const emails = region(editor, 'E-mails')
   await emails.getByRole('button', { name: 'Ajouter un e-mail' }).click()
   await emails.getByRole('textbox', { name: 'Adresse e-mail' }).nth(1).fill(`j.arnaud@${tag.toLowerCase()}.example`)
   await emails.getByRole('radio', { name: 'Principal' }).nth(1).check()
 
+  await showTab(editor, 'Suivi')
   const tracking = region(editor, 'Suivi de contact')
   await tracking.getByRole('button', { name: '+1 semaine' }).click()
   await tracking.getByRole('combobox', { name: 'État' }).selectOption({ label: 'Contacté' })
   await expect(tracking.getByRole('group', { name: 'Prochaine action' })).toContainText('dans 1 semaine')
+  // The changes made on Profil wait on the tab that is not shown, and say so.
+  await expect(editor.getByRole('tab', { name: /^Profil.*modifications non enregistrées/ })).toBeVisible()
 
   await editor.getByRole('button', { name: 'Enregistrer et suivant' }).click()
 
@@ -75,6 +94,8 @@ test('verify, add a primary e-mail, plan the contact, then Save & Next through t
   const next = page.getByRole('dialog', { name: `Mme Claire Bertin${suffix}` })
   await expect(next).toBeVisible()
   await expect(next).toHaveAccessibleDescription('Prospect 2 sur 3 · Jamais vérifiés')
+  // The next person opens on Profil, as a summary.
+  await expect(next.getByRole('tab', { name: 'Profil' })).toHaveAttribute('aria-selected', 'true')
   await expectCount(page, 'Jamais vérifiés', 2)
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog')).toBeHidden()
@@ -110,6 +131,7 @@ test('add a new prospect with a company created inline', async ({ page }) => {
   await expect(picker).toHaveValue(company)
 
   await region(editor, 'E-mails').getByRole('textbox', { name: 'Adresse e-mail' }).fill(`nina@${tag.toLowerCase()}.example`)
+  await showTab(editor, 'Suivi')
   await expect(region(editor, 'Provenance').getByRole('textbox', { name: /Contexte de collecte/ })).toHaveValue(
     'Saisie manuelle — prospection B2B',
   )
@@ -117,6 +139,7 @@ test('add a new prospect with a company created inline', async ({ page }) => {
 
   const created = page.getByRole('dialog', { name: `Nina Nouvelle${suffix}` })
   await expect(created.getByText('Prospect enregistré.')).toBeVisible()
+  await showTab(created, 'Suivi')
   await expect(region(created, 'Provenance')).toContainText('Saisie manuelle')
   await page.keyboard.press('Escape')
 
@@ -137,6 +160,7 @@ test('an opposition recorded with its reason is counted under Opposition', async
   await expectCount(page, 'Opposition', 0)
   await people(page).getByRole('link', { name: `Léa Oppose${suffix}` }).click()
   const editor = page.getByRole('dialog', { name: `Mme Léa Oppose${suffix}` })
+  await showTab(editor, 'Suivi')
   await region(editor, 'Opposition').getByRole('button', { name: 'Enregistrer une opposition…' }).click()
   const confirm = page.getByRole('dialog', { name: 'Enregistrer une opposition ?' })
   await confirm.getByRole('textbox', { name: /Motif/ }).fill('Demande de l’intéressée (synthétique)')
@@ -156,6 +180,13 @@ const VIEWPORTS = [
   [1280, 800],
 ] as const
 
+// Nothing widens the page or the drawer's scrolling body: the content wraps instead.
+async function expectNoOverflow(page: Page, editor: Locator, width: number, { wholePage = true } = {}) {
+  if (wholePage) expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+  const body = await editor.locator('.dialog__body').evaluate((element) => ({ scroll: element.scrollWidth, shown: element.clientWidth }))
+  expect(body.scroll).toBeLessThanOrEqual(body.shown)
+}
+
 async function screenshots(page: Page, state: string) {
   for (const theme of ['dark', 'light'] as const) {
     await page.evaluate((value) => {
@@ -165,17 +196,22 @@ async function screenshots(page: Page, state: string) {
       await page.setViewportSize({ width, height })
       await page.reload()
       const editor = page.getByRole('dialog').first()
-      await expect(editor.getByRole('textbox', { name: 'Prénom' })).toBeVisible()
+      await expect(editor.getByRole('region', { name: 'Résumé du profil' })).toBeVisible()
       await expect(editor.getByRole('region', { name: 'Entreprise' })).not.toContainText('Chargement')
       await page.mouse.move(0, 0)
-      await page.screenshot({ path: `${SCREENSHOTS}/prospect-editor-${state}-${theme}-${String(width)}.png`, animations: 'disabled' })
+      const shot = (name: string) => page.screenshot({ path: `${SCREENSHOTS}/prospect-editor-${state}-${name}${theme}-${String(width)}.png`, animations: 'disabled' })
+      // Profil as a summary, then its sections as inputs, then the Suivi tab.
+      await shot('')
+      await expectNoOverflow(page, editor, width)
+      for (const name of ['Identité', 'E-mails', 'Téléphones', 'Emploi']) await editSection(editor, name)
       await editor.getByRole('region', { name: 'Téléphones' }).scrollIntoViewIfNeeded()
-      await page.screenshot({ path: `${SCREENSHOTS}/prospect-editor-${state}-aliases-${theme}-${String(width)}.png`, animations: 'disabled' })
+      await shot('aliases-')
+      await expectNoOverflow(page, editor, width)
+      await showTab(editor, 'Suivi')
       const tracking = editor.getByRole('region', { name: 'Suivi de contact' })
       await tracking.scrollIntoViewIfNeeded()
       await tracking.screenshot({ path: `${SCREENSHOTS}/prospect-editor-${state}-tracking-${theme}-${String(width)}.png`, animations: 'disabled' })
-      const overflow = await page.evaluate(() => document.documentElement.scrollWidth)
-      expect(overflow).toBeLessThanOrEqual(width)
+      await expectNoOverflow(page, editor, width)
     }
   }
 }
@@ -190,6 +226,7 @@ test('notes: quick add with Enter (the editor stays open), edit in place, delete
   await searchTag(page, tag)
   await people(page).getByRole('link', { name: `Noé Notes${suffix}` }).click()
   const editor = page.getByRole('dialog', { name: `M. Noé Notes${suffix}` })
+  await showTab(editor, 'Suivi')
   const notes = region(editor, 'Notes')
   await expect(notes).toContainText('Aucune note pour l’instant.')
 
@@ -244,6 +281,7 @@ test('notes: quick add with Enter (the editor stays open), edit in place, delete
 
   // The notes are stored: a fresh read of the prospect shows them again.
   await page.reload()
+  await showTab(page.getByRole('dialog').first(), 'Suivi')
   await expect(region(page.getByRole('dialog').first(), 'Notes')).toContainText('sur IGuard')
 })
 
@@ -269,18 +307,63 @@ test('editor screenshots: imported values to verify, then verified (dark/light, 
   await screenshots(page, 'to-verify')
 
   const editor = page.getByRole('dialog').first()
+  await showTab(editor, 'Profil')
+  await editSection(editor, 'Emploi')
   await editor.getByRole('radio', { name: 'Actif', exact: true }).check()
   await editor.getByRole('button', { name: 'Vérifié aujourd’hui' }).click()
+  await editSection(editor, 'E-mails')
+  await editSection(editor, 'Téléphones')
   await region(editor, 'E-mails').getByRole('button', { name: 'Vérifié', exact: true }).click()
   await region(editor, 'Téléphones').getByRole('button', { name: 'Vérifié', exact: true }).click()
+  await showTab(editor, 'Suivi')
   await region(editor, 'Suivi de contact').getByRole('button', { name: '+1 semaine' }).click()
   await region(editor, 'Suivi de contact').getByRole('combobox', { name: 'État' }).selectOption({ label: 'Contacté' })
   await editor.getByRole('button', { name: 'Enregistrer', exact: true }).click()
   await expect(editor.getByText('Prospect enregistré.')).toBeVisible()
-  await expect(region(editor, 'Vérification de l’emploi')).toContainText('Vérifié le')
+  // Saved: every section reads as a summary again.
+  await expect(editor.getByRole('textbox', { name: 'Prénom' })).toHaveCount(0)
+  await showTab(editor, 'Profil')
+  await expect(region(editor, 'Emploi').getByRole('group', { name: 'Vérification de l’emploi' })).toContainText('Vérifié le')
+  await showTab(editor, 'Suivi')
 
   // Saved « Contacté »: the cadence week (+2) is offered, not applied.
   await expect(region(editor, 'Suivi de contact').getByRole('button', { name: /^Appliquer la cadence : S\d{2} \(relance après Contacté\)$/ })).toBeVisible()
 
   await screenshots(page, 'verified')
+})
+
+test('long name, company, role and address wrap inside the drawer on both tabs (no horizontal overflow, 1280 and 1440 px)', async ({ page }) => {
+  const suffix = uniqueSuffix()
+  const tag = `PEL${suffix}`
+  const longCompany = `Société de transports routiers internationaux et de logistique ${'multimodale '.repeat(6)}${tag}`
+  const longName = `de la Tour-Maubourg-Montmorency-Beaumont${suffix}`
+  await importProspects(page, `longs-${suffix}.xlsx`, [
+    {
+      company: longCompany,
+      civility: 'M.',
+      first_name: 'Jean-François-Xavier',
+      last_name: longName,
+      job: `Directeur adjoint des opérations transverses ${'et du développement '.repeat(6)}(synthétique)`,
+      email: `${'prenom.nom.tres.long.'.repeat(4)}${tag.toLowerCase()}@exemple.example`,
+    },
+  ])
+  await searchTag(page, tag)
+  await people(page).getByRole('link', { name: new RegExp(longName) }).click()
+  await expect(page).toHaveURL(/prospect=/)
+  const editor = page.getByRole('dialog').first()
+  await expect(region(editor, 'Résumé du profil')).toContainText(longName)
+  await expect(region(editor, 'Entreprise')).not.toContainText('Chargement')
+
+  for (const [width, height] of VIEWPORTS) {
+    await page.setViewportSize({ width, height })
+    await expectNoOverflow(page, editor, width, { wholePage: false })
+    for (const name of ['Identité', 'E-mails', 'Téléphones', 'Emploi']) {
+      const edit = region(editor, name).getByRole('button', { name: `Modifier : ${name}` })
+      if (await edit.isVisible()) await edit.click()
+    }
+    await expectNoOverflow(page, editor, width, { wholePage: false })
+    await showTab(editor, 'Suivi')
+    await expectNoOverflow(page, editor, width, { wholePage: false })
+    await showTab(editor, 'Profil')
+  }
 })

@@ -123,7 +123,7 @@ test('Ctrl+K finds the test’s prospects, company and establishments; each open
   await expect(page).toHaveURL(new RegExp(`/prospection\\?prospect=${solene?.id ?? 'missing'}$`))
   const prospect = page.getByRole('dialog', { name: `Mme Solène ${seeded.tag}` })
   await expect(prospect).toBeVisible()
-  await expect(prospect.getByRole('textbox', { name: 'Prénom' })).toHaveValue('Solène')
+  await expect(prospect.getByRole('region', { name: 'Résumé du profil' })).toContainText('Solène')
   await expect(field(page)).toHaveValue('')
   // Back closes the editor and returns to the page the search was used on.
   await page.goBack()

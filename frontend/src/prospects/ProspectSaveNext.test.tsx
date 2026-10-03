@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import type { ProspectInput } from '../api/prospects'
 import { company } from '../test/companiesApi'
 import { companySummary, lastBody, prospectDetail, stubProspectsApi } from '../test/prospectsApi'
+import { editorReady, showTab } from '../test/prospectEditorUi'
 import { fakeQueue, renderProspectEditor } from '../test/renderProspectEditor'
 
 const employer = company('Transports Exemple SARL')
@@ -17,8 +18,12 @@ describe('Prospect editor — Save & Next', () => {
     const { queue, next } = fakeQueue([first.id, second.id])
     const { onNavigate } = renderProspectEditor(first.id, queue)
     await screen.findByRole('dialog', { name: 'Anne Premier' })
+    await editorReady()
 
     await userEvent.click(screen.getByRole('button', { name: 'Vérifié aujourd’hui' }))
+    // On the Suivi tab, the next person opens on Profil again (the tab is remembered per prospect only).
+    await showTab('Suivi')
+    expect(screen.getByRole('tab', { name: /^Profil.*modifications non enregistrées/ })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Enregistrer et suivant' }))
 
     expect(await screen.findByRole('dialog', { name: 'Bruno Second' })).toHaveAccessibleDescription(
@@ -27,14 +32,15 @@ describe('Prospect editor — Save & Next', () => {
     expect((lastBody(api.requests, 'PUT') as ProspectInput).employment_verification).toEqual({ action: 'verified_now', day: null })
     expect(next).toHaveBeenCalledWith(first.id)
     expect(onNavigate).toHaveBeenCalledWith(second.id, { page: 1 })
-    expect(await screen.findByRole('textbox', { name: 'Prénom' })).toHaveValue('Bruno')
+    expect(await screen.findByRole('region', { name: 'Résumé du profil' })).toHaveTextContent('Bruno Second')
+    expect(screen.getByRole('tab', { name: 'Profil', selected: true })).toBeInTheDocument()
   })
 
   it('moves on with Ctrl+Entrée without saving when nothing changed, and says when the list ends', async () => {
     const only = prospectDetail({ first_name: 'Anne', last_name: 'Seule' })
     const api = stubProspectsApi({ details: [only] })
     renderProspectEditor(only.id)
-    await screen.findByRole('textbox', { name: 'Prénom' })
+    await editorReady()
 
     await userEvent.keyboard('{Control>}{Enter}{/Control}')
 

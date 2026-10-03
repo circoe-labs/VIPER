@@ -28,12 +28,13 @@ function entries(editor: Locator) {
 }
 
 // Both themes at 1440×900, once `ready` shows the loaded content, with `target` scrolled into view.
-async function screenshots(page: Page, name: string, target: () => Locator, ready: () => Locator) {
+async function screenshots(page: Page, name: string, target: () => Locator, ready: () => Locator, prepare?: () => Promise<void>) {
   for (const theme of ['dark', 'light'] as const) {
     await page.evaluate((value) => {
       window.localStorage.setItem('viper.theme', value)
     }, theme)
     await page.reload()
+    await prepare?.()
     await expect(ready()).toBeVisible()
     await target().scrollIntoViewIfNeeded()
     await page.mouse.move(0, 0)
@@ -61,19 +62,24 @@ test('an editor save reads back in the prospect history and on Home', async ({ p
   await page.getByRole('list', { name: 'Prospects' }).getByRole('link', { name: person }).click()
   const editor = page.getByRole('dialog', { name: `M. ${person}` })
 
-  // The imported person: provenance and an import entry.
+  // The imported person: provenance and an import entry (Suivi tab).
+  await editor.getByRole('tab', { name: /^Suivi/ }).click()
   await expect(region(editor, 'Provenance')).toContainText(`par Import « ${file} »`)
   await expect(entries(editor)).toHaveCount(1)
   await expect(entries(editor).first()).toContainText(`Import « ${file} »`)
   await expect(entries(editor).first()).toContainText('Fiche créée')
 
   // One save: a new primary e-mail, another company, a contact state.
+  await editor.getByRole('tab', { name: /^Profil/ }).click()
+  await region(editor, 'E-mails').getByRole('button', { name: 'Modifier : E-mails' }).click()
+  await region(editor, 'Emploi').getByRole('button', { name: 'Modifier : Emploi' }).click()
   const emails = region(editor, 'E-mails')
   await emails.getByRole('button', { name: 'Ajouter un e-mail' }).click()
   await emails.getByRole('textbox', { name: 'Adresse e-mail' }).nth(1).fill(`p.histoire@${domain}`)
   await emails.getByRole('radio', { name: 'Principal' }).nth(1).check()
   await editor.getByRole('combobox', { name: /Entreprise/ }).fill(employer)
   await page.getByRole('option', { name: new RegExp(`^${employer}`) }).click()
+  await editor.getByRole('tab', { name: /^Suivi/ }).click()
   await region(editor, 'Suivi de contact').getByRole('combobox', { name: 'État' }).selectOption({ label: 'Contacté' })
   const saveResponse = page.waitForResponse(
     (response) => response.request().method() === 'PUT' && /^\/api\/prospects\/[^/]+$/.test(new URL(response.url()).pathname),
@@ -98,6 +104,7 @@ test('an editor save reads back in the prospect history and on Home', async ({ p
   await page.unroute('**/api/home')
 
   await page.goBack()
+  await editor.getByRole('tab', { name: /^Suivi/ }).click()
   await expect(entries(editor)).toHaveCount(2)
   const saved = entries(editor).first()
   await expect(saved).toContainText('Vous')
@@ -113,5 +120,7 @@ test('an editor save reads back in the prospect history and on Home', async ({ p
     'history-prospect-editor',
     () => region(reopened(), 'Historique'),
     () => entries(reopened()).nth(1),
+    // A reloaded editor opens on its Profil tab; the history is on Suivi.
+    () => reopened().getByRole('tab', { name: /^Suivi/ }).click(),
   )
 })

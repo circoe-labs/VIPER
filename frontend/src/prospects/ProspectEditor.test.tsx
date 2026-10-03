@@ -7,6 +7,7 @@ import type { Prospect, ProspectInput } from '../api/prospects'
 import { company } from '../test/companiesApi'
 import { historyEntry } from '../test/historyApi'
 import { companySummary, lastBody, prospectDetail, stubProspectsApi } from '../test/prospectsApi'
+import { editorReady, editSection, showTab } from '../test/prospectEditorUi'
 import { renderProspectEditor } from '../test/renderProspectEditor'
 import { taxonomyValue } from '../test/settingsApi'
 
@@ -58,19 +59,39 @@ function region(name: string | RegExp) {
 async function open(detail: Prospect, histories: Record<string, HistoryEntry[]> = {}) {
   const api = stubProspectsApi({ details: [detail], companies: [employer], roles: [role], histories })
   const view = renderProspectEditor(detail.id)
-  await screen.findByRole('textbox', { name: 'Prénom' })
+  await editorReady()
   return { api, ...view }
 }
 
 describe('Prospect editor', () => {
-  it('opens the person prefilled, section by section', async () => {
+  it('opens the person as a summary, with the same values as inputs once a section is edited', async () => {
     await open(imported())
 
     const dialog = screen.getByRole('dialog', { name: 'M. Jean Import' })
     expect(dialog).toHaveAccessibleDescription('Prospect 1 sur 1 · Jamais vérifiés')
+    expect(screen.getByRole('tab', { name: 'Profil', selected: true })).toBeInTheDocument()
+    const summary = region('Résumé du profil')
+    expect(summary).toHaveTextContent('M. Jean Import')
+    expect(summary).toHaveTextContent('jean@exemple.example')
+    expect(summary).toHaveTextContent('Aucun téléphone')
+    await waitFor(() => {
+      expect(summary).toHaveTextContent('Responsable transport · Transports Exemple SARL')
+    })
+    // Read view: facts, no input yet (the imported person is valid).
+    expect(screen.queryByRole('textbox', { name: 'Prénom' })).toBeNull()
+    expect(region('Identité')).toHaveTextContent('Import')
+    expect(region('E-mails')).toHaveTextContent('jean@exemple.example')
+    expect(region('Emploi')).toHaveTextContent('Chef de quai fictif')
+    expect(region('Emploi')).toHaveTextContent('Actif')
+    expect(within(region('Entreprise')).getByRole('button', { name: 'Ouvrir la fiche entreprise' })).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('Ctrl+S enregistrer')
+
+    await editSection('Identité')
     expect(screen.getByRole('textbox', { name: 'Nom' })).toHaveValue('Import')
+    await editSection('Emploi')
     expect(screen.getByRole('textbox', { name: 'Intitulé exact' })).toHaveValue('Chef de quai fictif')
     expect(screen.getByRole('radio', { name: 'Actif' })).toBeChecked()
+    await editSection('E-mails')
     expect(within(region('E-mails')).getByRole('textbox', { name: 'Adresse e-mail' })).toHaveValue('jean@exemple.example')
     await waitFor(() => {
       expect(screen.getByRole('combobox', { name: /Entreprise/ })).toHaveValue('Transports Exemple SARL')
@@ -78,21 +99,23 @@ describe('Prospect editor', () => {
     await waitFor(() => {
       expect(screen.getByRole('combobox', { name: 'Rôle' })).toHaveValue('Responsable transport')
     })
+    await showTab('Suivi')
     expect(region('Provenance')).toHaveTextContent('Import Excel · base.xlsx / Prospects / ligne 7')
-    expect(within(region('Entreprise')).getByRole('button', { name: 'Ouvrir la fiche entreprise' })).toBeInTheDocument()
-    expect(screen.getByRole('status')).toHaveTextContent('Ctrl+S enregistrer')
   })
 
   it('shows imported values never verified in warning style, with text and glyph', async () => {
     await open(imported())
 
-    const verification = region('Vérification de l’emploi')
+    const verification = screen.getByRole('group', { name: 'Vérification de l’emploi' })
     const badge = within(verification).getByText('Valeurs importées, jamais vérifiées')
     expect(badge.closest('.badge')?.querySelector('svg')).not.toBeNull()
+    expect(region('Emploi')).toHaveAttribute('data-tone', 'warning')
+    await editSection('Emploi')
     expect(screen.getByRole('textbox', { name: 'Intitulé exact' })).toHaveAccessibleDescription('Importé, à confirmer')
     expect(region('E-mails')).toHaveTextContent('1 à vérifier')
     expect(region('E-mails')).toHaveTextContent('Importé, jamais vérifié')
 
+    // The verification is one click away from the summary, with no edit mode needed.
     await userEvent.click(within(verification).getByRole('button', { name: 'Vérifié aujourd’hui' }))
 
     expect(verification).toHaveTextContent('Vérifié aujourd’hui — à enregistrer')
@@ -102,6 +125,7 @@ describe('Prospect editor', () => {
 
   it('says what to do with an imported field left empty instead of « Importé »', async () => {
     await open(imported({ role: null, exact_job_title: null }))
+    await editSection('Emploi')
 
     const roleField = screen.getByRole('combobox', { name: 'Rôle' })
     expect(roleField).toHaveAccessibleDescription('Aucun rôle — choisissez-en un ou créez-le.')
@@ -126,6 +150,7 @@ describe('Prospect editor', () => {
       ],
     })
 
+    await showTab('Suivi')
     expect(region('Provenance')).toHaveTextContent('par Import « base.xlsx »')
     expect(region('Provenance')).toHaveTextContent('Contexte : Fichier historique (synthétique)')
     const history = await screen.findByRole('list', { name: 'Historique du prospect' })
@@ -144,8 +169,8 @@ describe('Prospect editor', () => {
       }),
     )
 
-    expect(region('Vérification de l’emploi')).toHaveTextContent('Vérifié le 3 sept. 2026')
-    expect(screen.getByRole('textbox', { name: 'Intitulé exact' })).not.toHaveAccessibleDescription(/Importé/)
+    expect(screen.getByRole('group', { name: 'Vérification de l’emploi' })).toHaveTextContent('Vérifié le 3 sept. 2026')
+    expect(region('Emploi')).not.toHaveAttribute('data-tone')
   })
 
   it('saves the whole form in one request, then refreshes the Prospection list and the history', async () => {
@@ -153,11 +178,16 @@ describe('Prospect editor', () => {
     const { api, queryClient } = await open(detail)
     const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
 
+    await editSection('Identité')
     await userEvent.type(screen.getByRole('textbox', { name: 'Prénom' }), 'ne')
+    await editSection('E-mails')
     await userEvent.click(within(region('E-mails')).getByRole('button', { name: 'Vérifié' }))
     await userEvent.click(screen.getByRole('button', { name: 'Enregistrer' }))
 
     expect(await screen.findByText('Prospect enregistré.')).toBeInTheDocument()
+    // Back to the summary once saved: no input left, the new values read in place.
+    expect(screen.queryByRole('textbox', { name: 'Prénom' })).toBeNull()
+    expect(region('Résumé du profil')).toHaveTextContent('M. Jeanne Import')
     const body = lastBody(api.requests, 'PUT') as ProspectInput & { version: string }
     expect(body).toMatchObject({ version: 'v1', first_name: 'Jeanne', employment_verification: { action: 'keep', day: null } })
     expect(body.emails[0]).toMatchObject({ id: 'e1', verified_now: true, verification_status: 'verified' })
@@ -170,13 +200,17 @@ describe('Prospect editor', () => {
 
   it('keeps a dirty-state bar: revert, and closing asks first', async () => {
     const { onNavigate } = await open(imported())
+    await editSection('Identité')
     const name = screen.getByRole('textbox', { name: 'Nom' })
 
     await userEvent.type(name, 'x')
     await userEvent.click(screen.getByRole('button', { name: 'Annuler les modifications' }))
-    expect(name).toHaveValue('Import')
+    // Reverting also puts the section back to its summary.
+    expect(screen.queryByRole('textbox', { name: 'Nom' })).toBeNull()
+    expect(region('Identité')).toHaveTextContent('Import')
 
-    await userEvent.type(name, 'x')
+    await editSection('Identité')
+    await userEvent.type(screen.getByRole('textbox', { name: 'Nom' }), 'x')
     await userEvent.keyboard('{Escape}')
     const confirm = screen.getByRole('dialog', { name: 'Abandonner les modifications ?' })
     await userEvent.click(within(confirm).getByRole('button', { name: 'Fermer sans enregistrer' }))
@@ -187,9 +221,11 @@ describe('Prospect editor', () => {
     const { api } = await open(imported())
     api.next.reply = [422, { code: 'invalid', field: 'emails.0.address', reason: 'format', message: 'Invalid.' }]
 
+    await editSection('Identité')
     await userEvent.type(screen.getByRole('textbox', { name: 'Prénom' }), 'ne')
     await userEvent.keyboard('{Control>}s{/Control}')
 
+    // The refused field's section opens as inputs, with the focus on it.
     const address = within(region('E-mails')).getByRole('textbox', { name: 'Adresse e-mail' })
     await waitFor(() => {
       expect(address).toHaveAccessibleDescription(/Adresse e-mail invalide/)
@@ -201,7 +237,7 @@ describe('Prospect editor', () => {
     expect(await screen.findByText(/Ce prospect a été modifié ailleurs/)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Recharger la fiche' }))
     await waitFor(() => {
-      expect(screen.getByRole('textbox', { name: 'Prénom' })).toHaveValue('Jean')
+      expect(region('Résumé du profil')).toHaveTextContent('M. Jean Import')
     })
   })
 })
