@@ -109,6 +109,17 @@ class ProspectSourceType(StrEnum):
     OTHER = "other"
 
 
+class NoteSourceType(StrEnum):
+    """Where a prospect note's fact comes from (`prospect_notes.source_type`); optional."""
+
+    LINKEDIN = "linkedin"
+    EMAIL = "email"
+    PHONE = "phone"
+    MEETING = "meeting"
+    WEB = "web"
+    OTHER = "other"
+
+
 class ImportBatchStatus(StrEnum):
     PENDING = "pending"
     COMMITTED = "committed"

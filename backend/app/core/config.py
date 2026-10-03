@@ -119,6 +119,14 @@ class Settings(BaseSettings):
     monthly_contact_target: PositiveInt = 100
     monthly_appointment_target: PositiveInt = 10
 
+    # Prospect score (prospect-contact-ux S1, decision D-UX2): the base added to the manual
+    # contributions (notes with a `score_delta`), the sum clamped to 0..100. The band is red below
+    # `prospect_score_red_below`, yellow below `prospect_score_green_from`, green from it on.
+    # Values proposed by the orchestrator, to be confirmed by the product (open point).
+    prospect_score_base: Annotated[int, Field(ge=0, le=100)] = 50
+    prospect_score_red_below: Annotated[int, Field(ge=1, le=100)] = 40
+    prospect_score_green_from: Annotated[int, Field(ge=1, le=100)] = 70
+
     # Contact messages (S3): the sender pre-filled in a new message (`From`). Unset: the person
     # types it; a message cannot be validated without one. Never hard-coded (handoff Task 12).
     default_outbound_email: (
@@ -246,6 +254,14 @@ class Settings(BaseSettings):
         if 0 < value < 500:
             raise ValueError("must be 0 (no worker) or at least 500 ms")
         return value
+
+    @model_validator(mode="after")
+    def _score_bands_ordered(self) -> Self:
+        if self.prospect_score_red_below >= self.prospect_score_green_from:
+            raise ValueError(
+                "VIPER_PROSPECT_SCORE_RED_BELOW must be lower than VIPER_PROSPECT_SCORE_GREEN_FROM"
+            )
+        return self
 
     @model_validator(mode="after")
     def _model_with_key(self) -> Self:

@@ -26,6 +26,7 @@ from app.models import (
     Establishment,
     Phone,
     Prospect,
+    ProspectNote,
     ProspectSource,
 )
 from app.models.enums import ContactTrackingStatus, OriginType, VerificationStatus
@@ -525,6 +526,7 @@ def test_every_audited_column_of_a_history_is_labelled_or_deliberately_hidden() 
         "contact_tracking": ContactTracking,
         "contact_message": ContactMessage,
         "prospect_source": ProspectSource,
+        "prospect_note": ProspectNote,
         "company": Company,
         "establishment": Establishment,
     }

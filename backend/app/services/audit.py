@@ -44,6 +44,7 @@ from app.models import (
     InternalReferent,
     Phone,
     Prospect,
+    ProspectNote,
     ProspectSource,
     Role,
 )
@@ -166,6 +167,7 @@ AUDITED_ENTITIES: dict[type[Any], AuditedEntity] = {
     ContactTracking: AuditedEntity("contact_tracking", "prospect", "prospect_id"),
     ContactMessage: AuditedEntity("contact_message", "prospect", "prospect_id"),
     ProspectSource: AuditedEntity("prospect_source", "prospect", "prospect_id"),
+    ProspectNote: AuditedEntity("prospect_note", "prospect", "prospect_id"),
     Role: AuditedEntity("role", "role"),
     CommercialSegment: AuditedEntity("commercial_segment", "commercial_segment"),
     ActivityCategory: AuditedEntity("activity_category", "activity_category"),

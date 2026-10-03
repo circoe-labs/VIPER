@@ -11,6 +11,11 @@ the stable codes of `app.api.errors` (422 `invalid` with a field path such as `e
 409 `duplicate` for a new role label, 409 `do_not_contact` when deleting an opposed prospect, 404;
 Contact rules: 409 `ignored_is_terminal` / `ignored_has_no_next_action`, 403
 `human_actor_required`).
+
+Notes (`/{id}/notes`, prospect-contact-ux S1): `GET` lists, `POST` adds, `PATCH …/{note_id}`
+changes the fields sent, `DELETE …/{note_id}` removes. They carry no `version` (separate from the
+editor's aggregate). A note with a `score_delta` is a manual contribution to `score`, the backend
+computed `ProspectScore` of the view (`app.services.prospect_score`).
 """
 
 import uuid
@@ -28,12 +33,18 @@ from app.models.enums import (
     Civility,
     ContactabilityStatus,
     ContactTrackingStatus,
+    NoteSourceType,
     OriginType,
     PhoneType,
     ProspectSourceType,
     VerificationStatus,
 )
-from app.services import history, prospect_editor
+from app.models.prospects import (
+    NOTE_SCORE_DELTA_MAX,
+    NOTE_SCORE_DELTA_MIN,
+    ProspectNote,
+)
+from app.services import history, prospect_editor, prospect_notes
 from app.services.contact_channels import ChannelItem
 from app.services.contact_workflow import IsoWeek
 from app.services.errors import InvalidFieldError
@@ -48,6 +59,8 @@ from app.services.prospect_editor import (
     TrackingUpdate,
     VerificationAction,
 )
+from app.services.prospect_notes import UNSET, NoteInput, NotePatch
+from app.services.prospect_score import ProspectScore, ScoreConfig
 from app.services.prospection.segments import VerificationState
 
 router = APIRouter(prefix="/prospects", tags=["prospects"])
@@ -161,6 +174,42 @@ class ContactabilityIn(StrictModel):
     version: Version
 
 
+NoteText = Annotated[str, StringConstraints(max_length=5000)]
+NoteLabel = Annotated[str, StringConstraints(max_length=1000)]
+ScoreDelta = Annotated[int, Field(ge=NOTE_SCORE_DELTA_MIN, le=NOTE_SCORE_DELTA_MAX)]
+
+
+class NoteCreate(StrictModel):
+    # The service trims and applies the precise limit (`invalid`, field `fact_text`).
+    fact_text: NoteText
+    noted_on: date | None = None
+    source_type: NoteSourceType | None = None
+    source_label: NoteLabel | None = None
+    score_delta: ScoreDelta | None = None
+
+
+class NotePatchIn(StrictModel):
+    """Omitted fields are kept; null clears an optional one (`fact_text` cannot be cleared)."""
+
+    fact_text: NoteText | None = None
+    noted_on: date | None = None
+    source_type: NoteSourceType | None = None
+    source_label: NoteLabel | None = None
+    score_delta: ScoreDelta | None = None
+
+
+class NoteOut(BaseModel):
+    id: uuid.UUID
+    prospect_id: uuid.UUID
+    fact_text: str
+    noted_on: date | None
+    source_type: NoteSourceType | None
+    source_label: str | None
+    score_delta: int | None
+    created_at: datetime
+    updated_at: datetime
+
+
 class CompanySummaryOut(BaseModel):
     id: uuid.UUID
     display_name: str
@@ -251,6 +300,8 @@ class ProspectOut(BaseModel):
     import_row_count: int
     today: date
     stale_threshold_days: int | None
+    # Computed by the backend from the notes' contributions: the UI only displays it.
+    score: ProspectScore
     created_at: datetime
     updated_at: datetime
 
@@ -273,7 +324,11 @@ def saved_out(result: EditorResult) -> ProspectSavedOut:
 
 
 def editor_clock(settings: SettingsDep) -> EditorClock:
-    return EditorClock(now=datetime.now(UTC), stale_days=settings.verification_stale_days)
+    return EditorClock(
+        now=datetime.now(UTC),
+        stale_days=settings.verification_stale_days,
+        score=ScoreConfig.from_settings(settings),
+    )
 
 
 ClockDep = Annotated[EditorClock, Depends(editor_clock)]
@@ -418,3 +473,51 @@ def delete_prospect(
 ) -> None:
     with business_errors():
         prospect_editor.delete_prospect(session, actor, prospect_id, version)
+
+
+def note_out(note: ProspectNote) -> NoteOut:
+    return NoteOut.model_validate(note, from_attributes=True)
+
+
+@router.get("/{prospect_id}/notes")
+def list_notes(prospect_id: uuid.UUID, session: SessionDep) -> list[NoteOut]:
+    """The prospect's notes, most recently observed first (undated ones last)."""
+    with business_errors():
+        return [note_out(note) for note in prospect_notes.list_notes(session, prospect_id)]
+
+
+@router.post("/{prospect_id}/notes", status_code=status.HTTP_201_CREATED)
+def create_note(
+    prospect_id: uuid.UUID, body: NoteCreate, session: SessionDep, actor: CurrentActor
+) -> NoteOut:
+    with business_errors():
+        note = prospect_notes.create_note(
+            session, actor, prospect_id, NoteInput(**body.model_dump())
+        )
+        return note_out(note)
+
+
+@router.patch("/{prospect_id}/notes/{note_id}")
+def update_note(
+    prospect_id: uuid.UUID,
+    note_id: uuid.UUID,
+    body: NotePatchIn,
+    session: SessionDep,
+    actor: CurrentActor,
+) -> NoteOut:
+    """Only the fields sent change. A note write does not touch the prospect's `version`; the
+    refreshed score comes with the next `GET /prospects/{id}`."""
+    sent = body.model_dump(exclude_unset=True)
+    patch = NotePatch(**{name: sent.get(name, UNSET) for name in NotePatch.__slots__})
+    with business_errors():
+        if sent.get("fact_text", "") is None:
+            raise InvalidFieldError("fact_text", "fact_text must not be blank.", "blank")
+        return note_out(prospect_notes.update_note(session, actor, prospect_id, note_id, patch))
+
+
+@router.delete("/{prospect_id}/notes/{note_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_note(
+    prospect_id: uuid.UUID, note_id: uuid.UUID, session: SessionDep, actor: CurrentActor
+) -> None:
+    with business_errors():
+        prospect_notes.delete_note(session, actor, prospect_id, note_id)

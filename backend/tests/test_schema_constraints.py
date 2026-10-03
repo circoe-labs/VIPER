@@ -18,6 +18,7 @@ from app.models import (
     InternalReferent,
     Phone,
     Prospect,
+    ProspectNote,
     ProspectSource,
     Role,
 )
@@ -430,3 +431,33 @@ def test_audit_log_is_append_only(db_session: Session) -> None:
     with rejected(db_session, "audit_log is append-only: TRUNCATE"):
         db_session.execute(text("TRUNCATE audit_log"))
     assert count(db_session, AuditLogEntry) == 1
+
+
+# --- prospect notes ---------------------------------------------------------------------------
+
+
+def test_prospect_notes_enforce_text_and_score_bounds_and_cascade_with_the_prospect(
+    db_session: Session,
+) -> None:
+    prospect = add_prospect(db_session, add_company(db_session))
+
+    for fact, delta, constraint in (
+        ("   ", None, "ck_prospect_notes_fact_text_valid"),
+        ("x" * 1001, None, "ck_prospect_notes_fact_text_valid"),
+        ("Fait", 51, "ck_prospect_notes_score_delta_range"),
+        ("Fait", -51, "ck_prospect_notes_score_delta_range"),
+    ):
+        with rejected(db_session, constraint):
+            db_session.add(ProspectNote(prospect_id=prospect.id, fact_text=fact, score_delta=delta))
+    db_session.add_all(
+        [
+            ProspectNote(prospect_id=prospect.id, fact_text="Borne basse", score_delta=-50),
+            ProspectNote(prospect_id=prospect.id, fact_text="Borne haute", score_delta=50),
+        ]
+    )
+    db_session.flush()
+    assert count(db_session, ProspectNote) == 2
+
+    db_session.execute(delete(Prospect).where(Prospect.id == prospect.id))
+
+    assert count(db_session, ProspectNote) == 0

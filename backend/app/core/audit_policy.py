@@ -72,6 +72,9 @@ POLICY = AuditPayloadPolicy(
             ("phone", "number"),
             ("phone", "source_reference"),
             ("prospect_source", "source_reference"),
+            # A note is free text typed about a person.
+            ("prospect_note", "fact_text"),
+            ("prospect_note", "source_label"),
         }
     ),
     personal_values=PersonalValues.FULL,

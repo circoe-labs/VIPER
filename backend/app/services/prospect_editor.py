@@ -26,7 +26,7 @@ Rules and wording: doc/features/prospect-editor.md.
 import hashlib
 import uuid
 from collections.abc import Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, time
 from enum import StrEnum
 
@@ -69,6 +69,7 @@ from app.services.errors import (
     NotFoundError,
 )
 from app.services.history import HistoryActor, snapshot_actor
+from app.services.prospect_score import ProspectScore, ScoreConfig, get_score
 from app.services.prospection.query import iso_week, prospect_verification_state
 from app.services.prospection.segments import SegmentContext, VerificationState
 from app.services.taxonomies import Taxonomy, normalize_text
@@ -162,6 +163,8 @@ class EditorClock:
 
     now: datetime
     stale_days: int | None = None
+    # Base and band thresholds of the score shown in the view (from `Settings`).
+    score: ScoreConfig = field(default_factory=ScoreConfig)
 
     @property
     def segments(self) -> SegmentContext:
@@ -283,6 +286,8 @@ class ProspectView:
     # Business day and age threshold the verification states were computed with.
     today: date
     stale_threshold_days: int | None
+    # Computed on read from the notes' contributions (`prospect_score`); never stored.
+    score: ProspectScore
     created_at: datetime
     updated_at: datetime
 
@@ -458,6 +463,7 @@ def get_view(session: Session, prospect_id: uuid.UUID, clock: EditorClock) -> Pr
         import_row_count=repository.count_import_rows(session, prospect.id),
         today=clock.segments.today,
         stale_threshold_days=clock.stale_days,
+        score=get_score(session, prospect.id, clock.score),
         created_at=prospect.created_at,
         updated_at=prospect.updated_at,
     )

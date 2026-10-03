@@ -177,6 +177,12 @@ EXPOSED_TABLES: Mapping[str, TablePolicy] = {
             delete="La provenance est conservée tant que le prospect existe.",
         ),
     ),
+    # Notes are written through the prospect's notes API (audited, validated); the explorer grid
+    # offers no write on them and keeps their parent fixed.
+    "prospect_notes": TablePolicy(
+        columns={"prospect_id": PARENT_FIXED},
+        writes=read_only("Notes : ajoutées et modifiées depuis la fiche prospect."),
+    ),
     # A company change goes through the company-change rule (I-13); opposition stays read-only.
     "prospects": TablePolicy(
         columns={
