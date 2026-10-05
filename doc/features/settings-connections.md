@@ -20,6 +20,17 @@ Through the Toolbox (MCP server over HTTP, OAuth 2.1) a validated Contact/R1/R2 
 Decision: C-20 in the decision log. Tests and E2E use local fakes only — no real call to OpenAI, the Toolbox or
 Infomaniak was ever made (Contact port P6).
 
+## Prompt initial (`/settings/prompt`)
+
+A separate tab of Paramètres holds the **initial prompt**: the task brief the AI receives **before anything else** when it
+drafts a Contact / R1 / R2 e-mail (what it is, who it writes to and why, how the three messages fit together). It is the
+setting `contact_initial_prompt` (≤ 8 000 characters, saved like the other integration settings: private file, revision,
+audit event `settings.integrations_changed`); unset, the built-in `DEFAULT_INITIAL_PROMPT` applies. The page shows the
+built-in text while none is saved; *Rétablir le texte par défaut* puts it back and saving it unchanged stores nothing
+(`null`). An empty prompt is refused. The mandatory rules (facts only, format, booking link, JSON) and the client card
+follow it and are **not** editable. A change applies to the next generation, without a restart.
+`GET /settings/integrations` also returns `initial_prompt_default` (the built-in text).
+
 ## Integration settings (S8) — `app/services/runtime_settings.py`, `app/services/integration_runtime.py`
 
 **Editable here**: `openai_api_key` (secret), `openai_model`, `openai_base_url`, `openai_timeout_ms`,

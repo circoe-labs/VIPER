@@ -1,6 +1,6 @@
 // French copy of the Prospection workspace: the segment catalogue (counters, also for Home — Task 16), state labels
 // and date formats. Segment meanings: doc/features/prospection-kpis.md.
-import type { ActivityStatus, ProspectRow, ProspectSort, Segment, TrackingStatus } from '../api/prospection'
+import type { ActivityStatus, ProspectListCriteria, ProspectRow, ProspectSort, Review, Segment, TrackingStatus } from '../api/prospection'
 import {
   AlertIcon,
   BanIcon,
@@ -72,6 +72,52 @@ export const SEGMENT_INFO: Record<Segment, SegmentInfo> = {
     icon: CheckCircleIcon,
   },
   appointments: { label: 'Rendez-vous', hint: 'RDV pris, ou une date de rendez-vous enregistrée.', icon: CheckCircleIcon },
+}
+
+export interface ReviewInfo {
+  label: string
+  // Title of the list when the panel is open.
+  heading: string
+  // Under the figure.
+  caption: string
+  // What the panel counts, in one sentence (tooltip).
+  hint: string
+  // What the « + » figure counts.
+  weekHint: string
+}
+
+export const REVIEW_INFO: Record<Review, ReviewInfo> = {
+  verified: {
+    label: 'Vérifiés',
+    heading: 'Prospects vérifiés',
+    caption: 'Emploi et e-mail principal à jour',
+    hint: 'Emploi vérifié et à jour, e-mail principal vérifié.',
+    weekHint: 'rendus complets depuis lundi',
+  },
+  to_verify: {
+    label: 'À vérifier',
+    heading: 'Prospects à vérifier',
+    caption: 'À contrôler avant tout contact',
+    hint: 'Emploi jamais vérifié ou ancien, coordonnées remises à vérifier, ou e-mail principal absent, invalide ou non vérifié.',
+    weekHint: 'ajoutés à la base depuis lundi',
+  },
+  ignored: {
+    label: 'Ignorés',
+    heading: 'Prospects ignorés',
+    caption: 'Mis de côté, hors vérification',
+    hint: 'État de suivi « Ignoré » : mis de côté, hors vérification.',
+    weekHint: 'mis de côté depuis lundi',
+  },
+}
+
+// The name of what a criteria set shows (list heading, editor position): the panel, else the segment.
+export function selectionLabel({ review, segment }: Pick<ProspectListCriteria, 'review' | 'segment'>): string {
+  return review ? REVIEW_INFO[review].heading : segment === 'all' ? 'Tous les prospects' : SEGMENT_INFO[segment].label
+}
+
+// Short form of the same (« Vérifiés », « Tous »): the prospect editor's position line.
+export function selectionShortLabel({ review, segment }: Pick<ProspectListCriteria, 'review' | 'segment'>): string {
+  return review ? REVIEW_INFO[review].label : SEGMENT_INFO[segment].label
 }
 
 export const SEGMENT_GROUPS: { id: 'base' | 'verification' | 'contact'; title: string; segments: Segment[] }[] = [

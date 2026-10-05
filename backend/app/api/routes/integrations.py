@@ -40,6 +40,7 @@ from app.services.contact_dispatch_worker import ContactDispatcher
 from app.services.errors import ActorNotAllowedError, MailGenerationError
 from app.services.integration_runtime import IntegrationRuntime
 from app.services.mail_generation.openai_client import check_model, config_from_settings
+from app.services.mail_generation.prompt import DEFAULT_INITIAL_PROMPT
 from app.services.runtime_settings import (
     EDITABLE_FIELDS,
     SECRET_FIELDS,
@@ -105,6 +106,8 @@ class IntegrationsOut(BaseModel):
     fields: dict[str, FieldOut]
     openai_api_key: SecretOut
     generation_available: bool
+    # The built-in prompt `contact_initial_prompt` falls back to (« Rétablir le texte par défaut »).
+    initial_prompt_default: str
     toolbox: ToolboxSummaryOut
     dispatch: DispatchSummaryOut
 
@@ -122,6 +125,7 @@ class IntegrationsIn(BaseModel):
     openai_timeout_ms: int | None = None
     openai_max_retries: int | None = None
     contact_booking_url: Text | None = None
+    contact_initial_prompt: Annotated[str, Field(max_length=8000)] | None = None
     default_outbound_email: Text | None = None
     toolbox_mail_enabled: bool | None = None
     toolbox_mcp_url: Text | None = None
@@ -184,6 +188,7 @@ def integrations_out(request: Request, session: Session) -> IntegrationsOut:
             updated_by=key.updated_by,
         ),
         generation_available=effective.generation_available,
+        initial_prompt_default=DEFAULT_INITIAL_PROMPT,
         toolbox=ToolboxSummaryOut(
             enabled=status.enabled, state=status.state, configured=integration.configured
         ),

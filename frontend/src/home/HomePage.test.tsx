@@ -127,9 +127,9 @@ describe('Home page', () => {
     expect(await screen.findByRole('heading', { level: 2, name: 'État de la base' })).toBeInTheDocument()
     const headings = screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent)
     expect(headings).toEqual([
-      'État de la base',
       'Activité de contact',
       'Prochaines actions',
+      'État de la base',
       'Progression du mois',
       'Derniers imports',
       'Dernières modifications',

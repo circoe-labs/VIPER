@@ -21,6 +21,14 @@
   --nc-slate-strong: #56676E;
   --nc-mist: #9AA8AD;
   --nc-viper-green-bright: #4DF09F;
+  /* Signal evolution: tonal depth (canvas < panel < panel-high < lift) replaces outlines; hairline is the quiet edge. */
+  --nc-night: #080D0F;
+  --nc-panel: #0F171A;
+  --nc-panel-high: #162126;
+  --nc-lift: #1C2A30;
+  --nc-hairline: #1B272C;
+  --nc-aura: #0B3B2A;
+  --nc-glow-amber: #3A2A0A;
 
   /* Derived light steps */
   --nc-paper: #F4F7F7;
@@ -33,6 +41,9 @@
   --nc-viper-green-mist: #E3F6EC;
   --nc-viper-green-press: #00CF6A;
   --nc-teal-deep: #00756F;
+  --nc-line-soft: #E4EBEC;
+  --nc-aura-light: #D9F3E6;
+  --nc-amber-glow: #FFE9B8;
 
   /* Status palette — warning = verification yellow/orange, danger = destructive / do-not-contact */
   --nc-amber: #FFB547;
@@ -68,6 +79,7 @@
   --text-xl: 1.25rem;
   --text-2xl: 1.625rem;
   --text-3xl: 2rem;
+  --text-display: 2.75rem;
   --leading-tight: 1.25;
   --leading-normal: 1.5;
   --weight-regular: 400;
@@ -131,13 +143,15 @@
 :root[data-theme='dark'] {
   color-scheme: dark;
 
-  --color-canvas: var(--nc-void);
-  --color-surface: var(--nc-graphite);
-  --color-surface-raised: var(--nc-charcoal);
-  --color-surface-hover: var(--nc-charcoal);
-  --color-field: var(--nc-void);
-  --color-border: var(--nc-slate);
+  --color-canvas: var(--nc-night);
+  --color-surface: var(--nc-panel);
+  --color-surface-raised: var(--nc-panel-high);
+  --color-surface-hover: var(--nc-lift);
+  --color-field: var(--nc-night);
+  --color-border: var(--nc-hairline);
   --color-border-strong: var(--nc-slate-strong);
+  --color-aura: var(--nc-aura);
+  --color-attention-soft: var(--nc-glow-amber);
 
   --color-text: var(--nc-ice);
   --color-text-muted: var(--nc-mist);
@@ -166,6 +180,8 @@
 
   --color-scrim: color-mix(in srgb, var(--nc-void) 72%, transparent);
   --shadow-sm: 0 1px 2px color-mix(in srgb, var(--nc-void) 60%, transparent);
+  --shadow-card: inset 0 1px 0 color-mix(in srgb, var(--nc-ice) 5%, transparent),
+    0 8px 24px -12px color-mix(in srgb, var(--nc-void) 80%, transparent);
   --shadow-overlay: 0 24px 64px color-mix(in srgb, var(--nc-void) 70%, transparent);
   --shadow-glow: 0 0 0 1px color-mix(in srgb, var(--nc-viper-green) 22%, transparent),
     0 0 24px color-mix(in srgb, var(--nc-viper-green) 14%, transparent);
@@ -180,8 +196,10 @@
   --color-surface-raised: var(--nc-white);
   --color-surface-hover: var(--nc-ice);
   --color-field: var(--nc-white);
-  --color-border: var(--nc-line);
+  --color-border: var(--nc-line-soft);
   --color-border-strong: var(--nc-line-strong);
+  --color-aura: var(--nc-aura-light);
+  --color-attention-soft: var(--nc-amber-glow);
 
   --color-text: var(--nc-ink);
   --color-text-muted: var(--nc-ink-muted);
@@ -210,6 +228,8 @@
 
   --color-scrim: color-mix(in srgb, var(--nc-ink) 40%, transparent);
   --shadow-sm: 0 1px 2px color-mix(in srgb, var(--nc-ink) 8%, transparent);
+  --shadow-card: 0 1px 2px color-mix(in srgb, var(--nc-ink) 6%, transparent),
+    0 8px 20px -12px color-mix(in srgb, var(--nc-ink) 16%, transparent);
   --shadow-overlay: 0 24px 64px color-mix(in srgb, var(--nc-ink) 18%, transparent);
   --shadow-glow: 0 0 0 1px color-mix(in srgb, var(--nc-viper-green-deep) 20%, transparent);
 }

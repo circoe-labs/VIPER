@@ -16,11 +16,19 @@ from sqlalchemy import ColumnElement, Label, Select, and_, case, exists, false, 
 from sqlalchemy.orm import aliased
 
 from app.core.business_time import BUSINESS_TIMEZONE, start_of_day
-from app.models import Company, ContactTracking, Email, Phone, Prospect
+from app.models import (
+    Company,
+    ContactTracking,
+    ContactTrackingStatusHistory,
+    Email,
+    Phone,
+    Prospect,
+)
 from app.models.enums import (
     ActivityStatus,
     ContactabilityStatus,
     ContactTrackingStatus,
+    TrackingHistoryStatus,
     VerificationStatus,
 )
 
@@ -52,6 +60,16 @@ class Segment(StrEnum):
     NO_RESPONSE = "no_response"
     RESPONSES = "responses"
     APPOINTMENTS = "appointments"
+
+
+class Review(StrEnum):
+    """The three-way reading of a prospect's file, shown as the Prospection panels. Exclusive and
+    exhaustive: `ignored` (set aside) first, then `verified` (employment AND primary e-mail
+    verified, nothing lapsed), then everything else is `to_verify`. Independent of `Segment`."""
+
+    VERIFIED = "verified"
+    TO_VERIFY = "to_verify"
+    IGNORED = "ignored"
 
 
 class VerificationState(StrEnum):
@@ -102,6 +120,11 @@ class SegmentContext:
     @classmethod
     def at(cls, moment: datetime, stale_days: int | None = None) -> SegmentContext:
         return cls(today=moment.astimezone(BUSINESS_TIMEZONE).date(), stale_days=stale_days)
+
+    @property
+    def week_start(self) -> datetime:
+        """Monday 00:00 (business time) of the current ISO week: « cette semaine » starts here."""
+        return start_of_day(self.today - timedelta(days=self.today.weekday()))
 
     @property
     def due_before(self) -> datetime:
@@ -198,6 +221,75 @@ def needs_recheck(context: SegmentContext) -> ColumnElement[bool]:
         Prospect.employment_verified_at.is_not(None),
         or_(channels_reset(), stale(context)),
     )
+
+
+def ignored() -> ColumnElement[bool]:
+    return ContactTracking.status == S.IGNORED
+
+
+def fully_verified(context: SegmentContext) -> ColumnElement[bool]:
+    """Employment verified and up to date, and the primary e-mail verified."""
+    return and_(
+        Prospect.employment_verified_at.is_not(None),
+        ~stale(context),
+        ~channels_reset(),
+        primary_email.verification_status == VerificationStatus.VERIFIED,
+    )
+
+
+def review_predicate(review: Review, context: SegmentContext) -> ColumnElement[bool]:
+    """Membership of `review` over the rows of `join_segment_sources` (never NULL)."""
+    is_ignored = func.coalesce(ignored(), false())
+    is_verified = and_(~is_ignored, func.coalesce(fully_verified(context), false()))
+    match review:
+        case Review.IGNORED:
+            return is_ignored
+        case Review.VERIFIED:
+            return is_verified
+        case Review.TO_VERIFY:
+            return and_(~is_ignored, ~is_verified)
+
+
+def review_state(context: SegmentContext) -> ColumnElement[str]:
+    """The row's review, from the same predicates as the panels."""
+    return case(
+        *((review_predicate(review, context), review.value) for review in Review),
+        else_=Review.TO_VERIFY.value,
+    )
+
+
+def review_week_predicate(review: Review, context: SegmentContext) -> ColumnElement[bool]:
+    """Members of `review` that arrived this week: made complete (the latest of the employment and
+    primary-e-mail verification dates), added to the base, or set aside (status history)."""
+    week = context.week_start
+    match review:
+        case Review.VERIFIED:
+            arrived = (
+                func.greatest(Prospect.employment_verified_at, primary_email.last_verified_at)
+                >= week
+            )
+        case Review.TO_VERIFY:
+            arrived = Prospect.created_at >= week
+        case Review.IGNORED:
+            arrived = exists().where(
+                ContactTracking.id == ContactTrackingStatusHistory.contact_tracking_id,
+                ContactTrackingStatusHistory.to_status == TrackingHistoryStatus.IGNORED,
+                ContactTrackingStatusHistory.changed_at >= week,
+            )
+    return and_(review_predicate(review, context), func.coalesce(arrived, false()))
+
+
+def review_counts(context: SegmentContext) -> list[Label[int]]:
+    """Per review: `<key>` its size and `<key>_week` how many arrived this week."""
+    counts: list[Label[int]] = []
+    for review in Review:
+        counts.append(func.count().filter(review_predicate(review, context)).label(review.value))
+        counts.append(
+            func.count()
+            .filter(review_week_predicate(review, context))
+            .label(f"{review.value}_week")
+        )
+    return counts
 
 
 def to_contact() -> ColumnElement[bool]:

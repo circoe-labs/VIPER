@@ -12,7 +12,9 @@
 }
 
 .page-header__title {
-  font-size: var(--text-2xl);
+  font-size: var(--text-3xl);
+  font-weight: var(--weight-bold);
+  letter-spacing: -0.025em;
 }
 
 .page-header__description {

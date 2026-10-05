@@ -37,7 +37,7 @@ export function StateBadge({ status }: { status: TrackingStatus | null }) {
   if (!status || status === 'neutral') return null
   const { tone, icon } = STATE_BADGES[status]
   return (
-    <StatusBadge tone={tone} icon={icon}>
+    <StatusBadge tone={tone} icon={icon} strong={status === 'response_received' || status === 'appointment_obtained'}>
       <span className="visually-hidden">État : </span>
       {TRACKING_LABELS[status]}
     </StatusBadge>

@@ -2,7 +2,7 @@ import { vi } from 'vitest'
 
 import type { Company, CompanyListItem } from '../api/companies'
 import type { ImportBatch } from '../api/imports'
-import { type ProspectRow, SEGMENTS, type Segment } from '../api/prospection'
+import { type ProspectRow, REVIEWS, type Review, SEGMENTS, type Segment } from '../api/prospection'
 import type { Referent, TaxonomyValue } from '../api/settings'
 import { matchesWords } from '../lib/text'
 import { type RecordedRequest, stubSettingsApi } from './settingsApi'
@@ -13,6 +13,8 @@ import { type RecordedRequest, stubSettingsApi } from './settingsApi'
 
 export interface FakeProspect extends ProspectRow {
   segments: Segment[]
+  // Counted in the « + cette semaine » figure of its panel.
+  thisWeek: boolean
 }
 
 let sequence = 0
@@ -22,9 +24,10 @@ export function prospect(
   last_name: string,
   fields: Partial<ProspectRow> = {},
   segments: Segment[] = [],
+  thisWeek = false,
 ): FakeProspect {
   sequence += 1
-  return {
+  const row: ProspectRow = {
     id: `00000000-0000-7000-b000-${String(sequence).padStart(12, '0')}`,
     civility: null,
     first_name,
@@ -36,6 +39,7 @@ export function prospect(
     activity_status: 'unknown',
     employment_verified_at: null,
     verification_state: 'never_verified',
+    review: 'to_verify',
     primary_email: null,
     primary_email_status: null,
     email_state: 'missing',
@@ -53,13 +57,19 @@ export function prospect(
     do_not_contact_at: null,
     updated_at: '2026-09-01T09:30:00+00:00',
     ...fields,
-    segments,
   }
+  // The backend decides the panel; the stand-in applies the same rule to the row's own fields.
+  if (!fields.review) {
+    if (row.tracking_status === 'ignored') row.review = 'ignored'
+    else if (row.verification_state === 'verified' && row.email_state === 'verified') row.review = 'verified'
+  }
+  return { ...row, segments, thisWeek }
 }
 
 function asRow(fake: FakeProspect): ProspectRow {
   const row: Partial<FakeProspect> = { ...fake }
   delete row.segments
+  delete row.thisWeek
   return row as ProspectRow
 }
 
@@ -108,12 +118,24 @@ export function stubProspectionApi(options: ProspectionStubOptions = {}) {
       const counts = Object.fromEntries(
         SEGMENTS.map((segment) => [segment, found.filter((row) => inSegment(row, segment)).length]),
       )
-      return reply(200, { counts, today: '2026-09-10', stale_threshold_days: options.staleThresholdDays ?? null })
+      const reviews = Object.fromEntries(
+        REVIEWS.map((review: Review) => {
+          const members = found.filter((row) => row.review === review)
+          return [review, { total: members.length, week: members.filter((row) => row.thisWeek).length }]
+        }),
+      )
+      return reply(200, {
+        counts,
+        reviews,
+        today: '2026-09-10',
+        stale_threshold_days: options.staleThresholdDays ?? null,
+      })
     }
     const segment = (url.searchParams.get('segment') ?? 'all') as Segment
     const limit = Number(url.searchParams.get('limit') ?? 50)
     const offset = Number(url.searchParams.get('offset') ?? 0)
-    const rows = found.filter((row) => inSegment(row, segment))
+    const review = url.searchParams.get('review')
+    const rows = found.filter((row) => inSegment(row, segment) && (!review || row.review === review))
     const items = rows.slice(offset, offset + limit).map(asRow)
     return reply(200, { items, total: rows.length, limit, offset })
   }

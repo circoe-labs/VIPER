@@ -153,6 +153,9 @@ class Settings(BaseSettings):
     openai_trust_env: bool = False
     # The booking link the AI may copy into a mail; unset = no link at all.
     contact_booking_url: Annotated[str, Field(max_length=2000)] | None = None
+    # The task brief always given to the model before it drafts (Paramètres > Prompt initial);
+    # unset = the built-in `DEFAULT_INITIAL_PROMPT`.
+    contact_initial_prompt: Annotated[str, Field(max_length=8000)] | None = None
 
     # CIRCOE Toolbox (S6, handoff Task 15): Infomaniak drafts of validated messages through the
     # Toolbox MCP server (OAuth 2.1 + PKCE). Off by default: everything stays local. « Se connecter
@@ -204,6 +207,7 @@ class Settings(BaseSettings):
         "openai_api_key",
         "openai_model",
         "contact_booking_url",
+        "contact_initial_prompt",
         "toolbox_mcp_url",
         "toolbox_oauth_redirect_uri",
         "toolbox_token_store_path",

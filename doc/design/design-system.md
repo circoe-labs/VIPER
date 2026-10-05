@@ -56,7 +56,7 @@ Two layers in `tokens.css`:
 
 | Role | Dark (authored) | Light (derived) | Use |
 |---|---|---|---|
-| `--color-canvas` | void `#0A0B0D` | paper `#F4F7F7` | page background |
+| `--color-canvas` | night `#080D0F` | paper `#F4F7F7` | page background |
 | `--color-surface` | graphite `#11171B` | white | sidebar, cards, tables |
 | `--color-surface-raised` | charcoal `#1B2329` | white (+ shadow) | drawers, modals, secondary buttons |
 | `--color-surface-hover` | charcoal `#1B2329` | ice `#EAF2F1` | hover rows / nav items |
@@ -364,3 +364,13 @@ Favicons (static, `public/`): `favicon-dark.png` (white mark) for dark browser c
 mark) for light chrome, selected with `media="(prefers-color-scheme: …)"`. Preserve alpha; never bake a rectangle
 behind the assets (enforced by `src/brand/assets.test.ts` and the Playwright canvas check). File locations and
 derivation: [`visual-manifest.md`](visual-manifest.md).
+
+## Evolution « Signal » (hierarchy pass)
+
+The Neon Command palette and dark-first character stay; the pass changes **how much each piece of information weighs**.
+
+- **Depth by tone, not outline.** Layers `--nc-night` (canvas) < `--nc-panel` (surface) < `--nc-panel-high` < `--nc-lift` (hover); `--color-border` is now a quiet hairline (`--nc-hairline`), `--color-border-strong` is kept for fields. Cards use `--shadow-card`; one emerald `--color-aura` glows behind the top of each page.
+- **Three weights of information.** *Hero*: the figures that ask for action today (Accueil › Activité de contact: Échus in amber, À contacter and Réponses in green, `--text-display`). *Standard*: ordinary counters, flat tonal tiles. *Quiet*: context — zeros are dimmed, the base's state sits in one calm strip on Accueil.
+- **Counters** (`CounterCard` `tone`): `attention` (amber figure, something to fix) and `go` (green, something to do); untoned counters stay neutral. The pressed counter keeps the signal glow and a check mark.
+- **Badges in three weights** (`ui/badge.css`): quiet (success / info / neutral / plain warning = glyph + text, no box), notice (danger = tinted pill), strong (`StatusBadge strong`: solid pill, reserved for *Échu*, *Réponse reçue*, *RDV pris*, *Ne pas contacter*). Every badge keeps its glyph and text — never colour alone.
+- Do-not-contact rows use a danger tint instead of a thick left border.

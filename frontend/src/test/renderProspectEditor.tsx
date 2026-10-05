@@ -24,6 +24,7 @@ export function fakeQueue(ids: string[], segment: Segment = 'never_verified') {
     company: null,
     import_batch: null,
     segment,
+    review: null,
     sort: 'name',
   }
   const next = vi.fn((id: string): Promise<QueueStep | null> => {

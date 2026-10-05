@@ -25,6 +25,11 @@ export const SEGMENTS = [
 ] as const
 export type Segment = (typeof SEGMENTS)[number]
 
+// The three panels of the page (backend `Review`): exclusive and exhaustive. Ignored first, then verified (employment
+// AND primary e-mail), then the rest is to verify.
+export const REVIEWS = ['verified', 'to_verify', 'ignored'] as const
+export type Review = (typeof REVIEWS)[number]
+
 // The Contact states in display order (backend ContactTrackingStatus, doc/architecture/data-model.md). `neutral` is
 // the initial « no state »: no badge (Contact decision 4). `ignored` is terminal (decision 7).
 export const TRACKING_STATUSES = [
@@ -64,11 +69,14 @@ export interface ProspectFilters {
 
 export interface ProspectListCriteria extends ProspectFilters {
   segment: Segment
+  review: Review | null
   sort: ProspectSort
 }
 
 export interface Counters {
   counts: Record<Segment, number>
+  // Size of each panel, and how many arrived since Monday (verified, added, or set aside this week).
+  reviews: Record<Review, { total: number; week: number }>
   // Business day "due" compares with (ISO date, Europe/Paris).
   today: string
   // VIPER_VERIFICATION_STALE_DAYS; null = no age-based re-check configured.
@@ -87,6 +95,7 @@ export interface ProspectRow {
   activity_status: ActivityStatus
   employment_verified_at: string | null
   verification_state: VerificationState
+  review: Review
   primary_email: string | null
   primary_email_status: ChannelVerification | null
   email_state: EmailState
@@ -151,6 +160,7 @@ export function useProspectionCounters(filters: ProspectFilters) {
 function pagePath(criteria: ProspectListCriteria, page: number): `/${string}` {
   const params = filterParams(criteria)
   params.set('segment', criteria.segment)
+  if (criteria.review) params.set('review', criteria.review)
   params.set('sort', criteria.sort)
   params.set('limit', String(PROSPECT_PAGE_SIZE))
   params.set('offset', String((page - 1) * PROSPECT_PAGE_SIZE))

@@ -156,6 +156,7 @@ def load_context(
     booking_url: str | None,
     score_config: ScoreConfig | None = None,
     limits: ContextLimits | None = None,
+    initial_prompt: str | None = None,
 ) -> MailContext:
     """The prompt's data: the minimal facts, never an address, a phone, a SIREN or the tracking
     state; the earlier steps' recorded messages (cancelled or empty ones excluded); the prospect's
@@ -171,6 +172,7 @@ def load_context(
             Role.label,
             Company.id,
             Company.display_name,
+            Company.legal_name,
             Company.website_url,
             Company.size_label,
             CommercialSegment.label,
@@ -184,7 +186,7 @@ def load_context(
         .outerjoin(CommercialSegment, CommercialSegment.id == Company.commercial_segment_id)
         .where(Prospect.id == prospect_id)
     ).one()
-    (civility, first, last, title, role, company_id, name, website, size, segment) = row[:10]
+    (civility, first, last, title, role, company_id, name, legal, website, size, segment) = row[:11]
     categories = (
         list(
             session.scalars(
@@ -233,14 +235,15 @@ def load_context(
         ),
         company=CompanyFacts(
             name=name,
+            legal_name=legal,
             website=website,
             size_label=size,
             segment=segment,
             activity_categories=tuple(categories),
-            project_done_with_circoe=row[10],
-            project_type=row[11],
-            circoe_references=row[12],
-            client_approach=row[13],
+            project_done_with_circoe=row[11],
+            project_type=row[12],
+            circoe_references=row[13],
+            client_approach=row[14],
         ),
         previous_messages=tuple(previous),
         notes=tuple(
@@ -260,6 +263,7 @@ def load_context(
         ),
         instruction=instruction,
         booking_url=booking_url,
+        initial_prompt=initial_prompt,
     )
 
 
@@ -273,6 +277,7 @@ def prepare(
     booking_url: str | None,
     score_config: ScoreConfig | None = None,
     limits: ContextLimits | None = None,
+    initial_prompt: str | None = None,
 ) -> MailPrompt:
     """The refusals before any AI call, then the prompt. Reads only (no lock is taken)."""
     if actor.type is not ActorType.HUMAN or not actor.id:
@@ -296,6 +301,7 @@ def prepare(
             booking_url=booking_url,
             score_config=score_config,
             limits=limits,
+            initial_prompt=initial_prompt,
         )
     )
 

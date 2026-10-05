@@ -26,6 +26,7 @@ from app.services.mail_generation.openai_client import (
     validate_output,
 )
 from app.services.mail_generation.prompt import (
+    DEFAULT_INITIAL_PROMPT,
     PROMPT_VERSION,
     CompanyFacts,
     CurrentVersion,
@@ -39,6 +40,7 @@ from app.services.mail_generation.prompt import (
     build_input,
     build_instructions,
     build_prompt,
+    render_client_card,
 )
 
 KEY = "sk-test-SECRET-never-logged"
@@ -85,6 +87,7 @@ def test_missing_data_is_said_never_guessed() -> None:
 
     assert "None" not in sparse and "null" not in sparse
     assert "Fonction :" not in sparse and "Site web :" not in sparse and "Civilité :" not in sparse
+    assert "Notes Circoe" not in sparse
     assert (
         "Informations non disponibles (ne pas les deviner) : fonction, contexte d’activité de "
         "l’entreprise." in sparse
@@ -98,14 +101,16 @@ def test_the_input_lists_the_facts_in_order() -> None:
         [
             "Étape : Contact",
             "",
-            "Prospect :",
+            "Fiche client",
+            "",
+            "Contact :",
             "- Civilité : Mme",
             "- Prénom : Claire",
             "- Nom : Martin",
             "- Fonction : Directrice des opérations",
             "- Rôle : Direction",
             "",
-            "Entreprise :",
+            "Société :",
             "- Nom : Synthetic Co",
             "- Site web : https://synthetic.test",
             "- Activité : Logistique",
@@ -124,6 +129,7 @@ def test_the_mail_context_contract_is_stable() -> None:
         "current_version",
         "instruction",
         "booking_url",
+        "initial_prompt",
     ]
     assert [f.name for f in dataclasses.fields(NoteFact)] == [
         "fact_text",
@@ -207,6 +213,62 @@ def test_instructions_keep_the_score_internal_and_the_facts_prudent() -> None:
     assert "ne cite un fait que s’il est fourni" in text
     assert "n’évoque jamais de fait privé" in text
     assert "mentionne jamais le score" in text
+
+
+def test_the_initial_prompt_comes_first_and_defaults_to_the_built_in_brief() -> None:
+    default = build_instructions(ContactMessageStep.CONTACT, None)
+    custom = build_instructions(ContactMessageStep.CONTACT, None, "  Tu écris pour Circoe.  ")
+
+    assert default.startswith(DEFAULT_INITIAL_PROMPT)
+    assert custom.startswith("Tu écris pour Circoe.\n\nMessage à rédiger")
+    assert DEFAULT_INITIAL_PROMPT not in custom
+    # The mandatory rules follow whatever the brief says.
+    assert "N’invente aucun signal" in custom and "Réponds uniquement avec l’objet JSON" in custom
+    assert build_instructions(ContactMessageStep.CONTACT, None, "   ").startswith(
+        DEFAULT_INITIAL_PROMPT
+    )
+    prompt = build_prompt(context(initial_prompt="Brief du test."))
+    assert prompt.instructions.startswith("Brief du test.")
+
+
+def test_the_client_card_groups_the_person_the_company_and_the_circoe_notes() -> None:
+    card = render_client_card(
+        ProspectFacts("Mme", "Claire", "Martin", "Directrice des opérations", "Direction"),
+        CompanyFacts(
+            name="Synthetic Co",
+            legal_name="SYNTHETIC COMPANY SAS",
+            size_label="50-249",
+            segment="Commissionnaire",
+            activity_categories=("Logistique", " Transport "),
+            project_done_with_circoe="Agent de suivi des litiges",
+            client_approach="Rendez-vous en visio",
+        ),
+    )
+
+    assert card == [
+        "Fiche client",
+        "",
+        "Contact :",
+        "- Civilité : Mme",
+        "- Prénom : Claire",
+        "- Nom : Martin",
+        "- Fonction : Directrice des opérations",
+        "- Rôle : Direction",
+        "",
+        "Société :",
+        "- Nom : Synthetic Co",
+        "- Raison sociale : SYNTHETIC COMPANY SAS",
+        "- Taille : 50-249",
+        "- Segment : Commissionnaire",
+        "- Activité : Logistique, Transport",
+        "",
+        "Notes Circoe (saisies dans VIPER) :",
+        "- Projet déjà réalisé avec Circoe : Agent de suivi des litiges",
+        "- Approche client : Rendez-vous en visio",
+    ]
+    # The legal name is dropped when it only repeats the name.
+    same = render_client_card(ProspectFacts(), CompanyFacts(name="Acme", legal_name=" ACME "))
+    assert "Raison sociale" not in "\n".join(same)
 
 
 def test_instruction_and_current_version_for_a_regeneration() -> None:

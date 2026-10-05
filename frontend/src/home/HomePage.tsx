@@ -41,6 +41,8 @@ interface Kpi {
   href: string
   // A non-zero count asks for work (verification, due contacts): its glyph takes the warning colour.
   attention?: boolean
+  // The few figures that ask for action today: they get the hero treatment (large, tinted, lit).
+  focus?: 'due' | 'go'
 }
 
 const ATTENTION: readonly Segment[] = [
@@ -54,6 +56,8 @@ const ATTENTION: readonly Segment[] = [
 
 // Every prospect count is a Prospection segment: the card opens Prospection on it, where the counter shows the same
 // number (same API semantics).
+const FOCUS: Partial<Record<Segment, 'due' | 'go'>> = { due: 'due', to_contact: 'go', responses: 'go' }
+
 function segmentKpi(data: HomeData, segment: Segment, label = SEGMENT_INFO[segment].label): Kpi {
   const { hint, icon } = SEGMENT_INFO[segment]
   return {
@@ -63,13 +67,20 @@ function segmentKpi(data: HomeData, segment: Segment, label = SEGMENT_INFO[segme
     count: data.counts[segment],
     href: prospectionHref({ segment }),
     attention: ATTENTION.includes(segment),
+    focus: FOCUS[segment],
   }
 }
 
-function KpiCard({ label, hint, icon: Icon, count, href, attention = false }: Kpi) {
+function KpiCard({ label, hint, icon: Icon, count, href, attention = false, focus }: Kpi) {
+  const classes = [
+    'kpi-card',
+    attention && count > 0 && 'kpi-card--attention',
+    focus && count > 0 && `kpi-card--${focus}`,
+    count === 0 && 'kpi-card--zero',
+  ]
   return (
     <li>
-      <Link to={href} className={`kpi-card${attention && count > 0 ? ' kpi-card--attention' : ''}`} title={hint}>
+      <Link to={href} className={classes.filter(Boolean).join(' ')} title={hint}>
         <span className="kpi-card__label">
           <Icon size={14} />
           {label}
@@ -80,9 +91,9 @@ function KpiCard({ label, hint, icon: Icon, count, href, attention = false }: Kp
   )
 }
 
-function KpiGroup({ id, title, kpis }: { id: string; title: string; kpis: Kpi[] }) {
+function KpiGroup({ id, title, kpis, hero = false }: { id: string; title: string; kpis: Kpi[]; hero?: boolean }) {
   return (
-    <div className="kpi-group">
+    <div className={`kpi-group${hero ? ' kpi-group--hero' : ''}`}>
       <h3 id={id} className="kpi-group__title eyebrow">
         {title}
       </h3>
@@ -111,12 +122,21 @@ function Overview({ data }: { data: HomeData }) {
   const verification = (
     ['never_verified', 'needs_recheck', 'email_missing', 'email_invalid', 'email_unverified'] as const
   ).map((segment) => segmentKpi(data, segment))
-  const contact = (['to_contact', 'due', 'contacted', 'no_response', 'responses', 'appointments'] as const).map(
+  const contact = (['due', 'to_contact', 'responses', 'appointments', 'contacted', 'no_response'] as const).map(
     (segment) => segmentKpi(data, segment),
   )
   return (
     <>
-      <section className="home-section" aria-labelledby="home-base-title">
+      <section className="home-section" aria-labelledby="home-contact-title">
+        <h2 id="home-contact-title" className="home-section__title">
+          Activité de contact
+        </h2>
+        <KpiGroup id="home-kpi-contact" title="Suivi de contact" kpis={contact} hero />
+      </section>
+
+      <NextActions actions={data.next_actions} />
+
+      <section className="home-section home-section--strip" aria-labelledby="home-base-title">
         <h2 id="home-base-title" className="home-section__title">
           État de la base
         </h2>
@@ -129,14 +149,6 @@ function Overview({ data }: { data: HomeData }) {
         </p>
       </section>
 
-      <section className="home-section" aria-labelledby="home-contact-title">
-        <h2 id="home-contact-title" className="home-section__title">
-          Activité de contact
-        </h2>
-        <KpiGroup id="home-kpi-contact" title="Suivi de contact" kpis={contact} />
-      </section>
-
-      <NextActions actions={data.next_actions} />
     </>
   )
 }

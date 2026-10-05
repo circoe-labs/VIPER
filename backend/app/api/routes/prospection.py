@@ -25,15 +25,28 @@ from app.models.enums import (
 )
 from app.services.prospection import query
 from app.services.prospection.query import ProspectFilters, ProspectSort
-from app.services.prospection.segments import EmailState, Segment, SegmentContext, VerificationState
+from app.services.prospection.segments import (
+    EmailState,
+    Review,
+    Segment,
+    SegmentContext,
+    VerificationState,
+)
 
 router = APIRouter(prefix="/prospection", tags=["prospection"])
 
 OrNone = Literal["none"]
 
 
+class ReviewCountOut(BaseModel):
+    total: int
+    # Arrived since Monday (business time): verified, added, or set aside this week.
+    week: int
+
+
 class CountersOut(BaseModel):
     counts: dict[Segment, int]
+    reviews: dict[Review, ReviewCountOut]
     # The business day "due" compares with (Europe/Paris).
     today: date
     # `VIPER_VERIFICATION_STALE_DAYS`; null = no age-based re-check configured.
@@ -52,6 +65,7 @@ class ProspectRowOut(BaseModel):
     activity_status: ActivityStatus
     employment_verified_at: datetime | None
     verification_state: VerificationState
+    review: Review
     primary_email: str | None
     primary_email_status: VerificationStatus | None
     email_state: EmailState
@@ -117,6 +131,7 @@ def prospects(
     settings: SettingsDep,
     filters: Filters,
     segment: Segment = Segment.ALL,
+    review: Review | None = None,
     sort: ProspectSort = ProspectSort.NAME,
     limit: Annotated[int, Query(ge=1, le=query.LIST_MAX_LIMIT)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
@@ -127,6 +142,7 @@ def prospects(
         filters,
         segment_context(settings),
         segment=segment,
+        review=review,
         sort=sort,
         limit=limit,
         offset=offset,

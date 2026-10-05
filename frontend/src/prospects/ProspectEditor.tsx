@@ -3,7 +3,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { useCompany } from '../api/companies'
 import { type Prospect, useProspect, useProspectMutations } from '../api/prospects'
 import { businessToday } from '../lib/isoWeek'
-import { civilityLabel, personName, SEGMENT_INFO } from '../prospection/labels'
+import { civilityLabel, personName, selectionShortLabel } from '../prospection/labels'
 import type { ProspectEditorProps } from '../prospection/prospectEditor'
 import { Button } from '../ui/Button'
 import { Drawer, Modal } from '../ui/Dialog'
@@ -315,7 +315,7 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
   const description = isNew
     ? 'Saisie manuelle : la provenance est enregistrée avec la fiche.'
     : position
-      ? `Prospect ${String(position)} sur ${String(queue.total)} · ${SEGMENT_INFO[queue.criteria.segment].label}`
+      ? `Prospect ${String(position)} sur ${String(queue.total)} · ${selectionShortLabel(queue.criteria)}`
       : 'Chaque enregistrement est tracé dans l’historique.'
 
   return (
@@ -336,7 +336,7 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
                 notice={notice}
                 errorCount={submitted ? Object.keys(errors).length : 0}
                 refusal={refusal}
-                segment={SEGMENT_INFO[queue.criteria.segment].label}
+                segment={selectionShortLabel(queue.criteria)}
               />
               {refusal?.conflict && (
                 <Button size="sm" icon={RefreshIcon} onClick={() => void reload()}>

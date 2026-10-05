@@ -221,6 +221,7 @@ const SETTING_LABELS: Record<string, string> = {
   openai_timeout_ms: 'délai d’attente',
   openai_max_retries: 'nouvelles tentatives',
   contact_booking_url: 'lien de prise de rendez-vous',
+  contact_initial_prompt: 'prompt initial',
   default_outbound_email: 'adresse « De » par défaut',
   toolbox_mail_enabled: 'activation de la Toolbox',
   toolbox_mcp_url: 'adresse du serveur CIRCOE Toolbox',

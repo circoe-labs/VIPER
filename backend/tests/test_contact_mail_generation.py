@@ -41,7 +41,7 @@ from app.services.contact_mail_generation import ContextLimits, load_context
 from app.services.contact_messages import MessageEdit
 from app.services.errors import MailGenerationError
 from app.services.mail_generation.openai_client import GeneratedMail, generation_error
-from app.services.mail_generation.prompt import PROMPT_VERSION, MailPrompt
+from app.services.mail_generation.prompt import DEFAULT_INITIAL_PROMPT, PROMPT_VERSION, MailPrompt
 from tests.builders import OPERATOR, add_company, add_email, add_phone, add_prospect, add_role
 from tests.test_contact_messages_api import SENDER, messages, ok, refused
 
@@ -199,6 +199,26 @@ def test_a_generation_creates_a_draft_and_changes_no_state(
     ):
         assert fact in prompt.input
     assert f"recopié exactement : {BOOKING}." in prompt.instructions
+    # The client card, and the initial prompt first (the built-in brief while none is set).
+    assert prompt.input.startswith("Étape : Contact\n\nFiche client\n\nContact :")
+    assert prompt.instructions.startswith(DEFAULT_INITIAL_PROMPT)
+
+
+def test_the_saved_initial_prompt_is_given_first_to_the_model(
+    ai_app: FastAPI,
+    client: TestClient,
+    prospect: uuid.UUID,
+    fake: FakeGenerator,
+) -> None:
+    ai_app.state.settings = ai_app.state.settings.model_copy(
+        update={"contact_initial_prompt": "Brief personnalisé de Circoe."}
+    )
+
+    ok(generate(client, prospect), 201)
+
+    [prompt] = fake.prompts
+    assert prompt.instructions.startswith("Brief personnalisé de Circoe.\n\nMessage à rédiger")
+    assert DEFAULT_INITIAL_PROMPT not in prompt.instructions
 
 
 def test_audit_and_history_say_the_ai_wrote_a_draft_never_what(

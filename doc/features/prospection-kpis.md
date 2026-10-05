@@ -54,6 +54,20 @@ Row states come from the same predicates (never recomputed in the browser): `ver
 → `stale` → `channels_reset` → `verified` (first match); `email_state` = `missing` / `invalid` / `verified` /
 `unverified`; `due` = the `due` predicate.
 
+## Panneaux de revue (Vérifiés / À vérifier / Ignorés)
+
+La page Prospection n'affiche plus que trois panneaux, **exclusifs et exhaustifs** (`segments.Review`, `review_predicate`) :
+
+| Panneau | Définition | « +N cette semaine » |
+|---|---|---|
+| `ignored` | État de suivi `ignored` (prioritaire). | Passés à `ignored` depuis lundi (historique des états). |
+| `verified` | Emploi vérifié et à jour (ni périmé ni coordonnée remise à vérifier) **et** e-mail principal vérifié. | Rendus complets depuis lundi : `greatest(employment_verified_at, e-mail.last_verified_at)` ≥ lundi. |
+| `to_verify` | Tout le reste. | Prospects créés depuis lundi. |
+
+« Lundi » = lundi 00:00 Europe/Paris de la semaine ISO courante (`SegmentContext.week_start`). `GET /counters` renvoie en plus
+`reviews: {verified|to_verify|ignored: {total, week}}` ; `GET /prospects` accepte `review=` (cumulable avec `segment`) et chaque ligne porte
+`review`. Les segments restent valides dans l'API et les liens de Home (`?segment=due`), mais ne sont plus des cartes de la page.
+
 ## API — `/api/prospection` (session required, GET only)
 
 Both endpoints take the same **criteria**, so a counter always equals the total of the list opened with its segment:

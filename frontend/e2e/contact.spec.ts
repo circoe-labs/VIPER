@@ -232,6 +232,7 @@ test('AI drafting: generate with a « consigne », regenerate after validation, 
   const mine = received.filter((request) => request.input.includes(`Redac${suffix}`))
   expect(mine).toHaveLength(1)
   expect(mine[0]?.input).toContain('Étape : Contact')
+  expect(mine[0]?.input).toContain('Fiche client')
   expect(mine[0]?.input).not.toContain(email)
   expect(mine[0]?.store).toBe(false)
 

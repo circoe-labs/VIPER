@@ -6,6 +6,7 @@ import { useToolboxStatus } from '../api/toolbox'
 import { StatusBadge } from '../ui/Badge'
 import { PageHeader } from '../ui/PageHeader'
 import { ConnectionsSection } from './ConnectionsSection'
+import { PromptSection } from './PromptSection'
 import { ReferentSection } from './ReferentSection'
 import { TaxonomySection, type TaxonomySectionConfig } from './TaxonomySection'
 import { STATE_BADGES } from './toolboxCopy'
@@ -51,16 +52,20 @@ const TAXONOMY_SECTIONS: TaxonomySectionConfig[] = [
 const REFERENTS_PATH = 'referents'
 // Also the OAuth return page of the CIRCOE Toolbox (`VIPER_TOOLBOX_OAUTH_REDIRECT_URI`, Contact port S6).
 const CONNECTIONS_PATH = 'connections'
+// The brief given to the AI before it drafts an e-mail (Contact port, AI drafting).
+const PROMPT_PATH = 'prompt'
 
 // Paramètres (Task 06): the four administrable lists behind the record editors' pickers, then the external
 // connections (S6). `/settings` shows the first section; `/settings/<section>` deep-links to one.
 export function SettingsPage() {
   const { section = TAXONOMY_SECTIONS[0]?.kind } = useParams()
   const taxonomy = TAXONOMY_SECTIONS.find((config) => config.kind === section)
-  if (!taxonomy && section !== REFERENTS_PATH && section !== CONNECTIONS_PATH) {
+  if (!taxonomy && section !== REFERENTS_PATH && section !== CONNECTIONS_PATH && section !== PROMPT_PATH) {
     return <Navigate to="/settings" replace />
   }
-  const panelLabel = taxonomy?.title ?? (section === CONNECTIONS_PATH ? 'Connexions' : 'Référents internes')
+  const panelLabel =
+    taxonomy?.title ??
+    (section === CONNECTIONS_PATH ? 'Connexions' : section === PROMPT_PATH ? 'Prompt initial' : 'Référents internes')
 
   return (
     <>
@@ -80,12 +85,17 @@ export function SettingsPage() {
         <SectionLink path={CONNECTIONS_PATH} title="Connexions" current={section === CONNECTIONS_PATH}>
           <ConnectionState />
         </SectionLink>
+        <SectionLink path={PROMPT_PATH} title="Prompt initial" current={section === PROMPT_PATH}>
+          {null}
+        </SectionLink>
       </nav>
       <section className="settings-panel" aria-label={panelLabel}>
         {taxonomy ? (
           <TaxonomySection key={taxonomy.kind} config={taxonomy} />
         ) : section === CONNECTIONS_PATH ? (
           <ConnectionsSection />
+        ) : section === PROMPT_PATH ? (
+          <PromptSection />
         ) : (
           <ReferentSection />
         )}

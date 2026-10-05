@@ -167,6 +167,7 @@ export function ContactPage() {
                   icon={icon}
                   count={dashboard.data?.counts[counter]}
                   pressed={view.counter === counter}
+                  tone={counter === 'to_handle' ? 'go' : undefined}
                   onSelect={() => {
                     select(counter)
                   }}

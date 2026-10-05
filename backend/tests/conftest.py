@@ -33,9 +33,11 @@ from tests.support import (
 # write the person's `~/.viper/runtime-settings.json`. Every `Settings()` of the test session
 # (the CLI, `create_app` without settings…) points at a fresh temporary file instead; the `app`
 # fixture gives each test its own.
-os.environ["VIPER_RUNTIME_SETTINGS_PATH"] = str(
-    Path(tempfile.mkdtemp(prefix="viper-tests-")) / "runtime-settings.json"
-)
+_TEST_PRIVATE_DIR = Path(tempfile.mkdtemp(prefix="viper-tests-"))
+os.environ["VIPER_RUNTIME_SETTINGS_PATH"] = str(_TEST_PRIVATE_DIR / "runtime-settings.json")
+# Same for the CIRCOE Toolbox OAuth token (`~/.viper/toolbox-oauth.json`): a test that changes the
+# Toolbox address forgets the token, which would sign the person out of the real Toolbox.
+os.environ["VIPER_TOOLBOX_TOKEN_STORE_PATH"] = str(_TEST_PRIVATE_DIR / "toolbox-oauth.json")
 
 
 @pytest.fixture(autouse=True)
@@ -104,6 +106,7 @@ def app(test_database_url: str, session_factory: sessionmaker[Session], tmp_path
             # Never the real Toolbox, even when a test turns the integration on (S8).
             toolbox_mcp_url=MCP_URL,
             runtime_settings_path=tmp_path / "runtime-settings.json",
+            toolbox_token_store_path=tmp_path / "toolbox-oauth.json",
         )
     )
     app.state.session_factory = session_factory

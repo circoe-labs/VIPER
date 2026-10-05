@@ -5,6 +5,11 @@ Port of the reference `src/server/mailGenerationPrompt.ts`, same text: any chang
 of the data sent must bump `PROMPT_VERSION` (stored in
 `contact_messages.generation_prompt_version`).
 
+The instructions start with the **initial prompt** (the task brief, editable in Paramètres >
+Prompt initial; `DEFAULT_INITIAL_PROMPT` when none is set): it is always given to the model before
+anything else. The user input is the **client card** (`render_client_card`), then the earlier
+messages and the person's instruction.
+
 Data sent (minimal, no contact details): civility / first name / last name, exact job title,
 role, company (name, website, size, segment, activity categories, the Circoe context already
 typed in VIPER: project done with Circoe, project type, Circoe references, client approach), the
@@ -28,6 +33,7 @@ from app.models.enums import ContactMessageStep
 from app.services.contact_workflow import MESSAGE_STEP_LABELS
 
 PROMPT_VERSION = "contact-mail-fr-2026-10-v3"
+MAX_INITIAL_PROMPT_LENGTH = 8000
 MAX_INSTRUCTION_LENGTH = 1000
 
 
@@ -43,6 +49,7 @@ class ProspectFacts:
 @dataclass(frozen=True, slots=True)
 class CompanyFacts:
     name: str | None = None
+    legal_name: str | None = None
     website: str | None = None
     size_label: str | None = None
     segment: str | None = None
@@ -116,6 +123,8 @@ class MailContext:
     instruction: str | None = None
     # `VIPER_CONTACT_BOOKING_URL`; None = no link at all.
     booking_url: str | None = None
+    # The task brief of Paramètres > Prompt initial; None = `DEFAULT_INITIAL_PROMPT`.
+    initial_prompt: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,6 +147,21 @@ STEP_PURPOSE = {
 }
 
 BAND_LABELS = {"red": "rouge", "yellow": "jaune", "green": "vert"}
+# The brief the model always receives first: who it is, who it writes to and why, how the three
+# steps fit together (handoff docs/07). Editable in Paramètres > Prompt initial; the mandatory
+# rules below it (facts only, format, link, JSON) are not editable.
+DEFAULT_INITIAL_PROMPT = (
+    "Tu es l’assistant de prospection de Circoe, intégrateur d’intelligence artificielle et "
+    "d’agents spécialisés. Tu rédiges, en français, des emails de prospection B2B qui "
+    "proposent un premier échange (prise de rendez-vous) à un contact professionnel.\n"
+    "Chaque email est envoyé à une seule personne, dont la fiche client t’est fournie : "
+    "adapte le message à sa fonction et à son entreprise, avec des mots simples et concrets. "
+    "L’objectif est d’obtenir une réponse ou un rendez-vous, pas de tout expliquer.\n"
+    "La séquence compte trois messages : un premier email de prise de contact, une première "
+    "relance (R1) puis une seconde et dernière relance (R2). Tu rédiges un seul de ces "
+    "messages à la fois ; l’étape te sera indiquée. Un humain relit ton texte avant tout "
+    "envoi."
+)
 
 _SPACES = re.compile(r"\s+")
 
@@ -150,7 +174,9 @@ def _block(value: str | None) -> str:
     return (value or "").replace("\r\n", "\n").strip()
 
 
-def build_instructions(step: ContactMessageStep, booking_url: str | None) -> str:
+def build_instructions(
+    step: ContactMessageStep, booking_url: str | None, initial_prompt: str | None = None
+) -> str:
     booking = (
         "- Tu peux proposer un échange via ce lien de prise de rendez-vous, recopié exactement : "
         f"{booking_url}. N’ajoute aucun autre lien."
@@ -160,8 +186,8 @@ def build_instructions(step: ContactMessageStep, booking_url: str | None) -> str
     )
     return "\n".join(
         [
-            "Tu rédiges, en français, un email de prospection B2B pour Circoe, intégrateur "
-            "d’intelligence artificielle et d’agents spécialisés.",
+            _block(initial_prompt) or DEFAULT_INITIAL_PROMPT,
+            "",
             f"Message à rédiger : {STEP_PURPOSE[step]}.",
             "",
             "Règles impératives :",
@@ -254,32 +280,60 @@ def _score_section(score: ScoreFacts | None) -> list[str]:
     return lines
 
 
-def build_input(context: MailContext) -> str:
-    lines: list[str] = []
+def render_client_card(prospect: ProspectFacts, company: CompanyFacts) -> list[str]:
+    """The « fiche client » given to the model: what VIPER knows of the person and the company,
+    reformatted as labelled lines (each only when filled), then what is missing so the model does
+    not guess it. Never an address, a phone, a SIREN or a tracking state. The notes and the score
+    follow it as their own sections (`build_input`)."""
 
-    def fact(label: str, value: str | None) -> None:
-        cleaned = _clean(value)
-        if cleaned:
-            lines.append(f"- {label} : {cleaned}")
+    def section(title: str, facts: Sequence[tuple[str, str | None]]) -> list[str]:
+        filled = [(label, _clean(value)) for label, value in facts]
+        body = [f"- {label} : {value}" for label, value in filled if value]
+        return [f"{title} :", *body] if body else []
 
-    prospect, company = context.prospect, context.company
-    lines += [f"Étape : {MESSAGE_STEP_LABELS[context.step]}", "", "Prospect :"]
-    fact("Civilité", prospect.civility)
-    fact("Prénom", prospect.first_name)
-    fact("Nom", prospect.last_name)
-    fact("Fonction", prospect.job_title)
-    fact("Rôle", prospect.role)
-    lines += ["", "Entreprise :"]
-    fact("Nom", company.name)
-    fact("Site web", company.website)
-    fact("Taille", company.size_label)
-    fact("Segment", company.segment)
+    legal = _clean(company.legal_name)
     categories = [_clean(category) for category in company.activity_categories]
-    fact("Activité", ", ".join(category for category in categories if category))
-    fact("Projet déjà réalisé avec Circoe", company.project_done_with_circoe)
-    fact("Type de projet", company.project_type)
-    fact("Références Circoe pertinentes", company.circoe_references)
-    fact("Approche client", company.client_approach)
+    blocks = [
+        section(
+            "Contact",
+            [
+                ("Civilité", prospect.civility),
+                ("Prénom", prospect.first_name),
+                ("Nom", prospect.last_name),
+                ("Fonction", prospect.job_title),
+                ("Rôle", prospect.role),
+            ],
+        ),
+        section(
+            "Société",
+            [
+                ("Nom", company.name),
+                # Only when it adds something to the name.
+                (
+                    "Raison sociale",
+                    legal if legal.casefold() != _clean(company.name).casefold() else "",
+                ),
+                ("Site web", company.website),
+                ("Taille", company.size_label),
+                ("Segment", company.segment),
+                ("Activité", ", ".join(category for category in categories if category)),
+            ],
+        ),
+        section(
+            "Notes Circoe (saisies dans VIPER)",
+            [
+                ("Projet déjà réalisé avec Circoe", company.project_done_with_circoe),
+                ("Type de projet", company.project_type),
+                ("Références Circoe pertinentes", company.circoe_references),
+                ("Approche client", company.client_approach),
+            ],
+        ),
+    ]
+    lines = ["Fiche client", ""]
+    for block in (block for block in blocks if block):
+        lines += [*block, ""]
+    if lines[-1] == "":
+        lines.pop()
     if not any(line.startswith("- ") for line in lines):
         lines.append("(aucune donnée disponible)")
     missing = [
@@ -297,6 +351,12 @@ def build_input(context: MailContext) -> str:
     ]
     if missing:
         lines += ["", f"Informations non disponibles (ne pas les deviner) : {', '.join(missing)}."]
+    return lines
+
+
+def build_input(context: MailContext) -> str:
+    lines = [f"Étape : {MESSAGE_STEP_LABELS[context.step]}", ""]
+    lines += render_client_card(context.prospect, context.company)
     lines += _notes_section(context.notes)
     lines += _score_section(context.prospect_score)
     for previous in context.previous_messages:
@@ -328,6 +388,6 @@ def build_input(context: MailContext) -> str:
 
 def build_prompt(context: MailContext) -> MailPrompt:
     return MailPrompt(
-        instructions=build_instructions(context.step, context.booking_url),
+        instructions=build_instructions(context.step, context.booking_url, context.initial_prompt),
         input=build_input(context),
     )

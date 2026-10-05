@@ -42,6 +42,20 @@ def put(client: TestClient, **changes: Any) -> Any:
     return client.put(URL, json={"version": version, **changes})
 
 
+def test_the_initial_prompt_is_saved_applied_and_reset(client: TestClient) -> None:
+    body = ok(put(client, contact_initial_prompt="  Brief du test.  "))
+    field = body["fields"]["contact_initial_prompt"]
+    assert (field["value"], field["source"]) == ("Brief du test.", "ui")
+    assert client.app.state.settings.contact_initial_prompt == "Brief du test."  # type: ignore[attr-defined]
+
+    too_long = put(client, contact_initial_prompt="x" * 8001)
+    assert too_long.status_code == 422
+
+    body = ok(put(client, contact_initial_prompt=None))
+    assert body["fields"]["contact_initial_prompt"]["source"] == "default"
+    assert client.app.state.settings.contact_initial_prompt is None  # type: ignore[attr-defined]
+
+
 def runtime(tmp_path: Path, **values: Any) -> RuntimeSettings:
     return RuntimeSettings(Settings(runtime_settings_path=tmp_path / "rs.json", **values))
 
@@ -179,6 +193,7 @@ def test_the_api_reports_values_sources_and_fallbacks(client: TestClient) -> Non
         "openai_timeout_ms",
         "openai_max_retries",
         "contact_booking_url",
+        "contact_initial_prompt",
         "default_outbound_email",
         "toolbox_mail_enabled",
         "toolbox_mcp_url",
@@ -187,6 +202,9 @@ def test_the_api_reports_values_sources_and_fallbacks(client: TestClient) -> Non
         "contact_dispatch_interval_ms",
         "infomaniak_send_allowlist",
     }
+
+    assert body["initial_prompt_default"].startswith("Tu es l’assistant de prospection de Circoe")
+    assert body["fields"]["contact_initial_prompt"]["value"] is None
 
     body = ok(put(client, contact_booking_url="https://rdv.exemple.example/a"))
     booking = body["fields"]["contact_booking_url"]
@@ -768,3 +786,12 @@ def test_disconnecting_while_disabled_deletes_the_token(
     ok(client.post(f"{TOOLBOX}/forget"))
     ok(put(client, toolbox_mail_enabled=True))
     assert ok(client.get(TOOLBOX))["state"] == "disconnected"
+
+
+def test_the_test_session_never_points_at_the_persons_private_files() -> None:
+    """A test that forgets the Toolbox token or saves a setting must not touch `~/.viper`."""
+    home_dir = Path.home() / ".viper"
+    settings = Settings()
+
+    assert home_dir not in settings.toolbox_token_store.parents
+    assert home_dir not in settings.runtime_settings_file.parents

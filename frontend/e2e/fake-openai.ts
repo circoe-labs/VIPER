@@ -39,9 +39,9 @@ function fact(input: string, section: string, label: string): string | null {
 }
 
 function draft(instructions: string, input: string) {
-  const company = fact(input, 'Entreprise', 'Nom') ?? 'votre entreprise'
-  const civility = fact(input, 'Prospect', 'Civilité')
-  const lastName = fact(input, 'Prospect', 'Nom')
+  const company = fact(input, 'Société', 'Nom') ?? 'votre entreprise'
+  const civility = fact(input, 'Contact', 'Civilité')
+  const lastName = fact(input, 'Contact', 'Nom')
   const salutation =
     civility && lastName ? `Bonjour ${civility === 'Mme' ? 'Madame' : 'Monsieur'} ${lastName},` : 'Bonjour,'
   const booking = /recopié exactement : (\S+)\. /.exec(instructions)?.[1]

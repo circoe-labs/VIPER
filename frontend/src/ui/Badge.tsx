@@ -25,14 +25,16 @@ interface StatusBadgeProps {
   tone: StatusTone
   children: ReactNode
   icon?: IconComponent
+  // The few statuses that ask for action (due, answered, forbidden): a solid pill instead of the quiet default.
+  strong?: boolean
 }
 
 // Status indicator (verified, unverified, stale, do-not-contact…). Tones: success = positive/verified (a mint that
 // is deliberately NOT brand green), warning = verification needed, danger = destructive/do-not-contact.
-export function StatusBadge({ tone, children, icon }: StatusBadgeProps) {
+export function StatusBadge({ tone, children, icon, strong = false }: StatusBadgeProps) {
   const Icon = icon ?? TONE_ICONS[tone]
   return (
-    <span className={`badge badge--${tone}`}>
+    <span className={`badge badge--${tone}${strong ? ' badge--strong' : ''}`}>
       <Icon size={14} />
       {children}
     </span>

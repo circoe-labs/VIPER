@@ -48,6 +48,7 @@ from app.models.enums import (
 from app.repositories.taxonomies import label_key
 from app.services.prospection.segments import (
     EmailState,
+    Review,
     Segment,
     SegmentContext,
     VerificationState,
@@ -55,6 +56,9 @@ from app.services.prospection.segments import (
     join_segment_sources,
     predicate,
     primary_email,
+    review_counts,
+    review_predicate,
+    review_state,
     segment_counts,
     verification_state,
 )
@@ -90,8 +94,16 @@ class ProspectFilters:
 
 
 @dataclass(frozen=True, slots=True)
+class ReviewCount:
+    total: int
+    # How many arrived since Monday (business time).
+    week: int
+
+
+@dataclass(frozen=True, slots=True)
 class SegmentCounts:
     counts: dict[Segment, int]
+    reviews: dict[Review, ReviewCount]
     today: date
     stale_threshold_days: int | None
 
@@ -111,6 +123,7 @@ class ProspectRow:
     activity_status: ActivityStatus
     employment_verified_at: datetime | None
     verification_state: VerificationState
+    review: Review
     primary_email: str | None
     primary_email_status: VerificationStatus | None
     email_state: EmailState
@@ -249,13 +262,17 @@ def count_segments(
     session: Session, filters: ProspectFilters, context: SegmentContext
 ) -> SegmentCounts:
     """Every segment's size under `filters`, in one aggregate query."""
-    statement = join_segment_sources(select(*segment_counts(context))).where(
-        *filter_conditions(filters)
-    )
+    statement = join_segment_sources(
+        select(*segment_counts(context), *review_counts(context))
+    ).where(*filter_conditions(filters))
     with whole_base_plan(session):
         row = session.execute(statement).one()._mapping
     return SegmentCounts(
         counts={segment: row[segment.value] for segment in Segment},
+        reviews={
+            review: ReviewCount(total=row[review.value], week=row[f"{review.value}_week"])
+            for review in Review
+        },
         today=context.today,
         stale_threshold_days=context.stale_days,
     )
@@ -270,6 +287,7 @@ def _page_statement(context: SegmentContext) -> Select[Any]:
                 Role.label,
                 Company.display_name,
                 verification_state(context),
+                review_state(context),
                 primary_email.address,
                 primary_email.verification_status,
                 email_state(),
@@ -302,6 +320,7 @@ def list_prospects(
     context: SegmentContext,
     *,
     segment: Segment = Segment.ALL,
+    review: Review | None = None,
     sort: ProspectSort = ProspectSort.NAME,
     limit: int = 50,
     offset: int = 0,
@@ -310,6 +329,8 @@ def list_prospects(
     limit = max(1, min(limit, LIST_MAX_LIMIT))
     offset = max(0, offset)
     where = [*filter_conditions(filters), predicate(segment, context)]
+    if review is not None:
+        where.append(review_predicate(review, context))
     page = _page_statement(context).where(*where).order_by(*_order_by(sort))
     count = join_segment_sources(select(func.count())).where(*where)
     with whole_base_plan(session):
@@ -321,6 +342,7 @@ def list_prospects(
         role_label,
         company_name,
         verification,
+        review_value,
         email,
         email_status,
         email_kind,
@@ -343,6 +365,7 @@ def list_prospects(
                 activity_status=prospect.activity_status,
                 employment_verified_at=prospect.employment_verified_at,
                 verification_state=VerificationState(verification),
+                review=Review(review_value),
                 primary_email=email,
                 primary_email_status=email_status,
                 email_state=EmailState(email_kind),

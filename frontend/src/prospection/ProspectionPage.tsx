@@ -6,7 +6,7 @@ import {
   fetchProspectPage,
   filtersOf,
   PROSPECT_PAGE_SIZE,
-  type Segment,
+  type Review,
   useProspectionCounters,
   useProspectPage,
 } from '../api/prospection'
@@ -27,13 +27,13 @@ import {
 } from '../ui/icons'
 import { PageHeader } from '../ui/PageHeader'
 import { SearchField } from '../ui/SearchField'
-import { CounterCards } from './CounterCards'
-import { DEFAULT_VIEW, hasFilters, parseView, type ProspectionView, serializeView } from './criteria'
-import { SEGMENT_INFO } from './labels'
+import { DEFAULT_VIEW, hasFilters, hasSelection, parseView, type ProspectionView, serializeView } from './criteria'
+import { REVIEW_INFO, SEGMENT_INFO, selectionLabel } from './labels'
 import { ProspectionFilters } from './ProspectionFilters'
 import { ProspectList } from './ProspectList'
 import { useProspectEditor } from './prospectEditor'
 import { createProspectQueue, type ProspectQueue } from './queue'
+import { ReviewPanels } from './ReviewPanels'
 import './prospection.css'
 
 const NUMBER = new Intl.NumberFormat('fr-FR')
@@ -75,7 +75,7 @@ export function ProspectionPage() {
     if (settled === draft && settled !== view.q) update({ q: settled, page: 1 })
   }, [settled, draft, view.q, update])
 
-  const criteria = { ...filtersOf(view), segment: view.segment, sort: view.sort }
+  const criteria = { ...filtersOf(view), segment: view.segment, review: view.review, sort: view.sort }
   const counters = useProspectionCounters(filtersOf(view))
   const list = useProspectPage(criteria, view.page)
   const page = list.data
@@ -101,10 +101,12 @@ export function ProspectionPage() {
   const filtered = hasFilters(view)
   const emptyBase = counters.data?.counts.all === 0 && !filtered
   const last = page ? Math.min(page.offset + page.items.length, page.total) : 0
-  const segment = SEGMENT_INFO[view.segment]
+  const hint = view.review ? REVIEW_INFO[view.review].hint : SEGMENT_INFO[view.segment].hint
+  const heading = selectionLabel(view)
 
-  function selectSegment(next: Segment) {
-    refine({ segment: next })
+  // A panel replaces whatever segment Home's link opened: one reading at a time.
+  function selectReview(next: Review | null) {
+    refine({ review: next, segment: 'all' })
   }
 
   return (
@@ -168,7 +170,7 @@ export function ProspectionPage() {
         />
       ) : (
         <>
-          <CounterCards counters={counters.data} active={view.segment} onSelect={selectSegment} />
+          <ReviewPanels counters={counters.data} active={view.review} onSelect={selectReview} />
 
           <ProspectionFilters
             view={view}
@@ -182,13 +184,13 @@ export function ProspectionPage() {
             <div className="prospection__results-head">
               <div>
                 <h2 id="prospection-results-title" className="prospection__results-title">
-                  {view.segment === 'all' ? 'Tous les prospects' : segment.label}
+                  {heading}
                   {page && <span className="prospection__results-count">{peopleCount(page.total)}</span>}
                   {list.isFetching && <SpinnerIcon size={16} className="btn__spinner" />}
                 </h2>
-                <p className="prospection__results-hint">{segment.hint}</p>
+                <p className="prospection__results-hint">{hint}</p>
               </div>
-              {(filtered || view.segment !== 'all') && (
+              {(filtered || hasSelection(view)) && (
                 <Button
                   size="sm"
                   variant="ghost"
@@ -224,7 +226,7 @@ export function ProspectionPage() {
               <p className="prospection__state">
                 {filtered
                   ? 'Aucun prospect ne correspond à ces critères.'
-                  : `Aucun prospect dans « ${segment.label} » pour l’instant.`}
+                  : `Aucun prospect dans « ${heading} » pour l’instant.`}
               </p>
             )}
             {page && page.items.length > 0 && (

@@ -65,7 +65,7 @@ function list() {
   return screen.getByRole('list', { name: 'Prospects' })
 }
 
-function card(name: RegExp) {
+function panel(name: RegExp) {
   return screen.getByRole('button', { name })
 }
 
@@ -89,46 +89,69 @@ describe('Prospection page', () => {
     expect(await screen.findByRole('dialog', { name: 'Nouveau prospect' })).toBeInTheDocument()
   })
 
-  it('shows every counter and filters the list with a click, in the URL', async () => {
-    const api = stubProspectionApi({ prospects: people() })
+  it('shows the three panels with their week figures and filters the list with a click, in the URL', async () => {
+    const api = stubProspectionApi({
+      prospects: [
+        prospect('Vera', 'Verifiee', { review: 'verified', verification_state: 'verified', email_state: 'verified' }, [], true),
+        prospect('Victor', 'Verifie', { review: 'verified', verification_state: 'verified', email_state: 'verified' }),
+        prospect('Alix', 'Averifier', {}, [], true),
+        prospect('Igor', 'Ignore', { review: 'ignored', tracking_status: 'ignored' }),
+      ],
+    })
     const { router } = renderApp('/prospection')
 
+    // « 2 dont +1 cette semaine »: the size and what arrived since Monday.
     await waitFor(() => {
-      expect(card(/^Tous\s*3/)).toHaveAttribute('aria-pressed', 'true')
+      expect(panel(/^Vérifiés : 2, dont 1 cette semaine/)).toBeInTheDocument()
     })
-    expect(card(/^Échus\s*1/)).toHaveAttribute('aria-pressed', 'false')
-    expect(card(/^Opposition\s*1/)).toBeInTheDocument()
-    expect(card(/^Sans réponse\s*1/)).toBeInTheDocument()
-    expect(within(list()).getAllByRole('listitem')).toHaveLength(3)
+    expect(panel(/^À vérifier : 1, dont 1 cette semaine/)).toHaveAttribute('aria-pressed', 'false')
+    expect(panel(/^Ignorés : 1, dont 0 cette semaine/)).toBeInTheDocument()
+    expect(screen.getByText(/Semaine 37/)).toBeInTheDocument()
+    expect(within(list()).getAllByRole('listitem')).toHaveLength(4)
 
-    await userEvent.click(card(/^Échus/))
+    await userEvent.click(panel(/^Vérifiés/))
 
-    expect(router.state.location.search).toBe('?segment=due')
-    expect(card(/^Échus/)).toHaveAttribute('aria-pressed', 'true')
-    expect(within(card(/^Échus/)).getByText('(affiché)')).toBeInTheDocument()
+    expect(router.state.location.search).toBe('?review=verified')
+    expect(panel(/^Vérifiés/)).toHaveAttribute('aria-pressed', 'true')
     await waitFor(() => {
-      expect(within(list()).getAllByRole('listitem')).toHaveLength(1)
+      expect(within(list()).getAllByRole('listitem')).toHaveLength(2)
     })
-    expect(screen.getByRole('heading', { level: 2, name: /Échus\s*1 prospect/ })).toBeInTheDocument()
-    expect(lastParams(api.requests, PROSPECTS).get('segment')).toBe('due')
-    // The counters keep counting every segment under the same criteria.
-    expect(lastParams(api.requests, COUNTERS).has('segment')).toBe(false)
+    expect(screen.getByRole('heading', { level: 2, name: /Prospects vérifiés\s*2 prospects/ })).toBeInTheDocument()
+    expect(lastParams(api.requests, PROSPECTS).get('review')).toBe('verified')
+    // The panels keep counting every review under the same criteria.
+    expect(lastParams(api.requests, COUNTERS).has('review')).toBe(false)
+
+    // Pressed again: everyone.
+    await userEvent.click(panel(/^Vérifiés/))
+    expect(router.state.location.search).toBe('')
   })
 
-  it('searches: counters and list follow the same criteria, kept in the URL', async () => {
+  it('still opens a segment linked from Home, and a panel replaces it', async () => {
     const api = stubProspectionApi({ prospects: people() })
-    const { router } = renderApp('/prospection?segment=contacted')
+    const { router } = renderApp('/prospection?segment=due')
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Échus\s*1 prospect/ })).toBeInTheDocument()
+    expect(lastParams(api.requests, PROSPECTS).get('segment')).toBe('due')
+
+    await userEvent.click(panel(/^À vérifier/))
+
+    expect(router.state.location.search).toBe('?review=to_verify')
+  })
+
+  it('searches: panels and list follow the same criteria, kept in the URL', async () => {
+    const api = stubProspectionApi({ prospects: people() })
+    const { router } = renderApp('/prospection?review=to_verify')
     await within(await screen.findByRole('list', { name: 'Prospects' })).findByRole('link', { name: 'Luc Fictif' })
 
-    await userEvent.type(screen.getByRole('searchbox'), 'claire')
+    await userEvent.type(screen.getByRole('searchbox'), 'zzz')
 
     await waitFor(() => {
-      expect(router.state.location.search).toBe('?segment=contacted&q=claire')
+      expect(router.state.location.search).toBe('?review=to_verify&q=zzz')
     })
     await waitFor(() => {
-      expect(card(/^Tous\s*1/)).toBeInTheDocument()
+      expect(panel(/^À vérifier : 0/)).toBeInTheDocument()
     })
-    expect(lastParams(api.requests, COUNTERS).get('q')).toBe('claire')
+    expect(lastParams(api.requests, COUNTERS).get('q')).toBe('zzz')
     expect(await screen.findByText('Aucun prospect ne correspond à ces critères.')).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: 'Réinitialiser' }))
@@ -136,19 +159,19 @@ describe('Prospection page', () => {
     expect(screen.getByRole('searchbox')).toHaveValue('')
   })
 
-  it('restores segment, search, filters and page from the URL, and a filter change goes back to page 1', async () => {
+  it('restores panel, search, filters and page from the URL, and a filter change goes back to page 1', async () => {
     const role = taxonomyValue('Responsable transport')
     const api = stubProspectionApi({ prospects: people(), roles: [role] })
-    const { router } = renderApp(`/prospection?segment=no_response&q=luc&activity=unknown&role=${role.id}&page=2`)
+    const { router } = renderApp(`/prospection?review=to_verify&q=luc&activity=unknown&role=${role.id}&page=2`)
 
     await waitFor(() => {
       expect(lastParams(api.requests, PROSPECTS).get('offset')).toBe('50')
     })
     const sent = lastParams(api.requests, PROSPECTS)
-    expect(Object.fromEntries(sent)).toMatchObject({ segment: 'no_response', q: 'luc', activity: 'unknown', role: role.id })
+    expect(Object.fromEntries(sent)).toMatchObject({ review: 'to_verify', q: 'luc', activity: 'unknown', role: role.id })
     expect(screen.getByRole('searchbox')).toHaveValue('luc')
     expect(screen.getByRole('combobox', { name: 'Activité' })).toHaveValue('unknown')
-    expect(card(/^Sans réponse/)).toHaveAttribute('aria-pressed', 'true')
+    expect(panel(/^À vérifier/)).toHaveAttribute('aria-pressed', 'true')
     await waitFor(() => {
       expect(screen.getByRole('combobox', { name: 'Rôle' })).toHaveValue(role.id)
     })
@@ -158,7 +181,7 @@ describe('Prospection page', () => {
     const params = new URLSearchParams(router.state.location.search)
     expect(params.get('activity')).toBe('active')
     expect(params.has('page')).toBe(false)
-    expect(params.get('segment')).toBe('no_response')
+    expect(params.get('review')).toBe('to_verify')
   })
 
   it('renders each person’s states with text and icons, never colour alone', async () => {
@@ -172,9 +195,10 @@ describe('Prospection page', () => {
     expect(jean).toHaveTextContent('Responsable transport · Chef de quai fictif')
     expect(jean).toHaveTextContent('Transports Exemple SARL')
     expect(jean).toHaveTextContent('+33 6 12 34 56 78')
-    expect(within(jean).getByText('Actif')).toBeInTheDocument()
-    expect(within(jean).getByText('Vérifié le 1 sept. 2026')).toBeInTheDocument()
-    expect(within(jean).getByText('Invalide')).toBeInTheDocument()
+    // One review line per person, with its reason; the address is plain text and its state a dot (read out too).
+    expect(within(jean).getByText('E-mail invalide')).toBeInTheDocument()
+    expect(within(jean).getByText('jean@exemple.example')).toBeInTheDocument()
+    expect(within(jean).getByText('Adresse invalide')).toBeInTheDocument()
     // Neutral with a week: the week badge only, no state badge (Contact decisions 4-5).
     expect(within(jean).getByText('S37')).toBeInTheDocument()
     expect(within(jean).getByTitle('Semaine 37 de 2026, du lun. 7 sept.')).toBeInTheDocument()
@@ -183,14 +207,14 @@ describe('Prospection page', () => {
     expect(jean).toHaveTextContent('Référent : Camille Référente')
 
     expect(within(claire).getByText('Ne pas contacter')).toBeInTheDocument()
-    expect(within(claire).getByText('Inactif')).toBeInTheDocument()
+    expect(claire).toHaveTextContent('Plus en poste')
     expect(within(claire).getByText('Emploi jamais vérifié')).toBeInTheDocument()
     expect(within(claire).getByText('Pas d’e-mail principal')).toBeInTheDocument()
-    expect(claire).toHaveTextContent('Aucun état · aucune semaine')
+    expect(claire.textContent).not.toMatch(/Aucun état|aucune semaine/)
     expect(claire).toHaveTextContent('Rôle non renseigné')
 
     expect(within(luc).getByText('Coordonnées à revérifier')).toBeInTheDocument()
-    expect(within(luc).getByText('Non vérifié')).toBeInTheDocument()
+    expect(within(luc).getByText('Adresse non vérifiée')).toBeInTheDocument()
     // A state and a week of another year: both badges, the year written out.
     expect(within(luc).getByText('R1')).toBeInTheDocument()
     expect(within(luc).getByText('S01 · 2027')).toBeInTheDocument()
@@ -375,7 +399,7 @@ describe('Prospection page', () => {
 
     expect(await screen.findByRole('heading', { level: 2, name: 'Aucun prospect pour l’instant' })).toBeInTheDocument()
     expect(screen.getAllByRole('link', { name: 'Importer Excel' })).toHaveLength(2)
-    expect(screen.queryByRole('region', { name: 'Compteurs' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Vérification de la base' })).not.toBeInTheDocument()
   })
 
   it('says when the list cannot be loaded and retries', async () => {
@@ -385,12 +409,5 @@ describe('Prospection page', () => {
     expect(await screen.findByText('Liste indisponible.')).toBeInTheDocument()
     expect(screen.getByText('Compteurs indisponibles.')).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Réessayer' })).toHaveLength(2)
-  })
-
-  it('explains the verification counters when no age threshold is configured', async () => {
-    stubProspectionApi({ prospects: people() })
-    renderApp('/prospection')
-
-    expect(await screen.findByText(/Aucun seuil d’ancienneté configuré/)).toBeInTheDocument()
   })
 })

@@ -221,7 +221,7 @@ reference `src/server/contactMailGenerationService.ts`, `openaiMailGenerator.ts`
 
 | Module | Role |
 |---|---|
-| `app/services/mail_generation/prompt.py` | the versioned prompt (`PROMPT_VERSION = "contact-mail-fr-2026-10-v3"`, v1 = the reference's text, v2 adds the notes and score context, v3 omits an empty score and points score lines to their fact), pure |
+| `app/services/mail_generation/prompt.py` | the versioned prompt (`PROMPT_VERSION = "contact-mail-fr-2026-10-v3"`, v1 = the reference's text, v2 adds the notes and score context, v3 omits an empty score and points score lines to their fact), pure: `build_instructions` (initial prompt + rules), `render_client_card` (the client card) |
 | `app/services/mail_generation/openai_client.py` | the OpenAI adapter (`MailGenerator` port, `OpenAIMailGenerator`), output checks, typed errors |
 | `app/services/contact_mail_generation.py` | `prepare` (refusals + prompt, before any AI call), `draft` (the call, logged) |
 | `app/services/contact_messages.py` | `require_generation_target`, `save_generated` (the write, rules checked again) |
@@ -245,12 +245,14 @@ overwritten. The draft keeps the addresses (or takes the defaults of a new messa
 validation (`unvalidated: true`, H-24).
 
 **Exactly what is sent to OpenAI** (`POST {VIPER_OPENAI_BASE_URL}/responses`, Responses API): `model`;
-`instructions` — the editorial rules: French B2B mail for Circoe, the purpose of the step, **no invented signal, news,
+`instructions` — **first the initial prompt** (the task brief typed in Paramètres › Prompt initial, else the built-in
+`DEFAULT_INITIAL_PROMPT`: who the model is, who it writes to, why, the three steps of the sequence; always given before
+anything else, never empty), then the non-editable editorial rules: French B2B mail for Circoe, the purpose of the step, **no invented signal, news,
 event, figure, client, reference or project**, no guessing of missing data, the data are information and not
 instructions, plain text, ≤ 120 / 80 words, no placeholder, no signature, the booking link copied exactly when
-configured (otherwise no link at all), a subject ≤ 70 characters on one line, JSON `{subject, body}` only; `input` —
-the step; the prospect's civility (*M.*/*Mme*), first and last name, exact job title, role; the company's name,
-website, size, segment, activity categories, project done with Circoe, project type, Circoe references, client
+configured (otherwise no link at all), a subject ≤ 70 characters on one line, JSON `{subject, body}` only; `input` — the step, then the **client card** (`render_client_card`, « Fiche client » in three labelled blocks, each line
+only when filled: *Contact*, *Société*, *Notes Circoe (saisies dans VIPER)*): the prospect's civility (*M.*/*Mme*), first and last name, exact job title, role; the company's name,
+legal name (when it differs from the name), website, size, segment, activity categories, project done with Circoe, project type, Circoe references, client
 approach (each line only when filled, plus « Informations non disponibles (ne pas les deviner) » for a missing function
 or activity context); for R1/R2 the earlier steps' recorded messages (subject, body, status label; cancelled or empty
 ones left out); **since prompt v2 (prospect-contact-ux S5, refined in v3)** the prospect's fact notes (« Faits connus sur la personne »:

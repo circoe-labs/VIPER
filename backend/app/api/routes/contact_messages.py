@@ -561,6 +561,7 @@ def generate(
             booking_url=settings.contact_booking_url,
             score_config=ScoreConfig.from_settings(settings),
             limits=generation.ContextLimits.from_settings(settings),
+            initial_prompt=settings.contact_initial_prompt,
         )
         if generator is None:
             raise not_configured(missing_settings(settings))

@@ -1,4 +1,4 @@
-/* Prospection workspace (Task 14): counters, filters and the people list. */
+/* Prospection workspace (Task 14): filters and the people list (the review panels: review.css). */
 
 .prospection__state {
   display: flex;
@@ -25,7 +25,7 @@
   margin-bottom: var(--space-6);
   padding: var(--space-4) var(--space-5);
   border: var(--border-width) solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   background: var(--color-surface);
 }
 
@@ -124,22 +124,23 @@
 .prospect-row {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1.1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1.1fr) minmax(0, 0.85fr) minmax(0, 1fr);
   gap: var(--space-3) var(--space-6);
   align-items: start;
   padding: var(--space-4) var(--space-5);
-  border: var(--border-width) solid var(--color-border);
-  border-radius: var(--radius-md);
+  border: var(--border-width) solid transparent;
+  border-radius: var(--radius-lg);
   background: var(--color-surface);
+  box-shadow: var(--shadow-card);
   font-size: var(--text-sm);
+  --tone-fg: var(--color-accent-fg);
   transition:
     border-color var(--duration-fast) var(--ease-standard),
     background-color var(--duration-fast) var(--ease-standard);
 }
 
 .prospect-row:hover {
-  border-color: var(--color-border-strong);
-  background: var(--color-surface-hover);
+  background: var(--color-surface-raised);
 }
 
 .prospect-row:focus-within {
@@ -149,7 +150,7 @@
 
 /* A do-not-contact person keeps a visible edge on top of the explicit badge. */
 .prospect-row--blocked {
-  border-left: 3px solid var(--color-danger-fg);
+  background: linear-gradient(90deg, var(--color-danger-soft), var(--color-surface) 45%);
 }
 
 .prospect-row__identity {
@@ -165,26 +166,34 @@
   width: 2.5rem;
   height: 2.5rem;
   border-radius: var(--radius-full);
-  background: var(--color-neutral-soft);
-  color: var(--color-neutral-fg);
+  background: color-mix(in srgb, var(--tone-fg) 10%, var(--color-surface-hover));
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--tone-fg) 55%, transparent);
+  color: var(--color-text);
   font-size: var(--text-sm);
   font-weight: var(--weight-semibold);
 }
 
+.prospect-row--to_verify {
+  --tone-fg: var(--color-warning-fg);
+}
+
+.prospect-row--ignored {
+  --tone-fg: var(--color-neutral-fg);
+}
+
+/* Ignored people stay readable but recede. */
+.prospect-row--ignored .prospect-row__open {
+  color: var(--color-text-muted);
+}
+
 .prospect-row__who,
 .prospect-row__contact,
+.prospect-row__review,
 .prospect-row__tracking {
   display: grid;
   gap: var(--space-1);
   min-width: 0;
   justify-items: start;
-}
-
-.prospect-row__state {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  margin-top: var(--space-1);
 }
 
 .prospect-row__name-line {
@@ -202,7 +211,7 @@
 .prospect-row__open {
   color: var(--color-text);
   font-size: var(--text-lg);
-  font-weight: var(--weight-semibold);
+  font-weight: var(--weight-bold);
   line-height: var(--leading-tight);
   text-decoration: none;
 }
@@ -261,18 +270,56 @@
   font-weight: var(--weight-semibold);
 }
 
+/* One line of review per person, in the tones of the panels. */
+.review-line {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  color: var(--tone-fg);
+  font-weight: var(--weight-medium);
+}
+
+.review-line svg {
+  flex: none;
+  margin-top: 0.0625rem;
+}
+
+.review-line--verified > span {
+  color: var(--color-text);
+}
+
+.review-line--ignored {
+  color: var(--color-text-muted);
+}
+
+.prospect-row__left {
+  color: var(--color-warning-fg);
+}
+
+.prospect-row__dot {
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: var(--radius-full);
+  background: var(--color-warning-fg);
+}
+
+.prospect-row__dot--verified {
+  background: var(--color-success-fg);
+}
+
+.prospect-row__dot--invalid {
+  background: var(--color-danger-fg);
+}
+
 .prospect-row__muted {
   color: var(--color-text-muted);
 }
 
-/* Narrow workspace: identity on its own line, contacts and follow-up side by side, then one column. */
-@container (width < 48rem) {
+/* Narrower workspace: identity and company first, review and follow-up under them, then one column. */
+@container (width < 60rem) {
   .prospect-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .prospect-row__identity {
-    grid-column: 1 / -1;
   }
 }
 
