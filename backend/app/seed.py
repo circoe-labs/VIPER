@@ -6,16 +6,18 @@ inserted value is audited as `<taxonomy>.created` by the system actor below.
 """
 
 import argparse
+from datetime import date
 
 from sqlalchemy.orm import Session
 
 from app.core.actor import ActorContext, ActorType
 from app.core.config import get_settings
 from app.db.session import create_db_engine, create_session_factory
+from app.models import Cohort
 from app.models.taxonomies import ActivityCategory, CommercialSegment, Role
 from app.repositories import taxonomies
 from app.repositories.taxonomies import TaxonomyModel
-from app.services import audit
+from app.services import audit, cohorts
 from app.services.audit_changes import diff
 
 SEED_ACTOR = ActorContext(type=ActorType.SYSTEM, display="Suggestions VIPER", id="app.seed")
@@ -39,6 +41,28 @@ SUGGESTIONS: dict[TaxonomyModel, tuple[tuple[str, str], ...]] = {
         ("affretement-commission-transport", "Affrètement et commission de transport"),
     ),
 }
+
+
+# The campaign's cohorts and the Monday of their first send, as given by the Humain (2026-10-05).
+CAMPAIGN_COHORTS: tuple[tuple[str, date], ...] = (
+    ("S37", date(2026, 9, 7)),
+    ("S39", date(2026, 9, 28)),
+    ("S40", date(2026, 10, 5)),
+    ("S41", date(2026, 10, 12)),
+    ("S42", date(2026, 10, 19)),
+)
+
+
+def seed_cohorts(session: Session) -> int:
+    """Insert the missing campaign cohorts: an import then finds them, dates included."""
+    created = 0
+    for code, starts_on in CAMPAIGN_COHORTS:
+        if cohorts.find_by_code(session, code) is None:
+            cohort = Cohort(code=code, starts_on=starts_on)
+            audit.annotate(session, SEED_ACTOR, cohort)
+            session.add(cohort)
+            created += 1
+    return created
 
 
 def seed_taxonomies(session: Session) -> dict[str, int]:
@@ -71,6 +95,7 @@ def main(argv: list[str] | None = None) -> None:
     try:
         with audit.attributed_unit_of_work(create_session_factory(engine), SEED_ACTOR) as session:
             inserted = seed_taxonomies(session)
+            inserted["cohorts"] = seed_cohorts(session)
     finally:
         engine.dispose()
     for table, count in inserted.items():

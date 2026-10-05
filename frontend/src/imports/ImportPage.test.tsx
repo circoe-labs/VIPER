@@ -79,10 +79,11 @@ describe('Excel import page', () => {
 
     const tiles = screen.getByRole('region', { name: 'Résumé de l’analyse' })
     expect(within(tiles).getByRole('button', { name: /5\s*Lignes/ })).toBeInTheDocument()
-    expect(within(tiles).getByRole('button', { name: /2\s*En erreur/ })).toBeInTheDocument()
+    expect(within(tiles).getByRole('button', { name: /2\s*Ignorés/ })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: /À résoudre/ })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByRole('button', { name: 'Importer…' })).toBeDisabled()
-    expect(screen.getByText(/1 ligne en erreur à corriger ou exclure/)).toBeInTheDocument()
+    expect(screen.queryByText(/ligne en erreur/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Sans remarque/ })).not.toBeInTheDocument()
   })
 
   it('shows why a refused file cannot be read and lets the user choose another one', async () => {
@@ -219,8 +220,8 @@ describe('Excel import page', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Exclure la ligne' }))
     expect(within(table).getByRole('row', { name: /Prénom3/ })).toHaveTextContent('Exclue')
 
-    await userEvent.click(within(screen.getByRole('region', { name: 'Résumé de l’analyse' })).getByRole('button', { name: /En erreur/ }))
-    expect(within(screen.getByRole('table', { name: 'Lignes analysées' })).getAllByRole('row')).toHaveLength(3)
+    await userEvent.click(within(screen.getByRole('region', { name: 'Résumé de l’analyse' })).getByRole('button', { name: /Ignorés/ }))
+    expect(within(screen.getByRole('table', { name: 'Lignes analysées' })).getAllByRole('row')).toHaveLength(5)
     expect(sent).toHaveLength(1)
   })
 

@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { useReducer, useRef } from 'react'
+import { useEffect, useReducer, useRef } from 'react'
 import { Link } from 'react-router'
 
 import { type CommitResult, importKeys, previewImport } from '../api/imports'
@@ -39,6 +39,11 @@ export function ImportPage() {
   // Only the latest analysis may update the page (a slower earlier one is ignored).
   const latest = useRef(0)
   const { step, file, preview } = state
+
+  // Each step starts at the top of the page (after the import, the long review would leave it at the bottom).
+  useEffect(() => {
+    window.scrollTo({ top: 0 })
+  }, [step])
 
   async function analyse(target: File, decisions: ReviewDecisions) {
     latest.current += 1

@@ -523,7 +523,8 @@ def test_statement_count_does_not_grow_with_rows(db_session: Session, size: int)
     with statements(db_session) as executed:
         home_summary(db_session, CONTEXT)
 
-    # Segments, companies, the card figures, months (contacts, appointments), the week's Contact planning, 3 action
+    # Segments, companies, the card figures, months (contacts, appointments), the week's Contact
+    # planning, 3 action
     # groups, imports, edits, subject names; the segments, the months, the planning and the
     # action groups inside `whole_base_plan` (its settings, then their reset).
     settings = [index for index, statement in enumerate(executed) if "set_config" in statement]

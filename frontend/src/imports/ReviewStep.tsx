@@ -1,17 +1,17 @@
 import { useMemo, useState } from 'react'
 
-import type { CommitResult, PreviewResult, RowStatus } from '../api/imports'
+import type { CommitResult, PreviewResult } from '../api/imports'
 import { Button } from '../ui/Button'
-import { AlertIcon, RefreshIcon } from '../ui/icons'
+import { RefreshIcon } from '../ui/icons'
 import { Tabs } from '../ui/Tabs'
 import { CommitDialog } from './CommitDialog'
-import { commitSummary, resolutionOf, rowIssues, type ReviewDecisions } from './importPlan'
-import { codeLabel, plural, rowsText, STATUS_LABELS } from './messages'
+import { CATEGORY_LABELS, commitSummary, type RowCategory, rowCategory, rowIssues, type ReviewDecisions } from './importPlan'
+import { codeLabel, plural, rowsText } from './messages'
 import { ReimportWarning } from './ReimportWarning'
 import { resolveCount, ResolvePanel } from './ResolvePanel'
 import { RowsPanel } from './RowsPanel'
 
-export type StatusFilter = 'all' | RowStatus | 'excluded' | 'blocking'
+export type StatusFilter = 'all' | RowCategory | 'blocking'
 
 export interface RowFilters {
   status: StatusFilter
@@ -33,10 +33,9 @@ interface ReviewStepProps {
 
 const TILES: { status: StatusFilter; label: string; tone: string }[] = [
   { status: 'all', label: 'Lignes', tone: 'neutral' },
-  { status: 'ok', label: STATUS_LABELS.ok, tone: 'success' },
-  { status: 'warning', label: STATUS_LABELS.warning, tone: 'warning' },
-  { status: 'error', label: STATUS_LABELS.error, tone: 'danger' },
-  { status: 'excluded', label: 'Exclues', tone: 'neutral' },
+  { status: 'valid', label: CATEGORY_LABELS.valid, tone: 'success' },
+  { status: 'appointment', label: CATEGORY_LABELS.appointment, tone: 'info' },
+  { status: 'ignored', label: CATEGORY_LABELS.ignored, tone: 'neutral' },
 ]
 
 // Codes about the file or its columns are notices of the sheet step, not row filters.
@@ -53,7 +52,11 @@ export function ReviewStep({ file, preview, decisions, reanalyzing, decide, onRe
   const [confirming, setConfirming] = useState(false)
   const plan = useMemo(() => commitSummary(review, decisions), [review, decisions])
   const issues = useMemo(() => rowIssues(review, decisions), [review, decisions])
-  const excluded = review.rows.filter((row) => resolutionOf(review, decisions, row.row_number).action === 'exclude')
+  const categories = useMemo(() => {
+    const counts: Record<RowCategory, number> = { valid: 0, appointment: 0, ignored: 0 }
+    for (const row of review.preview.rows) counts[rowCategory(review, decisions, row)] += 1
+    return counts
+  }, [review, decisions])
   const toResolve = resolveCount(review)
 
   const codes = useMemo(() => {
@@ -72,9 +75,8 @@ export function ReviewStep({ file, preview, decisions, reanalyzing, decide, onRe
 
   function tileCount(status: StatusFilter): number {
     if (status === 'all') return summary.rows_total
-    if (status === 'excluded') return excluded.length
     if (status === 'blocking') return issues.size
-    return summary.rows_by_status[status]
+    return categories[status]
   }
 
   return (
@@ -87,8 +89,8 @@ export function ReviewStep({ file, preview, decisions, reanalyzing, decide, onRe
               Résumé de l’analyse
             </h2>
             <p className="import-muted">
-              « {summary.file_name} » — feuille « {summary.sheet} ». Les avertissements n’empêchent pas l’import ; les
-              erreurs doivent être corrigées ou la ligne exclue.
+              « {summary.file_name} » — feuille « {summary.sheet} ». Chaque ligne est classée : valide, RDV pris ou
+              ignorée (profil trop incomplet ou plus en poste).
             </p>
           </div>
           <Button icon={RefreshIcon} loading={reanalyzing} onClick={() => { onReanalyse() }}>
@@ -173,12 +175,6 @@ export function ReviewStep({ file, preview, decisions, reanalyzing, decide, onRe
       <div className="import-actionbar" role="region" aria-label="Import">
         <p className="import-actionbar__summary" aria-live="polite">
           <strong>{rowsText(plan.imported)}</strong> à importer · {plural(plan.excluded, 'exclue', 'exclues')}
-          {issues.size > 0 && (
-            <span className="import-actionbar__blocking">
-              <AlertIcon size={16} />
-              {plural(issues.size, 'ligne en erreur', 'lignes en erreur')} à corriger ou exclure
-            </span>
-          )}
         </p>
         <Button
           variant="primary"

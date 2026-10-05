@@ -302,7 +302,12 @@ def test_rows_in_error_must_be_resolved_or_excluded(
     file = upload()
     review = review_of(db_session, file)
 
-    errors = refused(db_session, file, review, rows={9: resolution("create")})
+    # A nameless row is set aside by default; asking to create it anyway is refused.
+    default = next(row for row in review.rows if row.row_number == 10).default_resolution
+    assert default.action == "exclude"
+    errors = refused(
+        db_session, file, review, rows={9: resolution("create"), 10: resolution("create")}
+    )
 
     assert errors == {
         (DecisionErrorCode.MISSING_NAME, 10),

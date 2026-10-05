@@ -211,7 +211,7 @@ def test_commit_refusals(
 ) -> None:
     review = preview(client)["review"]
 
-    invalid = commit(client, review, rows={})
+    invalid = commit(client, review, rows={10: {"resolution": {"action": "create"}}})
     stale = client.post(
         f"{IMPORTS}/commit",
         files=files(legacy_xlsx(SAMPLE_ROWS[:3])),

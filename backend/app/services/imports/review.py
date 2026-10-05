@@ -512,6 +512,9 @@ def company_groups(preview: ImportPreview) -> tuple[list[CompanyGroup], dict[int
 def default_resolution(row: PreviewRow) -> ProspectResolution:
     if row.blocked_by_do_not_contact:
         return ProspectExclude()
+    if row_diagnostic(row, [DiagnosticCode.PROSPECT_MISSING_NAME]) is not None:
+        # Too incomplete to contact anyone: set aside (« Ignorés ») instead of blocking the import.
+        return ProspectExclude()
     existing = [
         candidate
         for candidate in row.duplicates
