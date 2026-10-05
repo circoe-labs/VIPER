@@ -31,7 +31,7 @@ export const SEGMENT_INFO: Record<Segment, SegmentInfo> = {
   },
   never_verified: {
     label: 'Jamais vérifiés',
-    hint: 'Aucune date de vérification de l’emploi actuel (entreprise, rôle, activité).',
+    hint: 'Personne n’a encore confirmé l’emploi actuel (entreprise, rôle, activité). Cas typiques : prospect importé sans cohorte, ajouté à la main, ou ayant changé d’entreprise. Se règle avec « Vérifié aujourd’hui » dans la fiche.',
     icon: AlertIcon,
   },
   needs_recheck: {
@@ -40,10 +40,14 @@ export const SEGMENT_INFO: Record<Segment, SegmentInfo> = {
     icon: ClockIcon,
   },
   email_missing: { label: 'E-mail manquant', hint: 'Aucune adresse e-mail principale.', icon: AlertIcon },
-  email_invalid: { label: 'E-mail invalide', hint: 'L’adresse e-mail principale est invalide.', icon: BanIcon },
+  email_invalid: {
+    label: 'E-mail invalide',
+    hint: 'L’adresse e-mail principale a été marquée « Invalide » à la main dans la fiche (adresse inexistante, rebond…). Aucun contrôle automatique : l’import ne pose jamais ce statut.',
+    icon: BanIcon,
+  },
   email_unverified: {
     label: 'E-mail non vérifié',
-    hint: 'L’adresse e-mail principale n’est pas vérifiée.',
+    hint: 'L’adresse e-mail principale est au statut « Non vérifié » ou « Inconnu » : c’est le statut de toute adresse importée ou saisie, tant qu’elle n’est pas confirmée dans la fiche.',
     icon: AlertIcon,
   },
   to_contact: {

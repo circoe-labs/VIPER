@@ -119,7 +119,6 @@ describe('Prospect editor — e-mails and phones', () => {
     await userEvent.click(await screen.findByRole('option', { name: /Autre Employeur SAS/ }))
 
     expect(screen.getByRole('note')).toHaveTextContent('Entreprise modifiée.')
-    expect(region('Vérification de l’emploi')).toHaveTextContent('Nouvelle entreprise : emploi à vérifier')
     const emails = region('E-mails')
     expect(emails).toHaveTextContent('À revérifier (vérifié le 1 juin 2026)')
     await waitFor(() => {

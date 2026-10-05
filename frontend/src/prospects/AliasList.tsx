@@ -58,12 +58,14 @@ interface AliasListProps {
   companyDomain: string | null
   today: string
   staleDays: number | null
+  // Shown inside another section (« Coordonnées »).
+  nested?: boolean
 }
 
 // E-mail or phone aliases: add, edit, choose the primary one (radio), verify in one click, mark invalid/unknown,
 // deactivate (a former address is kept) or remove an entry error. Exactly one active primary: the first active alias
 // takes the flag when the primary one is removed or deactivated.
-export function AliasList({ kind, aliases, onChange, errors, fieldId, companyMoved, companyDomain, today, staleDays }: AliasListProps) {
+export function AliasList({ kind, aliases, onChange, errors, fieldId, companyMoved, companyDomain, today, staleDays, nested }: AliasListProps) {
   const copy = COPY[kind]
   const addRef = useRef<HTMLButtonElement>(null)
   const pendingFocus = useRef<string | null>(null)
@@ -112,6 +114,7 @@ export function AliasList({ kind, aliases, onChange, errors, fieldId, companyMov
 
   return (
     <EditorSection
+      nested={nested}
       title={copy.title}
       count={aliases.filter((alias) => alias.stored || alias.value.trim()).length}
       state={sectionState}

@@ -10,6 +10,14 @@ export function homeData(overrides: Partial<HomeData> = {}): HomeData {
     today: '2026-09-10',
     stale_threshold_days: null,
     counts: Object.fromEntries(SEGMENTS.map((segment) => [segment, 0])) as HomeData['counts'],
+    figures: {
+      disqualified: 0,
+      mail_inactive: 0,
+      incomplete: 0,
+      responses_this_week: 0,
+      responses_last_week: 0,
+      responses_this_month: 0,
+    },
     companies: 0,
     progress: {
       contact_target: 100,

@@ -86,18 +86,12 @@ describe('Prospect editor', () => {
   it('shows imported values never verified in warning style, with text and glyph', async () => {
     await open(imported())
 
-    const verification = region('Vérification de l’emploi')
-    const badge = within(verification).getByText('Valeurs importées, jamais vérifiées')
-    expect(badge.closest('.badge')?.querySelector('svg')).not.toBeNull()
     expect(screen.getByRole('textbox', { name: 'Intitulé exact' })).toHaveAccessibleDescription('Importé, à confirmer')
-    expect(region('E-mails')).toHaveTextContent('1 à vérifier')
+    expect(region('Coordonnées')).toHaveTextContent('1 à vérifier')
     expect(region('E-mails')).toHaveTextContent('Importé, jamais vérifié')
-
-    await userEvent.click(within(verification).getByRole('button', { name: 'Vérifié aujourd’hui' }))
-
-    expect(verification).toHaveTextContent('Vérifié aujourd’hui — à enregistrer')
-    expect(screen.getByRole('textbox', { name: 'Intitulé exact' })).not.toHaveAccessibleDescription(/Importé/)
-    expect(screen.getByRole('status', { name: 'Enregistrement de la fiche' })).toHaveTextContent('Modifications non enregistrées')
+    // The employment verification block is gone: every prospect was already verified by a person.
+    expect(screen.queryByRole('region', { name: 'Vérification de l’emploi' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Opposition' })).not.toBeInTheDocument()
   })
 
   it('says what to do with an imported field left empty instead of « Importé »', async () => {
@@ -133,19 +127,6 @@ describe('Prospect editor', () => {
     expect(saved).toHaveTextContent('Vous')
     expect(saved).toHaveTextContent('État : Contacté → R1')
     expect(created).toHaveTextContent('Import « base.xlsx »')
-  })
-
-  it('marks a recent verification with a subtle positive state and its date', async () => {
-    await open(
-      imported({
-        employment_imported_unverified: false,
-        verification_state: 'verified',
-        employment_verified_at: '2026-09-03T08:00:00+00:00',
-      }),
-    )
-
-    expect(region('Vérification de l’emploi')).toHaveTextContent('Vérifié le 3 sept. 2026')
-    expect(screen.getByRole('textbox', { name: 'Intitulé exact' })).not.toHaveAccessibleDescription(/Importé/)
   })
 
   it('saves the whole form in one request, then refreshes the Prospection list and the history', async () => {

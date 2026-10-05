@@ -27,6 +27,7 @@ from app.models import (
     ContactTracking,
     ImportBatch,
     InternalReferent,
+    Phone,
     Prospect,
 )
 from app.models.contact_tracking import ContactTrackingStatusHistory
@@ -40,7 +41,7 @@ from app.models.enums import (
 from app.services import audit, history, import_batches
 from app.services.audit import AuditSource
 from app.services.contact_dashboard import ContactClock, overdue, to_send
-from app.services.contact_sequences import next_due_at_sql
+from app.services.contact_sequences import email_error_sql, next_due_at_sql
 from app.services.contact_workflow import (
     APPOINTMENT_CODES,
     CONTACT_ATTEMPT_CODES,
@@ -55,6 +56,7 @@ from app.services.prospection.segments import (
     has_appointment,
     join_segment_sources,
     predicate,
+    primary_email,
 )
 
 S = ContactTrackingStatus
@@ -143,10 +145,23 @@ class ContactWeek:
 
 
 @dataclass(frozen=True, slots=True)
+class HomeFigures:
+    """What the dashboard's cards add to the segment counts (reworked Accueil)."""
+
+    disqualified: int  # « Défaillant »: the state a person confirmed after the last follow-up
+    mail_inactive: int  # an open « Erreur sur le mail »: still in the role, mails come back
+    incomplete: int  # no e-mail or no phone to reach the person
+    responses_this_week: int  # answers recorded since this week's Monday
+    responses_last_week: int  # answers recorded during the week before
+    responses_this_month: int  # answers recorded since the 1st of the month
+
+
+@dataclass(frozen=True, slots=True)
 class HomeSummary:
     today: date
     stale_threshold_days: int | None
     counts: dict[Segment, int]
+    figures: HomeFigures
     companies: int
     months: list[MonthProgress]  # oldest first; the last one is the current month
     contact_week: ContactWeek
@@ -162,6 +177,7 @@ def home_summary(session: Session, context: SegmentContext) -> HomeSummary:
         today=context.today,
         stale_threshold_days=context.stale_days,
         counts=counted.counts,
+        figures=home_figures(session, context.today),
         companies=companies,
         months=monthly_progress(session, context.today),
         contact_week=contact_week(session, context.today),
@@ -169,6 +185,32 @@ def home_summary(session: Session, context: SegmentContext) -> HomeSummary:
         recent_imports=import_batches.list_batches(session, limit=IMPORT_LIMIT),
         recent_edits=recent_edits(session),
     )
+
+
+def home_figures(session: Session, today: date) -> HomeFigures:
+    """The extra card figures, in one statement over the segment rows."""
+    monday = ContactClock(today).window().monday
+    week_start = start_of_day(monday)
+    last_week_start = start_of_day(monday - timedelta(days=7))
+    month = start_of_day(month_start(today))
+    answered_at = ContactTracking.response_received_at
+    no_phone = ~exists().where(Phone.prospect_id == Prospect.id, Phone.is_active)
+    with whole_base_plan(session):
+        row = session.execute(
+            join_segment_sources(
+                select(
+                    func.count().filter(ContactTracking.status == S.DISQUALIFIED),
+                    func.count().filter(email_error_sql()),
+                    func.count().filter(or_(primary_email.id.is_(None), no_phone)),
+                    func.count().filter(answered_at >= week_start),
+                    func.count().filter(
+                        and_(answered_at >= last_week_start, answered_at < week_start)
+                    ),
+                    func.count().filter(answered_at >= month),
+                )
+            )
+        ).one()
+    return HomeFigures(*row)
 
 
 # --- monthly progress ---------------------------------------------------------------------------

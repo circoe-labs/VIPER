@@ -1,6 +1,6 @@
 import { TRACKING_STATUSES, type TrackingStatus } from '../api/prospection'
 import type { Prospect } from '../api/prospects'
-import { formatDay, TRACKING_LABELS } from '../prospection/labels'
+import { formatDay, levelLabel, TRACKING_LABELS } from '../prospection/labels'
 import { ReferentSelect } from '../settings/selectors'
 import { SelectField, TextField } from '../ui/fields'
 import { BanIcon } from '../ui/icons'
@@ -20,6 +20,35 @@ const STATE_HINTS: Partial<Record<TrackingStatus, string>> = {
 // the saved state, so the form can leave it.
 function offeredStates(saved: TrackingStatus | null): readonly TrackingStatus[] {
   return TRACKING_STATUSES.filter((status) => status !== 'disqualified' || saved === 'disqualified')
+}
+
+// The few facts read at a glance: cohort (with its first send), relance level, referent, and the appointment — a
+// response always comes with the appointment booked through the link of the e-mail.
+function Summary({ prospect, tracking }: { prospect: Prospect; tracking: TrackingDraft }) {
+  const { cohort, level } = prospect.contact
+  const referent = prospect.tracking?.referent?.label ?? null
+  const answered = tracking.response_received_on !== '' || tracking.status === 'response_received' || tracking.status === 'appointment_obtained'
+  const appointment = tracking.appointment_on
+    ? `Oui, prévu le ${formatDay(tracking.appointment_on)}${tracking.appointment_time ? ` à ${tracking.appointment_time.slice(0, 5)}` : ''}`
+    : answered
+      ? 'Oui, date à renseigner'
+      : 'Non'
+  const facts: [string, string][] = [
+    ['Semaine', cohort ? `${cohort.code}${cohort.starts_on ? ` · 1er envoi le ${formatDay(cohort.starts_on)}` : ''}` : 'Aucune'],
+    ['Relance', level ? levelLabel(level) : '—'],
+    ['Référent', referent ?? '—'],
+    ['RDV', appointment],
+  ]
+  return (
+    <dl className="prospect-editor__summary">
+      {facts.map(([term, value]) => (
+        <div key={term}>
+          <dt>{term}</dt>
+          <dd>{value}</dd>
+        </div>
+      ))}
+    </dl>
+  )
 }
 
 interface TrackingSectionProps extends SectionProps {
@@ -50,12 +79,13 @@ export function TrackingSection({ draft, errors, fieldId, onChange, prospect }: 
         .join(' ') || undefined
   return (
     <EditorSection title="Suivi de contact">
-      {blocked && tracking.status !== 'ignored' && (
+      {blocked && (
         <p className="prospect-editor__note prospect-editor__note--danger">
           <BanIcon size={16} />
-          Opposition enregistrée : aucun envoi n’est possible.
+          Ne pas contacter{prospect.do_not_contact_reason ? ` — ${prospect.do_not_contact_reason}` : ''}. Opposition enregistrée : aucun envoi n’est possible.
         </p>
       )}
+      {prospect && <Summary prospect={prospect} tracking={tracking} />}
       <div className="prospect-editor__grid">
         <SelectField
           id={fieldId('tracking.status')}

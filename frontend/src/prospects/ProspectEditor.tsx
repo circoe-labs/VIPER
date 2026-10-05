@@ -5,14 +5,14 @@ import { type Prospect, useProspect, useProspectMutations } from '../api/prospec
 import { businessToday } from '../lib/isoWeek'
 import { civilityLabel, personName, SEGMENT_INFO } from '../prospection/labels'
 import type { ProspectEditorProps } from '../prospection/prospectEditor'
-import { Button } from '../ui/Button'
+import { Button, IconButton } from '../ui/Button'
 import { Drawer, Modal } from '../ui/Dialog'
-import { AlertIcon, CheckCircleIcon, InfoIcon, RefreshIcon, TrashIcon } from '../ui/icons'
+import { AlertIcon, ChevronLeftIcon, ChevronRightIcon, CheckCircleIcon, InfoIcon, RefreshIcon, TrashIcon } from '../ui/icons'
 import { AliasList } from './AliasList'
 import { CompanySection, DeleteProspectDialog, HistorySection, ProvenanceSection } from './ContextSections'
-import { EmploymentSection, IdentitySection, VerificationSection } from './EmploymentSections'
+import { EmploymentSection, IdentitySection } from './EmploymentSections'
+import { EditorSection } from './EditorSection'
 import { type ProspectRefusal, prospectRefusal } from './messages'
-import { OppositionSection } from './OppositionSection'
 import {
   draftFromProspect,
   emptyDraft,
@@ -40,7 +40,7 @@ interface Forms {
   session: number
 }
 
-type Notice = 'saved' | 'created_next' | 'end' | 'opposition_set' | 'opposition_cleared'
+type Notice = 'saved' | 'created_next' | 'end'
 
 let sessions = 0
 
@@ -214,25 +214,6 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
     }
   }
 
-  async function setOpposition(doNotContact: boolean, reason: string) {
-    if (!prospect) return
-    try {
-      const updated = await mutations.contactability.mutateAsync({
-        id: prospect.id,
-        do_not_contact: doNotContact,
-        reason,
-        version: prospect.version,
-      })
-      // Only the opposition changed: the draft stays as typed, on the new version.
-      setForms((current) => current && { ...current, prospect: updated })
-      setNotice(doNotContact ? 'opposition_set' : 'opposition_cleared')
-    } catch (error) {
-      const refused = prospectRefusal(error)
-      if (refused.conflict) setRefusal(refused)
-      throw new Error(refused.message, { cause: error })
-    }
-  }
-
   // After a « Séquence de contact » or alert operation: the prospect's new version, state and derived contact.
   async function syncFromServer() {
     const result = await loaded.refetch()
@@ -245,6 +226,21 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
     if (result.data) setForms(loadedForms(result.data))
     setSubmitted(false)
     setRefusal(null)
+  }
+
+  // The arrows: the previous or next prospect of the list's queue, asking first when changes are pending.
+  async function step(direction: 'previous' | 'next') {
+    if (!prospect || moving) return
+    setMoving(true)
+    try {
+      const found = await queue[direction](prospect.id)
+      if (found) onNavigate(found.id, { page: found.page })
+      else setNotice('end')
+    } catch {
+      setRefusal({ field: null, message: 'Le prospect n’a pas pu être chargé. Réessayez.' })
+    } finally {
+      setMoving(false)
+    }
   }
 
   // Ctrl+S / ⌘S saves and Ctrl+Entrée saves and moves on, from anywhere in this drawer (not from a dialog above it).
@@ -319,18 +315,30 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
                 Supprimer
               </Button>
             )}
-            {dirty ? <Button onClick={revert}>Annuler les modifications</Button> : <Button onClick={close}>Fermer</Button>}
-            <Button type="submit" form={formId} loading={mutations.update.isPending || mutations.create.isPending} disabled={!dirty}>
+            {dirty && <Button onClick={revert}>Annuler les modifications</Button>}
+            <Button type="submit" form={formId} variant="primary" loading={mutations.update.isPending || mutations.create.isPending} disabled={!dirty}>
               Enregistrer
             </Button>
-            <Button
-              variant="primary"
-              loading={moving}
-              disabled={saving || (isNew && !dirty)}
-              onClick={() => void saveAndNext()}
-            >
-              {isNew ? 'Enregistrer et nouveau' : 'Enregistrer et suivant'}
-            </Button>
+            {prospect && (
+              <div className="prospect-editor__arrows" role="group" aria-label="Parcourir les prospects">
+                <IconButton
+                  icon={ChevronLeftIcon}
+                  label="Prospect précédent"
+                  disabled={saving || (position !== null && position <= 1)}
+                  onClick={() => {
+                    guarded(() => void step('previous'), 'Changer de prospect sans enregistrer')
+                  }}
+                />
+                <IconButton
+                  icon={ChevronRightIcon}
+                  label="Prospect suivant"
+                  disabled={saving || (position !== null && position >= queue.total)}
+                  onClick={() => {
+                    guarded(() => void step('next'), 'Changer de prospect sans enregistrer')
+                  }}
+                />
+              </div>
+            )}
           </div>
         )
       }
@@ -348,7 +356,7 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
             void saveOnly()
           }}
         >
-          <div className="prospect-editor__main">
+          <div className="prospect-editor__top">
             <IdentitySection draft={draft} errors={shown} fieldId={fieldId} onChange={change} firstFieldRef={firstFieldRef} />
             <EmploymentSection
               draft={draft}
@@ -358,39 +366,27 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
               prospect={prospect}
               companyMoved={companyMoved}
             />
-            <VerificationSection
-              draft={draft}
-              errors={shown}
-              fieldId={fieldId}
-              onChange={change}
-              prospect={prospect}
-              companyMoved={companyMoved}
-              today={today}
-            />
-            {(['emails', 'phones'] as const).map((kind) => (
-              <AliasList
-                key={kind}
-                kind={kind}
-                aliases={draft[kind]}
-                onChange={(aliases) => {
-                  change({ [kind]: aliases })
-                }}
-                errors={shown}
-                fieldId={fieldId}
-                companyMoved={companyMoved}
-                companyDomain={company.data?.email_domain ?? null}
-                today={today}
-                staleDays={prospect?.stale_threshold_days ?? null}
-              />
-            ))}
+            <EditorSection title="Coordonnées">
+              {(['emails', 'phones'] as const).map((kind) => (
+                <AliasList
+                  key={kind}
+                  nested
+                  kind={kind}
+                  aliases={draft[kind]}
+                  onChange={(aliases) => {
+                    change({ [kind]: aliases })
+                  }}
+                  errors={shown}
+                  fieldId={fieldId}
+                  companyMoved={companyMoved}
+                  companyDomain={company.data?.email_domain ?? null}
+                  today={today}
+                  staleDays={prospect?.stale_threshold_days ?? null}
+                />
+              ))}
+            </EditorSection>
           </div>
           <div className="prospect-editor__side">
-            <OppositionSection
-              prospect={prospect}
-              busy={mutations.contactability.isPending}
-              pendingChanges={dirty}
-              onSubmit={setOpposition}
-            />
             <TrackingSection draft={draft} errors={shown} fieldId={fieldId} onChange={change} prospect={prospect} />
             {prospect && (
               <>
@@ -471,8 +467,6 @@ const NOTICES: Record<Notice, (segment: string) => string> = {
   saved: () => 'Prospect enregistré.',
   created_next: () => 'Prospect enregistré. Saisissez le suivant : l’entreprise est reprise.',
   end: (segment) => `Fin de la liste « ${segment} » : aucun prospect après celui-ci.`,
-  opposition_set: () => 'Opposition enregistrée.',
-  opposition_cleared: () => 'Opposition levée.',
 }
 
 interface EditorStatusProps {
@@ -518,7 +512,7 @@ function EditorStatus({ dirty, notice, errorCount, refusal, segment }: EditorSta
   }
   return (
     <span className="prospect-editor__keys">
-      <kbd>Ctrl</kbd>+<kbd>S</kbd> enregistrer · <kbd>Ctrl</kbd>+<kbd>Entrée</kbd> suivant · <kbd>Échap</kbd> fermer
+      <kbd>Ctrl</kbd>+<kbd>S</kbd> enregistrer · <kbd>Échap</kbd> fermer
     </span>
   )
 }

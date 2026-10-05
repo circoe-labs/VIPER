@@ -48,10 +48,24 @@ export interface EditItem {
   summary: string[]
 }
 
+// What the cards add to the segment counts.
+export interface HomeFigures {
+  // « Défaillant »: no answer after the last follow-up, confirmed by a person.
+  disqualified: number
+  // An open « Erreur sur le mail »: still in the role, but the mails come back.
+  mail_inactive: number
+  // No e-mail or no phone.
+  incomplete: number
+  responses_this_week: number
+  responses_last_week: number
+  responses_this_month: number
+}
+
 export interface HomeData {
   today: string
   stale_threshold_days: number | null
   counts: Record<Segment, number>
+  figures: HomeFigures
   companies: number
   progress: {
     contact_target: number

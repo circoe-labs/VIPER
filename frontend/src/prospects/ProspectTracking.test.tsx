@@ -111,9 +111,8 @@ describe('Prospect editor — role and contact tracking', () => {
 
     expect(state).toBeDisabled()
     expect(state).toHaveAccessibleDescription('« Ignoré » est définitif : l’état ne peut plus changer.')
-    const opposition = screen.getByRole('region', { name: 'Opposition' })
-    expect(within(opposition).queryByRole('button', { name: 'Lever l’opposition…' })).toBeNull()
-    expect(opposition).toHaveTextContent('l’opposition est définitive et ne peut pas être levée')
+    // The opposition stays on the profile: the contact summary says no send is possible.
+    expect(section()).toHaveTextContent('Opposition enregistrée : aucun envoi n’est possible.')
   })
 
   it('says why the server refused a Contact rule', async () => {

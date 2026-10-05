@@ -199,3 +199,16 @@ the base and the contact activity. Styles: `frontend/src/home/home.css` (see the
   opens a committed import from the recent activity; screenshots dark/light at 1440×900 and 1280×800 without horizontal
   overflow. `e2e/history.spec.ts` (Task 19): after an editor save of its own imported person, the Home line reads the
   save's summary, by the signed-in user, without the person's e-mail domain; screenshots dark/light at 1440×900.
+
+## Refonte de l'Accueil (2026-10-05)
+
+- **Base** : 5 cartes — Prospects, RDV confirmé, Défaillant (état « Défaillant » confirmé), À vérifier (e-mail ou
+  téléphone manquant) et la tendance des réponses (flèche verte si les réponses de la semaine tiennent ou progressent
+  face à la semaine passée, rouge si elles baissent).
+- **Activité de contact** : 4 cartes — À contacter (segment « Échus »), Sans réponse, RDV, Mail inactif (alerte
+  « Erreur sur le mail » ouverte : toujours en poste, mails retournés). « Devis envoyé » viendra plus tard.
+- **Progression du mois** : camembert des prospects contactés ce mois-ci (RDV pris / réponse sans RDV / sans réponse).
+- **Semaine à contacter** (remplace « Prochaines actions ») : S37 le lundi, S39 le mardi, S40 le mercredi, S41 le jeudi
+  (jour de S41 à confirmer).
+- **Dernières modifications** : repliées, limitées aux dernières 24 h.
+- Les chiffres ajoutés viennent de `figures` dans `GET /api/home` (`services/home.py › home_figures`).

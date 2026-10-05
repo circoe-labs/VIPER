@@ -79,10 +79,20 @@ class EditItemOut(BaseModel):
     summary: list[str]
 
 
+class FiguresOut(BaseModel):
+    disqualified: int
+    mail_inactive: int
+    incomplete: int
+    responses_this_week: int
+    responses_last_week: int
+    responses_this_month: int
+
+
 class HomeOut(BaseModel):
     today: date
     stale_threshold_days: int | None
     counts: dict[Segment, int]
+    figures: FiguresOut
     companies: int
     progress: ProgressOut
     contact_week: ContactWeekOut

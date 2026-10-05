@@ -71,6 +71,7 @@ def test_contract_and_agreement_with_prospection(client: TestClient, db_session:
         "today",
         "stale_threshold_days",
         "counts",
+        "figures",
         "companies",
         "progress",
         "contact_week",
