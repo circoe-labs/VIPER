@@ -14,6 +14,7 @@ import { ImportResult } from './ImportResult'
 import { flowReducer, INITIAL_FLOW, type Step } from './importFlow'
 import { previewOptions, type ReviewDecisions } from './importPlan'
 import { importErrorMessage } from './messages'
+import { rememberFile } from './rememberedFile'
 import { ReviewStep } from './ReviewStep'
 import { SheetStep } from './SheetStep'
 import './imports.css'
@@ -51,6 +52,7 @@ export function ImportPage() {
   }
 
   function choose(target: File) {
+    void rememberFile(target)
     dispatch({ type: 'choose', file: target })
     void analyse(target, INITIAL_FLOW.decisions)
   }
