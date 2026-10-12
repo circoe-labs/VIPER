@@ -1,59 +1,31 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router'
 
-import { CONTACT_PAGE_SIZE, type ContactCounter, useContactDashboard, useContactPage, useContactWalk } from '../api/contact'
+import {
+  APPOINTMENTS,
+  CONTACT_SECTIONS,
+  type ContactSection,
+  useContactDashboard,
+  useContactWalk,
+} from '../api/contact'
 import { businessToday } from '../lib/isoWeek'
-import { TRACKING_LABELS } from '../prospection/labels'
 import { useDebouncedValue } from '../settings/shared'
 import { Button } from '../ui/Button'
-import { CounterCard, CounterGroup } from '../ui/CounterCards'
-import { AlertIcon, ChevronLeftIcon, ChevronRightIcon, SpinnerIcon } from '../ui/icons'
+import { AlertIcon } from '../ui/icons'
 import { PageHeader } from '../ui/PageHeader'
 import { SearchField } from '../ui/SearchField'
-import { ContactFilters } from './ContactFilters'
+import { CohortSection } from './CohortSection'
+import { cohortStatus } from './cohortStatus'
 import { bannerText } from './dispatchCopy'
 import { DispatchWarning } from './DispatchWarning'
-import { ContactList } from './ContactList'
-import {
-  type ContactView,
-  DEFAULT_VIEW,
-  hasFilters,
-  listCriteria,
-  parseView,
-  selectCounter,
-  serializeView,
-} from './criteria'
-import { COUNTER_GROUPS, COUNTER_INFO } from './labels'
+import { type ContactView, listCriteria, parseView, serializeView } from './criteria'
+import { SchedulingOverview } from './SchedulingOverview'
 import { type Neighbours, Workbench } from './Workbench'
 import './contact.css'
 
-const NUMBER = new Intl.NumberFormat('fr-FR')
-
-function peopleCount(count: number): string {
-  return `${NUMBER.format(count)} ${count > 1 ? 'prospects' : 'prospect'}`
-}
-
-// Where the next actions of the list fall: « cette semaine (S41) », « toutes les semaines », « la semaine S42 de 2026 ».
-function weekText(view: ContactView, currentWeek: string | undefined): string {
-  if (view.week === 'all') return 'toutes les semaines'
-  const week = view.week === 'current' ? currentWeek : view.week
-  const label = week ? `S${week.slice(-2)}` : ''
-  return view.week === 'current' ? `cette semaine${label ? ` (${label})` : ''}` : `la semaine ${label} de ${week?.slice(0, 4) ?? ''}`
-}
-
-// The sentence under the list title: what the list holds.
-function resultsHint(view: ContactView, currentWeek: string | undefined): string {
-  const parts = [
-    view.counter ? COUNTER_INFO[view.counter].hint : `Prospects dont la prochaine action tombe ${weekText(view, currentWeek)}.`,
-    view.counter && view.week !== 'all' && `Semaine : ${weekText(view, currentWeek)}.`,
-    view.state && `État : ${TRACKING_LABELS[view.state]}.`,
-  ]
-  return parts.filter(Boolean).join(' ')
-}
-
-// Contact (ex-Exploitation, decisions 15-19): who to contact this week and the mail of each step. Counters are filters,
-// every criterion lives in the URL (criteria.ts); a person opens the workbench — prospect sheet left, mail sequence
-// right — in place of the list.
+// Contact (ex-Exploitation): one section per cohort of the campaign (S39 … S45), each opened or closed with its arrow and
+// listing its prospects alphabetically by company. A person opens the workbench — prospect sheet left, mail sequence
+// right — in place of the list; the search box narrows every section, and what shows lives in the URL (criteria.ts).
 export function ContactPage() {
   const [params, setParams] = useSearchParams()
   const view = parseView(params)
@@ -74,16 +46,22 @@ export function ContactPage() {
   }
   const settled = useDebouncedValue(draft, 250)
   useEffect(() => {
-    if (settled === draft && settled !== view.q) update({ q: settled, page: 1 })
+    if (settled === draft && settled !== view.q) update({ q: settled })
   }, [settled, draft, view.q, update])
 
   const dashboard = useContactDashboard(view.q)
-  const currentWeek = dashboard.data?.current_week
-  const criteria = listCriteria(view, currentWeek)
-  const list = useContactPage(criteria ?? { ...DEFAULT_VIEW, week: null }, view.page, criteria !== null)
-  const page = criteria ? list.data : undefined
-  const walkOrder = useContactWalk(criteria, view.prospect !== null)
   const today = dashboard.data?.today ?? businessToday()
+  const walkOrder = useContactWalk(view.section ? listCriteria(view) : null, view.prospect !== null)
+
+  // The sections open; the one a workbench was opened from is open again when it closes.
+  const [opened, setOpened] = useState<ReadonlySet<ContactSection>>(() => new Set(view.section ? [view.section] : []))
+  function toggle(code: ContactSection) {
+    setOpened((current) => {
+      const next = new Set(current)
+      if (!next.delete(code)) next.add(code)
+      return next
+    })
+  }
 
   // The prospect whose workbench was closed last: the list gives it the focus back.
   const [returnedFrom, setReturnedFrom] = useState<string | null>(null)
@@ -93,20 +71,20 @@ export function ContactPage() {
     setOpenedId(view.prospect)
   }
 
-  const openHref = (id: string) => `?${serializeView({ ...view, prospect: id }).toString()}`
+  const openHref = (id: string, section: ContactSection | null = view.section) =>
+    `?${serializeView({ ...view, section, prospect: id }).toString()}`
   const listHref = `?${serializeView({ ...view, prospect: null }).toString()}`
 
   if (view.prospect !== null) {
-    // The whole list order once read (every page), the current page meanwhile.
-    const ids = walkOrder.data ?? (page?.items ?? []).map((row) => row.id)
+    // The cohort's whole order, read once when the workbench opens.
+    const ids = walkOrder.data ?? []
     const index = ids.indexOf(view.prospect)
-    const offset = walkOrder.data ? 0 : (page?.offset ?? 0)
     const neighbours: Neighbours | null =
       index < 0
         ? null
         : {
-            position: offset + index + 1,
-            count: walkOrder.data ? ids.length : (page?.total ?? ids.length),
+            position: index + 1,
+            count: ids.length,
             previous: ids[index - 1] ?? null,
             next: ids[index + 1] ?? null,
           }
@@ -117,20 +95,11 @@ export function ContactPage() {
           key={view.prospect}
           prospectId={view.prospect}
           listHref={listHref}
-          openHref={openHref}
+          openHref={(id) => openHref(id)}
           neighbours={neighbours}
         />
       </div>
     )
-  }
-
-  const filtered = hasFilters(view)
-  // This week's list is empty while « À traiter » still counts people: their week is past (overdue).
-  const overdue = dashboard.data?.counts.to_handle ?? 0
-  const last = page ? Math.min(page.offset + page.items.length, page.total) : 0
-  const heading = view.counter ? COUNTER_INFO[view.counter].label : 'Planning de contact'
-  function select(counter: ContactCounter) {
-    update(selectCounter(view, counter))
   }
 
   return (
@@ -154,130 +123,49 @@ export function ContactPage() {
         </DispatchWarning>
       )}
 
-      <section className="counters contact-counters" aria-label="Compteurs">
-        {COUNTER_GROUPS.map((group) => (
-          <CounterGroup key={group.id} id={`contact-${group.id}`} title={group.title} className={`contact-counters__${group.id}`}>
-            {group.counters.map((counter) => {
-              const { label, hint, icon } = COUNTER_INFO[counter]
-              return (
-                <CounterCard
-                  key={counter}
-                  label={label}
-                  hint={hint}
-                  icon={icon}
-                  count={dashboard.data?.counts[counter]}
-                  pressed={view.counter === counter}
-                  onSelect={() => {
-                    select(counter)
-                  }}
-                />
-              )
-            })}
-          </CounterGroup>
-        ))}
-      </section>
-
-      <ContactFilters
-        view={view}
-        dashboard={dashboard.data}
-        onChange={update}
-        search={<SearchField label="Rechercher : nom, entreprise, e-mail, téléphone" value={draft} onChange={setDraft} />}
-      />
-
-      <section className="contact__results" aria-labelledby="contact-results-title">
-        <div className="contact__results-head">
-          <div>
-            <h2 id="contact-results-title" className="contact__results-title">
-              {heading}
-              {page && <span className="contact__results-count">{peopleCount(page.total)}</span>}
-              {list.isFetching && <SpinnerIcon size={16} className="btn__spinner" />}
-            </h2>
-            <p className="contact__results-hint">{resultsHint(view, currentWeek)}</p>
-          </div>
-          {filtered && (
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                setDraft('')
-                update(DEFAULT_VIEW)
-              }}
-            >
-              Réinitialiser
-            </Button>
-          )}
+      <div className="contact-toolbar" role="search" aria-label="Rechercher dans les cohortes">
+        <div className="contact-toolbar__search">
+          <SearchField label="Rechercher : nom, entreprise, e-mail, téléphone" value={draft} onChange={setDraft} />
         </div>
+      </div>
 
-        {(list.isPending || criteria === null) && !dashboard.isError && (
-          <p className="contact__state" role="status">
-            <SpinnerIcon size={18} className="btn__spinner" />
-            Chargement de la liste…
-          </p>
-        )}
-        {list.isError && (
-          <div className="contact__state contact__state--error" role="alert">
-            <AlertIcon size={18} />
-            Liste indisponible ({list.error.message}).
-            <Button size="sm" onClick={() => void list.refetch()}>
-              Réessayer
-            </Button>
-          </div>
-        )}
-        {page?.total === 0 && (
-          <div className="contact__state">
-            {filtered ? (
-              'Aucun prospect ne correspond à ces critères.'
-            ) : overdue > 0 ? (
-              <>
-                <span>
-                  Aucune prochaine action cette semaine, mais {peopleCount(overdue)} de semaines passées{' '}
-                  {overdue > 1 ? 'restent' : 'reste'} à traiter.
-                </span>
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    select('to_handle')
-                  }}
-                >
-                  Voir « À traiter cette semaine »
-                </Button>
-              </>
-            ) : (
-              'Aucun prospect planifié cette semaine. Planifiez une semaine depuis Prospection, ou choisissez une autre semaine.'
-            )}
-          </div>
-        )}
-        {page && page.items.length > 0 && (
-          <ContactList rows={page.items} openHref={(id) => openHref(id)} today={today} returnedFrom={returnedFrom} />
-        )}
-        {page && page.total > CONTACT_PAGE_SIZE && (
-          <nav className="contact__pager" aria-label="Pages de la liste">
-            <span>
-              {page.offset + 1}–{last} sur {NUMBER.format(page.total)}
-            </span>
-            <Button
-              size="sm"
-              icon={ChevronLeftIcon}
-              disabled={view.page <= 1}
-              onClick={() => {
-                update({ page: view.page - 1 })
+      <SchedulingOverview openHref={(id) => openHref(id, null)} />
+
+      <div className="cohort-sections">
+        {CONTACT_SECTIONS.map((code) => {
+          const cohorts = dashboard.data?.cohorts ?? []
+          const appointments =
+            dashboard.data?.categories?.find((item) => item.category === 'appointment_obtained')?.count ?? 0
+          const summary = cohorts.find((cohort) => cohort.code === code)
+          return (
+            <CohortSection
+              key={code}
+              code={code}
+              title={code === APPOINTMENTS ? 'RDV pris' : code}
+              view={view}
+              count={
+                dashboard.data
+                  ? code === APPOINTMENTS
+                    ? appointments
+                    : Math.max((summary?.prospects ?? 0) - (summary?.appointments ?? 0), 0)
+                  : undefined
+              }
+              status={
+                dashboard.data && code !== APPOINTMENTS
+                  ? cohortStatus(code, cohorts, dashboard.data.today || businessToday())
+                  : undefined
+              }
+              open={opened.has(code)}
+              onToggle={() => {
+                toggle(code)
               }}
-            >
-              Précédents
-            </Button>
-            <Button
-              size="sm"
-              icon={ChevronRightIcon}
-              disabled={last >= page.total}
-              onClick={() => {
-                update({ page: view.page + 1 })
-              }}
-            >
-              Suivants
-            </Button>
-          </nav>
-        )}
-      </section>
+              openHref={(id) => openHref(id, code)}
+              today={today}
+              returnedFrom={returnedFrom}
+            />
+          )
+        })}
+      </div>
     </div>
   )
 }
