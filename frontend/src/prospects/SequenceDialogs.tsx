@@ -119,7 +119,7 @@ export function ConfirmActionDialog({ title, lines, note = false, onConfirm, ...
   )
 }
 
-const RESUMED: readonly TrackingStatus[] = ['response_received', 'appointment_obtained', 'disqualified']
+const RESUMED: readonly TrackingStatus[] = ['response_received', 'appointment_obtained', 'not_interested', 'disqualified']
 const REMOVE = 'none'
 
 interface CohortDialogProps {

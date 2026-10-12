@@ -270,6 +270,7 @@ def test_categories(db_session: Session, planning: dict[str, uuid.UUID]) -> None
         C.OUT_OF_CAMPAIGN: 1,
         C.RESPONSE_RECEIVED: 1,
         C.APPOINTMENT_OBTAINED: 1,
+        C.NOT_INTERESTED: 0,
         C.IGNORED: 2,
     }
     assert names(db_session, ContactFilters(category=C.EMAIL_ERROR)) == ["Hhh"]
@@ -326,6 +327,8 @@ def test_cohorts_show_where_their_sequences_stand(
         "r3_sent": 1,
         "finished": 1,
     }
+    assert s37.to_send_steps == ["r2", "r3"]  # the two to send, by rank
+    assert s37.appointments == 1  # the appointment counted in the five, listed apart
     s39 = cohorts["S39"]
     assert (s39.prospects, s39.in_sequence, s39.to_send) == (7, 5, 2)
     assert (cohorts["S0"].prospects, cohorts["S0"].levels) == (1, [])
@@ -541,6 +544,34 @@ def test_nothing_changes_anything(db_session: Session, planning: dict[str, uuid.
     assert db_session.query(ContactMessage).count() == sends
 
 
+def test_cohorts_listed_together_by_company_without_the_appointments(db_session: Session) -> None:
+    def in_cohort(last_name: str, company: str, code: str | None, state: S = S.NEUTRAL) -> None:
+        prospect = add_prospect(db_session, add_company(db_session, company), last_name=last_name)
+        db_session.add(ContactTracking(prospect_id=prospect.id, status=state))
+        if code is not None:
+            cohort = add_cohort(db_session, code, date(2026, 10, 5))
+            db_session.add(ContactSequence(prospect_id=prospect.id, cohort_id=cohort.id))
+        db_session.flush()
+
+    in_cohort("Zed", "Zèbre SA", "S40")
+    in_cohort("Ann", "Alpha SARL", "S39")
+    in_cohort("Bob", "Alpha SARL", "S41", S.APPOINTMENT_OBTAINED)
+    in_cohort("Cid", "Alpha SARL", "S41", S.RESPONSE_RECEIVED)
+    in_cohort("Out", "Beta SA", "S37")
+    in_cohort("Nil", "Gamma SA", None)
+
+    wanted = ContactFilters(
+        category=C.COHORT,
+        cohort_codes=("S39", "S40", "S41", "S42"),
+        sort=ContactSort.COMPANY,
+    )
+
+    # Any state but the appointment is listed, alphabetical by company then by person; the
+    # appointment is listed apart.
+    assert names(db_session, wanted) == ["Ann", "Cid", "Zed"]
+    assert names(db_session, ContactFilters(category=C.APPOINTMENT_OBTAINED)) == ["Bob"]
+
+
 # --- HTTP -----------------------------------------------------------------------------------------
 
 CONTACT = "/api/contact"
@@ -593,6 +624,7 @@ def test_the_planning_over_http(client: TestClient, db_session: Session) -> None
         "out_of_campaign",
         "response_received",
         "appointment_obtained",
+        "not_interested",
         "ignored",
     ]
     s2 = next(cohort for cohort in body["cohorts"] if cohort["code"] == "S2")

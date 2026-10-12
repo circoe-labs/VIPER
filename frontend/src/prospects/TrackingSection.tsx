@@ -13,6 +13,7 @@ const STATE_HINTS: Partial<Record<TrackingStatus, string>> = {
   neutral: 'La séquence reprend là où elle s’était arrêtée (le niveau est conservé).',
   response_received: 'Sort la séquence des actions automatiques. La date de réponse est celle du jour si vous n’en indiquez pas.',
   appointment_obtained: 'Fin de la séquence de contact : indiquez le référent qui prend le rendez-vous.',
+  not_interested: 'Réponse négative : fin de la séquence, plus d’envoi. Réversible : changez de cohorte ou repassez « En séquence ».',
   ignored: 'Définitif : le prospect passe en « Ne pas contacter » et n’aura plus d’envoi.',
 }
 
@@ -40,7 +41,7 @@ function Summary({ prospect, tracking }: { prospect: Prospect; tracking: Trackin
     ['RDV', appointment],
   ]
   return (
-    <dl className="prospect-editor__summary">
+    <dl className="prospect-editor__tracking-summary">
       {facts.map(([term, value]) => (
         <div key={term}>
           <dt>{term}</dt>

@@ -16,12 +16,13 @@ import '../prospects/prospects.css'
 
 // States that take the sequence out of the automatic actions (their unsent messages are cancelled). « Défaillant » is
 // chosen through its own confirmed action (Séquence de contact), never here.
-const CLOSING: readonly TrackingStatus[] = ['response_received', 'appointment_obtained', 'ignored']
+const CLOSING: readonly TrackingStatus[] = ['response_received', 'appointment_obtained', 'not_interested', 'ignored']
 
 const STATE_HINTS: Partial<Record<TrackingStatus, string>> = {
   neutral: 'La séquence reprend là où elle s’était arrêtée (le niveau est conservé).',
   response_received: 'Les messages non envoyés seront annulés.',
   appointment_obtained: 'Fin de la séquence : les messages non envoyés seront annulés.',
+  not_interested: 'Réponse négative : fin de la séquence, les messages non envoyés seront annulés. Réversible (changement de cohorte).',
   ignored: 'Définitif : le prospect passe en « Ne pas contacter » et sort de Contact.',
 }
 

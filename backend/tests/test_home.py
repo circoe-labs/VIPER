@@ -276,7 +276,7 @@ def test_legacy_history_counts_and_migration_rows_restate_nothing(db_session: Se
     moved(db_session, restated, S.APPOINTMENT_OBTAINED, day, system, CONTACT_STATES_MIGRATION_ID)
     # A refusal recorded before 0008 was a contact attempt.
     refused = person(db_session, "Refus")
-    moved(db_session, refused, H.LEGACY_NOT_INTERESTED, at(date(2026, 9, 3)))
+    moved(db_session, refused, H.NOT_INTERESTED, at(date(2026, 9, 3)))
 
     progress = monthly_progress(db_session, TODAY)
     months = {m.month.month: (m.contacted, m.appointments) for m in progress}

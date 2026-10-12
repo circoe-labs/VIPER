@@ -70,7 +70,13 @@ export interface SequenceActions {
   emailError: boolean
 }
 
-const CLOSING_STATES: readonly TrackingStatus[] = ['response_received', 'appointment_obtained', 'ignored', 'disqualified']
+const CLOSING_STATES: readonly TrackingStatus[] = [
+  'response_received',
+  'appointment_obtained',
+  'not_interested',
+  'ignored',
+  'disqualified',
+]
 
 export function sequenceActions(place: Place, prospect: Prospect): SequenceActions {
   const state = prospect.tracking?.status ?? 'neutral'
@@ -90,7 +96,7 @@ export function sequenceActions(place: Place, prospect: Prospect): SequenceActio
           ? 'Opposition « Ne pas contacter » : levez-la d’abord (avec son motif) pour changer la cohorte.'
           : null,
     disqualify: state !== 'ignored' && state !== 'disqualified',
-    resume: state === 'disqualified',
+    resume: state === 'disqualified' || state === 'not_interested',
     emailError: !place.email_error,
   }
 }

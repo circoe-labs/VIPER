@@ -5,16 +5,20 @@ import { describe, expect, it } from 'vitest'
 import type { Prospect, ProspectInput } from '../api/prospects'
 import { company } from '../test/companiesApi'
 import { companySummary, lastBody, prospectDetail, stubProspectsApi, trackingDetail } from '../test/prospectsApi'
+import { editorReady, editSection, showTab } from '../test/prospectEditorUi'
 import { renderProspectEditor } from '../test/renderProspectEditor'
 import { taxonomyValue } from '../test/settingsApi'
 
 const employer = company('Transports Exemple SARL')
 
-async function open(fields: Partial<Prospect> = {}) {
+// The fake API's business day is 2026-09-11, a Friday of week 37.
+// `tab`: the tab the test works on (the role is on Profil, the contact tracking on Suivi).
+async function open(fields: Partial<Prospect> = {}, tab: 'Profil' | 'Suivi' = 'Suivi') {
   const detail = prospectDetail({ company: companySummary(employer), ...fields })
   const api = stubProspectsApi({ details: [detail], companies: [employer], roles: [taxonomyValue('Dirigeant')] })
   renderProspectEditor(detail.id)
-  await screen.findByRole('textbox', { name: 'Prénom' })
+  await editorReady()
+  if (tab === 'Suivi') await showTab('Suivi')
   return api
 }
 
@@ -33,7 +37,8 @@ function savedTracking(api: Awaited<ReturnType<typeof open>>) {
 
 describe('Prospect editor — role and contact tracking', () => {
   it('creates a missing role with the save, not before', async () => {
-    const api = await open()
+    const api = await open({}, 'Profil')
+    await editSection('Emploi')
 
     await userEvent.type(screen.getByRole('combobox', { name: 'Rôle' }), 'Chef de flux')
     await userEvent.click(await screen.findByRole('option', { name: 'Créer le rôle « Chef de flux »' }))
@@ -53,6 +58,7 @@ describe('Prospect editor — role and contact tracking', () => {
       'En séquence',
       'Réponse reçue',
       'RDV pris',
+      'Non intéressé',
       'Ignoré',
     ])
 
@@ -73,7 +79,7 @@ describe('Prospect editor — role and contact tracking', () => {
     const state = within(section()).getByRole('combobox', { name: 'État commercial' })
 
     expect(state).toHaveDisplayValue('Défaillant')
-    expect(within(state).getAllByRole('option')).toHaveLength(5)
+    expect(within(state).getAllByRole('option')).toHaveLength(6)
   })
 
   it('asks for the referent once RDV pris', async () => {

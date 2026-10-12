@@ -39,6 +39,7 @@ def test_the_commercial_states_in_display_order() -> None:
         "neutral",
         "response_received",
         "appointment_obtained",
+        "not_interested",
         "ignored",
         "disqualified",
     ]
@@ -47,6 +48,7 @@ def test_the_commercial_states_in_display_order() -> None:
         S.NEUTRAL: "En séquence",
         S.RESPONSE_RECEIVED: "Réponse reçue",
         S.APPOINTMENT_OBTAINED: "RDV pris",
+        S.NOT_INTERESTED: "Non intéressé",
         S.IGNORED: "Ignoré",
         S.DISQUALIFIED: "Défaillant",
     }
@@ -55,7 +57,6 @@ def test_the_commercial_states_in_display_order() -> None:
 def test_former_states_are_history_only() -> None:
     legacy = {"contacted", "r1", "r2", "failure"}
     legacy |= {"to_contact", "follow_up_1", "follow_up_2", "quote_sent", "quote_follow_up", "won"}
-    legacy |= {"not_interested"}
     assert {code.value for code in H} == {state.value for state in S} | legacy
     for code in legacy:
         with pytest.raises(ValueError):
@@ -85,11 +86,12 @@ def test_state_groups() -> None:
     assert SEQUENCE_CLOSING_STATES == (
         S.RESPONSE_RECEIVED,
         S.APPOINTMENT_OBTAINED,
+        S.NOT_INTERESTED,
         S.IGNORED,
         S.DISQUALIFIED,
     )
     assert TERMINAL_STATES == (S.IGNORED,)
-    assert HUMAN_ONLY_STATES == (S.DISQUALIFIED,)
+    assert HUMAN_ONLY_STATES == (S.DISQUALIFIED, S.NOT_INTERESTED)
     assert DEFAULT_MAX_FOLLOW_UPS == 4
 
 

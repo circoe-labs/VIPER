@@ -33,6 +33,7 @@ terminée (R<max> sent, or the sequence closed `completed`).
 - `disqualified` — « Défaillant »;
 - `out_of_campaign` — current cohort S0 (validated, out of campaign);
 - `response_received`, `appointment_obtained` — the state;
+- `not_interested` — « Non intéressé »: the state (a negative answer);
 - `ignored` — the state `ignored` or the do-not-contact opposition.
 
 **Cohorts**: per cohort holding current prospects (under the filters): its prospects, its
@@ -102,7 +103,11 @@ class ContactCategory(StrEnum):
     OUT_OF_CAMPAIGN = "out_of_campaign"
     RESPONSE_RECEIVED = "response_received"
     APPOINTMENT_OBTAINED = "appointment_obtained"
+    NOT_INTERESTED = "not_interested"
     IGNORED = "ignored"
+    # A cohort's whole list, whatever the state, but the appointments (listed apart under
+    # `appointment_obtained`); not counted beside the planning.
+    COHORT = "cohort"
 
 
 CATEGORY_LABELS: dict[ContactCategory, str] = {
@@ -114,17 +119,22 @@ CATEGORY_LABELS: dict[ContactCategory, str] = {
     ContactCategory.OUT_OF_CAMPAIGN: "S0 (validé hors campagne)",
     ContactCategory.RESPONSE_RECEIVED: "Réponse reçue",
     ContactCategory.APPOINTMENT_OBTAINED: "RDV obtenu",
+    ContactCategory.NOT_INTERESTED: "Non intéressé",
     ContactCategory.IGNORED: "Ignoré",
+    ContactCategory.COHORT: "Cohorte (hors RDV pris)",
 }
 # The categories counted beside the planning (`to_send` is counted per rank).
 COUNTED_CATEGORIES = tuple(
-    category for category in ContactCategory if category is not ContactCategory.TO_SEND
+    category
+    for category in ContactCategory
+    if category not in (ContactCategory.TO_SEND, ContactCategory.COHORT)
 )
 
 
 class ContactSort(StrEnum):
     DUE = "due"  # next due date (soonest first, none last), then the person
     NAME = "name"  # last name, first name
+    COMPANY = "company"  # company name (alphabetical, none last), then the person
     COHORT = "cohort"  # cohort date (oldest first, S0 and none last), then the person
 
 
@@ -197,6 +207,8 @@ class ContactFilters:
     level: str | None = None
     # The current cohort, or `none` (no cohort).
     cohort: uuid.UUID | Literal["none"] | None = None
+    # Several cohorts at once, by code (`S39`…); combines with `cohort` (both must hold).
+    cohort_codes: tuple[str, ...] = ()
     search: str | None = None
     sort: ContactSort = ContactSort.DUE
 
@@ -253,6 +265,10 @@ class CohortSummary:
     to_send: int
     overdue: int
     levels: list[LevelCount]
+    # Prospects of the cohort who took an appointment (listed apart from the cohort).
+    appointments: int
+    # The steps to send in the week (`contact`, `r1`…, by rank): what the cohort has to prepare.
+    to_send_steps: list[str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -388,10 +404,17 @@ def category_condition(category: ContactCategory, window: PlanningWeek) -> Colum
             return ContactTracking.status == S.RESPONSE_RECEIVED
         case ContactCategory.APPOINTMENT_OBTAINED:
             return ContactTracking.status == S.APPOINTMENT_OBTAINED
+        case ContactCategory.NOT_INTERESTED:
+            return ContactTracking.status == S.NOT_INTERESTED
         case ContactCategory.IGNORED:
             return or_(
                 ContactTracking.status == S.IGNORED,
                 Prospect.contactability_status == ContactabilityStatus.DO_NOT_CONTACT,
+            )
+        case ContactCategory.COHORT:
+            return or_(
+                ContactTracking.status.is_(None),
+                ContactTracking.status != S.APPOINTMENT_OBTAINED,
             )
 
 
@@ -406,6 +429,8 @@ def _cohort_condition(cohort: uuid.UUID | str | None) -> list[ColumnElement[bool
 def scope_conditions(filters: ContactFilters) -> list[ColumnElement[bool]]:
     """The page's scope under `cohort` and `q` (dashboard and lists)."""
     conditions = [in_scope(), *_cohort_condition(filters.cohort)]
+    if filters.cohort_codes:
+        conditions.append(and_(has_cohort_sql(), Cohort.code.in_(filters.cohort_codes)))
     search = (filters.search or "").strip()
     if search:
         conditions.append(search_condition(search))
@@ -493,13 +518,15 @@ def dashboard(
         select(
             rows.c.cohort_id,
             rows.c.level,
+            rows.c.next_rank,
             func.count(),
             func.count().filter(rows.c.in_sequence),
             func.count().filter(rows.c.to_send),
             func.count().filter(rows.c.overdue),
+            func.count().filter(rows.c.category_appointment_obtained),
         )
         .where(rows.c.cohort_id.is_not(None))
-        .group_by(rows.c.cohort_id, rows.c.level)
+        .group_by(rows.c.cohort_id, rows.c.level, rows.c.next_rank)
     )
     weeks = (
         select(rows.c.due_week, func.count())
@@ -558,15 +585,26 @@ def _cohort_summaries(
     if not rows:
         return []
     facts: dict[uuid.UUID, dict[str, Any]] = {}
-    for cohort_id, level, count, active, sending, late in rows:
+    for cohort_id, level, next_rank, count, active, sending, late, appointed in rows:
         entry = facts.setdefault(
             cohort_id,
-            {"prospects": 0, "in_sequence": 0, "to_send": 0, "overdue": 0, "levels": {}},
+            {
+                "prospects": 0,
+                "in_sequence": 0,
+                "to_send": 0,
+                "overdue": 0,
+                "levels": {},
+                "appointments": 0,
+                "ranks": set(),
+            },
         )
         entry["prospects"] += count
         entry["in_sequence"] += active
         entry["to_send"] += sending
         entry["overdue"] += late
+        entry["appointments"] += appointed
+        if sending and next_rank is not None:
+            entry["ranks"].add(next_rank)
         if level is not None and active:
             entry["levels"][level] = entry["levels"].get(level, 0) + active
     cohorts = session.scalars(select(Cohort).where(Cohort.id.in_(facts))).all()
@@ -596,6 +634,8 @@ def _cohort_summaries(
                 LevelCount(key, level_label(key), facts[cohort.id]["levels"].get(key, 0))
                 for key in keys
             ],
+            appointments=facts[cohort.id]["appointments"],
+            to_send_steps=[step_code(rank) for rank in sorted(facts[cohort.id]["ranks"])],
         )
         for cohort in ordered
     ]
@@ -641,6 +681,8 @@ def _order_by(sort: ContactSort) -> list[Any]:
             keys = [next_due_at_sql().asc().nulls_last(), *person]
         case ContactSort.NAME:
             keys = person
+        case ContactSort.COMPANY:
+            keys = [label_key(Company.display_name).nulls_last(), *person]
         case ContactSort.COHORT:
             keys = [
                 (Cohort.code == OUT_OF_CAMPAIGN_CODE).asc().nulls_last(),

@@ -23,6 +23,8 @@ export const STATE_BADGES: Record<ShownState, { tone: StatusTone; icon: IconComp
   // A reply waits for a human decision.
   response_received: { tone: 'info', icon: MailIcon },
   appointment_obtained: { tone: 'success', icon: CheckCircleIcon },
+  // A negative answer: the sequence is closed, the person stays in the base and can be resumed.
+  not_interested: { tone: 'warning', icon: MinusCircleIcon },
   // Terminal, reinforces « Ne pas contacter ».
   ignored: { tone: 'danger', icon: BanIcon },
   // A person's decision: to eliminate, out of the active pipeline (kept in the base).

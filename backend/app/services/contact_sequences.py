@@ -102,7 +102,12 @@ S = ContactTrackingStatus
 SEQUENCE_CLOSED_REASON = "sequence_closed"
 # States a person's new cohort resumes to `neutral` (R-11): the handoff's « to resume, a person
 # changes the Sxx and a new sequence starts ». `ignored` is terminal and refuses the change.
-RESUMED_STATES = (S.DISQUALIFIED, S.RESPONSE_RECEIVED, S.APPOINTMENT_OBTAINED)
+RESUMED_STATES = (
+    S.DISQUALIFIED,
+    S.NOT_INTERESTED,
+    S.RESPONSE_RECEIVED,
+    S.APPOINTMENT_OBTAINED,
+)
 # `context.reason` of the `contact_tracking.status_changed` event of a resumed state.
 RESUMED_REASON = "Changement de cohorte : reprise en séquence"
 # Alerts that take a prospect out of the automatic actions (D9): raised by a person or an import;

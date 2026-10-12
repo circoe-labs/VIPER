@@ -63,7 +63,7 @@ S = ContactTrackingStatus
 History = ContactTrackingStatusHistory
 
 # Outcomes that leave nothing to do: never listed as next actions.
-CLOSED_STAGES = (S.IGNORED, S.DISQUALIFIED)
+CLOSED_STAGES = (S.NOT_INTERESTED, S.IGNORED, S.DISQUALIFIED)
 # Sends recorded when they happened (a person's « Marquer comme envoyé », the dispatcher); an
 # import or a migration restates a send made at an earlier, uncertain moment.
 RECORDED_SEND_SOURCES = (SendSource.MANUAL, SendSource.WORKER)

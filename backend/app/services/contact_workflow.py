@@ -70,6 +70,7 @@ STATE_LABELS: dict[ContactTrackingStatus, str] = {
     S.NEUTRAL: "En séquence",
     S.RESPONSE_RECEIVED: "Réponse reçue",
     S.APPOINTMENT_OBTAINED: "RDV pris",
+    S.NOT_INTERESTED: "Non intéressé",
     S.IGNORED: "Ignoré",
     S.DISQUALIFIED: "Défaillant",
 }
@@ -102,7 +103,6 @@ LEGACY_LABELS: dict[TrackingHistoryStatus, str] = {
     H.LEGACY_QUOTE_SENT: "Devis envoyé (ancien)",
     H.LEGACY_QUOTE_FOLLOW_UP: "Suivi du devis (ancien)",
     H.LEGACY_WON: "Gagné (ancien)",
-    H.LEGACY_NOT_INTERESTED: "Pas intéressé (ancien)",
 }
 # History codes that prove a contact attempt (Home's monthly progress reads history written
 # before the sends existed): every code but `neutral`/`to_contact` and the states that may be
@@ -119,7 +119,7 @@ CONTACT_ATTEMPT_CODES: tuple[TrackingHistoryStatus, ...] = (
     H.LEGACY_QUOTE_SENT,
     H.LEGACY_QUOTE_FOLLOW_UP,
     H.LEGACY_WON,
-    H.LEGACY_NOT_INTERESTED,
+    H.NOT_INTERESTED,
 )
 # History codes of an appointment obtained (the 0008 post-appointment codes included).
 APPOINTMENT_CODES: tuple[TrackingHistoryStatus, ...] = (
@@ -134,13 +134,14 @@ APPOINTMENT_CODES: tuple[TrackingHistoryStatus, ...] = (
 SEQUENCE_CLOSING_STATES = (
     S.RESPONSE_RECEIVED,
     S.APPOINTMENT_OBTAINED,
+    S.NOT_INTERESTED,
     S.IGNORED,
     S.DISQUALIFIED,
 )
 # No way out; implies `do_not_contact` (decision 7).
 TERMINAL_STATES = (S.IGNORED,)
 # States only a person may choose (D4/D7: never an import, a job or the AI).
-HUMAN_ONLY_STATES = (S.DISQUALIFIED,)
+HUMAN_ONLY_STATES = (S.DISQUALIFIED, S.NOT_INTERESTED)
 
 
 def history_label(code: str | None) -> str | None:

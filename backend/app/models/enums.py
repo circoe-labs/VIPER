@@ -53,6 +53,8 @@ class ContactTrackingStatus(StrEnum):
     NEUTRAL = "neutral"
     RESPONSE_RECEIVED = "response_received"
     APPOINTMENT_OBTAINED = "appointment_obtained"
+    # « Non intéressé »: a negative answer, chosen by a person; closes the sequence, reversible.
+    NOT_INTERESTED = "not_interested"
     IGNORED = "ignored"
     # « Défaillant »: a contact to eliminate, out of every sequence (a human decision only).
     DISQUALIFIED = "disqualified"
@@ -66,6 +68,7 @@ class TrackingHistoryStatus(StrEnum):
     NEUTRAL = "neutral"
     RESPONSE_RECEIVED = "response_received"
     APPOINTMENT_OBTAINED = "appointment_obtained"
+    NOT_INTERESTED = "not_interested"
     IGNORED = "ignored"
     DISQUALIFIED = "disqualified"
     # Contact states replaced by migration 0012 (the level is derived from real sends), readable.
@@ -80,7 +83,6 @@ class TrackingHistoryStatus(StrEnum):
     LEGACY_QUOTE_SENT = "quote_sent"
     LEGACY_QUOTE_FOLLOW_UP = "quote_follow_up"
     LEGACY_WON = "won"
-    LEGACY_NOT_INTERESTED = "not_interested"
 
 
 class SequenceEndReason(StrEnum):
@@ -136,6 +138,17 @@ class ProspectSourceType(StrEnum):
     EXCEL_IMPORT = "excel_import"
     MANUAL = "manual"
     FUTURE_AGENT = "future_agent"
+    OTHER = "other"
+
+
+class NoteSourceType(StrEnum):
+    """Where a prospect note's fact comes from (`prospect_notes.source_type`); optional."""
+
+    LINKEDIN = "linkedin"
+    EMAIL = "email"
+    PHONE = "phone"
+    MEETING = "meeting"
+    WEB = "web"
     OTHER = "other"
 
 
