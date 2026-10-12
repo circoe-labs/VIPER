@@ -28,7 +28,7 @@ from app.models.enums import (
     ContactMessageStatus,
     ContactTrackingStatus,
 )
-from app.services import app_settings, contact_dashboard
+from app.services import app_settings, contact_dashboard, contact_scheduling
 from app.services.contact_dashboard import (
     NONE,
     ContactCategory,
@@ -49,6 +49,9 @@ MIN_YEAR, MAX_YEAR = 2000, 2100
 Search = Annotated[str | None, Query(max_length=200)]
 Week = Annotated[str | None, Query(max_length=16)]
 CohortParam = Annotated[uuid.UUID | Literal["none"] | None, Query()]
+# Cohort codes (`S39`): several at once, e.g. `?cohorts=S39&cohorts=S40`.
+CohortCodes = Annotated[list[str] | None, Query(max_length=20, alias="cohorts")]
+COHORT_CODE = re.compile(r"S\d{1,3}")
 
 
 class WeekOut(BaseModel):
@@ -95,6 +98,8 @@ class CohortSummaryOut(BaseModel):
     to_send: int
     overdue: int
     levels: list[LevelCountOut]
+    appointments: int
+    to_send_steps: list[str]
 
 
 class WeekOptionOut(BaseModel):
@@ -180,6 +185,80 @@ class ContactPageOut(BaseModel):
     week: str
 
 
+class SchedulingStepOut(BaseModel):
+    rank: int
+    step: str
+    step_label: str
+    drafts: int
+    validated: int
+    scheduled: int
+    due: int
+    forgotten: int
+    forgotten_none: int
+    forgotten_draft: int
+    forgotten_validated: int
+
+
+class ScheduledDayOut(BaseModel):
+    day: date
+    total: int
+    by_step: dict[str, int]
+    past: bool
+
+
+class ForgottenProspectOut(BaseModel):
+    id: uuid.UUID
+    first_name: str | None
+    last_name: str | None
+    civility: Civility | None
+    company_name: str | None
+    cohort_code: str | None
+    step: str
+    step_label: str
+    rank: int
+    # `none` (nothing written) | `draft` (to validate) | `validated` (to schedule)
+    state: Literal["none", "draft", "validated"]
+    due_at: datetime | None
+    overdue: bool
+
+
+class PreparedMessageOut(BaseModel):
+    prospect_id: uuid.UUID
+    first_name: str | None
+    last_name: str | None
+    company_name: str | None
+    cohort_code: str | None
+    step: str
+    step_label: str
+    rank: int
+    status: Literal["draft", "validated", "scheduled"]
+    scheduled_at: datetime | None
+    last_error_code: str | None
+
+
+class SchedulingTotalsOut(BaseModel):
+    scheduled: int
+    validated: int
+    drafts: int
+    due: int
+    forgotten: int
+    scheduled_past: int
+    scheduled_with_error: int
+    scheduled_with_draft_error: int
+
+
+class SchedulingOut(BaseModel):
+    today: date
+    week: str
+    current_week: str
+    max_follow_ups: int
+    totals: SchedulingTotalsOut
+    steps: list[SchedulingStepOut]
+    days: list[ScheduledDayOut]
+    forgotten: list[ForgottenProspectOut]
+    messages: list[PreparedMessageOut]
+
+
 def contact_clock() -> ContactClock:
     return ContactClock.at(datetime.now(UTC))
 
@@ -204,6 +283,13 @@ def _cohort(value: uuid.UUID | str | None) -> uuid.UUID | Literal["none"] | None
     return NONE
 
 
+def _cohort_codes(values: list[str] | None) -> tuple[str, ...]:
+    codes = tuple(dict.fromkeys(value.strip().upper() for value in values or []))
+    if any(COHORT_CODE.fullmatch(code) is None for code in codes):
+        raise InvalidFieldError("cohorts", "Expected cohort codes such as S39.", "cohort_code")
+    return codes
+
+
 @router.get("/dashboard")
 def dashboard(
     request: Request,
@@ -224,6 +310,16 @@ def dashboard(
     return ContactDashboardOut.model_validate({**payload, "dispatch": state}, from_attributes=True)
 
 
+@router.get("/scheduling")
+def scheduling(session: SessionDep, week: Week = None) -> SchedulingOut:
+    """What is scheduled (by step and by day), what is still to validate or schedule, and the
+    prospects with something to send this week whose mail is not scheduled (« oubliés »)."""
+    with business_errors():
+        asked = parse_week(week)
+    result = contact_scheduling.overview(session, contact_clock(), asked)
+    return SchedulingOut.model_validate(result, from_attributes=True)
+
+
 @router.get("/prospects")
 def prospects(
     session: SessionDep,
@@ -233,6 +329,7 @@ def prospects(
     rank: Annotated[int | None, Query(ge=0)] = None,
     level: Annotated[str | None, Query(max_length=32)] = None,
     cohort: CohortParam = None,
+    cohort_codes: CohortCodes = None,
     sort: ContactSort = ContactSort.DUE,
     limit: Annotated[int, Query(ge=1, le=LIST_MAX_LIMIT)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
@@ -252,6 +349,7 @@ def prospects(
             rank=rank,
             level=level,
             cohort=_cohort(cohort),
+            cohort_codes=_cohort_codes(cohort_codes),
             search=q,
             sort=sort,
         )

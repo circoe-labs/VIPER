@@ -31,7 +31,9 @@ import json
 import logging
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -55,6 +57,32 @@ SUBJECT_MAX_LENGTH = 500
 TEXT_MAX_LENGTH = 200_000
 DRAFT_ID_MAX_LENGTH = 200
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+# Diagnostic trace (« Tester la Toolbox »): while a run captures one, every HTTP exchange and the
+# Toolbox's own error text are appended to it. Off in production calls (nothing is kept or logged);
+# only the diagnostic, which writes to a test address, turns it on.
+TRACE_EXCERPT_LENGTH = 2000
+_TRACE: ContextVar[list[dict[str, Any]] | None] = ContextVar("toolbox_trace", default=None)
+
+
+@contextmanager
+def capture_trace() -> Iterator[list[dict[str, Any]]]:
+    events: list[dict[str, Any]] = []
+    token = _TRACE.set(events)
+    try:
+        yield events
+    finally:
+        _TRACE.reset(token)
+
+
+def _trace(**event: Any) -> None:
+    sink = _TRACE.get()
+    if sink is not None:
+        sink.append(event)
+
+
+def _excerpt(text: str) -> str:
+    return text if len(text) <= TRACE_EXCERPT_LENGTH else text[:TRACE_EXCERPT_LENGTH] + "…"
 
 
 class TokenProvider(Protocol):
@@ -122,6 +150,8 @@ def classify_tool_error(text: str) -> str:
         (r"INFOMANIAK_SEND_ALLOWLIST|liste d'envoi autoris|TOOLBOX_OUTBOUND_BLOCKED", "outbound"),
         (r"Brouillon introuvable|MAIL_DRAFT_NOT_FOUND|a répondu 404", "draft_not_found"),
         (r"Aucune connexion Infomaniak|a répondu 40[13]|token API personnel", "auth_expired"),
+        # Infomaniak answers an unusable token with its HTML login page (status 400).
+        (r"<title>\s*Login\s*</title>|<base href=\"/oauth2/\"", "auth_expired"),
         (r"a répondu (5\d\d|429)|ETIMEDOUT|ECONNRESET|fetch failed", "unavailable"),
         (r"Paramètres invalides|TOOL_INPUT_INVALID", "invalid_input"),
     )
@@ -222,14 +252,39 @@ class McpMailToolbox:
         }
         if session.session_id:
             headers["Mcp-Session-Id"] = session.session_id
+        started = self._clock()
+        label = str(body.get("method", ""))
         try:
-            return client.post(self._url, json=body, headers=headers, timeout=remaining)
-        except httpx2.TimeoutException:
+            response = client.post(self._url, json=body, headers=headers, timeout=remaining)
+        except httpx2.TimeoutException as error:
+            _trace(
+                step=label,
+                outcome="timeout",
+                exception=type(error).__name__,
+                duration_ms=round((self._clock() - started) * 1000),
+                budget_ms=round(remaining * 1000),
+            )
             raise self._timeout_error(sensitive) from None
-        except httpx2.TransportError:
+        except httpx2.TransportError as error:
+            _trace(
+                step=label,
+                outcome="transport_error",
+                exception=type(error).__name__,
+                detail=str(error)[:300],
+                duration_ms=round((self._clock() - started) * 1000),
+            )
             raise toolbox_error(
                 "toolbox_unavailable", "The Toolbox cannot be reached.", outcome_unknown=sensitive
             ) from None
+        _trace(
+            step=label,
+            outcome="http",
+            http_status=response.status_code,
+            content_type=response.headers.get("content-type", ""),
+            duration_ms=round((self._clock() - started) * 1000),
+            body=_excerpt(response.text),
+        )
+        return response
 
     def _timeout_error(self, sensitive: bool) -> ToolboxError:
         return toolbox_error(
@@ -288,6 +343,7 @@ class McpMailToolbox:
             )
         error = message.get("error")
         if isinstance(error, dict):
+            _trace(step=method, outcome="rpc_error", rpc_error=error)
             unknown_tool = "not found" in str(error.get("message", "")).lower()
             raise toolbox_error(
                 "toolbox_rejected" if unknown_tool else "toolbox_invalid_response",
@@ -391,6 +447,7 @@ class McpMailToolbox:
         text = "\n".join(str(part.get("text", "")) for part in parts if isinstance(part, dict))
         if raw.get("isError"):
             code = classify_tool_error(text)
+            _trace(step="tools/call", outcome="tool_error", classified_as=code, text=_excerpt(text))
             raise toolbox_error(
                 code,
                 f"The Toolbox refused the operation ({code}).",

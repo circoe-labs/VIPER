@@ -541,3 +541,101 @@ tr[data-inactive] .settings-table__label {
     margin-top: 0;
   }
 }
+
+/* « Tester la Toolbox »: the form, then one foldable row per step with its context and the raw exchange. */
+.toolbox-test__form,
+.toolbox-test__results,
+.toolbox-test__detail {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.toolbox-test__verdict {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.toolbox-test__steps {
+  display: grid;
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.toolbox-test__step + .toolbox-test__step {
+  border-top: var(--border-width) solid var(--color-border);
+}
+
+.toolbox-test__summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  cursor: pointer;
+}
+
+.toolbox-test__title {
+  flex: 1;
+  min-width: 0;
+}
+
+.toolbox-test__duration {
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.toolbox-test__detail {
+  padding: 0 var(--space-4) var(--space-4);
+}
+
+.toolbox-test__block-title {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.toolbox-test__pairs {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+}
+
+.toolbox-test__pair {
+  display: grid;
+  grid-template-columns: minmax(8rem, 12rem) minmax(0, 1fr);
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.toolbox-test__pair dt {
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+}
+
+.toolbox-test__pair dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.toolbox-test__raw {
+  max-height: 20rem;
+  margin: var(--space-2) 0 0;
+  padding: var(--space-3);
+  overflow: auto;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The card a « fix » button of the Toolbox test just scrolled to. */
+.settings-connection--pointed {
+  border-color: var(--color-accent, currentColor);
+  box-shadow: 0 0 0 2px var(--color-accent, currentColor);
+}

@@ -1,7 +1,6 @@
 import { vi } from 'vitest'
 
 import type {
-  ContactCounter,
   ContactDashboard,
   ContactRow,
   GenerateRequest,
@@ -10,6 +9,7 @@ import type {
   MessageSequence,
   MessageStatus,
   MessageStep,
+  Scheduling,
 } from '../api/contact'
 import type { Prospect } from '../api/prospects'
 import { stubProspectsApi } from './prospectsApi'
@@ -29,9 +29,25 @@ export function contactDashboard(overrides: Partial<ContactDashboard> = {}): Con
   return {
     today: TODAY,
     current_week: CURRENT_WEEK,
-    counts: { to_handle: 0, first_contact: 0, follow_up: 0, review: 0, appointments: 0 },
+    cohorts: [],
     weeks: [],
     dispatch: { active: true, reason: null, scheduled_count: 0, overdue_count: 0 },
+    ...overrides,
+  }
+}
+
+// « Suivi des envois programmés »: nothing scheduled, nothing forgotten (a test gives its own picture).
+export function contactScheduling(overrides: Partial<Scheduling> = {}): Scheduling {
+  return {
+    today: TODAY,
+    week: CURRENT_WEEK,
+    current_week: CURRENT_WEEK,
+    max_follow_ups: 4,
+    totals: { scheduled: 0, validated: 0, drafts: 0, due: 0, forgotten: 0, scheduled_past: 0, scheduled_with_error: 0, scheduled_with_draft_error: 0 },
+    steps: [],
+    days: [],
+    forgotten: [],
+    messages: [],
     ...overrides,
   }
 }
@@ -97,6 +113,7 @@ export function message(step: MessageStep, status: MessageStatus, fields: Partia
 
 interface ContactStubOptions {
   dashboard?: ContactDashboard | 'error'
+  scheduling?: Scheduling
   rows?: ContactRow[]
   // Prospect details (left panel), by id.
   details?: Prospect[]
@@ -117,16 +134,6 @@ function json(status: number, body?: unknown): Promise<Response> {
 
 function refusal(status: number, code: string, extra: object = {}): Promise<Response> {
   return json(status, { detail: { code, message: code, ...extra } })
-}
-
-// What each counter counts. The commercial state no longer tells the level (`neutral` covers every send): the counters
-// follow what the next action prepares, as the backend derives it from the real sends.
-const COUNTER_MATCHES: Record<ContactCounter, (row: ContactRow) => boolean> = {
-  to_handle: (row) => row.due,
-  first_contact: (row) => row.due && row.next_step === 'contact',
-  follow_up: (row) => row.due && (row.next_step === 'r1' || row.next_step === 'r2'),
-  review: (row) => row.due && row.next_step === 'review',
-  appointments: (row) => row.tracking_status === 'appointment_obtained',
 }
 
 export function stubContactApi(options: ContactStubOptions = {}) {
@@ -249,6 +256,11 @@ export function stubContactApi(options: ContactStubOptions = {}) {
       case 'unschedule':
         if (current.status !== 'scheduled') return refusal(409, 'invalid_transition', { status: current.status })
         return write(id, step, { ...current, status: 'validated', scheduled_at: null })
+      case 'delete': {
+        if (current.status !== 'draft') return refusal(409, 'invalid_transition', { status: current.status })
+        store.set(id, { ...store.get(id), [step]: undefined })
+        return json(200, { deleted: true, step })
+      }
       case 'cancel':
         if (current.status === 'sent' || current.status === 'cancelled') return refusal(409, 'invalid_transition')
         return write(id, step, { ...current, status: 'cancelled', cancelled_at: STAMP, cancel_reason: 'manual', scheduled_at: null })
@@ -319,15 +331,16 @@ export function stubContactApi(options: ContactStubOptions = {}) {
     })
   }
 
+  // `category=cohort`: the cohorts asked (`cohorts`), every state but the appointment; `appointment_obtained`: « RDV pris ».
+  // Rows are given in the API's order (alphabetical by company; the backend tests cover the sort).
   function listed(url: URL): ContactRow[] {
-    const counter = url.searchParams.get('counter') as ContactCounter | null
-    const state = url.searchParams.get('state')
-    const week = url.searchParams.get('week')
+    if (url.searchParams.get('category') === 'appointment_obtained') {
+      return rows.filter((row) => row.tracking_status === 'appointment_obtained')
+    }
+    const cohorts = url.searchParams.getAll('cohorts')
     return rows.filter(
       (row) =>
-        (!counter || COUNTER_MATCHES[counter](row)) &&
-        (!state || row.tracking_status === state) &&
-        (!week || row.next_action_week === week),
+        row.tracking_status !== 'appointment_obtained' && (cohorts.length === 0 || cohorts.includes(row.cohort_code ?? '')),
     )
   }
 
@@ -339,6 +352,10 @@ export function stubContactApi(options: ContactStubOptions = {}) {
       requests.push({ method, path: url.pathname, search: url.search, body })
       if (options.dashboard === 'error') return json(500, { detail: 'boom' })
       return json(200, options.dashboard ?? contactDashboard())
+    }
+    if (url.pathname === '/api/contact/scheduling') {
+      requests.push({ method, path: url.pathname, search: url.search, body })
+      return json(200, options.scheduling ?? contactScheduling())
     }
     if (url.pathname === '/api/contact/prospects') {
       requests.push({ method, path: url.pathname, search: url.search, body })
