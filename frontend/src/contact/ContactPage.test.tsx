@@ -96,7 +96,7 @@ describe('Contact page', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
-  it('shows one closed section per cohort S37 to S45 (no S38), then « RDV pris », with its prospect count, and reads nothing until one opens', async () => {
+  it('shows one closed section per cohort S37 to S45 (no S38, no S42), then « RDV pris », with its prospect count, and reads nothing until one opens', async () => {
     const api = stubContactApi({ dashboard: DASHBOARD, rows: rows() })
     renderApp('/contact')
 
@@ -110,7 +110,6 @@ describe('Contact page', () => {
       'S392 prospectsR1',
       'S401 prospectenvoyé',
       'S410 prospectsemaine du 12/10',
-      'S420 prospectsemaine du 19/10',
       'S430 prospectsemaine du 26/10',
       'S440 prospectsemaine du 02/11',
       'S450 prospectsemaine du 09/11',
