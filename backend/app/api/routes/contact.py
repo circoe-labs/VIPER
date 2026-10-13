@@ -87,6 +87,15 @@ class CategoryCountOut(BaseModel):
     count: int
 
 
+class SentStepOut(BaseModel):
+    rank: int
+    step: str
+    label: str
+    count: int
+    first_on: date
+    last_on: date
+
+
 class CohortSummaryOut(BaseModel):
     id: uuid.UUID
     code: str
@@ -100,6 +109,9 @@ class CohortSummaryOut(BaseModel):
     levels: list[LevelCountOut]
     appointments: int
     to_send_steps: list[str]
+    sent_steps: list[SentStepOut]
+    scheduled_steps: list[SentStepOut]
+    next_steps: list[SentStepOut]
 
 
 class WeekOptionOut(BaseModel):
@@ -141,6 +153,8 @@ class MessageStateOut(BaseModel):
     rank: int
     step: str
     status: ContactMessageStatus
+    sent_at: datetime | None = None
+    scheduled_at: datetime | None = None
 
 
 class ContactRowOut(BaseModel):

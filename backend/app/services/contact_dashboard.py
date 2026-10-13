@@ -252,6 +252,16 @@ class CategoryCount:
 
 
 @dataclass(frozen=True, slots=True)
+class SentStep:
+    rank: int
+    step: str
+    label: str
+    count: int
+    first_on: date
+    last_on: date
+
+
+@dataclass(frozen=True, slots=True)
 class CohortSummary:
     id: uuid.UUID
     code: str
@@ -269,6 +279,15 @@ class CohortSummary:
     appointments: int
     # The steps to send in the week (`contact`, `r1`…, by rank): what the cohort has to prepare.
     to_send_steps: list[str]
+    # What has really left, by step: how many mails and between which business days, so a person
+    # reads « Contact sent 7 Sept, R1 21 Sept » on the cohort.
+    sent_steps: list[SentStep] = field(default_factory=list)
+    # The same for the mails scheduled and not sent yet: how many per step, and the business days
+    # they are scheduled for (« ready to leave on 14/10/2026 »).
+    scheduled_steps: list[SentStep] = field(default_factory=list)
+    # The steps coming up for the sequences with nothing due this week: how many prospects, and the
+    # earliest business day it is due (`first_on`), so a cohort reads « R2 due on 19/10 ».
+    next_steps: list[SentStep] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -299,6 +318,9 @@ class MessageState:
     rank: int
     step: str
     status: ContactMessageStatus
+    # When it really left (`sent`), or the moment it is scheduled for (`scheduled`).
+    sent_at: datetime | None = None
+    scheduled_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -468,6 +490,7 @@ def _derived(filters: ContactFilters, window: PlanningWeek) -> Any:
             func.coalesce(sending, false()).label("to_send"),
             func.coalesce(and_(sending, overdue(window)), false()).label("overdue"),
             next_rank_sql().label("next_rank"),
+            next_due_at_sql().label("next_due_at"),
             level_key_sql().label("level"),
             func.coalesce(in_sequence(), false()).label("in_sequence"),
             _due_week().label("due_week"),
@@ -528,6 +551,22 @@ def dashboard(
         .where(rows.c.cohort_id.is_not(None))
         .group_by(rows.c.cohort_id, rows.c.level, rows.c.next_rank)
     )
+    upcoming = (
+        select(
+            rows.c.cohort_id,
+            rows.c.next_rank,
+            func.count(),
+            func.min(rows.c.next_due_at),
+        )
+        .where(
+            rows.c.cohort_id.is_not(None),
+            rows.c.in_sequence,
+            ~rows.c.to_send,
+            rows.c.next_rank.is_not(None),
+            rows.c.next_due_at.is_not(None),
+        )
+        .group_by(rows.c.cohort_id, rows.c.next_rank)
+    )
     weeks = (
         select(rows.c.due_week, func.count())
         .where(rows.c.due_week.is_not(None))
@@ -537,6 +576,7 @@ def dashboard(
     with whole_base_plan(session):
         total = session.execute(totals).one()._mapping
         cohort_rows = session.execute(per_cohort).tuples().all()
+        upcoming_rows = session.execute(upcoming).tuples().all()
         week_rows = session.execute(weeks).tuples().all()
     return ContactDashboard(
         today=clock.today,
@@ -567,7 +607,7 @@ def dashboard(
             CategoryCount(category, CATEGORY_LABELS[category], total[category.value])
             for category in COUNTED_CATEGORIES
         ],
-        cohorts=_cohort_summaries(session, list(cohort_rows), keys),
+        cohorts=_cohort_summaries(session, list(cohort_rows), keys, list(upcoming_rows)),
         weeks=[_week_option(label, count) for label, count in week_rows],
     )
 
@@ -578,8 +618,52 @@ def _week_option(label: str, count: int) -> WeekOption:
     return WeekOption(week=label, year=week.year, number=week.week, monday=week.monday, count=count)
 
 
+def _steps_by_cohort(
+    session: Session,
+    cohort_ids: list[uuid.UUID],
+    status: ContactMessageStatus,
+    moment: Any,
+) -> dict[uuid.UUID, list[SentStep]]:
+    """Per cohort and step, the messages of the current sequences in `status`: how many and the
+    business days of the earliest and the latest `moment` (a send, or a scheduled send)."""
+    steps: dict[uuid.UUID, list[SentStep]] = {}
+    rows = session.execute(
+        select(
+            ContactSequence.cohort_id,
+            ContactMessage.rank,
+            func.count(),
+            func.min(moment),
+            func.max(moment),
+        )
+        .join(ContactSequence, ContactSequence.id == ContactMessage.sequence_id)
+        .where(
+            ContactSequence.is_current,
+            ContactSequence.cohort_id.in_(cohort_ids),
+            ContactMessage.status == status,
+            moment.is_not(None),
+        )
+        .group_by(ContactSequence.cohort_id, ContactMessage.rank)
+        .order_by(ContactSequence.cohort_id, ContactMessage.rank)
+    ).tuples()
+    for cohort_id, rank, count, first, last in rows:
+        steps.setdefault(cohort_id, []).append(
+            SentStep(
+                rank,
+                step_code(rank),
+                step_label(rank),
+                count,
+                first.astimezone(BUSINESS_TIMEZONE).date(),
+                last.astimezone(BUSINESS_TIMEZONE).date(),
+            )
+        )
+    return steps
+
+
 def _cohort_summaries(
-    session: Session, rows: list[tuple[Any, ...]], keys: list[str]
+    session: Session,
+    rows: list[tuple[Any, ...]],
+    keys: list[str],
+    upcoming: list[tuple[Any, ...]] | None = None,
 ) -> list[CohortSummary]:
     """Per cohort holding prospects: totals and its sequences in progress by level."""
     if not rows:
@@ -608,6 +692,18 @@ def _cohort_summaries(
         if level is not None and active:
             entry["levels"][level] = entry["levels"].get(level, 0) + active
     cohorts = session.scalars(select(Cohort).where(Cohort.id.in_(facts))).all()
+    sent = _steps_by_cohort(session, list(facts), ContactMessageStatus.SENT, ContactMessage.sent_at)
+    next_steps: dict[uuid.UUID, list[SentStep]] = {}
+    for cohort_id, rank, count, due in upcoming or []:
+        day = due.astimezone(BUSINESS_TIMEZONE).date()
+        next_steps.setdefault(cohort_id, []).append(
+            SentStep(rank, step_code(rank), step_label(rank), count, day, day)
+        )
+    for steps in next_steps.values():
+        steps.sort(key=lambda item: item.rank)
+    scheduled = _steps_by_cohort(
+        session, list(facts), ContactMessageStatus.SCHEDULED, ContactMessage.scheduled_at
+    )
     ordered = sorted(
         cohorts,
         key=lambda cohort: (
@@ -636,6 +732,9 @@ def _cohort_summaries(
             ],
             appointments=facts[cohort.id]["appointments"],
             to_send_steps=[step_code(rank) for rank in sorted(facts[cohort.id]["ranks"])],
+            sent_steps=sent.get(cohort.id, []),
+            scheduled_steps=scheduled.get(cohort.id, []),
+            next_steps=next_steps.get(cohort.id, []),
         )
         for cohort in ordered
     ]
@@ -701,12 +800,20 @@ def _messages(
     if not sequence_ids:
         return states
     rows = session.execute(
-        select(ContactMessage.sequence_id, ContactMessage.rank, ContactMessage.status)
+        select(
+            ContactMessage.sequence_id,
+            ContactMessage.rank,
+            ContactMessage.status,
+            ContactMessage.sent_at,
+            ContactMessage.scheduled_at,
+        )
         .where(ContactMessage.sequence_id.in_(sequence_ids))
         .order_by(ContactMessage.sequence_id, ContactMessage.rank)
     ).tuples()
-    for sequence_id, rank, status in rows:
-        states.setdefault(sequence_id, []).append(MessageState(rank, step_code(rank), status))
+    for sequence_id, rank, status, sent_at, scheduled_at in rows:
+        states.setdefault(sequence_id, []).append(
+            MessageState(rank, step_code(rank), status, sent_at, scheduled_at)
+        )
     return states
 
 

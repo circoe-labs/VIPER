@@ -15,7 +15,7 @@ import { AlertIcon } from '../ui/icons'
 import { PageHeader } from '../ui/PageHeader'
 import { SearchField } from '../ui/SearchField'
 import { CohortSection } from './CohortSection'
-import { cohortStatus } from './cohortStatus'
+import { cohortStatus, sentSummary } from './cohortStatus'
 import { bannerText } from './dispatchCopy'
 import { DispatchWarning } from './DispatchWarning'
 import { type ContactView, listCriteria, parseView, serializeView } from './criteria'
@@ -155,6 +155,7 @@ export function ContactPage() {
                   ? cohortStatus(code, cohorts, dashboard.data.today || businessToday())
                   : undefined
               }
+              sent={dashboard.data && code !== APPOINTMENTS ? sentSummary(code, cohorts) : null}
               open={opened.has(code)}
               onToggle={() => {
                 toggle(code)

@@ -134,6 +134,8 @@ export interface MailActions {
   unschedule: boolean
   cancel: boolean
   reopen: boolean
+  // « Supprimer… » for good: a draft, a validated or a cancelled message (never a scheduled or sent one).
+  remove: boolean
   // Why the message is read-only, when it is.
   lock: string | null
 }
@@ -147,6 +149,7 @@ const NONE: MailActions = {
   unschedule: false,
   cancel: false,
   reopen: false,
+  remove: false,
   lock: null,
 }
 
@@ -191,12 +194,18 @@ export function mailActions(message: Message | null, sequence: SequenceContext, 
   }
   if (status === 'cancelled') {
     return closed
-      ? { ...NONE, lock: `Message annulé. ${closed}` }
-      : { ...NONE, reopen: true, lock: 'Message annulé : il ne partira pas. « Rouvrir » le repasse en Brouillon, à revalider.' }
+      ? { ...NONE, remove: true, lock: `Message annulé. ${closed}` }
+      : { ...NONE, reopen: true, remove: true, lock: 'Message annulé : il ne partira pas. « Rouvrir » le repasse en Brouillon, à revalider.' }
   }
   if (closed) {
     // Taking a planned send back stays possible: it goes the way of the closed sequence.
-    return { ...NONE, unschedule: status === 'scheduled', cancel: status !== null, lock: closed }
+    return {
+      ...NONE,
+      unschedule: status === 'scheduled',
+      cancel: status !== null,
+      remove: status === 'draft' || status === 'validated',
+      lock: closed,
+    }
   }
   return {
     ...NONE,
@@ -206,6 +215,7 @@ export function mailActions(message: Message | null, sequence: SequenceContext, 
     schedule: status === 'validated',
     unschedule: status === 'scheduled',
     cancel: status !== null,
+    remove: status === 'draft' || status === 'validated',
   }
 }
 

@@ -375,8 +375,27 @@ def test_search_and_rows(db_session: Session, planning: dict[str, uuid.UUID]) ->
         ("r3", ContactMessageStatus.DRAFT),
     ]
     assert row.last_sent_at == at(date(2026, 9, 21))
+    assert [message.sent_at is not None for message in row.messages] == [True, True, True, False]
     error_row = list_contacts(db_session, ContactFilters(category=C.EMAIL_ERROR), CLOCK).items[0]
     assert (error_row.email_error, error_row.next_due_at, error_row.to_send) == (True, None, False)
+
+
+def test_cohorts_say_what_left_and_when(db_session: Session, planning: dict[str, uuid.UUID]) -> None:
+    sent = [
+        (step.step, step.count)
+        for cohort in dashboard(db_session, CLOCK).cohorts
+        for step in cohort.sent_steps
+    ]
+
+    assert ("contact", 1) in sent
+    for cohort in dashboard(db_session, CLOCK).cohorts:
+        for step in cohort.scheduled_steps:
+            assert step.count > 0 and step.first_on <= step.last_on
+        for step in cohort.next_steps:
+            assert step.count > 0 and step.first_on is not None
+    for cohort in dashboard(db_session, CLOCK).cohorts:
+        for step in cohort.sent_steps:
+            assert step.first_on <= step.last_on
 
 
 def test_pagination(db_session: Session, planning: dict[str, uuid.UUID]) -> None:

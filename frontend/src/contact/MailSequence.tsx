@@ -10,6 +10,7 @@ import { AlertIcon, SpinnerIcon } from '../ui/icons'
 import { Tabs } from '../ui/Tabs'
 import { STEP_LABELS } from './labels'
 import { type AiInstruction, NO_INSTRUCTION } from './aiDraftModel'
+import { rememberedMoment } from './lastMoment'
 import { MailEditor, type SendMoment } from './MailEditor'
 import { dispatchState, formOf, isDirty, type MailForm, mailActions, releaseAvailableAt } from './mailModel'
 import { MessageBadge } from './MessageBadge'
@@ -163,7 +164,7 @@ export function MailSequence({ prospectId, onDirtyChange }: MailSequenceProps) {
           form={draft ?? saved}
           mutations={mutations}
           onReload={() => void query.refetch()}
-          when={moments[step] ?? { date: '', time: '' }}
+          when={moments[step] ?? rememberedMoment(step)}
           onWhen={(when) => {
             setMoments((current) => ({ ...current, [step]: when }))
           }}

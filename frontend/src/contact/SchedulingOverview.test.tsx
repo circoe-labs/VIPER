@@ -84,13 +84,38 @@ describe('Contact › Suivi des envois programmés', () => {
     expect(within(steps).getByRole('row', { name: /^R1/ })).toHaveTextContent('1 sans mail, 1 brouillon')
     // The forgotten stay folded until their tile is chosen; then: who, where, and what is missing, each opening the prospect.
     expect(region.queryByRole('link', { name: 'Claire Démo' })).not.toBeInTheDocument()
-    await userEvent.click(region.getByRole('button', { name: /Oubliés/ }))
+    await userEvent.click(region.getAllByRole('button', { name: /Oubliés/ })[0] as HTMLElement)
     expect(region.getByRole('link', { name: 'Claire Démo' })).toHaveAttribute('href', expect.stringContaining('prospect=p1'))
     expect(region.getByText('Rien d’écrit')).toBeInTheDocument()
     expect(region.getByText('Validé, à programmer')).toBeInTheDocument()
     expect(region.getByText('prévu le 05/10')).toBeInTheDocument()
     expect(region.queryByText(/retard/)).not.toBeInTheDocument()
     expect(region.getByText('Sans entreprise')).toBeInTheDocument()
+  })
+
+  it('opens the list behind a count of the table, for that step only', async () => {
+    stubContactApi({
+      scheduling: contactScheduling({
+        totals: { scheduled: 0, validated: 0, drafts: 0, due: 2, forgotten: 2, scheduled_past: 0, scheduled_with_error: 0, scheduled_with_draft_error: 0 },
+        steps: [
+          step(0, { due: 1, forgotten: 1, forgotten_validated: 1 }),
+          step(1, { due: 1, forgotten: 1, forgotten_none: 1 }),
+        ],
+        forgotten: [
+          { id: 'p1', first_name: 'Claire', last_name: 'Démo', civility: null, company_name: 'Bravo SA', cohort_code: 'S39', step: 'r1', step_label: 'R1', rank: 1, state: 'none', due_at: '2026-10-05T07:00:00Z', overdue: true },
+          { id: 'p2', first_name: 'Jean', last_name: 'Exemple', civility: null, company_name: null, cohort_code: 'S40', step: 'contact', step_label: 'Contact', rank: 0, state: 'validated', due_at: '2026-10-09T07:00:00Z', overdue: false },
+        ],
+      }),
+    })
+    renderApp('/contact')
+
+    const region = within(await panel())
+    await userEvent.click(await region.findByRole('button', { name: 'Oubliés R1 : 1, voir la liste' }))
+    expect(region.getByRole('link', { name: 'Claire Démo' })).toBeInTheDocument()
+    expect(region.queryByRole('link', { name: 'Jean Exemple' })).not.toBeInTheDocument()
+    expect(region.getByText(/Étape : R1/)).toBeInTheDocument()
+    await userEvent.click(region.getByRole('button', { name: 'Toutes les étapes' }))
+    expect(region.getByRole('link', { name: 'Jean Exemple' })).toBeInTheDocument()
   })
 
   it('says nothing was forgotten, and warns about scheduled mails whose time passed', async () => {
@@ -104,7 +129,7 @@ describe('Contact › Suivi des envois programmés', () => {
     renderApp('/contact')
 
     const region = within(await panel())
-    expect(await region.findByRole('button', { name: /Oubliés/ })).toBeDisabled()
+    expect((await region.findAllByRole('button', { name: /Oubliés/ }))[0]).toBeDisabled()
     expect(region.queryByText(/oublié/)).not.toBeInTheDocument()
     expect(region.getByRole('alert')).toHaveTextContent('1 programmé(s) dont l’heure est passée sans envoi')
     expect(region.getByRole('alert')).toHaveTextContent('1 programmé(s) en erreur d’envoi')

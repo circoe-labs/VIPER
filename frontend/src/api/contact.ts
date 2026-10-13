@@ -69,6 +69,12 @@ export interface ContactDashboard {
     to_send?: number
     overdue?: number
     to_send_steps?: string[]
+    // What has really left, by step: how many mails, between which business days (`YYYY-MM-DD`).
+    sent_steps?: { step: string; label: string; count: number; first_on: string; last_on: string }[]
+    // The mails scheduled and not sent yet, by step: how many, and the earliest and latest day they leave.
+    scheduled_steps?: { step: string; label: string; count: number; first_on: string; last_on: string }[]
+    // The steps coming up for the sequences with nothing due this week: how many, and the earliest day (`first_on`).
+    next_steps?: { step: string; label: string; count: number; first_on: string; last_on: string }[]
   }[]
   // The planning's categories with their count (`appointment_obtained` is « RDV pris »).
   categories?: { category: string; count: number }[]
@@ -99,6 +105,8 @@ export interface ContactRow {
   next_step: NextStep | null
   // Status of each step's message by step code, null (or absent) when never created.
   messages: Record<string, MessageStatus | null>
+  // When each step really left (`sent_at`) or is scheduled for (`scheduled_at`), by step code.
+  message_dates?: Record<string, { sent_at: string | null; scheduled_at: string | null }>
 }
 
 export interface ContactPage {
@@ -240,7 +248,7 @@ interface ApiRow extends Omit<ContactRow, 'planned_contact_at' | 'next_action_we
   next_due_at?: string | null
   next_due_week?: string | null
   to_send?: boolean
-  messages: { step: string; status: MessageStatus }[]
+  messages: { step: string; status: MessageStatus; sent_at?: string | null; scheduled_at?: string | null }[]
 }
 
 export function toRow(raw: ContactRow | ApiRow): ContactRow {
@@ -252,6 +260,9 @@ export function toRow(raw: ContactRow | ApiRow): ContactRow {
     next_action_week: next_due_week ?? null,
     due: to_send ?? false,
     messages: Object.fromEntries(messages.map((item) => [item.step, item.status])),
+    message_dates: Object.fromEntries(
+      messages.map((item) => [item.step, { sent_at: item.sent_at ?? null, scheduled_at: item.scheduled_at ?? null }]),
+    ),
   }
 }
 

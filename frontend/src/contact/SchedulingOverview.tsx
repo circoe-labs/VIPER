@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
 
 import {
@@ -160,7 +160,54 @@ function missingDetail(step: Scheduling['steps'][number]): string {
     .join(', ')
 }
 
-function StepsTable({ data }: { data: Scheduling }) {
+// A count of the table that opens the list behind it, for that step only (nothing to open at zero).
+function CountButton({
+  value,
+  label,
+  step,
+  selection,
+  onPick,
+  active,
+  detail,
+}: {
+  value: number
+  label: string
+  step: Scheduling['steps'][number]
+  selection: Selection
+  onPick: (selection: Selection, step: string) => void
+  active: boolean
+  // What is behind the count, read inside the button so the whole cell opens the list (« (1 validé) »).
+  detail?: string
+}) {
+  if (value === 0) return <>{value}</>
+  return (
+    <button
+      type="button"
+      className={`sched-cell__button${active ? ' sched-cell__button--active' : ''}`}
+      aria-pressed={active}
+      aria-label={`${label} ${step.step_label} : ${String(value)}, voir la liste`}
+      onClick={() => {
+        onPick(selection, step.step)
+      }}
+    >
+      {value}
+      {detail && <span className="sched-cell__detail">{detail}</span>}
+    </button>
+  )
+}
+
+function StepsTable({
+  data,
+  selection,
+  stepFilter,
+  onPick,
+}: {
+  data: Scheduling
+  selection: Selection | null
+  stepFilter: string | null
+  onPick: (selection: Selection, step: string) => void
+}) {
+  const on = (kind: Selection, step: string) => selection === kind && stepFilter === step
   return (
     <table className="sched-table">
       <caption className="sched-caption">Par étape (« à envoyer » = prévu cette semaine ou avant)</caption>
@@ -182,12 +229,25 @@ function StepsTable({ data }: { data: Scheduling }) {
               {step.step_label}
             </th>
             <td>{step.due}</td>
-            <td className={step.scheduled > 0 ? 'sched-cell--ok' : undefined}>{step.scheduled}</td>
-            <td className={step.validated > 0 ? 'sched-cell--todo' : undefined}>{step.validated}</td>
-            <td>{step.drafts}</td>
+            <td className={step.scheduled > 0 ? 'sched-cell--ok' : undefined}>
+              <CountButton value={step.scheduled} label="Programmés" step={step} selection="scheduled" onPick={onPick} active={on('scheduled', step.step)} />
+            </td>
+            <td className={step.validated > 0 ? 'sched-cell--todo' : undefined}>
+              <CountButton value={step.validated} label="Validés" step={step} selection="validated" onPick={onPick} active={on('validated', step.step)} />
+            </td>
+            <td>
+              <CountButton value={step.drafts} label="Brouillons" step={step} selection="drafts" onPick={onPick} active={on('drafts', step.step)} />
+            </td>
             <td className={step.forgotten > 0 ? 'sched-cell--alert' : undefined}>
-              {step.forgotten}
-              {step.forgotten > 0 && <span className="sched-cell__detail"> ({missingDetail(step)})</span>}
+              <CountButton
+                value={step.forgotten}
+                label="Oubliés"
+                step={step}
+                selection="forgotten"
+                onPick={onPick}
+                active={on('forgotten', step.step)}
+                detail={step.forgotten > 0 ? ` (${missingDetail(step)})` : undefined}
+              />
             </td>
           </tr>
         ))}
@@ -196,10 +256,19 @@ function StepsTable({ data }: { data: Scheduling }) {
   )
 }
 
-function Forgotten({ data, openHref }: { data: Scheduling; openHref: (id: string) => string }) {
+function Forgotten({
+  data,
+  openHref,
+  step,
+}: {
+  data: Scheduling
+  openHref: (id: string) => string
+  step: string | null
+}) {
   const [all, setAll] = useState(false)
-  const rows = all ? data.forgotten : data.forgotten.slice(0, FORGOTTEN_SHOWN)
-  if (data.forgotten.length === 0) {
+  const list = step === null ? data.forgotten : data.forgotten.filter((row) => row.step === step)
+  const rows = all ? list : list.slice(0, FORGOTTEN_SHOWN)
+  if (list.length === 0) {
     return (
       <p className="sched-ok" role="status">
         <StatusBadge tone="success">Aucun oubli</StatusBadge>
@@ -211,7 +280,7 @@ function Forgotten({ data, openHref }: { data: Scheduling; openHref: (id: string
     <div className="sched-forgotten">
       <h3 className="sched-forgotten__title">
         <AlertIcon size={16} />
-        {NUMBER.format(data.forgotten.length)} à envoyer cette semaine sans être programmé
+        {NUMBER.format(list.length)} à envoyer cette semaine sans être programmé
       </h3>
       <ul className="sched-forgotten__list">
         {rows.map((row) => (
@@ -232,14 +301,14 @@ function Forgotten({ data, openHref }: { data: Scheduling; openHref: (id: string
           </li>
         ))}
       </ul>
-      {!all && data.forgotten.length > FORGOTTEN_SHOWN && (
+      {!all && list.length > FORGOTTEN_SHOWN && (
         <Button
           size="sm"
           onClick={() => {
             setAll(true)
           }}
         >
-          Voir les {NUMBER.format(data.forgotten.length - FORGOTTEN_SHOWN)} autres
+          Voir les {NUMBER.format(list.length - FORGOTTEN_SHOWN)} autres
         </Button>
       )}
     </div>
@@ -262,14 +331,16 @@ function Prepared({
   data,
   selection,
   openHref,
+  step,
 }: {
   data: Scheduling
   selection: Exclude<Selection, 'forgotten'>
   openHref: (id: string) => string
+  step: string | null
 }) {
   const [all, setAll] = useState(false)
   const status = selection === 'drafts' ? 'draft' : selection
-  const matching = data.messages.filter((message) => message.status === status)
+  const matching = data.messages.filter((message) => message.status === status && (step === null || message.step === step))
   const rows = all ? matching : matching.slice(0, FORGOTTEN_SHOWN)
   return (
     <div className="sched-forgotten">
@@ -318,8 +389,28 @@ export function SchedulingOverview({ openHref }: SchedulingOverviewProps) {
   const scheduling = useContactScheduling()
   const [open, setOpen] = useState(true)
   const [selection, setSelection] = useState<Selection | null>(null)
+  // A count of the table by step opens its list for that step only; the tiles open it for every step.
+  const [stepFilter, setStepFilter] = useState<string | null>(null)
+  const listRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const list = listRef.current
+    // jsdom (the tests) has no scrollIntoView.
+    if (selection !== null && list && typeof list.scrollIntoView === 'function') {
+      list.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    }
+  }, [selection, stepFilter])
   const toggleSelection = (next: Selection) => {
+    setStepFilter(null)
     setSelection((current) => (current === next ? null : next))
+  }
+  const pickStep = (next: Selection, step: string) => {
+    if (selection === next && stepFilter === step) {
+      setSelection(null)
+      setStepFilter(null)
+    } else {
+      setSelection(next)
+      setStepFilter(step)
+    }
   }
   const data = scheduling.data
   return (
@@ -426,12 +517,29 @@ export function SchedulingOverview({ openHref }: SchedulingOverviewProps) {
                 </p>
               )}
               {/* Nothing is listed until a tile is chosen: the list of the forgotten opens with its tile. */}
-              {selection === 'forgotten' && <Forgotten data={data} openHref={openHref} />}
-              {selection !== null && selection !== 'forgotten' && (
-                <Prepared data={data} selection={selection} openHref={openHref} />
+              {selection !== null && stepFilter !== null && (
+                <p className="sched-filter">
+                  Étape : {data.steps.find((step) => step.step === stepFilter)?.step_label ?? stepFilter}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setStepFilter(null)
+                    }}
+                  >
+                    Toutes les étapes
+                  </Button>
+                </p>
               )}
               <DaysChart data={data} />
-              <StepsTable data={data} />
+              <StepsTable data={data} selection={selection} stepFilter={stepFilter} onPick={pickStep} />
+              {/* The list opens right under the table whose count was clicked, and is scrolled to. */}
+              <div ref={listRef}>
+                {selection === 'forgotten' && <Forgotten data={data} openHref={openHref} step={stepFilter} />}
+                {selection !== null && selection !== 'forgotten' && (
+                  <Prepared data={data} selection={selection} openHref={openHref} step={stepFilter} />
+                )}
+              </div>
             </>
           )}
         </div>
