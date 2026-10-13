@@ -158,6 +158,71 @@ describe('Contact workbench', () => {
     expect(announced()).toContain('il reste validé')
   })
 
+  it('validates and schedules in one confirmation once a date and time are typed on a draft', async () => {
+    const detail = person()
+    const { api } = open(detail, { contact: message('contact', 'draft', { prospect_id: detail.id }) })
+    // Without a date: the plain « Valider… ».
+    expect(await screen.findByRole('button', { name: 'Valider…' })).toBeInTheDocument()
+    const tomorrow = new Date(Date.now() + 86_400_000)
+    const day = `${String(tomorrow.getFullYear())}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`
+    await userEvent.type(screen.getByLabelText('Date d’envoi'), day)
+    // A date alone is not enough: the time is asked for before anything is validated.
+    await userEvent.click(screen.getByRole('button', { name: 'Valider et programmer…' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('Choisissez l’heure d’envoi')
+    expect(sent(api.requests, 'POST', `/api/prospects/${detail.id}/messages/contact/validate`)).toHaveLength(0)
+
+    await userEvent.type(screen.getByLabelText('Heure'), '09:30')
+    await userEvent.click(screen.getByRole('button', { name: 'Valider et programmer…' }))
+    await confirmDialog(/Valider et programmer le message Contact/, 'Valider et programmer quand même')
+    await waitFor(() => {
+      expect(tab('Contact')).toHaveTextContent('Programmé')
+    })
+    expect(sent(api.requests, 'POST', `/api/prospects/${detail.id}/messages/contact/validate`)).toHaveLength(1)
+    const [schedule] = sent(api.requests, 'POST', `/api/prospects/${detail.id}/messages/contact/schedule`)
+    const body = schedule?.body as { expected_revision: number; scheduled_at: string }
+    expect(body.scheduled_at).toMatch(new RegExp(`^${day}T09:30:00[+-]\\d{2}:\\d{2}$`))
+    expect(announced()).toContain('validé et programmé pour le')
+  })
+
+  it('deletes a draft after a confirmation, but offers no deletion once it is validated', async () => {
+    const detail = person()
+    const { api } = open(detail, { contact: message('contact', 'draft', { prospect_id: detail.id }) })
+    await userEvent.click(await screen.findByRole('button', { name: 'Supprimer le brouillon…' }))
+    const dialog = await screen.findByRole('dialog', { name: /Supprimer le brouillon Contact/ })
+    expect(dialog).toHaveTextContent('rien ne part')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Supprimer le brouillon' }))
+    await waitFor(() => {
+      expect(sent(api.requests, 'POST', `/api/prospects/${detail.id}/messages/contact/delete`)).toHaveLength(1)
+    })
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: 'Supprimer le brouillon…' })).not.toBeInTheDocument()
+    })
+    expect(announced()).toContain('Brouillon Contact supprimé')
+  })
+
+  it('does not offer to delete a validated message, only to cancel it', async () => {
+    const detail = person()
+    open(detail, { contact: message('contact', 'validated', { prospect_id: detail.id }) })
+    expect(await screen.findByRole('button', { name: 'Annuler le message…' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Supprimer le brouillon…' })).not.toBeInTheDocument()
+  })
+
+  it('saves an edited draft and validates it in one confirmed click', async () => {
+    const detail = person()
+    const { api } = open(detail, { contact: message('contact', 'draft', { prospect_id: detail.id }) })
+    await userEvent.type(await screen.findByRole('textbox', { name: 'Objet' }), ' modifié')
+    await userEvent.click(screen.getByRole('button', { name: 'Enregistrer et valider…' }))
+    const dialog = await screen.findByRole('dialog', { name: /Enregistrer et valider le message Contact/ })
+    expect(dialog).toHaveTextContent('Rien n’est envoyé maintenant')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Enregistrer et valider' }))
+    await waitFor(() => {
+      expect(tab('Contact')).toHaveTextContent('Validé')
+    })
+    const [put] = sent(api.requests, 'PUT', `/api/prospects/${detail.id}/messages/contact`)
+    expect(put?.body).toMatchObject({ subject: 'Objet contact modifié' })
+    expect(sent(api.requests, 'POST', `/api/prospects/${detail.id}/messages/contact/validate`)).toHaveLength(1)
+  })
+
   it('says an edit of a scheduled message goes back to draft, and it does', async () => {
     const detail = person()
     const { api } = open(detail, { contact: message('contact', 'scheduled', { prospect_id: detail.id }) })

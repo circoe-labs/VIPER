@@ -425,10 +425,10 @@ export function SchedulingOverview({ openHref }: SchedulingOverviewProps) {
                   )}
                 </p>
               )}
-              {selection !== null && selection !== 'forgotten' ? (
+              {/* Nothing is listed until a tile is chosen: the list of the forgotten opens with its tile. */}
+              {selection === 'forgotten' && <Forgotten data={data} openHref={openHref} />}
+              {selection !== null && selection !== 'forgotten' && (
                 <Prepared data={data} selection={selection} openHref={openHref} />
-              ) : (
-                <Forgotten data={data} openHref={openHref} />
               )}
               <DaysChart data={data} />
               <StepsTable data={data} />

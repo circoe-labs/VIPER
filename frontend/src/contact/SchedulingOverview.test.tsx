@@ -82,7 +82,9 @@ describe('Contact › Suivi des envois programmés', () => {
     // The table by step says how the forgotten split.
     const steps = region.getByRole('table', { name: /Par étape/ })
     expect(within(steps).getByRole('row', { name: /^R1/ })).toHaveTextContent('1 sans mail, 1 brouillon')
-    // The forgotten: who, where, and what is missing, each opening the prospect.
+    // The forgotten stay folded until their tile is chosen; then: who, where, and what is missing, each opening the prospect.
+    expect(region.queryByRole('link', { name: 'Claire Démo' })).not.toBeInTheDocument()
+    await userEvent.click(region.getByRole('button', { name: /Oubliés/ }))
     expect(region.getByRole('link', { name: 'Claire Démo' })).toHaveAttribute('href', expect.stringContaining('prospect=p1'))
     expect(region.getByText('Rien d’écrit')).toBeInTheDocument()
     expect(region.getByText('Validé, à programmer')).toBeInTheDocument()
@@ -102,7 +104,7 @@ describe('Contact › Suivi des envois programmés', () => {
     renderApp('/contact')
 
     const region = within(await panel())
-    expect(await region.findByText('Aucun oubli')).toBeInTheDocument()
+    expect(await region.findByRole('button', { name: /Oubliés/ })).toBeDisabled()
     expect(region.queryByText(/oublié/)).not.toBeInTheDocument()
     expect(region.getByRole('alert')).toHaveTextContent('1 programmé(s) dont l’heure est passée sans envoi')
     expect(region.getByRole('alert')).toHaveTextContent('1 programmé(s) en erreur d’envoi')

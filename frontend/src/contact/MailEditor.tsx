@@ -14,8 +14,8 @@ import {
   MailIcon,
   RefreshIcon,
   SaveIcon,
-
   SpinnerIcon,
+  TrashIcon,
   UndoIcon,
 } from '../ui/icons'
 import { toolboxErrorLabel } from '../settings/toolboxCopy'
@@ -83,7 +83,7 @@ interface MailEditorProps {
   onInstruction: (instruction: AiInstruction) => void
 }
 
-type Pending = 'validate' | 'schedule' | 'cancel' | 'generate' | 'mark-sent' | 'release'
+type Pending = 'validate' | 'save-validate' | 'validate-schedule' | 'schedule' | 'cancel' | 'delete' | 'generate' | 'mark-sent' | 'release'
 
 export interface SendMoment {
   date: string
@@ -117,6 +117,8 @@ export function MailEditor({
   // change elsewhere that cancels the message makes it stale).
   const [notice, setNotice] = useState<{ text: string; status: MessageStatus; warning?: boolean } | null>(null)
   const [pending, setPending] = useState<Pending | null>(null)
+  // The sentence kept after a draft was removed (no message is left to carry it).
+  const [removed, setRemoved] = useState<string | null>(null)
   const { date, time } = when
   // A confirmed action removes its own button (« Valider… » once validated…): the focus goes to the status sentence,
   // which reads the new status, once the confirmation has closed.
@@ -237,6 +239,38 @@ export function MailEditor({
     }
   }
 
+  // « Enregistrer et valider »: the edited text is saved, then the saved revision is validated, in one click. A refusal
+  // of the save leaves the message as it was; a refusal of the validation leaves it saved (a Brouillon), safely.
+  async function saveAndValidate() {
+    setNotice(null)
+    setRefusal(null)
+    let saved = false
+    try {
+      const result = await mutations.save.mutateAsync({ step, content: contentOf(form, message?.revision ?? null) })
+      saved = true
+      onForm(undefined)
+      const validated = await mutations.act.mutateAsync({ step, action: 'validate', revision: result.message.revision })
+      const outcome = validated.remote_draft
+      const created = outcome?.status === 'created' || outcome?.status === 'recovered'
+      const remoteFailed = outcome?.status === 'failed'
+      focusStatus.current = true
+      setNotice({
+        status: validated.message.status,
+        warning: remoteFailed,
+        text: remoteFailed
+          ? `Message ${label} enregistré et validé, mais le brouillon Infomaniak n’a pas été créé : ${outcome.code ? toolboxErrorLabel(outcome.code) : 'erreur inattendue'}. La validation est conservée ; « Réessayer » le recrée.`
+          : created
+            ? `Message ${label} enregistré et validé, brouillon créé dans Infomaniak : il peut maintenant être programmé.`
+            : `Message ${label} enregistré et validé : il peut maintenant être programmé.`,
+      })
+    } catch (caught) {
+      failed(caught)
+      if (saved) focusStatus.current = true
+    } finally {
+      setPending(null)
+    }
+  }
+
   // The AI draft (decision 22): the answer replaces the shown text and stays a Brouillon to review.
   async function generate() {
     setNotice(null)
@@ -266,6 +300,23 @@ export function MailEditor({
     else void generate()
   }
 
+  // A draft never validated is removed for good (a validated or scheduled message is cancelled instead).
+  async function removeDraft() {
+    if (!message) return
+    setNotice(null)
+    setRefusal(null)
+    try {
+      await mutations.remove.mutateAsync({ step, revision: message.revision })
+      onForm(undefined)
+      onWhen({ date: '', time: '' })
+      setRemoved(`Brouillon ${label} supprimé : l’étape est de nouveau vide.`)
+    } catch (caught) {
+      failed(caught)
+    } finally {
+      setPending(null)
+    }
+  }
+
   async function schedule(iso: string) {
     if (!message) return
     setNotice(null)
@@ -285,10 +336,36 @@ export function MailEditor({
     }
   }
 
+  // « Valider et programmer »: a date or a time typed on a draft turns « Valider… » into the two steps in one.
+  async function validateAndSchedule(iso: string) {
+    if (!message) return
+    setNotice(null)
+    setRefusal(null)
+    let validated = false
+    try {
+      const result = await mutations.act.mutateAsync({ step, action: 'validate', revision: message.revision })
+      validated = true
+      const scheduled = await mutations.schedule.mutateAsync({ step, revision: result.message.revision, at: iso })
+      onWhen({ date: '', time: '' })
+      focusStatus.current = true
+      setNotice({
+        status: scheduled.message.status,
+        text: `Message ${label} validé et programmé pour le ${formatDateTime(scheduled.message.scheduled_at ?? iso)}.`,
+      })
+    } catch (caught) {
+      // Validated but not scheduled (a refused date, a stale revision): the message stays validated, safely.
+      failed(caught)
+      if (validated) focusStatus.current = true
+    } finally {
+      setPending(null)
+    }
+  }
+
   const parsed = scheduleToIso(date, time, new Date())
+  const withDate = date !== '' || time !== ''
   // The offset shown is the chosen day's (summer / winter time), today's until a day is chosen.
   const zoneAt = parsed.ok ? parsed.at : /^\d{4}-\d{2}-\d{2}$/.test(date) ? new Date(`${date}T12:00:00`) : new Date()
-  const warning = actions.schedule ? orderWarning(step, sequence, parsed.ok ? parsed.at : null) : null
+  const warning = actions.schedule || actions.validate ? orderWarning(step, sequence, parsed.ok ? parsed.at : null) : null
 
   function confirmation(): Confirmation | null {
     if (pending === 'validate') {
@@ -299,6 +376,38 @@ export function MailEditor({
           'Toute modification ultérieure le repassera en Brouillon et demandera une nouvelle validation.',
         ],
         confirmLabel: 'Valider le message',
+      }
+    }
+    if (pending === 'save-validate') {
+      return {
+        title: `Enregistrer et valider le message ${label} ?`,
+        lines: [
+          'Le texte modifié est enregistré, puis le message est validé : vous confirmez avoir relu les destinataires, l’objet et le corps. Rien n’est envoyé maintenant : le message pourra ensuite être programmé.',
+          'Toute modification ultérieure le repassera en Brouillon et demandera une nouvelle validation.',
+        ],
+        confirmLabel: 'Enregistrer et valider',
+      }
+    }
+    if (pending === 'validate-schedule' && parsed.ok) {
+      const lines = [
+        'Vous confirmez avoir relu les destinataires, l’objet et le corps.',
+        `Envoi prévu le ${formatDateTime(parsed.iso)} (${localZoneLabel(parsed.at)}).`,
+      ]
+      if (sequence.defaults.automatic_sending_active) {
+        lines.push(
+          'Le mail partira automatiquement à cette date depuis la boîte Infomaniak connectée à la Toolbox (le serveur VIPER doit être en marche).',
+          `S’il ne peut pas partir dans les ${latenessLabel(sequence.defaults.dispatch_max_lateness_minutes)} qui suivent, il ne part pas et revient à « Validé ».`,
+          'Toute modification ultérieure le repassera en Brouillon ; vous pourrez le déprogrammer jusqu’à l’envoi.',
+        )
+        return { title: `Valider et programmer le message ${label} ?`, lines, warning, confirmLabel: 'Valider et programmer' }
+      }
+      lines.push('Vous pourrez déprogrammer tant que le message n’est pas envoyé.')
+      return {
+        title: `Valider et programmer le message ${label} ?`,
+        lines,
+        warning,
+        dispatch: { reason: sequence.defaults.dispatch_reason, text: inactiveSentence(sequence.defaults.dispatch_reason) },
+        confirmLabel: 'Valider et programmer quand même',
       }
     }
     if (pending === 'schedule' && parsed.ok) {
@@ -348,6 +457,20 @@ export function MailEditor({
         return { ...asked, confirmLabel: hasText(message) ? 'Remplacer par la proposition' : 'Générer avec l’IA' }
       }
     }
+    if (pending === 'delete') {
+      const draft = message?.status === 'draft'
+      return {
+        title: `Supprimer ${draft ? 'le brouillon' : 'le message'} ${label} ?`,
+        lines: [
+          `Le texte ${draft ? 'du brouillon' : 'du message'} est effacé définitivement et l’étape redevient vide : vous pourrez en écrire un autre.`,
+          draft
+            ? 'Rien n’a été validé ni programmé, donc rien ne part.'
+            : 'Il n’est pas programmé, donc rien ne part ; son éventuel brouillon Infomaniak est supprimé aussi.',
+        ],
+        confirmLabel: draft ? 'Supprimer le brouillon' : 'Supprimer le message',
+        danger: true,
+      }
+    }
     if (pending === 'cancel') {
       return {
         title: `Annuler le message ${label} ?`,
@@ -370,13 +493,28 @@ export function MailEditor({
     setPending('schedule')
   }
 
+  function requestValidateAndSchedule() {
+    setScheduleError(null)
+    if (!parsed.ok) {
+      setScheduleError(parsed.error)
+      return
+    }
+    setPending('validate-schedule')
+  }
+
   function onConfirm() {
-    if (pending === 'schedule' && parsed.ok) void schedule(parsed.iso)
+    if (pending === 'save-validate') {
+      void saveAndValidate()
+      return
+    }
+    if (pending === 'validate-schedule' && parsed.ok) void validateAndSchedule(parsed.iso)
+    else if (pending === 'schedule' && parsed.ok) void schedule(parsed.iso)
     else if (pending === 'generate') {
       // The AI can take minutes: the dialog closes at once, the running state says the rest.
       setPending(null)
       void generate()
     }
+    else if (pending === 'delete') void removeDraft()
     else if (pending === 'validate' || pending === 'cancel' || pending === 'mark-sent' || pending === 'release') {
       void act(pending)
     }
@@ -592,9 +730,11 @@ export function MailEditor({
         />
       </div>
 
-      {actions.schedule && (
+      {(actions.schedule || actions.validate) && (
         <fieldset className="contact-mail__schedule" disabled={busy}>
-          <legend className="contact-mail__legend">Programmer l’envoi</legend>
+          <legend className="contact-mail__legend">
+            {actions.validate ? 'Programmer l’envoi (facultatif)' : 'Programmer l’envoi'}
+          </legend>
           <div className="contact-mail__when">
             <TextField
               id={fieldId('date')}
@@ -618,7 +758,10 @@ export function MailEditor({
               }}
             />
           </div>
-          <p className="contact-mail__hint">Heure locale ({localZoneLabel(zoneAt)}). Aucune heure n’est proposée par défaut.</p>
+          <p className="contact-mail__hint">
+            Heure locale ({localZoneLabel(zoneAt)}). Aucune heure n’est proposée par défaut.
+            {actions.validate && ' Renseignées, elles permettent de valider et programmer en une seule fois.'}
+          </p>
           {(scheduleError ?? refusal?.fields.schedule) && (
             <p className="field__error" role="alert">
               <AlertIcon size={16} />
@@ -655,6 +798,11 @@ export function MailEditor({
             </Button>
           )}
         </div>
+      )}
+      {removed && !message && (
+        <p className="contact-mail__hint" role="status">
+          {removed}
+        </p>
       )}
       <Notice
         text={notice && notice.status === status ? notice.text : null}
@@ -700,6 +848,18 @@ export function MailEditor({
                 Annuler le message…
               </Button>
             )}
+            {message && actions.remove && (
+              <Button
+                variant="ghost"
+                icon={TrashIcon}
+                disabled={busy}
+                onClick={() => {
+                  setPending('delete')
+                }}
+              >
+                {message.status === 'draft' ? 'Supprimer le brouillon…' : 'Supprimer le message…'}
+              </Button>
+            )}
             {dirty && (
               <Button
                 variant="ghost"
@@ -724,17 +884,30 @@ export function MailEditor({
                 {actions.save === 'create' ? 'Créer le brouillon' : 'Enregistrer'}
               </Button>
             )}
+            {dirty && actions.save === 'save' && (status === 'draft' || status === 'validated') && (
+              <Button
+                variant="primary"
+                icon={CheckIcon}
+                disabled={busy || hasLocalErrors}
+                onClick={() => {
+                  setPending('save-validate')
+                }}
+              >
+                Enregistrer et valider…
+              </Button>
+            )}
             {actions.validate && (
               <Button
                 variant={dirty ? 'secondary' : 'primary'}
-                icon={CheckIcon}
+                icon={withDate ? CalendarIcon : CheckIcon}
                 disabled={busy || dirty}
                 title={waitSave}
                 onClick={() => {
-                  setPending('validate')
+                  if (withDate) requestValidateAndSchedule()
+                  else setPending('validate')
                 }}
               >
-                Valider…
+                {withDate ? 'Valider et programmer…' : 'Valider…'}
               </Button>
             )}
             {actions.schedule && (
