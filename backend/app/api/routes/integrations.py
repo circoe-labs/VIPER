@@ -21,11 +21,12 @@ settings changed since `version` was read), 403 `human_actor_required`. A save i
 """
 
 import logging
+import re
 import time
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
@@ -35,17 +36,24 @@ from app.core.actor import ActorContext, ActorType
 from app.core.config import Settings
 from app.services import audit
 from app.services.audit import AuditAction
-from app.services.contact_dispatch_state import DispatchReason, dispatch_state
+from app.services.contact_dispatch_state import DispatchReason, dispatch_state, sending_reason
 from app.services.contact_dispatch_worker import ContactDispatcher
 from app.services.errors import ActorNotAllowedError, MailGenerationError
 from app.services.integration_runtime import IntegrationRuntime
 from app.services.mail_generation.openai_client import check_model, config_from_settings
+from app.services.mail_generation.prompt import DEFAULT_INITIAL_PROMPT
 from app.services.runtime_settings import (
     EDITABLE_FIELDS,
     SECRET_FIELDS,
     SECRET_REMOVED,
     SECRET_REPLACED,
     RuntimeSettings,
+)
+from app.services.toolbox.diagnostics import (
+    DEFAULT_DELAY_SECONDS,
+    MAX_DELAY_SECONDS,
+    MIN_DELAY_SECONDS,
+    ToolboxDiagnostics,
 )
 from app.services.toolbox.integration import ToolboxIntegration
 
@@ -105,6 +113,8 @@ class IntegrationsOut(BaseModel):
     fields: dict[str, FieldOut]
     openai_api_key: SecretOut
     generation_available: bool
+    # The built-in prompt `contact_initial_prompt` falls back to (« Rétablir le texte par défaut »).
+    initial_prompt_default: str
     toolbox: ToolboxSummaryOut
     dispatch: DispatchSummaryOut
 
@@ -122,6 +132,7 @@ class IntegrationsIn(BaseModel):
     openai_timeout_ms: int | None = None
     openai_max_retries: int | None = None
     contact_booking_url: Text | None = None
+    contact_initial_prompt: Annotated[str, Field(max_length=8000)] | None = None
     default_outbound_email: Text | None = None
     toolbox_mail_enabled: bool | None = None
     toolbox_mcp_url: Text | None = None
@@ -184,6 +195,7 @@ def integrations_out(request: Request, session: Session) -> IntegrationsOut:
             updated_by=key.updated_by,
         ),
         generation_available=effective.generation_available,
+        initial_prompt_default=DEFAULT_INITIAL_PROMPT,
         toolbox=ToolboxSummaryOut(
             enabled=status.enabled, state=status.state, configured=integration.configured
         ),
@@ -294,3 +306,116 @@ def check_openai(request: Request, actor: CurrentActor) -> CheckOut:
     elapsed = round((time.monotonic() - started) * 1000)
     logger.info("integrations.openai_check_ok elapsed_ms=%s by=%s", elapsed, actor.id)
     return CheckOut(ok=True, code=None, model=model, elapsed_ms=elapsed)
+
+
+# --- « Tester la Toolbox » ------------------------------------------------------------------------
+
+_RECIPIENT = re.compile(r"^[^@\s,;<>]+@[^@\s,;<>]+\.[^@\s,;<>]+$")
+
+
+class DiagnosticIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # The one address every draft and the real send go to: a test mailbox, never a prospect.
+    recipient: Annotated[str, Field(min_length=3, max_length=254)]
+    # False: drafts only, nothing leaves. True: a scheduled send really goes to `recipient`.
+    send_real: bool = False
+    delay_seconds: Annotated[int, Field(ge=MIN_DELAY_SECONDS, le=MAX_DELAY_SECONDS)] = (
+        DEFAULT_DELAY_SECONDS
+    )
+
+
+class DiagnosticStepOut(BaseModel):
+    key: str
+    title: str
+    expectation: str
+    # pending | running | ok | failed | expected_error | unexpected | skipped
+    status: str
+    started_at: datetime | None
+    duration_ms: int | None
+    context: dict[str, Any]
+    observed: dict[str, Any]
+    error: dict[str, Any] | None
+    note: str | None
+    trace: list[dict[str, Any]]
+
+
+class DiagnosticOut(BaseModel):
+    id: str
+    recipient: str
+    send_real: bool
+    delay_seconds: int
+    started_at: datetime
+    finished_at: datetime | None
+    # running | done | crashed
+    status: str
+    steps: list[DiagnosticStepOut]
+    verdict: dict[str, Any] | None
+    crash: str | None
+
+
+def _diagnostics(request: Request) -> ToolboxDiagnostics:
+    diagnostics: ToolboxDiagnostics = request.app.state.toolbox_diagnostics
+    return diagnostics
+
+
+@router.post("/toolbox/diagnostics", status_code=202)
+def start_toolbox_diagnostic(
+    body: DiagnosticIn, request: Request, actor: CurrentActor
+) -> DiagnosticOut:
+    """« Tester la Toolbox »: starts a run in the background (poll `/toolbox/diagnostics/latest`).
+    A person only (a run can really send a mail); one run at a time (409)."""
+    with business_errors():
+        if actor.type != ActorType.HUMAN:
+            raise ActorNotAllowedError("The Toolbox test is started by a person.")
+    recipient = body.recipient.strip().lower()
+    if not _RECIPIENT.match(recipient):
+        raise HTTPException(status_code=422, detail="recipient must be one e-mail address")
+    state = request.app.state
+    diagnostics = _diagnostics(request)
+
+    def dispatch() -> dict[str, Any]:
+        worker: ContactDispatcher | None = state.contact_dispatcher
+        status = worker.status() if worker else None
+        return {
+            "dispatch_setting_on": state.settings.contact_dispatch_on,
+            "dispatch_worker_running": status.running if status else False,
+            "dispatch_active": status.active if status else False,
+            "dispatch_reason": sending_reason(state),
+        }
+
+    run = diagnostics.start(
+        recipient=recipient,
+        send_real=body.send_real,
+        delay_seconds=body.delay_seconds,
+        integration=state.toolbox,
+        settings=state.settings,
+        session_factory=state.session_factory,
+        dispatch_reason=dispatch,
+    )
+    if run is None:
+        raise HTTPException(status_code=409, detail="a Toolbox test is already running")
+    logger.info(
+        "integrations.toolbox_diagnostic_started run=%s by=%s send_real=%s",
+        run.id,
+        actor.id,
+        body.send_real,
+    )
+    return DiagnosticOut(**diagnostics.snapshot(run))
+
+
+@router.get("/toolbox/diagnostics/latest")
+def latest_toolbox_diagnostic(request: Request) -> DiagnosticOut | None:
+    diagnostics = _diagnostics(request)
+    run = diagnostics.latest()
+    return DiagnosticOut(**diagnostics.snapshot(run)) if run else None
+
+
+@router.delete("/toolbox/diagnostics/latest", status_code=204)
+def clear_toolbox_diagnostic(request: Request, actor: CurrentActor) -> None:
+    """Removes the shown result of « Tester la Toolbox » (a person only; 409 while a run is going)."""
+    with business_errors():
+        if actor.type != ActorType.HUMAN:
+            raise ActorNotAllowedError("The Toolbox test result is cleared by a person.")
+    if not _diagnostics(request).clear():
+        raise HTTPException(status_code=409, detail="a Toolbox test is running")

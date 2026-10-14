@@ -433,3 +433,56 @@ def test_s0_is_out_of_campaign_over_http(
 
     assert (body["sequence"]["out_of_campaign"], body["sequence"]["closed"]) == (True, True)
     refused(client.put(f"{messages(prospect)}/contact", json={}), 409, "out_of_campaign")
+
+
+def test_a_draft_and_a_validated_message_are_deleted_over_http(
+    app_with_sender: FastAPI, client: TestClient, db_session: Session
+) -> None:
+    prospect = prospect_id(db_session)
+    path = f"{messages(prospect)}/contact"
+    ok(client.put(path, json={"subject": "Objet", "body_text": "Corps"}), 201)
+
+    assert ok(client.post(f"{path}/delete", json={"expected_revision": 1})) == {
+        "deleted": True,
+        "step": "contact",
+    }
+    assert ok(client.get(path)) == {"message": None}
+
+    ok(client.put(path, json={"subject": "Objet", "body_text": "Corps"}), 201)
+    ok(client.post(f"{path}/validate", json={"expected_revision": 1}))
+    assert ok(client.post(f"{path}/delete", json={"expected_revision": 1}))["deleted"] is True
+    assert ok(client.get(path)) == {"message": None}
+    assert client.post(f"{path}/delete", json={}).status_code == 422
+
+
+def test_one_send_moment_for_whole_cohorts(
+    app_with_sender: FastAPI, client: TestClient, db_session: Session
+) -> None:
+    def prospect_in(code: str) -> uuid.UUID:
+        prospect = add_prospect(db_session, add_company(db_session))
+        add_email(db_session, prospect, "jean.test@exemple.example", is_primary=True)
+        start_sequence(db_session, prospect, add_cohort(db_session, code))
+        return prospect.id
+
+    validated_in, validated_other, draft_in = (
+        prospect_in("S41"),
+        prospect_in("S42"),
+        prospect_in("S41"),
+    )
+    for prospect in (validated_in, validated_other, draft_in):
+        path = f"{messages(prospect)}/contact"
+        ok(client.put(path, json={"subject": "Objet", "body_text": "Corps"}), 201)
+    for prospect in (validated_in, validated_other):
+        ok(client.post(f"{messages(prospect)}/contact/validate", json={"expected_revision": 1}))
+
+    body = {"cohorts": ["S41"], "step": "contact", "scheduled_at": FUTURE.isoformat()}
+    result = ok(client.post("/api/contact/schedule-cohorts", json=body))
+    assert (result["scheduled"], result["validated"], result["refused"]) == (2, 1, 0)
+
+    status = lambda p: ok(client.get(f"{messages(p)}/contact"))["message"]["status"]  # noqa: E731
+    assert status(validated_in) == "scheduled"
+    assert status(validated_other) == "validated"
+    assert status(draft_in) == "scheduled"
+
+    past = {**body, "scheduled_at": (datetime.now(UTC) - timedelta(days=1)).isoformat()}
+    assert client.post("/api/contact/schedule-cohorts", json=past).status_code == 422

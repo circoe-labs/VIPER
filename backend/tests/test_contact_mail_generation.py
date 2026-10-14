@@ -6,7 +6,7 @@ the explicit replace confirmation, concurrency with a person's edit, audit and h
 import uuid
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -28,19 +28,22 @@ from app.models import (
     ContactTracking,
     ContactTrackingStatusHistory,
     Prospect,
+    ProspectNote,
 )
 from app.models.enums import (
     Civility,
     ContactabilityStatus,
     ContactMessageStatus,
     ContactTrackingStatus,
+    NoteSourceType,
     SendSource,
 )
 from app.services import audit, contact_messages, contact_sequences
+from app.services.contact_mail_generation import ContextLimits, load_context
 from app.services.contact_messages import MessageEdit
 from app.services.errors import MailGenerationError
 from app.services.mail_generation.openai_client import GeneratedMail, generation_error
-from app.services.mail_generation.prompt import PROMPT_VERSION, MailPrompt
+from app.services.mail_generation.prompt import DEFAULT_INITIAL_PROMPT, PROMPT_VERSION, MailPrompt
 from tests.builders import (
     OPERATOR,
     add_company,
@@ -213,7 +216,27 @@ def test_a_generation_creates_a_draft_and_changes_no_state(
         "- Références Circoe pertinentes : Projet X (validé)",
     ):
         assert fact in prompt.input
-    assert f"recopié exactement : {BOOKING}." in prompt.instructions
+    assert "ajouté automatiquement après ton texte" in prompt.instructions
+    # The client card, and the initial prompt first (the built-in brief while none is set).
+    assert prompt.input.startswith("Étape : Contact\n\nFiche client\n\nContact :")
+    assert prompt.instructions.startswith(DEFAULT_INITIAL_PROMPT)
+
+
+def test_the_saved_initial_prompt_is_given_first_to_the_model(
+    ai_app: FastAPI,
+    client: TestClient,
+    prospect: uuid.UUID,
+    fake: FakeGenerator,
+) -> None:
+    ai_app.state.settings = ai_app.state.settings.model_copy(
+        update={"contact_initial_prompt": "Brief personnalisé de Circoe."}
+    )
+
+    ok(generate(client, prospect), 201)
+
+    [prompt] = fake.prompts
+    assert prompt.instructions.startswith("Brief personnalisé de Circoe.\n\nMessage à rédiger")
+    assert DEFAULT_INITIAL_PROMPT not in prompt.instructions
 
 
 def test_audit_and_history_say_the_ai_wrote_a_draft_never_what(
@@ -297,6 +320,115 @@ def test_follow_ups_get_the_recorded_earlier_steps(
     ok(generate(client, prospect, "r2"), 201)
     assert "Premier objet" not in fake.prompts[1].input
     assert "Message R1 déjà rédigé (Brouillon) :\nObjet : Objet IA 1" in fake.prompts[1].input
+
+
+def add_note(
+    session: Session, prospect: uuid.UUID, fact: str, delta: int | None = None, **fields: Any
+) -> ProspectNote:
+    note = ProspectNote(prospect_id=prospect, fact_text=fact, score_delta=delta, **fields)
+    session.add(note)
+    session.flush()
+    return note
+
+
+def test_without_notes_the_prompt_has_no_facts_and_no_score_section(
+    ai_app: FastAPI,
+    client: TestClient,
+    prospect: uuid.UUID,
+    fake: FakeGenerator,
+) -> None:
+    ok(generate(client, prospect), 201)
+
+    sent = fake.prompts[0].input
+    assert "Faits connus" not in sent
+    assert "Score prospect" not in sent and "Total" not in sent
+
+
+def test_notes_and_score_reach_the_prompt_never_the_excluded_data(
+    ai_app: FastAPI,
+    client: TestClient,
+    db_session: Session,
+    prospect: uuid.UUID,
+    fake: FakeGenerator,
+) -> None:
+    add_note(
+        db_session,
+        prospect,
+        "A liké un post",
+        5,
+        noted_on=date(2026, 9, 12),
+        source_type=NoteSourceType.LINKEDIN,
+        source_label="post Acme",
+    )
+    add_note(db_session, prospect, "Pas intéressé par le sujet", -20, noted_on=date(2026, 9, 20))
+    add_note(db_session, prospect, "Vient de changer de poste")
+
+    ok(generate(client, prospect), 201)
+
+    [prompt] = fake.prompts
+    sent = f"{prompt.instructions}\n{prompt.input}"
+    assert (
+        "Faits connus sur la personne (du plus récent au plus ancien) :\n"
+        "1. Pas intéressé par le sujet (20/09/2026)\n"
+        "2. A liké un post (12/09/2026, LinkedIn post Acme)\n"
+        "3. Vient de changer de poste"
+    ) in prompt.input
+    assert "- Total : 35/100" in prompt.input and "- Niveau : rouge" in prompt.input
+    assert "  - -20 : voir fait n°1\n  - +5 : voir fait n°2" in prompt.input
+    assert prompt.input.count("Pas int") == 1
+    for excluded in (SECRET_EMAIL, SECRET_PHONE, "123456782", "NEUTRAL", "neutral"):
+        assert excluded not in sent
+
+
+def test_the_context_caps_notes_and_orders_contributions_by_strength(
+    db_session: Session, prospect: uuid.UUID
+) -> None:
+    for index in range(4):
+        add_note(
+            db_session, prospect, f"Fait {index}", 1 + index, noted_on=date(2026, 9, 1 + index)
+        )
+    add_note(db_session, prospect, "Gros signal négatif", -9, noted_on=date(2026, 8, 1))
+    add_note(db_session, prospect, "x" * 900, noted_on=date(2026, 7, 1))
+
+    context = load_context(
+        db_session,
+        prospect,
+        0,
+        last_rank=2,
+        instruction=None,
+        booking_url=None,
+        limits=ContextLimits(max_notes=3, max_contributions=2),
+    )
+
+    assert [note.fact_text for note in context.notes] == ["Fait 3", "Fait 2", "Fait 1"]
+    assert context.prospect_score is not None
+    # « Gros signal négatif » is beyond the 3 listed notes: its text stays; « Fait 3 » is fact 1.
+    assert [(c.reason, c.delta, c.note_rank) for c in context.prospect_score.top_contributions] == [
+        ("Gros signal négatif", -9, None),
+        ("Fait 3", 4, 1),
+    ]
+    assert context.prospect_score.total == 50 + 1 + 2 + 3 + 4 - 9
+    long = load_context(
+        db_session,
+        prospect,
+        0,
+        last_rank=2,
+        instruction=None,
+        booking_url=None,
+        limits=ContextLimits(max_notes=20),
+    )
+    assert len(long.notes[-1].fact_text) == 300 and long.notes[-1].fact_text.endswith("…")
+
+
+def test_a_score_without_signal_is_not_given_to_the_prompt(
+    db_session: Session, prospect: uuid.UUID
+) -> None:
+    add_note(db_session, prospect, "Simple observation")
+
+    context = load_context(db_session, prospect, 0, last_rank=2, instruction=None, booking_url=None)
+
+    assert [note.fact_text for note in context.notes] == ["Simple observation"]
+    assert context.prospect_score is None
 
 
 def test_the_availability_flag(

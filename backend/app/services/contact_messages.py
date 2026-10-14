@@ -80,13 +80,13 @@ from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
 from typing import cast
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.actor import ActorContext, ActorType
 from app.core.contact_steps import CONTACT_RANK, DEFAULT_MAX_FOLLOW_UPS, step_code, step_label
-from app.models import ContactMessage, ContactSequence, Email
+from app.models import Cohort, ContactMessage, ContactSequence, Email
 from app.models.enums import (
     ContactabilityStatus,
     ContactMessageStatus,
@@ -802,6 +802,85 @@ def schedule(
     return MessageResult(message)
 
 
+@dataclass(frozen=True)
+class CohortScheduleResult:
+    scheduled: list[uuid.UUID]
+    # Drafts the person's click validated on the way (included in `scheduled`).
+    validated: int
+    # Refused one by one (an incomplete draft, a closed sequence, a stale state…).
+    refused: int
+    # Prospects of the cohorts with no message at that step yet: nothing to schedule.
+    missing: int
+
+
+def schedule_cohorts(
+    session: Session,
+    actor: ActorContext,
+    cohort_codes: Sequence[str],
+    rank: int,
+    scheduled_at: datetime,
+    *,
+    now: datetime | None = None,
+) -> CohortScheduleResult:
+    """One send moment for a whole step of whole cohorts: the message of that rank of every
+    prospect in the current sequences of the cohorts is scheduled at `scheduled_at` (same rules
+    as `schedule`, message by message, each in its own savepoint). A draft is validated first
+    (the person asked for the whole series); an incomplete one is refused and stays a draft.
+    The moment is checked once, before anything is touched."""
+    _require_human(actor)
+    current = now or datetime.now(UTC)
+    if scheduled_at.tzinfo is None:
+        raise InvalidFieldError("scheduled_at", "A time zone is required.", "time_zone")
+    if scheduled_at > current + MAX_SCHEDULE_AHEAD:
+        raise InvalidFieldError("scheduled_at", "At most one year ahead.", "too_far")
+    if scheduled_at <= current:
+        raise InvalidFieldError(
+            "scheduled_at", "The send moment must be in the future.", "not_future"
+        )
+    in_cohorts = (
+        select(ContactSequence.id)
+        .join(Cohort, Cohort.id == ContactSequence.cohort_id)
+        .where(ContactSequence.is_current, Cohort.code.in_(cohort_codes))
+    )
+    rows = session.execute(
+        select(ContactMessage.prospect_id, ContactMessage.revision, ContactMessage.status).where(
+            ContactMessage.sequence_id.in_(in_cohorts),
+            ContactMessage.rank == rank,
+            ContactMessage.status.in_([M.DRAFT, M.VALIDATED]),
+        )
+    ).all()
+    sequences = session.scalar(select(func.count()).select_from(in_cohorts.subquery())) or 0
+    existing = (
+        session.scalar(
+            select(func.count()).where(
+                ContactMessage.sequence_id.in_(in_cohorts), ContactMessage.rank == rank
+            )
+        )
+        or 0
+    )
+    scheduled: list[uuid.UUID] = []
+    validated = refused = 0
+    for prospect_id, revision, message_status in rows:
+        try:
+            with session.begin_nested():
+                if message_status is M.DRAFT:
+                    validate(session, actor, prospect_id, rank, revision, now=current)
+                result = schedule(
+                    session, actor, prospect_id, rank, revision, scheduled_at, now=current
+                )
+        except ContactMessageError, InvalidFieldError:
+            refused += 1
+            continue
+        validated += message_status is M.DRAFT
+        scheduled.append(result.message.id)
+    return CohortScheduleResult(
+        scheduled=scheduled,
+        validated=validated,
+        refused=refused,
+        missing=max(sequences - existing, 0),
+    )
+
+
 def remote_draft_target(
     session: Session,
     actor: ActorContext,
@@ -861,6 +940,27 @@ def cancel(
     session.flush()
     _log("cancelled", message, actor)
     return MessageResult(message)
+
+
+def delete_draft(
+    session: Session,
+    actor: ActorContext,
+    prospect_id: uuid.UUID,
+    rank: int,
+    expected_revision: int,
+) -> None:
+    """A person removes a message that is not planned to leave (draft, validated or cancelled): the
+    row goes, its Infomaniak draft is queued for deletion, the step is empty again and can be
+    written anew. A scheduled or sent message is refused (unschedule or cancel it first: its
+    history stays)."""
+    _, message = _transition_target(session, actor, prospect_id, rank, expected_revision)
+    if message.status not in (M.DRAFT, M.VALIDATED, M.CANCELLED):
+        raise _invalid_transition(message, "delete")
+    _require_not_claimed(message)
+    detach_remote_draft(session, message, "deleted")
+    _log("deleted", message, actor)
+    session.delete(message)
+    session.flush()
 
 
 def reopen(

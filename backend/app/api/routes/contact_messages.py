@@ -75,6 +75,7 @@ from app.services.mail_generation.openai_client import (
     not_configured,
 )
 from app.services.mail_generation.prompt import MAX_INSTRUCTION_LENGTH, PROMPT_VERSION
+from app.services.prospect_score import ScoreConfig
 from app.services.toolbox.integration import ToolboxIntegration
 
 router = APIRouter(prefix="/prospects/{prospect_id}/messages", tags=["contact"])
@@ -626,6 +627,25 @@ def cancel(
     return result_out(result)
 
 
+class DeletedOut(BaseModel):
+    deleted: bool
+    step: str
+
+
+@router.post("/{step}/delete")
+def delete_draft(
+    prospect_id: uuid.UUID,
+    step: StepPath,
+    body: RevisionIn,
+    session: SessionDep,
+    actor: CurrentActor,
+) -> DeletedOut:
+    """Remove a draft that was never validated (409 `invalid_transition` otherwise)."""
+    with business_errors():
+        service.delete_draft(session, actor, prospect_id, rank_of(step), body.expected_revision)
+    return DeletedOut(deleted=True, step=step)
+
+
 @router.post("/{step}/reopen")
 def reopen(
     prospect_id: uuid.UUID,
@@ -667,6 +687,9 @@ def generate(
                 replace=body.replace,
             ),
             booking_url=settings.contact_booking_url,
+            score_config=ScoreConfig.from_settings(settings),
+            limits=generation.ContextLimits.from_settings(settings),
+            initial_prompt=settings.contact_initial_prompt,
         )
         if generator is None:
             raise not_configured(missing_settings(settings))
@@ -716,4 +739,71 @@ def _save_generated(
     return GenerationResultOut(
         **out.model_dump(),
         generation=GenerationOut(model=mail.model, prompt_version=PROMPT_VERSION),
+    )
+
+
+# --- one send moment for whole cohorts ---------------------------------------------------------
+
+cohorts_router = APIRouter(prefix="/contact", tags=["contact"])
+
+
+class ScheduleCohortsIn(StrictModel):
+    cohorts: Annotated[
+        list[Annotated[str, StringConstraints(pattern=r"^S\d{1,3}$")]],
+        Field(min_length=1, max_length=20),
+    ]
+    step: StepPath
+    scheduled_at: AwareDatetime
+
+
+class ScheduleCohortsOut(BaseModel):
+    scheduled: int
+    validated: int
+    refused: int
+    missing: int
+    # Infomaniak drafts that could not be created (the messages are scheduled anyway).
+    remote_draft_failures: int
+
+
+@cohorts_router.post("/schedule-cohorts")
+def schedule_cohorts(
+    body: ScheduleCohortsIn,
+    request: Request,
+    session: SessionDep,
+    actor: CurrentActor,
+) -> ScheduleCohortsOut:
+    """Schedule every validated message of a step, for all prospects of the chosen cohorts, at
+    one moment. Drafts are validated first; incomplete ones are refused."""
+    with business_errors():
+        result = service.schedule_cohorts(
+            session,
+            actor,
+            list(dict.fromkeys(body.cohorts)),
+            rank_of(body.step),
+            body.scheduled_at,
+            now=datetime.now(UTC),
+        )
+    failures = 0
+    integration: ToolboxIntegration = request.app.state.toolbox
+    toolbox = integration.mail_toolbox()
+    if toolbox is not None and result.scheduled:
+        audit_binding = audit.binding(session)
+        session.commit()
+        session_factory: sessionmaker[Session] = request.app.state.session_factory
+        for message_id in result.scheduled:
+            sync = remote_drafts.sync_remote_draft(
+                session_factory,
+                toolbox,
+                message_id,
+                actor,
+                audit_binding[1] if audit_binding else None,
+            )
+            if sync.status == "failed":
+                failures += 1
+    return ScheduleCohortsOut(
+        scheduled=len(result.scheduled),
+        validated=result.validated,
+        refused=result.refused,
+        missing=result.missing,
+        remote_draft_failures=failures,
     )

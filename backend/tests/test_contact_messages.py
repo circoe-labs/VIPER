@@ -762,3 +762,64 @@ def test_the_database_requires_a_source_with_a_send(db_session: Session) -> None
         message.status = M.SENT
         message.sent_at = datetime.now(UTC)
         message.sent_source = SendSource.WORKER
+
+
+def test_a_draft_can_be_deleted_and_the_step_written_again(db_session: Session) -> None:
+    prospect = prospect_with(db_session)
+    draft = create(db_session, prospect)
+
+    service.delete_draft(db_session, OPERATOR, prospect.id, STEP, draft.revision)
+
+    assert (
+        db_session.scalar(select(ContactMessage).where(ContactMessage.prospect_id == prospect.id))
+        is None
+    )
+    again = create(db_session, prospect)
+    assert again.status is M.DRAFT
+
+
+def test_a_validated_or_cancelled_message_can_be_deleted(db_session: Session) -> None:
+    prospect = prospect_with(db_session)
+    message = create(db_session, prospect)
+    service.validate(db_session, OPERATOR, prospect.id, STEP, message.revision)
+    db_session.refresh(message)
+    message_id = message.id
+
+    service.delete_draft(db_session, OPERATOR, prospect.id, STEP, message.revision)
+    assert db_session.get(ContactMessage, message_id) is None
+
+    again = create(db_session, prospect)
+    service.cancel(db_session, OPERATOR, prospect.id, STEP, again.revision)
+    db_session.refresh(again)
+    again_id = again.id
+    service.delete_draft(db_session, OPERATOR, prospect.id, STEP, again.revision)
+    assert db_session.get(ContactMessage, again_id) is None
+
+
+def test_a_scheduled_message_is_not_deleted_it_is_unscheduled_or_cancelled(
+    db_session: Session,
+) -> None:
+    prospect = prospect_with(db_session)
+    message = create(db_session, prospect)
+    service.validate(db_session, OPERATOR, prospect.id, STEP, message.revision)
+    db_session.refresh(message)
+    scheduled = schedule(db_session, prospect, message).message
+
+    with pytest.raises(ContactMessageError) as refused:
+        service.delete_draft(db_session, OPERATOR, prospect.id, STEP, scheduled.revision)
+
+    assert code_of(refused) == "invalid_transition"
+    assert db_session.get(ContactMessage, scheduled.id) is not None
+
+
+def test_deleting_a_draft_follows_the_revision_and_needs_a_person(db_session: Session) -> None:
+    prospect = prospect_with(db_session)
+    draft = create(db_session, prospect)
+
+    with pytest.raises(ContactMessageError) as stale:
+        service.delete_draft(db_session, OPERATOR, prospect.id, STEP, draft.revision + 1)
+    assert code_of(stale) == "revision_conflict"
+    agent = ActorContext(type=ActorType.AGENT, display="Agent", id="agent.test")
+    with pytest.raises(ActorNotAllowedError):
+        service.delete_draft(db_session, agent, prospect.id, STEP, draft.revision)
+    assert db_session.get(ContactMessage, draft.id) is not None
