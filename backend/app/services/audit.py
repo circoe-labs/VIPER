@@ -47,6 +47,7 @@ from app.models import (
     InternalReferent,
     Phone,
     Prospect,
+    ProspectNote,
     ProspectSource,
     QualityAlert,
     Role,
@@ -191,6 +192,7 @@ AUDITED_ENTITIES: dict[type[Any], AuditedEntity] = {
         "quality_alert", "prospect", "prospect_id", fallback_subject=("company", "company_id")
     ),
     ProspectSource: AuditedEntity("prospect_source", "prospect", "prospect_id"),
+    ProspectNote: AuditedEntity("prospect_note", "prospect", "prospect_id"),
     Role: AuditedEntity("role", "role"),
     CommercialSegment: AuditedEntity("commercial_segment", "commercial_segment"),
     ActivityCategory: AuditedEntity("activity_category", "activity_category"),

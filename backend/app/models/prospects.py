@@ -1,14 +1,16 @@
 """Prospects (individual people), their contact channels and provenance records."""
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Index,
+    SmallInteger,
     String,
     Text,
     false,
@@ -25,6 +27,7 @@ from app.models.enums import (
     ActivityStatus,
     Civility,
     ContactabilityStatus,
+    NoteSourceType,
     OriginType,
     PhoneType,
     ProspectSourceType,
@@ -180,3 +183,42 @@ class ProspectSource(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     actor_id: Mapped[str | None] = mapped_column(String(128))
     actor_display: Mapped[str | None] = mapped_column(String(255))
     notes: Mapped[str | None] = mapped_column(Text)
+
+
+# Bounds shared by the model CHECKs, the API and the scoring service (migration 0012 freezes them).
+NOTE_TEXT_MAX_LENGTH = 1000
+NOTE_SCORE_DELTA_MIN = -50
+NOTE_SCORE_DELTA_MAX = 50
+
+
+class ProspectNote(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """A short dated fact about a prospect (« a liké un post », « très bon interlocuteur »).
+
+    An optional `score_delta` makes the note a manual contribution to the prospect's score
+    (`app.services.prospect_score`); the score itself is never stored.
+    """
+
+    __tablename__ = "prospect_notes"
+    __table_args__ = (
+        CheckConstraint(
+            f"btrim(fact_text) <> '' AND char_length(fact_text) <= {NOTE_TEXT_MAX_LENGTH}",
+            name="fact_text_valid",
+        ),
+        CheckConstraint(
+            f"score_delta IS NULL OR score_delta BETWEEN {NOTE_SCORE_DELTA_MIN}"
+            f" AND {NOTE_SCORE_DELTA_MAX}",
+            name="score_delta_range",
+        ),
+    )
+
+    prospect_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("prospects.id", ondelete="CASCADE"), index=True
+    )
+    fact_text: Mapped[str] = mapped_column(Text)
+    # Business day the fact was observed; free of the creation moment.
+    noted_on: Mapped[date | None] = mapped_column(Date)
+    source_type: Mapped[NoteSourceType | None] = mapped_column(
+        text_enum(NoteSourceType, "source_type")
+    )
+    source_label: Mapped[str | None] = mapped_column(String(200))
+    score_delta: Mapped[int | None] = mapped_column(SmallInteger)

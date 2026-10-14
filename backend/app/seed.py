@@ -50,6 +50,7 @@ CAMPAIGN_COHORTS: tuple[tuple[str, date], ...] = (
     ("S40", date(2026, 10, 5)),
     ("S41", date(2026, 10, 12)),
     ("S42", date(2026, 10, 19)),
+    ("S43", date(2026, 10, 26)),
 )
 
 

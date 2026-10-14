@@ -42,6 +42,7 @@ from app.models.enums import (
     Civility,
     ContactabilityStatus,
     ContactTrackingStatus,
+    NoteSourceType,
     OriginType,
     PhoneType,
     ProspectSourceType,
@@ -262,6 +263,14 @@ SOURCE_TYPES: dict[str, str] = {
     ProspectSourceType.FUTURE_AGENT: "Agent",
     ProspectSourceType.OTHER: "Autre source",
 }
+NOTE_SOURCE_TYPES: dict[str, str] = {
+    NoteSourceType.LINKEDIN: "LinkedIn",
+    NoteSourceType.EMAIL: "E-mail",
+    NoteSourceType.PHONE: "Téléphone",
+    NoteSourceType.MEETING: "Rendez-vous",
+    NoteSourceType.WEB: "Web",
+    NoteSourceType.OTHER: "Autre",
+}
 
 
 # --- field catalogue ---------------------------------------------------------------------------
@@ -362,6 +371,13 @@ FIELDS: dict[str, dict[str, Field]] = {
         ),
         "notes": Field("notes", "Provenance modifiée"),
     },
+    "prospect_note": {
+        "fact_text": Field("fait", "Note modifiée"),
+        "noted_on": Field("observé le", "Note modifiée"),
+        "source_type": Field("source", "Note modifiée", _choice(NOTE_SOURCE_TYPES)),
+        "source_label": Field("précision de la source", "Note modifiée"),
+        "score_delta": Field("points de score", "Note modifiée"),
+    },
     "company": {
         "display_name": Field("Nom", "Nom de l’entreprise modifié"),
         "legal_name": Field("Raison sociale", "Raison sociale modifiée"),
@@ -443,6 +459,7 @@ NOT_SHOWN: dict[str, frozenset[str]] = {
     "prospect_source": frozenset(
         {"prospect_id", "import_batch_id", "actor_type", "actor_id", "actor_display"}
     ),
+    "prospect_note": frozenset({"prospect_id"}),
     "establishment": frozenset({"company_id"}),
 }
 # Child rows named by one of their fields, as it was at the time of the event.
@@ -488,6 +505,7 @@ NOUNS = {
     "contact_sequence": ("Séquence", True),
     "quality_alert": ("Alerte qualité", True),
     "prospect_source": ("Provenance", True),
+    "prospect_note": ("Note", True),
     "company": ("Entreprise", True),
     "establishment": ("Établissement", False),
 }

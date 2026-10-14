@@ -27,6 +27,7 @@ from app.models import (
     Establishment,
     Phone,
     Prospect,
+    ProspectNote,
     ProspectSource,
     QualityAlert,
 )
@@ -548,6 +549,7 @@ def test_every_audited_column_of_a_history_is_labelled_or_deliberately_hidden() 
         "contact_sequence": ContactSequence,
         "quality_alert": QualityAlert,
         "prospect_source": ProspectSource,
+        "prospect_note": ProspectNote,
         "company": Company,
         "establishment": Establishment,
     }

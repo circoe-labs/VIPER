@@ -7,7 +7,7 @@ from app.models.contact_messages import ContactMessage, ContactMessageRemoteDraf
 from app.models.contact_sequences import Cohort, ContactSequence
 from app.models.contact_tracking import ContactTracking, ContactTrackingStatusHistory
 from app.models.imports import ImportBatch, ImportRowMetadata
-from app.models.prospects import Email, Phone, Prospect, ProspectSource
+from app.models.prospects import Email, Phone, Prospect, ProspectNote, ProspectSource
 from app.models.quality_alerts import QualityAlert
 from app.models.taxonomies import ActivityCategory, CommercialSegment, InternalReferent, Role
 from app.models.users import User, UserSession
@@ -31,6 +31,7 @@ __all__ = [
     "InternalReferent",
     "Phone",
     "Prospect",
+    "ProspectNote",
     "ProspectSource",
     "QualityAlert",
     "Role",
