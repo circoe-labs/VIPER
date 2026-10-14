@@ -10,7 +10,7 @@ import type { ToolboxState } from './toolbox'
 // sequence Contact / R1 / R2 of one prospect). Rules and refusal codes: doc/features/contact.md.
 
 // The cohorts of the campaign, one section each on the Contact page (a cohort without prospect yet stays empty).
-export const CAMPAIGN_COHORTS = ['S37', 'S39', 'S40', 'S41', 'S43', 'S44', 'S45'] as const
+export const CAMPAIGN_COHORTS = ['S37', 'S39', 'S40', 'S41', 'S43', 'S44', 'S45', 'S46', 'S47'] as const
 export type CampaignCohort = (typeof CAMPAIGN_COHORTS)[number]
 // The sections of the page: the cohorts, then the people who took an appointment (« RDV pris », whatever the cohort).
 export const APPOINTMENTS = 'RDV'

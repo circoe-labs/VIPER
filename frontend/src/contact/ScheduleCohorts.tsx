@@ -18,7 +18,7 @@ const STEP_LABEL: Record<Step, string> = { contact: 'Contact', r1: 'R1', r2: 'R2
 // « Programmer une série »: a date and a time typed once, applied to the validated mail of the chosen step for every
 // prospect of the chosen cohorts — instead of typing them prospect by prospect. Drafts are never validated for the
 // person: they stay as they are and the result says how many.
-export function ScheduleCohorts({ cohort }: { cohort: string }) {
+export function ScheduleCohorts({ cohort, nextStep }: { cohort: string; nextStep?: string | null }) {
   const [open, setOpen] = useState(false)
   const [step, setStep] = useState<Step>('contact')
   const [date, setDate] = useState(() => rememberedMoment('contact').date)
@@ -73,6 +73,13 @@ export function ScheduleCohorts({ cohort }: { cohort: string }) {
         icon={CalendarIcon}
         onClick={() => {
           setDone(null)
+          // The step with mails left to schedule, not the Contact that already left.
+          const next = STEPS.find((code) => code === nextStep)
+          if (next) {
+            setStep(next)
+            setDate(rememberedMoment(next).date)
+            setTime(rememberedMoment(next).time)
+          }
           setOpen(true)
         }}
       >
@@ -104,6 +111,11 @@ export function ScheduleCohorts({ cohort }: { cohort: string }) {
         }
       >
         <div className="schedule-cohorts">
+          {nextStep === null && (
+            <p className="schedule-cohorts__hint">
+              Tous les mails de {cohort} sont déjà envoyés ou programmés : il n’y a rien de nouveau à programmer.
+            </p>
+          )}
           <fieldset className="schedule-cohorts__group">
             <legend>Étape</legend>
             {STEPS.map((code) => (

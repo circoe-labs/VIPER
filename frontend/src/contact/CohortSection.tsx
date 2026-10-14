@@ -28,6 +28,8 @@ interface CohortSectionProps {
   openHref: (id: string) => string
   today: string
   returnedFrom: string | null
+  // The step still to schedule (null: everything is sent or scheduled); undefined while the planning loads.
+  nextStep?: string | null
 }
 
 // One cohort of the campaign: a header with an arrow that opens or closes it, then its prospects, alphabetical by
@@ -44,6 +46,7 @@ export function CohortSection({
   openHref,
   today,
   returnedFrom,
+  nextStep,
 }: CohortSectionProps) {
   const list = useContactPage(listCriteria(view, code), 1, open)
   const rows = list.data?.items ?? []
@@ -73,7 +76,7 @@ export function CohortSection({
       )}
       {code !== APPOINTMENTS && (
         <div className="cohort-section__action">
-          <ScheduleCohorts cohort={code} />
+          <ScheduleCohorts cohort={code} nextStep={nextStep} />
         </div>
       )}
       {open && (

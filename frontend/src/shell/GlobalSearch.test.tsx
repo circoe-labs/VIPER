@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type { SearchResults } from '../api/search'
 import { company } from '../test/companiesApi'
-import { contactDashboard } from '../test/contactApi'
+import { contactDashboard, contactScheduling } from '../test/contactApi'
 import { renderApp } from '../test/render'
 import { companyHit, establishmentHit, group, prospectHit, searchResults } from '../test/searchApi'
 
@@ -37,6 +37,7 @@ function stubSearch(reply: (q: string) => SearchReply) {
     if (url.pathname === '/api/health') return Promise.resolve(json(200, { status: 'ok', database: 'ok' }))
     // The page under the search (Contact), empty.
     if (url.pathname === '/api/contact/dashboard') return Promise.resolve(json(200, contactDashboard()))
+    if (url.pathname === '/api/contact/scheduling') return Promise.resolve(json(200, contactScheduling()))
     if (url.pathname === '/api/contact/prospects') return Promise.resolve(json(200, { items: [], total: 0, limit: 50, offset: 0 }))
     const opened = /^\/api\/companies\/([\w-]+)$/.exec(url.pathname)
     if (opened?.[1]) return Promise.resolve(json(200, company('Fret Témoin SARL', { id: opened[1] })))

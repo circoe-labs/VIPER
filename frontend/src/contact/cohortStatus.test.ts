@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { cohortStartsOn, cohortStatus, sentSummary } from './cohortStatus'
+import { cohortStartsOn, cohortStatus, nextStepToSchedule, sentSummary } from './cohortStatus'
 
 const COHORTS = [
   { code: 'S37', starts_on: '2026-09-07', out_of_campaign: false, prospects: 52, to_send: 52, overdue: 52, to_send_steps: ['r2'] },
@@ -81,3 +81,33 @@ describe('cohortStatus once the mails are scheduled', () => {
     expect(cohortStatus('S40', [quiet] as typeof COHORTS, '2026-10-13').label).toBe('R2 prévu le 19/10/2026')
   })
 })
+
+describe('Next step to schedule', () => {
+  const day = { first_on: '2026-10-14', last_on: '2026-10-14' }
+  const base = { code: 'S43', starts_on: '2026-10-26', out_of_campaign: false, prospects: 46 }
+
+  it('is the Contact while some prospects have neither sent nor scheduled it', () => {
+    expect(nextStepToSchedule({ ...base, sent_steps: [{ step: 'contact', label: 'Contact', count: 40, ...day }] })).toBe('contact')
+  })
+
+  it('moves on to R1 once every Contact is sent or scheduled (S43: 44 sent, 2 scheduled)', () => {
+    const summary = {
+      ...base,
+      sent_steps: [{ step: 'contact', label: 'Contact', count: 44, ...day }],
+      scheduled_steps: [{ step: 'contact', label: 'Contact', count: 2, ...day }],
+    }
+    expect(nextStepToSchedule(summary)).toBe('r1')
+  })
+
+  it('is null when nothing was sent yet for a follow-up, or the cohort is unknown', () => {
+    expect(nextStepToSchedule(undefined)).toBeNull()
+    const allScheduled = { ...base, scheduled_steps: [{ step: 'contact', label: 'Contact', count: 46, ...day }] }
+    expect(nextStepToSchedule(allScheduled)).toBeNull()
+  })
+
+  it('does not count prospects who took an appointment', () => {
+    const summary = { ...base, prospects: 5, appointments: 1, sent_steps: [{ step: 'contact', label: 'Contact', count: 4, ...day }] }
+    expect(nextStepToSchedule(summary)).toBe('r1')
+  })
+})
+

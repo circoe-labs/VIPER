@@ -15,7 +15,7 @@ import { AlertIcon } from '../ui/icons'
 import { PageHeader } from '../ui/PageHeader'
 import { SearchField } from '../ui/SearchField'
 import { CohortSection } from './CohortSection'
-import { cohortStatus, sentSummary } from './cohortStatus'
+import { cohortStatus, nextStepToSchedule, sentSummary } from './cohortStatus'
 import { bannerText } from './dispatchCopy'
 import { DispatchWarning } from './DispatchWarning'
 import { type ContactView, listCriteria, parseView, serializeView } from './criteria'
@@ -23,7 +23,7 @@ import { SchedulingOverview } from './SchedulingOverview'
 import { type Neighbours, Workbench } from './Workbench'
 import './contact.css'
 
-// Contact (ex-Exploitation): one section per cohort of the campaign (S39 … S45), each opened or closed with its arrow and
+// Contact (ex-Exploitation): one section per cohort of the campaign (S39 … S47), each opened or closed with its arrow and
 // listing its prospects alphabetically by company. A person opens the workbench — prospect sheet left, mail sequence
 // right — in place of the list; the search box narrows every section, and what shows lives in the URL (criteria.ts).
 export function ContactPage() {
@@ -55,8 +55,26 @@ export function ContactPage() {
 
   // The sections open; the one a workbench was opened from is open again when it closes.
   const [opened, setOpened] = useState<ReadonlySet<ContactSection>>(() => new Set(view.section ? [view.section] : []))
+  // A search opens the sections that hold a match (otherwise its results stay hidden behind closed arrows); an arrow
+  // still closes one, until the search changes.
+  const searched = view.q.trim()
+  const [collapsed, setCollapsed] = useState<ReadonlySet<ContactSection>>(new Set())
+  const [collapsedFor, setCollapsedFor] = useState(searched)
+  if (searched !== collapsedFor) {
+    setCollapsedFor(searched)
+    setCollapsed(new Set())
+  }
+  function hasMatch(code: ContactSection): boolean {
+    if (code === APPOINTMENTS) {
+      return (dashboard.data?.categories?.find((item) => item.category === 'appointment_obtained')?.count ?? 0) > 0
+    }
+    const summary = dashboard.data?.cohorts.find((cohort) => cohort.code === code)
+    return (summary?.prospects ?? 0) - (summary?.appointments ?? 0) > 0
+  }
+  const isOpen = (code: ContactSection) => (searched ? hasMatch(code) && !collapsed.has(code) : opened.has(code))
   function toggle(code: ContactSection) {
-    setOpened((current) => {
+    const set = searched ? setCollapsed : setOpened
+    set((current) => {
       const next = new Set(current)
       if (!next.delete(code)) next.add(code)
       return next
@@ -156,13 +174,14 @@ export function ContactPage() {
                   : undefined
               }
               sent={dashboard.data && code !== APPOINTMENTS ? sentSummary(code, cohorts) : null}
-              open={opened.has(code)}
+              open={isOpen(code)}
               onToggle={() => {
                 toggle(code)
               }}
               openHref={(id) => openHref(id, code)}
               today={today}
               returnedFrom={returnedFrom}
+              nextStep={dashboard.data && code !== APPOINTMENTS ? nextStepToSchedule(summary) : undefined}
             />
           )
         })}

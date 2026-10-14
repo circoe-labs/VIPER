@@ -817,29 +817,7 @@
 
 /* --- Suivi des envois programmés: tiles, bars per day stacked by step, table, forgotten list --- */
 
-/* Step colours: the categorical slots in a fixed order (Contact, R1, R2…), stepped per theme (validated for the dark surface). */
-:root,
-:root[data-theme='dark'] {
-  --sched-1: #3987e5;
-  --sched-2: #d95926;
-  --sched-3: #199e70;
-  --sched-4: #c98500;
-  --sched-5: #d55181;
-  --sched-6: #008300;
-  --sched-7: #9085e9;
-  --sched-8: #e66767;
-}
-
-:root[data-theme='light'] {
-  --sched-1: #2a78d6;
-  --sched-2: #eb6834;
-  --sched-3: #1baf7a;
-  --sched-4: #eda100;
-  --sched-5: #e87ba4;
-  --sched-6: #008300;
-  --sched-7: #4a3aa7;
-  --sched-8: #e34948;
-}
+/* Step colours (--sched-1…8) are theme tokens: theme/tokens.css. */
 
 .sched-slot-1 { background: var(--sched-1); }
 .sched-slot-2 { background: var(--sched-2); }
@@ -1190,6 +1168,12 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
+}
+
+.schedule-cohorts__hint {
+  margin: 0 0 var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
 }
 
 .schedule-cohorts__when {

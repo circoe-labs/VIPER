@@ -96,7 +96,7 @@ describe('Contact page', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
-  it('shows one closed section per cohort S37 to S45 (no S38, no S42), then « RDV pris », with its prospect count, and reads nothing until one opens', async () => {
+  it('shows one closed section per cohort S37 to S47 (no S38, no S42), then « RDV pris », with its prospect count, and reads nothing until one opens', async () => {
     const api = stubContactApi({ dashboard: DASHBOARD, rows: rows() })
     renderApp('/contact')
 
@@ -113,6 +113,8 @@ describe('Contact page', () => {
       'S430 prospectsemaine du 26/10',
       'S440 prospectsemaine du 02/11',
       'S450 prospectsemaine du 09/11',
+      'S460 prospectsemaine du 16/11',
+      'S470 prospectsemaine du 23/11',
       'RDV pris2 prospects',
     ])
     for (const toggle of toggles) expect(toggle).toHaveAttribute('aria-expanded', 'false')
@@ -217,8 +219,21 @@ describe('Contact page', () => {
       expect(router.state.location.search).toBe('?section=S39&q=alpha')
     })
     await waitFor(() => {
-      expect(lastListParams(api.requests)).toMatchObject({ q: 'alpha', cohorts: 'S39' })
+      const lists = sent(api.requests, 'GET', LIST).map((r) => Object.fromEntries(new URLSearchParams(r.search)))
+      expect(lists).toContainEqual(expect.objectContaining({ q: 'alpha', cohorts: 'S39' }))
     })
+  })
+
+  it('opens the sections that hold a match when searching, closed ones included', async () => {
+    const api = stubContactApi({ dashboard: DASHBOARD, rows: rows() })
+    renderApp('/contact')
+    await screen.findByText('S39')
+
+    await userEvent.type(screen.getByRole('searchbox'), 'alpha')
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /S39/ })).toHaveAttribute('aria-expanded', 'true')
+    })
+    expect(sent(api.requests, 'GET', LIST).length).toBeGreaterThan(0)
   })
 
   it('shows a counters failure with « Réessayer »', async () => {

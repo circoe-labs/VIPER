@@ -108,3 +108,20 @@ export function sentSummary(code: string, cohorts: readonly CohortSummary[]): st
     })
     .join(' · ')
 }
+
+const SCHEDULABLE_STEPS = ['contact', 'r1', 'r2', 'r3', 'r4'] as const
+
+// The first step of the cohort with people left to schedule: neither sent nor already scheduled. A follow-up counts
+// only once the step before it has left for someone. Null when everything is sent or scheduled.
+export function nextStepToSchedule(summary: CohortSummary | undefined): string | null {
+  if (!summary) return null
+  const people = summary.prospects - (summary.appointments ?? 0)
+  const count = (list: CohortSummary['sent_steps'], step: string) =>
+    list?.find((item) => item.step === step)?.count ?? 0
+  for (const [index, step] of SCHEDULABLE_STEPS.entries()) {
+    const previous = SCHEDULABLE_STEPS[index - 1]
+    if (previous && count(summary.sent_steps, previous) === 0) return null
+    if (people - count(summary.sent_steps, step) - count(summary.scheduled_steps, step) > 0) return step
+  }
+  return null
+}
