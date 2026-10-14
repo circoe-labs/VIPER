@@ -7,6 +7,7 @@ import { StatusBadge } from '../ui/Badge'
 import { PageHeader } from '../ui/PageHeader'
 import { CohortSection } from './CohortSection'
 import { ConnectionsSection } from './ConnectionsSection'
+import { PromptSection } from './PromptSection'
 import { ReferentSection } from './ReferentSection'
 import { TaxonomySection, type TaxonomySectionConfig } from './TaxonomySection'
 import { STATE_BADGES } from './toolboxCopy'
@@ -53,6 +54,8 @@ const REFERENTS_PATH = 'referents'
 const COHORTS_PATH = 'cohorts'
 // Also the OAuth return page of the CIRCOE Toolbox (`VIPER_TOOLBOX_OAUTH_REDIRECT_URI`, Contact port S6).
 const CONNECTIONS_PATH = 'connections'
+// The brief given to the AI before it drafts an e-mail (Contact port, AI drafting).
+const PROMPT_PATH = 'prompt'
 
 // Paramètres (Task 06): the four administrable lists behind the record editors' pickers, the cohorts with « max
 // relances » (sequences rework S4), then the external connections (S6). `/settings` shows the first section;
@@ -60,12 +63,24 @@ const CONNECTIONS_PATH = 'connections'
 export function SettingsPage() {
   const { section = TAXONOMY_SECTIONS[0]?.kind } = useParams()
   const taxonomy = TAXONOMY_SECTIONS.find((config) => config.kind === section)
-  if (!taxonomy && section !== REFERENTS_PATH && section !== COHORTS_PATH && section !== CONNECTIONS_PATH) {
+  if (
+    !taxonomy &&
+    section !== REFERENTS_PATH &&
+    section !== COHORTS_PATH &&
+    section !== CONNECTIONS_PATH &&
+    section !== PROMPT_PATH
+  ) {
     return <Navigate to="/settings" replace />
   }
-  const title =
+  const panelLabel =
     taxonomy?.title ??
-    (section === COHORTS_PATH ? 'Cohortes et relances' : section === CONNECTIONS_PATH ? 'Connexions' : 'Référents internes')
+    (section === COHORTS_PATH
+      ? 'Cohortes et relances'
+      : section === CONNECTIONS_PATH
+        ? 'Connexions'
+        : section === PROMPT_PATH
+          ? 'Prompt initial'
+          : 'Référents internes')
 
   return (
     <>
@@ -88,14 +103,19 @@ export function SettingsPage() {
         <SectionLink path={CONNECTIONS_PATH} title="Connexions" current={section === CONNECTIONS_PATH}>
           <ConnectionState />
         </SectionLink>
+        <SectionLink path={PROMPT_PATH} title="Prompt initial" current={section === PROMPT_PATH}>
+          {null}
+        </SectionLink>
       </nav>
-      <section className="settings-panel" aria-label={title}>
+      <section className="settings-panel" aria-label={panelLabel}>
         {taxonomy ? (
           <TaxonomySection key={taxonomy.kind} config={taxonomy} />
         ) : section === COHORTS_PATH ? (
           <CohortSection />
         ) : section === CONNECTIONS_PATH ? (
           <ConnectionsSection />
+        ) : section === PROMPT_PATH ? (
+          <PromptSection />
         ) : (
           <ReferentSection />
         )}

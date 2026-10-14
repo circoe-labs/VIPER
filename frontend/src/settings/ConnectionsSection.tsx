@@ -11,6 +11,7 @@ import { Modal } from '../ui/Dialog'
 import { AlertIcon, ArrowLeftIcon, LinkIcon, LogOutIcon, RefreshIcon, SpinnerIcon, TerminalIcon } from '../ui/icons'
 import { DispatchCard, IntegrationCard, OpenAICard, SenderCard, ToolboxAdvanced } from './IntegrationCards'
 import { type Feedback, FeedbackBanner } from './shared'
+import { ToolboxDiagnosticCard } from './ToolboxDiagnosticCard'
 import { LIMITATIONS, STATE_BADGES, stateSentence, toolboxErrorLabel, toolboxFailure } from './toolboxCopy'
 
 // The OAuth return parameters this page consumes (and then removes from the address bar).
@@ -167,6 +168,7 @@ export function ConnectionsSection() {
               onRefresh={() => status.refetch()}
             />
           )}
+          <ToolboxDiagnosticCard />
           <DispatchCard data={integrations.data} status={status.data} />
           <StorageNote data={integrations.data} />
         </div>
@@ -221,6 +223,7 @@ const SETTING_LABELS: Record<string, string> = {
   openai_timeout_ms: 'délai d’attente',
   openai_max_retries: 'nouvelles tentatives',
   contact_booking_url: 'lien de prise de rendez-vous',
+  contact_initial_prompt: 'prompt initial',
   default_outbound_email: 'adresse « De » par défaut',
   toolbox_mail_enabled: 'activation de la Toolbox',
   toolbox_mcp_url: 'adresse du serveur CIRCOE Toolbox',

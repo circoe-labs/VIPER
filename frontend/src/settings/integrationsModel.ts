@@ -21,6 +21,7 @@ const KINDS: Record<Exclude<IntegrationField, 'toolbox_mail_enabled' | 'contact_
   openai_timeout_ms: 'seconds',
   openai_max_retries: 'integer',
   contact_booking_url: 'text',
+  contact_initial_prompt: 'text',
   default_outbound_email: 'text',
   toolbox_mcp_url: 'text',
   toolbox_oauth_redirect_uri: 'text',
@@ -61,6 +62,7 @@ export const FIELD_ERRORS: Record<FormField | 'openai_api_key', string> = {
   openai_timeout_ms: 'Indiquez un délai entre 1 et 300 secondes.',
   openai_max_retries: 'Indiquez un nombre entier de 0 à 5.',
   contact_booking_url: 'Adresse http(s) complète attendue, ou laissez vide pour ne proposer aucun lien.',
+  contact_initial_prompt: 'Le prompt initial est limité à 8 000 caractères.',
   default_outbound_email: 'Adresse e-mail invalide.',
   toolbox_mcp_url: 'Adresse https attendue (http seulement sur localhost).',
   toolbox_oauth_redirect_uri:
