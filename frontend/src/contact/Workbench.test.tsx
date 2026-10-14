@@ -111,6 +111,45 @@ describe('Contact workbench', () => {
     expect(sent(api.requests, 'POST', `/api/prospects/${detail.id}/messages/contact/validate`)).toHaveLength(0)
   })
 
+  it('gives a quick verdict on the text of a scheduled message, and takes it back', async () => {
+    const detail = person()
+    const { api } = open(detail, { contact: message('contact', 'scheduled', { prospect_id: detail.id }) })
+    const group = await screen.findByRole('group', { name: 'Avis sur le texte' })
+    const correct = within(group).getByRole('button', { name: 'Correct' })
+    const toRevise = within(group).getByRole('button', { name: 'À revoir' })
+    expect(correct).toHaveAttribute('aria-pressed', 'false')
+
+    await userEvent.click(correct)
+    await waitFor(() => {
+      expect(within(group).getByRole('button', { name: 'Correct' })).toHaveAttribute('aria-pressed', 'true')
+    })
+    expect(group).toHaveTextContent('relu par Pilote Test')
+    const posted = sent(api.requests, 'POST', `/api/prospects/${detail.id}/messages/contact/review`)
+    expect(posted.at(-1)?.body).toEqual({ expected_revision: 1, verdict: 'correct' })
+    // Nothing else moved: still scheduled.
+    expect(tab('Contact')).toHaveTextContent('Programmé')
+
+    await userEvent.click(toRevise)
+    await waitFor(() => {
+      expect(within(group).getByRole('button', { name: 'À revoir' })).toHaveAttribute('aria-pressed', 'true')
+    })
+    await userEvent.click(within(group).getByRole('button', { name: 'À revoir' }))
+    await waitFor(() => {
+      expect(within(group).getByRole('button', { name: 'À revoir' })).toHaveAttribute('aria-pressed', 'false')
+    })
+    expect(sent(api.requests, 'POST', `/api/prospects/${detail.id}/messages/contact/review`).at(-1)?.body).toEqual({
+      expected_revision: 1,
+      verdict: null,
+    })
+  })
+
+  it('offers no verdict on a sent message', async () => {
+    const detail = person()
+    open(detail, { contact: message('contact', 'sent', { prospect_id: detail.id }) })
+    await screen.findByRole('tab', { name: /Contact/ })
+    expect(screen.queryByRole('group', { name: 'Avis sur le texte' })).not.toBeInTheDocument()
+  })
+
   it('validates after a confirmation, then schedules a typed date and time after another', async () => {
     const detail = person()
     const { api } = open(detail, { contact: message('contact', 'draft', { prospect_id: detail.id }) })

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-import type { Message, MessageSequence, MessageStatus, MessageStep, useMessageMutations } from '../api/contact'
+import type { Message, MessageSequence, MessageStatus, MessageStep, ReviewVerdict, useMessageMutations } from '../api/contact'
 import { Button } from '../ui/Button'
 import { TextAreaField, TextField } from '../ui/fields'
 import {
@@ -55,6 +55,7 @@ import {
   statusLine,
 } from './mailModel'
 import { Notice } from './Notice'
+import { ReviewVerdictControl } from './ReviewVerdict'
 import { type MailField, type MessageRefusal, messageRefusal } from './messages'
 
 type Mutations = ReturnType<typeof useMessageMutations>
@@ -194,6 +195,17 @@ export function MailEditor({
               ? `Message ${label} enregistré et repassé en Brouillon : à revalider.`
               : `Message ${label} enregistré.`,
       })
+    } catch (caught) {
+      failed(caught)
+    }
+  }
+
+  async function review(verdict: ReviewVerdict | null) {
+    if (!message) return
+    setNotice(null)
+    setRefusal(null)
+    try {
+      await mutations.review.mutateAsync({ step, revision: message.revision, verdict })
     } catch (caught) {
       failed(caught)
     }
@@ -808,6 +820,18 @@ export function MailEditor({
         text={notice && notice.status === status ? notice.text : null}
         tone={notice?.warning ? 'warning' : 'success'}
       />
+
+      {message && message.status !== 'sent' && message.status !== 'cancelled' && (
+        <ReviewVerdictControl
+          verdict={message.review_verdict}
+          reviewedBy={message.reviewed_by}
+          disabled={busy || dirty}
+          loading={mutations.review.isPending ? (mutations.review.variables.verdict ?? null) : null}
+          onChoose={(verdict) => {
+            void review(verdict)
+          }}
+        />
+      )}
 
       <AiPanel
         stepLabel={label}

@@ -111,6 +111,15 @@ class ContactMessage(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         CheckConstraint(
             "(last_error_code IS NULL) = (last_error_at IS NULL)", name="last_error_complete"
         ),
+        CheckConstraint(
+            "review_verdict IN ('correct', 'to_revise') OR review_verdict IS NULL",
+            name="review_verdict",
+        ),
+        CheckConstraint(
+            "(review_verdict IS NULL) = (reviewed_revision IS NULL) "
+            "AND (review_verdict IS NULL) = (reviewed_at IS NULL)",
+            name="review_complete",
+        ),
         # The dispatcher's scan (S7): scheduled messages by due moment.
         Index(
             "ix_contact_messages_scheduled_at_due",
@@ -155,6 +164,12 @@ class ContactMessage(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     validated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     validated_by_actor_id: Mapped[str | None] = mapped_column(String(128))
     validated_by_display: Mapped[str | None] = mapped_column(String(255))
+    # A person's verdict on the text of one revision: `correct` or `to_revise` (« relu »). It says
+    # nothing about validation or sending and is void once the text changes (`reviewed_revision`).
+    review_verdict: Mapped[str | None] = mapped_column(String(16))
+    reviewed_revision: Mapped[int | None] = mapped_column(Integer)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reviewed_by_display: Mapped[str | None] = mapped_column(String(255))
     # Send moment chosen by a person (decision 25); never derived from the next-action week.
     scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

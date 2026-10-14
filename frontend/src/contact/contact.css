@@ -1206,3 +1206,22 @@
 }
 .cohort-section__sent-label { font-weight: var(--weight-semibold); }
 .contact-row__when { white-space: nowrap; }
+
+/* « Texte du mail : Correct / À revoir »: a quick verdict on the text, beside the AI panel. */
+.contact-mail__review {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  margin: var(--space-3) 0;
+}
+
+.contact-mail__review-label {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.contact-mail__review-by {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}

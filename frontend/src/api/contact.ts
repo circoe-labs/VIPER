@@ -126,6 +126,8 @@ export interface ContactListCriteria {
 // A section lists its whole cohort in one page (the API caps a page at 200).
 export const CONTACT_PAGE_SIZE = 200
 
+export type ReviewVerdict = 'correct' | 'to_revise'
+
 export interface Message {
   id: string
   prospect_id: string
@@ -143,6 +145,10 @@ export interface Message {
   validated_at: string | null
   // Display name of the person who validated.
   validated_by: string | null
+  // A person's verdict on this very text (« relu »); null when none was given or the text changed since.
+  review_verdict: ReviewVerdict | null
+  reviewed_at: string | null
+  reviewed_by: string | null
   scheduled_at: string | null
   sent_at: string | null
   cancelled_at: string | null
@@ -536,6 +542,14 @@ export function useMessageMutations(prospectId: string) {
         apiRequest<GenerationResult>('POST', path(step, 'generate'), {
           body: request,
           signal: AbortSignal.timeout(deadline),
+        }),
+      onSuccess: saved,
+    }),
+    // « Relu »: the verdict on the text; null takes it back. Nothing else about the message changes.
+    review: useMutation({
+      mutationFn: ({ step, revision, verdict }: { step: MessageStep; revision: number; verdict: ReviewVerdict | null }) =>
+        apiRequest<MessageResult>('POST', path(step, 'review'), {
+          body: { expected_revision: revision, verdict },
         }),
       onSuccess: saved,
     }),

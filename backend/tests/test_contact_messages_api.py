@@ -486,3 +486,26 @@ def test_one_send_moment_for_whole_cohorts(
 
     past = {**body, "scheduled_at": (datetime.now(UTC) - timedelta(days=1)).isoformat()}
     assert client.post("/api/contact/schedule-cohorts", json=past).status_code == 422
+
+
+def test_the_review_verdict_is_given_over_http_and_is_void_once_the_text_changes(
+    app_with_sender: FastAPI, client: TestClient, db_session: Session
+) -> None:
+    prospect = prospect_id(db_session)
+    path = f"{messages(prospect)}/contact"
+    ok(client.put(path, json={"subject": "Objet", "body_text": "Corps"}), 201)
+
+    reviewed = ok(
+        client.post(f"{path}/review", json={"expected_revision": 1, "verdict": "correct"})
+    )
+    assert reviewed["message"]["review_verdict"] == "correct"
+    assert reviewed["message"]["reviewed_by"]
+    assert ok(client.get(path))["message"]["review_verdict"] == "correct"
+
+    # An edit bumps the revision: the verdict belonged to the old text.
+    ok(client.put(path, json={"expected_revision": 1, "body_text": "Autre corps"}))
+    assert ok(client.get(path))["message"]["review_verdict"] is None
+
+    perfect = client.post(f"{path}/review", json={"expected_revision": 2, "verdict": "perfect"})
+    assert perfect.status_code == 422
+    assert client.post(f"{path}/review", json={"verdict": "correct"}).status_code == 422

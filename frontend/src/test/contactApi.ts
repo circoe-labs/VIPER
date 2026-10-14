@@ -93,6 +93,9 @@ export function message(step: MessageStep, status: MessageStatus, fields: Partia
     validated_revision: status === 'draft' ? null : 1,
     validated_at: status === 'draft' ? null : STAMP,
     validated_by: status === 'draft' ? null : 'Pilote Test',
+    review_verdict: null,
+    reviewed_at: null,
+    reviewed_by: null,
     scheduled_at: status === 'scheduled' ? '2026-10-06T07:30:00Z' : null,
     sent_at: status === 'sent' ? STAMP : null,
     cancelled_at: status === 'cancelled' ? STAMP : null,
@@ -222,7 +225,7 @@ export function stubContactApi(options: ContactStubOptions = {}) {
       return write(
         id,
         step,
-        { ...edited, ...provenance, status: 'draft', revision: current.revision + 1, validated_revision: null, validated_at: null, validated_by: null, scheduled_at: null },
+        { ...edited, ...provenance, status: 'draft', revision: current.revision + 1, validated_revision: null, validated_at: null, validated_by: null, scheduled_at: null, review_verdict: null, reviewed_at: null, reviewed_by: null },
         false,
         true,
         unvalidated,
@@ -252,6 +255,16 @@ export function stubContactApi(options: ContactStubOptions = {}) {
         if (current.status !== 'validated') return refusal(409, 'invalid_transition', { status: current.status })
         const at = (body as { scheduled_at: string }).scheduled_at
         return write(id, step, { ...current, status: 'scheduled', scheduled_at: at })
+      }
+      case 'review': {
+        if (current.status === 'sent') return refusal(409, 'message_sent_immutable')
+        const verdict = (body as { verdict: 'correct' | 'to_revise' | null }).verdict
+        return write(id, step, {
+          ...current,
+          review_verdict: verdict,
+          reviewed_at: verdict ? STAMP : null,
+          reviewed_by: verdict ? 'Pilote Test' : null,
+        })
       }
       case 'unschedule':
         if (current.status !== 'scheduled') return refusal(409, 'invalid_transition', { status: current.status })

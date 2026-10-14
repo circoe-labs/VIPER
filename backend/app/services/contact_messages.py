@@ -764,6 +764,48 @@ def validate(
     return MessageResult(message)
 
 
+REVIEW_VERDICTS = ("correct", "to_revise")
+
+
+def review(
+    session: Session,
+    actor: ActorContext,
+    prospect_id: uuid.UUID,
+    rank: int,
+    expected_revision: int,
+    verdict: str | None,
+    *,
+    now: datetime | None = None,
+) -> MessageResult:
+    """A person's verdict on the text of the current revision: `correct`, `to_revise`, or None to
+    take it back. It changes nothing else (no state, no validation, no revision): the verdict is
+    void as soon as the text changes. Refused on a sent message (immutable) and on one whose
+    sequence is closed."""
+    if verdict is not None and verdict not in REVIEW_VERDICTS:
+        raise _refusal(
+            "invalid_review_verdict",
+            HTTPStatus.UNPROCESSABLE_CONTENT,
+            "The verdict is `correct` or `to_revise`.",
+        )
+    context, message = _transition_target(session, actor, prospect_id, rank, expected_revision)
+    _require_open(context)
+    _require_rank(context, rank)
+    audit.annotate(session, actor, message, AuditAction.CONTACT_MESSAGE_REVIEWED)
+    if verdict is None:
+        message.review_verdict = None
+        message.reviewed_revision = None
+        message.reviewed_at = None
+        message.reviewed_by_display = None
+    else:
+        message.review_verdict = verdict
+        message.reviewed_revision = message.revision
+        message.reviewed_at = now or datetime.now(UTC)
+        message.reviewed_by_display = actor.display
+    session.flush()
+    _log("reviewed", message, actor)
+    return MessageResult(message)
+
+
 def schedule(
     session: Session,
     actor: ActorContext,

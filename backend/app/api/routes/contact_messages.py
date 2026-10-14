@@ -35,7 +35,7 @@ and nothing leaves VIPER.
 
 import uuid
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Path, Request, Response, status
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints
@@ -156,6 +156,10 @@ class MessageOut(BaseModel):
     validated_revision: int | None
     validated_at: datetime | None
     validated_by: str | None
+    # A person's verdict on this very text (`correct` / `to_revise`); null once the text changed.
+    review_verdict: str | None
+    reviewed_at: datetime | None
+    reviewed_by: str | None
     scheduled_at: datetime | None
     sent_at: datetime | None
     sent_source: SendSource | None
@@ -291,6 +295,10 @@ MailGeneratorDep = Annotated[MailGenerator | None, Depends(get_mail_generator)]
 
 
 def message_out(message: ContactMessage) -> MessageOut:
+    # A verdict belongs to the revision it was given on: an edited or regenerated text starts clean.
+    current_review = (
+        message.review_verdict if message.reviewed_revision == message.revision else None
+    )
     return MessageOut(
         id=message.id,
         prospect_id=message.prospect_id,
@@ -309,6 +317,9 @@ def message_out(message: ContactMessage) -> MessageOut:
         validated_revision=message.validated_revision,
         validated_at=message.validated_at,
         validated_by=message.validated_by_display,
+        review_verdict=current_review,
+        reviewed_at=message.reviewed_at if current_review else None,
+        reviewed_by=message.reviewed_by_display if current_review else None,
         scheduled_at=message.scheduled_at,
         sent_at=message.sent_at,
         sent_source=message.sent_source,
@@ -507,6 +518,28 @@ def validate(
             session, actor, prospect_id, rank_of(step), body.expected_revision
         )
     return _with_remote_draft(request, session, actor, result)
+
+
+class ReviewIn(StrictModel):
+    expected_revision: Revision
+    # `correct`, `to_revise`, or null to take the verdict back.
+    verdict: Literal["correct", "to_revise"] | None
+
+
+@router.post("/{step}/review")
+def review(
+    prospect_id: uuid.UUID,
+    step: StepPath,
+    body: ReviewIn,
+    session: SessionDep,
+    actor: CurrentActor,
+) -> MessageResultOut:
+    """« Relu »: a person's verdict on the AI text of this revision. Nothing else changes."""
+    with business_errors():
+        result = service.review(
+            session, actor, prospect_id, rank_of(step), body.expected_revision, body.verdict
+        )
+    return result_out(result)
 
 
 @router.post("/{step}/schedule")

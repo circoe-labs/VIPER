@@ -404,6 +404,20 @@ could not be created; S7: the `send_*` / `dispatch_*` codes of [§ Scheduled sen
 | 403 | `human_actor_required` | not a person, or a person without an id | |
 | 503 / 409 | `toolbox_not_configured` / `toolbox_not_connected`, `toolbox_auth_expired` | `…/remote-draft` without a usable Toolbox (S6) | |
 
+## Avis sur le texte — `POST …/messages/{step}/review`
+
+Un petit bouton **« Correct » / « À revoir »** (groupe « Avis sur le texte » de l'éditeur de mail) permet à une personne de
+dire si le texte du mail, notamment celui écrit par l'IA, est correct. Corps : `{ expected_revision, verdict }` avec
+`verdict` = `correct`, `to_revise` ou `null` (reprendre son avis). Rien d'autre ne change : ni le statut, ni la validation,
+ni la programmation, ni la `revision`.
+
+- Réservé à une **personne** (403 sinon), refusé sur un message **envoyé** (409 `message_sent_immutable`) ou d'une séquence
+  close, et soumis à la révision attendue (409 `revision_conflict`).
+- L'avis porte sur **une révision précise** (`reviewed_revision`) : dès que le texte change (édition, régénération), la
+  réponse de l'API ne renvoie plus d'avis (`review_verdict` = `null`) et le bouton repart à zéro.
+- Colonnes `review_verdict`, `reviewed_revision`, `reviewed_at`, `reviewed_by_display` (migration 0016, contraintes
+  `review_verdict` et `review_complete`). Audit : `contact_message.reviewed` (« Texte du message relu »).
+
 ## AI drafting (S5) — `POST …/messages/{step}/generate`
 
 The AI only **writes the subject and the body** (H-22, H-26): the result is always a `draft` that a person reviews,

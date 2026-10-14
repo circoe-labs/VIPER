@@ -95,6 +95,8 @@ class AuditAction(StrEnum):
     CONTACT_MESSAGE_VALIDATED = "contact_message.validated"
     CONTACT_MESSAGE_SCHEDULED = "contact_message.scheduled"
     CONTACT_MESSAGE_UNSCHEDULED = "contact_message.unscheduled"
+    # A person's verdict on the text (« relu »): the message itself does not change state.
+    CONTACT_MESSAGE_REVIEWED = "contact_message.reviewed"
     CONTACT_MESSAGE_CANCELLED = "contact_message.cancelled"
     CONTACT_MESSAGE_REOPENED = "contact_message.reopened"
     # The AI wrote the subject and body (S5): always a draft, the model and prompt version recorded.

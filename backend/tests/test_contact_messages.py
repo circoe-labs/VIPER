@@ -823,3 +823,52 @@ def test_deleting_a_draft_follows_the_revision_and_needs_a_person(db_session: Se
     with pytest.raises(ActorNotAllowedError):
         service.delete_draft(db_session, agent, prospect.id, STEP, draft.revision)
     assert db_session.get(ContactMessage, draft.id) is not None
+
+
+def test_a_person_reviews_the_text_without_changing_anything_else(db_session: Session) -> None:
+    prospect = prospect_with(db_session)
+    message = message_in(db_session, prospect, M.SCHEDULED)
+
+    result = service.review(db_session, OPERATOR, prospect.id, STEP, 1, "correct").message
+
+    assert (result.review_verdict, result.reviewed_revision) == ("correct", 1)
+    assert result.reviewed_by_display == OPERATOR.display
+    assert (result.status, result.revision, result.scheduled_at) == (M.SCHEDULED, 1, LATER)
+    assert message.id == result.id
+
+    revised = service.review(db_session, OPERATOR, prospect.id, STEP, 1, "to_revise").message
+    assert revised.review_verdict == "to_revise"
+    taken_back = service.review(db_session, OPERATOR, prospect.id, STEP, 1, None).message
+    assert (taken_back.review_verdict, taken_back.reviewed_revision, taken_back.reviewed_at) == (
+        None,
+        None,
+        None,
+    )
+
+
+def test_a_review_is_refused_for_a_sent_message_a_stale_revision_and_a_bad_verdict(
+    db_session: Session,
+) -> None:
+    prospect = prospect_with(db_session)
+    message_in(db_session, prospect, M.VALIDATED)
+
+    with pytest.raises(ContactMessageError) as stale:
+        service.review(db_session, OPERATOR, prospect.id, STEP, 9, "correct")
+    assert code_of(stale) == "revision_conflict"
+    with pytest.raises(ContactMessageError) as bad:
+        service.review(db_session, OPERATOR, prospect.id, STEP, 1, "perfect")
+    assert code_of(bad) == "invalid_review_verdict"
+
+    sent = prospect_with(db_session)
+    message_in(db_session, sent, M.SENT)
+    with pytest.raises(ContactMessageError) as immutable:
+        service.review(db_session, OPERATOR, sent.id, STEP, 1, "correct")
+    assert code_of(immutable) == "message_sent_immutable"
+
+
+def test_only_a_person_reviews(db_session: Session) -> None:
+    prospect = prospect_with(db_session)
+    message_in(db_session, prospect, M.VALIDATED)
+    robot = ActorContext(type=ActorType.SYSTEM, display="Robot", id="robot")
+    with pytest.raises(ActorNotAllowedError):
+        service.review(db_session, robot, prospect.id, STEP, 1, "correct")
