@@ -83,6 +83,13 @@ export interface Counters {
   stale_threshold_days: number | null
 }
 
+// The whole base, whatever the search: people held, contacted, and deleted since the start.
+export interface Overview {
+  total: number
+  contacted: number
+  deleted: number
+}
+
 export interface ProspectRow {
   id: string
   civility: 'mr' | 'ms' | null
@@ -141,6 +148,7 @@ export const PROSPECT_PAGE_SIZE = 50
 export const prospectionKeys = {
   // Invalidate this after any prospect write (Task 15): counters and every list page refresh.
   all: ['prospection'] as const,
+  overview: ['prospection', 'overview'] as const,
   counters: (filters: ProspectFilters) => ['prospection', 'counters', filters] as const,
   page: (criteria: ProspectListCriteria, page: number) => ['prospection', 'page', criteria, page] as const,
 }
@@ -166,6 +174,13 @@ export function useProspectionCounters(filters: ProspectFilters) {
     queryKey: prospectionKeys.counters(filters),
     queryFn: ({ signal }) => apiGet<Counters>(`/prospection/counters?${filterParams(filters).toString()}`, signal),
     placeholderData: keepPreviousData,
+  })
+}
+
+export function useProspectionOverview() {
+  return useQuery({
+    queryKey: prospectionKeys.overview,
+    queryFn: ({ signal }) => apiGet<Overview>('/prospection/overview', signal),
   })
 }
 

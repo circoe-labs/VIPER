@@ -3,16 +3,14 @@ import { Link } from 'react-router'
 
 import type { ProspectRow } from '../api/prospection'
 import { StatusBadge } from '../ui/Badge'
-import { BanIcon, BuildingIcon, ClockIcon, MinusCircleIcon, UsersIcon } from '../ui/icons'
+import { AlertIcon, BanIcon, BuildingIcon, CheckCircleIcon, ClockIcon } from '../ui/icons'
 import { CohortBadge, DueBadge, EmailErrorBadge, LevelBadge, StateBadge } from './ContactBadges'
 import {
-  ACTIVITY_LABELS,
   civilityLabel,
   formatDay,
   formatPhone,
   personName,
   stepLabel,
-  TO_VERIFY,
 } from './labels'
 
 interface ProspectListProps {
@@ -41,62 +39,73 @@ function moveFocus(event: KeyboardEvent<HTMLUListElement>) {
   links[target]?.focus()
 }
 
-function Verification({ row }: { row: ProspectRow }) {
-  const date = row.employment_verified_at ? formatDay(row.employment_verified_at) : null
+// One line says where the file stands: the date when verified, the reason when it is still to do. The panel decides
+// the group (`row.review`, from the backend); the reason only explains it.
+function reasonToVerify(row: ProspectRow): string {
   switch (row.verification_state) {
     case 'never_verified':
-      return <StatusBadge tone="warning">Emploi jamais vérifié</StatusBadge>
+      return 'Emploi jamais vérifié'
     case 'stale':
-      return (
-        <StatusBadge tone="warning" icon={ClockIcon}>
-          Vérifié le {date} · ancien
-        </StatusBadge>
-      )
+      return `Vérifié le ${formatDay(row.employment_verified_at ?? '')} · ancien`
     case 'channels_reset':
-      return (
-        <StatusBadge tone="warning" icon={ClockIcon}>
-          Coordonnées à revérifier
-        </StatusBadge>
-      )
+      return 'Coordonnées à revérifier'
     case 'verified':
-      return <StatusBadge tone="success">Vérifié le {date}</StatusBadge>
+      return { missing: 'E-mail principal absent', invalid: 'E-mail invalide', unverified: 'E-mail non vérifié', verified: '' }[
+        row.email_state
+      ]
   }
 }
 
-function Activity({ row }: { row: ProspectRow }) {
-  const label = ACTIVITY_LABELS[row.activity_status]
-  if (row.activity_status === 'active') return <StatusBadge tone="info" icon={UsersIcon}>{label}</StatusBadge>
-  if (row.activity_status === 'inactive') return <StatusBadge tone="neutral" icon={MinusCircleIcon}>{label}</StatusBadge>
-  return <StatusBadge tone="neutral">{label}</StatusBadge>
+function ReviewLine({ row }: { row: ProspectRow }) {
+  switch (row.review) {
+    case 'verified':
+      return (
+        <span className="review-line review-line--verified">
+          <CheckCircleIcon size={16} />
+          <span>
+            Vérifié
+            {row.employment_verified_at && (
+              <span className="prospect-row__muted"> le {formatDay(row.employment_verified_at)}</span>
+            )}
+          </span>
+        </span>
+      )
+    case 'ignored':
+      return (
+        <span className="review-line review-line--ignored">
+          <BanIcon size={16} />
+          Ignoré
+        </span>
+      )
+    case 'to_verify': {
+      const stale = row.verification_state === 'stale' || row.verification_state === 'channels_reset'
+      const Icon = stale ? ClockIcon : AlertIcon
+      return (
+        <span className="review-line review-line--to-verify">
+          <Icon size={16} />
+          {reasonToVerify(row)}
+        </span>
+      )
+    }
+  }
 }
 
-// D12: a missing value is shown « À vérifier » (stored empty, never written by the UI).
-function ToVerify({ what }: { what: string }) {
-  return (
-    <StatusBadge tone="warning">
-      {what} : {TO_VERIFY}
-    </StatusBadge>
-  )
-}
+const EMAIL_DOTS = { verified: 'Adresse vérifiée', unverified: 'Adresse non vérifiée', invalid: 'Adresse invalide' } as const
 
+// The address in plain text; a dot carries its state (and a screen-reader word), instead of a badge per row.
 function EmailLine({ row }: { row: ProspectRow }) {
-  if (!row.primary_email) return <ToVerify what="E-mail" />
+  if (!row.primary_email || row.email_state === 'missing')
+    return <span className="prospect-row__muted">Pas d’e-mail principal</span>
+  const state = row.email_state
   return (
     <span className="prospect-row__channel">
+      <span className={`prospect-row__dot prospect-row__dot--${state}`} aria-hidden="true" />
       <span className="prospect-row__email" title={row.primary_email}>
         {row.primary_email}
       </span>
-      {row.email_state === 'invalid' && <StatusBadge tone="danger">Invalide</StatusBadge>}
-      {row.email_state === 'unverified' && <StatusBadge tone="warning">Non vérifié</StatusBadge>}
-      {row.email_state === 'verified' && <StatusBadge tone="success">Vérifié</StatusBadge>}
+      <span className="visually-hidden">{EMAIL_DOTS[state]}</span>
     </span>
   )
-}
-
-function PhoneLine({ row }: { row: ProspectRow }) {
-  if (row.primary_phone) return <span className="prospect-row__muted">{formatPhone(row.primary_phone)}</span>
-  // Without a phone, an e-mail is another channel: nothing to verify.
-  return row.primary_email ? null : <ToVerify what="Téléphone" />
 }
 
 // The step to send next and when (derived from the cohort and the real sends): « R1 à envoyer depuis le 14 sept. »
@@ -140,7 +149,7 @@ export function ProspectList({ rows, openHref }: ProspectListProps) {
           const blocked = row.contactability_status === 'do_not_contact'
           const title = [row.role_label, row.exact_job_title].filter(Boolean)
           return (
-            <li key={row.id} className={`prospect-row${blocked ? ' prospect-row--blocked' : ''}`}>
+            <li key={row.id} className={`prospect-row prospect-row--${row.review}${blocked ? ' prospect-row--blocked' : ''}`}>
               <div className="prospect-row__identity">
                 <span className="prospect-row__avatar" aria-hidden="true">
                   {initials(row)}
@@ -152,18 +161,14 @@ export function ProspectList({ rows, openHref }: ProspectListProps) {
                       {personName(row)}
                     </Link>
                     {blocked && (
-                      <StatusBadge tone="danger" icon={BanIcon}>
+                      <StatusBadge tone="danger" icon={BanIcon} strong>
                         Ne pas contacter
                       </StatusBadge>
                     )}
                   </span>
                   <span className="prospect-row__title">
-                    {title.length > 0 && <span>{title.join(' · ')}</span>}
-                    {!row.exact_job_title && <ToVerify what="Fonction" />}
-                  </span>
-                  <span className="prospect-row__state">
-                    <Activity row={row} />
-                    <Verification row={row} />
+                    {title.length > 0 ? title.join(' · ') : <span className="prospect-row__muted">Rôle non renseigné</span>}
+                    {row.activity_status === 'inactive' && <span className="prospect-row__left"> · Plus en poste</span>}
                   </span>
                 </div>
               </div>
@@ -173,7 +178,10 @@ export function ProspectList({ rows, openHref }: ProspectListProps) {
                   {row.company_name ?? <span className="prospect-row__muted">Sans entreprise</span>}
                 </span>
                 <EmailLine row={row} />
-                <PhoneLine row={row} />
+                {row.primary_phone && <span className="prospect-row__muted">{formatPhone(row.primary_phone)}</span>}
+              </div>
+              <div className="prospect-row__review">
+                <ReviewLine row={row} />
               </div>
               <div className="prospect-row__tracking">
                 <Tracking row={row} />
