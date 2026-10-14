@@ -56,7 +56,7 @@ Two layers in `tokens.css`:
 
 | Role | Dark (authored) | Light (derived) | Use |
 |---|---|---|---|
-| `--color-canvas` | void `#0A0B0D` | paper `#F4F7F7` | page background |
+| `--color-canvas` | night `#080D0F` | paper `#F4F7F7` | page background |
 | `--color-surface` | graphite `#11171B` | white | sidebar, cards, tables |
 | `--color-surface-raised` | charcoal `#1B2329` | white (+ shadow) | drawers, modals, secondary buttons |
 | `--color-surface-hover` | charcoal `#1B2329` | ice `#EAF2F1` | hover rows / nav items |
@@ -151,10 +151,47 @@ Set: navigation (`Home`, `Users`, `Bolt`, `Database`, `Sliders`), status (`Check
 | `PageHeader` | `title` (the page `<h1>`), `description?`, `actions?` | One per routed page. |
 | `Modal` / `Drawer` | `open`, `onClose`, `title`, `description?`, `footer?`, `initialFocusRef?`, `size` (modal sm/md/lg, drawer md/lg/xl) | Portal, `role="dialog"` + `aria-modal` + labelled/described; focus moves in (dialog or `initialFocusRef`), Tab/Shift+Tab trapped, Esc / backdrop / close button call `onClose`, focus restored to the trigger, body scroll locked. Nested dialogs close one at a time. Focus stays inside the top dialog: when the focused control gets disabled (a save button while saving) or removed, the dialog itself takes the focus, and an Esc pressed with focus outside every dialog still closes the top one (I-82). Guard unsaved changes inside `onClose`. Drawer = editors that keep the list in context (Prospect, Company). The layer's single grid row is bounded by the viewport, so a tall dialog scrolls its body while header and footer stay visible (Task 07). |
 | `Menu` | `label`, `position` (viewport point), `alignRight?`, `sections` (`label?`, `items`: `id`, `label`, `icon?`, `hint?`, `disabled?`, `onSelect`), `onClose` | Context/action menu (WAI-ARIA menu): portal, first item focused, ↑/↓/Home/End skip disabled items and wrap, Enter/Space select (menu closes first, then the action runs), Esc/Tab/outside press close; focus returns to the trigger; clamped inside the viewport. Mounted only while open. |
-| `Tabs` | `label` (the tab list's name), `tabs` (`id`, `label`, `extra?` — a count, a status badge, an unsaved mark), `selected`, `onSelect`, children = the selected panel | In-page tabs (WAI-ARIA tabs, automatic activation, Contact port S4): one tab stop (the selected tab), ←/→ move and select with wrap, Home/End; the panel is labelled by its tab. Selected = 2 px accent bar + full-strength text (a shape, not colour alone), others muted. Used by the Contact mail sequence and the import review. Sections that must be deep-linkable use links instead (Paramètres' tab bar). |
+| `Tabs` | `label` (the tab list's name), `tabs` (`id`, `label`, `extra?` — a count, a status badge, an unsaved mark), `selected`, `onSelect`, children = the selected panel | In-page tabs (WAI-ARIA tabs, automatic activation, Contact port S4): one tab stop (the selected tab), ←/→ move and select with wrap, Home/End; the panel is labelled by its tab. Selected = 2 px accent bar + full-strength text (a shape, not colour alone), others muted. Used by the Contact mail sequence, the import review and the Prospect editor (Profil / Suivi, `extra` = a mark for pending changes or fields to correct on the inactive tab; both panels stay mounted, the inactive one `hidden`). Sections that must be deep-linkable use links instead (Paramètres' tab bar). |
 | `CounterGroup` / `CounterCard` | group: `id`, `title`, `note?`; card: `label`, `hint`, `icon`, `count`, `pressed`, `onSelect` | The actionable counters of Prospection and Contact (`src/ui/CounterCards.tsx`, `counter-cards.css`): eyebrow-titled groups of toggle cards, `aria-pressed` + check mark + accent outline when active; a card equals the list it opens. Columns per group: `--counters-columns` (6 by default). |
 | `Popover` | `anchor`, `label`, `onClose`, `alignRight?` | Small **non-modal** dialog under a control (filter editor, column chooser): first field focused, Esc/outside press close, focus restored, Tab not trapped. |
+| `ScoreRing` | `value` (0-100, clamped and rounded), `tone` (`danger` / `warning` / `success` / `neutral`), `size?` (`md` 5.5 rem, `lg` 7 rem) | Ring gauge 0-100 (`src/ui/ScoreRing.tsx`, `score-ring.css`): SVG, track `border-strong`, arc `danger-fg` / `warning-fg` / `success-fg` (starts at 12 o'clock, absent at 0), value as centred text. `aria-hidden`: the owner says the value in words. The caller picks the tone (the band comes from the backend); colour only reinforces the figure and the arc length. |
 | `Combobox` | `label`, `options` (`id`, `label`, `hint?`, `inactive?`), `value`/`onChange` (single) or `multiple` + `value[]`, `status`, `create?` (`run`, `label?`, `refuse?`), `hint`, `error`, `required` | Searchable picker (WAI-ARIA combobox + listbox, Task 06): filtering ignores case and accents, ↓/↑/Enter/Esc/Tab, Backspace removes the last chip; inactive options appear only while selected (*Inactif* tag); `create` adds a « Créer « … » » option, only once `status` is `ready`, whose failure shows as the field error. Domain pickers on top of it: `TaxonomySelect`, `TaxonomyMultiSelect`, `ReferentSelect` (`src/settings/selectors.tsx`, see `doc/features/settings-taxonomies.md`). |
+
+### Read / edit section (Prospect editor Profil, prospect-contact-ux S3)
+A record section that reads as compact facts and shows inputs only while edited (`frontend/src/prospects/EditorSection.tsx`
+`edit: SectionEdit`, `Facts` in `EmploymentSections.tsx`, `profile-summary.css`, `prospects.css`). Rules: the facts are a
+second **view** of the form's one draft — no copy, no second dirty state, same validations; the section head carries
+*Modifier* (ghost/secondary `sm` button named *Modifier : <section>*, the focus moves to the first field) and, while
+editing, *Terminer* (hidden while a field is invalid); a section that is invalid, or refused after a save, is shown as
+inputs and cannot be closed; a new record is all inputs, with no switch. Facts are a `dl` on an auto-fit grid
+(`minmax(7.5rem, 1fr)`), values wrap (`overflow-wrap: anywhere`), a missing value says *Non renseigné* (never a hole).
+A one-line summary block above the sections (name, role · company clamped to two lines with the full text as tooltip,
+main contact details) is derived from the same draft.
+
+### Score card (Prospect editor Profil, prospect-contact-ux S4)
+`frontend/src/prospects/ProspectScoreCard.tsx`, `prospect-score.css`, `scoreView.ts`. One bordered **button** (hover
+`surface-hover`, 2 px focus ring) in an `EditorSection` titled *Score prospect*: `ScoreRing` on the left; on the
+right the band word (*Faible* / *Moyen* / *Élevé*, tinted by the band token, the word is the carrier), the summary at
+`--text-sm` muted (three lines max, `overflow-wrap: anywhere`, full text as tooltip) and *Voir le détail ›* in
+`accent-fg`. The whole card opens a `Modal lg` (*Détail du score*: focus trapped, Échap closes it alone, focus back on
+the card): ring `lg` + *N sur 100 · niveau …* + summary, then the contribution rows (signed delta tag with the same
+soft success/danger tones as the Notes' delta, reason, source, ghost *Voir la note* `sm` button). States: normal;
+no signal (*Aucun signal enregistré : le score est à sa valeur de départ.*); outdated (*Mise à jour impossible…* with a
+warning glyph); no score / unsaved prospect (nothing, no room). Contrast: arc and band tones (`danger-fg`, `warning-fg`,
+`success-fg`) are checked at 4.5:1 on `surface` and `surface-raised` in both themes (`tokens.test.ts`); the track is
+decoration (the figure and the word carry the value). No new token.
+
+### Dense fact list with quick add (Notes of the Prospect editor, prospect-contact-ux S2)
+Reusable pattern for short facts about a record (`frontend/src/prospects/ProspectNotes.tsx`, `prospect-notes.css`,
+`noteForm.ts`): not one card per fact but one **row** per fact. Hierarchy: the fact at `--text-md` in `--color-text`
+(wraps with `overflow-wrap: anywhere`, never truncated), then metadata (date · source) at `--text-xs` muted, then a
+discreet delta tag (`+5` / `-10` / `0`: the sign is the text, `success`/`danger` soft colours only reinforce it), then a
+`MoreIcon` `IconButton` opening a `Menu` (*Modifier*, *Supprimer*), shown on hover / `:focus-within` (`opacity`, never
+`display: none`; always shown with `@media (hover: none)`). Rows are separated by hairlines inside a bounded
+(`max-height: 22rem`), focusable, scrolling `<ul>`. Quick add sits above: one line (field + `Button`), Enter submits and
+is stopped from reaching a surrounding form; secondary inputs (date, optional impact) stay on a second line and fold away
+until needed. Edit is in place (the row turns into a small form; Échap cancels it alone); deletion goes through a `Modal`
+with the safe button focused first. Empty state: a single muted line, not an `EmptyState` block.
 
 ## Database explorer grid
 Denser than Prospection but legible: 13 px data on 36 px rows, 56 px two-line headers (name + SQL type), subtle
@@ -327,3 +364,13 @@ Favicons (static, `public/`): `favicon-dark.png` (white mark) for dark browser c
 mark) for light chrome, selected with `media="(prefers-color-scheme: …)"`. Preserve alpha; never bake a rectangle
 behind the assets (enforced by `src/brand/assets.test.ts` and the Playwright canvas check). File locations and
 derivation: [`visual-manifest.md`](visual-manifest.md).
+
+## Evolution « Signal » (hierarchy pass)
+
+The Neon Command palette and dark-first character stay; the pass changes **how much each piece of information weighs**.
+
+- **Depth by tone, not outline.** Layers `--nc-night` (canvas) < `--nc-panel` (surface) < `--nc-panel-high` < `--nc-lift` (hover); `--color-border` is now a quiet hairline (`--nc-hairline`), `--color-border-strong` is kept for fields. Cards use `--shadow-card`; one emerald `--color-aura` glows behind the top of each page.
+- **Three weights of information.** *Hero*: the figures that ask for action today (Accueil › Activité de contact: Échus in amber, À contacter and Réponses in green, `--text-display`). *Standard*: ordinary counters, flat tonal tiles. *Quiet*: context — zeros are dimmed, the base's state sits in one calm strip on Accueil.
+- **Counters** (`CounterCard` `tone`): `attention` (amber figure, something to fix) and `go` (green, something to do); untoned counters stay neutral. The pressed counter keeps the signal glow and a check mark.
+- **Badges in three weights** (`ui/badge.css`): quiet (success / info / neutral / plain warning = glyph + text, no box), notice (danger = tinted pill), strong (`StatusBadge strong`: solid pill, reserved for *Échu*, *Réponse reçue*, *RDV pris*, *Ne pas contacter*). Every badge keeps its glyph and text — never colour alone.
+- Do-not-contact rows use a danger tint instead of a thick left border.

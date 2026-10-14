@@ -23,16 +23,58 @@ former explorer fallback is gone.
 
 ## Layout
 
-A drawer of 64 rem (`Drawer size="xl"`), two columns — the person on the left, the context on the right (one column
-below 1100 px):
+A drawer of 64 rem (`Drawer size="xl"`) with two tabs (`ui/Tabs`, decision D-UX1), each in two columns (one column
+below 1100 px). The form, the draft and the footer are shared by both tabs.
 
-| Column | Sections |
-|---|---|
-| Left | 1 **Identité** (Civilité, Prénom, Nom) · 2 **Emploi** (Entreprise *, Rôle, Intitulé exact, Activité) · 3 **Vérification de l'emploi** · 4 **E-mails** · 5 **Téléphones** |
-| Right | 6 **Opposition** · 7 **Suivi de contact** · 8 **Entreprise** (summary + *Ouvrir la fiche entreprise*) · 9 **Provenance** (sources) and **Historique** (the latest saves, Task 19) |
+| Tab | Column | Content |
+|---|---|---|
+| **Profil** | top, full width | **Résumé du profil**: full name, *rôle · entreprise* (two lines at most, the full text in the tooltip), main e-mail and phone (*+N* when there are others, *Aucun e-mail* / *Aucun téléphone* when missing), and the secondary status — the Contact state and *Ne pas contacter*. Hidden for a new person. |
+| | left | **Identité** (Civilité, Prénom, Nom) · **E-mails** · **Téléphones** — identity and contact details together |
+| | right | the **Score prospect** card (`ProspectScoreCard`, S4; no room while the prospect is not saved) · **Emploi** (Entreprise *, Rôle, Intitulé exact, Activité, and on a secondary line the employment verification) · **Entreprise** (summary + *Ouvrir la fiche entreprise*) |
+| **Suivi** | left | **Suivi de contact** · **Notes** |
+| | right | **Opposition** · **Provenance** (sources) · **Historique** (the latest saves, Task 19) |
 
 The header gives the person's name and their place in the queue (*Prospect 3 sur 45 · Jamais vérifiés*). The footer is
 the dirty-state bar.
+
+**Employment verification** has no card of its own (D-UX3): it is the secondary line of **Emploi** — a state badge
+(*Valeurs importées, jamais vérifiées*, *Vérifié le …*, …) and its actions (*Vérifié aujourd'hui*, *Effacer la
+vérification*, *Annuler*; the *ou vérifié le* date is an input of the edit mode), a `group` named *Vérification de
+l'emploi*. Data (`employment_verified_at`, `verification_state`, the `employment_verification` action of the `PUT`) and
+`verification.ts` are unchanged; the Prospection list and the Prospection KPIs still read the same field.
+
+### Tabs
+
+- Both panels stay mounted, the inactive one `hidden`: every field, the open sections and a half-typed note survive a tab
+  change, and the tabs only move the view (no data is read or written by switching).
+- **Remembered tab**: Profil whenever another prospect (or a fresh form) is shown — Save & Next, Back/Forward, a new
+  person — and kept while the same prospect is saved. The choice is not stored anywhere (no preference to unlearn).
+- **An inactive tab never hides a problem**: a mark in its name — a dot with the hidden text *modifications non
+  enregistrées* for pending changes (`dirtyTabs`: the draft compared per tab as a payload), a warning glyph with *champs à
+  corriger* for fields refused by the form or the server. A save refused for a field of the other tab switches to that
+  tab, opens its section as inputs and puts the focus on the field (`reveal` in `ProspectEditor.tsx`).
+- Field → tab and section mapping, pure and tested: `profileEditing.ts` (Suivi holds `tracking.*` and
+  `provenance.*`; everything else is Profil).
+
+### Read / edit sections (Profil)
+
+**Identité**, **E-mails**, **Téléphones** and **Emploi** read as compact facts (or, for aliases, one line per address or
+number: value, type, *Principal*, status badge) and show their inputs only while they are *being edited*. This is a
+second **view** of the same `draft`, never a second state: the summary and the facts follow what is typed, `isDirty`,
+the validations and the payload are unchanged, and the footer says *Modifications non enregistrées* whichever view shows.
+
+| Gesture | Effect |
+|---|---|
+| *Modifier* (button *Modifier : Identité*…) | The section shows its inputs; the focus goes to its first field. |
+| *Terminer* | Back to the facts; the changes stay in the draft (pending). Absent while a field of the section is invalid. |
+| Save succeeded | Every section reads as facts again (the focus stays where it was). |
+| *Annuler les modifications* | Draft back to the saved state; sections back to their initial view. |
+| Opens invalid / invalid after a save / refused by the server | The section with the error is shown as inputs, cannot be closed until fixed, and its tab is brought forward. An imported person without company opens with **Emploi** as inputs. |
+| New prospect | Every section is inputs, no *Modifier* switch, no summary. |
+
+Tracking, provenance (new person) and the opposition are not behind a switch: the Suivi tab is the working tab of the
+contact workflow, so its fields are always inputs. The one-click actions (*Vérifié aujourd'hui* of the employment) work
+from the summary without opening the section; the alias *Vérifié* button and the actions menu are inputs of the edit mode.
 
 ## Field semantics
 
@@ -44,7 +86,7 @@ the dirty-state bar.
 | | Rôle | `role_id` | The normalized classification used by filters. *Créer le rôle « … »* creates the role **with the save** (same rules and `role.created` audit as Paramètres; a cancelled edit creates nothing; an existing label, even deactivated, is refused). |
 | | Intitulé exact | `exact_job_title` | The person's own wording, 255 characters. |
 | | Activité | `activity_status` | *Actif / Inactif / Inconnue* — in post, left, or not determined. Independent of the opposition and of verification. A new person starts at *Inconnue* (nothing is assumed). |
-| Vérification de l'emploi | *Vérifié aujourd'hui*, *ou vérifié le* (date), *Effacer la vérification* | `employment_verified_at` | Covers company, role, exact title and activity. Explicit only: see *Verification*. |
+| Emploi (ligne secondaire) | *Vérifié aujourd'hui*, *ou vérifié le* (date), *Effacer la vérification* | `employment_verified_at` | Covers company, role, exact title and activity. Explicit only: see *Verification*. |
 | E-mails, Téléphones | repeaters | `emails`, `phones` | See *E-mails and phones*. |
 | Opposition | *Enregistrer une opposition…*, *Lever l'opposition…* | `contactability_status`, `do_not_contact_at`, `do_not_contact_reason` | Dedicated operation, never the save — see *Opposition*. |
 | Suivi de contact | État | `contact_tracking.status` (commercial states, data-model) | **Backend since the sequences rework (S1, decision log R-04)**: five states — `neutral` (*En séquence*, no badge), `response_received`, `appointment_obtained`, `ignored`, `disqualified` (*Défaillant*, a person only); `contacted`, `r1`, `r2`, `failure` are refused (422). The form still shows the former eight states and the week planner until the S4 UI: choosing a former state answers 422. A saved *Ignoré* disables the select and the opposition cannot be lifted. *Depuis le …* = the last status-history entry not written by a migration. A tracking is never deleted from the editor. |
@@ -76,7 +118,7 @@ phone** (own status and date). Identity fields are not re-verified individually.
 
 | Situation | Treatment |
 |---|---|
-| Imported values never verified | Emploi and Vérification sections get a warning edge; Entreprise, Rôle, Intitulé exact get a warning outline and the text *Importé, à confirmer* (*Nouvelle entreprise, à confirmer* after a company change); the Activité choice a warning outline. Aliases: warning edge + *Importé, jamais vérifié*. Sections show counts (*1 à vérifier*). |
+| Imported values never verified | The Emploi section gets a warning edge and its secondary line the badge *Valeurs importées, jamais vérifiées*; Entreprise, Rôle, Intitulé exact get a warning outline and the text *Importé, à confirmer* (*Nouvelle entreprise, à confirmer* after a company change); the Activité choice a warning outline. Aliases: warning edge + *Importé, jamais vérifié*. Sections show counts (*1 à vérifier*). |
 | Verified | Subtle success badge with the date (*Vérifié le 3 sept. 2026*) — the mint success colour, not the brand green. |
 | Stale | Only when the threshold is configured: *Vérifié le … · ancien* (warning, clock glyph), for the employment and the aliases. |
 | Missing | Actionable empty states: *Aucune adresse. Ajoutez…*, *Aucune entreprise choisie*, *Pas encore vérifié*; a new form starts with one empty e-mail and phone line. An imported person's **empty** Rôle, Intitulé exact or Entreprise says what to do (*Aucun rôle — choisissez-en un ou créez-le.*, *Aucun intitulé — saisissez le libellé de poste de la personne.*, *Aucune entreprise — choisissez-la ou créez-la.*) rather than *Importé, à confirmer* (nothing to confirm, I-136). |
@@ -124,7 +166,7 @@ before saving (banner, states above).
   modifications* (back to the saved state) or *Fermer*, *Enregistrer*, *Enregistrer et suivant* (primary).
 - **One atomic save**: every section in one request and one transaction; any refusal writes nothing. Errors show on
   their field (server paths such as `emails.1.address` are mapped back to the lines) and the first invalid field gets
-  the focus; validation runs in the browser first with the same rules.
+  the focus (its tab and section are shown first); validation runs in the browser first with the same rules.
 - **Enregistrer et suivant** saves when there are changes (otherwise just moves on), then asks the Prospection queue for
   the next person (`ProspectQueue.next`: the list order when the editor opened, read again after a save so a person
   leaving the segment never makes it skip anyone) and opens them in place; at the end of the list the editor stays and
@@ -132,7 +174,9 @@ before saving (banner, states above).
 - **Conflicts**: every write sends the version read with the prospect; if the prospect, one of its aliases or its
   tracking changed meanwhile (another tab, the Database Explorer), the save is refused (409) — *Ce prospect a été modifié
   ailleurs depuis son ouverture.* with *Recharger la fiche* — instead of overwriting.
-- **Keyboard**: logical tab order (left column, then right); **Ctrl+S / ⌘S** saves, **Ctrl+Entrée** saves and moves
+- **Keyboard**: the tabs follow the WAI-ARIA pattern (one tab stop; ←/→ move and select with wrap, Home/End); logical
+  tab order inside a panel (left column, then right); on open the focus goes to the first field, or to the first *Modifier*
+  when the identity reads as facts; **Ctrl+S / ⌘S** saves, **Ctrl+Entrée** saves and moves
   on (*Enregistrer et nouveau* for a new person), **Enter** in a one-line field saves (like the Company editor; an open
   picker uses Enter to choose), **Échap** closes — asking first when changes are pending (*Abandonner les
   modifications ?*). Shortcuts act only in the editor, not in a dialog above it.
@@ -143,7 +187,8 @@ before saving (banner, states above).
 *Contexte de collecte ou base légale* * (default « Saisie manuelle — prospection B2B », editable) and *Où avez-vous trouvé
 ce contact ?* (optional). The save records a `manual` source collected now by the signed-in user. *Enregistrer* keeps the
 drawer on the created person; *Enregistrer et nouveau* opens a fresh form keeping the company and the provenance texts
-(entering several people of one company). The opposition waits for the first save.
+(entering several people of one company). The opposition waits for the first save. Every section is inputs (no summary, no *Modifier*), the first name is
+focused, and the provenance fields are on the **Suivi** tab (a refused one switches to it).
 
 ## Deletion
 
@@ -175,7 +220,8 @@ their e-mails, phones, contact tracking and sources.
 
 | Method & path | Body / query | Answer |
 |---|---|---|
-| `GET /prospects/{id}` | — | The view model: identity, `company` summary, `role`, employment and `verification_state`, `employment_imported_unverified`, contactability, `emails` / `phones` (primary first, each with `imported_unverified`), `tracking` (days in business time, `appointment_time`, `referent`, `status_since`), `contact` (derived, R-01: `cohort`, `sequence_open`, `sent_count`, `level_label`, `next_step`, `finished`, `next_due_on`, `next_due_week`, `pause_reason`, `email_error`, `max_follow_ups`), `sources` (oldest first, with the import file name and `recorded_by` — a history actor), `import_row_count`, `today`, `stale_threshold_days`, timestamps, **`version`** |
+| `GET /prospects/{id}` | — | The view model: identity, `company` summary, `role`, employment and `verification_state`, `employment_imported_unverified`, contactability, `emails` / `phones` (primary first, each with `imported_unverified`), `tracking` (days in business time, `appointment_time`, `referent`, `status_since`), `contact` (derived, R-01: `cohort`, `sequence_open`, `sent_count`, `level_label`, `next_step`, `finished`, `next_due_on`, `next_due_week`, `pause_reason`, `email_error`, `max_follow_ups`), `sources` (oldest first, with the import file name and `recorded_by` — a history actor), `import_row_count`, `today`, `stale_threshold_days`, **`score`** (backend-computed `ProspectScore`), timestamps, **`version`** |
+| `GET/POST /prospects/{id}/notes`, `PATCH/DELETE …/notes/{note_id}` | see [Notes and score](#notes-and-score) | |
 | `GET /prospects/{id}/history` | `limit` 1–50 (10), `before` (a `next_cursor`) | `{items: [{id, occurred_at, actor: {kind, label, id, on_behalf_of}, source, actions, title, summary, changes: [{label, before, after}]}], next_cursor}` (Task 19) |
 | `POST /prospects` | the form + `provenance: {legal_basis_or_collection_context, source_reference}` | 201 view |
 | `PUT /prospects/{id}` | `version` + the whole editable state; `emails` and `phones` required (full lists) | view |
@@ -202,26 +248,132 @@ Refusals (`app/api/errors.py`, French copy in `frontend/src/prospects/messages.t
 | 422 | `{code: "invalid", field: "next_action_week", reason: "derived"}` (the next due date is never written) · `{code: "invalid", field: "status", reason: "empty"}` (PATCH without a state) | *La prochaine échéance se calcule depuis la cohorte et les envois réels.* · *Rien à enregistrer : choisissez un état.* |
 | 404 | `{code: "not_found"}` | *Ce prospect n'existe plus…* |
 
+## Notes and score
+
+*Backend delivered by prospect-contact-ux S1; the notes UI by S2 and the score card by S4 (below).*
+
+**Notes** (`prospect_notes`, [data model](../architecture/data-model.md#prospect_notes-migration-0014-prospect-contact-ux-s1))
+are short facts: `fact_text` (required, trimmed, ≤ 1000), `noted_on` (optional day), `source_type` (optional) and
+`source_label`, `score_delta` (optional integer `-50..50`). They live **outside the editor's `version`**: a note write
+never makes an open editor stale and needs no `version`.
+
+| Method & path | Body | Answer |
+|---|---|---|
+| `GET /prospects/{id}/notes` | - | `[note]` newest observed first (`noted_on` desc, undated last, then `created_at`) |
+| `POST /prospects/{id}/notes` | `{fact_text, noted_on?, source_type?, source_label?, score_delta?}` | 201 note |
+| `PATCH /prospects/{id}/notes/{note_id}` | any of the fields: omitted = kept, `null` = cleared (not for `fact_text`) | note |
+| `DELETE /prospects/{id}/notes/{note_id}` | - | 204 |
+
+A note: `{id, prospect_id, fact_text, noted_on, source_type, source_label, score_delta, created_at, updated_at}`.
+Refusals: 404 `not_found` (prospect, or a note of another prospect); 422 `invalid` with `field` `fact_text`
+(`blank`, `length`) or `source_label` (`length`); a `score_delta` outside `-50..50`, an unknown `source_type` or an
+unknown field is a plain 422 validation error. Writes are audited (`prospect_note.created|updated|deleted`, shown in
+the prospect's history as « Note ... ») and logged at info with ids only.
+
+**Notes UI** (`ProspectNotes.tsx`, prospect-contact-ux S2). The *Notes* section sits in the *Suivi* tab, left column, under *Suivi
+de contact*. It is **not part of the form**: notes are read and written through their
+own API (`api/prospectNotes.ts`: `useProspectNotes`, `useNoteMutations`), immediately, so they never make the editor dirty,
+never change its `version`, and are not touched by *Enregistrer* / *Enregistrer et suivant*. A write refreshes the notes,
+the prospect's history and the prospect's cached view (its `score`). A prospect not saved yet shows *Possible une fois le
+prospect enregistré.*
+
+- **List**: one dense row per fact, in the API's order. The fact is the dominant text (wraps, never overflows); under it,
+  in muted small text, the date (*Sans date* when none), the source type and its label; a discreet delta badge `+5` /
+  `-10` / `0` (the sign is the text; the accessible name is *Impact sur le score : +5*); the overflow button (*Actions :
+  …*, `ui/Menu`: *Modifier*, *Supprimer*) is visible on hover and on keyboard focus (always on touch). The list is
+  bounded (22 rem) and scrolls inside the section (focusable, *Liste des notes*); the section title carries the count.
+  Zero notes: one muted line, *Aucune note pour l'instant.*
+- **Quick add**: *Nouveau fait* + *Ajouter*; **Entrée adds the note** (it never reaches the editor's form: no save, no
+  *suivant*); **Ctrl/⌘+Entrée with a typed fact also adds the note** (so a typed fact cannot be dropped by the
+  *Enregistrer et suivant* shortcut), with an empty fact it keeps its editor meaning. The date defaults to the prospect's
+  business day (`today`) and can be changed or cleared; *Impact sur le score…* unfolds an optional integer `-50..50`.
+  After a successful add the field is cleared and refocused, the date goes back to today and the impact is folded away.
+- **Edit in place** (*Modifier*): the row becomes a small form (fact, date, impact, source type, source label); Entrée
+  or *Enregistrer la note* saves (PATCH with all five fields, empty optional ones as `null` = cleared), Échap or
+  *Annuler* cancels the edit only (the drawer stays open).
+- **Delete**: a confirmation dialog (*Supprimer cette note ?*, the note quoted, its impact named, *Retour* focused
+  first); on failure the dialog stays open with the reason.
+- **Errors**: client checks first (*Saisissez le fait.*, *1000 caractères au plus.*, impact outside `-50..50`); then the
+  server's refusal worded in French (`noteForm.noteRefusalMessage`: blank / length / range / not found), else *L'opération
+  sur la note a échoué…*; shown inline (`role="alert"`) with what was typed kept and the buttons released. A list that
+  cannot be loaded shows *Les notes n'ont pas pu être chargées.* with *Réessayer*. (The repo has no client-side error
+  logging channel yet: the failures are visible on screen only.)
+
+**Score**: `GET /prospects/{id}` carries `score: ProspectScore`, **computed by the backend** on every read (never
+stored, never computed by the UI; decision D-UX2). Contract (`app/services/prospect_score.py`):
+
+```
+ProspectScore { total: 0..100, summary: str, band: "red"|"yellow"|"green",
+                contributions: [{ id, delta, reason, source_type?, source_ref?, created_at?, origin: "manual" }] }
+```
+
+- A note with a `score_delta` is one contribution: `delta` = the delta, `reason` = the fact, `source_type = "note"`,
+  `source_ref` = the note id, `id = "note:<note id>"`, `origin = "manual"`. A note without delta contributes nothing.
+  `source_type`/`source_ref` are optional in the contract (a future automatic signal may have no note).
+- `total = clamp(base + sum of deltas, 0, 100)`; a delta is shown as entered even when the clamp absorbs part of it.
+- No contribution: `contributions = []`, `total = base`, summary « Aucun signal enregistré : score de départ. ».
+  Otherwise the summary is a short factual sentence generated from the lines, e.g. « 3 signaux (2 favorables,
+  1 défavorable), bilan +7. ». "Score absent" does not exist in the API: the view always has a score.
+- Contributions are ordered newest observed first (same order as the notes).
+
+**Configuration** (environment, `core/config.py`; the contract does not contain these numbers):
+`VIPER_PROSPECT_SCORE_BASE` (default **50**), `VIPER_PROSPECT_SCORE_RED_BELOW` (**40**) and
+`VIPER_PROSPECT_SCORE_GREEN_FROM` (**70**): red below 40, yellow from 40 to 69, green from 70; red-below must be lower
+than green-from. These defaults come from the orchestrator (D-UX2) and are **to be confirmed by the product**. Not
+editable in Paramètres.
+
+**Score card UI** (`ProspectScoreCard.tsx`, `scoreView.ts`, `prospect-score.css`, primitive `ui/ScoreRing`;
+prospect-contact-ux S4). Top of the Profil tab's right column, above *Emploi*; a prospect not saved yet has no card
+(the slot stays and takes no room). The score read is the prospect's own query (`useProspect`), which every note write
+invalidates (`useNoteMutations`): the card follows a note added, edited or deleted without saving the prospect; if that
+refresh fails the last figure stays with *Mise à jour impossible : ce score peut être périmé.*
+
+- **Card**: one button (`aria-haspopup="dialog"`, name *Score prospect : 50 sur 100, niveau moyen. Voir le détail*, the
+  summary as its description) holding the ring (0-100), the band **word** (*Faible* red / *Moyen* yellow / *Élevé*
+  green), the summary (cut after three lines, whole as the tooltip and in the detail) and the *Voir le détail ›*
+  affordance. The band is `score.band` as sent: the front knows **no threshold**; colour (token `danger-fg` /
+  `warning-fg` / `success-fg`) only reinforces the word and the figure.
+- **Detail** (*Détail du score*): a `Modal` `lg`, not a `Popover`: the list can be long, the contributions hold actions,
+  and the focus must be trapped (the Popover is non-modal and not trapped). It opens on click, Entrée or Espace; Échap
+  (or *Fermer*, or the backdrop) closes **only the detail** (the `Modal` stops the key: the drawer stays open and the
+  unsaved-changes confirmation does not appear) and the focus returns to the card. It shows the ring, *N sur 100 · niveau
+  …*, the summary, then the contributions.
+- **Contribution order** (`sortContributions`): positives and zeros by decreasing delta, then negatives from the most
+  damaging (lowest delta); equal deltas keep the API order. Each line: the signed delta as text (*+25*, *-10*; accessible
+  name *+25 points*), the reason (wraps, never cut), the source in words (*Note du prospect*, *Source : …*, *Source non
+  précisée*). No contribution: *Aucun signal enregistré : le score est à sa valeur de départ.* (also the case of a score
+  sent without breakdown).
+- **Voir la note** (only when `source_type === "note"` and `source_ref` is set): closes the detail, switches to the
+  *Suivi* tab (`ProspectEditor` `noteToShow`) and `ProspectNotes` (`showNoteId` / `onNoteShown`) scrolls the row into
+  view, focuses it and marks it `data-highlight` (focus-ring outline + soft accent background) until it loses focus. A
+  note that no longer exists just drops the request.
+
+**AI mail context** (handoff Task 05, prompt `contact-mail-fr-2026-10-v3`): the notes and the score (same service, no
+second computation) enter the drafting context; since v3 a score with no contribution is left out and a contribution that comes from a listed note points to it (« voir fait n°2 ») instead of repeating its text; rules and limits in [`contact.md`](contact.md) § AI drafting.
+
+**Open points**: product-confirmed base/thresholds; the `NoteSourceType` vocabulary; automatic contributions (other `origin`s) are out of scope.
+
 ## Audit
 
 Every write is attributed to the signed-in user (`source=ui`, one `request_id` per save), one event per changed row:
 `role.created` (inline role), `prospect.company_changed` (both company names, `employment_verified_at` cleared, each reset
 alias its own `email/phone.updated`), `prospect.updated` (identity/employment fields; a role change carries both role
 labels), `email/phone.created/updated/deleted`, `contact_tracking.created/status_changed/updated` (+ status history),
-`prospect_source.created` (creation), `prospect.do_not_contact.set/cleared` (`context.reason`), `prospect.deleted`. A save
+`prospect_source.created` (creation), `prospect_note.created/updated/deleted`, `prospect.do_not_contact.set/cleared` (`context.reason`), `prospect.deleted`. A save
 that changes nothing writes nothing.
 
 ## Code
 
 | Layer | Where |
 |---|---|
-| Services | `backend/app/services/prospect_editor.py` (view model, `create_prospect`, `update_prospect`, `set_contactability`, `delete_prospect`, `aggregate_version`), `backend/app/services/contact_channels.py` (alias normalization and full-list save), existing domain operations in `prospects.py`, `contact_tracking.py`, `provenance.py`, `taxonomies.py` |
-| Repositories | `backend/app/repositories/prospects.py` (`lock_prospect`, `version_rows`, `sources_with_batches`, `count_import_rows`), `companies.company_summary`; `prospection.query.prospect_verification_state` |
+| Services | `backend/app/services/prospect_notes.py` (notes CRUD), `backend/app/services/prospect_score.py` (score contract and rules), `backend/app/services/prospect_editor.py` (view model, `create_prospect`, `update_prospect`, `set_contactability`, `delete_prospect`, `aggregate_version`), `backend/app/services/contact_channels.py` (alias normalization and full-list save), existing domain operations in `prospects.py`, `contact_tracking.py`, `provenance.py`, `taxonomies.py` |
+| Repositories | `backend/app/repositories/notes.py`, `backend/app/repositories/prospects.py` (`lock_prospect`, `version_rows`, `sources_with_batches`, `count_import_rows`), `companies.company_summary`; `prospection.query.prospect_verification_state` |
 | Router | `backend/app/api/routes/prospects.py` |
-| Frontend | `frontend/src/prospects/` (`ProspectEditor`, `EmploymentSections`, `AliasList`, `TrackingSection`, `WeekPlanner` (+ `week-planner.css`), `OppositionSection`, `ContextSections`, `pickers`, `EditorSection`, `prospectForm.ts`, `verification.ts`, `messages.ts`, `prospects.css`), API hooks `frontend/src/api/prospects.ts`; history: `frontend/src/history/` (`HistoryTimeline`, `format.ts`), `frontend/src/api/history.ts`, backend `app/services/history.py` |
+| Frontend | `frontend/src/prospects/` (`ProspectEditor`, `EmploymentSections`, `AliasList`, `TrackingSection`, `WeekPlanner` (+ `week-planner.css`), `OppositionSection`, `ProspectNotes` (+ `prospect-notes.css`, `noteForm.ts`), `ContextSections`, `pickers`, `EditorSection` (read/edit switch), `ProfileSummary` (summary + `useEmploymentLabels`, `profile-summary.css`), `ProspectScoreCard` (+ `scoreView.ts`, `prospect-score.css`), `ui/ScoreRing`, `profileEditing.ts` (field → tab / section, per-tab dirty), `prospectForm.ts`, `verification.ts`, `messages.ts`, `prospects.css`), API hooks `frontend/src/api/prospects.ts` and `frontend/src/api/prospectNotes.ts`; history: `frontend/src/history/` (`HistoryTimeline`, `format.ts`), `frontend/src/api/history.ts`, backend `app/services/history.py` |
 
 ## Tests
 
+- Backend notes and score: `tests/test_prospect_score.py` (contract, clamp, bands, config), `tests/test_prospect_notes_api.py` (CRUD, refusals, score in the view, cascade), `tests/test_schema_constraints.py` (CHECKs, cascade).
 - Backend: `tests/test_prospect_editor.py` (creation with manual provenance and one event per row, required name /
   company / context, identity edit, unchanged save writes nothing, inline role audited and labelled, duplicate role,
   every verification action and the future/missing date, alias add + primary switch without clash, deactivated primary
@@ -233,6 +385,21 @@ that changes nothing writes nothing.
   provenance in the view), `tests/test_prospects_api.py` (401 on every route, 403 without/with a forged CSRF token,
   lifecycle attributed to the signed-in user with `source=ui`, contactability refused in the save payload, a failing alias
   rolling back role + company + identity, stable refusal codes, concurrent change → 409, delete refused then allowed).
+- Frontend notes (S2): `src/prospects/ProspectNotes.test.tsx` (0 / 1 / many notes, long text, with and without date, delta
+  +/-/0, add by Enter / Ctrl+Entrée / button, validation, server refusal, edit, Échap, delete and its failure, keyboard
+  access to the row actions, list load error), `noteForm.test.ts`; e2e `prospect-editor.spec.ts` (*notes:*).
+- Frontend score (S4): `src/prospects/ProspectScoreCard.test.tsx` (scores 0 / 1 / 50 / 99 / 100 with their bands, band
+  from the API and no threshold, long summary, no score, outdated, open by click / Entrée / Espace, Échap and focus
+  return, focus trap, empty breakdown, order and signs, long reason, *Voir la note*), `ProspectScore.test.tsx` (in the
+  editor: follows a note added / deleted, no card for a new prospect, Échap leaves the drawer and its confirmation alone,
+  *Voir la note* brings the note into focus), `scoreView.test.ts`, `ui/ScoreRing.test.tsx`; e2e
+  `prospect-editor.spec.ts` (*score:*, screenshots dark/light 1440 / 1280) and the axe case *détail du score*.
+- Frontend profile and tabs (S3): `src/prospects/ProspectProfile.test.tsx` (complete profile, e-mail / phone missing, other
+  addresses and inactive ones, long name / role / company, verification as a secondary line without a card, the score card in its
+  slot, read → edit → save → read, *Terminer*, invalid prospect opening as inputs, new prospect all inputs, tabs by keyboard,
+  mark on an inactive tab with changes, refused field of the other tab brought into view, two tabs in error),
+  `profileEditing.test.ts`; helpers `src/test/prospectEditorUi.ts` (`editorReady`, `showTab`, `editSection`). The older
+  editor tests open the tab or the section they work on first.
 - Frontend: `src/prospects/prospectForm.test.ts`, `verification.test.ts` (pure rules and labels);
   `ProspectEditor.test.tsx` (prefilled sections, imported warning treatment and one-click verification, verified state,
   one-request save + list refresh, dirty bar / revert / guarded Esc, refusal on its field, conflict reload),
@@ -253,4 +420,8 @@ that changes nothing writes nothing.
   filtered queue; add a person with a company created inline; record an opposition and find it under *Opposition*;
   screenshots of the warning and verified states in both themes at 1440×900 and 1280×800 (plus the *Suivi de contact*
   section alone: `prospect-editor-<state>-tracking-<theme>-<width>.png`; the verified state is saved *Contacté* + 1 week,
-  so the cadence proposal shows).
+  so the cadence proposal shows); since S3 the shots are Profil as a summary (`prospect-editor-<state>-<theme>-<width>.png`),
+  Profil with its sections as inputs (`…-aliases-…`) and the Suivi tab; each checks that neither the page nor the drawer
+  body scrolls horizontally, and a dedicated test imports a very long name, company, role and address and checks both tabs,
+  summary and edit mode, at 1440 and 1280 px. `accessibility.spec.ts` scans the editor on Profil and on Suivi with every
+  section in edit mode.

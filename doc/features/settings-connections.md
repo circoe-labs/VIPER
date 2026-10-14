@@ -20,6 +20,17 @@ Through the Toolbox (MCP server over HTTP, OAuth 2.1) a validated Contact/R1/R2 
 Decision: C-20 in the decision log. Tests and E2E use local fakes only — no real call to OpenAI, the Toolbox or
 Infomaniak was ever made (Contact port P6).
 
+## Prompt initial (`/settings/prompt`)
+
+A separate tab of Paramètres holds the **initial prompt**: the task brief the AI receives **before anything else** when it
+drafts a Contact / R1 / R2 e-mail (what it is, who it writes to and why, how the three messages fit together). It is the
+setting `contact_initial_prompt` (≤ 8 000 characters, saved like the other integration settings: private file, revision,
+audit event `settings.integrations_changed`); unset, the built-in `DEFAULT_INITIAL_PROMPT` applies. The page shows the
+built-in text while none is saved; *Rétablir le texte par défaut* puts it back and saving it unchanged stores nothing
+(`null`). An empty prompt is refused. The mandatory rules (facts only, format, booking link, JSON) and the client card
+follow it and are **not** editable. A change applies to the next generation, without a restart.
+`GET /settings/integrations` also returns `initial_prompt_default` (the built-in text).
+
 ## Integration settings (S8) — `app/services/runtime_settings.py`, `app/services/integration_runtime.py`
 
 **Editable here**: `openai_api_key` (secret), `openai_model`, `openai_base_url`, `openai_timeout_ms`,
@@ -226,6 +237,33 @@ the reason while waiting), and — when the sending is inactive and messages are
 messages programmés ne partiront pas (M ont déjà dépassé leur heure) tant que l’envoi automatique est inactif. »
 (`dispatchBacklog`, from `GET /settings/integrations` → `dispatch`), then *Dernière passe*, *Messages programmés*
 and, when there are some, *Envois non confirmés* (« à trancher dans Contact »).
+
+## Tester la Toolbox (`app/services/toolbox/diagnostics.py`)
+
+Card *Tester la Toolbox* on Paramètres › Connexions: a test address, an optional *Envoyer pour de vrai*, one button.
+It plays every mail operation VIPER relies on against that single address and shows, per step, what was expected,
+the context (tool, address, subject, lengths, draft ids), what was observed, the `toolbox_*` code with a hint, the
+duration, and the **raw HTTP / JSON-RPC exchange including the Toolbox's own error text** (normal calls never keep
+that text: it may quote an address; the run only concerns the test address). *Copier le rapport* copies the whole run
+as JSON for the developer.
+
+- API (session + CSRF, a person only, one run at a time → 409): `POST /api/settings/integrations/toolbox/diagnostics`
+  `{recipient, send_real, delay_seconds (20–300)}` → 202 and the run; `GET …/diagnostics/latest` → the last run or
+  `null`, polled every 1.5 s while `status = running`. Runs live in memory (the last five), a restart forgets them.
+- Steps: configuration (state, token expiry, VIPER allowlist vs the address, dispatcher state) → messages already in
+  error in the base → `tools/list` → `list_drafts` → create → find in the list (the timeout recovery path) → realistic
+  body (accents, typographic quotes, link, signature) → ≈ 20 000-character body → edit (create the new draft, delete
+  the old one) → delete, delete twice (idempotent) → refusals (bad address, empty / 501-character subject, unknown
+  draft to send or delete) → with *envoi réel*: a scheduled send (the draft waits, its date is moved, then
+  `send_draft` at the due time, then a second send must be refused) → cleanup (every draft carrying the
+  `[Test VIPER xxxxxxxx]` marker is deleted).
+- Statuses: `ok`, `failed`, `expected_error` (a refusal the step provokes, with the right code), `unexpected` (the
+  refusal had another code, or the operation succeeded), `skipped` (a blocking step failed, or no real send).
+  A failure of configuration, `list_drafts` or the first creation stops the rest (`skipped`).
+- The scheduled send is simulated with a clock: the Toolbox only sees `create_draft` / `send_draft`; the VIPER-side
+  dispatcher (claims, backoff, the allowlist) is not exercised — its state is only reported in the first step.
+- `mcp_client.capture_trace()` is the seam: a context variable collecting each exchange; off (nothing kept, nothing
+  logged) outside a run.
 
 ## Connecting for real (operator)
 

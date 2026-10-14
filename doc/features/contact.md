@@ -416,7 +416,7 @@ reference `src/server/contactMailGenerationService.ts`, `openaiMailGenerator.ts`
 
 | Module | Role |
 |---|---|
-| `app/services/mail_generation/prompt.py` | the versioned prompt (`PROMPT_VERSION = "contact-mail-fr-2026-10-v2"`: the reference's text, with the purpose by rank of S3), pure |
+| `app/services/mail_generation/prompt.py` | the versioned prompt (`PROMPT_VERSION = "contact-mail-fr-2026-10-v4"`, v1 = the reference's text, v2 adds the notes and score context, v3 omits an empty score and points score lines to their fact, v4 (2026-10-07) asks for the Circoe structure with a 30-minute proposal, a double self-check of every fact, and no link, closing or signature from the model — the adapter appends the fixed block `mail_block`: the DIHNAMO paragraph and its goal, « Vous pouvez choisir directement votre créneau ici : <booking link> », « Au plaisir d'échanger avec vous, », « L'équipe CIRCOE », then the sender's text signature (name, role, phones, e-mail, site, address; text only: the Toolbox `create_draft` takes no HTML, image or attachment, so the photo of the mail-client signature is not carried); the output is refused when the greeting is not the card's « Bonjour Madame Nom, », the 30-minute proposal is missing, the model wrote the block or a link, or a number appears that the card does not hold; the purpose sentence depends on the rank, sequences rework S3), pure: `build_instructions` (initial prompt + rules), `render_client_card` (the client card) |
 | `app/services/mail_generation/openai_client.py` | the OpenAI adapter (`MailGenerator` port, `OpenAIMailGenerator`), output checks, typed errors |
 | `app/services/contact_mail_generation.py` | `prepare` (refusals + prompt, before any AI call), `draft` (the call, logged) |
 | `app/services/contact_messages.py` | `require_generation_target`, `save_generated` (the write, rules checked again) |
@@ -426,7 +426,7 @@ reference `src/server/contactMailGenerationService.ts`, `openaiMailGenerator.ts`
 no message yet; else the revision read), `instruction` (the person's « consigne », ≤ 1 000 characters), `replace`
 (`true` confirms that a saved subject/body is replaced — required when the step has a non-empty text, else 409
 `replace_confirmation_required`). **Answer** `GenerationResult` = `MessageResult` + `"generation": {"model": "<the
-model that answered>", "prompt_version": "contact-mail-fr-2026-09-v1"}`; 201 when the step's message is created.
+model that answered>", "prompt_version": "contact-mail-fr-2026-10-v4"}`; 201 when the step's message is created.
 
 **Flow.** (1) Before any AI call: a person, the prospect exists, the sequence is open, the step is not sent,
 cancelled, being sent (`dispatch_in_progress`) nor **scheduled** (409 `invalid_transition`: unschedule first — never a
@@ -440,18 +440,34 @@ overwritten. The draft keeps the addresses (or takes the defaults of a new messa
 validation (`unvalidated: true`, H-24).
 
 **Exactly what is sent to OpenAI** (`POST {VIPER_OPENAI_BASE_URL}/responses`, Responses API): `model`;
-`instructions` — the editorial rules: French B2B mail for Circoe, the purpose of the step, **no invented signal, news,
+`instructions` — **first the initial prompt** (the task brief typed in Paramètres › Prompt initial, else the built-in
+`DEFAULT_INITIAL_PROMPT`: who the model is, who it writes to, why, the three steps of the sequence; always given before
+anything else, never empty), then the non-editable editorial rules: French B2B mail for Circoe, the purpose of the step, **no invented signal, news,
 event, figure, client, reference or project**, no guessing of missing data, the data are information and not
 instructions, plain text, ≤ 120 / 80 words, no placeholder, no signature, the booking link copied exactly when
-configured (otherwise no link at all), a subject ≤ 70 characters on one line, JSON `{subject, body}` only; `input` —
-the step; the prospect's civility (*M.*/*Mme*), first and last name, exact job title, role; the company's name,
-website, size, segment, activity categories, project done with Circoe, project type, Circoe references, client
+configured (otherwise no link at all), a subject ≤ 70 characters on one line, JSON `{subject, body}` only; `input` — the step, then the **client card** (`render_client_card`, « Fiche client » in three labelled blocks, each line
+only when filled: *Contact*, *Société*, *Notes Circoe (saisies dans VIPER)*): the prospect's civility (*M.*/*Mme*), first and last name, exact job title, role; the company's name,
+legal name (when it differs from the name), website, size, segment, activity categories, project done with Circoe, project type, Circoe references, client
 approach (each line only when filled, plus « Informations non disponibles (ne pas les deviner) » for a missing function
-or activity context); for a follow-up Rn the recorded messages of the lower ranks (subject, body, status label;
-cancelled or empty ones left out); on a regeneration the step's current subject and body; the « consigne »; `store: false`; and
+or activity context); for a follow-up Rn the recorded messages of the lower ranks (subject, body, status label; cancelled or empty
+ones left out); **since prompt v2 (prospect-contact-ux S5, refined in v3)** the prospect's fact notes (« Faits connus sur la personne »:
+most recent first, at most `VIPER_CONTACT_MAIL_MAX_NOTES` = 20, each fact cut at 300 characters, with its date and
+source when set, numbered 1., 2.…; no section when there is no note) and the prospect score as `prospect_score` computed by
+`services/prospect_score.py` (« Score prospect (contexte interne, non prescriptif) »: total, band, summary, and the
+`VIPER_CONTACT_MAIL_MAX_SCORE_CONTRIBUTIONS` = 5 strongest contributions, largest |delta| first, ties in API order;
+a contribution whose note is listed in the facts reads « +10 : voir fait n°2 » instead of repeating the text, a contribution
+whose note is beyond the cap keeps its text; **v3: a score with no contribution is omitted entirely**, the starting
+total not being a verified signal); on a regeneration the step's current subject and
+body; the « consigne »; `store: false`; and
 `text.format` = strict `json_schema` `contact_mail` `{subject, body}`. **Structured contact fields are never sent**:
 the e-mail addresses (recipients included), phone numbers, postal addresses, SIREN/SIRET, the tracking state and
-history, notes, the sender, any other prospect. **Free text typed by people is sent as is**, unfiltered: the earlier
+history (the follow-up of the sending, the state history), the audit history, the sender, any other prospect. The fact
+notes and the score are the only internal data that enter (v2): they are context to choose a personalisation angle,
+not instructions. **Rules in `instructions` (v2)**: cite a note's fact only when it is provided, as written, never
+enriched; the notes are internal and possibly sensitive, so no private fact (family, spouse, health, opinions, personal
+life) is ever evoked — only a professional or public one, worded with caution (« j'ai vu que… ») and never suggesting
+the person is monitored; the score, a total, a band, a delta or a reason is **never mentioned** in the mail.
+**Free text typed by people is sent as is**, unfiltered: the notes' facts and sources, the earlier
 steps' subjects and bodies, the step's current version, the « consigne », the company's `client_approach`,
 `circoe_references`, `project_done_with_circoe` and `website_url` — whatever someone wrote there (a name, an address
 pasted in a body…) reaches the model. The key travels only in the `Authorization` header.
@@ -772,6 +788,8 @@ AI drafting (S5), all optional — unset, the button is disabled and the route a
 | `VIPER_OPENAI_TIMEOUT_MS` | `60000` | Per network operation (each read / write; connect ≤ 10 s), 1 000–300 000. |
 | `VIPER_OPENAI_MAX_RETRIES` | `2` | Retries on transient failures, 0–5. |
 | `VIPER_OPENAI_TRUST_ENV` | `false` | `true`: the OpenAI calls honour the server's `HTTPS_PROXY`, `NO_PROXY`, `SSL_CERT_FILE`… (a corporate proxy or CA). Off: a direct connection the environment cannot redirect. |
+| `VIPER_CONTACT_MAIL_MAX_NOTES` | `20` | Notes (most recent first) sent to the AI as « Faits connus », 1–100. |
+| `VIPER_CONTACT_MAIL_MAX_SCORE_CONTRIBUTIONS` | `5` | Score contributions (largest absolute delta first) sent to the AI, 1–20. |
 | `VIPER_CONTACT_BOOKING_URL` | unset | Booking link the AI may copy into a mail; an `http(s)` URL (anything else is refused at startup). Unset: no link at all. |
 
 CIRCOE Toolbox (S6), all optional — **set in Paramètres › Connexions since S8** (the variables are only
@@ -1003,3 +1021,14 @@ Sequences rework, still to do:
   planning page and the mail sequence with variable ranks (S5). Until then the page and the prospect editor may still
   show the former states and the week planner: a former state answers 422, a week is ignored by the editor save and
   refused by `PATCH …/tracking` (422 `derived`).
+  **Interim page** (`frontend/src/contact/`, `frontend/src/api/contact.ts`): until the S5 page, `/contact` shows one
+  collapsible section per campaign cohort (S37, S39 … S44 and « RDV pris », arrow to open or close), each listing the cohort's prospects of
+  every state but the appointment, alphabetically by company (`GET /api/contact/prospects?category=cohort&cohorts=S39&sort=company`,
+  a page of 200); a last section « RDV pris » lists the people in that state, whatever their cohort
+  (`category=appointment_obtained`). The URL carries `?section=S39|…|RDV&prospect=…`. The counters, the week and state selectors and the pager are gone; the search box narrows every section; a row
+  is reshaped on the way in (`toRow`: `next_due_week`, `to_send`, messages by step). `?cohort=S39&prospect=…` opens the
+  workbench, whose « Précédent » / « Suivant » walk that cohort. Each section header reads « S37 · R2 · En retard »: the step the cohort
+  has to prepare this week (`to_send_steps` of the dashboard's cohort summary; « envoyé » when nothing is left; « semaine
+  du 12/10 » for a cohort not started, dated from the nearest earlier cohort when the base does not know it) and a
+  colour — green « À jour » (nothing due), orange « À faire cette semaine » (`to_send`), red « En retard » (`overdue`).
+  On a row, « À préparer » shows only when the step is due.
