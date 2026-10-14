@@ -11,7 +11,7 @@ test.beforeEach(async ({ page }) => {
   await signIn(page)
 })
 
-const CANVAS = { dark: 'rgb(10, 11, 13)', light: 'rgb(244, 247, 247)' }
+const CANVAS = { dark: 'rgb(8, 13, 15)', light: 'rgb(244, 247, 247)' }
 
 // Draws the rendered logo onto a canvas and reads its corner alpha: 0 means no background box is baked in.
 async function logoCornerAlpha(page: Page) {

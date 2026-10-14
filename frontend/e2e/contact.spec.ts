@@ -221,7 +221,7 @@ test('AI drafting: generate with a « consigne », regenerate after validation, 
   await expect(body).toHaveValue(/\(Consigne appliquée : Plus court\)/)
   await expect(body).toHaveValue(new RegExp(E2E_BOOKING_URL.replaceAll('.', '\\.')))
   await expect(page.getByText('Rédigé par l’IA — à relire avant de valider.')).toBeVisible()
-  await expect(page.getByText(/Modèle fake-e2e-model-snapshot · prompt contact-mail-fr-2026-09-v1/)).toBeVisible()
+  await expect(page.getByText(/Modèle fake-e2e-model-snapshot · prompt contact-mail-fr-2026-10-v4/)).toBeVisible()
   await expect(mailTab(page, 'Contact')).toContainText('Brouillon')
 
   // What reached the model: the step and the facts, never the e-mail address.
@@ -232,6 +232,7 @@ test('AI drafting: generate with a « consigne », regenerate after validation, 
   const mine = received.filter((request) => request.input.includes(`Redac${suffix}`))
   expect(mine).toHaveLength(1)
   expect(mine[0]?.input).toContain('Étape : Contact')
+  expect(mine[0]?.input).toContain('Fiche client')
   expect(mine[0]?.input).not.toContain(email)
   expect(mine[0]?.store).toBe(false)
 

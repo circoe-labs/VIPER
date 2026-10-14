@@ -117,7 +117,22 @@ const FILLED = homeData({
 })
 
 function renderHome(data: HomeData = FILLED, options: Parameters<typeof renderApp>[1] = {}) {
-  stubApi({ ...SHELL_API, 'GET /api/home': [200, data] })
+  stubApi({
+    ...SHELL_API,
+    'GET /api/home': [200, data],
+    'GET /api/contact/dashboard': [
+      200,
+      {
+        cohorts: [
+          { code: 'S37', starts_on: '2026-09-07', out_of_campaign: false, prospects: 44 },
+          { code: 'S39', starts_on: '2026-09-28', out_of_campaign: false, prospects: 47 },
+          { code: 'S40', starts_on: '2026-10-05', out_of_campaign: false, prospects: 42 },
+          { code: 'S41', starts_on: '2026-10-12', out_of_campaign: false, prospects: 1 },
+          { code: 'S0', starts_on: null, out_of_campaign: true, prospects: 3 },
+        ],
+      },
+    ],
+  })
   return renderApp('/', options)
 }
 
@@ -139,6 +154,7 @@ describe('Home page', () => {
       'Base',
       'Activité de contact',
       'Semaine à contacter',
+      'Campagne d’envoi',
       'Progression du mois',
       'Derniers imports',
     ])
@@ -187,6 +203,24 @@ describe('Home page', () => {
 
     expect(router.state.location.pathname).toBe('/prospection')
     expect(router.state.location.search).toBe('?segment=no_response')
+  })
+
+  it('counts the prospects in R2, R1, sent and still to send, week by week', async () => {
+    renderHome()
+
+    const campaign = await screen.findByRole('region', { name: 'Campagne d’envoi' })
+    expect(await within(campaign).findByRole('img', { name: 'Prospects par semaine d’envoi' })).toBeInTheDocument()
+    const items = within(campaign).getAllByRole('listitem').map((item) => item.textContent)
+    expect(items).toEqual([
+      'R2 44',
+      'R1 47',
+      'Envoyé 42',
+      'À envoyer 1',
+      'S37 · R2 44',
+      'S39 · R1 47',
+      'S40 · Envoyé 42',
+      'S41 · 12 octobre 1',
+    ])
   })
 
   it('shows the month’s results as a pie with a colour-coded legend', async () => {

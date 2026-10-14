@@ -30,10 +30,11 @@
   align-content: space-between;
   gap: 0.375rem;
   height: 100%;
-  padding: 0.625rem var(--space-3);
-  border: var(--border-width) solid var(--color-border);
-  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-width) solid transparent;
+  border-radius: var(--radius-lg);
   background: var(--color-surface);
+  box-shadow: var(--shadow-card);
   color: var(--color-text);
   text-align: left;
   cursor: pointer;
@@ -43,14 +44,36 @@
 }
 
 .counter-card:hover {
-  border-color: var(--color-border-strong);
   background: var(--color-surface-hover);
 }
 
 .counter-card[aria-pressed='true'] {
   border-color: var(--color-accent-fg);
-  background: var(--color-accent-soft);
-  box-shadow: inset 0 0 0 1px var(--color-accent-fg);
+  background: linear-gradient(160deg, var(--color-accent-soft), var(--color-surface) 120%);
+  box-shadow: var(--shadow-glow);
+}
+
+.counter-card[aria-pressed='true'] .counter-card__count {
+  color: var(--color-accent-fg);
+}
+
+/* Counters are filters first: tonal tiles, and only the figures that ask for something are coloured. */
+.counter-card--attention .counter-card__count,
+.counter-card--attention .counter-card__label svg {
+  color: var(--color-warning-fg);
+}
+
+.counter-card--go {
+  background: linear-gradient(155deg, var(--color-accent-soft), var(--color-surface) 90%);
+}
+
+.counter-card--go .counter-card__count {
+  color: var(--color-accent-fg);
+}
+
+.counter-card--zero .counter-card__count {
+  color: var(--color-text-muted);
+  font-weight: var(--weight-regular);
 }
 
 .counter-card__label {
@@ -58,7 +81,7 @@
   align-items: flex-start;
   gap: 0.375rem;
   color: var(--color-text-muted);
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
   font-weight: var(--weight-medium);
   line-height: var(--leading-tight);
 }
@@ -73,8 +96,8 @@
 }
 
 .counter-card__count {
-  font-size: var(--text-xl);
-  font-weight: var(--weight-semibold);
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-bold);
   font-variant-numeric: tabular-nums;
   letter-spacing: var(--tracking-tight);
   line-height: 1.2;

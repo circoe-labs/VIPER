@@ -14,7 +14,11 @@ html {
 body {
   margin: 0;
   min-height: 100vh;
-  background: var(--color-canvas);
+  /* One quiet emerald aura behind the top of every page: depth, not decoration. */
+  background:
+    radial-gradient(70rem 26rem at 78% -10rem, color-mix(in srgb, var(--color-aura) 70%, transparent), transparent 70%),
+    var(--color-canvas);
+  background-repeat: no-repeat;
   color: var(--color-text);
   font-family: var(--font-sans);
   font-size: var(--text-md);

@@ -1,3 +1,7 @@
+/* Status badges come in three weights so the eye lands on what needs a decision:
+   quiet (success, info, neutral) = a coloured glyph and plain text, no box — it is context, not an alert;
+   notice (warning, danger)       = a soft tinted pill;
+   strong (`badge--strong`)       = a solid pill, reserved for what is due, answered or forbidden. */
 .badge {
   display: inline-flex;
   align-items: center;
@@ -5,7 +9,7 @@
   min-height: 1.5rem;
   padding: 0 var(--space-2);
   border: var(--border-width) solid transparent;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-full);
   font-size: var(--text-xs);
   font-weight: var(--weight-medium);
   line-height: 1;
@@ -16,37 +20,71 @@
   flex: none;
 }
 
-.badge--success {
-  background: var(--color-success-soft);
-  color: var(--color-success-fg);
-  border-color: color-mix(in srgb, var(--color-success-fg) 30%, transparent);
+/* Quiet: no box, hung on the text edge. A plain warning is quiet too: it repeats down a list, so only its glyph and
+   amber text carry it; `strong` (due) is the one that gets a pill. */
+.badge--success,
+.badge--info,
+.badge--neutral,
+.badge--warning:not(.badge--strong) {
+  padding-inline: 0;
+  background: transparent;
+  color: var(--color-text-muted);
 }
 
-.badge--warning {
-  background: var(--color-warning-soft);
+.badge--success svg {
+  color: var(--color-success-fg);
+}
+
+.badge--info svg {
+  color: var(--color-info-fg);
+}
+
+.badge--warning:not(.badge--strong) {
   color: var(--color-warning-fg);
-  border-color: color-mix(in srgb, var(--color-warning-fg) 35%, transparent);
 }
 
 .badge--danger {
   background: var(--color-danger-soft);
   color: var(--color-danger-fg);
-  border-color: color-mix(in srgb, var(--color-danger-fg) 35%, transparent);
+  border-color: color-mix(in srgb, var(--color-danger-fg) 40%, transparent);
 }
 
-.badge--info {
-  background: var(--color-info-soft);
-  color: var(--color-info-fg);
-  border-color: color-mix(in srgb, var(--color-info-fg) 30%, transparent);
+/* Strong: the few badges that ask for action. */
+.badge--strong {
+  padding-inline: var(--space-2);
+  font-weight: var(--weight-semibold);
 }
 
-.badge--neutral,
+.badge--strong.badge--warning {
+  background: var(--color-warning-fg);
+  color: var(--color-on-danger);
+}
+
+.badge--strong.badge--danger {
+  background: var(--color-danger);
+  border-color: transparent;
+  color: var(--color-on-danger);
+}
+
+.badge--strong.badge--info,
+.badge--strong.badge--success {
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+.badge--strong.badge--info svg,
+.badge--strong.badge--success svg {
+  color: inherit;
+}
+
 .badge--tag-neutral {
+  padding-inline: var(--space-2);
   background: var(--color-neutral-soft);
   color: var(--color-neutral-fg);
 }
 
 .badge--tag-accent {
+  padding-inline: var(--space-2);
   background: var(--color-accent-soft);
   color: var(--color-accent-fg);
 }

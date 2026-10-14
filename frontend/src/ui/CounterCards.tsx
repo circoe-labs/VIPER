@@ -38,13 +38,18 @@ interface CounterCardProps {
   count: number | undefined
   pressed: boolean
   onSelect: () => void
+  // What the figure asks of the person: `attention` = something to fix (amber), `go` = something to do now (green).
+  // Untoned counters are context and stay quiet.
+  tone?: 'attention' | 'go'
 }
 
 // An actionable counter: a toggle button that shows its segment in the list below (aria-pressed; the pressed one also
 // carries a check mark and a stronger outline, never colour alone). A card always equals the list it opens.
-export function CounterCard({ label, hint, icon: Icon, count, pressed, onSelect }: CounterCardProps) {
+export function CounterCard({ label, hint, icon: Icon, count, pressed, onSelect, tone }: CounterCardProps) {
+  const lit = tone && count !== undefined && count > 0
+  const classes = ['counter-card', lit && `counter-card--${tone}`, count === 0 && 'counter-card--zero']
   return (
-    <button type="button" className="counter-card" aria-pressed={pressed} title={hint} onClick={onSelect}>
+    <button type="button" className={classes.filter(Boolean).join(' ')} aria-pressed={pressed} title={hint} onClick={onSelect}>
       <span className="counter-card__label">
         <Icon size={14} />
         {label}

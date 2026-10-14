@@ -22,6 +22,7 @@ import {
   UsersIcon,
 } from '../ui/icons'
 import { PageHeader } from '../ui/PageHeader'
+import { CampaignStats } from './CampaignStats'
 import { MonthlyProgress } from './MonthlyProgress'
 import { RecentActivity } from './RecentActivity'
 import { WeekToContact } from './WeekToContact'
@@ -46,17 +47,26 @@ interface Kpi {
   href?: string
   // A non-zero count asks for work (verification, due contacts): its glyph takes the warning colour.
   attention?: boolean
+  // The figure that asks for action today gets the hero treatment (large, tinted, lit).
+  focus?: 'due' | 'go'
 }
 
 // Every count that is a Prospection segment opens Prospection on it, where the counter shows the same number (same
 // API semantics).
-function segmentKpi(data: HomeData, segment: Segment, label: string, attention = false): Kpi {
+function segmentKpi(data: HomeData, segment: Segment, label: string, attention = false, focus?: Kpi['focus']): Kpi {
   const { hint, icon } = SEGMENT_INFO[segment]
-  return { label, hint, icon, count: data.counts[segment], href: prospectionHref({ segment }), attention }
+  return { label, hint, icon, count: data.counts[segment], href: prospectionHref({ segment }), attention, focus }
 }
 
-function KpiCard({ label, hint, icon: Icon, count, href, attention = false }: Kpi) {
-  const className = `kpi-card${attention && count > 0 ? ' kpi-card--attention' : ''}`
+function KpiCard({ label, hint, icon: Icon, count, href, attention = false, focus }: Kpi) {
+  const className = [
+    'kpi-card',
+    attention && count > 0 && 'kpi-card--attention',
+    focus && count > 0 && `kpi-card--${focus}`,
+    count === 0 && 'kpi-card--zero',
+  ]
+    .filter(Boolean)
+    .join(' ')
   const content = (
     <>
       <span className="kpi-card__label">
@@ -139,7 +149,7 @@ function Overview({ data }: { data: HomeData }) {
     },
   ]
   const contact: Kpi[] = [
-    segmentKpi(data, 'due', 'À contacter', true),
+    segmentKpi(data, 'due', 'À contacter', true, 'due'),
     segmentKpi(data, 'no_response', 'Sans réponse'),
     segmentKpi(data, 'appointments', 'RDV'),
     {
@@ -152,7 +162,7 @@ function Overview({ data }: { data: HomeData }) {
   ]
   return (
     <>
-      <section className="home-section" aria-labelledby="home-base-title">
+      <section className="home-section home-section--strip" aria-labelledby="home-base-title">
         <h2 id="home-base-title" className="home-section__title">
           Base
         </h2>
@@ -246,6 +256,7 @@ export function HomePage() {
       {data && (data.counts.all === 0 ? <EmptyBase /> : <Overview data={data} />)}
       {data && (
         <div className="home-panels">
+          {data.counts.all > 0 && <CampaignStats />}
           {data.counts.all > 0 && <MonthlyProgress progress={data.progress} figures={data.figures} />}
           <RecentActivity imports={data.recent_imports} edits={data.recent_edits} />
         </div>
