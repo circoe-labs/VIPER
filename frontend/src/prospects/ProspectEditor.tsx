@@ -3,16 +3,28 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { useCompany } from '../api/companies'
 import { type Prospect, useProspect, useProspectMutations } from '../api/prospects'
 import { businessToday } from '../lib/isoWeek'
-import { civilityLabel, personName, SEGMENT_INFO } from '../prospection/labels'
+import { civilityLabel, personName, selectionShortLabel } from '../prospection/labels'
 import type { ProspectEditorProps } from '../prospection/prospectEditor'
 import { Button, IconButton } from '../ui/Button'
 import { Drawer, Modal } from '../ui/Dialog'
-import { AlertIcon, ChevronLeftIcon, ChevronRightIcon, CheckCircleIcon, InfoIcon, RefreshIcon, TrashIcon } from '../ui/icons'
+import { AlertIcon, CheckCircleIcon, ChevronLeftIcon, ChevronRightIcon, InfoIcon, RefreshIcon, TrashIcon } from '../ui/icons'
+import { Tabs } from '../ui/Tabs'
+import { AlertsSection } from './AlertsSection'
 import { AliasList } from './AliasList'
 import { CompanySection, DeleteProspectDialog, HistorySection, ProvenanceSection } from './ContextSections'
+import { EditorSection, type SectionEdit } from './EditorSection'
 import { EmploymentSection, IdentitySection } from './EmploymentSections'
-import { EditorSection } from './EditorSection'
 import { type ProspectRefusal, prospectRefusal } from './messages'
+import {
+  dirtyTabs,
+  type EditableSection,
+  type EditorTab,
+  sectionOfField,
+  sectionsWithErrors,
+  tabOfField,
+  tabsWithErrors,
+} from './profileEditing'
+import { ProfileSummary, useEmploymentLabels } from './ProfileSummary'
 import {
   draftFromProspect,
   emptyDraft,
@@ -24,7 +36,8 @@ import {
   toInput,
   validate,
 } from './prospectForm'
-import { AlertsSection } from './AlertsSection'
+import { ProspectNotes } from './ProspectNotes'
+import { ProspectScoreCard } from './ProspectScoreCard'
 import { SequenceSection } from './SequenceSection'
 import { TrackingSection } from './TrackingSection'
 import './prospects.css'
@@ -38,6 +51,9 @@ interface Forms {
   draft: ProspectDraft
   // Changes when another person (or a fresh new form) is shown: the first field takes the focus.
   session: number
+  // Profil sections shown as inputs (the others read as a summary of the same draft): those being edited, plus those
+  // that were invalid when loaded. A new prospect shows every section as inputs.
+  editing: EditableSection[]
 }
 
 type Notice = 'saved' | 'created_next' | 'end'
@@ -52,7 +68,8 @@ function nextSession(): number {
 // `session`: keep the current one after a save (the focus stays where it is).
 function loadedForms(prospect: Prospect, session = nextSession()): Forms {
   const draft = draftFromProspect(prospect)
-  return { target: prospect.id, prospect, baseline: draft, draft, session }
+  const editing = sectionsWithErrors(validate(draft, { isNew: false, today: prospect.today }))
+  return { target: prospect.id, prospect, baseline: draft, draft, session, editing }
 }
 
 // The prospect read again after an operation outside the form's save (cohort, send, « Défaillant », alert): its new
@@ -71,7 +88,7 @@ export function withServerProspect(forms: Forms, prospect: Prospect): Forms {
 
 function newForms(defaults: NewProspectDefaults = {}): Forms {
   const draft = emptyDraft(defaults)
-  return { target: 'new', prospect: null, baseline: draft, draft, session: nextSession() }
+  return { target: 'new', prospect: null, baseline: draft, draft, session: nextSession(), editing: [] }
 }
 
 // The Prospect editor (Task 15): one wide drawer for adding and editing a person, opened by the Prospection list
@@ -88,6 +105,10 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
   const [confirm, setConfirm] = useState<{ action: () => void; label: string } | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [moving, setMoving] = useState(false)
+  // The open tab: Profil whenever another prospect (or a fresh form) is shown; kept while the same one is saved.
+  const [tab, setTab] = useState<EditorTab>('profile')
+  // « Voir la note » of the score detail: the note the Suivi tab must show and focus (ProspectNotes clears it once done).
+  const [noteToShow, setNoteToShow] = useState<string | null>(null)
 
   // Another person (Save & Next, Back/Forward): drop the previous one's form and messages — unless the form already
   // shows it (a prospect just created here).
@@ -98,6 +119,7 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
       setSubmitted(false)
       setRefusal(null)
       setNotice(null)
+      setTab('profile')
     }
   }
   if (forms === null && loaded.data?.id === target) setForms(loadedForms(loaded.data))
@@ -106,6 +128,8 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
   const fieldId = (path: string) => `${formId}-${path}`
   const formRef = useRef<HTMLFormElement>(null)
   const firstFieldRef = useRef<HTMLInputElement>(null)
+  // A field to focus once the tab and section that hold it are shown (see `reveal`).
+  const pendingFocus = useRef<string | null>(null)
   const mutations = useProspectMutations()
   const saving = mutations.create.isPending || mutations.update.isPending || moving
 
@@ -116,18 +140,56 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
   const draft = forms?.draft
   const companyMoved = forms !== null && prospect !== null && forms.draft.company_id !== forms.baseline.company_id
   const company = useCompany(draft?.company_id ?? null)
+  const labels = useEmploymentLabels(draft, prospect)
   const dirty = forms !== null && isDirty(forms.draft, forms.baseline, isNew)
   const errors = forms ? validate(forms.draft, { isNew, today }) : {}
   const shown = submitted ? { ...errors } : {}
   if (refusal?.field) shown[refusal.field] = refusal.message
+  // What waits on the other tab: unsaved changes, or fields to correct (marked on the tab, never only by colour).
+  const tabDirty = forms ? dirtyTabs(forms.draft, forms.baseline, isNew) : { profile: false, tracking: false }
+  const tabInvalid = tabsWithErrors(shown)
 
+  // A new form (or another person) puts the focus on its first field — or, when the identity reads as a summary, on
+  // its « Modifier » button.
   useEffect(() => {
-    if (forms?.session) firstFieldRef.current?.focus()
+    if (!forms?.session) return
+    const first = firstFieldRef.current ?? formRef.current?.querySelector<HTMLElement>('[data-edit-toggle]')
+    first?.focus()
   }, [forms?.session])
 
-  function focusField(path: string) {
+  useEffect(() => {
+    const path = pendingFocus.current
+    if (path === null) return
+    pendingFocus.current = null
     document.getElementById(fieldId(path))?.focus()
+  })
+
+  // Shows a field that needs attention: its tab, its section as inputs, then the focus (after the render).
+  function reveal(path: string) {
+    const section = sectionOfField(path)
+    setTab(tabOfField(path))
+    if (section) {
+      setForms((current) => current && (current.editing.includes(section) ? current : { ...current, editing: [...current.editing, section] }))
+    }
+    pendingFocus.current = path
   }
+
+  const editingNow = (section: EditableSection) => isNew || (forms?.editing.includes(section) ?? false)
+  // One « Modifier » for one or several Profil sections (Coordonnées covers the e-mails and the phones).
+  const sectionEdit = (...sections: EditableSection[]): SectionEdit => ({
+    editing: sections.some(editingNow),
+    locked: isNew,
+    canDone: !Object.keys(errors).some((path) => {
+      const found = sectionOfField(path)
+      return found !== null && sections.includes(found)
+    }),
+    onEdit: () => {
+      setForms((current) => current && { ...current, editing: [...current.editing.filter((open) => !sections.includes(open)), ...sections] })
+    },
+    onDone: () => {
+      setForms((current) => current && { ...current, editing: current.editing.filter((open) => !sections.includes(open)) })
+    },
+  })
 
   function change(patch: Partial<ProspectDraft>) {
     setForms((current) => current && { ...current, draft: { ...current.draft, ...patch } })
@@ -141,7 +203,7 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
   }
 
   function revert() {
-    setForms((current) => current && { ...current, draft: current.baseline })
+    setForms((current) => current && { ...current, draft: current.baseline, editing: sectionsWithErrors(validate(current.baseline, { isNew, today })) })
     setSubmitted(false)
     setRefusal(null)
   }
@@ -153,7 +215,7 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
     setSubmitted(true)
     const invalid = Object.keys(validate(forms.draft, { isNew, today }))[0]
     if (invalid) {
-      focusField(invalid)
+      reveal(invalid)
       return null
     }
     try {
@@ -171,7 +233,7 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
       const indexes = { emails: payloadIndexes(forms.draft.emails), phones: payloadIndexes(forms.draft.phones) }
       const refused = prospectRefusal(error, indexes)
       setRefusal(refused)
-      if (refused.field) focusField(refused.field)
+      if (refused.field) reveal(refused.field)
       return null
     }
   }
@@ -275,7 +337,7 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
   const description = isNew
     ? 'Saisie manuelle : la provenance est enregistrée avec la fiche.'
     : position
-      ? `Prospect ${String(position)} sur ${String(queue.total)} · ${SEGMENT_INFO[queue.criteria.segment].label}`
+      ? `Prospect ${String(position)} sur ${String(queue.total)} · ${selectionShortLabel(queue.criteria)}`
       : 'Chaque enregistrement est tracé dans l’historique.'
 
   return (
@@ -296,7 +358,7 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
                 notice={notice}
                 errorCount={submitted ? Object.keys(errors).length : 0}
                 refusal={refusal}
-                segment={SEGMENT_INFO[queue.criteria.segment].label}
+                segment={selectionShortLabel(queue.criteria)}
               />
               {refusal?.conflict && (
                 <Button size="sm" icon={RefreshIcon} onClick={() => void reload()}>
@@ -349,55 +411,102 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
         <form
           id={formId}
           ref={formRef}
-          className="prospect-editor"
+          className="prospect-editor-form"
           noValidate
           onSubmit={(event) => {
             event.preventDefault()
             void saveOnly()
           }}
         >
-          <div className="prospect-editor__top">
-            <IdentitySection draft={draft} errors={shown} fieldId={fieldId} onChange={change} firstFieldRef={firstFieldRef} />
-            <EmploymentSection
-              draft={draft}
-              errors={shown}
-              fieldId={fieldId}
-              onChange={change}
-              prospect={prospect}
-              companyMoved={companyMoved}
-            />
-            <EditorSection title="Coordonnées">
-              {(['emails', 'phones'] as const).map((kind) => (
-                <AliasList
-                  key={kind}
-                  nested
-                  kind={kind}
-                  aliases={draft[kind]}
-                  onChange={(aliases) => {
-                    change({ [kind]: aliases })
-                  }}
+          <Tabs
+            label="Sections de la fiche"
+            selected={tab}
+            onSelect={setTab}
+            tabs={[
+              { id: 'profile', label: 'Profil', extra: <TabMark tab="profile" selected={tab} dirty={tabDirty} invalid={tabInvalid} /> },
+              { id: 'tracking', label: 'Suivi', extra: <TabMark tab="tracking" selected={tab} dirty={tabDirty} invalid={tabInvalid} /> },
+            ]}
+          >
+            {/* Both panels stay mounted (hidden when inactive): typed notes, the open sections and every field survive a tab change. */}
+            <div className="prospect-editor" hidden={tab !== 'profile'}>
+              {prospect !== null && (
+                <div className="prospect-editor__summary">
+                  <ProfileSummary draft={draft} prospect={prospect} labels={labels} />
+                </div>
+              )}
+              <div className="prospect-editor__top">
+                <IdentitySection
+                  draft={draft}
                   errors={shown}
                   fieldId={fieldId}
-                  companyMoved={companyMoved}
-                  companyDomain={company.data?.email_domain ?? null}
-                  today={today}
-                  staleDays={prospect?.stale_threshold_days ?? null}
+                  onChange={change}
+                  firstFieldRef={firstFieldRef}
+                  edit={sectionEdit('identity')}
                 />
-              ))}
-            </EditorSection>
-          </div>
-          <div className="prospect-editor__side">
-            <TrackingSection draft={draft} errors={shown} fieldId={fieldId} onChange={change} prospect={prospect} />
-            {prospect && (
-              <>
-                <SequenceSection prospect={prospect} pendingChanges={dirty} onChanged={() => void syncFromServer()} />
-                <AlertsSection prospectId={prospect.id} onChanged={() => void syncFromServer()} />
-              </>
-            )}
-            <CompanySection companyId={draft.company_id} />
-            <ProvenanceSection draft={draft} errors={shown} fieldId={fieldId} onChange={change} prospect={prospect} />
-            {prospect && <HistorySection prospectId={prospect.id} />}
-          </div>
+                <EmploymentSection
+                  draft={draft}
+                  errors={shown}
+                  fieldId={fieldId}
+                  onChange={change}
+                  prospect={prospect}
+                  companyMoved={companyMoved}
+                  labels={labels}
+                  edit={sectionEdit('employment')}
+                />
+                <EditorSection title="Coordonnées" edit={sectionEdit('emails', 'phones')}>
+                  {(['emails', 'phones'] as const).map((kind) => (
+                    <AliasList
+                      key={kind}
+                      nested
+                      kind={kind}
+                      aliases={draft[kind]}
+                      onChange={(aliases) => {
+                        change({ [kind]: aliases })
+                      }}
+                      errors={shown}
+                      fieldId={fieldId}
+                      companyMoved={companyMoved}
+                      companyDomain={company.data?.email_domain ?? null}
+                      today={today}
+                      staleDays={prospect?.stale_threshold_days ?? null}
+                      edit={sectionEdit('emails', 'phones')}
+                    />
+                  ))}
+                </EditorSection>
+              </div>
+              <div className="prospect-editor__side">
+                <ProspectScoreCard
+                  score={prospect ? (loaded.data?.id === prospect.id ? loaded.data.score : prospect.score) : null}
+                  outdated={loaded.isRefetchError}
+                  onShowNote={(noteId) => {
+                    setTab('tracking')
+                    setNoteToShow(noteId)
+                  }}
+                />
+                <CompanySection companyId={draft.company_id} />
+              </div>
+            </div>
+            <div className="prospect-editor" hidden={tab !== 'tracking'}>
+              <div className="prospect-editor__main">
+                <TrackingSection draft={draft} errors={shown} fieldId={fieldId} onChange={change} prospect={prospect} />
+                {prospect && <SequenceSection prospect={prospect} pendingChanges={dirty} onChanged={() => void syncFromServer()} />}
+                {/* Notes are saved by their own API, outside this form (never dirty, never part of the version). */}
+                <ProspectNotes
+                  prospectId={prospect?.id ?? null}
+                  today={today}
+                  showNoteId={noteToShow}
+                  onNoteShown={() => {
+                    setNoteToShow(null)
+                  }}
+                />
+              </div>
+              <div className="prospect-editor__side">
+                {prospect && <AlertsSection prospectId={prospect.id} onChanged={() => void syncFromServer()} />}
+                <ProvenanceSection draft={draft} errors={shown} fieldId={fieldId} onChange={change} prospect={prospect} />
+                {prospect && <HistorySection prospectId={prospect.id} />}
+              </div>
+            </div>
+          </Tabs>
         </form>
       )}
       {deleting && prospect && (
@@ -441,6 +550,34 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
         </Modal>
       )}
     </Drawer>
+  )
+}
+
+interface TabMarkProps {
+  tab: EditorTab
+  selected: EditorTab
+  dirty: Record<EditorTab, boolean>
+  invalid: Record<EditorTab, boolean>
+}
+
+// A mark on an inactive tab that holds fields to correct (glyph) or unsaved changes (dot), with its text for screen
+// readers: a change or an error never hides behind the tab that is not shown.
+function TabMark({ tab, selected, dirty, invalid }: TabMarkProps) {
+  if (tab === selected) return null
+  if (invalid[tab]) {
+    return (
+      <span className="prospect-editor__tab-mark" data-state="invalid">
+        <AlertIcon size={14} />
+        <span className="visually-hidden">champs à corriger</span>
+      </span>
+    )
+  }
+  if (!dirty[tab]) return null
+  return (
+    <span className="prospect-editor__tab-mark" data-state="dirty">
+      <span className="prospect-editor__dot" aria-hidden="true" />
+      <span className="visually-hidden">modifications non enregistrées</span>
+    </span>
   )
 }
 

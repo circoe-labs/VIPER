@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import { company } from '../test/companiesApi'
 import { companySummary, prospectDetail, stubProspectsApi } from '../test/prospectsApi'
+import { editorReady } from '../test/prospectEditorUi'
 import { fakeQueue, renderProspectEditor } from '../test/renderProspectEditor'
 
 const employer = company('Transports Exemple SARL')
@@ -27,6 +28,7 @@ describe('Prospect editor — browsing the list', () => {
     const { queue, next } = fakeQueue([first.id, second.id])
     const { onNavigate } = renderProspectEditor(first.id, queue)
     await screen.findByRole('dialog', { name: 'Anne Premier' })
+    await editorReady()
 
     await userEvent.click(screen.getByRole('button', { name: 'Prospect suivant' }))
 
@@ -50,7 +52,7 @@ describe('Prospect editor — browsing the list', () => {
     const only = prospectDetail({ first_name: 'Anne', last_name: 'Seule' })
     const api = stubProspectsApi({ details: [only] })
     renderProspectEditor(only.id)
-    await screen.findByRole('textbox', { name: 'Prénom' })
+    await editorReady()
 
     await userEvent.keyboard('{Control>}{Enter}{/Control}')
 

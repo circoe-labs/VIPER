@@ -1,0 +1,82 @@
+/* Profil tab: the person at a glance (name, role · company, main e-mail and phone, status) above the sections. Every
+   value wraps — long names, companies and addresses never widen the drawer. */
+
+.prospect-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto;
+  gap: var(--space-3) var(--space-6);
+  align-items: start;
+  min-width: 0;
+  padding: var(--space-4) var(--space-6);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.prospect-summary__who {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.prospect-summary__name {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  overflow-wrap: anywhere;
+}
+
+.prospect-summary__job {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.prospect-summary__channels {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  margin: 0;
+}
+
+.prospect-summary__channels > div {
+  display: grid;
+  grid-template-columns: 5rem minmax(0, 1fr);
+  gap: var(--space-2);
+}
+
+.prospect-summary__channels dt {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.prospect-summary__channels dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.prospect-summary__status {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+@media (max-width: 1100px) {
+  .prospect-summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .prospect-summary__status {
+    justify-content: flex-start;
+  }
+}
+
+/* Reserved for the score card (ProspectScoreCard): no room while empty. */
+.prospect-score-slot:empty {
+  display: none;
+}
