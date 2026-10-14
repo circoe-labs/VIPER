@@ -21,6 +21,17 @@ describe('import flow', () => {
     expect(flowReducer(reviewing, { type: 'committed', result: commitResult() }).step).toBe('done')
   })
 
+  it('goes back from the review to the sheet step, keeping the analysis and the decisions', () => {
+    const preview = samplePreview()
+    const reviewing = run({ type: 'choose', file: FILE }, { type: 'analyzed', preview }, { type: 'confirmSheet' })
+    const decided = flowReducer(reviewing, { type: 'decide', update: (current) => ({ ...current, sheet: 'Feuil1' }) })
+
+    const back = flowReducer(decided, { type: 'backToSheet' })
+
+    expect(back).toMatchObject({ step: 'sheet', preview, decisions: { sheet: 'Feuil1' } })
+    expect(flowReducer(back, { type: 'backToSheet' })).toBe(back)
+  })
+
   it('goes back to the file choice when the first analysis is refused', () => {
     const state = run({ type: 'choose', file: FILE }, { type: 'failed', message: 'Le fichier est vide.' })
 

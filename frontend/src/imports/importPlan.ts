@@ -12,6 +12,7 @@ import type {
   RoleDecision,
 } from '../api/imports'
 import { weekMonday, weeksInYear } from '../lib/isoWeek'
+import { type SendMark, sendMarkOf } from '../lib/campaign'
 import { foldText } from '../lib/text'
 
 // The user's review decisions — overrides of the defaults the server proposed (backend review.py) — and what they
@@ -97,6 +98,10 @@ export function rowCategory(review: ImportReview, decisions: ReviewDecisions, ro
   if (resolutionOf(review, decisions, row.row_number).action === 'exclude' || row.status === 'error') return 'ignored'
   if (isInactive(review, decisions, row)) return 'ignored'
   return row.tracking?.status === 'appointment_obtained' ? 'appointment' : 'valid'
+}
+
+export function sendMark(row: PreviewRow): SendMark | null {
+  return sendMarkOf(row.cohort_code)
 }
 
 export function isImported(resolution: ProspectResolution): boolean {

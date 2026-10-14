@@ -129,6 +129,7 @@ export interface PreviewRow {
   emails: { address: string; is_primary: boolean }[]
   phones: { number: string; type: 'mobile' | 'landline' | 'other'; is_primary: boolean; column: string }[]
   tracking: TrackingProposal | null
+  cohort_code?: string | null
   legacy_metadata: Record<string, LegacyValue>
   duplicates: DuplicateCandidate[]
   blocked_by_do_not_contact: boolean

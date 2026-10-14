@@ -8,22 +8,19 @@ import type {
   ProspectResolution,
   ReferentDecision,
   ReferentGroup,
-  RoleDecision,
-  RoleGroup,
 } from '../api/imports'
-import { ReferentSelect, TaxonomyMultiSelect, TaxonomySelect } from '../settings/selectors'
+import { ReferentSelect, TaxonomyMultiSelect } from '../settings/selectors'
 import { Badge, StatusBadge, type StatusTone } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { EmptyState } from '../ui/EmptyState'
 import { Checkbox, TextField } from '../ui/fields'
-import { CheckCircleIcon } from '../ui/icons'
+import { CheckCircleIcon, ChevronDownIcon } from '../ui/icons'
 import {
   categoryDecision,
   companyDecision,
   isoWeekMonday,
   referentDecision,
   type ReviewDecisions,
-  roleDecision,
   type RowIssue,
   weekYear,
   without,
@@ -63,7 +60,8 @@ function attention(review: ImportReview) {
     opposition,
     duplicates: rows.filter((row) => row.duplicates.length > 0 && !oppositionRows.has(row.row_number)),
     companies: review.companies.filter((group) => group.candidates.length > 0),
-    roles: review.roles.filter((group) => group.status !== 'exact'),
+    // Job titles are kept as written: no role to review one by one.
+    roles: [] as typeof review.roles,
     categories: review.categories.filter((group) => group.status !== 'exact'),
     referents: review.referents.filter((group) => group.status !== 'exact'),
     inactive: rows.filter((row) => row.prospect.activity_status_suggestion === 'inactive'),
@@ -105,16 +103,31 @@ function Section({
   actions?: ReactNode
   children: ReactNode
 }) {
+  // Closed until clicked: the list can be long and the person may not want to deal with it on opening.
+  const [open, setOpen] = useState(false)
   return (
     <section className="import-section" aria-labelledby={`import-section-${id}`}>
       <header className="import-section__header">
         <h3 id={`import-section-${id}`} className="import-section__title">
-          {title} <Badge>{count}</Badge>
+          <button
+            type="button"
+            className="import-section__toggle"
+            aria-expanded={open}
+            aria-controls={`import-section-body-${id}`}
+            onClick={() => {
+              setOpen(!open)
+            }}
+          >
+            <ChevronDownIcon size={16} className="import-section__chevron" data-open={open || undefined} />
+            {title} <Badge>{count}</Badge>
+          </button>
         </h3>
         {actions && <div className="import-section__actions">{actions}</div>}
       </header>
-      <p className="import-section__description">{description}</p>
-      <ul className="import-groups">{children}</ul>
+      <div id={`import-section-body-${id}`} hidden={!open}>
+        <p className="import-section__description">{description}</p>
+        <ul className="import-groups">{children}</ul>
+      </div>
     </section>
   )
 }
@@ -187,62 +200,6 @@ function LabelInput({ label, value, onLabel }: { label: string; value: string; o
         else setText(value)
       }}
     />
-  )
-}
-
-function RoleItem({ group, decision, onChange }: { group: RoleGroup; decision: RoleDecision; onChange: (decision: RoleDecision) => void }) {
-  const [mode, setMode] = usePendingMode(decision.action)
-  const suggestion = group.suggestions[0]
-  return (
-    <Group
-      text={group.text}
-      meta={rowsText(group.rows.length)}
-      badge={<StatusBadge tone={STATUS_TONES[group.status] ?? 'neutral'}>{MATCH_STATUS_LABELS[group.status]}</StatusBadge>}
-    >
-      <Choice
-        label={`Rôle pour « ${group.text} »`}
-        value={mode}
-        onChange={(next) => {
-          setMode(next)
-          if (next === 'none') onChange({ action: 'none' })
-          if (next === 'create') onChange({ action: 'create', label: group.text })
-        }}
-      >
-        <option value="none">Laisser sans rôle</option>
-        <option value="existing">Associer à un rôle existant</option>
-        <option value="create">Créer un nouveau rôle</option>
-      </Choice>
-      {mode === 'existing' && (
-        <TaxonomySelect
-          kind="roles"
-          label="Rôle existant"
-          allowCreate={false}
-          value={decision.action === 'existing' ? decision.role_id : null}
-          onChange={(id) => {
-            onChange(id ? { action: 'existing', role_id: id } : { action: 'none' })
-          }}
-        />
-      )}
-      {decision.action === 'create' && (
-        <LabelInput
-          label="Libellé du rôle à créer"
-          value={decision.label}
-          onLabel={(label) => {
-            onChange({ action: 'create', label })
-          }}
-        />
-      )}
-      {suggestion && decision.action !== 'existing' && (
-        <Button
-          size="sm"
-          onClick={() => {
-            onChange({ action: 'existing', role_id: suggestion.id })
-          }}
-        >
-          Utiliser « {suggestion.label} »
-        </Button>
-      )}
-    </Group>
   )
 }
 
@@ -412,9 +369,6 @@ export function ResolvePanel({ review, decisions, issues, decide, onOpenRow }: R
   const setResolution = (row: number, resolution: ProspectResolution) => {
     decide((current) => ({ ...current, rows: { ...current.rows, [row]: { ...current.rows[row], resolution } } }))
   }
-  const suggestedRoles = found.roles.filter(
-    (group) => group.status === 'suggested' && roleDecision(review, decisions, group.key).action === 'none',
-  )
   const nothing =
     errors.length +
       found.opposition.length +
@@ -540,85 +494,6 @@ export function ResolvePanel({ review, decisions, issues, decide, onOpenRow }: R
         </Section>
       )}
 
-      {found.roles.length > 0 && (
-        <Section
-          id="roles"
-          title="Rôles non reconnus"
-          count={found.roles.length}
-          description="La fonction exacte est toujours conservée. Associez-la à un rôle existant, créez un rôle ou laissez la personne sans rôle."
-          actions={
-            suggestedRoles.length > 0 && (
-              <Button
-                size="sm"
-                onClick={() => {
-                  decide((current) => {
-                    const roles = { ...current.roles }
-                    for (const group of suggestedRoles) {
-                      const suggestion = group.suggestions[0]
-                      if (suggestion) roles[group.key] = { action: 'existing', role_id: suggestion.id }
-                    }
-                    return { ...current, roles }
-                  })
-                }}
-              >
-                Accepter les {suggestedRoles.length} suggestions
-              </Button>
-            )
-          }
-        >
-          {found.roles.map((group) => (
-            <RoleItem
-              key={group.key}
-              group={group}
-              decision={roleDecision(review, decisions, group.key)}
-              onChange={(decision) => {
-                decide((current) => ({ ...current, roles: { ...current.roles, [group.key]: decision } }))
-              }}
-            />
-          ))}
-        </Section>
-      )}
-
-      {found.categories.length > 0 && (
-        <Section
-          id="categories"
-          title="Catégories d’activité"
-          count={found.categories.length}
-          description="Chaque valeur de la colonne « Catégorie » : associée à des catégories, créée, reconnue comme segment ou ignorée (elle reste alors dans les valeurs d’origine)."
-        >
-          {found.categories.map((group) => (
-            <CategoryItem
-              key={group.key}
-              group={group}
-              decision={categoryDecision(review, decisions, group.key)}
-              onChange={(decision) => {
-                decide((current) => ({ ...current, categories: { ...current.categories, [group.key]: decision } }))
-              }}
-            />
-          ))}
-        </Section>
-      )}
-
-      {found.referents.length > 0 && (
-        <Section
-          id="referents"
-          title="Référents"
-          count={found.referents.length}
-          description="Seul un référent interne Circoe peut devenir « Référent ». Les marqueurs, notes et adresses sont ignorés par défaut et conservés tels quels. Un référent absent se crée dans Paramètres, puis « Relancer l’analyse »."
-        >
-          {found.referents.map((group) => (
-            <ReferentItem
-              key={group.key}
-              group={group}
-              decision={referentDecision(review, decisions, group.key)}
-              onChange={(decision) => {
-                decide((current) => ({ ...current, referents: { ...current.referents, [group.key]: decision } }))
-              }}
-            />
-          ))}
-        </Section>
-      )}
-
       {review.weeks.length > 0 && (
         <Section
           id="weeks"
@@ -678,6 +553,50 @@ export function ResolvePanel({ review, decisions, issues, decide, onOpenRow }: R
         </Section>
       )}
 
+      <details className="import-minor">
+        <summary>
+          Autres vérifications <Badge>{found.categories.length + found.referents.length + review.civilities.length + found.inactive.length}</Badge>
+        </summary>
+      {found.categories.length > 0 && (
+        <Section
+          id="categories"
+          title="Catégories d’activité"
+          count={found.categories.length}
+          description="Chaque valeur de la colonne « Catégorie » : associée à des catégories, créée, reconnue comme segment ou ignorée (elle reste alors dans les valeurs d’origine)."
+        >
+          {found.categories.map((group) => (
+            <CategoryItem
+              key={group.key}
+              group={group}
+              decision={categoryDecision(review, decisions, group.key)}
+              onChange={(decision) => {
+                decide((current) => ({ ...current, categories: { ...current.categories, [group.key]: decision } }))
+              }}
+            />
+          ))}
+        </Section>
+      )}
+
+      {found.referents.length > 0 && (
+        <Section
+          id="referents"
+          title="Référents"
+          count={found.referents.length}
+          description="Seul un référent interne Circoe peut devenir « Référent ». Les marqueurs, notes et adresses sont ignorés par défaut et conservés tels quels. Un référent absent se crée dans Paramètres, puis « Relancer l’analyse »."
+        >
+          {found.referents.map((group) => (
+            <ReferentItem
+              key={group.key}
+              group={group}
+              decision={referentDecision(review, decisions, group.key)}
+              onChange={(decision) => {
+                decide((current) => ({ ...current, referents: { ...current.referents, [group.key]: decision } }))
+              }}
+            />
+          ))}
+        </Section>
+      )}
+
       {review.civilities.length > 0 && (
         <Section
           id="civilities"
@@ -730,6 +649,7 @@ export function ResolvePanel({ review, decisions, issues, decide, onOpenRow }: R
           ))}
         </Section>
       )}
+      </details>
     </div>
   )
 }
