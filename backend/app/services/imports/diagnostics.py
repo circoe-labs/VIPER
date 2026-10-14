@@ -57,6 +57,7 @@ class DiagnosticCode(StrEnum):
     PROSPECT_PARTIAL_NAME = "prospect.partial_name"
     COMPANY_MISSING = "company.missing"
     CIVILITY_INVALID = "civility.invalid"
+    ROLE_MISSING = "role.missing"
     ROLE_SUGGESTED = "role.suggested"
     ROLE_UNMATCHED = "role.unmatched"
     ROLE_INACTIVE_MATCH = "role.inactive_match"
@@ -210,6 +211,9 @@ CATALOGUE: dict[DiagnosticCode, CodeSpec] = {
     ),
     DiagnosticCode.CIVILITY_INVALID: CodeSpec(
         WARNING, f"Civilité non reconnue (M. ou Mme attendu) : laissée vide, {KEPT}."
+    ),
+    DiagnosticCode.ROLE_MISSING: CodeSpec(
+        WARNING, "Fonction manquante : normal pour certains contacts, sinon à compléter."
     ),
     DiagnosticCode.ROLE_SUGGESTED: CodeSpec(
         INFO, "Rôle proposé d'après la fonction : à confirmer."

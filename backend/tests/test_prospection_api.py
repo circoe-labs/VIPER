@@ -10,8 +10,8 @@ from sqlalchemy.orm import Session
 
 from app.core.business_time import business_day
 from app.core.config import Settings
-from app.models import ContactTracking
-from app.models.enums import ContactabilityStatus, ContactTrackingStatus
+from app.models import ContactTracking, Prospect
+from app.models.enums import ContactabilityStatus, ContactTrackingStatus, VerificationStatus
 from app.services.prospection.segments import Segment
 from tests.builders import (
     add_cohort,
@@ -19,6 +19,7 @@ from tests.builders import (
     add_email,
     add_prospect,
     add_role,
+    add_send,
     start_sequence,
 )
 
@@ -142,3 +143,89 @@ def test_reads_write_nothing(client: TestClient, db_session: Session) -> None:
     get(client, PROSPECTS)
 
     assert not db_session.dirty and not db_session.new
+
+
+def test_reviews_partition_the_base_and_count_this_week(
+    client: TestClient, db_session: Session
+) -> None:
+    now = datetime.now(UTC)
+    old = now - timedelta(days=60)
+    company = add_company(db_session, "Revue Exemple SAS")
+
+    def person(
+        name: str, *, employment: datetime | None, email: datetime | None, ignored: bool = False
+    ) -> Prospect:
+        prospect = add_prospect(
+            db_session,
+            company,
+            first_name="Revue",
+            last_name=name,
+            employment_verified_at=employment,
+        )
+        if email is not None:
+            add_email(
+                db_session,
+                prospect,
+                f"{name.lower()}@exemple.example",
+                is_primary=True,
+                verification_status=VerificationStatus.VERIFIED,
+                last_verified_at=email,
+            )
+        if ignored:
+            db_session.add(
+                ContactTracking(prospect_id=prospect.id, status=ContactTrackingStatus.IGNORED)
+            )
+        return prospect
+
+    person("Complete", employment=now, email=now)  # verified, completed this week
+    person("Ancienne", employment=old, email=old)  # verified, long ago
+    person("SansEmail", employment=now, email=None)  # to verify: no verified e-mail
+    person("Jamais", employment=None, email=now)  # to verify: never verified
+    person("Ecartee", employment=now, email=now, ignored=True)  # ignored wins over verified
+    db_session.flush()
+
+    counters = get(client, COUNTERS, q="Revue")
+    reviews = counters["reviews"]
+
+    assert reviews["verified"] == {"total": 2, "week": 1}
+    assert reviews["to_verify"]["total"] == 2
+    assert reviews["ignored"]["total"] == 1
+    assert sum(r["total"] for r in reviews.values()) == counters["counts"]["all"]
+    for key, review in reviews.items():
+        page = get(client, PROSPECTS, review=key, q="Revue")
+        assert page["total"] == review["total"], key
+
+
+def test_overview_counts_the_whole_base_and_the_deleted(
+    client: TestClient, db_session: Session
+) -> None:
+    from app.core.actor import ActorType
+    from app.models import AuditLogEntry
+
+    company = add_company(db_session, "Bilan SARL")
+    reached = add_prospect(db_session, company, first_name="Joint", last_name="Bilan")
+    add_prospect(db_session, company, first_name="Pas", last_name="Joint")
+    cohort = add_cohort(db_session, "S50")
+    sequence = start_sequence(db_session, reached, cohort)
+    add_send(db_session, sequence, 0, datetime.now(UTC))
+    for action in ("prospect.deleted", "prospect.deleted", "prospect.updated"):
+        db_session.add(
+            AuditLogEntry(
+                actor_type=ActorType.SYSTEM,
+                actor_display="test",
+                entity_type="prospect",
+                action=action,
+            )
+        )
+    db_session.flush()
+
+    before = get(client, "/api/prospection/overview")
+    assert before["deleted"] >= 2
+    assert before["total"] >= 2
+    assert 1 <= before["contacted"] <= before["total"]
+    # A search does not narrow it: the figures are the whole base's.
+    assert get(client, "/api/prospection/overview", q="Joint") == before
+
+
+def test_overview_needs_a_session(anonymous_client: TestClient) -> None:
+    assert anonymous_client.get("/api/prospection/overview").status_code == 401

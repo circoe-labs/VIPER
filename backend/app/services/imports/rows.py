@@ -478,11 +478,13 @@ class RowBuilder:
             self.flag(DiagnosticCode.PROSPECT_PARTIAL_NAME)
         title = self.text(ImportField.JOB_TITLE)
         roles: list[TaxonomyMatch] = []
-        if title is not None:
-            column = self.by_field[ImportField.JOB_TITLE]
-            roles, codes = match_role(title, self.reference.roles)
-            for code in codes:
-                self.flag(code, column, self.value(column))
+        if title is None:
+            if ImportField.JOB_TITLE in self.by_field:
+                self.flag(DiagnosticCode.ROLE_MISSING, self.by_field[ImportField.JOB_TITLE])
+        else:
+            # The job title is kept as written; an exact role match is attached, anything else is not a remark:
+            # there are too many distinct functions to review them one by one.
+            roles, _ = match_role(title, self.reference.roles)
         return ProspectProposal(
             civility=civility,
             first_name=normalize_name(first_name) if first_name else None,

@@ -74,7 +74,7 @@ def test_summary(preview: ImportPreview) -> None:
     everything = [*summary.notices, *(d for r in preview.rows for d in r.diagnostics)]
     assert sum(summary.counts_by_code.values()) == len(everything)
     assert sum(summary.counts_by_severity.values()) == len(everything)
-    assert summary.rows_by_status == {"ok": 1, "warning": 7, "error": 2}
+    assert summary.rows_by_status == {"ok": 0, "warning": 8, "error": 2}
     assert summary.duplicate_email_groups == 1
 
 
@@ -160,8 +160,8 @@ def test_roles_are_suggested_never_created(preview: ImportPreview) -> None:
     assert exact.prospect.exact_job_title == "Responsable transport"
     assert unknown.prospect.role_suggestions == []
     assert unknown.prospect.exact_job_title == "Directeur des opérations fictives"
-    assert Code.ROLE_UNMATCHED in codes(unknown)
-    assert Code.ROLE_INACTIVE_MATCH in codes(inactive)
+    assert not {Code.ROLE_UNMATCHED, Code.ROLE_SUGGESTED, Code.ROLE_INACTIVE_MATCH} & codes(unknown)
+    assert Code.ROLE_INACTIVE_MATCH not in codes(inactive)
 
 
 def test_duplicate_email_and_company_name_variant(preview: ImportPreview) -> None:

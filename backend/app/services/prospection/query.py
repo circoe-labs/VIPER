@@ -29,6 +29,7 @@ from app.core.business_time import BUSINESS_TIMEZONE
 from app.core.contact_steps import level_key, level_label, step_code
 from app.db.session import whole_base_plan
 from app.models import (
+    AuditLogEntry,
     Cohort,
     Company,
     ContactTracking,
@@ -57,6 +58,7 @@ from app.services.contact_sequences import (
 )
 from app.services.prospection.segments import (
     EmailState,
+    Review,
     Segment,
     SegmentContext,
     VerificationState,
@@ -64,6 +66,9 @@ from app.services.prospection.segments import (
     join_segment_sources,
     predicate,
     primary_email,
+    review_counts,
+    review_predicate,
+    review_state,
     segment_counts,
     verification_state,
 )
@@ -103,8 +108,16 @@ class ProspectFilters:
 
 
 @dataclass(frozen=True, slots=True)
+class ReviewCount:
+    total: int
+    # How many arrived since Monday (business time).
+    week: int
+
+
+@dataclass(frozen=True, slots=True)
 class SegmentCounts:
     counts: dict[Segment, int]
+    reviews: dict[Review, ReviewCount]
     today: date
     stale_threshold_days: int | None
 
@@ -124,6 +137,7 @@ class ProspectRow:
     activity_status: ActivityStatus
     employment_verified_at: datetime | None
     verification_state: VerificationState
+    review: Review
     primary_email: str | None
     primary_email_status: VerificationStatus | None
     email_state: EmailState
@@ -277,15 +291,43 @@ def count_segments(
     session: Session, filters: ProspectFilters, context: SegmentContext
 ) -> SegmentCounts:
     """Every segment's size under `filters`, in one aggregate query."""
-    statement = join_segment_sources(select(*segment_counts(context))).where(
-        *filter_conditions(filters)
-    )
+    statement = join_segment_sources(
+        select(*segment_counts(context), *review_counts(context))
+    ).where(*filter_conditions(filters))
     with whole_base_plan(session):
         row = session.execute(statement).one()._mapping
     return SegmentCounts(
         counts={segment: row[segment.value] for segment in Segment},
+        reviews={
+            review: ReviewCount(total=row[review.value], week=row[f"{review.value}_week"])
+            for review in Review
+        },
         today=context.today,
         stale_threshold_days=context.stale_days,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class BaseOverview:
+    """The whole base at a glance, whatever the search: how many people it holds, how many of them
+    were contacted (the `contacted` segment), and how many were deleted since the start."""
+
+    total: int
+    contacted: int
+    deleted: int
+
+
+def base_overview(session: Session, context: SegmentContext) -> BaseOverview:
+    """Exact sizes of the whole base. `deleted` counts the `prospect.deleted` events of the audit
+    log (append-only, so a deletion is never forgotten even though its rows are gone)."""
+    counts = count_segments(session, ProspectFilters(), context).counts
+    deleted = session.scalar(
+        select(func.count())
+        .select_from(AuditLogEntry)
+        .where(AuditLogEntry.entity_type == "prospect", AuditLogEntry.action == "prospect.deleted")
+    )
+    return BaseOverview(
+        total=counts[Segment.ALL], contacted=counts[Segment.CONTACTED], deleted=deleted or 0
     )
 
 
@@ -298,6 +340,7 @@ def _page_statement(context: SegmentContext) -> Select[Any]:
                 Role.label,
                 Company.display_name,
                 verification_state(context),
+                review_state(context),
                 primary_email.address,
                 primary_email.verification_status,
                 email_state(),
@@ -336,6 +379,7 @@ def list_prospects(
     context: SegmentContext,
     *,
     segment: Segment = Segment.ALL,
+    review: Review | None = None,
     sort: ProspectSort = ProspectSort.NAME,
     limit: int = 50,
     offset: int = 0,
@@ -344,6 +388,8 @@ def list_prospects(
     limit = max(1, min(limit, LIST_MAX_LIMIT))
     offset = max(0, offset)
     where = [*filter_conditions(filters), predicate(segment, context)]
+    if review is not None:
+        where.append(review_predicate(review, context))
     page = _page_statement(context).where(*where).order_by(*_order_by(sort))
     count = join_segment_sources(select(func.count())).where(*where)
     with whole_base_plan(session):
@@ -355,6 +401,7 @@ def list_prospects(
         role_label,
         company_name,
         verification,
+        review_value,
         email,
         email_status,
         email_kind,
@@ -383,6 +430,7 @@ def list_prospects(
                 activity_status=prospect.activity_status,
                 employment_verified_at=prospect.employment_verified_at,
                 verification_state=VerificationState(verification),
+                review=Review(review_value),
                 primary_email=email,
                 primary_email_status=email_status,
                 email_state=EmailState(email_kind),
