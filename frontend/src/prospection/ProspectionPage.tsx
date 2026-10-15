@@ -17,6 +17,7 @@ import { EmptyState } from '../ui/EmptyState'
 import {
   AlertIcon,
   BuildingIcon,
+  CheckCircleIcon,
   ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -118,6 +119,10 @@ export function ProspectionPage() {
         description="Vérifier la base, préparer les contacts, suivre les réponses."
         actions={
           <>
+            <Link to="/prospection/verification" className="btn btn--primary btn--md">
+              <CheckCircleIcon size={18} />
+              Vérifier les fiches
+            </Link>
             <Link to="/prospection/companies" className="btn btn--ghost btn--md">
               <BuildingIcon size={18} />
               Entreprises

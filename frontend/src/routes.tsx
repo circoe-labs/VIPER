@@ -8,6 +8,7 @@ import { DatabasePage } from './database/DatabasePage'
 import { HomePage } from './home/HomePage'
 import { ImportPage } from './imports/ImportPage'
 import { ProspectionPage } from './prospection/ProspectionPage'
+import { VerificationPage } from './prospection/VerificationPage'
 import { AppShell } from './shell/AppShell'
 import { SettingsPage } from './settings/SettingsPage'
 
@@ -37,6 +38,7 @@ const PAGES: RouteObject[] = [
 const SUBPAGES: RouteObject[] = [
   { path: '/prospection/companies', element: <CompaniesPage /> },
   { path: '/prospection/import', element: <ImportPage /> },
+  { path: '/prospection/verification', element: <VerificationPage /> },
 ]
 
 // Everything but /login requires a session (RequireAuth); the API enforces the same rule server-side.

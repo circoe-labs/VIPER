@@ -155,6 +155,14 @@ export function useProspectAlerts(prospectId: string) {
   })
 }
 
+// The prospects with an open « Fonction à vérifier » alert (the verification space's « Incertitude »): at most 200.
+export function useUncertainAlerts() {
+  return useQuery({
+    queryKey: [...alertKeys.all, 'uncertain'] as const,
+    queryFn: ({ signal }) => apiGet<AlertPage>('/alerts?type=function_to_check&state=open&limit=200', signal),
+  })
+}
+
 // Writes on a prospect's sequence or alerts: the prospect (its version and derived contact), its sequences and alerts,
 // its history, and every list that shows a level or a pause (Prospection, Contact, Home, the cohorts' counts) are read
 // again.

@@ -186,6 +186,7 @@ export const SORT_LABELS: Record<ProspectSort, string> = {
   next_due: 'Prochaine échéance la plus proche',
   verification: 'Vérification la plus ancienne',
   updated: 'Modifiés récemment',
+  file: 'Ordre du fichier Excel',
 }
 
 const DAY = new Intl.DateTimeFormat('fr-FR', {

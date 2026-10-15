@@ -44,7 +44,7 @@ export const TRACKING_STATUSES = [
 export type TrackingStatus = (typeof TRACKING_STATUSES)[number]
 
 // `next_due` = the derived next due date (backend ProspectSort; `planned_contact` is its former alias).
-export const PROSPECT_SORTS = ['name', 'company', 'next_due', 'verification', 'updated'] as const
+export const PROSPECT_SORTS = ['name', 'company', 'next_due', 'verification', 'updated', 'file'] as const
 export type ProspectSort = (typeof PROSPECT_SORTS)[number]
 
 export type ActivityStatus = 'active' | 'inactive' | 'unknown'

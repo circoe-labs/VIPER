@@ -45,9 +45,11 @@ from app.models.enums import (
     Civility,
     ContactabilityStatus,
     ContactTrackingStatus,
+    ImportBatchStatus,
     PhoneType,
     VerificationStatus,
 )
+from app.models.imports import ImportBatch, ImportRowMetadata
 from app.repositories.taxonomies import label_key
 from app.services.contact_sequences import (
     email_error_sql,
@@ -90,6 +92,8 @@ class ProspectSort(StrEnum):
     PLANNED_CONTACT = "planned_contact"
     VERIFICATION = "verification"  # never verified first, then oldest verification
     UPDATED = "updated"  # most recently changed first
+    # Row order of the last file the person came from (the verification space follows the Excel).
+    FILE = "file"
 
 
 @dataclass(frozen=True, slots=True)
@@ -280,6 +284,25 @@ def _order_by(sort: ProspectSort) -> list[SQLColumnExpression[Any]]:
             keys = [Prospect.employment_verified_at.asc().nulls_first(), *person]
         case ProspectSort.UPDATED:
             keys = [Prospect.updated_at.desc()]
+        case ProspectSort.FILE:
+            # Only the last committed file counts: people it did not carry come last.
+            latest_batch = (
+                select(ImportBatch.id)
+                .where(ImportBatch.status == ImportBatchStatus.COMMITTED)
+                .order_by(ImportBatch.committed_at.desc())
+                .limit(1)
+                .scalar_subquery()
+            )
+            latest_row = (
+                select(func.min(ImportRowMetadata.source_row_number))
+                .where(
+                    ImportRowMetadata.prospect_id == Prospect.id,
+                    ImportRowMetadata.import_batch_id == latest_batch,
+                    ImportRowMetadata.excluded.is_(False),
+                )
+                .scalar_subquery()
+            )
+            keys = [latest_row.asc().nulls_last(), *person]
     # The id makes every order total, so pages never overlap or skip rows.
     return [*keys, Prospect.id]
 
