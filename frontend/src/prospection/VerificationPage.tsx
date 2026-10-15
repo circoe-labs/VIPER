@@ -474,11 +474,9 @@ function VerificationForm({ prospect, onValidated, onSkip, onBack }: FormProps) 
           <Button icon={ChevronRightIcon} disabled={busy} onClick={onSkip}>
             Passer
           </Button>
-          {onBack && (
-            <Button variant="ghost" icon={ChevronLeftIcon} disabled={busy} onClick={onBack}>
-              Retour
-            </Button>
-          )}
+          <Button variant="ghost" icon={ChevronLeftIcon} disabled={busy || !onBack} onClick={onBack}>
+            Retour
+          </Button>
         </div>
         <p className="verification__hint">
           <Link to={`/prospection?prospect=${prospect.id}`}>Ouvrir la fiche complète</Link>

@@ -117,11 +117,11 @@ describe('Espace de vérification', () => {
     expect(api.requests.filter((request) => request.method !== 'GET')).toEqual([])
   })
 
-  it('« Retour » shows the previous fiche again, and is absent on the first one', async () => {
+  it('« Retour » shows the previous fiche again, and is disabled on the first one', async () => {
     people()
     renderApp('/prospection/verification')
     await screen.findByDisplayValue('Premier')
-    expect(screen.queryByRole('button', { name: 'Retour' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Retour' })).toBeDisabled()
 
     await userEvent.click(screen.getByRole('button', { name: 'Passer' }))
     await screen.findByDisplayValue('Second')
