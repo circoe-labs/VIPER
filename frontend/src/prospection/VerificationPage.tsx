@@ -9,17 +9,20 @@ import { useProspectAlerts, useSequenceMutations } from '../api/sequences'
 import { useCohorts } from '../api/settings'
 import {
   type AliasDraft,
+  type AliasKind,
   draftFromProspect,
+  newAlias,
   type ProspectDraft,
+  suggestedPhoneType,
   toInput,
   validate,
 } from '../prospects/prospectForm'
 import { StatusBadge } from '../ui/Badge'
-import { Button } from '../ui/Button'
+import { Button, IconButton } from '../ui/Button'
 import { Card } from '../ui/Card'
 import { EmptyState } from '../ui/EmptyState'
 import { SelectField, TextField } from '../ui/fields'
-import { AlertIcon, BanIcon, CheckCircleIcon, ChevronLeftIcon, ChevronRightIcon } from '../ui/icons'
+import { AlertIcon, BanIcon, CheckCircleIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon, PlusIcon } from '../ui/icons'
 import { PageHeader } from '../ui/PageHeader'
 import { IgnoredReading, VerificationOverview, VerifiedReading } from './VerificationOverview'
 import {
@@ -225,6 +228,60 @@ function primaryOf(aliases: AliasDraft[]): AliasDraft | undefined {
   return aliases.find((alias) => alias.is_primary && alias.is_active) ?? aliases.find((alias) => alias.is_active)
 }
 
+// A fiche without any address / number still shows one empty line to type into (an empty new line is never saved).
+function withBlankLines(draft: ProspectDraft): ProspectDraft {
+  const ensured = (kind: AliasKind, aliases: AliasDraft[]) =>
+    aliases.some((alias) => alias.is_active) ? aliases : [...aliases, newAlias(kind, true)]
+  return { ...draft, emails: ensured('emails', draft.emails), phones: ensured('phones', draft.phones) }
+}
+
+interface AliasFieldsProps {
+  kind: AliasKind
+  label: string
+  addLabel: string
+  aliases: AliasDraft[]
+  messages: Record<string, string>
+  onEdit: (kind: AliasKind, key: string, value: string) => void
+  onAdd: (kind: AliasKind) => void
+  onRemove: (kind: AliasKind, key: string) => void
+}
+
+// Every active address / number of the fiche, one line each (the first is the main one), and a button to add another.
+function AliasFields({ kind, label, addLabel, aliases, messages, onEdit, onAdd, onRemove }: AliasFieldsProps) {
+  const lines = aliases.filter((alias) => alias.is_active)
+  return (
+    <div className="verification__aliases">
+      {lines.map((alias, position) => {
+        const path = `${kind}.${String(aliases.indexOf(alias))}.${kind === 'emails' ? 'address' : 'number'}`
+        return (
+          <div key={alias.key} className="verification__alias">
+            <TextField
+              label={position === 0 ? label : `${label} ${String(position + 1)}`}
+              value={alias.value}
+              error={messages[path]}
+              onChange={(event) => {
+                onEdit(kind, alias.key, event.target.value)
+              }}
+            />
+            {position > 0 && (
+              <IconButton
+                icon={CloseIcon}
+                label={`Retirer ${label.toLowerCase()} ${String(position + 1)}`}
+                onClick={() => {
+                  onRemove(kind, alias.key)
+                }}
+              />
+            )}
+          </div>
+        )
+      })}
+      <Button variant="ghost" size="sm" icon={PlusIcon} onClick={() => { onAdd(kind) }}>
+        {addLabel}
+      </Button>
+    </div>
+  )
+}
+
 interface FormProps {
   prospect: Prospect
   onValidated: () => void
@@ -235,7 +292,7 @@ interface FormProps {
 }
 
 function VerificationForm({ prospect, onValidated, onSkip, onUncertain, onBack }: FormProps) {
-  const [draft, setDraft] = useState<ProspectDraft>(() => draftFromProspect(prospect))
+  const [draft, setDraft] = useState<ProspectDraft>(() => withBlankLines(draftFromProspect(prospect)))
   const [cohortId, setCohortId] = useState('')
   const [note, setNote] = useState('')
   const [confirmIgnore, setConfirmIgnore] = useState(false)
@@ -249,16 +306,19 @@ function VerificationForm({ prospect, onValidated, onSkip, onUncertain, onBack }
   const alerts = useProspectAlerts(prospect.id)
   const busy = companies.update.isPending || mutations.update.isPending || mutations.tracking.isPending || sequence.changeCohort.isPending || sequence.raiseAlert.isPending
 
-  const email = primaryOf(draft.emails)
-  const phone = primaryOf(draft.phones)
+  const activeValues = (aliases: AliasDraft[]) =>
+    aliases
+      .filter((alias) => alias.is_active && alias.value.trim() !== '')
+      .map((alias) => alias.value.trim())
+      .join('; ')
   const openAlerts = (alerts.data?.items ?? []).filter((alert) => alert.open)
   const source = prospect.sources[0]
   // What is on screen, one row for a paste: last name, first name, e-mail, phone, job title, company.
   const copyLine = [
     draft.last_name,
     draft.first_name,
-    email?.value ?? '',
-    phone?.value ?? '',
+    activeValues(draft.emails),
+    activeValues(draft.phones),
     draft.exact_job_title,
     companyName,
   ]
@@ -270,17 +330,48 @@ function VerificationForm({ prospect, onValidated, onSkip, onUncertain, onBack }
     setDraft((current) => ({ ...current, ...changes }))
   }
 
-  function patchAlias(kind: 'emails' | 'phones', key: string, value: string) {
+  function typed(kind: AliasKind, alias: AliasDraft, value: string): AliasDraft {
+    return {
+      ...alias,
+      value,
+      type: kind === 'phones' && !alias.typeChosen ? (suggestedPhoneType(value) ?? 'other') : alias.type,
+    }
+  }
+
+  function editAlias(kind: AliasKind, key: string, value: string) {
     setDraft((current) => ({
       ...current,
-      [kind]: current[kind].map((alias) => (alias.key === key ? { ...alias, value } : alias)),
+      [kind]: current[kind].map((alias) => (alias.key === key ? typed(kind, alias, value) : alias)),
     }))
   }
 
+  // A new empty line; the first one of a kind is the main one. Empty new lines are left out of the save.
+  function addAlias(kind: AliasKind) {
+    setDraft((current) => ({
+      ...current,
+      [kind]: [...current[kind], newAlias(kind, !primaryOf(current[kind]))],
+    }))
+  }
+
+  // A new line is dropped; a stored one becomes an old address / number (inactive), never deleted. The main one stays
+  // main: if it is retired, the next active one takes over.
+  function removeAlias(kind: AliasKind, key: string) {
+    setDraft((current) => {
+      const list = current[kind]
+        .filter((alias) => !(alias.key === key && alias.id === null))
+        .map((alias) => (alias.key === key ? { ...alias, is_active: false, is_primary: false } : alias))
+      const heir = list.find((alias) => alias.is_active)
+      const withMain =
+        heir && !list.some((alias) => alias.is_active && alias.is_primary)
+          ? list.map((alias) => (alias === heir ? { ...alias, is_primary: true } : alias))
+          : list
+      return { ...current, [kind]: withMain }
+    })
+  }
+
   function verified(aliases: AliasDraft[]): AliasDraft[] {
-    const target = primaryOf(aliases)
     return aliases.map((alias) =>
-      alias === target && alias.value.trim() !== '' && alias.verification_status !== 'invalid'
+      alias.is_active && alias.value.trim() !== '' && alias.verification_status !== 'invalid'
         ? { ...alias, verified_now: true }
         : alias,
     )
@@ -427,24 +518,25 @@ function VerificationForm({ prospect, onValidated, onSkip, onUncertain, onBack }
           <TextField label="Prénom" value={draft.first_name} error={messages.first_name} onChange={(event) => { patch({ first_name: event.target.value }); }} />
           <TextField label="Nom" value={draft.last_name} error={messages.last_name} onChange={(event) => { patch({ last_name: event.target.value }); }} />
           <TextField label="Fonction" value={draft.exact_job_title} onChange={(event) => { patch({ exact_job_title: event.target.value }); }} />
-          <TextField
+          <AliasFields
+            kind="emails"
             label="E-mail"
-            value={email?.value ?? ''}
-            error={email ? messages[`emails.${String(draft.emails.indexOf(email))}.address`] : undefined}
-            disabled={!email}
-            hint={email ? undefined : 'Aucune adresse enregistrée : ajoutez-la depuis la fiche complète.'}
-            onChange={(event) => {
-              if (email) patchAlias('emails', email.key, event.target.value)
-            }}
+            addLabel="Ajouter un e-mail"
+            aliases={draft.emails}
+            messages={messages}
+            onEdit={editAlias}
+            onAdd={addAlias}
+            onRemove={removeAlias}
           />
-          <TextField
+          <AliasFields
+            kind="phones"
             label="Téléphone"
-            value={phone?.value ?? ''}
-            error={phone ? messages[`phones.${String(draft.phones.indexOf(phone))}.number`] : undefined}
-            disabled={!phone}
-            onChange={(event) => {
-              if (phone) patchAlias('phones', phone.key, event.target.value)
-            }}
+            addLabel="Ajouter un téléphone"
+            aliases={draft.phones}
+            messages={messages}
+            onEdit={editAlias}
+            onAdd={addAlias}
+            onRemove={removeAlias}
           />
           <SelectField label="Mettre en cohorte (facultatif)" value={cohortId} onChange={(event) => { setCohortId(event.target.value); }}>
             <option value="">Aucune cohorte</option>

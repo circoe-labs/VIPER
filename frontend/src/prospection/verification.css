@@ -40,6 +40,22 @@
   gap: var(--space-2);
 }
 
+.verification__aliases {
+  display: grid;
+  gap: var(--space-2);
+  align-content: start;
+}
+
+.verification__alias {
+  display: flex;
+  align-items: end;
+  gap: var(--space-2);
+}
+
+.verification__alias > :first-child {
+  flex: 1;
+}
+
 .verification__notice {
   margin: 0;
 }

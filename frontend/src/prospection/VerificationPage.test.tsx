@@ -91,6 +91,37 @@ describe('Espace de vérification', () => {
     expect(api.companies.find((row) => row.id === employer.id)?.display_name).toBe('Transports Exemple Groupe')
   })
 
+  it('lets you type a phone number when the fiche has none, and saves it verified', async () => {
+    const api = people()
+    renderApp('/prospection/verification')
+    const phone = await screen.findByLabelText('Téléphone')
+    expect(phone).toBeEnabled()
+    await userEvent.type(phone, '02 35 22 64 24')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Valider et suivant' }))
+
+    await screen.findByDisplayValue('Second')
+    const body = lastBody(api.requests, 'PUT') as { phones: { number: string; type: string; verified_now: boolean }[] }
+    expect(body.phones).toMatchObject([{ number: '02 35 22 64 24', type: 'landline', verified_now: true }])
+  })
+
+  it('lets you add a second e-mail, saved with the first and both verified', async () => {
+    const api = people()
+    renderApp('/prospection/verification')
+    await screen.findByDisplayValue('Premier')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Ajouter un e-mail' }))
+    await userEvent.type(screen.getByLabelText('E-mail 2'), 'anne.autre@exemple.test')
+    await userEvent.click(screen.getByRole('button', { name: 'Valider et suivant' }))
+
+    await screen.findByDisplayValue('Second')
+    const body = lastBody(api.requests, 'PUT') as { emails: { address: string; is_primary: boolean; verified_now: boolean }[] }
+    expect(body.emails).toMatchObject([
+      { address: 'anne@exemple.test', is_primary: true, verified_now: true },
+      { address: 'anne.autre@exemple.test', is_primary: false, verified_now: true },
+    ])
+  })
+
   it('says what blocks the validation instead of sending it', async () => {
     const orphan = prospectDetail({ first_name: 'Carl', last_name: 'Sansentreprise' })
     const api = stubProspectsApi({
