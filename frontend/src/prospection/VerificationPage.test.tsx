@@ -23,18 +23,30 @@ function email(address: string) {
   }
 }
 
-function people() {
+function phone(number: string) {
+  return { ...email(number), number, address: undefined, type: 'landline' as const }
+}
+
+// Complete fiches (nothing missing) unless `withPhone` is off.
+function people({ withPhone = true }: { withPhone?: boolean } = {}) {
+  const complete = {
+    civility: 'mr' as const,
+    exact_job_title: 'Directeur',
+    company: companySummary(employer),
+  }
   const anne = prospectDetail({
+    ...complete,
     first_name: 'Anne',
     last_name: 'Premier',
-    company: companySummary(employer),
     emails: [email('anne@exemple.test')],
+    phones: withPhone ? [phone('+33235226424')] : [],
   })
   const bruno = prospectDetail({
+    ...complete,
     first_name: 'Bruno',
     last_name: 'Second',
-    company: companySummary(employer),
     emails: [email('bruno@exemple.test')],
+    phones: withPhone ? [phone('+33235226425')] : [],
   })
   const rows = [
     prospect('Anne', 'Premier', { id: anne.id }, ['never_verified']),
@@ -91,8 +103,23 @@ describe('Espace de vérification', () => {
     expect(api.companies.find((row) => row.id === employer.id)?.display_name).toBe('Transports Exemple Groupe')
   })
 
+  it('marks the empty boxes in red on « Valider » and validates on the second press', async () => {
+    const api = people({ withPhone: false })
+    renderApp('/prospection/verification')
+    await screen.findByDisplayValue('Premier')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Valider et suivant' }))
+
+    expect(await screen.findByText('À compléter')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('Il manque : téléphone')
+    expect(api.requests.filter((request) => request.method !== 'GET')).toEqual([])
+
+    await userEvent.click(screen.getByRole('button', { name: 'Valider quand même' }))
+    expect(await screen.findByDisplayValue('Second')).toBeInTheDocument()
+  })
+
   it('lets you type a phone number when the fiche has none, and saves it verified', async () => {
-    const api = people()
+    const api = people({ withPhone: false })
     renderApp('/prospection/verification')
     const phone = await screen.findByLabelText('Téléphone')
     expect(phone).toBeEnabled()

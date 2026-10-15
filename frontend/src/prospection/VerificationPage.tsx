@@ -22,8 +22,11 @@ import { Button, IconButton } from '../ui/Button'
 import { Card } from '../ui/Card'
 import { EmptyState } from '../ui/EmptyState'
 import { SelectField, TextField } from '../ui/fields'
-import { AlertIcon, BanIcon, CheckCircleIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon, PlusIcon } from '../ui/icons'
+import type { Point } from '../ui/floating'
+import { AlertIcon, BanIcon, CheckCircleIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon, CopyIcon, PlusIcon } from '../ui/icons'
+import { Menu, type MenuSection } from '../ui/Menu'
 import { PageHeader } from '../ui/PageHeader'
+import { type FicheSnapshot, toExcelRow, toJson, toPlainText, toPrompt } from './verificationCopy'
 import { IgnoredReading, VerificationOverview, VerifiedReading } from './VerificationOverview'
 import {
   todoCriteria,
@@ -240,6 +243,8 @@ interface AliasFieldsProps {
   label: string
   addLabel: string
   aliases: AliasDraft[]
+  // « À compléter » when the whole kind is empty and the person was warned; undefined otherwise.
+  incomplete: string | undefined
   messages: Record<string, string>
   onEdit: (kind: AliasKind, key: string, value: string) => void
   onAdd: (kind: AliasKind) => void
@@ -247,7 +252,7 @@ interface AliasFieldsProps {
 }
 
 // Every active address / number of the fiche, one line each (the first is the main one), and a button to add another.
-function AliasFields({ kind, label, addLabel, aliases, messages, onEdit, onAdd, onRemove }: AliasFieldsProps) {
+function AliasFields({ kind, label, addLabel, aliases, incomplete, messages, onEdit, onAdd, onRemove }: AliasFieldsProps) {
   const lines = aliases.filter((alias) => alias.is_active)
   return (
     <div className="verification__aliases">
@@ -258,7 +263,7 @@ function AliasFields({ kind, label, addLabel, aliases, messages, onEdit, onAdd, 
             <TextField
               label={position === 0 ? label : `${label} ${String(position + 1)}`}
               value={alias.value}
-              error={messages[path]}
+              error={messages[path] ?? (position === 0 ? incomplete : undefined)}
               onChange={(event) => {
                 onEdit(kind, alias.key, event.target.value)
               }}
@@ -297,6 +302,8 @@ function VerificationForm({ prospect, onValidated, onSkip, onUncertain, onBack }
   const [note, setNote] = useState('')
   const [confirmIgnore, setConfirmIgnore] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [copyMenuAt, setCopyMenuAt] = useState<Point | null>(null)
+  const [warned, setWarned] = useState(false)
   const [companyName, setCompanyName] = useState(prospect.company?.display_name ?? '')
   const [error, setError] = useState<string | null>(null)
   const companies = useCompanyMutations()
@@ -306,25 +313,61 @@ function VerificationForm({ prospect, onValidated, onSkip, onUncertain, onBack }
   const alerts = useProspectAlerts(prospect.id)
   const busy = companies.update.isPending || mutations.update.isPending || mutations.tracking.isPending || sequence.changeCohort.isPending || sequence.raiseAlert.isPending
 
-  const activeValues = (aliases: AliasDraft[]) =>
-    aliases
-      .filter((alias) => alias.is_active && alias.value.trim() !== '')
-      .map((alias) => alias.value.trim())
-      .join('; ')
   const openAlerts = (alerts.data?.items ?? []).filter((alert) => alert.open)
   const source = prospect.sources[0]
-  // What is on screen, one row for a paste: last name, first name, e-mail, phone, job title, company.
-  const copyLine = [
-    draft.last_name,
-    draft.first_name,
-    activeValues(draft.emails),
-    activeValues(draft.phones),
-    draft.exact_job_title,
-    companyName,
+  // What is on screen (not what is saved), in the shapes the « Copier » menu offers.
+  const listOf = (aliases: AliasDraft[]) =>
+    aliases.filter((alias) => alias.is_active && alias.value.trim() !== '').map((alias) => alias.value.trim())
+  const snapshot: FicheSnapshot = {
+    entreprise: companyName,
+    ville: prospect.company?.city ?? '',
+    site_web: prospect.company?.website_url ?? '',
+    domaine_email: prospect.company?.email_domain ?? '',
+    civilite: draft.civility === 'mr' ? 'M.' : draft.civility === 'ms' ? 'Mme' : '',
+    prenom: draft.first_name,
+    nom: draft.last_name,
+    fonction: draft.exact_job_title,
+    emails: listOf(draft.emails),
+    telephones: listOf(draft.phones),
+    source: source ? (source.import_filename ?? source.source_reference ?? 'saisie manuelle') : '',
+    doutes: openAlerts.map((alert) => alert.note ?? 'Alerte ouverte'),
+  }
+  const copyItems: MenuSection[] = [
+    {
+      items: [
+        { id: 'excel', label: 'Ligne Excel (tabulations)', hint: 'nom, prénom, e-mail…', build: toExcelRow },
+        { id: 'text', label: 'Texte brut', build: toPlainText },
+        { id: 'json', label: 'JSON', build: toJson },
+        { id: 'prompt', label: 'Prompt pour un agent IA', hint: 'vérifier + compléter', build: toPrompt },
+      ].map(({ id, label, hint, build }) => ({
+        id,
+        label,
+        hint,
+        icon: CopyIcon,
+        onSelect: () => {
+          void navigator.clipboard.writeText(build(snapshot)).then(() => {
+            setCopied(true)
+          })
+        },
+      })),
+    },
   ]
-    .map((value) => value.replace(/\s+/g, ' ').trim())
-    .join('\t')
   const messages = validate(draft, { isNew: false, today: prospect.today })
+
+  // Empty boxes: shown in red once « Valider » was pressed with some missing (a second press validates anyway).
+  const blank = (value: string) => value.trim() === ''
+  const filled = (aliases: AliasDraft[]) => aliases.some((alias) => alias.is_active && !blank(alias.value))
+  const allGaps = [
+    { key: 'company', label: 'entreprise', empty: blank(companyName) },
+    { key: 'civility', label: 'civilité', empty: draft.civility === '' },
+    { key: 'first', label: 'prénom', empty: blank(draft.first_name) },
+    { key: 'last', label: 'nom', empty: blank(draft.last_name) },
+    { key: 'job', label: 'fonction', empty: blank(draft.exact_job_title) },
+    { key: 'email', label: 'e-mail', empty: !filled(draft.emails) },
+    { key: 'phone', label: 'téléphone', empty: !filled(draft.phones) },
+  ]
+  const gaps = allGaps.filter((gap) => gap.empty)
+  const redIf = (key: string) => (warned && gaps.some((gap) => gap.key === key) ? 'À compléter' : undefined)
 
   function patch(changes: Partial<ProspectDraft>) {
     setDraft((current) => ({ ...current, ...changes }))
@@ -409,6 +452,11 @@ function VerificationForm({ prospect, onValidated, onSkip, onUncertain, onBack }
       setError(`À corriger avant de valider : ${Object.values(messages).join(' ')}`)
       return
     }
+    if (gaps.length > 0 && !warned) {
+      setWarned(true)
+      setError(`Il manque : ${gaps.map((gap) => gap.label).join(', ')}. Complète-les, ou clique à nouveau pour valider quand même.`)
+      return
+    }
     setError(null)
     try {
       const next: ProspectDraft = {
@@ -475,21 +523,44 @@ function VerificationForm({ prospect, onValidated, onSkip, onUncertain, onBack }
   return (
     <Card className="verification__card">
       <form className="verification__form" onSubmit={(event) => void validateAndNext(event)}>
-        <div className="verification__company">
-          <h2>{prospect.company?.display_name ?? 'Sans entreprise'}</h2>
-          <p>
-            {[prospect.company?.city, prospect.company?.website_url, prospect.company?.email_domain].filter(Boolean).join(' · ')}
-          </p>
-          {source && (
-            <p className="verification__source">
-              Source : {source.import_filename ?? source.source_reference ?? 'saisie manuelle'}
+        <div className="verification__head">
+          <div className="verification__company">
+            <h2>{prospect.company?.display_name ?? 'Sans entreprise'}</h2>
+            <p>
+              {[prospect.company?.city, prospect.company?.website_url, prospect.company?.email_domain].filter(Boolean).join(' · ')}
             </p>
+            {source && (
+              <p className="verification__source">
+                Source : {source.import_filename ?? source.source_reference ?? 'saisie manuelle'}
+              </p>
+            )}
+            {openAlerts.map((alert) => (
+              <StatusBadge key={alert.id} tone="warning" icon={AlertIcon}>
+                {alert.note ?? 'Alerte ouverte'}
+              </StatusBadge>
+            ))}
+          </div>
+          <Button
+            icon={copied ? CheckCircleIcon : CopyIcon}
+            aria-haspopup="menu"
+            onClick={(event) => {
+              const rect = event.currentTarget.getBoundingClientRect()
+              setCopyMenuAt({ x: rect.right, y: rect.bottom + 4 })
+            }}
+          >
+            {copied ? 'Copié' : 'Copier'}
+          </Button>
+          {copyMenuAt && (
+            <Menu
+              label="Copier les informations"
+              position={copyMenuAt}
+              alignRight
+              sections={copyItems}
+              onClose={() => {
+                setCopyMenuAt(null)
+              }}
+            />
           )}
-          {openAlerts.map((alert) => (
-            <StatusBadge key={alert.id} tone="warning" icon={AlertIcon}>
-              {alert.note ?? 'Alerte ouverte'}
-            </StatusBadge>
-          ))}
         </div>
 
         <div className="verification__grid">
@@ -501,6 +572,7 @@ function VerificationForm({ prospect, onValidated, onSkip, onUncertain, onBack }
                 ? `Renomme l’entreprise pour ses ${String(prospect.company.prospect_count)} fiches.`
                 : undefined
             }
+            error={redIf('company') ?? messages.company_id}
             disabled={!prospect.company}
             onChange={(event) => {
               setCompanyName(event.target.value)
@@ -509,20 +581,22 @@ function VerificationForm({ prospect, onValidated, onSkip, onUncertain, onBack }
           <SelectField
             label="Civilité"
             value={draft.civility}
+            error={redIf('civility')}
             onChange={(event) => { patch({ civility: event.target.value as ProspectDraft['civility'] }); }}
           >
             <option value="">—</option>
             <option value="mr">M.</option>
             <option value="ms">Mme</option>
           </SelectField>
-          <TextField label="Prénom" value={draft.first_name} error={messages.first_name} onChange={(event) => { patch({ first_name: event.target.value }); }} />
-          <TextField label="Nom" value={draft.last_name} error={messages.last_name} onChange={(event) => { patch({ last_name: event.target.value }); }} />
-          <TextField label="Fonction" value={draft.exact_job_title} onChange={(event) => { patch({ exact_job_title: event.target.value }); }} />
+          <TextField label="Prénom" value={draft.first_name} error={messages.first_name ?? redIf('first')} onChange={(event) => { patch({ first_name: event.target.value }); }} />
+          <TextField label="Nom" value={draft.last_name} error={messages.last_name ?? redIf('last')} onChange={(event) => { patch({ last_name: event.target.value }); }} />
+          <TextField label="Fonction" value={draft.exact_job_title} error={redIf('job')} onChange={(event) => { patch({ exact_job_title: event.target.value }); }} />
           <AliasFields
             kind="emails"
             label="E-mail"
             addLabel="Ajouter un e-mail"
             aliases={draft.emails}
+            incomplete={redIf('email')}
             messages={messages}
             onEdit={editAlias}
             onAdd={addAlias}
@@ -533,6 +607,7 @@ function VerificationForm({ prospect, onValidated, onSkip, onUncertain, onBack }
             label="Téléphone"
             addLabel="Ajouter un téléphone"
             aliases={draft.phones}
+            incomplete={redIf('phone')}
             messages={messages}
             onEdit={editAlias}
             onAdd={addAlias}
@@ -551,32 +626,11 @@ function VerificationForm({ prospect, onValidated, onSkip, onUncertain, onBack }
           <TextField label="Note si doute (facultatif)" value={note} onChange={(event) => { setNote(event.target.value); }} />
         </div>
 
-        <div className="verification__copy">
-          <TextField
-            label="À copier : nom, prénom, e-mail, téléphone, fonction, entreprise"
-            hint="Séparés par une tabulation : collez directement dans Excel pour remplir une ligne."
-            readOnly
-            value={copyLine}
-            onFocus={(event) => {
-              event.target.select()
-            }}
-          />
-          <Button
-            onClick={() => {
-              void navigator.clipboard.writeText(copyLine).then(() => {
-                setCopied(true)
-              })
-            }}
-          >
-            {copied ? 'Copié' : 'Copier'}
-          </Button>
-        </div>
-
         {error && <p role="alert" className="verification__error">{error}</p>}
 
         <div className="verification__actions">
           <Button type="submit" variant="primary" icon={CheckCircleIcon} loading={busy} disabled={busy}>
-            Valider et suivant
+            {warned && gaps.length > 0 ? 'Valider quand même' : 'Valider et suivant'}
           </Button>
           <Button
             className="verification__btn--warning"

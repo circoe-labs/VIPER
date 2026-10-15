@@ -31,6 +31,7 @@
 .verification__grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  align-items: start;
   gap: var(--space-4);
 }
 
@@ -60,15 +61,11 @@
   margin: 0;
 }
 
-.verification__copy {
+.verification__head {
   display: flex;
-  flex-wrap: wrap;
-  align-items: end;
-  gap: var(--space-3);
-}
-
-.verification__copy > :first-child {
-  flex: 1 1 24rem;
+  align-items: start;
+  justify-content: space-between;
+  gap: var(--space-4);
 }
 
 .btn.verification__btn--warning {
