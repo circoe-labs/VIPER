@@ -130,6 +130,18 @@ describe('Espace de vérification', () => {
     expect(await screen.findByDisplayValue('Premier')).toBeInTheDocument()
   })
 
+  it('« Incertain » records the doubt on the fiche and says so', async () => {
+    const api = people()
+    renderApp('/prospection/verification')
+    await screen.findByDisplayValue('Premier')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Incertain' }))
+
+    expect(await screen.findByText(/Incertitude notée sur la fiche de Anne Premier/)).toBeInTheDocument()
+    expect(api.alerts.some((alert) => alert.type === 'function_to_check')).toBe(true)
+    expect(await screen.findByDisplayValue('Second')).toBeInTheDocument()
+  })
+
   it('asks for a confirmation before ignoring', async () => {
     const api = people()
     renderApp('/prospection/verification')

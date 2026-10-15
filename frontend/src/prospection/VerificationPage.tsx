@@ -90,9 +90,13 @@ function Queue({ kind, figures }: { kind: 'todo' | 'uncertain'; figures: Verific
   const shownId = revisit ?? currentId
   const previous = trail.at(-1)
 
+  // What the last « Incertain » did, shown until the next action.
+  const [notice, setNotice] = useState<string | null>(null)
+
   function leave(id: string) {
     setTrail((ids) => (ids.at(-1) === id ? ids : [...ids, id]))
     setRevisit(null)
+    setNotice(null)
   }
 
   function goBack() {
@@ -137,6 +141,11 @@ function Queue({ kind, figures }: { kind: 'todo' | 'uncertain'; figures: Verific
           {skipped.length > 0 && ` · ${String(skipped.length)} passée${skipped.length > 1 ? 's' : ''}`}
         </p>
       </div>
+      {notice && (
+        <p role="status" className="verification__notice">
+          <StatusBadge tone="success">{notice}</StatusBadge>
+        </p>
+      )}
       {list.isError && <p role="alert">Impossible de charger la liste.</p>}
       {!waiting && !currentId && (
         <EmptyState
@@ -169,6 +178,11 @@ function Queue({ kind, figures }: { kind: 'todo' | 'uncertain'; figures: Verific
             leave(shownId)
             setSkipped((ids) => [...ids, shownId])
           }}
+          onUncertain={(message) => {
+            leave(shownId)
+            setSkipped((ids) => [...ids, shownId])
+            setNotice(message)
+          }}
         />
       )}
     </>
@@ -179,12 +193,13 @@ interface CardProps {
   id: string
   onValidated: () => void
   onSkip: () => void
+  onUncertain: (message: string) => void
   // Back to the fiche seen just before; absent on the first one.
   onBack: (() => void) | undefined
 }
 
 // Loads the full prospect, then hands it to the form (which owns its draft).
-function VerificationCard({ id, onValidated, onSkip, onBack }: CardProps) {
+function VerificationCard({ id, onValidated, onSkip, onUncertain, onBack }: CardProps) {
   const prospect = useProspect(id)
   if (prospect.isError) {
     return (
@@ -195,7 +210,15 @@ function VerificationCard({ id, onValidated, onSkip, onBack }: CardProps) {
     )
   }
   if (!prospect.data) return <Card>Chargement…</Card>
-  return <VerificationForm prospect={prospect.data} onValidated={onValidated} onSkip={onSkip} onBack={onBack} />
+  return (
+    <VerificationForm
+      prospect={prospect.data}
+      onValidated={onValidated}
+      onSkip={onSkip}
+      onUncertain={onUncertain}
+      onBack={onBack}
+    />
+  )
 }
 
 function primaryOf(aliases: AliasDraft[]): AliasDraft | undefined {
@@ -206,10 +229,12 @@ interface FormProps {
   prospect: Prospect
   onValidated: () => void
   onSkip: () => void
+  // The doubt is recorded on the fiche: says what was written, then moves on.
+  onUncertain: (message: string) => void
   onBack: (() => void) | undefined
 }
 
-function VerificationForm({ prospect, onValidated, onSkip, onBack }: FormProps) {
+function VerificationForm({ prospect, onValidated, onSkip, onUncertain, onBack }: FormProps) {
   const [draft, setDraft] = useState<ProspectDraft>(() => draftFromProspect(prospect))
   const [cohortId, setCohortId] = useState('')
   const [note, setNote] = useState('')
@@ -319,8 +344,9 @@ function VerificationForm({ prospect, onValidated, onSkip, onBack }: FormProps) 
 
   async function flagUncertain() {
     setError(null)
+    const who = [prospect.first_name, prospect.last_name].filter(Boolean).join(' ') || 'ce contact'
     if (openAlerts.some((item) => item.type === 'function_to_check')) {
-      onSkip()
+      onUncertain(`Incertitude déjà notée sur la fiche de ${who}.`)
       return
     }
     try {
@@ -329,7 +355,7 @@ function VerificationForm({ prospect, onValidated, onSkip, onBack }: FormProps) 
         type: 'function_to_check',
         note: note.trim() || 'Incertitude sur ce contact : à contacter pour vérifier si on le garde.',
       })
-      onSkip()
+      onUncertain(`Incertitude notée sur la fiche de ${who} (alerte « Fonction à vérifier »).`)
     } catch (failure) {
       setError(problem(failure))
     }
