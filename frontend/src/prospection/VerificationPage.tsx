@@ -19,7 +19,7 @@ import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
 import { EmptyState } from '../ui/EmptyState'
 import { SelectField, TextField } from '../ui/fields'
-import { AlertIcon, BanIcon, CheckCircleIcon, ChevronRightIcon } from '../ui/icons'
+import { AlertIcon, BanIcon, CheckCircleIcon, ChevronLeftIcon, ChevronRightIcon } from '../ui/icons'
 import { PageHeader } from '../ui/PageHeader'
 import { IgnoredReading, VerificationOverview, VerifiedReading } from './VerificationOverview'
 import {
@@ -84,6 +84,23 @@ function Queue({ kind, figures }: { kind: 'todo' | 'uncertain'; figures: Verific
   const waiting = todo ? list.isPending : figures.loading
   const left = todo ? figures.todo : figures.uncertain
 
+  // « Retour » : the fiches left behind, most recent last; going back shows one again (even if already validated).
+  const [trail, setTrail] = useState<string[]>([])
+  const [revisit, setRevisit] = useState<string | null>(null)
+  const shownId = revisit ?? currentId
+  const previous = trail.at(-1)
+
+  function leave(id: string) {
+    setTrail((ids) => (ids.at(-1) === id ? ids : [...ids, id]))
+    setRevisit(null)
+  }
+
+  function goBack() {
+    if (!previous) return
+    setTrail((ids) => ids.slice(0, -1))
+    setRevisit(previous)
+  }
+
   return (
     <>
       <div className="verification__bar">
@@ -109,7 +126,7 @@ function Queue({ kind, figures }: { kind: 'todo' | 'uncertain'; figures: Verific
               <option value="none">Sans cohorte</option>
               {(cohorts.data ?? []).map((item) => (
                 <option key={item.id} value={item.id}>
-                  {item.code}
+                  {`${item.code} (${String(item.current_count)})`}
                 </option>
               ))}
             </SelectField>
@@ -139,15 +156,18 @@ function Queue({ kind, figures }: { kind: 'todo' | 'uncertain'; figures: Verific
           }
         />
       )}
-      {currentId && (
+      {shownId && (
         <VerificationCard
-          key={currentId}
-          id={currentId}
+          key={shownId}
+          id={shownId}
+          onBack={previous ? goBack : undefined}
           onValidated={() => {
-            setDone((ids) => [...ids, currentId])
+            leave(shownId)
+            setDone((ids) => [...ids, shownId])
           }}
           onSkip={() => {
-            setSkipped((ids) => [...ids, currentId])
+            leave(shownId)
+            setSkipped((ids) => [...ids, shownId])
           }}
         />
       )}
@@ -159,10 +179,12 @@ interface CardProps {
   id: string
   onValidated: () => void
   onSkip: () => void
+  // Back to the fiche seen just before; absent on the first one.
+  onBack: (() => void) | undefined
 }
 
 // Loads the full prospect, then hands it to the form (which owns its draft).
-function VerificationCard({ id, onValidated, onSkip }: CardProps) {
+function VerificationCard({ id, onValidated, onSkip, onBack }: CardProps) {
   const prospect = useProspect(id)
   if (prospect.isError) {
     return (
@@ -173,18 +195,26 @@ function VerificationCard({ id, onValidated, onSkip }: CardProps) {
     )
   }
   if (!prospect.data) return <Card>Chargement…</Card>
-  return <VerificationForm prospect={prospect.data} onValidated={onValidated} onSkip={onSkip} />
+  return <VerificationForm prospect={prospect.data} onValidated={onValidated} onSkip={onSkip} onBack={onBack} />
 }
 
 function primaryOf(aliases: AliasDraft[]): AliasDraft | undefined {
   return aliases.find((alias) => alias.is_primary && alias.is_active) ?? aliases.find((alias) => alias.is_active)
 }
 
-function VerificationForm({ prospect, onValidated, onSkip }: { prospect: Prospect; onValidated: () => void; onSkip: () => void }) {
+interface FormProps {
+  prospect: Prospect
+  onValidated: () => void
+  onSkip: () => void
+  onBack: (() => void) | undefined
+}
+
+function VerificationForm({ prospect, onValidated, onSkip, onBack }: FormProps) {
   const [draft, setDraft] = useState<ProspectDraft>(() => draftFromProspect(prospect))
   const [cohortId, setCohortId] = useState('')
   const [note, setNote] = useState('')
   const [confirmIgnore, setConfirmIgnore] = useState(false)
+  const [copied, setCopied] = useState(false)
   const [companyName, setCompanyName] = useState(prospect.company?.display_name ?? '')
   const [error, setError] = useState<string | null>(null)
   const companies = useCompanyMutations()
@@ -198,6 +228,17 @@ function VerificationForm({ prospect, onValidated, onSkip }: { prospect: Prospec
   const phone = primaryOf(draft.phones)
   const openAlerts = (alerts.data?.items ?? []).filter((alert) => alert.open)
   const source = prospect.sources[0]
+  // What is on screen, one row for a paste: last name, first name, e-mail, phone, job title, company.
+  const copyLine = [
+    draft.last_name,
+    draft.first_name,
+    email?.value ?? '',
+    phone?.value ?? '',
+    draft.exact_job_title,
+    companyName,
+  ]
+    .map((value) => value.replace(/\s+/g, ' ').trim())
+    .join('\t')
   const messages = validate(draft, { isNew: false, today: prospect.today })
 
   function patch(changes: Partial<ProspectDraft>) {
@@ -385,10 +426,32 @@ function VerificationForm({ prospect, onValidated, onSkip }: { prospect: Prospec
               <option key={cohort.id} value={cohort.id}>
                 {cohort.code}
                 {cohort.starts_on ? ` — ${cohort.starts_on}` : ' — hors campagne'}
+                {` — ${String(cohort.current_count)} fiche${cohort.current_count > 1 ? 's' : ''}`}
               </option>
             ))}
           </SelectField>
           <TextField label="Note si doute (facultatif)" value={note} onChange={(event) => { setNote(event.target.value); }} />
+        </div>
+
+        <div className="verification__copy">
+          <TextField
+            label="À copier : nom, prénom, e-mail, téléphone, fonction, entreprise"
+            hint="Séparés par une tabulation : collez directement dans Excel pour remplir une ligne."
+            readOnly
+            value={copyLine}
+            onFocus={(event) => {
+              event.target.select()
+            }}
+          />
+          <Button
+            onClick={() => {
+              void navigator.clipboard.writeText(copyLine).then(() => {
+                setCopied(true)
+              })
+            }}
+          >
+            {copied ? 'Copié' : 'Copier'}
+          </Button>
         </div>
 
         {error && <p role="alert" className="verification__error">{error}</p>}
@@ -411,6 +474,11 @@ function VerificationForm({ prospect, onValidated, onSkip }: { prospect: Prospec
           <Button icon={ChevronRightIcon} disabled={busy} onClick={onSkip}>
             Passer
           </Button>
+          {onBack && (
+            <Button variant="ghost" icon={ChevronLeftIcon} disabled={busy} onClick={onBack}>
+              Retour
+            </Button>
+          )}
         </div>
         <p className="verification__hint">
           <Link to={`/prospection?prospect=${prospect.id}`}>Ouvrir la fiche complète</Link>

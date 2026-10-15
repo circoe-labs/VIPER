@@ -117,6 +117,19 @@ describe('Espace de vérification', () => {
     expect(api.requests.filter((request) => request.method !== 'GET')).toEqual([])
   })
 
+  it('« Retour » shows the previous fiche again, and is absent on the first one', async () => {
+    people()
+    renderApp('/prospection/verification')
+    await screen.findByDisplayValue('Premier')
+    expect(screen.queryByRole('button', { name: 'Retour' })).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Passer' }))
+    await screen.findByDisplayValue('Second')
+    await userEvent.click(screen.getByRole('button', { name: 'Retour' }))
+
+    expect(await screen.findByDisplayValue('Premier')).toBeInTheDocument()
+  })
+
   it('asks for a confirmation before ignoring', async () => {
     const api = people()
     renderApp('/prospection/verification')

@@ -15,8 +15,8 @@ interface Box {
 }
 
 const BOXES: Box[] = [
-  { tab: 'todo', label: 'À vérifier', tone: 'info', value: (f) => f.todo },
   { tab: 'verified', label: 'Vérifié', tone: 'success', value: (f) => f.verified },
+  { tab: 'todo', label: 'À vérifier', tone: 'info', value: (f) => f.todo },
   { tab: 'uncertain', label: 'Incertitude', tone: 'warning', value: (f) => f.uncertain },
   { tab: 'ignored', label: 'Ignoré', tone: 'danger', value: (f) => f.ignored },
 ]
