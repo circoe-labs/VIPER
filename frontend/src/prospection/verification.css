@@ -68,6 +68,17 @@
   gap: var(--space-4);
 }
 
+.btn.verification__btn--copy {
+  border-color: #ec4899;
+  background: #ec4899;
+  color: #2a0716;
+  font-weight: 600;
+}
+
+.btn.verification__btn--copy:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
 .btn.verification__btn--warning {
   border-color: var(--color-warning-fg);
   background: var(--color-warning-fg);

@@ -541,6 +541,7 @@ function VerificationForm({ prospect, onValidated, onSkip, onUncertain, onBack }
             ))}
           </div>
           <Button
+            className="verification__btn--copy"
             icon={copied ? CheckCircleIcon : CopyIcon}
             aria-haspopup="menu"
             onClick={(event) => {
