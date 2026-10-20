@@ -41,17 +41,13 @@ Details and rationale: [ADR-0001](doc/adr/0001-stack.md).
 Prerequisites: Docker Desktop, Python 3.14, Node 24, Git; free ports 5442, 8042, 5173.
 
 ```powershell
-docker compose up -d --wait                                     # PostgreSQL 16 on 127.0.0.1:5442
-cd backend; python -m venv .venv; .\.venv\Scripts\Activate.ps1
-pip install -r requirements-dev.txt
-alembic upgrade head                                            # schema of the dev database `viper`
-python -m app.seed                                              # suggested roles/segments/categories (optional)
-python -m app.cli provision-sql-reader                          # read-only role of the SQL console (again after each migration)
-python -m app.cli create-user --email vous@example.com --display-name "Prénom Nom"   # login account (password prompted)
-uvicorn app.main:create_app --factory --reload --port 8042      # API: http://127.0.0.1:8042/api/health
-# second terminal
-cd frontend; npm ci; npm run dev                                # UI: http://localhost:5173
+python scripts/dev.py        # EVERY time, also after each git pull
 ```
+
+`scripts/dev.py` is idempotent: it starts Docker Desktop and PostgreSQL if needed, installs backend/frontend
+dependencies only when `requirements*.txt` / `package-lock.json` changed, applies migrations, provisions the SQL
+reader role, asks for a login account once, then starts the API (8042) and Vite (5173). `--no-start` only prepares.
+The manual steps are in [`doc/process/runbook-local-dev.md`](doc/process/runbook-local-dev.md).
 
 ## Configuration (OpenAI, CIRCOE Toolbox, envoi programmé)
 
