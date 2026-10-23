@@ -233,7 +233,9 @@ describe('Contact page', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /S39/ })).toHaveAttribute('aria-expanded', 'true')
     })
-    expect(sent(api.requests, 'GET', LIST).length).toBeGreaterThan(0)
+    await waitFor(() => {
+      expect(sent(api.requests, 'GET', LIST).length).toBeGreaterThan(0)
+    })
   })
 
   it('shows a counters failure with « Réessayer »', async () => {

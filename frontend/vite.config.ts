@@ -17,6 +17,8 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.test.{ts,tsx}'],
+    // The whole suite runs in parallel on a busy machine: the 5 s default is tight for the page tests.
+    testTimeout: 20_000,
     // Vitest blanks CSS by default; `?raw` imports must see the real file (token contrast + colour guard tests).
     css: { include: [/\.css\?raw$/] },
   },

@@ -380,7 +380,9 @@ def test_search_and_rows(db_session: Session, planning: dict[str, uuid.UUID]) ->
     assert (error_row.email_error, error_row.next_due_at, error_row.to_send) == (True, None, False)
 
 
-def test_cohorts_say_what_left_and_when(db_session: Session, planning: dict[str, uuid.UUID]) -> None:
+def test_cohorts_say_what_left_and_when(
+    db_session: Session, planning: dict[str, uuid.UUID]
+) -> None:
     sent = [
         (step.step, step.count)
         for cohort in dashboard(db_session, CLOCK).cohorts

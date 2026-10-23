@@ -479,7 +479,9 @@ def test_one_send_moment_for_whole_cohorts(
     result = ok(client.post("/api/contact/schedule-cohorts", json=body))
     assert (result["scheduled"], result["validated"], result["refused"]) == (2, 1, 0)
 
-    status = lambda p: ok(client.get(f"{messages(p)}/contact"))["message"]["status"]  # noqa: E731
+    def status(prospect: uuid.UUID) -> str:
+        return str(ok(client.get(f"{messages(prospect)}/contact"))["message"]["status"])
+
     assert status(validated_in) == "scheduled"
     assert status(validated_other) == "validated"
     assert status(draft_in) == "scheduled"

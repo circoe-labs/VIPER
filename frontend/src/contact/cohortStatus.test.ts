@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
+import type { ContactDashboard } from '../api/contact'
 import { cohortStartsOn, cohortStatus, nextStepToSchedule, sentSummary } from './cohortStatus'
 
-const COHORTS = [
+type Cohorts = NonNullable<ContactDashboard['cohorts']>
+
+const COHORTS: Cohorts = [
   { code: 'S37', starts_on: '2026-09-07', out_of_campaign: false, prospects: 52, to_send: 52, overdue: 52, to_send_steps: ['r2'] },
   { code: 'S39', starts_on: '2026-09-28', out_of_campaign: false, prospects: 50, to_send: 50, overdue: 0, to_send_steps: ['r1'] },
   { code: 'S40', starts_on: '2026-10-05', out_of_campaign: false, prospects: 9, to_send: 0, overdue: 0, to_send_steps: [] },
@@ -27,7 +30,7 @@ describe('Cohort status line', () => {
   })
 
   it('joins several steps in rank order, and dates an unknown cohort from the nearest earlier one', () => {
-    const mixed = [{ ...COHORTS[0], to_send_steps: ['r1', 'r2'] }] as typeof COHORTS
+    const mixed = [{ ...COHORTS[0], to_send_steps: ['r1', 'r2'] }] as Cohorts
     expect(cohortStatus('S37', mixed, TODAY).label).toBe('R1 · R2')
     expect(cohortStartsOn('S44', COHORTS)).toBe('2026-11-02')
     expect(cohortStartsOn('S36', COHORTS)).toBeNull()
@@ -46,7 +49,7 @@ describe('sentSummary', () => {
         ],
       },
       COHORTS[1],
-    ] as typeof COHORTS
+    ] as Cohorts
     expect(sentSummary('S37', cohorts)).toBe('Contact le 07/09 (44) · R1 du 21/09 au 22/09 (43)')
     expect(sentSummary('S39', cohorts)).toBeNull()
     expect(sentSummary('S99', cohorts)).toBeNull()
@@ -58,9 +61,9 @@ describe('cohortStatus once the mails are scheduled', () => {
 
   it('reads « prêt pour être envoyé le … » when everything due is scheduled, and the step only while some are left', () => {
     const due = { ...COHORTS[1], prospects: 47, to_send: 47, overdue: 0, to_send_steps: ['contact'] }
-    const all = [{ ...due, scheduled_steps: [step('contact', 47, '2026-10-14')] }] as typeof COHORTS
+    const all = [{ ...due, scheduled_steps: [step('contact', 47, '2026-10-14')] }] as Cohorts
     expect(cohortStatus('S39', all, '2026-10-13')).toEqual({ label: 'prêt pour être envoyé le 14/10/2026', tone: 'success' })
-    const part = [{ ...due, scheduled_steps: [step('contact', 30, '2026-10-14')] }] as typeof COHORTS
+    const part = [{ ...due, scheduled_steps: [step('contact', 30, '2026-10-14')] }] as Cohorts
     expect(cohortStatus('S39', part, '2026-10-13').label).toBe('Contact')
   })
 
@@ -74,11 +77,11 @@ describe('cohortStatus once the mails are scheduled', () => {
       scheduled_steps: [step('r1', 1, '2026-10-14')],
       next_steps: [step('r2', 41, '2026-10-19')],
     }
-    expect(cohortStatus('S40', [cohort] as typeof COHORTS, '2026-10-13').label).toBe(
+    expect(cohortStatus('S40', [cohort] as Cohorts, '2026-10-13').label).toBe(
       'R1 : 1 mail prêt pour être envoyé le 14/10/2026 · R2 prévu le 19/10/2026',
     )
     const quiet = { ...cohort, to_send: 0, to_send_steps: [], scheduled_steps: [] }
-    expect(cohortStatus('S40', [quiet] as typeof COHORTS, '2026-10-13').label).toBe('R2 prévu le 19/10/2026')
+    expect(cohortStatus('S40', [quiet] as Cohorts, '2026-10-13').label).toBe('R2 prévu le 19/10/2026')
   })
 })
 

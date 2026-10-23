@@ -69,9 +69,9 @@
 }
 
 .btn.verification__btn--copy {
-  border-color: #ec4899;
-  background: #ec4899;
-  color: #2a0716;
+  border-color: var(--color-copy);
+  background: var(--color-copy);
+  color: var(--color-on-copy);
   font-weight: 600;
 }
 
@@ -82,7 +82,7 @@
 .btn.verification__btn--warning {
   border-color: var(--color-warning-fg);
   background: var(--color-warning-fg);
-  color: #1d1400;
+  color: var(--color-on-warning);
   font-weight: 600;
 }
 

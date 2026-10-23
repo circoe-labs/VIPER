@@ -11,8 +11,8 @@ Read-only, like the Contact planning it sits on: nothing here changes a state or
   cancelled message), `draft` (to read and validate) or `validated` (to schedule). A prospect whose
   next step is not due yet is not « forgotten »: its mail may simply be prepared ahead.
 - **To watch** (`totals`): scheduled messages whose moment has passed without leaving
-  (`scheduled_past`), and scheduled messages carrying a send error (`scheduled_with_error`) or a failed remote-draft
-  creation (`scheduled_with_draft_error`, a `toolbox_*` code: nothing was sent).
+  (`scheduled_past`), and scheduled messages carrying a send error (`scheduled_with_error`) or a
+  failed remote-draft creation (`scheduled_with_draft_error`, a `toolbox_*` code: nothing was sent).
 """
 
 import uuid

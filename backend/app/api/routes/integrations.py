@@ -413,7 +413,7 @@ def latest_toolbox_diagnostic(request: Request) -> DiagnosticOut | None:
 
 @router.delete("/toolbox/diagnostics/latest", status_code=204)
 def clear_toolbox_diagnostic(request: Request, actor: CurrentActor) -> None:
-    """Removes the shown result of « Tester la Toolbox » (a person only; 409 while a run is going)."""
+    """Removes the result shown by « Tester la Toolbox » (person only; 409 during a run)."""
     with business_errors():
         if actor.type != ActorType.HUMAN:
             raise ActorNotAllowedError("The Toolbox test result is cleared by a person.")

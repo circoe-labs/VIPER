@@ -68,7 +68,7 @@ export function ContactPage() {
     if (code === APPOINTMENTS) {
       return (dashboard.data?.categories?.find((item) => item.category === 'appointment_obtained')?.count ?? 0) > 0
     }
-    const summary = dashboard.data?.cohorts.find((cohort) => cohort.code === code)
+    const summary = dashboard.data?.cohorts?.find((cohort) => cohort.code === code)
     return (summary?.prospects ?? 0) - (summary?.appointments ?? 0) > 0
   }
   const isOpen = (code: ContactSection) => (searched ? hasMatch(code) && !collapsed.has(code) : opened.has(code))

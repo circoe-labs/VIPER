@@ -482,8 +482,8 @@ class RowBuilder:
             if ImportField.JOB_TITLE in self.by_field:
                 self.flag(DiagnosticCode.ROLE_MISSING, self.by_field[ImportField.JOB_TITLE])
         else:
-            # The job title is kept as written; an exact role match is attached, anything else is not a remark:
-            # there are too many distinct functions to review them one by one.
+            # The job title is kept as written; an exact role match is attached, anything else is
+            # not a remark: there are too many distinct functions to review them one by one.
             roles, _ = match_role(title, self.reference.roles)
         return ProspectProposal(
             civility=civility,

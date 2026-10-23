@@ -26,23 +26,23 @@ const color = (tone: Box['tone']) => `var(--color-${tone}-fg)`
 // One colour per cohort, fixed by its number (S45 is always the same colour, whatever the cohorts shown): twelve
 // distinct hues, none of them the four status colours of the boxes above.
 const COHORT_COLORS = [
-  '#4f8ef7',
-  '#2fbf9b',
-  '#f2b544',
-  '#f0706e',
-  '#a98bf2',
-  '#e57fc1',
-  '#63c8e8',
-  '#b5cc4a',
-  '#f28f4b',
-  '#8c9bb0',
-  '#3fa34d',
-  '#c9a27a',
+  'var(--cohort-0)',
+  'var(--cohort-1)',
+  'var(--cohort-2)',
+  'var(--cohort-3)',
+  'var(--cohort-4)',
+  'var(--cohort-5)',
+  'var(--cohort-6)',
+  'var(--cohort-7)',
+  'var(--cohort-8)',
+  'var(--cohort-9)',
+  'var(--cohort-10)',
+  'var(--cohort-11)',
 ]
 
 export function cohortColor(code: string): string {
   const number = Number(code.slice(1))
-  return COHORT_COLORS[(Number.isFinite(number) ? number : 0) % COHORT_COLORS.length] ?? COHORT_COLORS[0] ?? '#4f8ef7'
+  return COHORT_COLORS[(Number.isFinite(number) ? number : 0) % COHORT_COLORS.length] ?? 'var(--cohort-0)'
 }
 
 interface Slice {

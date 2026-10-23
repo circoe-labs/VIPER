@@ -150,6 +150,23 @@
   --duration-fast: 120ms;
   --duration-base: 200ms;
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Verification page: one fixed hue per cohort (same in both themes), and the « Copier » button */
+  --cohort-0: #4f8ef7;
+  --cohort-1: #2fbf9b;
+  --cohort-2: #f2b544;
+  --cohort-3: #f0706e;
+  --cohort-4: #a98bf2;
+  --cohort-5: #e57fc1;
+  --cohort-6: #63c8e8;
+  --cohort-7: #b5cc4a;
+  --cohort-8: #f28f4b;
+  --cohort-9: #8c9bb0;
+  --cohort-10: #3fa34d;
+  --cohort-11: #c9a27a;
+  --color-copy: #ec4899;
+  --color-on-copy: #2a0716;
+  --color-on-warning: #1d1400;
 }
 
 @media (prefers-reduced-motion: reduce) {
