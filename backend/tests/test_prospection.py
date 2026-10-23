@@ -292,6 +292,7 @@ EXPECTED: dict[Segment, set[str]] = {
     Segment.NO_RESPONSE: {"waiting", "follow_up"},
     Segment.RESPONSES: {"answered", "appointment", "appointment_date_only"},
     Segment.APPOINTMENTS: {"appointment", "appointment_date_only"},
+    Segment.EMAIL_ERROR: set(),  # no case of the fixture carries an open « Erreur sur le mail »
 }
 
 

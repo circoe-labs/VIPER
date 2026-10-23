@@ -8,6 +8,7 @@ import {
   ClockIcon,
   type IconComponent,
   InfoIcon,
+  MailIcon,
   MinusCircleIcon,
   UsersIcon,
 } from '../ui/icons'
@@ -64,6 +65,11 @@ export const SEGMENT_INFO: Record<Segment, SegmentInfo> = {
     label: 'Contactés',
     hint: 'Au moins un e-mail réellement envoyé (toutes séquences), ou une réponse ou un RDV enregistré.',
     icon: CheckCircleIcon,
+  },
+  email_error: {
+    label: 'Mail inactif',
+    hint: 'Toujours en poste, mais les e-mails envoyés reviennent : il faut trouver sa nouvelle adresse.',
+    icon: MailIcon,
   },
   no_response: {
     label: 'Sans réponse',
@@ -134,7 +140,7 @@ export const SEGMENT_GROUPS: { id: 'base' | 'verification' | 'contact'; title: s
   {
     id: 'contact',
     title: 'Suivi de contact',
-    segments: ['to_contact', 'due', 'contacted', 'no_response', 'responses', 'appointments'],
+    segments: ['to_contact', 'due', 'contacted', 'no_response', 'responses', 'appointments', 'email_error'],
   },
 ]
 

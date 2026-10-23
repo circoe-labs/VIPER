@@ -22,6 +22,7 @@ export const SEGMENTS = [
   'no_response',
   'responses',
   'appointments',
+  'email_error',
 ] as const
 export type Segment = (typeof SEGMENTS)[number]
 

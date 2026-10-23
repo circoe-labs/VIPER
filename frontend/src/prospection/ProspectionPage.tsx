@@ -16,6 +16,7 @@ import { Button } from '../ui/Button'
 import { EmptyState } from '../ui/EmptyState'
 import {
   AlertIcon,
+  ArrowLeftIcon,
   BuildingIcon,
   CheckCircleIcon,
   ChevronDownIcon,
@@ -100,7 +101,8 @@ export function ProspectionPage() {
   )
 
   const openHref = (id: string) => `?${serializeView({ ...view, prospect: id }).toString()}`
-  const [showList, setShowList] = useState(true)
+  // The full list stays folded on a plain visit; a deep link (segment, panel, filters, an open prospect) shows it.
+  const [showList, setShowList] = useState(() => hasSelection(view) || hasFilters(view) || view.prospect !== null)
   const filtered = hasFilters(view)
   const emptyBase = counters.data?.counts.all === 0 && !filtered
   const last = page ? Math.min(page.offset + page.items.length, page.total) : 0
@@ -114,6 +116,10 @@ export function ProspectionPage() {
 
   return (
     <div className="prospection">
+      <Link to="/" className="prospection__back">
+        <ArrowLeftIcon size={16} />
+        Accueil
+      </Link>
       <PageHeader
         title="Prospection"
         description="Vérifier la base, préparer les contacts, suivre les réponses."

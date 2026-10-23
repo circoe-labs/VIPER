@@ -639,3 +639,11 @@ tr[data-inactive] .settings-table__label {
   border-color: var(--color-accent, currentColor);
   box-shadow: 0 0 0 2px var(--color-accent, currentColor);
 }
+
+.settings-fold__summary {
+  margin-bottom: var(--space-4);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+}

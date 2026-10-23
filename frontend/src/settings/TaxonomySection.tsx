@@ -104,6 +104,13 @@ export function TaxonomySection({ config }: { config: TaxonomySectionConfig }) {
         }}
       />
 
+      <FeedbackBanner feedback={feedback} />
+
+      {/* The values are only needed to look one up or fix it: the list stays folded until asked for. */}
+      <details className="settings-fold">
+        <summary className="settings-fold__summary">
+          Voir la liste{values.data ? ` (${String(values.data.length)})` : ''}
+        </summary>
       <ListToolbar
         searchLabel={config.searchLabel}
         search={search}
@@ -112,7 +119,6 @@ export function TaxonomySection({ config }: { config: TaxonomySectionConfig }) {
         onActive={setActive}
         count={values.data?.length}
       />
-      <FeedbackBanner feedback={feedback} />
 
       {values.isPending && <p className="settings-state">Chargement…</p>}
       {values.isError && (
@@ -215,6 +221,7 @@ export function TaxonomySection({ config }: { config: TaxonomySectionConfig }) {
           </tbody>
         </Table>
       )}
+      </details>
 
       {deleting && (
         <DeleteDialog

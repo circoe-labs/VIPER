@@ -166,11 +166,11 @@ describe('Home page', () => {
     expect(card('Base', 'RDV confirmé')).toHaveAttribute('href', '/prospection?segment=appointments')
     expect(within(group('Base')).getByTitle(/Sans réponse après la dernière relance/)).toHaveTextContent('4')
     expect(within(group('Base')).getByTitle(/Informations incomplètes/)).toHaveTextContent('6')
-    // Activité de contact: four cards.
-    expect(within(group('Activité de contact')).getAllByRole('listitem')).toHaveLength(4)
-    expect(card('Activité de contact', 'À contacter')).toHaveAttribute('href', '/prospection?segment=due')
+    // Activité de contact: three cards (the RDV count already sits in Base).
+    expect(within(group('Activité de contact')).getAllByRole('listitem')).toHaveLength(3)
+    expect(card('Activité de contact', 'À contacter')).toHaveAttribute('href', '/contact')
+    expect(card('Activité de contact', 'Mail inactif')).toHaveAttribute('href', '/prospection?segment=email_error')
     expect(card('Activité de contact', 'Sans réponse')).toHaveAttribute('href', '/prospection?segment=no_response')
-    expect(card('Activité de contact', 'RDV')).toHaveAttribute('href', '/prospection?segment=appointments')
     expect(within(group('Activité de contact')).getByTitle(/les e-mails envoyés reviennent/)).toHaveTextContent('5')
   })
 
@@ -283,14 +283,10 @@ describe('Home page', () => {
     expect(within(screen.getByRole('main')).queryByRole('link', { name: 'Ajouter un prospect' })).not.toBeInTheDocument()
   })
 
-  it('says honestly what V1 does not show, and mocks no agent, e-mail or Calendly figure', async () => {
+  it('mocks no agent, e-mail or Calendly figure', async () => {
     renderHome()
 
     await screen.findByRole('heading', { level: 2, name: 'Base' })
-    const scope = screen.getByText(/ne font pas partie de la V1/)
-    expect(scope).toHaveTextContent(
-      'L’envoi automatique des e-mails, Calendly et les agents de prospection ne font pas partie de la V1.',
-    )
     const main = screen.getByRole('main')
     for (const widget of [/e-mails envoyés/i, /taux d.ouverture/i, /IProspect|IContact/, /agent actif/i]) {
       expect(within(main).queryByText(widget)).not.toBeInTheDocument()

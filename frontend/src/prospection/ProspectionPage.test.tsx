@@ -70,6 +70,11 @@ function list() {
   return screen.getByRole('list', { name: 'Prospects' })
 }
 
+// The full list is folded on a plain visit to /prospection.
+async function unfold() {
+  await userEvent.click(await screen.findByRole('button', { name: 'Afficher la liste' }))
+}
+
 function panel(name: RegExp) {
   return screen.getByRole('button', { name })
 }
@@ -78,6 +83,7 @@ describe('Prospection page', () => {
   it('offers the section’s entry points; Add opens the prospect editor on a new person', async () => {
     stubProspectionApi({ prospects: people() })
     const { router } = renderApp('/prospection')
+    await unfold()
 
     expect(screen.getByRole('heading', { level: 1, name: 'Prospection' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Entreprises' })).toHaveAttribute('href', '/prospection/companies')
@@ -104,6 +110,7 @@ describe('Prospection page', () => {
       ],
     })
     const { router } = renderApp('/prospection')
+    await unfold()
 
     // « 2 dont +1 cette semaine »: the size and what arrived since Monday.
     await waitFor(() => {
@@ -192,6 +199,7 @@ describe('Prospection page', () => {
   it('renders each person’s states with text and icons, never colour alone', async () => {
     stubProspectionApi({ prospects: people() })
     renderApp('/prospection')
+    await unfold()
     const links = await within(await screen.findByRole('list', { name: 'Prospects' })).findAllByRole('link')
     const rows = links.map((link) => link.closest('li') as HTMLElement)
     const [jean, claire, luc] = rows as [HTMLElement, HTMLElement, HTMLElement]
@@ -242,6 +250,7 @@ describe('Prospection page', () => {
       ],
     })
     renderApp('/prospection?segment=all&q=')
+    await unfold()
     const rows = within(await screen.findByRole('list', { name: 'Prospects' })).getAllByRole('listitem')
     const [odile, denis, fanny, emma] = rows as [HTMLElement, HTMLElement, HTMLElement, HTMLElement]
 
@@ -302,6 +311,7 @@ describe('Prospection page', () => {
     const rows = people()
     stubProspectsApi({ rows, details: rows.map((row) => prospectDetail({ id: row.id, first_name: row.first_name, last_name: row.last_name })) })
     const { router } = renderApp('/prospection?segment=all&q=')
+    await unfold()
     const first = await within(await screen.findByRole('list', { name: 'Prospects' })).findByRole('link', {
       name: 'Jean Exemple',
     })
@@ -357,6 +367,7 @@ describe('Prospection page', () => {
     const { router } = renderApp('/prospection?sort=company', {
       wrap: (app) => <ProspectEditorContext.Provider value={{ canCreate: true, Editor }}>{app}</ProspectEditorContext.Provider>,
     })
+    await unfold()
     const [jean, claire, luc] = rows.map((row) => row.id)
 
     await userEvent.click(await screen.findByRole('link', { name: 'Jean Exemple' }))
@@ -395,6 +406,7 @@ describe('Prospection page', () => {
   it('says when the list cannot be loaded and retries', async () => {
     stubProspectionApi({ prospects: people(), failWith: 500 })
     renderApp('/prospection')
+    await unfold()
 
     expect(await screen.findByText('Liste indisponible.')).toBeInTheDocument()
     expect(screen.getByText('Compteurs indisponibles.')).toBeInTheDocument()

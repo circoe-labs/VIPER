@@ -218,7 +218,7 @@ function StepsTable({
           <th scope="col">Programmés</th>
           <th scope="col">Validés</th>
           <th scope="col">Brouillons</th>
-          <th scope="col">Oubliés</th>
+          <th scope="col">À programmer</th>
         </tr>
       </thead>
       <tbody>
@@ -241,7 +241,7 @@ function StepsTable({
             <td className={step.forgotten > 0 ? 'sched-cell--alert' : undefined}>
               <CountButton
                 value={step.forgotten}
-                label="Oubliés"
+                label="À programmer"
                 step={step}
                 selection="forgotten"
                 onPick={onPick}
@@ -271,7 +271,7 @@ function Forgotten({
   if (list.length === 0) {
     return (
       <p className="sched-ok" role="status">
-        <StatusBadge tone="success">Aucun oubli</StatusBadge>
+        <StatusBadge tone="success">Rien à programmer</StatusBadge>
         Chaque mail à envoyer cette semaine est programmé.
       </p>
     )
@@ -384,7 +384,7 @@ interface SchedulingOverviewProps {
 }
 
 // Contact › « Suivi des envois programmés »: how many mails are scheduled, at which step and on which day, what is
-// still to validate or schedule, and the « oubliés » — prospects with a step to send this week and no scheduled mail.
+// still to validate or schedule, and the « à programmer » — prospects with a step to send this week and no scheduled mail.
 export function SchedulingOverview({ openHref }: SchedulingOverviewProps) {
   const scheduling = useContactScheduling()
   const [open, setOpen] = useState(true)
@@ -430,7 +430,7 @@ export function SchedulingOverview({ openHref }: SchedulingOverviewProps) {
           Suivi des envois programmés
           {data && data.totals.forgotten > 0 && (
             <StatusBadge tone="danger" strong>
-              {data.totals.forgotten} oublié{data.totals.forgotten > 1 ? 's' : ''}
+              {data.totals.forgotten} à programmer
             </StatusBadge>
           )}
         </button>
@@ -488,8 +488,8 @@ export function SchedulingOverview({ openHref }: SchedulingOverviewProps) {
                 <Tile
                   tone={data.totals.forgotten > 0 ? 'alert' : 'ok'}
                   value={data.totals.forgotten}
-                  label="Oubliés"
-                  hint="à envoyer cette semaine, non programmés"
+                  label="À programmer"
+                  hint="à envoyer la semaine prochaine, non programmés"
                   selected={selection === 'forgotten'}
                   onSelect={() => {
                     toggleSelection('forgotten')

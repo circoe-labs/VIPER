@@ -81,6 +81,10 @@ export function CohortSection() {
       <MaxFollowUps onSaved={setFeedback} />
       <FeedbackBanner feedback={feedback} />
 
+      <details className="settings-fold">
+        <summary className="settings-fold__summary">
+          Voir la liste{cohorts.data ? ` (${String(cohorts.data.length)})` : ''}
+        </summary>
       {cohorts.isPending && <p className="settings-state">Chargement…</p>}
       {cohorts.isError && (
         <div className="settings-state settings-state--error" role="alert">
@@ -159,6 +163,7 @@ export function CohortSection() {
           </tbody>
         </Table>
       )}
+      </details>
 
       {editing && (
         <CohortDialog

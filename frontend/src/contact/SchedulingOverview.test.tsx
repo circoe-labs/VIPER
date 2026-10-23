@@ -71,7 +71,7 @@ describe('Contact › Suivi des envois programmés', () => {
     renderApp('/contact')
 
     const region = within(await panel())
-    expect(await region.findByText('3 oubliés')).toBeInTheDocument()
+    expect(await region.findByText('3 à programmer')).toBeInTheDocument()
     // Tiles: the four counts and what they mean.
     const tile = (label: string) => region.getAllByText(label).find((element) => element.className.includes('sched-tile__label'))
     expect(tile('Programmés')?.previousElementSibling).toHaveTextContent('5')
@@ -84,7 +84,7 @@ describe('Contact › Suivi des envois programmés', () => {
     expect(within(steps).getByRole('row', { name: /^R1/ })).toHaveTextContent('1 sans mail, 1 brouillon')
     // The forgotten stay folded until their tile is chosen; then: who, where, and what is missing, each opening the prospect.
     expect(region.queryByRole('link', { name: 'Claire Démo' })).not.toBeInTheDocument()
-    await userEvent.click(region.getAllByRole('button', { name: /Oubliés/ })[0] as HTMLElement)
+    await userEvent.click(region.getAllByRole('button', { name: /À programmer/ })[0] as HTMLElement)
     expect(region.getByRole('link', { name: 'Claire Démo' })).toHaveAttribute('href', expect.stringContaining('prospect=p1'))
     expect(region.getByText('Rien d’écrit')).toBeInTheDocument()
     expect(region.getByText('Validé, à programmer')).toBeInTheDocument()
@@ -110,7 +110,7 @@ describe('Contact › Suivi des envois programmés', () => {
     renderApp('/contact')
 
     const region = within(await panel())
-    await userEvent.click(await region.findByRole('button', { name: 'Oubliés R1 : 1, voir la liste' }))
+    await userEvent.click(await region.findByRole('button', { name: 'À programmer R1 : 1, voir la liste' }))
     expect(region.getByRole('link', { name: 'Claire Démo' })).toBeInTheDocument()
     expect(region.queryByRole('link', { name: 'Jean Exemple' })).not.toBeInTheDocument()
     expect(region.getByText(/Étape : R1/)).toBeInTheDocument()
@@ -129,8 +129,8 @@ describe('Contact › Suivi des envois programmés', () => {
     renderApp('/contact')
 
     const region = within(await panel())
-    expect((await region.findAllByRole('button', { name: /Oubliés/ }))[0]).toBeDisabled()
-    expect(region.queryByText(/oublié/)).not.toBeInTheDocument()
+    expect((await region.findAllByRole('button', { name: /À programmer/ }))[0]).toBeDisabled()
+    expect(region.queryByText(/^[0-9]+ à programmer$/)).not.toBeInTheDocument()
     expect(region.getByRole('alert')).toHaveTextContent('1 programmé(s) dont l’heure est passée sans envoi')
     expect(region.getByRole('alert')).toHaveTextContent('1 programmé(s) en erreur d’envoi')
     expect(region.getByText('passé')).toBeInTheDocument()

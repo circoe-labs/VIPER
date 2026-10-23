@@ -37,6 +37,7 @@ from app.models.enums import (
 )
 from app.services.contact_sequences import (
     due_open_sql,
+    email_error_sql,
     finished_sql,
     join_sequence_sources,
     next_due_at_sql,
@@ -71,6 +72,8 @@ class Segment(StrEnum):
     NO_RESPONSE = "no_response"
     RESPONSES = "responses"
     APPOINTMENTS = "appointments"
+    # An open « Erreur sur le mail »: still in the role, but the mails come back.
+    EMAIL_ERROR = "email_error"
 
 
 class Review(StrEnum):
@@ -369,6 +372,8 @@ def predicate(segment: Segment, context: SegmentContext) -> ColumnElement[bool]:
             return responded()
         case Segment.APPOINTMENTS:
             return has_appointment()
+        case Segment.EMAIL_ERROR:
+            return email_error_sql()
 
 
 def _count(segment: Segment, context: SegmentContext) -> ColumnElement[int]:

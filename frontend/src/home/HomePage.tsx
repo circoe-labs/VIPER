@@ -14,7 +14,6 @@ import {
   ArrowUpIcon,
   BanIcon,
   type IconComponent,
-  InfoIcon,
   MailIcon,
   PlusIcon,
   SpinnerIcon,
@@ -49,20 +48,23 @@ interface Kpi {
   attention?: boolean
   // The figure that asks for action today gets the hero treatment (large, tinted, lit).
   focus?: 'due' | 'go'
+  // Colours the glyph and the figure so the cards read apart at a glance.
+  tone?: 'info' | 'success' | 'danger' | 'accent'
 }
 
 // Every count that is a Prospection segment opens Prospection on it, where the counter shows the same number (same
 // API semantics).
-function segmentKpi(data: HomeData, segment: Segment, label: string, attention = false, focus?: Kpi['focus']): Kpi {
+function segmentKpi(data: HomeData, segment: Segment, label: string, attention = false, focus?: Kpi['focus'], tone?: Kpi['tone']): Kpi {
   const { hint, icon } = SEGMENT_INFO[segment]
-  return { label, hint, icon, count: data.counts[segment], href: prospectionHref({ segment }), attention, focus }
+  return { label, hint, icon, count: data.counts[segment], href: prospectionHref({ segment }), attention, focus, tone }
 }
 
-function KpiCard({ label, hint, icon: Icon, count, href, attention = false, focus }: Kpi) {
+function KpiCard({ label, hint, icon: Icon, count, href, attention = false, focus, tone }: Kpi) {
   const className = [
     'kpi-card',
     attention && count > 0 && 'kpi-card--attention',
     focus && count > 0 && `kpi-card--${focus}`,
+    tone && `kpi-card--${tone}`,
     count === 0 && 'kpi-card--zero',
   ]
     .filter(Boolean)
@@ -100,7 +102,7 @@ function ResponseTrend({ figures }: { figures: HomeData['figures'] }) {
   const text = `${String(now)} cette semaine, ${String(before)} la semaine passée`
   return (
     <li>
-      <div className="kpi-card" title="Réponses de prospects enregistrées cette semaine, comparées à la semaine passée.">
+      <div className="kpi-card kpi-card--accent" title="Réponses de prospects enregistrées cette semaine, comparées à la semaine passée.">
         <span className="kpi-card__label">
           <MailIcon size={14} />
           Réponses
@@ -118,9 +120,9 @@ function ResponseTrend({ figures }: { figures: HomeData['figures'] }) {
   )
 }
 
-function KpiList({ id, kpis, children }: { id: string; kpis: Kpi[]; children?: ReactNode }) {
+function KpiList({ id, kpis, children, wide = false }: { id: string; kpis: Kpi[]; children?: ReactNode; wide?: boolean }) {
   return (
-    <ul className="kpi-group__cards" aria-labelledby={id}>
+    <ul className={wide ? 'kpi-group__cards kpi-group__cards--wide' : 'kpi-group__cards'} aria-labelledby={id}>
       {kpis.map((kpi) => (
         <KpiCard key={kpi.label} {...kpi} />
       ))}
@@ -132,13 +134,14 @@ function KpiList({ id, kpis, children }: { id: string; kpis: Kpi[]; children?: R
 function Overview({ data }: { data: HomeData }) {
   const { figures } = data
   const base: Kpi[] = [
-    segmentKpi(data, 'all', 'Prospects'),
-    segmentKpi(data, 'appointments', 'RDV confirmé'),
+    segmentKpi(data, 'all', 'Prospects', false, undefined, 'info'),
+    segmentKpi(data, 'appointments', 'RDV confirmé', false, undefined, 'success'),
     {
       label: 'Défaillant',
       hint: 'Sans réponse après la dernière relance : à ne plus relancer.',
       icon: BanIcon,
       count: figures.disqualified,
+      tone: 'danger',
     },
     {
       label: 'À vérifier',
@@ -149,16 +152,9 @@ function Overview({ data }: { data: HomeData }) {
     },
   ]
   const contact: Kpi[] = [
-    segmentKpi(data, 'due', 'À contacter', true, 'due'),
-    segmentKpi(data, 'no_response', 'Sans réponse'),
-    segmentKpi(data, 'appointments', 'RDV'),
-    {
-      label: 'Mail inactif',
-      hint: 'Toujours en poste, mais les e-mails envoyés reviennent : il faut trouver sa nouvelle adresse.',
-      icon: MailIcon,
-      count: figures.mail_inactive,
-      attention: true,
-    },
+    { ...segmentKpi(data, 'due', 'À contacter', true, 'due'), href: '/contact' },
+    segmentKpi(data, 'no_response', 'Sans réponse', false, undefined, 'info'),
+    segmentKpi(data, 'email_error', 'Mail inactif', true, undefined, 'danger'),
   ]
   return (
     <>
@@ -175,7 +171,7 @@ function Overview({ data }: { data: HomeData }) {
         <h2 id="home-contact-title" className="home-section__title">
           Activité de contact
         </h2>
-        <KpiList id="home-contact-title" kpis={contact} />
+        <KpiList id="home-contact-title" kpis={contact} wide />
       </section>
 
       <WeekToContact today={data.today} />
@@ -255,18 +251,16 @@ export function HomePage() {
 
       {data && (data.counts.all === 0 ? <EmptyBase /> : <Overview data={data} />)}
       {data && (
-        <div className="home-panels">
-          {data.counts.all > 0 && <CampaignStats />}
-          {data.counts.all > 0 && <MonthlyProgress progress={data.progress} figures={data.figures} />}
-          <RecentActivity imports={data.recent_imports} edits={data.recent_edits} />
-        </div>
+        <details className="home-more" open={data.counts.all === 0}>
+          <summary className="home-more__summary">Détails : campagne, progression et historique</summary>
+          <div className="home-panels">
+            {data.counts.all > 0 && <CampaignStats />}
+            {data.counts.all > 0 && <MonthlyProgress progress={data.progress} figures={data.figures} />}
+            <RecentActivity imports={data.recent_imports} edits={data.recent_edits} />
+          </div>
+        </details>
       )}
 
-      <p className="home__scope">
-        <InfoIcon size={16} />
-        L’accueil ne montre que les données de VIPER : imports Excel, saisies manuelles et envois déclarés. L’envoi
-        automatique des e-mails, Calendly et les agents de prospection ne font pas partie de la V1.
-      </p>
     </div>
   )
 }
