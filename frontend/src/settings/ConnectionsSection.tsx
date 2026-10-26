@@ -1,3 +1,4 @@
+import { CalendlyCard } from './CalendlyCard'
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 
@@ -11,6 +12,7 @@ import { Modal } from '../ui/Dialog'
 import { AlertIcon, ArrowLeftIcon, LinkIcon, LogOutIcon, RefreshIcon, SpinnerIcon, TerminalIcon } from '../ui/icons'
 import { DispatchCard, IntegrationCard, OpenAICard, SenderCard, ToolboxAdvanced } from './IntegrationCards'
 import { type Feedback, FeedbackBanner } from './shared'
+import { ToolboxDiagnosticCard } from './ToolboxDiagnosticCard'
 import { LIMITATIONS, STATE_BADGES, stateSentence, toolboxErrorLabel, toolboxFailure } from './toolboxCopy'
 
 // The OAuth return parameters this page consumes (and then removes from the address bar).
@@ -153,6 +155,7 @@ export function ConnectionsSection() {
         <div className="settings-connections">
           <OpenAICard data={integrations.data} />
           <SenderCard data={integrations.data} />
+          <CalendlyCard data={integrations.data} />
           {status.data && (
             <ToolboxCard
               status={status.data}
@@ -167,6 +170,7 @@ export function ConnectionsSection() {
               onRefresh={() => status.refetch()}
             />
           )}
+          <ToolboxDiagnosticCard />
           <DispatchCard data={integrations.data} status={status.data} />
           <StorageNote data={integrations.data} />
         </div>

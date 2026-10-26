@@ -81,6 +81,12 @@ export function ReferentSection() {
         </Button>
       </header>
 
+      <FeedbackBanner feedback={feedback} />
+
+      <details className="settings-fold">
+        <summary className="settings-fold__summary">
+          Voir la liste{referents.data ? ` (${String(referents.data.length)})` : ''}
+        </summary>
       <ListToolbar
         searchLabel="Rechercher un référent"
         search={search}
@@ -89,7 +95,6 @@ export function ReferentSection() {
         onActive={setActive}
         count={referents.data?.length}
       />
-      <FeedbackBanner feedback={feedback} />
 
       {referents.isPending && <p className="settings-state">Chargement…</p>}
       {referents.isError && (
@@ -184,6 +189,7 @@ export function ReferentSection() {
           </tbody>
         </Table>
       )}
+      </details>
 
       {editing && (
         <ReferentDialog

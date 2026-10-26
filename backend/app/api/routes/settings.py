@@ -1,22 +1,27 @@
-"""Settings API (`/api/settings`): taxonomies and internal referents (Task 06).
+"""Settings API (`/api/settings`): taxonomies and internal referents (Task 06), cohorts and the
+Contact parameters (sequences rework D2, D5).
 
-`/settings/referents` for the Circoe referents, `/settings/{taxonomy}` for `roles`,
-`activity-categories` and `commercial-segments`. Business refusals answer with a stable `code` the
+`/settings/referents` for the Circoe referents, `/settings/cohorts` for the cohorts `Sxx` (code and
+real start date entered by a person; `S0` fixed, out of campaign), `/settings/contact` for
+« max relances », `/settings/{taxonomy}` for `roles`, `activity-categories` and
+`commercial-segments`. Business refusals answer with a stable `code` the
 UI turns into French copy (`app.api.errors`): 409 `duplicate` (with the existing value, which may
 be inactive) and 409 `in_use` (with usage counts), 422 `invalid` (with the field), 404 `not_found`.
 """
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 from typing import Annotated, Self
 
 from fastapi import APIRouter, Query, status
-from pydantic import BaseModel, StringConstraints, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from app.api.dependencies import CurrentActor, SessionDep
 from app.api.errors import business_errors
-from app.services import referents, taxonomies
+from app.services import app_settings, cohorts, referents, taxonomies
+from app.services.cohorts import CohortView
+from app.services.contact_workflow import MAX_FOLLOW_UPS_LIMIT
 from app.services.referents import ReferentInput, ReferentValue
 from app.services.taxonomies import Taxonomy, TaxonomyValue
 
@@ -98,7 +103,102 @@ def referent_out(value: ReferentValue) -> ReferentOut:
     return ReferentOut.model_validate(value, from_attributes=True)
 
 
-# Referent routes come first: `/settings/referents` must not be read as a taxonomy path.
+class StrictModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+CohortCode = Annotated[str, StringConstraints(max_length=32)]
+
+
+class CohortIn(StrictModel):
+    # `S37`, « s 37 »… normalized to `S<n>`.
+    code: CohortCode
+    # The real date of the first send; required except for S0 (never derived from an ISO week).
+    starts_on: date | None = None
+
+
+class CohortUpdate(StrictModel):
+    """Rename and/or re-date; either confirms a cohort created by migration (`needs_review`)."""
+
+    code: CohortCode | None = None
+    starts_on: date | None = None
+
+    @model_validator(mode="after")
+    def has_a_change(self) -> Self:
+        if self.code is None and self.starts_on is None:
+            raise ValueError("Give a code or a start date.")
+        return self
+
+
+class CohortOut(BaseModel):
+    id: uuid.UUID
+    code: str
+    starts_on: date | None
+    out_of_campaign: bool
+    needs_review: bool
+    # Prospects currently in the cohort, and every sequence ever in it.
+    current_count: int
+    sequence_count: int
+
+
+class ContactSettingsIn(StrictModel):
+    max_follow_ups: int = Field(ge=0, le=MAX_FOLLOW_UPS_LIMIT)
+
+
+class ContactSettingsOut(BaseModel):
+    # After R<max> is sent, the prospect is « Relance terminée » (4 by default).
+    max_follow_ups: int
+
+
+def cohort_out(view: CohortView) -> CohortOut:
+    return CohortOut.model_validate(view, from_attributes=True)
+
+
+# Fixed paths come first: `/settings/referents`, `/settings/cohorts` and `/settings/contact` must
+# not be read as a taxonomy path.
+
+
+@router.get("/cohorts")
+def list_cohorts(session: SessionDep) -> list[CohortOut]:
+    """S0 first, then by start date and code."""
+    return [cohort_out(view) for view in cohorts.list_cohorts(session)]
+
+
+@router.post("/cohorts", status_code=status.HTTP_201_CREATED)
+def create_cohort(body: CohortIn, session: SessionDep, actor: CurrentActor) -> CohortOut:
+    with business_errors():
+        cohort = cohorts.create_cohort(session, actor, body.code, body.starts_on)
+        return cohort_out(cohorts.get_view(session, cohort.id))
+
+
+@router.patch("/cohorts/{cohort_id}")
+def update_cohort(
+    cohort_id: uuid.UUID, body: CohortUpdate, session: SessionDep, actor: CurrentActor
+) -> CohortOut:
+    with business_errors():
+        cohorts.update_cohort(session, actor, cohort_id, code=body.code, starts_on=body.starts_on)
+        return cohort_out(cohorts.get_view(session, cohort_id))
+
+
+@router.delete("/cohorts/{cohort_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_cohort(cohort_id: uuid.UUID, session: SessionDep, actor: CurrentActor) -> None:
+    """Only a cohort no sequence ever used (409 `in_use`); never S0 (409 `cohort_s0_fixed`)."""
+    with business_errors():
+        cohorts.delete_cohort(session, actor, cohort_id)
+
+
+@router.get("/contact")
+def contact_settings(session: SessionDep) -> ContactSettingsOut:
+    return ContactSettingsOut(max_follow_ups=app_settings.max_follow_ups(session))
+
+
+@router.put("/contact")
+def update_contact_settings(
+    body: ContactSettingsIn, session: SessionDep, actor: CurrentActor
+) -> ContactSettingsOut:
+    with business_errors():
+        value = app_settings.set_max_follow_ups(session, actor, body.max_follow_ups)
+    return ContactSettingsOut(max_follow_ups=value)
 
 
 @router.get("/referents")

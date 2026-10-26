@@ -14,6 +14,7 @@ from app.repositories import import_reference
 from app.repositories.taxonomies import TaxonomyModel
 from app.services.imports.reference import (
     ImportReferenceData,
+    ReferenceCohort,
     ReferenceCompany,
     ReferenceProspect,
     ReferenceReferent,
@@ -56,5 +57,9 @@ def load_reference_data(session: Session) -> ImportReferenceData:
             for id_, first, last, company_id, contactability in import_reference.prospect_rows(
                 session
             )
+        ),
+        cohorts=tuple(
+            ReferenceCohort(id=id_, code=code, starts_on=starts_on)
+            for id_, code, starts_on in import_reference.cohort_rows(session)
         ),
     )

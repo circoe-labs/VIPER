@@ -360,7 +360,8 @@ def test_a_saved_key_drafts_without_a_restart(
 
     def openai(request: httpx2.Request) -> httpx2.Response:
         seen.append(request.headers["authorization"])
-        text = json.dumps({"subject": "Objet IA", "body": "Bonjour,\n\nCorps IA."})
+        body = "Bonjour,\n\nCorps IA : un échange de 30 minutes."
+        text = json.dumps({"subject": "Objet IA", "body": body})
         return httpx2.Response(
             200,
             json={

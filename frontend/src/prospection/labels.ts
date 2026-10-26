@@ -8,6 +8,7 @@ import {
   ClockIcon,
   type IconComponent,
   InfoIcon,
+  MailIcon,
   MinusCircleIcon,
   UsersIcon,
 } from '../ui/icons'
@@ -31,7 +32,7 @@ export const SEGMENT_INFO: Record<Segment, SegmentInfo> = {
   },
   never_verified: {
     label: 'Jamais vérifiés',
-    hint: 'Aucune date de vérification de l’emploi actuel (entreprise, rôle, activité).',
+    hint: 'Personne n’a encore confirmé l’emploi actuel (entreprise, rôle, activité). Cas typiques : prospect importé sans cohorte, ajouté à la main, ou ayant changé d’entreprise. Se règle avec « Vérifié aujourd’hui » dans la fiche.',
     icon: AlertIcon,
   },
   needs_recheck: {
@@ -40,30 +41,39 @@ export const SEGMENT_INFO: Record<Segment, SegmentInfo> = {
     icon: ClockIcon,
   },
   email_missing: { label: 'E-mail manquant', hint: 'Aucune adresse e-mail principale.', icon: AlertIcon },
-  email_invalid: { label: 'E-mail invalide', hint: 'L’adresse e-mail principale est invalide.', icon: BanIcon },
+  email_invalid: {
+    label: 'E-mail invalide',
+    hint: 'L’adresse e-mail principale a été marquée « Invalide » à la main dans la fiche (adresse inexistante, rebond…). Aucun contrôle automatique : l’import ne pose jamais ce statut.',
+    icon: BanIcon,
+  },
   email_unverified: {
     label: 'E-mail non vérifié',
-    hint: 'L’adresse e-mail principale n’est pas vérifiée.',
+    hint: 'L’adresse e-mail principale est au statut « Non vérifié » ou « Inconnu » : c’est le statut de toute adresse importée ou saisie, tant qu’elle n’est pas confirmée dans la fiche.',
     icon: AlertIcon,
   },
   to_contact: {
     label: 'À contacter',
-    hint: 'Premier contact planifié : aucun état, une semaine choisie (hors opposition et inactifs).',
+    hint: 'Dans une cohorte de campagne, Contact pas encore envoyé (hors S0, opposition, inactifs et erreur sur le mail).',
     icon: UsersIcon,
   },
   due: {
     label: 'Échus',
-    hint: 'À contacter, semaine prévue arrivée ou dépassée.',
+    hint: 'Contact ou relance à envoyer, échéance arrivée ou dépassée (hors opposition et inactifs).',
     icon: ClockIcon,
   },
   contacted: {
     label: 'Contactés',
-    hint: 'Au moins une prise de contact enregistrée (Contacté, R1, R2, réponse, RDV pris ou Failure).',
+    hint: 'Au moins un e-mail réellement envoyé (toutes séquences), ou une réponse ou un RDV enregistré.',
     icon: CheckCircleIcon,
+  },
+  email_error: {
+    label: 'Mail invalide',
+    hint: 'Toujours en poste, mais les e-mails envoyés reviennent : il faut trouver sa nouvelle adresse.',
+    icon: MailIcon,
   },
   no_response: {
     label: 'Sans réponse',
-    hint: 'État Contacté, R1 ou R2, sans réponse ni rendez-vous (hors opposition et inactifs).',
+    hint: 'En séquence, au moins un envoi, ni réponse ni RDV, relances pas terminées (hors opposition et inactifs).',
     icon: MinusCircleIcon,
   },
   responses: {
@@ -130,27 +140,45 @@ export const SEGMENT_GROUPS: { id: 'base' | 'verification' | 'contact'; title: s
   {
     id: 'contact',
     title: 'Suivi de contact',
-    segments: ['to_contact', 'due', 'contacted', 'no_response', 'responses', 'appointments'],
+    segments: ['to_contact', 'due', 'contacted', 'no_response', 'responses', 'appointments', 'email_error'],
   },
 ]
 
-// Contact state labels (backend contact_workflow.STATE_LABELS). `neutral` has no badge and no label in the lists
-// (decision 4); « Aucun état » is its name where a state must be named (select option, filter, history, export).
+// Commercial state labels (backend contact_workflow.STATE_LABELS). `neutral` (« En séquence ») has no badge in the
+// lists; it is named where a state must be (select option, filter, history, export).
 export const TRACKING_LABELS: Record<TrackingStatus, string> = {
-  neutral: 'Aucun état',
-  contacted: 'Contacté',
-  r1: 'R1',
-  r2: 'R2',
+  neutral: 'En séquence',
   response_received: 'Réponse reçue',
   appointment_obtained: 'RDV pris',
-  failure: 'Failure',
+  not_interested: 'Non intéressé',
   ignored: 'Ignoré',
+  disqualified: 'Défaillant',
 }
 
 // The label shown beside a person (lists, Home): none for `neutral` or no tracking.
 export function stateLabel(status: TrackingStatus | null): string | null {
   return status && status !== 'neutral' ? TRACKING_LABELS[status] : null
 }
+
+const SENT_LEVEL = /^r([1-9]\d?)_sent$/
+
+// The level of a sequence from its key (backend contact_steps.level_key): what was really sent. One wording for every
+// screen, whatever `level_label` the API also gives (the lists' « R2 envoyée », the sheet's next step « R3 »).
+export function levelLabel(level: string): string {
+  if (level === 'contact_pending') return 'Contact à envoyer'
+  if (level === 'contact_sent') return 'Contact envoyé'
+  if (level === 'finished') return 'Relance terminée'
+  const rank = SENT_LEVEL.exec(level)?.[1]
+  return rank ? `R${rank} envoyée` : level
+}
+
+// « Contact », « R2 »: the step to send next from its code (`contact`, `r2`).
+export function stepLabel(step: string): string {
+  return step === 'contact' ? 'Contact' : step.toUpperCase()
+}
+
+// D12: a missing function, e-mail or phone (without another channel) is shown « À vérifier » — never stored.
+export const TO_VERIFY = 'À vérifier'
 
 export const ACTIVITY_LABELS: Record<ActivityStatus, string> = {
   active: 'Actif',
@@ -161,9 +189,10 @@ export const ACTIVITY_LABELS: Record<ActivityStatus, string> = {
 export const SORT_LABELS: Record<ProspectSort, string> = {
   name: 'Nom',
   company: 'Entreprise',
-  planned_contact: 'Prochaine échéance la plus proche',
+  next_due: 'Prochaine échéance la plus proche',
   verification: 'Vérification la plus ancienne',
   updated: 'Modifiés récemment',
+  file: 'Ordre du fichier Excel',
 }
 
 const DAY = new Intl.DateTimeFormat('fr-FR', {

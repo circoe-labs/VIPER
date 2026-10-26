@@ -1,77 +1,41 @@
-import type { HomeData, MonthProgress } from '../api/home'
-
-type Metric = 'contacted' | 'appointments'
+import type { HomeData } from '../api/home'
 
 const MONTH = new Intl.DateTimeFormat('fr-FR', { month: 'long', year: 'numeric', timeZone: 'UTC' })
-const SHORT_MONTH = new Intl.DateTimeFormat('fr-FR', { month: 'short', timeZone: 'UTC' })
 
 // `2026-09-01` → « septembre 2026 » (the API's month is a calendar date, read as such).
 function monthLabel(month: string): string {
   return MONTH.format(new Date(`${month}T00:00:00Z`))
 }
 
-function shortMonth(month: string): string {
-  return SHORT_MONTH.format(new Date(`${month}T00:00:00Z`))
-}
+const RADIUS = 15.9155 // a circle of circumference 100: slice lengths read as percentages
 
-interface MetricProps {
-  metric: Metric
+interface Slice {
+  key: string
   label: string
-  target: number
-  months: MonthProgress[]
+  value: number
+  color: string
 }
 
-// One month's figure against its informative target: the value, a thin meter (the target is the full track) and the
-// six-month columns — the current month in the accent, earlier ones recessive. The meter's text alternative carries
-// value, target and share; the columns are summarised by the table below.
-function ProgressMetric({ metric, label, target, months }: MetricProps) {
-  const values = months.map((month) => month[metric])
-  const value = values.at(-1) ?? 0
-  const peak = Math.max(...values, 1)
-  const share = `${String(Math.round((value / target) * 100))} %`
-  const id = `home-progress-${metric}`
-  return (
-    <div className="progress-metric">
-      <div className="progress-metric__head">
-        <h3 id={id} className="progress-metric__label">
-          {label}
-        </h3>
-        <span className="progress-metric__value">{value}</span>
-      </div>
-      <div
-        className="progress-metric__meter"
-        role="meter"
-        aria-labelledby={id}
-        aria-valuemin={0}
-        aria-valuemax={target}
-        aria-valuenow={Math.min(value, target)}
-        aria-valuetext={`${String(value)} sur un objectif indicatif de ${String(target)} (${share})`}
-      >
-        <span style={{ width: `${String(Math.min(value / target, 1) * 100)}%` }} />
-      </div>
-      <p className="progress-metric__target">
-        Objectif indicatif : {target} · {share}
-      </p>
-      <ol className="spark" aria-hidden="true">
-        {months.map((month, index) => (
-          <li
-            key={month.month}
-            className={index === months.length - 1 ? 'spark__month spark__month--current' : 'spark__month'}
-            title={`${monthLabel(month.month)} : ${String(month[metric])}`}
-          >
-            <span className="spark__bar" style={{ height: `${String((month[metric] / peak) * 100)}%` }} />
-            <span className="spark__label">{shortMonth(month.month)}</span>
-          </li>
-        ))}
-      </ol>
-    </div>
-  )
-}
-
-// Monthly progress (Task 16): informative, beside the recent activity — never the page's headline. Counted from the
-// contact-tracking status history recorded in VIPER (doc/features/home-dashboard.md).
-export function MonthlyProgress({ progress }: { progress: HomeData['progress'] }) {
+// The month's results as a pie: prospects contacted for the first time, split into appointment taken, answered without
+// an appointment yet, and no answer yet. Counted from what VIPER recorded (doc/features/home-dashboard.md); the
+// slices are clamped so that a prospect answering this month who was contacted earlier never makes one negative.
+export function MonthlyProgress({ progress, figures }: { progress: HomeData['progress']; figures: HomeData['figures'] }) {
   const current = progress.months.at(-1)
+  const appointments = current?.appointments ?? 0
+  const contacted = current?.contacted ?? 0
+  const answered = Math.max(figures.responses_this_month - appointments, 0)
+  const slices: Slice[] = [
+    { key: 'appointments', label: 'RDV pris', value: appointments, color: 'var(--color-success-fg)' },
+    { key: 'answered', label: 'Réponse sans RDV', value: answered, color: 'var(--color-info-fg)' },
+    {
+      key: 'waiting',
+      label: 'Sans réponse',
+      value: Math.max(contacted - appointments - answered, 0),
+      color: 'var(--color-warning-fg)',
+    },
+  ]
+  const total = slices.reduce((sum, slice) => sum + slice.value, 0)
+  let offset = 0
   return (
     <section className="home-panel home-progress" aria-labelledby="home-progress-title">
       <header className="home-panel__header">
@@ -80,45 +44,43 @@ export function MonthlyProgress({ progress }: { progress: HomeData['progress'] }
         </h2>
         {current && <span className="home-panel__meta">{monthLabel(current.month)}</span>}
       </header>
-      <ProgressMetric
-        metric="contacted"
-        label="Prospects contactés pour la première fois"
-        target={progress.contact_target}
-        months={progress.months}
-      />
-      <ProgressMetric
-        metric="appointments"
-        label="RDV pris"
-        target={progress.appointment_target}
-        months={progress.months}
-      />
-      <details className="home-progress__details">
-        <summary>Détail des 6 derniers mois</summary>
-        <div className="home-progress__table">
-          <table>
-            <caption className="visually-hidden">Progression des 6 derniers mois</caption>
-            <thead>
-              <tr>
-                <th scope="col">Mois</th>
-                <th scope="col">Contactés</th>
-                <th scope="col">Rendez-vous</th>
-              </tr>
-            </thead>
-            <tbody>
-              {progress.months.map((month) => (
-                <tr key={month.month}>
-                  <th scope="row">{monthLabel(month.month)}</th>
-                  <td>{month.contacted}</td>
-                  <td>{month.appointments}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {total === 0 ? (
+        <p className="home-panel__empty">Aucun résultat enregistré ce mois-ci.</p>
+      ) : (
+        <div className="month-pie">
+          <svg viewBox="0 0 42 42" className="month-pie__chart" role="img" aria-label="Résultats du mois">
+            {slices.map((slice) => {
+              const length = (slice.value / total) * 100
+              const start = offset
+              offset += length
+              return slice.value > 0 ? (
+                <circle
+                  key={slice.key}
+                  cx="21"
+                  cy="21"
+                  r={RADIUS}
+                  fill="none"
+                  stroke={slice.color}
+                  strokeWidth="9"
+                  strokeDasharray={`${String(length)} ${String(100 - length)}`}
+                  strokeDashoffset={String(25 - start)}
+                />
+              ) : null
+            })}
+          </svg>
+          <ul className="month-pie__legend">
+            {slices.map((slice) => (
+              <li key={slice.key}>
+                <span className="month-pie__swatch" style={{ background: slice.color }} aria-hidden="true" />
+                {slice.label} <strong>{slice.value}</strong>
+              </li>
+            ))}
+          </ul>
         </div>
-      </details>
+      )}
       <p className="home-panel__note">
-        Première prise de contact et premier RDV pris enregistrés dans VIPER (changements d’état du suivi) ; les
-        états repris d’un import ne comptent pas.
+        Prospects contactés pour la première fois ce mois-ci, selon leur résultat : RDV pris, réponse sans RDV ou sans
+        réponse.
       </p>
     </section>
   )

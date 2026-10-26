@@ -50,14 +50,15 @@
     box-shadow var(--duration-fast) var(--ease-standard);
 }
 
+/* The code colour of the base: green verified, blue to verify, red ignored. */
 .review-panel--to_verify {
-  --tone-fg: var(--color-warning-fg);
-  --tone-soft: var(--color-warning-soft);
+  --tone-fg: var(--color-info-fg);
+  --tone-soft: var(--color-info-soft);
 }
 
 .review-panel--ignored {
-  --tone-fg: var(--color-neutral-fg);
-  --tone-soft: var(--color-neutral-soft);
+  --tone-fg: var(--color-danger-fg);
+  --tone-soft: var(--color-danger-soft);
 }
 
 .review-panel:hover {
@@ -114,11 +115,6 @@
   font-variant-numeric: tabular-nums;
   letter-spacing: var(--tracking-tight);
   line-height: 1;
-}
-
-.review-panel--ignored .review-panel__count,
-.review-panel--ignored .review-panel__delta {
-  color: var(--color-text);
 }
 
 .review-panel__delta {

@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
@@ -16,14 +16,14 @@ async function pickCompany(text: string, option: RegExp) {
   await userEvent.click(await screen.findByRole('option', { name: option }))
 }
 
-// Nina Nouvelle at Transports Exemple SARL with one e-mail, then « Enregistrer et nouveau ».
+// Nina Nouvelle at Transports Exemple SARL with one e-mail, then « Enregistrer ».
 async function createNina() {
   await fill(screen.getByRole('textbox', { name: 'Prénom' }), 'Nina')
   await fill(screen.getByRole('textbox', { name: 'Nom' }), 'Nouvelle')
   await pickCompany('Transports', /Transports Exemple SARL/)
   await fill(screen.getByRole('textbox', { name: 'Adresse e-mail' }), 'nina@exemple.example')
-  await userEvent.click(screen.getByRole('button', { name: 'Enregistrer et nouveau' }))
-  expect(await screen.findByText(/Prospect enregistré\. Saisissez le suivant/)).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: 'Enregistrer' }))
+  expect(await screen.findByText('Prospect enregistré.')).toBeInTheDocument()
 }
 
 describe('Prospect editor — new prospect', () => {
@@ -53,16 +53,14 @@ describe('Prospect editor — new prospect', () => {
     expect(body.emails).toEqual([expect.objectContaining({ address: 'nina@exemple.example', is_primary: true, verified_now: false })])
   })
 
-  it('« Enregistrer et nouveau » offers an empty form for the next person of the same company', async () => {
-    stubProspectsApi({ companies: [employer] })
-    renderProspectEditor('new')
+  it('opens the saved person once created', async () => {
+    const api = stubProspectsApi({ companies: [employer] })
+    const { onNavigate } = renderProspectEditor('new')
 
     await createNina()
 
-    expect(screen.getByRole('textbox', { name: 'Prénom' })).toHaveValue('')
-    await waitFor(() => {
-      expect(screen.getByRole('combobox', { name: /Entreprise/ })).toHaveValue('Transports Exemple SARL')
-    })
+    expect(api.requests.filter((request) => request.method === 'POST')).toHaveLength(1)
+    expect(onNavigate).toHaveBeenCalledTimes(1)
   })
 
   it('requires a name and a company before sending anything', async () => {

@@ -38,20 +38,19 @@ function fact(input: string, section: string, label: string): string | null {
   return line ? line.slice(`- ${label} : `.length) : null
 }
 
-function draft(instructions: string, input: string) {
+function draft(input: string) {
   const company = fact(input, 'Société', 'Nom') ?? 'votre entreprise'
   const civility = fact(input, 'Contact', 'Civilité')
   const lastName = fact(input, 'Contact', 'Nom')
   const salutation =
     civility && lastName ? `Bonjour ${civility === 'Mme' ? 'Madame' : 'Monsieur'} ${lastName},` : 'Bonjour,'
-  const booking = /recopié exactement : (\S+)\. /.exec(instructions)?.[1]
   const consigne = /Consigne de l’utilisateur pour cette version :\n([^\n]+)/.exec(input)?.[1]
   const paragraphs = [
     salutation,
     `Circoe intègre des agents d’intelligence artificielle dans les processus de ${company}.`,
     ...(consigne ? [`(Consigne appliquée : ${consigne})`] : []),
-    booking ? `Un échange de vingt minutes ? Vous pouvez choisir un créneau ici : ${booking}` : 'Un échange de vingt minutes ?',
-    'Bien cordialement,',
+    // The closing block (DIHNAMO, booking link, signature) is added by the server, never written by the model.
+    'Je vous propose un échange de 30 minutes avec l’un de nos experts IA.',
   ]
   return { subject: `Agents IA pour ${company}`, body: paragraphs.join('\n\n') }
 }
@@ -78,10 +77,9 @@ async function answer(request: IncomingMessage): Promise<[number, unknown]> {
   draftKeys.push(authorization.slice('Bearer '.length).slice(-4))
   const body = await readJson(request)
   received.push(body)
-  const instructions = typeof body.instructions === 'string' ? body.instructions : ''
   const input = typeof body.input === 'string' ? body.input : ''
   if (input.includes('FAKE_AI_FAIL')) return [503, { error: { type: 'server_error', code: null } }]
-  const text = JSON.stringify(draft(instructions, input))
+  const text = JSON.stringify(draft(input))
   return [
     200,
     {

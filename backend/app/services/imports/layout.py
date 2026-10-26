@@ -1,7 +1,8 @@
 """Sheet recognition and column mapping, with the user's overrides (Task 09 remapping).
 
-The prospect sheet is the one whose header row (within its first rows) names the most known
-fields, including at least one identity field; every other sheet gets an explicit skip notice.
+Only the **first sheet** of the workbook is imported (decision D10): its header row is the best
+one among its first rows (most known fields, at least one identity field); every other sheet gets
+an explicit skip notice and never feeds the CRM.
 Headers are compared folded (case, accents, punctuation, spaces). A repeated header takes its
 field's `repeat` target by position (second `A contacter` → legacy flag); any other repeat, unknown
 or unnamed column is kept raw in legacy metadata, with a notice.
@@ -91,23 +92,22 @@ def find_header(sheet: Sheet) -> tuple[int, SheetRow] | None:
 def choose_sheet(
     workbook: Workbook, mapping: ImportMapping
 ) -> tuple[Sheet | None, SheetRow | None]:
+    """The first sheet and its header row (D10). Naming another sheet is refused
+    (`mapping.not_first_sheet`); naming the first one lets its first row serve as headers when
+    none is recognisable, the columns then being mapped by hand."""
+    first = workbook.sheets[0] if workbook.sheets else None
     if mapping.sheet is not None:
         sheet = next((s for s in workbook.sheets if s.name == mapping.sheet), None)
         if sheet is None:
             raise ImportRejectedError(DiagnosticCode.MAPPING_UNKNOWN_SHEET, sheet=mapping.sheet)
+        if sheet is not first:
+            raise ImportRejectedError(DiagnosticCode.MAPPING_NOT_FIRST_SHEET, sheet=mapping.sheet)
         found = find_header(sheet)
-        # A sheet chosen by the user is imported even without a recognisable header row: its
-        # first row then serves as headers and columns are mapped by hand.
         return sheet, found[1] if found else (sheet.rows[0] if sheet.rows else None)
-    candidates = [
-        (found[0], -position, sheet, found[1])
-        for position, sheet in enumerate(workbook.sheets)
-        if (found := find_header(sheet))
-    ]
-    if not candidates:
+    found = find_header(first) if first is not None else None
+    if first is None or found is None:
         return None, None
-    _, _, sheet, header = max(candidates, key=lambda candidate: candidate[:2])
-    return sheet, header
+    return first, found[1]
 
 
 def resolve_layout(workbook: Workbook, mapping: ImportMapping | None = None) -> Layout:

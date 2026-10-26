@@ -58,7 +58,7 @@ def test_an_editor_save_reads_back_as_one_entry_by_the_signed_in_user(
         view,
         company_id=str(other.id),
         emails=emails,
-        tracking={"status": "contacted"},
+        tracking={"status": "appointment_obtained"},
     )
     assert client.put(f"{PROSPECTS}/{prospect.id}", json=body).status_code == 200
 
@@ -76,13 +76,13 @@ def test_an_editor_save_reads_back_as_one_entry_by_the_signed_in_user(
         ("Entreprise", "Transports Exemple SARL", "Nouvel Employeur SAS"),
         ("E-mail principal", "ancienne@exemple.example", "nouvelle@exemple.example"),
         ("E-mail ajouté", None, "nouvelle@exemple.example"),
-        ("État", None, "Contacté"),
+        ("État", None, "RDV pris"),
     ]
     assert entry["summary"] == [
         "Changement d’entreprise",
         "E-mail principal modifié",
         "E-mail ajouté",
-        "Suivi : Contacté",
+        "Suivi : RDV pris",
     ]
     assert set(entry) == {
         "id",

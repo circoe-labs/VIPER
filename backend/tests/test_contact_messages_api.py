@@ -16,7 +16,7 @@ from app.api.session_cookie import CSRF_HEADER
 from app.core.config import Settings
 from app.models import ContactTracking
 from app.models.enums import ContactTrackingStatus
-from tests.builders import add_company, add_email, add_prospect
+from tests.builders import add_cohort, add_company, add_email, add_prospect, start_sequence
 from tests.test_prospects_api import PROSPECTS, body_of, load
 
 SENDER = "prospection@exemple.example"
@@ -31,12 +31,18 @@ def app_with_sender(app: FastAPI) -> FastAPI:
     return app
 
 
-def prospect_id(session: Session, state: ContactTrackingStatus | None = None) -> uuid.UUID:
+def prospect_id(
+    session: Session, state: ContactTrackingStatus | None = None, *, in_cohort: bool = True
+) -> uuid.UUID:
+    """A prospect with a primary e-mail, an optional state and, by default, an open sequence in
+    the cohort S41 (messages belong to a sequence: rework D6)."""
     prospect = add_prospect(session, add_company(session))
     add_email(session, prospect, "jean.test@exemple.example", is_primary=True)
     if state is not None:
         session.add(ContactTracking(prospect_id=prospect.id, status=state))
         session.flush()
+    if in_cohort:
+        start_sequence(session, prospect)
     return prospect.id
 
 
@@ -60,15 +66,28 @@ def refused(response: Any, status: int, code: str) -> dict[str, Any]:
 def test_the_sequence_read_model(
     app_with_sender: FastAPI, client: TestClient, db_session: Session
 ) -> None:
-    prospect = prospect_id(db_session, ContactTrackingStatus.CONTACTED)
+    prospect = prospect_id(db_session, ContactTrackingStatus.NEUTRAL)
+    sequence_id = (
+        load(client, prospect)["contact"]["cohort"]["id"]
+        and ok(client.get(f"{PROSPECTS}/{prospect}/sequences"))["place"]["sequence_id"]
+    )
 
     body = ok(client.get(messages(prospect)))
 
     assert body["sequence"] == {
         "prospect_id": str(prospect),
-        "state": "contacted",
+        "state": "neutral",
         "do_not_contact": False,
+        "sequence_id": sequence_id,
+        "out_of_campaign": False,
         "closed": False,
+        "max_follow_ups": 4,
+        "sent_count": 0,
+        "next_rank": 0,
+        "next_step": "contact",
+        "finished": False,
+        "level_label": "Contact",
+        "level": "contact_pending",
     }
     assert body["defaults"] == {
         "from_email": SENDER,
@@ -82,14 +101,18 @@ def test_the_sequence_read_model(
         "dispatch_max_lateness_minutes": 360,
         "dispatch_claim_ttl_seconds": 600,
     }
+    # Every step from the Contact to R<max> (« max relances », 4 by default).
     assert body["steps"] == [
-        {"step": "contact", "message": None},
-        {"step": "r1", "message": None},
-        {"step": "r2", "message": None},
+        {"rank": rank, "step": step, "label": label, "message": None}
+        for rank, (step, label) in enumerate(
+            [("contact", "Contact"), ("r1", "R1"), ("r2", "R2"), ("r3", "R3"), ("r4", "R4")]
+        )
     ]
     assert ok(client.get(f"{messages(prospect)}/r1")) == {"message": None}
+    assert ok(client.get(f"{messages(prospect)}/r4")) == {"message": None}
     refused(client.get(messages(uuid.uuid4())), 404, "not_found")
-    assert client.get(f"{messages(prospect)}/r3").status_code == 422
+    for malformed in ("r0", "R1", "rank1", "r100", "-1"):
+        assert client.get(f"{messages(prospect)}/{malformed}").status_code == 422
 
 
 def test_the_full_lifecycle_over_http(
@@ -197,7 +220,7 @@ def test_a_state_change_reports_the_cancelled_messages(
     view = ok(
         client.patch(
             f"{PROSPECTS}/{prospect}/tracking",
-            json={"version": view["version"], "status": "contacted"},
+            json={"version": view["version"], "status": "neutral"},
         )
     )
     assert view["cancelled_messages"] == 0
@@ -244,9 +267,9 @@ def claim(session: Session, prospect: uuid.UUID, step: str) -> None:
     session.execute(
         text(
             "UPDATE contact_messages SET dispatch_claim_id = :claim, dispatch_claimed_at = now() "
-            "WHERE prospect_id = :id AND step = :step"
+            "WHERE prospect_id = :id AND rank = :rank"
         ),
-        {"claim": uuid.uuid4(), "id": prospect, "step": step},
+        {"claim": uuid.uuid4(), "id": prospect, "rank": ["contact", "r1", "r2"].index(step)},
     )
 
 
@@ -264,7 +287,7 @@ def scheduled(client: TestClient, prospect: uuid.UUID, step: str) -> None:
 def test_ignored_reports_cancelled_and_in_flight_messages(
     app_with_sender: FastAPI, client: TestClient, db_session: Session
 ) -> None:
-    prospect = prospect_id(db_session, ContactTrackingStatus.CONTACTED)
+    prospect = prospect_id(db_session, ContactTrackingStatus.NEUTRAL)
     ok(client.put(f"{messages(prospect)}/contact", json={"subject": "s"}), 201)
     scheduled(client, prospect, "r1")
     claim(db_session, prospect, "r1")
@@ -286,7 +309,7 @@ def test_ignored_reports_cancelled_and_in_flight_messages(
 def test_the_opposition_cancels_the_unsent_messages(
     app_with_sender: FastAPI, client: TestClient, db_session: Session
 ) -> None:
-    prospect = prospect_id(db_session, ContactTrackingStatus.CONTACTED)
+    prospect = prospect_id(db_session, ContactTrackingStatus.NEUTRAL)
     scheduled(client, prospect, "contact")
     view = load(client, prospect)
 
@@ -307,7 +330,7 @@ def test_the_opposition_cancels_the_unsent_messages(
 def test_the_editor_save_reports_the_cancelled_messages(
     app_with_sender: FastAPI, client: TestClient, db_session: Session
 ) -> None:
-    prospect = prospect_id(db_session, ContactTrackingStatus.CONTACTED)
+    prospect = prospect_id(db_session, ContactTrackingStatus.NEUTRAL)
     ok(client.put(f"{messages(prospect)}/r1", json={"subject": "s"}), 201)
     view = load(client, prospect)
     tracking = body_of(view)["tracking"] | {"status": "appointment_obtained"}
@@ -335,3 +358,156 @@ def test_other_checks_of_the_content(
         "invalid",
     )
     assert (detail["field"], detail["reason"]) == ("scheduled_at", "too_far")
+
+
+# --- sequences (rework D3, D6) ------------------------------------------------------------------
+
+
+def test_mark_sent_over_http(
+    app_with_sender: FastAPI, client: TestClient, db_session: Session
+) -> None:
+    prospect = prospect_id(db_session)
+    ok(client.put(f"{messages(prospect)}/contact", json={"subject": "s", "body_text": "b"}), 201)
+
+    sent = ok(
+        client.post(
+            f"{messages(prospect)}/mark-sent",
+            json={"rank": 0, "sent_at": "2026-09-07T10:00:00+02:00"},
+        )
+    )
+    bare = ok(client.post(f"{messages(prospect)}/mark-sent", json={"rank": 1}), 201)
+
+    assert (sent["created"], sent["message"]["status"], sent["message"]["sent_source"]) == (
+        False,
+        "sent",
+        "manual",
+    )
+    assert (sent["message"]["rank"], sent["message"]["step"]) == (0, "contact")
+    assert (bare["created"], bare["message"]["rank"], bare["message"]["step"]) == (True, 1, "r1")
+    place = ok(client.get(f"{PROSPECTS}/{prospect}/sequences"))["place"]
+    assert (place["sent_count"], place["next_step"], place["level_label"]) == (2, "r2", "R2")
+    # The planning's level key, as in `GET …/messages` and the Contact / Prospection lists.
+    listed = ok(client.get(messages(prospect)))["sequence"]
+    assert place["level"] == listed["level"] == "r1_sent"
+    detail = refused(
+        client.post(
+            f"{messages(prospect)}/mark-sent",
+            json={"rank": 2, "sent_at": "2020-01-01T00:00:00Z"},
+        ),
+        422,
+        "invalid",
+    )
+    assert (detail["field"], detail["reason"]) == ("sent_at", "before_previous_send")
+    assert (
+        client.post(
+            f"{messages(prospect)}/mark-sent", json={"rank": 2, "sent_at": "2026-09-07T10:00:00"}
+        )
+    ).status_code == 422  # a time zone is required
+    # The rank the person saw is required (S4): a bare declaration is refused.
+    assert client.post(f"{messages(prospect)}/mark-sent", json={}).status_code == 422
+
+
+def test_without_a_cohort_the_sequence_is_closed(
+    app_with_sender: FastAPI, client: TestClient, db_session: Session
+) -> None:
+    prospect = prospect_id(db_session, in_cohort=False)
+
+    body = ok(client.get(messages(prospect)))
+
+    assert (body["sequence"]["sequence_id"], body["sequence"]["closed"]) == (None, True)
+    refused(client.put(f"{messages(prospect)}/contact", json={}), 409, "no_open_sequence")
+    refused(
+        client.post(f"{messages(prospect)}/mark-sent", json={"rank": 0}), 409, "no_open_sequence"
+    )
+
+
+def test_s0_is_out_of_campaign_over_http(
+    app_with_sender: FastAPI, client: TestClient, db_session: Session
+) -> None:
+    prospect = prospect_id(db_session, in_cohort=False)
+    client.put(
+        f"{PROSPECTS}/{prospect}/cohort", json={"cohort_id": str(add_cohort(db_session, "S0").id)}
+    )
+
+    body = ok(client.get(messages(prospect)))
+
+    assert (body["sequence"]["out_of_campaign"], body["sequence"]["closed"]) == (True, True)
+    refused(client.put(f"{messages(prospect)}/contact", json={}), 409, "out_of_campaign")
+
+
+def test_a_draft_and_a_validated_message_are_deleted_over_http(
+    app_with_sender: FastAPI, client: TestClient, db_session: Session
+) -> None:
+    prospect = prospect_id(db_session)
+    path = f"{messages(prospect)}/contact"
+    ok(client.put(path, json={"subject": "Objet", "body_text": "Corps"}), 201)
+
+    assert ok(client.post(f"{path}/delete", json={"expected_revision": 1})) == {
+        "deleted": True,
+        "step": "contact",
+    }
+    assert ok(client.get(path)) == {"message": None}
+
+    ok(client.put(path, json={"subject": "Objet", "body_text": "Corps"}), 201)
+    ok(client.post(f"{path}/validate", json={"expected_revision": 1}))
+    assert ok(client.post(f"{path}/delete", json={"expected_revision": 1}))["deleted"] is True
+    assert ok(client.get(path)) == {"message": None}
+    assert client.post(f"{path}/delete", json={}).status_code == 422
+
+
+def test_one_send_moment_for_whole_cohorts(
+    app_with_sender: FastAPI, client: TestClient, db_session: Session
+) -> None:
+    def prospect_in(code: str) -> uuid.UUID:
+        prospect = add_prospect(db_session, add_company(db_session))
+        add_email(db_session, prospect, "jean.test@exemple.example", is_primary=True)
+        start_sequence(db_session, prospect, add_cohort(db_session, code))
+        return prospect.id
+
+    validated_in, validated_other, draft_in = (
+        prospect_in("S41"),
+        prospect_in("S42"),
+        prospect_in("S41"),
+    )
+    for prospect in (validated_in, validated_other, draft_in):
+        path = f"{messages(prospect)}/contact"
+        ok(client.put(path, json={"subject": "Objet", "body_text": "Corps"}), 201)
+    for prospect in (validated_in, validated_other):
+        ok(client.post(f"{messages(prospect)}/contact/validate", json={"expected_revision": 1}))
+
+    body = {"cohorts": ["S41"], "step": "contact", "scheduled_at": FUTURE.isoformat()}
+    result = ok(client.post("/api/contact/schedule-cohorts", json=body))
+    assert (result["scheduled"], result["validated"], result["refused"]) == (2, 1, 0)
+
+    def status(prospect: uuid.UUID) -> str:
+        return str(ok(client.get(f"{messages(prospect)}/contact"))["message"]["status"])
+
+    assert status(validated_in) == "scheduled"
+    assert status(validated_other) == "validated"
+    assert status(draft_in) == "scheduled"
+
+    past = {**body, "scheduled_at": (datetime.now(UTC) - timedelta(days=1)).isoformat()}
+    assert client.post("/api/contact/schedule-cohorts", json=past).status_code == 422
+
+
+def test_the_review_verdict_is_given_over_http_and_is_void_once_the_text_changes(
+    app_with_sender: FastAPI, client: TestClient, db_session: Session
+) -> None:
+    prospect = prospect_id(db_session)
+    path = f"{messages(prospect)}/contact"
+    ok(client.put(path, json={"subject": "Objet", "body_text": "Corps"}), 201)
+
+    reviewed = ok(
+        client.post(f"{path}/review", json={"expected_revision": 1, "verdict": "correct"})
+    )
+    assert reviewed["message"]["review_verdict"] == "correct"
+    assert reviewed["message"]["reviewed_by"]
+    assert ok(client.get(path))["message"]["review_verdict"] == "correct"
+
+    # An edit bumps the revision: the verdict belonged to the old text.
+    ok(client.put(path, json={"expected_revision": 1, "body_text": "Autre corps"}))
+    assert ok(client.get(path))["message"]["review_verdict"] is None
+
+    perfect = client.post(f"{path}/review", json={"expected_revision": 2, "verdict": "perfect"})
+    assert perfect.status_code == 422
+    assert client.post(f"{path}/review", json={"verdict": "correct"}).status_code == 422

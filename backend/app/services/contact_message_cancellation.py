@@ -80,16 +80,22 @@ def cancel_unsent_messages(
     reason: str,
     *,
     now: datetime | None = None,
+    sequence_id: uuid.UUID | None = None,
 ) -> Cancellation:
     """Cancel the prospect's unsent, unclaimed messages with `reason`; any actor that may make
-    the triggering change (imports included). Rows are locked while changed."""
+    the triggering change (imports included). Rows are locked while changed. `sequence_id` narrows
+    it to one sequence (the dispatcher cancelling a closed sequence's message after the person
+    prepared the next one)."""
     moment = now or datetime.now(UTC)
-    rows = session.scalars(
+    query = (
         select(ContactMessage)
         .where(ContactMessage.prospect_id == prospect_id, ContactMessage.status.in_(CANCELLABLE))
         .with_for_update()
         .execution_options(populate_existing=True)
-    ).all()
+    )
+    if sequence_id is not None:
+        query = query.where(ContactMessage.sequence_id == sequence_id)
+    rows = session.scalars(query).all()
     cancelled = in_flight = 0
     for message in rows:
         if message.dispatch_claim_id is not None:

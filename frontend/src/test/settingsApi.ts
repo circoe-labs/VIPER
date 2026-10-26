@@ -1,6 +1,6 @@
 import { vi } from 'vitest'
 
-import type { Referent, TaxonomyKind, TaxonomyValue } from '../api/settings'
+import type { Cohort, Referent, TaxonomyKind, TaxonomyValue } from '../api/settings'
 import { foldText, matchesWords } from '../lib/text'
 
 // In-memory stand-in for /api/settings (backend/app/api/routes/settings.py) for component tests: same refusals
@@ -14,6 +14,12 @@ export interface RecordedRequest {
 }
 
 type Store = Record<TaxonomyKind, TaxonomyValue[]> & { referents: Referent[] }
+
+// The cohorts (`S0` seeded like migration 0010) and « max relances » (4 by default).
+interface ContactStore {
+  cohorts: Cohort[]
+  max_follow_ups: number
+}
 
 const STAMP = '2026-09-01T09:30:00+00:00'
 let sequence = 0
@@ -54,10 +60,37 @@ function reply(status: number, body?: unknown): Promise<Response> {
   )
 }
 
+export function cohort(code: string, starts_on: string | null, fields: Partial<Cohort> = {}): Cohort {
+  sequence += 1
+  return {
+    id: `00000000-0000-7000-d000-${String(sequence).padStart(12, '0')}`,
+    code,
+    starts_on,
+    out_of_campaign: code === 'S0',
+    needs_review: false,
+    current_count: 0,
+    sequence_count: 0,
+    ...fields,
+  }
+}
+
+export const S0 = cohort('S0', null)
+
+// `S37`, « s 037 » → `S37` (backend core/cohort_codes); null for anything else.
+function cohortCode(raw: string): string | null {
+  const match = /^(?:s|sem|semaine)\s*0*(\d{1,6})$/.exec(raw.trim().toLowerCase())
+  return match ? `S${String(Number(match[1]))}` : null
+}
+
+function refused(status: number, detail: Record<string, unknown>): Promise<Response> {
+  return reply(status, { detail: { message: 'Refused.', ...detail } })
+}
+
 const nameOf = (value: TaxonomyValue | Referent) =>
   'label' in value ? value.label : `${value.first_name} ${value.last_name}`
 
-export function stubSettingsApi(initial: Partial<Store> = {}) {
+export function stubSettingsApi(initial: Partial<Store> = {}, contactInitial: Partial<ContactStore> = {}) {
+  const contact: ContactStore = { cohorts: [S0], max_follow_ups: 4, ...structuredClone(contactInitial) }
   const store: Store = {
     roles: [],
     'activity-categories': [],
@@ -80,8 +113,46 @@ export function stubSettingsApi(initial: Partial<Store> = {}) {
     })
   }
 
+  // Cohorts and « max relances » with the backend's refusals (app/services/cohorts.py, app_settings.py).
+  function handleContact(method: string, url: URL, body: unknown): Promise<Response> {
+    const payload = (body ?? {}) as { code?: string; starts_on?: string | null; max_follow_ups?: number }
+    if (url.pathname === '/api/settings/contact') {
+      if (method === 'PUT') contact.max_follow_ups = payload.max_follow_ups ?? contact.max_follow_ups
+      return reply(200, { max_follow_ups: contact.max_follow_ups })
+    }
+    const id = url.pathname.split('/')[4]
+    const target = contact.cohorts.find((value) => value.id === id)
+    if (method === 'GET') return reply(200, contact.cohorts)
+    if (id && !target) return refused(404, { code: 'not_found' })
+    if ((method === 'PATCH' || method === 'DELETE') && target?.out_of_campaign) {
+      return refused(409, { code: 'cohort_s0_fixed' })
+    }
+    if (method === 'DELETE' && target) {
+      if (target.sequence_count > 0) return refused(409, { code: 'in_use', usage: { sequences: target.sequence_count } })
+      contact.cohorts.splice(contact.cohorts.indexOf(target), 1)
+      return reply(204)
+    }
+    const code = payload.code === undefined ? (target?.code ?? '') : cohortCode(payload.code)
+    if (code === null) return refused(422, { code: 'invalid', field: 'code', reason: 'cohort_code' })
+    const twin = contact.cohorts.find((value) => value.code === code && value.id !== id)
+    if (twin) return refused(409, { code: 'duplicate', field: 'code', existing: { id: twin.id, label: twin.code, active: true } })
+    const startsOn = payload.starts_on ?? target?.starts_on ?? null
+    if (!startsOn) return refused(422, { code: 'invalid', field: 'starts_on', reason: 'required' })
+    if (method === 'POST') {
+      const created = cohort(code, startsOn)
+      contact.cohorts.push(created)
+      return reply(201, created)
+    }
+    if (method === 'PATCH' && target) {
+      Object.assign(target, { code, starts_on: startsOn, needs_review: false })
+      return reply(200, target)
+    }
+    return reply(405, { detail: 'Method Not Allowed' })
+  }
+
   function handle(method: string, url: URL, body: unknown): Promise<Response> {
     if (url.pathname === '/api/health') return reply(200, { status: 'ok', database: 'ok' })
+    if (/^\/api\/settings\/(cohorts|contact)(\/|$)/.test(url.pathname)) return handleContact(method, url, body)
     const match = /^\/api\/settings\/([a-z-]+)(?:\/([^/]+))?$/.exec(url.pathname)
     const resource = match?.[1] as keyof Store | undefined
     if (!match || !resource || !(resource in store)) return reply(404, { detail: 'Not Found' })
@@ -158,5 +229,5 @@ export function stubSettingsApi(initial: Partial<Store> = {}) {
     return handle(method, url, body)
   })
   vi.stubGlobal('fetch', fetchMock)
-  return { store, requests, failures, fetchMock }
+  return { store, contact, requests, failures, fetchMock }
 }

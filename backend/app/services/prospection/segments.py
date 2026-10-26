@@ -2,9 +2,11 @@
 
 The Prospection counters, the people list and Home (Task 16) all read these definitions; nothing
 else may re-derive "never verified", "due" or "no response". Every predicate reads the rows joined
-by `join_segment_sources` (a prospect, its company, its single contact tracking and its primary
-e-mail — at most one of each, so the join never multiplies prospects). Definitions, examples and
-rationale: doc/features/prospection-kpis.md (decisions I-90 … I-93).
+by `join_segment_sources` (a prospect, its company, its single contact tracking, its primary
+e-mail, and its current sequence with its cohort and sends — at most one of each, so the join
+never multiplies prospects). Contact segments read the sequences (rework D1): a contact attempt is
+a message really sent, the next due date is derived (`contact_sequences.next_due_at_sql`).
+Definitions, examples and rationale: doc/features/prospection-kpis.md (decisions I-90 … I-93).
 """
 
 from dataclasses import dataclass
@@ -18,6 +20,7 @@ from sqlalchemy.orm import aliased
 from app.core.business_time import BUSINESS_TIMEZONE, start_of_day
 from app.models import (
     Company,
+    ContactMessage,
     ContactTracking,
     ContactTrackingStatusHistory,
     Email,
@@ -27,9 +30,18 @@ from app.models import (
 from app.models.enums import (
     ActivityStatus,
     ContactabilityStatus,
+    ContactMessageStatus,
     ContactTrackingStatus,
     TrackingHistoryStatus,
     VerificationStatus,
+)
+from app.services.contact_sequences import (
+    due_open_sql,
+    email_error_sql,
+    finished_sql,
+    join_sequence_sources,
+    next_due_at_sql,
+    sent_count_sql,
 )
 
 # The prospect's primary e-mail (at most one: partial unique index; a primary is always active).
@@ -60,6 +72,8 @@ class Segment(StrEnum):
     NO_RESPONSE = "no_response"
     RESPONSES = "responses"
     APPOINTMENTS = "appointments"
+    # An open « Erreur sur le mail »: still in the role, but the mails come back.
+    EMAIL_ERROR = "email_error"
 
 
 class Review(StrEnum):
@@ -89,20 +103,8 @@ class EmailState(StrEnum):
 
 
 S = ContactTrackingStatus
-# States reached only after a first contact attempt. `neutral` is before any; `ignored` may be
-# chosen without any contact (a prospect set aside), so it proves nothing either.
-CONTACTED_STAGES = (
-    S.CONTACTED,
-    S.R1,
-    S.R2,
-    S.RESPONSE_RECEIVED,
-    S.APPOINTMENT_OBTAINED,
-    S.FAILURE,
-)
-# Contacted or followed up (R1, R2), still waiting for an answer.
-AWAITING_STAGES = (S.CONTACTED, S.R1, S.R2)
-# The prospect answered. `failure` is the human verdict of a sequence without outcome, not an
-# answer (decision 13).
+# States reached only after an answer, so after a contact. `neutral` proves nothing; `ignored` and
+# `disqualified` may be chosen without any contact.
 RESPONDED_STAGES = (S.RESPONSE_RECEIVED, S.APPOINTMENT_OBTAINED)
 # An appointment was obtained (« RDV pris » ends the Contact scope, decision 8).
 APPOINTMENT_STAGES = (S.APPOINTMENT_OBTAINED,)
@@ -128,7 +130,7 @@ class SegmentContext:
 
     @property
     def due_before(self) -> datetime:
-        """Start of tomorrow (business time): a contact planned before it is due."""
+        """Start of tomorrow (business time): a step (Contact or Rn) due before it is « échu »."""
         return start_of_day(self.today + timedelta(days=1))
 
     @property
@@ -140,8 +142,9 @@ class SegmentContext:
 
 
 def join_segment_sources[T: tuple[Any, ...]](statement: Select[T]) -> Select[T]:
-    """`statement` over every prospect with its company, contact tracking and primary e-mail."""
-    return (
+    """`statement` over every prospect with its company, contact tracking, primary e-mail and
+    current sequence (cohort, sends)."""
+    return join_sequence_sources(
         statement.select_from(Prospect)
         .outerjoin(Company, Company.id == Prospect.company_id)
         .outerjoin(ContactTracking, ContactTracking.prospect_id == Prospect.id)
@@ -186,15 +189,26 @@ def actionable() -> ColumnElement[bool]:
     return and_(contactable(), Prospect.activity_status != ActivityStatus.INACTIVE)
 
 
+def any_send() -> ColumnElement[bool]:
+    """A message of the prospect was really sent, in any of its sequences."""
+    return exists().where(
+        ContactMessage.prospect_id == Prospect.id,
+        ContactMessage.status == ContactMessageStatus.SENT,
+    )
+
+
 def contacted() -> ColumnElement[bool]:
-    """A contact attempt happened: a state of `CONTACTED_STAGES`, or a response/appointment date.
-    Never NULL (a prospect without tracking is simply not contacted)."""
-    return and_(
-        ContactTracking.id.is_not(None),
-        or_(
-            ContactTracking.status.in_(CONTACTED_STAGES),
-            ContactTracking.response_received_at.is_not(None),
-            ContactTracking.appointment_at.is_not(None),
+    """A contact attempt happened: a message really sent (any sequence), an answer state, or a
+    response/appointment date. Never NULL."""
+    return or_(
+        any_send(),
+        and_(
+            ContactTracking.id.is_not(None),
+            or_(
+                ContactTracking.status.in_(RESPONDED_STAGES),
+                ContactTracking.response_received_at.is_not(None),
+                ContactTracking.appointment_at.is_not(None),
+            ),
         ),
     )
 
@@ -221,6 +235,15 @@ def needs_recheck(context: SegmentContext) -> ColumnElement[bool]:
         Prospect.employment_verified_at.is_not(None),
         or_(channels_reset(), stale(context)),
     )
+
+
+def to_send_before(bound: datetime) -> ColumnElement[bool]:
+    """Something to send — the Contact or a follow-up Rn — whose derived next due date is before
+    `bound`, for an actionable prospect: the one definition of « à envoyer » shared by the Contact
+    planning (`bound` = next week's Monday), Prospection's `due` and Home (`bound` = tomorrow).
+    Never NULL-true: nothing is due without a cohort, in S0, under a state other than `neutral`,
+    after « Relance terminée », under the opposition or while an « Erreur sur le mail » is open."""
+    return and_(actionable(), next_due_at_sql() < bound)
 
 
 def ignored() -> ColumnElement[bool]:
@@ -293,13 +316,23 @@ def review_counts(context: SegmentContext) -> list[Label[int]]:
 
 
 def to_contact() -> ColumnElement[bool]:
-    """A first contact is planned: actionable, still `neutral` (no contact yet) and a next-action
-    week is set. A neutral prospect without a week is not planned (decisions 4-5)."""
+    """A first contact is planned: actionable, in a campaign cohort with an open sequence where
+    nothing was sent yet, nothing pausing it (state, « Erreur sur le mail »). A prospect without
+    cohort is not planned (not validated, D7)."""
+    return and_(actionable(), due_open_sql(), sent_count_sql() == 0)
+
+
+def awaiting_answer() -> ColumnElement[bool]:
+    """Contacted in the current sequence (Contact or follow-ups sent), still `neutral`, no answer
+    recorded, the sequence not finished (« Relance terminée » waits for nothing more, like the
+    former `failure` verdict)."""
     return and_(
         actionable(),
-        ContactTracking.status == S.NEUTRAL,
-        ContactTracking.planned_contact_at.is_not(None),
-        ~contacted(),
+        sent_count_sql() > 0,
+        ~finished_sql(),
+        or_(ContactTracking.status.is_(None), ContactTracking.status == S.NEUTRAL),
+        or_(ContactTracking.id.is_(None), ContactTracking.response_received_at.is_(None)),
+        or_(ContactTracking.id.is_(None), ContactTracking.appointment_at.is_(None)),
     )
 
 
@@ -330,20 +363,17 @@ def predicate(segment: Segment, context: SegmentContext) -> ColumnElement[bool]:
         case Segment.TO_CONTACT:
             return to_contact()
         case Segment.DUE:
-            return and_(to_contact(), ContactTracking.planned_contact_at < context.due_before)
+            return to_send_before(context.due_before)
         case Segment.CONTACTED:
             return contacted()
         case Segment.NO_RESPONSE:
-            return and_(
-                actionable(),
-                ContactTracking.status.in_(AWAITING_STAGES),
-                ContactTracking.response_received_at.is_(None),
-                ContactTracking.appointment_at.is_(None),
-            )
+            return awaiting_answer()
         case Segment.RESPONSES:
             return responded()
         case Segment.APPOINTMENTS:
             return has_appointment()
+        case Segment.EMAIL_ERROR:
+            return email_error_sql()
 
 
 def _count(segment: Segment, context: SegmentContext) -> ColumnElement[int]:

@@ -12,6 +12,7 @@ import type {
   RoleDecision,
 } from '../api/imports'
 import { weekMonday, weeksInYear } from '../lib/isoWeek'
+import { type SendMark, sendMarkOf } from '../lib/campaign'
 import { foldText } from '../lib/text'
 
 // The user's review decisions — overrides of the defaults the server proposed (backend review.py) — and what they
@@ -76,6 +77,31 @@ function rowReview(review: ImportReview, row: number) {
 
 export function resolutionOf(review: ImportReview, decisions: ReviewDecisions, row: number): ProspectResolution {
   return decisions.rows[row]?.resolution ?? rowReview(review, row).default_resolution
+}
+
+// Every analysed row lands in exactly one of three categories: set aside (excluded, too incomplete to contact, or no
+// longer in post), appointment taken, or valid.
+export type RowCategory = 'valid' | 'appointment' | 'ignored'
+
+export const CATEGORY_LABELS: Record<RowCategory, string> = { valid: 'Valides', appointment: 'RDV pris', ignored: 'Ignorés' }
+
+const INACTIVE_STATUS = new Set(['inactif', 'inactive'])
+
+function isInactive(review: ImportReview, decisions: ReviewDecisions, row: PreviewRow): boolean {
+  const status = row.legacy_metadata.verification_status?.value
+  if (typeof status === 'string' && INACTIVE_STATUS.has(foldText(status.trim()))) return true
+  const reviewed = rowReview(review, row.row_number)
+  return reviewed.inactive_suggested || decisions.rows[row.row_number]?.inactive === true
+}
+
+export function rowCategory(review: ImportReview, decisions: ReviewDecisions, row: PreviewRow): RowCategory {
+  if (resolutionOf(review, decisions, row.row_number).action === 'exclude' || row.status === 'error') return 'ignored'
+  if (isInactive(review, decisions, row)) return 'ignored'
+  return row.tracking?.status === 'appointment_obtained' ? 'appointment' : 'valid'
+}
+
+export function sendMark(row: PreviewRow): SendMark | null {
+  return sendMarkOf(row.cohort_code)
 }
 
 export function isImported(resolution: ProspectResolution): boolean {

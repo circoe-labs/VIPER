@@ -1,5 +1,6 @@
 import { Navigate, type RouteObject } from 'react-router'
 
+import { AgendaPage } from './agenda/AgendaPage'
 import { LoginPage } from './auth/LoginPage'
 import { RequireAuth } from './auth/RequireAuth'
 import { CompaniesPage } from './companies/CompaniesPage'
@@ -8,6 +9,7 @@ import { DatabasePage } from './database/DatabasePage'
 import { HomePage } from './home/HomePage'
 import { ImportPage } from './imports/ImportPage'
 import { ProspectionPage } from './prospection/ProspectionPage'
+import { VerificationPage } from './prospection/VerificationPage'
 import { AppShell } from './shell/AppShell'
 import { SettingsPage } from './settings/SettingsPage'
 
@@ -29,6 +31,7 @@ const PAGES: RouteObject[] = [
   { path: '/', element: <HomePage /> },
   { path: '/prospection', element: <ProspectionPage /> },
   { path: '/contact', element: <ContactPage /> },
+  { path: '/agenda', element: <AgendaPage /> },
   { path: '/database/:table?', element: <DatabasePage /> },
   { path: '/settings/:section?', element: <SettingsPage /> },
 ]
@@ -37,6 +40,7 @@ const PAGES: RouteObject[] = [
 const SUBPAGES: RouteObject[] = [
   { path: '/prospection/companies', element: <CompaniesPage /> },
   { path: '/prospection/import', element: <ImportPage /> },
+  { path: '/prospection/verification', element: <VerificationPage /> },
 ]
 
 // Everything but /login requires a session (RequireAuth); the API enforces the same rule server-side.

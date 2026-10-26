@@ -11,13 +11,15 @@ import {
   useProspectPage,
 } from '../api/prospection'
 import { ExportWorkbookButton } from '../exports/ExportWorkbookButton'
-import { businessToday } from '../lib/isoWeek'
 import { useDebouncedValue } from '../settings/shared'
 import { Button } from '../ui/Button'
 import { EmptyState } from '../ui/EmptyState'
 import {
   AlertIcon,
+  ArrowLeftIcon,
   BuildingIcon,
+  CheckCircleIcon,
+  ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   PlusIcon,
@@ -33,6 +35,7 @@ import { ProspectionFilters } from './ProspectionFilters'
 import { ProspectList } from './ProspectList'
 import { useProspectEditor } from './prospectEditor'
 import { createProspectQueue, type ProspectQueue } from './queue'
+import { OverviewPanel } from './OverviewPanel'
 import { ReviewPanels } from './ReviewPanels'
 import './prospection.css'
 
@@ -98,6 +101,8 @@ export function ProspectionPage() {
   )
 
   const openHref = (id: string) => `?${serializeView({ ...view, prospect: id }).toString()}`
+  // The full list stays folded on a plain visit; a deep link (segment, panel, filters, an open prospect) shows it.
+  const [showList, setShowList] = useState(() => hasSelection(view) || hasFilters(view) || view.prospect !== null)
   const filtered = hasFilters(view)
   const emptyBase = counters.data?.counts.all === 0 && !filtered
   const last = page ? Math.min(page.offset + page.items.length, page.total) : 0
@@ -111,11 +116,19 @@ export function ProspectionPage() {
 
   return (
     <div className="prospection">
+      <Link to="/" className="prospection__back">
+        <ArrowLeftIcon size={16} />
+        Accueil
+      </Link>
       <PageHeader
         title="Prospection"
         description="Vérifier la base, préparer les contacts, suivre les réponses."
         actions={
           <>
+            <Link to="/prospection/verification" className="btn btn--primary btn--md">
+              <CheckCircleIcon size={18} />
+              Vérifier les fiches
+            </Link>
             <Link to="/prospection/companies" className="btn btn--ghost btn--md">
               <BuildingIcon size={18} />
               Entreprises
@@ -170,6 +183,8 @@ export function ProspectionPage() {
         />
       ) : (
         <>
+          <OverviewPanel />
+
           <ReviewPanels counters={counters.data} active={view.review} onSelect={selectReview} />
 
           <ProspectionFilters
@@ -184,6 +199,18 @@ export function ProspectionPage() {
             <div className="prospection__results-head">
               <div>
                 <h2 id="prospection-results-title" className="prospection__results-title">
+                  <button
+                    type="button"
+                    className="prospection__results-toggle"
+                    aria-expanded={showList}
+                    aria-controls="prospection-results-body"
+                    aria-label={showList ? 'Masquer la liste' : 'Afficher la liste'}
+                    onClick={() => {
+                      setShowList(!showList)
+                    }}
+                  >
+                    <ChevronDownIcon size={18} />
+                  </button>
                   {heading}
                   {page && <span className="prospection__results-count">{peopleCount(page.total)}</span>}
                   {list.isFetching && <SpinnerIcon size={16} className="btn__spinner" />}
@@ -207,6 +234,7 @@ export function ProspectionPage() {
               )}
             </div>
 
+            <div id="prospection-results-body" hidden={!showList}>
             {list.isPending && (
               <p className="prospection__state" role="status">
                 <SpinnerIcon size={18} className="btn__spinner" />
@@ -230,7 +258,7 @@ export function ProspectionPage() {
               </p>
             )}
             {page && page.items.length > 0 && (
-              <ProspectList rows={page.items} openHref={openHref} today={counters.data?.today ?? businessToday()} />
+              <ProspectList rows={page.items} openHref={openHref} />
             )}
             {page && page.total > PROSPECT_PAGE_SIZE && (
               <nav className="prospection__pager" aria-label="Pages de la liste">
@@ -259,6 +287,7 @@ export function ProspectionPage() {
                 </Button>
               </nav>
             )}
+            </div>
           </section>
         </>
       )}

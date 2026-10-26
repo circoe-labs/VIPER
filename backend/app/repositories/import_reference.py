@@ -2,11 +2,13 @@
 
 import uuid
 from collections.abc import Sequence
+from datetime import date
 
 from sqlalchemy import Row, select
 from sqlalchemy.orm import Session
 
 from app.models.companies import Company
+from app.models.contact_sequences import Cohort
 from app.models.enums import ContactabilityStatus
 from app.models.prospects import Email, Prospect
 from app.models.taxonomies import InternalReferent
@@ -58,6 +60,12 @@ def prospect_rows(
             Prospect.company_id,
             Prospect.contactability_status,
         ).order_by(Prospect.id)
+    ).all()
+
+
+def cohort_rows(session: Session) -> Sequence[Row[tuple[uuid.UUID, str, date | None]]]:
+    return session.execute(
+        select(Cohort.id, Cohort.code, Cohort.starts_on).order_by(Cohort.code)
     ).all()
 
 

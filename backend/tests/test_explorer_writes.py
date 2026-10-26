@@ -199,7 +199,9 @@ def test_a_tracking_stage_change_keeps_the_status_history(
         ContactTrackingInput(status=ContactTrackingStatus.NEUTRAL),
     )
 
-    response = save(client, "contact_tracking", updates=[update(tracking, status="contacted")])
+    response = save(
+        client, "contact_tracking", updates=[update(tracking, status="response_received")]
+    )
 
     assert response.status_code == 200, response.text
     history = db_session.scalars(
@@ -207,7 +209,7 @@ def test_a_tracking_stage_change_keeps_the_status_history(
             ContactTrackingStatusHistory.changed_at
         )
     ).all()
-    assert history == ["neutral", "contacted"]
+    assert history == ["neutral", "response_received"]
     [event] = explorer_events(db_session, "contact_tracking")
     assert event.action == "contact_tracking.status_changed"
 

@@ -37,6 +37,7 @@ describe('SettingsPage', () => {
       'Catégories d’activité',
       'Segments commerciaux',
       'Référents internes',
+      'Cohortes',
       'Connexions',
       'Prompt initial',
     ])

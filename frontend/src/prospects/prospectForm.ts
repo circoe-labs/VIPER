@@ -1,4 +1,4 @@
-import { type ActivityStatus, type ChannelVerification, NEXT_ACTION_STATES, type TrackingStatus } from '../api/prospection'
+import type { ActivityStatus, ChannelVerification, TrackingStatus } from '../api/prospection'
 import type {
   Civility,
   EmailInput,
@@ -47,12 +47,11 @@ export interface AliasDraft {
   stored: StoredAlias | null
 }
 
+// The commercial state and its dates. The cohort, the level and the next due date are not in the form: they are
+// derived and change through their own operations (Séquence de contact).
 export interface TrackingDraft {
   // '' = no contact tracking yet.
   status: TrackingStatus | ''
-  // `YYYY-MM-DD` or '': the next-action day — the Monday of the week chosen in the planner (P1); an older stored day
-  // is kept as is until another week is chosen.
-  planned_contact_on: string
   response_received_on: string
   appointment_on: string
   // `HH:MM` or ''.
@@ -105,7 +104,6 @@ export function newAlias(kind: AliasKind, isPrimary: boolean): AliasDraft {
 
 const EMPTY_TRACKING: TrackingDraft = {
   status: '',
-  planned_contact_on: '',
   response_received_on: '',
   appointment_on: '',
   appointment_time: '',
@@ -176,7 +174,6 @@ export function draftFromProspect(prospect: Prospect): ProspectDraft {
     tracking: tracking
       ? {
           status: tracking.status,
-          planned_contact_on: tracking.planned_contact_on ?? '',
           response_received_on: tracking.response_received_on ?? '',
           appointment_on: tracking.appointment_on ?? '',
           appointment_time: tracking.appointment_time?.slice(0, 5) ?? '',
@@ -272,7 +269,6 @@ function aliasFields(kind: AliasKind, alias: AliasDraft, companyMoved: boolean) 
 
 function trackingInput(tracking: TrackingDraft) {
   const dates = {
-    planned_contact_on: tracking.planned_contact_on || null,
     response_received_on: tracking.response_received_on || null,
     appointment_on: tracking.appointment_on || null,
     appointment_time: tracking.appointment_time || null,
@@ -396,21 +392,3 @@ export function emailDomain(value: string): string | null {
   const at = normalizeEmail(value).lastIndexOf('@')
   return at < 0 ? null : normalizeEmail(value).slice(at + 1) || null
 }
-
-// --- Contact state rules the editor shows before saving (backend contact_tracking._checked) -----------------------
-
-function hasNextAction(status: TrackingStatus | ''): boolean {
-  return status === '' || NEXT_ACTION_STATES.includes(status)
-}
-
-// The tracking draft after choosing `status`. Like the server, entering a state without a next action drops the stored
-// week when the form still holds it (a week chosen on purpose is kept), and `ignored` never keeps one. Coming back to a
-// state with a next action before saving gives the stored week back.
-export function withStatus(tracking: TrackingDraft, status: TrackingStatus | '', storedPlanned: string | null): TrackingDraft {
-  const stored = storedPlanned ?? ''
-  const echo = tracking.planned_contact_on === stored
-  if (status === 'ignored' || (!hasNextAction(status) && echo)) return { ...tracking, status, planned_contact_on: '' }
-  const restore = hasNextAction(status) && !hasNextAction(tracking.status) && tracking.planned_contact_on === ''
-  return { ...tracking, status, planned_contact_on: restore ? stored : tracking.planned_contact_on }
-}
-

@@ -124,7 +124,7 @@ def test_dedicated_operation_clears_and_the_guard_rearms(db_session: Session) ->
 
 @pytest.mark.parametrize(
     "status",
-    [ContactTrackingStatus.CONTACTED, ContactTrackingStatus.FAILURE],
+    [ContactTrackingStatus.RESPONSE_RECEIVED, ContactTrackingStatus.DISQUALIFIED],
 )
 def test_tracking_updates_never_change_contactability(
     db_session: Session, status: ContactTrackingStatus

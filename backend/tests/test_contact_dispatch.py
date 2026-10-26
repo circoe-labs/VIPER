@@ -1,6 +1,6 @@
 """Scheduled sending (Contact port S7, handoff Task 16): the dispatcher against the local fake
 Toolbox (`tests/fake_toolbox.py`, never a real Toolbox — P6), with the time injected. Due or not,
-lateness, step order, a sequence closed meanwhile, the opposition, the allowlist, stale claims,
+lateness, rank order, a sequence closed meanwhile, the opposition, the allowlist, stale claims,
 unknown outcomes and their reconciliation, attempts and backoff, a missing remote draft, an edit
 after scheduling, the people's « Marquer envoyé » / « Remettre en Validé », the CLI, the worker
 and two passes in two processes (two database sessions) at once."""
@@ -20,10 +20,23 @@ from sqlalchemy import Engine, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app import cli
+from app.core.actor import ActorType
 from app.core.config import Settings
 from app.db.session import create_session_factory
-from app.models import AuditLogEntry, ContactMessage, ContactTracking
-from app.models.enums import ContactMessageStatus, ContactMessageStep, ContactTrackingStatus
+from app.models import (
+    AuditLogEntry,
+    ContactMessage,
+    ContactTracking,
+    Prospect,
+    QualityAlert,
+)
+from app.models.enums import (
+    ContactMessageStatus,
+    ContactTrackingStatus,
+    QualityAlertSource,
+    QualityAlertType,
+    SendSource,
+)
 from app.services import audit
 from app.services.contact_dispatch import (
     DISPATCH_ACTOR,
@@ -39,7 +52,14 @@ from app.services.contact_dispatch_worker import ContactDispatcher
 from app.services.toolbox.errors import toolbox_error
 from app.services.toolbox.integration import ToolboxIntegration
 from app.services.toolbox.mcp_client import DraftInput, DraftSummary, MailToolbox, SendResult
-from tests.builders import FIXTURE_ACTOR, add_company, add_email, add_prospect
+from tests.builders import (
+    FIXTURE_ACTOR,
+    add_cohort,
+    add_company,
+    add_email,
+    add_prospect,
+    start_sequence,
+)
 from tests.fake_toolbox import FakeToolbox
 from tests.test_contact_messages_api import FUTURE, messages, ok, prospect_id, refused
 from tests.test_contact_remote_drafts import validated
@@ -180,6 +200,8 @@ def test_a_due_message_leaves_once_and_the_prospect_state_never_moves(
     assert len(fake.sent) == 1
     sent = row(db_session, message["id"])
     assert (sent.status, sent.sent_at, sent.remote_message_id) == (M.SENT, DUE, None)
+    # The dispatcher's own send (the SQL CHECK asks for its human validation).
+    assert sent.sent_source is SendSource.WORKER
     assert sent.dispatch_attempts == 1 and sent.last_error_code is None
     # No resend, whatever the number of passes.
     assert pass_.run_pass(toolbox).sent == 0
@@ -212,7 +234,7 @@ def test_a_due_message_leaves_once_and_the_prospect_state_never_moves(
         "message_sent_immutable",
     )
     history = ok(connected.get(f"/api/prospects/{prospect}/history"))
-    assert "Message envoyé" in [entry["title"] for entry in history["items"]]
+    assert "Envoi enregistré" in [entry["title"] for entry in history["items"]]
 
 
 def test_a_draft_or_a_validated_message_never_leaves(
@@ -287,11 +309,18 @@ def test_a_follow_up_waits_for_or_refuses_an_unsent_previous_step(
     r1_later = scheduled(connected, second, "r1")
     pass_.run_pass(toolbox)
     assert row(db_session, r1_later["id"]).status is M.VALIDATED
-    # No Contact message at all (a first contact made outside VIPER): R1 leaves.
-    third = prospect_id(db_session, ContactTrackingStatus.CONTACTED)
+    # No Contact record at all: R1 does not leave either (sequences rework: rank n only once
+    # rank n-1 is sent; a first contact made outside VIPER is declared « Marquer comme envoyé »).
+    third = prospect_id(db_session)
     r1_alone = scheduled(connected, third, "r1")
     pass_.run_pass(toolbox)
-    assert row(db_session, r1_alone["id"]).status is M.SENT
+    assert row(db_session, r1_alone["id"]).last_error_code == "send_previous_step_pending"
+    # Contact declared sent: R1 leaves.
+    fourth = prospect_id(db_session)
+    ok(connected.post(f"{messages(fourth)}/mark-sent", json={"rank": 0}), 201)
+    r1_after = scheduled(connected, fourth, "r1")
+    pass_.run_pass(toolbox)
+    assert row(db_session, r1_after["id"]).status is M.SENT
     assert len(fake.sent) == 1
 
 
@@ -316,6 +345,7 @@ def test_a_follow_up_waits_while_the_previous_send_is_unconfirmed(
     ("close", "reason"),
     [
         (ContactTrackingStatus.RESPONSE_RECEIVED, "prospect_state:response_received"),
+        (ContactTrackingStatus.DISQUALIFIED, "prospect_state:disqualified"),
         (None, "do_not_contact"),
     ],
 )
@@ -345,6 +375,85 @@ def test_a_closed_sequence_cancels_instead_of_sending(
     cancelled = row(db_session, message["id"])
     assert (cancelled.status, cancelled.cancel_reason) == (M.CANCELLED, reason)
     assert cancelled.remote_draft_id is None  # queued for deletion
+
+
+def test_a_sequence_closed_by_a_change_of_cohort_cancels_its_own_messages_only(
+    connected: TestClient, toolbox_app: FastAPI, fake: FakeToolbox, db_session: Session
+) -> None:
+    prospect = prospect_id(db_session)
+    message = scheduled(connected, prospect)
+    # The cohort changed behind the services' back (the claim of this message raced it): the
+    # sequence is closed, the person already prepared a draft in the new one.
+    db_session.execute(
+        text(
+            "UPDATE contact_sequences SET closed_at = now(), is_current = false, "
+            "end_reason = 'cohort_changed' WHERE prospect_id = :p"
+        ),
+        {"p": prospect},
+    )
+    owner = db_session.get(Prospect, prospect)
+    assert owner is not None
+    new_sequence = start_sequence(db_session, owner, add_cohort(db_session, "S42"))
+    kept = ContactMessage(prospect_id=prospect, sequence_id=new_sequence.id, rank=0)
+    db_session.add(kept)
+    db_session.flush()
+
+    report = dispatcher(toolbox_app, Clock(DUE)).run_pass(toolbox_of(toolbox_app))
+
+    assert (report.cancelled, report.sent) == (1, 0)
+    assert fake.sent == []
+    cancelled = row(db_session, message["id"])
+    assert (cancelled.status, cancelled.cancel_reason) == (M.CANCELLED, "sequence_closed")
+    assert row(db_session, str(kept.id)).status is M.DRAFT
+
+
+def test_an_open_email_error_pauses_the_sending_until_it_is_resolved(
+    connected: TestClient, toolbox_app: FastAPI, fake: FakeToolbox, db_session: Session
+) -> None:
+    prospect = prospect_id(db_session)
+    message = scheduled(connected, prospect)
+    alert = QualityAlert(
+        prospect_id=prospect,
+        type=QualityAlertType.EMAIL_ERROR,
+        source=QualityAlertSource.HUMAN,
+        raised_by_type=ActorType.HUMAN,
+        raised_by_id="test-user",
+        raised_by_display="Opératrice Test",
+    )
+    db_session.add(alert)
+    db_session.flush()
+    pass_ = dispatcher(toolbox_app, Clock(DUE))
+    toolbox = toolbox_of(toolbox_app)
+
+    paused = pass_.run_pass(toolbox)
+    assert (paused.sent, paused.deferred) == (0, 1)
+    assert fake.sent == []
+    waiting = row(db_session, message["id"])
+    assert (waiting.status, waiting.dispatch_claim_id) == (M.SCHEDULED, None)
+
+    # The AI's proposal never pauses; resolving the person's alert lets it leave.
+    db_session.execute(
+        text(
+            "UPDATE quality_alerts SET resolved_at = now(), resolved_by_display = 'Test' "
+            "WHERE id = :a"
+        ),
+        {"a": alert.id},
+    )
+    assert pass_.run_pass(toolbox).sent == 1
+    assert row(db_session, message["id"]).status is M.SENT
+
+
+def test_a_rank_beyond_the_maximum_never_leaves(
+    connected: TestClient, toolbox_app: FastAPI, fake: FakeToolbox, db_session: Session
+) -> None:
+    prospect = prospect_id(db_session)
+    message = scheduled(connected, prospect)
+    db_session.execute(
+        text("UPDATE contact_messages SET rank = 9 WHERE id = :i"), {"i": uuid.UUID(message["id"])}
+    )
+    report = dispatcher(toolbox_app, Clock(DUE)).run_pass(toolbox_of(toolbox_app))
+    assert (report.failed, report.sent) == (1, 0)
+    assert row(db_session, message["id"]).last_error_code == "send_rank_beyond_max"
 
 
 def test_the_allowlist_refuses_other_recipients(
@@ -598,7 +707,7 @@ def test_a_retry_that_finds_the_draft_gone_is_probably_sent_not_validated(
     assert row(db_session, message["id"]).status is M.SENT
 
 
-def test_the_claim_checks_the_allowlist_and_the_step_order_again(
+def test_the_claim_checks_the_allowlist_and_the_rank_order_again(
     connected: TestClient, toolbox_app: FastAPI, db_session: Session
 ) -> None:
     prospect = prospect_id(db_session)
@@ -662,6 +771,7 @@ def test_a_truncated_listing_keeps_the_claim_and_a_person_settles_it(
         "sent",
         "send_marked_by_person",
     )
+    assert sent["message"]["sent_source"] == "manual"
     assert actions_of(db_session, message["id"])[-1] == ("contact_message.sent", "person")
 
 
@@ -776,9 +886,11 @@ def committed(engine: Engine) -> Iterator[tuple[sessionmaker[Session], uuid.UUID
         company = add_company(session)
         prospect = add_prospect(session, company)
         add_email(session, prospect, "deux.passes@exemple.example", is_primary=True)
+        sequence = start_sequence(session, prospect)
         message = ContactMessage(
             prospect_id=prospect.id,
-            step=ContactMessageStep.CONTACT,
+            sequence_id=sequence.id,
+            rank=0,
             status=M.SCHEDULED,
             from_email="prospection@exemple.example",
             to_recipients=["deux.passes@exemple.example"],
@@ -794,11 +906,11 @@ def committed(engine: Engine) -> Iterator[tuple[sessionmaker[Session], uuid.UUID
         )
         session.add(message)
         session.flush()
-        ids = (company.id, prospect.id, message.id)
+        ids = (company.id, prospect.id, message.id, sequence.cohort_id)
     try:
         yield factory, ids[2]
     finally:
-        keys = {"c": ids[0], "p": ids[1], "m": ids[2], "d": draft_id}
+        keys = {"c": ids[0], "p": ids[1], "m": ids[2], "h": ids[3], "d": draft_id}
         with engine.begin() as connection:
             # Only the audit rows need the append-only trigger off; the rest cascades normally.
             connection.execute(text("SET LOCAL session_replication_role = replica"))
@@ -811,6 +923,7 @@ def committed(engine: Engine) -> Iterator[tuple[sessionmaker[Session], uuid.UUID
             )
             connection.execute(text("SET LOCAL session_replication_role = origin"))
             connection.execute(text("DELETE FROM prospects WHERE id = :p"), keys)
+            connection.execute(text("DELETE FROM cohorts WHERE id = :h"), keys)
             connection.execute(text("DELETE FROM companies WHERE id = :c"), keys)
             connection.execute(
                 text(

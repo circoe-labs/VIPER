@@ -135,7 +135,7 @@ describe('Prospect editor — adding a note', () => {
     expect(within(panel()).getByRole('textbox', { name: 'Nouveau fait' })).toHaveValue('')
     expect(within(panel()).getByRole('textbox', { name: 'Nouveau fait' })).toHaveFocus()
     // Only the prospect form's own change is pending: the note is saved.
-    expect(screen.getByRole('status')).toHaveTextContent('Modifications non enregistrées')
+    expect(screen.getByRole('status', { name: 'Enregistrement de la fiche' })).toHaveTextContent('Modifications non enregistrées')
     await showTab('Profil')
     expect(screen.getByRole('textbox', { name: 'Nom' })).toHaveValue('Exemple-Test')
   })
@@ -146,7 +146,7 @@ describe('Prospect editor — adding a note', () => {
     await userEvent.click(within(panel()).getByRole('button', { name: 'Ajouter' }))
 
     await within(panel()).findByText('Fait indépendant')
-    expect(screen.getByRole('status')).not.toHaveTextContent('Modifications non enregistrées')
+    expect(screen.getByRole('status', { name: 'Enregistrement de la fiche' })).not.toHaveTextContent('Modifications non enregistrées')
     expect(api.requests.filter((request) => request.method === 'POST').every((request) => request.path.endsWith('/notes'))).toBe(true)
   })
 

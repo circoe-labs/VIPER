@@ -8,11 +8,20 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.core.business_time import business_day
 from app.core.config import Settings
 from app.models import ContactTracking, Prospect
 from app.models.enums import ContactabilityStatus, ContactTrackingStatus, VerificationStatus
 from app.services.prospection.segments import Segment
-from tests.builders import add_company, add_email, add_prospect, add_role
+from tests.builders import (
+    add_cohort,
+    add_company,
+    add_email,
+    add_prospect,
+    add_role,
+    add_send,
+    start_sequence,
+)
 
 COUNTERS = "/api/prospection/counters"
 PROSPECTS = "/api/prospection/prospects"
@@ -38,13 +47,12 @@ def test_counters_and_list_agree_for_every_segment(client: TestClient, db_sessio
             add_email(db_session, prospect, f"api{n}@exemple.example", is_primary=True)
         if n >= 2:
             db_session.add(
-                ContactTracking(
-                    prospect_id=prospect.id,
-                    status=ContactTrackingStatus.NEUTRAL,
-                    # Relative to the real clock: the API compares with the business day.
-                    planned_contact_at=datetime.now(UTC) - timedelta(days=n),
-                )
+                ContactTracking(prospect_id=prospect.id, status=ContactTrackingStatus.NEUTRAL)
             )
+            # A cohort started n days ago (relative to the real clock: the API compares with the
+            # business day), nothing sent yet: the Contact is due.
+            day = business_day(datetime.now(UTC)) - timedelta(days=n)
+            start_sequence(db_session, prospect, add_cohort(db_session, f"S{n}", day))
     db_session.flush()
 
     counters = get(client, COUNTERS, q="api")
@@ -80,7 +88,8 @@ def test_list_rows_carry_the_view_model(client: TestClient, db_session: Session)
     assert row["email_state"] == "missing"
     assert row["contactability_status"] == "do_not_contact"
     assert row["tracking_status"] is None
-    assert row["planned_contact_week"] is None
+    assert (row["cohort_code"], row["next_due_week"], row["next_step"]) == (None, None, None)
+    assert (row["level"], row["level_label"]) == (None, None)
 
 
 def test_none_filters_and_validation(client: TestClient, db_session: Session) -> None:
@@ -89,13 +98,16 @@ def test_none_filters_and_validation(client: TestClient, db_session: Session) ->
     assert (
         get(client, PROSPECTS, role="none", referent="none", tracking_status="none")["total"] == 1
     )
-    assert get(client, COUNTERS, tracking_status="contacted")["counts"]["all"] == 0
-    # « Aucun état » includes a prospect without any tracking row.
+    assert get(client, COUNTERS, tracking_status="response_received")["counts"]["all"] == 0
+    assert get(client, COUNTERS, cohort="none")["counts"]["all"] == 1
+    # « En séquence » (no badge) includes a prospect without any tracking row.
     assert get(client, COUNTERS, tracking_status="neutral")["counts"]["all"] == 1
     for params in (
         {"segment": "inconnu"},
         {"role": "pas-un-uuid"},
         {"tracking_status": "do_not_contact"},  # an opposition is not a stage
+        {"tracking_status": "contacted"},  # a former state (sequences rework D7)
+        {"cohort": "S39"},  # a cohort id, not a code
         {"sort": "prenom"},
         {"limit": 0},
         {"limit": 201},
@@ -182,3 +194,38 @@ def test_reviews_partition_the_base_and_count_this_week(
     for key, review in reviews.items():
         page = get(client, PROSPECTS, review=key, q="Revue")
         assert page["total"] == review["total"], key
+
+
+def test_overview_counts_the_whole_base_and_the_deleted(
+    client: TestClient, db_session: Session
+) -> None:
+    from app.core.actor import ActorType
+    from app.models import AuditLogEntry
+
+    company = add_company(db_session, "Bilan SARL")
+    reached = add_prospect(db_session, company, first_name="Joint", last_name="Bilan")
+    add_prospect(db_session, company, first_name="Pas", last_name="Joint")
+    cohort = add_cohort(db_session, "S50")
+    sequence = start_sequence(db_session, reached, cohort)
+    add_send(db_session, sequence, 0, datetime.now(UTC))
+    for action in ("prospect.deleted", "prospect.deleted", "prospect.updated"):
+        db_session.add(
+            AuditLogEntry(
+                actor_type=ActorType.SYSTEM,
+                actor_display="test",
+                entity_type="prospect",
+                action=action,
+            )
+        )
+    db_session.flush()
+
+    before = get(client, "/api/prospection/overview")
+    assert before["deleted"] >= 2
+    assert before["total"] >= 2
+    assert 1 <= before["contacted"] <= before["total"]
+    # A search does not narrow it: the figures are the whole base's.
+    assert get(client, "/api/prospection/overview", q="Joint") == before
+
+
+def test_overview_needs_a_session(anonymous_client: TestClient) -> None:
+    assert anonymous_client.get("/api/prospection/overview").status_code == 401

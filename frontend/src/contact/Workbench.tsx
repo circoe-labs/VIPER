@@ -3,6 +3,7 @@ import { useBlocker, useLocation, useNavigate } from 'react-router'
 
 import { ApiError } from '../api/client'
 import { useProspect } from '../api/prospects'
+import { SequenceSection } from '../prospects/SequenceSection'
 import { Button } from '../ui/Button'
 import { Modal } from '../ui/Dialog'
 import { AlertIcon, ArrowLeftIcon, ChevronLeftIcon, ChevronRightIcon, SpinnerIcon } from '../ui/icons'
@@ -79,6 +80,33 @@ export function Workbench({ prospectId, listHref, openHref, neighbours }: Workbe
     void navigate(openHref(id), { replace: true, state: fromList ? FROM_LIST : null })
   }
 
+  // « Précédent » / « Suivant » sit right above the mail's action bar, so moving on never means scrolling back up.
+  const walkNav = neighbours ? (
+    <nav className="contact-bench__foot" aria-label="Parcours de la liste, bas de page">
+      <Button
+        size="sm"
+        icon={ChevronLeftIcon}
+        disabled={!neighbours.previous}
+        onClick={() => {
+          if (neighbours.previous) walk(neighbours.previous)
+        }}
+      >
+        Précédent
+      </Button>
+      <Button
+        size="sm"
+        variant="primary"
+        icon={ChevronRightIcon}
+        disabled={!neighbours.next}
+        onClick={() => {
+          if (neighbours.next) walk(neighbours.next)
+        }}
+      >
+        Suivant
+      </Button>
+    </nav>
+  ) : null
+
   return (
     <div className="contact-bench">
       <nav className="contact-bench__bar" aria-label="Parcours de la liste">
@@ -91,31 +119,9 @@ export function Workbench({ prospectId, listHref, openHref, neighbours }: Workbe
           Retour à la liste
         </Button>
         {neighbours && (
-          <div className="contact-bench__walk">
-            <span className="contact-bench__position">
-              {neighbours.position} sur {neighbours.count}
-            </span>
-            <Button
-              size="sm"
-              icon={ChevronLeftIcon}
-              disabled={!neighbours.previous}
-              onClick={() => {
-                if (neighbours.previous) walk(neighbours.previous)
-              }}
-            >
-              Précédent
-            </Button>
-            <Button
-              size="sm"
-              icon={ChevronRightIcon}
-              disabled={!neighbours.next}
-              onClick={() => {
-                if (neighbours.next) walk(neighbours.next)
-              }}
-            >
-              Suivant
-            </Button>
-          </div>
+          <span className="contact-bench__position">
+            {neighbours.position} sur {neighbours.count}
+          </span>
         )}
         {!neighbours && loaded.data && (
           <span className="contact-bench__position">Hors de la liste affichée (filtres ou état changés)</span>
@@ -124,7 +130,7 @@ export function Workbench({ prospectId, listHref, openHref, neighbours }: Workbe
 
       {/* The sheet and the mail sequence load side by side. */}
       <div className="contact-bench__panels">
-        <aside className="contact-bench__prospect" aria-label="Fiche du prospect">
+        <aside className="contact-bench__prospect contact-card" aria-label="Fiche du prospect">
           {loaded.isPending && (
             <p className="contact-panel__status" role="status">
               <SpinnerIcon size={18} className="btn__spinner" />
@@ -146,13 +152,14 @@ export function Workbench({ prospectId, listHref, openHref, neighbours }: Workbe
           )}
           {loaded.data && (
             <>
-              <ProspectSheet prospect={loaded.data} />
+              <ProspectSheet prospect={loaded.data} compact />
               <TrackingPanel key={loaded.data.id} prospect={loaded.data} onDirtyChange={onTrackingDirty} />
+              <SequenceSection key={`sequence-${loaded.data.id}`} prospect={loaded.data} compact />
             </>
           )}
         </aside>
         <div className="contact-bench__mail">
-          <MailSequence key={prospectId} prospectId={prospectId} onDirtyChange={onMailDirty} />
+          <MailSequence key={prospectId} prospectId={prospectId} onDirtyChange={onMailDirty} aboveActions={walkNav} />
         </div>
       </div>
 

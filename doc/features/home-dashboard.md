@@ -33,15 +33,15 @@ Two figures for the current month (Europe/Paris, `app/core/business_time.py`), e
 (`VIPER_MONTHLY_CONTACT_TARGET` = 100, `VIPER_MONTHLY_APPOINTMENT_TARGET` = 10 — the source requirement "100 contacts /
 10 rendez-vous"), plus the five months before as small columns:
 
-- **Prospects contacted for the first time** in month M: prospects whose tracking **first** entered a contacted state
-  (`contacted`, `r1`, `r2`, `response_received`, `appointment_obtained`, `failure` — `CONTACTED_STAGES` of the
-  segments) in M, according to `contact_tracking_status_history`, **unless that first entry was written by an import**
-  (or is a row appended by migration `0008`, which restates a conversion). History rows written before `0008` keep
-  their legacy codes and are read through their equivalent state (`contact_workflow.history_codes`: `follow_up_1/2` as
-  R1/R2, `quote_sent`/`quote_follow_up`/`won` as an appointment, `not_interested` as a failure). An imported stage restates a
-  legacy contact made at an unknown earlier date: neither the import's history row nor a later follow-up makes the
-  person newly contacted. A person imported at *À contacter* and contacted by hand this month counts. Later moves
-  (relance, réponse) never count again. Opposed or inactive people still count (a historical fact, like the
+- **Prospects contacted for the first time** in month M (sequences rework, decision log R-08): prospects whose
+  **first contact** falls in M — the first message **really sent** (any sequence, `contact_messages.status = sent`) or,
+  for contacts made before the sends existed, the first history row entering a contact-attempt code
+  (`contact_workflow.CONTACT_ATTEMPT_CODES`: the former `contacted`, `r1`, `r2`, `failure`, the 0008 legacy codes,
+  `response_received`, `appointment_obtained`) — **unless that first contact is a restatement**: a send recorded by an
+  import or by migration `0012` (sources `import`/`migration`), a history row written by an import or appended by
+  migrations `0008`/`0012`. Migration `0012` dates its sends from the human history rows they restate, so those rows
+  still count in their own month. A person imported at *À contacter* and contacted by hand this month counts; a second
+  sequence (new cohort) never counts again. Opposed or inactive people still count (a historical fact, like the
   `contacted` segment).
 - **Appointments obtained** (meter *RDV pris*) in month M: prospects whose tracking first entered `appointment_obtained`
   (`APPOINTMENT_STAGES`; legacy history `quote_sent`, `quote_follow_up`, `won` too) in M, same import rule. Chosen
@@ -52,10 +52,18 @@ Two figures for the current month (Europe/Paris, `app/core/business_time.py`), e
 - Month boundaries are midnight in Paris (DST-aware): 31 Aug 22:30 UTC is September.
 - Every stage change is in the history, whatever the screen: the Prospect editor and Database Explorer edits of
   `contact_tracking` both go through `contact_tracking.save_contact_tracking` (I-64), which writes the row with the
-  signed-in user as actor — an explorer change into `contacted` or `appointment_obtained` counts this month (tested).
+  signed-in user as actor — an explorer change into `response_received` or `appointment_obtained` counts this month
+  (tested); « Marquer comme envoyé » records a `manual` send, which counts.
 - Limit: an appointment (or a response) recorded **only as a date**, with the stage left behind, is not in the monthly
   figure — no stage entered an appointment stage — but it is in the `appointments` (`responses`) segment. V1 keeps one
   tracking cycle per prospect: "first" means first in that cycle.
+
+## Contact this week (sequences rework S3)
+
+`contact_week` = the Contact planning of the current ISO week (`GET /api/contact/dashboard` `to_send`, same SQL
+predicates, [`contact.md`](contact.md#weekly-planning--get-apicontactdashboard)): `week` (`2026-W40`), `monday`,
+`to_send` (Contacts and follow-ups due this week, overdue ones included) and `overdue` (due before this week's Monday).
+One aggregate statement. The UI shows it from S5 of the rework.
 
 The meter's full track is the target (the fill stops there; the text says `12 sur un objectif indicatif de 10 (120 %)`).
 The figure sits in a panel of the same weight as the recent activity, below the KPIs and next actions — never the
@@ -69,7 +77,7 @@ then conversions waiting; within a group the oldest (or soonest) first, ties by 
 | Group | People | Order |
 |---|---|---|
 | *Rendez-vous des 7 prochains jours* | *actionable* (segments: contactable and not inactive) with `appointment_at` from the start of today to the end of the 6th day after | soonest first |
-| *Contacts échus* | segment `due` | oldest planned contact first; shown as its week (*Semaine S37*), a next action being a week |
+| *Contacts échus* | segment `due`: a Contact or a follow-up (R1, R2…) to send no later than today — the Contact planning's predicate (sequences rework S3) | oldest next due date first |
 | *Réponses sans rendez-vous* | actionable, answered (`responses` predicate), no appointment (`appointments` predicate false), state not `failure` / `ignored` | oldest response first, no date last |
 
 Each person shows the date of the group and, for the appointments and responses groups, the Contact state label
@@ -105,14 +113,16 @@ failed import still shows) and no figure at all. Empty groups say so (*Aucun con
 ## API — `GET /api/home` (session required, read-only)
 
 `{today, stale_threshold_days, counts: {<segment>: n}, companies, progress: {contact_target, appointment_target, months: [{month, contacted, appointments}] (6, oldest
-first)}, next_actions: {appointments|due|responses: {total, items: [{prospect_id, first_name, last_name, company_name,
+first)}, contact_week: {week, monday, to_send, overdue}, next_actions: {appointments|due|responses: {total, items: [{prospect_id, first_name, last_name, company_name,
 tracking_status, at, referent_name}]}}, recent_imports: [import batch as in /api/imports], recent_edits: [{occurred_at,
 actor: {kind, label, id, on_behalf_of}, source, subject_type, subject_id, subject_label, summary: [phrase]}]}` (Task 19,
 I-135).
 
-Cost: **9 queries** whatever the base size (segments aggregate, companies, monthly progress — one pass
-over the status history grouped by tracking —, 3 action groups with `count(*) OVER ()`, imports, audit events, current
-names of the edited prospects/companies), plus the 4 planner-setting statements of `whole_base_plan` (below).
+Cost: **11 queries** whatever the base size (segments aggregate, companies, monthly progress — one pass over the sends
+and the status history for the contacts, one over the history for the appointments, inside `whole_base_plan` —, the
+week's Contact planning (inside `whole_base_plan`), 3 action groups with `count(*) OVER ()`, imports, audit events,
+current names of the edited prospects/companies), plus the 8 planner-setting statements of the four `whole_base_plan`
+blocks (below).
 
 ## Performance
 
@@ -171,8 +181,9 @@ the base and the contact activity. Styles: `frontend/src/home/home.css` (see the
   date without stage, all through legacy history codes); legacy history counted and `0008` rows never a first entry;
   history from the real tracking service; next actions on the edge cases (DNC and inactive
   excluded) and ordering / limit / window bounds; recent edits grouping and summaries, import writes excluded, no
-  e-mail, reason or other company name in the output, deleted subject; latest imports; 9 queries for 3 and 60
-  prospects (the formatter's summaries need no query), the segments and the action groups inside `whole_base_plan`. `tests/test_history.py`: an agent's save on Home.
+  e-mail, reason or other company name in the output, deleted subject; latest imports; 11 queries for 3 and 60
+  prospects (the formatter's summaries need no query), the segments, the months, the week's planning and the action
+  groups inside `whole_base_plan`. `tests/test_history.py`: an agent's save on Home.
   `tests/test_home_api.py`: 401, GET only, contract and counts == `/api/prospection/counters`, targets from settings,
   no raw payload, staged Database Explorer stage changes (into `contacted`, into `appointment_obtained` after an
   imported contact) counted in the current month as human history rows. `tests/test_prospection_performance.py`: Home on
@@ -188,3 +199,16 @@ the base and the contact activity. Styles: `frontend/src/home/home.css` (see the
   opens a committed import from the recent activity; screenshots dark/light at 1440×900 and 1280×800 without horizontal
   overflow. `e2e/history.spec.ts` (Task 19): after an editor save of its own imported person, the Home line reads the
   save's summary, by the signed-in user, without the person's e-mail domain; screenshots dark/light at 1440×900.
+
+## Refonte de l'Accueil (2026-10-05)
+
+- **Base** : 5 cartes — Prospects, RDV confirmé, Défaillant (état « Défaillant » confirmé), À vérifier (e-mail ou
+  téléphone manquant) et la tendance des réponses (flèche verte si les réponses de la semaine tiennent ou progressent
+  face à la semaine passée, rouge si elles baissent).
+- **Activité de contact** : 4 cartes — À contacter (segment « Échus »), Sans réponse, RDV, Mail inactif (alerte
+  « Erreur sur le mail » ouverte : toujours en poste, mails retournés). « Devis envoyé » viendra plus tard.
+- **Progression du mois** : camembert des prospects contactés ce mois-ci (RDV pris / réponse sans RDV / sans réponse).
+- **Semaine à contacter** (remplace « Prochaines actions ») : S37 le lundi, S39 le mardi, S40 le mercredi, S41 le jeudi
+  (jour de S41 à confirmer).
+- **Dernières modifications** : repliées, limitées aux dernières 24 h.
+- Les chiffres ajoutés viennent de `figures` dans `GET /api/home` (`services/home.py › home_figures`).

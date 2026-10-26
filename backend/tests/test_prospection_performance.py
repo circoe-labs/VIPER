@@ -1,5 +1,5 @@
-"""Prospection counters and pages, and Home, stay interactive on a synthetic base far above V1
-scale — whatever the planner's statistics say (ADR-0019).
+"""Prospection counters and pages, Home and the Contact planning stay interactive on a synthetic
+base far above V1 scale — whatever the planner's statistics say (ADR-0019).
 
 The seed is uncommitted (the test transaction is rolled back), which production rows never are, so
 each service is measured in the three planner states a real base goes through:
@@ -62,10 +62,32 @@ def seed_base(db_session: Session) -> None:
     )
     db_session.execute(
         text(
-            "INSERT INTO contact_tracking (prospect_id, status, planned_contact_at)"
-            " SELECT id, (ARRAY['neutral', 'contacted', 'r1', 'response_received'])"
-            "[(random() * 3)::int + 1], now() + ((random() * 60)::int - 30) * interval '1 day'"
-            " FROM prospects TABLESAMPLE BERNOULLI (60)"
+            "INSERT INTO contact_tracking (prospect_id, status)"
+            " SELECT id, (ARRAY['neutral', 'neutral', 'response_received', 'appointment_obtained'])"
+            "[(random() * 3)::int + 1] FROM prospects TABLESAMPLE BERNOULLI (60)"
+        )
+    )
+    # Ten weekly cohorts; most prospects in one, with up to three real sends (sequences rework).
+    db_session.execute(
+        text(
+            "INSERT INTO cohorts (code, starts_on)"
+            " SELECT 'S' || g, current_date - g * 7 FROM generate_series(1, 10) AS g"
+        )
+    )
+    db_session.execute(
+        text(
+            "INSERT INTO contact_sequences (prospect_id, cohort_id)"
+            " SELECT p.id, c.id FROM prospects p"
+            " JOIN cohorts c ON c.code = 'S' || (1 + abs(hashtext(p.id::text)) % 10)"
+            " WHERE random() < 0.7"
+        )
+    )
+    db_session.execute(
+        text(
+            "INSERT INTO contact_messages (prospect_id, sequence_id, rank, status, sent_at,"
+            " sent_source) SELECT s.prospect_id, s.id, r, 'sent',"
+            " now() - (5 - r) * interval '7 days', 'migration'"
+            " FROM contact_sequences s CROSS JOIN generate_series(0, 2) AS r WHERE random() < 0.5"
         )
     )
     # Every tracking entered its stage at some point of the last 200 days.
@@ -166,3 +188,27 @@ def test_home_on_20k_prospects(client: TestClient, db_session: Session, engine: 
         assert sum(month["contacted"] for month in home.json()["progress"]["months"]) > 0
         assert len(home.json()["recent_edits"]) == 8
         assert elapsed < BUDGET_SECONDS, f"{state}: home took {elapsed:.2f}s"
+
+
+def test_contact_planning_on_20k_prospects(
+    client: TestClient, db_session: Session, engine: Engine
+) -> None:
+    """The weekly planning (sequences rework S3): its counts, cohorts and weeks in four
+    statements, and a deep page of a list, over the same base (ten cohorts, up to three sends)."""
+    seed_base(db_session)
+
+    for state in planner_states(db_session, engine):
+        planning, planning_elapsed = timed(lambda: client.get("/api/contact/dashboard"))
+        page, page_elapsed = timed(
+            lambda: client.get(
+                "/api/contact/prospects",
+                params={"category": "in_sequence", "offset": 2_000, "limit": 50},
+            )
+        )
+
+        assert planning.status_code == page.status_code == 200
+        assert planning.json()["to_send"]["total"] > 0
+        assert len(planning.json()["cohorts"]) == 10
+        assert len(page.json()["items"]) == 50
+        assert planning_elapsed < BUDGET_SECONDS, f"{state}: planning took {planning_elapsed:.2f}s"
+        assert page_elapsed < BUDGET_SECONDS, f"{state}: page took {page_elapsed:.2f}s"

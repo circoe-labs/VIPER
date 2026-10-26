@@ -1,5 +1,6 @@
-"""AI drafting of a Contact / R1 / R2 message (Contact port Slice S5; handoff Task 14, decisions 22
-and 26). The AI only writes the subject and the body:
+"""AI drafting of a Contact / R1 … R<max> message (Contact port Slice S5; handoff Task 14,
+decisions 22 and 26; ranks up to « max relances » since the sequences rework S3). The AI only writes
+the subject and the body:
 
 1. `prepare` — before any AI call (no data sent for nothing): a person, the prospect exists, the
    sequence is open, the step is neither sent, cancelled, being sent nor scheduled (unschedule
@@ -11,9 +12,9 @@ and 26). The AI only writes the subject and the body:
    (revision, sequence, scheduled): the result is always a `draft`, the model and the prompt version
    are recorded, a validated message goes back to draft (to validate again).
 
-The prospect's state never changes, nothing is validated or scheduled; a failed AI call writes
-nothing (neither the message nor an audit event). Port of the reference
-`src/server/contactMailGenerationService.ts`.
+The prospect's state, cohort and sequence never change, nothing is validated, scheduled or marked
+sent (the level never moves); a failed AI call writes nothing (neither the message nor an audit
+event). Port of the reference `src/server/contactMailGenerationService.ts`.
 """
 
 import logging
@@ -29,6 +30,7 @@ from sqlalchemy.orm import Session
 
 from app.core.actor import ActorContext, ActorType
 from app.core.config import Settings
+from app.core.contact_steps import step_code
 from app.models import (
     ActivityCategory,
     CommercialSegment,
@@ -39,14 +41,14 @@ from app.models import (
     Role,
     company_activity_categories,
 )
-from app.models.enums import Civility, ContactMessageStatus, ContactMessageStep
+from app.models.enums import Civility, ContactMessageStatus
 from app.repositories import notes as notes_repository
 from app.services.contact_messages import (
-    STEPS,
     get_message,
     require_generation_target,
     sequence_context,
 )
+from app.services.contact_sequences import current_sequence
 from app.services.contact_workflow import MESSAGE_STATUS_LABELS
 from app.services.errors import ActorNotAllowedError, ContactMessageError, MailGenerationError
 from app.services.history import NOTE_SOURCE_TYPES
@@ -150,8 +152,9 @@ def _has_text(message: ContactMessage | None) -> bool:
 def load_context(
     session: Session,
     prospect_id: uuid.UUID,
-    step: ContactMessageStep,
+    rank: int,
     *,
+    last_rank: int,
     instruction: str | None,
     booking_url: str | None,
     score_config: ScoreConfig | None = None,
@@ -202,30 +205,34 @@ def load_context(
         if company_id is not None
         else []
     )
+    # The current sequence's messages only: a former sequence's mails belong to another cohort.
+    sequence = current_sequence(session, prospect_id)
     messages = {
-        message.step: message
-        for message in session.scalars(
-            select(ContactMessage).where(ContactMessage.prospect_id == prospect_id)
+        message.rank: message
+        for message in (
+            session.scalars(select(ContactMessage).where(ContactMessage.sequence_id == sequence.id))
+            if sequence is not None
+            else []
         )
     }
-    earlier = STEPS[: STEPS.index(step)]
     previous = [
         PreviousMessage(
-            step=message.step,
+            rank=earlier,
             status_label=MESSAGE_STATUS_LABELS[message.status],
             subject=message.subject,
             body=message.body_text,
         )
-        for message in (messages.get(s) for s in earlier)
-        if message is not None
+        for earlier, message in sorted(messages.items())
+        if earlier < rank
         and message.status is not ContactMessageStatus.CANCELLED
         and _has_text(message)
     ]
-    current = messages.get(step)
+    current = messages.get(rank)
     notes = notes_repository.list_notes(session, prospect_id)
     listed = notes[: limits.max_notes]
     return MailContext(
-        step=step,
+        rank=rank,
+        last_rank=last_rank,
         prospect=ProspectFacts(
             civility=CIVILITY_LABELS[civility] if civility else None,
             first_name=first,
@@ -271,7 +278,7 @@ def prepare(
     session: Session,
     actor: ActorContext,
     prospect_id: uuid.UUID,
-    step: ContactMessageStep,
+    rank: int,
     request: GenerationRequest,
     *,
     booking_url: str | None,
@@ -279,12 +286,13 @@ def prepare(
     limits: ContextLimits | None = None,
     initial_prompt: str | None = None,
 ) -> MailPrompt:
-    """The refusals before any AI call, then the prompt. Reads only (no lock is taken)."""
+    """The refusals before any AI call (a rank beyond « max relances » included: 409
+    `rank_beyond_max`), then the prompt. Reads only (no lock is taken)."""
     if actor.type is not ActorType.HUMAN or not actor.id:
         raise ActorNotAllowedError("A Contact message is handled by a person.")
     context = sequence_context(session, prospect_id)
-    message = get_message(session, prospect_id, step)
-    require_generation_target(context, message, request.expected_revision)
+    message = get_message(session, prospect_id, rank)
+    require_generation_target(context, rank, message, request.expected_revision)
     if _has_text(message) and not request.replace:
         raise ContactMessageError(
             "replace_confirmation_required",
@@ -296,7 +304,8 @@ def prepare(
         load_context(
             session,
             prospect_id,
-            step,
+            rank,
+            last_rank=context.max_follow_ups,
             instruction=instruction,
             booking_url=booking_url,
             score_config=score_config,
@@ -311,12 +320,13 @@ def draft(
     prompt: MailPrompt,
     *,
     prospect_id: uuid.UUID,
-    step: ContactMessageStep,
+    rank: int,
 ) -> GeneratedMail:
     """Call the AI. Logged without personal data: ids, step, code, upstream status and type,
     duration — never the prompt, the answer or the key."""
     started = time.monotonic()
-    logger.info("mail_generation.started prospect=%s step=%s", prospect_id, step.value)
+    step = step_code(rank)
+    logger.info("mail_generation.started prospect=%s step=%s", prospect_id, step)
     try:
         mail = generator.generate(prompt)
     except MailGenerationError as error:
@@ -324,7 +334,7 @@ def draft(
             "mail_generation.failed prospect=%s step=%s code=%s upstream_status=%s "
             "upstream_code=%s duration=%.1fs",
             prospect_id,
-            step.value,
+            step,
             error.code,
             error.upstream_status,
             error.upstream_code,
@@ -337,7 +347,7 @@ def draft(
         logger.exception(
             "mail_generation.crashed prospect=%s step=%s error=%s",
             prospect_id,
-            step.value,
+            step,
             type(error).__name__,
         )
         raise generation_error(
@@ -346,7 +356,7 @@ def draft(
     logger.info(
         "mail_generation.succeeded prospect=%s step=%s model=%s duration=%.1fs",
         prospect_id,
-        step.value,
+        step,
         mail.model,
         time.monotonic() - started,
     )

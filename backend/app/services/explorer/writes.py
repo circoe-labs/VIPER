@@ -56,7 +56,6 @@ DO_NOT_CONTACT_DELETE = (
 )
 TRACKING_FIELDS = (
     "status",
-    "planned_contact_at",
     "referent_id",
     "response_received_at",
     "appointment_at",

@@ -17,12 +17,14 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.routes.contact_messages import get_mail_generator
 from app.core.config import Settings
+from app.core.contact_steps import parse_step
 from app.db.session import unit_of_work
 from app.models import (
     ActivityCategory,
     AuditLogEntry,
     CommercialSegment,
     ContactMessage,
+    ContactSequence,
     ContactTracking,
     ContactTrackingStatusHistory,
     Prospect,
@@ -32,17 +34,26 @@ from app.models.enums import (
     Civility,
     ContactabilityStatus,
     ContactMessageStatus,
-    ContactMessageStep,
     ContactTrackingStatus,
     NoteSourceType,
+    SendSource,
 )
-from app.services import audit, contact_messages
+from app.services import audit, contact_messages, contact_sequences
 from app.services.contact_mail_generation import ContextLimits, load_context
 from app.services.contact_messages import MessageEdit
 from app.services.errors import MailGenerationError
 from app.services.mail_generation.openai_client import GeneratedMail, generation_error
 from app.services.mail_generation.prompt import DEFAULT_INITIAL_PROMPT, PROMPT_VERSION, MailPrompt
-from tests.builders import OPERATOR, add_company, add_email, add_phone, add_prospect, add_role
+from tests.builders import (
+    OPERATOR,
+    add_company,
+    add_email,
+    add_phone,
+    add_prospect,
+    add_role,
+    add_send,
+    start_sequence,
+)
 from tests.test_contact_messages_api import SENDER, messages, ok, refused
 
 SECRET_EMAIL = "claire.secret@exemple.example"
@@ -113,6 +124,7 @@ def prospect(db_session: Session) -> uuid.UUID:
     add_phone(db_session, person, SECRET_PHONE)
     db_session.add(ContactTracking(prospect_id=person.id, status=ContactTrackingStatus.NEUTRAL))
     db_session.flush()
+    start_sequence(db_session, person)
     return person.id
 
 
@@ -124,13 +136,19 @@ def snapshot(session: Session) -> tuple[Any, ...]:
     session.expire_all()
     return (
         [
-            (m.step, m.status, m.revision, m.subject, m.body_text, m.generation_model)
-            for m in session.scalars(select(ContactMessage).order_by(ContactMessage.step))
+            (m.rank, m.status, m.revision, m.subject, m.body_text, m.generation_model)
+            for m in session.scalars(select(ContactMessage).order_by(ContactMessage.rank))
         ],
         session.scalar(select(func.count()).select_from(AuditLogEntry)),
-        [(t.status, t.planned_contact_at) for t in session.scalars(select(ContactTracking))],
+        [(t.status, t.updated_at) for t in session.scalars(select(ContactTracking))],
         session.scalar(select(func.count()).select_from(ContactTrackingStatusHistory)),
     )
+
+
+def rank_of(step: str) -> int:
+    rank = parse_step(step)
+    assert rank is not None
+    return rank
 
 
 def save(
@@ -140,12 +158,12 @@ def save(
         session,
         OPERATOR,
         prospect,
-        ContactMessageStep(step),
+        rank_of(step),
         MessageEdit(**edit),
         default_from=SENDER,
     )
     session.flush()
-    message = contact_messages.get_message(session, prospect, ContactMessageStep(step))
+    message = contact_messages.get_message(session, prospect, rank_of(step))
     assert message is not None
     return message
 
@@ -198,7 +216,7 @@ def test_a_generation_creates_a_draft_and_changes_no_state(
         "- Références Circoe pertinentes : Projet X (validé)",
     ):
         assert fact in prompt.input
-    assert f"recopié exactement : {BOOKING}." in prompt.instructions
+    assert "ajouté automatiquement après ton texte" in prompt.instructions
     # The client card, and the initial prompt first (the built-in brief while none is set).
     assert prompt.input.startswith("Étape : Contact\n\nFiche client\n\nContact :")
     assert prompt.instructions.startswith(DEFAULT_INITIAL_PROMPT)
@@ -297,7 +315,7 @@ def test_follow_ups_get_the_recorded_earlier_steps(
         fake.prompts[0].input
     )
 
-    contact_messages.cancel(db_session, OPERATOR, prospect, ContactMessageStep.CONTACT, 1)
+    contact_messages.cancel(db_session, OPERATOR, prospect, 0, 1)
     db_session.flush()
     ok(generate(client, prospect, "r2"), 201)
     assert "Premier objet" not in fake.prompts[1].input
@@ -375,7 +393,8 @@ def test_the_context_caps_notes_and_orders_contributions_by_strength(
     context = load_context(
         db_session,
         prospect,
-        ContactMessageStep.CONTACT,
+        0,
+        last_rank=2,
         instruction=None,
         booking_url=None,
         limits=ContextLimits(max_notes=3, max_contributions=2),
@@ -392,7 +411,8 @@ def test_the_context_caps_notes_and_orders_contributions_by_strength(
     long = load_context(
         db_session,
         prospect,
-        ContactMessageStep.CONTACT,
+        0,
+        last_rank=2,
         instruction=None,
         booking_url=None,
         limits=ContextLimits(max_notes=20),
@@ -405,9 +425,7 @@ def test_a_score_without_signal_is_not_given_to_the_prompt(
 ) -> None:
     add_note(db_session, prospect, "Simple observation")
 
-    context = load_context(
-        db_session, prospect, ContactMessageStep.CONTACT, instruction=None, booking_url=None
-    )
+    context = load_context(db_session, prospect, 0, last_rank=2, instruction=None, booking_url=None)
 
     assert [note.fact_text for note in context.notes] == ["Simple observation"]
     assert context.prospect_score is None
@@ -449,7 +467,7 @@ def test_an_ai_failure_writes_nothing(
     assert detail["message"] == "échec"
     assert snapshot(db_session) == before
     refused(generate(client, prospect, "r1"), detail_status(code), code)
-    assert contact_messages.get_message(db_session, prospect, ContactMessageStep.R1) is None
+    assert contact_messages.get_message(db_session, prospect, 1) is None
 
 
 def detail_status(code: str) -> int:
@@ -465,7 +483,7 @@ def test_an_adapter_crash_is_an_upstream_error(
     ai_app.dependency_overrides[get_mail_generator] = lambda: FakeGenerator(crash)
 
     refused(generate(client, prospect), 502, "ai_upstream_error")
-    assert contact_messages.get_message(db_session, prospect, ContactMessageStep.CONTACT) is None
+    assert contact_messages.get_message(db_session, prospect, 0) is None
 
 
 def test_not_configured_names_the_settings_and_writes_nothing(
@@ -495,12 +513,12 @@ def test_refusals_before_any_ai_call(
     refused(generate(client, prospect, "r1", expected_revision=1), 404, "message_not_found")
     refused(generate(client, uuid.uuid4()), 404, "not_found")
 
-    contact_messages.validate(db_session, OPERATOR, prospect, ContactMessageStep.CONTACT, 1)
+    contact_messages.validate(db_session, OPERATOR, prospect, 0, 1)
     contact_messages.schedule(
         db_session,
         OPERATOR,
         prospect,
-        ContactMessageStep.CONTACT,
+        0,
         1,
         datetime.now(UTC) + timedelta(days=2),
     )
@@ -510,7 +528,7 @@ def test_refusals_before_any_ai_call(
     )
     assert detail["status"] == "scheduled"
 
-    contact_messages.cancel(db_session, OPERATOR, prospect, ContactMessageStep.CONTACT, 1)
+    contact_messages.cancel(db_session, OPERATOR, prospect, 0, 1)
     db_session.flush()
     refused(generate(client, prospect, expected_revision=1, replace=True), 409, "message_cancelled")
 
@@ -530,6 +548,7 @@ def test_a_sent_message_is_immutable(
     message.sent_at = message.validated_at = now
     message.validated_revision = message.revision
     message.validated_by_actor_id = "x"
+    message.sent_source = SendSource.WORKER
     db_session.flush()
 
     refused(
@@ -637,7 +656,7 @@ def test_a_human_edit_during_the_ai_call_wins(
                 other,
                 OPERATOR,
                 prospect,
-                ContactMessageStep.CONTACT,
+                0,
                 MessageEdit(expected_revision=1, subject="Humain", body_text="Saisie humaine"),
             )
         return GeneratedMail("IA", "IA", "fake-model")
@@ -647,7 +666,7 @@ def test_a_human_edit_during_the_ai_call_wins(
     refused(generate(client, prospect, expected_revision=1, replace=True), 409, "revision_conflict")
 
     db_session.expire_all()
-    message = contact_messages.get_message(db_session, prospect, ContactMessageStep.CONTACT)
+    message = contact_messages.get_message(db_session, prospect, 0)
     assert message is not None
     assert (message.subject, message.revision, message.generation_model) == ("Humain", 2, None)
 
@@ -656,7 +675,7 @@ def test_a_schedule_during_the_ai_call_is_not_undone(
     ai_app: FastAPI, client: TestClient, db_session: Session, prospect: uuid.UUID
 ) -> None:
     save(db_session, prospect, subject="S", body_text="B")
-    contact_messages.validate(db_session, OPERATOR, prospect, ContactMessageStep.CONTACT, 1)
+    contact_messages.validate(db_session, OPERATOR, prospect, 0, 1)
     db_session.flush()
     factory: sessionmaker[Session] = ai_app.state.session_factory
 
@@ -667,7 +686,7 @@ def test_a_schedule_during_the_ai_call_is_not_undone(
                 other,
                 OPERATOR,
                 prospect,
-                ContactMessageStep.CONTACT,
+                0,
                 1,
                 datetime.now(UTC) + timedelta(days=2),
             )
@@ -680,7 +699,7 @@ def test_a_schedule_during_the_ai_call_is_not_undone(
     )
 
     db_session.expire_all()
-    message = contact_messages.get_message(db_session, prospect, ContactMessageStep.CONTACT)
+    message = contact_messages.get_message(db_session, prospect, 0)
     assert message is not None
     assert (message.status, message.subject) == (ContactMessageStatus.SCHEDULED, "S")
 
@@ -723,3 +742,97 @@ def test_a_human_text_edit_clears_the_ai_provenance_and_the_history_keeps_it(
     # Only the text edit changed the generation fields; its before values keep the provenance.
     assert [("fake-model" in changes) for changes in updates].count(True) == 1
     assert not any("Corps relu" in changes for changes in updates)
+
+
+# --- ranks up to « max relances » (sequences rework S3) ----------------------------------------
+
+
+def level_of(session: Session, prospect_id: uuid.UUID) -> tuple[int, int | None, bool]:
+    progress = contact_sequences.prospect_sequence(session, prospect_id).progress
+    return progress.sent_count, progress.next_rank, progress.finished
+
+
+def test_the_ai_drafts_a_later_rank_from_the_earlier_ones(
+    ai_app: Any, client: TestClient, db_session: Session, prospect: uuid.UUID, fake: FakeGenerator
+) -> None:
+    sequence = contact_sequences.current_sequence(db_session, prospect)
+    assert sequence is not None
+    for rank in range(3):
+        add_send(
+            db_session, sequence, rank, datetime(2026, 9, 7, 9, tzinfo=UTC) + timedelta(weeks=rank)
+        )
+    contact_messages.save_message(
+        db_session,
+        OPERATOR,
+        prospect,
+        3,
+        MessageEdit(subject="Objet R3", body_text="Corps R3 écrit à la main"),
+        default_from=SENDER,
+    )
+    before = level_of(db_session, prospect)
+    state = db_session.scalar(
+        select(ContactTracking.status).where(ContactTracking.prospect_id == prospect)
+    )
+
+    body = ok(generate(client, prospect, "r3", expected_revision=1, replace=True))
+
+    assert (body["message"]["rank"], body["message"]["status"]) == (3, "draft")
+    [prompt] = fake.prompts
+    assert "Étape : R3" in prompt.input
+    assert "relance R3, courte" in prompt.instructions
+    assert "Corps R3 écrit à la main" in prompt.input  # the current version, to replace
+    db_session.expire_all()
+    assert level_of(db_session, prospect) == before
+    assert (
+        db_session.scalar(
+            select(ContactTracking.status).where(ContactTracking.prospect_id == prospect)
+        )
+        is state
+        is ContactTrackingStatus.NEUTRAL
+    )
+    current = contact_sequences.current_sequence(db_session, prospect)
+    assert current is not None and (current.id, current.cohort_id) == (
+        sequence.id,
+        sequence.cohort_id,
+    )
+
+
+def test_the_last_follow_up_is_drafted_as_the_last(
+    ai_app: Any, client: TestClient, prospect: uuid.UUID, fake: FakeGenerator
+) -> None:
+    ok(generate(client, prospect, "r4"), 201)
+
+    [prompt] = fake.prompts
+    assert "dernière relance (R4)" in prompt.instructions
+
+
+def test_the_ai_cannot_draft_beyond_the_maximum(
+    ai_app: Any,
+    client: TestClient,
+    db_session: Session,
+    prospect: uuid.UUID,
+    fake: FakeGenerator,
+) -> None:
+    before = snapshot(db_session)
+
+    refused(generate(client, prospect, "r5"), 409, "rank_beyond_max")
+
+    assert fake.prompts == []
+    assert snapshot(db_session) == before
+
+
+def test_a_sequence_row_is_never_written_by_the_ai(
+    ai_app: Any, client: TestClient, db_session: Session, prospect: uuid.UUID
+) -> None:
+    before = [
+        (row.id, row.cohort_id, row.is_current, row.closed_at)
+        for row in db_session.scalars(select(ContactSequence))
+    ]
+
+    ok(generate(client, prospect, "r2"), 201)
+
+    db_session.expire_all()
+    assert [
+        (row.id, row.cohort_id, row.is_current, row.closed_at)
+        for row in db_session.scalars(select(ContactSequence))
+    ] == before

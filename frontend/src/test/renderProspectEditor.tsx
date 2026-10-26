@@ -21,6 +21,7 @@ export function fakeQueue(ids: string[], segment: Segment = 'never_verified') {
     activity: null,
     referent: null,
     tracking_status: null,
+    cohort: null,
     company: null,
     import_batch: null,
     segment,
@@ -38,6 +39,10 @@ export function fakeQueue(ids: string[], segment: Segment = 'never_verified') {
     total: ids.length,
     position: (id) => (ids.includes(id) ? ids.indexOf(id) + 1 : null),
     next,
+    previous: (id) => {
+      const before = ids[ids.indexOf(id) - 1]
+      return Promise.resolve(before ? { id: before, page: 1 } : null)
+    },
   }
   return { queue, next }
 }

@@ -28,6 +28,27 @@
   --nc-lift: #1C2A30;
   --nc-hairline: #1B272C;
   --nc-aura: #0B3B2A;
+
+  /* Step colours of the scheduled-sending chart (categorical slots), stepped per theme */
+  --nc-sched-dark-1: #3987e5;
+  --nc-sched-dark-2: #d95926;
+  --nc-sched-dark-3: #199e70;
+  --nc-sched-dark-4: #c98500;
+  --nc-sched-dark-5: #d55181;
+  --nc-sched-dark-6: #008300;
+  --nc-sched-dark-7: #9085e9;
+  --nc-sched-dark-8: #e66767;
+  --nc-sched-light-1: #2a78d6;
+  --nc-sched-light-2: #eb6834;
+  --nc-sched-light-3: #1baf7a;
+  --nc-sched-light-4: #eda100;
+  --nc-sched-light-5: #e87ba4;
+  --nc-sched-light-6: #008300;
+  --nc-sched-light-7: #4a3aa7;
+  --nc-sched-light-8: #e34948;
+
+  /* « Planned » badge of the import review: signal yellow with black text */
+  --nc-planned: #ffc000;
   --nc-glow-amber: #3A2A0A;
 
   /* Derived light steps */
@@ -129,6 +150,23 @@
   --duration-fast: 120ms;
   --duration-base: 200ms;
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Verification page: one fixed hue per cohort (same in both themes), and the « Copier » button */
+  --cohort-0: #4f8ef7;
+  --cohort-1: #2fbf9b;
+  --cohort-2: #f2b544;
+  --cohort-3: #f0706e;
+  --cohort-4: #a98bf2;
+  --cohort-5: #e57fc1;
+  --cohort-6: #63c8e8;
+  --cohort-7: #b5cc4a;
+  --cohort-8: #f28f4b;
+  --cohort-9: #8c9bb0;
+  --cohort-10: #3fa34d;
+  --cohort-11: #c9a27a;
+  --color-copy: #ec4899;
+  --color-on-copy: #2a0716;
+  --color-on-warning: #1d1400;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -144,6 +182,16 @@
   color-scheme: dark;
 
   --color-canvas: var(--nc-night);
+  --color-planned-bg: var(--nc-planned);
+  --color-planned-fg: var(--nc-void);
+  --sched-1: var(--nc-sched-dark-1);
+  --sched-2: var(--nc-sched-dark-2);
+  --sched-3: var(--nc-sched-dark-3);
+  --sched-4: var(--nc-sched-dark-4);
+  --sched-5: var(--nc-sched-dark-5);
+  --sched-6: var(--nc-sched-dark-6);
+  --sched-7: var(--nc-sched-dark-7);
+  --sched-8: var(--nc-sched-dark-8);
   --color-surface: var(--nc-panel);
   --color-surface-raised: var(--nc-panel-high);
   --color-surface-hover: var(--nc-lift);
@@ -192,6 +240,16 @@
   color-scheme: light;
 
   --color-canvas: var(--nc-paper);
+  --color-planned-bg: var(--nc-planned);
+  --color-planned-fg: var(--nc-void);
+  --sched-1: var(--nc-sched-light-1);
+  --sched-2: var(--nc-sched-light-2);
+  --sched-3: var(--nc-sched-light-3);
+  --sched-4: var(--nc-sched-light-4);
+  --sched-5: var(--nc-sched-light-5);
+  --sched-6: var(--nc-sched-light-6);
+  --sched-7: var(--nc-sched-light-7);
+  --sched-8: var(--nc-sched-light-8);
   --color-surface: var(--nc-white);
   --color-surface-raised: var(--nc-white);
   --color-surface-hover: var(--nc-ice);

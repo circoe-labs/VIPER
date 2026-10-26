@@ -30,6 +30,7 @@ export type FlowAction =
   | { type: 'confirmSheet' }
   | { type: 'decide'; update: (decisions: ReviewDecisions) => ReviewDecisions }
   | { type: 'committed'; result: CommitResult }
+  | { type: 'backToSheet' }
   | { type: 'reset' }
 
 export const INITIAL_FLOW: FlowState = {
@@ -70,6 +71,9 @@ export function flowReducer(state: FlowState, action: FlowAction): FlowState {
       return { ...state, decisions: action.update(state.decisions) }
     case 'committed':
       return { ...state, step: 'done', committed: action.result }
+    case 'backToSheet':
+      // The sheet step again, keeping the analysis and every decision made in the review.
+      return state.step === 'review' ? { ...state, step: 'sheet' } : state
     case 'reset':
       return INITIAL_FLOW
   }

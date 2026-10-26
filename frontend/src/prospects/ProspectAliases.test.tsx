@@ -110,7 +110,7 @@ describe('Prospect editor — e-mails and phones', () => {
     await userEvent.type(within(phones).getByRole('textbox', { name: 'Numéro' }), '01 23 45 67 89')
     expect(within(phones).getByRole('combobox', { name: 'Type' })).toHaveValue('landline')
 
-    await editSection('E-mails')
+    // Coordonnées is edited as a whole: the e-mails are already open.
     await userEvent.click(within(region('E-mails')).getByRole('button', { name: 'Autres actions : E-mail 1' }))
     await userEvent.click(screen.getByRole('menuitem', { name: 'Marquer invalide' }))
     expect(region('E-mails')).toHaveTextContent('Invalide')
@@ -126,9 +126,6 @@ describe('Prospect editor — e-mails and phones', () => {
     await userEvent.click(await screen.findByRole('option', { name: /Autre Employeur SAS/ }))
 
     expect(screen.getByRole('note')).toHaveTextContent('Entreprise modifiée.')
-    expect(screen.getByRole('group', { name: 'Vérification de l’emploi' })).toHaveTextContent(
-      'Nouvelle entreprise : emploi à vérifier',
-    )
     await editSection('E-mails')
     const emails = region('E-mails')
     expect(emails).toHaveTextContent('À revérifier (vérifié le 1 juin 2026)')

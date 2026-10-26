@@ -73,8 +73,7 @@ class DoNotContactError(DomainError):
 
 
 class TrackingRuleError(DomainError):
-    """A Contact tracking rule refused the change; `code` is stable (`ignored_is_terminal`,
-    `ignored_has_no_next_action`)."""
+    """A Contact tracking rule refused the change; `code` is stable (`ignored_is_terminal`)."""
 
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
@@ -85,6 +84,20 @@ class ContactMessageError(DomainError):
     """The Contact message state machine refused the operation. `code` is stable (the UI turns it
     into French copy), `status` is its HTTP status and `details` add machine-readable context
     (e.g. the missing `fields` of an incomplete message). Codes: `app.services.contact_messages`.
+    """
+
+    def __init__(self, code: str, http_status: int, message: str, **details: object) -> None:
+        super().__init__(message)
+        self.code = code
+        self.http_status = http_status
+        self.details = details
+
+
+class BusinessRuleError(DomainError):
+    """A cohort, sequence, send or quality-alert rule refused the operation (sequences rework).
+    `code` is stable (the UI turns it into French copy), `http_status` its HTTP status and
+    `details` add machine-readable context. Codes: `app.services.cohorts`,
+    `app.services.contact_sequences`, `app.services.quality_alerts`, `app.services.app_settings`.
     """
 
     def __init__(self, code: str, http_status: int, message: str, **details: object) -> None:

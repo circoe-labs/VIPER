@@ -3,7 +3,7 @@ import { vi } from 'vitest'
 import type { Company, CompanyListItem } from '../api/companies'
 import type { ImportBatch } from '../api/imports'
 import { type ProspectRow, REVIEWS, type Review, SEGMENTS, type Segment } from '../api/prospection'
-import type { Referent, TaxonomyValue } from '../api/settings'
+import type { Cohort, Referent, TaxonomyValue } from '../api/settings'
 import { matchesWords } from '../lib/text'
 import { type RecordedRequest, stubSettingsApi } from './settingsApi'
 
@@ -46,9 +46,16 @@ export function prospect(
     primary_phone: null,
     primary_phone_type: null,
     tracking_status: null,
-    planned_contact_at: null,
+    cohort_code: null,
+    sent_count: 0,
+    next_step: null,
+    finished: false,
+    level: null,
+    level_label: null,
+    next_due_at: null,
+    next_due_week: null,
     due: false,
-    planned_contact_week: null,
+    email_error: false,
     response_received_at: null,
     appointment_at: null,
     referent_id: null,
@@ -83,6 +90,8 @@ interface ProspectionStubOptions {
   prospects?: FakeProspect[]
   roles?: TaxonomyValue[]
   referents?: Referent[]
+  // Paramètres › Cohortes (S0 is always there).
+  cohorts?: Cohort[]
   companies?: Pick<Company, 'id' | 'display_name'>[]
   imports?: ImportBatch[]
   staleThresholdDays?: number | null
@@ -92,7 +101,7 @@ interface ProspectionStubOptions {
 
 export function stubProspectionApi(options: ProspectionStubOptions = {}) {
   const { prospects = [], roles = [], referents = [], companies = [], imports = [] } = options
-  const settings = stubSettingsApi({ roles, referents })
+  const settings = stubSettingsApi({ roles, referents }, options.cohorts ? { cohorts: options.cohorts } : {})
   const requests: RecordedRequest[] = []
 
   function matching(params: URLSearchParams): FakeProspect[] {
@@ -114,6 +123,9 @@ export function stubProspectionApi(options: ProspectionStubOptions = {}) {
   function handle(url: URL): Promise<Response> {
     if (options.failWith) return reply(options.failWith, { detail: 'boom' })
     const found = matching(url.searchParams)
+    if (url.pathname === '/api/prospection/overview') {
+      return reply(200, { total: prospects.length, contacted: 0, deleted: 0 })
+    }
     if (url.pathname === '/api/prospection/counters') {
       const counts = Object.fromEntries(
         SEGMENTS.map((segment) => [segment, found.filter((row) => inSegment(row, segment)).length]),
@@ -154,7 +166,7 @@ export function stubProspectionApi(options: ProspectionStubOptions = {}) {
     return settings.fetchMock(input, init)
   })
   vi.stubGlobal('fetch', fetchMock)
-  return { requests, prospects, fetchMock }
+  return { requests, prospects, fetchMock, settings }
 }
 
 // The query parameters of the last request to `path` (e.g. '/api/prospection/prospects').

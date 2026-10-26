@@ -5,16 +5,16 @@ import { type Prospect, useProspect, useProspectMutations } from '../api/prospec
 import { businessToday } from '../lib/isoWeek'
 import { civilityLabel, personName, selectionShortLabel } from '../prospection/labels'
 import type { ProspectEditorProps } from '../prospection/prospectEditor'
-import { Button } from '../ui/Button'
+import { Button, IconButton } from '../ui/Button'
 import { Drawer, Modal } from '../ui/Dialog'
-import { AlertIcon, CheckCircleIcon, InfoIcon, RefreshIcon, TrashIcon } from '../ui/icons'
+import { AlertIcon, CheckCircleIcon, ChevronLeftIcon, ChevronRightIcon, InfoIcon, RefreshIcon, TrashIcon } from '../ui/icons'
 import { Tabs } from '../ui/Tabs'
+import { AlertsSection } from './AlertsSection'
 import { AliasList } from './AliasList'
 import { CompanySection, DeleteProspectDialog, HistorySection, ProvenanceSection } from './ContextSections'
-import type { SectionEdit } from './EditorSection'
+import { EditorSection, type SectionEdit } from './EditorSection'
 import { EmploymentSection, IdentitySection } from './EmploymentSections'
 import { type ProspectRefusal, prospectRefusal } from './messages'
-import { OppositionSection } from './OppositionSection'
 import {
   dirtyTabs,
   type EditableSection,
@@ -38,6 +38,7 @@ import {
 } from './prospectForm'
 import { ProspectNotes } from './ProspectNotes'
 import { ProspectScoreCard } from './ProspectScoreCard'
+import { SequenceSection } from './SequenceSection'
 import { TrackingSection } from './TrackingSection'
 import './prospects.css'
 
@@ -55,7 +56,7 @@ interface Forms {
   editing: EditableSection[]
 }
 
-type Notice = 'saved' | 'created_next' | 'end' | 'opposition_set' | 'opposition_cleared'
+type Notice = 'saved' | 'created_next' | 'end'
 
 let sessions = 0
 
@@ -69,6 +70,20 @@ function loadedForms(prospect: Prospect, session = nextSession()): Forms {
   const draft = draftFromProspect(prospect)
   const editing = sectionsWithErrors(validate(draft, { isNew: false, today: prospect.today }))
   return { target: prospect.id, prospect, baseline: draft, draft, session, editing }
+}
+
+// The prospect read again after an operation outside the form's save (cohort, send, « Défaillant », alert): its new
+// version and derived contact, and its saved commercial state in the baseline — kept in the draft unless the person
+// chose another one there.
+export function withServerProspect(forms: Forms, prospect: Prospect): Forms {
+  const saved = draftFromProspect(prospect).tracking
+  const keep = forms.draft.tracking.status !== forms.baseline.tracking.status
+  return {
+    ...forms,
+    prospect,
+    baseline: { ...forms.baseline, tracking: saved },
+    draft: keep ? forms.draft : { ...forms.draft, tracking: { ...forms.draft.tracking, status: saved.status } },
+  }
 }
 
 function newForms(defaults: NewProspectDefaults = {}): Forms {
@@ -160,15 +175,19 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
   }
 
   const editingNow = (section: EditableSection) => isNew || (forms?.editing.includes(section) ?? false)
-  const sectionEdit = (section: EditableSection): SectionEdit => ({
-    editing: editingNow(section),
+  // One « Modifier » for one or several Profil sections (Coordonnées covers the e-mails and the phones).
+  const sectionEdit = (...sections: EditableSection[]): SectionEdit => ({
+    editing: sections.some(editingNow),
     locked: isNew,
-    canDone: !Object.keys(errors).some((path) => sectionOfField(path) === section),
+    canDone: !Object.keys(errors).some((path) => {
+      const found = sectionOfField(path)
+      return found !== null && sections.includes(found)
+    }),
     onEdit: () => {
-      setForms((current) => current && { ...current, editing: [...current.editing.filter((open) => open !== section), section] })
+      setForms((current) => current && { ...current, editing: [...current.editing.filter((open) => !sections.includes(open)), ...sections] })
     },
     onDone: () => {
-      setForms((current) => current && { ...current, editing: current.editing.filter((open) => open !== section) })
+      setForms((current) => current && { ...current, editing: current.editing.filter((open) => !sections.includes(open)) })
     },
   })
 
@@ -257,23 +276,11 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
     }
   }
 
-  async function setOpposition(doNotContact: boolean, reason: string) {
-    if (!prospect) return
-    try {
-      const updated = await mutations.contactability.mutateAsync({
-        id: prospect.id,
-        do_not_contact: doNotContact,
-        reason,
-        version: prospect.version,
-      })
-      // Only the opposition changed: the draft stays as typed, on the new version.
-      setForms((current) => current && { ...current, prospect: updated })
-      setNotice(doNotContact ? 'opposition_set' : 'opposition_cleared')
-    } catch (error) {
-      const refused = prospectRefusal(error)
-      if (refused.conflict) setRefusal(refused)
-      throw new Error(refused.message, { cause: error })
-    }
+  // After a « Séquence de contact » or alert operation: the prospect's new version, state and derived contact.
+  async function syncFromServer() {
+    const result = await loaded.refetch()
+    const data = result.data
+    if (data) setForms((current) => (current?.target === data.id ? withServerProspect(current, data) : current))
   }
 
   async function reload() {
@@ -281,6 +288,21 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
     if (result.data) setForms(loadedForms(result.data))
     setSubmitted(false)
     setRefusal(null)
+  }
+
+  // The arrows: the previous or next prospect of the list's queue, asking first when changes are pending.
+  async function step(direction: 'previous' | 'next') {
+    if (!prospect || moving) return
+    setMoving(true)
+    try {
+      const found = await queue[direction](prospect.id)
+      if (found) onNavigate(found.id, { page: found.page })
+      else setNotice('end')
+    } catch {
+      setRefusal({ field: null, message: 'Le prospect n’a pas pu être chargé. Réessayez.' })
+    } finally {
+      setMoving(false)
+    }
   }
 
   // Ctrl+S / ⌘S saves and Ctrl+Entrée saves and moves on, from anywhere in this drawer (not from a dialog above it).
@@ -330,7 +352,7 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
       footer={
         forms && (
           <div className="prospect-editor__bar">
-            <div className="prospect-editor__bar-status" role="status">
+            <div className="prospect-editor__bar-status" role="status" aria-label="Enregistrement de la fiche">
               <EditorStatus
                 dirty={dirty}
                 notice={notice}
@@ -355,18 +377,30 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
                 Supprimer
               </Button>
             )}
-            {dirty ? <Button onClick={revert}>Annuler les modifications</Button> : <Button onClick={close}>Fermer</Button>}
-            <Button type="submit" form={formId} loading={mutations.update.isPending || mutations.create.isPending} disabled={!dirty}>
+            {dirty && <Button onClick={revert}>Annuler les modifications</Button>}
+            <Button type="submit" form={formId} variant="primary" loading={mutations.update.isPending || mutations.create.isPending} disabled={!dirty}>
               Enregistrer
             </Button>
-            <Button
-              variant="primary"
-              loading={moving}
-              disabled={saving || (isNew && !dirty)}
-              onClick={() => void saveAndNext()}
-            >
-              {isNew ? 'Enregistrer et nouveau' : 'Enregistrer et suivant'}
-            </Button>
+            {prospect && (
+              <div className="prospect-editor__arrows" role="group" aria-label="Parcourir les prospects">
+                <IconButton
+                  icon={ChevronLeftIcon}
+                  label="Prospect précédent"
+                  disabled={saving || (position !== null && position <= 1)}
+                  onClick={() => {
+                    guarded(() => void step('previous'), 'Changer de prospect sans enregistrer')
+                  }}
+                />
+                <IconButton
+                  icon={ChevronRightIcon}
+                  label="Prospect suivant"
+                  disabled={saving || (position !== null && position >= queue.total)}
+                  onClick={() => {
+                    guarded(() => void step('next'), 'Changer de prospect sans enregistrer')
+                  }}
+                />
+              </div>
+            )}
           </div>
         )
       }
@@ -400,7 +434,7 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
                   <ProfileSummary draft={draft} prospect={prospect} labels={labels} />
                 </div>
               )}
-              <div className="prospect-editor__main">
+              <div className="prospect-editor__top">
                 <IdentitySection
                   draft={draft}
                   errors={shown}
@@ -409,23 +443,36 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
                   firstFieldRef={firstFieldRef}
                   edit={sectionEdit('identity')}
                 />
-                {(['emails', 'phones'] as const).map((kind) => (
-                  <AliasList
-                    key={kind}
-                    kind={kind}
-                    aliases={draft[kind]}
-                    onChange={(aliases) => {
-                      change({ [kind]: aliases })
-                    }}
-                    errors={shown}
-                    fieldId={fieldId}
-                    companyMoved={companyMoved}
-                    companyDomain={company.data?.email_domain ?? null}
-                    today={today}
-                    staleDays={prospect?.stale_threshold_days ?? null}
-                    edit={sectionEdit(kind)}
-                  />
-                ))}
+                <EmploymentSection
+                  draft={draft}
+                  errors={shown}
+                  fieldId={fieldId}
+                  onChange={change}
+                  prospect={prospect}
+                  companyMoved={companyMoved}
+                  labels={labels}
+                  edit={sectionEdit('employment')}
+                />
+                <EditorSection title="Coordonnées" edit={sectionEdit('emails', 'phones')}>
+                  {(['emails', 'phones'] as const).map((kind) => (
+                    <AliasList
+                      key={kind}
+                      nested
+                      kind={kind}
+                      aliases={draft[kind]}
+                      onChange={(aliases) => {
+                        change({ [kind]: aliases })
+                      }}
+                      errors={shown}
+                      fieldId={fieldId}
+                      companyMoved={companyMoved}
+                      companyDomain={company.data?.email_domain ?? null}
+                      today={today}
+                      staleDays={prospect?.stale_threshold_days ?? null}
+                      edit={sectionEdit('emails', 'phones')}
+                    />
+                  ))}
+                </EditorSection>
               </div>
               <div className="prospect-editor__side">
                 <ProspectScoreCard
@@ -436,23 +483,13 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
                     setNoteToShow(noteId)
                   }}
                 />
-                <EmploymentSection
-                  draft={draft}
-                  errors={shown}
-                  fieldId={fieldId}
-                  onChange={change}
-                  prospect={prospect}
-                  companyMoved={companyMoved}
-                  today={today}
-                  labels={labels}
-                  edit={sectionEdit('employment')}
-                />
                 <CompanySection companyId={draft.company_id} />
               </div>
             </div>
             <div className="prospect-editor" hidden={tab !== 'tracking'}>
               <div className="prospect-editor__main">
-                <TrackingSection draft={draft} errors={shown} fieldId={fieldId} onChange={change} prospect={prospect} today={today} />
+                <TrackingSection draft={draft} errors={shown} fieldId={fieldId} onChange={change} prospect={prospect} />
+                {prospect && <SequenceSection prospect={prospect} pendingChanges={dirty} onChanged={() => void syncFromServer()} />}
                 {/* Notes are saved by their own API, outside this form (never dirty, never part of the version). */}
                 <ProspectNotes
                   prospectId={prospect?.id ?? null}
@@ -464,12 +501,7 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
                 />
               </div>
               <div className="prospect-editor__side">
-                <OppositionSection
-                  prospect={prospect}
-                  busy={mutations.contactability.isPending}
-                  pendingChanges={dirty}
-                  onSubmit={setOpposition}
-                />
+                {prospect && <AlertsSection prospectId={prospect.id} onChanged={() => void syncFromServer()} />}
                 <ProvenanceSection draft={draft} errors={shown} fieldId={fieldId} onChange={change} prospect={prospect} />
                 {prospect && <HistorySection prospectId={prospect.id} />}
               </div>
@@ -572,8 +604,6 @@ const NOTICES: Record<Notice, (segment: string) => string> = {
   saved: () => 'Prospect enregistré.',
   created_next: () => 'Prospect enregistré. Saisissez le suivant : l’entreprise est reprise.',
   end: (segment) => `Fin de la liste « ${segment} » : aucun prospect après celui-ci.`,
-  opposition_set: () => 'Opposition enregistrée.',
-  opposition_cleared: () => 'Opposition levée.',
 }
 
 interface EditorStatusProps {
@@ -619,7 +649,7 @@ function EditorStatus({ dirty, notice, errorCount, refusal, segment }: EditorSta
   }
   return (
     <span className="prospect-editor__keys">
-      <kbd>Ctrl</kbd>+<kbd>S</kbd> enregistrer · <kbd>Ctrl</kbd>+<kbd>Entrée</kbd> suivant · <kbd>Échap</kbd> fermer
+      <kbd>Ctrl</kbd>+<kbd>S</kbd> enregistrer · <kbd>Échap</kbd> fermer
     </span>
   )
 }

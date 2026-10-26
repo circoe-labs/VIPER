@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 
 import { type HomeData, useHome } from '../api/home'
@@ -9,18 +10,21 @@ import { Button } from '../ui/Button'
 import { EmptyState } from '../ui/EmptyState'
 import {
   AlertIcon,
-  BuildingIcon,
+  ArrowDownIcon,
+  ArrowUpIcon,
+  BanIcon,
   type IconComponent,
-  InfoIcon,
+  MailIcon,
   PlusIcon,
   SpinnerIcon,
   UploadIcon,
   UsersIcon,
 } from '../ui/icons'
 import { PageHeader } from '../ui/PageHeader'
+import { CampaignStats } from './CampaignStats'
 import { MonthlyProgress } from './MonthlyProgress'
-import { NextActions } from './NextActions'
 import { RecentActivity } from './RecentActivity'
+import { WeekToContact } from './WeekToContact'
 import './home.css'
 
 const NUMBER = new Intl.NumberFormat('fr-FR')
@@ -38,117 +42,139 @@ interface Kpi {
   hint: string
   icon: IconComponent
   count: number
-  href: string
+  // Absent when no Prospection list answers the card's definition.
+  href?: string
   // A non-zero count asks for work (verification, due contacts): its glyph takes the warning colour.
   attention?: boolean
-  // The few figures that ask for action today: they get the hero treatment (large, tinted, lit).
+  // The figure that asks for action today gets the hero treatment (large, tinted, lit).
   focus?: 'due' | 'go'
+  // Colours the glyph and the figure so the cards read apart at a glance.
+  tone?: 'info' | 'success' | 'danger' | 'accent'
 }
 
-const ATTENTION: readonly Segment[] = [
-  'never_verified',
-  'needs_recheck',
-  'email_missing',
-  'email_invalid',
-  'email_unverified',
-  'due',
-]
-
-// Every prospect count is a Prospection segment: the card opens Prospection on it, where the counter shows the same
-// number (same API semantics).
-const FOCUS: Partial<Record<Segment, 'due' | 'go'>> = { due: 'due', to_contact: 'go', responses: 'go' }
-
-function segmentKpi(data: HomeData, segment: Segment, label = SEGMENT_INFO[segment].label): Kpi {
+// Every count that is a Prospection segment opens Prospection on it, where the counter shows the same number (same
+// API semantics).
+function segmentKpi(data: HomeData, segment: Segment, label: string, attention = false, focus?: Kpi['focus'], tone?: Kpi['tone']): Kpi {
   const { hint, icon } = SEGMENT_INFO[segment]
-  return {
-    label,
-    hint,
-    icon,
-    count: data.counts[segment],
-    href: prospectionHref({ segment }),
-    attention: ATTENTION.includes(segment),
-    focus: FOCUS[segment],
-  }
+  return { label, hint, icon, count: data.counts[segment], href: prospectionHref({ segment }), attention, focus, tone }
 }
 
-function KpiCard({ label, hint, icon: Icon, count, href, attention = false, focus }: Kpi) {
-  const classes = [
+function KpiCard({ label, hint, icon: Icon, count, href, attention = false, focus, tone }: Kpi) {
+  const className = [
     'kpi-card',
     attention && count > 0 && 'kpi-card--attention',
     focus && count > 0 && `kpi-card--${focus}`,
+    tone && `kpi-card--${tone}`,
     count === 0 && 'kpi-card--zero',
   ]
+    .filter(Boolean)
+    .join(' ')
+  const content = (
+    <>
+      <span className="kpi-card__label">
+        <Icon size={14} />
+        {label}
+      </span>
+      <span className="kpi-card__count">{NUMBER.format(count)}</span>
+    </>
+  )
   return (
     <li>
-      <Link to={href} className={classes.filter(Boolean).join(' ')} title={hint}>
-        <span className="kpi-card__label">
-          <Icon size={14} />
-          {label}
-        </span>
-        <span className="kpi-card__count">{NUMBER.format(count)}</span>
-      </Link>
+      {href ? (
+        <Link to={href} className={className} title={hint}>
+          {content}
+        </Link>
+      ) : (
+        <div className={className} title={hint}>
+          {content}
+        </div>
+      )}
     </li>
   )
 }
 
-function KpiGroup({ id, title, kpis, hero = false }: { id: string; title: string; kpis: Kpi[]; hero?: boolean }) {
+// Answers recorded this week against the week before: a green arrow up when they hold or rise, a red one down when
+// they fall.
+function ResponseTrend({ figures }: { figures: HomeData['figures'] }) {
+  const { responses_this_week: now, responses_last_week: before } = figures
+  const falling = now < before
+  const Arrow = falling ? ArrowDownIcon : ArrowUpIcon
+  const text = `${String(now)} cette semaine, ${String(before)} la semaine passée`
   return (
-    <div className={`kpi-group${hero ? ' kpi-group--hero' : ''}`}>
-      <h3 id={id} className="kpi-group__title eyebrow">
-        {title}
-      </h3>
-      <ul className="kpi-group__cards" aria-labelledby={id}>
-        {kpis.map((kpi) => (
-          <KpiCard key={kpi.label} {...kpi} />
-        ))}
-      </ul>
-    </div>
+    <li>
+      <div className="kpi-card kpi-card--accent" title="Réponses de prospects enregistrées cette semaine, comparées à la semaine passée.">
+        <span className="kpi-card__label">
+          <MailIcon size={14} />
+          Réponses
+        </span>
+        <span className="kpi-card__count kpi-trend" data-direction={falling ? 'down' : 'up'}>
+          {NUMBER.format(now)}
+          <Arrow size={20} aria-hidden="true" />
+          <span className="visually-hidden">{falling ? 'En baisse' : 'En hausse ou stable'} : {text}</span>
+        </span>
+        <span className="kpi-trend__detail" aria-hidden="true">
+          {text}
+        </span>
+      </div>
+    </li>
+  )
+}
+
+function KpiList({ id, kpis, children, wide = false }: { id: string; kpis: Kpi[]; children?: ReactNode; wide?: boolean }) {
+  return (
+    <ul className={wide ? 'kpi-group__cards kpi-group__cards--wide' : 'kpi-group__cards'} aria-labelledby={id}>
+      {kpis.map((kpi) => (
+        <KpiCard key={kpi.label} {...kpi} />
+      ))}
+      {children}
+    </ul>
   )
 }
 
 function Overview({ data }: { data: HomeData }) {
-  const stale = data.stale_threshold_days
+  const { figures } = data
   const base: Kpi[] = [
-    segmentKpi(data, 'all', 'Prospects'),
+    segmentKpi(data, 'all', 'Prospects', false, undefined, 'info'),
+    segmentKpi(data, 'appointments', 'RDV confirmé', false, undefined, 'success'),
     {
-      label: 'Entreprises',
-      hint: 'Entreprises de la base, avec ou sans prospect.',
-      icon: BuildingIcon,
-      count: data.companies,
-      href: '/prospection/companies',
+      label: 'Défaillant',
+      hint: 'Sans réponse après la dernière relance : à ne plus relancer.',
+      icon: BanIcon,
+      count: figures.disqualified,
+      tone: 'danger',
     },
-    ...(['active', 'unknown', 'inactive', 'do_not_contact'] as const).map((segment) => segmentKpi(data, segment)),
+    {
+      label: 'À vérifier',
+      hint: 'Informations incomplètes : il manque une adresse e-mail ou un numéro de téléphone.',
+      icon: AlertIcon,
+      count: figures.incomplete,
+      attention: true,
+    },
   ]
-  const verification = (
-    ['never_verified', 'needs_recheck', 'email_missing', 'email_invalid', 'email_unverified'] as const
-  ).map((segment) => segmentKpi(data, segment))
-  const contact = (['due', 'to_contact', 'responses', 'appointments', 'contacted', 'no_response'] as const).map(
-    (segment) => segmentKpi(data, segment),
-  )
+  const contact: Kpi[] = [
+    { ...segmentKpi(data, 'due', 'À contacter', true, 'due'), href: '/contact' },
+    segmentKpi(data, 'no_response', 'Sans réponse', false, undefined, 'info'),
+    segmentKpi(data, 'email_error', 'Mail invalide', true, undefined, 'danger'),
+  ]
   return (
     <>
+      <section className="home-section home-section--strip" aria-labelledby="home-base-title">
+        <h2 id="home-base-title" className="home-section__title">
+          Base
+        </h2>
+        <KpiList id="home-base-title" kpis={base}>
+          <ResponseTrend figures={figures} />
+        </KpiList>
+      </section>
+
       <section className="home-section" aria-labelledby="home-contact-title">
         <h2 id="home-contact-title" className="home-section__title">
           Activité de contact
         </h2>
-        <KpiGroup id="home-kpi-contact" title="Suivi de contact" kpis={contact} hero />
+        <KpiList id="home-contact-title" kpis={contact} wide />
       </section>
 
-      <NextActions actions={data.next_actions} />
-
-      <section className="home-section home-section--strip" aria-labelledby="home-base-title">
-        <h2 id="home-base-title" className="home-section__title">
-          État de la base
-        </h2>
-        <KpiGroup id="home-kpi-base" title="Base" kpis={base} />
-        <KpiGroup id="home-kpi-verification" title="Vérification" kpis={verification} />
-        <p className="home-section__note">
-          {stale === null
-            ? 'Aucun seuil d’ancienneté configuré : « À revérifier » compte les coordonnées remises à vérifier après un changement d’entreprise.'
-            : `« À revérifier » compte aussi les vérifications de plus de ${String(stale)} jours.`}
-        </p>
-      </section>
-
+      <WeekToContact today={data.today} />
     </>
   )
 }
@@ -190,8 +216,8 @@ export function HomePage() {
         title="Accueil"
         description={
           data
-            ? `Où en sont la base et l’activité de contact, puis quoi faire ensuite — ${TODAY.format(new Date(`${data.today}T00:00:00Z`))}.`
-            : 'Où en sont la base et l’activité de contact, puis quoi faire ensuite.'
+            ? `Où en sont la base et l’activité de contact — ${TODAY.format(new Date(`${data.today}T00:00:00Z`))}.`
+            : 'Où en sont la base et l’activité de contact.'
         }
         actions={
           <>
@@ -225,17 +251,16 @@ export function HomePage() {
 
       {data && (data.counts.all === 0 ? <EmptyBase /> : <Overview data={data} />)}
       {data && (
-        <div className="home-panels">
-          {data.counts.all > 0 && <MonthlyProgress progress={data.progress} />}
-          <RecentActivity imports={data.recent_imports} edits={data.recent_edits} />
-        </div>
+        <details className="home-more" open={data.counts.all === 0}>
+          <summary className="home-more__summary">Détails : campagne, progression et historique</summary>
+          <div className="home-panels">
+            {data.counts.all > 0 && <CampaignStats />}
+            {data.counts.all > 0 && <MonthlyProgress progress={data.progress} figures={data.figures} />}
+            <RecentActivity imports={data.recent_imports} edits={data.recent_edits} />
+          </div>
+        </details>
       )}
 
-      <p className="home__scope">
-        <InfoIcon size={16} />
-        L’accueil ne montre que les données de VIPER : imports Excel et saisies manuelles. Les envois d’e-mails,
-        Calendly et les agents de prospection ne font pas partie de la V1.
-      </p>
     </div>
   )
 }

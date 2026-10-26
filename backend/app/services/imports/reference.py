@@ -7,6 +7,7 @@ reported (reactivate instead of creating a duplicate label) rather than silently
 
 import uuid
 from dataclasses import dataclass
+from datetime import date
 
 from app.models.enums import ContactabilityStatus
 
@@ -53,6 +54,15 @@ class ReferenceProspect:
 
 
 @dataclass(frozen=True, slots=True)
+class ReferenceCohort:
+    """An existing cohort (`S37`, `S0`): the review reuses it, no date is asked for it."""
+
+    id: uuid.UUID
+    code: str
+    starts_on: date | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ImportReferenceData:
     roles: tuple[ReferenceTaxonomy, ...] = ()
     activity_categories: tuple[ReferenceTaxonomy, ...] = ()
@@ -60,6 +70,7 @@ class ImportReferenceData:
     referents: tuple[ReferenceReferent, ...] = ()
     companies: tuple[ReferenceCompany, ...] = ()
     prospects: tuple[ReferenceProspect, ...] = ()
+    cohorts: tuple[ReferenceCohort, ...] = ()
 
 
 EMPTY_REFERENCE = ImportReferenceData()

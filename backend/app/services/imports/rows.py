@@ -2,8 +2,8 @@
 
 Losslessness: every non-empty cell ends up in a proposed field (`SourceCell.mapped`), in legacy
 metadata (`preserved`), or both — raw values are kept whenever a conversion is partial,
-impossible, a guess or not storable (a week without its year). A final pass preserves any cell no
-rule consumed, so nothing is ever dropped silently.
+impossible, a guess or not storable (e.g. a value that is not a cohort code). A final pass preserves
+any cell no rule consumed, so nothing is ever dropped silently.
 """
 
 import uuid
@@ -33,7 +33,6 @@ from app.services.imports.models import (
     LegacyValue,
     MatchReason,
     PhoneProposal,
-    PlannedContactProposal,
     PreviewRow,
     ProspectProposal,
     RowStatus,
@@ -50,9 +49,9 @@ from app.services.imports.normalize import (
     normalize_civility,
     normalize_name,
     parse_address,
+    parse_cohort,
     parse_emails,
     parse_phones,
-    parse_planned_contact,
     read_stage,
 )
 from app.services.imports.reference import ImportReferenceData
@@ -67,10 +66,12 @@ COMPANY_TEXT_FIELDS = (
 )
 COMPANY_FIELDS = (*COMPANY_TEXT_FIELDS, ImportField.CATEGORY, ImportField.ADDRESS)
 # Legacy stage columns → Contact state. Post-appointment stages (quote sent, its follow-up) are
-# outside the Contact scope and converge on `appointment_obtained` (handoff 06 §2).
+# outside the Contact scope and converge on `appointment_obtained` (handoff 06 §2). Follow-up
+# stages are sends, not states (sequences rework D1/D7): they leave the state `neutral` and the
+# commit keeps their raw cells until the import redesign records them as sends (S2).
 STAGE_STATUS = {
-    ImportField.STAGE_FOLLOW_UP_1: ContactTrackingStatus.R1,
-    ImportField.STAGE_FOLLOW_UP_2: ContactTrackingStatus.R2,
+    ImportField.STAGE_FOLLOW_UP_1: ContactTrackingStatus.NEUTRAL,
+    ImportField.STAGE_FOLLOW_UP_2: ContactTrackingStatus.NEUTRAL,
     ImportField.STAGE_APPOINTMENT: ContactTrackingStatus.APPOINTMENT_OBTAINED,
     ImportField.STAGE_QUOTE_SENT: ContactTrackingStatus.APPOINTMENT_OBTAINED,
     ImportField.STAGE_QUOTE_FOLLOW_UP: ContactTrackingStatus.APPOINTMENT_OBTAINED,
@@ -125,6 +126,7 @@ class RowDraft:
     emails: list[EmailProposal]
     phones: list[PhoneProposal]
     tracking: TrackingProposal | None
+    cohort_code: str | None
     legacy: dict[str, LegacyValue]
     diagnostics: list[Diagnostic]
     cells: list[SourceCell]
@@ -199,6 +201,7 @@ class RowDraft:
             emails=self.emails,
             phones=self.phones,
             tracking=self.tracking,
+            cohort_code=self.cohort_code,
             legacy_metadata=self.legacy,
             duplicates=duplicates,
             blocked_by_do_not_contact=self.blocked,
@@ -317,6 +320,7 @@ class RowBuilder:
         prospect = self.prospect()
         emails = self.emails()
         phones = self.phones()
+        cohort_code = self.cohort()
         tracking = self.tracking()
         prospect = prospect.model_copy(
             update={"activity_status_suggestion": self.activity_suggestion}
@@ -338,6 +342,7 @@ class RowBuilder:
             emails=emails,
             phones=phones,
             tracking=tracking,
+            cohort_code=cohort_code,
             legacy=self.legacy,
             diagnostics=self.diagnostics,
             cells=self.source_cells(),
@@ -473,11 +478,13 @@ class RowBuilder:
             self.flag(DiagnosticCode.PROSPECT_PARTIAL_NAME)
         title = self.text(ImportField.JOB_TITLE)
         roles: list[TaxonomyMatch] = []
-        if title is not None:
-            column = self.by_field[ImportField.JOB_TITLE]
-            roles, codes = match_role(title, self.reference.roles)
-            for code in codes:
-                self.flag(code, column, self.value(column))
+        if title is None:
+            if ImportField.JOB_TITLE in self.by_field:
+                self.flag(DiagnosticCode.ROLE_MISSING, self.by_field[ImportField.JOB_TITLE])
+        else:
+            # The job title is kept as written; an exact role match is attached, anything else is
+            # not a remark: there are too many distinct functions to review them one by one.
+            roles, _ = match_role(title, self.reference.roles)
         return ProspectProposal(
             civility=civility,
             first_name=normalize_name(first_name) if first_name else None,
@@ -549,9 +556,8 @@ class RowBuilder:
             else:
                 self.settle(column, value, (), keep=not reading.plain, mapped=True)
             (positive if reading.state is StageState.POSITIVE else negative).append(stage)
-        planned = self.planned_contact()
         referent = self.referent()
-        if not positive and planned is None and not referent.suggestions:
+        if not positive and not referent.suggestions:
             return None
         best = max(positive, key=STAGE_RANK.__getitem__, default=None)
         conflict = any(STAGE_RANK[stage] < STAGE_RANK[best] for stage in negative if best) or any(
@@ -564,30 +570,24 @@ class RowBuilder:
             status=STAGE_STATUS[best] if best else ContactTrackingStatus.NEUTRAL,
             stages=positive,
             requires_review=conflict,
-            planned_contact=planned,
             appointment_date=appointment,
             referent=referent.match,
             referent_suggestions=list(referent.suggestions),
         )
 
-    def planned_contact(self) -> PlannedContactProposal | None:
+    def cohort(self) -> str | None:
+        """The cohort code of the first `A contacter` column (`S37`, `S0`), or None."""
         found = self.cell(ImportField.PLANNED_CONTACT)
         if found is None:
             return None
         column, value = found
-        outcome = parse_planned_contact(value)
-        planned = outcome.value
-        self.settle(column, value, outcome.codes, keep=outcome.keep_raw, mapped=planned is not None)
+        outcome = parse_cohort(value)
+        self.settle(
+            column, value, outcome.codes, keep=outcome.keep_raw, mapped=outcome.code is not None
+        )
         if outcome.suggests_inactive:
             self.suggest_inactive(column, value)
-        if planned is None:
-            return None
-        return PlannedContactProposal(
-            planned_date=planned.date,
-            week=planned.week,
-            year=planned.year,
-            requires_year=planned.date is None,
-        )
+        return outcome.code
 
     def referent(self) -> ReferentOutcome:
         found = self.cell(ImportField.REFERENT)

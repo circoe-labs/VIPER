@@ -27,7 +27,7 @@ describe('profileEditing', () => {
     const baseline = emptyDraft()
     expect(dirtyTabs(baseline, baseline, false)).toEqual({ profile: false, tracking: false })
     expect(dirtyTabs({ ...baseline, first_name: 'Jeanne' }, baseline, false)).toEqual({ profile: true, tracking: false })
-    const tracking = { ...baseline.tracking, status: 'r1' as const }
+    const tracking = { ...baseline.tracking, status: 'response_received' as const }
     expect(dirtyTabs({ ...baseline, tracking }, baseline, false)).toEqual({ profile: false, tracking: true })
   })
 })

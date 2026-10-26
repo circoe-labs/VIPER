@@ -29,7 +29,7 @@ function person(fields: Partial<Prospect> = {}): Prospect {
         imported_unverified: false,
       },
     ],
-    tracking: trackingDetail({ status: 'neutral', planned_contact_on: '2026-09-28', planned_contact_week: '2026-W40' }),
+    tracking: trackingDetail({ status: 'neutral' }),
     today: '2026-09-30',
     ...fields,
   })
@@ -111,6 +111,45 @@ describe('Contact workbench', () => {
     expect(sent(api.requests, 'POST', `/api/prospects/${detail.id}/messages/contact/validate`)).toHaveLength(0)
   })
 
+  it('gives a quick verdict on the text of a scheduled message, and takes it back', async () => {
+    const detail = person()
+    const { api } = open(detail, { contact: message('contact', 'scheduled', { prospect_id: detail.id }) })
+    const group = await screen.findByRole('group', { name: 'Avis sur le texte' })
+    const correct = within(group).getByRole('button', { name: 'Correct' })
+    const toRevise = within(group).getByRole('button', { name: 'À revoir' })
+    expect(correct).toHaveAttribute('aria-pressed', 'false')
+
+    await userEvent.click(correct)
+    await waitFor(() => {
+      expect(within(group).getByRole('button', { name: 'Correct' })).toHaveAttribute('aria-pressed', 'true')
+    })
+    expect(group).toHaveTextContent('relu par Pilote Test')
+    const posted = sent(api.requests, 'POST', `/api/prospects/${detail.id}/messages/contact/review`)
+    expect(posted.at(-1)?.body).toEqual({ expected_revision: 1, verdict: 'correct' })
+    // Nothing else moved: still scheduled.
+    expect(tab('Contact')).toHaveTextContent('Programmé')
+
+    await userEvent.click(toRevise)
+    await waitFor(() => {
+      expect(within(group).getByRole('button', { name: 'À revoir' })).toHaveAttribute('aria-pressed', 'true')
+    })
+    await userEvent.click(within(group).getByRole('button', { name: 'À revoir' }))
+    await waitFor(() => {
+      expect(within(group).getByRole('button', { name: 'À revoir' })).toHaveAttribute('aria-pressed', 'false')
+    })
+    expect(sent(api.requests, 'POST', `/api/prospects/${detail.id}/messages/contact/review`).at(-1)?.body).toEqual({
+      expected_revision: 1,
+      verdict: null,
+    })
+  })
+
+  it('offers no verdict on a sent message', async () => {
+    const detail = person()
+    open(detail, { contact: message('contact', 'sent', { prospect_id: detail.id }) })
+    await screen.findByRole('tab', { name: /Contact/ })
+    expect(screen.queryByRole('group', { name: 'Avis sur le texte' })).not.toBeInTheDocument()
+  })
+
   it('validates after a confirmation, then schedules a typed date and time after another', async () => {
     const detail = person()
     const { api } = open(detail, { contact: message('contact', 'draft', { prospect_id: detail.id }) })
@@ -156,6 +195,71 @@ describe('Contact workbench', () => {
       expect(tab('Contact')).toHaveTextContent('Validé')
     })
     expect(announced()).toContain('il reste validé')
+  })
+
+  it('validates and schedules in one confirmation once a date and time are typed on a draft', async () => {
+    const detail = person()
+    const { api } = open(detail, { contact: message('contact', 'draft', { prospect_id: detail.id }) })
+    // Without a date: the plain « Valider… ».
+    expect(await screen.findByRole('button', { name: 'Valider…' })).toBeInTheDocument()
+    const tomorrow = new Date(Date.now() + 86_400_000)
+    const day = `${String(tomorrow.getFullYear())}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`
+    await userEvent.type(screen.getByLabelText('Date d’envoi'), day)
+    // A date alone is not enough: the time is asked for before anything is validated.
+    await userEvent.click(screen.getByRole('button', { name: 'Valider et programmer…' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('Choisissez l’heure d’envoi')
+    expect(sent(api.requests, 'POST', `/api/prospects/${detail.id}/messages/contact/validate`)).toHaveLength(0)
+
+    await userEvent.type(screen.getByLabelText('Heure'), '09:30')
+    await userEvent.click(screen.getByRole('button', { name: 'Valider et programmer…' }))
+    await confirmDialog(/Valider et programmer le message Contact/, 'Valider et programmer quand même')
+    await waitFor(() => {
+      expect(tab('Contact')).toHaveTextContent('Programmé')
+    })
+    expect(sent(api.requests, 'POST', `/api/prospects/${detail.id}/messages/contact/validate`)).toHaveLength(1)
+    const [schedule] = sent(api.requests, 'POST', `/api/prospects/${detail.id}/messages/contact/schedule`)
+    const body = schedule?.body as { expected_revision: number; scheduled_at: string }
+    expect(body.scheduled_at).toMatch(new RegExp(`^${day}T09:30:00[+-]\\d{2}:\\d{2}$`))
+    expect(announced()).toContain('validé et programmé pour le')
+  })
+
+  it('deletes a draft after a confirmation, but offers no deletion once it is validated', async () => {
+    const detail = person()
+    const { api } = open(detail, { contact: message('contact', 'draft', { prospect_id: detail.id }) })
+    await userEvent.click(await screen.findByRole('button', { name: 'Supprimer le brouillon…' }))
+    const dialog = await screen.findByRole('dialog', { name: /Supprimer le brouillon Contact/ })
+    expect(dialog).toHaveTextContent('rien ne part')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Supprimer le brouillon' }))
+    await waitFor(() => {
+      expect(sent(api.requests, 'POST', `/api/prospects/${detail.id}/messages/contact/delete`)).toHaveLength(1)
+    })
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: 'Supprimer le brouillon…' })).not.toBeInTheDocument()
+    })
+    expect(announced()).toContain('Brouillon Contact supprimé')
+  })
+
+  it('does not offer to delete a validated message, only to cancel it', async () => {
+    const detail = person()
+    open(detail, { contact: message('contact', 'validated', { prospect_id: detail.id }) })
+    expect(await screen.findByRole('button', { name: 'Annuler le message…' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Supprimer le brouillon…' })).not.toBeInTheDocument()
+  })
+
+  it('saves an edited draft and validates it in one confirmed click', async () => {
+    const detail = person()
+    const { api } = open(detail, { contact: message('contact', 'draft', { prospect_id: detail.id }) })
+    await userEvent.type(await screen.findByRole('textbox', { name: 'Objet' }), ' modifié')
+    await userEvent.click(screen.getByRole('button', { name: 'Enregistrer et valider…' }))
+    const dialog = await screen.findByRole('dialog', { name: /Enregistrer et valider le message Contact/ })
+    expect(dialog).toHaveTextContent('Rien n’est envoyé maintenant')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Enregistrer et valider' }))
+    await waitFor(() => {
+      expect(tab('Contact')).toHaveTextContent('Validé')
+    })
+    const [put] = sent(api.requests, 'PUT', `/api/prospects/${detail.id}/messages/contact`)
+    expect(put?.body).toMatchObject({ subject: 'Objet contact modifié' })
+    expect(sent(api.requests, 'POST', `/api/prospects/${detail.id}/messages/contact/validate`)).toHaveLength(1)
   })
 
   it('says an edit of a scheduled message goes back to draft, and it does', async () => {
@@ -286,16 +390,17 @@ describe('Contact workbench', () => {
     })
   })
 
-  it('confirms a sequence-closing state, then patches the state alone (the week is cleared by the server)', async () => {
+  it('confirms a sequence-closing state, then patches the state alone (the next due date is derived)', async () => {
     const detail = person()
     const { api } = open(detail)
-    const state = await screen.findByRole('combobox', { name: 'État' })
+    const state = await screen.findByRole('combobox', { name: 'État commercial' })
+    // « Défaillant » has its own confirmed action (Séquence de contact), it is not offered here.
+    expect(within(state).queryByRole('option', { name: 'Défaillant' })).not.toBeInTheDocument()
     await userEvent.selectOptions(state, 'response_received')
     expect(screen.getByText('Les messages non envoyés seront annulés.')).toBeInTheDocument()
-    expect(screen.getByText('Aucune semaine planifiée')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Enregistrer le suivi' }))
     const dialog = await screen.findByRole('dialog', { name: 'Passer à « Réponse reçue » ?' })
-    expect(dialog).toHaveTextContent('La prochaine semaine (S40 2026) sera retirée.')
+    expect(dialog).not.toHaveTextContent('semaine')
     await userEvent.click(within(dialog).getByRole('button', { name: 'Confirmer « Réponse reçue »' }))
     await waitFor(() => {
       expect(announced()).toContain('Suivi enregistré.')
@@ -304,16 +409,21 @@ describe('Contact workbench', () => {
     expect(patch?.body).toEqual({ status: 'response_received', version: detail.version })
   })
 
-  it('plans a week without changing the state, and needs no confirmation', async () => {
-    const detail = person()
+  it('offers no week planner, and resumes the sequence without a confirmation', async () => {
+    const detail = person({ tracking: trackingDetail({ status: 'response_received' }) })
     const { api } = open(detail)
-    await userEvent.click(await screen.findByRole('button', { name: '+1 semaine' }))
+    const state = await screen.findByRole('combobox', { name: 'État commercial' })
+    expect(screen.queryByRole('button', { name: '+1 semaine' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Enregistrer le suivi' })).toBeDisabled()
+    await userEvent.selectOptions(state, 'neutral')
+    expect(screen.getByText('La séquence reprend là où elle s’était arrêtée (le niveau est conservé).')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Enregistrer le suivi' }))
     await waitFor(() => {
       expect(announced()).toContain('Suivi enregistré.')
     })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     const patch = api.prospects.requests.filter((request) => request.method === 'PATCH').at(-1)
-    expect(patch?.body).toEqual({ next_action_week: { year: 2026, week: 41 }, version: detail.version })
+    expect(patch?.body).toEqual({ status: 'neutral', version: detail.version })
   })
 
   describe('with the CIRCOE Toolbox connected (S6)', () => {

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link } from 'react-router'
 
 import type { EditItem } from '../api/home'
@@ -55,6 +56,9 @@ function EditLine({ edit }: { edit: EditItem }) {
 // Recent activity (Task 16): the latest imports (a committed one opens Prospection filtered on it) and the latest
 // saves on prospects and companies, grouped and summarized by the history formatter (Task 19) — never a value.
 export function RecentActivity({ imports, edits }: { imports: ImportBatch[]; edits: EditItem[] }) {
+  // The modifications of the last 24 hours, folded away until asked for.
+  const [since] = useState(() => Date.now() - 24 * 60 * 60 * 1000)
+  const recent = edits.filter((edit) => new Date(edit.occurred_at).getTime() >= since)
   return (
     <>
       <section className="home-panel" aria-labelledby="home-imports-title">
@@ -75,18 +79,21 @@ export function RecentActivity({ imports, edits }: { imports: ImportBatch[]; edi
         </Link>
       </section>
       <section className="home-panel" aria-labelledby="home-edits-title">
-        <h2 id="home-edits-title" className="home-panel__title">
-          Dernières modifications
-        </h2>
-        {edits.length === 0 ? (
-          <p className="home-panel__empty">Aucune modification manuelle pour l’instant.</p>
-        ) : (
-          <ul className="activity-list" aria-labelledby="home-edits-title">
-            {edits.map((edit) => (
-              <EditLine key={`${edit.occurred_at}-${edit.subject_id ?? ''}`} edit={edit} />
-            ))}
-          </ul>
-        )}
+        <details className="home-edits">
+          <summary id="home-edits-title" className="home-panel__title">
+            Dernières modifications
+            <span className="action-group__count">{recent.length}</span>
+          </summary>
+          {recent.length === 0 ? (
+            <p className="home-panel__empty">Aucune modification dans les dernières 24 h.</p>
+          ) : (
+            <ul className="activity-list" aria-labelledby="home-edits-title">
+              {recent.map((edit) => (
+                <EditLine key={`${edit.occurred_at}-${edit.subject_id ?? ''}`} edit={edit} />
+              ))}
+            </ul>
+          )}
+        </details>
       </section>
     </>
   )

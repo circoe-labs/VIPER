@@ -7,8 +7,8 @@ import { Button } from '../ui/Button'
 import { ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon } from '../ui/icons'
 import { SearchField } from '../ui/SearchField'
 import { Table } from '../ui/Table'
-import { resolutionOf, type ReviewDecisions, type RowIssue } from './importPlan'
-import { codeLabel, resolutionLabel, rowsText, STATUS_LABELS } from './messages'
+import { CATEGORY_LABELS, resolutionOf, type ReviewDecisions, type RowCategory, rowCategory, type RowIssue, sendMark } from './importPlan'
+import { codeLabel, resolutionLabel, rowsText } from './messages'
 import { personName } from './ResolutionChoice'
 import type { Decide, RowFilters, StatusFilter } from './ReviewStep'
 import { RowDetail } from './RowDetail'
@@ -16,12 +16,15 @@ import { RowDetail } from './RowDetail'
 const PAGE_SIZE = 25
 const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
   { value: 'all', label: 'Toutes' },
-  { value: 'error', label: 'En erreur' },
-  { value: 'warning', label: 'À vérifier' },
-  { value: 'ok', label: 'Sans remarque' },
-  { value: 'excluded', label: 'Exclues' },
+  { value: 'valid', label: CATEGORY_LABELS.valid },
+  { value: 'appointment', label: CATEGORY_LABELS.appointment },
+  { value: 'ignored', label: CATEGORY_LABELS.ignored },
+  { value: 'r1', label: 'R1' },
+  { value: 'r2', label: 'R2' },
+  { value: 'sent', label: 'Envoyé' },
 ]
-const STATUS_TONES: Record<PreviewRow['status'], StatusTone> = { ok: 'success', warning: 'warning', error: 'danger' }
+const MARK_FILTERS: Partial<Record<StatusFilter, string>> = { r1: 'R1', r2: 'R2', sent: 'Envoyé' }
+const CATEGORY_TONES: Record<RowCategory, StatusTone> = { valid: 'success', appointment: 'info', ignored: 'neutral' }
 
 interface RowsPanelProps {
   review: ImportReview
@@ -56,10 +59,12 @@ export function RowsPanel(props: RowsPanelProps) {
   const { review, decisions, issues, filters, onFilters, openRow, onOpenRow } = props
   const query = foldText(filters.search.trim())
   const rows = review.preview.rows.filter((row) => {
-    const resolution = resolutionOf(review, decisions, row.row_number)
-    if (filters.status === 'excluded' && resolution.action !== 'exclude') return false
     if (filters.status === 'blocking' && !issues.has(row.row_number)) return false
-    if (['ok', 'warning', 'error'].includes(filters.status) && row.status !== filters.status) return false
+    if (['valid', 'appointment', 'ignored'].includes(filters.status) && rowCategory(review, decisions, row) !== filters.status) {
+      return false
+    }
+    const mark = MARK_FILTERS[filters.status]
+    if (mark !== undefined && sendMark(row)?.label !== mark) return false
     if (filters.code && !row.diagnostics.some((item) => item.code === filters.code)) return false
     return !query || query.split(' ').every((word) => searchable(row).includes(word))
   })
@@ -134,6 +139,7 @@ export function RowsPanel(props: RowsPanelProps) {
               <th scope="col">Prospect</th>
               <th scope="col">Entreprise</th>
               <th scope="col">E-mail</th>
+              <th scope="col">Envoi</th>
               <th scope="col">Import</th>
               <th scope="col">
                 <span className="visually-hidden">Détails</span>
@@ -150,7 +156,7 @@ export function RowsPanel(props: RowsPanelProps) {
                   <tr className="import-row" data-excluded={resolution.action === 'exclude' || undefined}>
                     <td className="table__numeric">{row.row_number}</td>
                     <td>
-                      <StatusBadge tone={STATUS_TONES[row.status]}>{STATUS_LABELS[row.status]}</StatusBadge>
+                      <StatusBadge tone={CATEGORY_TONES[rowCategory(review, decisions, row)]}>{CATEGORY_LABELS[rowCategory(review, decisions, row)]}</StatusBadge>
                     </td>
                     <td>
                       <span className="import-row__name">{personName(row)}</span>
@@ -160,6 +166,15 @@ export function RowsPanel(props: RowsPanelProps) {
                     </td>
                     <td>{row.company?.display_name ?? '—'}</td>
                     <td className="import-row__email">{row.emails[0]?.address ?? '—'}</td>
+                    <td>
+                      {sendMark(row) ? (
+                        <span className="import-row__send" data-tone={sendMark(row)?.tone}>
+                          {sendMark(row)?.label}
+                        </span>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
                     <td>
                       {issue ? (
                         <StatusBadge tone="danger">À résoudre</StatusBadge>
@@ -185,7 +200,7 @@ export function RowsPanel(props: RowsPanelProps) {
                   </tr>
                   {expanded && (
                     <tr className="import-row__detail">
-                      <td colSpan={7} id={`import-row-${String(row.row_number)}`}>
+                      <td colSpan={8} id={`import-row-${String(row.row_number)}`}>
                         <RowDetail {...props} row={row} issue={issue ?? null} />
                       </td>
                     </tr>

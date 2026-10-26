@@ -1,6 +1,8 @@
 import { vi } from 'vitest'
 
+import type { Diagnostic } from '../api/toolboxDiagnostic'
 import type {
+  CalendlyCheck,
   IntegrationField,
   Integrations,
   IntegrationSetting,
@@ -52,6 +54,7 @@ export function integrations(
     storage_path: 'C:\\Users\\pilote\\.viper\\runtime-settings.json',
     fields: all,
     openai_api_key: NO_KEY,
+    calendly_api_token: NO_KEY,
     generation_available: false,
     initial_prompt_default: 'Tu es l’assistant de prospection de Circoe (texte par défaut de test).',
     toolbox: { enabled: false, state: 'disabled', configured: false },
@@ -72,6 +75,13 @@ interface IntegrationsStubOptions {
   conflict?: boolean
   // The answer of « Tester la clé ».
   check?: KeyCheck
+  // The answer of « Tester le jeton » (Calendly).
+  calendlyCheck?: CalendlyCheck
+  // The last « Tester la Toolbox » run the server holds (null: none), and what a new run answers.
+  diagnostic?: Diagnostic | null
+  startedDiagnostic?: Diagnostic
+  // `POST …/toolbox/diagnostics` answers this status (409: a test is already running).
+  diagnosticRefusal?: number
 }
 
 function json(status: number, body: unknown): Promise<Response> {
@@ -83,6 +93,7 @@ export function stubIntegrationsApi(options: IntegrationsStubOptions = {}) {
   const state = { data: options.initial ?? integrations() }
   const puts: Record<string, unknown>[] = []
   const checks: number[] = []
+  const diagnostic = { latest: options.diagnostic ?? null, starts: [] as Record<string, unknown>[] }
   const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = new URL(input instanceof Request ? input.url : String(input), 'http://localhost')
     const method = init?.method ?? 'GET'
@@ -91,6 +102,12 @@ export function stubIntegrationsApi(options: IntegrationsStubOptions = {}) {
     if (method === 'POST' && url.pathname === '/api/settings/integrations/openai/check') {
       checks.push(Date.now())
       return json(200, options.check ?? { ok: true, code: null, model: 'modele-test', elapsed_ms: 420 })
+    }
+    if (method === 'POST' && url.pathname === '/api/settings/integrations/calendly/check') {
+      return json(
+        200,
+        options.calendlyCheck ?? { ok: true, code: null, account: 'Hôte Circoe · hote@circoe.test', elapsed_ms: 210 },
+      )
     }
     if (method === 'PUT' && url.pathname === '/api/settings/integrations') {
       const body = JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as Record<string, unknown>
@@ -107,6 +124,13 @@ export function stubIntegrationsApi(options: IntegrationsStubOptions = {}) {
         if (name === 'version') continue
         if (name === 'openai_api_key') {
           next.openai_api_key =
+            value === null
+              ? NO_KEY
+              : { set: true, last4: (value as string).slice(-4), source: 'ui', updated_at: STAMP, updated_by: 'Pilote Test' }
+          continue
+        }
+        if (name === 'calendly_api_token') {
+          next.calendly_api_token =
             value === null
               ? NO_KEY
               : { set: true, last4: (value as string).slice(-4), source: 'ui', updated_at: STAMP, updated_by: 'Pilote Test' }
@@ -131,8 +155,21 @@ export function stubIntegrationsApi(options: IntegrationsStubOptions = {}) {
       state.data = next
       return json(200, next)
     }
+    if (method === 'GET' && url.pathname === '/api/settings/integrations/toolbox/diagnostics/latest') {
+      return json(200, diagnostic.latest)
+    }
+    if (method === 'DELETE' && url.pathname === '/api/settings/integrations/toolbox/diagnostics/latest') {
+      diagnostic.latest = null
+      return Promise.resolve(new Response(null, { status: 204 }))
+    }
+    if (method === 'POST' && url.pathname === '/api/settings/integrations/toolbox/diagnostics') {
+      diagnostic.starts.push(JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as Record<string, unknown>)
+      if (options.diagnosticRefusal) return json(options.diagnosticRefusal, { detail: 'a Toolbox test is already running' })
+      diagnostic.latest = options.startedDiagnostic ?? null
+      return json(202, diagnostic.latest)
+    }
     return json(404, { detail: 'Not Found' })
   })
   vi.stubGlobal('fetch', fetchMock)
-  return { fetchMock, state, puts, checks }
+  return { fetchMock, state, puts, checks, diagnostic }
 }

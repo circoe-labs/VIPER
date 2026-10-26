@@ -23,6 +23,9 @@ export interface ProspectQueue {
   // read page (same criteria) that was not on the current page — rows that left the list meanwhile shift the pages,
   // so the current page is read again before the next one. Null at the end of the list. Moves the queue to that page.
   next(id: string): Promise<QueueStep | null>
+  // The prospect before `id`: the previous one on the page; before the page's first one, the last prospect of the
+  // previous page. Null at the start of the list. Moves the queue to that page.
+  previous(id: string): Promise<QueueStep | null>
 }
 
 type FetchPage = (page: number) => Promise<ProspectPage>
@@ -52,6 +55,17 @@ export function createProspectQueue(
     }
   }
 
+  async function preceding(): Promise<QueueStep | null> {
+    if (page <= 1) return null
+    const data = await fetchPage(page - 1)
+    const last = data.items.at(-1)
+    if (!last) return null
+    ids = data.items.map((row) => row.id)
+    page -= 1
+    total = data.total
+    return { id: last.id, page }
+  }
+
   return {
     criteria,
     get ids() {
@@ -72,6 +86,12 @@ export function createProspectQueue(
       if (index < 0) return Promise.resolve(ids[0] ? { id: ids[0], page } : null)
       const after = ids[index + 1]
       return after ? Promise.resolve({ id: after, page }) : following()
+    },
+    previous(id) {
+      const index = ids.indexOf(id)
+      if (index < 0) return Promise.resolve(ids[0] ? { id: ids[0], page } : null)
+      const before = ids[index - 1]
+      return before ? Promise.resolve({ id: before, page }) : preceding()
     },
   }
 }

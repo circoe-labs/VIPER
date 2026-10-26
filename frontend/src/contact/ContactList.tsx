@@ -1,15 +1,14 @@
-import { type KeyboardEvent, useEffect, useRef } from 'react'
+import { type KeyboardEvent, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
 
 import { type ContactRow, MESSAGE_STEPS } from '../api/contact'
-import { NEXT_ACTION_STATES } from '../api/prospection'
-import { parseIsoWeek, weeksFrom } from '../lib/isoWeek'
+import { mondayLabel, parseIsoWeek, relativeWeekLabel, weeksFrom } from '../lib/isoWeek'
+import { StateBadge } from '../prospection/ContactBadges'
 import { civilityLabel, personName } from '../prospection/labels'
-import { StateBadge, WeekBadge } from '../prospection/TrackingBadges'
 import { StatusBadge } from '../ui/Badge'
-import { BuildingIcon, ClockIcon } from '../ui/icons'
+import { BuildingIcon, ChevronDownIcon, ClockIcon } from '../ui/icons'
 import { FROM_LIST } from './criteria'
-import { NEXT_STEP_LABELS, STEP_LABELS } from './labels'
+import { formatDateTime, NEXT_STEP_LABELS, stepLabel } from './labels'
 import { MessageBadge } from './MessageBadge'
 
 interface ContactListProps {
@@ -39,10 +38,40 @@ function moveFocus(event: KeyboardEvent<HTMLUListElement>) {
   links[target]?.focus()
 }
 
-// Past-week cue, display only: a state still waiting for its next action whose week is before the current one.
-function overdue(row: ContactRow, today: string): boolean {
+// The week the next action is planned and whether it is late, behind a small tab: shown only when the person opens it.
+function RowDetails({ row, today }: { row: ContactRow; today: string }) {
+  const [open, setOpen] = useState(false)
   const week = parseIsoWeek(row.next_action_week)
-  return week !== null && NEXT_ACTION_STATES.includes(row.tracking_status) && weeksFrom(today, week) < 0
+  if (!week) return null
+  const late = row.tracking_status === 'neutral' && weeksFrom(today, week) < 0
+  const id = `row-details-${row.id}`
+  return (
+    <div className="contact-row__details">
+      <button
+        type="button"
+        className="contact-row__more"
+        aria-expanded={open}
+        aria-controls={id}
+        onClick={() => {
+          setOpen((current) => !current)
+        }}
+      >
+        <ChevronDownIcon size={14} className="contact-row__more-arrow" />
+        Détails
+      </button>
+      {open && (
+        <p id={id} className="contact-row__detail">
+          <span className="contact-row__muted">Semaine prévue :</span> semaine du {mondayLabel(week)} (
+          {relativeWeekLabel(today, week)})
+          {late && (
+            <StatusBadge tone="warning" icon={ClockIcon}>
+              Échu
+            </StatusBadge>
+          )}
+        </p>
+      )}
+    </div>
+  )
 }
 
 // The Contact list: one compact card per person, in the card language of Prospection — identity and company, the
@@ -59,7 +88,7 @@ export function ContactList({ rows, openHref, today, returnedFrom }: ContactList
     <ul ref={listRef} className="contact-list" aria-label="Prospects à contacter" onKeyDown={moveFocus}>
       {rows.map((row) => {
         const civility = civilityLabel(row.civility)
-        const week = parseIsoWeek(row.next_action_week)
+        const steps = [...new Set([...MESSAGE_STEPS, ...Object.keys(row.messages)])]
         const title = [row.role_label, row.exact_job_title].filter(Boolean)
         return (
           <li key={row.id} className="contact-row">
@@ -93,32 +122,38 @@ export function ContactList({ rows, openHref, today, returnedFrom }: ContactList
             <div className="contact-row__tracking">
               <span className="contact-row__badges">
                 <StateBadge status={row.tracking_status} />
-                {week && <WeekBadge week={week} today={today} />}
-                {overdue(row, today) && (
-                  <StatusBadge tone="warning" icon={ClockIcon}>
-                    Échu
-                  </StatusBadge>
-                )}
-                {row.tracking_status === 'neutral' && !week && (
-                  <span className="contact-row__muted">Aucun état · aucune semaine</span>
-                )}
               </span>
-              {row.next_step && (
+              {row.next_step && row.due && (
                 <span className="contact-row__next">
-                  <span className="contact-row__muted">À préparer :</span> {NEXT_STEP_LABELS[row.next_step]}
+                  <span className="contact-row__muted">À préparer :</span> {NEXT_STEP_LABELS[row.next_step] ?? row.next_step.toUpperCase()}
                 </span>
               )}
+              <RowDetails row={row} today={today} />
             </div>
-            {MESSAGE_STEPS.every((step) => row.messages[step] === null) ? (
+            {steps.every((step) => !row.messages[step]) ? (
               <p className="contact-row__muted contact-row__no-message">Aucun message préparé</p>
             ) : (
               <dl className="contact-row__messages">
-                {MESSAGE_STEPS.map((step) => {
+                {steps.map((step) => {
                   const status = row.messages[step]
                   return (
                     <div key={step} className="contact-row__message">
-                      <dt>{STEP_LABELS[step]}</dt>
-                      <dd>{status ? <MessageBadge status={status} /> : <span className="contact-row__muted">Vide</span>}</dd>
+                      <dt>{stepLabel(step)}</dt>
+                      <dd>
+                        {status ? <MessageBadge status={status} /> : <span className="contact-row__muted">Vide</span>}
+                        {status === 'sent' && row.message_dates?.[step]?.sent_at && (
+                          <span className="contact-row__muted contact-row__when">
+                            {' '}
+                            le {formatDateTime(row.message_dates[step].sent_at)}
+                          </span>
+                        )}
+                        {status === 'scheduled' && row.message_dates?.[step]?.scheduled_at && (
+                          <span className="contact-row__muted contact-row__when">
+                            {' '}
+                            prévu le {formatDateTime(row.message_dates[step].scheduled_at)}
+                          </span>
+                        )}
+                      </dd>
                     </div>
                   )
                 })}

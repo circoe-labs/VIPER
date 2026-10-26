@@ -26,8 +26,11 @@ from sqlalchemy import (
 from sqlalchemy.orm import Session, aliased
 
 from app.core.business_time import BUSINESS_TIMEZONE
+from app.core.contact_steps import level_key, level_label, step_code
 from app.db.session import whole_base_plan
 from app.models import (
+    AuditLogEntry,
+    Cohort,
     Company,
     ContactTracking,
     Email,
@@ -42,10 +45,19 @@ from app.models.enums import (
     Civility,
     ContactabilityStatus,
     ContactTrackingStatus,
+    ImportBatchStatus,
     PhoneType,
     VerificationStatus,
 )
+from app.models.imports import ImportBatch, ImportRowMetadata
 from app.repositories.taxonomies import label_key
+from app.services.contact_sequences import (
+    email_error_sql,
+    finished_sql,
+    next_due_at_sql,
+    next_rank_sql,
+    sent_count_sql,
+)
 from app.services.prospection.segments import (
     EmailState,
     Review,
@@ -75,9 +87,13 @@ primary_phone = aliased(Phone, name="primary_phone")
 class ProspectSort(StrEnum):
     NAME = "name"  # last name, first name
     COMPANY = "company"  # company name, then person
-    PLANNED_CONTACT = "planned_contact"  # soonest planned contact first, none last
+    NEXT_DUE = "next_due"  # soonest next due date first, nothing due last
+    # Former key of the same order (before the sequences rework), still accepted.
+    PLANNED_CONTACT = "planned_contact"
     VERIFICATION = "verification"  # never verified first, then oldest verification
     UPDATED = "updated"  # most recently changed first
+    # Row order of the last file the person came from (the verification space follows the Excel).
+    FILE = "file"
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,6 +105,8 @@ class ProspectFilters:
     activity: ActivityStatus | None = None
     referent: uuid.UUID | Literal["none"] | None = None
     tracking_status: ContactTrackingStatus | Literal["none"] | None = None
+    # The current cohort; `none`: no cohort (not validated).
+    cohort: uuid.UUID | Literal["none"] | None = None
     company_id: uuid.UUID | None = None
     import_batch_id: uuid.UUID | None = None
 
@@ -130,11 +148,25 @@ class ProspectRow:
     primary_phone: str | None
     primary_phone_type: PhoneType | None
     tracking_status: ContactTrackingStatus | None
-    planned_contact_at: datetime | None
-    # In the `due` segment: to contact, planned no later than today.
+    # The current cohort (`S39`, `S0`); None: not validated.
+    cohort_code: str | None
+    # Messages really sent in the current sequence, the step to send next (`contact`, `r2`…;
+    # None when finished or without cohort) and « Relance terminée ».
+    sent_count: int
+    next_step: str | None
+    finished: bool
+    # The level key (`contact_pending`, `r2_sent`, `finished`…) and its label (« R2 envoyée »),
+    # the Contact planning's own levels; None without cohort.
+    level: str | None
+    level_label: str | None
+    # Derived next due date (business midnight) and its ISO calendar week, e.g. `2026-W41`.
+    next_due_at: datetime | None
+    next_due_week: str | None
+    # In the `due` segment: the Contact or a follow-up to send, due no later than today.
     due: bool
-    # ISO 8601 week of the planned contact in business time, e.g. `2026-W38`.
-    planned_contact_week: str | None
+    # An open « Erreur sur le mail » raised by a person or an import (D9): out of the automatic
+    # actions until a new e-mail and a new cohort (the AI's proposals do not count).
+    email_error: bool
     response_received_at: datetime | None
     appointment_at: datetime | None
     referent_id: uuid.UUID | None
@@ -212,6 +244,7 @@ def filter_conditions(filters: ProspectFilters) -> list[ColumnElement[bool]]:
     if filters.activity is not None:
         conditions.append(Prospect.activity_status == filters.activity)
     conditions += _optional_ref(ContactTracking.referent_id, filters.referent)
+    conditions += _optional_ref(Cohort.id, filters.cohort)
     if filters.tracking_status == NONE:
         # Kept for old URLs: no tracking row at all.
         conditions.append(ContactTracking.id.is_(None))
@@ -245,12 +278,31 @@ def _order_by(sort: ProspectSort) -> list[SQLColumnExpression[Any]]:
             keys = person
         case ProspectSort.COMPANY:
             keys = [label_key(Company.display_name).nulls_last(), *person]
-        case ProspectSort.PLANNED_CONTACT:
-            keys = [ContactTracking.planned_contact_at.asc().nulls_last(), *person]
+        case ProspectSort.NEXT_DUE | ProspectSort.PLANNED_CONTACT:
+            keys = [next_due_at_sql().asc().nulls_last(), *person]
         case ProspectSort.VERIFICATION:
             keys = [Prospect.employment_verified_at.asc().nulls_first(), *person]
         case ProspectSort.UPDATED:
             keys = [Prospect.updated_at.desc()]
+        case ProspectSort.FILE:
+            # Only the last committed file counts: people it did not carry come last.
+            latest_batch = (
+                select(ImportBatch.id)
+                .where(ImportBatch.status == ImportBatchStatus.COMMITTED)
+                .order_by(ImportBatch.committed_at.desc())
+                .limit(1)
+                .scalar_subquery()
+            )
+            latest_row = (
+                select(func.min(ImportRowMetadata.source_row_number))
+                .where(
+                    ImportRowMetadata.prospect_id == Prospect.id,
+                    ImportRowMetadata.import_batch_id == latest_batch,
+                    ImportRowMetadata.excluded.is_(False),
+                )
+                .scalar_subquery()
+            )
+            keys = [latest_row.asc().nulls_last(), *person]
     # The id makes every order total, so pages never overlap or skip rows.
     return [*keys, Prospect.id]
 
@@ -278,6 +330,30 @@ def count_segments(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class BaseOverview:
+    """The whole base at a glance, whatever the search: how many people it holds, how many of them
+    were contacted (the `contacted` segment), and how many were deleted since the start."""
+
+    total: int
+    contacted: int
+    deleted: int
+
+
+def base_overview(session: Session, context: SegmentContext) -> BaseOverview:
+    """Exact sizes of the whole base. `deleted` counts the `prospect.deleted` events of the audit
+    log (append-only, so a deletion is never forgotten even though its rows are gone)."""
+    counts = count_segments(session, ProspectFilters(), context).counts
+    deleted = session.scalar(
+        select(func.count())
+        .select_from(AuditLogEntry)
+        .where(AuditLogEntry.entity_type == "prospect", AuditLogEntry.action == "prospect.deleted")
+    )
+    return BaseOverview(
+        total=counts[Segment.ALL], contacted=counts[Segment.CONTACTED], deleted=deleted or 0
+    )
+
+
 def _page_statement(context: SegmentContext) -> Select[Any]:
     referent_name = func.concat_ws(" ", InternalReferent.first_name, InternalReferent.last_name)
     return (
@@ -296,6 +372,12 @@ def _page_statement(context: SegmentContext) -> Select[Any]:
                 ContactTracking,
                 referent_name,
                 func.coalesce(predicate(Segment.DUE, context), false()),
+                Cohort.code,
+                sent_count_sql(),
+                next_rank_sql(),
+                func.coalesce(finished_sql(), false()),
+                next_due_at_sql(),
+                email_error_sql(),
             )
         )
         .outerjoin(Role, Role.id == Prospect.role_id)
@@ -351,6 +433,12 @@ def list_prospects(
         tracking,
         referent,
         due,
+        cohort_code,
+        sent_count,
+        next_rank,
+        finished,
+        next_due,
+        email_error,
     ) in rows:
         items.append(
             ProspectRow(
@@ -372,9 +460,20 @@ def list_prospects(
                 primary_phone=phone,
                 primary_phone_type=phone_type,
                 tracking_status=tracking.status if tracking else None,
-                planned_contact_at=tracking.planned_contact_at if tracking else None,
+                cohort_code=cohort_code,
+                sent_count=sent_count,
+                next_step=step_code(next_rank) if next_rank is not None else None,
+                finished=finished,
+                level=level_key(sent_count, finished) if cohort_code is not None else None,
+                level_label=(
+                    level_label(level_key(sent_count, finished))
+                    if cohort_code is not None
+                    else None
+                ),
+                next_due_at=next_due,
+                next_due_week=iso_week(next_due),
                 due=due,
-                planned_contact_week=iso_week(tracking.planned_contact_at if tracking else None),
+                email_error=email_error,
                 response_received_at=tracking.response_received_at if tracking else None,
                 appointment_at=tracking.appointment_at if tracking else None,
                 referent_id=tracking.referent_id if tracking else None,

@@ -23,35 +23,40 @@ One pass (`run_pass`; never two at once in one process, `ContactDispatcher` in t
      backoff, attempts and lateness still bound it);
    - the listing is full (100, truncated) or unreadable, or the message holds no draft id → the
      claim stays (`send_reconcile_inconclusive`); a person can settle it (below).
-2. **Due messages** (`scheduled`, `scheduled_at <= now`, unclaimed), oldest first (Contact before
-   R1 before R2 at the same moment). For each, under its row lock (`SKIP LOCKED`):
-   - closed sequence (`response_received`, `appointment_obtained`, `ignored`, `do_not_contact`)
-     → the prospect's unsent messages are cancelled (decision 29), nothing leaves;
+2. **Due messages** (`scheduled`, `scheduled_at <= now`, unclaimed), oldest first (lower rank
+   first at the same moment). For each, under its row lock (`SKIP LOCKED`):
+   - closed sequence (`response_received`, `appointment_obtained`, `ignored`, `disqualified`,
+     `do_not_contact`, a sequence closed by a change of cohort, S0) → the unsent messages are
+     cancelled (decision 29: the prospect's, or the closed sequence's alone), nothing leaves;
+   - paused sequence (an open « Erreur sur le mail » raised by a person or an import) → nothing
+     leaves while it is open (the message waits, bounded by the maximal lateness);
    - more than `max_lateness` late (VIPER stopped, Toolbox disconnected) → back to Validé
      (`dispatch_overdue`): never a late send;
    - waiting for a backoff → next pass;
    - no recipient / a recipient outside `VIPER_INFOMANIAK_SEND_ALLOWLIST` → back to Validé
      (`send_missing_recipients` / `send_recipient_not_allowed`);
-   - **step order** (decision C-24): R1 (R2) never leaves while the Contact (R1) message of the
-     same prospect is prepared but not sent — it waits while that one is scheduled earlier (it
-     leaves first), and goes back to Validé (`send_previous_step_pending`) when it is a draft, a
-     validated message or scheduled later. An absent or cancelled previous message does not block
-     (a first contact made outside VIPER, e.g. an imported « Contacté »);
+   - **rank order** (decision C-24, sequences rework): rank n (R1, R2…) leaves only once rank n-1
+     of the same sequence is `sent` — it waits while that one is scheduled earlier (it leaves
+     first), and goes back to Validé (`send_previous_step_pending`) when it is absent, a draft, a
+     validated, a cancelled message or scheduled later (a first contact made outside VIPER is
+     declared with « Marquer comme envoyé » or imported, never assumed). A rank beyond « max
+     relances » never leaves (`send_rank_beyond_max`);
    - no Infomaniak draft (validated while the Toolbox was off, creation failed) → it is created
      now (`sync_remote_draft`, with S6's `list_drafts` recovery after an unknown outcome); a
      certain failure is retried with backoff, then back to Validé (`send_draft_not_created`);
    - **claim**: in one short transaction, the prospect and its tracking share-locked **first**
      (the order of the closing writes and the opposition: no deadlock), then the message row
      locked, every condition checked again — still `scheduled`, due, unclaimed, the validation is
-     the current revision, a draft attached, recipients and allowlist, step order — and the state
-     and opposition read under those locks (a concurrent state change waits for the claim, then
-     sees the message in flight); the claim id
+     the current revision, a draft attached, recipients and allowlist, rank order — and the state,
+     sequence and opposition read under those locks (a concurrent state change waits for the claim,
+     then sees the message in flight); the claim id
      and moment are set, `dispatch_attempts` + 1, audited `contact_message.dispatch_claimed`,
      committed. Two passes (threads, processes) can never both claim: the row lock and the
      conditional checks let one win;
    - `send_draft` outside any transaction;
-   - success → `sent` (`sent_at`; `remote_message_id` stays null: the Toolbox returns none),
-     audited `contact_message.sent`;
+   - success → `sent` (`sent_at`, `sent_source = worker`; `remote_message_id` stays null: the
+     Toolbox returns none), audited `contact_message.sent`; the level of the sequence moves by one
+     (it is derived from the sent rows);
    - certain failure (refused before anything left): transient (`unavailable`, `timeout`,
      connection) → claim released, `send_*` code, retry after backoff, at most `max_attempts`;
      definitive (`rejected`, `outbound_blocked`, `invalid_input`, `draft_not_found`) or attempts
@@ -65,8 +70,9 @@ One pass (`run_pass`; never two at once in one process, `ContactDispatcher` in t
 
 A person can settle a message whose send is unconfirmed (claimed with an unknown outcome, or a
 claim older than the TTL): **« Marquer envoyé »** (`mark_sent`, after checking the mailbox's sent
-items) at any time, **« Remettre en Validé »** (`release`) only once the claim is older than the
-TTL (the Toolbox's own Infomaniak call has no timeout: a send may still be finishing).
+items; `sent_source = manual`) at any time, **« Remettre en Validé »** (`release`) only once the
+claim is older than the TTL (the Toolbox's own Infomaniak call has no timeout: a send may still be
+finishing).
 
 Exactly-once: a `send_draft` needs a claim won under the row lock; a claim is released for a new
 attempt only after a *certain* failure, or by a reconciliation that still sees the draft of a
@@ -89,9 +95,9 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.actor import ActorContext, ActorType
 from app.core.config import Settings, allowlist_permits
-from app.models import ContactMessage, ContactTracking, Prospect
-from app.models.enums import ContactabilityStatus, ContactMessageStatus, ContactMessageStep
-from app.services import audit
+from app.models import ContactMessage, ContactSequence, ContactTracking, Prospect
+from app.models.enums import ContactabilityStatus, ContactMessageStatus, SendSource
+from app.services import app_settings, audit
 from app.services.audit import AuditAction, AuditContext, AuditSource
 from app.services.contact_message_cancellation import (
     DO_NOT_CONTACT_REASON,
@@ -99,6 +105,7 @@ from app.services.contact_message_cancellation import (
     state_cancel_reason,
 )
 from app.services.contact_remote_drafts import sync_remote_draft
+from app.services.contact_sequences import SEQUENCE_CLOSED_REASON, has_email_error
 from app.services.contact_workflow import SEQUENCE_CLOSING_STATES
 from app.services.errors import ActorNotAllowedError, ContactMessageError, ToolboxError
 from app.services.prospects import get_prospect
@@ -125,6 +132,7 @@ RECONCILED_SENT = "send_reconciled_draft_absent"
 MISSING_RECIPIENTS = "send_missing_recipients"
 RECIPIENT_NOT_ALLOWED = "send_recipient_not_allowed"
 PREVIOUS_STEP_PENDING = "send_previous_step_pending"
+RANK_BEYOND_MAX = "send_rank_beyond_max"
 DRAFT_NOT_CREATED = "send_draft_not_created"
 INTERNAL = "dispatch_internal_error"
 MARKED_SENT = "send_marked_by_person"
@@ -267,19 +275,33 @@ class DispatchReport:
 @dataclass(frozen=True, slots=True)
 class _Sequence:
     closed: bool
+    # `cancel_reason` of the closing (None: nothing to cancel, e.g. the prospect is gone).
     reason: str | None
+    # An open « Erreur sur le mail »: nothing leaves, nothing is cancelled.
+    paused: bool = False
+    # Set when only that sequence's messages are cancelled (its closing is not the prospect's).
+    scope: uuid.UUID | None = None
 
 
-def _sequence(session: Session, prospect_id: uuid.UUID, *, lock: bool) -> _Sequence:
-    """The prospect's state and opposition, read again. `lock` takes share locks on both rows: a
-    state change or an opposition being written meanwhile is waited for and then seen."""
+def _sequence(
+    session: Session, prospect_id: uuid.UUID, sequence_id: uuid.UUID, *, lock: bool
+) -> _Sequence:
+    """The prospect's state and opposition and the message's sequence, read again. `lock` takes
+    share locks on the three rows: a state change, an opposition or a change of cohort being
+    written meanwhile is waited for and then seen."""
     prospect_query = select(Prospect.contactability_status).where(Prospect.id == prospect_id)
     tracking_query = select(ContactTracking.status).where(
         ContactTracking.prospect_id == prospect_id
     )
+    sequence_query = (
+        select(ContactSequence)
+        .where(ContactSequence.id == sequence_id)
+        .execution_options(populate_existing=True)
+    )
     if lock:
         prospect_query = prospect_query.with_for_update(read=True)
         tracking_query = tracking_query.with_for_update(read=True)
+        sequence_query = sequence_query.with_for_update(read=True, of=ContactSequence)
     contactability = session.scalar(prospect_query)
     if contactability is None:
         return _Sequence(True, None)  # deleted meanwhile (its messages go with it)
@@ -288,22 +310,30 @@ def _sequence(session: Session, prospect_id: uuid.UUID, *, lock: bool) -> _Seque
         return _Sequence(True, state_cancel_reason(state))
     if contactability is ContactabilityStatus.DO_NOT_CONTACT:
         return _Sequence(True, DO_NOT_CONTACT_REASON)
-    return _Sequence(False, None)
+    row = session.scalar(sequence_query)
+    if row is None:
+        return _Sequence(True, None)
+    if row.closed_at is not None or not row.is_current or row.cohort.out_of_campaign:
+        # A change of cohort closed it (R-26), or it is S0 (out of campaign: nothing is sent).
+        return _Sequence(True, SEQUENCE_CLOSED_REASON, scope=sequence_id)
+    return _Sequence(False, None, paused=has_email_error(session, prospect_id))
 
 
 def _cancel_if_closed(
     session: Session,
-    prospect_id: uuid.UUID,
+    message: ContactMessage,
     now: datetime,
     actor: ActorContext = DISPATCH_ACTOR,
 ) -> int:
     """Decision 29 applied after the fact: the closed sequence's unclaimed messages. Called with a
     message row already locked, so the prospect is read without a share lock (taking one after
     the message would invert the lock order of the closing writes)."""
-    sequence = _sequence(session, prospect_id, lock=False)
+    sequence = _sequence(session, message.prospect_id, message.sequence_id, lock=False)
     if not sequence.closed or sequence.reason is None:
         return 0
-    return cancel_unsent_messages(session, actor, prospect_id, sequence.reason, now=now).cancelled
+    return cancel_unsent_messages(
+        session, actor, message.prospect_id, sequence.reason, now=now, sequence_id=sequence.scope
+    ).cancelled
 
 
 # deadlock_detected, lock_not_available, serialization_failure.
@@ -333,7 +363,7 @@ def _log(event: str, message: ContactMessage, **details: object) -> None:
         event,
         message.id,
         message.prospect_id,
-        message.step.value,
+        message.step,
         extra,
     )
 
@@ -370,12 +400,15 @@ def _mark_sent(
     now: datetime,
     *,
     actor: ActorContext = DISPATCH_ACTOR,
+    source: SendSource = SendSource.WORKER,
     code: str | None = None,
     reason: str = "confirmed",
 ) -> None:
     audit.annotate(session, actor, message, AuditAction.CONTACT_MESSAGE_SENT, reason=reason)
     message.status = M.SENT
     message.sent_at = now
+    # `worker` needs the current human validation (SQL CHECK): a scheduled message always has it.
+    message.sent_source = source
     # The Toolbox returns no Message-ID (references/toolbox-capabilities.md).
     message.remote_message_id = None
     message.last_error_code = code
@@ -391,7 +424,7 @@ class _Claim:
     message_id: uuid.UUID
     claim_id: uuid.UUID
     draft_id: str
-    step: ContactMessageStep
+    step: str
 
 
 @dataclass
@@ -418,7 +451,7 @@ class Dispatcher:
                         ContactMessage.dispatch_claim_id.is_(None),
                         ContactMessage.scheduled_at <= self.now(),
                     )
-                    .order_by(ContactMessage.scheduled_at, ContactMessage.step, ContactMessage.id)
+                    .order_by(ContactMessage.scheduled_at, ContactMessage.rank, ContactMessage.id)
                     .limit(self.config.batch_size)
                 )
             )
@@ -484,8 +517,9 @@ class Dispatcher:
                 or message.scheduled_at > now
             ):
                 return "done"
-            if _sequence(session, message.prospect_id, lock=False).closed:
-                report.cancelled += _cancel_if_closed(session, message.prospect_id, now)
+            sequence = _sequence(session, message.prospect_id, message.sequence_id, lock=False)
+            if sequence.closed:
+                report.cancelled += _cancel_if_closed(session, message, now)
                 return "done"
             if now - message.scheduled_at > self.config.max_lateness:
                 _back_to_validated(
@@ -498,6 +532,10 @@ class Dispatcher:
             if message.last_error_at is not None and now - message.last_error_at < backoff(
                 message.dispatch_attempts, self.config.retry_base
             ):
+                report.deferred += 1
+                return "done"
+            if sequence.paused:
+                # An open « Erreur sur le mail »: it waits (the lateness bounds it).
                 report.deferred += 1
                 return "done"
             refusal = self._recipients_refusal(message)
@@ -526,21 +564,23 @@ class Dispatcher:
 
     @staticmethod
     def _order(session: Session, message: ContactMessage) -> str | None:
-        """Decision C-24: `wait`, the refusal code, or None (free to leave)."""
-        steps = list(ContactMessageStep)
-        position = steps.index(message.step)
-        if position == 0:
+        """Decision C-24 by rank: `wait`, the refusal code, or None (free to leave)."""
+        if message.rank == 0:
             return None
+        if message.rank > app_settings.max_follow_ups(session):
+            return RANK_BEYOND_MAX
         previous = session.scalar(
             select(ContactMessage).where(
-                ContactMessage.prospect_id == message.prospect_id,
-                ContactMessage.step == steps[position - 1],
+                ContactMessage.sequence_id == message.sequence_id,
+                ContactMessage.rank == message.rank - 1,
             )
         )
-        if previous is None or previous.status in (M.SENT, M.CANCELLED):
+        if previous is not None and previous.status is M.SENT:
             return None
-        if previous.status is M.SCHEDULED and (
-            previous.scheduled_at is not None
+        if (
+            previous is not None
+            and previous.status is M.SCHEDULED
+            and previous.scheduled_at is not None
             and message.scheduled_at is not None
             and previous.scheduled_at <= message.scheduled_at
         ):
@@ -617,7 +657,12 @@ class Dispatcher:
             # Lock order of the closing writes (state change, opposition): prospect and tracking
             # first (share locks: the state and opposition read now hold until the claim commits),
             # then the message row.
-            sequence = _sequence(session, prospect_id, lock=True)
+            sequence_id = session.scalar(
+                select(ContactMessage.sequence_id).where(ContactMessage.id == message_id)
+            )
+            if sequence_id is None:
+                return None
+            sequence = _sequence(session, prospect_id, sequence_id, lock=True)
             message = _locked(session, message_id)
             if (
                 message is None
@@ -631,11 +676,12 @@ class Dispatcher:
             ):
                 return None
             if sequence.closed:
-                report.cancelled += _cancel_if_closed(session, message.prospect_id, now)
+                report.cancelled += _cancel_if_closed(session, message, now)
                 return None
-            # Recipients, allowlist and step order, checked again right before the send.
+            # Recipients, allowlist, pause and rank order, checked again right before the send.
             if (
-                self._recipients_refusal(message) is not None
+                sequence.paused
+                or self._recipients_refusal(message) is not None
                 or self._order(session, message) is not None
             ):
                 report.deferred += 1
@@ -684,7 +730,7 @@ class Dispatcher:
             "contact_dispatch.send_failed message=%s step=%s kind=%s code=%s upstream_status=%s "
             "error=%s",
             claim.message_id,
-            claim.step.value,
+            claim.step,
             outcome.kind,
             outcome.code,
             upstream,
@@ -755,7 +801,7 @@ class Dispatcher:
                 _release_for_retry(session, message, outcome.code, now)
                 report.retrying += 1
             # A state change during the call left the message to us (`in_flight`): cancel it now.
-            report.cancelled += _cancel_if_closed(session, message.prospect_id, now)
+            report.cancelled += _cancel_if_closed(session, message, now)
 
     # --- stale claims ---
 
@@ -830,7 +876,7 @@ class Dispatcher:
                 else:
                     _release_for_retry(session, message, NOT_CONFIRMED, now)
                 report.reconciled_retry += 1
-                report.cancelled += _cancel_if_closed(session, message.prospect_id, now)
+                report.cancelled += _cancel_if_closed(session, message, now)
                 _log("reconciled_not_sent", message)
                 return
             if draft_id is None or len(drafts) >= RECONCILE_LIST_LIMIT:
@@ -887,7 +933,7 @@ def _settle_target(
     session: Session,
     actor: ActorContext,
     prospect_id: uuid.UUID,
-    step: ContactMessageStep,
+    rank: int,
     expected_revision: int,
     now: datetime,
     claim_ttl: timedelta,
@@ -897,8 +943,13 @@ def _settle_target(
     get_prospect(session, prospect_id)  # 404 `not_found` for an unknown prospect
     message = session.scalar(
         select(ContactMessage)
-        .where(ContactMessage.prospect_id == prospect_id, ContactMessage.step == step)
-        .with_for_update()
+        .join(ContactSequence, ContactSequence.id == ContactMessage.sequence_id)
+        .where(
+            ContactMessage.prospect_id == prospect_id,
+            ContactMessage.rank == rank,
+            ContactSequence.is_current,
+        )
+        .with_for_update(of=ContactMessage)
         .execution_options(populate_existing=True)
     )
     if message is None:
@@ -931,7 +982,7 @@ def mark_sent(
     session: Session,
     actor: ActorContext,
     prospect_id: uuid.UUID,
-    step: ContactMessageStep,
+    rank: int,
     expected_revision: int,
     *,
     claim_ttl: timedelta,
@@ -940,9 +991,17 @@ def mark_sent(
     """« Marquer envoyé »: the person found the mail in the mailbox's sent items."""
     moment = now or datetime.now(UTC)
     message = _settle_target(
-        session, actor, prospect_id, step, expected_revision, moment, claim_ttl
+        session, actor, prospect_id, rank, expected_revision, moment, claim_ttl
     )
-    _mark_sent(session, message, moment, actor=actor, code=MARKED_SENT, reason="person")
+    _mark_sent(
+        session,
+        message,
+        moment,
+        actor=actor,
+        source=SendSource.MANUAL,
+        code=MARKED_SENT,
+        reason="person",
+    )
     _log("marked_sent", message, actor=actor.type.value)
     return message
 
@@ -951,7 +1010,7 @@ def release(
     session: Session,
     actor: ActorContext,
     prospect_id: uuid.UUID,
-    step: ContactMessageStep,
+    rank: int,
     expected_revision: int,
     *,
     claim_ttl: timedelta,
@@ -964,7 +1023,7 @@ def release(
     29)."""
     moment = now or datetime.now(UTC)
     message = _settle_target(
-        session, actor, prospect_id, step, expected_revision, moment, claim_ttl
+        session, actor, prospect_id, rank, expected_revision, moment, claim_ttl
     )
     claimed_at = message.dispatch_claimed_at
     if claimed_at is not None and moment - claimed_at < claim_ttl:
@@ -987,7 +1046,7 @@ def release(
     message.last_error_code = RELEASED
     message.last_error_at = moment
     session.flush()
-    _cancel_if_closed(session, message.prospect_id, moment, actor)
+    _cancel_if_closed(session, message, moment, actor)
     _log("released", message, actor=actor.type.value)
     return message
 

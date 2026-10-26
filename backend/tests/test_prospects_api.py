@@ -43,7 +43,6 @@ def body_of(view: dict[str, Any], **changes: Any) -> dict[str, Any]:
         if tracking is None
         else {
             "status": tracking["status"],
-            "planned_contact_on": tracking["planned_contact_on"],
             "response_received_on": tracking["response_received_on"],
             "appointment_on": tracking["appointment_on"],
             "appointment_time": tracking["appointment_time"],
@@ -102,7 +101,7 @@ def test_lifecycle_is_attributed_to_the_signed_in_user(
             "employment_verification": {"action": "verified_now"},
             "emails": [{"address": "Jean.Api@Exemple.example", "verified_now": True}],
             "phones": [{"number": "06 00 00 00 01", "type": "mobile"}],
-            "tracking": {"status": "neutral", "planned_contact_on": "2026-09-21"},
+            "tracking": {"status": "neutral"},
             "provenance": {"legal_basis_or_collection_context": CONTEXT},
         },
     )
@@ -111,7 +110,11 @@ def test_lifecycle_is_attributed_to_the_signed_in_user(
     assert view["emails"][0]["address"] == "jean.api@exemple.example"
     assert view["emails"][0]["verification_status"] == "verified"
     assert view["phones"][0]["number"] == "+33600000001"
-    assert view["tracking"]["planned_contact_week"] == "2026-W39"
+    # No planned day any more: the next due date is derived (rework D1).
+    assert view["tracking"]["status"] == "neutral"
+    assert "planned_contact_week" not in view["tracking"]
+    assert view["contact"]["cohort"] is None and view["contact"]["next_due_on"] is None
+    assert (view["contact"]["level_label"], view["contact"]["level"]) == (None, None)
     assert view["sources"][0]["source_type"] == "manual"
     assert view["sources"][0]["recorded_by"] == {
         "kind": "human",
@@ -168,6 +171,21 @@ def test_contactability_cannot_travel_with_the_save(
         "reason": "blank",
         "message": "reason must not be blank.",
     }
+
+
+def test_a_planned_contact_day_is_no_longer_accepted(
+    client: TestClient, db_session: Session
+) -> None:
+    """The former `tracking.planned_contact_on` is an unknown field since the S4 UI (rework D1):
+    the next due date is derived, a client never writes it."""
+    prospect = add_prospect(db_session, add_company(db_session))
+    view = load(client, prospect.id)
+    tracking = {"status": "neutral", "planned_contact_on": "2026-09-21"}
+
+    response = client.put(f"{PROSPECTS}/{prospect.id}", json=body_of(view, tracking=tracking))
+
+    assert response.status_code == 422
+    assert load(client, prospect.id)["version"] == view["version"]
 
 
 def test_a_failing_alias_rolls_back_the_whole_save(client: TestClient, db_session: Session) -> None:

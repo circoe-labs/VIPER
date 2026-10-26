@@ -232,6 +232,10 @@
 }
 
 .prospect-row__title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
   color: var(--color-text-muted);
 }
 
@@ -329,46 +333,58 @@
   }
 }
 
-/* Quick week planning (Contact port S2): the card's « Planifier » button and the week badge (its tooltip) sit above
-   the card-wide link. */
-.prospect-row__plan,
+/* The cohort badge's tooltip sits above the card-wide link. */
 .prospect-row__stage .badge--tag {
   position: relative;
   z-index: 1;
 }
 
-.prospect-row__plan {
-  margin-left: calc(-1 * var(--space-3));
+.prospection__results-toggle {
+  display: inline-flex;
+  align-items: center;
+  margin-right: var(--space-2);
+  padding: var(--space-1);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  vertical-align: middle;
 }
 
-.quick-plan {
-  display: grid;
-  gap: var(--space-3);
+.prospection__results-toggle:hover {
+  background: var(--color-surface-hover);
 }
 
-.quick-plan__status,
-.quick-plan__hint,
-.quick-plan__error {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-2);
-  font-size: var(--text-sm);
+.prospection__results-toggle:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-focus);
+}
+
+.prospection__results-toggle svg {
+  transition: transform 120ms ease;
+}
+
+.prospection__results-toggle[aria-expanded='false'] svg {
+  transform: rotate(-90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .prospection__results-toggle svg {
+    transition: none;
+  }
+}
+
+.prospection__back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
   color: var(--color-text-muted);
-}
-
-.quick-plan__error {
-  color: var(--color-danger-fg);
+  font-size: var(--text-sm);
   font-weight: var(--weight-medium);
+  text-decoration: none;
 }
 
-.quick-plan__status svg,
-.quick-plan__error svg {
-  flex: none;
-  margin-top: 0.125rem;
-}
-
-.quick-plan__actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--space-2);
+.prospection__back:hover {
+  color: var(--color-accent-fg);
 }

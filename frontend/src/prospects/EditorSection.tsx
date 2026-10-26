@@ -25,6 +25,8 @@ interface EditorSectionProps {
   count?: number
   // Extra style of the whole section (`warning` for values to verify, `danger` for an opposition).
   tone?: 'warning' | 'danger'
+  // A sub-block of another section (a smaller heading, no card of its own).
+  nested?: boolean
   edit?: SectionEdit
   children: ReactNode
 }
@@ -32,7 +34,8 @@ interface EditorSectionProps {
 const FIELD = 'input:not([type="hidden"]):not([disabled]), select:not([disabled]), textarea:not([disabled])'
 
 // One named region of the Prospect editor (also the panels of the Contact workbench).
-export function EditorSection({ title, state, count, tone, edit, children }: EditorSectionProps) {
+export function EditorSection({ title, state, count, tone, nested, edit, children }: EditorSectionProps) {
+  const Heading = nested ? 'h4' : 'h3'
   const sectionRef = useRef<HTMLElement>(null)
   const focusField = useRef(false)
   const editing = edit?.editing ?? false
@@ -45,12 +48,17 @@ export function EditorSection({ title, state, count, tone, edit, children }: Edi
   })
 
   return (
-    <section ref={sectionRef} className="prospect-editor__section" data-tone={tone} aria-label={title}>
+    <section
+      ref={sectionRef}
+      className={nested ? 'prospect-editor__subsection' : 'prospect-editor__section'}
+      data-tone={tone}
+      aria-label={title}
+    >
       <div className="prospect-editor__section-head">
-        <h3 className="prospect-editor__section-title">
+        <Heading className="prospect-editor__section-title">
           {title}
           {count !== undefined && <span className="prospect-editor__count">{count}</span>}
-        </h3>
+        </Heading>
         <div className="prospect-editor__section-tools">
           {state && (
             <StatusBadge tone={state.tone} icon={state.icon}>

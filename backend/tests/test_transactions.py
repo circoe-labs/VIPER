@@ -65,7 +65,7 @@ def test_service_calls_in_one_unit_of_work_are_atomic(
     with pytest.raises(IntegrityError), unit_of_work(session_factory) as session:
         prospect_service.mark_do_not_contact(session, OPERATOR, prospect_id, reason="Opposition")
         unknown_referent = ContactTrackingInput(
-            status=ContactTrackingStatus.CONTACTED, referent_id=uuid.uuid4()
+            status=ContactTrackingStatus.NEUTRAL, referent_id=uuid.uuid4()
         )
         save_contact_tracking(session, OPERATOR, prospect_id, unknown_referent)
 

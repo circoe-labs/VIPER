@@ -1,14 +1,19 @@
-"""Contact messages (`contact_messages`, Contact port Slice S3): one durable mail per prospect and
-sequence step (Contact, R1, R2), separate from the prospect's Contact state.
+"""Contact messages (`contact_messages`, Contact port Slice S3, reshaped by the sequences rework
+D6): one durable mail per contact sequence and rank (0 = Contact, 1 = R1, 2 = R2, …), separate
+from the prospect's commercial state. A `sent` row is also the record of a real send, whoever made
+it (`sent_source`: a person's « Marquer comme envoyé », an import, migration 0012 or the
+dispatcher): the prospect's level is the number of sent rows of its current sequence.
 
 Integrity is enforced in SQL as well as in `app.services.contact_messages` (the only application
 write path), so Database Explorer or a raw write cannot produce an impossible row:
 
-- `validated`/`scheduled`/`sent` carry a *current* human validation (`validated_revision =
-  revision`); an edit bumps `revision`, so it must go back to `draft` (decision 24); a `draft`
-  carries no validation;
-- `scheduled` has its `scheduled_at` (a timestamp, never the next-action week: decision 14);
-  `sent` ⇔ `sent_at`; `cancelled` ⇔ `cancelled_at`;
+- `validated`/`scheduled` carry a *current* human validation (`validated_revision = revision`),
+  and so does a `sent` row sent by the dispatcher (`worker`); a send recorded by a person, an
+  import or a migration may have no validation (the mail left outside VIPER). An edit bumps
+  `revision`, so it must go back to `draft` (decision 24); a `draft` carries no validation;
+- `scheduled` has its `scheduled_at` (a timestamp, never the next due date: decision 14);
+  `sent` ⇔ `sent_at` ⇔ `sent_source`; `cancelled` ⇔ `cancelled_at`;
+- the sequence belongs to the same prospect (composite foreign key);
 - a remote Toolbox draft only on a validated/scheduled/sent message; a dispatch claim is complete
   (id + moment) and only on scheduled/sent; an error code always has its moment;
 - a `sent` row is immutable (trigger `reject_sent_change`, decision 21); deleting the prospect
@@ -26,6 +31,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     String,
@@ -37,9 +43,10 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.contact_steps import step_code
 from app.db.base import Base
 from app.models.common import TimestampMixin, UUIDPrimaryKeyMixin, text_enum
-from app.models.enums import ContactMessageStatus, ContactMessageStep
+from app.models.enums import ContactMessageStatus, SendSource
 
 EMAIL_MAX_LENGTH = 320
 SUBJECT_MAX_LENGTH = 998  # RFC 5322 line limit
@@ -53,7 +60,16 @@ def _recipients() -> Mapped[list[str]]:
 class ContactMessage(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "contact_messages"
     __table_args__ = (
-        UniqueConstraint("prospect_id", "step"),
+        UniqueConstraint("sequence_id", "rank"),
+        ForeignKeyConstraint(
+            ["prospect_id", "sequence_id"],
+            ["contact_sequences.prospect_id", "contact_sequences.id"],
+            ondelete="CASCADE",
+            name="fk_contact_messages_sequence",
+        ),
+        # Serves the composite key and the prospect lookups.
+        Index("ix_contact_messages_prospect_id_sequence_id", "prospect_id", "sequence_id"),
+        CheckConstraint("rank >= 0", name="rank_non_negative"),
         CheckConstraint("revision >= 1", name="revision_positive"),
         CheckConstraint(
             "validated_revision IS NULL OR validated_revision <= revision",
@@ -64,12 +80,14 @@ class ContactMessage(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "status <> 'scheduled' OR scheduled_at IS NOT NULL", name="scheduled_has_moment"
         ),
         CheckConstraint("(status = 'sent') = (sent_at IS NOT NULL)", name="sent_has_moment"),
+        CheckConstraint("(status = 'sent') = (sent_source IS NOT NULL)", name="sent_has_source"),
         CheckConstraint(
             "(status = 'cancelled') = (cancelled_at IS NOT NULL)", name="cancelled_has_moment"
         ),
         CheckConstraint(
-            f"status NOT IN ({VALIDATED_STATUSES_SQL}) OR (validated_at IS NOT NULL "
-            "AND validated_by_actor_id IS NOT NULL AND validated_revision = revision)",
+            "status NOT IN ('validated', 'scheduled') AND (status <> 'sent' OR sent_source <> "
+            "'worker') OR (validated_at IS NOT NULL AND validated_by_actor_id IS NOT NULL "
+            "AND validated_revision = revision)",
             name="validation_current",
         ),
         CheckConstraint(
@@ -93,6 +111,15 @@ class ContactMessage(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         CheckConstraint(
             "(last_error_code IS NULL) = (last_error_at IS NULL)", name="last_error_complete"
         ),
+        CheckConstraint(
+            "review_verdict IN ('correct', 'to_revise') OR review_verdict IS NULL",
+            name="review_verdict",
+        ),
+        CheckConstraint(
+            "(review_verdict IS NULL) = (reviewed_revision IS NULL) "
+            "AND (review_verdict IS NULL) = (reviewed_at IS NULL)",
+            name="review_complete",
+        ),
         # The dispatcher's scan (S7): scheduled messages by due moment.
         Index(
             "ix_contact_messages_scheduled_at_due",
@@ -115,9 +142,11 @@ class ContactMessage(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         ),
     )
 
-    # The unique (prospect_id, step) index also serves the foreign key.
-    prospect_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("prospects.id", ondelete="CASCADE"))
-    step: Mapped[ContactMessageStep] = mapped_column(text_enum(ContactMessageStep, "step"))
+    # The prospect of the sequence (composite key): the audit subject and the prospect lookups.
+    prospect_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    sequence_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    # 0 = Contact, n = Rn; unique within the sequence.
+    rank: Mapped[int] = mapped_column(Integer)
     status: Mapped[ContactMessageStatus] = mapped_column(
         text_enum(ContactMessageStatus, "status"),
         server_default=ContactMessageStatus.DRAFT.value,
@@ -135,9 +164,16 @@ class ContactMessage(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     validated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     validated_by_actor_id: Mapped[str | None] = mapped_column(String(128))
     validated_by_display: Mapped[str | None] = mapped_column(String(255))
+    # A person's verdict on the text of one revision: `correct` or `to_revise` (« relu »). It says
+    # nothing about validation or sending and is void once the text changes (`reviewed_revision`).
+    review_verdict: Mapped[str | None] = mapped_column(String(16))
+    reviewed_revision: Mapped[int | None] = mapped_column(Integer)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reviewed_by_display: Mapped[str | None] = mapped_column(String(255))
     # Send moment chosen by a person (decision 25); never derived from the next-action week.
     scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sent_source: Mapped[SendSource | None] = mapped_column(text_enum(SendSource, "sent_source"))
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # `manual`, or `prospect_state:<state>` for the mechanical cancellation (decision 29).
     cancel_reason: Mapped[str | None] = mapped_column(String(64))
@@ -156,6 +192,11 @@ class ContactMessage(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     dispatch_attempts: Mapped[int] = mapped_column(Integer, server_default=text("0"))
     last_error_code: Mapped[str | None] = mapped_column(String(64))
     last_error_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    @property
+    def step(self) -> str:
+        """The step code of the rank: `contact`, `r1`, `r2`…"""
+        return step_code(self.rank)
 
 
 # `deleted`: queued by the `queue_remote_draft_on_delete` trigger (migration 0011) when a message

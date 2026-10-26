@@ -26,17 +26,12 @@
   color: var(--color-danger-fg);
 }
 
-.home__scope {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-2);
-  max-width: 48rem;
+.home-more__summary {
+  margin-bottom: var(--space-4);
   color: var(--color-text-muted);
-  font-size: var(--text-xs);
-}
-
-.home__scope svg {
-  flex: none;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
 }
 
 .home-empty__actions {
@@ -79,6 +74,10 @@
 
 /* Two weights. Hero (contact activity): large figures, the ones that ask for action are lit. Strip (base state):
    one calm panel of flat figures — only a non-zero « to fix » count is coloured, zeros recede. */
+.kpi-group__cards--wide {
+  grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr));
+}
+
 .kpi-card {
   display: grid;
   align-content: space-between;
@@ -184,6 +183,34 @@
 
 .kpi-card--go .kpi-card__label {
   color: var(--color-text);
+}
+
+/* Tones: a coloured glyph and figure, a faint tinted wash; zeros stay muted. */
+.kpi-card--info { --kpi-tone: var(--color-info-fg); --kpi-wash: var(--color-info-soft); }
+.kpi-card--success { --kpi-tone: var(--color-success-fg); --kpi-wash: var(--color-success-soft); }
+.kpi-card--danger { --kpi-tone: var(--color-danger-fg); --kpi-wash: var(--color-danger-soft); }
+.kpi-card--accent { --kpi-tone: var(--color-accent-fg); --kpi-wash: var(--color-accent-soft); }
+
+.kpi-card--info:not(.kpi-card--zero),
+.kpi-card--success:not(.kpi-card--zero),
+.kpi-card--danger:not(.kpi-card--zero),
+.kpi-card--accent:not(.kpi-card--zero) {
+  background: linear-gradient(155deg, color-mix(in srgb, var(--kpi-wash) 55%, transparent), var(--color-surface) 80%);
+}
+
+.kpi-card--info .kpi-card__label svg,
+.kpi-card--success .kpi-card__label svg,
+.kpi-card--danger .kpi-card__label svg,
+.kpi-card--accent .kpi-card__label svg,
+.kpi-card--info:not(.kpi-card--zero) .kpi-card__count,
+.kpi-card--success:not(.kpi-card--zero) .kpi-card__count,
+.kpi-card--danger:not(.kpi-card--zero) .kpi-card__count,
+.kpi-card--accent:not(.kpi-card--zero) .kpi-card__count {
+  color: var(--kpi-tone);
+}
+
+.home-section--strip .kpi-card:not(.kpi-card--zero) {
+  background: linear-gradient(155deg, color-mix(in srgb, var(--kpi-wash, transparent) 40%, transparent), transparent 80%);
 }
 
 /* Strip: the base's state, flat. */
@@ -534,6 +561,7 @@ a.activity-item__title:hover {
 
 @container (width < 52rem) {
   .kpi-group__cards,
+  .kpi-group__cards--wide,
   .kpi-group--hero .kpi-group__cards {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -541,4 +569,76 @@ a.activity-item__title:hover {
   .home-actions__groups {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+.kpi-trend {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.kpi-trend[data-direction='up'] svg {
+  color: var(--color-success-fg);
+}
+
+.kpi-trend[data-direction='down'] svg {
+  color: var(--color-danger-fg);
+}
+
+.kpi-trend__detail {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.month-pie {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-6);
+}
+
+.month-pie__chart {
+  width: 9rem;
+  height: 9rem;
+}
+
+.month-pie__legend {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.month-pie__swatch {
+  display: inline-block;
+  width: 0.75rem;
+  height: 0.75rem;
+  margin-right: var(--space-2);
+  border-radius: 50%;
+}
+
+.week-plan {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.week-plan__item[aria-current='date'] {
+  color: var(--color-accent-fg);
+}
+
+.home-edits > summary {
+  cursor: pointer;
+}
+
+.campaign-totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  list-style: none;
 }

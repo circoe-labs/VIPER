@@ -1,12 +1,12 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { useReducer, useRef } from 'react'
+import { useEffect, useReducer, useRef } from 'react'
 import { Link } from 'react-router'
 
 import { type CommitResult, importKeys, previewImport } from '../api/imports'
 import { refreshAfterWrite } from '../api/refresh'
 import { ExportWorkbookButton } from '../exports/ExportWorkbookButton'
 import { Button } from '../ui/Button'
-import { AlertIcon, ArrowLeftIcon } from '../ui/icons'
+import { AlertIcon, ArrowLeftIcon, CheckIcon } from '../ui/icons'
 import { PageHeader } from '../ui/PageHeader'
 import { FileDrop } from './FileDrop'
 import { ImportHistory } from './ImportHistory'
@@ -14,6 +14,7 @@ import { ImportResult } from './ImportResult'
 import { flowReducer, INITIAL_FLOW, type Step } from './importFlow'
 import { previewOptions, type ReviewDecisions } from './importPlan'
 import { importErrorMessage } from './messages'
+import { rememberFile } from './rememberedFile'
 import { ReviewStep } from './ReviewStep'
 import { SheetStep } from './SheetStep'
 import './imports.css'
@@ -39,6 +40,11 @@ export function ImportPage() {
   const latest = useRef(0)
   const { step, file, preview } = state
 
+  // Each step starts at the top of the page (after the import, the long review would leave it at the bottom).
+  useEffect(() => {
+    window.scrollTo({ top: 0 })
+  }, [step])
+
   async function analyse(target: File, decisions: ReviewDecisions) {
     latest.current += 1
     const request = latest.current
@@ -51,6 +57,7 @@ export function ImportPage() {
   }
 
   function choose(target: File) {
+    void rememberFile(target)
     dispatch({ type: 'choose', file: target })
     void analyse(target, INITIAL_FLOW.decisions)
   }
@@ -69,43 +76,75 @@ export function ImportPage() {
   }
 
   const current = stepIndex(step)
+  // The steps already passed can be reopened while nothing is written (not after the import): the sheet keeps the
+  // review's decisions, the file choice starts over after a confirmation.
+  function goBack(target: Step): (() => void) | undefined {
+    if (step !== 'sheet' && step !== 'review') return undefined
+    if (target === 'sheet' && step === 'review') {
+      return () => {
+        dispatch({ type: 'backToSheet' })
+      }
+    }
+    if (target === 'idle') {
+      return () => {
+        if (step === 'sheet' || window.confirm('Revenir au choix du fichier ? Vos choix de vérification seront perdus.')) {
+          dispatch({ type: 'reset' })
+        }
+      }
+    }
+    return undefined
+  }
+  const stepper = (
+    <ol className="import-steps" aria-label="Étapes de l’import">
+      {STEPS.map((item, index) => (
+        <li
+          key={item.step}
+          className="import-steps__step"
+          data-state={index < current ? 'done' : index === current ? 'current' : 'next'}
+          aria-current={index === current ? 'step' : undefined}
+        >
+          {goBack(item.step) ? (
+            <button type="button" className="import-steps__link" onClick={goBack(item.step)}>
+              <span className="import-steps__number">{index < current ? <CheckIcon size={14} /> : index + 1}</span>
+              {item.label}
+            </button>
+          ) : (
+            <>
+              <span className="import-steps__number">{index < current ? <CheckIcon size={14} /> : index + 1}</span>
+              {item.label}
+            </>
+          )}
+        </li>
+      ))}
+    </ol>
+  )
   return (
     <>
       <Link to="/prospection" className="import-page__back">
         <ArrowLeftIcon size={16} />
         Prospection
       </Link>
-      <PageHeader
-        title="Importer un fichier Excel"
-        description="Analysez le fichier, vérifiez ce qui doit l’être puis confirmez : rien n’est enregistré avant votre confirmation, et tout import reste tracé."
-        actions={
-          <>
-            {step !== 'idle' && step !== 'analyzing' && (
-              <Button
-                onClick={() => {
-                  dispatch({ type: 'reset' })
-                }}
-              >
-                Nouvel import
-              </Button>
-            )}
-            <ExportWorkbookButton />
-          </>
-        }
-      />
-      <ol className="import-steps" aria-label="Étapes de l’import">
-        {STEPS.map((item, index) => (
-          <li
-            key={item.step}
-            className="import-steps__step"
-            data-state={index < current ? 'done' : index === current ? 'current' : 'next'}
-            aria-current={index === current ? 'step' : undefined}
-          >
-            <span className="import-steps__number">{index + 1}</span>
-            {item.label}
-          </li>
-        ))}
-      </ol>
+      {step !== 'review' && (
+        <PageHeader
+          title="Importer un fichier Excel"
+          description="Analysez le fichier, vérifiez ce qui doit l’être puis confirmez : rien n’est enregistré avant votre confirmation, et tout import reste tracé."
+          actions={
+            <>
+              {step !== 'idle' && step !== 'analyzing' && (
+                <Button
+                  onClick={() => {
+                    dispatch({ type: 'reset' })
+                  }}
+                >
+                  Nouvel import
+                </Button>
+              )}
+              <ExportWorkbookButton />
+            </>
+          }
+        />
+      )}
+      {step !== 'review' && stepper}
       {state.error && (
         <p className="import-alert import-alert--danger" role="alert">
           <AlertIcon size={18} />
@@ -141,6 +180,10 @@ export function ImportPage() {
           }}
           onReanalyse={reanalyse}
           onCommitted={committed}
+          stepper={stepper}
+          onReset={() => {
+            dispatch({ type: 'reset' })
+          }}
         />
       )}
       {step === 'done' && state.committed && (

@@ -3,15 +3,13 @@ import type { ReactNode, RefObject } from 'react'
 import type { ActivityStatus } from '../api/prospection'
 import type { Civility, Prospect } from '../api/prospects'
 import { civilityLabel } from '../prospection/labels'
-import { StatusBadge } from '../ui/Badge'
-import { Button } from '../ui/Button'
 import { SelectField, TextField } from '../ui/fields'
-import { AlertIcon, CheckCircleIcon, UndoIcon } from '../ui/icons'
+import { AlertIcon } from '../ui/icons'
 import { EditorSection, type SectionEdit } from './EditorSection'
 import { CompanyPicker, RolePicker } from './pickers'
 import type { EmploymentLabels } from './ProfileSummary'
 import type { FieldMessages, ProspectDraft } from './prospectForm'
-import { employmentNeedsCheck, employmentState } from './verification'
+import { employmentNeedsCheck } from './verification'
 
 export interface SectionProps {
   draft: ProspectDraft
@@ -104,15 +102,13 @@ const ACTIVITIES: { value: ActivityStatus; label: string }[] = [
 interface EmploymentProps extends SectionProps {
   prospect: Prospect | null
   companyMoved: boolean
-  today: string
   labels: EmploymentLabels
   edit: SectionEdit
 }
 
-// Company, role, exact title and activity, then — on a secondary line — the employment verification they are covered by
-// (state and its one-click actions). Imported values to confirm are flagged; an imported field left empty says what to
-// do instead (there is nothing to confirm). Read as facts until edited.
-export function EmploymentSection({ draft, errors, fieldId, onChange, prospect, companyMoved, today, labels, edit }: EmploymentProps) {
+// Company, role, exact title and activity. Imported values to confirm are flagged; an imported field left empty says
+// what to do instead (there is nothing to confirm). Read as facts until edited. No employment-verification block here.
+export function EmploymentSection({ draft, errors, fieldId, onChange, prospect, companyMoved, labels, edit }: EmploymentProps) {
   const imported = employmentNeedsCheck({ prospect, draft, companyMoved: false })
   const warning = imported ? IMPORTED_HINT : undefined
   const flag = (filled: boolean, empty: string) =>
@@ -195,92 +191,6 @@ export function EmploymentSection({ draft, errors, fieldId, onChange, prospect, 
           ]}
         />
       )}
-      <EmploymentVerification
-        draft={draft}
-        errors={errors}
-        fieldId={fieldId}
-        onChange={onChange}
-        prospect={prospect}
-        companyMoved={companyMoved}
-        today={today}
-        editing={edit.editing}
-      />
     </EditorSection>
-  )
-}
-
-interface VerificationProps extends SectionProps {
-  prospect: Prospect | null
-  companyMoved: boolean
-  today: string
-  // The section shows its inputs: the « vérifié le » date is offered next to the one-click action.
-  editing: boolean
-}
-
-// Employment verification, on the Emploi section's secondary line (Decision D-UX3: no card of its own): the state, one
-// click for « verified today », a past date while editing, or clearing. Data and API are unchanged.
-function EmploymentVerification({ draft, errors, fieldId, onChange, prospect, companyMoved, today, editing }: VerificationProps) {
-  const state = employmentState({ prospect, draft, companyMoved })
-  const { action, day } = draft.verification
-  const stored = prospect?.employment_verified_at && !companyMoved
-  return (
-    <div className="prospect-verify" role="group" aria-label="Vérification de l’emploi">
-      <StatusBadge tone={state.tone} icon={state.icon}>
-        {state.text}
-      </StatusBadge>
-      <Button
-        size="sm"
-        icon={CheckCircleIcon}
-        variant={action === 'verified_now' ? 'primary' : 'secondary'}
-        aria-pressed={action === 'verified_now'}
-        onClick={() => {
-          onChange({ verification: { action: 'verified_now', day: '' } })
-        }}
-      >
-        Vérifié aujourd’hui
-      </Button>
-      {editing && (
-        <TextField
-          id={fieldId('employment_verification.day')}
-          type="date"
-          label="ou vérifié le"
-          max={today}
-          value={action === 'verified_on' ? day : ''}
-          error={errors['employment_verification.day']}
-          onChange={(event) => {
-            const value = event.target.value
-            onChange({ verification: { action: value ? 'verified_on' : 'keep', day: value } })
-          }}
-        />
-      )}
-      {stored && action === 'keep' && (
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => {
-            onChange({ verification: { action: 'clear', day: '' } })
-          }}
-        >
-          Effacer la vérification
-        </Button>
-      )}
-      {action !== 'keep' && (
-        <Button
-          variant="ghost"
-          size="sm"
-          icon={UndoIcon}
-          onClick={() => {
-            onChange({ verification: { action: 'keep', day: '' } })
-          }}
-        >
-          Annuler
-        </Button>
-      )}
-      {editing && (
-        <p className="prospect-editor__muted prospect-verify__scope">
-          Couvre l’entreprise, le rôle, l’intitulé et l’activité ; e-mails et téléphones ont leur propre vérification.
-        </p>
-      )}
-    </div>
   )
 }

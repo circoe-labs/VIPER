@@ -1,73 +1,38 @@
-"""Operational meaning of the optional ``Statut_verification`` Excel column.
+"""Meaning of the optional ``Statut_verification`` Excel column (decision D10).
 
-The column is authoritative when it contains one of the four values used by the prospecting team:
+The column only tells whether the person is still in post — it feeds the prospect's **activity**
+and nothing else (never an e-mail's verification: validating a job is not validating an address,
+handoff §8):
 
-- ``Validé``: the person/contact has been reached successfully and is active;
-- ``Inactif``: the person is no longer in the relevant job and the imported email is invalid;
-- ``Inconnus``: a verification was performed but the person/contact could not be confirmed;
-- blank (or an unrecognised legacy note): verification still has to be done.
+- ``Validé`` → active;
+- ``Inactif`` → inactive;
+- ``Inconnus``, blank or any other note → nothing known (no activity claim).
 
-The raw cell is still retained by the lossless import engine in row legacy metadata.
+The activity is then applied with the human-precedence rule (D11, `import_commit`): an empty
+(`unknown`) activity is filled, the same value is ignored, a different one stays and raises an
+``import_conflict`` alert. The raw cell is always kept in the row's legacy metadata.
 """
 
-from enum import StrEnum
-
-from app.models.enums import ActivityStatus, VerificationStatus
+from app.models.enums import ActivityStatus
 from app.services.imports.fields import ImportField
 from app.services.imports.models import PreviewRow
 from app.services.imports.text import CellValue, fold, render
 
-
-class ExcelVerificationOutcome(StrEnum):
-    UNVERIFIED = "unverified"
-    VERIFIED = "verified"
-    INACTIVE = "inactive"
-    UNKNOWN = "unknown"
-
-
-VERIFIED_VALUES = frozenset({"valide", "verifie", "verified"})
+ACTIVE_VALUES = frozenset({"valide", "verifie", "verified"})
 INACTIVE_VALUES = frozenset({"inactif", "inactive"})
-UNKNOWN_VALUES = frozenset({"inconnu", "inconnus", "unknown"})
 
 
-def verification_value(value: CellValue) -> ExcelVerificationOutcome:
+def activity_from_status(value: CellValue) -> ActivityStatus | None:
+    """The activity a `Statut_verification` value claims, or None (`Inconnus`, blank, notes)."""
     key = fold(render(value))
-    if key in VERIFIED_VALUES:
-        return ExcelVerificationOutcome.VERIFIED
-    if key in INACTIVE_VALUES:
-        return ExcelVerificationOutcome.INACTIVE
-    if key in UNKNOWN_VALUES:
-        return ExcelVerificationOutcome.UNKNOWN
-    return ExcelVerificationOutcome.UNVERIFIED
-
-
-def row_verification(row: PreviewRow) -> ExcelVerificationOutcome:
-    """Read the normalized operational outcome from a preview row.
-
-    The import engine preserves fields it does not otherwise materialize in ``legacy_metadata``;
-    using the stable field key here keeps the workbook adapter isolated from domain services.
-    """
-    value = row.legacy_metadata.get(ImportField.VERIFICATION_STATUS.value)
-    return verification_value(value.value if value is not None else None)
-
-
-def was_checked(outcome: ExcelVerificationOutcome) -> bool:
-    return outcome is not ExcelVerificationOutcome.UNVERIFIED
-
-
-def activity_status(outcome: ExcelVerificationOutcome) -> ActivityStatus:
-    if outcome is ExcelVerificationOutcome.VERIFIED:
+    if key in ACTIVE_VALUES:
         return ActivityStatus.ACTIVE
-    if outcome is ExcelVerificationOutcome.INACTIVE:
+    if key in INACTIVE_VALUES:
         return ActivityStatus.INACTIVE
-    return ActivityStatus.UNKNOWN
+    return None
 
 
-def email_verification_status(outcome: ExcelVerificationOutcome) -> VerificationStatus:
-    if outcome is ExcelVerificationOutcome.VERIFIED:
-        return VerificationStatus.VERIFIED
-    if outcome is ExcelVerificationOutcome.INACTIVE:
-        return VerificationStatus.INVALID
-    if outcome is ExcelVerificationOutcome.UNKNOWN:
-        return VerificationStatus.UNKNOWN
-    return VerificationStatus.UNVERIFIED
+def row_activity(row: PreviewRow) -> ActivityStatus | None:
+    """The activity claimed by the row's `Statut_verification` cell (kept raw by the engine)."""
+    value = row.legacy_metadata.get(ImportField.VERIFICATION_STATUS.value)
+    return activity_from_status(value.value if value is not None else None)

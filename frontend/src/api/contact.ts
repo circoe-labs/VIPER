@@ -9,14 +9,23 @@ import type { ToolboxState } from './toolbox'
 // Mirrors backend/app/api/routes/contact.py (the Contact dashboard and list) and contact_messages.py (the mail
 // sequence Contact / R1 / R2 of one prospect). Rules and refusal codes: doc/features/contact.md.
 
-export const CONTACT_COUNTERS = ['to_handle', 'first_contact', 'follow_up', 'review', 'appointments'] as const
-export type ContactCounter = (typeof CONTACT_COUNTERS)[number]
+// The cohorts of the campaign, one section each on the Contact page (a cohort without prospect yet stays empty).
+export const CAMPAIGN_COHORTS = ['S37', 'S39', 'S40', 'S41', 'S43', 'S44', 'S45', 'S46', 'S47'] as const
+export type CampaignCohort = (typeof CAMPAIGN_COHORTS)[number]
+// The sections of the page: the cohorts, then the people who took an appointment (« RDV pris », whatever the cohort).
+export const APPOINTMENTS = 'RDV'
+// Then the people set aside (replied, not interested, invalid mail…): out of every cohort's list.
+export const SET_ASIDE = 'ECARTES'
+export const CONTACT_SECTIONS = [...CAMPAIGN_COHORTS, APPOINTMENTS, SET_ASIDE] as const
+export type ContactSection = (typeof CONTACT_SECTIONS)[number]
 
+// The steps every sequence has; the server adds R3… up to « max relances » (Paramètres, 4 by default).
 export const MESSAGE_STEPS = ['contact', 'r1', 'r2'] as const
-export type MessageStep = (typeof MESSAGE_STEPS)[number]
+// A step code of the sequence: `contact`, `r1`, `r2`, `r3`…
+export type MessageStep = string
 export type MessageStatus = 'draft' | 'validated' | 'scheduled' | 'sent' | 'cancelled'
-// What the next action prepares: a step's mail, or the human review after R2.
-export type NextStep = MessageStep | 'review'
+// What the next action prepares: the step code of the sequence (`contact`, `r1`… up to R<max>).
+export type NextStep = string
 
 // Every Contact state can be filtered but `ignored` (terminal, outside Contact).
 export type ContactState = Exclude<TrackingStatus, 'ignored'>
@@ -52,7 +61,29 @@ export interface ContactDashboard {
   today: string
   // The server's « cette semaine », `2026-W41`.
   current_week: string
-  counts: Record<ContactCounter, number>
+  // The campaign cohorts (`S37`…) with the prospects currently in each; `out_of_campaign` is S0.
+  cohorts?: {
+    code: string
+    starts_on: string | null
+    out_of_campaign: boolean
+    prospects: number
+    // Of those, the ones who took an appointment (listed under « RDV pris », not in the cohort).
+    appointments?: number
+  // Prospects of the cohort set aside: listed apart under « Écartés ».
+  set_aside?: number
+    // To send this week (overdue included), of which late, and the steps (`contact`, `r1`…) they are at.
+    to_send?: number
+    overdue?: number
+    to_send_steps?: string[]
+    // What has really left, by step: how many mails, between which business days (`YYYY-MM-DD`).
+    sent_steps?: { step: string; label: string; count: number; first_on: string; last_on: string }[]
+    // The mails scheduled and not sent yet, by step: how many, and the earliest and latest day they leave.
+    scheduled_steps?: { step: string; label: string; count: number; first_on: string; last_on: string }[]
+    // The steps coming up for the sequences with nothing due this week: how many, and the earliest day (`first_on`).
+    next_steps?: { step: string; label: string; count: number; first_on: string; last_on: string }[]
+  }[]
+  // The planning's categories with their count (`appointment_obtained` is « RDV pris »).
+  categories?: { category: string; count: number }[]
   // ISO weeks present in the planning, oldest first.
   weeks: ContactWeekOption[]
   // S9: the page warns when scheduled messages will not leave.
@@ -71,13 +102,17 @@ export interface ContactRow {
   primary_email: string | null
   activity_status: ActivityStatus
   tracking_status: TrackingStatus
+  // The campaign cohort the prospect belongs to (`S39`), null without cohort.
+  cohort_code?: string | null
   planned_contact_at: string | null
   next_action_week: string | null
-  // In « À traiter cette semaine ».
+  // Something is to send this week (or was before it).
   due: boolean
   next_step: NextStep | null
-  // Status of each step's message, null when never created.
-  messages: Record<MessageStep, MessageStatus | null>
+  // Status of each step's message by step code, null (or absent) when never created.
+  messages: Record<string, MessageStatus | null>
+  // When each step really left (`sent_at`) or is scheduled for (`scheduled_at`), by step code.
+  message_dates?: Record<string, { sent_at: string | null; scheduled_at: string | null }>
 }
 
 export interface ContactPage {
@@ -87,15 +122,17 @@ export interface ContactPage {
   offset: number
 }
 
+// A section's whole list, alphabetical by company; `q` narrows it like the search box. A cohort lists every state but
+// the appointment, which « RDV pris » lists apart.
 export interface ContactListCriteria {
-  counter: ContactCounter | null
-  // `2026-W41`, or null for every week.
-  week: string | null
-  state: ContactState | null
+  section: ContactSection | null
   q: string
 }
 
-export const CONTACT_PAGE_SIZE = 50
+// A section lists its whole cohort in one page (the API caps a page at 200).
+export const CONTACT_PAGE_SIZE = 200
+
+export type ReviewVerdict = 'correct' | 'to_revise'
 
 export interface Message {
   id: string
@@ -114,6 +151,10 @@ export interface Message {
   validated_at: string | null
   // Display name of the person who validated.
   validated_by: string | null
+  // A person's verdict on this very text (« relu »); null when none was given or the text changed since.
+  review_verdict: ReviewVerdict | null
+  reviewed_at: string | null
+  reviewed_by: string | null
   scheduled_at: string | null
   sent_at: string | null
   cancelled_at: string | null
@@ -140,6 +181,8 @@ export interface MessageSequence {
     do_not_contact: boolean
     // No message may be created, edited, validated, scheduled or reopened.
     closed: boolean
+    // The step to send next (`contact`, `r1`…), derived from the real sends; null when finished or without cohort.
+    next_step?: string | null
   }
   // `generation_available`: the AI drafting is configured on the server (S5). `toolbox_connected`: the CIRCOE Toolbox
   // is connected (S6) — a validation creates the Infomaniak draft, sent from the account's default mailbox;
@@ -159,7 +202,7 @@ export interface MessageSequence {
     // After this long, a claimed send nobody finished counts as unconfirmed.
     dispatch_claim_ttl_seconds: number
   }
-  steps: { step: MessageStep; message: Message | null }[]
+  steps: { rank?: number; step: MessageStep; label?: string; message: Message | null }[]
 }
 
 export interface MessageResult {
@@ -171,14 +214,7 @@ export interface MessageResult {
   // validate / schedule / remote-draft (S6): what happened to the Infomaniak draft. `failed` carries a `toolbox_*` code.
   remote_draft?: {
     status:
-      | 'disabled'
-      | 'not_connected'
-      | 'not_applicable'
-      | 'already_present'
-      | 'created'
-      | 'recovered'
-      | 'stale'
-      | 'failed'
+      'disabled' | 'not_connected' | 'not_applicable' | 'already_present' | 'created' | 'recovered' | 'stale' | 'failed'
     code: string | null
   }
 }
@@ -218,10 +254,38 @@ export const contactKeys = {
   messages: (prospectId: string) => ['contact', 'messages', prospectId] as const,
 }
 
+// What the sequences-rework API answers for a row (backend/app/api/routes/contact.py); `toRow` turns it into the shape
+// the list reads. A row already in that shape goes through unchanged.
+interface ApiRow extends Omit<ContactRow, 'planned_contact_at' | 'next_action_week' | 'due' | 'messages'> {
+  next_due_at?: string | null
+  next_due_week?: string | null
+  to_send?: boolean
+  messages: { step: string; status: MessageStatus; sent_at?: string | null; scheduled_at?: string | null }[]
+}
+
+export function toRow(raw: ContactRow | ApiRow): ContactRow {
+  if (!Array.isArray(raw.messages)) return raw as ContactRow
+  const { next_due_at, next_due_week, to_send, messages, ...row } = raw as ApiRow
+  return {
+    ...row,
+    planned_contact_at: next_due_at ?? null,
+    next_action_week: next_due_week ?? null,
+    due: to_send ?? false,
+    messages: Object.fromEntries(messages.map((item) => [item.step, item.status])),
+    message_dates: Object.fromEntries(
+      messages.map((item) => [item.step, { sent_at: item.sent_at ?? null, scheduled_at: item.scheduled_at ?? null }]),
+    ),
+  }
+}
+
+function toPage(raw: ContactPage): ContactPage {
+  return { ...raw, items: raw.items.map(toRow) }
+}
+
 export function useContactDashboard(q: string) {
   return useQuery({
     queryKey: contactKeys.dashboard(q.trim()),
-    queryFn: ({ signal }) => {
+    queryFn: async ({ signal }) => {
       const params = new URLSearchParams()
       if (q.trim()) params.set('q', q.trim())
       return apiGet<ContactDashboard>(`/contact/dashboard?${params.toString()}`, signal)
@@ -230,11 +294,103 @@ export function useContactDashboard(q: string) {
   })
 }
 
+// « Suivi des envois programmés » (GET /contact/scheduling): what is scheduled by step and day, what still has to be
+// validated or scheduled, and the prospects with something to send this week whose mail is not scheduled.
+export interface SchedulingStep {
+  rank: number
+  step: string
+  step_label: string
+  drafts: number
+  validated: number
+  scheduled: number
+  due: number
+  forgotten: number
+  forgotten_none: number
+  forgotten_draft: number
+  forgotten_validated: number
+}
+
+export interface SchedulingDay {
+  day: string
+  total: number
+  by_step: Record<string, number>
+  // Before today: those mails should have left.
+  past: boolean
+}
+
+export type ForgottenState = 'none' | 'draft' | 'validated'
+
+export interface ForgottenProspect {
+  id: string
+  first_name: string | null
+  last_name: string | null
+  civility: string | null
+  company_name: string | null
+  cohort_code: string | null
+  step: string
+  step_label: string
+  rank: number
+  state: ForgottenState
+  due_at: string | null
+  overdue: boolean
+}
+
+// A draft, validated or scheduled message and whose it is: what a click on a tile lists.
+export interface PreparedMessage {
+  prospect_id: string
+  first_name: string | null
+  last_name: string | null
+  company_name: string | null
+  cohort_code: string | null
+  step: string
+  step_label: string
+  rank: number
+  status: 'draft' | 'validated' | 'scheduled'
+  scheduled_at: string | null
+  last_error_code: string | null
+}
+
+export interface Scheduling {
+  today: string
+  week: string
+  current_week: string
+  max_follow_ups: number
+  totals: {
+    scheduled: number
+    validated: number
+    drafts: number
+    due: number
+    forgotten: number
+    scheduled_past: number
+    scheduled_with_error: number
+    scheduled_with_draft_error: number
+  }
+  steps: SchedulingStep[]
+  days: SchedulingDay[]
+  forgotten: ForgottenProspect[]
+  messages: PreparedMessage[]
+}
+
+export function useContactScheduling() {
+  return useQuery({
+    // Under `contactKeys.all`: every message write refreshes it.
+    queryKey: [...contactKeys.all, 'scheduling'] as const,
+    queryFn: ({ signal }) => apiGet<Scheduling>('/contact/scheduling', signal),
+    placeholderData: keepPreviousData,
+  })
+}
+
 function listPath(criteria: ContactListCriteria, limit: number, offset: number): `/${string}` {
   const params = new URLSearchParams()
-  if (criteria.counter) params.set('counter', criteria.counter)
-  if (criteria.week) params.set('week', criteria.week)
-  if (criteria.state) params.set('state', criteria.state)
+  if (criteria.section === APPOINTMENTS) {
+    params.set('category', 'appointment_obtained')
+  } else if (criteria.section === SET_ASIDE) {
+    params.set('category', 'set_aside')
+  } else {
+    params.set('category', 'cohort')
+    if (criteria.section) params.set('cohorts', criteria.section)
+  }
+  params.set('sort', 'company')
   if (criteria.q.trim()) params.set('q', criteria.q.trim())
   params.set('limit', String(limit))
   params.set('offset', String(offset))
@@ -245,11 +401,11 @@ function pagePath(criteria: ContactListCriteria, page: number): `/${string}` {
   return listPath(criteria, CONTACT_PAGE_SIZE, (page - 1) * CONTACT_PAGE_SIZE)
 }
 
-// `page` is 1-based. `enabled` false while the page does not know yet which week « cette semaine » is.
+// `page` is 1-based. `enabled` false while the section is closed (nothing is read before it is opened).
 export function useContactPage(criteria: ContactListCriteria, page: number, enabled = true) {
   return useQuery({
     queryKey: contactKeys.page(criteria, page),
-    queryFn: ({ signal }) => apiGet<ContactPage>(pagePath(criteria, page), signal),
+    queryFn: async ({ signal }) => toPage(await apiGet<ContactPage>(pagePath(criteria, page), signal)),
     placeholderData: keepPreviousData,
     enabled,
   })
@@ -353,6 +509,7 @@ export function useMessageMutations(prospectId: string) {
     void refreshAfterWrite(queryClient, [
       ['contact', 'page'],
       ['contact', 'dashboard'],
+      ['contact', 'scheduling'],
       historyKeys.subject('prospects', prospectId),
     ])
   }
@@ -364,16 +521,44 @@ export function useMessageMutations(prospectId: string) {
         apiRequest<MessageResult>('PUT', path(step), { body: content }),
       onSuccess: saved,
     }),
+    // A draft that was never validated is removed: the step is empty again.
+    remove: useMutation({
+      mutationFn: ({ step, revision }: { step: MessageStep; revision: number }) =>
+        apiRequest<{ deleted: boolean; step: string }>('POST', path(step, 'delete'), {
+          body: { expected_revision: revision },
+        }),
+      onSuccess: () =>
+        refreshAfterWrite(queryClient, [
+          contactKeys.messages(prospectId),
+          ['contact', 'page'],
+          ['contact', 'dashboard'],
+          ['contact', 'scheduling'],
+          historyKeys.subject('prospects', prospectId),
+        ]),
+    }),
     act: useMutation({
       mutationFn: ({ step, action, revision }: { step: MessageStep; action: MessageAction; revision: number }) =>
-        apiRequest<MessageResult>('POST', path(step, action), { body: { expected_revision: revision } }),
+        apiRequest<MessageResult>('POST', path(step, action), {
+          body: { expected_revision: revision },
+        }),
       onSuccess: saved,
     }),
     // The AI draft (S5). Bounded wait: the browser gives up after `deadline` ms (the server keeps its own bound). The
     // result lands in the cache even when the editor that asked is gone (tab switched).
     generate: useMutation({
       mutationFn: ({ step, request, deadline }: { step: MessageStep; request: GenerateRequest; deadline: number }) =>
-        apiRequest<GenerationResult>('POST', path(step, 'generate'), { body: request, signal: AbortSignal.timeout(deadline) }),
+        apiRequest<GenerationResult>('POST', path(step, 'generate'), {
+          body: request,
+          signal: AbortSignal.timeout(deadline),
+        }),
+      onSuccess: saved,
+    }),
+    // « Relu »: the verdict on the text; null takes it back. Nothing else about the message changes.
+    review: useMutation({
+      mutationFn: ({ step, revision, verdict }: { step: MessageStep; revision: number; verdict: ReviewVerdict | null }) =>
+        apiRequest<MessageResult>('POST', path(step, 'review'), {
+          body: { expected_revision: revision, verdict },
+        }),
       onSuccess: saved,
     }),
     schedule: useMutation({
@@ -384,4 +569,31 @@ export function useMessageMutations(prospectId: string) {
       onSuccess: saved,
     }),
   }
+}
+
+// « Programmer une série »: one send moment for the validated mails of a step, for every prospect of the chosen
+// cohorts (POST /contact/schedule-cohorts). Drafts are left alone and counted.
+export interface ScheduleCohortsResult {
+  scheduled: number
+  validated: number
+  refused: number
+  missing: number
+  remote_draft_failures: number
+}
+
+export function useScheduleCohorts() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (request: { cohorts: string[]; step: string; scheduled_at: string }) =>
+      apiRequest<ScheduleCohortsResult>('POST', '/contact/schedule-cohorts', {
+        body: request,
+      }),
+    onSuccess: () =>
+      refreshAfterWrite(queryClient, [
+        ['contact', 'page'],
+        ['contact', 'dashboard'],
+        ['contact', 'scheduling'],
+        ['contact', 'messages'],
+      ]),
+  })
 }

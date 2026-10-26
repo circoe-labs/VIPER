@@ -292,6 +292,8 @@ def test_list_tools(fake: FakeToolbox, mail: McpMailToolbox) -> None:
     assert [t.name for t in tools] == [
         "infomaniak.mail.create_draft",
         "infomaniak.mail.list_drafts",
+        "infomaniak.mail.send_draft",
+        "infomaniak.mail.delete_draft",
     ]
     assert tools[0].description == "Crée un brouillon."
     assert tools[1].title == "Brouillons"
@@ -347,6 +349,11 @@ def test_tool_errors_are_classified_and_never_kept(
         ("Brouillon introuvable : d-1", "toolbox_draft_not_found"),
         ("L'API Infomaniak Mail a répondu 503", "toolbox_unavailable"),
         ("Aucune connexion Infomaniak pour ce membre", "toolbox_auth_expired"),
+        (
+            "L'API Infomaniak Mail a répondu 400 : <!doctype html><html><head>"
+            '<title>Login</title><base href="/oauth2/">',
+            "toolbox_auth_expired",
+        ),
         ("Paramètres invalides : to", "toolbox_invalid_input"),
         ("Autre chose", "toolbox_rejected"),
     ],

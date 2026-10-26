@@ -1,6 +1,7 @@
-"""Contact message state machine (Contact port Slice S3, handoff Task 12): every transition from
-every status, revalidation after an edit, sent immutability, optimistic concurrency, closed
-sequences, and the mechanical cancellation after a sequence-closing state (decision 29)."""
+"""Contact message state machine (Contact port Slice S3, handoff Task 12; sequences rework D1, D3,
+D6): every transition from every status, revalidation after an edit, sent immutability, optimistic
+concurrency, closed sequences (no cohort, S0, closing state, opposition), the mechanical
+cancellation after a sequence-closing state (decision 29) and « Marquer comme envoyé »."""
 
 import uuid
 from collections.abc import Callable
@@ -12,8 +13,13 @@ from sqlalchemy.orm import Session
 
 from app.core.actor import ActorContext, ActorType
 from app.models import ContactMessage, ContactTracking, Prospect
-from app.models.enums import ContactMessageStatus, ContactMessageStep, ContactTrackingStatus
+from app.models.enums import (
+    ContactMessageStatus,
+    ContactTrackingStatus,
+    SendSource,
+)
 from app.services import contact_messages as service
+from app.services import contact_sequences
 from app.services.contact_message_cancellation import Cancellation
 from app.services.contact_messages import MessageEdit, MessageResult
 from app.services.contact_tracking import ContactTrackingInput, apply_contact_tracking
@@ -24,11 +30,20 @@ from app.services.errors import (
     NotFoundError,
 )
 from app.services.prospects import record_do_not_contact
-from tests.builders import OPERATOR, add_company, add_email, add_prospect, audit_events, rejected
+from tests.builders import (
+    OPERATOR,
+    add_cohort,
+    add_company,
+    add_email,
+    add_prospect,
+    audit_events,
+    rejected,
+    start_sequence,
+)
 
 M = ContactMessageStatus
 S = ContactTrackingStatus
-STEP = ContactMessageStep.CONTACT
+STEP = 0
 SENDER = "prospection@exemple.example"
 LATER = datetime.now(UTC) + timedelta(days=3)
 COMPLETE = MessageEdit(
@@ -40,12 +55,18 @@ COMPLETE = MessageEdit(
 )
 
 
-def prospect_with(session: Session, state: S | None = S.CONTACTED) -> Prospect:
+def prospect_with(
+    session: Session, state: S | None = S.NEUTRAL, *, in_cohort: bool = True
+) -> Prospect:
+    """A prospect with a primary e-mail, a tracking in `state` and, by default, an open sequence
+    in the cohort S41."""
     prospect = add_prospect(session, add_company(session))
     add_email(session, prospect, "jean.test@exemple.example", is_primary=True)
     if state is not None:
         session.add(ContactTracking(prospect_id=prospect.id, status=state))
         session.flush()
+    if in_cohort:
+        start_sequence(session, prospect)
     session.refresh(prospect)
     return prospect
 
@@ -54,7 +75,7 @@ def code_of(error: pytest.ExceptionInfo[ContactMessageError]) -> str:
     return error.value.code
 
 
-def create(session: Session, prospect: Prospect, step: ContactMessageStep = STEP) -> ContactMessage:
+def create(session: Session, prospect: Prospect, step: int = STEP) -> ContactMessage:
     return service.save_message(session, OPERATOR, prospect.id, step, COMPLETE).message
 
 
@@ -75,6 +96,7 @@ def message_in(session: Session, prospect: Prospect, status: M) -> ContactMessag
     if status is M.SENT:
         message.status = M.SENT
         message.sent_at = datetime.now(UTC)
+        message.sent_source = SendSource.WORKER
         session.flush()
     return message
 
@@ -88,7 +110,7 @@ def edit(session: Session, prospect: Prospect, message: ContactMessage) -> Messa
 
 
 def by_revision(
-    operation: Callable[[Session, ActorContext, uuid.UUID, ContactMessageStep, int], MessageResult],
+    operation: Callable[[Session, ActorContext, uuid.UUID, int, int], MessageResult],
 ) -> Action:
     def run(session: Session, prospect: Prospect, message: ContactMessage) -> MessageResult:
         return operation(session, OPERATOR, prospect.id, STEP, message.revision)
@@ -171,19 +193,23 @@ def test_a_new_message_takes_the_defaults_and_starts_as_a_draft(db_session: Sess
     assert "Objet" not in str(event.changes)
 
 
-def test_the_three_steps_are_independent_and_unique(db_session: Session) -> None:
+def test_the_steps_are_independent_and_unique(db_session: Session) -> None:
     prospect = prospect_with(db_session)
-    for step in ContactMessageStep:
+    for step in (0, 1, 2):
         create(db_session, prospect, step)
 
     read = service.prospect_messages(db_session, prospect.id, None)
-    assert [step for step, message in read.messages.items() if message] == list(ContactMessageStep)
+    assert [item.rank for item in read.messages if item.message] == [0, 1, 2]
+    # Every step up to R<max> is listed (4 by default), the empty ones without a message.
+    assert [item.step for item in read.messages] == ["contact", "r1", "r2", "r3", "r4"]
     # Saving without a revision again is a creation attempt: refused, the step exists.
     with pytest.raises(ContactMessageError) as refused:
-        service.save_message(db_session, OPERATOR, prospect.id, ContactMessageStep.R1, COMPLETE)
+        service.save_message(db_session, OPERATOR, prospect.id, 1, COMPLETE)
     assert code_of(refused) == "message_exists"
-    with rejected(db_session, "uq_contact_messages_prospect_id_step"):
-        db_session.add(ContactMessage(prospect_id=prospect.id, step=ContactMessageStep.R2))
+    sequence_id = read.context.sequence_id
+    assert sequence_id is not None
+    with rejected(db_session, "uq_contact_messages_sequence_id_rank"):
+        db_session.add(ContactMessage(prospect_id=prospect.id, sequence_id=sequence_id, rank=2))
 
 
 def test_editing_a_scheduled_message_sends_it_back_to_draft(db_session: Session) -> None:
@@ -343,7 +369,9 @@ def test_unknown_prospect_and_missing_message(db_session: Session) -> None:
     assert code_of(refused) == "message_not_found"
 
 
-@pytest.mark.parametrize("state", [S.RESPONSE_RECEIVED, S.APPOINTMENT_OBTAINED, S.IGNORED])
+@pytest.mark.parametrize(
+    "state", [S.RESPONSE_RECEIVED, S.APPOINTMENT_OBTAINED, S.IGNORED, S.DISQUALIFIED]
+)
 def test_a_closed_sequence_refuses_a_new_message(db_session: Session, state: S) -> None:
     prospect = prospect_with(db_session, state)
     with pytest.raises(ContactMessageError) as refused:
@@ -355,7 +383,7 @@ def test_closing_the_sequence_by_hand_keeps_unscheduling_and_cancelling(
     db_session: Session,
 ) -> None:
     prospect = prospect_with(db_session)
-    draft = create(db_session, prospect, ContactMessageStep.R1)
+    draft = create(db_session, prospect, 1)
     message = message_in(db_session, prospect, M.SCHEDULED)
     tracking = db_session.scalars(
         select(ContactTracking).where(ContactTracking.prospect_id == prospect.id)
@@ -390,7 +418,7 @@ def test_do_not_contact_cancels_the_unsent_messages_and_closes_the_sequence(
     [event] = audit_events(db_session, action="contact_message.cancelled")
     assert event.context["reason"] == "do_not_contact"
     with pytest.raises(ContactMessageError) as refused:
-        create(db_session, prospect, ContactMessageStep.R1)
+        create(db_session, prospect, 1)
     assert code_of(refused) == "prospect_do_not_contact"
     assert service.prospect_messages(db_session, prospect.id, None).context.closed
     # Idempotent: marking again finds nothing left to cancel.
@@ -404,7 +432,7 @@ def test_a_sequence_closing_state_cancels_the_unsent_messages(
 ) -> None:
     prospect = prospect_with(db_session)
     scheduled = message_in(db_session, prospect, M.SCHEDULED)
-    draft = create(db_session, prospect, ContactMessageStep.R1)
+    draft = create(db_session, prospect, 1)
 
     saved = apply_contact_tracking(db_session, OPERATOR, prospect.id, ContactTrackingInput(state))
 
@@ -421,14 +449,12 @@ def test_the_cancellation_spares_sent_cancelled_and_in_flight_messages(
 ) -> None:
     prospect = prospect_with(db_session)
     sent = message_in(db_session, prospect, M.SENT)
-    cancelled = create(db_session, prospect, ContactMessageStep.R1)
-    service.cancel(db_session, OPERATOR, prospect.id, ContactMessageStep.R1, 1)
-    claimed = create(db_session, prospect, ContactMessageStep.R2)
-    claimed = service.validate(
-        db_session, OPERATOR, prospect.id, ContactMessageStep.R2, claimed.revision
-    ).message
+    cancelled = create(db_session, prospect, 1)
+    service.cancel(db_session, OPERATOR, prospect.id, 1, 1)
+    claimed = create(db_session, prospect, 2)
+    claimed = service.validate(db_session, OPERATOR, prospect.id, 2, claimed.revision).message
     claimed = service.schedule(
-        db_session, OPERATOR, prospect.id, ContactMessageStep.R2, claimed.revision, LATER
+        db_session, OPERATOR, prospect.id, 2, claimed.revision, LATER
     ).message
     claimed.dispatch_claim_id = uuid.uuid4()
     claimed.dispatch_claimed_at = datetime.now(UTC)
@@ -444,7 +470,7 @@ def test_the_cancellation_spares_sent_cancelled_and_in_flight_messages(
         assert message.status is status
     # A claimed message is locked for people too.
     with pytest.raises(ContactMessageError) as refused:
-        service.cancel(db_session, OPERATOR, prospect.id, ContactMessageStep.R2, claimed.revision)
+        service.cancel(db_session, OPERATOR, prospect.id, 2, claimed.revision)
     assert code_of(refused) == "dispatch_in_progress"
 
 
@@ -453,12 +479,10 @@ def test_ignored_cancels_with_its_own_reason_and_counts_claimed_messages_once(
 ) -> None:
     prospect = prospect_with(db_session)
     draft = create(db_session, prospect)
-    claimed = create(db_session, prospect, ContactMessageStep.R1)
-    claimed = service.validate(
-        db_session, OPERATOR, prospect.id, ContactMessageStep.R1, claimed.revision
-    ).message
+    claimed = create(db_session, prospect, 1)
+    claimed = service.validate(db_session, OPERATOR, prospect.id, 1, claimed.revision).message
     claimed = service.schedule(
-        db_session, OPERATOR, prospect.id, ContactMessageStep.R1, claimed.revision, LATER
+        db_session, OPERATOR, prospect.id, 1, claimed.revision, LATER
     ).message
     claimed.dispatch_claim_id = uuid.uuid4()
     claimed.dispatch_claimed_at = datetime.now(UTC)
@@ -476,9 +500,9 @@ def test_ignored_cancels_with_its_own_reason_and_counts_claimed_messages_once(
 
 
 def test_other_state_changes_cancel_nothing(db_session: Session) -> None:
-    prospect = prospect_with(db_session, S.NEUTRAL)
+    prospect = prospect_with(db_session, None)
     create(db_session, prospect)
-    for state in (S.CONTACTED, S.R1, S.R2, S.FAILURE):
+    for state in (S.NEUTRAL, S.NEUTRAL):
         saved = apply_contact_tracking(
             db_session, OPERATOR, prospect.id, ContactTrackingInput(state)
         )
@@ -584,3 +608,267 @@ def test_an_identical_save_on_a_closed_sequence_changes_nothing(db_session: Sess
     with pytest.raises(ContactMessageError) as refused:
         edit(db_session, prospect, message)
     assert code_of(refused) == "prospect_sequence_closed"
+
+
+# --- sequences (rework D1, D3, D6) --------------------------------------------------------------
+
+
+def test_without_an_open_sequence_no_message_is_possible(db_session: Session) -> None:
+    prospect = prospect_with(db_session, in_cohort=False)
+
+    read = service.prospect_messages(db_session, prospect.id, None)
+    assert (read.context.sequence_id, read.context.closed) == (None, True)
+    assert all(item.message is None for item in read.messages)
+    with pytest.raises(ContactMessageError) as refused:
+        create(db_session, prospect)
+    assert code_of(refused) == "no_open_sequence"
+    with pytest.raises(ContactMessageError) as refused:
+        service.mark_sent(db_session, OPERATOR, prospect.id)
+    assert code_of(refused) == "no_open_sequence"
+
+
+def test_s0_is_out_of_campaign(db_session: Session) -> None:
+    prospect = prospect_with(db_session, in_cohort=False)
+    start_sequence(db_session, prospect, add_cohort(db_session, "S0"))
+
+    with pytest.raises(ContactMessageError) as refused:
+        create(db_session, prospect)
+    assert code_of(refused) == "out_of_campaign"
+
+
+def test_messages_belong_to_the_current_sequence_at_their_rank(db_session: Session) -> None:
+    prospect = prospect_with(db_session)
+    contact = create(db_session, prospect)
+    r2 = create(db_session, prospect, 2)
+
+    read = service.prospect_messages(db_session, prospect.id, None)
+    assert (contact.rank, r2.rank) == (0, 2)
+    assert contact.sequence_id == r2.sequence_id == read.context.sequence_id
+    assert (contact.step, r2.step) == ("contact", "r2")
+
+
+def test_mark_sent_records_the_next_step_and_keeps_its_text(db_session: Session) -> None:
+    prospect = prospect_with(db_session)
+    draft = create(db_session, prospect)
+    sent_at = datetime(2026, 9, 7, 9, 0, tzinfo=UTC)
+
+    result = service.mark_sent(db_session, OPERATOR, prospect.id, sent_at=sent_at)
+
+    assert result.created is False
+    assert result.message.id == draft.id
+    assert (result.message.status, result.message.sent_at, result.message.sent_source) == (
+        M.SENT,
+        sent_at,
+        SendSource.MANUAL,
+    )
+    assert result.message.subject == "Objet de test"
+    [event] = audit_events(db_session, action="contact_message.sent")
+    assert event.actor_id == OPERATOR.id
+    assert event.changes["sent_source"] == {"before": None, "after": "manual"}
+
+
+def test_mark_sent_without_a_message_creates_a_send_record(db_session: Session) -> None:
+    prospect = prospect_with(db_session)
+    first = service.mark_sent(
+        db_session, OPERATOR, prospect.id, sent_at=datetime(2026, 9, 7, 9, tzinfo=UTC)
+    )
+    second = service.mark_sent(
+        db_session, OPERATOR, prospect.id, sent_at=datetime(2026, 9, 14, 9, tzinfo=UTC)
+    )
+
+    assert (first.created, first.message.rank, first.message.subject) == (True, 0, "")
+    assert (second.created, second.message.rank) == (True, 1)
+    assert second.message.step == "r1"
+
+
+def test_mark_sent_refuses_a_future_or_out_of_order_moment(db_session: Session) -> None:
+    prospect = prospect_with(db_session)
+    now = datetime(2026, 9, 9, 12, tzinfo=UTC)
+    service.mark_sent(
+        db_session, OPERATOR, prospect.id, sent_at=datetime(2026, 9, 8, tzinfo=UTC), now=now
+    )
+
+    with pytest.raises(InvalidFieldError) as future:
+        service.mark_sent(
+            db_session, OPERATOR, prospect.id, sent_at=now + timedelta(hours=1), now=now
+        )
+    with pytest.raises(InvalidFieldError) as earlier:
+        service.mark_sent(
+            db_session, OPERATOR, prospect.id, sent_at=datetime(2026, 9, 7, tzinfo=UTC), now=now
+        )
+    with pytest.raises(InvalidFieldError) as naive:
+        service.mark_sent(
+            db_session, OPERATOR, prospect.id, sent_at=datetime(2026, 9, 8, 10), now=now
+        )
+
+    assert [error.value.reason for error in (future, earlier, naive)] == [
+        "in_future",
+        "before_previous_send",
+        "time_zone",
+    ]
+
+
+def test_mark_sent_is_a_person_s_declaration(db_session: Session) -> None:
+    prospect = prospect_with(db_session)
+    agent = ActorContext(type=ActorType.AGENT, display="Agent test", id="agent-1")
+
+    with pytest.raises(ActorNotAllowedError):
+        service.mark_sent(db_session, agent, prospect.id)
+
+
+@pytest.mark.parametrize("state", [S.RESPONSE_RECEIVED, S.DISQUALIFIED])
+def test_mark_sent_refuses_a_closed_sequence(db_session: Session, state: S) -> None:
+    prospect = prospect_with(db_session, state)
+
+    with pytest.raises(ContactMessageError) as refused:
+        service.mark_sent(db_session, OPERATOR, prospect.id)
+    assert code_of(refused) == "prospect_sequence_closed"
+
+
+def test_mark_sent_rechecks_the_sequence_once_locked(db_session: Session) -> None:
+    """A change of cohort committed between the read of the context and the lock: the send is
+    refused instead of landing in the closed sequence."""
+    prospect = prospect_with(db_session)
+    stale = service.sequence_context(db_session, prospect.id)
+    contact_sequences.change_cohort(db_session, OPERATOR, prospect.id, None)
+
+    with pytest.raises(ContactMessageError) as refused:
+        service._next_send(db_session, stale)
+    assert code_of(refused) == "no_open_sequence"
+
+
+def test_mark_sent_refuses_a_message_being_sent(db_session: Session) -> None:
+    prospect = prospect_with(db_session)
+    message = message_in(db_session, prospect, M.SCHEDULED)
+    message.dispatch_claim_id = uuid.uuid4()
+    message.dispatch_claimed_at = datetime.now(UTC)
+    db_session.flush()
+
+    with pytest.raises(ContactMessageError) as refused:
+        service.mark_sent(db_session, OPERATOR, prospect.id)
+    assert code_of(refused) == "dispatch_in_progress"
+
+
+def test_the_database_requires_a_source_with_a_send(db_session: Session) -> None:
+    prospect = prospect_with(db_session)
+    message = create(db_session, prospect)
+
+    with rejected(db_session, "ck_contact_messages_sent_has_source"):
+        message.status = M.SENT
+        message.sent_at = datetime.now(UTC)
+    db_session.refresh(message)
+    # A dispatcher send needs the human validation; a manual one does not.
+    with rejected(db_session, "ck_contact_messages_validation_current"):
+        message.status = M.SENT
+        message.sent_at = datetime.now(UTC)
+        message.sent_source = SendSource.WORKER
+
+
+def test_a_draft_can_be_deleted_and_the_step_written_again(db_session: Session) -> None:
+    prospect = prospect_with(db_session)
+    draft = create(db_session, prospect)
+
+    service.delete_draft(db_session, OPERATOR, prospect.id, STEP, draft.revision)
+
+    assert (
+        db_session.scalar(select(ContactMessage).where(ContactMessage.prospect_id == prospect.id))
+        is None
+    )
+    again = create(db_session, prospect)
+    assert again.status is M.DRAFT
+
+
+def test_a_validated_or_cancelled_message_can_be_deleted(db_session: Session) -> None:
+    prospect = prospect_with(db_session)
+    message = create(db_session, prospect)
+    service.validate(db_session, OPERATOR, prospect.id, STEP, message.revision)
+    db_session.refresh(message)
+    message_id = message.id
+
+    service.delete_draft(db_session, OPERATOR, prospect.id, STEP, message.revision)
+    assert db_session.get(ContactMessage, message_id) is None
+
+    again = create(db_session, prospect)
+    service.cancel(db_session, OPERATOR, prospect.id, STEP, again.revision)
+    db_session.refresh(again)
+    again_id = again.id
+    service.delete_draft(db_session, OPERATOR, prospect.id, STEP, again.revision)
+    assert db_session.get(ContactMessage, again_id) is None
+
+
+def test_a_scheduled_message_is_not_deleted_it_is_unscheduled_or_cancelled(
+    db_session: Session,
+) -> None:
+    prospect = prospect_with(db_session)
+    message = create(db_session, prospect)
+    service.validate(db_session, OPERATOR, prospect.id, STEP, message.revision)
+    db_session.refresh(message)
+    scheduled = schedule(db_session, prospect, message).message
+
+    with pytest.raises(ContactMessageError) as refused:
+        service.delete_draft(db_session, OPERATOR, prospect.id, STEP, scheduled.revision)
+
+    assert code_of(refused) == "invalid_transition"
+    assert db_session.get(ContactMessage, scheduled.id) is not None
+
+
+def test_deleting_a_draft_follows_the_revision_and_needs_a_person(db_session: Session) -> None:
+    prospect = prospect_with(db_session)
+    draft = create(db_session, prospect)
+
+    with pytest.raises(ContactMessageError) as stale:
+        service.delete_draft(db_session, OPERATOR, prospect.id, STEP, draft.revision + 1)
+    assert code_of(stale) == "revision_conflict"
+    agent = ActorContext(type=ActorType.AGENT, display="Agent", id="agent.test")
+    with pytest.raises(ActorNotAllowedError):
+        service.delete_draft(db_session, agent, prospect.id, STEP, draft.revision)
+    assert db_session.get(ContactMessage, draft.id) is not None
+
+
+def test_a_person_reviews_the_text_without_changing_anything_else(db_session: Session) -> None:
+    prospect = prospect_with(db_session)
+    message = message_in(db_session, prospect, M.SCHEDULED)
+
+    result = service.review(db_session, OPERATOR, prospect.id, STEP, 1, "correct").message
+
+    assert (result.review_verdict, result.reviewed_revision) == ("correct", 1)
+    assert result.reviewed_by_display == OPERATOR.display
+    assert (result.status, result.revision, result.scheduled_at) == (M.SCHEDULED, 1, LATER)
+    assert message.id == result.id
+
+    revised = service.review(db_session, OPERATOR, prospect.id, STEP, 1, "to_revise").message
+    assert revised.review_verdict == "to_revise"
+    taken_back = service.review(db_session, OPERATOR, prospect.id, STEP, 1, None).message
+    assert (taken_back.review_verdict, taken_back.reviewed_revision, taken_back.reviewed_at) == (
+        None,
+        None,
+        None,
+    )
+
+
+def test_a_review_is_refused_for_a_sent_message_a_stale_revision_and_a_bad_verdict(
+    db_session: Session,
+) -> None:
+    prospect = prospect_with(db_session)
+    message_in(db_session, prospect, M.VALIDATED)
+
+    with pytest.raises(ContactMessageError) as stale:
+        service.review(db_session, OPERATOR, prospect.id, STEP, 9, "correct")
+    assert code_of(stale) == "revision_conflict"
+    with pytest.raises(ContactMessageError) as bad:
+        service.review(db_session, OPERATOR, prospect.id, STEP, 1, "perfect")
+    assert code_of(bad) == "invalid_review_verdict"
+
+    sent = prospect_with(db_session)
+    message_in(db_session, sent, M.SENT)
+    with pytest.raises(ContactMessageError) as immutable:
+        service.review(db_session, OPERATOR, sent.id, STEP, 1, "correct")
+    assert code_of(immutable) == "message_sent_immutable"
+
+
+def test_only_a_person_reviews(db_session: Session) -> None:
+    prospect = prospect_with(db_session)
+    message_in(db_session, prospect, M.VALIDATED)
+    robot = ActorContext(type=ActorType.SYSTEM, display="Robot", id="robot")
+    with pytest.raises(ActorNotAllowedError):
+        service.review(db_session, robot, prospect.id, STEP, 1, "correct")

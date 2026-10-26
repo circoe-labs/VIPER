@@ -24,6 +24,7 @@ const CODE_LABELS: Record<string, string> = {
   'company.variant_in_file': 'Entreprise écrite autrement',
   'company.field_conflict': 'Valeurs d’entreprise différentes',
   'civility.invalid': 'Civilité non reconnue',
+  'role.missing': 'Fonction manquante',
   'role.suggested': 'Rôle proposé',
   'role.unmatched': 'Rôle non reconnu',
   'role.inactive_match': 'Rôle désactivé',

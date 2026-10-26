@@ -64,7 +64,7 @@ const region = (name: string) => screen.getByRole('region', { name })
 
 describe('Prospect editor — Profil summary', () => {
   it('reads a complete profile at a glance: name, role · company, e-mail, phone, tracking state', async () => {
-    await open(complete({ tracking: trackingDetail({ status: 'contacted' }) }))
+    await open(complete({ tracking: trackingDetail({ status: 'response_received' }) }))
 
     const summary = region('Résumé du profil')
     expect(summary).toHaveTextContent('M. Jean Exemple')
@@ -73,11 +73,11 @@ describe('Prospect editor — Profil summary', () => {
     })
     expect(summary).toHaveTextContent('jean@exemple.example')
     expect(summary).toHaveTextContent('+33 6 12 34 56 78')
-    expect(summary).toHaveTextContent('Contacté')
+    expect(summary).toHaveTextContent('Réponse reçue')
     expect(summary).not.toHaveTextContent('Ne pas contacter')
     // Read view: no input anywhere in the Profil sections, every section offers « Modifier ».
     expect(screen.queryByRole('textbox')).toBeNull()
-    for (const name of ['Identité', 'E-mails', 'Téléphones', 'Emploi']) {
+    for (const name of ['Identité', 'Coordonnées', 'Emploi']) {
       expect(within(region(name)).getByRole('button', { name: `Modifier : ${name}` })).toBeInTheDocument()
     }
   })
@@ -132,27 +132,28 @@ describe('Prospect editor — Profil summary', () => {
     expect(summary).toHaveTextContent('prenom.nom.tres.long.')
   })
 
-  it('shows the secondary employment verification in Emploi, without a card of its own', async () => {
+  it('has no employment-verification block, nor an Opposition box, and groups the contact details in one card', async () => {
     await open(complete({ employment_imported_unverified: true }))
 
+    expect(screen.queryByRole('group', { name: 'Vérification de l’emploi' })).toBeNull()
     expect(screen.queryByRole('region', { name: 'Vérification de l’emploi' })).toBeNull()
-    const verification = within(region('Emploi')).getByRole('group', { name: 'Vérification de l’emploi' })
-    expect(verification).toHaveTextContent('Valeurs importées, jamais vérifiées')
-    expect(within(verification).getByRole('button', { name: 'Vérifié aujourd’hui' })).toBeInTheDocument()
-    // The date input is an edit-mode field.
-    expect(within(verification).queryByLabelText('ou vérifié le')).toBeNull()
-    await editSection('Emploi')
-    expect(within(verification).getByLabelText('ou vérifié le')).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Opposition' })).toBeNull()
+    // E-mails and phones live in « Coordonnées », at the level of Identité and Emploi.
+    const top = region('Identité').parentElement
+    expect(top).toBe(region('Emploi').parentElement)
+    expect(top).toBe(region('Coordonnées').parentElement)
+    expect(within(region('Coordonnées')).getByRole('region', { name: 'E-mails' })).toBeInTheDocument()
+    expect(within(region('Coordonnées')).getByRole('region', { name: 'Téléphones' })).toBeInTheDocument()
   })
 
-  it('holds the score card in the right column, above the Emploi section', async () => {
+  it('holds the score card below the identity row, beside the company', async () => {
     await open(complete())
 
     const slot = document.querySelector('[data-slot="prospect-score"]')
     expect(slot).not.toBeNull()
     expect(slot?.closest('.prospect-editor__side')).not.toBeNull()
     expect(within(slot as HTMLElement).getByRole('region', { name: 'Score prospect' })).toBeInTheDocument()
-    expect(slot?.nextElementSibling).toBe(region('Emploi'))
+    expect(slot?.nextElementSibling).toBe(region('Entreprise'))
   })
 })
 
@@ -168,7 +169,7 @@ describe('Prospect editor — read, edit, save, read', () => {
     await userEvent.type(first, 'Jeanne')
     // The summary is the same draft: it follows the typing, and the footer says it is not saved.
     expect(region('Résumé du profil')).toHaveTextContent('M. Jeanne Exemple')
-    expect(screen.getByRole('status')).toHaveTextContent('Modifications non enregistrées')
+    expect(screen.getByRole('status', { name: 'Enregistrement de la fiche' })).toHaveTextContent('Modifications non enregistrées')
 
     await userEvent.click(screen.getByRole('button', { name: 'Enregistrer' }))
     await screen.findByText('Prospect enregistré.')
@@ -188,7 +189,7 @@ describe('Prospect editor — read, edit, save, read', () => {
 
     expect(screen.queryByRole('textbox', { name: 'Nom' })).toBeNull()
     expect(region('Identité')).toHaveTextContent('Exemple-Test')
-    expect(screen.getByRole('status')).toHaveTextContent('Modifications non enregistrées')
+    expect(screen.getByRole('status', { name: 'Enregistrement de la fiche' })).toHaveTextContent('Modifications non enregistrées')
     expect(within(region('Identité')).getByRole('button', { name: 'Modifier : Identité' })).toHaveFocus()
   })
 
@@ -226,7 +227,7 @@ describe('Prospect editor — Profil and Suivi tabs', () => {
     expect(screen.getByRole('tabpanel')).toHaveAccessibleName('Suivi')
     expect(region('Suivi de contact')).toBeInTheDocument()
     expect(screen.queryByRole('region', { name: 'Identité' })).toBeNull()
-    for (const name of ['Notes', 'Opposition', 'Provenance']) expect(region(name)).toBeInTheDocument()
+    for (const name of ['Notes', 'Provenance']) expect(region(name)).toBeInTheDocument()
 
     await userEvent.keyboard('{Home}')
     expect(screen.getByRole('tab', { name: 'Profil' })).toHaveAttribute('aria-selected', 'true')
@@ -237,7 +238,7 @@ describe('Prospect editor — Profil and Suivi tabs', () => {
   it('marks an inactive tab that holds unsaved changes, then clears the mark once saved', async () => {
     await open(complete())
     await showTab('Suivi')
-    await userEvent.selectOptions(within(region('Suivi de contact')).getByRole('combobox', { name: 'État' }), 'R1')
+    await userEvent.selectOptions(within(region('Suivi de contact')).getByRole('combobox', { name: 'État commercial' }), 'Réponse reçue')
     await showTab('Profil')
 
     expect(screen.getByRole('tab', { name: /^Suivi.*modifications non enregistrées/ })).toBeInTheDocument()
@@ -249,7 +250,7 @@ describe('Prospect editor — Profil and Suivi tabs', () => {
   })
 
   it('brings a refused field of the other tab into view: its tab, then the field with the focus', async () => {
-    const { api } = await open(complete({ tracking: trackingDetail({ status: 'contacted' }) }))
+    const { api } = await open(complete({ tracking: trackingDetail({ status: 'response_received' }) }))
     await showTab('Suivi')
     await userEvent.type(within(region('Suivi de contact')).getByLabelText('à'), '10:30')
     await showTab('Profil')
@@ -264,7 +265,7 @@ describe('Prospect editor — Profil and Suivi tabs', () => {
   })
 
   it('flags the tab that still has an error when two tabs have one, and opens the first in edit', async () => {
-    await open(complete({ tracking: trackingDetail({ status: 'contacted' }) }))
+    await open(complete({ tracking: trackingDetail({ status: 'response_received' }) }))
     await editSection('Identité')
     await userEvent.clear(screen.getByRole('textbox', { name: 'Prénom' }))
     await userEvent.clear(screen.getByRole('textbox', { name: 'Nom' }))
@@ -277,7 +278,7 @@ describe('Prospect editor — Profil and Suivi tabs', () => {
     const last = await screen.findByRole('textbox', { name: 'Nom' })
     expect(last).toHaveFocus()
     expect(screen.getByRole('tab', { name: /^Suivi.*champs à corriger/ })).toBeInTheDocument()
-    expect(screen.getByRole('status')).toHaveTextContent('Corrigez les 2 champs signalés.')
+    expect(screen.getByRole('status', { name: 'Enregistrement de la fiche' })).toHaveTextContent('Corrigez les 2 champs signalés.')
     // The section with an error cannot be closed.
     expect(within(region('Identité')).queryByRole('button', { name: 'Terminer : Identité' })).toBeNull()
   })

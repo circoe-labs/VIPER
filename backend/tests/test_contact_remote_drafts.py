@@ -17,7 +17,6 @@ from sqlalchemy.orm import Session, sessionmaker
 from app import cli
 from app.core.config import Settings, allowlist_permits
 from app.models import AuditLogEntry, ContactMessage, ContactMessageRemoteDraftCleanup, Prospect
-from app.models.enums import ContactMessageStep, ContactTrackingStatus
 from app.services import audit, contact_messages, contact_remote_drafts
 from app.services.contact_messages import GeneratedContent
 from app.services.contact_remote_drafts import PROVIDER, backoff, process_cleanups
@@ -352,7 +351,7 @@ def test_an_edit_during_the_creation_queues_the_new_draft(
 def test_edits_and_cancellations_queue_the_old_draft(
     connected: TestClient, fake: FakeToolbox, db_session: Session
 ) -> None:
-    prospect = prospect_id(db_session, ContactTrackingStatus.CONTACTED)
+    prospect = prospect_id(db_session)
     first = validated(connected, prospect)["message"]
     first_draft = remote_id(db_session, first["id"])
     path = f"{messages(prospect)}/contact"
@@ -545,14 +544,18 @@ def test_deleting_the_prospect_queues_its_drafts(
 
 def test_a_sent_message_deleted_queues_nothing(db_session: Session) -> None:
     prospect = prospect_id(db_session)
+    sequence = db_session.execute(
+        text("SELECT id FROM contact_sequences WHERE prospect_id = :p"), {"p": prospect}
+    ).scalar_one()
     db_session.execute(
         text(
-            "INSERT INTO contact_messages (prospect_id, step, status, from_email, subject, "
-            "body_text, revision, validated_revision, validated_at, validated_by_actor_id, "
-            "sent_at, remote_provider, remote_draft_id) VALUES (:p, 'contact', 'sent', "
-            "'a@ex.example', 's', 'b', 1, 1, now(), 'x', now(), 'circoe_toolbox', 'draft-sent')"
+            "INSERT INTO contact_messages (prospect_id, sequence_id, rank, status, from_email, "
+            "subject, body_text, revision, validated_revision, validated_at, "
+            "validated_by_actor_id, sent_at, sent_source, remote_provider, remote_draft_id) "
+            "VALUES (:p, :s, 0, 'sent', 'a@ex.example', 's', 'b', 1, 1, now(), 'x', now(), "
+            "'manual', 'circoe_toolbox', 'draft-sent')"
         ),
-        {"p": prospect},
+        {"p": prospect, "s": sequence},
     )
     db_session.execute(text("DELETE FROM prospects WHERE id = :p"), {"p": prospect})
     assert queue(db_session) == []
@@ -562,7 +565,7 @@ def test_an_ai_redraft_the_opposition_and_a_reopening_queue_or_keep_the_old_draf
     connected: TestClient, toolbox_app: FastAPI, db_session: Session
 ) -> None:
     # AI redraft (S5 `save_generated`) of a validated message: its draft is queued as edited.
-    prospect = prospect_id(db_session, ContactTrackingStatus.CONTACTED)
+    prospect = prospect_id(db_session)
     first = validated(connected, prospect)["message"]
     first_draft = remote_id(db_session, first["id"])
     factory: sessionmaker[Session] = toolbox_app.state.session_factory
@@ -572,7 +575,7 @@ def test_an_ai_redraft_the_opposition_and_a_reopening_queue_or_keep_the_old_draf
             session,
             OPERATOR,
             prospect,
-            ContactMessageStep.CONTACT,
+            0,
             GeneratedContent("IA", "Corps IA", "fake-model", "v1"),
             1,
         )

@@ -8,10 +8,27 @@ from collections.abc import Iterator
 
 import pytest
 from alembic import command
-from sqlalchemy import Engine, text
+from sqlalchemy import Connection, Engine, text
 from sqlalchemy.exc import IntegrityError
 
 from tests.support import alembic_config, reset_database
+
+
+def in_a_sequence(connection: Connection, prospect: object) -> object:
+    """A current sequence of `prospect` in a cohort (messages belong to one since 0012)."""
+    cohort = connection.execute(
+        text(
+            "INSERT INTO cohorts (code, starts_on) VALUES ('S77', '2026-10-05') "
+            "ON CONFLICT (code) DO UPDATE SET code = excluded.code RETURNING id"
+        )
+    ).scalar_one()
+    return connection.execute(
+        text(
+            "INSERT INTO contact_sequences (prospect_id, cohort_id) VALUES (:id, :cohort) "
+            "RETURNING id"
+        ),
+        {"id": prospect, "cohort": cohort},
+    ).scalar_one()
 
 
 @pytest.fixture
@@ -40,10 +57,10 @@ def test_0010_invariants(engine: Engine) -> None:
         ).scalar_one()
         message = connection.execute(
             text(
-                "INSERT INTO contact_messages (prospect_id, step) VALUES (:p, 'contact') "
-                "RETURNING id"
+                "INSERT INTO contact_messages (prospect_id, sequence_id, rank) "
+                "VALUES (:p, :s, 0) RETURNING id"
             ),
-            {"p": prospect},
+            {"p": prospect, "s": in_a_sequence(connection, prospect)},
         ).scalar_one()
         insert = text(
             "INSERT INTO contact_message_remote_draft_cleanups "

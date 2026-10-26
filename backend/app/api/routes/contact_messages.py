@@ -1,11 +1,19 @@
 """Contact messages API (`/api/prospects/{id}/messages`, Contact port Slice S3; handoff Task 12).
 
 Thin routes over `app.services.contact_messages` (the state machine, its rules and refusal
-codes). No route writes a status directly and none marks a message `sent`: that is the
-dispatcher's internal operation (S7).
+codes). The steps are the ranks of the prospect's current open sequence (sequences rework D6),
+named `contact` (0), `r1`, `r2` … `r<max>` (« max relances », sequences rework S3).
+No route writes a status directly; « Marquer comme envoyé » is the explicit human declaration of
+a real send (the dispatcher, S7, marks its own).
 
-- `GET  …/messages`                  the three steps (always Contact, R1, R2), the defaults of a
-                                     new message and whether the sequence is closed;
+- `GET  …/messages`                  every step from Contact to R<max> of the current sequence
+                                     (plus a message kept beyond a lowered maximum), the defaults of
+                                     a new message, the level and whether the sequence is closed
+                                     (no cohort, S0, state, opposition);
+- `POST …/messages/mark-sent`        the next step was really sent (`sent_at`, default now): the
+                                     step's message becomes the send, or a send record is created;
+                                     `rank` required (a replay answers the recorded send), the seen
+                                     `sequence_id` checked (409 `sequence_changed`);
 - `GET  …/messages/{step}`           one step's message (null when never created);
 - `PUT  …/messages/{step}`           create (no `expected_revision`, 201) or edit the content (200);
 - `POST …/messages/{step}/validate|schedule|unschedule|cancel|reopen` with `expected_revision`;
@@ -27,9 +35,9 @@ and nothing leaves VIPER.
 
 import uuid
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi import APIRouter, Depends, Path, Request, Response, status
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -37,10 +45,15 @@ from app.api.dependencies import CurrentActor, SessionDep, SettingsDep
 from app.api.errors import business_errors
 from app.core.actor import ActorContext
 from app.core.config import Settings
+from app.core.contact_steps import STEP_CODE_PATTERN, parse_step, step_code, step_label
 from app.db.session import unit_of_work
 from app.models import ContactMessage
 from app.models.contact_messages import EMAIL_MAX_LENGTH, SUBJECT_MAX_LENGTH
-from app.models.enums import ContactMessageStatus, ContactMessageStep, ContactTrackingStatus
+from app.models.enums import (
+    ContactMessageStatus,
+    ContactTrackingStatus,
+    SendSource,
+)
 from app.services import audit
 from app.services import contact_dispatch as dispatch
 from app.services import contact_mail_generation as generation
@@ -71,6 +84,16 @@ Address = Annotated[str, StringConstraints(max_length=EMAIL_MAX_LENGTH)]
 Addresses = Annotated[list[Address], Field(max_length=MAX_RECIPIENTS)]
 BODY_MAX_LENGTH = 100_000
 Revision = Annotated[int, Field(ge=1)]
+# `contact`, `r1` … `r99`; a rank beyond « max relances » is refused by the service.
+StepPath = Annotated[
+    str, Path(pattern=STEP_CODE_PATTERN, description="`contact`, `r1`, `r2`… (up to R<max>)")
+]
+
+
+def rank_of(step: str) -> int:
+    rank = parse_step(step)
+    assert rank is not None  # the path pattern checked it
+    return rank
 
 
 class StrictModel(BaseModel):
@@ -101,10 +124,27 @@ class ScheduleIn(RevisionIn):
     scheduled_at: AwareDatetime
 
 
+class MarkSentIn(StrictModel):
+    # The step the person saw as next (0 = Contact, n = Rn), required: a replay of an already
+    # recorded rank answers that send (200, `changed: false`) instead of recording another one;
+    # another unsent rank than the next is refused (409 `rank_not_next`).
+    rank: Annotated[int, Field(ge=0)]
+    # The open sequence the person saw (the UI always sends it): another one — the cohort changed
+    # meanwhile — is refused (409 `sequence_changed`).
+    sequence_id: uuid.UUID | None = None
+    # When the mail left (ISO 8601 with a time zone); omitted: now. Never in the future, never
+    # before the sequence's previous send.
+    sent_at: AwareDatetime | None = None
+
+
 class MessageOut(BaseModel):
     id: uuid.UUID
     prospect_id: uuid.UUID
-    step: ContactMessageStep
+    sequence_id: uuid.UUID
+    # 0 = Contact, n = Rn; `step` its code (`contact`, `r3`), `step_label` « Contact », « R3 ».
+    rank: int
+    step: str
+    step_label: str
     status: ContactMessageStatus
     from_email: str | None
     to: list[str]
@@ -116,8 +156,13 @@ class MessageOut(BaseModel):
     validated_revision: int | None
     validated_at: datetime | None
     validated_by: str | None
+    # A person's verdict on this very text (`correct` / `to_revise`); null once the text changed.
+    review_verdict: str | None
+    reviewed_at: datetime | None
+    reviewed_by: str | None
     scheduled_at: datetime | None
     sent_at: datetime | None
+    sent_source: SendSource | None
     cancelled_at: datetime | None
     cancel_reason: str | None
     generation_model: str | None
@@ -139,8 +184,21 @@ class SequenceOut(BaseModel):
     # The prospect's Contact state; null without a tracking.
     state: ContactTrackingStatus | None
     do_not_contact: bool
-    # Closed: no message may be created, edited, validated, scheduled or reopened.
+    # The open current sequence the steps belong to; null without one (no cohort, or closed).
+    sequence_id: uuid.UUID | None
+    out_of_campaign: bool
+    # Closed: no message may be created, edited, validated, scheduled, reopened or marked sent.
     closed: bool
+    # « Max relances »: the steps go from Contact (0) to R<max>.
+    max_follow_ups: int
+    # Real sends of the current sequence, the step to send next (null when finished or without
+    # cohort), « Relance terminée », the level label (« R2 », « Relance terminée ») and key.
+    sent_count: int
+    next_rank: int | None
+    next_step: str | None
+    finished: bool
+    level_label: str | None
+    level: str | None
 
 
 class DefaultsOut(BaseModel):
@@ -167,7 +225,9 @@ class DefaultsOut(BaseModel):
 
 
 class StepOut(BaseModel):
-    step: ContactMessageStep
+    rank: int
+    step: str
+    label: str
     message: MessageOut | None
 
 
@@ -235,10 +295,17 @@ MailGeneratorDep = Annotated[MailGenerator | None, Depends(get_mail_generator)]
 
 
 def message_out(message: ContactMessage) -> MessageOut:
+    # A verdict belongs to the revision it was given on: an edited or regenerated text starts clean.
+    current_review = (
+        message.review_verdict if message.reviewed_revision == message.revision else None
+    )
     return MessageOut(
         id=message.id,
         prospect_id=message.prospect_id,
+        sequence_id=message.sequence_id,
+        rank=message.rank,
         step=message.step,
+        step_label=step_label(message.rank),
         status=message.status,
         from_email=message.from_email,
         to=list(message.to_recipients),
@@ -250,8 +317,12 @@ def message_out(message: ContactMessage) -> MessageOut:
         validated_revision=message.validated_revision,
         validated_at=message.validated_at,
         validated_by=message.validated_by_display,
+        review_verdict=current_review,
+        reviewed_at=message.reviewed_at if current_review else None,
+        reviewed_by=message.reviewed_by_display if current_review else None,
         scheduled_at=message.scheduled_at,
         sent_at=message.sent_at,
+        sent_source=message.sent_source,
         cancelled_at=message.cancelled_at,
         cancel_reason=message.cancel_reason,
         generation_model=message.generation_model,
@@ -285,12 +356,22 @@ def list_messages(
     toolbox_state = request.app.state.toolbox.status().state
     reason = sending_reason(request.app.state)
     context = read.context
+    progress = read.place.progress
     return MessagesOut(
         sequence=SequenceOut(
             prospect_id=context.prospect_id,
             state=context.state,
             do_not_contact=context.do_not_contact,
+            sequence_id=context.sequence_id,
+            out_of_campaign=context.out_of_campaign,
             closed=context.closed,
+            max_follow_ups=context.max_follow_ups,
+            sent_count=progress.sent_count,
+            next_rank=progress.next_rank,
+            next_step=step_code(progress.next_rank) if progress.next_rank is not None else None,
+            finished=progress.finished,
+            level_label=progress.level_label,
+            level=progress.level,
         ),
         defaults=DefaultsOut(
             from_email=read.defaults.from_email,
@@ -304,25 +385,55 @@ def list_messages(
             dispatch_claim_ttl_seconds=int(settings.contact_dispatch_claim_ttl.total_seconds()),
         ),
         steps=[
-            StepOut(step=step, message=message_out(message) if message else None)
-            for step, message in read.messages.items()
+            StepOut(
+                rank=item.rank,
+                step=item.step,
+                label=item.label,
+                message=message_out(item.message) if item.message else None,
+            )
+            for item in read.messages
         ],
     )
 
 
-@router.get("/{step}")
-def get_message(
-    prospect_id: uuid.UUID, step: ContactMessageStep, session: SessionDep
-) -> StepMessageOut:
+@router.post("/mark-sent")
+def mark_sent(
+    prospect_id: uuid.UUID,
+    body: MarkSentIn,
+    response: Response,
+    session: SessionDep,
+    actor: CurrentActor,
+) -> MessageResultOut:
+    """« Marquer comme envoyé » (D3): the next step of the open sequence was really sent — its
+    message becomes the send (200), or a send record without text is created (201). The level
+    moves by one (D1). A replay of `rank` answers the recorded send (200, `changed: false`); a
+    `sequence_id` other than the open one is refused (409 `sequence_changed`)."""
     with business_errors():
-        message = service.get_message(session, prospect_id, step)
+        result = service.mark_sent(
+            session,
+            actor,
+            prospect_id,
+            rank=body.rank,
+            sent_at=body.sent_at,
+            now=datetime.now(UTC),
+            sequence_id=body.sequence_id,
+        )
+    if result.created:
+        response.status_code = status.HTTP_201_CREATED
+    return result_out(result)
+
+
+@router.get("/{step}")
+def get_message(prospect_id: uuid.UUID, step: StepPath, session: SessionDep) -> StepMessageOut:
+    with business_errors():
+        message = service.get_message(session, prospect_id, rank_of(step))
     return StepMessageOut(message=message_out(message) if message else None)
 
 
 @router.put("/{step}")
 def save_message(
     prospect_id: uuid.UUID,
-    step: ContactMessageStep,
+    step: StepPath,
     body: MessageContentIn,
     response: Response,
     session: SessionDep,
@@ -343,7 +454,12 @@ def save_message(
     )
     with business_errors():
         result = service.save_message(
-            session, actor, prospect_id, step, edit, default_from=settings.default_outbound_email
+            session,
+            actor,
+            prospect_id,
+            rank_of(step),
+            edit,
+            default_from=settings.default_outbound_email,
         )
     if result.created:
         response.status_code = status.HTTP_201_CREATED
@@ -390,7 +506,7 @@ def _with_remote_draft(
 @router.post("/{step}/validate")
 def validate(
     prospect_id: uuid.UUID,
-    step: ContactMessageStep,
+    step: StepPath,
     body: RevisionIn,
     request: Request,
     session: SessionDep,
@@ -398,14 +514,38 @@ def validate(
 ) -> RemoteDraftResultOut:
     """Human validation; then the Infomaniak draft when the Toolbox is connected (S6)."""
     with business_errors():
-        result = service.validate(session, actor, prospect_id, step, body.expected_revision)
+        result = service.validate(
+            session, actor, prospect_id, rank_of(step), body.expected_revision
+        )
     return _with_remote_draft(request, session, actor, result)
+
+
+class ReviewIn(StrictModel):
+    expected_revision: Revision
+    # `correct`, `to_revise`, or null to take the verdict back.
+    verdict: Literal["correct", "to_revise"] | None
+
+
+@router.post("/{step}/review")
+def review(
+    prospect_id: uuid.UUID,
+    step: StepPath,
+    body: ReviewIn,
+    session: SessionDep,
+    actor: CurrentActor,
+) -> MessageResultOut:
+    """« Relu »: a person's verdict on the AI text of this revision. Nothing else changes."""
+    with business_errors():
+        result = service.review(
+            session, actor, prospect_id, rank_of(step), body.expected_revision, body.verdict
+        )
+    return result_out(result)
 
 
 @router.post("/{step}/schedule")
 def schedule(
     prospect_id: uuid.UUID,
-    step: ContactMessageStep,
+    step: StepPath,
     body: ScheduleIn,
     request: Request,
     session: SessionDep,
@@ -417,7 +557,7 @@ def schedule(
             session,
             actor,
             prospect_id,
-            step,
+            rank_of(step),
             body.expected_revision,
             body.scheduled_at,
             now=datetime.now(UTC),
@@ -428,7 +568,7 @@ def schedule(
 @router.post("/{step}/remote-draft")
 def retry_remote_draft(
     prospect_id: uuid.UUID,
-    step: ContactMessageStep,
+    step: StepPath,
     body: RevisionIn,
     request: Request,
     session: SessionDep,
@@ -440,16 +580,16 @@ def retry_remote_draft(
     integration: ToolboxIntegration = request.app.state.toolbox
     with business_errors():
         result = service.remote_draft_target(
-            session, actor, prospect_id, step, body.expected_revision
+            session, actor, prospect_id, rank_of(step), body.expected_revision
         )
         integration.required_mail_toolbox()
     return _with_remote_draft(request, session, actor, result)
 
 
 @router.post("/{step}/mark-sent")
-def mark_sent(
+def mark_unconfirmed_sent(
     prospect_id: uuid.UUID,
-    step: ContactMessageStep,
+    step: StepPath,
     body: RevisionIn,
     session: SessionDep,
     settings: SettingsDep,
@@ -462,7 +602,7 @@ def mark_sent(
             session,
             actor,
             prospect_id,
-            step,
+            rank_of(step),
             body.expected_revision,
             claim_ttl=settings.contact_dispatch_claim_ttl,
         )
@@ -472,7 +612,7 @@ def mark_sent(
 @router.post("/{step}/release")
 def release(
     prospect_id: uuid.UUID,
-    step: ContactMessageStep,
+    step: StepPath,
     body: RevisionIn,
     session: SessionDep,
     settings: SettingsDep,
@@ -485,7 +625,7 @@ def release(
             session,
             actor,
             prospect_id,
-            step,
+            rank_of(step),
             body.expected_revision,
             claim_ttl=settings.contact_dispatch_claim_ttl,
         )
@@ -495,46 +635,67 @@ def release(
 @router.post("/{step}/unschedule")
 def unschedule(
     prospect_id: uuid.UUID,
-    step: ContactMessageStep,
+    step: StepPath,
     body: RevisionIn,
     session: SessionDep,
     actor: CurrentActor,
 ) -> MessageResultOut:
     with business_errors():
-        result = service.unschedule(session, actor, prospect_id, step, body.expected_revision)
+        result = service.unschedule(
+            session, actor, prospect_id, rank_of(step), body.expected_revision
+        )
     return result_out(result)
 
 
 @router.post("/{step}/cancel")
 def cancel(
     prospect_id: uuid.UUID,
-    step: ContactMessageStep,
+    step: StepPath,
     body: RevisionIn,
     session: SessionDep,
     actor: CurrentActor,
 ) -> MessageResultOut:
     with business_errors():
-        result = service.cancel(session, actor, prospect_id, step, body.expected_revision)
+        result = service.cancel(session, actor, prospect_id, rank_of(step), body.expected_revision)
     return result_out(result)
+
+
+class DeletedOut(BaseModel):
+    deleted: bool
+    step: str
+
+
+@router.post("/{step}/delete")
+def delete_draft(
+    prospect_id: uuid.UUID,
+    step: StepPath,
+    body: RevisionIn,
+    session: SessionDep,
+    actor: CurrentActor,
+) -> DeletedOut:
+    """Remove a draft that was never validated (409 `invalid_transition` otherwise)."""
+    with business_errors():
+        service.delete_draft(session, actor, prospect_id, rank_of(step), body.expected_revision)
+    return DeletedOut(deleted=True, step=step)
 
 
 @router.post("/{step}/reopen")
 def reopen(
     prospect_id: uuid.UUID,
-    step: ContactMessageStep,
+    step: StepPath,
     body: RevisionIn,
     session: SessionDep,
     actor: CurrentActor,
 ) -> MessageResultOut:
     with business_errors():
-        result = service.reopen(session, actor, prospect_id, step, body.expected_revision)
+        result = service.reopen(session, actor, prospect_id, rank_of(step), body.expected_revision)
     return result_out(result)
 
 
 @router.post("/{step}/generate")
 def generate(
     prospect_id: uuid.UUID,
-    step: ContactMessageStep,
+    step: StepPath,
     body: GenerateIn,
     request: Request,
     response: Response,
@@ -552,7 +713,7 @@ def generate(
             session,
             actor,
             prospect_id,
-            step,
+            rank_of(step),
             generation.GenerationRequest(
                 expected_revision=body.expected_revision,
                 instruction=body.instruction,
@@ -571,7 +732,7 @@ def generate(
     # work, which checks every rule again. `session` is not used after this commit.
     session.commit()
     with business_errors():
-        mail = generation.draft(generator, prompt, prospect_id=prospect_id, step=step)
+        mail = generation.draft(generator, prompt, prospect_id=prospect_id, rank=rank_of(step))
     result = _save_generated(request, settings, actor, audit_binding, prospect_id, step, body, mail)
     if result.created:
         response.status_code = status.HTTP_201_CREATED
@@ -584,7 +745,7 @@ def _save_generated(
     actor: ActorContext,
     audit_binding: tuple[ActorContext, audit.AuditContext] | None,
     prospect_id: uuid.UUID,
-    step: ContactMessageStep,
+    step: str,
     body: GenerateIn,
     mail: GeneratedMail,
 ) -> GenerationResultOut:
@@ -597,7 +758,7 @@ def _save_generated(
                 write,
                 actor,
                 prospect_id,
-                step,
+                rank_of(step),
                 GeneratedContent(
                     subject=mail.subject,
                     body_text=mail.body,
@@ -611,4 +772,71 @@ def _save_generated(
     return GenerationResultOut(
         **out.model_dump(),
         generation=GenerationOut(model=mail.model, prompt_version=PROMPT_VERSION),
+    )
+
+
+# --- one send moment for whole cohorts ---------------------------------------------------------
+
+cohorts_router = APIRouter(prefix="/contact", tags=["contact"])
+
+
+class ScheduleCohortsIn(StrictModel):
+    cohorts: Annotated[
+        list[Annotated[str, StringConstraints(pattern=r"^S\d{1,3}$")]],
+        Field(min_length=1, max_length=20),
+    ]
+    step: StepPath
+    scheduled_at: AwareDatetime
+
+
+class ScheduleCohortsOut(BaseModel):
+    scheduled: int
+    validated: int
+    refused: int
+    missing: int
+    # Infomaniak drafts that could not be created (the messages are scheduled anyway).
+    remote_draft_failures: int
+
+
+@cohorts_router.post("/schedule-cohorts")
+def schedule_cohorts(
+    body: ScheduleCohortsIn,
+    request: Request,
+    session: SessionDep,
+    actor: CurrentActor,
+) -> ScheduleCohortsOut:
+    """Schedule every validated message of a step, for all prospects of the chosen cohorts, at
+    one moment. Drafts are validated first; incomplete ones are refused."""
+    with business_errors():
+        result = service.schedule_cohorts(
+            session,
+            actor,
+            list(dict.fromkeys(body.cohorts)),
+            rank_of(body.step),
+            body.scheduled_at,
+            now=datetime.now(UTC),
+        )
+    failures = 0
+    integration: ToolboxIntegration = request.app.state.toolbox
+    toolbox = integration.mail_toolbox()
+    if toolbox is not None and result.scheduled:
+        audit_binding = audit.binding(session)
+        session.commit()
+        session_factory: sessionmaker[Session] = request.app.state.session_factory
+        for message_id in result.scheduled:
+            sync = remote_drafts.sync_remote_draft(
+                session_factory,
+                toolbox,
+                message_id,
+                actor,
+                audit_binding[1] if audit_binding else None,
+            )
+            if sync.status == "failed":
+                failures += 1
+    return ScheduleCohortsOut(
+        scheduled=len(result.scheduled),
+        validated=result.validated,
+        refused=result.refused,
+        missing=result.missing,
+        remote_draft_failures=failures,
     )

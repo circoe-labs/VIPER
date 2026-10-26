@@ -44,34 +44,38 @@ class PhoneType(StrEnum):
 
 
 class ContactTrackingStatus(StrEnum):
-    """Contact state of a prospect (Contact model, handoff decisions 4-10). Declaration order is the
-    display order. `neutral` is the initial state and shows no badge; the next-action week is a
-    separate datum (`planned_contact_at`). Durable opposition is `ContactabilityStatus`, never a
-    state (`ignored` reinforces it). Labels, cadence and rules: `app.services.contact_workflow`."""
+    """Commercial state of a prospect (decision D7 of the sequences rework), chosen by a person.
+    Declaration order is the display order. `neutral` is the default « en séquence » state and
+    shows no badge. The level (Contact, R1…, « Relance terminée ») is never stored: it is derived
+    from the messages really sent in the current sequence (`app.services.contact_sequences`).
+    Durable opposition is `ContactabilityStatus`, never a state (`ignored` reinforces it)."""
 
     NEUTRAL = "neutral"
-    CONTACTED = "contacted"
-    R1 = "r1"
-    R2 = "r2"
     RESPONSE_RECEIVED = "response_received"
     APPOINTMENT_OBTAINED = "appointment_obtained"
-    FAILURE = "failure"
+    # « Non intéressé »: a negative answer, chosen by a person; closes the sequence, reversible.
+    NOT_INTERESTED = "not_interested"
     IGNORED = "ignored"
+    # « Défaillant »: a contact to eliminate, out of every sequence (a human decision only).
+    DISQUALIFIED = "disqualified"
 
 
 class TrackingHistoryStatus(StrEnum):
     """A status as recorded in `contact_tracking_status_history`: the current states plus the codes
-    of the taxonomy replaced by migration 0008. History rows are never rewritten, so rows written
-    before 0008 keep their original code (read-only compatibility; nothing writes a legacy code)."""
+    replaced by migrations 0008 and 0012. History rows are never rewritten, so older rows keep
+    their original code (read-only compatibility; nothing writes a legacy code)."""
 
     NEUTRAL = "neutral"
-    CONTACTED = "contacted"
-    R1 = "r1"
-    R2 = "r2"
     RESPONSE_RECEIVED = "response_received"
     APPOINTMENT_OBTAINED = "appointment_obtained"
-    FAILURE = "failure"
+    NOT_INTERESTED = "not_interested"
     IGNORED = "ignored"
+    DISQUALIFIED = "disqualified"
+    # Contact states replaced by migration 0012 (the level is derived from real sends), readable.
+    LEGACY_CONTACTED = "contacted"
+    LEGACY_R1 = "r1"
+    LEGACY_R2 = "r2"
+    LEGACY_FAILURE = "failure"
     # Legacy codes (before migration 0008), readable only.
     LEGACY_TO_CONTACT = "to_contact"
     LEGACY_FOLLOW_UP_1 = "follow_up_1"
@@ -79,16 +83,44 @@ class TrackingHistoryStatus(StrEnum):
     LEGACY_QUOTE_SENT = "quote_sent"
     LEGACY_QUOTE_FOLLOW_UP = "quote_follow_up"
     LEGACY_WON = "won"
-    LEGACY_NOT_INTERESTED = "not_interested"
 
 
-class ContactMessageStep(StrEnum):
-    """Step of the Contact mail sequence (decision 20): one durable message per prospect and step.
-    Declaration order is the sequence order (tabs Contact, R1, R2)."""
+class SequenceEndReason(StrEnum):
+    """Why a contact sequence was closed (decision D6). History is kept either way."""
 
-    CONTACT = "contact"
-    R1 = "r1"
-    R2 = "r2"
+    # A person changed the prospect's cohort: a new sequence was opened.
+    COHORT_CHANGED = "cohort_changed"
+    # A person removed the prospect's cohort (no longer validated).
+    COHORT_REMOVED = "cohort_removed"
+    # The sequence ran its course (« Relance terminée »), e.g. the former `failure` state.
+    COMPLETED = "completed"
+
+
+class SendSource(StrEnum):
+    """Who recorded that a message was really sent (decisions D1, D3)."""
+
+    MANUAL = "manual"  # « Marquer comme envoyé » by a person
+    IMPORT = "import"  # a past cohort date at import (S2)
+    MIGRATION = "migration"  # implied by a former state (migration 0012)
+    WORKER = "worker"  # the scheduled dispatcher (S7)
+
+
+class QualityAlertType(StrEnum):
+    """Data-quality alerts (decision D8): never a commercial state."""
+
+    EMAIL_ERROR = "email_error"
+    FUNCTION_TO_CHECK = "function_to_check"
+    DATA_INCONSISTENT = "data_inconsistent"
+    COMPANY_TO_CHECK = "company_to_check"
+    IMPORT_CONFLICT = "import_conflict"
+
+
+class QualityAlertSource(StrEnum):
+    """Who raised an alert, from the actor: a person, an import or the AI (a proposal only)."""
+
+    HUMAN = "human"
+    IMPORT = "import"
+    AI = "ai"
 
 
 class ContactMessageStatus(StrEnum):
@@ -125,3 +157,19 @@ class ImportBatchStatus(StrEnum):
     COMMITTED = "committed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+
+
+class AppointmentStatus(StrEnum):
+    """Follow-up of a booked meeting (`appointments.status`); « décalé » is a new date."""
+
+    SCHEDULED = "scheduled"
+    COMPLETED = "completed"
+    NO_SHOW = "no_show"
+    CANCELLED = "cancelled"
+
+
+class AppointmentSource(StrEnum):
+    """Where an appointment row comes from (`appointments.source`)."""
+
+    CALENDLY = "calendly"
+    MANUAL = "manual"

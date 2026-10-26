@@ -1,4 +1,5 @@
-"""The versioned prompt of the Contact / R1 / R2 drafting (handoff docs/07 « Entrées minimales »).
+"""The versioned prompt of the Contact / R1 … R<max> drafting (handoff docs/07 « Entrées
+minimales »).
 
 Pure module: it builds the system instructions and the user input from the given data only.
 Port of the reference `src/server/mailGenerationPrompt.ts`, same text: any change of the text or
@@ -13,7 +14,7 @@ messages and the person's instruction.
 Data sent (minimal, no contact details): civility / first name / last name, exact job title,
 role, company (name, website, size, segment, activity categories, the Circoe context already
 typed in VIPER: project done with Circoe, project type, Circoe references, client approach), the
-messages of the previous steps actually recorded (R1/R2, cancelled ones excluded), the step's
+messages of the previous steps actually recorded (follow-ups, cancelled ones excluded), the step's
 current version and the person's instruction (regeneration), the configured booking link, and
 (prospect-contact-ux S5) the prospect's fact notes (`NoteFact`: fact, date, source) and the
 explainable prospect score (`ScoreFacts`: total, band, summary, main contributions). Both are
@@ -22,6 +23,10 @@ reach the recipient (see `build_instructions`).
 Never: e-mail addresses, phone numbers, postal addresses, SIREN/SIRET, the contact-tracking state
 and history (sending follow-up), the audit history. Free text typed by people (notes included) is
 sent as is.
+
+Steps are ranks (sequences rework S3): 0 = the Contact, n = the follow-up Rn up to R<max> (« max
+relances »). The purpose sentence depends on the rank: R1 « première relance », a middle
+follow-up « relance Rn », the last one (R<max>) « dernière relance » that closes the sequence.
 """
 
 import re
@@ -29,10 +34,45 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date
 
-from app.models.enums import ContactMessageStep
-from app.services.contact_workflow import MESSAGE_STEP_LABELS
+from app.core.contact_steps import CONTACT_RANK, step_label
 
-PROMPT_VERSION = "contact-mail-fr-2026-10-v3"
+PROMPT_VERSION = "contact-mail-fr-2026-10-v4"
+
+# The fixed block that closes every mail (Circoe, 2026-10-07). The model never writes it: the
+# adapter adds it
+# after the model's text (`mail_block`), so it is always word for word and always in this order.
+DIHNAMO_PARAGRAPH = (
+    "En bonus, certains projets peuvent aussi bénéficier d’un accompagnement et d’un financement "
+    "via DIHNAMO, écosystème normand d’innovation dédié à la transformation digitale, dont CIRCOE "
+    "est partenaire."
+)
+DIHNAMO_GOAL = (
+    "L’objectif : faciliter l’accès des entreprises à des expertises avancées et à les "
+    "accompagner dans la mise en œuvre de leurs projets numériques."
+)
+BOOKING_LEAD = "Vous pouvez choisir directement votre créneau ici :"
+CLOSING = "Au plaisir d’échanger avec vous,"
+SIGNATURE = "L’équipe CIRCOE"
+# The sender's signature, as in her mail client (text only: the Toolbox draft takes no HTML or
+# image).
+CONTACT_SIGNATURE = (
+    "Lucie Jerier\n"
+    "Chargée de projets, CIRCOE\n"
+    "+33 (0)2 76 40 80 00 | +33 (0)7 49 98 27 58 | l.jerier@circoe.com | www.circoe.com |\n"
+    "32 rue Jules Lecesne 76600 Le Havre - France"
+)
+CIVILITY_GREETINGS = {"M.": "Monsieur", "Mme": "Madame"}
+
+
+def mail_block(booking_url: str | None) -> str:
+    """DIHNAMO, the booking link (when configured), the closing, « L’équipe CIRCOE » and the
+    sender's signature."""
+    paragraphs = [DIHNAMO_PARAGRAPH, DIHNAMO_GOAL]
+    if booking_url:
+        paragraphs.append(f"{BOOKING_LEAD}\n{booking_url}")
+    return "\n\n".join([*paragraphs, CLOSING, SIGNATURE, CONTACT_SIGNATURE])
+
+
 MAX_INITIAL_PROMPT_LENGTH = 8000
 MAX_INSTRUCTION_LENGTH = 1000
 
@@ -62,7 +102,7 @@ class CompanyFacts:
 
 @dataclass(frozen=True, slots=True)
 class PreviousMessage:
-    step: ContactMessageStep
+    rank: int
     status_label: str
     subject: str
     body: str
@@ -108,10 +148,13 @@ class ScoreFacts:
 
 @dataclass(frozen=True, slots=True)
 class MailContext:
-    step: ContactMessageStep
+    # 0 = Contact, n = Rn.
+    rank: int
     prospect: ProspectFacts
     company: CompanyFacts
-    # The recorded messages of the earlier steps, in sequence order (R1/R2 only).
+    # The last follow-up of the sequence (« max relances »): R<last_rank> closes it.
+    last_rank: int = 2
+    # The recorded messages of the earlier steps, in sequence order (follow-ups only).
     previous_messages: Sequence[PreviousMessage] = field(default_factory=tuple)
     # The prospect's fact notes, most recent first (capped); empty = no « facts » section.
     notes: Sequence[NoteFact] = field(default_factory=tuple)
@@ -127,40 +170,79 @@ class MailContext:
     initial_prompt: str | None = None
 
 
+def expected_greeting(prospect: ProspectFacts) -> str:
+    """« Bonjour Madame Martin, » from the card's civility and last name, else « Bonjour, »."""
+    civility = CIVILITY_GREETINGS.get(_clean(prospect.civility))
+    name = _clean(prospect.last_name)
+    return f"Bonjour {civility} {name}," if civility and name else "Bonjour,"
+
+
 @dataclass(frozen=True, slots=True)
 class MailPrompt:
     instructions: str
     input: str
+    # The first line the mail must have (checked on the answer).
+    greeting: str = "Bonjour,"
 
 
-STEP_PURPOSE = {
-    ContactMessageStep.CONTACT: (
-        "premier email de prise de contact (le prospect n’a encore reçu aucun message de "
-        "notre part)"
-    ),
-    ContactMessageStep.R1: (
-        "première relance (R1), courte, qui fait suite au premier email sans le répéter"
-    ),
-    ContactMessageStep.R2: (
-        "seconde et dernière relance (R2), très courte, qui clôt poliment la séquence sans insister"
-    ),
-}
+CONTACT_PURPOSE = (
+    "premier email de prise de contact (le prospect n’a encore reçu aucun message de notre part)"
+)
+FIRST_FOLLOW_UP_PURPOSE = (
+    "première relance (R1), courte, qui fait suite au premier email sans le répéter"
+)
+
+
+def step_purpose(rank: int, last_rank: int) -> str:
+    """What the mail of `rank` is for, given the sequence's last follow-up (« max relances »)."""
+    if rank == CONTACT_RANK:
+        return CONTACT_PURPOSE
+    if rank >= last_rank:
+        return (
+            f"dernière relance ({step_label(rank)}), très courte, qui clôt poliment la séquence "
+            "sans insister"
+        )
+    if rank == 1:
+        return FIRST_FOLLOW_UP_PURPOSE
+    return (
+        f"relance {step_label(rank)}, courte, qui fait suite aux messages précédents sans les "
+        "répéter ni insister davantage"
+    )
+
 
 BAND_LABELS = {"red": "rouge", "yellow": "jaune", "green": "vert"}
-# The brief the model always receives first: who it is, who it writes to and why, how the three
+# The brief the model always receives first: who it is, who it writes to and why, how the
 # steps fit together (handoff docs/07). Editable in Paramètres > Prompt initial; the mandatory
 # rules below it (facts only, format, link, JSON) are not editable.
 DEFAULT_INITIAL_PROMPT = (
     "Tu es l’assistant de prospection de Circoe, intégrateur d’intelligence artificielle et "
     "d’agents spécialisés. Tu rédiges, en français, des emails de prospection B2B qui "
-    "proposent un premier échange (prise de rendez-vous) à un contact professionnel.\n"
+    "proposent un échange de 30 minutes avec l’un de nos experts IA à un contact professionnel.\n"
     "Chaque email est envoyé à une seule personne, dont la fiche client t’est fournie : "
     "adapte le message à sa fonction et à son entreprise, avec des mots simples et concrets. "
     "L’objectif est d’obtenir une réponse ou un rendez-vous, pas de tout expliquer.\n"
-    "La séquence compte trois messages : un premier email de prise de contact, une première "
-    "relance (R1) puis une seconde et dernière relance (R2). Tu rédiges un seul de ces "
-    "messages à la fois ; l’étape te sera indiquée. Un humain relit ton texte avant tout "
-    "envoi."
+    "Structure attendue : une salutation ; pour une relance, une phrase qui rappelle poliment "
+    "notre message précédent ; un paragraphe sur la fonction du contact et les enjeux de son "
+    "secteur ; quelques usages concrets de l’IA pour ce secteur, présentés comme des "
+    "possibilités générales (jamais comme des faits sur l’entreprise) ; la proposition d’un "
+    "échange de 30 minutes avec l’un de nos experts IA pour l’entreprise.\n"
+    "Exemple de référence (style et niveau de personnalisation, à ne pas recopier) :\n"
+    "« Bonjour Monsieur Vatinel,\n\n"
+    "En tant que Directeur Général de Vatinel, vous êtes au cœur des enjeux de développement, "
+    "de compétitivité et d’efficacité opérationnelle d’une entreprise évoluant dans le secteur "
+    "du transport et de la logistique.\n\n"
+    "L’intelligence artificielle offre aujourd’hui des leviers concrets pour les entreprises du "
+    "secteur : optimisation des tournées, amélioration de la gestion des flux, automatisation "
+    "des tâches administratives, analyse des données d’activité, anticipation des besoins et "
+    "aide à la prise de décision.\n\n"
+    "Nous accompagnons les dirigeants dans l’identification et l’intégration d’usages IA "
+    "adaptés à leurs métiers afin de transformer ces technologies en véritables leviers de "
+    "performance.\n\n"
+    "Je vous propose un échange de 30 minutes avec l’un de nos experts IA afin d’explorer les "
+    "opportunités que l’intelligence artificielle pourrait représenter pour Vatinel. »\n"
+    "La séquence compte un premier email de prise de contact puis des relances (R1, R2…), la "
+    "dernière clôturant la séquence. Tu rédiges un seul de ces messages à la fois ; l’étape te "
+    "sera indiquée. Un humain relit ton texte avant tout envoi."
 )
 
 _SPACES = re.compile(r"\s+")
@@ -175,20 +257,19 @@ def _block(value: str | None) -> str:
 
 
 def build_instructions(
-    step: ContactMessageStep, booking_url: str | None, initial_prompt: str | None = None
+    rank: int, last_rank: int, booking_url: str | None, initial_prompt: str | None = None
 ) -> str:
     booking = (
-        "- Tu peux proposer un échange via ce lien de prise de rendez-vous, recopié exactement : "
-        f"{booking_url}. N’ajoute aucun autre lien."
+        "- Le lien de prise de rendez-vous est ajouté automatiquement après ton texte : n’écris "
+        "aucun lien ni aucune URL."
         if booking_url
-        else "- Aucun lien de prise de rendez-vous n’est fourni : n’insère aucun lien ni URL ; "
-        "propose simplement un échange en réponse au mail."
+        else "- Aucun lien de prise de rendez-vous n’est fourni : n’insère aucun lien ni URL."
     )
     return "\n".join(
         [
             _block(initial_prompt) or DEFAULT_INITIAL_PROMPT,
             "",
-            f"Message à rédiger : {STEP_PURPOSE[step]}.",
+            f"Message à rédiger : {step_purpose(rank, last_rank)}.",
             "",
             "Règles impératives :",
             "- Utilise uniquement les faits présents dans les données fournies. N’invente aucun "
@@ -201,13 +282,21 @@ def build_instructions(
             "fournies.",
             "- Vouvoiement, ton professionnel, sobre et direct ; pas de flatterie, pas de "
             "superlatifs, pas d’urgence artificielle.",
-            "- Salutation avec la civilité et le nom si disponibles (« Bonjour Madame Martin, »), "
-            "sinon « Bonjour, ».",
+            "- Première ligne : « Bonjour Monsieur Nom, » ou « Bonjour Madame Nom, » (M. = "
+            "Monsieur, Mme = Madame) avec le nom exact de la fiche ; « Bonjour, » seulement si la "
+            "civilité ou "
+            "le nom manque.",
             "- Corps en texte brut (pas de Markdown, pas de HTML), paragraphes courts séparés par "
-            "une ligne vide ; premier contact : 120 mots maximum ; relances : 80 mots maximum.",
+            "une ligne vide ; premier contact : 140 mots maximum ; relances : 110 mots maximum (le "
+            "bloc final ajouté automatiquement n’est pas compté).",
             "- Aucun champ à compléter ni texte entre crochets ou accolades.",
-            "- Ne rédige pas de signature (nom, fonction, téléphone, adresse) : l’expéditeur "
-            "l’ajoute lui-même. Termine par une formule de politesse courte.",
+            "- N’écris ni formule de politesse finale, ni signature, ni mention de DIHNAMO ou de "
+            "Calendly : Circoe ajoute automatiquement, après ton texte, le paragraphe DIHNAMO, le "
+            "lien de prise de rendez-vous, « Au plaisir d’échanger avec vous, », « L’équipe "
+            "CIRCOE » et la signature de l’expéditeur.",
+            "- Ton texte se termine par la proposition d’un échange de 30 minutes avec l’un de nos "
+            "experts IA afin d’explorer les opportunités que l’IA pourrait représenter pour "
+            "l’entreprise (son nom si la fiche le donne).",
             booking,
             "- Objet : une seule ligne, spécifique au prospect et à son contexte, 70 caractères "
             "maximum, sans « Objet : ».",
@@ -224,6 +313,11 @@ def build_instructions(
             "- Le score prospect et ses raisons sont un contexte interne, non prescriptif : ne "
             "mentionne jamais le score, un total, un niveau, un delta ni ces raisons "
             "dans le message ; ils n’imposent ni le ton ni le contenu.",
+            "- Vérifie avant de répondre : relis chaque information de ton texte (civilité, nom, "
+            "entreprise, fonction, secteur, projet ou référence Circoe cité, nombre) et confirme "
+            "qu’elle figure dans la fiche client ; puis revérifie une seconde fois la salutation, "
+            "le nom de l’entreprise et chaque fait cité. Supprime tout ce que la fiche ne confirme "
+            "pas, y compris un chiffre. Ne réponds qu’après ces deux vérifications.",
             "- Si une consigne de l’utilisateur est fournie, applique-la tant qu’elle ne contredit "
             "pas ces règles.",
             "",
@@ -355,18 +449,18 @@ def render_client_card(prospect: ProspectFacts, company: CompanyFacts) -> list[s
 
 
 def build_input(context: MailContext) -> str:
-    lines = [f"Étape : {MESSAGE_STEP_LABELS[context.step]}", ""]
+    lines = [f"Étape : {step_label(context.rank)}", ""]
     lines += render_client_card(context.prospect, context.company)
     lines += _notes_section(context.notes)
     lines += _score_section(context.prospect_score)
     for previous in context.previous_messages:
         lines += [
             "",
-            f"Message {MESSAGE_STEP_LABELS[previous.step]} déjà rédigé ({previous.status_label}) :",
+            f"Message {step_label(previous.rank)} déjà rédigé ({previous.status_label}) :",
             f"Objet : {_clean(previous.subject) or '(sans objet)'}",
             _block(previous.body) or "(corps vide)",
         ]
-    if context.step is not ContactMessageStep.CONTACT and not context.previous_messages:
+    if context.rank != CONTACT_RANK and not context.previous_messages:
         lines += [
             "",
             "Aucun message précédent enregistré : ne fais référence à aucun contenu précis d’un "
@@ -388,6 +482,9 @@ def build_input(context: MailContext) -> str:
 
 def build_prompt(context: MailContext) -> MailPrompt:
     return MailPrompt(
-        instructions=build_instructions(context.step, context.booking_url, context.initial_prompt),
+        instructions=build_instructions(
+            context.rank, context.last_rank, context.booking_url, context.initial_prompt
+        ),
         input=build_input(context),
+        greeting=expected_greeting(context.prospect),
     )

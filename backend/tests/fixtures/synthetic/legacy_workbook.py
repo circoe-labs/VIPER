@@ -128,6 +128,22 @@ def legacy_xlsx(
     return buffer.getvalue()
 
 
+def sheets_xlsx(sheets: Mapping[str, Sequence[Sequence[Any]]]) -> bytes:
+    """An XLSX with the given sheets, in order, each a list of rows (no styling)."""
+    book = Workbook()
+    first = True
+    for name, data in sheets.items():
+        worksheet = book.active if first else book.create_sheet(name)
+        assert worksheet is not None
+        worksheet.title = name
+        first = False
+        for values in data:
+            worksheet.append(list(values))
+    buffer = io.BytesIO()
+    book.save(buffer)
+    return buffer.getvalue()
+
+
 def ids(*names: str) -> dict[str, uuid.UUID]:
     """Stable fake ids, so previews built from the same reference data compare equal."""
     return {name: uuid.uuid5(uuid.NAMESPACE_URL, f"viper-test:{name}") for name in names}

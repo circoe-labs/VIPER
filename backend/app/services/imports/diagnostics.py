@@ -38,6 +38,7 @@ class DiagnosticCode(StrEnum):
     SHEET_SKIPPED = "sheet.skipped"
     SHEET_MERGED_CELLS = "sheet.merged_cells"
     MAPPING_UNKNOWN_SHEET = "mapping.unknown_sheet"
+    MAPPING_NOT_FIRST_SHEET = "mapping.not_first_sheet"
     MAPPING_INVALID_HEADER_ROW = "mapping.invalid_header_row"
     MAPPING_UNKNOWN_COLUMN = "mapping.unknown_column"
     MAPPING_DUPLICATE_FIELD = "mapping.duplicate_field"
@@ -56,6 +57,7 @@ class DiagnosticCode(StrEnum):
     PROSPECT_PARTIAL_NAME = "prospect.partial_name"
     COMPANY_MISSING = "company.missing"
     CIVILITY_INVALID = "civility.invalid"
+    ROLE_MISSING = "role.missing"
     ROLE_SUGGESTED = "role.suggested"
     ROLE_UNMATCHED = "role.unmatched"
     ROLE_INACTIVE_MATCH = "role.inactive_match"
@@ -72,9 +74,7 @@ class DiagnosticCode(StrEnum):
     REFERENT_PARTIAL_MATCH = "referent.partial_match"
     REFERENT_AMBIGUOUS = "referent.ambiguous"
     REFERENT_INACTIVE = "referent.inactive"
-    PLANNED_CONTACT_WEEK_WITHOUT_YEAR = "planned_contact.week_without_year"
-    PLANNED_CONTACT_NOT_A_WEEK = "planned_contact.not_a_week"
-    PLANNED_CONTACT_INVALID_WEEK = "planned_contact.invalid_week"
+    COHORT_NOT_A_COHORT = "cohort.not_a_cohort"
     ACTIVITY_INACTIVE_SUGGESTED = "activity.inactive_suggested"
     TRACKING_STAGE_CONFLICT = "tracking.stage_conflict"
     TRACKING_STAGE_UNRECOGNIZED = "tracking.stage_unrecognized"
@@ -141,11 +141,12 @@ CATALOGUE: dict[DiagnosticCode, CodeSpec] = {
     ),
     DiagnosticCode.SHEET_NOT_FOUND: CodeSpec(
         ERROR,
-        "Aucune feuille ne ressemble à une liste de prospects : en-têtes attendus introuvables.",
+        "La première feuille du classeur ne ressemble pas à une liste de prospects : en-têtes"
+        " attendus introuvables.",
     ),
     DiagnosticCode.SHEET_SKIPPED: CodeSpec(
         INFO,
-        "Feuille « {sheet} » ignorée : elle ne fait pas partie du modèle d'import des prospects.",
+        "Feuille « {sheet} » ignorée : seule la première feuille du classeur est importée.",
     ),
     DiagnosticCode.SHEET_MERGED_CELLS: CodeSpec(
         INFO,
@@ -153,6 +154,9 @@ CATALOGUE: dict[DiagnosticCode, CodeSpec] = {
         " verticale est recopiée sur chacune de ses lignes.",
     ),
     DiagnosticCode.MAPPING_UNKNOWN_SHEET: CodeSpec(ERROR, "Feuille « {sheet} » introuvable."),
+    DiagnosticCode.MAPPING_NOT_FIRST_SHEET: CodeSpec(
+        ERROR, "Feuille « {sheet} » : seule la première feuille du classeur peut être importée."
+    ),
     DiagnosticCode.MAPPING_INVALID_HEADER_ROW: CodeSpec(
         ERROR, "La ligne {row} ne peut pas servir de ligne d'en-têtes (vide ou hors de la feuille)."
     ),
@@ -208,6 +212,9 @@ CATALOGUE: dict[DiagnosticCode, CodeSpec] = {
     DiagnosticCode.CIVILITY_INVALID: CodeSpec(
         WARNING, f"Civilité non reconnue (M. ou Mme attendu) : laissée vide, {KEPT}."
     ),
+    DiagnosticCode.ROLE_MISSING: CodeSpec(
+        WARNING, "Fonction manquante : normal pour certains contacts, sinon à compléter."
+    ),
     DiagnosticCode.ROLE_SUGGESTED: CodeSpec(
         INFO, "Rôle proposé d'après la fonction : à confirmer."
     ),
@@ -254,14 +261,10 @@ CATALOGUE: dict[DiagnosticCode, CodeSpec] = {
     DiagnosticCode.REFERENT_INACTIVE: CodeSpec(
         WARNING, "Le référent correspond à une personne désactivée : à confirmer."
     ),
-    DiagnosticCode.PLANNED_CONTACT_WEEK_WITHOUT_YEAR: CodeSpec(
-        WARNING, f"Semaine de contact sans année : préciser l'année (jamais devinée) ; {KEPT}."
-    ),
-    DiagnosticCode.PLANNED_CONTACT_NOT_A_WEEK: CodeSpec(
-        WARNING, f"Ni une semaine ni une date de contact : ignorée, {KEPT}."
-    ),
-    DiagnosticCode.PLANNED_CONTACT_INVALID_WEEK: CodeSpec(
-        WARNING, f"Numéro de semaine impossible : ignoré, {KEPT}."
+    DiagnosticCode.COHORT_NOT_A_COHORT: CodeSpec(
+        WARNING,
+        "Valeur qui n'est pas une cohorte (S37, S0…) : aucune cohorte, alerte « Donnée"
+        f" incohérente » à l'import ; {KEPT}.",
     ),
     DiagnosticCode.ACTIVITY_INACTIVE_SUGGESTED: CodeSpec(
         WARNING, "Statut d'activité « Inactif » suggéré (retraite, départ…) : à confirmer."

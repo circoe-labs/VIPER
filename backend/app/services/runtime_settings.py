@@ -60,8 +60,16 @@ DISPATCH_FIELDS = (
     "contact_dispatch_interval_ms",
     "infomaniak_send_allowlist",
 )
-EDITABLE_FIELDS = OPENAI_FIELDS + PROMPT_FIELDS + SENDER_FIELDS + TOOLBOX_FIELDS + DISPATCH_FIELDS
-SECRET_FIELDS = frozenset({"openai_api_key"})
+CALENDLY_FIELDS = ("calendly_api_token",)
+EDITABLE_FIELDS = (
+    OPENAI_FIELDS
+    + PROMPT_FIELDS
+    + SENDER_FIELDS
+    + TOOLBOX_FIELDS
+    + DISPATCH_FIELDS
+    + CALENDLY_FIELDS
+)
+SECRET_FIELDS = frozenset({"openai_api_key", "calendly_api_token"})
 # Shown to the person, never a value: the string the audit event keeps for a changed secret.
 SECRET_REPLACED = "replaced"
 SECRET_REMOVED = "removed"

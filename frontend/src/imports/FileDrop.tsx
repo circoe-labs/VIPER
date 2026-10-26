@@ -1,7 +1,8 @@
-import { type DragEvent, useId, useRef, useState } from 'react'
+import { type DragEvent, useEffect, useId, useRef, useState } from 'react'
 
 import { Button } from '../ui/Button'
 import { SpinnerIcon, SpreadsheetIcon, UploadIcon } from '../ui/icons'
+import { forgetFile, recallFile } from './rememberedFile'
 
 interface FileDropProps {
   busy: boolean
@@ -14,6 +15,17 @@ export function FileDrop({ busy, fileName, onFile }: FileDropProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const titleId = useId()
   const [over, setOver] = useState(false)
+  const [remembered, setRemembered] = useState<File | null>(null)
+
+  useEffect(() => {
+    let current = true
+    void recallFile().then((file) => {
+      if (current) setRemembered(file)
+    })
+    return () => {
+      current = false
+    }
+  }, [])
 
   function dropped(event: DragEvent<HTMLElement>) {
     event.preventDefault()
@@ -55,9 +67,32 @@ export function FileDrop({ busy, fileName, onFile }: FileDropProps) {
           <h2 id={titleId} className="import-drop__title">
             Déposez votre fichier Excel ici
           </h2>
-          <p className="import-drop__or">ou</p>
+          {remembered && (
+            <>
+              <Button
+                variant="primary"
+                icon={SpreadsheetIcon}
+                onClick={() => {
+                  onFile(remembered)
+                }}
+              >
+                Reprendre « {remembered.name} »
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setRemembered(null)
+                  void forgetFile()
+                }}
+              >
+                Oublier ce fichier
+              </Button>
+            </>
+          )}
+          <p className="import-drop__or">{remembered ? 'ou un autre fichier' : 'ou'}</p>
           <Button
-            variant="primary"
+            variant={remembered ? 'secondary' : 'primary'}
             icon={SpreadsheetIcon}
             onClick={() => {
               inputRef.current?.click()
@@ -81,7 +116,7 @@ export function FileDrop({ busy, fileName, onFile }: FileDropProps) {
         </>
       )}
       <p className="import-drop__hint">
-        Classeur Excel (.xlsx) ou fichier CSV, 10 Mo au plus. Le fichier reste sur votre poste : seules les données que
+        Classeur Excel (.xlsx) ou fichier CSV, 10 Mo au plus. Le dernier fichier choisi est gardé dans ce navigateur : seules les données que
         vous confirmez sont enregistrées.
       </p>
     </section>

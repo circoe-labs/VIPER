@@ -5,7 +5,9 @@ Stateless review: the browser keeps the file and sends it with every request.
 - `POST /imports/preview` — multipart `file` (+ optional `options` JSON: layout mapping and cell
   corrections) → the review (preview, groups to resolve, defaults, digest) and the committed
   imports of the same file (re-import warning).
-- `POST /imports/commit` — multipart `file` + `decisions` JSON → the committed batch and counts.
+- `POST /imports/commit` — multipart `file` + `decisions` JSON (cohort dates and « Fichier vérifié
+  humainement » included) → the committed batch and counts: entities, cohorts, sequences and
+  imported sends, « Défaillant », alerts (`import_commit`, `operational_import`).
 - `GET /imports`, `GET /imports/{id}` — the import history (metadata only, never file content).
 
 The multipart body is parsed inside the route, after the session/CSRF guard and a size check on
@@ -33,7 +35,7 @@ from app.api.errors import business_errors, refusal
 from app.core.actor import ActorType
 from app.models.enums import ImportBatchStatus
 from app.models.imports import ImportBatch
-from app.services import import_batches, import_commit, operational_import
+from app.services import import_batches, import_commit
 from app.services.imports.decisions import ImportDecisions, PreviewOptions
 from app.services.imports.diagnostics import DiagnosticCode, ImportRejectedError
 from app.services.imports.preview import ImportFile
@@ -162,7 +164,7 @@ async def commit_import(
     try:
         with business_errors():
             result = await run_in_threadpool(
-                operational_import.commit_import, session, actor, file, decisions, limits
+                import_commit.commit_import, session, actor, file, decisions, limits
             )
     except ImportRejectedError as error:
         raise file_refusal(error) from None

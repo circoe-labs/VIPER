@@ -36,7 +36,16 @@ function batch(fields: Partial<ImportBatch>): ImportBatch {
 
 const FILLED = homeData({
   counts: COUNTS,
+  figures: {
+    disqualified: 4,
+    mail_inactive: 5,
+    incomplete: 6,
+    responses_this_week: 7,
+    responses_last_week: 3,
+    responses_this_month: 20,
+  },
   companies: 7,
+  contact_week: { week: '2026-W37', monday: '2026-09-07', to_send: 5, overdue: 2 },
   progress: {
     contact_target: 100,
     appointment_target: 10,
@@ -87,7 +96,7 @@ const FILLED = homeData({
   recent_imports: [batch({}), batch({ id: 'failed', filename: 'refus.xlsx', status: 'failed', committed_at: null })],
   recent_edits: [
     {
-      occurred_at: '2026-09-10T12:15:00+00:00',
+      occurred_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
       actor: { kind: 'human', label: 'Pilote Test', id: 'user-1', on_behalf_of: null },
       source: 'ui',
       subject_type: 'prospect',
@@ -96,7 +105,7 @@ const FILLED = homeData({
       summary: ['E-mail principal modifié', 'E-mail ajouté', 'Suivi : Aucun état → Contacté'],
     },
     {
-      occurred_at: '2026-09-10T11:00:00+00:00',
+      occurred_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
       actor: { kind: 'human', label: 'Pilote Test', id: 'user-1', on_behalf_of: null },
       source: 'database_explorer',
       subject_type: 'prospect',
@@ -108,7 +117,22 @@ const FILLED = homeData({
 })
 
 function renderHome(data: HomeData = FILLED, options: Parameters<typeof renderApp>[1] = {}) {
-  stubApi({ ...SHELL_API, 'GET /api/home': [200, data] })
+  stubApi({
+    ...SHELL_API,
+    'GET /api/home': [200, data],
+    'GET /api/contact/dashboard': [
+      200,
+      {
+        cohorts: [
+          { code: 'S37', starts_on: '2026-09-07', out_of_campaign: false, prospects: 44 },
+          { code: 'S39', starts_on: '2026-09-28', out_of_campaign: false, prospects: 47 },
+          { code: 'S40', starts_on: '2026-10-05', out_of_campaign: false, prospects: 42 },
+          { code: 'S41', starts_on: '2026-10-12', out_of_campaign: false, prospects: 1 },
+          { code: 'S0', starts_on: null, out_of_campaign: true, prospects: 3 },
+        ],
+      },
+    ],
+  })
   return renderApp('/', options)
 }
 
@@ -121,40 +145,55 @@ function card(listName: string, label: string) {
 }
 
 describe('Home page', () => {
-  it('leads with the state of the base and the contact activity, each card opening its Prospection segment', async () => {
+  it('leads with the base and the contact activity in few cards, each opening its Prospection segment when one exists', async () => {
     renderHome()
 
-    expect(await screen.findByRole('heading', { level: 2, name: 'État de la base' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 2, name: 'Base' })).toBeInTheDocument()
     const headings = screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent)
     expect(headings).toEqual([
+      'Base',
       'Activité de contact',
-      'Prochaines actions',
-      'État de la base',
+      'Semaine à contacter',
+      'Campagne d’envoi',
       'Progression du mois',
       'Derniers imports',
-      'Dernières modifications',
     ])
 
+    // Base: Prospects, RDV confirmé, Défaillant, À vérifier and the answers' trend.
+    expect(within(group('Base')).getAllByRole('listitem')).toHaveLength(5)
     expect(card('Base', 'Prospects')).toHaveAttribute('href', '/prospection')
     expect(card('Base', 'Prospects')).toHaveTextContent(String(COUNTS.all))
-    expect(card('Base', 'Entreprises')).toHaveAttribute('href', '/prospection/companies')
-    expect(card('Base', 'Entreprises')).toHaveTextContent('7')
-    expect(card('Base', 'Opposition')).toHaveAttribute('href', '/prospection?segment=do_not_contact')
-    expect(card('Vérification', 'Jamais vérifiés')).toHaveAttribute('href', '/prospection?segment=never_verified')
-    expect(card('Suivi de contact', 'Échus')).toHaveAttribute('href', '/prospection?segment=due')
-    expect(card('Suivi de contact', 'Échus')).toHaveTextContent(String(COUNTS.due))
-    expect(card('Suivi de contact', 'Sans réponse')).toHaveAttribute('href', '/prospection?segment=no_response')
-    expect(card('Suivi de contact', 'Rendez-vous')).toHaveAttribute('href', '/prospection?segment=appointments')
-    // Every segment but « Tous » (the Prospects card) has exactly one card.
-    const segmentLinks = ['Base', 'Vérification', 'Suivi de contact']
-      .flatMap((name) => within(group(name)).getAllByRole('link'))
-      .map((link) => link.getAttribute('href') ?? '')
-      .filter((href) => href.includes('segment='))
-    expect(segmentLinks.sort()).toEqual(SEGMENTS.filter((s) => s !== 'all').map((s) => `/prospection?segment=${s}`).sort())
+    expect(card('Base', 'RDV confirmé')).toHaveAttribute('href', '/prospection?segment=appointments')
+    expect(within(group('Base')).getByTitle(/Sans réponse après la dernière relance/)).toHaveTextContent('4')
+    expect(within(group('Base')).getByTitle(/Informations incomplètes/)).toHaveTextContent('6')
+    // Activité de contact: three cards (the RDV count already sits in Base).
+    expect(within(group('Activité de contact')).getAllByRole('listitem')).toHaveLength(3)
+    expect(card('Activité de contact', 'À contacter')).toHaveAttribute('href', '/contact')
+    expect(card('Activité de contact', 'Mail invalide')).toHaveAttribute('href', '/prospection?segment=email_error')
+    expect(card('Activité de contact', 'Sans réponse')).toHaveAttribute('href', '/prospection?segment=no_response')
+    expect(within(group('Activité de contact')).getByTitle(/les e-mails envoyés reviennent/)).toHaveTextContent('5')
+  })
 
-    // The post-appointment group is gone (Contact port P3).
-    expect(screen.queryByRole('heading', { name: 'Suivi commercial léger' })).not.toBeInTheDocument()
-    expect(card('Suivi de contact', 'Échus')).toHaveAttribute('title', 'À contacter, semaine prévue arrivée ou dépassée.')
+  it('shows a rising green arrow when answers hold up and a falling red one when they drop', async () => {
+    renderHome()
+    expect(await screen.findByText(/En hausse ou stable/)).toHaveTextContent('7 cette semaine, 3 la semaine passée')
+  })
+
+  it('shows a falling arrow when answers drop against last week', async () => {
+    renderHome({ ...FILLED, figures: { ...FILLED.figures, responses_this_week: 1, responses_last_week: 4 } })
+    expect(await screen.findByText(/En baisse/)).toHaveTextContent('1 cette semaine, 4 la semaine passée')
+  })
+
+  it('names the cohort to contact each weekday', async () => {
+    renderHome()
+    const week = await screen.findByRole('region', { name: 'Semaine à contacter' })
+    const items = within(week).getAllByRole('listitem')
+    expect(items.map((item) => item.textContent)).toEqual([
+      expect.stringMatching(/^Semaine 37 à contacter le lundi 7 septembre/),
+      expect.stringMatching(/^Semaine 39 à contacter le mardi 8 septembre/),
+      expect.stringMatching(/^Semaine 40 à contacter le mercredi 9 septembre/),
+      expect.stringMatching(/^Semaine 41 à contacter le jeudi 10 septembre · aujourd’hui/),
+    ])
   })
 
   it('opens Prospection on the segment of a clicked card', async () => {
@@ -166,52 +205,33 @@ describe('Home page', () => {
     expect(router.state.location.search).toBe('?segment=no_response')
   })
 
-  it('shows the month against informative targets, with a text alternative for every figure', async () => {
+  it('counts the prospects in R2, R1, sent and still to send, week by week', async () => {
+    renderHome()
+
+    const campaign = await screen.findByRole('region', { name: 'Campagne d’envoi' })
+    expect(await within(campaign).findByRole('img', { name: 'Prospects par semaine d’envoi' })).toBeInTheDocument()
+    const items = within(campaign).getAllByRole('listitem').map((item) => item.textContent)
+    expect(items).toEqual([
+      'R2 44',
+      'R1 47',
+      'Envoyé 42',
+      'À envoyer 1',
+      'S37 · R2 44',
+      'S39 · R1 47',
+      'S40 · Envoyé 42',
+      'S41 · 12 octobre 1',
+    ])
+  })
+
+  it('shows the month’s results as a pie with a colour-coded legend', async () => {
     renderHome()
 
     const progress = await screen.findByRole('region', { name: 'Progression du mois' })
     expect(within(progress).getByText('septembre 2026', { selector: '.home-panel__meta' })).toBeInTheDocument()
-    const contacted = within(progress).getByRole('meter', { name: 'Prospects contactés pour la première fois' })
-    expect(contacted).toHaveAttribute('aria-valuetext', '37 sur un objectif indicatif de 100 (37 %)')
-    expect(contacted).toHaveAttribute('aria-valuenow', '37')
-    // Above the target: the meter is full, the text says by how much.
-    const appointments = within(progress).getByRole('meter', { name: 'RDV pris' })
-    expect(appointments).toHaveAttribute('aria-valuenow', '10')
-    expect(appointments).toHaveAttribute('aria-valuetext', '12 sur un objectif indicatif de 10 (120 %)')
-    expect(within(progress).getByText('Objectif indicatif : 100 · 37 %')).toBeInTheDocument()
-
-    await userEvent.click(within(progress).getByText('Détail des 6 derniers mois'))
-    const rows = within(within(progress).getByRole('table')).getAllByRole('row')
-    expect(rows.map((row) => row.textContent)).toEqual([
-      'MoisContactésRendez-vous',
-      'avril 2026121',
-      'mai 2026302',
-      'juin 2026445',
-      'juillet 202680',
-      'août 2026616',
-      'septembre 20263712',
-    ])
-  })
-
-  it('lists next actions that open the person in their Prospection queue', async () => {
-    renderHome()
-
-    const actions = await screen.findByRole('region', { name: 'Prochaines actions' })
-    const due = within(actions).getByRole('list', { name: /Contacts échus/ })
-    const jean = within(due).getByRole('link', { name: 'Jean Echu' })
-    expect(jean).toHaveAttribute('href', `/prospection?segment=due&sort=planned_contact&prospect=${PERSON}`)
-    expect(within(due).getByRole('listitem')).toHaveTextContent('Transports Exemple SARL')
-    expect(within(due).getByRole('listitem')).toHaveTextContent(/Semaine S37$/)
-    expect(within(actions).getByRole('link', { name: 'Tous les échus' })).toHaveAttribute(
-      'href',
-      '/prospection?segment=due&sort=planned_contact',
-    )
-    const appointment = within(actions).getByRole('list', { name: /Rendez-vous des 7 prochains jours/ })
-    expect(within(appointment).getByRole('listitem')).toHaveTextContent(
-      'Rendez-vous le 14 sept. à 10:30 · RDV pris · Référent : Camille Référente',
-    )
-    expect(within(actions).getByText('Aucune réponse en attente d’un rendez-vous.')).toBeInTheDocument()
-    expect(within(actions).queryByRole('link', { name: 'Toutes les réponses' })).not.toBeInTheDocument()
+    expect(within(progress).getByRole('img', { name: 'Résultats du mois' })).toBeInTheDocument()
+    const legend = within(progress).getAllByRole('listitem').map((item) => item.textContent)
+    // 37 contacted, 12 appointments, 20 answers this month: 12 RDV, 8 answers without RDV, 17 without answer.
+    expect(legend).toEqual(['RDV pris 12', 'Réponse sans RDV 8', 'Sans réponse 17'])
   })
 
   it('shows the latest imports and manual saves as readable lines, never raw data', async () => {
@@ -229,11 +249,12 @@ describe('Home page', () => {
     expect(within(failed).queryByRole('link')).not.toBeInTheDocument()
     expect(failed).toHaveTextContent('Échec, rien importé')
 
-    const edits = screen.getByRole('region', { name: 'Dernières modifications' })
+    const edits = screen.getByRole('region', { name: /^Dernières modifications/ })
+    await userEvent.click(within(edits).getByText('Dernières modifications'))
     const [saved, deleted] = within(edits).getAllByRole('listitem') as [HTMLElement, HTMLElement]
     expect(within(saved).getByRole('link', { name: 'Jean Echu' })).toHaveAttribute('href', `/prospection?prospect=${PERSON}`)
     expect(saved).toHaveTextContent('E-mail principal modifié · E-mail ajouté · Suivi : Aucun état → Contacté')
-    expect(saved).toHaveTextContent('Pilote Test · 10 sept. à 14:15')
+    expect(saved).toHaveTextContent(/Pilote Test · \d+ \S+ à \d\d:\d\d/)
     expect(deleted).toHaveTextContent('Prospect supprimé')
     expect(deleted).toHaveTextContent('Fiche supprimée')
     expect(deleted).toHaveTextContent('Pilote Test · via Base de données')
@@ -249,10 +270,8 @@ describe('Home page', () => {
     expect(within(main).getAllByRole('link', { name: 'Importer Excel' })).toHaveLength(2)
     // The Prospect editor (Task 15) can create a person: the empty base also offers to add one by hand.
     expect(within(main).getByRole('link', { name: 'Ajouter un prospect' })).toHaveAttribute('href', '/prospection?prospect=new')
-    expect(screen.queryByRole('heading', { name: 'État de la base' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('meter')).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Base' })).not.toBeInTheDocument()
     expect(screen.getByText('Aucun import pour l’instant.')).toBeInTheDocument()
-    expect(screen.getByText('Aucune modification manuelle pour l’instant.')).toBeInTheDocument()
   })
 
   it('does not offer to add a prospect when the prospect editor cannot create one', async () => {
@@ -264,13 +283,10 @@ describe('Home page', () => {
     expect(within(screen.getByRole('main')).queryByRole('link', { name: 'Ajouter un prospect' })).not.toBeInTheDocument()
   })
 
-  it('says honestly what V1 does not show, and mocks no agent, e-mail or Calendly figure', async () => {
+  it('mocks no agent, e-mail or Calendly figure', async () => {
     renderHome()
 
-    await screen.findByRole('heading', { level: 2, name: 'État de la base' })
-    const scope = screen.getByText(/ne font pas partie de la V1/)
-    expect(scope).toHaveTextContent('Les envois d’e-mails, Calendly et les agents de prospection ne font pas partie de la V1.')
-    expect(screen.getAllByRole('meter')).toHaveLength(2)
+    await screen.findByRole('heading', { level: 2, name: 'Base' })
     const main = screen.getByRole('main')
     for (const widget of [/e-mails envoyés/i, /taux d.ouverture/i, /IProspect|IContact/, /agent actif/i]) {
       expect(within(main).queryByText(widget)).not.toBeInTheDocument()

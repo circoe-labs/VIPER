@@ -2,38 +2,50 @@ import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
-import type { ProspectInput } from '../api/prospects'
 import { company } from '../test/companiesApi'
-import { companySummary, lastBody, prospectDetail, stubProspectsApi } from '../test/prospectsApi'
-import { editorReady, showTab } from '../test/prospectEditorUi'
+import { companySummary, prospectDetail, stubProspectsApi } from '../test/prospectsApi'
+import { editorReady } from '../test/prospectEditorUi'
 import { fakeQueue, renderProspectEditor } from '../test/renderProspectEditor'
 
 const employer = company('Transports Exemple SARL')
 
-describe('Prospect editor — Save & Next', () => {
-  it('saves, then opens the next person of the list’s queue', async () => {
+describe('Prospect editor — browsing the list', () => {
+  it('has no « Fermer » nor « Enregistrer et suivant » button, only the cross and the arrows', async () => {
+    const first = prospectDetail({ first_name: 'Anne', last_name: 'Premier', company: companySummary(employer) })
+    stubProspectsApi({ details: [first], companies: [employer] })
+    renderProspectEditor(first.id, fakeQueue([first.id]).queue)
+    await screen.findByRole('dialog', { name: 'Anne Premier' })
+
+    expect(screen.queryByRole('button', { name: 'Enregistrer et suivant' })).not.toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Fermer' })).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'Prospect précédent' })).toBeInTheDocument()
+  })
+
+  it('moves to the next person of the list’s queue with the arrow', async () => {
     const first = prospectDetail({ first_name: 'Anne', last_name: 'Premier', company: companySummary(employer) })
     const second = prospectDetail({ first_name: 'Bruno', last_name: 'Second', company: companySummary(employer) })
-    const api = stubProspectsApi({ details: [first, second], companies: [employer] })
+    stubProspectsApi({ details: [first, second], companies: [employer] })
     const { queue, next } = fakeQueue([first.id, second.id])
     const { onNavigate } = renderProspectEditor(first.id, queue)
     await screen.findByRole('dialog', { name: 'Anne Premier' })
     await editorReady()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Vérifié aujourd’hui' }))
-    // On the Suivi tab, the next person opens on Profil again (the tab is remembered per prospect only).
-    await showTab('Suivi')
-    expect(screen.getByRole('tab', { name: /^Profil.*modifications non enregistrées/ })).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Enregistrer et suivant' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Prospect suivant' }))
 
-    expect(await screen.findByRole('dialog', { name: 'Bruno Second' })).toHaveAccessibleDescription(
-      'Prospect 2 sur 2 · Jamais vérifiés',
-    )
-    expect((lastBody(api.requests, 'PUT') as ProspectInput).employment_verification).toEqual({ action: 'verified_now', day: null })
     expect(next).toHaveBeenCalledWith(first.id)
     expect(onNavigate).toHaveBeenCalledWith(second.id, { page: 1 })
-    expect(await screen.findByRole('region', { name: 'Résumé du profil' })).toHaveTextContent('Bruno Second')
-    expect(screen.getByRole('tab', { name: 'Profil', selected: true })).toBeInTheDocument()
+  })
+
+  it('moves back with the other arrow, which is disabled on the first person', async () => {
+    const first = prospectDetail({ first_name: 'Anne', last_name: 'Premier' })
+    const second = prospectDetail({ first_name: 'Bruno', last_name: 'Second' })
+    stubProspectsApi({ details: [first, second] })
+    const { onNavigate } = renderProspectEditor(second.id, fakeQueue([first.id, second.id]).queue)
+    await screen.findByRole('dialog', { name: 'Bruno Second' })
+
+    await userEvent.click(screen.getByRole('button', { name: 'Prospect précédent' }))
+
+    expect(onNavigate).toHaveBeenCalledWith(first.id, { page: 1 })
   })
 
   it('moves on with Ctrl+Entrée without saving when nothing changed, and says when the list ends', async () => {

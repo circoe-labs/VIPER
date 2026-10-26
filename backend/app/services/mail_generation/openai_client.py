@@ -36,7 +36,7 @@ import httpx2
 
 from app.core.config import Settings
 from app.services.errors import MailGenerationError
-from app.services.mail_generation.prompt import MailPrompt
+from app.services.mail_generation.prompt import MailPrompt, mail_block
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ OUTPUT_JSON_SCHEMA: dict[str, Any] = {
             "type": "string",
             "description": (
                 "Corps du mail en texte brut, paragraphes séparés par une ligne vide, sans "
-                "signature nominative."
+                "formule finale, signature ni lien (ajoutés automatiquement)."
             ),
         },
     },
@@ -216,6 +216,31 @@ def validate_output(text: str, *, booking_url: str | None) -> tuple[str, str]:
     return subject, body
 
 
+# What the adapter itself adds after the model's text: the model never writes it (it would be said
+# twice).
+_RESERVED = re.compile(
+    r"dihnamo|calendly|l[’']équipe circoe|au plaisir d[’']échanger", re.IGNORECASE
+)
+_NUMBER = re.compile(r"\d+")
+
+
+def check_content(subject: str, body: str, prompt: MailPrompt) -> None:
+    """The checks of what the output can be verified against (refused, never repaired): the
+    greeting is the card's, the 30-minute proposal is there, the closing block is not written by
+    the model, and no number appears that the card does not hold (an invented figure)."""
+    if not body.casefold().startswith(prompt.greeting.casefold()):
+        raise _invalid(
+            f"The AI greeting is not « {prompt.greeting} » (the card's civility and name)."
+        )
+    if _RESERVED.search(subject) or _RESERVED.search(body):
+        raise _invalid("The AI text repeats the closing block that VIPER adds itself.")
+    if "30 minutes" not in body:
+        raise _invalid("The AI text does not propose the 30-minute exchange.")
+    known = set(_NUMBER.findall(prompt.input)) | {"30"}
+    if any(number not in known for number in _NUMBER.findall(f"{subject}\n{body}")):
+        raise _invalid("The AI text holds a number the client card does not hold.")
+
+
 def extract_output_text(payload: object) -> str:
     """The output text of a `/responses` answer; a refusal and an incomplete answer are typed."""
     if not isinstance(payload, dict):
@@ -353,7 +378,7 @@ class OpenAIMailGenerator:
                         attempt += 1
                         continue
                     raise self._status_error(response.status_code, code)
-                return self._mail(response)
+                return self._mail(response, prompt)
 
     def _retry(self, attempt: int, retry_after: str | None, cause: str) -> None:
         delay = _retry_delay(attempt, retry_after)
@@ -382,12 +407,18 @@ class OpenAIMailGenerator:
             "ai_upstream_error", f"The AI service failed (HTTP {status}): nothing was saved."
         )
 
-    def _mail(self, response: httpx2.Response) -> GeneratedMail:
+    def _mail(self, response: httpx2.Response, prompt: MailPrompt) -> GeneratedMail:
         try:
             payload = response.json()
         except ValueError:
             raise _invalid("The AI service answer is unreadable: nothing was saved.") from None
-        subject, body = validate_output(extract_output_text(payload), booking_url=self._booking_url)
+        # The model writes no link: Circoe's closing block (DIHNAMO, booking link, signature) is
+        # added after its text.
+        subject, body = validate_output(extract_output_text(payload), booking_url=None)
+        check_content(subject, body, prompt)
+        body = f"{body}\n\n{mail_block(self._booking_url)}"
+        if len(body) > BODY_MAX_LENGTH:
+            raise _invalid("The AI body is empty, too long or holds control characters.")
         answered = payload.get("model") if isinstance(payload, dict) else None
         model = (
             answered.strip()[:MODEL_MAX_LENGTH]

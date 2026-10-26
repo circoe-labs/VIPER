@@ -1,13 +1,12 @@
-from app.models.enums import ActivityStatus, VerificationStatus
+"""`Statut_verification` (D10): it only claims an activity, never an e-mail verification."""
+
+import pytest
+
+from app.models.enums import ActivityStatus
+from app.services.imports import verification
 from app.services.imports.fields import FIELD_BY_HEADER, SPECS, ImportField
-from app.services.imports.text import fold
-from app.services.imports.verification import (
-    ExcelVerificationOutcome,
-    activity_status,
-    email_verification_status,
-    verification_value,
-    was_checked,
-)
+from app.services.imports.text import CellValue, fold
+from app.services.imports.verification import activity_from_status
 
 
 def test_verification_status_header_is_recognised_and_preserved() -> None:
@@ -16,36 +15,27 @@ def test_verification_status_header_is_recognised_and_preserved() -> None:
     assert SPECS[ImportField.VERIFICATION_STATUS].opaque is True
 
 
-def test_operational_verification_values() -> None:
-    assert verification_value("Validé") is ExcelVerificationOutcome.VERIFIED
-    assert verification_value("Inactif") is ExcelVerificationOutcome.INACTIVE
-    assert verification_value("Inconnus") is ExcelVerificationOutcome.UNKNOWN
-    assert verification_value("") is ExcelVerificationOutcome.UNVERIFIED
-    assert verification_value(None) is ExcelVerificationOutcome.UNVERIFIED
+@pytest.mark.parametrize(
+    ("raw", "activity"),
+    [
+        ("Validé", ActivityStatus.ACTIVE),
+        ("validé", ActivityStatus.ACTIVE),
+        ("Inactif", ActivityStatus.INACTIVE),
+        ("inactif", ActivityStatus.INACTIVE),
+        ("Inconnus", None),  # checked, nothing known: no activity claim
+        ("inconnus", None),
+        ("à rappeler", None),  # a note
+        ("", None),
+        (None, None),
+    ],
+)
+def test_the_status_only_claims_an_activity(
+    raw: CellValue, activity: ActivityStatus | None
+) -> None:
+    assert activity_from_status(raw) is activity
 
 
-def test_verified_means_active_and_verified_email() -> None:
-    outcome = verification_value("Validé")
-    assert was_checked(outcome) is True
-    assert activity_status(outcome) is ActivityStatus.ACTIVE
-    assert email_verification_status(outcome) is VerificationStatus.VERIFIED
+def test_the_status_says_nothing_about_e_mails() -> None:
+    public = {name for name in dir(verification) if not name.startswith("_")}
 
-
-def test_inactive_means_inactive_and_invalid_email() -> None:
-    outcome = verification_value("Inactif")
-    assert was_checked(outcome) is True
-    assert activity_status(outcome) is ActivityStatus.INACTIVE
-    assert email_verification_status(outcome) is VerificationStatus.INVALID
-
-
-def test_unknown_is_checked_but_not_verified() -> None:
-    outcome = verification_value("Inconnus")
-    assert was_checked(outcome) is True
-    assert activity_status(outcome) is ActivityStatus.UNKNOWN
-    assert email_verification_status(outcome) is VerificationStatus.UNKNOWN
-
-
-def test_blank_remains_to_verify() -> None:
-    outcome = verification_value(None)
-    assert was_checked(outcome) is False
-    assert email_verification_status(outcome) is VerificationStatus.UNVERIFIED
+    assert not {name for name in public if "email" in name.lower()}

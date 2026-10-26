@@ -45,6 +45,11 @@ function stubImports({ preview = samplePreview(), commit = json(200, commitResul
   return sent
 }
 
+// The resolve sections are closed until clicked: open the ones a test needs.
+async function openSection(name: RegExp) {
+  await userEvent.click(within(screen.getByRole('region', { name })).getByRole('button', { name }))
+}
+
 async function uploadAndConfirm() {
   await userEvent.upload(screen.getByLabelText('Fichier à importer'), FILE)
   await userEvent.click(await screen.findByRole('button', { name: 'Confirmer la feuille' }))
@@ -78,11 +83,12 @@ describe('Excel import page', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Confirmer la feuille' }))
 
     const tiles = screen.getByRole('region', { name: 'Résumé de l’analyse' })
-    expect(within(tiles).getByRole('button', { name: /5\s*Lignes/ })).toBeInTheDocument()
-    expect(within(tiles).getByRole('button', { name: /2\s*En erreur/ })).toBeInTheDocument()
+    expect(within(tiles).getByRole('button', { name: /5\s*lignes détectées/ })).toBeInTheDocument()
+    expect(within(tiles).getByRole('button', { name: /2\s*Ignorés/ })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: /À résoudre/ })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByRole('button', { name: 'Importer…' })).toBeDisabled()
-    expect(screen.getByText(/1 ligne en erreur à corriger ou exclure/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Importer \d+ lignes?/ })).toBeDisabled()
+    expect(screen.queryByText(/ligne en erreur/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Sans remarque/ })).not.toBeInTheDocument()
   })
 
   it('shows why a refused file cannot be read and lets the user choose another one', async () => {
@@ -102,34 +108,12 @@ describe('Excel import page', () => {
     expect(screen.getByRole('button', { name: 'Choisir un fichier' })).toBeInTheDocument()
   })
 
-  it('maps a raw job title once for every row of its group and creates the role explicitly', async () => {
-    const sent = stubImports()
+  it('does not ask to review the job titles: they are kept as written', async () => {
+    stubImports()
     renderApp('/prospection/import')
     await uploadAndConfirm()
 
-    const roles = screen.getByRole('region', { name: /Rôles non reconnus/ })
-    expect(within(roles).getByText('« Directeur fictif »')).toBeInTheDocument()
-    expect(within(roles).getByText(/2 lignes/)).toBeInTheDocument()
-    await userEvent.selectOptions(within(roles).getByRole('combobox', { name: 'Rôle pour « Directeur fictif »' }), 'create')
-    const label = within(roles).getByRole('textbox', { name: 'Libellé du rôle à créer' })
-    await userEvent.clear(label)
-    await userEvent.type(label, 'Directeur des opérations')
-    await userEvent.tab()
-
-    await userEvent.click(screen.getByRole('button', { name: 'Exclure la ligne 4' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Importer…' }))
-    const dialog = screen.getByRole('dialog', { name: 'Confirmer l’import' })
-    expect(within(dialog).getByRole('list', { name: 'Ce qui sera enregistré' })).toHaveTextContent(
-      'Rôles créés : « Directeur des opérations »',
-    )
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Importer 3 lignes' }))
-
-    const commit = sent.find((item) => item.path === '/api/imports/commit')
-    expect(commit?.file?.name).toBe(FILE.name)
-    expect(commit?.part).toMatchObject({
-      roles: { 'directeur fictif': { action: 'create', label: 'Directeur des opérations' } },
-      rows: { 4: { resolution: { action: 'exclude' } } },
-    })
+    expect(screen.queryByRole('region', { name: /Rôles non reconnus/ })).not.toBeInTheDocument()
   })
 
   it('summarises the commit, requires the legal basis, then shows the result', async () => {
@@ -138,7 +122,7 @@ describe('Excel import page', () => {
     await uploadAndConfirm()
     await userEvent.click(screen.getByRole('button', { name: 'Exclure les lignes en erreur (1)' }))
 
-    await userEvent.click(screen.getByRole('button', { name: 'Importer…' }))
+    await userEvent.click(screen.getByRole('button', { name: /^Importer \d+ lignes?/ }))
 
     const dialog = screen.getByRole('dialog', { name: 'Confirmer l’import' })
     const summary = within(dialog).getByRole('list', { name: 'Ce qui sera enregistré' })
@@ -170,6 +154,7 @@ describe('Excel import page', () => {
     renderApp('/prospection/import')
     await uploadAndConfirm()
 
+    await openSection(/Opposition « Ne pas contacter »/)
     const opposition = screen.getByRole('region', { name: /Opposition « Ne pas contacter »/ })
     const choices = within(opposition).getAllByRole('radio')
     expect(choices.map((radio) => radio.closest('label')?.textContent)).toEqual([
@@ -178,9 +163,10 @@ describe('Excel import page', () => {
     ])
     expect(within(opposition).getByRole('radio', { name: /Exclure la ligne/ })).toBeChecked()
     await userEvent.click(within(opposition).getByRole('radio', { name: /Bruno Bloqué/ }))
+    await openSection(/Erreurs à traiter/)
     await userEvent.click(screen.getByRole('button', { name: 'Exclure la ligne 4' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Importer…' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Importer 4 lignes' }))
+    await userEvent.click(screen.getByRole('button', { name: /^Importer \d+ lignes?/ }))
+    await userEvent.click(within(screen.getByRole('dialog', { name: 'Confirmer l’import' })).getByRole('button', { name: 'Importer 4 lignes' }))
 
     await screen.findByRole('heading', { name: 'Import terminé' })
     expect(sent.at(-1)?.part).toMatchObject({ rows: { 6: { resolution: { action: 'attach', prospect_id: BLOCKED_ID } } } })
@@ -191,6 +177,7 @@ describe('Excel import page', () => {
     renderApp('/prospection/import')
     await uploadAndConfirm()
 
+    await openSection(/Erreurs à traiter/)
     await userEvent.click(screen.getByRole('button', { name: 'Corriger la ligne 4' }))
 
     const form = await screen.findByRole('form', { name: 'Correction de la ligne 4' })
@@ -211,6 +198,7 @@ describe('Excel import page', () => {
     renderApp('/prospection/import')
     await uploadAndConfirm()
 
+    await userEvent.click(screen.getByRole('button', { name: /^Remarques/ }))
     await userEvent.click(screen.getByRole('button', { name: /Rôle non reconnu\s*2/ }))
 
     const table = screen.getByRole('table', { name: 'Lignes analysées' })
@@ -219,9 +207,28 @@ describe('Excel import page', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Exclure la ligne' }))
     expect(within(table).getByRole('row', { name: /Prénom3/ })).toHaveTextContent('Exclue')
 
-    await userEvent.click(within(screen.getByRole('region', { name: 'Résumé de l’analyse' })).getByRole('button', { name: /En erreur/ }))
-    expect(within(screen.getByRole('table', { name: 'Lignes analysées' })).getAllByRole('row')).toHaveLength(3)
+    await userEvent.click(within(screen.getByRole('region', { name: 'Résumé de l’analyse' })).getByRole('button', { name: /Ignorés/ }))
+    expect(within(screen.getByRole('table', { name: 'Lignes analysées' })).getAllByRole('row')).toHaveLength(5)
     expect(sent).toHaveLength(1)
+  })
+
+  it('groups the remarks by subject and folds them away with an arrow', async () => {
+    stubImports()
+    renderApp('/prospection/import')
+    await uploadAndConfirm()
+
+    const toggle = screen.getByRole('button', { name: /^Remarques/ })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('group', { name: 'Filtrer les lignes par remarque' })).not.toBeInTheDocument()
+
+    await userEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    const group = screen.getByRole('group', { name: 'Filtrer les lignes par remarque' })
+    expect(within(group).getByText('Catégorie et rôle')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Rôle non reconnu\s*2/ })).toBeInTheDocument()
+
+    await userEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
   })
 
   it('warns prominently when the same file was already imported and asks for an acknowledgement', async () => {
@@ -229,9 +236,10 @@ describe('Excel import page', () => {
     renderApp('/prospection/import')
     await uploadAndConfirm()
     expect(screen.getByRole('alert')).toHaveTextContent('Ce fichier a déjà été importé')
+    await openSection(/Erreurs à traiter/)
     await userEvent.click(screen.getByRole('button', { name: 'Exclure la ligne 4' }))
 
-    await userEvent.click(screen.getByRole('button', { name: 'Importer…' }))
+    await userEvent.click(screen.getByRole('button', { name: /^Importer \d+ lignes?/ }))
     const dialog = screen.getByRole('dialog', { name: 'Confirmer l’import' })
     const confirm = within(dialog).getByRole('button', { name: 'Importer 3 lignes' })
     expect(confirm).toBeDisabled()
@@ -247,8 +255,9 @@ describe('Excel import page', () => {
     const sent = stubImports({ commit: stale })
     renderApp('/prospection/import')
     await uploadAndConfirm()
+    await openSection(/Erreurs à traiter/)
     await userEvent.click(screen.getByRole('button', { name: 'Exclure la ligne 4' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Importer…' }))
+    await userEvent.click(screen.getByRole('button', { name: /^Importer \d+ lignes?/ }))
     const dialog = screen.getByRole('dialog', { name: 'Confirmer l’import' })
 
     await userEvent.click(within(dialog).getByRole('button', { name: 'Importer 3 lignes' }))

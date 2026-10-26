@@ -28,6 +28,7 @@ export const DEFAULT_VIEW: ProspectionView = {
   activity: null,
   referent: null,
   tracking_status: null,
+  cohort: null,
   company: null,
   import_batch: null,
   sort: 'name',
@@ -61,9 +62,11 @@ export function parseView(params: URLSearchParams): ProspectionView {
     referent: id(params.get('referent'), { allowNone: true }),
     tracking_status:
       params.get('tracking_status') === NONE ? NONE : oneOf<TrackingStatus>(TRACKING_STATUSES, params.get('tracking_status')),
+    cohort: id(params.get('cohort'), { allowNone: true }),
     company: id(params.get('company')),
     import_batch: id(params.get('import_batch')),
-    sort: oneOf<ProspectSort>(PROSPECT_SORTS, params.get('sort')) ?? 'name',
+    // `planned_contact` (a link written before the sequences rework) reads as its successor.
+    sort: oneOf<ProspectSort>(PROSPECT_SORTS, params.get('sort') === 'planned_contact' ? 'next_due' : params.get('sort')) ?? 'name',
     page: Number.isInteger(page) && page > 0 ? page : 1,
     prospect: prospect === 'new' ? 'new' : id(prospect),
   }
@@ -94,7 +97,7 @@ export function hasSelection(view: ProspectionView): boolean {
 export function hasFilters(view: ProspectionView): boolean {
   return (
     view.q.trim() !== '' ||
-    [view.role, view.activity, view.referent, view.tracking_status, view.company, view.import_batch].some(
+    [view.role, view.activity, view.referent, view.tracking_status, view.cohort, view.company, view.import_batch].some(
       (value) => value !== null,
     )
   )

@@ -52,32 +52,29 @@ test('a synthetic workbook is reviewed, resolved and committed, then found in th
   const suffix = randomBytes(3).toString('hex')
   await uploadWorkbook(page, suffix)
   const summary = page.getByRole('region', { name: 'Résumé de l’analyse' })
-  await expect(summary.getByRole('button', { name: /^6\s*Lignes/ })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Importer…' })).toBeDisabled()
+  await expect(summary.getByRole('button', { name: /^6\s*lignes détectées/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Importer \d+ lignes?/ })).toBeDisabled()
 
-  // Grouped mapping: one decision for the two rows sharing the unknown job title — an explicitly created role.
-  const roles = page.getByRole('region', { name: /Rôles non reconnus/ })
-  await expect(roles.getByText(`« Directeur fictif ${suffix} »`)).toBeVisible()
-  await roles.getByRole('combobox', { name: `Rôle pour « Directeur fictif ${suffix} »` }).selectOption('create')
-  const label = roles.getByRole('textbox', { name: 'Libellé du rôle à créer' })
-  await label.fill(`Directeur import ${suffix}`)
-  await label.blur()
+  // Job titles are kept as written: there is no role to resolve.
+  await expect(page.getByRole('region', { name: /Rôles non reconnus/ })).toHaveCount(0)
+  // The resolve sections are closed until clicked.
+  await page.getByRole('button', { name: /Semaines sans année/ }).click()
   // Weeks without year get a date only from an explicit year.
   await page.getByRole('combobox', { name: 'Année pour toutes les semaines' }).selectOption({ index: 2 })
   // The row without any name is excluded (errors block the import, warnings do not).
+  await page.getByRole('button', { name: /Erreurs à traiter/ }).click()
   await page.getByRole('button', { name: 'Exclure la ligne 4' }).click()
-  await expect(page.getByRole('button', { name: 'Importer…' })).toBeEnabled()
+  await expect(page.getByRole('button', { name: /^Importer \d+ lignes?/ })).toBeEnabled()
 
   await page.getByRole('tab', { name: /Lignes/ }).click()
   await page.getByRole('searchbox', { name: /Rechercher : ligne/ }).fill('Emma')
   await page.getByRole('button', { name: 'Détails de la ligne 7' }).click()
   await expect(page.getByText(/Adresse e-mail invalide : ignorée/)).toBeVisible()
 
-  await page.getByRole('button', { name: 'Importer…' }).click()
+  await page.getByRole('button', { name: /^Importer \d+ lignes?/ }).click()
   const dialog = page.getByRole('dialog', { name: 'Confirmer l’import' })
   const plan = dialog.getByRole('list', { name: 'Ce qui sera enregistré' })
   await expect(plan).toContainText('5 nouveaux prospects')
-  await expect(plan).toContainText(`Rôles créés : « Directeur import ${suffix} »`)
   await expect(plan).toContainText('1 ligne exclue (non importée)')
   await dialog.getByRole('textbox', { name: /Référence de la source/ }).fill(`Liste E2E ${suffix}`)
   await dialog.getByRole('button', { name: 'Importer 5 lignes' }).click()

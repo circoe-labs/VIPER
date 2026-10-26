@@ -3,7 +3,7 @@ import { type ReactNode, useId, useState } from 'react'
 import { useCompanies } from '../api/companies'
 import { useImportHistory } from '../api/imports'
 import { NONE, PROSPECT_SORTS, type ProspectSort, TRACKING_STATUSES } from '../api/prospection'
-import { referentName, useReferents, useTaxonomyValues } from '../api/settings'
+import { type Cohort, referentName, useCohorts, useReferents, useTaxonomyValues } from '../api/settings'
 import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { Combobox } from '../ui/Combobox'
@@ -12,7 +12,9 @@ import { ChevronDownIcon, FilterIcon } from '../ui/icons'
 import type { ProspectionView } from './criteria'
 import { ACTIVITY_LABELS, formatDay, SORT_LABELS, TRACKING_LABELS } from './labels'
 
-type FilterPatch = Partial<Pick<ProspectionView, 'role' | 'activity' | 'referent' | 'tracking_status' | 'company' | 'import_batch' | 'sort'>>
+type FilterPatch = Partial<
+  Pick<ProspectionView, 'role' | 'activity' | 'referent' | 'tracking_status' | 'cohort' | 'company' | 'import_batch' | 'sort'>
+>
 
 interface ProspectionFiltersProps {
   view: ProspectionView
@@ -30,11 +32,11 @@ function orNull(value: string): never | null {
 }
 
 // Search, sort and — behind « Filtres », open by default when one is set — the filters of the people list. Values come
-// from Paramètres (roles, referents), the companies and the import history; « Sans … » options select people with no
-// value.
+// from Paramètres (roles, referents, cohorts), the companies and the import history; « Sans … » options select people
+// with no value (« Sans cohorte » : not validated).
 export function ProspectionFilters({ view, onChange, search }: ProspectionFiltersProps) {
   const panelId = useId()
-  const active = [view.role, view.activity, view.referent, view.tracking_status, view.company, view.import_batch].filter(
+  const active = [view.role, view.activity, view.referent, view.tracking_status, view.cohort, view.company, view.import_batch].filter(
     (value) => value !== null,
   ).length
   const [open, setOpen] = useState(active > 0)
@@ -76,8 +78,15 @@ export function ProspectionFilters({ view, onChange, search }: ProspectionFilter
   )
 }
 
+// « S39 — 28 sept. 2026 », « S0 — hors campagne ».
+function cohortOption(cohort: Cohort): string {
+  if (cohort.out_of_campaign) return `${cohort.code} — hors campagne`
+  return cohort.starts_on ? `${cohort.code} — ${formatDay(cohort.starts_on)}` : cohort.code
+}
+
 function FilterFields({ id, view, onChange }: { id: string; view: ProspectionView; onChange: (patch: FilterPatch) => void }) {
   const roles = useTaxonomyValues('roles')
+  const cohorts = useCohorts()
   const referents = useReferents()
   const companies = useCompanies('', 0, COMPANY_OPTIONS_LIMIT)
   const imports = useImportHistory()
@@ -116,7 +125,25 @@ function FilterFields({ id, view, onChange }: { id: string; view: ProspectionVie
         ))}
       </SelectField>
       <SelectField
-        label="État de contact"
+        label="Cohorte"
+        value={view.cohort ?? ''}
+        onChange={(event) => {
+          onChange({ cohort: orNull(event.target.value) })
+        }}
+      >
+        <option value="">Toutes les cohortes</option>
+        <option value={NONE}>Sans cohorte (non validé)</option>
+        {view.cohort && view.cohort !== NONE && !(cohorts.data ?? []).some((cohort) => cohort.id === view.cohort) && (
+          <option value={view.cohort}>Cohorte sélectionnée</option>
+        )}
+        {(cohorts.data ?? []).map((cohort) => (
+          <option key={cohort.id} value={cohort.id}>
+            {cohortOption(cohort)}
+          </option>
+        ))}
+      </SelectField>
+      <SelectField
+        label="État commercial"
         value={view.tracking_status ?? ''}
         onChange={(event) => {
           onChange({ tracking_status: orNull(event.target.value) })

@@ -253,6 +253,8 @@ class FakeToolbox:
                 "tools": [
                     {"name": "infomaniak.mail.create_draft", "description": "Crée un brouillon."},
                     {"name": "infomaniak.mail.list_drafts", "title": "Brouillons"},
+                    {"name": "infomaniak.mail.send_draft", "description": "Envoie."},
+                    {"name": "infomaniak.mail.delete_draft", "description": "Supprime."},
                 ]
             }
         elif message["method"] == "tools/call":

@@ -27,6 +27,7 @@ from typing import Any
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import Settings
+from app.services.calendly_worker import CalendlyWorker
 from app.services.contact_dispatch import DispatchConfig
 from app.services.contact_dispatch_worker import ContactDispatcher
 from app.services.runtime_settings import TOOLBOX_FIELDS
@@ -79,6 +80,30 @@ class IntegrationRuntime:
             worker.stop()
         self._state.toolbox_worker = None
 
+    def _sync_calendly(self) -> None:
+        """The Calendly sync runs while a token is set and the interval is positive; it restarts
+        when either changes (its token and period are fixed at construction)."""
+        settings: Settings = self._state.settings
+        token = settings.calendly_api_token
+        seconds = settings.calendly_sync_interval_ms / 1000
+        wanted = (token.get_secret_value(), seconds) if token and seconds > 0 else None
+        worker: CalendlyWorker | None = getattr(self._state, "calendly_worker", None)
+        if worker is not None and wanted == getattr(worker, "signature", None):
+            return
+        if worker is not None:
+            worker.stop()
+            self._state.calendly_worker = None
+        if wanted is not None:
+            fresh = CalendlyWorker(
+                wanted[0],
+                self._session_factory,
+                wanted[1],
+                transport=getattr(self._state, "calendly_transport", None),
+            )
+            fresh.signature = wanted  # type: ignore[attr-defined]
+            fresh.start()
+            self._state.calendly_worker = fresh
+
     def _stop_dispatcher(self) -> None:
         dispatcher: ContactDispatcher | None = self._state.contact_dispatcher
         if dispatcher is not None:
@@ -103,6 +128,7 @@ class IntegrationRuntime:
         """At startup: the workers, when the Toolbox is already connected."""
         with self.lock:
             self._sync()
+            self._sync_calendly()
             self._log("started")
 
     def sync(self) -> None:
@@ -118,6 +144,10 @@ class IntegrationRuntime:
         with self.lock:
             self._stop_dispatcher()
             self._stop_cleanup()
+            stale: CalendlyWorker | None = getattr(self._state, "calendly_worker", None)
+            if stale is not None:
+                stale.stop()
+            self._state.calendly_worker = None
 
     def apply(self, before: Settings, after: Settings) -> bool:
         """Switch to `after`: the routes see it at once; the Toolbox and the workers follow.
@@ -146,6 +176,7 @@ class IntegrationRuntime:
             elif dispatch_changed:
                 self._stop_dispatcher()
             self._sync()
+            self._sync_calendly()
             if toolbox_changed or dispatch_changed:
                 self._log("reconfigured")
         return forgot

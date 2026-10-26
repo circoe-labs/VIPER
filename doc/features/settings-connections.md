@@ -238,6 +238,33 @@ messages programmés ne partiront pas (M ont déjà dépassé leur heure) tant q
 (`dispatchBacklog`, from `GET /settings/integrations` → `dispatch`), then *Dernière passe*, *Messages programmés*
 and, when there are some, *Envois non confirmés* (« à trancher dans Contact »).
 
+## Tester la Toolbox (`app/services/toolbox/diagnostics.py`)
+
+Card *Tester la Toolbox* on Paramètres › Connexions: a test address, an optional *Envoyer pour de vrai*, one button.
+It plays every mail operation VIPER relies on against that single address and shows, per step, what was expected,
+the context (tool, address, subject, lengths, draft ids), what was observed, the `toolbox_*` code with a hint, the
+duration, and the **raw HTTP / JSON-RPC exchange including the Toolbox's own error text** (normal calls never keep
+that text: it may quote an address; the run only concerns the test address). *Copier le rapport* copies the whole run
+as JSON for the developer.
+
+- API (session + CSRF, a person only, one run at a time → 409): `POST /api/settings/integrations/toolbox/diagnostics`
+  `{recipient, send_real, delay_seconds (20–300)}` → 202 and the run; `GET …/diagnostics/latest` → the last run or
+  `null`, polled every 1.5 s while `status = running`. Runs live in memory (the last five), a restart forgets them.
+- Steps: configuration (state, token expiry, VIPER allowlist vs the address, dispatcher state) → messages already in
+  error in the base → `tools/list` → `list_drafts` → create → find in the list (the timeout recovery path) → realistic
+  body (accents, typographic quotes, link, signature) → ≈ 20 000-character body → edit (create the new draft, delete
+  the old one) → delete, delete twice (idempotent) → refusals (bad address, empty / 501-character subject, unknown
+  draft to send or delete) → with *envoi réel*: a scheduled send (the draft waits, its date is moved, then
+  `send_draft` at the due time, then a second send must be refused) → cleanup (every draft carrying the
+  `[Test VIPER xxxxxxxx]` marker is deleted).
+- Statuses: `ok`, `failed`, `expected_error` (a refusal the step provokes, with the right code), `unexpected` (the
+  refusal had another code, or the operation succeeded), `skipped` (a blocking step failed, or no real send).
+  A failure of configuration, `list_drafts` or the first creation stops the rest (`skipped`).
+- The scheduled send is simulated with a clock: the Toolbox only sees `create_draft` / `send_draft`; the VIPER-side
+  dispatcher (claims, backoff, the allowlist) is not exercised — its state is only reported in the first step.
+- `mcp_client.capture_trace()` is the seam: a context variable collecting each exchange; off (nothing kept, nothing
+  logged) outside a run.
+
 ## Connecting for real (operator)
 
 1. Open VIPER over HTTPS (or on localhost): the return address must pass the https/loopback rule.

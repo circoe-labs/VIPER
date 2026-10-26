@@ -16,6 +16,7 @@ from app.services.explorer.sql_console import create_reader_engine
 from app.services.integration_runtime import IntegrationRuntime
 from app.services.login_throttle import LoginThrottle
 from app.services.runtime_settings import RuntimeSettings
+from app.services.toolbox.diagnostics import ToolboxDiagnostics
 from app.services.toolbox.integration import ToolboxIntegration
 
 
@@ -56,10 +57,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.login_throttle = LoginThrottle()
     app.state.toolbox = ToolboxIntegration(settings)
     app.state.toolbox_worker = None
+    # « Tester la Toolbox » (Paramètres > Connexions): the diagnostic runs of this process.
+    app.state.toolbox_diagnostics = ToolboxDiagnostics()
     app.state.contact_dispatcher = None
     app.state.integrations = IntegrationRuntime(app.state)
     # Test seam of « Tester la clé » (an `httpx2.MockTransport`); None = the network.
     app.state.openai_transport = None
+    # The Agenda's Calendly sync worker (started with a token) and its test seam.
+    app.state.calendly_worker = None
+    app.state.calendly_transport = None
 
     app.add_middleware(WakeCleanupWorkerMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)

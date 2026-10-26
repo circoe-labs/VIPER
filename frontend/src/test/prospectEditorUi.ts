@@ -12,8 +12,10 @@ export async function showTab(name: 'Profil' | 'Suivi') {
   await userEvent.click(screen.getByRole('tab', { name: new RegExp(`^${name}`) }))
 }
 
-// « Modifier » on a Profil section (Identité, Emploi, E-mails, Téléphones): its inputs replace the summary.
+// « Modifier » on a Profil section (Identité, Emploi, Coordonnées): its inputs replace the summary. E-mails and
+// Téléphones are the two halves of Coordonnées: one switch opens both.
 export async function editSection(name: string) {
-  const section = screen.getByRole('region', { name })
-  await userEvent.click(within(section).getByRole('button', { name: `Modifier : ${name}` }))
+  const owner = name === 'E-mails' || name === 'Téléphones' ? 'Coordonnées' : name
+  const section = screen.getByRole('region', { name: owner })
+  await userEvent.click(within(section).getByRole('button', { name: `Modifier : ${owner}` }))
 }

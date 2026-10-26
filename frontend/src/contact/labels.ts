@@ -1,67 +1,28 @@
-// French copy of the Contact page: the counters (doc/features/contact.md § Counters), the next step, the steps and
+// French copy of the Contact page: the next step, the steps and
 // statuses of the mail sequence, and date formats.
-import type { ContactCounter, MessageStatus, MessageStep, NextStep } from '../api/contact'
+import type { MessageStatus, MessageStep } from '../api/contact'
 import type { StatusTone } from '../ui/Badge'
 import {
-  CalendarIcon,
-  CheckCircleIcon,
   CheckIcon,
   ClockIcon,
   CloseIcon,
   type IconComponent,
   MailIcon,
   PencilIcon,
-  RefreshIcon,
 } from '../ui/icons'
 
-export interface CounterInfo {
-  label: string
-  // What the card counts, in one sentence (tooltip and list heading hint).
-  hint: string
-  icon: IconComponent
+export const STEP_LABELS: Record<string, string> = { contact: 'Contact', r1: 'R1', r2: 'R2' }
+
+// « Contact », « R1 », « R2 », « R3 »…: any step code the server may send.
+export function stepLabel(step: MessageStep): string {
+  return STEP_LABELS[step] ?? step.toUpperCase()
 }
-
-export const COUNTER_INFO: Record<ContactCounter, CounterInfo> = {
-  to_handle: {
-    label: 'À traiter cette semaine',
-    hint: 'Premiers contacts, relances et revues R2 dont la semaine est arrivée ou dépassée (hors opposition et inactifs).',
-    icon: CalendarIcon,
-  },
-  first_contact: {
-    label: 'Premier contact',
-    hint: 'Aucun état, semaine arrivée ou dépassée : le mail Contact à préparer.',
-    icon: MailIcon,
-  },
-  follow_up: {
-    label: 'Relances',
-    hint: 'Contacté (R1 à préparer) ou R1 (R2 à préparer), semaine arrivée ou dépassée.',
-    icon: RefreshIcon,
-  },
-  review: {
-    label: 'Revues R2',
-    hint: 'R2 envoyée, semaine de revue arrivée ou dépassée : décider de la suite (pas un nouveau mail).',
-    icon: ClockIcon,
-  },
-  appointments: {
-    label: 'RDV pris',
-    hint: 'État « RDV pris », cumulé depuis le début (aucune fenêtre de temps).',
-    icon: CheckCircleIcon,
-  },
-}
-
-export const COUNTER_GROUPS: { id: string; title: string; counters: ContactCounter[] }[] = [
-  { id: 'week', title: 'Cette semaine', counters: ['to_handle', 'first_contact', 'follow_up', 'review'] },
-  { id: 'results', title: 'Résultats', counters: ['appointments'] },
-]
-
-export const STEP_LABELS: Record<MessageStep, string> = { contact: 'Contact', r1: 'R1', r2: 'R2' }
 
 // What the next action prepares, shown on the row.
-export const NEXT_STEP_LABELS: Record<NextStep, string> = {
+export const NEXT_STEP_LABELS: Record<string, string> = {
   contact: 'Premier contact',
   r1: 'Relance R1',
   r2: 'Relance R2',
-  review: 'Revue après R2',
 }
 
 export const MESSAGE_STATUS_LABELS: Record<MessageStatus, string> = {

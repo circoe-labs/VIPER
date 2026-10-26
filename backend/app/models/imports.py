@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -12,6 +13,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    false,
     func,
     text,
 )
@@ -56,7 +58,10 @@ class ImportBatch(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 
 class ImportRowMetadata(UUIDPrimaryKeyMixin, Base):
-    """One imported source row: its location, resulting entities and opaque legacy values."""
+    """One source row of a committed import: its location, resulting entities, the legacy values
+    the import did not apply and the raw snapshot of every non-empty cell (decision D10: nothing
+    of the file is lost). Excluded rows are traced too (`excluded`, no company, the prospect only
+    when the row matched an opposed one, so its trace goes with it)."""
 
     __tablename__ = "import_row_metadata"
     __table_args__ = (
@@ -86,4 +91,8 @@ class ImportRowMetadata(UUIDPrimaryKeyMixin, Base):
     legacy_metadata: Mapped[dict[str, Any]] = mapped_column(
         JSONB, server_default=text("'{}'::jsonb")
     )
+    # Every non-empty cell of the source row as read: `{letter: {"header", "value"}}`.
+    raw_cells: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    # The row was excluded in the review: nothing of it was written to the CRM.
+    excluded: Mapped[bool] = mapped_column(Boolean, server_default=false())
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends
 
 from app.api.dependencies import require_session
 from app.api.routes import (
+    agenda,
     audit,
     auth,
     companies,
@@ -26,6 +27,7 @@ from app.api.routes import (
     prospection,
     prospects,
     search,
+    sequences,
     settings,
     toolbox,
 )
@@ -35,11 +37,13 @@ public_router.include_router(health.router)
 public_router.include_router(auth.public_router)
 
 api_router = APIRouter(dependencies=[Depends(require_session)])
+api_router.include_router(agenda.router)
 api_router.include_router(auth.router)
 api_router.include_router(audit.router)
 api_router.include_router(companies.router)
 api_router.include_router(contact.router)
 api_router.include_router(contact_messages.router)
+api_router.include_router(contact_messages.cohorts_router)
 api_router.include_router(database_reset.router)
 api_router.include_router(explorer.router)
 api_router.include_router(explorer_writes.router)
@@ -54,4 +58,5 @@ api_router.include_router(search.router)
 # `/settings/integrations`.
 api_router.include_router(toolbox.router)
 api_router.include_router(integrations.router)
+api_router.include_router(sequences.router)
 api_router.include_router(settings.router)

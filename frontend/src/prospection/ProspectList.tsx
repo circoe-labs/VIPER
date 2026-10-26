@@ -1,27 +1,22 @@
-import { type KeyboardEvent, useState } from 'react'
+import type { KeyboardEvent } from 'react'
 import { Link } from 'react-router'
 
-import { NEXT_ACTION_STATES, type ProspectRow } from '../api/prospection'
-import { type IsoWeek, parseIsoWeek, weeksFrom } from '../lib/isoWeek'
+import type { ProspectRow } from '../api/prospection'
 import { StatusBadge } from '../ui/Badge'
 import { AlertIcon, BanIcon, BuildingIcon, CheckCircleIcon, ClockIcon } from '../ui/icons'
+import { CohortBadge, DueBadge, EmailErrorBadge, LevelBadge, StateBadge } from './ContactBadges'
 import {
   civilityLabel,
   formatDay,
   formatPhone,
   personName,
+  stepLabel,
 } from './labels'
-import { PlanWeekButton } from './QuickWeekPlanner'
-import { StateBadge, WeekBadge } from './TrackingBadges'
 
 interface ProspectListProps {
   rows: ProspectRow[]
   // URL (search part) that opens a prospect: the current list URL plus `prospect=<id>`.
   openHref: (id: string) => string
-  // Business day (`YYYY-MM-DD`): the current week and year of the week badges.
-  today: string
-  // Offer the quick week planning (PATCH) on each card.
-  planning?: boolean
 }
 
 function initials(row: ProspectRow): string {
@@ -113,38 +108,29 @@ function EmailLine({ row }: { row: ProspectRow }) {
   )
 }
 
-// The contact follow-up: two independent indicators — the state (none while `neutral`) and the next-action week —
-// then the dates and the referent (Contact decisions 4-5).
-interface TrackingProps {
-  row: ProspectRow
-  today: string
-  // Announces the outcome of a quick planning; null: no planning on the cards.
-  onPlanned: ((notice: string) => void) | null
+// The step to send next and when (derived from the cohort and the real sends): « R1 à envoyer depuis le 14 sept. »
+// once due, « … le 21 sept. » before.
+function nextSend(row: ProspectRow): string | null {
+  if (!row.next_due_at || !row.next_step) return null
+  return `${stepLabel(row.next_step)} à envoyer ${row.due ? 'depuis le' : 'le'} ${formatDay(row.next_due_at)}`
 }
 
-// Past-week cue, display only: a planned first contact due by the backend's segment (`due`), or a follow-up whose
-// next-action week is before the current one (the `due` segment itself stays the first contacts).
-function overdue(row: ProspectRow, week: IsoWeek | null, today: string): boolean {
-  if (row.due) return true
-  return week !== null && NEXT_ACTION_STATES.includes(row.tracking_status ?? 'neutral') && weeksFrom(today, week) < 0
-}
-
-function Tracking({ row, today, onPlanned }: TrackingProps) {
-  const week = parseIsoWeek(row.planned_contact_week)
-  const shown = row.tracking_status !== null && row.tracking_status !== 'neutral'
+// The contact follow-up: the cohort (or « Non validé »), the level reached by the real sends, the commercial state
+// (none while « En séquence ») and what takes the person out of the automatic actions, then the next send, the dates
+// and the referent (sequences rework D1-D9).
+function Tracking({ row }: { row: ProspectRow }) {
+  const inCampaign = row.cohort_code !== null && row.cohort_code !== 'S0'
+  const next = nextSend(row)
   return (
     <>
       <span className="prospect-row__stage">
+        <CohortBadge code={row.cohort_code} />
+        {inCampaign && <LevelBadge level={row.level} />}
         <StateBadge status={row.tracking_status} />
-        {week && <WeekBadge week={week} today={today} />}
-        {overdue(row, week, today) && (
-          <StatusBadge tone="warning" icon={ClockIcon} strong>
-            Échu
-          </StatusBadge>
-        )}
-        {!shown && !week && <span className="prospect-row__muted" aria-hidden="true">—</span>}
+        {row.email_error && <EmailErrorBadge />}
+        {row.due && <DueBadge />}
       </span>
-      {onPlanned && <PlanWeekButton row={row} onPlanned={onPlanned} />}
+      {next && <span>{next}</span>}
       {row.response_received_at && <span>Réponse le {formatDay(row.response_received_at)}</span>}
       {row.appointment_at && <span>Rendez-vous le {formatDay(row.appointment_at)}</span>}
       {row.referent_name && <span className="prospect-row__muted">Référent : {row.referent_name}</span>}
@@ -154,15 +140,9 @@ function Tracking({ row, today, onPlanned }: TrackingProps) {
 
 // The people list: one readable card per person — identity with its states, company and contacts, contact follow-up.
 // The name is the row's link — the whole card is clickable — and opens the prospect (prospectEditor.tsx).
-export function ProspectList({ rows, openHref, today, planning = true }: ProspectListProps) {
-  // One live region for the whole list: the outcome of the last quick planning.
-  const [notice, setNotice] = useState('')
-  const onPlanned = planning ? setNotice : null
+export function ProspectList({ rows, openHref }: ProspectListProps) {
   return (
     <>
-      <p className="visually-hidden" role="status">
-        {notice}
-      </p>
       <ul className="prospect-list" aria-label="Prospects" onKeyDown={moveFocus}>
         {rows.map((row) => {
           const civility = civilityLabel(row.civility)
@@ -204,7 +184,7 @@ export function ProspectList({ rows, openHref, today, planning = true }: Prospec
                 <ReviewLine row={row} />
               </div>
               <div className="prospect-row__tracking">
-                <Tracking row={row} today={today} onPlanned={onPlanned} />
+                <Tracking row={row} />
               </div>
             </li>
           )
