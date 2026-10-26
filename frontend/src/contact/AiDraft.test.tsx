@@ -26,6 +26,7 @@ function open(
   messages: Partial<Record<MessageStep, Message>> = {},
   extra: Parameters<typeof stubContactApi>[0] = {},
   available = true,
+  nextStep: string | null = null,
 ) {
   const detail = person()
   const api = stubContactApi({
@@ -33,6 +34,7 @@ function open(
     details: [detail],
     messages: { [detail.id]: messages },
     defaults: { from_email: 'prospection@exemple.example', to: ['claire@exemple.example'], generation_available: available, toolbox_connected: false, toolbox_state: 'disabled' as const, automatic_sending_active: false, dispatch_reason: 'toolbox_disabled' as const, dispatch_max_lateness_minutes: 360, dispatch_claim_ttl_seconds: 600 },
+    ...(nextStep ? { sequences: { [detail.id]: { next_step: nextStep } } } : {}),
     ...extra,
   })
   renderApp(`/contact?prospect=${detail.id}`)
@@ -77,6 +79,55 @@ describe('AI drafting in the mail editor', () => {
     expect(screen.getByRole('button', { name: 'Valider…' })).toBeEnabled()
     const [request] = sent(api.requests, 'POST', `/api/prospects/${id}/messages/contact/generate`)
     expect(request?.body).toEqual({})
+  })
+
+  it('« Créer le brouillon » with nothing written has the AI write it and creates the draft with its text', async () => {
+    const { api, id } = open()
+    await userEvent.click(await screen.findByRole('button', { name: 'Créer le brouillon' }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('textbox', { name: 'Objet' })).toHaveValue('Objet IA 1')
+    })
+    expect(screen.getByRole('textbox', { name: 'Corps' })).toHaveValue('Bonjour,\n\nCorps IA 1.')
+    expect(api.requests.some((request) => request.method === 'POST' && request.path === `/api/prospects/${id}/messages/contact/generate`)).toBe(true)
+    expect(api.requests.some((request) => request.method === 'PUT')).toBe(false)
+  })
+
+  it('« Créer le brouillon » with nothing written and no AI creates nothing and says what to do', async () => {
+    const { api } = open({}, {}, false)
+    await userEvent.click(await screen.findByRole('button', { name: 'Créer le brouillon' }))
+
+    expect(await screen.findByText(/Écrivez l’objet et le texte du message/)).toBeInTheDocument()
+    expect(api.requests.some((request) => request.method === 'PUT' || request.path.endsWith('/generate'))).toBe(false)
+  })
+
+  it('on the step to send next, the draft is already there on arrival: written by the AI, no button to press', async () => {
+    const { api, id } = open({}, {}, true, 'contact')
+
+    await waitFor(() => {
+      expect(screen.getByRole('textbox', { name: 'Objet' })).toHaveValue('Objet IA 1')
+    })
+    expect(screen.getByRole('textbox', { name: 'Corps' })).toHaveValue('Bonjour,\n\nCorps IA 1.')
+    const generated = api.requests.filter((request) => request.method === 'POST' && request.path === `/api/prospects/${id}/messages/contact/generate`)
+    expect(generated).toHaveLength(1)
+  })
+
+  it('writes nothing on arrival without the AI, nor on a step that is not the next one', async () => {
+    const without = open({}, {}, false, 'contact')
+    await screen.findByRole('tab', { name: /^Contact/ })
+    expect(screen.getByRole('textbox', { name: 'Objet' })).toHaveValue('')
+    expect(without.api.requests.some((request) => request.path.endsWith('/generate'))).toBe(false)
+  })
+
+  it('only the step to send next is prepared: opening another one leaves it empty', async () => {
+    const { api, id } = open({}, {}, true, 'r1')
+    await waitFor(() => {
+      expect(screen.getByRole('textbox', { name: 'Objet' })).toHaveValue('Objet IA 1')
+    })
+    await userEvent.click(screen.getByRole('tab', { name: /^Contact/ }))
+    expect(screen.getByRole('textbox', { name: 'Objet' })).toHaveValue('')
+    const paths = api.requests.filter((request) => request.path.endsWith('/generate')).map((request) => request.path)
+    expect(paths).toEqual([`/api/prospects/${id}/messages/r1/generate`])
   })
 
   it('sends the « consigne » and asks before replacing a validated text, which goes back to Brouillon', async () => {

@@ -108,6 +108,7 @@ class CohortSummaryOut(BaseModel):
     overdue: int
     levels: list[LevelCountOut]
     appointments: int
+    set_aside: int
     to_send_steps: list[str]
     sent_steps: list[SentStepOut]
     scheduled_steps: list[SentStepOut]

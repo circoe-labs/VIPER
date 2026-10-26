@@ -51,14 +51,22 @@ from datetime import date, datetime, timedelta
 from enum import StrEnum
 from typing import Any, Literal
 
-from sqlalchemy import ColumnElement, Select, and_, case, false, func, null, or_, select
+from sqlalchemy import ColumnElement, Select, and_, case, false, func, not_, null, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.business_time import BUSINESS_TIMEZONE, business_day, start_of_day
 from app.core.cohort_codes import OUT_OF_CAMPAIGN_CODE
 from app.core.contact_steps import level_keys, level_label, step_code, step_label
 from app.db.session import whole_base_plan
-from app.models import Cohort, ContactMessage, ContactSequence, ContactTracking, Prospect, Role
+from app.models import (
+    Cohort,
+    ContactMessage,
+    ContactSequence,
+    ContactTracking,
+    Prospect,
+    QualityAlert,
+    Role,
+)
 from app.models.companies import Company
 from app.models.enums import (
     ActivityStatus,
@@ -66,10 +74,12 @@ from app.models.enums import (
     ContactabilityStatus,
     ContactMessageStatus,
     ContactTrackingStatus,
+    QualityAlertType,
 )
 from app.repositories.taxonomies import label_key
 from app.services import app_settings
 from app.services.contact_sequences import (
+    EFFECTIVE_ALERT_SOURCES,
     email_error_sql,
     finished_sql,
     has_cohort_sql,
@@ -105,6 +115,8 @@ class ContactCategory(StrEnum):
     APPOINTMENT_OBTAINED = "appointment_obtained"
     NOT_INTERESTED = "not_interested"
     IGNORED = "ignored"
+    # « Écartés »: out of the sequences, listed apart (see `set_aside_sql`).
+    SET_ASIDE = "set_aside"
     # A cohort's whole list, whatever the state, but the appointments (listed apart under
     # `appointment_obtained`); not counted beside the planning.
     COHORT = "cohort"
@@ -113,7 +125,7 @@ class ContactCategory(StrEnum):
 CATEGORY_LABELS: dict[ContactCategory, str] = {
     ContactCategory.TO_SEND: "À envoyer",
     ContactCategory.IN_SEQUENCE: "En séquence",
-    ContactCategory.EMAIL_ERROR: "Erreur sur le mail",
+    ContactCategory.EMAIL_ERROR: "Mail invalide",
     ContactCategory.FINISHED: "Relance terminée",
     ContactCategory.DISQUALIFIED: "Défaillant",
     ContactCategory.OUT_OF_CAMPAIGN: "S0 (validé hors campagne)",
@@ -121,6 +133,7 @@ CATEGORY_LABELS: dict[ContactCategory, str] = {
     ContactCategory.APPOINTMENT_OBTAINED: "RDV obtenu",
     ContactCategory.NOT_INTERESTED: "Non intéressé",
     ContactCategory.IGNORED: "Ignoré",
+    ContactCategory.SET_ASIDE: "Écartés",
     ContactCategory.COHORT: "Cohorte (hors RDV pris)",
 }
 # The categories counted beside the planning (`to_send` is counted per rank).
@@ -277,6 +290,8 @@ class CohortSummary:
     levels: list[LevelCount]
     # Prospects of the cohort who took an appointment (listed apart from the cohort).
     appointments: int
+    # Prospects of the cohort set aside (replied, not interested, invalid mail…): listed apart, under « Écartés ».
+    set_aside: int
     # The steps to send in the week (`contact`, `r1`…, by rank): what the cohort has to prepare.
     to_send_steps: list[str]
     # What has really left, by step: how many mails and between which business days, so a person
@@ -408,6 +423,43 @@ def overdue(window: PlanningWeek) -> ColumnElement[bool]:
     return next_due_at_sql() < window.overdue_before
 
 
+def _open_email_errors() -> Select[Any]:
+    """The prospects with an open, effective « Mail invalide » (one row each)."""
+    return (
+        select(QualityAlert.prospect_id.label("prospect_id"))
+        .where(
+            QualityAlert.type == QualityAlertType.EMAIL_ERROR,
+            QualityAlert.resolved_at.is_(None),
+            QualityAlert.source.in_(EFFECTIVE_ALERT_SOURCES),
+            QualityAlert.prospect_id.is_not(None),
+        )
+        .distinct()
+    )
+
+
+def set_aside_sql(invalid_mail: ColumnElement[bool] | None = None) -> ColumnElement[bool]:
+    """« Écartés »: nothing more to prepare for them, whatever their cohort — a reply (« Réponse reçue »),
+    a negative answer, « Défaillant », « Ignoré » or the opposition, or a « Mail invalide ». A taken appointment
+    has its own list (« RDV pris »), never this one. `invalid_mail`: the caller's own join on the open alerts
+    (set-based, for the planning); without it the alerts are looked up with `IN`."""
+    if invalid_mail is None:
+        invalid_mail = Prospect.id.in_(_open_email_errors())
+    return and_(
+        or_(ContactTracking.status.is_(None), ContactTracking.status != S.APPOINTMENT_OBTAINED),
+        or_(
+            # No tracking row: NULL here would make the whole rule NULL, and `NOT` of it hides the person.
+            func.coalesce(
+                ContactTracking.status.in_(
+                    (S.RESPONSE_RECEIVED, S.NOT_INTERESTED, S.DISQUALIFIED, S.IGNORED)
+                ),
+                false(),
+            ),
+            Prospect.contactability_status == ContactabilityStatus.DO_NOT_CONTACT,
+            invalid_mail,
+        ),
+    )
+
+
 def category_condition(category: ContactCategory, window: PlanningWeek) -> ColumnElement[bool]:
     match category:
         case ContactCategory.TO_SEND:
@@ -433,10 +485,15 @@ def category_condition(category: ContactCategory, window: PlanningWeek) -> Colum
                 ContactTracking.status == S.IGNORED,
                 Prospect.contactability_status == ContactabilityStatus.DO_NOT_CONTACT,
             )
+        case ContactCategory.SET_ASIDE:
+            return set_aside_sql()
         case ContactCategory.COHORT:
-            return or_(
-                ContactTracking.status.is_(None),
-                ContactTracking.status != S.APPOINTMENT_OBTAINED,
+            return and_(
+                or_(
+                    ContactTracking.status.is_(None),
+                    ContactTracking.status != S.APPOINTMENT_OBTAINED,
+                ),
+                not_(func.coalesce(set_aside_sql(), false())),
             )
 
 
@@ -484,6 +541,7 @@ def _derived(filters: ContactFilters, window: PlanningWeek) -> Any:
     """One row per prospect in scope with every derived fact the dashboard counts (computed once,
     then aggregated)."""
     sending = to_send(window)
+    invalid = _open_email_errors().subquery("invalid_mail")
     statement = join_segment_sources(
         select(
             Cohort.id.label("cohort_id"),
@@ -495,13 +553,16 @@ def _derived(filters: ContactFilters, window: PlanningWeek) -> Any:
             func.coalesce(in_sequence(), false()).label("in_sequence"),
             _due_week().label("due_week"),
             *(
-                func.coalesce(category_condition(category, window), false()).label(
-                    f"category_{category.value}"
-                )
+                func.coalesce(
+                    set_aside_sql(invalid.c.prospect_id.is_not(None))
+                    if category is ContactCategory.SET_ASIDE
+                    else category_condition(category, window),
+                    false(),
+                ).label(f"category_{category.value}")
                 for category in COUNTED_CATEGORIES
             ),
         )
-    ).where(*scope_conditions(filters))
+    ).outerjoin(invalid, invalid.c.prospect_id == Prospect.id).where(*scope_conditions(filters))
     return statement.subquery("planning")
 
 
@@ -547,6 +608,7 @@ def dashboard(
             func.count().filter(rows.c.to_send),
             func.count().filter(rows.c.overdue),
             func.count().filter(rows.c.category_appointment_obtained),
+            func.count().filter(rows.c.category_set_aside),
         )
         .where(rows.c.cohort_id.is_not(None))
         .group_by(rows.c.cohort_id, rows.c.level, rows.c.next_rank)
@@ -669,7 +731,7 @@ def _cohort_summaries(
     if not rows:
         return []
     facts: dict[uuid.UUID, dict[str, Any]] = {}
-    for cohort_id, level, next_rank, count, active, sending, late, appointed in rows:
+    for cohort_id, level, next_rank, count, active, sending, late, appointed, aside in rows:
         entry = facts.setdefault(
             cohort_id,
             {
@@ -679,6 +741,7 @@ def _cohort_summaries(
                 "overdue": 0,
                 "levels": {},
                 "appointments": 0,
+                "set_aside": 0,
                 "ranks": set(),
             },
         )
@@ -687,6 +750,7 @@ def _cohort_summaries(
         entry["to_send"] += sending
         entry["overdue"] += late
         entry["appointments"] += appointed
+        entry["set_aside"] += aside
         if sending and next_rank is not None:
             entry["ranks"].add(next_rank)
         if level is not None and active:
@@ -731,6 +795,7 @@ def _cohort_summaries(
                 for key in keys
             ],
             appointments=facts[cohort.id]["appointments"],
+            set_aside=facts[cohort.id]["set_aside"],
             to_send_steps=[step_code(rank) for rank in sorted(facts[cohort.id]["ranks"])],
             sent_steps=sent.get(cohort.id, []),
             scheduled_steps=scheduled.get(cohort.id, []),

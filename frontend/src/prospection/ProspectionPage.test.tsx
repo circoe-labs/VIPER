@@ -259,7 +259,7 @@ describe('Prospection page', () => {
     expect(odile).not.toHaveTextContent('Contact à envoyer')
     expect(within(denis).getByText('Défaillant')).toBeInTheDocument()
     expect(within(fanny).getByText('Relance terminée')).toBeInTheDocument()
-    expect(within(emma).getByText('Erreur sur le mail')).toBeInTheDocument()
+    expect(within(emma).getByText('Mail invalide')).toBeInTheDocument()
   })
 
   it('filters on the commercial state, « En séquence » covering people without any tracking', async () => {

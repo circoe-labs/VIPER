@@ -36,6 +36,7 @@ from app.core.actor import ActorContext, ActorType
 from app.core.config import Settings
 from app.services import audit
 from app.services.audit import AuditAction
+from app.services.calendly import CalendlyClient, CalendlyError
 from app.services.contact_dispatch_state import DispatchReason, dispatch_state, sending_reason
 from app.services.contact_dispatch_worker import ContactDispatcher
 from app.services.errors import ActorNotAllowedError, MailGenerationError
@@ -112,6 +113,7 @@ class IntegrationsOut(BaseModel):
     storage_path: str
     fields: dict[str, FieldOut]
     openai_api_key: SecretOut
+    calendly_api_token: SecretOut
     generation_available: bool
     # The built-in prompt `contact_initial_prompt` falls back to (« Rétablir le texte par défaut »).
     initial_prompt_default: str
@@ -127,6 +129,7 @@ class IntegrationsIn(BaseModel):
 
     version: int
     openai_api_key: Annotated[str, Field(max_length=500)] | None = None
+    calendly_api_token: Annotated[str, Field(max_length=500)] | None = None
     openai_model: Text | None = None
     openai_base_url: Text | None = None
     openai_timeout_ms: int | None = None
@@ -174,6 +177,7 @@ def integrations_out(request: Request, session: Session) -> IntegrationsOut:
             updated_by=stored.updated_by if stored else None,
         )
     key = runtime.secret_meta("openai_api_key")
+    calendly = runtime.secret_meta("calendly_api_token")
     integration: ToolboxIntegration = request.app.state.toolbox
     status = integration.status()
     dispatcher: ContactDispatcher | None = request.app.state.contact_dispatcher
@@ -193,6 +197,13 @@ def integrations_out(request: Request, session: Session) -> IntegrationsOut:
             source=key.source,
             updated_at=key.updated_at,
             updated_by=key.updated_by,
+        ),
+        calendly_api_token=SecretOut(
+            set=calendly.set,
+            last4=calendly.last4,
+            source=calendly.source,
+            updated_at=calendly.updated_at,
+            updated_by=calendly.updated_by,
         ),
         generation_available=effective.generation_available,
         initial_prompt_default=DEFAULT_INITIAL_PROMPT,
@@ -306,6 +317,39 @@ def check_openai(request: Request, actor: CurrentActor) -> CheckOut:
     elapsed = round((time.monotonic() - started) * 1000)
     logger.info("integrations.openai_check_ok elapsed_ms=%s by=%s", elapsed, actor.id)
     return CheckOut(ok=True, code=None, model=model, elapsed_ms=elapsed)
+
+
+class CalendlyCheckOut(BaseModel):
+    ok: bool
+    code: str | None
+    # Who the token belongs to (Calendly's own name and e-mail), to confirm it is the right account.
+    account: str | None
+    elapsed_ms: int
+
+
+@router.post("/calendly/check")
+def check_calendly(request: Request, actor: CurrentActor) -> CalendlyCheckOut:
+    """« Tester le jeton »: the saved token, not what the form holds."""
+    settings: Settings = request.app.state.settings
+    token = settings.calendly_api_token
+    if token is None:
+        return CalendlyCheckOut(
+            ok=False, code="calendly_not_configured", account=None, elapsed_ms=0
+        )
+    started = time.monotonic()
+    client = CalendlyClient(
+        token.get_secret_value(), transport=getattr(request.app.state, "calendly_transport", None)
+    )
+    try:
+        me = client.me()
+    except CalendlyError as error:
+        elapsed = round((time.monotonic() - started) * 1000)
+        logger.warning("integrations.calendly_check_failed code=%s", error.code)
+        return CalendlyCheckOut(ok=False, code=error.code, account=None, elapsed_ms=elapsed)
+    elapsed = round((time.monotonic() - started) * 1000)
+    account = " · ".join(str(me[key]) for key in ("name", "email") if me.get(key)) or None
+    logger.info("integrations.calendly_check_ok elapsed_ms=%s by=%s", elapsed, actor.id)
+    return CalendlyCheckOut(ok=True, code=None, account=account, elapsed_ms=elapsed)
 
 
 # --- « Tester la Toolbox » ------------------------------------------------------------------------

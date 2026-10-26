@@ -2,7 +2,7 @@
 // and the body; the result is always a Brouillon to review, edit and validate by hand. The server holds the key and the
 // model (Paramètres › Connexions, S8) and says whether the drafting is configured (`defaults.generation_available`).
 import type { GenerateRequest, GenerationResult, Message, MessageStep } from '../api/contact'
-import { STEP_LABELS } from './labels'
+import { stepLabel } from './labels'
 import { messageRefusal, type MessageRefusal, refusalOf } from './messages'
 
 // Must match backend MAX_INSTRUCTION_LENGTH (app/services/mail_generation/prompt.py).
@@ -61,7 +61,7 @@ export function aiAvailability(input: {
       show: true,
       enabled: false,
       label,
-      note: `L’IA rédige déjà le message ${STEP_LABELS[input.generatingStep]} : attendez qu’elle ait fini pour générer celui-ci.`,
+      note: `L’IA rédige déjà le message ${stepLabel(input.generatingStep)} : attendez qu’elle ait fini pour générer celui-ci.`,
     }
   }
   if (input.message?.status === 'scheduled') {
@@ -91,7 +91,7 @@ export function generationConfirmation(step: MessageStep, message: Message | nul
   const saved = hasText(message)
   const validated = message?.status === 'validated'
   if (!saved && !dirty && !validated) return null
-  const label = STEP_LABELS[step]
+  const label = stepLabel(step)
   return {
     title: `${saved ? 'Régénérer' : 'Générer'} le message ${label} ?`,
     lines: [
@@ -105,7 +105,7 @@ export function generationConfirmation(step: MessageStep, message: Message | nul
 
 // The outcome said under the editor.
 export function generationNotice(step: MessageStep, result: GenerationResult): string {
-  const label = STEP_LABELS[step]
+  const label = stepLabel(step)
   const back = result.unvalidated ? ' Il est repassé en Brouillon : à revalider.' : ''
   return `Brouillon ${label} rédigé par l’IA : relisez-le, corrigez-le si besoin, puis validez-le.${back}`
 }

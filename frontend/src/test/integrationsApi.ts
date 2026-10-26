@@ -2,6 +2,7 @@ import { vi } from 'vitest'
 
 import type { Diagnostic } from '../api/toolboxDiagnostic'
 import type {
+  CalendlyCheck,
   IntegrationField,
   Integrations,
   IntegrationSetting,
@@ -53,6 +54,7 @@ export function integrations(
     storage_path: 'C:\\Users\\pilote\\.viper\\runtime-settings.json',
     fields: all,
     openai_api_key: NO_KEY,
+    calendly_api_token: NO_KEY,
     generation_available: false,
     initial_prompt_default: 'Tu es l’assistant de prospection de Circoe (texte par défaut de test).',
     toolbox: { enabled: false, state: 'disabled', configured: false },
@@ -73,6 +75,8 @@ interface IntegrationsStubOptions {
   conflict?: boolean
   // The answer of « Tester la clé ».
   check?: KeyCheck
+  // The answer of « Tester le jeton » (Calendly).
+  calendlyCheck?: CalendlyCheck
   // The last « Tester la Toolbox » run the server holds (null: none), and what a new run answers.
   diagnostic?: Diagnostic | null
   startedDiagnostic?: Diagnostic
@@ -99,6 +103,12 @@ export function stubIntegrationsApi(options: IntegrationsStubOptions = {}) {
       checks.push(Date.now())
       return json(200, options.check ?? { ok: true, code: null, model: 'modele-test', elapsed_ms: 420 })
     }
+    if (method === 'POST' && url.pathname === '/api/settings/integrations/calendly/check') {
+      return json(
+        200,
+        options.calendlyCheck ?? { ok: true, code: null, account: 'Hôte Circoe · hote@circoe.test', elapsed_ms: 210 },
+      )
+    }
     if (method === 'PUT' && url.pathname === '/api/settings/integrations') {
       const body = JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as Record<string, unknown>
       puts.push(body)
@@ -114,6 +124,13 @@ export function stubIntegrationsApi(options: IntegrationsStubOptions = {}) {
         if (name === 'version') continue
         if (name === 'openai_api_key') {
           next.openai_api_key =
+            value === null
+              ? NO_KEY
+              : { set: true, last4: (value as string).slice(-4), source: 'ui', updated_at: STAMP, updated_by: 'Pilote Test' }
+          continue
+        }
+        if (name === 'calendly_api_token') {
+          next.calendly_api_token =
             value === null
               ? NO_KEY
               : { set: true, last4: (value as string).slice(-4), source: 'ui', updated_at: STAMP, updated_by: 'Pilote Test' }

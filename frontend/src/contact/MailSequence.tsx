@@ -1,14 +1,14 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 
-import { MESSAGE_STEPS, type MessageSequence, type MessageStep, useMessageMutations, useMessageSequence } from '../api/contact'
+import { type MessageSequence, type MessageStep, useMessageMutations, useMessageSequence } from '../api/contact'
 import { historyKeys } from '../api/history'
 import { refreshAfterWrite } from '../api/refresh'
 import { EditorSection } from '../prospects/EditorSection'
 import { Button } from '../ui/Button'
 import { AlertIcon, SpinnerIcon } from '../ui/icons'
 import { Tabs } from '../ui/Tabs'
-import { STEP_LABELS } from './labels'
+import { stepLabel } from './labels'
 import { type AiInstruction, NO_INSTRUCTION } from './aiDraftModel'
 import { rememberedMoment } from './lastMoment'
 import { MailEditor, type SendMoment } from './MailEditor'
@@ -16,8 +16,8 @@ import { dispatchState, formOf, isDirty, type MailForm, mailActions, releaseAvai
 import { MessageBadge } from './MessageBadge'
 
 // The step to send next (derived from the real sends), opened first; Contact when finished, closed or beyond R2.
-function firstStep(next: string | null | undefined): MessageStep {
-  return MESSAGE_STEPS.find((step) => step === next) ?? 'contact'
+function firstStep(steps: readonly MessageStep[], next: string | null | undefined): MessageStep {
+  return steps.find((step) => step === next) ?? 'contact'
 }
 
 function messageOf(sequence: MessageSequence, step: MessageStep) {
@@ -27,12 +27,14 @@ function messageOf(sequence: MessageSequence, step: MessageStep) {
 interface MailSequenceProps {
   prospectId: string
   onDirtyChange: (dirty: boolean) => void
+  // Shown right above the editor's action bar.
+  aboveActions?: ReactNode
 }
 
 // The mail sequence of the workbench (decisions 20-24): three tabs Contact / R1 / R2, each with its message's status,
 // and the editor of the selected step. Unsaved text is kept per step, so switching tabs loses nothing (a dot marks a
 // tab with unsaved changes, and the typed send moment is kept too); leaving the prospect with unsaved text asks first (Workbench.tsx).
-export function MailSequence({ prospectId, onDirtyChange }: MailSequenceProps) {
+export function MailSequence({ prospectId, onDirtyChange, aboveActions }: MailSequenceProps) {
   const query = useMessageSequence(prospectId)
   const mutations = useMessageMutations(prospectId)
   const [selected, setSelected] = useState<MessageStep | null>(null)
@@ -45,6 +47,8 @@ export function MailSequence({ prospectId, onDirtyChange }: MailSequenceProps) {
   // A status changed by the server itself (the dispatcher sent a message, S7) moves the list's message chips, the
   // counters and the history too: read them again, as after a person's write.
   const queryClient = useQueryClient()
+  // The steps the server offers: Contact, then R1… up to « max relances ».
+  const stepCodes = useMemo<MessageStep[]>(() => (sequence ? sequence.steps.map((entry) => entry.step) : []), [sequence])
   const statuses = sequence ? sequence.steps.map((entry) => entry.message?.status ?? '-').join('|') : null
   const seenStatuses = useRef(statuses)
   // A persistent live region says what the server did (« Message Contact envoyé. »), whatever editor is shown.
@@ -55,10 +59,10 @@ export function MailSequence({ prospectId, onDirtyChange }: MailSequenceProps) {
     seenStatuses.current = statuses
     if (before === null) return
     const after = statuses.split('|')
-    const news = MESSAGE_STEPS.flatMap((step, index) => {
+    const news = stepCodes.flatMap((step, index) => {
       if (before[index] !== 'scheduled' || after[index] === 'scheduled') return []
-      if (after[index] === 'sent') return [`Message ${STEP_LABELS[step]} envoyé.`]
-      if (after[index] === 'validated') return [`Message ${STEP_LABELS[step]} revenu en Validé : envoi non effectué.`]
+      if (after[index] === 'sent') return [`Message ${stepLabel(step)} envoyé.`]
+      if (after[index] === 'validated') return [`Message ${stepLabel(step)} revenu en Validé : envoi non effectué.`]
       return []
     })
     if (news.length > 0) setServerNews(news.join(' '))
@@ -67,13 +71,13 @@ export function MailSequence({ prospectId, onDirtyChange }: MailSequenceProps) {
       ['contact', 'dashboard'],
       historyKeys.subject('prospects', prospectId),
     ])
-  }, [statuses, queryClient, prospectId])
+  }, [statuses, stepCodes, queryClient, prospectId])
 
   const context = sequence
     ? { state: sequence.sequence.state, doNotContact: sequence.sequence.do_not_contact, closed: sequence.sequence.closed }
     : null
   // A step counts as edited only while it can be edited: a message the server locked meanwhile shows its saved text.
-  const dirtySteps = MESSAGE_STEPS.filter((step) => {
+  const dirtySteps = stepCodes.filter((step) => {
     const draft = drafts[step]
     if (!sequence || !context || !draft) return false
     const message = messageOf(sequence, step)
@@ -115,7 +119,7 @@ export function MailSequence({ prospectId, onDirtyChange }: MailSequenceProps) {
   }
 
   const data = query.data
-  const step = selected ?? firstStep(data.sequence.next_step)
+  const step = selected ?? firstStep(stepCodes, data.sequence.next_step)
   const message = messageOf(data, step)
   // A claim is judged at the moment the sequence was read (the polling of `useMessageSequence` reads it again).
   const clock = { now: query.dataUpdatedAt, claimTtlSeconds: data.defaults.dispatch_claim_ttl_seconds }
@@ -137,9 +141,9 @@ export function MailSequence({ prospectId, onDirtyChange }: MailSequenceProps) {
         label="Étapes de la séquence"
         selected={step}
         onSelect={setSelected}
-        tabs={MESSAGE_STEPS.map((id) => ({
+        tabs={stepCodes.map((id) => ({
           id,
-          label: STEP_LABELS[id],
+          label: stepLabel(id),
           extra: (
             <>
               <MessageBadge status={messageOf(data, id)?.status ?? null} />
@@ -171,6 +175,7 @@ export function MailSequence({ prospectId, onDirtyChange }: MailSequenceProps) {
           onForm={(form) => {
             setDrafts((current) => ({ ...current, [step]: form }))
           }}
+          aboveActions={aboveActions}
           instruction={instructions[step] ?? NO_INSTRUCTION}
           onInstruction={(instruction) => {
             setInstructions((current) => ({ ...current, [step]: instruction }))

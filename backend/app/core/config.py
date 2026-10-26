@@ -151,6 +151,10 @@ class Settings(BaseSettings):
     # Honour the server's HTTPS_PROXY / NO_PROXY / SSL_CERT_FILE… for the OpenAI calls; off by
     # default (a direct connection, the environment cannot redirect the key elsewhere).
     openai_trust_env: bool = False
+    # Calendly (Agenda): a personal access token, read-only use, polled by the Agenda sync. Never
+    # logged or returned. `calendly_sync_interval_ms` 0 = no worker (the button still syncs).
+    calendly_api_token: SecretStr | None = None
+    calendly_sync_interval_ms: Annotated[int, Field(ge=0, le=86_400_000)] = 600_000
     # The booking link the AI may copy into a mail; unset = no link at all.
     contact_booking_url: Annotated[str, Field(max_length=2000)] | None = None
     # The task brief always given to the model before it drafts (Paramètres > Prompt initial);

@@ -57,6 +57,8 @@ export interface Integrations {
   storage_path: string
   fields: Record<IntegrationField, IntegrationSetting>
   openai_api_key: SecretSetting
+  // The Calendly personal access token of the Agenda sync: write-only, like the OpenAI key.
+  calendly_api_token: SecretSetting
   generation_available: boolean
   // The built-in prompt `contact_initial_prompt` falls back to.
   initial_prompt_default: string
@@ -73,12 +75,23 @@ export interface Integrations {
 
 // A partial save: only the fields present change; `null` = back to the default. `openai_api_key` replaces the key
 // (a string) or clears the one set here (`null`).
-export type IntegrationsChanges = Partial<Record<IntegrationField, SettingValue>> & { openai_api_key?: string | null }
+export type IntegrationsChanges = Partial<Record<IntegrationField, SettingValue>> & {
+  openai_api_key?: string | null
+  calendly_api_token?: string | null
+}
 
 export interface KeyCheck {
   ok: boolean
   code: string | null
   model: string | null
+  elapsed_ms: number
+}
+
+export interface CalendlyCheck {
+  ok: boolean
+  code: string | null
+  // Calendly's own name and e-mail for the token's account.
+  account: string | null
   elapsed_ms: number
 }
 
@@ -112,6 +125,12 @@ export function useIntegrationsMutations() {
       },
       // A conflict or a refusal: read the current settings again.
       onError: () => void refreshAfterWrite(queryClient, [integrationsKeys.all]),
+    }),
+    checkCalendly: useMutation({
+      mutationFn: () =>
+        apiRequest<CalendlyCheck>('POST', '/settings/integrations/calendly/check', {
+          signal: AbortSignal.timeout(KEY_CHECK_DEADLINE_MS),
+        }),
     }),
     checkKey: useMutation({
       mutationFn: () =>

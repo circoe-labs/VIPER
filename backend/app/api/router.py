@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends
 
 from app.api.dependencies import require_session
 from app.api.routes import (
+    agenda,
     audit,
     auth,
     companies,
@@ -36,6 +37,7 @@ public_router.include_router(health.router)
 public_router.include_router(auth.public_router)
 
 api_router = APIRouter(dependencies=[Depends(require_session)])
+api_router.include_router(agenda.router)
 api_router.include_router(auth.router)
 api_router.include_router(audit.router)
 api_router.include_router(companies.router)

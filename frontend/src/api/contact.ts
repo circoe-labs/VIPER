@@ -14,11 +14,15 @@ export const CAMPAIGN_COHORTS = ['S37', 'S39', 'S40', 'S41', 'S43', 'S44', 'S45'
 export type CampaignCohort = (typeof CAMPAIGN_COHORTS)[number]
 // The sections of the page: the cohorts, then the people who took an appointment (« RDV pris », whatever the cohort).
 export const APPOINTMENTS = 'RDV'
-export const CONTACT_SECTIONS = [...CAMPAIGN_COHORTS, APPOINTMENTS] as const
+// Then the people set aside (replied, not interested, invalid mail…): out of every cohort's list.
+export const SET_ASIDE = 'ECARTES'
+export const CONTACT_SECTIONS = [...CAMPAIGN_COHORTS, APPOINTMENTS, SET_ASIDE] as const
 export type ContactSection = (typeof CONTACT_SECTIONS)[number]
 
+// The steps every sequence has; the server adds R3… up to « max relances » (Paramètres, 4 by default).
 export const MESSAGE_STEPS = ['contact', 'r1', 'r2'] as const
-export type MessageStep = (typeof MESSAGE_STEPS)[number]
+// A step code of the sequence: `contact`, `r1`, `r2`, `r3`…
+export type MessageStep = string
 export type MessageStatus = 'draft' | 'validated' | 'scheduled' | 'sent' | 'cancelled'
 // What the next action prepares: the step code of the sequence (`contact`, `r1`… up to R<max>).
 export type NextStep = string
@@ -65,6 +69,8 @@ export interface ContactDashboard {
     prospects: number
     // Of those, the ones who took an appointment (listed under « RDV pris », not in the cohort).
     appointments?: number
+  // Prospects of the cohort set aside: listed apart under « Écartés ».
+  set_aside?: number
     // To send this week (overdue included), of which late, and the steps (`contact`, `r1`…) they are at.
     to_send?: number
     overdue?: number
@@ -196,7 +202,7 @@ export interface MessageSequence {
     // After this long, a claimed send nobody finished counts as unconfirmed.
     dispatch_claim_ttl_seconds: number
   }
-  steps: { step: MessageStep; message: Message | null }[]
+  steps: { rank?: number; step: MessageStep; label?: string; message: Message | null }[]
 }
 
 export interface MessageResult {
@@ -378,6 +384,8 @@ function listPath(criteria: ContactListCriteria, limit: number, offset: number):
   const params = new URLSearchParams()
   if (criteria.section === APPOINTMENTS) {
     params.set('category', 'appointment_obtained')
+  } else if (criteria.section === SET_ASIDE) {
+    params.set('category', 'set_aside')
   } else {
     params.set('category', 'cohort')
     if (criteria.section) params.set('cohorts', criteria.section)

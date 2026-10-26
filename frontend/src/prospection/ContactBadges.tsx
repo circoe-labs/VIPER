@@ -102,7 +102,7 @@ export function LevelBadge({ level }: { level: string | null }) {
 export function EmailErrorBadge() {
   return (
     <StatusBadge tone="danger" icon={MailIcon}>
-      Erreur sur le mail
+      Mail invalide
     </StatusBadge>
   )
 }

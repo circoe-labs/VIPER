@@ -34,6 +34,7 @@ from app.core.actor import ActorContext, ActorType
 from app.db.session import unit_of_work
 from app.models import (
     ActivityCategory,
+    Appointment,
     AppSetting,
     Cohort,
     CommercialSegment,
@@ -201,6 +202,7 @@ AUDITED_ENTITIES: dict[type[Any], AuditedEntity] = {
     InternalReferent: AuditedEntity("internal_referent", "internal_referent"),
     ImportBatch: AuditedEntity("import_batch", "import_batch"),
     AppSetting: AuditedEntity("app_setting", "app_setting"),
+    Appointment: AuditedEntity("appointment", "appointment"),
 }
 ENTITY_ORDER = {model: position for position, model in enumerate(AUDITED_ENTITIES)}
 NOT_AUDITED_TABLES = {

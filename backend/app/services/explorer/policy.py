@@ -149,6 +149,11 @@ EXPOSED_TABLES: Mapping[str, TablePolicy] = {
     "contact_tracking_status_history": TablePolicy(
         writes=read_only("Historique dérivé des changements d’étape du suivi de contact.")
     ),
+    "appointments": TablePolicy(
+        columns={"prospect_id": PARENT_FIXED},
+        writes=read_only("Rendez-vous : synchronisés depuis Calendly et suivis depuis l’Agenda."),
+        label_columns=("invitee_name", "title"),
+    ),
     "emails": TablePolicy(
         columns={"prospect_id": PARENT_FIXED}, writes=ALL_WRITES, label_columns=("address",)
     ),

@@ -119,7 +119,7 @@ export const SEND_SOURCE_LABELS: Record<SendSource, string> = {
 // --- quality alerts --------------------------------------------------------------------------------------------------
 
 export const ALERT_TYPE_LABELS: Record<AlertType, string> = {
-  email_error: 'Erreur sur le mail',
+  email_error: 'Mail invalide',
   function_to_check: 'Fonction à vérifier',
   data_inconsistent: 'Donnée incohérente',
   company_to_check: 'Entreprise à vérifier',

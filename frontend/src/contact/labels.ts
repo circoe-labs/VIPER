@@ -11,7 +11,12 @@ import {
   PencilIcon,
 } from '../ui/icons'
 
-export const STEP_LABELS: Record<MessageStep, string> = { contact: 'Contact', r1: 'R1', r2: 'R2' }
+export const STEP_LABELS: Record<string, string> = { contact: 'Contact', r1: 'R1', r2: 'R2' }
+
+// « Contact », « R1 », « R2 », « R3 »…: any step code the server may send.
+export function stepLabel(step: MessageStep): string {
+  return STEP_LABELS[step] ?? step.toUpperCase()
+}
 
 // What the next action prepares, shown on the row.
 export const NEXT_STEP_LABELS: Record<string, string> = {

@@ -157,3 +157,19 @@ class ImportBatchStatus(StrEnum):
     COMMITTED = "committed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+
+
+class AppointmentStatus(StrEnum):
+    """Follow-up of a booked meeting (`appointments.status`); « décalé » is a new date."""
+
+    SCHEDULED = "scheduled"
+    COMPLETED = "completed"
+    NO_SHOW = "no_show"
+    CANCELLED = "cancelled"
+
+
+class AppointmentSource(StrEnum):
+    """Where an appointment row comes from (`appointments.source`)."""
+
+    CALENDLY = "calendly"
+    MANUAL = "manual"

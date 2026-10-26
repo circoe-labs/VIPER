@@ -154,7 +154,7 @@ function Overview({ data }: { data: HomeData }) {
   const contact: Kpi[] = [
     { ...segmentKpi(data, 'due', 'À contacter', true, 'due'), href: '/contact' },
     segmentKpi(data, 'no_response', 'Sans réponse', false, undefined, 'info'),
-    segmentKpi(data, 'email_error', 'Mail inactif', true, undefined, 'danger'),
+    segmentKpi(data, 'email_error', 'Mail invalide', true, undefined, 'danger'),
   ]
   return (
     <>

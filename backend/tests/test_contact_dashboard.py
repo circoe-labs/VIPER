@@ -272,6 +272,8 @@ def test_categories(db_session: Session, planning: dict[str, uuid.UUID]) -> None
         C.APPOINTMENT_OBTAINED: 1,
         C.NOT_INTERESTED: 0,
         C.IGNORED: 2,
+        # Replied, « Défaillant », the two ignored and the invalid mail: out of the sequences, listed apart.
+        C.SET_ASIDE: 5,
     }
     assert names(db_session, ContactFilters(category=C.EMAIL_ERROR)) == ["Hhh"]
     assert names(db_session, ContactFilters(category=C.FINISHED)) == ["Ddd"]
@@ -587,10 +589,22 @@ def test_cohorts_listed_together_by_company_without_the_appointments(db_session:
         sort=ContactSort.COMPANY,
     )
 
-    # Any state but the appointment is listed, alphabetical by company then by person; the
-    # appointment is listed apart.
-    assert names(db_session, wanted) == ["Ann", "Cid", "Zed"]
+    # Any state but the appointment and the replies set aside is listed, alphabetical by company then by person;
+    # the appointment (« RDV pris ») and the people set aside (« Écartés ») are listed apart.
+    assert names(db_session, wanted) == ["Ann", "Zed"]
+    assert names(db_session, ContactFilters(category=C.SET_ASIDE)) == ["Cid"]
     assert names(db_session, ContactFilters(category=C.APPOINTMENT_OBTAINED)) == ["Bob"]
+
+
+def test_a_cohort_lists_a_prospect_without_any_contact_tracking(db_session: Session) -> None:
+    prospect = add_prospect(db_session, add_company(db_session, "Delta SA"), last_name="Sansetat")
+    cohort = add_cohort(db_session, "S39", date(2026, 10, 5))
+    db_session.add(ContactSequence(prospect_id=prospect.id, cohort_id=cohort.id))
+    db_session.flush()
+
+    listed = ContactFilters(category=C.COHORT, cohort_codes=("S39",))
+    assert [row.last_name for row in list_contacts(db_session, listed, CLOCK).items] == ["Sansetat"]
+    assert list_contacts(db_session, ContactFilters(category=C.SET_ASIDE), CLOCK).total == 0
 
 
 # --- HTTP -----------------------------------------------------------------------------------------
@@ -647,6 +661,7 @@ def test_the_planning_over_http(client: TestClient, db_session: Session) -> None
         "appointment_obtained",
         "not_interested",
         "ignored",
+        "set_aside",
     ]
     s2 = next(cohort for cohort in body["cohorts"] if cohort["code"] == "S2")
     assert (s2["starts_on"], s2["prospects"], s2["to_send"]) == ("2020-01-06", 1, 1)

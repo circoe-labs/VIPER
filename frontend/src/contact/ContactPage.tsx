@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router'
 import {
   APPOINTMENTS,
   CONTACT_SECTIONS,
+  SET_ASIDE,
   type ContactSection,
   useContactDashboard,
   useContactWalk,
@@ -107,8 +108,9 @@ export function ContactPage() {
             next: ids[index + 1] ?? null,
           }
     return (
-      <div className="contact">
-        <PageHeader title="Contact" description="Préparer, valider et programmer les mails de la semaine." />
+      <div className="contact contact--bench">
+        {/* The workbench fits one screen: the page's own title and sentence give way to the work. */}
+        <h1 className="visually-hidden">Contact</h1>
         <Workbench
           key={view.prospect}
           prospectId={view.prospect}
@@ -154,26 +156,33 @@ export function ContactPage() {
           const cohorts = dashboard.data?.cohorts ?? []
           const appointments =
             dashboard.data?.categories?.find((item) => item.category === 'appointment_obtained')?.count ?? 0
+          const setAside = dashboard.data?.categories?.find((item) => item.category === 'set_aside')?.count ?? 0
           const summary = cohorts.find((cohort) => cohort.code === code)
+          const apart = code === APPOINTMENTS || code === SET_ASIDE
           return (
             <CohortSection
               key={code}
               code={code}
-              title={code === APPOINTMENTS ? 'RDV pris' : code}
+              title={code === APPOINTMENTS ? 'RDV pris' : code === SET_ASIDE ? 'Écartés' : code}
               view={view}
               count={
                 dashboard.data
                   ? code === APPOINTMENTS
                     ? appointments
-                    : Math.max((summary?.prospects ?? 0) - (summary?.appointments ?? 0), 0)
+                    : code === SET_ASIDE
+                      ? setAside
+                      : Math.max(
+                          (summary?.prospects ?? 0) - (summary?.appointments ?? 0) - (summary?.set_aside ?? 0),
+                          0,
+                        )
                   : undefined
               }
               status={
-                dashboard.data && code !== APPOINTMENTS
+                dashboard.data && !apart
                   ? cohortStatus(code, cohorts, dashboard.data.today || businessToday())
                   : undefined
               }
-              sent={dashboard.data && code !== APPOINTMENTS ? sentSummary(code, cohorts) : null}
+              sent={dashboard.data && !apart ? sentSummary(code, cohorts) : null}
               open={isOpen(code)}
               onToggle={() => {
                 toggle(code)
@@ -181,7 +190,7 @@ export function ContactPage() {
               openHref={(id) => openHref(id, code)}
               today={today}
               returnedFrom={returnedFrom}
-              nextStep={dashboard.data && code !== APPOINTMENTS ? nextStepToSchedule(summary) : undefined}
+              nextStep={dashboard.data && !apart ? nextStepToSchedule(summary) : undefined}
             />
           )
         })}

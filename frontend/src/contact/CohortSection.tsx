@@ -1,4 +1,4 @@
-import { APPOINTMENTS, type ContactSection, useContactPage } from '../api/contact'
+import { APPOINTMENTS, type ContactSection, SET_ASIDE, useContactPage } from '../api/contact'
 import { Button } from '../ui/Button'
 import { AlertIcon, ChevronDownIcon, SpinnerIcon } from '../ui/icons'
 import type { CohortStatus } from './cohortStatus'
@@ -74,7 +74,7 @@ export function CohortSection({
           <span className="cohort-section__sent-label">Déjà envoyé :</span> {sent}
         </p>
       )}
-      {code !== APPOINTMENTS && (
+      {code !== APPOINTMENTS && code !== SET_ASIDE && (
         <div className="cohort-section__action">
           <ScheduleCohorts cohort={code} nextStep={nextStep} />
         </div>
@@ -98,9 +98,13 @@ export function CohortSection({
           )}
           {list.data?.total === 0 && (
             <p className="contact__state">
-              {view.q.trim()
-                ? 'Aucun prospect de cette cohorte ne correspond à la recherche.'
-                : 'Aucun prospect dans cette cohorte pour le moment.'}
+              {code === SET_ASIDE
+                ? view.q.trim()
+                  ? 'Aucun prospect écarté ne correspond à la recherche.'
+                  : 'Aucun prospect écarté pour le moment.'
+                : view.q.trim()
+                  ? 'Aucun prospect de cette cohorte ne correspond à la recherche.'
+                  : 'Aucun prospect dans cette cohorte pour le moment.'}
             </p>
           )}
           {rows.length > 0 && <ContactList rows={rows} openHref={openHref} today={today} returnedFrom={returnedFrom} />}

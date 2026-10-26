@@ -84,7 +84,7 @@ MESSAGE_STATUS_LABELS: dict[ContactMessageStatus, str] = {
 }
 # French labels of the quality alert types (history, export, planning categories).
 ALERT_TYPE_LABELS: dict[QualityAlertType, str] = {
-    QualityAlertType.EMAIL_ERROR: "Erreur sur le mail",
+    QualityAlertType.EMAIL_ERROR: "Mail invalide",
     QualityAlertType.FUNCTION_TO_CHECK: "Fonction à vérifier",
     QualityAlertType.DATA_INCONSISTENT: "Donnée incohérente",
     QualityAlertType.COMPANY_TO_CHECK: "Entreprise à vérifier",

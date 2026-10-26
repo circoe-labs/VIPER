@@ -7,7 +7,6 @@
 // - the scheduled send (S7) belongs to the server's dispatcher: a claimed message is locked; a send it could not confirm
 //   is settled by a person (« Marquer envoyé » / « Remettre en Validé »), after checking the Infomaniak mailbox.
 import {
-  MESSAGE_STEPS,
   type Message,
   type MessageContent,
   type MessageSequence,
@@ -19,7 +18,7 @@ import type { ToolboxState } from '../api/toolbox'
 import { TRACKING_LABELS } from '../prospection/labels'
 import { toolboxErrorLabel } from '../settings/toolboxCopy'
 import { inactiveSentence } from './dispatchCopy'
-import { formatDateTime, MESSAGE_STATUS_LABELS, STEP_LABELS } from './labels'
+import { formatDateTime, MESSAGE_STATUS_LABELS, stepLabel } from './labels'
 import type { MailField } from './messages'
 
 export interface MailForm {
@@ -409,18 +408,19 @@ export function cancelReasonLabel(reason: string | null): string | null {
 // Non-blocking: R1 (R2) scheduled while Contact (R1) has not left yet — nothing enforces the order (no step ordering
 // in the API), the operator is only reminded. Null when nothing to say.
 export function orderWarning(step: MessageStep, sequence: MessageSequence, at: Date | null): string | null {
-  const index = MESSAGE_STEPS.indexOf(step)
-  const previous = index > 0 ? MESSAGE_STEPS[index - 1] : undefined
+  const codes = sequence.steps.map((entry) => entry.step)
+  const index = codes.indexOf(step)
+  const previous = index > 0 ? codes[index - 1] : undefined
   if (!previous) return null
   const before = sequence.steps.find((entry) => entry.step === previous)?.message ?? null
   if (before?.status === 'sent') return null
-  const name = STEP_LABELS[previous]
+  const name = stepLabel(previous)
   if (before?.status === 'scheduled' && before.scheduled_at && at && new Date(before.scheduled_at) >= at) {
-    return `Le message ${name} est programmé plus tard (le ${formatDateTime(before.scheduled_at)}) : ${STEP_LABELS[step]} partirait avant lui.`
+    return `Le message ${name} est programmé plus tard (le ${formatDateTime(before.scheduled_at)}) : ${stepLabel(step)} partirait avant lui.`
   }
   if (before?.status === 'scheduled') return null
   const where = before ? `est « ${MESSAGE_STATUS_LABELS[before.status]} »` : 'n’existe pas encore'
-  return `Le message ${name} ${where} : vérifiez que ${STEP_LABELS[step]} ne partira pas avant lui.`
+  return `Le message ${name} ${where} : vérifiez que ${stepLabel(step)} ne partira pas avant lui.`
 }
 
 // --- the send moment: explicit local date + time → ISO 8601 with the browser's offset ---

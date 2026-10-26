@@ -8,7 +8,7 @@ import { civilityLabel, personName } from '../prospection/labels'
 import { StatusBadge } from '../ui/Badge'
 import { BuildingIcon, ChevronDownIcon, ClockIcon } from '../ui/icons'
 import { FROM_LIST } from './criteria'
-import { formatDateTime, NEXT_STEP_LABELS, STEP_LABELS } from './labels'
+import { formatDateTime, NEXT_STEP_LABELS, stepLabel } from './labels'
 import { MessageBadge } from './MessageBadge'
 
 interface ContactListProps {
@@ -138,7 +138,7 @@ export function ContactList({ rows, openHref, today, returnedFrom }: ContactList
                   const status = row.messages[step]
                   return (
                     <div key={step} className="contact-row__message">
-                      <dt>{(STEP_LABELS as Record<string, string>)[step] ?? step.toUpperCase()}</dt>
+                      <dt>{stepLabel(step)}</dt>
                       <dd>
                         {status ? <MessageBadge status={status} /> : <span className="contact-row__muted">Vide</span>}
                         {status === 'sent' && row.message_dates?.[step]?.sent_at && (

@@ -1,5 +1,6 @@
 """ORM models. Import every model module here so Alembic autogenerate sees it."""
 
+from app.models.agenda import Appointment
 from app.models.app_settings import AppSetting
 from app.models.audit import AuditLogEntry
 from app.models.companies import Company, Establishment, company_activity_categories
@@ -15,6 +16,7 @@ from app.models.users import User, UserSession
 __all__ = [
     "ActivityCategory",
     "AppSetting",
+    "Appointment",
     "AuditLogEntry",
     "Cohort",
     "CommercialSegment",

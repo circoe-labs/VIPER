@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 
 import type { Message, MessageSequence, MessageStatus, MessageStep, ReviewVerdict, useMessageMutations } from '../api/contact'
 import { Button } from '../ui/Button'
@@ -33,7 +33,7 @@ import {
 import { type Confirmation, ConfirmDialog } from './ConfirmDialog'
 import { inactiveSentence } from './dispatchCopy'
 import { DispatchWarning } from './DispatchWarning'
-import { formatDateTime, STEP_LABELS } from './labels'
+import { formatDateTime, stepLabel } from './labels'
 import {
   ADDRESS_MAX_LENGTH,
   BODY_MAX_LENGTH,
@@ -60,7 +60,16 @@ import { type MailField, type MessageRefusal, messageRefusal } from './messages'
 
 type Mutations = ReturnType<typeof useMessageMutations>
 
+// The steps the AI already tried to prepare on arrival (once per prospect and step, whatever the outcome): a failure or a
+// deleted draft is never retried behind the person's back.
+const autoDrafted = new Set<string>()
+export function forgetAutoDrafts() {
+  autoDrafted.clear()
+}
+
 interface MailEditorProps {
+  // Shown right above the action bar (the workbench's « Suivant »).
+  aboveActions?: ReactNode
   step: MessageStep
   sequence: MessageSequence
   message: Message | null
@@ -112,6 +121,7 @@ export function MailEditor({
   onWhen,
   instruction,
   onInstruction,
+  aboveActions,
 }: MailEditorProps) {
   const [refusal, setRefusal] = useState<MessageRefusal | null>(null)
   // The outcome of the last action, kept while the message stays in the status that action left it in (a state
@@ -120,6 +130,8 @@ export function MailEditor({
   const [pending, setPending] = useState<Pending | null>(null)
   // The sentence kept after a draft was removed (no message is left to carry it).
   const [removed, setRemoved] = useState<string | null>(null)
+  // « Créer le brouillon » with nothing written and no AI to write it: said instead of saving an empty draft.
+  const [needText, setNeedText] = useState(false)
   const { date, time } = when
   // A confirmed action removes its own button (« Valider… » once validated…): the focus goes to the status sentence,
   // which reads the new status, once the confirmation has closed.
@@ -147,7 +159,7 @@ export function MailEditor({
       window.clearTimeout(timer)
     }
   }, [releaseFrom])
-  const label = STEP_LABELS[step]
+  const label = stepLabel(step)
   const dirty = actions.editable && isDirty(form, saved)
   const generating = mutations.generate.isPending
   const busy = mutations.save.isPending || mutations.act.isPending || mutations.schedule.isPending || generating
@@ -167,8 +179,25 @@ export function MailEditor({
   const status = message?.status ?? null
   const fieldId = (field: string) => `contact-mail-${step}-${field}`
 
+  // Arriving on the step to send next with nothing written: the AI prepares the draft at once (once per prospect and
+  // step); the person only reads it and edits it by hand if needed.
+  const autoKey = `${sequence.sequence.prospect_id}:${step}`
+  const wantsDraft =
+    actions.editable &&
+    sequence.defaults.generation_available &&
+    sequence.sequence.next_step === step &&
+    !hasText(message) &&
+    !textEdited &&
+    !busy
+  useEffect(() => {
+    if (!wantsDraft || autoDrafted.has(autoKey)) return
+    autoDrafted.add(autoKey)
+    void generate()
+  })
+
   function edit(patch: Partial<MailForm>) {
     onForm({ ...form, ...patch })
+    setNeedText(false)
     setNotice(null)
     setRefusal(null)
   }
@@ -182,6 +211,18 @@ export function MailEditor({
   async function saveForm() {
     setNotice(null)
     setRefusal(null)
+    // Nothing written: « Créer le brouillon » has the AI write it (the draft is created with its text); without the AI,
+    // an empty draft is never created.
+    if (!message && !form.subject.trim() && !form.body.trim()) {
+      if (sequence.defaults.generation_available && !busy) {
+        setNeedText(false)
+        await generate()
+      } else {
+        setNeedText(true)
+      }
+      return
+    }
+    setNeedText(false)
     try {
       const result = await mutations.save.mutateAsync({ step, content: contentOf(form, message?.revision ?? null) })
       onForm(undefined)
@@ -845,6 +886,14 @@ export function MailEditor({
         }}
       />
 
+      {needText && (
+        <p className="field__warning" role="alert">
+          <AlertIcon size={16} />
+          Écrivez l’objet et le texte du message avant de créer le brouillon : la rédaction par l’IA n’est pas disponible.
+        </p>
+      )}
+      <div className="contact-mail__dock">
+      {aboveActions}
       {(ai.show || Object.entries(actions).some(([name, value]) => name !== 'settle' && value === true)) && (
         <div className="contact-mail__actions">
           <div className="contact-mail__assist">
@@ -970,6 +1019,7 @@ export function MailEditor({
           </div>
         </div>
       )}
+      </div>
 
       <ConfirmDialog
         confirmation={confirmation()}

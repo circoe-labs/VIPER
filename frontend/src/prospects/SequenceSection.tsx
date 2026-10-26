@@ -29,13 +29,15 @@ interface SequenceSectionProps {
   pendingChanges?: boolean
   // After a write (or a refusal saying the screen is out of date): the caller reads the prospect again.
   onChanged?: () => void
+  // The Contact workbench's single card: the commercial state (chosen just above) is not repeated and the history is folded.
+  compact?: boolean
 }
 
 // Séquence de contact (sequences rework D1-D9): the « validation métier » (the cohort), the level reached by the real
 // sends, the next send and its due date, the commercial state, and the human actions — change the cohort (a new
 // sequence, the counter at zero), « Marquer comme envoyé », « Défaillant », « Reprendre », « Erreur sur le mail ». Each
 // is its own audited operation, confirmed first, never the form's save. Below, every sequence the prospect ran.
-export function SequenceSection({ prospect, pendingChanges = false, onChanged }: SequenceSectionProps) {
+export function SequenceSection({ prospect, pendingChanges = false, onChanged, compact = false }: SequenceSectionProps) {
   const query = useProspectSequences(prospect.id)
   const mutations = useSequenceMutations(prospect.id)
   const { tracking } = useProspectMutations()
@@ -97,6 +99,7 @@ export function SequenceSection({ prospect, pendingChanges = false, onChanged }:
           sequences={query.data.sequences}
           onAction={open}
           notice={notice}
+          compact={compact}
         />
       )}
     </EditorSection>
@@ -232,6 +235,7 @@ interface SequenceBodyProps {
   sequences: Sequence[]
   onAction: (dialog: Dialog) => void
   notice: string | null
+  compact: boolean
 }
 
 function Fact({ label, children }: { label: string; children: ReactNode }) {
@@ -243,7 +247,7 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
-function SequenceBody({ prospect, place, sequences, onAction, notice }: SequenceBodyProps) {
+function SequenceBody({ prospect, place, sequences, onAction, notice, compact }: SequenceBodyProps) {
   const state = prospect.tracking?.status ?? 'neutral'
   const actions = sequenceActions(place, prospect)
   const paused = pauseText(place, state)
@@ -292,12 +296,14 @@ function SequenceBody({ prospect, place, sequences, onAction, notice }: Sequence
             <span className="sequence-facts__hint">{paused ?? '—'}</span>
           )}
         </Fact>
-        <Fact label="État commercial">
-          <span className="sequence-facts__line">
-            {state === 'neutral' ? TRACKING_LABELS.neutral : <StateBadge status={state} />}
-            {place.email_error && <EmailErrorBadge />}
-          </span>
-        </Fact>
+        {(!compact || place.email_error) && (
+          <Fact label={compact ? 'Alerte' : 'État commercial'}>
+            <span className="sequence-facts__line">
+              {!compact && (state === 'neutral' ? TRACKING_LABELS.neutral : <StateBadge status={state} />)}
+              {place.email_error && <EmailErrorBadge />}
+            </span>
+          </Fact>
+        )}
       </dl>
       {actions.cohortBlocked && (
         <p className="prospect-editor__note">
@@ -372,7 +378,14 @@ function SequenceBody({ prospect, place, sequences, onAction, notice }: Sequence
           {notice}
         </p>
       )}
-      <SequenceHistory sequences={sequences} />
+      {compact ? (
+        <details className="sequence-fold">
+          <summary className="sequence-fold__summary">Historique des séquences ({sequences.length})</summary>
+          <SequenceHistory sequences={sequences} />
+        </details>
+      ) : (
+        <SequenceHistory sequences={sequences} />
+      )}
     </>
   )
 }

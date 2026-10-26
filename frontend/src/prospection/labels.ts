@@ -67,7 +67,7 @@ export const SEGMENT_INFO: Record<Segment, SegmentInfo> = {
     icon: CheckCircleIcon,
   },
   email_error: {
-    label: 'Mail inactif',
+    label: 'Mail invalide',
     hint: 'Toujours en poste, mais les e-mails envoyés reviennent : il faut trouver sa nouvelle adresse.',
     icon: MailIcon,
   },

@@ -605,6 +605,6 @@ def test_an_alert_raised_then_resolved(db_session: Session) -> None:
 
     assert raised.title == "Alerte qualité ajoutée"
     assert resolved.title == "Alerte qualité résolue"
-    assert ("Alerte Erreur sur le mail · note de résolution", "—", "Nouvelle adresse") in lines(
+    assert ("Alerte Mail invalide · note de résolution", "—", "Nouvelle adresse") in lines(
         resolved
     )

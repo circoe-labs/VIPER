@@ -169,7 +169,7 @@ describe('Home page', () => {
     // Activité de contact: three cards (the RDV count already sits in Base).
     expect(within(group('Activité de contact')).getAllByRole('listitem')).toHaveLength(3)
     expect(card('Activité de contact', 'À contacter')).toHaveAttribute('href', '/contact')
-    expect(card('Activité de contact', 'Mail inactif')).toHaveAttribute('href', '/prospection?segment=email_error')
+    expect(card('Activité de contact', 'Mail invalide')).toHaveAttribute('href', '/prospection?segment=email_error')
     expect(card('Activité de contact', 'Sans réponse')).toHaveAttribute('href', '/prospection?segment=no_response')
     expect(within(group('Activité de contact')).getByTitle(/les e-mails envoyés reviennent/)).toHaveTextContent('5')
   })

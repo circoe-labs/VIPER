@@ -170,7 +170,7 @@ def test_values_are_typed_dates_and_texts_keep_leading_zeros(db_session: Session
     assert cell_of(book, "Prospects", "Prochaine échéance").value is None
     assert cell_of(book, "Prospects", "Suivi de contact").value == "RDV pris"
     assert cell_of(book, "Prospects", "Alertes ouvertes").value == (
-        "Erreur sur le mail; Fonction à vérifier"
+        "Mail invalide; Fonction à vérifier"
     )
     for header, value in (("Téléphone", "0100000001"), ("SIREN", siren), ("Code postal", "01000")):
         cell = cell_of(book, "Prospects", header)

@@ -1,3 +1,4 @@
+import { CalendlyCard } from './CalendlyCard'
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 
@@ -154,6 +155,7 @@ export function ConnectionsSection() {
         <div className="settings-connections">
           <OpenAICard data={integrations.data} />
           <SenderCard data={integrations.data} />
+          <CalendlyCard data={integrations.data} />
           {status.data && (
             <ToolboxCard
               status={status.data}

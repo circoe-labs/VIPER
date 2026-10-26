@@ -29,7 +29,8 @@ function initials(prospect: Prospect): string {
 // channel) reads « À vérifier » (D12). Nothing here edits the record — « Ouvrir dans Prospection » leads to the full editor to correct it.
 // The sheet's heading takes the focus when the prospect opens (from the list, « Précédent » / « Suivant »): keyboard and
 // screen-reader users start on the person, not on a button that no longer exists.
-export function ProspectSheet({ prospect }: { prospect: Prospect }) {
+// `compact` (the workbench's single card) leaves the cohort, level and state to the sequence block below: said once.
+export function ProspectSheet({ prospect, compact = false }: { prospect: Prospect; compact?: boolean }) {
   const headingRef = useRef<HTMLHeadingElement>(null)
   useEffect(() => {
     headingRef.current?.focus()
@@ -64,9 +65,13 @@ export function ProspectSheet({ prospect }: { prospect: Prospect }) {
           {prospect.company?.city && <span className="contact-row__muted">· {prospect.company.city}</span>}
         </p>
         <div className="contact-row__badges">
-          <CohortBadge code={contact.cohort?.code ?? null} startsOn={contact.cohort?.starts_on ?? null} />
-          {inCampaign && <LevelBadge level={contact.level} />}
-          <StateBadge status={prospect.tracking?.status ?? null} />
+          {!compact && (
+            <>
+              <CohortBadge code={contact.cohort?.code ?? null} startsOn={contact.cohort?.starts_on ?? null} />
+              {inCampaign && <LevelBadge level={contact.level} />}
+              <StateBadge status={prospect.tracking?.status ?? null} />
+            </>
+          )}
           {contact.email_error && <EmailErrorBadge />}
           {blocked && (
             <StatusBadge tone="danger" icon={BanIcon}>
