@@ -1,19 +1,24 @@
-# VIPER as an MCP server — tool catalogue (proposal)
+# VIPER as an MCP server — tool catalogue
 
-> **Status: implemented** for §3.7 and §4 (transport, tokens, six mission tools), plus the basic
-> tool mode of §3.2 and the two `update` proposals of §3.4: `viper_list_companies`,
-> `viper_get_company`, `viper_list_prospects`, `viper_get_prospect`, `viper_update_company` and
-> `viper_update_prospect`, and the conversational reads of §3.9 (`viper_search`,
-> `viper_get_dashboard`, `viper_get_prospection_metrics`, `viper_list_missions`,
-> `viper_get_mission`, `viper_list_pending_reviews`, `viper_get_contact_overview`,
-> `viper_get_prospect_messages`), `viper_whoami` and the agent capabilities of §4.7, and the
-> mission actions of §3.10 (`viper_mission_options`, `viper_create_mission`,
-> `viper_update_mission`, `viper_run_mission`, `viper_set_mission_status`,
-> `viper_delete_mission`), with the mission card of §3.12 (`resources/list`, `resources/read`).
-> The discovery/contact-write tools are still proposals.
-> This document lists the MCP tools worth exposing, the ones deliberately left out, and the
-> product decisions that must be taken before writing code. It follows the repo rule: product
-> names in French, code and technical documentation in English.
+> **Status: implemented — 29 tools** (`app.api.mcp.TOOLS`, checked 2026-11-04 at the end of the
+> ChatGPT handoff, `tasks/viper_chatgpt_conversational/FINAL_TOOLS.md`):
+>
+> - transport, OAuth, tokens, call history and agent capabilities (§4, `viper_whoami` §4.7);
+> - the six task tools of §3.7 (`viper_claim_task` … `viper_task_queue`);
+> - the basic tool mode of §3.2 and the two `update` proposals of §3.4 (`viper_list_companies`,
+>   `viper_get_company`, `viper_list_prospects`, `viper_get_prospect`, `viper_update_company`,
+>   `viper_update_prospect`);
+> - the conversational reads of §3.9 (eight tools);
+> - the mission actions of §3.10 (six tools) and the mission card of §3.12 (`resources/*`);
+> - the contact draft tools of §3.11 (`viper_generate_contact_draft`,
+>   `viper_update_contact_draft`) — the « draft door » of §4.3;
+> - discovery of sites and a dated trigger is not a tool: it is the `find_prospects` result shape
+>   (`establishments`, `trigger`; `agent-missions.md`), worked through the task tools.
+>
+> The other rows of the §3.1–3.5 tables (`viper_overview`, `viper_get_reference_data`,
+> `viper_find_prospects`, the create/note/contactability/appointment writes, message transitions)
+> remain proposals; §5 says which. Product names in French, code and technical documentation in
+> English.
 
 ## 1. Starting point
 
@@ -524,6 +529,12 @@ is no separate agent table: an `mcp_tokens` row **is** the agent. Code:
   capability for one call (`viper_create_mission` with `run_now`) or one that depends on an
   argument (`viper_set_mission_status`): `require` is called for each. The contact draft tools
   (§3.11) need `contact.draft`.
+- **Annotations.** Every tool but eight carries `annotations`: the reads are read-only, the
+  mission writes and the draft tools are not destructive, `viper_set_mission_status` and
+  `viper_delete_mission` are the only ones with `destructiveHint: true`. The six task tools and
+  `viper_update_company` / `viper_update_prospect` carry none, so the MCP defaults apply to them
+  (`destructiveHint: true`, `openWorldHint: true`): a host may ask to confirm a claim or a submit.
+  Follow-up: `tasks/viper_chatgpt_conversational/Issues/s08-integration-followups.md`.
 - **`viper_whoami`** (no capability needed) answers, as VIPER sees it — never what the model
   claims: `agent_id`, `label`, `provider`, `mode`, `delegated_user` (`email`, `display_name`,
   `role`, `platform_admin`, `active`, or `null`), `organization` (`id`, `name`), `capabilities`
@@ -561,19 +572,20 @@ the claim). Still to do: `viper_create_prospect`, `viper_create_company`, `viper
 `viper_set_contactability`, `viper_save_appointment`. The draft door shipped as the contact draft
 tools (§3.11).
 
-**M3 — missions.** The five task tools of §3.7, with the orchestration model of
-[`agent-missions.md`](agent-missions.md). Independent of M2: `viper_claim_task` and
-`viper_submit_task_result` cross no human-only guard, so they can ship before the Mode B decision is
-taken. The only prerequisite is the token and the `/mcp` mount point of §4.
+**M3 — missions.** *Shipped:* the six task tools of §3.7, with the orchestration model of
+[`agent-missions.md`](agent-missions.md), then the conversational mission actions of §3.10 and
+their card (§3.12): an assistant manages missions, VIPER derives the tasks, a worker claims them,
+and every result stays a proposal a person accepts in « Agents ».
 
 **M4 — optional.** `viper_run_sql`, `viper_list_activity`, `viper_get_prospect_history`, import review.
 
 ## 6. Open questions
 
-1. **Where does the agent sit?** Mode A only, Mode A + draft door (recommended), or full Mode B?
-   This single answer decides half the catalogue.
-2. **Who owns a token?** One token per person (so `on_behalf_of` has a meaning) or one shared
-   service token (simpler, but every write is attributed to "the assistant")?
+1. ~~**Where does the agent sit?**~~ *Decided:* Mode A + the draft door (§4.3, §3.11). The agent
+   stays the actor; validation, scheduling and sending stay human.
+2. ~~**Who owns a token?**~~ *Decided (ChatGPT handoff, decisions 2–3):* one agent per token, acting
+   for one person (the OAuth approver or `owner_email`), whose role bounds its capabilities
+   (§4.7). A command-line worker without `owner_email` acts for nobody.
 3. **Should the assistant see personal data at all?** The base is *people* — names, e-mails, phones.
    MCP makes it reachable from another process, possibly a hosted model. Scope `read` tokens to
    segments/fields, or accept the risk for an internal pilot like the OpenAI key decision
