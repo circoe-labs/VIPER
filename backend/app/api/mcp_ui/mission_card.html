@@ -1,0 +1,968 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mission VIPER</title>
+<!--
+  The mission card of `viper_create_mission` (doc/architecture/mcp-server.md §3.11).
+  Self-contained on purpose: the host sandbox allows no network, so CSS and JS are inline and the
+  card reaches VIPER only through the host bridge (`tools/call`), where `/mcp` checks capabilities.
+  It holds no authorization logic: what it may do is what the tool answers.
+-->
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #ffffff;
+    --surface: #f4f7f7;
+    --field: #ffffff;
+    --text: #0f1a1f;
+    --muted: #4e5e65;
+    --line: #d5dee0;
+    --line-strong: #7c8c92;
+    --accent: #007a45;
+    --accent-hover: #00653a;
+    --on-accent: #ffffff;
+    --accent-soft: #e3f6ec;
+    --danger: #b42318;
+    --danger-soft: #fdecea;
+    --warning: #8a5a00;
+    --warning-soft: #fff4dc;
+    --focus: #007a45;
+    --radius: 10px;
+    --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #0f171a;
+      --surface: #162126;
+      --field: #080d0f;
+      --text: #eaf2f1;
+      --muted: #9aa8ad;
+      --line: #24333a;
+      --line-strong: #56676e;
+      --accent: #00e676;
+      --accent-hover: #4df09f;
+      --on-accent: #0a0b0d;
+      --accent-soft: #10261f;
+      --danger: #ff7a7a;
+      --danger-soft: #2a1416;
+      --warning: #ffb547;
+      --warning-soft: #241c0e;
+      --focus: #00e676;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #0f171a;
+    --surface: #162126;
+    --field: #080d0f;
+    --text: #eaf2f1;
+    --muted: #9aa8ad;
+    --line: #24333a;
+    --line-strong: #56676e;
+    --accent: #00e676;
+    --accent-hover: #4df09f;
+    --on-accent: #0a0b0d;
+    --accent-soft: #10261f;
+    --danger: #ff7a7a;
+    --danger-soft: #2a1416;
+    --warning: #ffb547;
+    --warning-soft: #241c0e;
+    --focus: #00e676;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.45 var(--font);
+    -webkit-font-smoothing: antialiased;
+  }
+  [hidden] { display: none !important; }
+
+  .card { padding: 18px 20px 16px; display: grid; gap: 14px; max-width: 760px; }
+
+  .head { display: grid; gap: 6px; }
+  .head-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .brand { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+  .brand svg { width: 16px; height: 16px; color: var(--accent); }
+  h1 {
+    margin: 0; font-size: 18px; line-height: 1.3; font-weight: 650; letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+  h1:focus { outline: none; }
+  h1:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; border-radius: 4px; }
+  .prompt { margin: 0; color: var(--muted); max-width: 68ch; white-space: pre-line; }
+
+  .badge {
+    flex: none; font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 999px;
+    background: var(--surface); color: var(--muted); border: 1px solid var(--line);
+  }
+  .badge[data-tone="ok"] { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+  .badge[data-tone="warn"] { background: var(--warning-soft); color: var(--warning); border-color: transparent; }
+  .badge[data-tone="danger"] { background: var(--danger-soft); color: var(--danger); border-color: transparent; }
+
+  .summary {
+    margin: 0; display: grid; grid-template-columns: minmax(96px, max-content) 1fr;
+    column-gap: 0; row-gap: 0; border-top: 1px solid var(--line);
+  }
+  .summary dt, .summary dd { padding: 7px 0; border-bottom: 1px solid var(--line); margin: 0; }
+  .summary dt { color: var(--muted); padding-right: 20px; }
+  .summary dd { font-weight: 550; overflow-wrap: anywhere; }
+  .summary dd .unset { color: var(--muted); font-weight: 400; }
+
+  .notice {
+    display: grid; gap: 2px; padding: 10px 12px; border-radius: var(--radius);
+    background: var(--danger-soft); color: var(--text); border: 1px solid var(--danger);
+  }
+  .notice strong { color: var(--danger); font-weight: 650; }
+  .notice .detail { overflow-wrap: anywhere; }
+  .notice .meta { color: var(--muted); font-size: 12px; }
+  .notice[data-tone="info"] { background: var(--accent-soft); border-color: transparent; }
+  .notice[data-tone="info"] strong { color: var(--accent); }
+
+  form { display: grid; gap: 12px; }
+  .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; }
+  .full { grid-column: 1 / -1; }
+  .field { display: grid; gap: 4px; min-width: 0; align-content: start; }
+  .field > label, fieldset > legend { font-size: 12px; font-weight: 600; color: var(--muted); }
+  .hint { font-size: 12px; color: var(--muted); }
+  .field-error { font-size: 12px; color: var(--danger); font-weight: 550; }
+  fieldset { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 4px; }
+  legend { padding: 0; margin-bottom: 4px; }
+  .inline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .inline > * { flex: 1 1 110px; }
+  .inline > .every { flex: 0 0 auto; color: var(--muted); }
+
+  input, select, textarea {
+    font: inherit; color: var(--text); background: var(--field);
+    border: 1px solid var(--line-strong); border-radius: 8px; padding: 7px 9px; width: 100%;
+    min-height: 36px;
+  }
+  textarea { resize: vertical; min-height: 64px; line-height: 1.45; }
+  input:focus-visible, select:focus-visible, textarea:focus-visible {
+    outline: 2px solid var(--focus); outline-offset: 1px; border-color: transparent;
+  }
+  [aria-invalid="true"] { border-color: var(--danger); background: var(--danger-soft); }
+
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding-top: 2px; }
+  button {
+    font: inherit; font-weight: 600; border-radius: 8px; padding: 8px 14px; min-height: 36px;
+    border: 1px solid var(--line-strong); background: transparent; color: var(--text);
+    cursor: pointer; transition: background-color 120ms ease-out, border-color 120ms ease-out;
+  }
+  button:hover:not(:disabled) { background: var(--surface); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  button.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+  button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  button:disabled { opacity: 0.55; cursor: not-allowed; }
+
+  .status { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); }
+  .status .clock { font-variant-numeric: tabular-nums; }
+  .spinner {
+    width: 14px; height: 14px; border-radius: 50%; flex: none;
+    border: 2px solid var(--line); border-top-color: var(--accent);
+    animation: spin 800ms linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) {
+    .spinner { animation: pulse 1.6s ease-in-out infinite; border-top-color: var(--line); background: var(--accent); }
+    @keyframes pulse { 50% { opacity: 0.35; } }
+    button { transition: none; }
+  }
+
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+    clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+
+  @media (max-width: 480px) {
+    .card { padding: 14px 16px; }
+    .grid { grid-template-columns: 1fr; }
+    .summary { grid-template-columns: 1fr; }
+    .summary dt { padding-bottom: 0; border-bottom: 0; }
+    .summary dd { padding-top: 2px; }
+    .actions > button { flex: 1 1 100%; }
+  }
+</style>
+</head>
+<body>
+<main class="card" aria-labelledby="title">
+  <header class="head">
+    <div class="head-row">
+      <span class="brand">
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 3.5 8 13l6-9.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="8" cy="5" r="1.5" fill="currentColor"/></svg>
+        Mission VIPER
+      </span>
+      <span class="badge" id="badge" data-tone="neutral">Brouillon</span>
+    </div>
+    <h1 id="title" tabindex="-1">Nouvelle mission</h1>
+    <p class="prompt" id="prompt" hidden></p>
+  </header>
+
+  <div class="notice" id="notice" role="alert" hidden>
+    <strong id="notice-title"></strong>
+    <span class="detail" id="notice-detail"></span>
+    <span class="meta" id="notice-meta" hidden></span>
+  </div>
+
+  <dl class="summary" id="summary" aria-label="Paramètres de la mission"></dl>
+
+  <form id="form" novalidate hidden aria-label="Modifier les paramètres de la mission">
+    <div class="grid">
+      <div class="field full">
+        <label for="f-name">Nom</label>
+        <input id="f-name" name="name" maxlength="200" autocomplete="off">
+      </div>
+      <div class="field full">
+        <label for="f-prompt">Consigne</label>
+        <textarea id="f-prompt" name="prompt" rows="3" maxlength="5000"></textarea>
+      </div>
+      <div class="field">
+        <label for="f-type">Type</label>
+        <select id="f-type" name="type"></select>
+      </div>
+      <div class="field">
+        <label for="f-result_kind">Résultat</label>
+        <select id="f-result_kind" name="result_kind"></select>
+      </div>
+      <div class="field">
+        <label for="f-geography">Zone</label>
+        <input id="f-geography" name="geography" maxlength="200" placeholder="Ex. Normandie" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="f-period_days">Période (jours)</label>
+        <input id="f-period_days" name="period_days" type="number" inputmode="numeric" min="1" max="3650" placeholder="Non précisée" aria-describedby="h-period">
+        <span class="hint" id="h-period">Ancienneté maximale des informations recherchées.</span>
+      </div>
+      <div class="field">
+        <label for="f-result_limit">Maximum</label>
+        <input id="f-result_limit" name="result_limit" type="number" inputmode="numeric" min="1" max="500" aria-describedby="h-limit">
+        <span class="hint" id="h-limit">Nombre de résultats au plus par lancement.</span>
+      </div>
+      <div class="field">
+        <label for="f-agent_id">Agent</label>
+        <select id="f-agent_id" name="agent_id" aria-describedby="h-agent"></select>
+        <span class="hint" id="h-agent">« Automatique » : le premier agent disponible.</span>
+      </div>
+      <fieldset class="full" id="f-recurrence">
+        <legend>Récurrence</legend>
+        <div class="inline">
+          <select id="f-is_recurring" name="is_recurring" aria-label="Fréquence">
+            <option value="false">Ponctuelle</option>
+            <option value="true">Récurrente</option>
+          </select>
+          <span class="every" id="every-label">tous les</span>
+          <input id="f-interval_count" name="interval_count" type="number" inputmode="numeric" min="1" max="1000" aria-labelledby="every-label">
+          <select id="f-interval_unit" name="interval_unit" aria-label="Unité de la récurrence"></select>
+        </div>
+      </fieldset>
+    </div>
+  </form>
+
+  <div class="actions" id="actions">
+    <button type="button" class="primary" id="b-create" hidden>Créer</button>
+    <button type="button" id="b-create-run" hidden>Créer et lancer</button>
+    <button type="button" class="primary" id="b-save" hidden>Enregistrer</button>
+    <button type="button" id="b-run" hidden>Lancer maintenant</button>
+    <button type="button" id="b-edit" hidden aria-controls="form" aria-expanded="false">Modifier les paramètres</button>
+    <button type="button" id="b-cancel" hidden>Annuler</button>
+    <span class="status" id="status" role="status" aria-live="polite"></span>
+  </div>
+</main>
+
+<script>
+(() => {
+  'use strict';
+
+  // --- vocabulary (frontend/src/missions/labels.ts) ------------------------------------------
+  const TYPE_LABELS = {
+    prospection: 'Prospection ciblée', signals: 'Recherche de signaux',
+    enrichment: 'Enrichissement', verification: 'Vérification', other: 'Autre',
+  };
+  const RESULT_LABELS = {
+    companies: 'Sociétés', prospects: 'Prospects', signals: 'Signaux',
+    enrichment: 'Informations complétant les fiches',
+  };
+  const UNIT_LABELS = { hours: 'heures', days: 'jours', weeks: 'semaines', months: 'mois' };
+  const EVERY_ONE = { hours: 'Toutes les heures', days: 'Chaque jour', weeks: 'Chaque semaine', months: 'Chaque mois' };
+  const STATUS_LABELS = { active: 'Active', paused: 'En pause', done: 'Terminée', cancelled: 'Annulée' };
+  const FIELD_LABELS = {
+    name: 'Nom', prompt: 'Consigne', type: 'Type', geography: 'Zone', period_days: 'Période',
+    result_kind: 'Résultat', result_limit: 'Maximum', is_recurring: 'Récurrence',
+    interval_count: 'Récurrence', interval_unit: 'Récurrence', agent_id: 'Agent',
+  };
+  // Fields of `MissionIn` the card shows and edits; every other argument is passed through as is.
+  const EDITED = ['name', 'prompt', 'type', 'geography', 'period_days', 'result_kind',
+    'result_limit', 'is_recurring', 'interval_count', 'interval_unit', 'agent_id'];
+  const DEFAULTS = { result_kind: 'enrichment', result_limit: 20, is_recurring: false,
+    interval_count: 1, interval_unit: 'days', agent_id: null, geography: null, period_days: null };
+
+  // A tool call that outlives this is reported, and the card is released (the late answer still
+  // lands if it comes).
+  const CALL_DEADLINE_MS = 45000;
+  // How long the card waits for the host to hand it the tool's result before saying so.
+  const RESULT_DEADLINE_MS = 60000;
+
+  const log = (level, event, detail) => {
+    // The server keeps every call in « Historique des appels » (mcp_calls); this is the card's side.
+    (console[level] || console.log)('[viper-mission-card]', event, detail === undefined ? '' : detail);
+  };
+
+  // --- host bridge: ChatGPT's `window.openai`, else the MCP Apps postMessage bridge -------------
+
+  function openaiHost(openai) {
+    return {
+      kind: 'openai',
+      start(onChange) {
+        const read = () => onChange({
+          input: openai.toolInput || null,
+          output: openai.toolOutput === undefined ? null : openai.toolOutput,
+          isError: Boolean(openai.toolResponseMetadata && openai.toolResponseMetadata.isError),
+          theme: openai.theme || null,
+          saved: openai.widgetState || null,
+        });
+        window.addEventListener('openai:set_globals', read, { passive: true });
+        read();
+      },
+      callTool: (name, args) => openai.callTool(name, args),
+      save(state) {
+        if (typeof openai.setWidgetState !== 'function') return;
+        try { openai.setWidgetState(state); } catch (error) { log('warn', 'widget_state_failed', error); }
+      },
+    };
+  }
+
+  function appsHost() {
+    let nextId = 1;
+    const pending = new Map();
+    let onChange = () => {};
+    const context = { input: null, output: null, isError: false, theme: null, saved: null };
+    const send = (message) => window.parent.postMessage({ jsonrpc: '2.0', ...message }, '*');
+    const request = (method, params) => new Promise((resolve, reject) => {
+      const id = nextId++;
+      pending.set(id, { resolve, reject });
+      send({ id, method, params });
+    });
+    window.addEventListener('message', (event) => {
+      if (event.source !== window.parent) return;
+      const message = event.data;
+      if (!message || message.jsonrpc !== '2.0') return;
+      if (message.id !== undefined && pending.has(message.id) && !message.method) {
+        const { resolve, reject } = pending.get(message.id);
+        pending.delete(message.id);
+        if (message.error) reject(new Error(message.error.message || 'Erreur du client MCP.'));
+        else resolve(message.result);
+        return;
+      }
+      const params = message.params || {};
+      switch (message.method) {
+        case 'ui/notifications/tool-input':
+          context.input = params.arguments || null; break;
+        case 'ui/notifications/tool-result':
+          context.output = params.structuredContent === undefined ? null : params.structuredContent;
+          context.isError = Boolean(params.isError); break;
+        case 'ui/notifications/host-context-changed':
+          if (params.theme) context.theme = params.theme; break;
+        default: return;
+      }
+      onChange({ ...context });
+    });
+    return {
+      kind: 'mcp-apps',
+      start(callback) {
+        onChange = callback;
+        request('ui/initialize', {
+          protocolVersion: '2026-01-26',
+          appInfo: { name: 'viper-mission-card', version: '1' },
+          appCapabilities: {},
+        }).then((result) => {
+          const host = (result && result.hostContext) || {};
+          if (host.theme) context.theme = host.theme;
+          send({ method: 'ui/notifications/initialized', params: {} });
+          onChange({ ...context });
+          if (typeof ResizeObserver === 'function') {
+            let last = '';
+            new ResizeObserver(() => {
+              const width = document.documentElement.scrollWidth;
+              const height = document.documentElement.scrollHeight;
+              if (`${width}x${height}` === last) return;
+              last = `${width}x${height}`;
+              send({ method: 'ui/notifications/size-changed', params: { width, height } });
+            }).observe(document.documentElement);
+          }
+        }).catch((error) => {
+          log('error', 'bridge_initialize_failed', error);
+          state.error = { code: 'bridge', message: `Carte non reliée à la conversation : ${describe(error)}`, field: null };
+          state.waitedOut = true;
+          render();
+        });
+        onChange({ ...context });
+      },
+      callTool: (name, args) => request('tools/call', { name, arguments: args }),
+      save() { /* MCP Apps has no card state; the conversation keeps the tool results. */ },
+    };
+  }
+
+  // --- state -----------------------------------------------------------------------------------
+
+  const state = {
+    input: null,       // the tool's arguments (what ChatGPT understood)
+    mission: null,     // MissionDetailOut once the mission exists
+    values: { ...DEFAULTS },
+    error: null,       // { code, message, field } as the server returned it
+    editing: false,
+    busy: null,        // { label, startedAt }
+    waitingSince: Date.now(),
+    waitedOut: false,
+    received: false,   // the host handed the result (or the card made one)
+    agents: null,      // [{ id, label }] from viper_mission_options
+    agentsError: null,
+    types: null,       // [{ value, executable }]
+    resultKinds: null,
+  };
+  let host = null;
+  const $ = (id) => document.getElementById(id);
+
+  const describe = (error) => {
+    if (!error) return 'Erreur inconnue.';
+    if (typeof error === 'string') return error;
+    return error.message || String(error);
+  };
+
+  const isMission = (value) => Boolean(value && typeof value === 'object' && value.card && value.card.id);
+  const isRefusal = (value) => Boolean(value && typeof value === 'object' && !value.card
+    && typeof value.code === 'string' && typeof value.message === 'string');
+
+  function valuesFromInput(input) {
+    const values = { ...DEFAULTS };
+    for (const key of EDITED) if (input && input[key] !== undefined) values[key] = input[key];
+    return values;
+  }
+
+  function valuesFromMission(detail) {
+    const card = detail.card;
+    const rule = detail.rule || {};
+    return {
+      name: card.name, prompt: detail.prompt, type: card.type,
+      geography: rule.geography ?? null, period_days: rule.period_days ?? null,
+      result_kind: detail.result_kind, result_limit: detail.result_limit,
+      is_recurring: card.is_recurring, interval_count: card.interval_count,
+      interval_unit: card.interval_unit, agent_id: rule.agent_id ?? null,
+    };
+  }
+
+  // The card's saved snapshot: the mission without its task and run lists.
+  const compact = (detail) => ({ ...detail, tasks: [], runs: [] });
+
+  function adopt(detail) {
+    state.mission = detail;
+    state.values = valuesFromMission(detail);
+    state.error = null;
+    state.editing = false;
+    state.received = true;
+    host.save({ mission: compact(detail) });
+  }
+
+  // --- host updates ----------------------------------------------------------------------------
+
+  function onHost(context) {
+    applyTheme(context.theme);
+    if (context.input && !state.input) {
+      state.input = context.input;
+      if (!state.mission) state.values = valuesFromInput(context.input);
+    }
+    // What the card did itself (created, modified) wins over the original result.
+    const saved = context.saved && context.saved.mission;
+    if (isMission(saved) && !state.mission) {
+      adopt(saved);
+    } else if (context.output !== null && !state.received) {
+      state.received = true;
+      if (isMission(context.output)) {
+        adopt(context.output);
+        log('info', 'mission_shown', { id: context.output.card.id });
+      } else if (isRefusal(context.output) || context.isError) {
+        refuse(context.output);
+      } else {
+        state.error = { code: 'unexpected', message: 'Réponse de VIPER inattendue : ni mission, ni refus.', field: null };
+        log('error', 'unexpected_result', context.output);
+      }
+    }
+    render();
+  }
+
+  function applyTheme(theme) {
+    if (theme === 'dark' || theme === 'light') document.documentElement.dataset.theme = theme;
+  }
+
+  // --- actions ---------------------------------------------------------------------------------
+
+  function refuse(body) {
+    const refusal = isRefusal(body) ? body
+      : { code: 'refused', message: describe(body && body.message ? body.message : body) };
+    state.error = { code: refusal.code, message: refusal.message, field: refusal.field || null };
+    state.editing = true;
+    log('warn', 'tool_refused', state.error);
+    loadOptions();
+  }
+
+  function withDeadline(promise) {
+    let timer;
+    const deadline = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        const error = new Error(`VIPER n'a pas répondu après ${CALL_DEADLINE_MS / 1000} s.`);
+        error.code = 'timeout';
+        reject(error);
+      }, CALL_DEADLINE_MS);
+    });
+    return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
+  }
+
+  // A `CallToolResult` (MCP Apps) or what `window.openai.callTool` resolves to.
+  function bodyOf(result) {
+    if (result && typeof result === 'object' && 'structuredContent' in result) {
+      return { body: result.structuredContent, isError: Boolean(result.isError) };
+    }
+    return { body: result, isError: false };
+  }
+
+  async function call(label, name, args, onOk) {
+    if (state.busy) return; // a second click while a call runs does nothing
+    state.busy = { label, startedAt: Date.now() };
+    state.error = null;
+    render();
+    const pending = host.callTool(name, args);
+    log('info', 'tool_call', { name });
+    try {
+      const { body, isError } = bodyOf(await withDeadline(pending));
+      if (isError || isRefusal(body)) {
+        refuse(body);
+        focusError();
+      } else {
+        onOk(body);
+        log('info', 'tool_ok', { name });
+      }
+    } catch (error) {
+      log('error', 'tool_call_failed', { name, error: describe(error) });
+      if (error && error.code === 'timeout') {
+        state.error = {
+          code: 'timeout',
+          message: `${describe(error)} La demande a peut-être abouti : vérifiez la mission dans VIPER avant de réessayer.`,
+          field: null,
+        };
+        // The late answer still counts: a mission created after the deadline is shown.
+        pending.then((late) => {
+          const { body } = bodyOf(late);
+          if (isMission(body)) { adopt(body); render(); announce('Réponse de VIPER reçue.'); }
+        }, () => {});
+      } else {
+        state.error = { code: 'bridge', message: describe(error), field: null };
+      }
+      focusError();
+    } finally {
+      state.busy = null;
+      render();
+    }
+  }
+
+  function creationArgs(runNow) {
+    // Every argument ChatGPT sent (targets, exclusions, dates…) is kept; the card only changes
+    // the fields it shows.
+    const fields = state.editing ? readForm() : state.values;
+    return { ...(state.input || {}), ...fields, run_now: runNow };
+  }
+
+  function create(runNow) {
+    call(runNow ? 'Création et lancement…' : 'Création…', 'viper_create_mission', creationArgs(runNow),
+      (detail) => {
+        adopt(detail);
+        announce(runNow ? 'Mission créée et lancée.' : 'Mission créée.');
+        $('title').focus();
+      });
+  }
+
+  function save() {
+    const next = readForm();
+    const changes = {};
+    for (const key of EDITED) {
+      if (JSON.stringify(next[key]) !== JSON.stringify(state.values[key])) changes[key] = next[key];
+    }
+    if (!Object.keys(changes).length) {
+      state.editing = false;
+      render();
+      announce('Aucune modification.');
+      $('b-edit').focus();
+      return;
+    }
+    call('Enregistrement…', 'viper_update_mission', { mission_id: state.mission.card.id, ...changes },
+      (detail) => { adopt(detail); announce('Modifications enregistrées.'); $('title').focus(); });
+  }
+
+  function run() {
+    call('Lancement…', 'viper_run_mission', { mission_id: state.mission.card.id }, (answer) => {
+      const { run_id: _runId, ...detail } = answer || {};
+      adopt(detail);
+      announce('Lancement demandé.');
+      $('title').focus();
+    });
+  }
+
+  async function loadOptions() {
+    if (state.agents || state.agentsError) return;
+    try {
+      const { body, isError } = bodyOf(await withDeadline(host.callTool('viper_mission_options', {})));
+      if (isError || isRefusal(body)) throw new Error(body && body.message ? body.message : 'Refusé.');
+      state.agents = Array.isArray(body.agents) ? body.agents : [];
+      const options = body.options || {};
+      state.types = options.types || null;
+      state.resultKinds = options.result_kinds || null;
+      log('info', 'options_loaded', { agents: state.agents.length });
+    } catch (error) {
+      state.agentsError = describe(error);
+      log('warn', 'options_failed', state.agentsError);
+    }
+    if (state.editing) renderSelects();
+  }
+
+  // --- form ------------------------------------------------------------------------------------
+
+  function numberOrRaw(value) {
+    const text = String(value).trim();
+    if (text === '') return null;
+    const number = Number(text);
+    return Number.isFinite(number) ? number : text;
+  }
+
+  function readForm() {
+    const recurring = $('f-is_recurring').value === 'true';
+    const geography = $('f-geography').value.trim();
+    return {
+      name: $('f-name').value.trim(),
+      prompt: $('f-prompt').value.trim(),
+      type: $('f-type').value,
+      geography: geography === '' ? null : geography,
+      period_days: numberOrRaw($('f-period_days').value),
+      result_kind: $('f-result_kind').value,
+      result_limit: numberOrRaw($('f-result_limit').value),
+      is_recurring: recurring,
+      interval_count: recurring ? numberOrRaw($('f-interval_count').value) : state.values.interval_count,
+      interval_unit: recurring ? $('f-interval_unit').value : state.values.interval_unit,
+      agent_id: $('f-agent_id').value || null,
+    };
+  }
+
+  function fillSelect(select, entries, current) {
+    const fragment = document.createDocumentFragment();
+    for (const [value, label] of entries) {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = label;
+      fragment.append(option);
+    }
+    select.replaceChildren(fragment);
+    select.value = current ?? '';
+  }
+
+  function optionEntries(labels, served, current) {
+    // The server's list when known (an option that cannot run today says so), else the labels.
+    const values = served ? served.map((option) => option.value) : Object.keys(labels);
+    if (current && !values.includes(current)) values.push(current);
+    return values.map((value) => {
+      const option = served && served.find((item) => item.value === value);
+      const suffix = option && option.executable === false ? ' (pas encore exécutable)' : '';
+      return [value, (labels[value] || value) + suffix];
+    });
+  }
+
+  function renderSelects() {
+    const values = state.values;
+    fillSelect($('f-type'), optionEntries(TYPE_LABELS, state.types, values.type), values.type);
+    fillSelect($('f-result_kind'), optionEntries(RESULT_LABELS, state.resultKinds, values.result_kind), values.result_kind);
+    fillSelect($('f-interval_unit'), Object.entries(UNIT_LABELS), values.interval_unit);
+    const agents = [['', 'Automatique']];
+    for (const agent of state.agents || []) agents.push([agent.id, agent.label]);
+    if (values.agent_id && !agents.some(([id]) => id === values.agent_id)) {
+      agents.push([values.agent_id, agentLabel()]);
+    }
+    fillSelect($('f-agent_id'), agents, values.agent_id || '');
+    $('h-agent').textContent = state.agentsError
+      ? `Liste des agents indisponible : ${state.agentsError}`
+      : '« Automatique » : le premier agent disponible.';
+  }
+
+  function fillForm() {
+    const values = state.values;
+    $('f-name').value = values.name || '';
+    $('f-prompt').value = values.prompt || '';
+    $('f-geography').value = values.geography || '';
+    $('f-period_days').value = values.period_days ?? '';
+    $('f-result_limit').value = values.result_limit ?? '';
+    $('f-is_recurring').value = values.is_recurring ? 'true' : 'false';
+    $('f-interval_count').value = values.interval_count ?? 1;
+    renderSelects();
+    syncRecurrence();
+  }
+
+  function syncRecurrence() {
+    const recurring = $('f-is_recurring').value === 'true';
+    for (const id of ['every-label', 'f-interval_count', 'f-interval_unit']) $(id).hidden = !recurring;
+  }
+
+  // --- rendering -------------------------------------------------------------------------------
+
+  function agentLabel() {
+    const values = state.values;
+    if (!values.agent_id) return 'Automatique';
+    if (state.mission && state.mission.card.agent_label) return state.mission.card.agent_label;
+    const agent = (state.agents || []).find((item) => item.id === values.agent_id);
+    return agent ? agent.label : 'Agent choisi';
+  }
+
+  function recurrenceLabel(values) {
+    if (!values.is_recurring) return 'Ponctuelle';
+    const count = Number(values.interval_count) || 1;
+    if (count === 1) return EVERY_ONE[values.interval_unit] || `Tous les 1 ${values.interval_unit}`;
+    return `Toutes les ${count} ${UNIT_LABELS[values.interval_unit] || values.interval_unit}`;
+  }
+
+  function renderSummary() {
+    const values = state.values;
+    const rows = [
+      ['Type', TYPE_LABELS[values.type] || values.type],
+      ['Zone', values.geography],
+      ['Période', values.period_days ? `${values.period_days} derniers jours` : null],
+      ['Résultat', RESULT_LABELS[values.result_kind] || values.result_kind],
+      ['Maximum', values.result_limit === null || values.result_limit === undefined ? null : String(values.result_limit)],
+      ['Récurrence', recurrenceLabel(values)],
+      ['Agent', agentLabel()],
+    ];
+    if (state.mission) {
+      const targets = state.mission.targets || [];
+      if (targets.length) rows.push(['Cibles', targets.map((target) => target.label).join(', ')]);
+    } else if (state.input && Array.isArray(state.input.targets) && state.input.targets.length) {
+      rows.push(['Cibles', `${state.input.targets.length} fiche(s) liée(s)`]);
+    }
+    const fragment = document.createDocumentFragment();
+    for (const [term, value] of rows) {
+      const dt = document.createElement('dt');
+      dt.textContent = term;
+      const dd = document.createElement('dd');
+      if (value === null || value === undefined || value === '') {
+        const unset = document.createElement('span');
+        unset.className = 'unset';
+        unset.textContent = 'Non précisée';
+        dd.append(unset);
+      } else {
+        dd.textContent = value;
+      }
+      fragment.append(dt, dd);
+    }
+    $('summary').replaceChildren(fragment);
+  }
+
+  function showNotice(title, detail, meta, tone) {
+    const notice = $('notice');
+    notice.dataset.tone = tone || 'error';
+    notice.setAttribute('role', tone === 'info' ? 'status' : 'alert');
+    $('notice-title').textContent = title;
+    $('notice-detail').textContent = detail;
+    $('notice-meta').textContent = meta || '';
+    $('notice-meta').hidden = !meta;
+    notice.hidden = false;
+  }
+
+  function renderNotice() {
+    const error = state.error;
+    if (error) {
+      const field = error.field && FIELD_LABELS[error.field];
+      const where = error.field ? `Champ : ${field || error.field}` : null;
+      const code = error.code && !['timeout', 'bridge', 'unexpected'].includes(error.code) ? `code ${error.code}` : null;
+      const title = error.code === 'timeout' ? 'Pas de réponse'
+        : error.code === 'bridge' ? 'Appel impossible'
+      : error.code === 'unexpected' ? 'Réponse inattendue'
+        : error.code === 'capability_denied' ? 'Action non autorisée'
+        : 'VIPER a refusé la demande';
+      showNotice(title, error.message, [where, code].filter(Boolean).join(' · '));
+      return;
+    }
+    if (!state.received && state.waitedOut) {
+      showNotice('Pas de résultat',
+        `La conversation n'a pas transmis la réponse de VIPER après ${RESULT_DEADLINE_MS / 1000} s. `
+        + 'Vérifiez dans VIPER que la mission n’existe pas déjà avant de la créer ici.', null, 'info');
+      return;
+    }
+    $('notice').hidden = true;
+  }
+
+  function markFields() {
+    const field = state.error && state.error.field;
+    for (const key of EDITED) {
+      const input = $(`f-${key}`);
+      if (!input) continue;
+      if (field === key) {
+        input.setAttribute('aria-invalid', 'true');
+        input.setAttribute('aria-errormessage', 'notice-detail');
+      } else {
+        input.removeAttribute('aria-invalid');
+        input.removeAttribute('aria-errormessage');
+      }
+    }
+  }
+
+  function focusError() {
+    requestAnimationFrame(() => {
+      const field = state.error && state.error.field && $(`f-${state.error.field}`);
+      if (field && !field.hidden && state.editing) field.focus();
+      else $('notice').focus({ preventScroll: false });
+    });
+  }
+
+  function announce(text) {
+    const status = $('status');
+    status.textContent = text;
+    setTimeout(() => { if (!state.busy && status.textContent === text) status.textContent = ''; }, 4000);
+  }
+
+  function renderBadge() {
+    const badge = $('badge');
+    const mission = state.mission;
+    if (!mission) {
+      badge.textContent = state.received ? 'Brouillon' : 'En attente';
+      badge.dataset.tone = state.error ? 'danger' : 'neutral';
+      return;
+    }
+    const card = mission.card;
+    const launched = card.runs_count > 0;
+    badge.textContent = card.status === 'active'
+      ? (launched ? 'Créée · lancée' : 'Créée')
+      : (STATUS_LABELS[card.status] || card.status);
+    badge.dataset.tone = card.status === 'active' ? 'ok' : card.status === 'paused' ? 'warn' : 'neutral';
+  }
+
+  function renderStatus() {
+    const status = $('status');
+    const busy = state.busy;
+    const waiting = !state.received && !state.waitedOut;
+    if (!busy && !waiting) return;
+    const since = busy ? busy.startedAt : state.waitingSince;
+    const label = busy ? busy.label : 'En attente de la réponse de VIPER…';
+    const seconds = Math.floor((Date.now() - since) / 1000);
+    // Rebuilt only when the text changes, so the live region speaks the label, not every second.
+    let spinner = status.querySelector('.spinner');
+    if (!spinner) {
+      status.replaceChildren();
+      spinner = document.createElement('span');
+      spinner.className = 'spinner';
+      spinner.setAttribute('aria-hidden', 'true');
+      const text = document.createElement('span');
+      text.className = 'label';
+      const clock = document.createElement('span');
+      clock.className = 'clock';
+      clock.setAttribute('aria-hidden', 'true');
+      status.append(spinner, text, clock);
+    }
+    const text = status.querySelector('.label');
+    if (text.textContent !== label) text.textContent = label;
+    status.querySelector('.clock').textContent = `${seconds} s`;
+  }
+
+  function render() {
+    const mission = state.mission;
+    const editing = state.editing;
+    const busy = Boolean(state.busy);
+    const draft = !mission && (state.received || state.waitedOut);
+
+    $('title').textContent = state.values.name || (mission ? mission.card.name : 'Nouvelle mission');
+    const prompt = state.values.prompt;
+    $('prompt').textContent = prompt || '';
+    $('prompt').hidden = !prompt || editing;
+
+    renderBadge();
+    renderNotice();
+    renderSummary();
+    $('summary').hidden = editing;
+
+    const form = $('form');
+    if (editing && form.hidden) { form.hidden = false; fillForm(); }
+    if (!editing) form.hidden = true;
+    markFields();
+
+    $('b-create').hidden = !draft;
+    $('b-create-run').hidden = !draft;
+    $('b-save').hidden = !(mission && editing);
+    $('b-run').hidden = !(mission && !editing && mission.card.status === 'active');
+    $('b-edit').hidden = editing || (!mission && !draft)
+      || (mission && ['done', 'cancelled'].includes(mission.card.status));
+    $('b-edit').setAttribute('aria-expanded', String(editing));
+    $('b-cancel').hidden = !(mission && editing);
+    for (const id of ['b-create', 'b-create-run', 'b-save', 'b-run', 'b-edit', 'b-cancel']) {
+      $(id).disabled = busy;
+    }
+    form.toggleAttribute('inert', busy);
+
+    const status = $('status');
+    if (busy || (!state.received && !state.waitedOut)) renderStatus();
+    else if (status.querySelector('.spinner')) status.replaceChildren();
+  }
+
+  // --- wiring ----------------------------------------------------------------------------------
+
+  function edit() {
+    state.editing = true;
+    render();
+    loadOptions();
+    $('f-name').focus();
+  }
+
+  function cancelEdit() {
+    state.editing = false;
+    state.error = null;
+    render();
+    $('b-edit').focus();
+  }
+
+  $('b-create').addEventListener('click', () => create(false));
+  $('b-create-run').addEventListener('click', () => create(true));
+  $('b-save').addEventListener('click', save);
+  $('b-run').addEventListener('click', run);
+  $('b-edit').addEventListener('click', edit);
+  $('b-cancel').addEventListener('click', cancelEdit);
+  $('f-is_recurring').addEventListener('change', syncRecurrence);
+  $('notice').tabIndex = -1;
+  $('form').addEventListener('keydown', (event) => {
+    // Escape leaves the form of an existing mission without saving; Ctrl/⌘+Enter validates.
+    if (event.key === 'Escape' && state.mission && !state.busy) { event.preventDefault(); cancelEdit(); }
+    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !state.busy) {
+      event.preventDefault();
+      if (state.mission) save(); else create(false);
+    }
+  });
+
+  setInterval(() => {
+    if (!state.received && !state.waitedOut && Date.now() - state.waitingSince > RESULT_DEADLINE_MS) {
+      state.waitedOut = true;
+      log('warn', 'result_wait_timeout', { waited_ms: RESULT_DEADLINE_MS });
+      render();
+      return;
+    }
+    if (state.busy || !state.received) renderStatus();
+  }, 1000);
+
+  const start = (bridge) => {
+    host = bridge;
+    log('info', 'card_start', { bridge: bridge.kind });
+    host.start(onHost);
+  };
+  if (window.openai) {
+    start(openaiHost(window.openai));
+  } else {
+    // ChatGPT may inject `window.openai` just after the document; give it a moment.
+    setTimeout(() => start(window.openai ? openaiHost(window.openai) : appsHost()), 0);
+  }
+})();
+</script>
+</body>
+</html>
