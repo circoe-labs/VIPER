@@ -61,12 +61,19 @@ def now() -> datetime:
 def test_login_opens_a_session_and_returns_the_user_with_its_csrf_token(
     anonymous_client: TestClient, pilot_user: User, db_session: Session
 ) -> None:
-    response = login(anonymous_client, email="  Pilote.Test@Example.COM ")
+    response = login(anonymous_client, email="  Pilote.Test@Circoe.COM ")
 
     assert response.status_code == 200
     token = anonymous_client.cookies[SESSION_COOKIE]
     assert response.json() == {
-        "user": {"id": str(pilot_user.id), "email": PILOT_EMAIL, "display_name": "Pilote Test"},
+        "user": {
+            "id": str(pilot_user.id),
+            "email": PILOT_EMAIL,
+            "display_name": "Pilote Test",
+            "role": "admin",
+            "is_superadmin": False,
+            "organization": {"id": "01a00000-0000-7000-8000-00000000c1c0", "name": "CIRCOE"},
+        },
         "csrf_token": csrf_token(token),
     }
     stored = db_session.execute(select(UserSession.token_hash)).scalar_one()

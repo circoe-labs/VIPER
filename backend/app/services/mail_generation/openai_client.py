@@ -434,6 +434,80 @@ class OpenAIMailGenerator:
 CHECK_TIMEOUT_SECONDS = 15.0
 
 
+# Families that cannot draft a mail through `/responses` (embeddings, speech, images, moderation…).
+NON_TEXT_MARKERS = (
+    "embedding",
+    "tts",
+    "whisper",
+    "transcribe",
+    "audio",
+    "realtime",
+    "image",
+    "dall-e",
+    "moderation",
+    "search",
+    "babbage",
+    "davinci",
+    "sora",
+)
+TEXT_PREFIXES = ("gpt-", "chatgpt-", "o1", "o3", "o4", "o5")
+
+
+def is_text_model(model_id: str) -> bool:
+    lowered = model_id.lower()
+    return lowered.startswith(TEXT_PREFIXES) and not any(m in lowered for m in NON_TEXT_MARKERS)
+
+
+def list_models(
+    *,
+    api_key: str,
+    base_url: str,
+    trust_env: bool = False,
+    transport: httpx2.BaseTransport | None = None,
+) -> list[str]:
+    """`GET {base_url}/models`: the models this key can use, newest first, text models only.
+
+    A compatible service whose ids follow no OpenAI naming gets its whole list (the filter
+    would leave nothing to choose). Raises the typed `ai_*` errors of `check_model`; no token is
+    generated (nothing is billed); never the key in a message or a log line."""
+    timeout = httpx2.Timeout(CHECK_TIMEOUT_SECONDS, connect=CONNECT_TIMEOUT_SECONDS)
+    with httpx2.Client(timeout=timeout, transport=transport, trust_env=trust_env) as client:
+        try:
+            response = client.get(
+                f"{base_url}/models", headers={"Authorization": f"Bearer {api_key}"}
+            )
+        except httpx2.TimeoutException:
+            raise generation_error(
+                "ai_timeout",
+                f"The AI service did not answer within {round(CHECK_TIMEOUT_SECONDS)} s.",
+            ) from None
+        except httpx2.TransportError as error:
+            raise generation_error(
+                "ai_upstream_error",
+                "The AI service cannot be reached.",
+                upstream_code=type(error).__name__,
+            ) from None
+    if response.status_code >= 400:
+        raise OpenAIMailGenerator._status_error(response.status_code, _upstream_code(response))
+    try:
+        payload = response.json()
+    except ValueError:
+        raise _invalid("The AI service answer is unreadable.") from None
+    rows = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(rows, list):
+        raise _invalid("The AI service answer has no model list.")
+    found: dict[str, int] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        model_id, created = row.get("id"), row.get("created")
+        if isinstance(model_id, str) and model_id and len(model_id) <= MODEL_MAX_LENGTH:
+            found[model_id] = created if isinstance(created, int) else 0
+    text = {model_id: created for model_id, created in found.items() if is_text_model(model_id)}
+    chosen = text or found
+    return sorted(chosen, key=lambda model_id: (-chosen[model_id], model_id))
+
+
 def check_model(config: OpenAIConfig, *, transport: httpx2.BaseTransport | None = None) -> str:
     """`GET {base_url}/models/{model}`: the key is accepted and the model exists. No token is
     generated (nothing is billed). Answers the model id the service named; raises the same typed

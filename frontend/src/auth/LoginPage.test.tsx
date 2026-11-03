@@ -44,7 +44,18 @@ describe('LoginPage', () => {
     expect(screen.getByText('Saisissez votre mot de passe.')).toBeInTheDocument()
     expect(emailField()).toHaveAttribute('aria-invalid', 'true')
     expect(emailField()).toHaveFocus()
-    expect(fetchMock).not.toHaveBeenCalled()
+    // Only the sign-in methods were asked for, never a sign-in.
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).not.toContainEqual(expect.stringContaining('/auth/login'))
+  })
+
+  it('offers Infomaniak alone once the server says it replaced the password', async () => {
+    stubApi({ 'GET /api/auth/methods': [200, { infomaniak: true, password: false }] })
+    renderApp('/login?erreur=domain', { session: ANONYMOUS })
+
+    const link = await screen.findByRole('link', { name: 'Se connecter avec Infomaniak' })
+    expect(link).toHaveAttribute('href', '/api/auth/infomaniak')
+    expect(screen.getByRole('alert')).toHaveTextContent('Seules les adresses @circoe.com')
+    expect(screen.queryByLabelText('Mot de passe')).not.toBeInTheDocument()
   })
 
   it('signs in and continues to the page that was asked for', async () => {

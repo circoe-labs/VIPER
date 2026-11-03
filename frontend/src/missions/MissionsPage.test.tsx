@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
@@ -12,8 +12,8 @@ const COMPANY = '00000000-0000-7000-f000-000000000001'
 
 const OPTIONS: MissionOptions = {
   types: [
-    { value: 'prospection', executable: false },
-    { value: 'signals', executable: false },
+    { value: 'prospection', executable: true },
+    { value: 'signals', executable: true },
     { value: 'enrichment', executable: true },
     { value: 'verification', executable: true },
     { value: 'other', executable: true },
@@ -21,7 +21,7 @@ const OPTIONS: MissionOptions = {
   result_kinds: [
     { value: 'companies', executable: true },
     { value: 'prospects', executable: true },
-    { value: 'signals', executable: false },
+    { value: 'signals', executable: true },
     { value: 'enrichment', executable: true },
   ],
   units: ['hours', 'days', 'weeks', 'months'],
@@ -90,6 +90,16 @@ function detail(): MissionDetail {
     prompt: 'Complète ces fiches avec le site web et le domaine e-mail.',
     result_kind: 'enrichment',
     result_limit: 20,
+    rule: {
+      agent_id: null,
+      starts_at: '2026-10-30T07:00:00+00:00',
+      end_kind: 'never',
+      ends_at: null,
+      max_runs: null,
+      geography: 'Normandie',
+      period_days: null,
+      exclusions: {},
+    },
   }
 }
 
@@ -120,29 +130,165 @@ describe('MissionsPage', () => {
     )
   })
 
-  it('suggests a name from the consigne and needs linked data before launching', async () => {
+  async function openCreate() {
     stubApi({
       ...SHELL_API,
       ...COMMON,
       'GET /api/missions': [200, { items: [], total: 0 }],
     })
     const user = userEvent.setup()
-
     renderApp('/missions')
     const [firstCreate] = await screen.findAllByRole('button', { name: 'Nouvelle mission' })
     expect(firstCreate).toBeDefined()
     await user.click(firstCreate as HTMLElement)
+    return { user, dialog: await screen.findByRole('dialog', { name: 'Nouvelle mission' }) }
+  }
 
-    await user.type(
-      screen.getByLabelText(/Consigne/),
-      'Trouve les commissaires au transport en Normandie',
-    )
+  it('suggests a name from the consigne and says what is missing before saving', async () => {
+    const { user, dialog } = await openCreate()
 
-    expect(screen.getByLabelText(/Nom/)).toHaveValue(
-      'Trouve les commissaires au transport en Normandie',
+    await user.type(within(dialog).getByLabelText(/Consigne/), 'Trouve les commissaires au transport en Normandie')
+
+    expect(within(dialog).getByLabelText(/Nom/)).toHaveValue('Trouve les commissaires au transport en Normandie')
+    // « Compléter des fiches » by default: it works on linked records, none yet.
+    expect(within(dialog).getByRole('radio', { name: 'Compléter des fiches' })).toHaveAttribute('aria-checked', 'true')
+    expect(within(dialog).getByRole('status')).toHaveTextContent('Liez au moins une fiche')
+    expect(within(dialog).getByRole('button', { name: 'Créer la mission' })).toBeDisabled()
+    expect(within(dialog).getByRole('button', { name: 'Créer et lancer' })).toBeDisabled()
+
+    // A discovery starts from nothing: ready at once.
+    await user.click(within(dialog).getByRole('radio', { name: 'Découvrir des sociétés' }))
+    expect(within(dialog).getByRole('status')).toHaveTextContent('Prête à être lancée')
+    expect(within(dialog).getByRole('button', { name: 'Créer la mission' })).toBeEnabled()
+    expect(within(dialog).getByRole('button', { name: 'Créer et lancer' })).toBeEnabled()
+  })
+
+  it('blocks a signals mission without a company to watch, and explains each kind on hover', async () => {
+    const { user, dialog } = await openCreate()
+    await user.type(within(dialog).getByLabelText(/Consigne/), 'Nouveaux entrepôts en Normandie')
+
+    await user.click(within(dialog).getByRole('radio', { name: 'Surveiller des signaux' }))
+
+    expect(within(dialog).getByRole('status')).toHaveTextContent('Liez au moins une société à surveiller')
+    expect(within(dialog).getByRole('button', { name: 'Créer la mission' })).toBeDisabled()
+    expect(within(dialog).getByRole('button', { name: 'Créer et lancer' })).toBeDisabled()
+    // The explanation is a hover/focus tip, linked to its « i » for assistive tech.
+    const tip = within(dialog).getByRole('button', { name: 'Aide : Surveiller des signaux' })
+    expect(tip).toHaveAccessibleDescription(/surveille les sociétés liées/)
+    await user.hover(tip)
+    expect(document.querySelector('.info-tip__bubble')).toHaveTextContent(/surveille les sociétés liées/)
+    await user.unhover(tip)
+    expect(document.querySelector('.info-tip__bubble')).toBeNull()
+  })
+
+  it('moves between kinds with the arrow keys', async () => {
+    const { user, dialog } = await openCreate()
+    within(dialog).getByRole('radio', { name: 'Compléter des fiches' }).focus()
+
+    await user.keyboard('{ArrowRight}')
+
+    expect(within(dialog).getByRole('radio', { name: 'Vérifier des fiches' })).toHaveAttribute('aria-checked', 'true')
+    expect(within(dialog).getByRole('radio', { name: 'Vérifier des fiches' })).toHaveFocus()
+  })
+
+  it('offers « Reprendre » on a paused card', async () => {
+    const fetchMock = stubApi({
+      ...SHELL_API,
+      ...COMMON,
+      'GET /api/missions': [200, { items: [card({ status: 'paused', next_run_at: null })], total: 1 }],
+      [`PATCH /api/missions/${MISSION}`]: [200, detail()],
+    })
+    const user = userEvent.setup()
+    renderApp('/missions')
+
+    expect(await screen.findByText('En pause : aucune exécution prévue')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Reprendre la mission Nouveaux entrepôts — Normandie' }))
+
+    const patch = fetchMock.mock.calls.find(([, init]) => init?.method === 'PATCH')?.[1]?.body
+    expect(typeof patch === 'string' ? JSON.parse(patch) : null).toEqual({ status: 'active' })
+  })
+})
+
+describe('the mission menu (right-click on a card)', () => {
+  function stubList(extra: Record<string, ApiReply> = {}) {
+    let deleted = false
+    const fetchMock = stubApi({
+      ...SHELL_API,
+      ...COMMON,
+      'GET /api/missions': () => [200, deleted ? { items: [], total: 0 } : { items: [card()], total: 1 }],
+      [`GET /api/missions/${MISSION}`]: [200, detail()],
+      [`DELETE /api/missions/${MISSION}`]: () => {
+        deleted = true
+        return [204]
+      },
+      [`PUT /api/missions/${MISSION}`]: [200, { ...detail(), card: card({ name: 'Entrepôts — Normandie et Bretagne' }) }],
+      ...extra,
+    })
+    return {
+      fetchMock,
+      get deleted() {
+        return deleted
+      },
+      // The body of the `PUT` (« Enregistrer »), or null.
+      get saved(): Record<string, unknown> | null {
+        const body = fetchMock.mock.calls.find(([, init]) => init?.method === 'PUT')?.[1]?.body
+        return typeof body === 'string' ? (JSON.parse(body) as Record<string, unknown>) : null
+      },
+    }
+  }
+
+  it('opens on a right-click and deletes the mission after a confirmation', async () => {
+    const api = stubList()
+    const user = userEvent.setup()
+    renderApp('/missions')
+
+    const tile = await screen.findByRole('link', { name: /Nouveaux entrepôts/ })
+    await user.pointer({ keys: '[MouseRight]', target: tile })
+    const menu = await screen.findByRole('menu', { name: 'Actions de la mission Nouveaux entrepôts — Normandie' })
+    expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['Ouvrir', 'Modifier…', 'Supprimer…'])
+    await user.click(within(menu).getByRole('menuitem', { name: 'Supprimer…' }))
+    await user.click(within(await screen.findByRole('dialog', { name: 'Supprimer cette mission ?' })).getByRole('button', { name: 'Supprimer la mission' }))
+
+    expect(await screen.findByText('Aucune mission')).toBeInTheDocument()
+    expect(api.deleted).toBe(true)
+  })
+
+  it('edits the mission from the « … » button, prefilled with its rule', async () => {
+    const api = stubList()
+    const user = userEvent.setup()
+    renderApp('/missions')
+
+    await user.click(await screen.findByRole('button', { name: 'Actions de la mission Nouveaux entrepôts — Normandie' }))
+    await user.click(within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Modifier…' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Modifier la mission' })
+    const name = within(dialog).getByRole('textbox', { name: 'Nom' })
+    expect(name).toHaveValue('Nouveaux entrepôts — Normandie')
+    expect(within(dialog).getByRole('textbox', { name: 'Consigne' })).toHaveValue(
+      'Complète ces fiches avec le site web et le domaine e-mail.',
     )
-    expect(screen.getByRole('button', { name: 'Créer la mission' })).toBeEnabled()
-    expect(screen.getByRole('button', { name: 'Créer et lancer' })).toBeDisabled()
+    expect(within(dialog).getByText('Transports X')).toBeInTheDocument()
+    await user.clear(name)
+    await user.type(name, 'Entrepôts — Normandie et Bretagne')
+    await user.click(within(dialog).getByRole('button', { name: 'Enregistrer' }))
+
+    await screen.findByRole('link', { name: /Nouveaux entrepôts/ })
+    expect(screen.queryByRole('dialog', { name: 'Modifier la mission' })).not.toBeInTheDocument()
+    const body = api.saved ?? {}
+    expect(body.name).toBe('Entrepôts — Normandie et Bretagne')
+    expect(body.targets).toEqual([{ kind: 'company', id: COMPANY }])
+    expect(body.is_recurring).toBe(true)
+    expect(body.interval_count).toBe(24)
+    expect(body.geography).toBe('Normandie')
+    expect(body.run_now).toBe(false)
+  })
+
+  it('does not offer to edit a finished mission', async () => {
+    stubList({ 'GET /api/missions': [200, { items: [card({ status: 'done' })], total: 1 }] })
+    const user = userEvent.setup()
+    renderApp('/missions')
+
+    await user.pointer({ keys: '[MouseRight]', target: await screen.findByRole('link', { name: /Nouveaux entrepôts/ }) })
+    expect(within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Modifier…' })).toBeDisabled()
   })
 })
 
@@ -161,6 +307,71 @@ describe('MissionDetailPage', () => {
     expect(screen.getByText('Transports X')).toBeInTheDocument()
     expect(screen.getByText(/1 tâche · 1 résultat/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Relire' })).toBeInTheDocument()
+  })
+
+  it('says why the last run failed and that a paused mission creates no task', async () => {
+    const mission = detail()
+    mission.card = card({ status: 'paused', next_run_at: null })
+    const [firstRun] = mission.runs
+    if (firstRun) {
+      firstRun.status = 'failed'
+      firstRun.note = 'Liez au moins une société à surveiller.'
+    }
+    stubApi({ ...SHELL_API, ...COMMON, [`GET /api/missions/${MISSION}`]: [200, mission] })
+
+    renderApp(`/missions/${MISSION}`)
+
+    expect(await screen.findByText(/aucune tâche n’est créée/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Reprendre' })).toBeInTheDocument()
+    expect(screen.getByText(/Dernière exécution en échec : Liez au moins une société/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Lancer maintenant' })).toBeDisabled()
+  })
+
+  it('deletes the mission after a confirmation and goes back to the list', async () => {
+    let deleted = false
+    const fetchMock = stubApi({
+      ...SHELL_API,
+      ...COMMON,
+      [`GET /api/missions/${MISSION}`]: [200, detail()],
+      [`DELETE /api/missions/${MISSION}`]: () => {
+        deleted = true
+        return [204]
+      },
+      'GET /api/missions': () => [200, deleted ? { items: [], total: 0 } : { items: [card()], total: 1 }],
+    })
+    const user = userEvent.setup()
+
+    renderApp(`/missions/${MISSION}`)
+    await user.click(await screen.findByRole('button', { name: 'Supprimer' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Supprimer cette mission ?' })
+    expect(dialog).toHaveTextContent(/Les tâches encore en attente, en cours ou à relire sont annulées/)
+    // « Retour » sends nothing.
+    await user.click(within(dialog).getByRole('button', { name: 'Retour' }))
+    expect(deleted).toBe(false)
+
+    await user.click(screen.getByRole('button', { name: 'Supprimer' }))
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Supprimer la mission' }))
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Missions' })).toBeInTheDocument()
+    expect(deleted).toBe(true)
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'DELETE')).toHaveLength(1)
+  })
+
+  it('says when the deletion failed and keeps the mission open', async () => {
+    stubApi({
+      ...SHELL_API,
+      ...COMMON,
+      [`GET /api/missions/${MISSION}`]: [200, detail()],
+      [`DELETE /api/missions/${MISSION}`]: [500, { detail: 'boom' }],
+    })
+    const user = userEvent.setup()
+
+    renderApp(`/missions/${MISSION}`)
+    await user.click(await screen.findByRole('button', { name: 'Supprimer' }))
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Supprimer la mission' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('La mission n’a pas pu être supprimée')
+    expect(screen.getByRole('heading', { level: 1, name: 'Nouveaux entrepôts — Normandie' })).toBeInTheDocument()
   })
 })
 

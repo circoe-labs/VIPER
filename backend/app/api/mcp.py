@@ -11,6 +11,7 @@ in the interface. Contract: `doc/architecture/mcp-server.md` §3.7 and
 """
 
 import json
+import time
 import uuid
 from datetime import timedelta
 from typing import Annotated, Any
@@ -20,13 +21,22 @@ from fastapi.responses import JSONResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.api.oauth import resource_metadata_url
 from app.core.actor import ActorContext
 from app.core.config import Settings
 from app.db.session import unit_of_work
 from app.models.agent_missions import AgentTask
 from app.models.enums import AgentTaskStatus, AgentTaskType
 from app.models.mcp import McpToken
-from app.services import agent_missions, agent_writes, mcp_reads, mcp_tokens
+from app.services import (
+    agent_missions,
+    agent_writes,
+    mcp_calls,
+    mcp_reads,
+    mcp_tokens,
+    missions,
+    oauth,
+)
 from app.services.errors import (
     ActorNotAllowedError,
     ConflictError,
@@ -254,11 +264,13 @@ def _error(id_: Any, code: int, message: str) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": id_, "error": {"code": code, "message": message}}
 
 
-def _unauthorized(message: str) -> JSONResponse:
+def _unauthorized(request: Request, message: str) -> JSONResponse:
+    # RFC 9728: where a connector finds how to get a token (OAuth discovery starts here).
+    metadata = resource_metadata_url(request)
     return JSONResponse(
         _error(None, -32001, message),
         status_code=401,
-        headers={"WWW-Authenticate": "Bearer"},
+        headers={"WWW-Authenticate": f'Bearer resource_metadata="{metadata}"'},
     )
 
 
@@ -396,7 +408,15 @@ def _claim(
         lease=_lease(args),
     )
     if claimed is None:
-        return {"task": None}
+        return {
+            "task": None,
+            "hint": (
+                "No task is waiting. A task is created when a mission runs: at its next_run_at, "
+                "or when a person clicks « Lancer maintenant » in VIPER > Missions. A paused "
+                "mission creates none; a failed last run gives its reason."
+            ),
+            "missions": missions.idle_summary(session),
+        }
     return {**claimed.payload, "claim_id": str(claimed.claim_id)}
 
 
@@ -473,9 +493,7 @@ def _call_tool(
                 )
             )
         case "viper_get_prospect":
-            return _payload(
-                mcp_reads.get_prospect(session, _uuid(args, "prospect_id"), settings)
-            )
+            return _payload(mcp_reads.get_prospect(session, _uuid(args, "prospect_id"), settings))
         case "viper_update_company":
             _require_scope(record, AgentTaskType.UPDATE_COMPANY)
             stored = agent_writes.propose_company_update(
@@ -527,14 +545,47 @@ def _handle(
                 return _rpc(id_, _payload({"code": "invalid", "message": "arguments"}, True))
             # One savepoint per call: a refused tool writes nothing, even when it had already
             # touched the task before failing (the claim's payload, for instance).
+            started = time.monotonic()
             try:
                 with session.begin_nested():
                     payload = _call_tool(str(name), args, session, actor, record, settings)
-                return _rpc(id_, payload)
             except DomainError as error:
-                return _rpc(id_, _refusal(error))
+                payload = _refusal(error)
+            _log_call(session, record, str(name), args, payload, started)
+            return _rpc(id_, payload)
         case _:
             return _error(id_, -32601, f"Unknown method {method!r}.")
+
+
+def _log_call(
+    session: Session,
+    record: McpToken,
+    tool: str,
+    args: dict[str, Any],
+    payload: dict[str, Any],
+    started: float,
+) -> None:
+    """« Historique des appels »: who asked what. Written outside the tool's savepoint, so a
+    refusal is kept too."""
+    code: str | None = None
+    message: str | None = None
+    if payload.get("isError"):
+        body = payload.get("structuredContent") or {}
+        outcome = "refused"
+        code = str(body.get("code") or "refused") if isinstance(body, dict) else "refused"
+        message = str(body.get("message") or "") if isinstance(body, dict) else None
+    else:
+        outcome = "ok"
+    mcp_calls.record(
+        session,
+        record,
+        tool=tool,
+        arguments=args,
+        outcome=outcome,
+        duration_ms=round((time.monotonic() - started) * 1000),
+        error_code=code,
+        error_message=message or None,
+    )
 
 
 def _bearer(request: Request) -> str | None:
@@ -568,12 +619,12 @@ def _dispatch(
 def handle_mcp(request: Request, body: Annotated[Any, Body()]) -> Any:
     token = _bearer(request)
     if token is None:
-        return _unauthorized("A bearer token is required.")
+        return _unauthorized(request, "A bearer token is required.")
     factory = request.app.state.session_factory
     with unit_of_work(factory) as session:
-        record = mcp_tokens.resolve(session, token)
+        record = mcp_tokens.resolve(session, token) or oauth.resolve_access_token(session, token)
         if record is None:
-            return _unauthorized("Unknown or revoked token.")
+            return _unauthorized(request, "Unknown, expired or revoked token.")
         actor = mcp_tokens.actor_for(record)
         answer = _dispatch(body, session, actor, record, request.app.state.settings)
     if answer is None:

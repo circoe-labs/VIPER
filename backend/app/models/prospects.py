@@ -35,12 +35,13 @@ from app.models.enums import (
     SignalOrigin,
     VerificationStatus,
 )
+from app.models.organizations import OrganizationOwnedMixin
 
 if TYPE_CHECKING:
     from app.models.contact_tracking import ContactTracking
 
 
-class Prospect(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+class Prospect(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, Base):
     __tablename__ = "prospects"
     __table_args__ = (
         CheckConstraint(
@@ -213,15 +214,9 @@ class ProspectNote(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             f" AND {NOTE_SCORE_DELTA_MAX}",
             name="score_delta_range",
         ),
-        CheckConstraint(
-            "num_nonnulls(prospect_id, company_id) = 1", name="exactly_one_subject"
-        ),
-        CheckConstraint(
-            "origin <> 'agent' OR source_url IS NOT NULL", name="agent_needs_source"
-        ),
-        CheckConstraint(
-            "relevance IS NULL OR relevance BETWEEN 0 AND 100", name="relevance"
-        ),
+        CheckConstraint("num_nonnulls(prospect_id, company_id) = 1", name="exactly_one_subject"),
+        CheckConstraint("origin <> 'agent' OR source_url IS NOT NULL", name="agent_needs_source"),
+        CheckConstraint("relevance IS NULL OR relevance BETWEEN 0 AND 100", name="relevance"),
         Index(
             "uq_prospect_notes_company_source",
             "company_id",

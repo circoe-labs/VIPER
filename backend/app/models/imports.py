@@ -24,9 +24,10 @@ from app.core.actor import ActorType
 from app.db.base import Base
 from app.models.common import TimestampMixin, UUIDPrimaryKeyMixin, text_enum
 from app.models.enums import ImportBatchStatus
+from app.models.organizations import OrganizationOwnedMixin
 
 
-class ImportBatch(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+class ImportBatch(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, Base):
     __tablename__ = "import_batches"
     __table_args__ = (
         CheckConstraint("file_fingerprint ~ '^[0-9a-f]{64}$'", name="file_fingerprint_sha256"),

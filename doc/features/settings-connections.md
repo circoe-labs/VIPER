@@ -6,7 +6,13 @@ UI** (S8, Human requests of 2026-10-01: « configurer mes API KEY directement da
 restart:
 
 - **Rédaction IA (OpenAI)** — API key (write-only), model (no default), booking link; *Paramètres avancés*: API
-  address, timeout, retries. *Tester la clé* checks the saved key and model.
+  address, timeout, retries. *Tester la clé* checks the saved key and model. **Modèle** is a list read live from the
+  account (`GET /api/settings/integrations/openai/models` → the service's `GET /models` with the saved key and API
+  address, text models only, newest first; the whole list for a compatible service whose ids follow no OpenAI
+  naming), so a model OpenAI publishes appears without a VIPER release. A saved value the list no longer holds stays
+  selectable, marked « absent de la liste ». No key yet, or a list the service refuses: the field falls back to a
+  typed identifier with the reason. The key can therefore be saved before its model; drafting stays off until both
+  are set.
 - **Expéditeur** — the « De » pre-filled in new messages (indicative: the Toolbox sends from the account's default
   mailbox).
 - **CIRCOE Toolbox** (S6) — **« Se connecter à CIRCOE Toolbox »** works out of the box (built-in server address, the

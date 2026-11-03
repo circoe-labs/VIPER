@@ -9,8 +9,10 @@ from app.models.contact_messages import ContactMessage, ContactMessageRemoteDraf
 from app.models.contact_sequences import Cohort, ContactSequence
 from app.models.contact_tracking import ContactTracking, ContactTrackingStatusHistory
 from app.models.imports import ImportBatch, ImportRowMetadata
-from app.models.mcp import McpToken
+from app.models.mcp import McpCall, McpToken
 from app.models.missions import Mission, MissionRun, MissionTarget
+from app.models.oauth import OAuthAuthorization, OAuthClient, OAuthToken
+from app.models.organizations import Organization
 from app.models.prospects import Email, Phone, Prospect, ProspectNote, ProspectSource
 from app.models.quality_alerts import QualityAlert
 from app.models.taxonomies import ActivityCategory, CommercialSegment, InternalReferent, Role
@@ -37,10 +39,15 @@ __all__ = [
     "ImportBatch",
     "ImportRowMetadata",
     "InternalReferent",
+    "McpCall",
     "McpToken",
     "Mission",
     "MissionRun",
     "MissionTarget",
+    "OAuthAuthorization",
+    "OAuthClient",
+    "OAuthToken",
+    "Organization",
     "Phone",
     "Prospect",
     "ProspectNote",

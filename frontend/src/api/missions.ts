@@ -89,6 +89,18 @@ export interface MissionProposal {
   subject_label: string | null
 }
 
+// The rest of the rule, for « Modifier la mission » (the card holds the visible part).
+export interface MissionRule {
+  agent_id: string | null
+  starts_at: string | null
+  end_kind: MissionEndKind
+  ends_at: string | null
+  max_runs: number | null
+  geography: string | null
+  period_days: number | null
+  exclusions: Record<string, boolean | string[]>
+}
+
 export interface MissionDetail {
   card: MissionCard
   targets: MissionTargetRow[]
@@ -97,6 +109,7 @@ export interface MissionDetail {
   prompt: string
   result_kind: MissionResultKind
   result_limit: number
+  rule: MissionRule
 }
 
 export interface MissionList {
@@ -231,6 +244,32 @@ export function useSetMissionStatus(id: string) {
     mutationFn: (status: MissionStatus) =>
       apiRequest<MissionDetail>('PATCH', `/missions/${encodeURIComponent(id)}`, { body: { status } }),
     onSuccess: () => refreshAfterWrite(queryClient, [['missions'], missionKeys.detail(id)]),
+  })
+}
+
+// « Modifier la mission »: the whole rule, linked data included; runs already made stay as they are.
+export function useUpdateMission(id: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: MissionInput) =>
+      apiRequest<MissionDetail>('PUT', `/missions/${encodeURIComponent(id)}`, { body: input }),
+    onSuccess: (detail) => {
+      queryClient.setQueryData(missionKeys.detail(id), detail)
+      return refreshAfterWrite(queryClient, [['missions']])
+    },
+  })
+}
+
+// « Supprimer la mission »: the server cancels its open agent tasks, then deletes it with its targets and runs.
+export function useDeleteMission(id: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => apiRequest<undefined>('DELETE', `/missions/${encodeURIComponent(id)}`),
+    onSuccess: () => {
+      queryClient.removeQueries({ queryKey: missionKeys.detail(id) })
+      // Its cancelled tasks leave the Agents queue and review cards.
+      return refreshAfterWrite(queryClient, [['missions'], ['agents']])
+    },
   })
 }
 

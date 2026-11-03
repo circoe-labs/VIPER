@@ -1,0 +1,10 @@
+**/node_modules
+**/__pycache__
+**/.venv
+**/.env
+**/.env.*
+frontend
+data
+tasks
+dist-server
+backend/tests

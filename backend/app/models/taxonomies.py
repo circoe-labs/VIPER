@@ -12,6 +12,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
 from app.models.common import EMAIL_FORMAT, TimestampMixin, UUIDPrimaryKeyMixin
+from app.models.organizations import OrganizationOwnedMixin
 
 SLUG_FORMAT = "slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$'"
 
@@ -46,7 +47,7 @@ class ActivityCategory(TaxonomyMixin, Base):
     __table_args__ = taxonomy_table_args(__tablename__)
 
 
-class InternalReferent(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+class InternalReferent(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, Base):
     """A Circoe person who takes over a meeting/dossier. Not an application login account."""
 
     __tablename__ = "internal_referents"

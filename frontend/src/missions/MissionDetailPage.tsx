@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useParams } from 'react-router'
+import { Link, useNavigate, useParams } from 'react-router'
 
 import { useMission, useRunMission, useSetMissionStatus } from '../api/missions'
 import { TASK_STATUS_LABELS, TASK_STATUS_TONES, TASK_TYPE_LABELS } from '../agents/labels'
@@ -9,8 +9,23 @@ import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
 import { EmptyState } from '../ui/EmptyState'
 import { PageHeader } from '../ui/PageHeader'
-import { ArrowLeftIcon, BoltIcon, SparklesIcon } from '../ui/icons'
 import {
+  AlertIcon,
+  ArrowLeftIcon,
+  BoltIcon,
+  BuildingIcon,
+  PauseIcon,
+  PencilIcon,
+  PlayIcon,
+  SparklesIcon,
+  TrashIcon,
+  UsersIcon,
+} from '../ui/icons'
+import { InfoTip } from '../ui/InfoTip'
+import { CreateMissionDialog } from './CreateMissionDialog'
+import { DeleteMissionDialog } from './DeleteMissionDialog'
+import {
+  MISSION_STATUS_ICONS,
   MISSION_STATUS_LABELS,
   MISSION_STATUS_TONES,
   MISSION_TYPE_LABELS,
@@ -20,6 +35,7 @@ import {
   RUN_STATUS_LABELS,
   RUN_STATUS_TONES,
 } from './labels'
+import { missingForRun } from './missionKinds'
 import './missions.css'
 
 export function MissionDetailPage() {
@@ -27,7 +43,10 @@ export function MissionDetailPage() {
   const mission = useMission(missionId)
   const run = useRunMission(missionId ?? '')
   const setStatus = useSetMissionStatus(missionId ?? '')
+  const navigate = useNavigate()
   const [reviewId, setReviewId] = useState<string | null>(null)
+  const [editing, setEditing] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   if (mission.isLoading) {
     return <p className="missions-muted">Chargement…</p>
@@ -51,7 +70,11 @@ export function MissionDetailPage() {
 
   const { card, targets, runs, tasks, prompt, result_kind, result_limit } = mission.data
   const open = card.status === 'active'
-  const canRun = card.status === 'active' && targets.length > 0
+  // Same rule as the server: a run that would create no task is not offered.
+  const missing = missingForRun(card.type, result_kind, targets)
+  const canRun = card.status === 'active' && missing === null
+  const lastRun = runs[0]
+  const closed = card.status === 'done' || card.status === 'cancelled'
 
   return (
     <div className="missions">
@@ -62,7 +85,7 @@ export function MissionDetailPage() {
         title={card.name}
         description={
           <span className="missions-detail__meta">
-            <StatusBadge tone={MISSION_STATUS_TONES[card.status]}>
+            <StatusBadge tone={MISSION_STATUS_TONES[card.status]} icon={MISSION_STATUS_ICONS[card.status]}>
               {MISSION_STATUS_LABELS[card.status]}
             </StatusBadge>
             <span>
@@ -76,7 +99,13 @@ export function MissionDetailPage() {
               icon={BoltIcon}
               disabled={!canRun}
               loading={run.isPending}
-              title={canRun ? undefined : 'Ajoutez des données liées et activez la mission pour lancer une exécution.'}
+              title={
+                canRun
+                  ? undefined
+                  : card.status !== 'active'
+                    ? 'Reprenez la mission pour lancer une exécution.'
+                    : (missing ?? undefined)
+              }
               onClick={() => {
                 run.mutate()
               }}
@@ -86,6 +115,7 @@ export function MissionDetailPage() {
             {open && (
               <Button
                 variant="secondary"
+                icon={PauseIcon}
                 loading={setStatus.isPending}
                 onClick={() => {
                   setStatus.mutate('paused')
@@ -96,7 +126,8 @@ export function MissionDetailPage() {
             )}
             {card.status === 'paused' && (
               <Button
-                variant="secondary"
+                variant="primary"
+                icon={PlayIcon}
                 loading={setStatus.isPending}
                 onClick={() => {
                   setStatus.mutate('active')
@@ -105,11 +136,69 @@ export function MissionDetailPage() {
                 Reprendre
               </Button>
             )}
+            <Button
+              variant="secondary"
+              icon={PencilIcon}
+              disabled={closed}
+              title={closed ? 'Mission terminée : créez-en une nouvelle.' : undefined}
+              onClick={() => {
+                setEditing(true)
+              }}
+            >
+              Modifier
+            </Button>
+            <Button
+              variant="secondary"
+              icon={TrashIcon}
+              onClick={() => {
+                setDeleting(true)
+              }}
+            >
+              Supprimer
+            </Button>
           </div>
         }
       />
       {run.isError && <p className="missions-error">L’exécution n’a pas pu démarrer.</p>}
       {setStatus.isError && <p className="missions-error">Le statut n’a pas pu être changé.</p>}
+      {editing && (
+        <CreateMissionDialog
+          open
+          mission={mission.data}
+          onClose={() => {
+            setEditing(false)
+          }}
+        />
+      )}
+      <DeleteMissionDialog
+        open={deleting}
+        missionId={card.id}
+        name={card.name}
+        onClose={() => {
+          setDeleting(false)
+        }}
+        onDeleted={() => {
+          void navigate('/missions')
+        }}
+      />
+      {card.status === 'paused' && (
+        <p className="missions-banner" role="status">
+          <PauseIcon size={18} />
+          En pause : aucune exécution n’est prévue et aucune tâche n’est créée. « Reprendre » la relance.
+        </p>
+      )}
+      {card.status === 'active' && missing && (
+        <p className="missions-banner missions-banner--danger" role="alert">
+          <AlertIcon size={18} />
+          Cette mission ne peut pas s’exécuter : {missing} Utilisez « Modifier ».
+        </p>
+      )}
+      {lastRun?.status === 'failed' && lastRun.note && (
+        <p className="missions-banner missions-banner--danger" role="alert">
+          <AlertIcon size={18} />
+          Dernière exécution en échec : {lastRun.note}
+        </p>
+      )}
       {card.results_pending > 0 && (
         <p className="missions-notice">
           {String(card.results_pending)} résultat{card.results_pending > 1 ? 's' : ''} attend
@@ -126,13 +215,22 @@ export function MissionDetailPage() {
         </Card>
         <Card title={`Données liées (${String(targets.length)})`}>
           {targets.length === 0 ? (
-            <p className="missions-muted">Aucune donnée liée : mission de découverte.</p>
+            <p className="missions-muted">
+              Aucune donnée liée.{' '}
+              <InfoTip label="Aide : sans données liées">
+                Seule une mission « Découvrir des sociétés » part de zéro ; les autres travaillent sur des fiches liées.
+              </InfoTip>
+            </p>
           ) : (
             <ul className="mission-targets">
               {targets.map((target) => (
                 <li key={`${target.kind}:${target.id}`} className="mission-target">
-                  <span className="mission-target__kind">
-                    {target.kind === 'company' ? 'Société' : 'Prospect'}
+                  <span
+                    className="mission-target__icon"
+                    role="img"
+                    aria-label={target.kind === 'company' ? 'Société' : 'Prospect'}
+                  >
+                    {target.kind === 'company' ? <BuildingIcon size={14} /> : <UsersIcon size={14} />}
                   </span>
                   <span className="mission-target__label">{target.label}</span>
                   {target.hint && <span className="mission-target__hint">{target.hint}</span>}
@@ -158,7 +256,12 @@ export function MissionDetailPage() {
                   {String(item.tasks_total)} tâche{item.tasks_total > 1 ? 's' : ''} ·{' '}
                   {String(item.results_count)} résultat{item.results_count > 1 ? 's' : ''}
                 </span>
-                {item.note && <span className="mission-run__note">{item.note}</span>}
+                {item.note && (
+                  <span className={`mission-run__note${item.status === 'failed' ? ' is-failed' : ''}`}>
+                    {item.status === 'failed' && <AlertIcon size={14} />}
+                    {item.note}
+                  </span>
+                )}
               </li>
             ))}
           </ul>

@@ -5,7 +5,8 @@
 inactive); 409 `in_use` (with usage counts); 409 `conflict` (the record changed since it was read);
 409 `do_not_contact` (the operation would erase a durable opposition); 409 with the rule's own code
 for a Contact tracking rule (`ignored_is_terminal`); 403
-`human_actor_required` (a change only a person may make); a Contact message refusal with its own
+`human_actor_required` (a change only a person may make); 403 `forbidden` (the role does not
+allow it, « Organisation »); a Contact message refusal with its own
 status and code (`app.services.contact_messages`, e.g. 409 `revision_conflict`, 422
 `message_incomplete` with its `fields`); a cohort, sequence or alert rule with its own status and
 code (`BusinessRuleError`, e.g. 409 `alert_exists`, 409 `cohort_s0_fixed`); an AI drafting failure
@@ -32,6 +33,7 @@ from app.services.errors import (
     ContactMessageError,
     DoNotContactError,
     DuplicateValueError,
+    ForbiddenError,
     InUseError,
     InvalidFieldError,
     MailGenerationError,
@@ -92,6 +94,8 @@ def business_errors() -> Iterator[None]:
         raise refusal(
             status.HTTP_503_SERVICE_UNAVAILABLE, "settings_storage_unavailable", str(error)
         ) from error
+    except ForbiddenError as error:
+        raise refusal(status.HTTP_403_FORBIDDEN, "forbidden", str(error)) from error
     except ActorNotAllowedError as error:
         raise refusal(status.HTTP_403_FORBIDDEN, "human_actor_required", str(error)) from error
 

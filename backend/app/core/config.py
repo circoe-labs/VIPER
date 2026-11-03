@@ -97,6 +97,22 @@ class Settings(BaseSettings):
     # …and in any case this long after sign-in.
     session_absolute_timeout_hours: PositiveInt = 12
 
+    # Sign-in with Infomaniak (OpenID Connect, `doc/architecture/organizations.md`). Configured,
+    # it is the only way in: the password form disappears (unless `password_login_enabled`).
+    infomaniak_client_id: str | None = None
+    infomaniak_client_secret: SecretStr | None = None
+    infomaniak_issuer: str = "https://login.infomaniak.com"
+    # Off until the Infomaniak callback is set up: the client id/secret alone do not switch the
+    # sign-in on, so the password form stays.
+    infomaniak_login_enabled: bool = False
+    # Development phase: only addresses of these domains may sign in (comma-separated).
+    signin_email_domains: str = "circoe.com"
+    # None = the password form is offered only while Infomaniak is not configured (local dev).
+    password_login_enabled: bool | None = None
+    # The single platform admin: creates organisations and manages every member. Granted at its
+    # first sign-in when nobody holds the role yet.
+    platform_admin_email: str = "e.debazelaire@circoe.com"
+
     # Read-only SQL console (ADR-0011): queries run as this login role, which may only SELECT the
     # explorer's exposed tables (`python -m app.cli provision-sql-reader`). The password default is
     # a local-development value like `viper`/`viper`; set `VIPER_SQL_READER_PASSWORD` elsewhere.
@@ -210,6 +226,8 @@ class Settings(BaseSettings):
     @field_validator(
         "openai_api_key",
         "openai_model",
+        "infomaniak_client_id",
+        "infomaniak_client_secret",
         "contact_booking_url",
         "contact_initial_prompt",
         "toolbox_mcp_url",
@@ -225,6 +243,28 @@ class Settings(BaseSettings):
         if isinstance(value, SecretStr):
             value = value.get_secret_value()
         return (value.strip() or None) if isinstance(value, str) else value
+
+    @property
+    def infomaniak_configured(self) -> bool:
+        return (
+            self.infomaniak_login_enabled
+            and self.infomaniak_client_id is not None
+            and self.infomaniak_client_secret is not None
+        )
+
+    @property
+    def password_login_allowed(self) -> bool:
+        if self.password_login_enabled is not None:
+            return self.password_login_enabled
+        return not self.infomaniak_configured
+
+    @property
+    def signin_domains(self) -> tuple[str, ...]:
+        return tuple(
+            entry.lower().lstrip("@")
+            for entry in re.split(r"[\s,;]+", self.signin_email_domains.strip())
+            if entry
+        )
 
     @field_validator("openai_base_url")
     @classmethod
@@ -274,12 +314,6 @@ class Settings(BaseSettings):
             raise ValueError(
                 "VIPER_PROSPECT_SCORE_RED_BELOW must be lower than VIPER_PROSPECT_SCORE_GREEN_FROM"
             )
-        return self
-
-    @model_validator(mode="after")
-    def _model_with_key(self) -> Self:
-        if self.openai_api_key is not None and self.openai_model is None:
-            raise ValueError("VIPER_OPENAI_MODEL is required when VIPER_OPENAI_API_KEY is set")
         return self
 
     @property

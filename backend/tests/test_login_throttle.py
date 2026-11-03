@@ -2,7 +2,7 @@
 
 from app.services.login_throttle import LoginThrottle
 
-EMAIL = "pilote.test@example.com"
+EMAIL = "pilote.test@circoe.com"
 CLIENT = "192.0.2.10"
 
 

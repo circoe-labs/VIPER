@@ -1,18 +1,23 @@
 """Login accounts and their server-side sessions (Task 04, ADR-0004).
 
 A `User` is someone who signs in to VIPER. It is unrelated to `InternalReferent` (a Circoe person
-named on a dossier): neither table references the other. V1 has no roles; every account has the
-same rights.
+named on a dossier): neither table references the other.
+
+Each account belongs to one organisation with a role (admin, manager, member: what it may do in
+« Organisation »). One account at most is the platform admin (`is_superadmin`): it creates the
+organisations and manages every member. People sign in with their Infomaniak account
+(`infomaniak_sub`); the password is only the local-development fallback.
 """
 
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, String, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
-from app.models.common import EMAIL_FORMAT, TimestampMixin, UUIDPrimaryKeyMixin
+from app.models.common import EMAIL_FORMAT, TimestampMixin, UUIDPrimaryKeyMixin, text_enum
+from app.models.organizations import CIRCOE_ORGANIZATION_ID, Organization, OrganizationRole
 
 
 class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -20,14 +25,38 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __table_args__ = (
         CheckConstraint(EMAIL_FORMAT, name="email_format"),
         CheckConstraint("btrim(display_name) <> ''", name="display_name_not_blank"),
+        # « Un compte admin unique »: at most one platform admin.
+        Index(
+            "uq_users_single_superadmin",
+            "is_superadmin",
+            unique=True,
+            postgresql_where=text("is_superadmin"),
+        ),
     )
 
     # Sign-in identifier, stored lowercase.
     email: Mapped[str] = mapped_column(String(320), unique=True)
     # Shown in the header and snapshotted as `actor_display` on history/audit rows.
     display_name: Mapped[str] = mapped_column(String(255))
-    # argon2id PHC string. Never serialized or logged; only `app.core.security` reads it.
-    password_hash: Mapped[str] = mapped_column(String(255))
+    # argon2id PHC string. Never serialized or logged; only `app.core.security` reads it. None for
+    # an account that only signs in with Infomaniak.
+    password_hash: Mapped[str | None] = mapped_column(String(255))
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"),
+        index=True,
+        server_default=text(f"'{CIRCOE_ORGANIZATION_ID}'::uuid"),
+    )
+    role: Mapped[OrganizationRole] = mapped_column(
+        text_enum(OrganizationRole, "role"), server_default=OrganizationRole.MEMBER.value
+    )
+    is_superadmin: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+    # A deactivated account cannot sign in; its sessions were revoked when it was deactivated.
+    is_active: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
+    # The Infomaniak account (`sub` claim) bound at the first Infomaniak sign-in.
+    infomaniak_sub: Mapped[str | None] = mapped_column(String(255), unique=True)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    organization: Mapped[Organization] = relationship(lazy="joined")
 
 
 class UserSession(UUIDPrimaryKeyMixin, Base):

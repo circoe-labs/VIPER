@@ -165,6 +165,32 @@ describe('Rédaction IA (OpenAI)', () => {
   })
 })
 
+describe('« Modèle » lists the models of the OpenAI account', () => {
+  it('offers the models the saved key can use and saves the one chosen', async () => {
+    const api = stub({ initial: SAVED_KEY, models: { models: ['gpt-test-2', 'gpt-test-1'], code: null } })
+    renderApp('/settings/connections')
+
+    const select = await within(await screen.findByRole('region', { name: 'Rédaction IA (OpenAI)' })).findByRole('combobox', { name: 'Modèle' })
+    const options = within(select).getAllByRole('option').map((option) => option.textContent)
+    // The saved value is kept even though the service no longer lists it.
+    expect(options).toEqual(['Choisir un modèle…', 'modele-test (absent de la liste)', 'gpt-test-2', 'gpt-test-1'])
+    expect(select).toHaveValue('modele-test')
+    await userEvent.selectOptions(select, 'gpt-test-2')
+    await userEvent.click(within(openai()).getByRole('button', { name: 'Enregistrer' }))
+
+    expect(await within(openai()).findByText(/Réglages OpenAI enregistrés/)).toBeInTheDocument()
+    expect(api.puts).toEqual([{ version: 0, openai_model: 'gpt-test-2' }])
+  })
+
+  it('falls back to a typed identifier when the service gives no list, and says why', async () => {
+    stub({ initial: SAVED_KEY, models: { models: [], code: 'ai_auth_failed' } })
+    renderApp('/settings/connections')
+
+    expect(await within(await screen.findByRole('region', { name: 'Rédaction IA (OpenAI)' })).findByText(/Liste des modèles indisponible : la clé a été refusée par OpenAI/)).toBeInTheDocument()
+    expect(within(openai()).getByRole('textbox', { name: 'Modèle' })).toHaveValue('modele-test')
+  })
+})
+
 describe('the key and its API address (S8 QA M1)', () => {
   it('warns that a new API address needs the key again, and opens the key when the server says so', async () => {
     const api = stub({ initial: SAVED_KEY, refuseField: 'openai_api_key', refuseReason: 'required_with_base_url' })

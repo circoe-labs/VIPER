@@ -7,6 +7,25 @@ export interface CurrentUser {
   id: string
   email: string
   display_name: string
+  role: 'admin' | 'manager' | 'member'
+  // The single platform admin: creates organisations and manages every member.
+  is_superadmin: boolean
+  organization: { id: string; name: string }
+}
+
+// `GET /api/auth/methods`: Infomaniak once configured on the server, the password form otherwise.
+export interface SignInMethods {
+  infomaniak: boolean
+  password: boolean
+}
+
+export function useSignInMethods() {
+  return useQuery({
+    queryKey: ['auth', 'methods'],
+    queryFn: ({ signal }) => apiRequest<SignInMethods>('GET', '/auth/methods', { signal, anonymous: true }),
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+  })
 }
 
 export interface SessionResponse {

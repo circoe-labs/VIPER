@@ -245,12 +245,14 @@ def test_the_startup_rules_refuse_the_same_values(
     assert ok(client.get(URL))["version"] == 0
 
 
-def test_a_key_needs_a_model_as_at_startup(client: TestClient) -> None:
-    with pytest.raises(ValidationError, match="VIPER_OPENAI_MODEL is required"):
-        Settings(openai_api_key=KEY)
-    detail = refused(put(client, openai_api_key=KEY), 422, "invalid")
-    assert detail["field"] == "openai_model"
-    assert KEY not in json.dumps(detail)
+def test_a_key_is_saved_before_its_model(client: TestClient) -> None:
+    """The « Modèle » list is read with the saved key: the key comes first, the drafting stays
+    off until a model is chosen."""
+    assert Settings(openai_api_key=KEY).generation_available is False
+    saved = ok(put(client, openai_api_key=KEY))
+    assert saved["openai_api_key"]["set"] is True
+    assert saved["generation_available"] is False
+    assert KEY not in json.dumps(saved)
     refused(put(client, openai_api_key="   "), 422, "invalid")
 
 
@@ -548,6 +550,58 @@ def test_the_key_check_reports_an_unreachable_service(app: FastAPI, client: Test
     app.state.openai_transport = httpx2.MockTransport(down)
     result = ok(client.post(f"{URL}/openai/check"))
     assert (result["ok"], result["code"]) == (False, "ai_upstream_error")
+
+
+# --- « Modèle »: the live list of the account's models ----------------------------------------
+
+
+def test_the_model_list_reads_the_account_newest_first_text_models_only(
+    app: FastAPI, client: TestClient
+) -> None:
+    assert ok(client.get(f"{URL}/openai/models")) == {"models": [], "code": "ai_not_configured"}
+    ok(put(client, openai_api_key=KEY, openai_base_url="http://127.0.0.1:9/v1"))
+    seen: list[httpx2.Request] = []
+    listing = {
+        "object": "list",
+        "data": [
+            {"id": "gpt-old", "created": 100},
+            {"id": "text-embedding-3-large", "created": 400},
+            {"id": "gpt-new", "created": 300},
+            {"id": "gpt-new-tts", "created": 350},
+            {"id": "o4-mini", "created": 200},
+            {"id": "whisper-1", "created": 500},
+        ],
+    }
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        seen.append(request)
+        return httpx2.Response(200, json=listing)
+
+    app.state.openai_transport = httpx2.MockTransport(handler)
+    result = ok(client.get(f"{URL}/openai/models"))
+    assert result == {"models": ["gpt-new", "o4-mini", "gpt-old"], "code": None}
+    assert str(seen[0].url) == "http://127.0.0.1:9/v1/models"
+    assert seen[0].headers["authorization"] == f"Bearer {KEY}"
+    assert KEY not in json.dumps(result)
+
+
+def test_the_model_list_keeps_a_compatible_services_own_names(
+    app: FastAPI, client: TestClient
+) -> None:
+    ok(put(client, openai_api_key=KEY))
+    listing = {"data": [{"id": "mistral-large", "created": 1}, {"id": "llama-4", "created": 2}]}
+    app.state.openai_transport = httpx2.MockTransport(
+        lambda request: httpx2.Response(200, json=listing)
+    )
+    assert ok(client.get(f"{URL}/openai/models"))["models"] == ["llama-4", "mistral-large"]
+
+
+def test_the_model_list_reports_a_refused_key(app: FastAPI, client: TestClient) -> None:
+    ok(put(client, openai_api_key=KEY))
+    app.state.openai_transport = httpx2.MockTransport(
+        lambda request: httpx2.Response(401, json={"error": {"code": "invalid_api_key"}})
+    )
+    assert ok(client.get(f"{URL}/openai/models")) == {"models": [], "code": "ai_auth_failed"}
 
 
 # --- QA rework (S8) ----------------------------------------------------------------------------

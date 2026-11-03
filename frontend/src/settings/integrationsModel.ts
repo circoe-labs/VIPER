@@ -155,6 +155,13 @@ const CHECK_FAILURES: Record<string, string> = {
   ai_invalid_output: 'la réponse du service d’IA est illisible (vérifiez l’adresse de l’API)',
 }
 
+// Why the « Modèle » list is empty, in one sentence (the field then accepts a typed identifier).
+export function modelsFailure(code: string | null): string {
+  if (code === 'ai_not_configured') return 'Enregistrez d’abord une clé : la liste des modèles vient de votre compte OpenAI.'
+  const reason = (code && CHECK_FAILURES[code]) ?? 'erreur inattendue'
+  return `Liste des modèles indisponible : ${reason}. Saisissez l’identifiant exact du modèle.`
+}
+
 // The outcome of « Tester la clé », in one sentence.
 export function checkText(check: KeyCheck): string {
   const seconds = (check.elapsed_ms / 1000).toLocaleString('fr-FR', { maximumFractionDigits: 1 })

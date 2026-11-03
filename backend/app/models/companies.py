@@ -17,6 +17,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 from app.models.common import TimestampMixin, UUIDPrimaryKeyMixin, trigram_index
+from app.models.organizations import OrganizationOwnedMixin
 from app.models.taxonomies import ActivityCategory
 
 company_activity_categories = Table(
@@ -36,7 +37,7 @@ company_activity_categories = Table(
 )
 
 
-class Company(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+class Company(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, Base):
     __tablename__ = "companies"
     __table_args__ = (
         CheckConstraint("btrim(display_name) <> ''", name="display_name_not_blank"),

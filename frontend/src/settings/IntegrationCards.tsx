@@ -5,6 +5,7 @@ import {
   type IntegrationsChanges,
   type KeyCheck,
   useIntegrationsMutations,
+  useOpenAIModels,
 } from '../api/integrations'
 import { connectionReturnAddress, type ToolboxStatus } from '../api/toolbox'
 import { formatDateTime } from '../contact/labels'
@@ -12,7 +13,7 @@ import { useElapsed } from '../lib/useElapsed'
 import { StatusBadge, type StatusTone } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { Modal } from '../ui/Dialog'
-import { FieldFrame, Switch, TextAreaField, TextField } from '../ui/fields'
+import { FieldFrame, SelectField, Switch, TextAreaField, TextField } from '../ui/fields'
 import {
   AlertIcon,
   ChevronDownIcon,
@@ -36,6 +37,7 @@ import {
   type FormField,
   fromDraft,
   KEY_REQUIRED_WITH_BASE_URL,
+  modelsFailure,
   saveRefusal,
   sourceText,
   toDraft,
@@ -233,6 +235,58 @@ function Advanced({ children, open = false }: { children: ReactNode; open?: bool
 }
 
 // --- OpenAI -------------------------------------------------------------------------------------------------------
+
+interface ModelFieldProps {
+  data: Integrations
+  value: string
+  error?: string
+  hint: (help: ReactNode) => ReactNode
+  busy: boolean
+  onChange: (value: string) => void
+  // The free-text field, when the service gives no list (no key yet, unreachable, refused key).
+  text: () => ReactNode
+}
+
+// « Modèle »: the models the saved key can use, read live from the service (newest first). A value the list does not
+// hold (typed before, or removed by OpenAI) stays selectable, marked as such, so nothing changes behind the person.
+function ModelField({ data, value, error, hint, busy, onChange, text }: ModelFieldProps) {
+  const models = useOpenAIModels(data.openai_api_key.set)
+  if (!data.openai_api_key.set || models.isError || (models.data && models.data.models.length === 0)) {
+    const notice = models.isError ? 'Liste des modèles indisponible : le serveur VIPER n’a pas répondu.' : modelsFailure(models.data?.code ?? 'ai_not_configured')
+    return (
+      <>
+        {text()}
+        <p className="settings-setting__help">{notice}</p>
+      </>
+    )
+  }
+  const list = models.data?.models ?? []
+  const unlisted = value !== '' && !list.includes(value)
+  return (
+    <SelectField
+      label="Modèle"
+      value={value}
+      error={error}
+      disabled={busy || models.isPending}
+      hint={hint(
+        models.isPending
+          ? 'Chargement des modèles de votre compte OpenAI…'
+          : 'Modèles disponibles avec votre clé, du plus récent au plus ancien. La liste suit votre compte OpenAI.',
+      )}
+      onChange={(event) => {
+        onChange(event.target.value)
+      }}
+    >
+      <option value="">Choisir un modèle…</option>
+      {unlisted && <option value={value}>{value} (absent de la liste)</option>}
+      {list.map((model) => (
+        <option key={model} value={model}>
+          {model}
+        </option>
+      ))}
+    </SelectField>
+  )
+}
 
 const OPENAI_FIELDS = ['openai_model', 'contact_booking_url', 'openai_base_url', 'openai_timeout_ms', 'openai_max_retries'] as const
 
@@ -444,7 +498,17 @@ export function OpenAICard({ data }: { data: Integrations }) {
             setClearing(true)
           }}
         />
-        {text('openai_model', 'Modèle', 'Identifiant exact du modèle choisi dans votre compte OpenAI ; VIPER n’en impose aucun.')}
+        <ModelField
+          data={data}
+          value={form.value('openai_model')}
+          error={form.errors.openai_model}
+          hint={(help) => hint('openai_model', help)}
+          busy={busy}
+          onChange={(value) => {
+            form.edit('openai_model', value)
+          }}
+          text={() => text('openai_model', 'Modèle', 'Identifiant exact du modèle choisi dans votre compte OpenAI ; VIPER n’en impose aucun.')}
+        />
         {text('contact_booking_url', 'Lien de prise de rendez-vous', 'Recopié tel quel par l’IA dans le mail. Vide : aucun lien proposé.', { type: 'url' })}
         <Advanced>
           {text('openai_base_url', 'Adresse de l’API', 'À changer seulement pour passer par un service compatible.', { type: 'url' })}

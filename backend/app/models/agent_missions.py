@@ -39,6 +39,7 @@ from app.models.enums import (
     AgentThreadKind,
     AgentThreadStatus,
 )
+from app.models.organizations import OrganizationOwnedMixin
 
 THREAD_TITLE_MAX_LENGTH = 200
 AGENT_LABEL_MAX_LENGTH = 255
@@ -53,7 +54,7 @@ OPEN_TASK_STATUSES = "('pending', 'claimed', 'submitted')"
 _TASK_TYPES_WITH_COMPANY = "('update_company', 'find_employees', 'surveil_signals')"
 
 
-class AgentThread(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+class AgentThread(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, Base):
     """One « Analyse » card: a company to complete, or a prospecting brief.
 
     `title` is a snapshot of the company's display name so the card survives a rename; the company

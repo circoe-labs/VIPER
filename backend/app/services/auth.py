@@ -69,9 +69,10 @@ def authenticate(session: Session, email: str, password: str) -> User | None:
     """The account matching the credentials, or None — the same answer and cost for an unknown
     email and a wrong password. Upgrades the stored hash when the argon2 profile changed."""
     user = user_repository.get_user_by_email(session, normalize_email(email))
-    if not verify_password(user.password_hash if user else None, password) or user is None:
+    stored = user.password_hash if user else None
+    if not verify_password(stored, password) or user is None or stored is None:
         return None
-    if password_needs_rehash(user.password_hash):
+    if password_needs_rehash(stored):
         user.password_hash = hash_password(password)
         session.flush()
     return user

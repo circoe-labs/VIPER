@@ -7,6 +7,7 @@ import type {
   Integrations,
   IntegrationSetting,
   KeyCheck,
+  OpenAIModels,
   SecretSetting,
   SettingValue,
 } from '../api/integrations'
@@ -75,6 +76,8 @@ interface IntegrationsStubOptions {
   conflict?: boolean
   // The answer of « Tester la clé ».
   check?: KeyCheck
+  // The answer of `GET …/openai/models` (default: no list, so « Modèle » stays a text field).
+  models?: OpenAIModels
   // The answer of « Tester le jeton » (Calendly).
   calendlyCheck?: CalendlyCheck
   // The last « Tester la Toolbox » run the server holds (null: none), and what a new run answers.
@@ -102,6 +105,9 @@ export function stubIntegrationsApi(options: IntegrationsStubOptions = {}) {
     if (method === 'POST' && url.pathname === '/api/settings/integrations/openai/check') {
       checks.push(Date.now())
       return json(200, options.check ?? { ok: true, code: null, model: 'modele-test', elapsed_ms: 420 })
+    }
+    if (method === 'GET' && url.pathname === '/api/settings/integrations/openai/models') {
+      return json(200, options.models ?? { models: [], code: 'ai_upstream_error' })
     }
     if (method === 'POST' && url.pathname === '/api/settings/integrations/calendly/check') {
       return json(

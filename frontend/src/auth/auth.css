@@ -108,3 +108,9 @@
     animation-duration: 2.4s;
   }
 }
+
+.login-card__infomaniak {
+  justify-content: center;
+  width: 100%;
+  text-decoration: none;
+}

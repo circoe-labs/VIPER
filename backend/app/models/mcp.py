@@ -5,27 +5,44 @@ does not hand anyone a working credential. A token carries the task types it may
 number of tasks it may hold at once — an agent scoped to `update_employee` never sees a company
 task. `scopes = ["*"]` means every type.
 
+Each token names the person it acts for (`owner_email`: who approved the OAuth connector, or the
+`--owner-email` of the command line); every tool call is kept in `mcp_calls` under that address
+(« Historique des appels », Paramètres > MCP).
+
 Tokens are minted by `python -m app.cli create-agent-token` and revoked by setting `revoked_at`;
 they are never exposed by the API, never audited (they are secrets) and never shown in the
 explorer. Contract: `doc/architecture/mcp-server.md` §4.2.
 """
 
-from datetime import datetime
+import uuid
+from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import CheckConstraint, DateTime, SmallInteger, String, text
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    SmallInteger,
+    String,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
 from app.models.common import TimestampMixin, UUIDPrimaryKeyMixin
+from app.models.organizations import OrganizationOwnedMixin
 
 TOKEN_HASH_LENGTH = 64
 LABEL_MAX_LENGTH = 100
 DEFAULT_MAX_CONCURRENT = 3
+EMAIL_MAX_LENGTH = 320
 
 
-class McpToken(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+class McpToken(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, Base):
     __tablename__ = "mcp_tokens"
     __table_args__ = (
         CheckConstraint(
@@ -46,3 +63,36 @@ class McpToken(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # The person behind the agent: the history of calls is kept under this address.
+    owner_email: Mapped[str | None] = mapped_column(String(EMAIL_MAX_LENGTH))
+
+
+class McpCall(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, Base):
+    """One `tools/call` on `/mcp`: who (the token's person and label), what, and how it ended.
+
+    Write-once. The arguments are kept with long texts shortened (`app.services.mcp_calls`).
+    """
+
+    __tablename__ = "mcp_calls"
+    __table_args__ = (
+        CheckConstraint("outcome IN ('ok', 'refused', 'error')", name="outcome_valid"),
+        Index("ix_mcp_calls_created_at", "created_at"),
+        Index("ix_mcp_calls_user_email_created_at", "user_email", "created_at"),
+    )
+
+    # The moment of the call itself (several calls of one batch share a transaction).
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), server_default=func.now()
+    )
+    token_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("mcp_tokens.id", ondelete="SET NULL"), index=True
+    )
+    # Snapshots: the history reads the same after the token is revoked or deleted.
+    token_label: Mapped[str] = mapped_column(String(LABEL_MAX_LENGTH))
+    user_email: Mapped[str | None] = mapped_column(String(EMAIL_MAX_LENGTH))
+    tool: Mapped[str] = mapped_column(String(100))
+    arguments: Mapped[Any] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    outcome: Mapped[str] = mapped_column(String(16))
+    error_code: Mapped[str | None] = mapped_column(String(64))
+    error_message: Mapped[str | None] = mapped_column(String(500))
+    duration_ms: Mapped[int] = mapped_column(Integer)
