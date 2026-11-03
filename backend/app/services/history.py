@@ -275,6 +275,10 @@ SIGNAL_KIND_LABELS: dict[str, str] = {
     SignalKind.PARTNERSHIP: "Partenariat",
     SignalKind.TECH_CHANGE: "Changement technique",
     SignalKind.NEED_EXPRESSED: "Besoin exprimé",
+    SignalKind.FACILITY_OPENING: "Ouverture de site",
+    SignalKind.FACILITY_EXPANSION: "Extension de site",
+    SignalKind.CONSTRUCTION: "Construction",
+    SignalKind.RELOCATION: "Déménagement",
     SignalKind.OTHER: "Autre",
 }
 SIGNAL_ORIGINS: dict[str, str] = {
