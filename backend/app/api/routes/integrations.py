@@ -41,7 +41,11 @@ from app.services.contact_dispatch_state import DispatchReason, dispatch_state, 
 from app.services.contact_dispatch_worker import ContactDispatcher
 from app.services.errors import ActorNotAllowedError, MailGenerationError
 from app.services.integration_runtime import IntegrationRuntime
-from app.services.mail_generation.openai_client import check_model, config_from_settings
+from app.services.mail_generation.openai_client import (
+    check_model,
+    config_from_settings,
+    list_models,
+)
 from app.services.mail_generation.prompt import DEFAULT_INITIAL_PROMPT
 from app.services.runtime_settings import (
     EDITABLE_FIELDS,
@@ -317,6 +321,39 @@ def check_openai(request: Request, actor: CurrentActor) -> CheckOut:
     elapsed = round((time.monotonic() - started) * 1000)
     logger.info("integrations.openai_check_ok elapsed_ms=%s by=%s", elapsed, actor.id)
     return CheckOut(ok=True, code=None, model=model, elapsed_ms=elapsed)
+
+
+class ModelsOut(BaseModel):
+    # Newest first, text models only; empty with a `code` when the list could not be read.
+    models: list[str]
+    code: str | None
+
+
+@router.get("/openai/models")
+def openai_models(request: Request) -> ModelsOut:
+    """The models the saved key can use, for the « Modèle » list: read live at each call, so a
+    model OpenAI publishes appears without a VIPER release. The saved key and API address, not
+    what the form holds; never the key in an answer or a log line."""
+    settings: Settings = request.app.state.settings
+    if settings.openai_api_key is None:
+        return ModelsOut(models=[], code="ai_not_configured")
+    try:
+        models = list_models(
+            api_key=settings.openai_api_key.get_secret_value(),
+            base_url=settings.openai_base_url,
+            trust_env=settings.openai_trust_env,
+            transport=request.app.state.openai_transport,
+        )
+    except MailGenerationError as error:
+        logger.warning(
+            "integrations.openai_models_failed code=%s upstream_status=%s upstream_code=%s",
+            error.code,
+            error.upstream_status,
+            error.upstream_code,
+        )
+        return ModelsOut(models=[], code=error.code)
+    logger.info("integrations.openai_models_ok count=%s", len(models))
+    return ModelsOut(models=models, code=None)
 
 
 class CalendlyCheckOut(BaseModel):

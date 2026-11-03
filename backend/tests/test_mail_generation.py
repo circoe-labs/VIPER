@@ -766,8 +766,8 @@ def test_generation_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     assert missing_settings(unset) == ["VIPER_OPENAI_API_KEY", "VIPER_OPENAI_MODEL"]
     assert missing_settings(settings(openai_model="m")) == ["VIPER_OPENAI_API_KEY"]
     assert settings(openai_api_key=" ", openai_model="").generation_available is False
-    with pytest.raises(ValidationError, match="VIPER_OPENAI_MODEL is required"):
-        settings(openai_api_key=KEY)
+    # A key alone is accepted (the « Modèle » list needs it), the drafting stays off.
+    assert missing_settings(settings(openai_api_key=KEY)) == ["VIPER_OPENAI_MODEL"]
 
     monkeypatch.setenv("VIPER_OPENAI_API_KEY", KEY)
     monkeypatch.setenv("VIPER_OPENAI_MODEL", " m ")

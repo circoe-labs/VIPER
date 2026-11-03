@@ -276,12 +276,6 @@ class Settings(BaseSettings):
             )
         return self
 
-    @model_validator(mode="after")
-    def _model_with_key(self) -> Self:
-        if self.openai_api_key is not None and self.openai_model is None:
-            raise ValueError("VIPER_OPENAI_MODEL is required when VIPER_OPENAI_API_KEY is set")
-        return self
-
     @property
     def contact_dispatch_on(self) -> bool:
         """The scheduled sending is switched on (a worker runs once the Toolbox is connected)."""

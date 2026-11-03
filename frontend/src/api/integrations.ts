@@ -95,7 +95,17 @@ export interface CalendlyCheck {
   elapsed_ms: number
 }
 
-export const integrationsKeys = { all: ['settings', 'integrations'] as const }
+export interface OpenAIModels {
+  // Newest first, text models only; empty with a `code` when the list could not be read.
+  models: string[]
+  code: string | null
+}
+
+export const integrationsKeys = {
+  all: ['settings', 'integrations'] as const,
+  // Under `all`: a save (new key or API address) refetches the list with the rest.
+  openaiModels: ['settings', 'integrations', 'openai-models'] as const,
+}
 
 // The browser gives up on « Tester la clé » after this long (the server bounds the check to 15 s).
 export const KEY_CHECK_DEADLINE_MS = 30_000
@@ -106,6 +116,18 @@ export function useIntegrations() {
   return useQuery({
     queryKey: integrationsKeys.all,
     queryFn: ({ signal }) => apiGet<Integrations>('/settings/integrations', signal),
+  })
+}
+
+// The models the saved key can use, read live from the service each time the page opens: a model OpenAI publishes
+// appears in the list without a VIPER release.
+export function useOpenAIModels(enabled: boolean) {
+  return useQuery({
+    queryKey: integrationsKeys.openaiModels,
+    queryFn: ({ signal }) => apiGet<OpenAIModels>('/settings/integrations/openai/models', signal),
+    enabled,
+    staleTime: 0,
+    retry: false,
   })
 }
 
@@ -121,7 +143,13 @@ export function useIntegrationsMutations() {
       onSuccess: (data) => {
         queryClient.setQueryData(integrationsKeys.all, data)
         // The Toolbox state, the dispatcher and the mail editor's flags (AI available, default sender) follow.
-        void refreshAfterWrite(queryClient, [toolboxKeys.status, ['contact', 'messages'], ['contact', 'dashboard']])
+        void refreshAfterWrite(queryClient, [
+          toolboxKeys.status,
+          ['contact', 'messages'],
+          ['contact', 'dashboard'],
+          // A new key or API address changes the models it can use.
+          integrationsKeys.openaiModels,
+        ])
       },
       // A conflict or a refusal: read the current settings again.
       onError: () => void refreshAfterWrite(queryClient, [integrationsKeys.all]),
