@@ -31,7 +31,7 @@
   |---|---|---|
   | "A contact state is chosen by a person, never by an agent." | `services/contact_tracking.py:84` | any tracking write by `AGENT` is refused |
   | "Only a person changes a contact state." | `services/prospect_editor.py:782` | `PATCH …/tracking` is human-only |
-  | "A Contact message is handled by a person." | `services/contact_messages.py:238` | `save_message`, `save_generated`, `validate`, `schedule`, `mark_sent`, `schedule_cohorts` are human-only — except the draft door of §3.10 (`allow_agent`) |
+  | "A Contact message is handled by a person." | `services/contact_messages.py` (`_require_human`, `require_author`) | `save_message`, `save_generated`, `validate`, `schedule`, `mark_sent`, `schedule_cohorts` are human-only — except the draft door of §3.10 (`allow_agent`) |
   | "AI drafting is started by a person." | `services/contact_mail_generation.py` (`prepare`) | `generate` is human-only — except the draft door of §3.10 |
   | "A cohort is created and dated by a person." | `services/cohorts.py:67`, `contact_sequences.py:391` | cohort creation and change are human-only |
   | Settings/taxonomies writes | `services/app_settings.py:36` | human-only |
@@ -233,7 +233,9 @@ a person reviews, validates and schedules in VIPER. Code: `backend/app/api/mcp_c
 - **Workers.** `contact.draft` is in the `interactive` defaults only; `worker` and `scheduled`
   tokens are refused with `capability_denied`.
 - **AI failures.** `ai_not_configured`, `ai_timeout`, `ai_rate_limited`, … come back as the refusal
-  `code` (never the provider's upstream status or text); nothing is written.
+  `code` and VIPER's own `message`; nothing is written. The provider's text and its error type
+  (`upstream_code`) are never returned; the `ai_upstream_error` message does name the provider's
+  HTTP status (« The AI service failed (HTTP 500) »).
 - **Transaction.** Unlike the REST route (which commits before the AI call), the call runs inside the
   MCP request's transaction and its savepoint, so the agent's token row (`last_used_at`) stays locked
   for the AI call's duration: a parallel call of the same agent waits.

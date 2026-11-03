@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.api import mcp_contact
 from app.core.config import Settings
-from app.models import ContactMessage
+from app.models import ContactMessage, User
 from app.models.audit import AuditLogEntry
 from app.models.enums import AgentMode, ContactMessageStatus
 from app.models.mcp import McpCall
@@ -133,6 +133,39 @@ def test_a_worker_or_scheduled_agent_may_not_draft(
     )
     calls = db_session.scalars(select(McpCall).where(McpCall.token_id == record.id)).all()
     assert {(row.outcome, row.error_code) for row in calls} == {("refused", "capability_denied")}
+
+
+@pytest.mark.parametrize("owner", ["deactivated", "orphaned"])
+def test_an_assistant_whose_person_is_gone_or_inactive_may_not_draft(
+    client: TestClient, db_session: Session, fake: FakeGenerator, owner: str
+) -> None:
+    prospect = prospect_with(db_session)
+    if owner == "deactivated":
+        token = assistant(db_session)
+        person = db_session.scalars(select(User).where(User.email == PILOT_EMAIL)).one()
+        person.is_active = False
+        db_session.flush()
+    else:
+        token, _ = mcp_tokens.mint(
+            db_session,
+            label="Fantôme",
+            scopes=["*"],
+            mode=AgentMode.INTERACTIVE,
+            owner_email="ghost@exemple.example",
+        )
+    target = {"prospect_id": str(prospect.id), "step": "contact"}
+
+    for name, extra in ((UPDATE, {"subject": "Bonjour"}), (GENERATE, {})):
+        denied = refusal(call(client, token, name, {**target, **extra}), "capability_denied")
+        assert denied["capability"] == "contact.draft"
+
+    assert fake.prompts == []
+    assert (
+        db_session.scalars(
+            select(ContactMessage).where(ContactMessage.prospect_id == prospect.id)
+        ).all()
+        == []
+    )
 
 
 # --- viper_update_contact_draft -----------------------------------------------------------------

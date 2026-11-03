@@ -18,10 +18,11 @@ from app.models.enums import (
     ContactTrackingStatus,
     SendSource,
 )
+from app.services import contact_mail_generation as generation
 from app.services import contact_messages as service
 from app.services import contact_sequences
 from app.services.contact_message_cancellation import Cancellation
-from app.services.contact_messages import MessageEdit, MessageResult
+from app.services.contact_messages import GeneratedContent, MessageEdit, MessageResult
 from app.services.contact_tracking import ContactTrackingInput, apply_contact_tracking
 from app.services.errors import (
     ActorNotAllowedError,
@@ -386,6 +387,57 @@ def test_the_agent_draft_door_opens_drafts_only(db_session: Session) -> None:
     system = ActorContext(type=ActorType.SYSTEM, display="Robot", id="robot")
     with pytest.raises(ActorNotAllowedError):
         service.save_message(db_session, system, prospect.id, 1, COMPLETE, allow_agent=True)
+
+
+def test_the_agent_draft_door_needs_an_identified_agent() -> None:
+    anonymous = ActorContext(type=ActorType.AGENT, display="Agent", id="")
+    with pytest.raises(ActorNotAllowedError):
+        service.require_author(anonymous, allow_agent=True)
+    with pytest.raises(ActorNotAllowedError):
+        service.require_author(
+            ActorContext(type=ActorType.AGENT, display="Agent", id="agent"), allow_agent=False
+        )
+    service.require_author(
+        ActorContext(type=ActorType.AGENT, display="Agent", id="agent"), allow_agent=True
+    )
+
+
+def test_an_agent_ai_draft_is_refused_when_a_person_validated_meanwhile(
+    db_session: Session,
+) -> None:
+    """The draft-only rule is checked again in the write: a person validating during the (long)
+    AI call keeps the validation."""
+    prospect = prospect_with(db_session)
+    agent = ActorContext(type=ActorType.AGENT, display="Agent", id="agent")
+    message = create(db_session, prospect)
+    generation.prepare(
+        db_session,
+        agent,
+        prospect.id,
+        STEP,
+        generation.GenerationRequest(expected_revision=message.revision, replace=True),
+        booking_url=None,
+        allow_agent=True,
+    )
+    validated = service.validate(db_session, OPERATOR, prospect.id, STEP, message.revision).message
+
+    with pytest.raises(ContactMessageError) as refused:
+        service.save_generated(
+            db_session,
+            agent,
+            prospect.id,
+            STEP,
+            GeneratedContent(
+                subject="Objet IA", body_text="Corps IA", model="fake-model", prompt_version="v"
+            ),
+            validated.revision,
+            allow_agent=True,
+        )
+
+    assert code_of(refused) == "agent_draft_only"
+    db_session.refresh(validated)
+    assert (validated.status, validated.subject) == (M.VALIDATED, "Objet de test")
+    assert validated.generation_model is None
 
 
 def test_unknown_prospect_and_missing_message(db_session: Session) -> None:
