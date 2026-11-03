@@ -90,6 +90,16 @@ function detail(): MissionDetail {
     prompt: 'Complète ces fiches avec le site web et le domaine e-mail.',
     result_kind: 'enrichment',
     result_limit: 20,
+    rule: {
+      agent_id: null,
+      starts_at: '2026-10-30T07:00:00+00:00',
+      end_kind: 'never',
+      ends_at: null,
+      max_runs: null,
+      geography: 'Normandie',
+      period_days: null,
+      exclusions: {},
+    },
   }
 }
 
@@ -143,6 +153,89 @@ describe('MissionsPage', () => {
     )
     expect(screen.getByRole('button', { name: 'Créer la mission' })).toBeEnabled()
     expect(screen.getByRole('button', { name: 'Créer et lancer' })).toBeDisabled()
+  })
+})
+
+describe('the mission menu (right-click on a card)', () => {
+  function stubList(extra: Record<string, ApiReply> = {}) {
+    let deleted = false
+    const fetchMock = stubApi({
+      ...SHELL_API,
+      ...COMMON,
+      'GET /api/missions': () => [200, deleted ? { items: [], total: 0 } : { items: [card()], total: 1 }],
+      [`GET /api/missions/${MISSION}`]: [200, detail()],
+      [`DELETE /api/missions/${MISSION}`]: () => {
+        deleted = true
+        return [204]
+      },
+      [`PUT /api/missions/${MISSION}`]: [200, { ...detail(), card: card({ name: 'Entrepôts — Normandie et Bretagne' }) }],
+      ...extra,
+    })
+    return {
+      fetchMock,
+      get deleted() {
+        return deleted
+      },
+      // The body of the `PUT` (« Enregistrer »), or null.
+      get saved(): Record<string, unknown> | null {
+        const body = fetchMock.mock.calls.find(([, init]) => init?.method === 'PUT')?.[1]?.body
+        return typeof body === 'string' ? (JSON.parse(body) as Record<string, unknown>) : null
+      },
+    }
+  }
+
+  it('opens on a right-click and deletes the mission after a confirmation', async () => {
+    const api = stubList()
+    const user = userEvent.setup()
+    renderApp('/missions')
+
+    const tile = await screen.findByRole('link', { name: /Nouveaux entrepôts/ })
+    await user.pointer({ keys: '[MouseRight]', target: tile })
+    const menu = await screen.findByRole('menu', { name: 'Actions de la mission Nouveaux entrepôts — Normandie' })
+    expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['Ouvrir', 'Modifier…', 'Supprimer…'])
+    await user.click(within(menu).getByRole('menuitem', { name: 'Supprimer…' }))
+    await user.click(within(await screen.findByRole('dialog', { name: 'Supprimer cette mission ?' })).getByRole('button', { name: 'Supprimer la mission' }))
+
+    expect(await screen.findByText('Aucune mission')).toBeInTheDocument()
+    expect(api.deleted).toBe(true)
+  })
+
+  it('edits the mission from the « … » button, prefilled with its rule', async () => {
+    const api = stubList()
+    const user = userEvent.setup()
+    renderApp('/missions')
+
+    await user.click(await screen.findByRole('button', { name: 'Actions de la mission Nouveaux entrepôts — Normandie' }))
+    await user.click(within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Modifier…' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Modifier la mission' })
+    const name = within(dialog).getByRole('textbox', { name: 'Nom' })
+    expect(name).toHaveValue('Nouveaux entrepôts — Normandie')
+    expect(within(dialog).getByRole('textbox', { name: 'Consigne' })).toHaveValue(
+      'Complète ces fiches avec le site web et le domaine e-mail.',
+    )
+    expect(within(dialog).getByText('Transports X')).toBeInTheDocument()
+    await user.clear(name)
+    await user.type(name, 'Entrepôts — Normandie et Bretagne')
+    await user.click(within(dialog).getByRole('button', { name: 'Enregistrer' }))
+
+    await screen.findByRole('link', { name: /Nouveaux entrepôts/ })
+    expect(screen.queryByRole('dialog', { name: 'Modifier la mission' })).not.toBeInTheDocument()
+    const body = api.saved ?? {}
+    expect(body.name).toBe('Entrepôts — Normandie et Bretagne')
+    expect(body.targets).toEqual([{ kind: 'company', id: COMPANY }])
+    expect(body.is_recurring).toBe(true)
+    expect(body.interval_count).toBe(24)
+    expect(body.geography).toBe('Normandie')
+    expect(body.run_now).toBe(false)
+  })
+
+  it('does not offer to edit a finished mission', async () => {
+    stubList({ 'GET /api/missions': [200, { items: [card({ status: 'done' })], total: 1 }] })
+    const user = userEvent.setup()
+    renderApp('/missions')
+
+    await user.pointer({ keys: '[MouseRight]', target: await screen.findByRole('link', { name: /Nouveaux entrepôts/ }) })
+    expect(within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Modifier…' })).toBeDisabled()
   })
 })
 

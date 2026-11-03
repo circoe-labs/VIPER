@@ -122,6 +122,7 @@ review shows it as such.
 | `POST /api/missions` | create, with `run_now` for « Créer et lancer » |
 | `GET /api/missions/{id}` | detail: targets, runs, tasks, consigne, expected result |
 | `PATCH /api/missions/{id}` | pause / resume / close |
+| `PUT /api/missions/{id}` | « Modifier la mission » (page de la mission, or the list's right-click / « … » menu): the whole rule, linked data included, is rewritten (`mission.updated` with the changed fields); runs already made and their tasks stay as they are, the next run follows the new rule; a done or cancelled mission is refused (409). The detail answers the rest of the rule (`rule`: agent, start, end, geography, period, exclusions) to prefill the form |
 | `DELETE /api/missions/{id}` | « Supprimer la mission » (after a confirmation): its open tasks (pending, claimed, submitted) are cancelled (`agent_task.cancelled`, reason `mission_deleted`), then the mission goes with its targets and runs (FK cascade); the tasks stay with `run_id` NULL; results already accepted are not undone (`mission.deleted`) |
 | `POST /api/missions/{id}/run` | « Lancer maintenant » |
 | `GET /api/missions/options` | types/result kinds with their `executable` flag, units, limits |
@@ -150,7 +151,7 @@ reviewed exactly like a legacy one.
 
 ## 9. Open questions
 
-1. Can a mission be edited after its first run? (Today: status only; a new mission is the safe path.)
+1. ~~Can a mission be edited after its first run?~~ Yes (`PUT`), except once done or cancelled.
 2. Who may launch a mission assigned to an agent that is currently offline?
 3. Should a recurring mission stop itself when a run fails, or keep trying?
 4. `find_prospects` output: companies first, or people directly? (See `agent-missions.md` §15.4.)

@@ -718,3 +718,55 @@ def test_delete_a_mission_cancels_its_open_tasks(client: TestClient, db_session:
     assert {"mission.deleted", "agent_task.cancelled"} <= actions
     # Already gone: a second delete is a 404, not a silent success.
     assert client.delete(f"{MISSIONS}/{mission_id}").status_code == 404
+
+
+def test_edit_a_mission_rewrites_the_rule_and_its_linked_data(
+    client: TestClient, db_session: Session
+) -> None:
+    first = add_company(db_session, display_name="2SN")
+    second = add_company(db_session, display_name="Transports X")
+    detail = create(client, targets=[{"kind": "company", "id": str(first.id)}])
+    mission_id = detail["card"]["id"]
+    assert detail["rule"]["end_kind"] == "never"
+
+    response = client.put(
+        f"{MISSIONS}/{mission_id}",
+        json={
+            "name": "Fiches Normandie",
+            "type": "enrichment",
+            "prompt": "Trouve le SIREN.",
+            "targets": [{"kind": "company", "id": str(second.id)}],
+            "result_kind": "enrichment",
+            "result_limit": 5,
+            "is_recurring": True,
+            "interval_count": 2,
+            "interval_unit": "days",
+            "geography": "  Normandie ",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    edited = response.json()
+    assert edited["card"]["name"] == "Fiches Normandie"
+    assert edited["prompt"] == "Trouve le SIREN."
+    assert edited["result_limit"] == 5
+    assert [target["label"] for target in edited["targets"]] == ["Transports X"]
+    assert edited["card"]["is_recurring"] is True
+    assert edited["card"]["next_run_at"] is not None
+    assert edited["rule"]["geography"] == "Normandie"
+    entry = db_session.scalars(
+        select(AuditLogEntry).where(AuditLogEntry.action == "mission.updated")
+    ).one()
+    assert entry.changes is not None
+    assert entry.changes["name"] == {"before": "Compléter les fiches", "after": "Fiches Normandie"}
+
+
+def test_edit_refuses_a_closed_or_unknown_mission(client: TestClient, db_session: Session) -> None:
+    detail = create(client)
+    mission_id = detail["card"]["id"]
+    body = {"name": "X", "type": "enrichment", "prompt": "Y", "result_kind": "enrichment"}
+    assert client.patch(f"{MISSIONS}/{mission_id}", json={"status": "done"}).status_code == 200
+
+    assert client.put(f"{MISSIONS}/{mission_id}", json=body).status_code == 409
+    assert client.put(f"{MISSIONS}/{uuid.uuid4()}", json=body).status_code == 404
+    assert client.put(f"{MISSIONS}/{mission_id}", json={**body, "name": ""}).status_code == 422

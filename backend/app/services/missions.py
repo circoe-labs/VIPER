@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from sqlalchemy import delete as sql_delete
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -167,6 +168,20 @@ class MissionTaskRow:
 
 
 @dataclass(frozen=True, slots=True)
+class MissionRule:
+    """The rest of the rule, for « Modifier la mission » (the card holds the visible part)."""
+
+    agent_id: uuid.UUID | None
+    starts_at: datetime | None
+    end_kind: MissionEndKind
+    ends_at: datetime | None
+    max_runs: int | None
+    geography: str | None
+    period_days: int | None
+    exclusions: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
 class MissionDetail:
     card: MissionCard
     targets: list[TargetRow]
@@ -175,6 +190,7 @@ class MissionDetail:
     prompt: str
     result_kind: MissionResultKind
     result_limit: int
+    rule: MissionRule
 
 
 def _now(now: datetime | None) -> datetime:
@@ -389,6 +405,16 @@ def detail(session: Session, mission_id: uuid.UUID) -> MissionDetail:
         prompt=mission.prompt,
         result_kind=mission.result_kind,
         result_limit=mission.result_limit,
+        rule=MissionRule(
+            agent_id=mission.agent_id,
+            starts_at=mission.starts_at,
+            end_kind=mission.end_kind,
+            ends_at=mission.ends_at,
+            max_runs=mission.max_runs,
+            geography=mission.geography,
+            period_days=mission.period_days,
+            exclusions=dict(mission.exclusions or {}),
+        ),
     )
 
 
@@ -544,6 +570,120 @@ def create(
     )
     if run_now:
         run_mission(session, actor, mission.id, trigger=MissionRunTrigger.MANUAL, now=moment)
+    return mission
+
+
+# The fields « Modifier la mission » rewrites, compared for the audit entry.
+EDITED_FIELDS = (
+    "name",
+    "type",
+    "prompt",
+    "agent_id",
+    "is_recurring",
+    "interval_count",
+    "interval_unit",
+    "starts_at",
+    "end_kind",
+    "ends_at",
+    "max_runs",
+    "result_kind",
+    "result_limit",
+    "geography",
+    "period_days",
+    "exclusions",
+)
+
+
+def _audit_value(value: object) -> object:
+    if isinstance(value, uuid.UUID):
+        return str(value)
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, MissionType | RecurrenceUnit | MissionEndKind | MissionResultKind):
+        return value.value
+    return value
+
+
+def update(
+    session: Session,
+    actor: ActorContext,
+    mission_id: uuid.UUID,
+    data: MissionInput,
+    now: datetime | None = None,
+) -> Mission:
+    """« Modifier la mission »: the whole rule is rewritten, linked data included. Runs already
+    made and their tasks stay as they are; the next run follows the new rule. A closed mission
+    (done, cancelled) is not edited: create a new one."""
+    moment = _now(now)
+    mission = session.scalar(select(Mission).where(Mission.id == mission_id).with_for_update())
+    if mission is None:
+        raise NotFoundError("Unknown mission.")
+    if mission.status in (MissionStatus.DONE, MissionStatus.CANCELLED):
+        raise ConflictError("This mission is closed.")
+    name = _text("name", data.name, 200)
+    prompt = _text("prompt", data.prompt, 5000)
+    _validate(data, moment)
+    agent_label: str | None = None
+    if data.agent_id is not None and data.agent_id == mission.agent_id:
+        # Unchanged agent: keep the snapshotted label even if its token was revoked since.
+        agent_label = mission.agent_label
+    elif data.agent_id is not None:
+        token = session.get(McpToken, data.agent_id)
+        if token is None or token.revoked_at is not None:
+            raise InvalidFieldError("agent_id", "Unknown or revoked agent.", "not_found")
+        agent_label = token.label
+    before = {
+        field_name: _audit_value(getattr(mission, field_name)) for field_name in EDITED_FIELDS
+    }
+
+    mission.name = name
+    mission.type = data.type
+    mission.prompt = prompt
+    mission.agent_id = data.agent_id
+    mission.agent_label = agent_label
+    mission.is_recurring = data.is_recurring
+    mission.interval_count = data.interval_count
+    mission.interval_unit = data.interval_unit
+    mission.starts_at = data.starts_at or mission.starts_at or moment
+    mission.end_kind = data.end_kind
+    mission.ends_at = data.ends_at
+    mission.max_runs = data.max_runs
+    mission.result_kind = data.result_kind
+    mission.result_limit = data.result_limit
+    mission.geography = (data.geography or "").strip() or None
+    mission.period_days = data.period_days
+    mission.exclusions = data.exclusions
+
+    # A paused mission keeps no next run: « Reprendre » computes it.
+    if mission.status is MissionStatus.ACTIVE:
+        runs_count = session.scalar(
+            select(func.count()).select_from(MissionRun).where(MissionRun.mission_id == mission.id)
+        )
+        if mission.starts_at is not None and mission.starts_at > moment:
+            mission.next_run_at = mission.starts_at
+        elif mission.is_recurring and not runs_count:
+            mission.next_run_at = moment
+        else:
+            mission.next_run_at = next_occurrence(mission, moment, runs_count=runs_count or 0)
+
+    session.execute(sql_delete(MissionTarget).where(MissionTarget.mission_id == mission.id))
+    session.flush()
+    _create_targets(session, mission, data.targets)
+    after = {field_name: _audit_value(getattr(mission, field_name)) for field_name in EDITED_FIELDS}
+    changes: dict[str, dict[str, Any]] = {
+        field_name: {"before": before[field_name], "after": after[field_name]}
+        for field_name in EDITED_FIELDS
+        if before[field_name] != after[field_name]
+    }
+    audit.record_event(
+        session,
+        actor,
+        audit.AuditAction.MISSION_UPDATED,
+        entity_type="mission",
+        entity_id=mission.id,
+        changes=changes,
+        reason=f"targets={len(data.targets)}",
+    )
     return mission
 
 

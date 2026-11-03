@@ -1,16 +1,17 @@
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 
-import { useDeleteMission, useMission, useRunMission, useSetMissionStatus } from '../api/missions'
+import { useMission, useRunMission, useSetMissionStatus } from '../api/missions'
 import { TASK_STATUS_LABELS, TASK_STATUS_TONES, TASK_TYPE_LABELS } from '../agents/labels'
 import { ReviewDialog } from '../agents/ReviewDialog'
 import { StatusBadge } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
-import { Modal } from '../ui/Dialog'
 import { EmptyState } from '../ui/EmptyState'
 import { PageHeader } from '../ui/PageHeader'
-import { ArrowLeftIcon, BoltIcon, SparklesIcon, TrashIcon } from '../ui/icons'
+import { ArrowLeftIcon, BoltIcon, PencilIcon, SparklesIcon, TrashIcon } from '../ui/icons'
+import { CreateMissionDialog } from './CreateMissionDialog'
+import { DeleteMissionDialog } from './DeleteMissionDialog'
 import {
   MISSION_STATUS_LABELS,
   MISSION_STATUS_TONES,
@@ -28,11 +29,10 @@ export function MissionDetailPage() {
   const mission = useMission(missionId)
   const run = useRunMission(missionId ?? '')
   const setStatus = useSetMissionStatus(missionId ?? '')
-  const remove = useDeleteMission(missionId ?? '')
   const navigate = useNavigate()
   const [reviewId, setReviewId] = useState<string | null>(null)
+  const [editing, setEditing] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const backRef = useRef<HTMLButtonElement>(null)
 
   if (mission.isLoading) {
     return <p className="missions-muted">Chargement…</p>
@@ -57,6 +57,7 @@ export function MissionDetailPage() {
   const { card, targets, runs, tasks, prompt, result_kind, result_limit } = mission.data
   const open = card.status === 'active'
   const canRun = card.status === 'active' && targets.length > 0
+  const closed = card.status === 'done' || card.status === 'cancelled'
 
   return (
     <div className="missions">
@@ -112,9 +113,19 @@ export function MissionDetailPage() {
             )}
             <Button
               variant="secondary"
+              icon={PencilIcon}
+              disabled={closed}
+              title={closed ? 'Mission terminée : créez-en une nouvelle.' : undefined}
+              onClick={() => {
+                setEditing(true)
+              }}
+            >
+              Modifier
+            </Button>
+            <Button
+              variant="secondary"
               icon={TrashIcon}
               onClick={() => {
-                remove.reset()
                 setDeleting(true)
               }}
             >
@@ -125,55 +136,26 @@ export function MissionDetailPage() {
       />
       {run.isError && <p className="missions-error">L’exécution n’a pas pu démarrer.</p>}
       {setStatus.isError && <p className="missions-error">Le statut n’a pas pu être changé.</p>}
-      <Modal
+      {editing && (
+        <CreateMissionDialog
+          open
+          mission={mission.data}
+          onClose={() => {
+            setEditing(false)
+          }}
+        />
+      )}
+      <DeleteMissionDialog
         open={deleting}
-        size="sm"
-        title="Supprimer cette mission ?"
-        initialFocusRef={backRef}
+        missionId={card.id}
+        name={card.name}
         onClose={() => {
           setDeleting(false)
         }}
-        footer={
-          <>
-            <Button
-              ref={backRef}
-              disabled={remove.isPending}
-              onClick={() => {
-                setDeleting(false)
-              }}
-            >
-              Retour
-            </Button>
-            <Button
-              variant="danger"
-              icon={TrashIcon}
-              loading={remove.isPending}
-              onClick={() => {
-                remove.mutate(undefined, {
-                  onSuccess: () => {
-                    void navigate('/missions')
-                  },
-                })
-              }}
-            >
-              Supprimer la mission
-            </Button>
-          </>
-        }
-      >
-        <div className="mission-dialog">
-          <p>
-            « {card.name} » est supprimée avec ses données liées et l’historique de ses exécutions. Les tâches
-            encore en attente, en cours ou à relire sont annulées : les agents ne les traiteront pas.
-          </p>
-          <p>Les modifications déjà acceptées sur les fiches ne changent pas.</p>
-          {remove.isError && (
-            <p className="missions-error" role="alert">
-              La mission n’a pas pu être supprimée : réessayez.
-            </p>
-          )}
-        </div>
-      </Modal>
+        onDeleted={() => {
+          void navigate('/missions')
+        }}
+      />
       {card.results_pending > 0 && (
         <p className="missions-notice">
           {String(card.results_pending)} résultat{card.results_pending > 1 ? 's' : ''} attend

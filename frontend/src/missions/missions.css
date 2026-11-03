@@ -397,3 +397,14 @@
   display: grid;
   gap: var(--space-4);
 }
+
+/* A card and its « … » button (the menu also opens on a right-click on the card). */
+.mission-cards__item {
+  position: relative;
+}
+
+.mission-card__more {
+  position: absolute;
+  right: var(--space-2);
+  bottom: var(--space-2);
+}

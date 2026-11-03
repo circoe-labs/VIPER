@@ -124,6 +124,17 @@ class MissionTaskOut(BaseModel):
     submitted_at: datetime | None
 
 
+class MissionRuleOut(BaseModel):
+    agent_id: uuid.UUID | None
+    starts_at: datetime | None
+    end_kind: MissionEndKind
+    ends_at: datetime | None
+    max_runs: int | None
+    geography: str | None
+    period_days: int | None
+    exclusions: dict[str, Any]
+
+
 class MissionDetailOut(BaseModel):
     card: MissionCardOut
     targets: list[TargetOut]
@@ -132,6 +143,7 @@ class MissionDetailOut(BaseModel):
     prompt: str
     result_kind: MissionResultKind
     result_limit: int
+    rule: MissionRuleOut
 
 
 class OptionOut(BaseModel):
@@ -170,6 +182,7 @@ def _detail_out(detail: missions.MissionDetail) -> MissionDetailOut:
         prompt=detail.prompt,
         result_kind=detail.result_kind,
         result_limit=detail.result_limit,
+        rule=MissionRuleOut.model_validate(detail.rule, from_attributes=True),
     )
 
 
@@ -273,6 +286,20 @@ def update_mission(
 ) -> MissionDetailOut:
     with business_errors():
         missions.set_status(session, actor, mission_id, body.status)
+        detail = missions.detail(session, mission_id)
+    return _detail_out(detail)
+
+
+@router.put("/{mission_id}")
+def edit_mission(
+    mission_id: uuid.UUID,
+    body: MissionIn,
+    session: SessionDep,
+    actor: CurrentActor,
+) -> MissionDetailOut:
+    """« Modifier la mission »: the whole rule, linked data included (`run_now` is ignored)."""
+    with business_errors():
+        missions.update(session, actor, mission_id, _input(body))
         detail = missions.detail(session, mission_id)
     return _detail_out(detail)
 

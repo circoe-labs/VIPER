@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router'
 
 import {
+  type MissionDetail,
   type MissionEndKind,
   type MissionInput,
   type MissionResultKind,
@@ -9,6 +10,7 @@ import {
   type RecurrenceUnit,
   type TargetOption,
   useCreateMission,
+  useUpdateMission,
   useMissionAgents,
   useMissionOptions,
 } from '../api/missions'
@@ -31,34 +33,59 @@ function targetKey(target: TargetOption): string {
   return `${target.kind}:${target.id}`
 }
 
+// An ISO moment as a `datetime-local` value (the person's own clock), '' for none.
+function localInput(iso: string | null): string {
+  if (!iso) return ''
+  const moment = new Date(iso)
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `${String(moment.getFullYear())}-${pad(moment.getMonth() + 1)}-${pad(moment.getDate())}T${pad(moment.getHours())}:${pad(moment.getMinutes())}`
+}
+
 const TYPES: MissionType[] = ['prospection', 'signals', 'enrichment', 'verification', 'other']
 const UNITS: RecurrenceUnit[] = ['hours', 'days', 'weeks', 'months']
 
-// « + Nouvelle mission »: six visible fields, then the advanced block. The linked records are chips
-// (references), and the consigne stays the agent's main instruction.
-export function CreateMissionDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+interface MissionDialogProps {
+  open: boolean
+  onClose: () => void
+  // « Modifier la mission »: the form starts from this mission and saves it in place. Mount the dialog when it
+  // opens (the fields are initialised once).
+  mission?: MissionDetail
+  // Called after a successful edit (default: nothing more than closing).
+  onSaved?: (detail: MissionDetail) => void
+}
+
+// « + Nouvelle mission » / « Modifier la mission »: six visible fields, then the advanced block. The linked records are
+// chips (references), and the consigne stays the agent's main instruction.
+export function CreateMissionDialog({ open, onClose, mission, onSaved }: MissionDialogProps) {
   const navigate = useNavigate()
   const create = useCreateMission()
+  const update = useUpdateMission(mission?.card.id ?? '')
+  const editing = mission !== undefined
+  const saving = editing ? update : create
   const options = useMissionOptions()
   const agents = useMissionAgents()
-  const [name, setName] = useState('')
-  const [type, setType] = useState<MissionType>('enrichment')
-  const [agentId, setAgentId] = useState('')
-  const [prompt, setPrompt] = useState('')
-  const [targets, setTargets] = useState<TargetOption[]>([])
-  const [recurring, setRecurring] = useState(false)
-  const [intervalCount, setIntervalCount] = useState(24)
-  const [unit, setUnit] = useState<RecurrenceUnit>('hours')
-  const [startsAt, setStartsAt] = useState('')
-  const [endKind, setEndKind] = useState<MissionEndKind>('never')
-  const [endsAt, setEndsAt] = useState('')
-  const [maxRuns, setMaxRuns] = useState('10')
-  const [resultKind, setResultKind] = useState<MissionResultKind>('enrichment')
-  const [resultLimit, setResultLimit] = useState('20')
-  const [geography, setGeography] = useState('')
-  const [periodDays, setPeriodDays] = useState('')
-  const [excludeKnown, setExcludeKnown] = useState(false)
-  const [nameTouched, setNameTouched] = useState(false)
+  const card = mission?.card
+  const rule = mission?.rule
+  const [name, setName] = useState(card?.name ?? '')
+  const [type, setType] = useState<MissionType>(card?.type ?? 'enrichment')
+  const [agentId, setAgentId] = useState(rule?.agent_id ?? '')
+  const [prompt, setPrompt] = useState(mission?.prompt ?? '')
+  const [targets, setTargets] = useState<TargetOption[]>(
+    mission?.targets.map((target) => ({ kind: target.kind, id: target.id, label: target.label, hint: target.hint })) ?? [],
+  )
+  const [recurring, setRecurring] = useState(card?.is_recurring ?? false)
+  const [intervalCount, setIntervalCount] = useState(card?.interval_count ?? 24)
+  const [unit, setUnit] = useState<RecurrenceUnit>(card?.interval_unit ?? 'hours')
+  const [startsAt, setStartsAt] = useState(localInput(rule?.starts_at ?? null))
+  const [endKind, setEndKind] = useState<MissionEndKind>(rule?.end_kind ?? 'never')
+  const [endsAt, setEndsAt] = useState(localInput(rule?.ends_at ?? null))
+  const [maxRuns, setMaxRuns] = useState(String(rule?.max_runs ?? 10))
+  const [resultKind, setResultKind] = useState<MissionResultKind>(mission?.result_kind ?? 'enrichment')
+  const [resultLimit, setResultLimit] = useState(String(mission?.result_limit ?? 20))
+  const [geography, setGeography] = useState(rule?.geography ?? '')
+  const [periodDays, setPeriodDays] = useState(rule?.period_days ? String(rule.period_days) : '')
+  const [excludeKnown, setExcludeKnown] = useState(rule?.exclusions.known_companies === true)
+  const [nameTouched, setNameTouched] = useState(editing)
   const [picking, setPicking] = useState(false)
 
   const executable = options.data?.types.find((item) => item.value === type)?.executable ?? type === 'enrichment'
@@ -102,8 +129,18 @@ export function CreateMissionDialog({ open, onClose }: { open: boolean; onClose:
       result_limit: Number(resultLimit),
       geography: geography.trim() || null,
       period_days: periodDays ? Number(periodDays) : null,
-      exclusions: excludeKnown ? { known_companies: true } : {},
+      exclusions: { ...(rule?.exclusions ?? {}), known_companies: excludeKnown },
       run_now: runNow,
+    }
+    if (!excludeKnown) delete input.exclusions.known_companies
+    if (editing) {
+      update.mutate(input, {
+        onSuccess: (detail) => {
+          close()
+          onSaved?.(detail)
+        },
+      })
+      return
     }
     create.mutate(input, {
       onSuccess: (detail) => {
@@ -118,33 +155,55 @@ export function CreateMissionDialog({ open, onClose }: { open: boolean; onClose:
       open={open}
       onClose={close}
       size="lg"
-      title="Nouvelle mission"
-      description="Une consigne, des données VIPER, une exécution. Rien n’est écrit dans la base sans votre validation."
+      title={editing ? 'Modifier la mission' : 'Nouvelle mission'}
+      description={
+        editing
+          ? 'Les exécutions déjà faites ne changent pas : la prochaine suit la nouvelle règle.'
+          : 'Une consigne, des données VIPER, une exécution. Rien n’est écrit dans la base sans votre validation.'
+      }
       footer={
-        <div className="mission-form__footer">
-          <Button variant="secondary" onClick={close}>
-            Annuler
-          </Button>
-          <Button
-            variant="secondary"
-            disabled={!canCreate || create.isPending}
-            onClick={() => {
-              submit(false)
-            }}
-          >
-            Créer la mission
-          </Button>
-          <Button
-            variant="primary"
-            disabled={!canRun || create.isPending}
-            loading={create.isPending}
-            onClick={() => {
-              submit(true)
-            }}
-          >
-            Créer et lancer
-          </Button>
-        </div>
+        editing ? (
+          <div className="mission-form__footer">
+            <Button variant="secondary" onClick={close}>
+              Annuler
+            </Button>
+            <Button
+              variant="primary"
+              disabled={!canCreate || update.isPending}
+              loading={update.isPending}
+              onClick={() => {
+                submit(false)
+              }}
+            >
+              Enregistrer
+            </Button>
+          </div>
+        ) : (
+          <div className="mission-form__footer">
+            <Button variant="secondary" onClick={close}>
+              Annuler
+            </Button>
+            <Button
+              variant="secondary"
+              disabled={!canCreate || create.isPending}
+              onClick={() => {
+                submit(false)
+              }}
+            >
+              Créer la mission
+            </Button>
+            <Button
+              variant="primary"
+              disabled={!canRun || create.isPending}
+              loading={create.isPending}
+              onClick={() => {
+                submit(true)
+              }}
+            >
+              Créer et lancer
+            </Button>
+          </div>
+        )
       }
     >
       <div className="mission-form">
@@ -399,9 +458,13 @@ export function CreateMissionDialog({ open, onClose }: { open: boolean; onClose:
           />
         </details>
 
-        {create.isError && (
+        {saving.isError && (
           <p className="missions-error">
-            {create.error instanceof ApiError ? create.error.message : 'La mission n’a pas pu être créée.'}
+            {saving.error instanceof ApiError
+              ? saving.error.message
+              : editing
+                ? 'La mission n’a pas pu être enregistrée.'
+                : 'La mission n’a pas pu être créée.'}
           </p>
         )}
         {!executable && (
