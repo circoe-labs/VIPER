@@ -19,13 +19,14 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
 from app.models.common import TimestampMixin, UUIDPrimaryKeyMixin
+from app.models.organizations import OrganizationOwnedMixin
 
 TOKEN_HASH_LENGTH = 64
 LABEL_MAX_LENGTH = 100
 DEFAULT_MAX_CONCURRENT = 3
 
 
-class McpToken(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+class McpToken(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, Base):
     __tablename__ = "mcp_tokens"
     __table_args__ = (
         CheckConstraint(

@@ -422,7 +422,8 @@ def test_referents_are_not_login_accounts(db_session: Session, pilot_user: User)
     assert db_session.execute(select(func.count()).select_from(User)).scalar_one() == users_before
     assert referent.email == pilot_user.email
     referent_table = inspect(InternalReferent).local_table
-    assert not referent_table.foreign_keys
+    # Owned by an organisation, never tied to a login account.
+    assert {fk.column.table.name for fk in referent_table.foreign_keys} == {"organizations"}
     assert all(
         fk.column.table is not referent_table for fk in inspect(User).local_table.foreign_keys
     )

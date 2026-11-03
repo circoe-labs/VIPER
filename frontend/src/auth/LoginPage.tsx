@@ -1,14 +1,14 @@
 import { type SubmitEvent, useRef, useState } from 'react'
-import { Navigate, useLocation } from 'react-router'
+import { Navigate, useLocation, useSearchParams } from 'react-router'
 
 import { ApiError } from '../api/client'
 import { BrandLogo } from '../brand/BrandLogo'
 import { ThemeSwitch } from '../theme/ThemeSwitch'
 import { Button } from '../ui/Button'
 import { TextField } from '../ui/fields'
-import { AlertIcon, InfoIcon } from '../ui/icons'
+import { AlertIcon, InfoIcon, KeyIcon } from '../ui/icons'
 import { readLoginState } from './loginState'
-import { useLogin, useSession } from './session'
+import { useLogin, useSession, useSignInMethods } from './session'
 import './auth.css'
 
 interface FieldErrors {
@@ -21,8 +21,24 @@ const NOTICES = {
   'signed-out': 'Vous êtes déconnecté.',
 } as const
 
+// `?erreur=` set by the Infomaniak callback (backend/app/api/routes/auth.py) when it does not open a session.
+const SIGN_IN_REFUSALS: Record<string, string> = {
+  domain: 'Seules les adresses @circoe.com peuvent se connecter pour le moment.',
+  inactive: 'Ce compte est désactivé. Contactez un administrateur de votre organisation.',
+  organization: 'Votre organisation n’est pas encore ouverte.',
+  unverified: 'Votre adresse Infomaniak n’est pas vérifiée.',
+  mismatch: 'Cette adresse est déjà liée à un autre compte Infomaniak.',
+  cancelled: 'Connexion Infomaniak annulée.',
+  expired: 'La connexion a expiré : recommencez.',
+  infomaniak: 'Infomaniak n’a pas répondu : réessayez dans un instant.',
+  unavailable: 'La connexion Infomaniak n’est pas configurée sur ce serveur.',
+}
+
 function loginErrorMessage(error: unknown): string {
   if (error instanceof ApiError && error.status === 401) return 'Adresse e-mail ou mot de passe incorrect.'
+  if (error instanceof ApiError && error.status === 403) {
+    return 'Connexion refusée : seules les adresses @circoe.com d’un compte actif peuvent se connecter.'
+  }
   if (error instanceof ApiError && error.status === 429) {
     return 'Trop de tentatives de connexion. Réessayez dans quelques minutes.'
   }
@@ -33,6 +49,9 @@ export function LoginPage() {
   const session = useSession()
   const location = useLocation()
   const login = useLogin()
+  const methods = useSignInMethods()
+  const [params] = useSearchParams()
+  const refusal = params.get('erreur')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
@@ -67,6 +86,9 @@ export function LoginPage() {
   }
 
   const notice = reason === 'initial' || login.isError ? null : NOTICES[reason]
+  // The password form stays until the server says Infomaniak replaced it.
+  const passwordForm = methods.data?.password !== false
+  const infomaniak = methods.data?.infomaniak === true
 
   return (
     <div className="login-page">
@@ -85,43 +107,57 @@ export function LoginPage() {
             {notice}
           </p>
         )}
+        {refusal && (
+          <p className="login-card__message login-card__message--error" role="alert">
+            <AlertIcon size={18} />
+            {SIGN_IN_REFUSALS[refusal] ?? 'Connexion impossible : recommencez.'}
+          </p>
+        )}
+        {infomaniak && (
+          <a className="btn btn--primary btn--md login-card__infomaniak" href="/api/auth/infomaniak">
+            <KeyIcon size={18} />
+            Se connecter avec Infomaniak
+          </a>
+        )}
         {login.isError && (
           <p className="login-card__message login-card__message--error" role="alert">
             <AlertIcon size={18} />
             {loginErrorMessage(login.error)}
           </p>
         )}
-        <form className="login-card__form" noValidate onSubmit={handleSubmit}>
-          <TextField
-            ref={emailRef}
-            label="Adresse e-mail"
-            type="email"
-            name="email"
-            autoComplete="username"
-            spellCheck={false}
-            autoFocus
-            value={email}
-            error={fieldErrors.email}
-            onChange={(event) => {
-              setEmail(event.target.value)
-            }}
-          />
-          <TextField
-            ref={passwordRef}
-            label="Mot de passe"
-            type="password"
-            name="password"
-            autoComplete="current-password"
-            value={password}
-            error={fieldErrors.password}
-            onChange={(event) => {
-              setPassword(event.target.value)
-            }}
-          />
-          <Button type="submit" variant="primary" loading={login.isPending} className="login-card__submit">
-            {login.isPending ? 'Connexion…' : 'Se connecter'}
-          </Button>
-        </form>
+        {passwordForm && (
+          <form className="login-card__form" noValidate onSubmit={handleSubmit}>
+            <TextField
+              ref={emailRef}
+              label="Adresse e-mail"
+              type="email"
+              name="email"
+              autoComplete="username"
+              spellCheck={false}
+              autoFocus
+              value={email}
+              error={fieldErrors.email}
+              onChange={(event) => {
+                setEmail(event.target.value)
+              }}
+            />
+            <TextField
+              ref={passwordRef}
+              label="Mot de passe"
+              type="password"
+              name="password"
+              autoComplete="current-password"
+              value={password}
+              error={fieldErrors.password}
+              onChange={(event) => {
+                setPassword(event.target.value)
+              }}
+            />
+            <Button type="submit" variant="primary" loading={login.isPending} className="login-card__submit">
+              {login.isPending ? 'Connexion…' : 'Se connecter'}
+            </Button>
+          </form>
+        )}
       </main>
     </div>
   )

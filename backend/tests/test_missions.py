@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi.testclient import TestClient
+from sqlalchemy import delete as sql_delete
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -23,6 +24,7 @@ from app.models.enums import (
     MissionType,
     ProspectSourceType,
 )
+from app.models.missions import MissionRun, MissionTarget
 from app.models.prospects import ProspectNote
 from app.services import mcp_tokens, missions
 from tests.builders import add_company, add_email, add_phone, add_prospect, add_role
@@ -175,7 +177,11 @@ def test_the_mission_agent_is_the_only_one_that_can_claim(
         agent_id=str(token_record.id),
     )
 
-    assert rpc(client, other, "viper_claim_task", {})["structuredContent"] == {"task": None}
+    idle = rpc(client, other, "viper_claim_task", {})["structuredContent"]
+    assert idle["task"] is None
+    # « Nothing to claim » says why: the open missions, their state and next run.
+    assert idle["hint"]
+    assert [mission["name"] for mission in idle["missions"]] == ["Compléter les fiches"]
     claimed = rpc(client, chosen, "viper_claim_task", {})["structuredContent"]
     assert claimed["task"] == "update_company"
     assert claimed["mission"]["id"]
@@ -244,13 +250,22 @@ def test_a_signals_mission_needs_a_company(client: TestClient, db_session: Sessi
         },
     )
 
-    assert created.status_code == 201, created.text
-    mission_id = created.json()["card"]["id"]
-    launched = client.post(f"{MISSIONS}/{mission_id}/run")
-
-    assert launched.status_code == 422
-    assert launched.json()["detail"]["field"] == "targets"
-    assert launched.json()["detail"]["reason"] == "empty"
+    # Refused at save time, next to the linked data, with the way out (Prospection → Sociétés).
+    assert created.status_code == 422
+    assert created.json()["detail"]["field"] == "targets"
+    assert created.json()["detail"]["reason"] == "empty"
+    company = add_company(db_session, display_name="2SN")
+    accepted = client.post(
+        MISSIONS,
+        json={
+            "name": "Nouveaux entrepôts",
+            "type": "signals",
+            "prompt": "Surveille les annonces d’entrepôt.",
+            "result_kind": "signals",
+            "targets": [{"kind": "company", "id": str(company.id)}],
+        },
+    )
+    assert accepted.status_code == 201, accepted.text
 
 
 def test_a_mission_without_targets_cannot_run(client: TestClient, db_session: Session) -> None:
@@ -341,7 +356,8 @@ def test_the_scheduler_closes_an_exhausted_recurrence(
     assert missions.run_due(db_session, now=now + timedelta(hours=2)) == []
 
 
-def test_the_scheduler_pauses_a_type_it_cannot_run(client: TestClient, db_session: Session) -> None:
+def test_a_rule_that_could_never_run_is_refused_when_saved(client: TestClient) -> None:
+    """Signals with nothing to watch used to be saved, then silently paused by the scheduler."""
     created = client.post(
         MISSIONS,
         json={
@@ -354,18 +370,29 @@ def test_the_scheduler_pauses_a_type_it_cannot_run(client: TestClient, db_sessio
             "interval_unit": "days",
         },
     )
-    assert created.status_code == 201, created.text
-    mission = db_session.get(Mission, uuid.UUID(created.json()["card"]["id"]))
-    assert mission is not None
-    mission.next_run_at = datetime.now(UTC) - timedelta(minutes=5)
+
+    assert created.status_code == 422, created.text
+    assert "Prospection" in created.text
+
+
+def test_the_scheduler_records_a_failed_run_and_never_pauses(
+    client: TestClient, db_session: Session
+) -> None:
+    company = add_company(db_session, display_name="2SN")
+    mission = due_mission(client, db_session, company)
+    # The linked company is deleted after the mission was saved: nothing left to run on.
+    db_session.execute(sql_delete(MissionTarget).where(MissionTarget.mission_id == mission.id))
     db_session.flush()
+    now = datetime.now(UTC)
 
-    started = missions.run_due(db_session, now=datetime.now(UTC))
+    assert missions.run_due(db_session, now=now) == []
 
-    assert started == []
     db_session.refresh(mission)
-    assert mission.status is MissionStatus.PAUSED
-    assert mission.next_run_at is None
+    assert mission.status is MissionStatus.ACTIVE
+    assert mission.next_run_at is not None and mission.next_run_at > now
+    run = db_session.scalars(select(MissionRun).where(MissionRun.mission_id == mission.id)).one()
+    assert run.status is MissionRunStatus.FAILED
+    assert run.note
 
 
 def test_a_recurring_mission_starting_now_is_due_immediately(
@@ -762,9 +789,16 @@ def test_edit_a_mission_rewrites_the_rule_and_its_linked_data(
 
 
 def test_edit_refuses_a_closed_or_unknown_mission(client: TestClient, db_session: Session) -> None:
-    detail = create(client)
+    targets = [{"kind": "company", "id": str(add_company(db_session, display_name="2SN").id)}]
+    detail = create(client, targets=targets)
     mission_id = detail["card"]["id"]
-    body = {"name": "X", "type": "enrichment", "prompt": "Y", "result_kind": "enrichment"}
+    body = {
+        "name": "X",
+        "type": "enrichment",
+        "prompt": "Y",
+        "result_kind": "enrichment",
+        "targets": targets,
+    }
     assert client.patch(f"{MISSIONS}/{mission_id}", json={"status": "done"}).status_code == 200
 
     assert client.put(f"{MISSIONS}/{mission_id}", json=body).status_code == 409

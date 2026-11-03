@@ -34,6 +34,9 @@ services:
       VIPER_SQL_READER_PASSWORD: ${SQL_READER_PASSWORD:?set SQL_READER_PASSWORD in deploy/.env}
       VIPER_SESSION_COOKIE_SECURE: "true"
       VIPER_TOOLBOX_OAUTH_REDIRECT_URI: https://${VIPER_DOMAIN}/settings/connections
+      # « Se connecter avec Infomaniak »: once both are set, it replaces the password form.
+      VIPER_INFOMANIAK_CLIENT_ID: ${INFOMANIAK_CLIENT_ID:-}
+      VIPER_INFOMANIAK_CLIENT_SECRET: ${INFOMANIAK_CLIENT_SECRET:-}
     volumes:
       - viper_home:/root/.viper
 

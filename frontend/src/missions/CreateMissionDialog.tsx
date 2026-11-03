@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { type KeyboardEvent, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 
 import {
@@ -6,7 +6,6 @@ import {
   type MissionEndKind,
   type MissionInput,
   type MissionResultKind,
-  type MissionType,
   type RecurrenceUnit,
   type TargetOption,
   useCreateMission,
@@ -18,8 +17,23 @@ import { ApiError } from '../api/client'
 import { Button } from '../ui/Button'
 import { Modal } from '../ui/Dialog'
 import { Checkbox, SelectField, TextAreaField, TextField } from '../ui/fields'
-import { PlusIcon } from '../ui/icons'
-import { MISSION_TYPE_LABELS, RESULT_KIND_LABELS, UNIT_LABELS } from './labels'
+import {
+  AlertIcon,
+  BuildingIcon,
+  CheckCircleIcon,
+  ClockIcon,
+  CloseIcon,
+  LinkIcon,
+  PlayIcon,
+  PlusIcon,
+  RepeatIcon,
+  SlidersIcon,
+  SparklesIcon,
+  UsersIcon,
+} from '../ui/icons'
+import { InfoTip } from '../ui/InfoTip'
+import { UNIT_LABELS } from './labels'
+import { kindOf, kindSpec, MISSION_KINDS, type MissionKind, missingForRun } from './missionKinds'
 import { TargetPicker } from './TargetPicker'
 
 function suggestion(prompt: string): string {
@@ -41,7 +55,6 @@ function localInput(iso: string | null): string {
   return `${String(moment.getFullYear())}-${pad(moment.getMonth() + 1)}-${pad(moment.getDate())}T${pad(moment.getHours())}:${pad(moment.getMinutes())}`
 }
 
-const TYPES: MissionType[] = ['prospection', 'signals', 'enrichment', 'verification', 'other']
 const UNITS: RecurrenceUnit[] = ['hours', 'days', 'weeks', 'months']
 
 interface MissionDialogProps {
@@ -54,8 +67,57 @@ interface MissionDialogProps {
   onSaved?: (detail: MissionDetail) => void
 }
 
-// « + Nouvelle mission » / « Modifier la mission »: six visible fields, then the advanced block. The linked records are
-// chips (references), and the consigne stays the agent's main instruction.
+// « Que doit faire l’agent ? »: a radio group of tiles (arrows move the choice, Tab leaves the group). Each tile's
+// explanation sits in an InfoTip beside it, not in plain text.
+function KindTiles({ value, onChange }: { value: MissionKind; onChange: (kind: MissionKind) => void }) {
+  const refs = useRef<(HTMLButtonElement | null)[]>([])
+  const move = (event: KeyboardEvent, index: number) => {
+    const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key]
+    if (step === undefined) return
+    event.preventDefault()
+    const next = (index + step + MISSION_KINDS.length) % MISSION_KINDS.length
+    const target = MISSION_KINDS[next]
+    if (!target) return
+    onChange(target.id)
+    refs.current[next]?.focus()
+  }
+  return (
+    <div className="mission-kinds" role="radiogroup" aria-label="Que doit faire l’agent ?">
+      {MISSION_KINDS.map((item, index) => {
+        const selected = item.id === value
+        return (
+          <div key={item.id} className={`mission-kind${selected ? ' is-selected' : ''}`}>
+            <button
+              ref={(element) => {
+                refs.current[index] = element
+              }}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              tabIndex={selected ? 0 : -1}
+              className="mission-kind__choice"
+              onClick={() => {
+                onChange(item.id)
+              }}
+              onKeyDown={(event) => {
+                move(event, index)
+              }}
+            >
+              <item.icon size={22} />
+              <span className="mission-kind__label">{item.label}</span>
+            </button>
+            <span className="mission-kind__tip">
+              <InfoTip label={`Aide : ${item.label}`}>{item.help}</InfoTip>
+            </span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// « + Nouvelle mission » / « Modifier la mission »: the tiles, the consigne, the linked data, the run, then the
+// advanced block; a live line says whether the rule can run. The linked records are
 export function CreateMissionDialog({ open, onClose, mission, onSaved }: MissionDialogProps) {
   const navigate = useNavigate()
   const create = useCreateMission()
@@ -67,7 +129,7 @@ export function CreateMissionDialog({ open, onClose, mission, onSaved }: Mission
   const card = mission?.card
   const rule = mission?.rule
   const [name, setName] = useState(card?.name ?? '')
-  const [type, setType] = useState<MissionType>(card?.type ?? 'enrichment')
+  const [kind, setKind] = useState<MissionKind>(mission ? kindOf(mission.card.type, mission.result_kind) : 'enrich')
   const [agentId, setAgentId] = useState(rule?.agent_id ?? '')
   const [prompt, setPrompt] = useState(mission?.prompt ?? '')
   const [targets, setTargets] = useState<TargetOption[]>(
@@ -80,6 +142,7 @@ export function CreateMissionDialog({ open, onClose, mission, onSaved }: Mission
   const [endKind, setEndKind] = useState<MissionEndKind>(rule?.end_kind ?? 'never')
   const [endsAt, setEndsAt] = useState(localInput(rule?.ends_at ?? null))
   const [maxRuns, setMaxRuns] = useState(String(rule?.max_runs ?? 10))
+  // The tile sets the expected result; an edited mission keeps its own while its tile stays the same.
   const [resultKind, setResultKind] = useState<MissionResultKind>(mission?.result_kind ?? 'enrichment')
   const [resultLimit, setResultLimit] = useState(String(mission?.result_limit ?? 20))
   const [geography, setGeography] = useState(rule?.geography ?? '')
@@ -88,23 +151,23 @@ export function CreateMissionDialog({ open, onClose, mission, onSaved }: Mission
   const [nameTouched, setNameTouched] = useState(editing)
   const [picking, setPicking] = useState(false)
 
-  const executable = options.data?.types.find((item) => item.value === type)?.executable ?? type === 'enrichment'
-  const canCreate = name.trim() !== '' && prompt.trim() !== ''
-  const companyTargets = targets.filter((target) => target.kind === 'company').length
-  // A prospection without linked companies is a discovery (new companies); with companies it
-  // looks for new contacts. The expected result follows the two modes.
-  const prospectable =
-    type === 'signals'
-      ? companyTargets > 0 && resultKind === 'signals'
-      : type === 'prospection'
-        ? (targets.length === 0 && resultKind === 'companies') ||
-          (companyTargets > 0 && resultKind === 'prospects')
-        : targets.length > 0
-  const canRun = canCreate && executable && prospectable
-  const resultOptions = (options.data?.result_kinds ?? []).map((item) => ({
-    value: item.value,
-    label: `${RESULT_KIND_LABELS[item.value as MissionResultKind]}${item.executable ? '' : ' (bientôt)'}`,
-  }))
+  const spec = kindSpec(kind)
+  const type = spec.type
+  const executable =
+    (options.data?.types.find((item) => item.value === type)?.executable ?? true) &&
+    (options.data?.result_kinds.find((item) => item.value === resultKind)?.executable ?? true)
+  const filled = name.trim() !== '' && prompt.trim() !== ''
+  // Mirrors the server: a rule that could never produce a task is not saved (it used to be, then sat paused).
+  const missing = executable
+    ? missingForRun(type, resultKind, targets)
+    : 'Ce type de mission n’est pas encore exécutable : choisissez-en un autre.'
+  const ready = missing === null
+  const canSave = filled && ready
+
+  const chooseKind = (next: MissionKind) => {
+    setKind(next)
+    setResultKind(kindSpec(next).resultKind)
+  }
 
   const close = () => {
     setPicking(false)
@@ -156,11 +219,6 @@ export function CreateMissionDialog({ open, onClose, mission, onSaved }: Mission
       onClose={close}
       size="lg"
       title={editing ? 'Modifier la mission' : 'Nouvelle mission'}
-      description={
-        editing
-          ? 'Les exécutions déjà faites ne changent pas : la prochaine suit la nouvelle règle.'
-          : 'Une consigne, des données VIPER, une exécution. Rien n’est écrit dans la base sans votre validation.'
-      }
       footer={
         editing ? (
           <div className="mission-form__footer">
@@ -169,7 +227,7 @@ export function CreateMissionDialog({ open, onClose, mission, onSaved }: Mission
             </Button>
             <Button
               variant="primary"
-              disabled={!canCreate || update.isPending}
+              disabled={!canSave || update.isPending}
               loading={update.isPending}
               onClick={() => {
                 submit(false)
@@ -185,7 +243,7 @@ export function CreateMissionDialog({ open, onClose, mission, onSaved }: Mission
             </Button>
             <Button
               variant="secondary"
-              disabled={!canCreate || create.isPending}
+              disabled={!canSave || create.isPending}
               onClick={() => {
                 submit(false)
               }}
@@ -194,7 +252,8 @@ export function CreateMissionDialog({ open, onClose, mission, onSaved }: Mission
             </Button>
             <Button
               variant="primary"
-              disabled={!canRun || create.isPending}
+              icon={PlayIcon}
+              disabled={!canSave || create.isPending}
               loading={create.isPending}
               onClick={() => {
                 submit(true)
@@ -208,56 +267,17 @@ export function CreateMissionDialog({ open, onClose, mission, onSaved }: Mission
     >
       <div className="mission-form">
         <section className="mission-form__section">
-          <h3 className="mission-form__title">Mission</h3>
-          <TextField
-            label="Nom"
-            value={name}
-            onChange={(event) => {
-              setNameTouched(true)
-              setName(event.target.value)
-            }}
-            placeholder="Nouveaux entrepôts — Normandie"
-            required
-          />
-          <div className="mission-form__row">
-            <SelectField
-              label="Type"
-              value={type}
-              onChange={(event) => {
-                const next = event.target.value as MissionType
-                setType(next)
-                if (next === 'signals') setResultKind('signals')
-                if (next === 'prospection') {
-                  setResultKind(targets.length > 0 ? 'prospects' : 'companies')
-                }
-              }}
-            >
-              {TYPES.map((value) => {
-                const enabled = options.data?.types.find((item) => item.value === value)?.executable ?? value === 'enrichment'
-                return (
-                  <option key={value} value={value}>
-                    {MISSION_TYPE_LABELS[value]}
-                    {enabled ? '' : ' (bientôt)'}
-                  </option>
-                )
-              })}
-            </SelectField>
-            <SelectField
-              label="Agent"
-              value={agentId}
-              onChange={(event) => {
-                setAgentId(event.target.value)
-              }}
-              hint="Automatique : le premier agent disponible qui sait exécuter ce type."
-            >
-              <option value="">Automatique</option>
-              {(agents.data ?? []).map((agent) => (
-                <option key={agent.id} value={agent.id}>
-                  {agent.label}
-                </option>
-              ))}
-            </SelectField>
-          </div>
+          <h3 className="mission-form__title">
+            <SparklesIcon size={18} /> Que doit faire l’agent ?
+            <InfoTip label="Aide : que doit faire l’agent ?">
+              Une consigne, des données VIPER, une exécution. Les agents proposent ; rien n’est écrit dans la base sans
+              votre validation.
+            </InfoTip>
+          </h3>
+          <KindTiles value={kind} onChange={chooseKind} />
+        </section>
+
+        <section className="mission-form__section">
           <TextAreaField
             label="Consigne"
             value={prompt}
@@ -269,32 +289,77 @@ export function CreateMissionDialog({ open, onClose, mission, onSaved }: Mission
             placeholder="Complète ces fiches avec le site web, le domaine e-mail et les coordonnées professionnelles disponibles."
             required
           />
+          <div className="mission-form__row">
+            <TextField
+              label="Nom"
+              value={name}
+              onChange={(event) => {
+                setNameTouched(true)
+                setName(event.target.value)
+              }}
+              placeholder="Nouveaux entrepôts — Normandie"
+              required
+            />
+            <div className="mission-form__tipped">
+              <SelectField
+                label="Agent"
+                value={agentId}
+                onChange={(event) => {
+                  setAgentId(event.target.value)
+                }}
+              >
+                <option value="">Automatique</option>
+                {(agents.data ?? []).map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.label}
+                  </option>
+                ))}
+              </SelectField>
+              <span className="mission-form__tip">
+                <InfoTip label="Aide : agent">
+                  Automatique : le premier agent connecté (Claude, ChatGPT…) qui sait exécuter ce type prend les tâches.
+                  Choisissez un agent pour lui réserver la mission.
+                </InfoTip>
+              </span>
+            </div>
+          </div>
         </section>
 
         <section className="mission-form__section">
           <h3 className="mission-form__title">
-            Données liées <span className="mission-form__count">{targets.length || ''}</span>
+            <LinkIcon size={18} /> Données liées <span className="mission-form__count">{targets.length || ''}</span>
+            <InfoTip label="Aide : données liées">
+              Sociétés ou prospects déjà dans VIPER. La mission garde leur référence : l’agent relit la fiche à jour à
+              chaque exécution.
+            </InfoTip>
           </h3>
           {targets.length > 0 && (
             <ul className="mission-targets">
-              {targets.map((target) => (
-                <li key={targetKey(target)} className="mission-target">
-                  <span className="mission-target__kind">{target.kind === 'company' ? 'Société' : 'Prospect'}</span>
-                  <span className="mission-target__label">{target.label}</span>
-                  <button
-                    type="button"
-                    className="mission-target__remove"
-                    aria-label={`Retirer ${target.label}`}
-                    onClick={() => {
-                      const next = targets.filter((item) => targetKey(item) !== targetKey(target))
-                      setTargets(next)
-                      if (next.length === 0 && type === 'prospection') setResultKind('companies')
-                    }}
-                  >
-                    ×
-                  </button>
-                </li>
-              ))}
+              {targets.map((target) => {
+                const KindIcon = target.kind === 'company' ? BuildingIcon : UsersIcon
+                return (
+                  <li key={targetKey(target)} className="mission-target">
+                    <span
+                      className="mission-target__icon"
+                      role="img"
+                      aria-label={target.kind === 'company' ? 'Société' : 'Prospect'}
+                    >
+                      <KindIcon size={14} />
+                    </span>
+                    <span className="mission-target__label">{target.label}</span>
+                    <button
+                      type="button"
+                      className="mission-target__remove"
+                      aria-label={`Retirer ${target.label}`}
+                      onClick={() => {
+                        setTargets(targets.filter((item) => targetKey(item) !== targetKey(target)))
+                      }}
+                    >
+                      <CloseIcon size={14} />
+                    </button>
+                  </li>
+                )
+              })}
             </ul>
           )}
           <Button
@@ -307,25 +372,38 @@ export function CreateMissionDialog({ open, onClose, mission, onSaved }: Mission
           >
             Ajouter des données
           </Button>
-          <p className="mission-form__hint">
-            Sociétés ou prospects déjà dans VIPER. La mission garde leur référence : l’agent relit la fiche à jour.
-          </p>
         </section>
 
         <section className="mission-form__section">
-          <h3 className="mission-form__title">Exécution</h3>
-          <div className="mission-form__row">
-            <SelectField
-              label="Récurrence"
-              value={recurring ? 'recurring' : 'once'}
-              onChange={(event) => {
-                setRecurring(event.target.value === 'recurring')
-              }}
-            >
-              <option value="once">Ponctuelle</option>
-              <option value="recurring">Récurrente</option>
-            </SelectField>
-            {recurring && (
+          <h3 className="mission-form__title">
+            <ClockIcon size={18} /> Exécution
+            <InfoTip label="Aide : exécution">
+              Une mission crée des tâches à chaque exécution : maintenant (« Créer et lancer »), à la date de démarrage,
+              puis à chaque échéance si elle est récurrente. Une exécution impossible est notée en échec sur la mission,
+              qui reste active.
+            </InfoTip>
+          </h3>
+          <div className="mission-form__segmented" role="radiogroup" aria-label="Récurrence">
+            {[
+              { value: false, label: 'Une fois', icon: PlayIcon },
+              { value: true, label: 'Récurrente', icon: RepeatIcon },
+            ].map((option) => (
+              <button
+                key={option.label}
+                type="button"
+                role="radio"
+                aria-checked={recurring === option.value}
+                className={`mission-form__segment${recurring === option.value ? ' is-selected' : ''}`}
+                onClick={() => {
+                  setRecurring(option.value)
+                }}
+              >
+                <option.icon size={16} /> {option.label}
+              </button>
+            ))}
+          </div>
+          {recurring && (
+            <div className="mission-form__row">
               <div className="mission-form__inline">
                 <TextField
                   label="Tous les"
@@ -350,19 +428,23 @@ export function CreateMissionDialog({ open, onClose, mission, onSaved }: Mission
                   ))}
                 </SelectField>
               </div>
-            )}
-          </div>
+              <div className="mission-form__tipped">
+                <TextField
+                  label="Démarrage"
+                  type="datetime-local"
+                  value={startsAt}
+                  onChange={(event) => {
+                    setStartsAt(event.target.value)
+                  }}
+                />
+                <span className="mission-form__tip">
+                  <InfoTip label="Aide : démarrage">Vide : la première exécution a lieu tout de suite.</InfoTip>
+                </span>
+              </div>
+            </div>
+          )}
           {recurring && (
             <div className="mission-form__row">
-              <TextField
-                label="Démarrage"
-                type="datetime-local"
-                value={startsAt}
-                onChange={(event) => {
-                  setStartsAt(event.target.value)
-                }}
-                hint="Vide = maintenant."
-              />
               <SelectField
                 label="Fin"
                 value={endKind}
@@ -374,48 +456,36 @@ export function CreateMissionDialog({ open, onClose, mission, onSaved }: Mission
                 <option value="date">À une date</option>
                 <option value="after">Après X exécutions</option>
               </SelectField>
+              {endKind === 'date' && (
+                <TextField
+                  label="Date de fin"
+                  type="datetime-local"
+                  value={endsAt}
+                  onChange={(event) => {
+                    setEndsAt(event.target.value)
+                  }}
+                />
+              )}
+              {endKind === 'after' && (
+                <TextField
+                  label="Nombre d’exécutions"
+                  type="number"
+                  min={1}
+                  value={maxRuns}
+                  onChange={(event) => {
+                    setMaxRuns(event.target.value)
+                  }}
+                />
+              )}
             </div>
-          )}
-          {recurring && endKind === 'date' && (
-            <TextField
-              label="Date de fin"
-              type="datetime-local"
-              value={endsAt}
-              onChange={(event) => {
-                setEndsAt(event.target.value)
-              }}
-            />
-          )}
-          {recurring && endKind === 'after' && (
-            <TextField
-              label="Nombre d’exécutions"
-              type="number"
-              min={1}
-              value={maxRuns}
-              onChange={(event) => {
-                setMaxRuns(event.target.value)
-              }}
-            />
           )}
         </section>
 
         <details className="mission-form__advanced">
-          <summary>Options avancées</summary>
+          <summary>
+            <SlidersIcon size={16} /> Options avancées
+          </summary>
           <div className="mission-form__row">
-            <SelectField
-              label="Résultat attendu"
-              value={resultKind}
-              onChange={(event) => {
-                setResultKind(event.target.value as MissionResultKind)
-              }}
-            >
-              {resultOptions.length === 0 && <option value="enrichment">Informations complétant les fiches</option>}
-              {resultOptions.map((item) => (
-                <option key={item.value} value={item.value}>
-                  {item.label}
-                </option>
-              ))}
-            </SelectField>
             <TextField
               label="Limite par exécution"
               type="number"
@@ -426,8 +496,6 @@ export function CreateMissionDialog({ open, onClose, mission, onSaved }: Mission
                 setResultLimit(event.target.value)
               }}
             />
-          </div>
-          <div className="mission-form__row">
             <TextField
               label="Zone géographique"
               value={geography}
@@ -458,19 +526,18 @@ export function CreateMissionDialog({ open, onClose, mission, onSaved }: Mission
           />
         </details>
 
+        <p className={`mission-form__ready${ready ? ' is-ready' : ''}`} role="status">
+          {ready ? <CheckCircleIcon size={18} /> : <AlertIcon size={18} />}
+          {ready ? (recurring ? 'Prête : elle s’exécutera à chaque échéance.' : 'Prête à être lancée.') : missing}
+        </p>
+
         {saving.isError && (
-          <p className="missions-error">
+          <p className="missions-error" role="alert">
             {saving.error instanceof ApiError
               ? saving.error.message
               : editing
                 ? 'La mission n’a pas pu être enregistrée.'
                 : 'La mission n’a pas pu être créée.'}
-          </p>
-        )}
-        {!executable && (
-          <p className="mission-form__notice">
-            Ce type de mission n’est pas encore exécutable : vous pouvez l’enregistrer, l’exécution viendra avec les
-            schémas de résultat.
           </p>
         )}
       </div>
@@ -483,7 +550,6 @@ export function CreateMissionDialog({ open, onClose, mission, onSaved }: Mission
           const seen = new Set(targets.map(targetKey))
           const next = [...targets, ...added.filter((target) => !seen.has(targetKey(target)))]
           setTargets(next)
-          if (next.length > 0 && type === 'prospection') setResultKind('prospects')
         }}
       />
     </Modal>

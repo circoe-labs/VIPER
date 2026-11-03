@@ -21,7 +21,14 @@ from app.services.contact_tracking import ContactTrackingInput, save_contact_tra
 from tests.builders import add_prospect
 
 # The only routes reachable without a session. Widening this set is a security decision (ADR-0004).
-PUBLIC_ROUTES = {("GET", "/api/health"), ("POST", "/api/auth/login")}
+PUBLIC_ROUTES = {
+    ("GET", "/api/health"),
+    ("POST", "/api/auth/login"),
+    # Sign-in with Infomaniak: what the page offers, the redirect out and the way back.
+    ("GET", "/api/auth/methods"),
+    ("GET", "/api/auth/infomaniak"),
+    ("GET", "/api/auth/infomaniak/callback"),
+}
 # Framework routes outside the routers: the OpenAPI schema and its viewer (no data).
 DOCUMENTATION_PATHS = {"/api/openapi.json", "/api/docs"}
 

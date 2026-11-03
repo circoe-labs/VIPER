@@ -13,6 +13,10 @@ class DomainError(Exception):
     """A business rule refused the operation."""
 
 
+class ForbiddenError(DomainError):
+    """The signed-in person's role does not allow the operation (« Organisation » rights)."""
+
+
 class NotFoundError(DomainError):
     """The targeted entity does not exist."""
 

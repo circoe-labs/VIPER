@@ -1,7 +1,14 @@
 import { type MouseEvent, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 
-import { type MissionCard, type MissionStatus, useMission, useMissionProposals, useMissions } from '../api/missions'
+import {
+  type MissionCard,
+  type MissionStatus,
+  useMission,
+  useMissionProposals,
+  useMissions,
+  useSetMissionStatus,
+} from '../api/missions'
 import { StatusBadge } from '../ui/Badge'
 import { TASK_TYPE_LABELS } from '../agents/labels'
 import { ReviewDialog } from '../agents/ReviewDialog'
@@ -10,11 +17,24 @@ import { Card } from '../ui/Card'
 import { EmptyState } from '../ui/EmptyState'
 import { PageHeader } from '../ui/PageHeader'
 import type { Point } from '../ui/floating'
-import { MoreIcon, PencilIcon, PlusIcon, SparklesIcon, TrashIcon } from '../ui/icons'
+import {
+  AlertIcon,
+  ClockIcon,
+  LinkIcon,
+  MoreIcon,
+  PencilIcon,
+  PlayIcon,
+  PlusIcon,
+  RepeatIcon,
+  SparklesIcon,
+  TrashIcon,
+} from '../ui/icons'
+import { InfoTip } from '../ui/InfoTip'
 import { Menu } from '../ui/Menu'
 import { CreateMissionDialog } from './CreateMissionDialog'
 import { DeleteMissionDialog } from './DeleteMissionDialog'
 import {
+  MISSION_STATUS_ICONS,
   MISSION_STATUS_LABELS,
   MISSION_STATUS_TONES,
   MISSION_TYPE_LABELS,
@@ -33,9 +53,30 @@ const FILTERS: { id: 'all' | MissionStatus; label: string }[] = [
 // A right-click on the card, or its « … » button (keyboard, touch), asks for the mission's menu at a point.
 type OpenMenu = (card: MissionCard, position: Point, alignRight: boolean) => void
 
+// « Reprendre » right on a paused card: a paused mission creates no task, so an agent asking for work finds none.
+function ResumeButton({ card }: { card: MissionCard }) {
+  const setStatus = useSetMissionStatus(card.id)
+  return (
+    <Button
+      size="sm"
+      variant="primary"
+      icon={PlayIcon}
+      className="mission-card__resume"
+      loading={setStatus.isPending}
+      aria-label={`Reprendre la mission ${card.name}`}
+      onClick={() => {
+        setStatus.mutate('active')
+      }}
+    >
+      Reprendre
+    </Button>
+  )
+}
+
 function MissionTile({ card, onMenu }: { card: MissionCard; onMenu: OpenMenu }) {
   const last = momentLabel(card.last_run_at)
   const next = momentLabel(card.next_run_at)
+  const failed = card.last_run_status === 'failed'
   return (
     <>
       <Link
@@ -48,7 +89,7 @@ function MissionTile({ card, onMenu }: { card: MissionCard; onMenu: OpenMenu }) 
       >
         <div className="mission-card__head">
           <h2 className="mission-card__title">{card.name}</h2>
-          <StatusBadge tone={MISSION_STATUS_TONES[card.status]}>
+          <StatusBadge tone={MISSION_STATUS_TONES[card.status]} icon={MISSION_STATUS_ICONS[card.status]}>
             {MISSION_STATUS_LABELS[card.status]}
           </StatusBadge>
         </div>
@@ -57,30 +98,47 @@ function MissionTile({ card, onMenu }: { card: MissionCard; onMenu: OpenMenu }) 
         </p>
         <p className="mission-card__prompt">{card.prompt}</p>
         <p className="mission-card__facts">
-          {String(card.targets_count)} donnée{card.targets_count > 1 ? 's' : ''} liée
-          {card.targets_count > 1 ? 's' : ''} · {recurrenceLabel(card)}
+          <span className="mission-card__fact">
+            <LinkIcon size={14} />
+            {String(card.targets_count)} donnée{card.targets_count > 1 ? 's' : ''} liée
+            {card.targets_count > 1 ? 's' : ''}
+          </span>
+          <span className="mission-card__fact">
+            {card.is_recurring ? <RepeatIcon size={14} /> : <PlayIcon size={14} />}
+            {recurrenceLabel(card)}
+          </span>
         </p>
-        <p className="mission-card__run">
+        <p
+          className={`mission-card__run${failed ? ' is-failed' : ''}`}
+          title={failed ? 'La dernière exécution n’a créé aucune tâche : la raison est notée dans la mission.' : undefined}
+        >
+          {failed ? <AlertIcon size={14} /> : <ClockIcon size={14} />}
           {last ? `Dernière exécution : ${last}` : 'Jamais exécutée'}
+          {failed && ' (échec)'}
           {card.last_run_results > 0 && ` · ${String(card.last_run_results)} résultat${card.last_run_results > 1 ? 's' : ''}`}
         </p>
-        <p className="mission-card__run">{next ? `Prochaine : ${next}` : 'Aucune exécution prévue'}</p>
+        <p className="mission-card__run">
+          <ClockIcon size={14} />
+          {next ? `Prochaine : ${next}` : card.status === 'paused' ? 'En pause : aucune exécution prévue' : 'Aucune exécution prévue'}
+        </p>
         {card.results_pending > 0 && (
           <p className="mission-card__todo">
             {String(card.results_pending)} résultat{card.results_pending > 1 ? 's' : ''} à relire
           </p>
         )}
       </Link>
-      <IconButton
-        size="sm"
-        icon={MoreIcon}
-        label={`Actions de la mission ${card.name}`}
-        className="mission-card__more"
-        onClick={(event) => {
-          const box = event.currentTarget.getBoundingClientRect()
-          onMenu(card, { x: box.right, y: box.bottom }, true)
-        }}
-      />
+      <div className="mission-card__actions">
+        {card.status === 'paused' && <ResumeButton card={card} />}
+        <IconButton
+          size="sm"
+          icon={MoreIcon}
+          label={`Actions de la mission ${card.name}`}
+          onClick={(event) => {
+            const box = event.currentTarget.getBoundingClientRect()
+            onMenu(card, { x: box.right, y: box.bottom }, true)
+          }}
+        />
+      </div>
     </>
   )
 }
@@ -118,7 +176,16 @@ export function MissionsPage() {
     <div className="missions">
       <PageHeader
         title="Missions"
-        description="Ce que vous confiez aux agents : une consigne, des données VIPER, une exécution. Rien n’est écrit sans votre validation."
+        description={
+          <span className="missions-detail__meta">
+            Ce que vous confiez aux agents.
+            <InfoTip label="Aide : missions">
+              Une mission = une consigne, des données VIPER, une exécution. Chaque exécution crée des tâches que les agents
+              connectés (Claude, ChatGPT…) prennent ; leurs propositions attendent votre relecture, rien n’est écrit sans
+              votre validation.
+            </InfoTip>
+          </span>
+        }
         actions={
           <Button
             variant="primary"

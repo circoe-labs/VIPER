@@ -26,6 +26,7 @@ from app.models import (
     User,
 )
 from app.models.enums import ContactMessageStatus, OriginType, PhoneType, SendSource
+from app.models.organizations import OrganizationRole
 from app.services import audit
 from app.services.audit import AuditContext, AuditSource
 from app.services.companies import luhn_valid
@@ -190,7 +191,7 @@ def add_send(
 
 
 # Synthetic pilot account for tests only (never used outside the test database).
-PILOT_EMAIL = "pilote.test@example.com"
+PILOT_EMAIL = "pilote.test@circoe.com"
 PILOT_PASSWORD = "mot-de-passe-de-test-synthetique"
 
 
@@ -205,8 +206,16 @@ def add_user(
     email: str = PILOT_EMAIL,
     password: str = PILOT_PASSWORD,
     display_name: str = "Pilote Test",
+    role: OrganizationRole = OrganizationRole.ADMIN,
+    **extra: Any,
 ) -> User:
-    user = User(email=email, display_name=display_name, password_hash=password_hash(password))
+    user = User(
+        email=email,
+        display_name=display_name,
+        password_hash=password_hash(password),
+        role=role,
+        **extra,
+    )
     session.add(user)
     session.flush()
     return user

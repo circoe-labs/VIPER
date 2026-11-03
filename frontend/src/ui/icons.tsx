@@ -379,3 +379,64 @@ export const SparklesIcon = (props: IconProps) => (
     <path d="M18 14.5v5M15.5 17h5" />
   </Svg>
 )
+
+// Missions: what the agent is asked to do (the « Que doit faire l’agent ? » tiles) and the run state.
+export const CompassIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="m15.5 8.5-2 5-5 2 2-5z" />
+  </Svg>
+)
+
+export const UserPlusIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <circle cx="9" cy="8" r="3.5" />
+    <path d="M2.5 20c0-3.6 2.9-6.5 6.5-6.5 1.6 0 3 .5 4.2 1.4" />
+    <path d="M18 14v6M15 17h6" />
+  </Svg>
+)
+
+export const RadarIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M19.1 4.9A10 10 0 1 0 22 12" />
+    <path d="M15.5 8.5A5 5 0 1 0 17 12" />
+    <path d="m12 12 7-7" />
+    <circle cx="12" cy="12" r="1" />
+  </Svg>
+)
+
+export const ShieldCheckIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M12 3 4.5 6v5.5c0 4.5 3.2 8.2 7.5 9.5 4.3-1.3 7.5-5 7.5-9.5V6z" />
+    <path d="m9 12 2.2 2.2L15.5 10" />
+  </Svg>
+)
+
+export const PlayIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M7 4.5v15l12-7.5z" />
+  </Svg>
+)
+
+export const PauseIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M8 5v14M16 5v14" />
+  </Svg>
+)
+
+export const RepeatIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M4 11V9a3 3 0 0 1 3-3h12" />
+    <path d="m16 3 3 3-3 3" />
+    <path d="M20 13v2a3 3 0 0 1-3 3H5" />
+    <path d="m8 21-3-3 3-3" />
+  </Svg>
+)
+
+export const TargetIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <circle cx="12" cy="12" r="9" />
+    <circle cx="12" cy="12" r="5" />
+    <circle cx="12" cy="12" r="1" />
+  </Svg>
+)

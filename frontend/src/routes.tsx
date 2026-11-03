@@ -10,6 +10,7 @@ import { DatabasePage } from './database/DatabasePage'
 import { MissionDetailPage } from './missions/MissionDetailPage'
 import { MissionsPage } from './missions/MissionsPage'
 import { HomePage } from './home/HomePage'
+import { OrganizationPage } from './organization/OrganizationPage'
 import { ImportPage } from './imports/ImportPage'
 import { ProspectionPage } from './prospection/ProspectionPage'
 import { VerificationPage } from './prospection/VerificationPage'
@@ -40,6 +41,7 @@ const PAGES: RouteObject[] = [
   { path: '/autoriser', element: <OAuthConsentPage /> },
   { path: '/agenda', element: <AgendaPage /> },
   { path: '/database/:table?', element: <DatabasePage /> },
+  { path: '/organisation', element: <OrganizationPage /> },
   { path: '/settings/:section?', element: <SettingsPage /> },
 ]
 

@@ -12,8 +12,8 @@ const COMPANY = '00000000-0000-7000-f000-000000000001'
 
 const OPTIONS: MissionOptions = {
   types: [
-    { value: 'prospection', executable: false },
-    { value: 'signals', executable: false },
+    { value: 'prospection', executable: true },
+    { value: 'signals', executable: true },
     { value: 'enrichment', executable: true },
     { value: 'verification', executable: true },
     { value: 'other', executable: true },
@@ -21,7 +21,7 @@ const OPTIONS: MissionOptions = {
   result_kinds: [
     { value: 'companies', executable: true },
     { value: 'prospects', executable: true },
-    { value: 'signals', executable: false },
+    { value: 'signals', executable: true },
     { value: 'enrichment', executable: true },
   ],
   units: ['hours', 'days', 'weeks', 'months'],
@@ -130,29 +130,82 @@ describe('MissionsPage', () => {
     )
   })
 
-  it('suggests a name from the consigne and needs linked data before launching', async () => {
+  async function openCreate() {
     stubApi({
       ...SHELL_API,
       ...COMMON,
       'GET /api/missions': [200, { items: [], total: 0 }],
     })
     const user = userEvent.setup()
-
     renderApp('/missions')
     const [firstCreate] = await screen.findAllByRole('button', { name: 'Nouvelle mission' })
     expect(firstCreate).toBeDefined()
     await user.click(firstCreate as HTMLElement)
+    return { user, dialog: await screen.findByRole('dialog', { name: 'Nouvelle mission' }) }
+  }
 
-    await user.type(
-      screen.getByLabelText(/Consigne/),
-      'Trouve les commissaires au transport en Normandie',
-    )
+  it('suggests a name from the consigne and says what is missing before saving', async () => {
+    const { user, dialog } = await openCreate()
 
-    expect(screen.getByLabelText(/Nom/)).toHaveValue(
-      'Trouve les commissaires au transport en Normandie',
-    )
-    expect(screen.getByRole('button', { name: 'Créer la mission' })).toBeEnabled()
-    expect(screen.getByRole('button', { name: 'Créer et lancer' })).toBeDisabled()
+    await user.type(within(dialog).getByLabelText(/Consigne/), 'Trouve les commissaires au transport en Normandie')
+
+    expect(within(dialog).getByLabelText(/Nom/)).toHaveValue('Trouve les commissaires au transport en Normandie')
+    // « Compléter des fiches » by default: it works on linked records, none yet.
+    expect(within(dialog).getByRole('radio', { name: 'Compléter des fiches' })).toHaveAttribute('aria-checked', 'true')
+    expect(within(dialog).getByRole('status')).toHaveTextContent('Liez au moins une fiche')
+    expect(within(dialog).getByRole('button', { name: 'Créer la mission' })).toBeDisabled()
+    expect(within(dialog).getByRole('button', { name: 'Créer et lancer' })).toBeDisabled()
+
+    // A discovery starts from nothing: ready at once.
+    await user.click(within(dialog).getByRole('radio', { name: 'Découvrir des sociétés' }))
+    expect(within(dialog).getByRole('status')).toHaveTextContent('Prête à être lancée')
+    expect(within(dialog).getByRole('button', { name: 'Créer la mission' })).toBeEnabled()
+    expect(within(dialog).getByRole('button', { name: 'Créer et lancer' })).toBeEnabled()
+  })
+
+  it('blocks a signals mission without a company to watch, and explains each kind on hover', async () => {
+    const { user, dialog } = await openCreate()
+    await user.type(within(dialog).getByLabelText(/Consigne/), 'Nouveaux entrepôts en Normandie')
+
+    await user.click(within(dialog).getByRole('radio', { name: 'Surveiller des signaux' }))
+
+    expect(within(dialog).getByRole('status')).toHaveTextContent('Liez au moins une société à surveiller')
+    expect(within(dialog).getByRole('button', { name: 'Créer la mission' })).toBeDisabled()
+    expect(within(dialog).getByRole('button', { name: 'Créer et lancer' })).toBeDisabled()
+    // The explanation is a hover/focus tip, linked to its « i » for assistive tech.
+    const tip = within(dialog).getByRole('button', { name: 'Aide : Surveiller des signaux' })
+    expect(tip).toHaveAccessibleDescription(/surveille les sociétés liées/)
+    await user.hover(tip)
+    expect(document.querySelector('.info-tip__bubble')).toHaveTextContent(/surveille les sociétés liées/)
+    await user.unhover(tip)
+    expect(document.querySelector('.info-tip__bubble')).toBeNull()
+  })
+
+  it('moves between kinds with the arrow keys', async () => {
+    const { user, dialog } = await openCreate()
+    within(dialog).getByRole('radio', { name: 'Compléter des fiches' }).focus()
+
+    await user.keyboard('{ArrowRight}')
+
+    expect(within(dialog).getByRole('radio', { name: 'Vérifier des fiches' })).toHaveAttribute('aria-checked', 'true')
+    expect(within(dialog).getByRole('radio', { name: 'Vérifier des fiches' })).toHaveFocus()
+  })
+
+  it('offers « Reprendre » on a paused card', async () => {
+    const fetchMock = stubApi({
+      ...SHELL_API,
+      ...COMMON,
+      'GET /api/missions': [200, { items: [card({ status: 'paused', next_run_at: null })], total: 1 }],
+      [`PATCH /api/missions/${MISSION}`]: [200, detail()],
+    })
+    const user = userEvent.setup()
+    renderApp('/missions')
+
+    expect(await screen.findByText('En pause : aucune exécution prévue')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Reprendre la mission Nouveaux entrepôts — Normandie' }))
+
+    const patch = fetchMock.mock.calls.find(([, init]) => init?.method === 'PATCH')?.[1]?.body
+    expect(typeof patch === 'string' ? JSON.parse(patch) : null).toEqual({ status: 'active' })
   })
 })
 
@@ -254,6 +307,24 @@ describe('MissionDetailPage', () => {
     expect(screen.getByText('Transports X')).toBeInTheDocument()
     expect(screen.getByText(/1 tâche · 1 résultat/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Relire' })).toBeInTheDocument()
+  })
+
+  it('says why the last run failed and that a paused mission creates no task', async () => {
+    const mission = detail()
+    mission.card = card({ status: 'paused', next_run_at: null })
+    const [firstRun] = mission.runs
+    if (firstRun) {
+      firstRun.status = 'failed'
+      firstRun.note = 'Liez au moins une société à surveiller.'
+    }
+    stubApi({ ...SHELL_API, ...COMMON, [`GET /api/missions/${MISSION}`]: [200, mission] })
+
+    renderApp(`/missions/${MISSION}`)
+
+    expect(await screen.findByText(/aucune tâche n’est créée/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Reprendre' })).toBeInTheDocument()
+    expect(screen.getByText(/Dernière exécution en échec : Liez au moins une société/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Lancer maintenant' })).toBeDisabled()
   })
 
   it('deletes the mission after a confirmation and goes back to the list', async () => {

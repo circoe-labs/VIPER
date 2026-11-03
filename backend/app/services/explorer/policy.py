@@ -46,6 +46,12 @@ class ColumnPolicy:
 
 
 DEFAULT_COLUMN_POLICY = ColumnPolicy()
+# The owning organisation of a root table (`OrganizationOwnedMixin`): set by the database, never
+# edited in the explorer (the read-only SQL console keeps `SELECT *` working).
+OWNER_COLUMN = "organization_id"
+OWNER_POLICY = ColumnPolicy(
+    edit=ColumnEdit.READ_ONLY, reason="Organisation propriétaire : fixée par VIPER."
+)
 READ_ONLY_TABLE = "Table en lecture seule dans l’explorateur."
 
 
@@ -74,6 +80,8 @@ class TablePolicy:
     label_columns: tuple[str, ...] = ()
 
     def column(self, name: str) -> ColumnPolicy:
+        if name == OWNER_COLUMN:
+            return OWNER_POLICY
         return self.columns.get(name, DEFAULT_COLUMN_POLICY)
 
 
@@ -238,6 +246,7 @@ UNEXPOSED_TABLES: Mapping[str, str] = {
     "oauth_clients": "Connecteurs MCP enregistrés (ChatGPT, Claude…) : identifiants et condensats.",
     "oauth_authorizations": "Demandes d’autorisation OAuth et codes à usage unique (condensats).",
     "oauth_tokens": "Jetons OAuth des connecteurs MCP : seuls des condensats.",
+    "organizations": "Organisations : gérées depuis la page Organisation.",
 }
 
 DEFAULT_POLICY = ExposurePolicy(tables=EXPOSED_TABLES)

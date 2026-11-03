@@ -27,7 +27,7 @@ from app.db.session import unit_of_work
 from app.models.agent_missions import AgentTask
 from app.models.enums import AgentTaskStatus, AgentTaskType
 from app.models.mcp import McpToken
-from app.services import agent_missions, agent_writes, mcp_reads, mcp_tokens, oauth
+from app.services import agent_missions, agent_writes, mcp_reads, mcp_tokens, missions, oauth
 from app.services.errors import (
     ActorNotAllowedError,
     ConflictError,
@@ -399,7 +399,15 @@ def _claim(
         lease=_lease(args),
     )
     if claimed is None:
-        return {"task": None}
+        return {
+            "task": None,
+            "hint": (
+                "No task is waiting. A task is created when a mission runs: at its next_run_at, "
+                "or when a person clicks « Lancer maintenant » in VIPER > Missions. A paused "
+                "mission creates none; a failed last run gives its reason."
+            ),
+            "missions": missions.idle_summary(session),
+        }
     return {**claimed.payload, "claim_id": str(claimed.claim_id)}
 
 

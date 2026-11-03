@@ -19,6 +19,35 @@
   font-size: var(--text-sm);
 }
 
+/* A state the person should act on: paused, cannot run, last run failed. */
+.missions-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-warning-soft);
+  color: var(--color-warning-fg);
+  font-size: var(--text-sm);
+}
+
+.missions-banner--danger {
+  background: var(--color-danger-soft);
+  color: var(--color-danger-fg);
+}
+
+.missions-banner > svg {
+  flex: none;
+}
+
+.mission-run__note.is-failed {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-danger-fg);
+}
+
 .missions-back {
   display: inline-flex;
   align-items: center;
@@ -113,7 +142,33 @@
 }
 
 .mission-card__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
   color: var(--color-text-muted);
+}
+
+.mission-card__fact,
+.mission-card__run {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.mission-card__run > svg,
+.mission-card__fact > svg {
+  flex: none;
+  color: var(--color-text-muted);
+}
+
+.mission-card__run.is-failed,
+.mission-card__run.is-failed > svg {
+  color: var(--color-danger-fg);
+}
+
+/* Room for « Reprendre » and « … » under the last line. */
+.mission-card {
+  padding-bottom: var(--space-10);
 }
 
 .mission-card__todo {
@@ -156,6 +211,11 @@
   font-size: var(--text-sm);
 }
 
+.mission-target__icon {
+  display: inline-flex;
+  color: var(--color-text-muted);
+}
+
 .mission-target__kind {
   color: var(--color-text-muted);
   font-size: var(--text-xs);
@@ -174,6 +234,8 @@
 }
 
 .mission-target__remove {
+  display: inline-flex;
+  padding: 0;
   border: none;
   background: none;
   color: var(--color-text-muted);
@@ -249,8 +311,15 @@
 }
 
 .mission-form__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   margin: 0;
   font-size: var(--text-md);
+}
+
+.mission-form__title > svg {
+  color: var(--color-text-muted);
 }
 
 .mission-form__count {
@@ -276,19 +345,127 @@
   min-width: 6rem;
 }
 
-.mission-form__hint {
-  margin: 0;
+/* A field with its « i » at the top-right corner, beside (never inside) its label. */
+.mission-form__tipped {
+  position: relative;
+}
+
+.mission-form__tip {
+  position: absolute;
+  top: -2px;
+  right: 0;
+}
+
+/* « Que doit faire l’agent ? » */
+.mission-kinds {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--space-2);
+}
+
+.mission-kind {
+  position: relative;
+}
+
+.mission-kind__choice {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  height: 100%;
+  padding: var(--space-4) var(--space-3) var(--space-3);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
   color: var(--color-text-muted);
+  cursor: pointer;
+  font: inherit;
+  text-align: center;
+}
+
+.mission-kind__choice:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+}
+
+.mission-kind__choice:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-focus);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.mission-kind.is-selected .mission-kind__choice {
+  border-color: var(--color-focus);
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+  box-shadow: inset 0 0 0 1px var(--color-focus);
+}
+
+.mission-kind__label {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.mission-kind__tip {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-1);
+}
+
+/* Une fois / Récurrente */
+.mission-form__segmented {
+  display: inline-flex;
+  width: fit-content;
+  padding: 2px;
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-muted);
+}
+
+.mission-form__segment {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font: inherit;
   font-size: var(--text-sm);
 }
 
-.mission-form__notice {
+.mission-form__segment.is-selected {
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: var(--shadow-sm);
+}
+
+.mission-form__segment:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-focus);
+}
+
+/* Can the rule run? Shape + text, never colour alone. */
+.mission-form__ready {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   margin: 0;
-  padding: var(--space-3);
+  padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-md);
-  background: var(--color-warning-bg);
+  background: var(--color-warning-soft);
   color: var(--color-warning-fg);
   font-size: var(--text-sm);
+}
+
+.mission-form__ready.is-ready {
+  background: var(--color-success-soft);
+  color: var(--color-success-fg);
+}
+
+.mission-form__ready > svg {
+  flex: none;
 }
 
 .mission-form__advanced {
@@ -298,6 +475,9 @@
 }
 
 .mission-form__advanced summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   cursor: pointer;
   font-size: var(--text-sm);
   font-weight: var(--font-weight-medium);
@@ -403,8 +583,11 @@
   position: relative;
 }
 
-.mission-card__more {
+.mission-card__actions {
   position: absolute;
   right: var(--space-2);
   bottom: var(--space-2);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
 }
