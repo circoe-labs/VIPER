@@ -69,7 +69,10 @@ target:
 - **prospection** with company targets → `find_employees` (people to discover, deduped against the
   base, created as `future_agent` after review);
 - **prospection** without targets, expected result « Sociétés » → one `find_prospects` task: new
-  companies matching the brief, deduped by name/SIREN/domain, created after review.
+  companies matching the brief, deduped by name/SIREN/domain, created after review — with the sites
+  the brief is about (deduped by SIRET, then city + name) and the dated trigger that brought each
+  one in (a company signal such as `facility_opening`), all three in the acceptance's single
+  transaction (`agent-missions.md` §5.5).
 
 Prospect-only or company-only missions are therefore both possible. A run's status is derived from
 its tasks (`refresh_run`): `running` while a task is pending/claimed/submitted, `done` when all are
@@ -110,7 +113,7 @@ shows the source next to each proposed value. For a mission, the agent must quot
 value without a source is still reviewable but visibly unsourced.
 
 Signals add `observed_on`, `source_channel`, `score_reason`, `relevance`, `valid_until` and a
-`SignalKind`; the same rule holds: no signal without a dated, public source. A signal about a named
+`SignalKind` (site events included: `facility_opening`, `facility_expansion`, `construction`, `relocation`); the same rule holds: no signal without a dated, public source. A signal about a named
 person is resolved against the company's prospects; an unresolved name stays company-level and the
 review shows it as such.
 
