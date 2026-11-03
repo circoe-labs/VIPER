@@ -50,7 +50,7 @@ def test_the_vocabulary_is_closed_and_ordered() -> None:
         "tasks.work",
         "missions.run",
     ]
-    with pytest.raises(ValueError, match="missions.delete"):
+    with pytest.raises(ValueError, match=r"missions\.delete"):
         caps.normalize(["missions.delete"])
     assert set(caps.CAPABILITY_LABELS) == set(caps.CAPABILITIES)
     assert caps.defaults(AgentMode.WORKER) == ["tasks.work", "records.read", "records.propose"]
@@ -101,16 +101,21 @@ def test_require_refuses_missions_write_to_a_worker(db_session: Session) -> None
     _, record = mcp_tokens.mint(db_session, label="Worker", scopes=["*"])
     assert record.mode is AgentMode.WORKER
 
+    _, other = mcp_tokens.mint(db_session, label="Autre", scopes=["*"])
+
     with mcp.granted(caps.grant_for(db_session, record)):
-        mcp.require("tasks.work")
+        mcp.require(record, "tasks.work")
         with pytest.raises(CapabilityDeniedError) as refused:
-            mcp.require("missions.write")
+            mcp.require(record, "missions.write")
+        # The grant of this request never lends its rights to another agent.
+        with pytest.raises(CapabilityDeniedError):
+            mcp.require(other, "tasks.work")
     assert refused.value.capability == "missions.write"
     # Outside a request nothing is allowed, and a typo is a programming error.
     with pytest.raises(CapabilityDeniedError):
-        mcp.require("tasks.work")
+        mcp.require(record, "tasks.work")
     with mcp.granted(_grant(record, list(caps.CAPABILITIES))), pytest.raises(ValueError):
-        mcp.require("missions.delete")
+        mcp.require(record, "missions.delete")
 
 
 def test_every_tool_but_whoami_requires_a_capability(
@@ -150,14 +155,15 @@ def test_a_worker_keeps_its_tools(client: TestClient, db_session: Session) -> No
     company = add_company(db_session, display_name="2SN")
 
     assert call(client, token, "viper_task_queue", {})["isError"] is False
-    assert call(client, token, "viper_get_company", {"company_id": str(company.id)})[
-        "isError"
-    ] is False
+    assert (
+        call(client, token, "viper_get_company", {"company_id": str(company.id)})["isError"]
+        is False
+    )
     proposed = call(
         client,
         token,
         "viper_update_company",
-        {"company_id": str(company.id), "result": {"display_name": "2SN"}},
+        {"company_id": str(company.id), "result": {"legal_name": "2SN SAS", "confidence": 80}},
     )
     assert proposed["structuredContent"].get("code") != "capability_denied"
 
@@ -247,7 +253,7 @@ def test_an_agent_acting_for_a_person_stays_the_actor_and_carries_that_person(
         anonymous_client,
         answer["access_token"],
         "viper_update_company",
-        {"company_id": str(company.id), "result": {"display_name": "2SN"}},
+        {"company_id": str(company.id), "result": {"legal_name": "2SN SAS", "confidence": 80}},
     )
     assert proposed["isError"] is False, proposed
 
@@ -341,12 +347,15 @@ def test_0025_backfills_workers_and_oauth_connectors_and_downgrades(
     command.downgrade(config, "0024")
     worker, connector = uuid.uuid4(), uuid.uuid4()
     with engine.begin() as connection:
-        assert connection.execute(
-            text(
-                "SELECT count(*) FROM information_schema.columns "
-                "WHERE table_name = 'mcp_tokens' AND column_name = 'capabilities'"
-            )
-        ).scalar_one() == 0
+        assert (
+            connection.execute(
+                text(
+                    "SELECT count(*) FROM information_schema.columns "
+                    "WHERE table_name = 'mcp_tokens' AND column_name = 'capabilities'"
+                )
+            ).scalar_one()
+            == 0
+        )
         user = connection.execute(
             text(
                 "INSERT INTO users (email, display_name) "

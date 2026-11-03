@@ -35,7 +35,7 @@ and nothing leaves VIPER.
 
 import uuid
 from datetime import UTC, datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Path, Request, Response, status
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints
@@ -348,13 +348,19 @@ def result_out(result: MessageResult) -> MessageResultOut:
 
 
 @router.get("")
-def list_messages(
-    prospect_id: uuid.UUID, request: Request, session: SessionDep, settings: SettingsDep
-) -> MessagesOut:
+def list_messages(prospect_id: uuid.UUID, request: Request, session: SessionDep) -> MessagesOut:
     with business_errors():
-        read = service.prospect_messages(session, prospect_id, settings.default_outbound_email)
-    toolbox_state = request.app.state.toolbox.status().state
-    reason = sending_reason(request.app.state)
+        return messages_out(request.app.state, session, prospect_id)
+
+
+def messages_out(state: Any, session: Session, prospect_id: uuid.UUID) -> MessagesOut:
+    """One prospect's mail sequence; `state` is the app's `State` (settings, Toolbox, dispatcher).
+    Raises the service's refusals (`NotFoundError`…). Shared with the MCP tool
+    `viper_get_prospect_messages`."""
+    settings: Settings = state.settings
+    read = service.prospect_messages(session, prospect_id, settings.default_outbound_email)
+    toolbox_state = state.toolbox.status().state
+    reason = sending_reason(state)
     context = read.context
     progress = read.place.progress
     return MessagesOut(

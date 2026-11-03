@@ -1,4 +1,4 @@
-"""VIPER's MCP endpoint: the six tools an agent uses to work, and nothing more.
+"""VIPER's MCP endpoint: the tools an agent uses to work, and the reads an assistant answers with.
 
 Streamable HTTP, JSON-RPC 2.0, one `POST /mcp` (`initialize` → `notifications/initialized` →
 `tools/list` / `tools/call`). It lives **outside** `/api` on purpose: the session cookie and the
@@ -6,12 +6,14 @@ CSRF header do not apply to a machine, so the route carries its own `Authorizati
 (`app.services.mcp_tokens`) and its own actor (`ActorType.AGENT`).
 
 No tool writes to the base. `viper_submit_task_result` stores a proposal; a person accepts it
-in the interface. Contract: `doc/architecture/mcp-server.md` §3.7 and
+in the interface. The conversational reads (search, dashboard, missions, reviews, contact) live in
+`app.api.mcp_conversational`. Contract: `doc/architecture/mcp-server.md` §3.7, §3.9 and
 `doc/architecture/agent-missions.md`.
 
-Every tool but `viper_whoami` starts with `require(<capability>)`: the call is refused unless the
-agent's effective capabilities (its own ∩ its delegated person's role, computed once per request
-by `agent_capabilities.grant_for`) include it. Contract: `doc/architecture/mcp-server.md` §4.7.
+Every tool but `viper_whoami` starts with `require(record, <capability>)`: the call is refused
+unless the agent's effective capabilities (its own ∩ its delegated person's role, computed once
+per request by `agent_capabilities.grant_for`) include it.
+Contract: `doc/architecture/mcp-server.md` §4.7.
 """
 
 import json
@@ -28,9 +30,9 @@ from fastapi.responses import JSONResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.api import mcp_conversational
 from app.api.oauth import resource_metadata_url
 from app.core.actor import ActorContext, ActorType
-from app.core.config import Settings
 from app.db.session import unit_of_work
 from app.models.agent_missions import AgentTask
 from app.models.enums import AgentTaskStatus, AgentTaskType
@@ -69,8 +71,9 @@ MAX_LEASE_SECONDS = 3600
 _current_grant: ContextVar[AgentGrant | None] = ContextVar("viper_mcp_grant", default=None)
 
 
-def require(capability: str) -> None:
-    """The single MCP guard: refuse the tool unless the calling agent holds `capability`.
+def require(record: McpToken, capability: str) -> None:
+    """The single MCP guard: refuse the tool unless the calling agent `record` holds
+    `capability` in this request's grant (its own capabilities ∩ its delegated person's role).
 
     Raises `CapabilityDeniedError`, which the dispatcher answers as an MCP error with the code
     `capability_denied` and which `mcp_calls` keeps as a refused call.
@@ -79,7 +82,8 @@ def require(capability: str) -> None:
         # A typo in a tool would otherwise deny it forever without saying why.
         raise ValueError(f"Unknown capability {capability!r}.")
     grant = _current_grant.get()
-    if grant is None or not grant.allows(capability):
+    # Fails closed: no grant (outside a request) or the grant of another agent allows nothing.
+    if grant is None or grant.token.id != record.id or not grant.allows(capability):
         raise CapabilityDeniedError(capability)
 
 
@@ -303,6 +307,18 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
 ]
+# The identity and record reads change nothing: the same advisory hints as the conversational reads.
+_READ_ONLY_TOOLS = {
+    "viper_whoami",
+    "viper_list_companies",
+    "viper_get_company",
+    "viper_list_prospects",
+    "viper_get_prospect",
+}
+for _tool in TOOLS:
+    if _tool["name"] in _READ_ONLY_TOOLS:
+        _tool["annotations"] = mcp_conversational.READ_ONLY_ANNOTATIONS
+TOOLS.extend(tool.definition() for tool in mcp_conversational.TOOLS)
 
 
 def _rpc(id_: Any, result: Any) -> dict[str, Any]:
@@ -537,22 +553,27 @@ def _call_tool(
     session: Session,
     actor: ActorContext,
     record: McpToken,
-    settings: Settings,
+    state: Any,
 ) -> dict[str, Any]:
-    # Each branch starts with its `require`: a refused call touches nothing.
+    # Each tool starts with its `require`: a refused call touches nothing.
+    read_tool = mcp_conversational.BY_NAME.get(name)
+    if read_tool is not None:
+        require(record, read_tool.capability)
+        context = mcp_conversational.ReadContext(session=session, state=state)
+        return _payload(read_tool.handler(context, args))
     match name:
         case "viper_whoami":
             # No capability: an agent must always be able to learn what it may do.
             return _payload(_whoami())
         case "viper_claim_task":
-            require("tasks.work")
+            require(record, "tasks.work")
             return _payload(_claim(session, actor, record, args))
         case "viper_task_queue":
-            require("tasks.work")
+            require(record, "tasks.work")
             counts = agent_missions.queue_counts(session, mcp_tokens.task_types(record))
             return _payload({"tasks": counts})
         case "viper_heartbeat_task":
-            require("tasks.work")
+            require(record, "tasks.work")
             expires = agent_missions.heartbeat(
                 session,
                 actor,
@@ -562,10 +583,10 @@ def _call_tool(
             )
             return _payload({"lease_expires_at": expires.isoformat()})
         case "viper_submit_task_result":
-            require("tasks.work")
+            require(record, "tasks.work")
             return _payload(_submit(session, actor, args))
         case "viper_fail_task":
-            require("tasks.work")
+            require(record, "tasks.work")
             task = agent_missions.fail(
                 session,
                 actor,
@@ -576,22 +597,22 @@ def _call_tool(
             )
             return _payload({"status": task.status.value})
         case "viper_release_task":
-            require("tasks.work")
+            require(record, "tasks.work")
             task = agent_missions.release(
                 session, actor, _uuid(args, "task_id"), _uuid(args, "claim_id")
             )
             return _payload({"status": task.status.value})
         case "viper_list_companies":
-            require("records.read")
+            require(record, "records.read")
             limit, offset = _page(args)
             return _payload(
                 mcp_reads.list_companies(session, search=_search(args), limit=limit, offset=offset)
             )
         case "viper_get_company":
-            require("records.read")
+            require(record, "records.read")
             return _payload(mcp_reads.get_company(session, _uuid(args, "company_id")))
         case "viper_list_prospects":
-            require("records.read")
+            require(record, "records.read")
             limit, offset = _page(args)
             return _payload(
                 mcp_reads.list_prospects(
@@ -603,17 +624,19 @@ def _call_tool(
                 )
             )
         case "viper_get_prospect":
-            require("records.read")
-            return _payload(mcp_reads.get_prospect(session, _uuid(args, "prospect_id"), settings))
+            require(record, "records.read")
+            return _payload(
+                mcp_reads.get_prospect(session, _uuid(args, "prospect_id"), state.settings)
+            )
         case "viper_update_company":
-            require("records.propose")
+            require(record, "records.propose")
             _require_scope(record, AgentTaskType.UPDATE_COMPANY)
             stored = agent_writes.propose_company_update(
                 session, actor, _uuid(args, "company_id"), _result(args)
             )
             return _payload(_stored(stored))
         case "viper_update_prospect":
-            require("records.propose")
+            require(record, "records.propose")
             _require_scope(record, AgentTaskType.UPDATE_EMPLOYEE)
             stored = agent_writes.propose_prospect_update(
                 session, actor, _uuid(args, "prospect_id"), _result(args)
@@ -628,7 +651,7 @@ def _handle(
     session: Session,
     actor: ActorContext,
     record: McpToken,
-    settings: Settings,
+    state: Any,
 ) -> dict[str, Any] | None:
     method = message.get("method")
     id_ = message.get("id")
@@ -661,7 +684,7 @@ def _handle(
             started = time.monotonic()
             try:
                 with session.begin_nested():
-                    payload = _call_tool(str(name), args, session, actor, record, settings)
+                    payload = _call_tool(str(name), args, session, actor, record, state)
             except DomainError as error:
                 payload = _refusal(error)
             _log_call(session, record, str(name), args, payload, started)
@@ -723,7 +746,7 @@ def _bearer(request: Request) -> str | None:
 
 
 def _dispatch(
-    body: Any, session: Session, actor: ActorContext, record: McpToken, settings: Settings
+    body: Any, session: Session, actor: ActorContext, record: McpToken, state: Any
 ) -> Any:
     if isinstance(body, list):
         if not body:
@@ -732,13 +755,13 @@ def _dispatch(
             answer
             for message in body
             if isinstance(message, dict)
-            for answer in [_handle(message, session, actor, record, settings)]
+            for answer in [_handle(message, session, actor, record, state)]
             if answer is not None
         ]
         return answers or None
     if not isinstance(body, dict):
         return _error(None, -32600, "Invalid request.")
-    return _handle(body, session, actor, record, settings)
+    return _handle(body, session, actor, record, state)
 
 
 @router.post("")
@@ -756,7 +779,7 @@ def handle_mcp(request: Request, body: Annotated[Any, Body()]) -> Any:
         # The agent stays the actor; the person it acts for rides along (« ChatGPT pour Lucie »).
         audit.bind(session, actor, _audit_context(grant))
         with granted(grant):
-            answer = _dispatch(body, session, actor, record, request.app.state.settings)
+            answer = _dispatch(body, session, actor, record, request.app.state)
     if answer is None:
         return Response(status_code=202)
     return JSONResponse(answer)

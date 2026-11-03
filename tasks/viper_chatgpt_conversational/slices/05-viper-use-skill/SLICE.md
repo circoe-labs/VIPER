@@ -2,12 +2,20 @@
 
 Tier QA : **docs**, plus `agent-trace-analysis` en Slice 08. Références : HANDOFF §11 et §12.
 
-- **Skill `viper-use`** : trois modes (interactif, worker, planifié).
-  - Rappeler que les droits sont appliqués par le serveur et que le skill n'est pas une autorisation.
-  - Ne pas recopier les schémas d'outils.
-  - Commencer par `viper_whoami` pour connaître le mode et les capacités.
-- **Routage CIRCOE** : mettre à jour la consigne (IGuard / Toolbox / VIPER) en gardant l'exception pour les mails
-  d'une séquence VIPER.
-- **Emplacement** : `doc/agents/viper-use/SKILL.md` dans ce dépôt sert de source, avec une note sur la publication
-  côté ChatGPT. Si la consigne de routage CIRCOE n'est pas dans ce dépôt, demander au Human où elle se trouve.
-- **Noms d'outils** : ceux des Slices 02 et 03, à réconcilier en Slice 08.
+**État : IMPLEMENTED (2026-11-03), hors dépôt.** Décision du Human : le skill et le routage concernent la
+configuration de ChatGPT, pas le dépôt VIPER, donc aucun fichier n'est ajouté au dépôt.
+
+## Livrable
+
+Il a été remis au Human dans `C:\Users\Clarice\Downloads\viper-use\` (et en archive `viper-use.zip`) :
+
+- `SKILL.md` : modes interactif, worker et planifié. Toute session commence par `viper_whoami`, et les droits
+  sont appliqués par le serveur.
+- `EXAMPLES.md` : les demandes du handoff, avec les appels attendus pour chacune.
+- `circoe-routing-snippet.md` : la section VIPER à intégrer dans le skill de routage CIRCOE côté ChatGPT.
+- `README.md` : les étapes de publication.
+
+## Suite
+
+- Slice 08 : réconcilier les noms d'outils avec ceux réellement livrés par les Slices 01, 02, 03 et 07, puis
+  fournir au Human une version à jour du skill à republier dans ChatGPT.
