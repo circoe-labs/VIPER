@@ -5,9 +5,10 @@ Streamable HTTP, JSON-RPC 2.0, one `POST /mcp` (`initialize` → `notifications/
 CSRF header do not apply to a machine, so the route carries its own `Authorization: Bearer` check
 (`app.services.mcp_tokens`) and its own actor (`ActorType.AGENT`).
 
-No tool writes to the base. `viper_submit_task_result` stores a proposal; a person accepts it
-in the interface. The conversational reads (search, dashboard, missions, reviews, contact) live in
-`app.api.mcp_conversational`. Contract: `doc/architecture/mcp-server.md` §3.7, §3.9 and
+No tool writes a record directly. `viper_submit_task_result` stores a proposal; a person accepts
+it in the interface. The conversational reads (search, dashboard, missions, reviews, contact) live
+in `app.api.mcp_conversational`; the mission actions (create, modify, launch, pause, cancel,
+delete) in `app.api.mcp_missions`. Contract: `doc/architecture/mcp-server.md` §3.7, §3.9 and
 `doc/architecture/agent-missions.md`.
 
 Every tool but `viper_whoami` starts with `require(record, <capability>)`: the call is refused
@@ -30,7 +31,7 @@ from fastapi.responses import JSONResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api import mcp_conversational
+from app.api import mcp_conversational, mcp_missions
 from app.api.oauth import resource_metadata_url
 from app.core.actor import ActorContext, ActorType
 from app.db.session import unit_of_work
@@ -319,6 +320,7 @@ for _tool in TOOLS:
     if _tool["name"] in _READ_ONLY_TOOLS:
         _tool["annotations"] = mcp_conversational.READ_ONLY_ANNOTATIONS
 TOOLS.extend(tool.definition() for tool in mcp_conversational.TOOLS)
+TOOLS.extend(tool.definition() for tool in mcp_missions.TOOLS)
 
 
 def _rpc(id_: Any, result: Any) -> dict[str, Any]:
@@ -561,6 +563,12 @@ def _call_tool(
         require(record, read_tool.capability)
         context = mcp_conversational.ReadContext(session=session, state=state)
         return _payload(read_tool.handler(context, args))
+    mission_tool = mcp_missions.BY_NAME.get(name)
+    if mission_tool is not None:
+        for capability in mission_tool.required(args):
+            require(record, capability)
+        mission_context = mcp_missions.MissionContext(session=session, actor=actor)
+        return _payload(mission_tool.handler(mission_context, args))
     match name:
         case "viper_whoami":
             # No capability: an agent must always be able to learn what it may do.

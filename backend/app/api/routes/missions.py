@@ -186,7 +186,7 @@ def detail_out(detail: missions.MissionDetail) -> MissionDetailOut:
     )
 
 
-def _input(body: MissionIn) -> missions.MissionInput:
+def mission_input(body: MissionIn) -> missions.MissionInput:
     targets = tuple(
         missions.TargetInput(
             company_id=target.id if target.kind == "company" else None,
@@ -265,7 +265,7 @@ def mission_targets(
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_mission(body: MissionIn, session: SessionDep, actor: CurrentActor) -> MissionDetailOut:
     with business_errors():
-        mission = missions.create(session, actor, _input(body), run_now=body.run_now)
+        mission = missions.create(session, actor, mission_input(body), run_now=body.run_now)
         detail = missions.detail(session, mission.id)
     return detail_out(detail)
 
@@ -299,7 +299,7 @@ def edit_mission(
 ) -> MissionDetailOut:
     """« Modifier la mission »: the whole rule, linked data included (`run_now` is ignored)."""
     with business_errors():
-        missions.update(session, actor, mission_id, _input(body))
+        missions.update(session, actor, mission_id, mission_input(body))
         detail = missions.detail(session, mission_id)
     return detail_out(detail)
 
