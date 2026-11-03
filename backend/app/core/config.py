@@ -102,6 +102,9 @@ class Settings(BaseSettings):
     infomaniak_client_id: str | None = None
     infomaniak_client_secret: SecretStr | None = None
     infomaniak_issuer: str = "https://login.infomaniak.com"
+    # Off until the Infomaniak callback is set up: the client id/secret alone do not switch the
+    # sign-in on, so the password form stays.
+    infomaniak_login_enabled: bool = False
     # Development phase: only addresses of these domains may sign in (comma-separated).
     signin_email_domains: str = "circoe.com"
     # None = the password form is offered only while Infomaniak is not configured (local dev).
@@ -243,7 +246,11 @@ class Settings(BaseSettings):
 
     @property
     def infomaniak_configured(self) -> bool:
-        return self.infomaniak_client_id is not None and self.infomaniak_client_secret is not None
+        return (
+            self.infomaniak_login_enabled
+            and self.infomaniak_client_id is not None
+            and self.infomaniak_client_secret is not None
+        )
 
     @property
     def password_login_allowed(self) -> bool:

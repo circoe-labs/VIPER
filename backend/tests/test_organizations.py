@@ -52,7 +52,11 @@ class FakeInfomaniak:
 def infomaniak(app: FastAPI) -> FakeInfomaniak:
     fake = FakeInfomaniak()
     app.state.settings = app.state.settings.model_copy(
-        update={"infomaniak_client_id": "viper-id", "infomaniak_client_secret": SecretStr("s3")}
+        update={
+            "infomaniak_login_enabled": True,
+            "infomaniak_client_id": "viper-id",
+            "infomaniak_client_secret": SecretStr("s3"),
+        }
     )
     app.state.infomaniak_transport = httpx2.MockTransport(fake.handle)
     return fake
@@ -159,7 +163,11 @@ def test_infomaniak_replaces_the_password_once_configured(
     assert anonymous_client.post("/api/auth/login", json=credentials).status_code == 200
 
     app.state.settings = app.state.settings.model_copy(
-        update={"infomaniak_client_id": "id", "infomaniak_client_secret": SecretStr("s")}
+        update={
+            "infomaniak_login_enabled": True,
+            "infomaniak_client_id": "id",
+            "infomaniak_client_secret": SecretStr("s"),
+        }
     )
 
     assert anonymous_client.get("/api/auth/methods").json() == {

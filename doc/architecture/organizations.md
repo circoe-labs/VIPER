@@ -44,6 +44,10 @@
   indique à la page de connexion ce qu'elle doit proposer.
 - **Configuration** : `VIPER_INFOMANIAK_CLIENT_ID` et `VIPER_INFOMANIAK_CLIENT_SECRET` sont à créer dans le Manager
   Infomaniak, avec l'URI de redirection `https://<domaine>/api/auth/infomaniak/callback`.
+- **Désactivée pour le moment** : `VIPER_INFOMANIAK_LOGIN_ENABLED` vaut `false` par défaut, car l'URI de
+  redirection n'est pas encore enregistrée chez Infomaniak. Tant qu'il n'est pas à `true`, Infomaniak est
+  considéré comme non configuré, même si l'identifiant et le secret sont renseignés, et le formulaire de mot de
+  passe reste affiché.
 
 ## 3. Droits (« Organisation », `/organisation`)
 
