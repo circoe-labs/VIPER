@@ -20,7 +20,7 @@ from app.models.enums import AgentMode, AgentProvider, AgentTaskStatus, MissionT
 from app.models.mcp import McpCall
 from app.models.missions import Mission
 from app.models.organizations import OrganizationRole
-from app.services import agent_payloads, mcp_tokens
+from app.services import agent_capabilities, agent_payloads, mcp_tokens
 from tests.builders import add_company, add_user
 from tests.test_mcp_tools import body, call
 from tests.test_mcp_tools import mint as mint_worker
@@ -467,3 +467,61 @@ def test_every_mission_tool_is_guarded(client: TestClient, db_session: Session) 
     for name in mcp_missions.BY_NAME:
         assert name in {tool["name"] for tool in mcp.TOOLS}
         refused(call(client, token, name, {}), "capability_denied")
+
+
+# Each call, with the one capability it needs. The token of the test holds every other capability,
+# so a guard that checks the wrong capability (or none) lets the call through.
+ONE_MISSING_CAPABILITY: list[tuple[str, dict[str, Any], str]] = [
+    ("viper_mission_options", {}, "missions.read"),
+    ("viper_create_mission", {}, "missions.write"),
+    ("viper_create_mission", {"run_now": True}, "missions.run"),
+    ("viper_update_mission", {"name": "Renommée"}, "missions.write"),
+    ("viper_run_mission", {}, "missions.run"),
+    ("viper_set_mission_status", {"status": "paused"}, "missions.pause"),
+    ("viper_set_mission_status", {"status": "active"}, "missions.pause"),
+    ("viper_set_mission_status", {"status": "cancelled"}, "missions.cancel"),
+    ("viper_delete_mission", {}, "missions.cancel"),
+]
+
+
+@pytest.mark.parametrize(("name", "extra", "capability"), ONE_MISSING_CAPABILITY)
+def test_each_mission_call_needs_its_own_capability(
+    client: TestClient,
+    db_session: Session,
+    name: str,
+    extra: dict[str, Any],
+    capability: str,
+) -> None:
+    company = add_company(db_session, display_name="2SN")
+    owner = assistant(db_session, OrganizationRole.MANAGER)
+    mission_id = body(call(client, owner, "viper_create_mission", enrichment(company.id)))["card"][
+        "id"
+    ]
+    if extra.get("status") == "active":
+        pause = {"mission_id": mission_id, "status": "paused"}
+        body(call(client, owner, "viper_set_mission_status", pause))
+    token, _ = mcp_tokens.mint(
+        db_session,
+        label="Tout sauf une",
+        scopes=["*"],
+        owner_email="manager@circoe.com",
+        provider=AgentProvider.CHATGPT,
+        mode=AgentMode.INTERACTIVE,
+        capabilities=[item for item in agent_capabilities.CAPABILITIES if item != capability],
+    )
+    if name == "viper_create_mission":
+        arguments = enrichment(company.id, **extra)
+    elif name == "viper_mission_options":
+        arguments = dict(extra)
+    else:
+        arguments = {"mission_id": mission_id, **extra}
+    mission = db_session.get(Mission, mission_id)
+    assert mission is not None
+    db_session.refresh(mission)
+    before = (missions_count(db_session), mission.status, mission.name, mission.last_run_at)
+
+    denied = refused(call(client, token, name, arguments), "capability_denied")
+
+    assert denied["capability"] == capability
+    db_session.refresh(mission)
+    assert (missions_count(db_session), mission.status, mission.name, mission.last_run_at) == before
