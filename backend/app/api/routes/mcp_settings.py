@@ -11,14 +11,16 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 
-from app.api.dependencies import CurrentActor, SessionDep
+from app.api.dependencies import AuthDep, CurrentActor, SessionDep
+from app.api.errors import business_errors
 from app.api.mcp import PROTOCOL_VERSION, TOOLS
-from app.models.mcp import McpToken
+from app.models.enums import AgentMode, AgentProvider
+from app.models.mcp import LABEL_MAX_LENGTH, McpToken
 from app.models.oauth import OAuthAuthorization
-from app.services import mcp_calls, oauth
+from app.services import agent_capabilities, mcp_calls, mcp_tokens, oauth
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -37,10 +39,18 @@ class McpToolOut(BaseModel):
     parameters: list[McpParameterOut]
 
 
+class McpCapabilityOut(BaseModel):
+    name: str
+    label: str
+
+
 class McpSettingsOut(BaseModel):
     endpoint: str
     protocol_version: str
     tools: list[McpToolOut]
+    # The capability vocabulary, and what each mode receives by default (« Créer un jeton »).
+    capabilities: list[McpCapabilityOut]
+    mode_defaults: dict[AgentMode, list[str]]
 
 
 def _type_of(prop: dict[str, Any]) -> str:
@@ -85,6 +95,11 @@ def mcp_settings() -> McpSettingsOut:
             )
             for tool in TOOLS
         ],
+        capabilities=[
+            McpCapabilityOut(name=name, label=agent_capabilities.CAPABILITY_LABELS[name])
+            for name in agent_capabilities.CAPABILITIES
+        ],
+        mode_defaults={mode: agent_capabilities.defaults(mode) for mode in AgentMode},
     )
 
 
@@ -95,9 +110,28 @@ class McpAgentOut(BaseModel):
     origin: str
     # The person the agent acts for: its calls are kept under this address.
     owner_email: str | None
+    provider: AgentProvider
+    mode: AgentMode
+    # The agent's own capabilities; a call may use those its delegated person's role allows too.
+    capabilities: list[str]
     created_at: datetime
     last_used_at: datetime | None
     revoked_at: datetime | None
+
+
+def _agent_out(record: McpToken, origin: str) -> McpAgentOut:
+    return McpAgentOut(
+        id=record.id,
+        label=record.label,
+        origin=origin,
+        owner_email=record.owner_email,
+        provider=record.provider,
+        mode=record.mode,
+        capabilities=list(record.capabilities),
+        created_at=record.created_at,
+        last_used_at=record.last_used_at,
+        revoked_at=record.revoked_at,
+    )
 
 
 @router.get("/mcp/agents")
@@ -113,18 +147,38 @@ def mcp_agents(session: SessionDep) -> list[McpAgentOut]:
     records = session.scalars(
         select(McpToken).order_by(McpToken.revoked_at.is_not(None), McpToken.created_at.desc())
     )
-    return [
-        McpAgentOut(
-            id=record.id,
-            label=record.label,
-            origin="oauth" if record.id in oauth_ids else "cli",
-            owner_email=record.owner_email,
-            created_at=record.created_at,
-            last_used_at=record.last_used_at,
-            revoked_at=record.revoked_at,
+    return [_agent_out(record, "oauth" if record.id in oauth_ids else "cli") for record in records]
+
+
+class McpAgentInput(BaseModel):
+    label: str = Field(min_length=1, max_length=LABEL_MAX_LENGTH)
+    provider: AgentProvider = AgentProvider.OTHER
+    mode: AgentMode = AgentMode.WORKER
+    # None: the defaults of `mode`.
+    capabilities: list[str] | None = None
+
+
+class McpAgentCreated(BaseModel):
+    agent: McpAgentOut
+    # Shown once: only its hash is stored.
+    token: str
+
+
+@router.post("/mcp/agents", status_code=status.HTTP_201_CREATED)
+def create_mcp_agent(body: McpAgentInput, auth: AuthDep, session: SessionDep) -> McpAgentCreated:
+    """« Créer un jeton »: a bearer token acting for the signed-in person, with the chosen mode
+    and capabilities (never more than that person's role allows)."""
+    with business_errors():
+        token, record = mcp_tokens.create_for(
+            session,
+            auth.user,
+            label=body.label,
+            provider=body.provider,
+            mode=body.mode,
+            capabilities=body.capabilities,
         )
-        for record in records
-    ]
+    session.refresh(record)
+    return McpAgentCreated(agent=_agent_out(record, "cli"), token=token)
 
 
 @router.post("/mcp/agents/{agent_id}/revoke")
@@ -136,15 +190,7 @@ def revoke_mcp_agent(agent_id: uuid.UUID, session: SessionDep, actor: CurrentAct
         raise HTTPException(
             status.HTTP_404_NOT_FOUND, {"code": "not_found", "message": "Unknown agent."}
         ) from None
-    return McpAgentOut(
-        id=record.id,
-        label=record.label,
-        origin="oauth" if oauth.is_oauth_agent(session, record.id) else "cli",
-        owner_email=record.owner_email,
-        created_at=record.created_at,
-        last_used_at=record.last_used_at,
-        revoked_at=record.revoked_at,
-    )
+    return _agent_out(record, "oauth" if oauth.is_oauth_agent(session, record.id) else "cli")
 
 
 class McpCallOut(BaseModel):

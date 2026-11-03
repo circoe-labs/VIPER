@@ -226,6 +226,25 @@ class AgentResultStatus(StrEnum):
     SUPERSEDED = "superseded"
 
 
+class AgentProvider(StrEnum):
+    """Which platform calls `/mcp` with an agent token (`mcp_tokens.provider`)."""
+
+    CHATGPT = "chatgpt"
+    CLAUDE = "claude"
+    CHATX = "chatx"
+    OTHER = "other"
+
+
+class AgentMode(StrEnum):
+    """The role an agent token plays (`mcp_tokens.mode`): an assistant acting for a person, a
+    worker that claims mission tasks, or a scheduled assistant. Its default capabilities follow
+    (`app.services.agent_capabilities`)."""
+
+    INTERACTIVE = "interactive"
+    WORKER = "worker"
+    SCHEDULED = "scheduled"
+
+
 class MissionType(StrEnum):
     """What a mission asks for, from the modal's « Type » (`missions.type`)."""
 
