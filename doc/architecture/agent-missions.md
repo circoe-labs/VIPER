@@ -174,7 +174,7 @@ same block.
 | `prospect_id` | FK `prospects` `CASCADE`, indexed, **null** | exactly one subject |
 | `company_id` | FK `companies` `CASCADE`, indexed, **null** | exactly one subject |
 | `fact_text` | text ≤ 1000 | the signal, in one sentence (kept from the note) |
-| `kind` | enum `signal_kind`, null | `hiring`, `funding`, `news`, `social_post`, `event`, `product_launch`, `partnership`, `tech_change`, `need_expressed`, `other` |
+| `kind` | enum `signal_kind`, null | `hiring`, `funding`, `news`, `social_post`, `event`, `product_launch`, `partnership`, `tech_change`, `need_expressed`, `facility_opening`, `facility_expansion`, `construction`, `relocation`, `other` (the four site kinds: migration `0026`) |
 | `source_type` | enum `note_source_type`, null | the **channel**: `linkedin`, `email`, `phone`, `meeting`, `web`, `other` (kept) |
 | `source_label` | varchar(200), null | « post IGuard », « Welcome to the Jungle » (kept) |
 | `source_url` | text, null | **required for an agent signal**, optional for a human one |
@@ -193,7 +193,7 @@ Constraints:
 
 `valid_until` is what makes a signal *news* rather than a permanent truth: a hiring post from 14
 months ago must stop inflating a score. Default window by kind at acceptance (hiring 90 d, funding
-180 d, press and social post 30 d, structural facts null), editable by the person.
+180 d, press and social post 30 d, site opening / extension / move 180 d, construction 365 d — `agent_payloads.SIGNAL_VALID_DAYS`), editable by the person.
 
 ### 4.5 Scoring — extending `ProspectScore`, not replacing it
 
@@ -283,6 +283,31 @@ Priority defaults, in the order the human sees them on the card.
 - **Injection**: creates companies (or links an existing one, like the import) and prospects, after
   a per-item review. This is a supervised mini-import: the result is itemised exactly like an
   import preview, and nothing is written before the review.
+- **Sites and trigger** (« nouveaux entrepôts en Normandie »): each `CompanyProposal` may carry
+  `establishments[]` (`EstablishmentProposal`: name, kind, SIRET, address, postal code, city,
+  country, `opened_on`, `surface_m2`, `source`) and a `trigger` — a `SignalProposal`, the same
+  shape as a `surveil_signals` signal, always about the company. Both are optional: a result or a
+  stored proposal without them is accepted exactly as before.
+  - *Proposal* (`_find_prospects_proposal`): sites are cleaned and deduplicated **by SIRET, then
+    by (city, name)** (case and spacing ignored); a SIRET already in `establishments`, or already
+    proposed for another company of the result, is refused (`already_known` / `duplicate`); a
+    site with neither SIRET nor (name and city) is refused (`unidentified`). The trigger is
+    checked like a signal (public http(s) source, not in the future, inside `period_days`). A
+    refused site or trigger is listed under `refused` with its path
+    (`companies.0.establishments.2`, `companies.0.trigger`); its company stays proposed.
+  - *Acceptance* (`agent_review._apply_find_prospects`), in the request's single transaction:
+    `companies.create_company` with the sites as `EstablishmentInput` (a SIRET that entered the
+    base since the submission is skipped, not recreated; the first site becomes primary), then the
+    trigger as a company signal (`origin=agent`, `source_url`, `task_result_id`, `valid_until`
+    from the kind). Any failure rolls the whole acceptance back.
+  - *Provenance*: the company and its sites are audited as the deciding person's acceptance
+    (`company.created`, `establishment.created`); the signal carries its source and result;
+    `applied.companies[]` maps each created company to its source, each created site to the
+    `source`, `opened_on` and `surface_m2` the agent cited, the skipped sites and the signal id.
+    `opened_on` / `surface_m2` / site `source` have no column on `establishments` yet: they live
+    on the reviewed result only.
+  - *Review card*: under each company row, its sites (name, kind, place, SIRET, opening date,
+    surface, source) and its trigger (kind label, date, sentence, score, reason, source).
 
 ## 6. `surveil_signals` — the detailed contract
 

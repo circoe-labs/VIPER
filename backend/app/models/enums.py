@@ -319,6 +319,11 @@ class SignalKind(StrEnum):
     PARTNERSHIP = "partnership"
     TECH_CHANGE = "tech_change"
     NEED_EXPRESSED = "need_expressed"
+    # Site events (a discovery trigger: « nouveaux entrepôts en Normandie »), migration 0026.
+    FACILITY_OPENING = "facility_opening"
+    FACILITY_EXPANSION = "facility_expansion"
+    CONSTRUCTION = "construction"
+    RELOCATION = "relocation"
     OTHER = "other"
 
 
