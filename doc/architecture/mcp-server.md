@@ -248,8 +248,8 @@ the service the page calls, so the validation is the page's; mutating tools answ
 ### 3.11 Mission card (MCP Apps UI, shipped)
 
 An optional HTML card ChatGPT renders next to `viper_create_mission`'s result. Code:
-`backend/app/api/mcp_ui.py` (catalogue, metadata) and `backend/app/api/mcp_ui/mission_card.html`
-(the card). Keys follow the **MCP Apps** extension (protocol `2026-01-26`) that the OpenAI Apps SDK
+`backend/app/api/mcp_ui.py` (catalogue, metadata) and
+`backend/app/api/mcp_ui_templates/mission_card.html` (the card). Keys follow the **MCP Apps** extension (protocol `2026-01-26`) that the OpenAI Apps SDK
 documents as the standard, plus the `openai/*` aliases it still reads (checked 2026-11-03 on
 `developers.openai.com/plugins/build/chatgpt-ui` and `/apps-sdk/reference`).
 

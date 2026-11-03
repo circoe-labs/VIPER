@@ -1,11 +1,12 @@
 """The UI resources of `/mcp`: the HTML templates an MCP Apps host (ChatGPT) renders next to a
 tool's result. Today, one: the mission card of `viper_create_mission`.
 
-A template is a static, self-contained HTML file (inline CSS and JS, no network access) read from
-`app/api/mcp_ui/`. It holds no data and no authorization: the host hands it the tool's input and
-result, and every action it offers is a `tools/call` back through the host, so `/mcp` checks the
-same capabilities as when the model calls the tool. A host that ignores templates gets the same
-tools and the same results. Contract: `doc/architecture/mcp-server.md` §3.11.
+A template is a static, self-contained HTML file (inline CSS and JS, no network access) read
+from `app/api/mcp_ui_templates/`. It holds no data and no authorization: the host hands it the
+tool's input and result, and every action it offers is a `tools/call` back through the host, so
+`/mcp` checks the same capabilities as when the model calls the tool. A host that ignores
+templates gets the same tools and the same results.
+Contract: `doc/architecture/mcp-server.md` §3.11.
 
 Keys follow the MCP Apps extension (`text/html;profile=mcp-app`, `_meta.ui.*`), plus the ChatGPT
 aliases (`openai/*`) that the Apps SDK documents as still read.
@@ -19,7 +20,7 @@ from typing import Any
 from app.services.errors import NotFoundError
 
 MIME_TYPE = "text/html;profile=mcp-app"
-_TEMPLATES = Path(__file__).with_name("mcp_ui")
+_TEMPLATES = Path(__file__).with_name("mcp_ui_templates")
 
 # The version is part of the URI: hosts cache a template by URI, so a changed card gets a new one.
 MISSION_CARD_URI = "ui://viper/mission-card-v1.html"

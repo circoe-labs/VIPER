@@ -50,8 +50,8 @@ Clés utilisées :
 
 ### Décision n°10 (ressources de l'UI)
 
-Un seul gabarit HTML autonome (`backend/app/api/mcp_ui/mission_card.html`, CSS et JS en ligne, aucune
-dépendance), lu sur disque et servi par `resources/read`. Le catalogue et les métadonnées vivent dans
+Un seul gabarit HTML autonome (`backend/app/api/mcp_ui_templates/mission_card.html`, CSS et JS en ligne,
+aucune dépendance), lu sur disque et servi par `resources/read`. Le catalogue et les métadonnées vivent dans
 `backend/app/api/mcp_ui.py`. L'URI porte une version (`ui://viper/mission-card-v1.html`), car les hôtes mettent
 les gabarits en cache. Le fichier est livré par `COPY backend/app` (`deploy/Dockerfile.api`). Le frontend React
 n'est pas touché.
