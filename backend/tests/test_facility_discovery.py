@@ -19,7 +19,7 @@ from app.models import Company
 from app.models.agent_missions import AgentTaskResult
 from app.models.audit import AuditLogEntry
 from app.models.companies import Establishment
-from app.models.enums import MissionType, SignalKind, SignalOrigin
+from app.models.enums import AgentResultStatus, MissionType, SignalKind, SignalOrigin
 from app.models.prospects import ProspectNote
 from app.services.agent_payloads import FindProspectsResult
 from tests.builders import add_company
@@ -28,7 +28,8 @@ from tests.test_missions import create, mint, rpc
 SIREN = "732829320"
 SIRET_HONFLEUR = "73282932010008"
 SIRET_ROUEN = "73282932010016"
-SIRET_KNOWN = "73282932010024"
+OTHER_SIREN = "552100554"
+OTHER_SIRET_ROUEN = "55210055410004"
 
 
 def _recent(days: int = 10) -> str:
@@ -155,36 +156,31 @@ def test_accepting_a_honfleur_warehouse_creates_company_site_and_signal(
     assert [row["kind"] for row in listed] == ["facility_opening"]
 
 
-def test_a_known_or_repeated_site_is_not_recreated(client: TestClient, db_session: Session) -> None:
+def test_a_repeated_or_late_known_site_is_not_recreated(
+    client: TestClient, db_session: Session
+) -> None:
+    # The proposed company gives no SIREN; its sites belong to SIREN 552100554, unknown to the base.
     other = add_company(db_session, display_name="Entrepôts Existants")
-    db_session.add(
-        Establishment(
-            company_id=other.id, name="Dépôt du Havre", siret=SIRET_KNOWN, city="Le Havre"
-        )
-    )
-    db_session.flush()
     sites = [
-        {"name": "Dépôt du Havre", "siret": SIRET_KNOWN, "city": "Le Havre"},
         {"name": "Plateforme de Honfleur", "city": "Honfleur"},
         {"name": "plateforme de  honfleur", "city": "HONFLEUR"},
-        {"name": "Site de Rouen", "siret": SIRET_ROUEN, "city": "Rouen"},
-        {"name": "Site de Rouen bis", "siret": SIRET_ROUEN, "city": "Rouen"},
+        {"name": "Site de Rouen", "siret": OTHER_SIRET_ROUEN, "city": "Rouen"},
+        {"name": "Site de Rouen bis", "siret": OTHER_SIRET_ROUEN, "city": "Rouen"},
         {"kind": "entrepôt"},
     ]
-    result_id = _submit(client, db_session, [_honfleur(establishments=sites)])
+    result_id = _submit(client, db_session, [_honfleur(siren=None, establishments=sites)])
     proposal = client.get(f"/api/agents/results/{result_id}").json()["proposal"]
     reasons = {row["field"]: row["reason"] for row in proposal["refused"]}
     assert reasons == {
-        "companies.0.establishments.0": "already_known",
-        "companies.0.establishments.2": "duplicate",
-        "companies.0.establishments.4": "duplicate",
-        "companies.0.establishments.5": "unidentified",
+        "companies.0.establishments.1": "duplicate",
+        "companies.0.establishments.3": "duplicate",
+        "companies.0.establishments.4": "unidentified",
     }
     kept = proposal["items"][0]["store"]["establishments"]
     assert [site["name"] for site in kept] == ["Plateforme de Honfleur", "Site de Rouen"]
-    # Rouen's SIRET enters the base between the submission and the review.
+    # Rouen's SIRET enters the base, on another company, between the submission and the review.
     db_session.add(
-        Establishment(company_id=other.id, name="Rouen", siret=SIRET_ROUEN, city="Rouen")
+        Establishment(company_id=other.id, name="Rouen", siret=OTHER_SIRET_ROUEN, city="Rouen")
     )
     db_session.flush()
 
@@ -200,14 +196,91 @@ def test_a_known_or_repeated_site_is_not_recreated(client: TestClient, db_sessio
     assert names == ["Plateforme de Honfleur"]
     assert (
         db_session.scalar(
-            select(Establishment.company_id).where(Establishment.siret == SIRET_KNOWN)
+            select(Establishment.company_id).where(Establishment.siret == OTHER_SIRET_ROUEN)
         )
         == other.id
     )
     [record] = accepted.json()["applied"]["companies"]
     assert record["skipped_establishments"] == [
-        {"name": "Site de Rouen", "siret": SIRET_ROUEN, "reason": "already_known"}
+        {"name": "Site de Rouen", "siret": OTHER_SIRET_ROUEN, "reason": "already_known"}
     ]
+
+
+def test_a_company_found_through_a_known_site_is_not_proposed_again(
+    client: TestClient, db_session: Session
+) -> None:
+    """QA scenario: « LOGY », no SIREN, cites the Honfleur site of « Logistique Y Normandie »."""
+    known = add_company(db_session, display_name="Logistique Y Normandie", siren=SIREN)
+    db_session.add(
+        Establishment(
+            company_id=known.id,
+            name="Plateforme de Honfleur",
+            siret=SIRET_HONFLEUR,
+            city="Honfleur",
+        )
+    )
+    db_session.flush()
+    by_site = _honfleur(display_name="LOGY", siren=None)
+    # Same SIREN prefix, site not in the base yet: still that company.
+    by_prefix = _honfleur(
+        display_name="LOGY Rouen",
+        siren=None,
+        establishments=[{"name": "Site de Rouen", "siret": SIRET_ROUEN, "city": "Rouen"}],
+    )
+    result_id = _submit(client, db_session, [by_site, by_prefix])
+
+    proposal = client.get(f"/api/agents/results/{result_id}").json()["proposal"]
+
+    assert proposal["items"] == []
+    assert [(row["field"], row["reason"], row["company_id"]) for row in proposal["refused"]] == [
+        ("companies.0", "already_known", str(known.id)),
+        ("companies.1", "already_known", str(known.id)),
+    ]
+    db_session.expire_all()
+    assert db_session.scalar(select(Company).where(Company.display_name == "LOGY")) is None
+    assert (
+        db_session.scalars(
+            select(ProspectNote).where(ProspectNote.kind == SignalKind.FACILITY_OPENING)
+        ).all()
+        == []
+    )
+
+
+def test_acceptance_is_all_or_nothing(client: TestClient, db_session: Session) -> None:
+    alpha = _honfleur(display_name="Alpha Logistique", siren=None)
+    beta = _honfleur(
+        display_name="Beta Logistique",
+        siren=OTHER_SIREN,
+        establishments=[{"name": "Site de Rouen", "siret": OTHER_SIRET_ROUEN, "city": "Rouen"}],
+        trigger={**_honfleur()["trigger"], "source": "https://presse.example/beta"},
+    )
+    result_id = _submit(client, db_session, [alpha, beta])
+    assert len(client.get(f"/api/agents/results/{result_id}").json()["proposal"]["items"]) == 2
+    # Beta's SIREN enters the base between the submission and the review.
+    add_company(db_session, display_name="Beta Holding", siren=OTHER_SIREN)
+
+    accepted = client.post(f"/api/agents/results/{result_id}/accept", json={})
+
+    assert accepted.status_code == 409, accepted.text
+    db_session.expire_all()
+    names = ("Alpha Logistique", "Beta Logistique")
+    assert db_session.scalars(select(Company).where(Company.display_name.in_(names))).all() == []
+    assert (
+        db_session.scalars(
+            select(Establishment).where(
+                Establishment.siret.in_([SIRET_HONFLEUR, OTHER_SIRET_ROUEN])
+            )
+        ).all()
+        == []
+    )
+    assert (
+        db_session.scalars(
+            select(ProspectNote).where(ProspectNote.task_result_id == uuid.UUID(result_id))
+        ).all()
+        == []
+    )
+    row = db_session.get(AgentTaskResult, uuid.UUID(result_id))
+    assert row is not None and row.status is AgentResultStatus.PENDING_REVIEW
 
 
 def test_an_invalid_trigger_is_refused_alone(client: TestClient, db_session: Session) -> None:

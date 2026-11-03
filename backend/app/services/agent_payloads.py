@@ -1197,6 +1197,31 @@ def _establishments_store(
     return kept
 
 
+def _site_owner(
+    session: Session, sites: list[EstablishmentProposal], siren_owners: dict[str, uuid.UUID]
+) -> uuid.UUID | None:
+    """The existing company a proposed site already belongs to: by its SIRET in `establishments`,
+    or by its first nine digits (the SIREN) on a company. A company found through one of its
+    sites is that company, whatever name or SIREN the agent gave it."""
+    sirets: list[str] = []
+    for site in sites:
+        try:
+            siret = normalize_siret("siret", site.siret) if site.siret else None
+        except InvalidFieldError:
+            # intentional: an invalid SIRET identifies nothing; `_establishments_store` refuses it.
+            siret = None
+        if siret is not None:
+            sirets.append(siret)
+    if not sirets:
+        return None
+    holder = session.scalar(
+        select(Establishment.company_id).where(Establishment.siret.in_(sirets)).limit(1)
+    )
+    if holder is not None:
+        return holder
+    return next((siren_owners[s[:9]] for s in sirets if s[:9] in siren_owners), None)
+
+
 def _signal_store(
     signal: SignalProposal, source: str, subject: str, *, unresolved: str | None = None
 ) -> dict[str, Any]:
@@ -1270,12 +1295,14 @@ def _find_prospects_proposal(
     known_names: set[str] = set()
     known_sirens: set[str] = set()
     known_domains: set[str] = set()
-    for display_name, siren, domain in session.execute(
-        select(Company.display_name, Company.siren, Company.email_domain)
+    siren_owners: dict[str, uuid.UUID] = {}
+    for company_id, display_name, siren, domain in session.execute(
+        select(Company.id, Company.display_name, Company.siren, Company.email_domain)
     ):
         known_names.add(company_key(display_name))
         if siren:
             known_sirens.add(siren)
+            siren_owners[siren] = company_id
         if domain:
             known_domains.add(domain)
     items: list[dict[str, Any]] = []
@@ -1347,6 +1374,20 @@ def _find_prospects_proposal(
                     "label": label,
                     "reason": "already_known",
                     "message": "Ce domaine e-mail est déjà rattaché à une société.",
+                }
+            )
+            continue
+        owner = _site_owner(session, company.establishments, siren_owners)
+        if owner is not None:
+            refused.append(
+                {
+                    "field": field,
+                    "label": label,
+                    "reason": "already_known",
+                    "message": (
+                        "Un de ses établissements (SIRET) appartient déjà à une société de la base."
+                    ),
+                    "company_id": str(owner),
                 }
             )
             continue
