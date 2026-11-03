@@ -32,3 +32,16 @@ Tests :
 - `update` sans effet sur les tâches existantes.
 
 Plus une trace MCP réelle, une QA adversariale et jusqu'à 10 mutations sur la garde.
+
+## Contexte de dispatch (mis à jour par le PM après la fusion des Slices 01, 02 et 04)
+
+- Garde : `require(record, capability)` dans `backend/app/api/mcp.py`. Le vocabulaire est dans
+  `backend/app/services/agent_capabilities.py`. Toujours passer par la garde, sans jamais tester les capacités
+  à la main.
+- Modèle à suivre : `backend/app/api/mcp_conversational.py` (`ReadTool`, `capability`, annotations, branchement
+  dans `_call_tool`). Mettre les outils de mission dans un module à part, `backend/app/api/mcp_missions.py`, pour
+  ne pas entrer en conflit avec la Slice 07, qui avance en parallèle.
+- Acteur d'audit : l'`ActorContext` de la requête MCP porte déjà l'agent et `on_behalf_of`. Le passer aux
+  services.
+- `viper_list_missions` / `viper_get_mission` existent déjà (Slice 02). Ne pas les dupliquer.
+- Migration : aucune n'est prévue. Si elle devient nécessaire, ce sera `0027`, après `0026`.
