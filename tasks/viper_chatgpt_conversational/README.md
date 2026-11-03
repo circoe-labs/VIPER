@@ -12,7 +12,7 @@
 | 02 | Lectures conversationnelles MCP | glue | 00 (câblage final : 01) | à lancer |
 | 03 | Actions de mission MCP et annotations | critical | 01 | en attente |
 | 04 | Découverte : établissements et déclencheur | critical | 00 | à lancer |
-| 05 | Skill `viper-use` et routage CIRCOE | docs | 02, 03 (noms d'outils) | à lancer |
+| 05 | Skill `viper-use` et routage CIRCOE (côté ChatGPT, hors dépôt) | docs | 02, 03 (noms d’outils) | livré hors dépôt |
 | 06 | UI de création de mission (app MCP) | ui | 03 (contrat) | en attente |
 | 07 | Brouillons de contact via MCP | critical | 01 | en attente |
 | 08 | Intégration et validation finale | release | toutes | en attente |
