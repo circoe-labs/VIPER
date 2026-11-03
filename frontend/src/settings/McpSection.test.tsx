@@ -40,6 +40,7 @@ const SETTINGS: McpSettings = {
     interactive: ['tasks.work', 'records.read', 'missions.cancel'],
     scheduled: ['records.read'],
   },
+  grantable: ['tasks.work', 'records.read', 'missions.cancel'],
 }
 
 describe('McpSection', () => {
@@ -162,6 +163,35 @@ describe('McpSection', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Créer le jeton' }))
 
     expect(await within(dialog).findByRole('alert')).toHaveTextContent('Votre rôle ne permet pas')
+  })
+
+  it('offers only what the role allows, so a member’s assistant is created as it is', async () => {
+    const member: McpSettings = { ...SETTINGS, grantable: ['tasks.work', 'records.read'] }
+    const fetchMock = stubApi({
+      ...SHELL_API,
+      'GET /api/settings/mcp': [200, member],
+      'GET /api/settings/mcp/agents': [200, []],
+      'POST /api/settings/mcp/agents': [403, { detail: { code: 'forbidden', message: 'Your role may not grant.' } }],
+    })
+    const user = userEvent.setup()
+
+    renderApp('/settings/mcp')
+    const access = await screen.findByRole('region', { name: 'Accès autorisés' })
+    await user.click(within(access).getByRole('button', { name: 'Créer un jeton' }))
+    const dialog = await screen.findByRole('dialog')
+    await user.type(within(dialog).getByLabelText(/Nom/), 'ChatGPT')
+    await user.selectOptions(within(dialog).getByLabelText('Mode'), 'interactive')
+
+    const cancel = within(dialog).getByLabelText('Annuler et supprimer une mission')
+    expect(cancel).not.toBeChecked()
+    expect(cancel).toBeDisabled()
+    expect(within(dialog).getByText('Votre rôle ne permet pas de l’accorder.')).toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: 'Créer le jeton' }))
+    const post = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST')
+    expect(JSON.parse(post?.[1]?.body as string)).toMatchObject({
+      mode: 'interactive',
+      capabilities: ['tasks.work', 'records.read'],
+    })
   })
 
   it('shows who called which tool, filters by person and opens the detail', async () => {

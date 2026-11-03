@@ -51,6 +51,8 @@ class McpSettingsOut(BaseModel):
     # The capability vocabulary, and what each mode receives by default (« Créer un jeton »).
     capabilities: list[McpCapabilityOut]
     mode_defaults: dict[AgentMode, list[str]]
+    # What the signed-in person's role lets them grant (`create_mcp_agent` refuses the rest).
+    grantable: list[str]
 
 
 def _type_of(prop: dict[str, Any]) -> str:
@@ -89,8 +91,9 @@ def _parameters(schema: dict[str, Any]) -> list[McpParameterOut]:
 
 
 @router.get("/mcp")
-def mcp_settings() -> McpSettingsOut:
+def mcp_settings(auth: AuthDep) -> McpSettingsOut:
     """The tools an agent can call, with their parameters. What « Paramètres > MCP » shows."""
+    allowed = agent_capabilities.role_capabilities(auth.user)
     return McpSettingsOut(
         endpoint="/mcp",
         protocol_version=PROTOCOL_VERSION,
@@ -107,6 +110,7 @@ def mcp_settings() -> McpSettingsOut:
             for name in agent_capabilities.CAPABILITIES
         ],
         mode_defaults={mode: agent_capabilities.defaults(mode) for mode in AgentMode},
+        grantable=[name for name in agent_capabilities.CAPABILITIES if name in allowed],
     )
 
 

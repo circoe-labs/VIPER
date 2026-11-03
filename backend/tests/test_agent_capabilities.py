@@ -406,6 +406,9 @@ def test_nobody_grants_more_than_their_role(client: TestClient, db_session: Sess
     )
     assert refused.status_code == 403, refused.text
     assert refused.json()["detail"]["code"] == "forbidden"
+    # « Créer un jeton » offers only what the role allows, so the refusal is not the first hint.
+    grantable = client.get("/api/settings/mcp").json()["grantable"]
+    assert grantable == [name for name in caps.CAPABILITIES if name != "missions.cancel"]
 
     unknown = client.post(AGENTS, json={"label": "X", "capabilities": ["missions.delete"]})
     assert unknown.status_code == 422

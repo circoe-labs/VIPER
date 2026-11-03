@@ -538,7 +538,10 @@ is no separate agent table: an `mcp_tokens` row **is** the agent. Code:
   — omitted: the mode's defaults) mints a bearer token acting for the signed-in person, every task
   type, shown once. Nobody grants more than their own role allows (403 `forbidden`), since a
   worker's capabilities are not intersected later. `GET /api/settings/mcp` serves the vocabulary
-  (`capabilities`, with French labels) and `mode_defaults`. The command line takes `--mode`,
+  (`capabilities`, with French labels), `mode_defaults` and `grantable` (what the signed-in
+  person's role allows): the dialog offers only those, unchecks the rest of a mode's defaults and
+  shows them disabled, so a `member` creating an assistant is not refused for `missions.cancel`
+  (the 403 stays the guard). The command line takes `--mode`,
   `--provider` and `--capabilities` (`create-agent-token`).
 - **Limit.** Regenerating a bearer token creates a new identity
   (`tasks/viper_chatgpt_conversational/Issues/bearer-token-rotation.md`).

@@ -36,6 +36,8 @@ export interface McpSettings {
   capabilities: McpCapability[]
   // What a token of each mode receives when nobody chooses otherwise.
   mode_defaults: Record<McpAgentMode, string[]>
+  // What the signed-in person's role lets them grant; « Créer un jeton » offers only these.
+  grantable: string[]
 }
 
 export function useMcpSettings() {

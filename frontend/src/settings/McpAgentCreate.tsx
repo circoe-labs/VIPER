@@ -41,10 +41,13 @@ function createErrorMessage(error: unknown): string {
 // shown once, in the same dialog, then never again.
 export function CreateAgentDialog({ settings, onClose }: { settings: McpSettings; onClose: () => void }) {
   const create = useCreateMcpAgent()
+  const grantable = new Set(settings.grantable)
+  // A mode's defaults, without what the person's role does not allow (the backend would refuse them).
+  const defaultsFor = (value: McpAgentMode) => settings.mode_defaults[value].filter((name) => grantable.has(name))
   const [label, setLabel] = useState('')
   const [provider, setProvider] = useState<McpAgentProvider>('other')
   const [mode, setMode] = useState<McpAgentMode>('worker')
-  const [chosen, setChosen] = useState<string[]>(settings.mode_defaults.worker)
+  const [chosen, setChosen] = useState<string[]>(() => defaultsFor('worker'))
   const [created, setCreated] = useState<McpAgentCreated | null>(null)
 
   const toggle = (name: string, on: boolean) => {
@@ -128,7 +131,7 @@ export function CreateAgentDialog({ settings, onClose }: { settings: McpSettings
           onChange={(event) => {
             const next = event.target.value as McpAgentMode
             setMode(next)
-            setChosen(settings.mode_defaults[next])
+            setChosen(defaultsFor(next))
           }}
         >
           {(Object.keys(MODE_LABELS) as McpAgentMode[]).map((value) => (
@@ -148,6 +151,8 @@ export function CreateAgentDialog({ settings, onClose }: { settings: McpSettings
               key={capability.name}
               label={capability.label}
               checked={chosen.includes(capability.name)}
+              disabled={!grantable.has(capability.name)}
+              hint={grantable.has(capability.name) ? undefined : 'Votre rôle ne permet pas de l’accorder.'}
               onChange={(event) => {
                 toggle(capability.name, event.target.checked)
               }}
