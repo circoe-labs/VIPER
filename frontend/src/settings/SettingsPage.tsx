@@ -1,12 +1,14 @@
 import type { ReactNode } from 'react'
 import { Link, Navigate, useParams } from 'react-router'
 
+import { useMcpSettings } from '../api/mcpSettings'
 import { useCohorts, useReferents, useTaxonomyValues } from '../api/settings'
 import { useToolboxStatus } from '../api/toolbox'
 import { StatusBadge } from '../ui/Badge'
 import { PageHeader } from '../ui/PageHeader'
 import { CohortSection } from './CohortSection'
 import { ConnectionsSection } from './ConnectionsSection'
+import { McpSection } from './McpSection'
 import { PromptSection } from './PromptSection'
 import { ReferentSection } from './ReferentSection'
 import { TaxonomySection, type TaxonomySectionConfig } from './TaxonomySection'
@@ -56,6 +58,8 @@ const COHORTS_PATH = 'cohorts'
 const CONNECTIONS_PATH = 'connections'
 // The brief given to the AI before it drafts an e-mail (Contact port, AI drafting).
 const PROMPT_PATH = 'prompt'
+// The tools VIPER exposes to agents (MCP endpoint, doc/architecture/mcp-server.md).
+const MCP_PATH = 'mcp'
 
 // Paramètres (Task 06): the four administrable lists behind the record editors' pickers, the cohorts with « max
 // relances » (sequences rework S4), then the external connections (S6). `/settings` shows the first section;
@@ -68,7 +72,8 @@ export function SettingsPage() {
     section !== REFERENTS_PATH &&
     section !== COHORTS_PATH &&
     section !== CONNECTIONS_PATH &&
-    section !== PROMPT_PATH
+    section !== PROMPT_PATH &&
+    section !== MCP_PATH
   ) {
     return <Navigate to="/settings" replace />
   }
@@ -80,7 +85,9 @@ export function SettingsPage() {
         ? 'Connexions'
         : section === PROMPT_PATH
           ? 'Prompt initial'
-          : 'Référents internes')
+          : section === MCP_PATH
+            ? 'MCP'
+            : 'Référents internes')
 
   return (
     <>
@@ -103,6 +110,9 @@ export function SettingsPage() {
         <SectionLink path={CONNECTIONS_PATH} title="Connexions" current={section === CONNECTIONS_PATH}>
           <ConnectionState />
         </SectionLink>
+        <SectionLink path={MCP_PATH} title="MCP" current={section === MCP_PATH}>
+          <McpCount />
+        </SectionLink>
         <SectionLink path={PROMPT_PATH} title="Prompt initial" current={section === PROMPT_PATH}>
           {null}
         </SectionLink>
@@ -116,6 +126,8 @@ export function SettingsPage() {
           <ConnectionsSection />
         ) : section === PROMPT_PATH ? (
           <PromptSection />
+        ) : section === MCP_PATH ? (
+          <McpSection />
         ) : (
           <ReferentSection />
         )}
@@ -162,6 +174,10 @@ function ReferentCount() {
 
 function CohortCount() {
   return <Count total={useCohorts().data?.length} />
+}
+
+function McpCount() {
+  return <Count total={useMcpSettings().data?.tools.length} />
 }
 
 // Only the states that ask for something are flagged on the tab (connected or disabled say nothing).

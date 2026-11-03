@@ -330,3 +330,81 @@
   display: flex;
   gap: var(--space-2);
 }
+
+
+/* --- signals on the company page --- */
+
+.company-signals {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.company-signals__empty {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.company-signal {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.company-signal__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.company-signal__kind {
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--color-accent-soft);
+  color: var(--color-accent-fg);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.company-signal__subject {
+  font-weight: var(--weight-medium);
+}
+
+.company-signal__date,
+.company-signal__foot {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.company-signal__score {
+  margin-left: auto;
+  color: var(--color-success-fg);
+  font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
+}
+
+.company-signal__score.is-negative {
+  color: var(--color-danger-fg);
+}
+
+.company-signal__text {
+  margin: 0;
+}
+
+.company-signal__foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.company-signal__foot a {
+  color: var(--color-accent-fg);
+}

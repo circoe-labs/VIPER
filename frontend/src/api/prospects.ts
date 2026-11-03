@@ -126,7 +126,7 @@ export interface ScoreContribution {
   source_type: string | null
   source_ref: string | null
   created_at: string | null
-  origin: 'manual'
+  origin: 'manual' | 'agent'
 }
 
 export interface ProspectScore {

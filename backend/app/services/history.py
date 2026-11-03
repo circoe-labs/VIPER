@@ -49,6 +49,8 @@ from app.models.enums import (
     QualityAlertSource,
     SendSource,
     SequenceEndReason,
+    SignalKind,
+    SignalOrigin,
     VerificationStatus,
 )
 from app.repositories import audit as audit_repository
@@ -263,6 +265,22 @@ SOURCE_TYPES: dict[str, str] = {
     ProspectSourceType.FUTURE_AGENT: "Agent",
     ProspectSourceType.OTHER: "Autre source",
 }
+SIGNAL_KIND_LABELS: dict[str, str] = {
+    SignalKind.HIRING: "Recrutement",
+    SignalKind.FUNDING: "Financement",
+    SignalKind.NEWS: "Actualité",
+    SignalKind.SOCIAL_POST: "Publication",
+    SignalKind.EVENT: "Événement",
+    SignalKind.PRODUCT_LAUNCH: "Lancement produit",
+    SignalKind.PARTNERSHIP: "Partenariat",
+    SignalKind.TECH_CHANGE: "Changement technique",
+    SignalKind.NEED_EXPRESSED: "Besoin exprimé",
+    SignalKind.OTHER: "Autre",
+}
+SIGNAL_ORIGINS: dict[str, str] = {
+    SignalOrigin.MANUAL: "Manuelle",
+    SignalOrigin.AGENT: "Agent",
+}
 NOTE_SOURCE_TYPES: dict[str, str] = {
     NoteSourceType.LINKEDIN: "LinkedIn",
     NoteSourceType.EMAIL: "E-mail",
@@ -377,6 +395,15 @@ FIELDS: dict[str, dict[str, Field]] = {
         "source_type": Field("source", "Note modifiée", _choice(NOTE_SOURCE_TYPES)),
         "source_label": Field("précision de la source", "Note modifiée"),
         "score_delta": Field("points de score", "Note modifiée"),
+        "company_id": Field("société", "Note modifiée", _reference("company")),
+        "source_url": Field("lien source", "Note modifiée"),
+        "kind": Field("type de signal", "Note modifiée", _choice(SIGNAL_KIND_LABELS)),
+        "origin": Field("origine", "Note modifiée", _choice(SIGNAL_ORIGINS)),
+        "observed_on": Field("observé le", "Note modifiée"),
+        "valid_until": Field("valable jusqu’au", "Note modifiée"),
+        "relevance": Field("pertinence", "Note modifiée"),
+        "sentiment": Field("tonalité", "Note modifiée"),
+        "task_result_id": Field("résultat de mission", "Note modifiée"),
     },
     "company": {
         "display_name": Field("Nom", "Nom de l’entreprise modifié"),

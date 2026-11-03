@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 
 from app.api.errors import validation_refused
+from app.api.mcp import router as mcp_router
 from app.api.router import api_router, public_router
 from app.api.security_headers import SecurityHeadersMiddleware
 from app.api.worker_wake import WakeCleanupWorkerMiddleware
@@ -15,6 +16,7 @@ from app.db.session import create_db_engine, create_session_factory
 from app.services.explorer.sql_console import create_reader_engine
 from app.services.integration_runtime import IntegrationRuntime
 from app.services.login_throttle import LoginThrottle
+from app.services.mission_scheduler import MissionScheduler
 from app.services.runtime_settings import RuntimeSettings
 from app.services.toolbox.diagnostics import ToolboxDiagnostics
 from app.services.toolbox.integration import ToolboxIntegration
@@ -33,8 +35,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # tests may replace `app.state.toolbox` before startup.
         integrations: IntegrationRuntime = app.state.integrations
         integrations.start()
+        scheduler: MissionScheduler | None = app.state.mission_scheduler
+        if scheduler is not None:
+            scheduler.start()
         yield
         # Graceful shutdown: each worker lets its running pass finish (a send included).
+        if scheduler is not None:
+            scheduler.stop()
         integrations.stop()
         engine.dispose()
         sql_engine.dispose()
@@ -53,6 +60,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     settings = app.state.runtime_settings.effective
     app.state.settings = settings
     app.state.session_factory = create_session_factory(engine)
+    app.state.mission_scheduler = MissionScheduler(app.state.session_factory)
     app.state.sql_engine = sql_engine
     app.state.login_throttle = LoginThrottle()
     app.state.toolbox = ToolboxIntegration(settings)
@@ -72,4 +80,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_exception_handler(RequestValidationError, validation_refused)
     app.include_router(public_router, prefix="/api")
     app.include_router(api_router, prefix="/api")
+    # Outside `/api` on purpose: a machine has no cookie and no CSRF header, so `/mcp` carries its
+    # own bearer check and its own agent actor (doc/architecture/mcp-server.md §4.1).
+    app.include_router(mcp_router)
     return app

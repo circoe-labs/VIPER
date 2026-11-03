@@ -123,6 +123,24 @@ class AuditAction(StrEnum):
     SETTINGS_INTEGRATIONS_CHANGED = "settings.integrations_changed"
     # A person changed or removed the prospect's cohort: its current sequence is closed.
     CONTACT_SEQUENCE_CLOSED = "contact_sequence.closed"
+    # Agent missions (doc/architecture/agent-missions.md §9): the orchestration rows are not in the
+    # generic audit registry (a thread's subject is a company *or* a brief, and a result carries a
+    # whole JSON payload), so their events are written explicitly by `app.services.agent_missions`.
+    AGENT_THREAD_CREATED = "agent_thread.created"
+    AGENT_THREAD_STATUS_CHANGED = "agent_thread.status_changed"
+    AGENT_TASK_CREATED = "agent_task.created"
+    AGENT_TASK_CLAIMED = "agent_task.claimed"
+    AGENT_TASK_SUBMITTED = "agent_task.submitted"
+    AGENT_TASK_FAILED = "agent_task.failed"
+    AGENT_TASK_EXPIRED = "agent_task.expired"
+    AGENT_TASK_RELEASED = "agent_task.released"
+    AGENT_TASK_CANCELLED = "agent_task.cancelled"
+    AGENT_TASK_RESULT_ACCEPTED = "agent_task_result.accepted"
+    AGENT_TASK_RESULT_REJECTED = "agent_task_result.rejected"
+    MISSION_CREATED = "mission.created"
+    MISSION_STATUS_CHANGED = "mission.status_changed"
+    MISSION_RUN_STARTED = "mission_run.started"
+    MISSION_RUN_FINISHED = "mission_run.finished"
     # A person resolved a data-quality alert (D8).
     QUALITY_ALERT_RESOLVED = "quality_alert.resolved"
     IMPORT_BATCH_STARTED = "import_batch.started"
@@ -214,6 +232,17 @@ NOT_AUDITED_TABLES = {
     "audit_log": "the audit log itself",
     "contact_message_remote_draft_cleanups": "technical queue of remote draft ids to delete; the "
     "message's own events record why",
+    # Agent missions (doc/architecture/agent-missions.md §9): the service writes the explicit
+    # `agent_thread.*`, `agent_task.*` and `agent_task_result.*` events, because a thread's subject
+    # is a company *or* a brief and a result carries a whole JSON payload that the generic capture
+    # would only duplicate.
+    "agent_threads": "orchestration rows; agent_thread.* events are written by the service",
+    "agent_tasks": "orchestration rows; agent_task.* events are written by the service",
+    "missions": "mission rules; mission.* events are written by the service",
+    "mission_targets": "mission links; managed by the mission service",
+    "mission_runs": "mission executions; mission_run.* events are written by the service",
+    "agent_task_results": "write-once submission: the row is the record (raw, proposal, decision)",
+    "mcp_tokens": "machine credentials: only a token hash; minting and revocation are CLI acts",
 }
 
 

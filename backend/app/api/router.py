@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends
 from app.api.dependencies import require_session
 from app.api.routes import (
     agenda,
+    agents,
     audit,
     auth,
     companies,
@@ -24,6 +25,8 @@ from app.api.routes import (
     home,
     imports,
     integrations,
+    mcp_settings,
+    missions,
     prospection,
     prospects,
     search,
@@ -38,6 +41,8 @@ public_router.include_router(auth.public_router)
 
 api_router = APIRouter(dependencies=[Depends(require_session)])
 api_router.include_router(agenda.router)
+api_router.include_router(agents.router)
+api_router.include_router(agents.results_router)
 api_router.include_router(auth.router)
 api_router.include_router(audit.router)
 api_router.include_router(companies.router)
@@ -54,9 +59,11 @@ api_router.include_router(imports.router)
 api_router.include_router(prospection.router)
 api_router.include_router(prospects.router)
 api_router.include_router(search.router)
-# Before `settings`: its `/settings/{taxonomy}` would otherwise capture `/settings/toolbox` and
-# `/settings/integrations`.
+# Before `settings`: its `/settings/{taxonomy}` would otherwise capture `/settings/toolbox`,
+# `/settings/integrations` and `/settings/mcp`.
 api_router.include_router(toolbox.router)
 api_router.include_router(integrations.router)
+api_router.include_router(mcp_settings.router)
+api_router.include_router(missions.router)
 api_router.include_router(sequences.router)
 api_router.include_router(settings.router)

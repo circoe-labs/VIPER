@@ -35,7 +35,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.core.actor import ActorContext, ActorType
 from app.core.config import Settings, get_settings
 from app.db.session import create_db_engine, create_session_factory
-from app.services import contact_dispatch
+from app.services import contact_dispatch, mcp_tokens
 from app.services.audit import attributed_unit_of_work
 from app.services.auth import create_or_reset_user
 from app.services.contact_dispatch import DispatchConfig, Dispatcher
@@ -112,6 +112,23 @@ def hold_scheduled(session_factory: sessionmaker[Session]) -> str:
     )
 
 
+def create_agent_token(session_factory: sessionmaker[Session], args: argparse.Namespace) -> str:
+    scopes = [value.strip() for value in str(args.scopes).split(",") if value.strip()]
+    with attributed_unit_of_work(session_factory, CLI_ACTOR) as session:
+        token, record = mcp_tokens.mint(
+            session,
+            label=args.label,
+            scopes=scopes,
+            max_concurrent=args.max_concurrent,
+        )
+        token_id = record.id
+    return (
+        f"Created agent token {args.label!r} ({token_id}), scopes: {', '.join(scopes)}.\n"
+        f"{token}\n"
+        "Keep it now: only its hash is stored, it cannot be shown again."
+    )
+
+
 def main(
     argv: list[str] | None = None,
     session_factory: sessionmaker[Session] | None = None,
@@ -119,6 +136,16 @@ def main(
 ) -> int:
     parser = argparse.ArgumentParser(description="VIPER operator commands.")
     commands = parser.add_subparsers(dest="command", required=True)
+    agent = commands.add_parser(
+        "create-agent-token", help="mint an MCP token for an agent (shown once)"
+    )
+    agent.add_argument("--label", required=True, help="how the person recognises it")
+    agent.add_argument(
+        "--scopes",
+        default=mcp_tokens.ANY_SCOPE,
+        help="comma-separated task types, or * for all of them",
+    )
+    agent.add_argument("--max-concurrent", type=int, default=3)
     create = commands.add_parser("create-user", help="create a login account or reset its password")
     create.add_argument("--email", required=True)
     create.add_argument("--display-name", help="required when creating; kept on reset if omitted")
@@ -153,7 +180,9 @@ def main(
         engine = create_db_engine(settings.database_url)
         session_factory = create_session_factory(engine)
     try:
-        if args.command == "provision-sql-reader":
+        if args.command == "create-agent-token":
+            print(create_agent_token(session_factory, args))
+        elif args.command == "provision-sql-reader":
             print(provision_reader(session_factory, settings))
         elif args.command == "contact-dispatch" and args.hold_scheduled:
             print(hold_scheduled(session_factory))

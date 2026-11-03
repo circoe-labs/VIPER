@@ -141,10 +141,11 @@ class ProspectForm:
 
 @dataclass(frozen=True, slots=True)
 class ManualSource:
-    """Provenance of a prospect entered by hand."""
+    """Provenance of a prospect entered by hand — or accepted from an agent's proposal."""
 
     legal_basis_or_collection_context: str
     source_reference: str | None = None
+    source_type: ProspectSourceType = ProspectSourceType.MANUAL
 
 
 @dataclass(frozen=True, slots=True)
@@ -710,10 +711,11 @@ def create_prospect(
         ),
     )
     _save_details(session, actor, prospect, form, clock)
-    provenance.add_manual_source(
+    provenance.add_source(
         session,
         actor,
         prospect.id,
+        source.source_type,
         legal_basis_or_collection_context=context,
         source_reference=reference,
     )

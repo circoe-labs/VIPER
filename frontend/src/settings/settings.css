@@ -647,3 +647,98 @@ tr[data-inactive] .settings-table__label {
   font-weight: var(--weight-semibold);
   cursor: pointer;
 }
+
+/* --- MCP tools (Paramètres > MCP) --- */
+
+.mcp {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.mcp-lead {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.mcp-tools {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.mcp-tool {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.mcp-tool__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.mcp-tool__name {
+  font-size: var(--text-md);
+  font-weight: 700;
+}
+
+.mcp-tool__count {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.mcp-tool__description {
+  margin: 0;
+  max-width: 80ch;
+}
+
+.mcp-params {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mcp-param {
+  display: grid;
+  gap: 2px;
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--color-border);
+}
+
+.mcp-param__head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.mcp-param__name {
+  font-weight: 600;
+}
+
+.mcp-param__type {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.mcp-param__optional {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.mcp-param__description,
+.mcp-param__enum {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.settings-muted {
+  color: var(--color-text-muted);
+}
+
+.settings-error {
+  color: var(--color-danger-fg);
+}

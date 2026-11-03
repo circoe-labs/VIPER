@@ -31,13 +31,27 @@ def api_routes(app: FastAPI) -> list[tuple[str, str]]:
     return sorted(
         (method, str(context.path))
         for context in iter_route_contexts(app.routes)
-        if isinstance(context.original_route, APIRoute)
+        if isinstance(context.original_route, APIRoute) and str(context.path).startswith("/api/")
         for method in context.methods or ()
     )
 
 
 def concrete(path: str) -> str:
     return re.sub(r"\{[^}]+\}", str(uuid.uuid4()), path)
+
+
+def test_the_mcp_endpoint_stands_outside_the_session_router_and_guards_itself(
+    app: FastAPI, anonymous_client: TestClient
+) -> None:
+    """`/mcp` is not an API route: no cookie, no CSRF. It refuses without its own bearer token."""
+    assert ("POST", "/mcp") not in api_routes(app)
+
+    response = anonymous_client.post(
+        "/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
+    )
+
+    assert response.status_code == 401
+    assert response.headers["www-authenticate"] == "Bearer"
 
 
 def test_only_allowlisted_routes_answer_without_a_session(

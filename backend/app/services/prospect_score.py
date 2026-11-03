@@ -20,7 +20,7 @@ doc/features/prospect-editor.md.
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, date, datetime
 from enum import StrEnum
 from typing import Literal
 
@@ -30,6 +30,7 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.models.prospects import ProspectNote
 from app.repositories import notes as repository
+from app.repositories import prospects as prospect_repository
 
 SCORE_MIN = 0
 SCORE_MAX = 100
@@ -42,7 +43,10 @@ class ScoreBand(StrEnum):
     GREEN = "green"
 
 
-ContributionOrigin = Literal["manual"]
+ContributionOrigin = Literal["manual", "agent"]
+
+# Company-level signals are capped as a subtotal so an account fact cannot drown the person.
+COMPANY_SIGNAL_CAP = 30
 
 
 class ScoreContribution(BaseModel):
@@ -152,6 +156,46 @@ def score_from_notes(notes: Sequence[ProspectNote], config: ScoreConfig) -> Pros
     return build_score(contributions, config)
 
 
+def company_contribution_of(note: ProspectNote) -> ScoreContribution | None:
+    """The contribution of a company signal, none when it carries no `score_delta`."""
+    if note.score_delta is None:
+        return None
+    return ScoreContribution(
+        id=f"signal:{note.id}",
+        delta=note.score_delta,
+        reason=f"Signal société — {note.fact_text}",
+        created_at=note.created_at,
+        origin="agent",
+    )
+
+
 def get_score(session: Session, prospect_id: uuid.UUID, config: ScoreConfig) -> ProspectScore:
-    """The prospect's score, newest contribution first."""
-    return score_from_notes(repository.scored_notes(session, prospect_id), config)
+    """The prospect's score: person notes, then its company's valid signals (capped subtotal)."""
+    today: date = datetime.now(UTC).date()
+    contributions = [
+        item
+        for note in repository.scored_notes(session, prospect_id, on=today)
+        if (item := contribution_of(note)) is not None
+    ]
+    prospect = prospect_repository.get_prospect(session, prospect_id)
+    if prospect is not None and prospect.company_id is not None:
+        company = [
+            item
+            for note in repository.scored_company_signals(
+                session, prospect.company_id, on=today
+            )
+            if (item := company_contribution_of(note)) is not None
+        ]
+        subtotal = sum(item.delta for item in company)
+        if abs(subtotal) > COMPANY_SIGNAL_CAP:
+            cap = COMPANY_SIGNAL_CAP if subtotal > 0 else -COMPANY_SIGNAL_CAP
+            company.append(
+                ScoreContribution(
+                    id="company-signal-cap",
+                    delta=cap - subtotal,
+                    reason=f"Plafond des signaux société ({COMPANY_SIGNAL_CAP} points)",
+                    origin="agent",
+                )
+            )
+        contributions.extend(company)
+    return build_score(contributions, config)

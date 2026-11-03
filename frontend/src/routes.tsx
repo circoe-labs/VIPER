@@ -6,6 +6,8 @@ import { RequireAuth } from './auth/RequireAuth'
 import { CompaniesPage } from './companies/CompaniesPage'
 import { ContactPage } from './contact/ContactPage'
 import { DatabasePage } from './database/DatabasePage'
+import { MissionDetailPage } from './missions/MissionDetailPage'
+import { MissionsPage } from './missions/MissionsPage'
 import { HomePage } from './home/HomePage'
 import { ImportPage } from './imports/ImportPage'
 import { ProspectionPage } from './prospection/ProspectionPage'
@@ -31,6 +33,8 @@ const PAGES: RouteObject[] = [
   { path: '/', element: <HomePage /> },
   { path: '/prospection', element: <ProspectionPage /> },
   { path: '/contact', element: <ContactPage /> },
+  { path: '/missions', element: <MissionsPage /> },
+  { path: '/missions/:missionId', element: <MissionDetailPage /> },
   { path: '/agenda', element: <AgendaPage /> },
   { path: '/database/:table?', element: <DatabasePage /> },
   { path: '/settings/:section?', element: <SettingsPage /> },
@@ -57,6 +61,7 @@ export const routes: RouteObject[] = [
       ...SUBPAGES,
       ...devRoutes,
       { path: '/exploitation', element: <Navigate to="/contact" replace /> },
+      { path: '/agents/*', element: <Navigate to="/missions" replace /> },
       { path: '*', element: <Navigate to="/" replace /> },
     ],
   },

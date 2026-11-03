@@ -173,3 +173,138 @@ class AppointmentSource(StrEnum):
 
     CALENDLY = "calendly"
     MANUAL = "manual"
+
+
+class AgentThreadKind(StrEnum):
+    """What an « Analyse » thread is about (`agent_threads.kind`)."""
+
+    # One company to complete: its fields, its signals, its people.
+    COMPANY_REVIEW = "company_review"
+    # One prospecting brief, with no company yet (`agent_threads.brief`).
+    PROSPECT_SEARCH = "prospect_search"
+
+
+class AgentThreadStatus(StrEnum):
+    """Lifecycle of a thread; `done` and `cancelled` are terminal for the card."""
+
+    OPEN = "open"
+    PAUSED = "paused"
+    DONE = "done"
+    CANCELLED = "cancelled"
+
+
+class AgentTaskType(StrEnum):
+    """What an agent is asked to do; the payload and the output schema follow the type
+    (`app.services.agent_payloads`)."""
+
+    UPDATE_COMPANY = "update_company"
+    UPDATE_EMPLOYEE = "update_employee"
+    FIND_EMPLOYEES = "find_employees"
+    SURVEIL_SIGNALS = "surveil_signals"
+    FIND_PROSPECTS = "find_prospects"
+
+
+class AgentTaskStatus(StrEnum):
+    """One task, from the queue to the person's decision. `submitted` waits for a review; a lease
+    that expires is not a status (the task returns to `pending`)."""
+
+    PENDING = "pending"
+    CLAIMED = "claimed"
+    SUBMITTED = "submitted"
+    ACCEPTED = "accepted"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class AgentResultStatus(StrEnum):
+    """One submission (`agent_task_results`): immutable, one row per attempt."""
+
+    PENDING_REVIEW = "pending_review"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+    # An earlier attempt of the same task, kept for the history.
+    SUPERSEDED = "superseded"
+
+
+class MissionType(StrEnum):
+    """What a mission asks for, from the modal's « Type » (`missions.type`)."""
+
+    PROSPECTION = "prospection"
+    SIGNALS = "signals"
+    ENRICHMENT = "enrichment"
+    VERIFICATION = "verification"
+    OTHER = "other"
+
+
+class MissionStatus(StrEnum):
+    """Lifecycle of a mission; `done` and `cancelled` are terminal."""
+
+    ACTIVE = "active"
+    PAUSED = "paused"
+    DONE = "done"
+    CANCELLED = "cancelled"
+
+
+class MissionRunStatus(StrEnum):
+    """One execution of a mission: `scheduled` waits, `running` waits for its tasks."""
+
+    SCHEDULED = "scheduled"
+    RUNNING = "running"
+    DONE = "done"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class MissionRunTrigger(StrEnum):
+    """Why a run exists: a person pressed « Lancer », or the recurrence created it."""
+
+    MANUAL = "manual"
+    SCHEDULE = "schedule"
+
+
+class RecurrenceUnit(StrEnum):
+    """The unit of « Tous les [X] … »."""
+
+    HOURS = "hours"
+    DAYS = "days"
+    WEEKS = "weeks"
+    MONTHS = "months"
+
+
+class MissionEndKind(StrEnum):
+    """How a recurrence stops."""
+
+    NEVER = "never"
+    DATE = "date"
+    AFTER = "after"
+
+
+class MissionResultKind(StrEnum):
+    """What the mission is expected to produce (the modal's « Résultat attendu »)."""
+
+    COMPANIES = "companies"
+    PROSPECTS = "prospects"
+    SIGNALS = "signals"
+    ENRICHMENT = "enrichment"
+
+
+class SignalKind(StrEnum):
+    """What kind of dated fact a signal is (`prospect_notes.kind`)."""
+
+    HIRING = "hiring"
+    FUNDING = "funding"
+    NEWS = "news"
+    SOCIAL_POST = "social_post"
+    EVENT = "event"
+    PRODUCT_LAUNCH = "product_launch"
+    PARTNERSHIP = "partnership"
+    TECH_CHANGE = "tech_change"
+    NEED_EXPRESSED = "need_expressed"
+    OTHER = "other"
+
+
+class SignalOrigin(StrEnum):
+    """Who produced the signal: a person in the UI, or an agent's proposal."""
+
+    MANUAL = "manual"
+    AGENT = "agent"

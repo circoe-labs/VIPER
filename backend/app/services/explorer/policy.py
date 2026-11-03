@@ -223,6 +223,18 @@ EXPOSED_TABLES: Mapping[str, TablePolicy] = {
 UNEXPOSED_TABLES: Mapping[str, str] = {
     "users": "Login accounts (ADR-0004): argon2 password hashes; managed only through app.cli.",
     "user_sessions": "Live sign-in sessions (ADR-0004): token hashes and account activity.",
+    "agent_threads": "Fils d’analyse : ouverts et suivis depuis la page Agents, "
+    "jamais édités à la main.",
+    "agent_tasks": "File de travail des agents : état, bail et agent en cours "
+    "sont pilotés par le service.",
+    "missions": "Règles de mission : créées et suivies depuis la page Missions, "
+    "jamais éditées à la main.",
+    "mission_targets": "Données liées d’une mission : des références vers la base, "
+    "gérées par le service.",
+    "mission_runs": "Exécutions d’une mission : l’état est calculé depuis les tâches.",
+    "agent_task_results": "Résultats soumis par les agents : relus et appliqués "
+    "depuis la page Agents.",
+    "mcp_tokens": "Jetons d’accès des agents : seuls des condensats, créés en ligne de commande.",
 }
 
 DEFAULT_POLICY = ExposurePolicy(tables=EXPOSED_TABLES)

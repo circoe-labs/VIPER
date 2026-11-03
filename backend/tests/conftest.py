@@ -110,6 +110,9 @@ def app(test_database_url: str, session_factory: sessionmaker[Session], tmp_path
         )
     )
     app.state.session_factory = session_factory
+    # The recurrence worker is exercised by its own test against `missions.run_due`: no thread
+    # may race the per-test transaction.
+    app.state.mission_scheduler = None
     return app
 
 

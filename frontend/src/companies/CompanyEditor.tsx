@@ -18,6 +18,7 @@ import {
   validate,
 } from './companyForm'
 import { DeleteCompanyDialog, ProspectsSection, Section, SimilarCompanies } from './CompanyEditorParts'
+import { CompanySignals } from './CompanySignals'
 import { EstablishmentsEditor } from './EstablishmentsEditor'
 import { type CompanyRefusal, companyRefusal } from './messages'
 import './companies.css'
@@ -467,6 +468,7 @@ function CompanyFields({ draft, company, errors, warnings, fieldId, nameRef, onC
       </Section>
 
       {company && <ProspectsSection company={company} />}
+      {company && <CompanySignals companyId={company.id} />}
 
       {company && (
         <Section title="Historique">

@@ -1,0 +1,238 @@
+import { screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { describe, expect, it } from 'vitest'
+
+import type { ResultView } from '../api/agents'
+import type { MissionCard, MissionDetail, MissionOptions } from '../api/missions'
+import { SHELL_API } from '../test/homeApi'
+import { type ApiReply, renderApp, stubApi } from '../test/render'
+
+const MISSION = '00000000-0000-7000-e000-000000000010'
+const COMPANY = '00000000-0000-7000-f000-000000000001'
+
+const OPTIONS: MissionOptions = {
+  types: [
+    { value: 'prospection', executable: false },
+    { value: 'signals', executable: false },
+    { value: 'enrichment', executable: true },
+    { value: 'verification', executable: true },
+    { value: 'other', executable: true },
+  ],
+  result_kinds: [
+    { value: 'companies', executable: true },
+    { value: 'prospects', executable: true },
+    { value: 'signals', executable: false },
+    { value: 'enrichment', executable: true },
+  ],
+  units: ['hours', 'days', 'weeks', 'months'],
+  end_kinds: ['never', 'date', 'after'],
+  result_limit_max: 500,
+}
+
+function card(overrides: Partial<MissionCard> = {}): MissionCard {
+  return {
+    id: MISSION,
+    name: 'Nouveaux entrepôts — Normandie',
+    type: 'enrichment',
+    status: 'active',
+    agent_label: 'Agent claude-01',
+    prompt: 'Complète ces fiches avec le site web et le domaine e-mail.',
+    is_recurring: true,
+    interval_count: 24,
+    interval_unit: 'hours',
+    targets_count: 1,
+    runs_count: 1,
+    last_run_at: '2026-10-30T08:00:00+00:00',
+    last_run_status: 'running',
+    last_run_results: 1,
+    next_run_at: '2026-10-31T08:00:00+00:00',
+    tasks_total: 1,
+    tasks_done: 0,
+    results_pending: 1,
+    created_at: '2026-10-30T07:00:00+00:00',
+    ...overrides,
+  }
+}
+
+function detail(): MissionDetail {
+  return {
+    card: card(),
+    targets: [{ kind: 'company', id: COMPANY, label: 'Transports X', hint: 'Rouen' }],
+    runs: [
+      {
+        id: '00000000-0000-7000-e000-000000000020',
+        status: 'running',
+        trigger: 'manual',
+        scheduled_at: '2026-10-30T08:00:00+00:00',
+        started_at: '2026-10-30T08:00:00+00:00',
+        finished_at: null,
+        tasks_total: 1,
+        results_count: 1,
+        note: null,
+      },
+    ],
+    tasks: [
+      {
+        id: '00000000-0000-7000-e000-000000000030',
+        type: 'update_company',
+        status: 'submitted',
+        company_id: COMPANY,
+        prospect_id: null,
+        prospect_name: null,
+        claimed_by_label: 'Agent claude-01',
+        assigned_agent_id: null,
+        attempts: 1,
+        max_attempts: 3,
+        result_id: '00000000-0000-7000-e000-000000000040',
+        submitted_at: '2026-10-30T08:05:00+00:00',
+      },
+    ],
+    prompt: 'Complète ces fiches avec le site web et le domaine e-mail.',
+    result_kind: 'enrichment',
+    result_limit: 20,
+  }
+}
+
+const COMMON: Record<string, ApiReply> = {
+  'GET /api/missions/proposals': [200, []],
+  'GET /api/missions/options': [200, OPTIONS],
+  'GET /api/missions/agents': [200, [{ id: 'agent-1', label: 'Agent claude-01', scopes: ['*'] }]],
+}
+
+describe('MissionsPage', () => {
+  it('shows the mission, its agent, its recurrence and the results to review', async () => {
+    stubApi({
+      ...SHELL_API,
+      ...COMMON,
+      'GET /api/missions': [200, { items: [card()], total: 1 }],
+    })
+
+    renderApp('/missions')
+
+    expect(screen.getByRole('heading', { level: 1, name: 'Missions' })).toBeInTheDocument()
+    expect(await screen.findByText('Nouveaux entrepôts — Normandie')).toBeInTheDocument()
+    expect(screen.getByText(/Enrichissement · Agent claude-01/)).toBeInTheDocument()
+    expect(screen.getByText(/Toutes les 24 heures/)).toBeInTheDocument()
+    expect(screen.getByText(/1 résultat à relire/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Nouveaux entrepôts/ })).toHaveAttribute(
+      'href',
+      `/missions/${MISSION}`,
+    )
+  })
+
+  it('suggests a name from the consigne and needs linked data before launching', async () => {
+    stubApi({
+      ...SHELL_API,
+      ...COMMON,
+      'GET /api/missions': [200, { items: [], total: 0 }],
+    })
+    const user = userEvent.setup()
+
+    renderApp('/missions')
+    const [firstCreate] = await screen.findAllByRole('button', { name: 'Nouvelle mission' })
+    expect(firstCreate).toBeDefined()
+    await user.click(firstCreate as HTMLElement)
+
+    await user.type(
+      screen.getByLabelText(/Consigne/),
+      'Trouve les commissaires au transport en Normandie',
+    )
+
+    expect(screen.getByLabelText(/Nom/)).toHaveValue(
+      'Trouve les commissaires au transport en Normandie',
+    )
+    expect(screen.getByRole('button', { name: 'Créer la mission' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Créer et lancer' })).toBeDisabled()
+  })
+})
+
+describe('MissionDetailPage', () => {
+  it('shows the consigne, the linked record, the run and the review button', async () => {
+    stubApi({
+      ...SHELL_API,
+      ...COMMON,
+      [`GET /api/missions/${MISSION}`]: [200, detail()],
+    })
+
+    renderApp(`/missions/${MISSION}`)
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Nouveaux entrepôts — Normandie' })).toBeInTheDocument()
+    expect(screen.getByText(/Complète ces fiches avec le site web/)).toBeInTheDocument()
+    expect(screen.getByText('Transports X')).toBeInTheDocument()
+    expect(screen.getByText(/1 tâche · 1 résultat/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Relire' })).toBeInTheDocument()
+  })
+})
+
+
+describe('Signal review', () => {
+  it('shows the signal board: kind, subject, date, score and source', async () => {
+    const result: ResultView = {
+      id: '00000000-0000-7000-e000-000000000040',
+      task_id: '00000000-0000-7000-e000-000000000030',
+      task_type: 'surveil_signals',
+      task_status: 'submitted',
+      status: 'pending_review',
+      submitted_at: '2026-10-30T08:05:00+00:00',
+      submitted_by_label: 'Agent claude-01',
+      digest: 'a'.repeat(64),
+      proposal: {
+        kind: 'signals',
+        items: [
+          {
+            key: 'signal:0',
+            field: 'signals.0',
+            label: '2SN — hiring',
+            before: null,
+            after: '2SN recrute son premier responsable commercial.',
+            status: 'add',
+            source: 'https://example.test/2sn',
+            quote: 'Un premier commercial annonce un budget outillage.',
+            store: {
+              kind: 'hiring',
+              subject: '2SN',
+              observed_on: '2026-10-25',
+              score_delta: 15,
+              relevance: 80,
+            },
+          },
+        ],
+        refused: [],
+        stale: false,
+        confidence: 80,
+        notes: null,
+      },
+      accepted_items: null,
+      applied: null,
+      decision_note: null,
+      decided_at: null,
+      decided_by_display: null,
+      company_name: '2SN',
+      prospect_name: null,
+    }
+    const mission = detail()
+    const firstTask = mission.tasks[0]
+    expect(firstTask).toBeDefined()
+    if (firstTask) firstTask.result_id = result.id
+    stubApi({
+      ...SHELL_API,
+      ...COMMON,
+      [`GET /api/missions/${MISSION}`]: [200, mission],
+      [`GET /api/agents/results/${result.id}`]: [200, result],
+    })
+    const user = userEvent.setup()
+
+    renderApp(`/missions/${MISSION}`)
+    await user.click(await screen.findByRole('button', { name: 'Relire' }))
+
+    expect(await screen.findByText('Recrutement')).toBeInTheDocument()
+    expect(screen.getByText('2SN')).toBeInTheDocument()
+    expect(screen.getByText('2SN recrute son premier responsable commercial.')).toBeInTheDocument()
+    expect(screen.getByText('2026-10-25')).toBeInTheDocument()
+    expect(screen.getByText('+15')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'source' })).toHaveAttribute(
+      'href',
+      'https://example.test/2sn',
+    )
+  })
+})

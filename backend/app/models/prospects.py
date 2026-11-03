@@ -31,6 +31,8 @@ from app.models.enums import (
     OriginType,
     PhoneType,
     ProspectSourceType,
+    SignalKind,
+    SignalOrigin,
     VerificationStatus,
 )
 
@@ -192,10 +194,12 @@ NOTE_SCORE_DELTA_MAX = 50
 
 
 class ProspectNote(UUIDPrimaryKeyMixin, TimestampMixin, Base):
-    """A short dated fact about a prospect (« a liké un post », « très bon interlocuteur »).
+    """A short dated fact about a prospect — or, for a signal, about its company.
 
-    An optional `score_delta` makes the note a manual contribution to the prospect's score
-    (`app.services.prospect_score`); the score itself is never stored.
+    A note is a person's own remark; a **signal** adds a `kind`, a `source_url`, a `valid_until`
+    and an `origin` (`agent` for a proposal that a person accepted). Both live in the same table so
+    the score has one source: a person signal is a scored note, a company signal is shown on the
+    thread and will join the company score in the next slice.
     """
 
     __tablename__ = "prospect_notes"
@@ -209,10 +213,36 @@ class ProspectNote(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             f" AND {NOTE_SCORE_DELTA_MAX}",
             name="score_delta_range",
         ),
+        CheckConstraint(
+            "num_nonnulls(prospect_id, company_id) = 1", name="exactly_one_subject"
+        ),
+        CheckConstraint(
+            "origin <> 'agent' OR source_url IS NOT NULL", name="agent_needs_source"
+        ),
+        CheckConstraint(
+            "relevance IS NULL OR relevance BETWEEN 0 AND 100", name="relevance"
+        ),
+        Index(
+            "uq_prospect_notes_company_source",
+            "company_id",
+            "source_url",
+            unique=True,
+            postgresql_where=text("source_url IS NOT NULL AND company_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_prospect_notes_prospect_source",
+            "prospect_id",
+            "source_url",
+            unique=True,
+            postgresql_where=text("source_url IS NOT NULL AND prospect_id IS NOT NULL"),
+        ),
     )
 
-    prospect_id: Mapped[uuid.UUID] = mapped_column(
+    prospect_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("prospects.id", ondelete="CASCADE"), index=True
+    )
+    company_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("companies.id", ondelete="CASCADE"), index=True
     )
     fact_text: Mapped[str] = mapped_column(Text)
     # Business day the fact was observed; free of the creation moment.
@@ -221,4 +251,17 @@ class ProspectNote(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         text_enum(NoteSourceType, "source_type")
     )
     source_label: Mapped[str | None] = mapped_column(String(200))
+    # Signals only: the public URL, when it was observed, and how long it counts.
+    source_url: Mapped[str | None] = mapped_column(Text)
+    kind: Mapped[SignalKind | None] = mapped_column(text_enum(SignalKind, "kind"))
+    origin: Mapped[SignalOrigin] = mapped_column(
+        text_enum(SignalOrigin, "origin"), server_default=SignalOrigin.MANUAL.value
+    )
+    observed_on: Mapped[date | None] = mapped_column(Date)
+    valid_until: Mapped[date | None] = mapped_column(Date)
+    relevance: Mapped[int | None] = mapped_column(SmallInteger)
+    sentiment: Mapped[str | None] = mapped_column(String(16))
+    task_result_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("agent_task_results.id", ondelete="SET NULL"), index=True
+    )
     score_delta: Mapped[int | None] = mapped_column(SmallInteger)

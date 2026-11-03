@@ -9,7 +9,7 @@ holds a SIREN/SIRET, 409 `in_use` when prospects still reference a company to de
 """
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Query, status
@@ -18,8 +18,14 @@ from pydantic import BaseModel, Field, StringConstraints
 from app.api.dependencies import CurrentActor, SessionDep
 from app.api.errors import business_errors
 from app.api.history import HistoryCursor, HistoryLimit, HistoryPageOut
-from app.models.enums import ActivityStatus, Civility, ContactabilityStatus
-from app.services import companies, history
+from app.models.enums import (
+    ActivityStatus,
+    Civility,
+    ContactabilityStatus,
+    SignalKind,
+    SignalOrigin,
+)
+from app.services import companies, company_signals, history
 from app.services.companies import CompanyDetail, CompanyInput, EstablishmentInput
 from app.services.imports.models import MatchReason
 
@@ -85,6 +91,19 @@ class EstablishmentOut(BaseModel):
     country: str | None
     kind: str | None
     is_primary: bool
+
+
+class CompanySignalOut(BaseModel):
+    id: uuid.UUID
+    kind: SignalKind | None
+    signal: str
+    source_url: str | None
+    observed_on: date | None
+    valid_until: date | None
+    relevance: int | None
+    score_delta: int | None
+    origin: SignalOrigin
+    subject: str
 
 
 class ProspectSummaryOut(BaseModel):
@@ -188,6 +207,14 @@ def similar_companies(
 def get_company(company_id: uuid.UUID, session: SessionDep) -> CompanyOut:
     with business_errors():
         return company_out(companies.get_company(session, company_id))
+
+
+@router.get("/{company_id}/signals")
+def company_signals_list(company_id: uuid.UUID, session: SessionDep) -> list[CompanySignalOut]:
+    """Signals stored for the company or its people, newest first."""
+    with business_errors():
+        rows = company_signals.list_signals(session, company_id)
+    return [CompanySignalOut.model_validate(row, from_attributes=True) for row in rows]
 
 
 @router.get("/{company_id}/history")
