@@ -173,7 +173,7 @@ class AgentOut(BaseModel):
     scopes: list[str]
 
 
-def _detail_out(detail: missions.MissionDetail) -> MissionDetailOut:
+def detail_out(detail: missions.MissionDetail) -> MissionDetailOut:
     return MissionDetailOut(
         card=MissionCardOut.model_validate(detail.card, from_attributes=True),
         targets=[TargetOut.model_validate(row, from_attributes=True) for row in detail.targets],
@@ -267,14 +267,14 @@ def create_mission(body: MissionIn, session: SessionDep, actor: CurrentActor) ->
     with business_errors():
         mission = missions.create(session, actor, _input(body), run_now=body.run_now)
         detail = missions.detail(session, mission.id)
-    return _detail_out(detail)
+    return detail_out(detail)
 
 
 @router.get("/{mission_id}")
 def get_mission(mission_id: uuid.UUID, session: SessionDep) -> MissionDetailOut:
     with business_errors():
         detail = missions.detail(session, mission_id)
-    return _detail_out(detail)
+    return detail_out(detail)
 
 
 @router.patch("/{mission_id}")
@@ -287,7 +287,7 @@ def update_mission(
     with business_errors():
         missions.set_status(session, actor, mission_id, body.status)
         detail = missions.detail(session, mission_id)
-    return _detail_out(detail)
+    return detail_out(detail)
 
 
 @router.put("/{mission_id}")
@@ -301,7 +301,7 @@ def edit_mission(
     with business_errors():
         missions.update(session, actor, mission_id, _input(body))
         detail = missions.detail(session, mission_id)
-    return _detail_out(detail)
+    return detail_out(detail)
 
 
 @router.delete("/{mission_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -321,4 +321,4 @@ def run_mission(
     with business_errors():
         missions.run_mission(session, actor, mission_id)
         detail = missions.detail(session, mission_id)
-    return _detail_out(detail)
+    return detail_out(detail)
