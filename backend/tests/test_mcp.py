@@ -233,7 +233,7 @@ def test_a_lost_claim_is_refused(client: TestClient, db_session: Session) -> Non
 def test_an_unknown_method_is_a_jsonrpc_error(client: TestClient, db_session: Session) -> None:
     token = mint(db_session)
 
-    response = rpc(client, token, "resources/list").json()
+    response = rpc(client, token, "prompts/list").json()
 
     assert response["error"]["code"] == -32601
 

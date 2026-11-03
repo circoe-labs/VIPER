@@ -1,7 +1,8 @@
 """VIPER's MCP endpoint: the tools an agent uses to work, and the reads an assistant answers with.
 
 Streamable HTTP, JSON-RPC 2.0, one `POST /mcp` (`initialize` → `notifications/initialized` →
-`tools/list` / `tools/call`). It lives **outside** `/api` on purpose: the session cookie and the
+`tools/list` / `tools/call`, and `resources/list` / `resources/read` for the UI templates of
+`app.api.mcp_ui`). It lives **outside** `/api` on purpose: the session cookie and the
 CSRF header do not apply to a machine, so the route carries its own `Authorization: Bearer` check
 (`app.services.mcp_tokens`) and its own actor (`ActorType.AGENT`).
 
@@ -32,7 +33,7 @@ from fastapi.responses import JSONResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api import mcp_contact, mcp_conversational, mcp_missions
+from app.api import mcp_contact, mcp_conversational, mcp_missions, mcp_ui
 from app.api.oauth import resource_metadata_url
 from app.core.actor import ActorContext, ActorType
 from app.db.session import unit_of_work
@@ -325,6 +326,11 @@ for _tool in TOOLS:
 TOOLS.extend(tool.definition() for tool in mcp_conversational.TOOLS)
 TOOLS.extend(tool.definition() for tool in mcp_missions.TOOLS)
 TOOLS.extend(tool.definition() for tool in mcp_contact.TOOLS)
+# The card the host renders with a tool's result, and the tools that card calls (`mcp_ui`).
+for _tool in TOOLS:
+    _meta = mcp_ui.tool_meta(_tool["name"])
+    if _meta is not None:
+        _tool["_meta"] = _meta
 
 
 def _rpc(id_: Any, result: Any) -> dict[str, Any]:
@@ -688,7 +694,10 @@ def _handle(
                 id_,
                 {
                     "protocolVersion": PROTOCOL_VERSION,
-                    "capabilities": {"tools": {"listChanged": False}},
+                    "capabilities": {
+                        "tools": {"listChanged": False},
+                        "resources": {"listChanged": False, "subscribe": False},
+                    },
                     "serverInfo": SERVER_INFO,
                 },
             )
@@ -696,6 +705,19 @@ def _handle(
             return _rpc(id_, {})
         case "tools/list":
             return _rpc(id_, {"tools": TOOLS})
+        case "resources/list":
+            # Static templates, no data: any valid token may read them (no capability).
+            return _rpc(id_, {"resources": mcp_ui.list_resources()})
+        case "resources/templates/list":
+            return _rpc(id_, {"resourceTemplates": []})
+        case "resources/read":
+            params = message.get("params") or {}
+            uri = params.get("uri") if isinstance(params, dict) else None
+            try:
+                return _rpc(id_, mcp_ui.read_resource(uri))
+            except NotFoundError as error:
+                # MCP's « resource not found » code.
+                return _error(id_, -32002, str(error))
         case "tools/call":
             params = message.get("params") or {}
             name = params.get("name")
@@ -710,6 +732,9 @@ def _handle(
                     payload = _call_tool(str(name), args, session, actor, record, state)
             except DomainError as error:
                 payload = _refusal(error)
+            result_meta = mcp_ui.result_meta(str(name))
+            if result_meta is not None:
+                payload["_meta"] = result_meta
             _log_call(session, record, str(name), args, payload, started)
             return _rpc(id_, payload)
         case _:
