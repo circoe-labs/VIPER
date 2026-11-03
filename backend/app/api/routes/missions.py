@@ -245,15 +245,12 @@ def mission_targets(
     limit: Annotated[int, Query(ge=1, le=50)] = 20,
 ) -> list[TargetOut]:
     return [
-        TargetOut.model_validate(row)
-        for row in missions.target_options(session, kind, q, limit)
+        TargetOut.model_validate(row) for row in missions.target_options(session, kind, q, limit)
     ]
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-def create_mission(
-    body: MissionIn, session: SessionDep, actor: CurrentActor
-) -> MissionDetailOut:
+def create_mission(body: MissionIn, session: SessionDep, actor: CurrentActor) -> MissionDetailOut:
     with business_errors():
         mission = missions.create(session, actor, _input(body), run_now=body.run_now)
         detail = missions.detail(session, mission.id)
@@ -278,6 +275,13 @@ def update_mission(
         missions.set_status(session, actor, mission_id, body.status)
         detail = missions.detail(session, mission_id)
     return _detail_out(detail)
+
+
+@router.delete("/{mission_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_mission(mission_id: uuid.UUID, session: SessionDep, actor: CurrentActor) -> None:
+    """« Supprimer la mission »: its open tasks are cancelled, then the mission goes."""
+    with business_errors():
+        missions.delete(session, actor, mission_id)
 
 
 @router.post("/{mission_id}/run")

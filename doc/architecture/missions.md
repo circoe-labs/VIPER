@@ -122,6 +122,7 @@ review shows it as such.
 | `POST /api/missions` | create, with `run_now` for « Créer et lancer » |
 | `GET /api/missions/{id}` | detail: targets, runs, tasks, consigne, expected result |
 | `PATCH /api/missions/{id}` | pause / resume / close |
+| `DELETE /api/missions/{id}` | « Supprimer la mission » (after a confirmation): its open tasks (pending, claimed, submitted) are cancelled (`agent_task.cancelled`, reason `mission_deleted`), then the mission goes with its targets and runs (FK cascade); the tasks stay with `run_id` NULL; results already accepted are not undone (`mission.deleted`) |
 | `POST /api/missions/{id}/run` | « Lancer maintenant » |
 | `GET /api/missions/options` | types/result kinds with their `executable` flag, units, limits |
 | `GET /api/missions/agents` | labels and scopes of the live MCP tokens (never the token itself) |

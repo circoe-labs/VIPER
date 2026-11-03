@@ -126,7 +126,7 @@ def _event(
     )
 
 
-def _clear_claim(task: AgentTask) -> None:
+def clear_claim(task: AgentTask) -> None:
     task.claim_id = None
     task.claimed_by_id = None
     task.claimed_by_label = None
@@ -284,7 +284,7 @@ def sweep_expired(session: Session, now: datetime | None = None) -> int:
         .with_for_update(skip_locked=True)
     ).all()
     for task in expired:
-        _clear_claim(task)
+        clear_claim(task)
         task.status = AgentTaskStatus.PENDING
         _event(session, LEASE_ACTOR, audit.AuditAction.AGENT_TASK_EXPIRED, task)
     if expired:
@@ -469,7 +469,7 @@ def submit(
     )
     session.add(result)
     task.status = AgentTaskStatus.SUBMITTED
-    _clear_claim(task)
+    clear_claim(task)
     session.flush()
     _event(
         session,
@@ -495,7 +495,7 @@ def fail(
     task = _claimed(session, actor, task_id, claim_id, now)
     task.failure_code = code[:64]
     task.failure_message = message
-    _clear_claim(task)
+    clear_claim(task)
     task.status = (
         AgentTaskStatus.PENDING if task.attempts < task.max_attempts else AgentTaskStatus.FAILED
     )
@@ -520,7 +520,7 @@ def release(
 ) -> AgentTask:
     """The agent gives the task back without failing it (it stops, another may take it)."""
     task = _claimed(session, actor, task_id, claim_id, now)
-    _clear_claim(task)
+    clear_claim(task)
     if task.attempts >= task.max_attempts:
         task.status = AgentTaskStatus.FAILED
         task.failure_code = "released"

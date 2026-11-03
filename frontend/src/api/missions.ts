@@ -234,6 +234,19 @@ export function useSetMissionStatus(id: string) {
   })
 }
 
+// « Supprimer la mission »: the server cancels its open agent tasks, then deletes it with its targets and runs.
+export function useDeleteMission(id: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => apiRequest<undefined>('DELETE', `/missions/${encodeURIComponent(id)}`),
+    onSuccess: () => {
+      queryClient.removeQueries({ queryKey: missionKeys.detail(id) })
+      // Its cancelled tasks leave the Agents queue and review cards.
+      return refreshAfterWrite(queryClient, [['missions'], ['agents']])
+    },
+  })
+}
+
 export function useRunMission(id: string) {
   const queryClient = useQueryClient()
   return useMutation({

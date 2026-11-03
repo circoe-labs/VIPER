@@ -14,6 +14,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Company, Mission, Prospect, ProspectSource
+from app.models.agent_missions import AgentTask
+from app.models.audit import AuditLogEntry
 from app.models.enums import (
     MissionRunStatus,
     MissionRunTrigger,
@@ -110,9 +112,7 @@ def test_a_run_creates_one_task_per_linked_company(client: TestClient, db_sessio
     assert detail["card"]["next_run_at"] is None
 
 
-def test_the_agent_receives_the_mission_consigne(
-    client: TestClient, db_session: Session
-) -> None:
+def test_the_agent_receives_the_mission_consigne(client: TestClient, db_session: Session) -> None:
     company = add_company(db_session, display_name="2SN")
     create(
         client,
@@ -181,9 +181,7 @@ def test_the_mission_agent_is_the_only_one_that_can_claim(
     assert claimed["mission"]["id"]
 
 
-def test_accepting_the_result_writes_the_company(
-    client: TestClient, db_session: Session
-) -> None:
+def test_accepting_the_result_writes_the_company(client: TestClient, db_session: Session) -> None:
     company = add_company(db_session, display_name="2SN")
     create(
         client,
@@ -235,9 +233,7 @@ def test_a_recurring_mission_gets_its_next_run(client: TestClient, db_session: S
     assert next_run == starts
 
 
-def test_a_signals_mission_needs_a_company(
-    client: TestClient, db_session: Session
-) -> None:
+def test_a_signals_mission_needs_a_company(client: TestClient, db_session: Session) -> None:
     created = client.post(
         MISSIONS,
         json={
@@ -299,9 +295,7 @@ def test_options_flag_the_executable_types(client: TestClient) -> None:
     assert types["signals"] is True
 
 
-def due_mission(
-    client: TestClient, db_session: Session, company: Company, **extra: Any
-) -> Mission:
+def due_mission(client: TestClient, db_session: Session, company: Company, **extra: Any) -> Mission:
     detail = create(
         client,
         targets=[{"kind": "company", "id": str(company.id)}],
@@ -336,9 +330,7 @@ def test_the_scheduler_closes_an_exhausted_recurrence(
     client: TestClient, db_session: Session
 ) -> None:
     company = add_company(db_session, display_name="2SN")
-    mission = due_mission(
-        client, db_session, company, end_kind="after", max_runs=1
-    )
+    mission = due_mission(client, db_session, company, end_kind="after", max_runs=1)
     now = datetime.now(UTC)
 
     assert len(missions.run_due(db_session, now=now)) == 1
@@ -349,9 +341,7 @@ def test_the_scheduler_closes_an_exhausted_recurrence(
     assert missions.run_due(db_session, now=now + timedelta(hours=2)) == []
 
 
-def test_the_scheduler_pauses_a_type_it_cannot_run(
-    client: TestClient, db_session: Session
-) -> None:
+def test_the_scheduler_pauses_a_type_it_cannot_run(client: TestClient, db_session: Session) -> None:
     created = client.post(
         MISSIONS,
         json={
@@ -399,9 +389,7 @@ def test_a_recurring_mission_starting_now_is_due_immediately(
     assert len(started) == 1
 
 
-def test_a_prospection_mission_finds_new_contacts(
-    client: TestClient, db_session: Session
-) -> None:
+def test_a_prospection_mission_finds_new_contacts(client: TestClient, db_session: Session) -> None:
     company = add_company(db_session, display_name="2SN")
     add_prospect(db_session, company, first_name="Jean", last_name="Test")
     detail = create(
@@ -450,9 +438,7 @@ def test_a_prospection_mission_finds_new_contacts(
                         "first_name": "Jean",
                         "last_name": "Test",
                         "confidence": 50,
-                        "evidence": [
-                            {"field": "first_name", "source": "https://2sn.fr"}
-                        ],
+                        "evidence": [{"field": "first_name", "source": "https://2sn.fr"}],
                     },
                 ],
                 "confidence": 80,
@@ -474,9 +460,7 @@ def test_a_prospection_mission_finds_new_contacts(
     assert marie.company_id == company.id
     assert {email.address for email in marie.emails} == {"marie@2sn.fr"}
     assert marie.employment_verified_at is not None
-    source = db_session.scalar(
-        select(ProspectSource).where(ProspectSource.prospect_id == marie.id)
-    )
+    source = db_session.scalar(select(ProspectSource).where(ProspectSource.prospect_id == marie.id))
     assert source is not None
     assert source.source_type is ProspectSourceType.FUTURE_AGENT
     assert source.source_reference == "https://2sn.fr/equipe"
@@ -504,9 +488,7 @@ def test_a_prospection_without_companies_cannot_run(
     assert response.json()["detail"]["reason"] == "empty"
 
 
-def test_a_discovery_mission_finds_new_companies(
-    client: TestClient, db_session: Session
-) -> None:
+def test_a_discovery_mission_finds_new_companies(client: TestClient, db_session: Session) -> None:
     add_company(db_session, display_name="Transports X")
     detail = create(
         client,
@@ -552,9 +534,7 @@ def test_a_discovery_mission_finds_new_companies(
                     {
                         "display_name": "Transports X",
                         "confidence": 50,
-                        "evidence": [
-                            {"field": "display_name", "source": "https://example.test/x"}
-                        ],
+                        "evidence": [{"field": "display_name", "source": "https://example.test/x"}],
                     },
                 ],
                 "confidence": 80,
@@ -714,3 +694,27 @@ def test_a_signals_mission_without_companies_cannot_run(
 
     assert response.status_code == 422
     assert response.json()["detail"]["field"] == "targets"
+
+
+def test_delete_a_mission_cancels_its_open_tasks(client: TestClient, db_session: Session) -> None:
+    company = add_company(db_session, display_name="2SN")
+    detail = create(client, targets=[{"kind": "company", "id": str(company.id)}], run_now=True)
+    mission_id = detail["card"]["id"]
+    token = mint(db_session)
+    claimed = rpc(client, token, "viper_claim_task", {"task_types": ["update_company"]})
+    assert claimed["isError"] is False
+
+    response = client.delete(f"{MISSIONS}/{mission_id}")
+
+    assert response.status_code == 204, response.text
+    assert client.get(f"{MISSIONS}/{mission_id}").status_code == 404
+    assert client.get(MISSIONS).json()["total"] == 0
+    db_session.expire_all()
+    # The task stays, cancelled and detached from the deleted run; the company is untouched.
+    task = db_session.scalars(select(AgentTask)).one()
+    assert (task.status.value, task.run_id, task.claim_id) == ("cancelled", None, None)
+    assert db_session.get(Company, company.id) is not None
+    actions = set(db_session.scalars(select(AuditLogEntry.action)).all())
+    assert {"mission.deleted", "agent_task.cancelled"} <= actions
+    # Already gone: a second delete is a 404, not a silent success.
+    assert client.delete(f"{MISSIONS}/{mission_id}").status_code == 404

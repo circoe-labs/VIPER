@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
@@ -161,6 +161,53 @@ describe('MissionDetailPage', () => {
     expect(screen.getByText('Transports X')).toBeInTheDocument()
     expect(screen.getByText(/1 tâche · 1 résultat/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Relire' })).toBeInTheDocument()
+  })
+
+  it('deletes the mission after a confirmation and goes back to the list', async () => {
+    let deleted = false
+    const fetchMock = stubApi({
+      ...SHELL_API,
+      ...COMMON,
+      [`GET /api/missions/${MISSION}`]: [200, detail()],
+      [`DELETE /api/missions/${MISSION}`]: () => {
+        deleted = true
+        return [204]
+      },
+      'GET /api/missions': () => [200, deleted ? { items: [], total: 0 } : { items: [card()], total: 1 }],
+    })
+    const user = userEvent.setup()
+
+    renderApp(`/missions/${MISSION}`)
+    await user.click(await screen.findByRole('button', { name: 'Supprimer' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Supprimer cette mission ?' })
+    expect(dialog).toHaveTextContent(/Les tâches encore en attente, en cours ou à relire sont annulées/)
+    // « Retour » sends nothing.
+    await user.click(within(dialog).getByRole('button', { name: 'Retour' }))
+    expect(deleted).toBe(false)
+
+    await user.click(screen.getByRole('button', { name: 'Supprimer' }))
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Supprimer la mission' }))
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Missions' })).toBeInTheDocument()
+    expect(deleted).toBe(true)
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'DELETE')).toHaveLength(1)
+  })
+
+  it('says when the deletion failed and keeps the mission open', async () => {
+    stubApi({
+      ...SHELL_API,
+      ...COMMON,
+      [`GET /api/missions/${MISSION}`]: [200, detail()],
+      [`DELETE /api/missions/${MISSION}`]: [500, { detail: 'boom' }],
+    })
+    const user = userEvent.setup()
+
+    renderApp(`/missions/${MISSION}`)
+    await user.click(await screen.findByRole('button', { name: 'Supprimer' }))
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Supprimer la mission' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('La mission n’a pas pu être supprimée')
+    expect(screen.getByRole('heading', { level: 1, name: 'Nouveaux entrepôts — Normandie' })).toBeInTheDocument()
   })
 })
 

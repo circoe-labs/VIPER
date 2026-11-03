@@ -1,15 +1,16 @@
-import { useState } from 'react'
-import { Link, useParams } from 'react-router'
+import { useRef, useState } from 'react'
+import { Link, useNavigate, useParams } from 'react-router'
 
-import { useMission, useRunMission, useSetMissionStatus } from '../api/missions'
+import { useDeleteMission, useMission, useRunMission, useSetMissionStatus } from '../api/missions'
 import { TASK_STATUS_LABELS, TASK_STATUS_TONES, TASK_TYPE_LABELS } from '../agents/labels'
 import { ReviewDialog } from '../agents/ReviewDialog'
 import { StatusBadge } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
+import { Modal } from '../ui/Dialog'
 import { EmptyState } from '../ui/EmptyState'
 import { PageHeader } from '../ui/PageHeader'
-import { ArrowLeftIcon, BoltIcon, SparklesIcon } from '../ui/icons'
+import { ArrowLeftIcon, BoltIcon, SparklesIcon, TrashIcon } from '../ui/icons'
 import {
   MISSION_STATUS_LABELS,
   MISSION_STATUS_TONES,
@@ -27,7 +28,11 @@ export function MissionDetailPage() {
   const mission = useMission(missionId)
   const run = useRunMission(missionId ?? '')
   const setStatus = useSetMissionStatus(missionId ?? '')
+  const remove = useDeleteMission(missionId ?? '')
+  const navigate = useNavigate()
   const [reviewId, setReviewId] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const backRef = useRef<HTMLButtonElement>(null)
 
   if (mission.isLoading) {
     return <p className="missions-muted">Chargement…</p>
@@ -105,11 +110,70 @@ export function MissionDetailPage() {
                 Reprendre
               </Button>
             )}
+            <Button
+              variant="secondary"
+              icon={TrashIcon}
+              onClick={() => {
+                remove.reset()
+                setDeleting(true)
+              }}
+            >
+              Supprimer
+            </Button>
           </div>
         }
       />
       {run.isError && <p className="missions-error">L’exécution n’a pas pu démarrer.</p>}
       {setStatus.isError && <p className="missions-error">Le statut n’a pas pu être changé.</p>}
+      <Modal
+        open={deleting}
+        size="sm"
+        title="Supprimer cette mission ?"
+        initialFocusRef={backRef}
+        onClose={() => {
+          setDeleting(false)
+        }}
+        footer={
+          <>
+            <Button
+              ref={backRef}
+              disabled={remove.isPending}
+              onClick={() => {
+                setDeleting(false)
+              }}
+            >
+              Retour
+            </Button>
+            <Button
+              variant="danger"
+              icon={TrashIcon}
+              loading={remove.isPending}
+              onClick={() => {
+                remove.mutate(undefined, {
+                  onSuccess: () => {
+                    void navigate('/missions')
+                  },
+                })
+              }}
+            >
+              Supprimer la mission
+            </Button>
+          </>
+        }
+      >
+        <div className="mission-dialog">
+          <p>
+            « {card.name} » est supprimée avec ses données liées et l’historique de ses exécutions. Les tâches
+            encore en attente, en cours ou à relire sont annulées : les agents ne les traiteront pas.
+          </p>
+          <p>Les modifications déjà acceptées sur les fiches ne changent pas.</p>
+          {remove.isError && (
+            <p className="missions-error" role="alert">
+              La mission n’a pas pu être supprimée : réessayez.
+            </p>
+          )}
+        </div>
+      </Modal>
       {card.results_pending > 0 && (
         <p className="missions-notice">
           {String(card.results_pending)} résultat{card.results_pending > 1 ? 's' : ''} attend
