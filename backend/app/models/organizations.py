@@ -41,7 +41,7 @@ class Organization(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             f"btrim(name) <> '' AND char_length(name) <= {NAME_MAX_LENGTH}", name="name_valid"
         ),
         CheckConstraint(
-            "email_domain IS NULL OR email_domain ~ '^[a-z0-9.-]+\.[a-z]{2,}$'",
+            r"email_domain IS NULL OR email_domain ~ '^[a-z0-9.-]+\.[a-z]{2,}$'",
             name="email_domain_format",
         ),
     )
