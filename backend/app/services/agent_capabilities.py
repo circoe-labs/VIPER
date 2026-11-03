@@ -2,8 +2,11 @@
 effective set of one call.
 
 A capability is a functional right (`missions.write`), not a task type: `mcp_tokens.scopes` keeps
-filtering which tasks a worker may claim. Every MCP tool requires exactly one capability
-(`app.api.mcp.require`).
+filtering which tasks a worker may claim. Every MCP tool but `viper_whoami` requires at least one
+capability, checked by `app.api.mcp.require` (once per capability); a call may need more than one,
+or one that depends on its arguments (`viper_create_mission` with `run_now` also needs
+`missions.run`; `viper_set_mission_status` needs `missions.cancel` to cancel, `missions.pause`
+otherwise).
 
 Effective capabilities = the agent's own ∩ the role of its delegated person (decision 3 of the
 ChatGPT handoff). The delegated person is:
