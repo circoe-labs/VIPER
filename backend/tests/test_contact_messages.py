@@ -355,6 +355,39 @@ def test_only_a_person_handles_messages(db_session: Session) -> None:
         service.validate(db_session, agent, prospect.id, STEP, message.revision)
 
 
+def test_the_agent_draft_door_opens_drafts_only(db_session: Session) -> None:
+    """`allow_agent` (MCP `contact.draft`): an agent creates or edits a draft, nothing else."""
+    prospect = prospect_with(db_session)
+    agent = ActorContext(type=ActorType.AGENT, display="Agent", id="agent")
+    created = service.save_message(db_session, agent, prospect.id, STEP, COMPLETE, allow_agent=True)
+    assert (created.created, created.message.status) == (True, M.DRAFT)
+    edited = service.save_message(
+        db_session,
+        agent,
+        prospect.id,
+        STEP,
+        MessageEdit(expected_revision=1, subject="Autre objet"),
+        allow_agent=True,
+    ).message
+    assert (edited.status, edited.revision) == (M.DRAFT, 2)
+    validated = service.validate(db_session, OPERATOR, prospect.id, STEP, 2).message
+
+    with pytest.raises(ContactMessageError) as refused:
+        service.save_message(
+            db_session,
+            agent,
+            prospect.id,
+            STEP,
+            MessageEdit(expected_revision=validated.revision, subject="Encore"),
+            allow_agent=True,
+        )
+    assert code_of(refused) == "agent_draft_only"
+    assert (validated.status, validated.subject) == (M.VALIDATED, "Autre objet")
+    system = ActorContext(type=ActorType.SYSTEM, display="Robot", id="robot")
+    with pytest.raises(ActorNotAllowedError):
+        service.save_message(db_session, system, prospect.id, 1, COMPLETE, allow_agent=True)
+
+
 def test_unknown_prospect_and_missing_message(db_session: Session) -> None:
     with pytest.raises(NotFoundError):
         service.save_message(db_session, OPERATOR, uuid.uuid4(), STEP, COMPLETE)
