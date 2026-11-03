@@ -788,6 +788,60 @@ def test_edit_a_mission_rewrites_the_rule_and_its_linked_data(
     assert entry.changes["name"] == {"before": "Compléter les fiches", "after": "Fiches Normandie"}
 
 
+def test_a_run_keeps_the_rule_it_started_under(client: TestClient, db_session: Session) -> None:
+    """HANDOFF §15 / PM decision 4: an edit applies to the next runs; a task already made is
+    claimed with the consigne of its run."""
+    company = add_company(db_session, display_name="2SN")
+    targets = [{"kind": "company", "id": str(company.id)}]
+    mission_id = create(client, targets=targets, run_now=True)["card"]["id"]
+    token = mint(db_session)
+
+    edited = client.put(
+        f"{MISSIONS}/{mission_id}",
+        json={
+            "name": "Compléter les fiches",
+            "type": "enrichment",
+            "prompt": "Trouve le SIREN.",
+            "targets": targets,
+            "result_kind": "enrichment",
+            "result_limit": 5,
+        },
+    )
+    assert edited.status_code == 200, edited.text
+    claimed = rpc(client, token, "viper_claim_task", {})["structuredContent"]
+
+    assert (
+        claimed["mission"]["prompt"] == "Complète le site web et le domaine e-mail de ces sociétés."
+    )
+    assert claimed["mission"]["result_limit"] == 20
+    # The next run follows the new rule.
+    assert client.post(f"{MISSIONS}/{mission_id}/run").status_code == 200
+    run = db_session.scalars(
+        select(MissionRun)
+        .where(MissionRun.mission_id == uuid.UUID(mission_id))
+        .order_by(MissionRun.created_at.desc(), MissionRun.id.desc())
+    ).first()
+    assert run is not None and run.config is not None
+    assert run.config["prompt"] == "Trouve le SIREN."
+
+
+def test_a_run_made_before_snapshots_reads_the_live_rule(
+    client: TestClient, db_session: Session
+) -> None:
+    company = add_company(db_session, display_name="2SN")
+    mission_id = create(client, targets=[{"kind": "company", "id": str(company.id)}], run_now=True)[
+        "card"
+    ]["id"]
+    run = db_session.scalars(select(MissionRun)).one()
+    run.config = None  # a run made before migration 0027
+    db_session.get_one(Mission, uuid.UUID(mission_id)).prompt = "Consigne du jour."
+    db_session.flush()
+
+    claimed = rpc(client, mint(db_session), "viper_claim_task", {})["structuredContent"]
+
+    assert claimed["mission"]["prompt"] == "Consigne du jour."
+
+
 def test_edit_refuses_a_closed_or_unknown_mission(client: TestClient, db_session: Session) -> None:
     targets = [{"kind": "company", "id": str(add_company(db_session, display_name="2SN").id)}]
     detail = create(client, targets=targets)

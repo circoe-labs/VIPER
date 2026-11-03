@@ -175,3 +175,6 @@ class MissionRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     results_count: Mapped[int] = mapped_column(Integer, server_default="0")
     # Why a run could not start (an unsupported type today), readable on the card.
     note: Mapped[str | None] = mapped_column(Text)
+    # The rule this run works under (the payload's mission block, `agent_payloads.mission_rule`),
+    # so modifying the mission changes only the next runs. NULL before migration 0027: live rule.
+    config: Mapped[dict[str, Any] | None] = mapped_column(JSONB)

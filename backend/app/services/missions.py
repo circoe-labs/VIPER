@@ -1,8 +1,10 @@
 """Missions: create the rule, launch a run, and read the cards the page shows.
 
 A mission is persistent; a **run** is one execution and owns the tasks an agent claims. The
-consigne is never copied into a task: the task carries a `run_id` and a subject id, and the MCP
-payload re-reads the mission and the live record at claim time. Nothing here applies a result.
+consigne is never copied into a task: the task carries a `run_id` and a subject id. The run keeps
+the rule it started under (`MissionRun.config`), and the MCP payload reads that rule and the live
+record at claim time, so modifying a mission changes only its next runs. Nothing here applies a
+result.
 
 Contract: `doc/architecture/missions.md`.
 """
@@ -35,7 +37,7 @@ from app.models.enums import (
 from app.models.mcp import McpToken
 from app.models.missions import Mission, MissionRun, MissionTarget
 from app.models.prospects import Prospect
-from app.services import agent_missions, audit, companies, mcp_reads
+from app.services import agent_missions, agent_payloads, audit, companies, mcp_reads
 from app.services.errors import ConflictError, DomainError, InvalidFieldError, NotFoundError
 
 # Types whose execution maps to the result schemas that exist today. Discovery and signals need
@@ -849,6 +851,8 @@ def run_mission(
         trigger=trigger,
         scheduled_at=moment,
         started_at=moment,
+        # The rule this run's tasks work under: a later « Modifier » changes only the next runs.
+        config=agent_payloads.mission_rule(mission),
     )
     session.add(run)
     session.flush()
