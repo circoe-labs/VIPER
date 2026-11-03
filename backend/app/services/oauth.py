@@ -29,6 +29,7 @@ from urllib.parse import urlencode, urlsplit
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
+from app.models.enums import AgentMode
 from app.models.mcp import McpToken
 from app.models.oauth import (
     CLIENT_NAME_MAX_LENGTH,
@@ -39,7 +40,7 @@ from app.models.oauth import (
     OAuthToken,
 )
 from app.models.users import User
-from app.services import mcp_tokens
+from app.services import agent_capabilities, mcp_tokens
 
 REQUEST_TTL = timedelta(minutes=10)
 CODE_TTL = timedelta(minutes=5)
@@ -268,6 +269,10 @@ def approve(
         label=f"{client.client_name} (OAuth)"[:100],
         scopes=[mcp_tokens.ANY_SCOPE],
         owner_email=user.email,
+        # A connector is an assistant acting for the person who approved it: its effective
+        # capabilities are bounded by that person's role (`agent_capabilities`).
+        provider=agent_capabilities.provider_for_client(client.client_name),
+        mode=AgentMode.INTERACTIVE,
     )
     code = secrets.token_urlsafe(32)
     request.status = "approved"

@@ -32,6 +32,12 @@ describe('history actors and sources', () => {
     expect(actorDetails(actor({}), 'database_explorer')).toEqual(['Base de données'])
     expect(actorName(actor({ kind: 'agent', label: 'Qualification' }))).toBe('Agent « Qualification »')
   })
+
+  it('shows an agent acting for a person as « agent pour personne »', () => {
+    const chatgpt = actor({ kind: 'agent', label: 'ChatGPT (OAuth)', id: 'token-1', on_behalf_of: 'Lucie Test' })
+    expect(actorDetails(chatgpt, 'agent')).toEqual(['Agent', 'ChatGPT (OAuth)', 'pour Lucie Test'])
+    expect(actorName(chatgpt)).toBe('Agent « ChatGPT (OAuth) » pour Lucie Test')
+  })
 })
 
 describe('history dates', () => {

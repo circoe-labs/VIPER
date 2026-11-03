@@ -85,6 +85,8 @@ export interface SettingsRefusal {
     | 'do_not_contact'
     | 'ignored_is_terminal'
     | 'human_actor_required'
+    // The signed-in person's role does not allow it (e.g. granting an MCP capability beyond it).
+    | 'forbidden'
   field?: string
   // Why an `invalid` field was refused when it can fail in several ways (`format`, `checksum`, `webmail`…).
   reason?: string

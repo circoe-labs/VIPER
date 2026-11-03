@@ -5,8 +5,9 @@ import uuid
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.models.organizations import OrganizationRole
 from app.services import mcp_calls, mcp_tokens
-from tests.builders import add_company
+from tests.builders import add_company, add_user
 from tests.test_mcp import call
 
 CALLS = "/api/settings/mcp/calls"
@@ -15,6 +16,9 @@ CALLS = "/api/settings/mcp/calls"
 def test_every_tool_call_is_kept_under_the_owner_email(
     client: TestClient, db_session: Session
 ) -> None:
+    # A token lends its owner's rights only while that account exists (agent_capabilities).
+    add_user(db_session, "marie@circoe.com", display_name="Marie", role=OrganizationRole.MEMBER)
+    add_user(db_session, "paul@circoe.com", display_name="Paul", role=OrganizationRole.MEMBER)
     marie, _ = mcp_tokens.mint(
         db_session, label="Claude de Marie", scopes=["*"], owner_email="Marie@Circoe.com"
     )

@@ -6,7 +6,7 @@ company in as a dated signal; these kinds name it instead of hiding it under `ot
 downgrade folds rows of the new kinds into `other` before restoring the narrower CHECK.
 
 Revision ID: 0026
-Revises: 0024
+Revises: 0025
 Create Date: 2026-11-03
 """
 
@@ -16,7 +16,7 @@ from alembic import op
 
 revision: str = "0026"
 # Slice 04 branched from 0024 while Slice 01 takes 0025 in parallel; rechained at integration.
-down_revision: str | None = "0024"
+down_revision: str | None = "0025"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

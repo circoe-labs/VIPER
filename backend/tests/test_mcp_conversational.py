@@ -12,10 +12,21 @@ from sqlalchemy.orm import Session
 
 from app.api import mcp_conversational
 from app.models import ContactMessage
-from app.models.enums import ContactMessageStatus, MissionType
+from app.models.enums import AgentMode, ContactMessageStatus, MissionType
+from app.services import mcp_tokens
 from tests.builders import add_company, add_email, add_prospect, start_sequence
-from tests.test_mcp_tools import body, call, mint
+from tests.test_mcp_tools import body, call
+from tests.test_mcp_tools import mint as mint_worker
 from tests.test_missions import create
+
+
+def mint(session: Session) -> str:
+    """An interactive assistant (ChatGPT-like): the conversational reads are its capabilities."""
+    token, _ = mcp_tokens.mint(
+        session, label="Agent claude-01", scopes=["*"], mode=AgentMode.INTERACTIVE
+    )
+    return token
+
 
 CAPABILITIES = {
     "viper_search": "records.read",
@@ -55,6 +66,20 @@ def test_every_read_tool_is_listed_read_only_with_its_capability(
             "openWorldHint": False,
         }
         assert listed[name]["inputSchema"]["type"] == "object"
+    for name in ("viper_list_companies", "viper_get_company", "viper_get_prospect"):
+        assert listed[name]["annotations"]["readOnlyHint"] is True
+
+
+def test_a_worker_may_not_use_the_conversational_reads(
+    client: TestClient, db_session: Session
+) -> None:
+    worker = mint_worker(db_session)
+
+    assert call(client, worker, "viper_search", {"query": "2SN"})["isError"] is False
+    for name in ("viper_get_dashboard", "viper_list_missions", "viper_get_contact_overview"):
+        refused = call(client, worker, name, {})
+        assert refused["isError"] is True, name
+        assert refused["structuredContent"]["code"] == "capability_denied", name
 
 
 def test_search_finds_a_company_and_its_people(client: TestClient, db_session: Session) -> None:

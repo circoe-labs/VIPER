@@ -35,6 +35,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.core.actor import ActorContext, ActorType
 from app.core.config import Settings, get_settings
 from app.db.session import create_db_engine, create_session_factory
+from app.models.enums import AgentMode, AgentProvider
 from app.services import contact_dispatch, mcp_tokens
 from app.services.audit import attributed_unit_of_work
 from app.services.auth import create_or_reset_user
@@ -114,6 +115,12 @@ def hold_scheduled(session_factory: sessionmaker[Session]) -> str:
 
 def create_agent_token(session_factory: sessionmaker[Session], args: argparse.Namespace) -> str:
     scopes = [value.strip() for value in str(args.scopes).split(",") if value.strip()]
+    mode = AgentMode(args.mode)
+    capabilities = (
+        [value.strip() for value in str(args.capabilities).split(",") if value.strip()]
+        if args.capabilities
+        else None
+    )
     with attributed_unit_of_work(session_factory, CLI_ACTOR) as session:
         token, record = mcp_tokens.mint(
             session,
@@ -121,10 +128,15 @@ def create_agent_token(session_factory: sessionmaker[Session], args: argparse.Na
             scopes=scopes,
             max_concurrent=args.max_concurrent,
             owner_email=args.owner_email,
+            provider=AgentProvider(args.provider),
+            mode=mode,
+            capabilities=capabilities,
         )
         token_id = record.id
+        granted = list(record.capabilities)
     return (
-        f"Created agent token {args.label!r} ({token_id}), scopes: {', '.join(scopes)}.\n"
+        f"Created agent token {args.label!r} ({token_id}), scopes: {', '.join(scopes)}, "
+        f"mode: {mode.value}, capabilities: {', '.join(granted)}.\n"
         f"{token}\n"
         "Keep it now: only its hash is stored, it cannot be shown again."
     )
@@ -149,6 +161,22 @@ def main(
     agent.add_argument("--max-concurrent", type=int, default=3)
     agent.add_argument(
         "--owner-email", help="the person the agent acts for (its calls are kept under it)"
+    )
+    agent.add_argument(
+        "--mode",
+        choices=[mode.value for mode in AgentMode],
+        default=AgentMode.WORKER.value,
+        help="the role the agent plays (default: worker)",
+    )
+    agent.add_argument(
+        "--provider",
+        choices=[provider.value for provider in AgentProvider],
+        default=AgentProvider.OTHER.value,
+        help="which platform calls with this token",
+    )
+    agent.add_argument(
+        "--capabilities",
+        help="comma-separated capabilities (default: those of --mode), e.g. tasks.work",
     )
     create = commands.add_parser("create-user", help="create a login account or reset its password")
     create.add_argument("--email", required=True)

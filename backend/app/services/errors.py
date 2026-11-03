@@ -17,6 +17,15 @@ class ForbiddenError(DomainError):
     """The signed-in person's role does not allow the operation (« Organisation » rights)."""
 
 
+class CapabilityDeniedError(DomainError):
+    """An MCP agent lacks the capability a tool requires (`app.api.mcp.require`): its own
+    capabilities, intersected with its delegated person's role, do not include it."""
+
+    def __init__(self, capability: str) -> None:
+        super().__init__(f"This agent may not use « {capability} ».")
+        self.capability = capability
+
+
 class NotFoundError(DomainError):
     """The targeted entity does not exist."""
 

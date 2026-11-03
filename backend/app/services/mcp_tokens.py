@@ -12,8 +12,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.actor import ActorContext, ActorType
-from app.models.enums import AgentTaskType
-from app.models.mcp import McpToken
+from app.models.enums import AgentMode, AgentProvider, AgentTaskType
+from app.models.mcp import LABEL_MAX_LENGTH, McpToken
+from app.models.users import User
+from app.services import agent_capabilities
+from app.services.errors import ForbiddenError, InvalidFieldError
 
 TOKEN_PREFIX = "viper_"
 TOKEN_BYTES = 32
@@ -42,8 +45,14 @@ def mint(
     scopes: list[str],
     max_concurrent: int = 3,
     owner_email: str | None = None,
+    provider: AgentProvider = AgentProvider.OTHER,
+    mode: AgentMode = AgentMode.WORKER,
+    capabilities: list[str] | None = None,
 ) -> tuple[str, McpToken]:
-    """Create a token and return `(token, record)`; the token itself is never stored."""
+    """Create a token and return `(token, record)`; the token itself is never stored.
+
+    `capabilities` defaults to those of `mode` (`agent_capabilities.DEFAULT_CAPABILITIES`).
+    """
     token = TOKEN_PREFIX + secrets.token_urlsafe(TOKEN_BYTES)
     record = McpToken(
         label=label,
@@ -51,10 +60,58 @@ def mint(
         scopes=_scopes(scopes),
         max_concurrent=max_concurrent,
         owner_email=owner_email.strip().lower() if owner_email else None,
+        provider=provider,
+        mode=mode,
+        capabilities=(
+            agent_capabilities.defaults(mode)
+            if capabilities is None
+            else agent_capabilities.normalize(capabilities)
+        ),
     )
     session.add(record)
     session.flush()
     return token, record
+
+
+def create_for(
+    session: Session,
+    creator: User,
+    *,
+    label: str,
+    provider: AgentProvider,
+    mode: AgentMode,
+    capabilities: list[str] | None,
+) -> tuple[str, McpToken]:
+    """« Créer un jeton » (Paramètres > MCP): a token acting for `creator`, every task type.
+
+    Nobody hands an agent more than their own role allows: a capability outside
+    `agent_capabilities.role_capabilities(creator)` is refused (a member cannot mint a worker
+    allowed to cancel missions, since a worker's capabilities are not intersected later).
+    """
+    name = label.strip()
+    if not name or len(name) > LABEL_MAX_LENGTH:
+        raise InvalidFieldError("label", f"1 to {LABEL_MAX_LENGTH} characters.", "length")
+    try:
+        chosen = (
+            agent_capabilities.defaults(mode)
+            if capabilities is None
+            else agent_capabilities.normalize(capabilities)
+        )
+    except ValueError as error:
+        raise InvalidFieldError("capabilities", str(error), "unknown") from error
+    allowed = agent_capabilities.role_capabilities(creator)
+    beyond = [capability for capability in chosen if capability not in allowed]
+    if beyond:
+        raise ForbiddenError(f"Your role may not grant: {', '.join(beyond)}.")
+    return mint(
+        session,
+        label=name,
+        scopes=[ANY_SCOPE],
+        owner_email=creator.email,
+        provider=provider,
+        mode=mode,
+        capabilities=chosen,
+    )
 
 
 def resolve(session: Session, token: str, now: datetime | None = None) -> McpToken | None:

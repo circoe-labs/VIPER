@@ -52,6 +52,7 @@ def test_initialize_and_tools_list(client: TestClient, db_session: Session) -> N
     assert hello["protocolVersion"]
     assert hello["serverInfo"]["name"] == "VIPER"
     assert [tool["name"] for tool in tools] == [
+        "viper_whoami",
         "viper_claim_task",
         "viper_heartbeat_task",
         "viper_submit_task_result",
