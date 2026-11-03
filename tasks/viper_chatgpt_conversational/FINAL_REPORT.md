@@ -46,8 +46,8 @@ Commandes lancées une fois sur la branche, depuis le worktree. `import app` poi
 | Contrôle | `main@0339153` | Branche (Slice 08) |
 |---|---|---|
 | Backend `pytest` (base `viper_s08_test`) | — | **1 845 réussis, 2 ignorés** (classeurs privés, ignorés par conception), 0 échec |
-| `ruff check . ../scripts` | 8 (7 E501 dans `contact_dashboard`, 1 RUF015 dans `test_agents_api.py`) | **7** (les mêmes 7 E501 ; le RUF015 a disparu avec le correctif du test) |
-| `ruff format --check` | 11 fichiers | **10** fichiers (même liste, moins `agent_payloads.py`, reformaté par une Slice) |
+| `ruff check . ../scripts` (commande de la CI) | 13 : 12 E501 (`contact_dashboard` et son test : 7 ; `scripts/dev.py` : 5) et 1 RUF015 (`test_agents_api.py`) | **12** : les mêmes 12 E501. Le RUF015 a disparu avec le correctif du test. |
+| `ruff format --check . ../scripts` | 12 fichiers | **11** fichiers : la même liste, sans `agent_payloads.py`, reformaté par une Slice |
 | `mypy` | 12 erreurs dans 8 fichiers (migrations 0020/0023 et tests) | **12**, identiques |
 | `check_private_data.py` | — | OK (975 fichiers) |
 | Frontend `vitest run` | — | **85 fichiers, 1 059 tests réussis** |
