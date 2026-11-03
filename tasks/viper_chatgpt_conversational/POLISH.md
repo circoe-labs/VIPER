@@ -31,3 +31,8 @@ boucle de vérification.
 
 - `mcp_settings._type_of` ne lit pas `anyOf`, si bien que les champs nullables s'affichent comme « objet » dans
   Paramètres › MCP.
+- Tests par outil avec « toutes les capacités sauf celle requise ». Les mutations M1 et M2 ont survécu :
+  `test_every_mission_tool_is_guarded` utilise un jeton sans aucune capacité.
+- Tester que les contrôles de résultat (`result_limit`, `period_days`) lisent bien le snapshot du run
+  (mutations M9 et M10 survivantes).
+- Corriger la docstring de `agent_capabilities.py` : un outil peut maintenant exiger plusieurs capacités.
