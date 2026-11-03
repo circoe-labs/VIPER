@@ -45,7 +45,10 @@ from app.services.contact_channels import normalize_email_address, normalize_pho
 from app.services.errors import InvalidFieldError
 from app.services.imports.matching import company_key
 
-SCHEMA_VERSION = 1
+# Bumped when a result shape changes (`agent-missions.md` §6.3). 2: `find_prospects` companies may
+# carry `establishments` and a `trigger` (ChatGPT handoff, Slice 04; both optional, so a result in
+# the version-1 shape stays valid).
+SCHEMA_VERSION = 2
 
 # --- `update_company` ---------------------------------------------------------------------------
 

@@ -509,7 +509,7 @@ one type at a time; the server does not shuffle.
   "known_values": { "emails": [], "phones": ["+33…"] },
   "known_signals": [],
   "output_schema": { "…": "JSON Schema, generated from the Pydantic model of the type" },
-  "output_schema_version": 1,
+  "output_schema_version": 2,
   "constraints": {
     "no_guessing": true,
     "quote_evidence": true,
@@ -527,8 +527,10 @@ Rules:
 - `sources` are URLs VIPER already knows (never crawled content); `search_hints` are suggested
   queries. VIPER does not browse; the agent does.
 - The schema is **generated from Pydantic** (`model_json_schema()`), so the validator and the
-  published schema cannot drift. `output_schema_version` is stored on the task so a later schema
-  change does not invalidate an in-flight agent.
+  published schema cannot drift. `output_schema_version` (one number for every type,
+  `agent_payloads.SCHEMA_VERSION`) is sent with each payload; it is not stored on the task, so a
+  shape change must stay additive (new fields optional) for an in-flight agent's result to remain
+  valid. Version 2 added the optional `establishments` and `trigger` of a `find_prospects` company.
 
 ## 8. MCP surface (agent side)
 

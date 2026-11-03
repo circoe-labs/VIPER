@@ -106,6 +106,7 @@ def _submit(
     company_schema = payload["output_schema"]["$defs"]["CompanyProposal"]["properties"]
     assert "establishments" in company_schema and "trigger" in company_schema
     assert "facility_opening" in payload["instruction"]
+    assert payload["output_schema_version"] == 2
     submitted = rpc(
         client,
         token,
