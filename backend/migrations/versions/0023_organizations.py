@@ -63,7 +63,7 @@ def upgrade() -> None:
             name=op.f("ck_organizations_name_valid"),
         ),
         sa.CheckConstraint(
-            "email_domain IS NULL OR email_domain ~ '^[a-z0-9.-]+\.[a-z]{2,}$'",
+            r"email_domain IS NULL OR email_domain ~ '^[a-z0-9.-]+\.[a-z]{2,}$'",
             name=op.f("ck_organizations_email_domain_format"),
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_organizations")),
