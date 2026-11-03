@@ -3,7 +3,10 @@
 > **Status: implemented** for §3.7 and §4 (transport, tokens, six mission tools), plus the basic
 > tool mode of §3.2 and the two `update` proposals of §3.4: `viper_list_companies`,
 > `viper_get_company`, `viper_list_prospects`, `viper_get_prospect`, `viper_update_company` and
-> `viper_update_prospect`. The create/discovery/contact tools of the catalogue are still proposals.
+> `viper_update_prospect`, and the conversational reads of §3.9 (`viper_search`,
+> `viper_get_dashboard`, `viper_get_prospection_metrics`, `viper_list_missions`,
+> `viper_get_mission`, `viper_list_pending_reviews`, `viper_get_contact_overview`,
+> `viper_get_prospect_messages`). The create/discovery/contact-write tools are still proposals.
 > This document lists the MCP tools worth exposing, the ones deliberately left out, and the
 > product decisions that must be taken before writing code. It follows the repo rule: product
 > names in French, code and technical documentation in English.
@@ -84,8 +87,8 @@ agent needs all of them at once to plan a query.
 `company_ids` and/or name) and `viper_get_prospect` (full record, verification state, score). They
 reuse `companies.list_companies`, `companies.get_company` and `prospect_editor.get_view`, so an
 agent sees the labels a person sees; the Circoe-internal commercial columns stay out of
-`viper_get_company`. `viper_search`, `viper_find_prospects` (the segment lens) and
-`viper_get_prospect_history` remain proposals.
+`viper_get_company`. `viper_search` shipped with the conversational reads (§3.9);
+`viper_find_prospects` (the segment lens) and `viper_get_prospect_history` remain proposals.
 
 Notes:
 - `viper_find_prospects` returns `counters` + `items` + `total`, and never more than the
@@ -160,6 +163,40 @@ in [`agent-missions.md`](agent-missions.md):
 
 None of them writes to the base: `submit` creates an `agent_task_result` that a person accepts or
 rejects. Mode A (§5) is enough to run this mode — no human-only guard is crossed.
+
+### 3.9 Conversational reads (shipped)
+
+What an assistant (ChatGPT, claude.ai) reads to answer a person. Code:
+`backend/app/api/mcp_conversational.py`. Each tool reuses the service **and** the REST output model
+of the page that shows the same thing, so the JSON equals the endpoint's answer (the tests compare
+them). No SQL in the handlers, no generic query tool, nothing writes.
+
+| Tool | Capability | Source (service → REST output model) |
+|---|---|---|
+| `viper_search` | `records.read` | `search.search` → `routes/search.search_out` (`SearchOut`) |
+| `viper_get_dashboard` | `dashboard.read` | `routes/home.home_dashboard` (`HomeOut`) |
+| `viper_get_prospection_metrics` | `dashboard.read` | `prospection.query.base_overview` + `count_segments` (`OverviewOut`, `CountersOut`); `added_within_days` → `count_added_since` |
+| `viper_list_missions` | `missions.read` | `missions.list_cards` (`MissionListOut`); filters `status`, `type` |
+| `viper_get_mission` | `missions.read` | `missions.detail` → `routes/missions.detail_out` (`MissionDetailOut`) |
+| `viper_list_pending_reviews` | `reviews.read` | `missions.pending_proposals` (`ProposalOut`) + `agent_review.get_review` digest; mission cards with `results_pending > 0` |
+| `viper_get_contact_overview` | `contact.read` | `routes/contact.dashboard_out` (`ContactDashboardOut`) + `contact_scheduling.overview` (`SchedulingOut`); optional `week` |
+| `viper_get_prospect_messages` | `contact.read` | `routes/contact_messages.messages_out` (`MessagesOut`) |
+
+- **« Nouveaux prospects sur N jours ».** `viper_get_prospection_metrics` with `added_within_days`
+  (1–366) answers `added: {days, since, total, counts}`: every segment's size among people whose
+  `created_at` is within the window (`prospection.query.count_added_since`, same predicates as the
+  counters). `segment` adds that segment's count (`segment`, and `added.segment_count`).
+- **Pending reviews.** `total` = tool-mode proposals + the submitted results of mission runs. A
+  proposal row is the `/api/missions/proposals` row plus the review card's `digest`; missions are
+  their ordinary cards. Accepting or rejecting stays in the UI.
+- **Capabilities.** Each tool declares one; `app.api.mcp.require(record, capability)` is called
+  before the handler. Until the capability model of the ChatGPT handoff (Slice 01) lands it is a
+  provisional seam that allows everything.
+- **Annotations.** Every tool here carries `annotations: {readOnlyHint: true, destructiveHint:
+  false, openWorldHint: false}` (advisory for the host; authorization stays server-side).
+- **Refusals.** A bad argument (`segment`, `week`, a one-letter `query`, a malformed UUID) or an
+  unknown id comes back as `isError: true` with the domain code (`invalid`/`format`, `not_found`),
+  and is kept in « Historique des appels » like any call.
 
 ### 3.8 Deliberately not exposed
 
@@ -304,8 +341,9 @@ distinguish "Lucie did it" from "Lucie's assistant did it".
 
 **M1 — read-only (no product decision needed).** *Partially shipped:* the basic company/person
 lookups (`viper_list_companies`, `viper_get_company`, `viper_list_prospects`, `viper_get_prospect`)
-exist. Still to do: `viper_overview`, `viper_get_reference_data`, `viper_search`,
-`viper_find_prospects`, `viper_get_contact_plan`, `viper_get_outreach`. All are read, mapped to
+and the conversational reads of §3.9 (which cover `viper_overview`, `viper_search`,
+`viper_get_contact_plan` and the message half of `viper_get_outreach`). Still to do:
+`viper_get_reference_data`, `viper_find_prospects`. All are read, mapped to
 existing services, and safe behind a read-only token.
 
 **M2 — curated writes.** *Partially shipped as proposals:* `viper_update_company` and
