@@ -842,6 +842,31 @@ def test_a_run_made_before_snapshots_reads_the_live_rule(
     assert claimed["mission"]["prompt"] == "Consigne du jour."
 
 
+def test_a_one_off_mission_with_an_end_date_and_no_date_is_a_422(
+    client: TestClient, db_session: Session
+) -> None:
+    """The end rule binds a one-off mission too (`ck_missions_end_date_required`): a refusal on
+    the field, never a 500 from the constraint."""
+    company = add_company(db_session, display_name="2SN")
+
+    response = client.post(
+        MISSIONS,
+        json={
+            "name": "Compléter les fiches",
+            "type": "enrichment",
+            "prompt": "Complète ces fiches.",
+            "targets": [{"kind": "company", "id": str(company.id)}],
+            "result_kind": "enrichment",
+            "end_kind": "date",
+        },
+    )
+
+    assert response.status_code == 422, response.text
+    detail = response.json()["detail"]
+    assert (detail["field"], detail["reason"]) == ("ends_at", "missing")
+    assert db_session.scalars(select(Mission)).first() is None
+
+
 def test_edit_refuses_a_closed_or_unknown_mission(client: TestClient, db_session: Session) -> None:
     targets = [{"kind": "company", "id": str(add_company(db_session, display_name="2SN").id)}]
     detail = create(client, targets=targets)

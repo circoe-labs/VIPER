@@ -105,9 +105,30 @@ _MISSION_SCHEMA = _mission_schema()
 _MISSION_ID = {"type": "string", "format": "uuid"}
 
 
+def _without_defaults(node: Any) -> Any:
+    """`node` with every `default` keyword removed (property names are kept as they are)."""
+    if isinstance(node, list):
+        return [_without_defaults(item) for item in node]
+    if not isinstance(node, dict):
+        return node
+    return {
+        key: (
+            {name: _without_defaults(prop) for name, prop in value.items()}
+            if key == "properties" and isinstance(value, dict)
+            else _without_defaults(value)
+        )
+        for key, value in node.items()
+        if key != "default"
+    }
+
+
 def _update_schema() -> dict[str, Any]:
+    # No `default`: a field left out keeps the mission's current value, so a host that fills in
+    # advertised defaults would silently reset the rule (result_limit, is_recurring, end_kind…).
     properties = {
-        key: value for key, value in _MISSION_SCHEMA["properties"].items() if key != "run_now"
+        key: _without_defaults(value)
+        for key, value in _MISSION_SCHEMA["properties"].items()
+        if key != "run_now"
     }
     return {
         "type": "object",

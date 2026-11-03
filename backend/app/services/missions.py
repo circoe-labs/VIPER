@@ -469,13 +469,14 @@ def _validate(data: MissionInput, now: datetime) -> None:
     """Shape checks only: a type whose schema is not ready can be saved, not launched."""
     if not 1 <= data.result_limit <= RESULT_LIMIT_MAX:
         raise InvalidFieldError("result_limit", "Between 1 and 500.", "range")
-    if data.is_recurring:
-        if data.interval_count < 1:
-            raise InvalidFieldError("interval_count", "At least 1.", "range")
-        if data.end_kind is MissionEndKind.DATE and data.ends_at is None:
-            raise InvalidFieldError("ends_at", "A date is required.", "missing")
-        if data.end_kind is MissionEndKind.AFTER and (data.max_runs or 0) < 1:
-            raise InvalidFieldError("max_runs", "At least 1 run.", "range")
+    if data.is_recurring and data.interval_count < 1:
+        raise InvalidFieldError("interval_count", "At least 1.", "range")
+    # The end rule is checked for every mission, one-off included: the table's constraints
+    # (`ck_missions_end_date_required`, `ck_missions_end_runs_required`) apply to all of them.
+    if data.end_kind is MissionEndKind.DATE and data.ends_at is None:
+        raise InvalidFieldError("ends_at", "A date is required.", "missing")
+    if data.end_kind is MissionEndKind.AFTER and (data.max_runs or 0) < 1:
+        raise InvalidFieldError("max_runs", "At least 1 run.", "range")
     if data.end_kind is MissionEndKind.DATE and data.ends_at is not None and data.ends_at <= now:
         raise InvalidFieldError("ends_at", "The end must be in the future.", "range")
 

@@ -3,9 +3,11 @@ pauses, resumes, cancels and deletes missions through the services the page uses
 capabilities of its delegated person's role. No tool creates a raw task.
 """
 
+import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -15,6 +17,7 @@ from app.api.routes.missions import MissionIn
 from app.models.agent_missions import AgentTask
 from app.models.audit import AuditLogEntry
 from app.models.enums import AgentMode, AgentProvider, AgentTaskStatus, MissionType
+from app.models.mcp import McpCall
 from app.models.missions import Mission
 from app.models.organizations import OrganizationRole
 from app.services import agent_payloads, mcp_tokens
@@ -245,6 +248,79 @@ def test_update_refuses_run_now_and_an_unknown_mission(
         call(client, token, "viper_update_mission", {"mission_id": unknown, "run_now": True}),
         "invalid",
     )
+
+
+def _keys(node: Any) -> set[str]:
+    if isinstance(node, dict):
+        return set(node) | {key for value in node.values() for key in _keys(value)}
+    if isinstance(node, list):
+        return {key for item in node for key in _keys(item)}
+    return set()
+
+
+def test_the_update_schema_advertises_no_default(client: TestClient, db_session: Session) -> None:
+    """A field left out keeps its value: a default a host fills in would silently reset it."""
+    token = assistant(db_session)
+    response = client.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    listed = {tool["name"]: tool for tool in response.json()["result"]["tools"]}
+    schema = listed["viper_update_mission"]["inputSchema"]
+
+    assert "default" not in _keys(schema)
+    assert set(schema["properties"]) == set(MissionIn.model_fields) - {"run_now"} | {"mission_id"}
+    assert schema["properties"]["end_kind"]["enum"] == ["never", "date", "after"]
+    # The create schema keeps its defaults: there, a field left out does take them.
+    assert (
+        listed["viper_create_mission"]["inputSchema"]["properties"]["result_limit"]["default"] == 20
+    )
+
+
+def last_call(session: Session, tool: str) -> McpCall:
+    return session.scalars(
+        select(McpCall).where(McpCall.tool == tool).order_by(McpCall.created_at.desc())
+    ).first() or pytest.fail(f"no {tool} call kept")
+
+
+def test_an_impossible_end_rule_is_refused_not_a_server_error(
+    client: TestClient, db_session: Session
+) -> None:
+    """The table requires `ends_at` for `end_kind = date` and `max_runs` for `after`, recurring or
+    not: a one-off mission with such a rule is a clean refusal, kept in the call history."""
+    company = add_company(db_session, display_name="2SN")
+    token = assistant(db_session)
+
+    no_date = refused(
+        call(client, token, "viper_create_mission", enrichment(company.id, end_kind="date")),
+        "missing",
+    )
+    assert no_date["field"] == "ends_at"
+    no_runs = refused(
+        call(client, token, "viper_create_mission", enrichment(company.id, end_kind="after")),
+        "range",
+    )
+    assert no_runs["field"] == "max_runs"
+    kept = last_call(db_session, "viper_create_mission")
+    assert (kept.outcome, kept.error_code) == ("refused", "range")
+    assert missions_count(db_session) == 0
+
+    mission_id = body(call(client, token, "viper_create_mission", enrichment(company.id)))["card"][
+        "id"
+    ]
+    on_update = refused(
+        call(
+            client, token, "viper_update_mission", {"mission_id": mission_id, "end_kind": "after"}
+        ),
+        "range",
+    )
+    assert on_update["field"] == "max_runs"
+    kept = last_call(db_session, "viper_update_mission")
+    assert (kept.outcome, kept.error_code) == ("refused", "range")
+    mission = db_session.get_one(Mission, uuid.UUID(mission_id))
+    db_session.refresh(mission)
+    assert mission.end_kind.value == "never"
 
 
 # --- status: pause, resume, cancel; delete -------------------------------------------------------
