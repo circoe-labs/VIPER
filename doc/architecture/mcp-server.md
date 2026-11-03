@@ -6,7 +6,8 @@
 > `viper_update_prospect`, and the conversational reads of §3.9 (`viper_search`,
 > `viper_get_dashboard`, `viper_get_prospection_metrics`, `viper_list_missions`,
 > `viper_get_mission`, `viper_list_pending_reviews`, `viper_get_contact_overview`,
-> `viper_get_prospect_messages`). The create/discovery/contact-write tools are still proposals.
+> `viper_get_prospect_messages`), `viper_whoami` and the agent capabilities of §4.7. The
+> create/discovery/contact-write tools are still proposals.
 > This document lists the MCP tools worth exposing, the ones deliberately left out, and the
 > product decisions that must be taken before writing code. It follows the repo rule: product
 > names in French, code and technical documentation in English.
@@ -190,8 +191,8 @@ them). No SQL in the handlers, no generic query tool, nothing writes.
   proposal row is the `/api/missions/proposals` row plus the review card's `digest`; missions are
   their ordinary cards. Accepting or rejecting stays in the UI.
 - **Capabilities.** Each tool declares one; `app.api.mcp.require(record, capability)` is called
-  before the handler. Until the capability model of the ChatGPT handoff (Slice 01) lands it is a
-  provisional seam that allows everything.
+  before the handler and refuses with `capability_denied` when the agent's effective capabilities
+  (§4.7) lack it — e.g. a worker token has no `dashboard.read`.
 - **Annotations.** Every tool here carries `annotations: {readOnlyHint: true, destructiveHint:
   false, openWorldHint: false}` (advisory for the host; authorization stays server-side).
 - **Refusals.** A bad argument (`segment`, `week`, a one-letter `query`, a malformed UUID) or an
@@ -302,8 +303,9 @@ distinguish "Lucie did it" from "Lucie's assistant did it".
   request (10 min) and sends the browser to the SPA page `/autoriser?demande=<id>`. That page is
   behind the sign-in like every page; « Autoriser » / « Refuser » are
   `POST /api/oauth/requests/{id}/approve|deny` (session + CSRF). An approval mints an ordinary
-  `mcp_tokens` row labelled « <client> (OAuth) » with every scope — the connector is one more
-  agent, with the same claims, attribution and audit — and a one-time code (5 min).
+  `mcp_tokens` row labelled « <client> (OAuth) » with every scope, `mode=interactive`, every
+  capability and a `provider` read from the client's name (§4.7) — the connector is one more agent,
+  with the same claims, attribution and audit — and a one-time code (5 min).
 - **Tokens.** `POST /oauth/token`: `authorization_code` (client, code, redirect URI and PKCE
   verifier checked) answers an access token (`viper_at_…`, 1 h) and a refresh token
   (`viper_rt_…`, 60 days); `refresh_token` rotates the pair. A code or a refresh token used twice
@@ -336,6 +338,66 @@ distinguish "Lucie did it" from "Lucie's assistant did it".
   - Parameters: `email`, `tool`, `agent_id`, `before`, `limit` (at most 200).
   - Results are newest first. To get the next page, pass the `created_at` of the last row as `before`.
 - **Write-once.** The table is not audited and is not shown in the explorer.
+
+### 4.7 Agent identity and capabilities (`viper_whoami`)
+
+Decisions 2 and 3 of the ChatGPT handoff (`tasks/viper_chatgpt_conversational/READINESS.md`). There
+is no separate agent table: an `mcp_tokens` row **is** the agent. Code:
+`backend/app/services/agent_capabilities.py` (vocabulary, defaults, intersection),
+`backend/app/api/mcp.py` (`require`, `viper_whoami`), migration `0025`.
+
+- **Columns.** `provider` (`chatgpt`, `claude`, `chatx`, `other`), `mode` (`interactive`, `worker`,
+  `scheduled`) and `capabilities` (JSONB list). `scopes` stays a filter on task types, distinct from
+  the capabilities.
+- **Vocabulary.** `tasks.work` (claim, heartbeat, submit, fail, release, queue), `records.read`,
+  `records.propose`, `dashboard.read`, `missions.read`, `missions.write` (create, modify),
+  `missions.run`, `missions.pause` (pause, resume), `missions.cancel` (cancel, delete),
+  `reviews.read`, `contact.read`, `contact.draft`. An unknown name is refused at mint time and is a
+  programming error in `require`.
+- **Defaults by mode.** `worker`: `tasks.work`, `records.read`, `records.propose` (exactly what a
+  worker could do before). `interactive`: every capability — `tasks.work` included, so a connector
+  already used as a worker keeps claiming. `scheduled`: `tasks.work`, `records.read`,
+  `records.propose`, `dashboard.read`, `missions.read`, `reviews.read`, `contact.read`.
+- **Migration 0025.** Existing tokens become `worker` with the worker defaults; tokens minted by an
+  OAuth approval become `interactive` with every capability, and their `provider` is read from
+  `oauth_clients.client_name` (`chatgpt`/`openai` → `chatgpt`, `chatx`, `claude`/`anthropic` →
+  `claude`, else `other`). Reversible.
+- **Effective capabilities** = the agent's own ∩ the role of its **delegated person**, computed
+  once per request (`agent_capabilities.grant_for`), so a role change applies at the next call.
+  - Delegated person: for an OAuth connector, the account that approved it
+    (`oauth_authorizations.user_id`); for an `interactive` bearer token, the account of its
+    `owner_email`; nobody for a `worker` or `scheduled` bearer token (its own capabilities only).
+  - Roles: `admin` and `manager` lend every capability; `member` everything but `missions.cancel`;
+    the platform admin everything.
+  - Fails closed: a deactivated delegated account lends nothing; an OAuth connector whose approving
+    account no longer exists may do nothing.
+- **Guard.** `require(record, capability)` is the single check; every tool but `viper_whoami`
+  starts with it. A refusal is `isError: true` with
+  `{"code": "capability_denied", "capability": …, "message": …}` and is kept in `mcp_calls` with
+  `outcome = refused`, `error_code = capability_denied`. The grant lives in a context variable set by
+  `handle_mcp` for the request; outside a request, or for another token, `require` refuses.
+- **Existing tools.** The six task tools need `tasks.work`; `viper_list_companies`,
+  `viper_get_company`, `viper_list_prospects`, `viper_get_prospect` need `records.read` (and carry
+  read-only annotations); `viper_update_company` / `viper_update_prospect` need `records.propose`
+  (the task-type scope still applies after it).
+- **`viper_whoami`** (no capability needed) answers, as VIPER sees it — never what the model
+  claims: `agent_id`, `label`, `provider`, `mode`, `delegated_user` (`email`, `display_name`,
+  `role`, `platform_admin`, `active`, or `null`), `organization` (`id`, `name`), `capabilities`
+  (effective, in vocabulary order), `restriction` (`delegated_user_missing`,
+  `delegated_user_inactive` or `null`), `task_types` and `version`.
+- **Audit.** Every `/mcp` request binds the agent as the actor (`ActorType.AGENT`, the token's id
+  and label) with `AuditContext(source=agent, on_behalf_of=<the delegated person>)`. The history
+  shows it as « Agent · ChatGPT (OAuth) · pour Lucie » (`frontend/src/history/format.ts`), never as
+  a manual action of that person.
+- **Paramètres › MCP.** « Accès autorisés » shows each agent's platform, mode and own capabilities.
+  « Créer un jeton » (`POST /api/settings/mcp/agents`: `label`, `provider`, `mode`, `capabilities`
+  — omitted: the mode's defaults) mints a bearer token acting for the signed-in person, every task
+  type, shown once. Nobody grants more than their own role allows (403 `forbidden`), since a
+  worker's capabilities are not intersected later. `GET /api/settings/mcp` serves the vocabulary
+  (`capabilities`, with French labels) and `mode_defaults`. The command line takes `--mode`,
+  `--provider` and `--capabilities` (`create-agent-token`).
+- **Limit.** Regenerating a bearer token creates a new identity
+  (`tasks/viper_chatgpt_conversational/Issues/bearer-token-rotation.md`).
 
 ## 5. Rollout
 

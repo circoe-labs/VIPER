@@ -20,10 +20,22 @@ export interface McpTool {
   parameters: McpParameter[]
 }
 
+export type McpAgentMode = 'interactive' | 'worker' | 'scheduled'
+export type McpAgentProvider = 'chatgpt' | 'claude' | 'chatx' | 'other'
+
+// One capability of the vocabulary (`app.services.agent_capabilities`), with its French label.
+export interface McpCapability {
+  name: string
+  label: string
+}
+
 export interface McpSettings {
   endpoint: string
   protocol_version: string
   tools: McpTool[]
+  capabilities: McpCapability[]
+  // What a token of each mode receives when nobody chooses otherwise.
+  mode_defaults: Record<McpAgentMode, string[]>
 }
 
 export function useMcpSettings() {
@@ -39,10 +51,14 @@ export function useMcpSettings() {
 export interface McpAgent {
   id: string
   label: string
-  // `oauth`: approved from a connector (ChatGPT, Claude…); `cli`: made in the command line.
+  // `oauth`: approved from a connector (ChatGPT, Claude…); `cli`: a bearer token (command line or « Créer un jeton »).
   origin: 'oauth' | 'cli'
   // The person the agent acts for: its calls are kept under this address.
   owner_email: string | null
+  provider: McpAgentProvider
+  mode: McpAgentMode
+  // The agent's own capabilities; a call also needs the delegated person's role to allow them.
+  capabilities: string[]
   created_at: string
   last_used_at: string | null
   revoked_at: string | null
@@ -62,6 +78,28 @@ export function useRevokeMcpAgent() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (id: string) => apiRequest<McpAgent>('POST', `/settings/mcp/agents/${encodeURIComponent(id)}/revoke`),
+    onSuccess: () => refreshAfterWrite(queryClient, [mcpAgentsKey, ['missions', 'agents']]),
+  })
+}
+
+// « Créer un jeton » (`POST /api/settings/mcp/agents`): a bearer token acting for the signed-in person. The token is
+// in this answer only — only its hash is stored.
+export interface McpAgentInput {
+  label: string
+  provider: McpAgentProvider
+  mode: McpAgentMode
+  capabilities: string[]
+}
+
+export interface McpAgentCreated {
+  agent: McpAgent
+  token: string
+}
+
+export function useCreateMcpAgent() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: McpAgentInput) => apiRequest<McpAgentCreated>('POST', '/settings/mcp/agents', { body: input }),
     onSuccess: () => refreshAfterWrite(queryClient, [mcpAgentsKey, ['missions', 'agents']]),
   })
 }

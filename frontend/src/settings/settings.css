@@ -794,6 +794,29 @@ tr[data-inactive] .settings-table__label {
   color: var(--color-text-muted);
 }
 
+.mcp-agent__capabilities {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+/* « Créer un jeton »: the capability checklist, and the token shown once. */
+.mcp-capabilities {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.mcp-token {
+  display: block;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-canvas);
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
 /* « Historique des appels » (Paramètres > MCP) */
 .mcp-calls__filters {
   display: flex;
