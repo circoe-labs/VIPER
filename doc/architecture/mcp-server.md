@@ -9,7 +9,8 @@
 > `viper_get_prospect_messages`), `viper_whoami` and the agent capabilities of §4.7, and the
 > mission actions of §3.10 (`viper_mission_options`, `viper_create_mission`,
 > `viper_update_mission`, `viper_run_mission`, `viper_set_mission_status`,
-> `viper_delete_mission`). The discovery/contact-write tools are still proposals.
+> `viper_delete_mission`), with the mission card of §3.11 (`resources/list`, `resources/read`).
+> The discovery/contact-write tools are still proposals.
 > This document lists the MCP tools worth exposing, the ones deliberately left out, and the
 > product decisions that must be taken before writing code. It follows the repo rule: product
 > names in French, code and technical documentation in English.
@@ -243,6 +244,57 @@ the service the page calls, so the validation is the page's; mutating tools answ
   (§4.7): `mission.created`, `mission.updated`, `mission.status_changed`, `mission.deleted`,
   `agent_task.created` read « Agent · ChatGPT · pour Marie »; the mission's `created_by_*` is the
   agent.
+
+### 3.11 Mission card (MCP Apps UI, shipped)
+
+An optional HTML card ChatGPT renders next to `viper_create_mission`'s result. Code:
+`backend/app/api/mcp_ui.py` (catalogue, metadata) and `backend/app/api/mcp_ui/mission_card.html`
+(the card). Keys follow the **MCP Apps** extension (protocol `2026-01-26`) that the OpenAI Apps SDK
+documents as the standard, plus the `openai/*` aliases it still reads (checked 2026-11-03 on
+`developers.openai.com/plugins/build/chatgpt-ui` and `/apps-sdk/reference`).
+
+- **Resources.** `initialize` announces `resources` (`listChanged: false`, `subscribe: false`).
+  `resources/list` lists one template, `ui://viper/mission-card-v1.html`, `mimeType`
+  `text/html;profile=mcp-app` (formerly `text/html+skybridge`); `resources/read` returns its HTML.
+  An unknown URI is JSON-RPC error `-32002`. `resources/templates/list` is empty. Any valid token
+  may read a template (it holds no data); the bearer check still applies. The version is in the URI
+  because hosts cache templates by URI: a changed card gets a new one.
+- **Resource `_meta`.** `ui.prefersBorder: true`, `ui.csp` with empty `connectDomains` and
+  `resourceDomains` (the card loads nothing and calls VIPER only through the host),
+  `openai/widgetPrefersBorder`, `openai/widgetDescription`. No `ui.domain`: it depends on the
+  public origin and is only required for a published ChatGPT app.
+- **Tool `_meta`.** `viper_create_mission` carries `ui.resourceUri` and its alias
+  `openai/outputTemplate`, `openai/widgetAccessible: true` and the `openai/toolInvocation/*`
+  status strings. Every result of `viper_create_mission`, refusals included, carries
+  `_meta.ui.resourceUri` and `openai/outputTemplate` too, so a refused creation still renders the
+  card with the server's error. The tools the card calls (`viper_mission_options`,
+  `viper_update_mission`, `viper_run_mission`) carry `openai/widgetAccessible: true` (ChatGPT's
+  older bridge); `ui.visibility` is left to its default (`model` and `app`). The schemas and
+  annotations do not change: a client that ignores `_meta` sees the same tools.
+- **The card.** French, self-contained (inline CSS and JS, no dependency). It reads the tool's
+  arguments and result from `window.openai` (`toolInput`, `toolOutput`, `theme`, `widgetState`,
+  event `openai:set_globals`) or, without it, from the MCP Apps `postMessage` bridge
+  (`ui/initialize`, `ui/notifications/tool-input`, `tool-result`, `host-context-changed`,
+  `size-changed`). It shows the interpretation (type, zone, période, résultat, maximum, récurrence,
+  agent, cibles) and:
+  - **result is a mission** → « Lancer maintenant » (`viper_run_mission`, active mission only) and
+    « Modifier les paramètres » → « Enregistrer » (`viper_update_mission` with only the changed
+    fields) / « Annuler » (or Escape);
+  - **result is a refusal** (or a call answered nothing after 60 s) → the form, prefilled from
+    the arguments, with « Créer » and « Créer et lancer » (`viper_create_mission`, `run_now`); the
+    card changes only the fields it shows and passes every other argument (targets, exclusions,
+    dates) through untouched.
+  A refusal is shown as returned (`message`, plus the field and `code`), the field marked
+  `aria-invalid`. A call shows its label and a live counter, disables the buttons, and gives up
+  after 45 s with a message that the request may still have succeeded (a late mission is still
+  shown). The created or modified mission is kept in `widgetState` so the card survives a reload.
+- **Authorization.** None in the card. Every action is a `tools/call` back through the host to
+  `/mcp`, which runs the same `require` as when the model calls the tool: an agent without
+  `missions.run` gets `capability_denied` for « Créer et lancer », shown as returned.
+- **Creation is additive.** With the template on `viper_create_mission`, the mission exists when the
+  card first appears (HANDOFF §14: no redundant confirmation); « Créer » / « Créer et lancer »
+  serve when that creation was refused. A pre-creation preview would need a read-only render tool;
+  not built (open question, §6).
 
 ### 3.8 Deliberately not exposed
 
@@ -482,6 +534,10 @@ taken. The only prerequisite is the token and the `/mcp` mount point of §4.
    (2026-10-01)?
 4. **Do we expose the SQL console?** Curated tools first; the console only if a real need appears.
 5. **Naming and description language** (§4.4).
+6. **A mission preview before creation?** The card renders after `viper_create_mission` (§3.11),
+   so the mission already exists. Showing the interpretation *before* creating it would take a
+   read-only render tool (e.g. `viper_prepare_mission`) carrying the template instead; to decide
+   once the card has been tried in ChatGPT.
 
 ## 7. What this document does not decide
 
