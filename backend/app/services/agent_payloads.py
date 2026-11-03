@@ -481,9 +481,7 @@ def _missing_employee_fields(prospect: Prospect) -> list[str]:
 
 
 def _company_prospect_ids(session: Session, company_id: uuid.UUID) -> list[uuid.UUID]:
-    return list(
-        session.scalars(select(Prospect.id).where(Prospect.company_id == company_id))
-    )
+    return list(session.scalars(select(Prospect.id).where(Prospect.company_id == company_id)))
 
 
 def _known_signals(session: Session, company_id: uuid.UUID) -> list[dict[str, Any]]:
@@ -492,8 +490,7 @@ def _known_signals(session: Session, company_id: uuid.UUID) -> list[dict[str, An
     rows = session.scalars(
         select(ProspectNote).where(
             ProspectNote.source_url.is_not(None),
-            (ProspectNote.company_id == company_id)
-            | (ProspectNote.prospect_id.in_(prospect_ids)),
+            (ProspectNote.company_id == company_id) | (ProspectNote.prospect_id.in_(prospect_ids)),
         )
     ).all()
     return [
@@ -536,6 +533,34 @@ def _existing_people(session: Session, company_id: uuid.UUID) -> list[dict[str, 
     return people
 
 
+def mission_rule(mission: Mission) -> dict[str, Any]:
+    """The rule a run works under: the payload's `mission` block. Kept on each run when it starts
+    (`MissionRun.config`), so « Modifier la mission » only changes the next runs."""
+    return {
+        "id": str(mission.id),
+        "name": mission.name,
+        "type": mission.type.value,
+        "prompt": mission.prompt,
+        "result_kind": mission.result_kind.value,
+        "result_limit": mission.result_limit,
+        "geography": mission.geography,
+        "period_days": mission.period_days,
+        "exclusions": mission.exclusions,
+    }
+
+
+def _task_mission(
+    session: Session, task: AgentTask
+) -> tuple[Mission | None, dict[str, Any] | None]:
+    """`(mission, rule)` of a mission task: the rule kept by its run, or the live one for a run
+    made before migration 0027; `(None, None)` for a tool-mode task or a deleted mission."""
+    run = session.get(MissionRun, task.run_id) if task.run_id else None
+    mission = session.get(Mission, run.mission_id) if run is not None else None
+    if run is None or mission is None:
+        return None, None
+    return mission, run.config if run.config is not None else mission_rule(mission)
+
+
 def build_payload(
     session: Session,
     task: AgentTask,
@@ -545,8 +570,7 @@ def build_payload(
 ) -> dict[str, Any]:
     """The JSON an agent receives when it claims `task`. Read-only."""
     thread = session.get(AgentThread, task.thread_id) if task.thread_id else None
-    run = session.get(MissionRun, task.run_id) if task.run_id else None
-    mission = session.get(Mission, run.mission_id) if run is not None else None
+    _, rule = _task_mission(session, task)
     moment = now or datetime.now(UTC)
     model = result_model(task.type)
     payload: dict[str, Any] = {
@@ -554,24 +578,8 @@ def build_payload(
         "task": task.type.value,
         "task_label": TASK_LABELS[task.type],
         "instruction": INSTRUCTIONS[task.type],
-        "thread": (
-            {"id": str(thread.id), "title": thread.title} if thread is not None else None
-        ),
-        "mission": (
-            {
-                "id": str(mission.id),
-                "name": mission.name,
-                "type": mission.type.value,
-                "prompt": mission.prompt,
-                "result_kind": mission.result_kind.value,
-                "result_limit": mission.result_limit,
-                "geography": mission.geography,
-                "period_days": mission.period_days,
-                "exclusions": mission.exclusions,
-            }
-            if mission is not None
-            else None
-        ),
+        "thread": ({"id": str(thread.id), "title": thread.title} if thread is not None else None),
+        "mission": rule,
         "subject": {},
         "user_data": None,
         "company_data": None,
@@ -605,9 +613,7 @@ def build_payload(
             payload["search_hints"] = _search_hints(company)
         case AgentTaskType.UPDATE_EMPLOYEE:
             if task.prospect_id is None or task.company_id is None:
-                raise InvalidFieldError(
-                    "task", "This task has no prospect.", "missing_subject"
-                )
+                raise InvalidFieldError("task", "This task has no prospect.", "missing_subject")
             prospect = session.get(Prospect, task.prospect_id)
             if prospect is None:
                 raise InvalidFieldError("task", "This task has no prospect.", "missing_subject")
@@ -643,13 +649,13 @@ def build_payload(
         case AgentTaskType.FIND_PROSPECTS:
             # Discovery: the brief lives in the mission block; there is no subject record.
             payload["missing_fields"] = ["companies"]
-            if mission is not None:
-                payload["constraints"]["max_items"] = mission.result_limit
+            if rule is not None:
+                payload["constraints"]["max_items"] = rule["result_limit"]
                 payload["search_hints"] = [
-                    mission.prompt,
+                    rule["prompt"],
                     (
-                        f"entreprises {mission.geography}"
-                        if mission.geography
+                        f"entreprises {rule['geography']}"
+                        if rule["geography"]
                         else "annuaire des entreprises"
                     ),
                 ]
@@ -667,8 +673,8 @@ def build_payload(
                 f'"{company.display_name}" actualité',
                 f'site:linkedin.com/company "{company.display_name}"',
             ]
-            if mission is not None:
-                payload["constraints"]["max_items"] = mission.result_limit
+            if rule is not None:
+                payload["constraints"]["max_items"] = rule["result_limit"]
         case _:
             raise InvalidFieldError("task", "This task type has no payload yet.", "unsupported")
     return payload
@@ -964,15 +970,12 @@ def _employee_proposal(
 
 
 def _mission_context(session: Session, task: AgentTask) -> str:
-    if task.run_id is None:
-        return "Informations professionnelles publiques."
-    run = session.get(MissionRun, task.run_id)
-    mission = session.get(Mission, run.mission_id) if run is not None else None
-    if mission is None:
+    mission, rule = _task_mission(session, task)
+    if mission is None or rule is None:
         return "Informations professionnelles publiques."
     return (
         "Recherche d’informations professionnelles publiques pour la mission "
-        f"« {mission.name} », demandée par {mission.created_by_display} "
+        f"« {rule['name']} », demandée par {mission.created_by_display} "
         "et validée par une personne."
     )
 
@@ -1000,8 +1003,12 @@ def _find_employees_proposal(
             last = _clean_text("last_name", person.last_name)
         except InvalidFieldError as error:
             refused.append(
-                {"field": field, "label": label, "reason": error.reason or "invalid",
-                 "message": str(error)}
+                {
+                    "field": field,
+                    "label": label,
+                    "reason": error.reason or "invalid",
+                    "message": str(error),
+                }
             )
             continue
         key = _person_key(first, last)
@@ -1021,8 +1028,12 @@ def _find_employees_proposal(
                 email = normalize_email_address("email", person.email)
             except InvalidFieldError as error:
                 refused.append(
-                    {"field": field, "label": label, "reason": error.reason or "invalid",
-                     "message": str(error)}
+                    {
+                        "field": field,
+                        "label": label,
+                        "reason": error.reason or "invalid",
+                        "message": str(error),
+                    }
                 )
                 continue
             if email in known_emails:
@@ -1041,8 +1052,12 @@ def _find_employees_proposal(
                 phone = normalize_phone_number("phone", person.phone)
             except InvalidFieldError as error:
                 refused.append(
-                    {"field": field, "label": label, "reason": error.reason or "invalid",
-                     "message": str(error)}
+                    {
+                        "field": field,
+                        "label": label,
+                        "reason": error.reason or "invalid",
+                        "message": str(error),
+                    }
                 )
                 continue
         sources = [evidence for evidence in person.evidence if evidence.source.strip()]
@@ -1169,9 +1184,7 @@ def _establishments_store(
                 )
             )
             continue
-        if (siret is not None and siret in claimed_sirets) or (
-            siret is None and place in places
-        ):
+        if (siret is not None and siret in claimed_sirets) or (siret is None and place in places):
             refused.append(
                 _refusal(path, label, "duplicate", "Cet établissement est proposé deux fois.")
             )
@@ -1275,9 +1288,7 @@ def _trigger_store(
         return None
     # A brand-new company has no people yet: a person subject stays on the company, flagged.
     unresolved = (
-        (trigger.subject.name or "personne sans nom")
-        if trigger.subject.type == "person"
-        else None
+        (trigger.subject.name or "personne sans nom") if trigger.subject.type == "person" else None
     )
     return _signal_store(trigger, source, company_name, unresolved=unresolved)
 
@@ -1286,10 +1297,9 @@ def _find_prospects_proposal(
     session: Session, task: AgentTask, raw: dict[str, Any]
 ) -> dict[str, Any]:
     result = FindProspectsResult.model_validate(raw)
-    run = session.get(MissionRun, task.run_id) if task.run_id else None
-    mission = session.get(Mission, run.mission_id) if run is not None else None
-    limit = mission.result_limit if mission is not None else 20
-    period = mission.period_days if mission is not None else None
+    _, rule = _task_mission(session, task)
+    limit = rule["result_limit"] if rule is not None else 20
+    period = rule["period_days"] if rule is not None else None
     claimed_sirets: set[str] = set()
     legal_basis = _mission_context(session, task)
     known_names: set[str] = set()
@@ -1325,8 +1335,12 @@ def _find_prospects_proposal(
             key = company_key(name)
         except InvalidFieldError as error:
             refused.append(
-                {"field": field, "label": label, "reason": error.reason or "invalid",
-                 "message": str(error)}
+                {
+                    "field": field,
+                    "label": label,
+                    "reason": error.reason or "invalid",
+                    "message": str(error),
+                }
             )
             continue
         if key in known_names:
@@ -1342,9 +1356,7 @@ def _find_prospects_proposal(
         try:
             siren = normalize_siren(company.siren, current=None) if company.siren else None
             website = normalize_website(company.website_url) if company.website_url else None
-            domain = (
-                normalize_email_domain(company.email_domain) if company.email_domain else None
-            )
+            domain = normalize_email_domain(company.email_domain) if company.email_domain else None
             segment = (
                 _segment(session, company.commercial_segment)
                 if company.commercial_segment
@@ -1353,8 +1365,12 @@ def _find_prospects_proposal(
             categories = _categories(session, company.activity_categories)
         except InvalidFieldError as error:
             refused.append(
-                {"field": field, "label": label, "reason": error.reason or "invalid",
-                 "message": str(error)}
+                {
+                    "field": field,
+                    "label": label,
+                    "reason": error.reason or "invalid",
+                    "message": str(error),
+                }
             )
             continue
         if siren is not None and siren in known_sirens:
@@ -1493,10 +1509,9 @@ def _signals_proposal(
 ) -> dict[str, Any]:
     result = SurveilSignalsResult.model_validate(raw)
     company = get_company(session, company_id)
-    run = session.get(MissionRun, task.run_id) if task.run_id else None
-    mission = session.get(Mission, run.mission_id) if run is not None else None
-    limit = mission.result_limit if mission is not None else 20
-    period = mission.period_days if mission is not None else None
+    _, rule = _task_mission(session, task)
+    limit = rule["result_limit"] if rule is not None else 20
+    period = rule["period_days"] if rule is not None else None
     people = session.scalars(select(Prospect).where(Prospect.company_id == company_id)).all()
     names: dict[str, uuid.UUID] = {}
     for person in people:
@@ -1525,8 +1540,12 @@ def _signals_proposal(
             source = _signal_url(signal.source)
         except InvalidFieldError as error:
             refused.append(
-                {"field": field, "label": signal.signal[:80],
-                 "reason": error.reason or "invalid", "message": str(error)}
+                {
+                    "field": field,
+                    "label": signal.signal[:80],
+                    "reason": error.reason or "invalid",
+                    "message": str(error),
+                }
             )
             continue
         if source in known_sources:

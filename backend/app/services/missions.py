@@ -1,8 +1,10 @@
 """Missions: create the rule, launch a run, and read the cards the page shows.
 
 A mission is persistent; a **run** is one execution and owns the tasks an agent claims. The
-consigne is never copied into a task: the task carries a `run_id` and a subject id, and the MCP
-payload re-reads the mission and the live record at claim time. Nothing here applies a result.
+consigne is never copied into a task: the task carries a `run_id` and a subject id. The run keeps
+the rule it started under (`MissionRun.config`), and the MCP payload reads that rule and the live
+record at claim time, so modifying a mission changes only its next runs. Nothing here applies a
+result.
 
 Contract: `doc/architecture/missions.md`.
 """
@@ -35,7 +37,7 @@ from app.models.enums import (
 from app.models.mcp import McpToken
 from app.models.missions import Mission, MissionRun, MissionTarget
 from app.models.prospects import Prospect
-from app.services import agent_missions, audit, companies, mcp_reads
+from app.services import agent_missions, agent_payloads, audit, companies, mcp_reads
 from app.services.errors import ConflictError, DomainError, InvalidFieldError, NotFoundError
 
 # Types whose execution maps to the result schemas that exist today. Discovery and signals need
@@ -467,13 +469,14 @@ def _validate(data: MissionInput, now: datetime) -> None:
     """Shape checks only: a type whose schema is not ready can be saved, not launched."""
     if not 1 <= data.result_limit <= RESULT_LIMIT_MAX:
         raise InvalidFieldError("result_limit", "Between 1 and 500.", "range")
-    if data.is_recurring:
-        if data.interval_count < 1:
-            raise InvalidFieldError("interval_count", "At least 1.", "range")
-        if data.end_kind is MissionEndKind.DATE and data.ends_at is None:
-            raise InvalidFieldError("ends_at", "A date is required.", "missing")
-        if data.end_kind is MissionEndKind.AFTER and (data.max_runs or 0) < 1:
-            raise InvalidFieldError("max_runs", "At least 1 run.", "range")
+    if data.is_recurring and data.interval_count < 1:
+        raise InvalidFieldError("interval_count", "At least 1.", "range")
+    # The end rule is checked for every mission, one-off included: the table's constraints
+    # (`ck_missions_end_date_required`, `ck_missions_end_runs_required`) apply to all of them.
+    if data.end_kind is MissionEndKind.DATE and data.ends_at is None:
+        raise InvalidFieldError("ends_at", "A date is required.", "missing")
+    if data.end_kind is MissionEndKind.AFTER and (data.max_runs or 0) < 1:
+        raise InvalidFieldError("max_runs", "At least 1 run.", "range")
     if data.end_kind is MissionEndKind.DATE and data.ends_at is not None and data.ends_at <= now:
         raise InvalidFieldError("ends_at", "The end must be in the future.", "range")
 
@@ -849,6 +852,8 @@ def run_mission(
         trigger=trigger,
         scheduled_at=moment,
         started_at=moment,
+        # The rule this run's tasks work under: a later « Modifier » changes only the next runs.
+        config=agent_payloads.mission_rule(mission),
     )
     session.add(run)
     session.flush()

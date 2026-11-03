@@ -6,8 +6,10 @@
 > `viper_update_prospect`, and the conversational reads of §3.9 (`viper_search`,
 > `viper_get_dashboard`, `viper_get_prospection_metrics`, `viper_list_missions`,
 > `viper_get_mission`, `viper_list_pending_reviews`, `viper_get_contact_overview`,
-> `viper_get_prospect_messages`), `viper_whoami` and the agent capabilities of §4.7. The
-> create/discovery/contact-write tools are still proposals.
+> `viper_get_prospect_messages`), `viper_whoami` and the agent capabilities of §4.7, and the
+> mission actions of §3.10 (`viper_mission_options`, `viper_create_mission`,
+> `viper_update_mission`, `viper_run_mission`, `viper_set_mission_status`,
+> `viper_delete_mission`). The discovery/contact-write tools are still proposals.
 > This document lists the MCP tools worth exposing, the ones deliberately left out, and the
 > product decisions that must be taken before writing code. It follows the repo rule: product
 > names in French, code and technical documentation in English.
@@ -199,6 +201,49 @@ them). No SQL in the handlers, no generic query tool, nothing writes.
   unknown id comes back as `isError: true` with the domain code (`invalid`/`format`, `not_found`),
   and is kept in « Historique des appels » like any call.
 
+### 3.10 Mission actions (shipped)
+
+What an assistant does with a mission for the person it acts for. Code:
+`backend/app/api/mcp_missions.py`. An assistant manages **missions**, never raw tasks: there is no
+`create_task` tool; VIPER derives each run's tasks (`missions.run_mission`). Every tool parses its
+arguments with the REST input model (`routes/missions.MissionIn`, then `mission_input`) and calls
+the service the page calls, so the validation is the page's; mutating tools answer the
+`MissionDetailOut` of `viper_get_mission`. Reading a mission stays `viper_list_missions` /
+`viper_get_mission` (§3.9).
+
+| Tool | Service | Capability | Annotations |
+|---|---|---|---|
+| `viper_mission_options` | `missions.options`, `agents`, `target_options` (with `target_kind`, `target_search`) | `missions.read` | read-only |
+| `viper_create_mission` | `missions.create` (`run_now` → `run_mission`) | `missions.write`, plus `missions.run` when `run_now` | write, not destructive |
+| `viper_update_mission` | `missions.update` | `missions.write` | write, not destructive |
+| `viper_run_mission` | `missions.run_mission` | `missions.run` | write, not destructive |
+| `viper_set_mission_status` | `missions.set_status` | `paused` / `active`: `missions.pause`; `cancelled`: `missions.cancel` | `destructiveHint: true` |
+| `viper_delete_mission` | `missions.delete` | `missions.cancel` | `destructiveHint: true` |
+
+- **Input.** `viper_create_mission`'s `inputSchema` is `MissionIn`'s JSON Schema with its `$ref`s
+  inlined (name, type, prompt, targets, agent, recurrence, start/end, expected result and limit,
+  geography, period, exclusions, `run_now`). `viper_update_mission` takes `mission_id` and only the
+  fields that change: they are laid over the mission's current rule (targets included) and the
+  whole is validated by `MissionIn` and `missions.update`; a field sent replaces its value,
+  `targets` the whole list. `run_now` is refused there (use `viper_run_mission`).
+- **Edits and runs.** An edit applies to the next runs; a run keeps the rule it started under
+  (`mission_runs.config`, `missions.md` §4), so a task already made is claimed with its old consigne.
+  A done or cancelled mission is neither edited nor resumed (`conflict`).
+- **Statuses.** An assistant sets `paused`, `active` (resume) or `cancelled`; `done` is reached by
+  the rule itself and is refused (`format`). A paused mission is not launched (`conflict`).
+- **Capabilities.** A tool names the capabilities its arguments need (`MissionTool.required`); the
+  endpoint calls `require` for each before the handler, so a refused call touches nothing. A
+  `member` (decision 3) creates, modifies, launches, pauses and resumes; cancelling and deleting
+  need `missions.cancel`, which only a `manager` and above lend. A worker has no `missions.*`
+  capability: every mission action is `capability_denied`.
+- **Annotations.** `viper_set_mission_status` is one tool for pause, resume and cancel, so it is
+  declared `destructiveHint: true` as a whole (a host may ask to confirm a pause too); the
+  server-side guard still distinguishes them.
+- **Audit.** The actor is the agent bound by `/mcp` with its delegated person as `on_behalf_of`
+  (§4.7): `mission.created`, `mission.updated`, `mission.status_changed`, `mission.deleted`,
+  `agent_task.created` read « Agent · ChatGPT · pour Marie »; the mission's `created_by_*` is the
+  agent.
+
 ### 3.8 Deliberately not exposed
 
 | Capability | Endpoints | Why |
@@ -381,7 +426,9 @@ is no separate agent table: an `mcp_tokens` row **is** the agent. Code:
 - **Existing tools.** The six task tools need `tasks.work`; `viper_list_companies`,
   `viper_get_company`, `viper_list_prospects`, `viper_get_prospect` need `records.read` (and carry
   read-only annotations); `viper_update_company` / `viper_update_prospect` need `records.propose`
-  (the task-type scope still applies after it).
+  (the task-type scope still applies after it). The mission actions (§3.10) may need more than one
+  capability for one call (`viper_create_mission` with `run_now`) or one that depends on an
+  argument (`viper_set_mission_status`): `require` is called for each.
 - **`viper_whoami`** (no capability needed) answers, as VIPER sees it — never what the model
   claims: `agent_id`, `label`, `provider`, `mode`, `delegated_user` (`email`, `display_name`,
   `role`, `platform_admin`, `active`, or `null`), `organization` (`id`, `name`), `capabilities`
