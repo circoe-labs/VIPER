@@ -54,6 +54,13 @@ class McpSettingsOut(BaseModel):
 
 
 def _type_of(prop: dict[str, Any]) -> str:
+    # A nullable field is `anyOf: [<schema>, {"type": "null"}]` (Pydantic `X | None`): show the
+    # non-null alternative(s), since « null » only means « not given ».
+    alternatives = [
+        option for option in prop.get("anyOf") or [] if option.get("type") != "null"
+    ]
+    if alternatives:
+        return " ou ".join(_type_of(option) for option in alternatives)
     kind = prop.get("type")
     if kind == "array":
         items = prop.get("items") or {}

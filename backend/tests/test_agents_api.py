@@ -97,8 +97,9 @@ def test_the_settings_page_lists_the_mcp_tools(client: TestClient) -> None:
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["endpoint"] == "/mcp"
-    assert [tool["name"] for tool in body["tools"]][0] == "viper_claim_task"
-    claim = body["tools"][0]
+    tools = {tool["name"]: tool for tool in body["tools"]}
+    assert "viper_claim_task" in tools
+    claim = tools["viper_claim_task"]
     assert claim["description"]
     parameters = {item["name"]: item for item in claim["parameters"]}
     assert parameters["task_types"]["type"] == "liste de string"
@@ -109,6 +110,17 @@ def test_the_settings_page_lists_the_mcp_tools(client: TestClient) -> None:
         "surveil_signals",
         "find_prospects",
     ]
+
+
+def test_the_settings_page_shows_a_nullable_field_by_its_type(client: TestClient) -> None:
+    """`anyOf: [{type: integer}, {type: null}]` is an integer, not an « objet »."""
+    body = client.get("/api/settings/mcp").json()
+    create = next(tool for tool in body["tools"] if tool["name"] == "viper_create_mission")
+    types = {item["name"]: item["type"] for item in create["parameters"]}
+
+    assert types["max_runs"] == "integer"
+    assert types["agent_id"] == "string"
+    assert "objet" not in types.values()
 
 
 def test_the_settings_page_is_not_taken_by_the_taxonomy_route(client: TestClient) -> None:
