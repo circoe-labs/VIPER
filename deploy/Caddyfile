@@ -1,0 +1,23 @@
+{$VIPER_DOMAIN} {
+	encode zstd gzip
+
+	# API and MCP endpoint: same container. /mcp carries its own bearer check (mcp-server.md §4.1).
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+	handle /mcp* {
+		reverse_proxy api:8000
+	}
+
+	# The SPA: every unknown path falls back to index.html (client-side routes).
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+}

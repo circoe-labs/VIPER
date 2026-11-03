@@ -1,0 +1,23 @@
+# VIPER API (FastAPI + Alembic). Build context: the repository root.
+FROM python:3.14-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /app/backend
+COPY backend/requirements.txt ./requirements.txt
+RUN pip install -r requirements.txt
+
+COPY backend/alembic.ini ./alembic.ini
+COPY backend/migrations ./migrations
+COPY backend/app ./app
+COPY deploy/api-entrypoint.sh /usr/local/bin/api-entrypoint.sh
+RUN chmod +x /usr/local/bin/api-entrypoint.sh
+
+# ~/.viper holds the runtime settings (Paramètres > Connexions) and the Toolbox OAuth token:
+# a volume, never the image.
+VOLUME ["/root/.viper"]
+EXPOSE 8000
+ENTRYPOINT ["/usr/local/bin/api-entrypoint.sh"]

@@ -1,0 +1,12 @@
+# VIPER web: the compiled SPA served by Caddy, which also terminates HTTPS and proxies
+# /api and /mcp to the API container. Build context: the repository root.
+FROM node:24-slim AS build
+WORKDIR /app/frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
+
+FROM caddy:2-alpine
+COPY deploy/Caddyfile /etc/caddy/Caddyfile
+COPY --from=build /app/frontend/dist /srv
