@@ -68,5 +68,9 @@ export const SIGNAL_KIND_LABELS: Record<string, string> = {
   partnership: 'Partenariat',
   tech_change: 'Changement technique',
   need_expressed: 'Besoin exprimé',
+  facility_opening: 'Ouverture de site',
+  facility_expansion: 'Extension de site',
+  construction: 'Construction',
+  relocation: 'Déménagement',
   other: 'Autre',
 }
