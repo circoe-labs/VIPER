@@ -16,3 +16,8 @@ boucle de vérification.
 
 - `viper_get_contact_overview` renvoie les listes complètes de la planification, qui peuvent être longues pour
   ChatGPT. À limiter ou paginer si les traces de la Slice 08 le montrent.
+
+## Slice 01
+
+- Pré-filtrer les capacités proposées selon le rôle dans `McpAgentCreate.tsx`. Aujourd'hui, un `member` qui choisit
+  le mode « Assistant » reçoit un 403 tant qu'il n'a pas décoché `missions.cancel`.
