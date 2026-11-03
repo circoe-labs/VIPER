@@ -70,15 +70,37 @@ def _honfleur(**overrides: Any) -> dict[str, Any]:
     return company
 
 
-def _submit(client: TestClient, db_session: Session, companies: list[dict[str, Any]]) -> str:
-    create(
+def _submit(
+    client: TestClient,
+    db_session: Session,
+    companies: list[dict[str, Any]],
+    rule: dict[str, Any] | None = None,
+    edit_after_run: dict[str, Any] | None = None,
+) -> str:
+    """Run a discovery mission (with `rule`'s extra fields), optionally edit its live rule once the
+    run has started (`edit_after_run`), then claim and submit `companies` as a worker."""
+    mission: dict[str, Any] = {
+        "name": "Nouveaux entrepôts — Normandie",
+        "type": MissionType.PROSPECTION.value,
+        "prompt": "Trouve les entreprises qui ont ouvert un entrepôt en Normandie ce trimestre.",
+        "targets": [],
+        "result_kind": "companies",
+        **(rule or {}),
+    }
+    detail = create(
         client,
-        name="Nouveaux entrepôts — Normandie",
+        name=mission["name"],
         kind=MissionType.PROSPECTION,
-        prompt="Trouve les entreprises qui ont ouvert un entrepôt en Normandie ce trimestre.",
+        prompt=mission["prompt"],
         result_kind="companies",
         run_now=True,
+        **(rule or {}),
     )
+    if edit_after_run is not None:
+        edited = client.put(
+            f"/api/missions/{detail['card']['id']}", json={**mission, **edit_after_run}
+        )
+        assert edited.status_code == 200, edited.text
     token = mint(db_session, label="Agent découverte", scopes=["find_prospects"])
     payload = rpc(client, token, "viper_claim_task", {})["structuredContent"]
     company_schema = payload["output_schema"]["$defs"]["CompanyProposal"]["properties"]
@@ -294,6 +316,68 @@ def test_an_invalid_trigger_is_refused_alone(client: TestClient, db_session: Ses
     assert proposal["refused"][0]["field"] == "companies.0.trigger"
     assert proposal["items"][0]["store"]["trigger"] is None
     assert len(proposal["items"][0]["store"]["establishments"]) == 1
+
+
+def test_a_source_that_is_not_a_public_http_url_is_refused(
+    client: TestClient, db_session: Session
+) -> None:
+    trigger = {**_honfleur()["trigger"], "source": "ftp://presse.example/honfleur"}
+    site = {**_honfleur()["establishments"][0], "source": "javascript:alert(1)"}
+    result_id = _submit(client, db_session, [_honfleur(trigger=trigger, establishments=[site])])
+
+    proposal = client.get(f"/api/agents/results/{result_id}").json()["proposal"]
+
+    assert {(row["field"], row["reason"]) for row in proposal["refused"]} == {
+        ("companies.0.trigger", "format"),
+        ("companies.0.establishments.0", "format"),
+    }
+    [item] = proposal["items"]
+    assert item["store"]["trigger"] is None
+    assert item["store"]["establishments"] == []
+
+
+def test_a_trigger_older_than_the_mission_period_is_refused(
+    client: TestClient, db_session: Session
+) -> None:
+    trigger = {**_honfleur()["trigger"], "observed_on": _recent(days=60)}
+    result_id = _submit(client, db_session, [_honfleur(trigger=trigger)], rule={"period_days": 30})
+
+    proposal = client.get(f"/api/agents/results/{result_id}").json()["proposal"]
+
+    [refusal] = proposal["refused"]
+    assert (refusal["field"], refusal["reason"]) == ("companies.0.trigger", "too_old")
+    assert "30 jours" in refusal["message"]
+    assert proposal["items"][0]["store"]["trigger"] is None
+
+
+def test_the_result_is_checked_against_the_rule_of_its_run(
+    client: TestClient, db_session: Session
+) -> None:
+    """An edit after the run started (period and maximum widened) does not apply to that run's
+    results: `result_limit` and `period_days` are read from the run's snapshot."""
+    old_trigger = {**_honfleur()["trigger"], "observed_on": _recent(days=60)}
+    second = _honfleur(
+        display_name="Entrepôts Z",
+        siren=OTHER_SIREN,
+        establishments=[
+            {**_honfleur()["establishments"][0], "siret": OTHER_SIRET_ROUEN, "city": "Rouen"}
+        ],
+    )
+    result_id = _submit(
+        client,
+        db_session,
+        [_honfleur(trigger=old_trigger), second],
+        rule={"period_days": 30, "result_limit": 1},
+        edit_after_run={"period_days": 3650, "result_limit": 50},
+    )
+
+    proposal = client.get(f"/api/agents/results/{result_id}").json()["proposal"]
+
+    assert {(row["field"], row["reason"]) for row in proposal["refused"]} == {
+        ("companies.0.trigger", "too_old"),
+        ("companies.1", "limit"),
+    }
+    assert [item["store"]["display_name"] for item in proposal["items"]] == ["Logistique Y"]
 
 
 def test_results_without_sites_or_trigger_stay_valid(
