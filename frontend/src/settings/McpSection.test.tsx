@@ -2,7 +2,7 @@ import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
-import type { McpAgent, McpSettings } from '../api/mcpSettings'
+import type { McpAgent, McpCall, McpSettings } from '../api/mcpSettings'
 import { SHELL_API } from '../test/homeApi'
 import { renderApp, stubApi } from '../test/render'
 
@@ -61,6 +61,7 @@ describe('McpSection', () => {
       id: '00000000-0000-7000-a000-000000000001',
       label: 'ChatGPT (OAuth)',
       origin: 'oauth',
+      owner_email: 'pilote.test@circoe.com',
       created_at: '2026-11-03T10:00:00+00:00',
       last_used_at: '2026-11-03T11:00:00+00:00',
       revoked_at: null,
@@ -86,5 +87,70 @@ describe('McpSection', () => {
 
     expect(await within(access).findByText('Révoqué')).toBeInTheDocument()
     expect(revoked).toBe(true)
+  })
+
+  it('shows who called which tool, filters by person and opens the detail', async () => {
+    const calls: McpCall[] = [
+      {
+        id: 'c-2',
+        created_at: '2026-11-03T21:00:00Z',
+        user_email: 'paul@circoe.com',
+        agent: 'ChatGPT (OAuth)',
+        agent_id: 'a-2',
+        tool: 'viper_get_company',
+        arguments: { company_id: 'inconnue' },
+        outcome: 'refused',
+        error_code: 'not_found',
+        error_message: 'Unknown company.',
+        duration_ms: 12,
+      },
+      {
+        id: 'c-1',
+        created_at: '2026-11-03T20:00:00Z',
+        user_email: 'marie@circoe.com',
+        agent: 'Claude (OAuth)',
+        agent_id: 'a-1',
+        tool: 'viper_list_companies',
+        arguments: { search: 'entrepôt' },
+        outcome: 'ok',
+        error_code: null,
+        error_message: null,
+        duration_ms: 40,
+      },
+    ]
+    const requested: string[] = []
+    stubApi({
+      ...SHELL_API,
+      'GET /api/settings/mcp': [200, SETTINGS],
+      'GET /api/settings/mcp/agents': [200, []],
+      'GET /api/settings/mcp/calls': (url) => {
+        requested.push(url.search)
+        const email = url.searchParams.get('email')
+        return [
+          200,
+          {
+            calls: email ? calls.filter((call) => call.user_email === email) : calls,
+            emails: ['marie@circoe.com', 'paul@circoe.com'],
+            tools: ['viper_get_company', 'viper_list_companies'],
+            has_more: false,
+          },
+        ]
+      },
+    })
+
+    renderApp('/settings/mcp')
+
+    const table = await screen.findByRole('table', { name: 'Historique des appels MCP' })
+    expect(within(table).getByText('paul@circoe.com')).toBeInTheDocument()
+    expect(within(table).getByText('Refusé · not_found')).toBeInTheDocument()
+    expect(within(table).getByText('search: entrepôt')).toBeInTheDocument()
+
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Personne' }), 'marie@circoe.com')
+
+    expect(await within(table).findByText('Claude (OAuth)')).toBeInTheDocument()
+    expect(within(table).queryByText('paul@circoe.com')).not.toBeInTheDocument()
+    expect(requested.at(-1)).toContain('email=marie%40circoe.com')
+    await userEvent.click(within(table).getByRole('button', { name: 'Voir le détail' }))
+    expect(within(table).getByText(/"search": "entrepôt"/)).toBeInTheDocument()
   })
 })

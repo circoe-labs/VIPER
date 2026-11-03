@@ -255,6 +255,7 @@ NOT_AUDITED_TABLES = {
     "oauth_authorizations": "OAuth requests and one-time codes; an approval mints an agent token",
     "oauth_tokens": "OAuth access/refresh token hashes; secrets, never audited",
     "organizations": "organisations; organization.* events are written by the service",
+    "mcp_calls": "the MCP call history is itself a log (write-once)",
 }
 
 

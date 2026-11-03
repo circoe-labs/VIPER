@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy import select
 
@@ -18,7 +18,7 @@ from app.api.dependencies import CurrentActor, SessionDep
 from app.api.mcp import PROTOCOL_VERSION, TOOLS
 from app.models.mcp import McpToken
 from app.models.oauth import OAuthAuthorization
-from app.services import oauth
+from app.services import mcp_calls, oauth
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -93,6 +93,8 @@ class McpAgentOut(BaseModel):
     label: str
     # `oauth`: approved from a connector (ChatGPT, Claude…); `cli`: made in the command line.
     origin: str
+    # The person the agent acts for: its calls are kept under this address.
+    owner_email: str | None
     created_at: datetime
     last_used_at: datetime | None
     revoked_at: datetime | None
@@ -116,6 +118,7 @@ def mcp_agents(session: SessionDep) -> list[McpAgentOut]:
             id=record.id,
             label=record.label,
             origin="oauth" if record.id in oauth_ids else "cli",
+            owner_email=record.owner_email,
             created_at=record.created_at,
             last_used_at=record.last_used_at,
             revoked_at=record.revoked_at,
@@ -137,7 +140,67 @@ def revoke_mcp_agent(agent_id: uuid.UUID, session: SessionDep, actor: CurrentAct
         id=record.id,
         label=record.label,
         origin="oauth" if oauth.is_oauth_agent(session, record.id) else "cli",
+        owner_email=record.owner_email,
         created_at=record.created_at,
         last_used_at=record.last_used_at,
         revoked_at=record.revoked_at,
+    )
+
+
+class McpCallOut(BaseModel):
+    id: uuid.UUID
+    created_at: datetime
+    # Who asked: the e-mail of the person the agent acts for (None: a token without owner).
+    user_email: str | None
+    agent: str
+    agent_id: uuid.UUID | None
+    tool: str
+    arguments: Any
+    # `ok`, `refused` (the tool answered an error: `error_code`, `error_message`) or `error`.
+    outcome: str
+    error_code: str | None
+    error_message: str | None
+    duration_ms: int
+
+
+class McpCallsOut(BaseModel):
+    calls: list[McpCallOut]
+    emails: list[str]
+    tools: list[str]
+    has_more: bool
+
+
+@router.get("/mcp/calls")
+def mcp_call_history(
+    session: SessionDep,
+    email: str | None = None,
+    tool: str | None = None,
+    agent_id: uuid.UUID | None = None,
+    before: datetime | None = None,
+    limit: int = Query(default=mcp_calls.DEFAULT_PAGE, ge=1, le=mcp_calls.MAX_PAGE),
+) -> McpCallsOut:
+    """« Historique des appels »: who asked what on `/mcp`, newest first."""
+    page = mcp_calls.history(
+        session, email=email, tool=tool, token_id=agent_id, before=before, limit=limit
+    )
+    return McpCallsOut(
+        calls=[
+            McpCallOut(
+                id=call.id,
+                created_at=call.created_at,
+                user_email=call.user_email,
+                agent=call.token_label,
+                agent_id=call.token_id,
+                tool=call.tool,
+                arguments=call.arguments,
+                outcome=call.outcome,
+                error_code=call.error_code,
+                error_message=call.error_message,
+                duration_ms=call.duration_ms,
+            )
+            for call in page.calls
+        ],
+        emails=page.emails,
+        tools=page.tools,
+        has_more=page.has_more,
     )

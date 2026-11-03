@@ -133,6 +133,8 @@ def test_a_connector_registers_authorizes_and_calls_a_tool(
     agents = client.get("/api/settings/mcp/agents").json()
     assert [(agent["label"], agent["origin"]) for agent in agents] == [("ChatGPT (OAuth)", "oauth")]
     assert agents[0]["last_used_at"] is not None
+    # The connector acts for the person who approved it: its calls are kept under that e-mail.
+    assert agents[0]["owner_email"] == "pilote.test@circoe.com"
     assert answer["access_token"] not in str(agents)
     assert "client_secret" not in registered
 

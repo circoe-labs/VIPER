@@ -247,6 +247,7 @@ UNEXPOSED_TABLES: Mapping[str, str] = {
     "oauth_authorizations": "Demandes d’autorisation OAuth et codes à usage unique (condensats).",
     "oauth_tokens": "Jetons OAuth des connecteurs MCP : seuls des condensats.",
     "organizations": "Organisations : gérées depuis la page Organisation.",
+    "mcp_calls": "Historique des appels MCP : consulté dans Paramètres > MCP.",
 }
 
 DEFAULT_POLICY = ExposurePolicy(tables=EXPOSED_TABLES)

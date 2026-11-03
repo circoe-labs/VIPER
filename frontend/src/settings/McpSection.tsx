@@ -6,6 +6,7 @@ import { Badge, StatusBadge } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
 import { Modal } from '../ui/Dialog'
+import { McpCallsCard } from './McpCallsCard'
 import './settings.css'
 
 function ParameterRow({ parameter }: { parameter: McpParameter }) {
@@ -98,7 +99,8 @@ function AgentsCard() {
               <div className="mcp-agent__main">
                 <span className="mcp-agent__label">{agent.label}</span>
                 <span className="mcp-agent__meta">
-                  {agent.origin === 'oauth' ? 'Connecteur OAuth' : 'Jeton en ligne de commande'} · créé le{' '}
+                  {agent.origin === 'oauth' ? 'Connecteur OAuth' : 'Jeton en ligne de commande'}
+                  {agent.owner_email ? ` · pour ${agent.owner_email}` : ''} · créé le{' '}
                   {formatDateTime(agent.created_at)} · {lastUse(agent)}
                 </span>
               </div>
@@ -189,6 +191,7 @@ export function McpSection() {
       </p>
       <ConnectCard endpoint={settings.data.endpoint} />
       <AgentsCard />
+      <McpCallsCard />
       <div className="mcp-tools">
         {settings.data.tools.map((tool) => (
           <ToolCard key={tool.name} tool={tool} />

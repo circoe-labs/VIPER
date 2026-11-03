@@ -264,7 +264,10 @@ def approve(
     request = _pending(session, request_id, moment, lock=True)
     client = session.get_one(OAuthClient, request.client_pk)
     _, record = mcp_tokens.mint(
-        session, label=f"{client.client_name} (OAuth)"[:100], scopes=[mcp_tokens.ANY_SCOPE]
+        session,
+        label=f"{client.client_name} (OAuth)"[:100],
+        scopes=[mcp_tokens.ANY_SCOPE],
+        owner_email=user.email,
     )
     code = secrets.token_urlsafe(32)
     request.status = "approved"

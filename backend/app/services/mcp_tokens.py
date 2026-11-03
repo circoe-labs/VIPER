@@ -41,6 +41,7 @@ def mint(
     label: str,
     scopes: list[str],
     max_concurrent: int = 3,
+    owner_email: str | None = None,
 ) -> tuple[str, McpToken]:
     """Create a token and return `(token, record)`; the token itself is never stored."""
     token = TOKEN_PREFIX + secrets.token_urlsafe(TOKEN_BYTES)
@@ -49,6 +50,7 @@ def mint(
         token_hash=hash_token(token),
         scopes=_scopes(scopes),
         max_concurrent=max_concurrent,
+        owner_email=owner_email.strip().lower() if owner_email else None,
     )
     session.add(record)
     session.flush()

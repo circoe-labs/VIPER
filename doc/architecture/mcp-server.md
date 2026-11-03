@@ -281,6 +281,25 @@ distinguish "Lucie did it" from "Lucie's assistant did it".
   `/mcp*`. The Vite dev server proxies `/api` only: test the connector flow against the deployed
   stack (or `deploy/docker-compose.prod.yml` locally).
 
+### 4.6 Call history (« Historique des appels »)
+
+- **Owner of each token.** Every agent token names the person it acts for, in `mcp_tokens.owner_email`.
+  - For an OAuth connector, this is the account that approved it.
+  - For a command-line token, it is `--owner-email`.
+- **One row per call.** Each `tools/call` writes a row in `mcp_calls`, with:
+  - the moment of the call;
+  - `user_email` and the token's label, both copied from the token so they survive a revocation;
+  - the tool and its arguments (texts cut at 300 characters, lists at 50 items, nesting at 4 levels);
+  - `outcome`: `ok`, or `refused` with the tool's error code and message;
+  - the duration.
+- **Refused calls are kept.** The row is written outside the tool's savepoint, so a refused call stays in the history.
+- **Not logged:** `initialize`, `ping` and `tools/list`.
+- **Where to read it.** Paramètres › MCP › « Historique des appels » shows the history, filterable by person and by
+  tool, through `GET /api/settings/mcp/calls`.
+  - Parameters: `email`, `tool`, `agent_id`, `before`, `limit` (at most 200).
+  - Results are newest first. To get the next page, pass the `created_at` of the last row as `before`.
+- **Write-once.** The table is not audited and is not shown in the explorer.
+
 ## 5. Rollout
 
 **M1 — read-only (no product decision needed).** *Partially shipped:* the basic company/person

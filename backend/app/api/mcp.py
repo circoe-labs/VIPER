@@ -11,6 +11,7 @@ in the interface. Contract: `doc/architecture/mcp-server.md` §3.7 and
 """
 
 import json
+import time
 import uuid
 from datetime import timedelta
 from typing import Annotated, Any
@@ -27,7 +28,15 @@ from app.db.session import unit_of_work
 from app.models.agent_missions import AgentTask
 from app.models.enums import AgentTaskStatus, AgentTaskType
 from app.models.mcp import McpToken
-from app.services import agent_missions, agent_writes, mcp_reads, mcp_tokens, missions, oauth
+from app.services import (
+    agent_missions,
+    agent_writes,
+    mcp_calls,
+    mcp_reads,
+    mcp_tokens,
+    missions,
+    oauth,
+)
 from app.services.errors import (
     ActorNotAllowedError,
     ConflictError,
@@ -536,14 +545,47 @@ def _handle(
                 return _rpc(id_, _payload({"code": "invalid", "message": "arguments"}, True))
             # One savepoint per call: a refused tool writes nothing, even when it had already
             # touched the task before failing (the claim's payload, for instance).
+            started = time.monotonic()
             try:
                 with session.begin_nested():
                     payload = _call_tool(str(name), args, session, actor, record, settings)
-                return _rpc(id_, payload)
             except DomainError as error:
-                return _rpc(id_, _refusal(error))
+                payload = _refusal(error)
+            _log_call(session, record, str(name), args, payload, started)
+            return _rpc(id_, payload)
         case _:
             return _error(id_, -32601, f"Unknown method {method!r}.")
+
+
+def _log_call(
+    session: Session,
+    record: McpToken,
+    tool: str,
+    args: dict[str, Any],
+    payload: dict[str, Any],
+    started: float,
+) -> None:
+    """« Historique des appels »: who asked what. Written outside the tool's savepoint, so a
+    refusal is kept too."""
+    code: str | None = None
+    message: str | None = None
+    if payload.get("isError"):
+        body = payload.get("structuredContent") or {}
+        outcome = "refused"
+        code = str(body.get("code") or "refused") if isinstance(body, dict) else "refused"
+        message = str(body.get("message") or "") if isinstance(body, dict) else None
+    else:
+        outcome = "ok"
+    mcp_calls.record(
+        session,
+        record,
+        tool=tool,
+        arguments=args,
+        outcome=outcome,
+        duration_ms=round((time.monotonic() - started) * 1000),
+        error_code=code,
+        error_message=message or None,
+    )
 
 
 def _bearer(request: Request) -> str | None:
