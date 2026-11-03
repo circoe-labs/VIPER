@@ -20,13 +20,14 @@ from fastapi.responses import JSONResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.api.oauth import resource_metadata_url
 from app.core.actor import ActorContext
 from app.core.config import Settings
 from app.db.session import unit_of_work
 from app.models.agent_missions import AgentTask
 from app.models.enums import AgentTaskStatus, AgentTaskType
 from app.models.mcp import McpToken
-from app.services import agent_missions, agent_writes, mcp_reads, mcp_tokens
+from app.services import agent_missions, agent_writes, mcp_reads, mcp_tokens, oauth
 from app.services.errors import (
     ActorNotAllowedError,
     ConflictError,
@@ -254,11 +255,13 @@ def _error(id_: Any, code: int, message: str) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": id_, "error": {"code": code, "message": message}}
 
 
-def _unauthorized(message: str) -> JSONResponse:
+def _unauthorized(request: Request, message: str) -> JSONResponse:
+    # RFC 9728: where a connector finds how to get a token (OAuth discovery starts here).
+    metadata = resource_metadata_url(request)
     return JSONResponse(
         _error(None, -32001, message),
         status_code=401,
-        headers={"WWW-Authenticate": "Bearer"},
+        headers={"WWW-Authenticate": f'Bearer resource_metadata="{metadata}"'},
     )
 
 
@@ -473,9 +476,7 @@ def _call_tool(
                 )
             )
         case "viper_get_prospect":
-            return _payload(
-                mcp_reads.get_prospect(session, _uuid(args, "prospect_id"), settings)
-            )
+            return _payload(mcp_reads.get_prospect(session, _uuid(args, "prospect_id"), settings))
         case "viper_update_company":
             _require_scope(record, AgentTaskType.UPDATE_COMPANY)
             stored = agent_writes.propose_company_update(
@@ -568,12 +569,12 @@ def _dispatch(
 def handle_mcp(request: Request, body: Annotated[Any, Body()]) -> Any:
     token = _bearer(request)
     if token is None:
-        return _unauthorized("A bearer token is required.")
+        return _unauthorized(request, "A bearer token is required.")
     factory = request.app.state.session_factory
     with unit_of_work(factory) as session:
-        record = mcp_tokens.resolve(session, token)
+        record = mcp_tokens.resolve(session, token) or oauth.resolve_access_token(session, token)
         if record is None:
-            return _unauthorized("Unknown or revoked token.")
+            return _unauthorized(request, "Unknown, expired or revoked token.")
         actor = mcp_tokens.actor_for(record)
         answer = _dispatch(body, session, actor, record, request.app.state.settings)
     if answer is None:

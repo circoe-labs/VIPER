@@ -742,3 +742,54 @@ tr[data-inactive] .settings-table__label {
 .settings-error {
   color: var(--color-danger-fg);
 }
+
+/* Paramètres > MCP: the connector address and « Accès autorisés ». */
+.mcp-connect {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.mcp-connect__url,
+.mcp-connect__steps {
+  margin: 0;
+}
+
+.mcp-connect__url code {
+  overflow-wrap: anywhere;
+}
+
+.mcp-connect__steps {
+  display: grid;
+  gap: var(--space-2);
+  padding-left: var(--space-5);
+}
+
+.mcp-agents {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mcp-agent {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.mcp-agent__main {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.mcp-agent__label {
+  font-weight: 600;
+}
+
+.mcp-agent__meta {
+  color: var(--color-text-muted);
+}

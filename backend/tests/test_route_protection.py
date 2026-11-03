@@ -51,7 +51,11 @@ def test_the_mcp_endpoint_stands_outside_the_session_router_and_guards_itself(
     )
 
     assert response.status_code == 401
-    assert response.headers["www-authenticate"] == "Bearer"
+    # RFC 9728: the challenge names where an OAuth connector learns how to get a token.
+    assert re.fullmatch(
+        r'Bearer resource_metadata="https?://[^"]+/\.well-known/oauth-protected-resource"',
+        response.headers["www-authenticate"],
+    )
 
 
 def test_only_allowlisted_routes_answer_without_a_session(

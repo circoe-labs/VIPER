@@ -11,6 +11,7 @@ from app.models.contact_tracking import ContactTracking, ContactTrackingStatusHi
 from app.models.imports import ImportBatch, ImportRowMetadata
 from app.models.mcp import McpToken
 from app.models.missions import Mission, MissionRun, MissionTarget
+from app.models.oauth import OAuthAuthorization, OAuthClient, OAuthToken
 from app.models.prospects import Email, Phone, Prospect, ProspectNote, ProspectSource
 from app.models.quality_alerts import QualityAlert
 from app.models.taxonomies import ActivityCategory, CommercialSegment, InternalReferent, Role
@@ -41,6 +42,9 @@ __all__ = [
     "Mission",
     "MissionRun",
     "MissionTarget",
+    "OAuthAuthorization",
+    "OAuthClient",
+    "OAuthToken",
     "Phone",
     "Prospect",
     "ProspectNote",

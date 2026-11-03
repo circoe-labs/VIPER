@@ -8,6 +8,13 @@
 	handle /mcp* {
 		reverse_proxy api:8000
 	}
+	# OAuth for MCP connectors (ChatGPT, claude.ai): discovery, registration, authorize, token.
+	handle /.well-known/* {
+		reverse_proxy api:8000
+	}
+	handle /oauth/* {
+		reverse_proxy api:8000
+	}
 
 	# The SPA: every unknown path falls back to index.html (client-side routes).
 	handle {

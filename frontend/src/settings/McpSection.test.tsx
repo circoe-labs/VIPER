@@ -1,7 +1,8 @@
-import { screen } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
-import type { McpSettings } from '../api/mcpSettings'
+import type { McpAgent, McpSettings } from '../api/mcpSettings'
 import { SHELL_API } from '../test/homeApi'
 import { renderApp, stubApi } from '../test/render'
 
@@ -33,13 +34,13 @@ const SETTINGS: McpSettings = {
 
 describe('McpSection', () => {
   it('lists the exposed tools with their parameters and the endpoint', async () => {
-    stubApi({ ...SHELL_API, 'GET /api/settings/mcp': [200, SETTINGS] })
+    stubApi({ ...SHELL_API, 'GET /api/settings/mcp': [200, SETTINGS], 'GET /api/settings/mcp/agents': [200, []] })
 
     renderApp('/settings/mcp')
 
     expect(await screen.findByText('viper_claim_task')).toBeInTheDocument()
     expect(screen.getByText('viper_task_queue')).toBeInTheDocument()
-    expect(screen.getByText('/mcp')).toBeInTheDocument()
+    expect(screen.getByText(`${window.location.origin}/mcp`)).toBeInTheDocument()
     // A parameter, its type, the enum inside the array, and the "no parameter" case.
     expect(screen.getByText('task_types')).toBeInTheDocument()
     expect(screen.getByText('liste de string')).toBeInTheDocument()
@@ -53,5 +54,37 @@ describe('McpSection', () => {
     renderApp('/settings/mcp')
 
     expect(await screen.findByText('Les outils MCP n’ont pas pu être chargés.')).toBeInTheDocument()
+  })
+
+  it('lists who may connect and revokes an access after a confirmation', async () => {
+    const agent: McpAgent = {
+      id: '00000000-0000-7000-a000-000000000001',
+      label: 'ChatGPT (OAuth)',
+      origin: 'oauth',
+      created_at: '2026-11-03T10:00:00+00:00',
+      last_used_at: '2026-11-03T11:00:00+00:00',
+      revoked_at: null,
+    }
+    let revoked = false
+    stubApi({
+      ...SHELL_API,
+      'GET /api/settings/mcp': [200, SETTINGS],
+      'GET /api/settings/mcp/agents': () => [200, [revoked ? { ...agent, revoked_at: '2026-11-03T12:00:00+00:00' } : agent]],
+      [`POST /api/settings/mcp/agents/${agent.id}/revoke`]: () => {
+        revoked = true
+        return [200, { ...agent, revoked_at: '2026-11-03T12:00:00+00:00' }]
+      },
+    })
+    const user = userEvent.setup()
+
+    renderApp('/settings/mcp')
+    const access = await screen.findByRole('region', { name: 'Accès autorisés' })
+    expect(await within(access).findByText('ChatGPT (OAuth)')).toBeInTheDocument()
+    expect(within(access).getByText(/Connecteur OAuth/)).toBeInTheDocument()
+    await user.click(within(access).getByRole('button', { name: 'Révoquer' }))
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Révoquer l’accès' }))
+
+    expect(await within(access).findByText('Révoqué')).toBeInTheDocument()
+    expect(revoked).toBe(true)
   })
 })

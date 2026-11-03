@@ -244,7 +244,10 @@ NOT_AUDITED_TABLES = {
     "mission_targets": "mission links; managed by the mission service",
     "mission_runs": "mission executions; mission_run.* events are written by the service",
     "agent_task_results": "write-once submission: the row is the record (raw, proposal, decision)",
-    "mcp_tokens": "machine credentials: only a token hash; minting and revocation are CLI acts",
+    "mcp_tokens": "machine credentials: only a token hash; minted by the CLI or an OAuth approval",
+    "oauth_clients": "self-registered MCP connectors (RFC 7591): ids and secret hashes",
+    "oauth_authorizations": "OAuth requests and one-time codes; an approval mints an agent token",
+    "oauth_tokens": "OAuth access/refresh token hashes; secrets, never audited",
 }
 
 

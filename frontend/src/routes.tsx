@@ -2,6 +2,7 @@ import { Navigate, type RouteObject } from 'react-router'
 
 import { AgendaPage } from './agenda/AgendaPage'
 import { LoginPage } from './auth/LoginPage'
+import { OAuthConsentPage } from './auth/OAuthConsentPage'
 import { RequireAuth } from './auth/RequireAuth'
 import { CompaniesPage } from './companies/CompaniesPage'
 import { ContactPage } from './contact/ContactPage'
@@ -35,6 +36,8 @@ const PAGES: RouteObject[] = [
   { path: '/contact', element: <ContactPage /> },
   { path: '/missions', element: <MissionsPage /> },
   { path: '/missions/:missionId', element: <MissionDetailPage /> },
+  // « Autoriser … à accéder à VIPER ? »: where /oauth/authorize sends an MCP connector's person (ChatGPT, Claude…).
+  { path: '/autoriser', element: <OAuthConsentPage /> },
   { path: '/agenda', element: <AgendaPage /> },
   { path: '/database/:table?', element: <DatabasePage /> },
   { path: '/settings/:section?', element: <SettingsPage /> },
