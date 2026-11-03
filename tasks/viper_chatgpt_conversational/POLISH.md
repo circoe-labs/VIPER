@@ -21,3 +21,13 @@ boucle de vérification.
 
 - Pré-filtrer les capacités proposées selon le rôle dans `McpAgentCreate.tsx`. Aujourd'hui, un `member` qui choisit
   le mode « Assistant » reçoit un 403 tant qu'il n'a pas décoché `missions.cancel`.
+
+## Régressions à corriger en Slice 08 (bloquantes pour la release)
+
+- `tests/test_agents_api.py::test_the_settings_page_lists_the_mcp_tools` attend `viper_claim_task` en premier.
+  Depuis la Slice 01, `viper_whoami` est en tête de liste.
+
+## Slice 03
+
+- `mcp_settings._type_of` ne lit pas `anyOf`, si bien que les champs nullables s'affichent comme « objet » dans
+  Paramètres › MCP.
