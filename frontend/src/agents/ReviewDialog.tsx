@@ -73,7 +73,7 @@ function DiscoveryDetails({ item }: { item: ProposalItem }) {
         </ul>
       )}
       {trigger && (
-        <div className="review-discovery__trigger" aria-label="Déclencheur">
+        <div className="review-discovery__trigger" role="group" aria-label="Déclencheur">
           <span className="review-signal__kind">{SIGNAL_KIND_LABELS[kind] ?? kind}</span>
           <span>{textOf(trigger, 'observed_on')}</span>
           <span className="review-signal__text">{textOf(trigger, 'signal')}</span>

@@ -527,7 +527,7 @@ describe('Signal review', () => {
     expect(within(sites).getByText('14600 Honfleur')).toBeInTheDocument()
     expect(within(sites).getByText('SIRET 73282932010008')).toBeInTheDocument()
     expect(within(sites).getByText('18000 m²')).toBeInTheDocument()
-    const trigger = screen.getByLabelText('Déclencheur')
+    const trigger = screen.getByRole('group', { name: 'Déclencheur' })
     expect(within(trigger).getByText('Ouverture de site')).toBeInTheDocument()
     expect(within(trigger).getByText('Ouverture d’un nouvel entrepôt de 18 000 m².')).toBeInTheDocument()
     expect(within(trigger).getByText('+20')).toBeInTheDocument()
