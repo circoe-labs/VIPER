@@ -9,11 +9,11 @@ Effective capabilities = the agent's own ∩ the role of its delegated person (d
 ChatGPT handoff). The delegated person is:
 
 - for an OAuth connector, the account that approved it (`oauth_authorizations.user_id`);
-- for an `interactive` command-line or Paramètres token, the account of its `owner_email`;
-- nobody for a `worker` or `scheduled` bearer token: only its own capabilities count.
+- for any other token (every mode) with an `owner_email`, the account of that address;
+- nobody for a token without `owner_email` (a command-line worker): only its own capabilities.
 
-Fails closed: an OAuth connector whose approving account is gone, and any agent whose delegated
-account is deactivated, may do nothing. Contract: `doc/architecture/mcp-server.md` §4.7.
+Fails closed: an agent whose delegated account is missing (OAuth approver gone, `owner_email` of no
+account) or deactivated may do nothing. Contract: `doc/architecture/mcp-server.md` §4.7.
 """
 
 import uuid
@@ -150,7 +150,8 @@ class AgentGrant:
     delegate: User | None
     organization: Organization | None
     capabilities: frozenset[str]
-    # An OAuth connector whose approving account no longer exists: it may do nothing.
+    # The token names a person whose account does not exist (OAuth approver gone, unknown
+    # `owner_email`): it may do nothing.
     orphaned: bool = False
 
     def allows(self, capability: str) -> bool:
@@ -172,16 +173,21 @@ def _oauth_user_id(session: Session, token_id: uuid.UUID) -> tuple[bool, uuid.UU
 
 
 def delegate_of(session: Session, record: McpToken) -> tuple[User | None, bool]:
-    """`(delegated person, orphaned)` of an agent token (see the module docstring)."""
+    """`(delegated person, orphaned)` of an agent token (see the module docstring).
+
+    `orphaned`: the token names a person (OAuth approver or `owner_email`) whose account does not
+    exist (any more) — the agent may then do nothing.
+    """
     is_oauth, user_id = _oauth_user_id(session, record.id)
     if is_oauth:
         user = session.get(User, user_id) if user_id is not None else None
         return user, user is None
-    if record.mode is AgentMode.INTERACTIVE and record.owner_email:
+    if record.owner_email:
+        # Every mode: a worker made by a member must not outlive that member's rights.
         user = session.scalar(
             select(User).where(func.lower(User.email) == record.owner_email.lower())
         )
-        return user, False
+        return user, user is None
     return None, False
 
 

@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 from alembic import command
 from fastapi.testclient import TestClient
-from sqlalchemy import Engine, select, text
+from sqlalchemy import Engine, select, text, update
 from sqlalchemy.orm import Session
 
 from app.api import mcp
@@ -18,6 +18,7 @@ from app.models import User
 from app.models.audit import AuditLogEntry
 from app.models.enums import AgentMode, AgentProvider
 from app.models.mcp import McpCall, McpToken
+from app.models.oauth import OAuthAuthorization
 from app.models.organizations import CIRCOE_NAME, OrganizationRole
 from app.services import agent_capabilities as caps
 from app.services import mcp_tokens
@@ -172,15 +173,13 @@ def test_a_worker_keeps_its_tools(client: TestClient, db_session: Session) -> No
 
 
 def test_whoami_for_a_bearer_worker(client: TestClient, db_session: Session) -> None:
-    token, record = mcp_tokens.mint(
-        db_session, label="Agent claude-01", scopes=["update_company"], owner_email="a@circoe.com"
-    )
+    token, record = mcp_tokens.mint(db_session, label="Agent claude-01", scopes=["update_company"])
 
     me = whoami(client, token)
 
     assert me["agent_id"] == str(record.id)
     assert (me["label"], me["provider"], me["mode"]) == ("Agent claude-01", "other", "worker")
-    # A worker acts for nobody: only its own capabilities count.
+    # A worker without owner acts for nobody: only its own capabilities count.
     assert me["delegated_user"] is None
     assert me["organization"]["name"] == CIRCOE_NAME
     assert me["capabilities"] == ["tasks.work", "records.read", "records.propose"]
@@ -208,6 +207,90 @@ def test_whoami_for_an_interactive_bearer_token_bounded_by_its_owner(
     assert me["delegated_user"]["role"] == "member"
     assert "missions.cancel" not in me["capabilities"]
     assert "missions.write" in me["capabilities"]
+
+
+# --- an owner's rights end with the owner (every mode) ------------------------------------------
+
+
+def test_a_worker_made_by_a_member_stops_when_the_member_is_deactivated(
+    client: TestClient, db_session: Session
+) -> None:
+    person = pilot(db_session)
+    person.role = OrganizationRole.MEMBER
+    db_session.flush()
+    company = add_company(db_session, display_name="2SN")
+    created = client.post(AGENTS, json={"label": "Worker", "mode": "worker"}).json()
+    token = created["token"]
+    read = {"company_id": str(company.id)}
+    assert call(client, token, "viper_get_company", read)["isError"] is False
+    assert whoami(client, token)["delegated_user"]["email"] == PILOT_EMAIL
+
+    person.is_active = False
+    db_session.flush()
+
+    refused = call(client, token, "viper_get_company", read)
+    assert refused["structuredContent"]["code"] == "capability_denied"
+    me = whoami(client, token)
+    assert me["capabilities"] == []
+    assert me["restriction"] == "delegated_user_inactive"
+
+
+def test_a_worker_loses_what_its_demoted_owner_may_no_longer_lend(
+    client: TestClient, db_session: Session
+) -> None:
+    created = client.post(
+        AGENTS,
+        json={
+            "label": "Worker",
+            "mode": "worker",
+            "capabilities": ["records.read", "missions.cancel"],
+        },
+    ).json()
+    token = created["token"]
+    assert whoami(client, token)["capabilities"] == ["records.read", "missions.cancel"]
+
+    pilot(db_session).role = OrganizationRole.MEMBER
+    db_session.flush()
+
+    me = whoami(client, token)
+    assert me["capabilities"] == ["records.read"]
+    assert me["restriction"] is None
+
+
+@pytest.mark.parametrize("mode", list(AgentMode))
+def test_a_token_whose_owner_has_no_account_may_do_nothing(
+    client: TestClient, db_session: Session, mode: AgentMode
+) -> None:
+    token, _ = mcp_tokens.mint(
+        db_session, label="Fantôme", scopes=["*"], owner_email="ghost@x.com", mode=mode
+    )
+
+    me = whoami(client, token)
+
+    assert me["capabilities"] == []
+    assert me["delegated_user"] is None
+    assert me["restriction"] == "delegated_user_missing"
+    refused = call(client, token, "viper_list_companies", {})
+    assert refused["structuredContent"]["code"] == "capability_denied"
+
+
+def test_an_oauth_connector_whose_approver_is_gone_may_do_nothing(
+    anonymous_client: TestClient, client: TestClient, db_session: Session
+) -> None:
+    _, answer = connect(anonymous_client, client)
+    access = answer["access_token"]
+    assert whoami(anonymous_client, access)["capabilities"] == list(caps.CAPABILITIES)
+
+    # What `ON DELETE SET NULL` leaves when the approving account is deleted.
+    db_session.execute(update(OAuthAuthorization).values(user_id=None))
+    db_session.flush()
+
+    me = whoami(anonymous_client, access)
+    assert me["capabilities"] == []
+    assert me["delegated_user"] is None
+    assert me["restriction"] == "delegated_user_missing"
+    refused = call(anonymous_client, access, "viper_list_companies", {})
+    assert refused["structuredContent"]["code"] == "capability_denied"
 
 
 def test_whoami_for_an_oauth_connector(

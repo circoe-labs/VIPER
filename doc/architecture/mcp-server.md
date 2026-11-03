@@ -365,12 +365,14 @@ is no separate agent table: an `mcp_tokens` row **is** the agent. Code:
 - **Effective capabilities** = the agent's own ∩ the role of its **delegated person**, computed
   once per request (`agent_capabilities.grant_for`), so a role change applies at the next call.
   - Delegated person: for an OAuth connector, the account that approved it
-    (`oauth_authorizations.user_id`); for an `interactive` bearer token, the account of its
-    `owner_email`; nobody for a `worker` or `scheduled` bearer token (its own capabilities only).
+    (`oauth_authorizations.user_id`); for any other token with an `owner_email` — every mode,
+    workers included — the account of that address; nobody for a token without `owner_email` (a
+    command-line worker: its own capabilities only).
   - Roles: `admin` and `manager` lend every capability; `member` everything but `missions.cancel`;
     the platform admin everything.
-  - Fails closed: a deactivated delegated account lends nothing; an OAuth connector whose approving
-    account no longer exists may do nothing.
+  - Fails closed: a deactivated delegated account lends nothing (`restriction:
+    delegated_user_inactive`); a token whose delegated account does not exist (OAuth approver
+    deleted, `owner_email` of no account) may do nothing (`delegated_user_missing`).
 - **Guard.** `require(record, capability)` is the single check; every tool but `viper_whoami`
   starts with it. A refusal is `isError: true` with
   `{"code": "capability_denied", "capability": …, "message": …}` and is kept in `mcp_calls` with
