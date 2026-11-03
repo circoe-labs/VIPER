@@ -28,7 +28,7 @@ from typing import Self
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.actor import ActorContext, ActorType
+from app.core.actor import ActorContext
 from app.core.config import Settings
 from app.core.contact_steps import step_code
 from app.models import (
@@ -45,12 +45,14 @@ from app.models.enums import Civility, ContactMessageStatus
 from app.repositories import notes as notes_repository
 from app.services.contact_messages import (
     get_message,
+    require_agent_draft,
+    require_author,
     require_generation_target,
     sequence_context,
 )
 from app.services.contact_sequences import current_sequence
 from app.services.contact_workflow import MESSAGE_STATUS_LABELS
-from app.services.errors import ActorNotAllowedError, ContactMessageError, MailGenerationError
+from app.services.errors import ContactMessageError, MailGenerationError
 from app.services.history import NOTE_SOURCE_TYPES
 from app.services.mail_generation.openai_client import (
     GeneratedMail,
@@ -285,14 +287,16 @@ def prepare(
     score_config: ScoreConfig | None = None,
     limits: ContextLimits | None = None,
     initial_prompt: str | None = None,
+    allow_agent: bool = False,
 ) -> MailPrompt:
     """The refusals before any AI call (a rank beyond « max relances » included: 409
-    `rank_beyond_max`), then the prompt. Reads only (no lock is taken)."""
-    if actor.type is not ActorType.HUMAN or not actor.id:
-        raise ActorNotAllowedError("A Contact message is handled by a person.")
+    `rank_beyond_max`), then the prompt. Reads only (no lock is taken). `allow_agent`: the MCP
+    draft door — an agent drafts a new step or a `draft` only (`require_agent_draft`)."""
+    require_author(actor, allow_agent=allow_agent)
     context = sequence_context(session, prospect_id)
     message = get_message(session, prospect_id, rank)
     require_generation_target(context, rank, message, request.expected_revision)
+    require_agent_draft(actor, message)
     if _has_text(message) and not request.replace:
         raise ContactMessageError(
             "replace_confirmation_required",

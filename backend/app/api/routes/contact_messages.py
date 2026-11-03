@@ -281,13 +281,20 @@ def get_mail_generator(request: Request, settings: SettingsDep) -> MailGenerator
     """The OpenAI adapter, or None when the drafting is not configured (tests override this).
     Built per request from the effective settings: a key saved from Paramètres > Connexions (S8)
     applies to the next drafting without a restart."""
+    return mail_generator_for(request.app.state)
+
+
+def mail_generator_for(state: Any) -> MailGenerator | None:
+    """The OpenAI adapter from the app's `State` (effective settings, test transport), or None
+    when the drafting is not configured. Shared with the MCP tool `viper_generate_contact_draft`."""
+    settings: Settings = state.settings
     config = config_from_settings(settings)
     if config is None:
         return None
     return OpenAIMailGenerator(
         config,
         booking_url=settings.contact_booking_url,
-        transport=request.app.state.openai_transport,
+        transport=state.openai_transport,
     )
 
 

@@ -33,8 +33,8 @@
   |---|---|---|
   | "A contact state is chosen by a person, never by an agent." | `services/contact_tracking.py:84` | any tracking write by `AGENT` is refused |
   | "Only a person changes a contact state." | `services/prospect_editor.py:782` | `PATCH …/tracking` is human-only |
-  | "A Contact message is handled by a person." | `services/contact_messages.py:238` | `save_message`, `save_generated`, `validate`, `schedule`, `mark_sent`, `schedule_cohorts` are human-only |
-  | "AI drafting is started by a person." | `services/contact_mail_generation.py:291` | `generate` is human-only |
+  | "A Contact message is handled by a person." | `services/contact_messages.py` (`_require_human`, `require_author`) | `save_message`, `save_generated`, `validate`, `schedule`, `mark_sent`, `schedule_cohorts` are human-only — except the draft door of §3.11 (`allow_agent`) |
+  | "AI drafting is started by a person." | `services/contact_mail_generation.py` (`prepare`) | `generate` is human-only — except the draft door of §3.11 |
   | "A cohort is created and dated by a person." | `services/cohorts.py:67`, `contact_sequences.py:391` | cohort creation and change are human-only |
   | Settings/taxonomies writes | `services/app_settings.py:36` | human-only |
   | Quality alerts raise/resolve | `services/quality_alerts.py:181` | human-only |
@@ -137,7 +137,7 @@ task scope still bounds them (`update_company` / `update_employee`). The create 
 
 | Tool | Intent | Backing endpoint | Blocked by |
 |---|---|---|---|
-| `viper_save_message_draft` | Write the Contact/R1/R2 draft (subject, body, recipients); editing a validated message sends it back to draft | `PUT /prospects/{id}/messages/{step}` | `_require_human`, `contact_messages.py:238` |
+| ~~`viper_save_message_draft`~~ | Shipped as `viper_update_contact_draft` (§3.11), restricted to a new message or a `draft` | `PUT /prospects/{id}/messages/{step}` | – |
 | `viper_validate_message` | Human validation of the current revision | `POST …/validate` | idem — **should probably stay out even in mode B** |
 | `viper_schedule_message` | Give a validated message its send moment | `POST …/schedule` | idem |
 | `viper_mark_message_sent` | Declare a send that happened outside VIPER | `POST …/mark-sent` | idem |
@@ -146,8 +146,9 @@ task scope still bounds them (`update_company` / `update_employee`). The create 
 | `viper_raise_alert` / `viper_resolve_alert` | Quality signal on a record | `POST /alerts`, `POST /alerts/{id}/resolve` | `quality_alerts.py:181` |
 
 `viper_save_message_draft` is the single most valuable tool of the whole catalogue — it is what
-"drive VIPER from an assistant" means in practice. It is also the one the code refuses to an agent.
-That tension is the subject of §5; it must not be resolved by silently passing a human actor.
+"drive VIPER from an assistant" means in practice. It is also the one the code refused to an agent.
+It shipped (§3.11) without passing a human actor: the agent stays the actor, and the service opens
+only the draft half of the state machine to it.
 
 ### 3.7 Missions — the asynchronous mode
 
@@ -243,6 +244,47 @@ the service the page calls, so the validation is the page's; mutating tools answ
   (§4.7): `mission.created`, `mission.updated`, `mission.status_changed`, `mission.deleted`,
   `agent_task.created` read « Agent · ChatGPT · pour Marie »; the mission's `created_by_*` is the
   agent.
+### 3.11 Contact drafts (shipped, HANDOFF §9 phase 2)
+
+An assistant writes the mail of one step of a prospect's sequence; **the result is always a draft**
+a person reviews, validates and schedules in VIPER. Code: `backend/app/api/mcp_contact.py`.
+
+| Tool | Capability | Service (same as the editor) → REST output model | Annotations |
+|---|---|---|---|
+| `viper_generate_contact_draft` | `contact.draft` | `contact_mail_generation.prepare` → the route's generator (`routes/contact_messages.mail_generator_for`) → `generation.draft` → `contact_messages.save_generated` (`GenerationResultOut`) | `readOnlyHint: false`, `destructiveHint: false`, `idempotentHint: false`, `openWorldHint: true` (calls the configured OpenAI model) |
+| `viper_update_contact_draft` | `contact.draft` | `contact_messages.save_message` (`MessageResultOut`) | same, `openWorldHint: false` |
+
+- **Arguments.** `prospect_id`, `step` (`contact`, `r1`…), `expected_revision` (omitted only to
+  create the step's message). Generate: `instruction`, `replace`. Update: `subject`, `body_text`,
+  `from_email`, `to`, `cc`, `bcc` (omitted fields keep their value). The other arguments are parsed
+  by the REST body models (`GenerateIn`, `MessageContentIn`, `extra="forbid"`): a `status`,
+  `scheduled_at`, `validated_revision` or `sent_at` is refused (`invalid`, with its `field`).
+- **Actor.** The agent stays the actor (`ActorType.AGENT`), with the request's
+  `AuditContext(source=agent, on_behalf_of=<delegated person>)` (§4.7): the history reads « Agent ·
+  ChatGPT · pour Lucie », never a manual edit. The services take `allow_agent=True`
+  (`contact_messages.require_author`); without it they stay human-only (the REST routes).
+- **Draft only.** `contact_messages.require_agent_draft`: an agent creates a step's message or changes
+  a `draft`; a `validated` or `scheduled` message (it carries a person's validation, which an edit
+  would drop) or a `cancelled` one answers 409 `agent_draft_only` (with `status`), a `sent` one
+  `message_sent_immutable`; generation refuses `scheduled` / `cancelled` first with its own codes
+  (`invalid_transition`, `message_cancelled`). Nothing is changed by a refusal, and every refusal of
+  generation comes **before** the AI call. Validation, scheduling, unscheduling, cancelling,
+  reopening, deleting, sending and the Infomaniak remote draft are not exposed.
+- **Revision.** The editor's rules apply unchanged: a stale `expected_revision` answers
+  `revision_conflict`, a missing one on an existing message `message_exists`, a text without
+  `replace: true` `replace_confirmation_required`; a closed sequence, S0, `do_not_contact`, a rank
+  beyond « max relances » keep their codes.
+- **Workers.** `contact.draft` is in the `interactive` defaults only; `worker` and `scheduled`
+  tokens are refused with `capability_denied`.
+- **AI failures.** `ai_not_configured`, `ai_timeout`, `ai_rate_limited`, … come back as the refusal
+  `code` and VIPER's own `message`; nothing is written. The provider's text and its error type
+  (`upstream_code`) are never returned; the `ai_upstream_error` message does name the provider's
+  HTTP status (« The AI service failed (HTTP 500) »).
+- **Transaction.** Unlike the REST route (which commits before the AI call), the call runs inside the
+  MCP request's transaction and its savepoint, so the agent's token row (`last_used_at`) stays locked
+  for the AI call's duration: a parallel call of the same agent waits.
+- **Refusals.** A `ContactMessageError` or `MailGenerationError` keeps its stable `code` (and the
+  message refusal's details) in the MCP refusal; it is kept in « Historique des appels ».
 
 ### 3.8 Deliberately not exposed
 
@@ -253,7 +295,6 @@ the service the page calls, so the validation is the page's; mutating tools answ
 | Destructive | `POST /database/reset-prospecting`, `DELETE /prospects/{id}`, `/companies/{id}`, `/notes/{id}` | Irreversible; a human does it in the UI |
 | Staged table writes | `POST /explorer/tables/{t}/changes`, `GET …/delete-check` | Bypasses every domain rule (contactability, sequences, audit semantics) |
 | Bulk mail and message transitions | `POST /contact/schedule-cohorts`, `POST …/{step}/release`, `cancel`, `delete`, `reopen`, `remote-draft` | Outbound mail and irreversible message transitions; the human keeps them |
-| AI drafting | `POST …/{step}/generate` | Redundant when the caller *is* a model: the assistant writes the text itself and stores it with the draft tool. Keeping both invites paying twice for the same paragraph |
 | Import / export | `POST /imports/preview`, `/commit`, `GET /exports/workbook`, `GET /explorer/tables/{t}/export` | Binary payloads plus a human review grid; the ADR-0012 review is stateless and would be lost |
 | Settings and taxonomies writes | `POST/PATCH/DELETE /settings/*` | Changes the vocabulary the rest of the base is read with; human-only today |
 | Calendly sync | `POST /agenda/sync` | Background job trigger, no value through a tool call |
@@ -303,9 +344,10 @@ person validated this mail" now means "an assistant acting for a person", and th
 say so; without an explicit confirmation step (MCP elicitation, or a "to validate" queue in the
 UI), `D7` becomes a convention instead of an invariant.
 
-**Recommended split:** Mode A by default, plus **one narrow Mode B door**: draft writing only
-(`viper_save_message_draft`), where the result is an unreviewed `draft` the person must still
-validate in VIPER. Validation, scheduling and sending stay human, in the UI — they are the three
+**Recommended split:** Mode A by default, plus **one narrow door**: draft writing only, where the
+result is an unreviewed `draft` the person must still validate in VIPER. *Shipped (§3.11) without
+Mode B:* the agent stays the actor and the services open only the draft writes to it
+(`allow_agent`). Validation, scheduling and sending stay human, in the UI — they are the three
 calls that make `D7` real. This keeps the code's line intact while making the useful use case work.
 
 Whatever the mode, every write must record `source=agent` and `request_id`, so the history can
@@ -428,7 +470,8 @@ is no separate agent table: an `mcp_tokens` row **is** the agent. Code:
   read-only annotations); `viper_update_company` / `viper_update_prospect` need `records.propose`
   (the task-type scope still applies after it). The mission actions (§3.10) may need more than one
   capability for one call (`viper_create_mission` with `run_now`) or one that depends on an
-  argument (`viper_set_mission_status`): `require` is called for each.
+  argument (`viper_set_mission_status`): `require` is called for each. The contact draft tools
+  (§3.11) need `contact.draft`.
 - **`viper_whoami`** (no capability needed) answers, as VIPER sees it — never what the model
   claims: `agent_id`, `label`, `provider`, `mode`, `delegated_user` (`email`, `display_name`,
   `role`, `platform_admin`, `active`, or `null`), `organization` (`id`, `name`), `capabilities`
@@ -460,8 +503,8 @@ existing services, and safe behind a read-only token.
 **M2 — curated writes.** *Partially shipped as proposals:* `viper_update_company` and
 `viper_update_prospect` store a reviewable result instead of writing (the mission pipeline, without
 the claim). Still to do: `viper_create_prospect`, `viper_create_company`, `viper_add_note`,
-`viper_set_contactability`, `viper_save_appointment`, then the Mode B door for
-`viper_save_message_draft`.
+`viper_set_contactability`, `viper_save_appointment`. The draft door shipped as the contact draft
+tools (§3.11).
 
 **M3 — missions.** The five task tools of §3.7, with the orchestration model of
 [`agent-missions.md`](agent-missions.md). Independent of M2: `viper_claim_task` and

@@ -8,7 +8,8 @@ CSRF header do not apply to a machine, so the route carries its own `Authorizati
 No tool writes a record directly. `viper_submit_task_result` stores a proposal; a person accepts
 it in the interface. The conversational reads (search, dashboard, missions, reviews, contact) live
 in `app.api.mcp_conversational`; the mission actions (create, modify, launch, pause, cancel,
-delete) in `app.api.mcp_missions`. Contract: `doc/architecture/mcp-server.md` §3.7, §3.9 and
+delete) in `app.api.mcp_missions`; the contact draft tools (a step's mail, always a draft) in
+`app.api.mcp_contact`. Contract: `doc/architecture/mcp-server.md` §3.7, §3.9 to §3.11 and
 `doc/architecture/agent-missions.md`.
 
 Every tool but `viper_whoami` starts with `require(record, <capability>)`: the call is refused
@@ -31,7 +32,7 @@ from fastapi.responses import JSONResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api import mcp_conversational, mcp_missions
+from app.api import mcp_contact, mcp_conversational, mcp_missions
 from app.api.oauth import resource_metadata_url
 from app.core.actor import ActorContext, ActorType
 from app.db.session import unit_of_work
@@ -54,8 +55,10 @@ from app.services.errors import (
     ActorNotAllowedError,
     CapabilityDeniedError,
     ConflictError,
+    ContactMessageError,
     DomainError,
     InvalidFieldError,
+    MailGenerationError,
     NotFoundError,
 )
 
@@ -321,6 +324,7 @@ for _tool in TOOLS:
         _tool["annotations"] = mcp_conversational.READ_ONLY_ANNOTATIONS
 TOOLS.extend(tool.definition() for tool in mcp_conversational.TOOLS)
 TOOLS.extend(tool.definition() for tool in mcp_missions.TOOLS)
+TOOLS.extend(tool.definition() for tool in mcp_contact.TOOLS)
 
 
 def _rpc(id_: Any, result: Any) -> dict[str, Any]:
@@ -350,8 +354,14 @@ def _payload(result: Any, is_error: bool = False) -> dict[str, Any]:
 
 
 def _refusal(error: DomainError) -> dict[str, Any]:
+    body: dict[str, Any]
     if isinstance(error, InvalidFieldError):
         body = {"code": error.reason or "invalid", "message": str(error), "field": error.field}
+    elif isinstance(error, (ContactMessageError, MailGenerationError)):
+        # Their stable code (`agent_draft_only`, `revision_conflict`, `ai_timeout`…) and, for a
+        # message refusal, its details (`status`, `fields`); never the AI provider's upstream data.
+        details = error.details if isinstance(error, ContactMessageError) else {}
+        body = {"code": error.code, "message": str(error), **details}
     elif isinstance(error, ConflictError):
         body = {"code": "conflict", "message": str(error)}
     elif isinstance(error, NotFoundError):
@@ -569,6 +579,11 @@ def _call_tool(
             require(record, capability)
         mission_context = mcp_missions.MissionContext(session=session, actor=actor)
         return _payload(mission_tool.handler(mission_context, args))
+    draft_tool = mcp_contact.BY_NAME.get(name)
+    if draft_tool is not None:
+        require(record, draft_tool.capability)
+        draft_context = mcp_contact.DraftContext(session=session, actor=actor, state=state)
+        return _payload(draft_tool.handler(draft_context, args))
     match name:
         case "viper_whoami":
             # No capability: an agent must always be able to learn what it may do.

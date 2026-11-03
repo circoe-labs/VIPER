@@ -304,7 +304,10 @@ draft|validated|scheduled --cancel--> cancelled --reopen--> draft (revision+1)
 - **Cancel** (a person, or decision 29 below) keeps the content; **reopen** brings a cancelled step back to `draft`.
 - **Optimistic concurrency**: every change of an existing message sends the `expected_revision` it read.
   `revision` changes with the content (and a reopening), never with validate/schedule/unschedule/cancel.
-- **Human actor** only (403 `human_actor_required`).
+- **Human actor** only (403 `human_actor_required`). One exception, the MCP draft door
+  ([`mcp-server.md` §3.11](../architecture/mcp-server.md)): an agent with `contact.draft` creates a
+  step's message or changes a `draft` (save and AI drafting), never a validated, scheduled, cancelled
+  or sent one (409 `agent_draft_only`), and never a transition.
 - **Closed sequence**: no open current sequence (no cohort, or a completed one: `no_open_sequence`), the cohort S0
   (`out_of_campaign`), prospect state `response_received`, `appointment_obtained`, `ignored` or `disqualified`
   (`prospect_sequence_closed`), or the opposition `do_not_contact` — create, edit, validate, schedule, reopen and mark
@@ -399,6 +402,7 @@ could not be created; S7: the `send_*` / `dispatch_*` codes of [§ Scheduled sen
 | 409 | `out_of_campaign` | write while the prospect is in S0 | |
 | 409 | `rank_beyond_max` | create, edit, validate, schedule, reopen or AI-draft a rank above « max relances » | `max_follow_ups` |
 | 409 | `rank_not_next` | `mark-sent` with an unsent `rank` that is not the next one | `next_rank`, `next_step` |
+| 409 | `agent_draft_only` | an agent (MCP draft door) saves or AI-drafts a validated, scheduled or cancelled message | `status` |
 | 422 | `message_incomplete` | validate without from/to/subject/body | `fields`: `from_email`, `to`, `subject`, `body_text` |
 | 422 | `invalid` | bad address (`field`: `from_email`, `to.1`, `cc.0`…; `reason` `format`/`too_many`/`control_character`), control character in `subject` (`reason: control_character`), send moment in the past (`field: scheduled_at`, `reason: not_future`) or more than a year ahead (`reason: too_far`) | `field`, `reason` |
 | 403 | `human_actor_required` | not a person, or a person without an id | |

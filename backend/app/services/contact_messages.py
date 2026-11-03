@@ -42,6 +42,10 @@ Cross-cutting rules:
   one answers 409 `revision_conflict` (the row is locked while checked). `revision` changes only
   with the content (and a reopening): validating or scheduling keeps it;
 - only a person (`ActorType.HUMAN`) edits, validates, schedules, unschedules, cancels, reopens;
+  the one exception is the MCP draft door (`allow_agent=True` on `save_message`, `save_generated`
+  and `contact_mail_generation.prepare`, capability `contact.draft`, HANDOFF §9): an agent
+  (`ActorType.AGENT`) may create a step's message or change a `draft` — never a validated,
+  scheduled, cancelled or sent one (409 `agent_draft_only`), and never any transition;
 - a closed sequence — no open current sequence (no cohort, or the sequence closed: 409
   `no_open_sequence`), the out-of-campaign cohort S0 (409 `out_of_campaign`), a prospect state
   `response_received`/`appointment_obtained`/`ignored`/`disqualified` (409
@@ -59,7 +63,8 @@ Refusal codes (`ContactMessageError`, `{detail: {code, message, …}}`): 404 `me
 409 `message_exists`, `revision_conflict`, `message_sent_immutable`, `message_cancelled`,
 `invalid_transition` (with the current `status`), `dispatch_in_progress`,
 `prospect_do_not_contact`, `prospect_sequence_closed`, `no_open_sequence`, `out_of_campaign`,
-`rank_beyond_max` (with `max_follow_ups`), `rank_not_next` (with `next_rank`, `next_step`);
+`rank_beyond_max` (with `max_follow_ups`), `rank_not_next` (with `next_rank`, `next_step`),
+`agent_draft_only` (with `status`);
 422 `message_incomplete` (with `fields`). Plus the shared ones: 404 `not_found` (prospect), 422
 `invalid` (`to.1`, `from_email`, `scheduled_at` with reason `not_future`, `sent_at` with reason
 `in_future` / `before_previous_send` / `time_zone`), 403 `human_actor_required`.
@@ -239,6 +244,30 @@ def _require_human(actor: ActorContext) -> None:
     # The validation records who validated: a person without an id is no identified person.
     if actor.type is not ActorType.HUMAN or not actor.id:
         raise ActorNotAllowedError("A Contact message is handled by a person.")
+
+
+def require_author(actor: ActorContext, *, allow_agent: bool = False) -> None:
+    """A person writes a message; with `allow_agent` (the MCP draft door, capability
+    `contact.draft`), an identified agent too — `require_agent_draft` then bounds what it may
+    touch."""
+    if allow_agent and actor.type is ActorType.AGENT and actor.id:
+        return
+    _require_human(actor)
+
+
+def require_agent_draft(actor: ActorContext, message: ContactMessage | None) -> None:
+    """An agent creates a step's message or changes a `draft`, nothing else: a validated or
+    scheduled message carries a person's validation it must not drop (HANDOFF §9), a cancelled one
+    is reopened by a person, a sent one is immutable."""
+    if actor.type is not ActorType.AGENT or message is None or message.status is M.DRAFT:
+        return
+    raise _refusal(
+        "agent_draft_only",
+        HTTPStatus.CONFLICT,
+        f"An agent only changes a draft; this message is {message.status.value}: "
+        "a person handles it in VIPER.",
+        status=message.status.value,
+    )
 
 
 def _require_open(context: SequenceContext) -> None:
@@ -552,10 +581,12 @@ def save_message(
     edit: MessageEdit,
     *,
     default_from: str | None = None,
+    allow_agent: bool = False,
 ) -> MessageResult:
     """Create the rank's message (no `expected_revision`: defaults completed by `edit`, status
-    `draft`) or edit its content (with the current `expected_revision`)."""
-    _require_human(actor)
+    `draft`) or edit its content (with the current `expected_revision`). `allow_agent`: the MCP
+    draft door (`require_author`, `require_agent_draft`)."""
+    require_author(actor, allow_agent=allow_agent)
     context = sequence_context(session, prospect_id)
     message = _locked_rank(session, context, rank)
     if message is None:
@@ -576,6 +607,7 @@ def save_message(
         }
         return _create(session, actor, context, rank, _content(edit, base))
     _require_not_sent(message)
+    require_agent_draft(actor, message)
     if edit.expected_revision is None:
         raise _message_exists()
     _require_revision(message, edit.expected_revision)
@@ -662,15 +694,18 @@ def save_generated(
     *,
     default_from: str | None = None,
     now: datetime | None = None,
+    allow_agent: bool = False,
 ) -> MessageResult:
     """Write an AI draft (decision 22): the subject and body replace the step's text, the result is
     always a `draft` (a validated message loses its validation, decision 24), the model and prompt
     version are recorded; addresses are kept (or the defaults of a new message). Audited
-    `contact_message.generated`; the prospect's state never changes."""
-    _require_human(actor)
+    `contact_message.generated`; the prospect's state never changes. `allow_agent`: the MCP draft
+    door (`require_author`, `require_agent_draft`)."""
+    require_author(actor, allow_agent=allow_agent)
     context = sequence_context(session, prospect_id)
     message = _locked_rank(session, context, rank)
     require_generation_target(context, rank, message, expected_revision)
+    require_agent_draft(actor, message)
     _no_control_characters("subject", content.subject)
     generation: dict[str, object] = {
         "subject": content.subject,
