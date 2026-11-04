@@ -7,21 +7,27 @@ running run in the same transaction; a worker still holding a task is refused wi
 (`viper_set_mission_status`) go through the same service.
 """
 
+import uuid
+from datetime import UTC, datetime
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.actor import ActorContext, ActorType
 from app.models import Company
 from app.models.agent_missions import AgentTask, AgentTaskResult
-from app.models.enums import AgentResultStatus, AgentTaskStatus
+from app.models.enums import AgentResultStatus, AgentTaskStatus, MissionStatus
 from app.models.missions import MissionRun
 from app.models.organizations import OrganizationRole
+from app.services import agent_missions, missions
+from app.services.errors import ConflictError
 from tests.builders import add_company
 from tests.test_mcp_missions import assistant, refused
 from tests.test_mcp_tools import body, call
-from tests.test_missions import MISSIONS, create, mint
+from tests.test_missions import MISSIONS, create, due_mission, mint
 
 RESULT = {"legal_name": "2SN SAS", "confidence": 80}
 
@@ -258,3 +264,66 @@ def test_delete_leaves_no_claimable_task_nor_reviewable_result(
     assert client.post(f"/api/agents/results/{result_id}/accept", json={}).status_code == 409
     # The run went with the mission (FK cascade).
     assert db_session.scalar(select(func.count()).select_from(MissionRun)) == 0
+
+
+def test_the_last_run_of_a_closed_recurrence_is_still_offered(
+    client: TestClient, db_session: Session
+) -> None:
+    """`run_due` closes the mission (`done`) in the transaction that creates its last tasks."""
+    mission = due_mission(
+        client,
+        db_session,
+        add_company(db_session, display_name="2SN"),
+        end_kind="after",
+        max_runs=1,
+    )
+    token = mint(db_session)
+
+    assert len(missions.run_due(db_session, now=datetime.now(UTC))) == 1
+    db_session.refresh(mission)
+    assert mission.status is MissionStatus.DONE
+
+    assert queue(client, token) == {"update_company": 1}
+    claimed = claim(client, token)
+    assert claimed["mission"]["id"] == str(mission.id)
+    body(submit(client, token, claimed))
+
+
+def test_a_direct_update_does_not_wait_for_a_paused_mission(
+    client: TestClient, db_session: Session
+) -> None:
+    company = add_company(db_session, display_name="2SN")
+    mission_id = mission_with(client, company)
+    set_status(client, mission_id, "paused")
+    token = mint(db_session)
+
+    stored = body(
+        call(
+            client,
+            token,
+            "viper_update_company",
+            {"company_id": str(company.id), "result": RESULT},
+        )
+    )
+
+    assert stored["status"] == "pending_review"
+    # The paused mission's task is untouched and still waits for the resume.
+    assert statuses(db_session, mission_id) == (["pending"], ["running"])
+
+
+def test_a_paused_mission_task_cannot_be_claimed_by_name(
+    client: TestClient, db_session: Session
+) -> None:
+    mission_id = mission_with(client, add_company(db_session, display_name="2SN"))
+    set_status(client, mission_id, "paused")
+    db_session.expire_all()
+    task = db_session.scalars(select(AgentTask)).one()
+    agent = ActorContext(type=ActorType.AGENT, display="Agent", id=str(uuid.uuid4()))
+
+    with pytest.raises(ConflictError, match="paused"):
+        agent_missions.claim_specific(db_session, agent, task.id)
+
+    set_status(client, mission_id, "active")
+    db_session.expire_all()
+    claimed = agent_missions.claim_specific(db_session, agent, task.id)
+    assert claimed.status is AgentTaskStatus.CLAIMED

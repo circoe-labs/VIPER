@@ -133,15 +133,17 @@ def _event(
     )
 
 
-def _offered() -> ColumnElement[bool]:
-    """Only tasks an agent may take now: outside any mission run, or in a run of an `active`
-    mission. A paused mission keeps its pending tasks but hides them; a cancelled one has none."""
-    active_runs = (
+def offered() -> ColumnElement[bool]:
+    """Tasks an agent may take now: every task except those of a **paused** mission's runs, which
+    stay pending but hidden until it resumes. A `done` mission's last run still has its tasks to
+    work (the recurrence closes in the same transaction that creates them); a cancelled mission has
+    no open task left."""
+    paused_runs = (
         select(MissionRun.id)
         .join(Mission, Mission.id == MissionRun.mission_id)
-        .where(Mission.status == MissionStatus.ACTIVE)
+        .where(Mission.status == MissionStatus.PAUSED)
     )
-    return or_(AgentTask.run_id.is_(None), AgentTask.run_id.in_(active_runs))
+    return or_(AgentTask.run_id.is_(None), AgentTask.run_id.not_in(paused_runs))
 
 
 def clear_claim(task: AgentTask) -> None:
@@ -331,7 +333,7 @@ def claim(
         AgentTask.status == AgentTaskStatus.PENDING,
         AgentTask.type.in_(list(types)),
         AgentTask.attempts < AgentTask.max_attempts,
-        _offered(),
+        offered(),
     ]
     if thread_id is not None:
         conditions.append(AgentTask.thread_id == thread_id)
@@ -397,7 +399,7 @@ def claim_specific(
         raise NotFoundError("Unknown task.")
     if task.status is not AgentTaskStatus.PENDING or task.attempts >= task.max_attempts:
         raise ConflictError("This task is not waiting to be claimed.")
-    if session.scalar(select(AgentTask.id).where(AgentTask.id == task.id, _offered())) is None:
+    if session.scalar(select(AgentTask.id).where(AgentTask.id == task.id, offered())) is None:
         raise ConflictError("This task's mission is paused: it cannot be claimed now.")
     task.status = AgentTaskStatus.CLAIMED
     task.claim_id = uuid.uuid7()
@@ -786,7 +788,7 @@ def queue_counts(session: Session, types: Sequence[AgentTaskType]) -> dict[str, 
             AgentTask.status == AgentTaskStatus.PENDING,
             AgentTask.type.in_(list(types)),
             AgentTask.attempts < AgentTask.max_attempts,
-            _offered(),
+            offered(),
         )
         .group_by(AgentTask.type)
     ).all()

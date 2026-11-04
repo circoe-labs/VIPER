@@ -1098,7 +1098,7 @@ def set_status(
         )
         mission.next_run_at = next_occurrence(mission, _now(now), runs_count=runs_count or 0)
     else:
-        # Paused: its pending tasks stay but are no longer offered (`agent_missions._offered`); a
+        # Paused: its pending tasks stay but are no longer offered (`agent_missions.offered`); a
         # task already claimed may still be finished. Cancelled: see below.
         mission.next_run_at = None
     reason = None
@@ -1140,9 +1140,39 @@ def _cancel_open_tasks(
     with the same reason: nobody may apply work for a mission that was stopped. Returns the count.
     """
     runs = select(MissionRun.id).where(MissionRun.mission_id == mission.id).scalar_subquery()
+    open_ids = (
+        select(AgentTask.id)
+        .where(AgentTask.run_id.in_(runs), AgentTask.status.in_(OPEN_TASK_STATUSES))
+        .scalar_subquery()
+    )
+    # Results first, then tasks: the order `agent_review._locked` takes, so a review racing the
+    # cancellation waits instead of deadlocking.
+    waiting = session.scalars(
+        select(AgentTaskResult)
+        .where(
+            AgentTaskResult.task_id.in_(open_ids),
+            AgentTaskResult.status == AgentResultStatus.PENDING_REVIEW,
+        )
+        .order_by(AgentTaskResult.id)
+        .with_for_update()
+    ).all()
     open_tasks = session.scalars(
         select(AgentTask)
         .where(AgentTask.run_id.in_(runs), AgentTask.status.in_(OPEN_TASK_STATUSES))
+        .order_by(AgentTask.id)
+        .with_for_update()
+    ).all()
+    # A review that won the race decided its result first: only results still pending are closed.
+    # A submission that committed between the two locks added a result: it is closed too.
+    known = {result.id for result in waiting}
+    waiting = [result for result in waiting if result.status is AgentResultStatus.PENDING_REVIEW]
+    waiting += session.scalars(
+        select(AgentTaskResult)
+        .where(
+            AgentTaskResult.task_id.in_([task.id for task in open_tasks]),
+            AgentTaskResult.status == AgentResultStatus.PENDING_REVIEW,
+            AgentTaskResult.id.not_in(known),
+        )
         .with_for_update()
     ).all()
     for task in open_tasks:
@@ -1160,14 +1190,6 @@ def _cancel_open_tasks(
             },
             reason=reason,
         )
-    waiting = session.scalars(
-        select(AgentTaskResult)
-        .where(
-            AgentTaskResult.task_id.in_([task.id for task in open_tasks]),
-            AgentTaskResult.status == AgentResultStatus.PENDING_REVIEW,
-        )
-        .with_for_update()
-    ).all()
     for result in waiting:
         result.status = AgentResultStatus.REJECTED
         result.decided_at = moment

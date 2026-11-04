@@ -174,9 +174,11 @@ in [`agent-missions.md`](agent-missions.md):
 None of them writes to the base: `submit` creates an `agent_task_result` that a person accepts or
 rejects. Mode A (§5) is enough to run this mode — no human-only guard is crossed.
 
-Only tasks outside any mission run, or in a run of an `active` mission, are offered: a **paused**
-mission's pending tasks are hidden from `viper_task_queue` and `viper_claim_task` (a task already
-claimed may still be heartbeated, submitted, failed or released), and resuming offers them again.
+Every open task is offered except those of a **paused** mission: they are hidden from
+`viper_task_queue` and `viper_claim_task` (a task already claimed may still be heartbeated,
+submitted, failed or released), and resuming offers them again (`agent_missions.offered`; a `done`
+mission's last run is still worked). A direct `viper_update_company` / `viper_update_prospect`
+does not reuse a paused mission's task: it stores its proposal as if no mission existed.
 A **cancelled** (or deleted) mission's tasks are `cancelled`: a worker still holding one gets the
 stable refusal **`task_cancelled`** on `viper_heartbeat_task`, `viper_submit_task_result`,
 `viper_fail_task` and `viper_release_task` — it should drop the work; nothing it sends is stored.
