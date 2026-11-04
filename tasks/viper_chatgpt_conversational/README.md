@@ -16,5 +16,7 @@
 | 06 | UI de création de mission (app MCP) | ui | 03 (contrat) | DONE (à essayer dans ChatGPT) |
 | 07 | Brouillons de contact via MCP | critical | 01 | DONE |
 | 08 | Intégration et validation finale | release | toutes | DONE (machine) — essai ChatGPT réel à faire |
+| 03.1 | Annuler ou mettre en pause une mission arrête ses tâches | critical | 03 | DONE (QA + rework re-vérifiés) |
+| 09 | Qui peut voir et révoquer un accès MCP | critical | 01 | DONE (QA, aucun bloquant) |
 
 Les problèmes non bloquants sont consignés dans `Issues/`. Rapport final : [FINAL_REPORT.md](FINAL_REPORT.md) ; outils : [FINAL_TOOLS.md](FINAL_TOOLS.md).
