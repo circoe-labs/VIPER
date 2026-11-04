@@ -174,6 +174,13 @@ in [`agent-missions.md`](agent-missions.md):
 None of them writes to the base: `submit` creates an `agent_task_result` that a person accepts or
 rejects. Mode A (§5) is enough to run this mode — no human-only guard is crossed.
 
+Only tasks outside any mission run, or in a run of an `active` mission, are offered: a **paused**
+mission's pending tasks are hidden from `viper_task_queue` and `viper_claim_task` (a task already
+claimed may still be heartbeated, submitted, failed or released), and resuming offers them again.
+A **cancelled** (or deleted) mission's tasks are `cancelled`: a worker still holding one gets the
+stable refusal **`task_cancelled`** on `viper_heartbeat_task`, `viper_submit_task_result`,
+`viper_fail_task` and `viper_release_task` — it should drop the work; nothing it sends is stored.
+
 ### 3.9 Conversational reads (shipped)
 
 What an assistant (ChatGPT, claude.ai) reads to answer a person. Code:
@@ -237,7 +244,13 @@ the service the page calls, so the validation is the page's; mutating tools answ
   (`mission_runs.config`, `missions.md` §4), so a task already made is claimed with its old consigne.
   A done or cancelled mission is neither edited nor resumed (`conflict`).
 - **Statuses.** An assistant sets `paused`, `active` (resume) or `cancelled`; `done` is reached by
-  the rule itself and is refused (`format`). A paused mission is not launched (`conflict`).
+  the rule itself and is refused (`format`). A paused mission is not launched (`conflict`), and its
+  pending tasks are no longer offered to workers until it is resumed (a task already claimed may
+  finish). Cancelling stops the work in the same transaction (`missions.set_status`, shared with
+  `PATCH /api/missions/{id}`): every open task of its runs (pending, claimed, submitted) becomes
+  `cancelled` (`agent_task.cancelled`, reason `mission_cancelled`), a result still waiting for review
+  is rejected with the same reason, and every `scheduled` / `running` run becomes `cancelled`. A
+  worker that then heartbeats or submits is refused with `task_cancelled` (§3.7).
 - **Capabilities.** A tool names the capabilities its arguments need (`MissionTool.required`); the
   endpoint calls `require` for each before the handler, so a refused call touches nothing. A
   `member` (decision 3) creates, modifies, launches, pauses and resumes; cancelling and deleting
