@@ -10,17 +10,17 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
-from app.api.dependencies import AuthDep, CurrentActor, SessionDep
+from app.api.dependencies import AuthDep, SessionDep
 from app.api.errors import business_errors
 from app.api.mcp import PROTOCOL_VERSION, TOOLS
 from app.models.enums import AgentMode, AgentProvider
 from app.models.mcp import LABEL_MAX_LENGTH, McpToken
 from app.models.oauth import OAuthAuthorization
-from app.services import agent_capabilities, mcp_calls, mcp_tokens, oauth
+from app.services import agent_capabilities, mcp_access, mcp_calls, mcp_tokens, oauth
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -144,8 +144,9 @@ def _agent_out(record: McpToken, origin: str) -> McpAgentOut:
 
 
 @router.get("/mcp/agents")
-def mcp_agents(session: SessionDep) -> list[McpAgentOut]:
-    """« Accès autorisés »: every agent credential, live ones first."""
+def mcp_agents(auth: AuthDep, session: SessionDep) -> list[McpAgentOut]:
+    """« Accès autorisés »: the agent credentials the signed-in person manages (`mcp_access`: their
+    own; every one of their organisation for an admin; all for the platform admin), live first."""
     oauth_ids = set(
         session.scalars(
             select(OAuthAuthorization.mcp_token_id).where(
@@ -153,9 +154,7 @@ def mcp_agents(session: SessionDep) -> list[McpAgentOut]:
             )
         )
     )
-    records = session.scalars(
-        select(McpToken).order_by(McpToken.revoked_at.is_not(None), McpToken.created_at.desc())
-    )
+    records = mcp_access.visible_agents(session, auth.user)
     return [_agent_out(record, "oauth" if record.id in oauth_ids else "cli") for record in records]
 
 
@@ -191,14 +190,11 @@ def create_mcp_agent(body: McpAgentInput, auth: AuthDep, session: SessionDep) ->
 
 
 @router.post("/mcp/agents/{agent_id}/revoke")
-def revoke_mcp_agent(agent_id: uuid.UUID, session: SessionDep, actor: CurrentActor) -> McpAgentOut:
-    """« Révoquer »: the agent can no longer call `/mcp`, its OAuth tokens included."""
-    try:
-        record = oauth.revoke_agent(session, agent_id)
-    except oauth.OAuthError:
-        raise HTTPException(
-            status.HTTP_404_NOT_FOUND, {"code": "not_found", "message": "Unknown agent."}
-        ) from None
+def revoke_mcp_agent(agent_id: uuid.UUID, auth: AuthDep, session: SessionDep) -> McpAgentOut:
+    """« Révoquer »: the agent can no longer call `/mcp`, its OAuth tokens included. 404
+    `not_found` for an agent the signed-in person does not manage, as for an unknown id."""
+    with business_errors():
+        record = mcp_access.revoke(session, auth.user, agent_id)
     return _agent_out(record, "oauth" if oauth.is_oauth_agent(session, record.id) else "cli")
 
 
@@ -227,6 +223,7 @@ class McpCallsOut(BaseModel):
 
 @router.get("/mcp/calls")
 def mcp_call_history(
+    auth: AuthDep,
     session: SessionDep,
     email: str | None = None,
     tool: str | None = None,
@@ -234,9 +231,16 @@ def mcp_call_history(
     before: datetime | None = None,
     limit: int = Query(default=mcp_calls.DEFAULT_PAGE, ge=1, le=mcp_calls.MAX_PAGE),
 ) -> McpCallsOut:
-    """« Historique des appels »: who asked what on `/mcp`, newest first."""
+    """« Historique des appels »: who asked what on `/mcp`, newest first — the calls of the agents
+    the signed-in person manages (`mcp_access`)."""
     page = mcp_calls.history(
-        session, email=email, tool=tool, token_id=agent_id, before=before, limit=limit
+        session,
+        email=email,
+        tool=tool,
+        token_id=agent_id,
+        before=before,
+        limit=limit,
+        visible=mcp_access.visible_agent_ids(session, auth.user),
     )
     return McpCallsOut(
         calls=[

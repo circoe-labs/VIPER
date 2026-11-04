@@ -3,7 +3,8 @@
 > **Status: implemented — 29 tools** (`app.api.mcp.TOOLS`, checked 2026-11-04 at the end of the
 > ChatGPT handoff, `tasks/viper_chatgpt_conversational/FINAL_TOOLS.md`):
 >
-> - transport, OAuth, tokens, call history and agent capabilities (§4, `viper_whoami` §4.7);
+> - transport, OAuth, tokens, call history and agent capabilities (§4, `viper_whoami` §4.7),
+>   who may see and revoke an agent (§4.8);
 > - the six task tools of §3.7 (`viper_claim_task` … `viper_task_queue`);
 > - the basic tool mode of §3.2 and the two `update` proposals of §3.4 (`viper_list_companies`,
 >   `viper_get_company`, `viper_list_prospects`, `viper_get_prospect`, `viper_update_company`,
@@ -472,9 +473,10 @@ distinguish "Lucie did it" from "Lucie's assistant did it".
   `/mcp` accepts both kinds of credential: a CLI token or a live OAuth access token whose agent is
   not revoked. Only SHA-256 hashes are stored (`oauth_clients`, `oauth_authorizations`,
   `oauth_tokens`; hidden from the explorer, not audited — they are secrets).
-- **Revocation.** Paramètres › MCP › « Accès autorisés » lists every agent credential (OAuth or
-  CLI, never a token) with « Révoquer » (`POST /api/settings/mcp/agents/{id}/revoke`): the agent
-  and every OAuth token derived from it stop at once.
+- **Revocation.** Paramètres › MCP › « Accès autorisés » lists the agent credentials the signed-in
+  person manages (OAuth or CLI, never a token; §4.8) with « Révoquer »
+  (`POST /api/settings/mcp/agents/{id}/revoke`): the agent and every OAuth token derived from it
+  stop at once.
 - **Deployment.** Caddy proxies `/.well-known/*` and `/oauth/*` to the API next to `/api/*` and
   `/mcp*`. The Vite dev server proxies `/api` only: test the connector flow against the deployed
   stack (or `deploy/docker-compose.prod.yml` locally).
@@ -496,6 +498,8 @@ distinguish "Lucie did it" from "Lucie's assistant did it".
   tool, through `GET /api/settings/mcp/calls`.
   - Parameters: `email`, `tool`, `agent_id`, `before`, `limit` (at most 200).
   - Results are newest first. To get the next page, pass the `created_at` of the last row as `before`.
+  - Only the calls of the agents the signed-in person manages (§4.8), the `emails` and `tools`
+    filter lists included.
 - **Write-once.** The table is not audited and is not shown in the explorer.
 
 ### 4.7 Agent identity and capabilities (`viper_whoami`)
@@ -571,6 +575,31 @@ is no separate agent table: an `mcp_tokens` row **is** the agent. Code:
   `--provider` and `--capabilities` (`create-agent-token`).
 - **Limit.** Regenerating a bearer token creates a new identity
   (`tasks/viper_chatgpt_conversational/Issues/bearer-token-rotation.md`).
+
+### 4.8 Who may see and revoke an agent
+
+Code: `backend/app/services/mcp_access.py`, used by the three routes of « Accès autorisés » and
+« Historique des appels ». A person **manages** an agent token when:
+
+- it acts for them: its delegated person (§4.7, `agent_capabilities.delegate_of` — the OAuth
+  approver, else the account of `owner_email`) is the signed-in account;
+- they are an active `admin` of the agent's organisation — the delegated person's organisation, or
+  the token's own `organization_id` for a token acting for nobody;
+- they are the platform admin (`is_superadmin`).
+
+A token acting for nobody (no `owner_email`, or one naming no account) is therefore managed by the
+admins and the platform admin only. A `manager` is treated like a `member` here.
+
+- `GET /api/settings/mcp/agents` lists the managed agents only: a member sees their own, an admin
+  every agent of their organisation, the platform admin all of them. Every listed agent can be
+  revoked by the viewer, so the page shows « Révoquer » on each live row without a client-side rule.
+- `GET /api/settings/mcp/calls` keeps the calls of the managed agents only (a call whose token row
+  is gone is then visible to the platform admin alone).
+- `POST /api/settings/mcp/agents/{id}/revoke` on an agent the person does not manage answers
+  **404 `not_found`**, exactly like an unknown id — not 403: the list already hides these agents,
+  so for that person they do not exist, and a member cannot probe which agent ids are live.
+- Creating a token (`POST /api/settings/mcp/agents`) is unchanged: it is bounded by the creator's
+  role (§4.7).
 
 ## 5. Rollout
 
