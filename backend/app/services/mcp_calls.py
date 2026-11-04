@@ -6,6 +6,7 @@ so the history stays a log, not a second copy of the data. Rows are write-once.
 """
 
 import uuid
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -85,10 +86,15 @@ def history(
     token_id: uuid.UUID | None = None,
     before: datetime | None = None,
     limit: int = DEFAULT_PAGE,
+    visible: Collection[uuid.UUID] | None = None,
 ) -> CallPage:
-    """Newest first; `before` continues a page (the `created_at` of its last row)."""
+    """Newest first; `before` continues a page (the `created_at` of its last row).
+
+    `visible`: only the calls of these agents, the filters included (`mcp_access`); `None`: all.
+    """
     size = max(1, min(limit, MAX_PAGE))
-    statement = select(McpCall).order_by(McpCall.created_at.desc(), McpCall.id.desc())
+    scope = [] if visible is None else [McpCall.token_id.in_(list(visible))]
+    statement = select(McpCall).where(*scope).order_by(McpCall.created_at.desc(), McpCall.id.desc())
     if email:
         statement = statement.where(McpCall.user_email == email.strip().lower())
     if tool:
@@ -100,11 +106,11 @@ def history(
     rows = list(session.scalars(statement.limit(size + 1)))
     emails = session.scalars(
         select(McpCall.user_email)
-        .where(McpCall.user_email.is_not(None))
+        .where(McpCall.user_email.is_not(None), *scope)
         .distinct()
         .order_by(McpCall.user_email)
     )
-    tools = session.scalars(select(McpCall.tool).distinct().order_by(McpCall.tool))
+    tools = session.scalars(select(McpCall.tool).where(*scope).distinct().order_by(McpCall.tool))
     return CallPage(
         calls=rows[:size],
         emails=[value for value in emails if value],
