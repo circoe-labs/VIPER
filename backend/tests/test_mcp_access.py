@@ -42,6 +42,7 @@ class People:
             other = Organization(name="Autre SAS", email_domain="autre.fr")
             session.add(other)
             session.flush()
+            self.other_organization_id = other.id
             self.marie = add_user(session, "marie@circoe.com", role=OrganizationRole.MEMBER)
             self.paul = add_user(session, "paul@circoe.com", role=OrganizationRole.MEMBER)
             outsider = add_user(
@@ -187,3 +188,56 @@ def test_the_lists_follow_the_same_rule(
     assert people.as_outsider.get(CALLS).json()["calls"] == []
     assert len(people.as_admin.get(CALLS).json()["calls"]) == 2
     assert len(people.as_root.get(CALLS).json()["calls"]) == 2
+
+
+def test_a_deactivated_admin_manages_nothing(
+    app: FastAPI, session_factory: sessionmaker[Session], db_session: Session, people: People
+) -> None:
+    with unit_of_work(session_factory) as session:
+        former = add_user(session, "ancien@circoe.com", role=OrganizationRole.ADMIN)
+    as_former = as_user(app, session_factory, former)
+    _, agent_id = mint(db_session, "Claude de Marie", people.marie)
+    stored = db_session.get(User, former.id)
+    assert stored is not None
+    # The session stays open: the service itself must refuse an inactive admin.
+    stored.is_active = False
+    db_session.flush()
+
+    with as_former:
+        assert as_former.get(AGENTS).json() == []
+        assert revoke(as_former, agent_id) == 404
+
+
+def test_an_admin_manages_the_agents_of_their_own_members_elsewhere(
+    db_session: Session, people: People, anonymous_client: TestClient
+) -> None:
+    # The token row keeps the default organisation (CIRCOE): the agent's organisation is its
+    # owner's, not the token's `organization_id`.
+    member = add_user(
+        db_session,
+        "luc@autre.fr",
+        role=OrganizationRole.MEMBER,
+        organization_id=people.other_organization_id,
+    )
+    token, agent_id = mint(db_session, "Claude de Luc", member)
+
+    assert {agent["id"] for agent in people.as_outsider.get(AGENTS).json()} == {str(agent_id)}
+    assert revoke(people.as_admin, agent_id) == 404
+    assert revoke(people.as_outsider, agent_id) == 200
+    assert not alive(anonymous_client, token)
+
+
+def test_the_tool_filter_lists_only_the_tools_of_managed_agents(
+    people: People, db_session: Session, client: TestClient
+) -> None:
+    marie_token, _ = mint(db_session, "Claude de Marie", people.marie)
+    paul_token, _ = mint(db_session, "Claude de Paul", people.paul)
+    call(client, marie_token, "viper_list_companies", {})
+    call(client, paul_token, "viper_list_prospects", {})
+
+    assert people.as_marie.get(CALLS).json()["tools"] == ["viper_list_companies"]
+    assert people.as_paul.get(CALLS).json()["tools"] == ["viper_list_prospects"]
+    assert people.as_admin.get(CALLS).json()["tools"] == [
+        "viper_list_companies",
+        "viper_list_prospects",
+    ]
