@@ -25,6 +25,7 @@ from typing import Any
 from pydantic import ValidationError
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.core.actor import ActorContext, ActorType
 from app.models.agent_missions import AgentTask, AgentTaskResult, AgentThread
@@ -35,7 +36,9 @@ from app.models.enums import (
     AgentTaskType,
     AgentThreadKind,
     AgentThreadStatus,
+    MissionStatus,
 )
+from app.models.missions import Mission, MissionRun
 from app.models.prospects import Prospect
 from app.services import audit
 from app.services.agent_payloads import (
@@ -48,6 +51,7 @@ from app.services.agent_payloads import (
 from app.services.companies import CompanyDetail, get_company
 from app.services.errors import (
     ActorNotAllowedError,
+    BusinessRuleError,
     ConflictError,
     InvalidFieldError,
     NotFoundError,
@@ -64,6 +68,9 @@ OPEN_TASK_STATUSES = (
     AgentTaskStatus.SUBMITTED,
 )
 # Default priority per type: what unblocks a person first comes first.
+# Stable refusal for a worker still holding a task its mission cancelled (or deleted): heartbeat,
+# submit, fail and release all say so instead of « claim lost ». Documented in mcp-server.md §3.10.
+TASK_CANCELLED = "task_cancelled"
 TASK_PRIORITIES = {
     AgentTaskType.UPDATE_EMPLOYEE: 60,
     AgentTaskType.UPDATE_COMPANY: 50,
@@ -124,6 +131,17 @@ def _event(
         changes=changes or {},
         reason=reason,
     )
+
+
+def _offered() -> ColumnElement[bool]:
+    """Only tasks an agent may take now: outside any mission run, or in a run of an `active`
+    mission. A paused mission keeps its pending tasks but hides them; a cancelled one has none."""
+    active_runs = (
+        select(MissionRun.id)
+        .join(Mission, Mission.id == MissionRun.mission_id)
+        .where(Mission.status == MissionStatus.ACTIVE)
+    )
+    return or_(AgentTask.run_id.is_(None), AgentTask.run_id.in_(active_runs))
 
 
 def clear_claim(task: AgentTask) -> None:
@@ -313,6 +331,7 @@ def claim(
         AgentTask.status == AgentTaskStatus.PENDING,
         AgentTask.type.in_(list(types)),
         AgentTask.attempts < AgentTask.max_attempts,
+        _offered(),
     ]
     if thread_id is not None:
         conditions.append(AgentTask.thread_id == thread_id)
@@ -378,6 +397,8 @@ def claim_specific(
         raise NotFoundError("Unknown task.")
     if task.status is not AgentTaskStatus.PENDING or task.attempts >= task.max_attempts:
         raise ConflictError("This task is not waiting to be claimed.")
+    if session.scalar(select(AgentTask.id).where(AgentTask.id == task.id, _offered())) is None:
+        raise ConflictError("This task's mission is paused: it cannot be claimed now.")
     task.status = AgentTaskStatus.CLAIMED
     task.claim_id = uuid.uuid7()
     task.claimed_by_id = agent_id
@@ -408,6 +429,12 @@ def _claimed(
     task = session.scalar(select(AgentTask).where(AgentTask.id == task_id).with_for_update())
     if task is None:
         raise NotFoundError("Unknown task.")
+    if task.status is AgentTaskStatus.CANCELLED:
+        raise BusinessRuleError(
+            TASK_CANCELLED,
+            409,
+            "This task was cancelled with its mission: stop working on it, nothing is kept.",
+        )
     if task.status is not AgentTaskStatus.CLAIMED or task.claim_id != claim_id:
         raise ConflictError("The claim is lost: this task is no longer yours.")
     if task.claimed_by_id != actor.id:
@@ -759,6 +786,7 @@ def queue_counts(session: Session, types: Sequence[AgentTaskType]) -> dict[str, 
             AgentTask.status == AgentTaskStatus.PENDING,
             AgentTask.type.in_(list(types)),
             AgentTask.attempts < AgentTask.max_attempts,
+            _offered(),
         )
         .group_by(AgentTask.type)
     ).all()
