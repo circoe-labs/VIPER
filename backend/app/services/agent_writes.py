@@ -43,9 +43,7 @@ def _require_agent(actor: ActorContext) -> None:
         raise ActorNotAllowedError("Only an agent may post a proposal.")
 
 
-def _open_thread(
-    session: Session, actor: ActorContext, company: Company
-) -> AgentThread:
+def _open_thread(session: Session, actor: ActorContext, company: Company) -> AgentThread:
     """The company's open review thread, or a new one opened by the agent."""
     thread = session.scalar(
         select(AgentThread)
@@ -93,6 +91,8 @@ def _task(
         AgentTask.type == task_type,
         AgentTask.company_id == company_id,
         AgentTask.status.in_(OPEN_TASKS),
+        # A paused mission's task is not reused: a direct proposal must not wait for its resume.
+        agent_missions.offered(),
     ]
     if prospect_id is None:
         conditions.append(AgentTask.prospect_id.is_(None))
@@ -129,9 +129,7 @@ def _task(
 def _claim(session: Session, actor: ActorContext, task: AgentTask) -> None:
     """Claim the task, or explain why the proposal cannot be stored right now."""
     if task.status is AgentTaskStatus.SUBMITTED:
-        raise ConflictError(
-            "A result for this record is already awaiting a person's review."
-        )
+        raise ConflictError("A result for this record is already awaiting a person's review.")
     if task.status is AgentTaskStatus.CLAIMED:
         raise ConflictError(
             "This record is already claimed: submit it with viper_submit_task_result, "

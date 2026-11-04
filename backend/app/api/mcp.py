@@ -54,6 +54,7 @@ from app.services import (
 from app.services.agent_capabilities import AgentGrant
 from app.services.errors import (
     ActorNotAllowedError,
+    BusinessRuleError,
     CapabilityDeniedError,
     ConflictError,
     ContactMessageError,
@@ -363,10 +364,12 @@ def _refusal(error: DomainError) -> dict[str, Any]:
     body: dict[str, Any]
     if isinstance(error, InvalidFieldError):
         body = {"code": error.reason or "invalid", "message": str(error), "field": error.field}
-    elif isinstance(error, (ContactMessageError, MailGenerationError)):
-        # Their stable code (`agent_draft_only`, `revision_conflict`, `ai_timeout`…) and, for a
-        # message refusal, its details (`status`, `fields`); never the AI provider's upstream data.
-        details = error.details if isinstance(error, ContactMessageError) else {}
+    elif isinstance(error, (ContactMessageError, BusinessRuleError, MailGenerationError)):
+        # Their stable code (`agent_draft_only`, `revision_conflict`, `task_cancelled`,
+        # `ai_timeout`…) and their details (`status`, `fields`); never the AI provider's data.
+        details = (
+            error.details if isinstance(error, (ContactMessageError, BusinessRuleError)) else {}
+        )
         body = {"code": error.code, "message": str(error), **details}
     elif isinstance(error, ConflictError):
         body = {"code": "conflict", "message": str(error)}
