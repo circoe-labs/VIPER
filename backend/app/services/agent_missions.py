@@ -67,10 +67,10 @@ OPEN_TASK_STATUSES = (
     AgentTaskStatus.CLAIMED,
     AgentTaskStatus.SUBMITTED,
 )
-# Default priority per type: what unblocks a person first comes first.
 # Stable refusal for a worker still holding a task its mission cancelled (or deleted): heartbeat,
-# submit, fail and release all say so instead of « claim lost ». Documented in mcp-server.md §3.10.
+# submit, fail and release all say so instead of « claim lost ». Documented in mcp-server.md §3.7.
 TASK_CANCELLED = "task_cancelled"
+# Default priority per type: what unblocks a person first comes first.
 TASK_PRIORITIES = {
     AgentTaskType.UPDATE_EMPLOYEE: 60,
     AgentTaskType.UPDATE_COMPANY: 50,
@@ -431,6 +431,9 @@ def _claimed(
     task = session.scalar(select(AgentTask).where(AgentTask.id == task_id).with_for_update())
     if task is None:
         raise NotFoundError("Unknown task.")
+    # Checked before the claim: cancelling clears the claim (`clear_claim`, no lease survives), so
+    # the holder can no longer be told apart. This reveals only that a task id — an unguessable
+    # UUID handed to its claimer — was cancelled, and only to an agent with `tasks.work`.
     if task.status is AgentTaskStatus.CANCELLED:
         raise BusinessRuleError(
             TASK_CANCELLED,
