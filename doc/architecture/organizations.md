@@ -80,3 +80,18 @@ sont jamais journalisées.
 
 - Filtrer les lectures et écritures par `organization_id` avant d'ouvrir la connexion à une autre organisation.
 - Lever alors le refus `organization` et la restriction de domaine.
+
+## Self-service sign-up (« Créer un compte »)
+
+- The sign-in page links to `/inscription`. `POST /api/auth/signup` (public, throttled like sign-in) creates the
+  account **deactivated** with its password, in the organisation of its e-mail domain (open domains only:
+  `VIPER_SIGNIN_EMAIL_DOMAINS`), as a member. An address that already has an account gets the same `202` and nothing
+  changes (no enumeration).
+- The platform admin (`is_superadmin`) is e-mailed through the CIRCOE Toolbox (draft + send) a link to
+  `/inscriptions/<token>`; only the SHA-256 of the token is stored (`users.signup_token_hash`). Signed in, the platform
+  admin or an admin of that organisation confirms (account active) or refuses (account deleted). The link is
+  single-use.
+- While pending, sign-in answers `403 {code: "pending"}`. Without a connected Toolbox the mail does not leave
+  (`signup.notify_skipped` in the server log): the request stays pending and reactivating the member in
+  « Organisation » approves it too.
+- Code: `backend/app/services/signups.py`, `backend/app/api/routes/auth.py`, migration `0032`.

@@ -68,6 +68,8 @@ def _domain(email: str) -> str:
 
 def check_can_sign_in(user: User, settings: Settings) -> None:
     """The development-phase gate, for Infomaniak and password sign-ins alike."""
+    if not user.is_active and user.signup_requested_at is not None:
+        raise SignInRefused("pending", "This account waits for an admin's approval.")
     if not user.is_active:
         raise SignInRefused("inactive", "This account is deactivated.")
     if _domain(user.email) not in settings.signin_domains:
@@ -395,6 +397,10 @@ def update_member(
     if is_active is not None and is_active is not member.is_active:
         changes["is_active"] = {"before": member.is_active, "after": is_active}
         member.is_active = is_active
+        # Activating a pending sign-up (« Créer un compte ») approves it: its link stops working.
+        if is_active:
+            member.signup_requested_at = None
+            member.signup_token_hash = None
         if not is_active:
             user_repository.revoke_user_sessions(session, member.id, now=datetime.now(UTC))
     if not changes:

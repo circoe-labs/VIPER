@@ -17,6 +17,8 @@ import { ReachableProspectsPage } from './prospection/ReachableProspectsPage'
 import { RobinPage } from './prospection/RobinPage'
 import { VerificationPage } from './prospection/VerificationPage'
 import { AppShell } from './shell/AppShell'
+import { SignupApprovalPage } from './auth/SignupApprovalPage'
+import { SignupPage } from './auth/SignupPage'
 import { AgentHistoryPage } from './settings/AgentHistoryPage'
 import { SettingsPage } from './settings/SettingsPage'
 import { WarehousesPage } from './warehouses/WarehousesPage'
@@ -49,6 +51,7 @@ const PAGES: RouteObject[] = [
   { path: '/database/:table?', element: <DatabasePage /> },
   { path: '/organisation', element: <OrganizationPage /> },
   { path: '/historique-agents', element: <AgentHistoryPage /> },
+  { path: '/inscriptions/:token', element: <SignupApprovalPage /> },
   { path: '/settings/:section?', element: <SettingsPage /> },
 ]
 
@@ -63,6 +66,7 @@ const SUBPAGES: RouteObject[] = [
 // Everything but /login requires a session (RequireAuth); the API enforces the same rule server-side.
 export const routes: RouteObject[] = [
   { path: '/login', element: <LoginPage /> },
+  { path: '/inscription', element: <SignupPage /> },
   {
     element: (
       <RequireAuth>
