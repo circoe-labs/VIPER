@@ -33,9 +33,9 @@ function WarehouseRow({ warehouse, onEdit }: { warehouse: Warehouse; onEdit: () 
   return <article className="warehouse-card">
     <div className="warehouse-card__header">
       <button className="warehouse-card__toggle" type="button" aria-label={`Détails de ${warehouse.name}`} aria-expanded={open} aria-controls={`warehouse-${warehouse.id}`} onClick={() => { setOpen(!open) }}>
+        <ChevronDownIcon className={open ? 'warehouse-card__chevron--open' : ''} size={26} />
         <span className="warehouse-card__icon"><WarehouseIcon size={22} /></span>
         <span className="warehouse-card__identity"><strong>{warehouse.name}</strong><span>{warehouse.contacts.length} interlocuteur{warehouse.contacts.length > 1 ? 's' : ''}{warehouse.city ? ` · ${warehouse.city}` : ''}</span></span>
-        <ChevronDownIcon className={open ? 'warehouse-card__chevron--open' : ''} size={26} />
       </button>
       <Button size="sm" onClick={onEdit} aria-label={`Modifier ${warehouse.name}`}>Modifier</Button>
     </div>
