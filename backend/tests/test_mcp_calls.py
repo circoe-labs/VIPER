@@ -2,9 +2,11 @@
 
 import uuid
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.api import mcp as mcp_api
 from app.services import mcp_calls, mcp_tokens
 from tests.builders import add_company
 from tests.test_mcp import call
@@ -62,3 +64,25 @@ def test_the_history_pages_and_shortens_long_texts(client: TestClient, db_sessio
 
 def test_the_history_needs_a_session(anonymous_client: TestClient) -> None:
     assert anonymous_client.get(CALLS).status_code == 401
+
+
+def test_a_crashing_tool_is_kept_as_error(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    token, _ = mcp_tokens.mint(db_session, label="Agent", scopes=["*"], owner_email="a@circoe.com")
+
+    def crash(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(mcp_api.mcp_reads, "list_companies", crash)
+    result = call(client, token, "viper_list_companies", {})
+    assert result["isError"] is True
+    assert result["structuredContent"]["code"] == "internal"
+
+    (row,) = client.get(CALLS).json()["calls"]
+    assert (row["user_email"], row["tool"], row["outcome"], row["error_code"]) == (
+        "a@circoe.com",
+        "viper_list_companies",
+        "error",
+        "internal",
+    )

@@ -11,6 +11,7 @@ in the interface. Contract: `doc/architecture/mcp-server.md` §3.7 and
 """
 
 import json
+import logging
 import time
 import uuid
 from datetime import timedelta
@@ -44,6 +45,8 @@ from app.services.errors import (
     InvalidFieldError,
     NotFoundError,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/mcp", tags=["mcp"])
 
@@ -546,12 +549,23 @@ def _handle(
             # One savepoint per call: a refused tool writes nothing, even when it had already
             # touched the task before failing (the claim's payload, for instance).
             started = time.monotonic()
+            crashed = False
             try:
                 with session.begin_nested():
                     payload = _call_tool(str(name), args, session, actor, record, settings)
             except DomainError as error:
                 payload = _refusal(error)
-            _log_call(session, record, str(name), args, payload, started)
+            except Exception:
+                # A crash, not a refusal: the savepoint undid the tool's writes, the trace goes to
+                # the server log and the call stays in the history as « error ».
+                logger.exception("MCP tool %r crashed (agent %s)", name, record.id)
+                payload = _payload(
+                    {"code": "internal", "message": "VIPER a rencontré une erreur interne."},
+                    is_error=True,
+                )
+                crashed = True
+            outcome = "error" if crashed else None
+            _log_call(session, record, str(name), args, payload, started, outcome=outcome)
             return _rpc(id_, payload)
         case _:
             return _error(id_, -32601, f"Unknown method {method!r}.")
@@ -564,14 +578,15 @@ def _log_call(
     args: dict[str, Any],
     payload: dict[str, Any],
     started: float,
+    outcome: str | None = None,
 ) -> None:
     """« Historique des appels »: who asked what. Written outside the tool's savepoint, so a
-    refusal is kept too."""
+    refusal or a crash is kept too."""
     code: str | None = None
     message: str | None = None
     if payload.get("isError"):
         body = payload.get("structuredContent") or {}
-        outcome = "refused"
+        outcome = outcome or "refused"
         code = str(body.get("code") or "refused") if isinstance(body, dict) else "refused"
         message = str(body.get("message") or "") if isinstance(body, dict) else None
     else:
