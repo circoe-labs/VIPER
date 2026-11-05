@@ -136,6 +136,22 @@ export interface ProspectScore {
   contributions: ScoreContribution[]
 }
 
+// « Qualité de la fiche » (app/services/prospect_data_quality.py): automatic, separate from the interest score above.
+export interface DataQualityCriterion {
+  id: string
+  label: string
+  points: number
+  max_points: number
+  detail: string
+}
+
+export interface DataQualityScore {
+  total: number
+  band: ScoreBand
+  summary: string
+  criteria: DataQualityCriterion[]
+}
+
 export interface Prospect {
   id: string
   // Opaque aggregate version, sent back with every write (409 `conflict` when stale).
@@ -165,6 +181,8 @@ export interface Prospect {
   today: string
   stale_threshold_days: number | null
   score: ProspectScore
+  // null under durable opposition (« Écarté »).
+  data_quality: DataQualityScore | null
   created_at: string
   updated_at: string
 }

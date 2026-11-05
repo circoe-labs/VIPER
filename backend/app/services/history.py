@@ -40,6 +40,7 @@ from app.models.audit import AuditLogEntry
 from app.models.enums import (
     ActivityStatus,
     Civility,
+    CompanyKind,
     ContactabilityStatus,
     ContactTrackingStatus,
     NoteSourceType,
@@ -163,6 +164,12 @@ def _text(value: Any, _: Lookups) -> str | None:
     return text if len(text) <= TEXT_LIMIT else f"{text[: TEXT_LIMIT - 1]}…"
 
 
+def _services(value: Any, _: Lookups) -> str | None:
+    if not isinstance(value, list) or not value:
+        return None
+    return ", ".join(str(code).upper() for code in value)
+
+
 def _moment(value: Any, lookups: Lookups) -> str | None:
     """« 3 sept. 2026 », plus « à 10:30 » unless it is midnight (a day without time)."""
     if not isinstance(value, str):
@@ -203,6 +210,11 @@ def _reference(kind: str) -> Render:
 
 
 CIVILITIES: dict[str, str] = {Civility.MR: "M.", Civility.MS: "Mme"}
+COMPANY_KINDS: dict[str, str] = {
+    CompanyKind.SME: "PME",
+    CompanyKind.LARGE: "Grande entreprise",
+    CompanyKind.INSTITUTIONAL: "Institutionnel",
+}
 ACTIVITIES: dict[str, str] = {
     ActivityStatus.ACTIVE: "Actif",
     ActivityStatus.INACTIVE: "Inactif",
@@ -416,6 +428,10 @@ FIELDS: dict[str, dict[str, Field]] = {
             "Catégories d’activité", "Catégories d’activité modifiées", _reference("category")
         ),
         "size_label": Field("Taille", "Taille modifiée"),
+        "proposed_services": Field(
+            "Prestations proposées", "Prestations proposées modifiées", _services
+        ),
+        "company_kind": Field("Type", "Type d’entreprise modifié", _choice(COMPANY_KINDS)),
         "website_url": Field("Site web", "Site web modifié"),
         "email_domain": Field("Domaine e-mail", "Domaine e-mail modifié"),
         "project_done_with_circoe": Field("Projet déjà réalisé", "Contexte Circoe modifié"),

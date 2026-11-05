@@ -17,6 +17,15 @@ class ActivityStatus(StrEnum):
     UNKNOWN = "unknown"
 
 
+class CompanyKind(StrEnum):
+    """Type d'entreprise: PME (< 250 salariés), grande entreprise (250 et plus, ETI comprises) ou
+    institutionnel (secteur public, collectivités, établissements publics)."""
+
+    SME = "sme"
+    LARGE = "large"
+    INSTITUTIONAL = "institutional"
+
+
 class ContactabilityStatus(StrEnum):
     CONTACTABLE = "contactable"
     DO_NOT_CONTACT = "do_not_contact"

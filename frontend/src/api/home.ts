@@ -83,6 +83,21 @@ export interface HomeData {
 
 export const homeKeys = { all: ['home'] as const }
 
+export interface HomeDashboard {
+  prospects: number
+  companies: number
+  contacted: number
+  appointments: number
+  new_companies: number
+  new_prospects: number
+  week_start: string
+  week_end: string
+}
+
+export function useHomeDashboard() {
+  return useQuery({ queryKey: [...homeKeys.all, 'dashboard'], queryFn: ({ signal }) => apiGet<HomeDashboard>('/home/dashboard', signal) })
+}
+
 export function useHome() {
   return useQuery({ queryKey: homeKeys.all, queryFn: ({ signal }) => apiGet<HomeData>('/home', signal) })
 }

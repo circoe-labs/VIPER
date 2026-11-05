@@ -49,6 +49,7 @@ export function prospectDetail(fields: Partial<Prospect> = {}): Prospect {
     today: TODAY,
     stale_threshold_days: null,
     score: { total: 50, summary: 'Aucun signal enregistré.', band: 'yellow', contributions: [] },
+    data_quality: { total: 0, band: 'red', summary: 'À compléter : e-mail actif.', criteria: [] },
     created_at: STAMP,
     updated_at: STAMP,
     ...fields,
@@ -461,6 +462,11 @@ export function stubProspectsApi(options: ProspectsStubOptions = {}) {
   function handle(method: string, url: URL, body: unknown): Promise<Response> {
     const [, , , id, action, sub] = url.pathname.split('/')
     if (id && action === 'notes') return handleNotes(method, id, sub, body)
+    // GET /api/prospects/notes?ids=…: the notes of several prospects at once, like the API.
+    if (id === 'notes' && !action && method === 'GET') {
+      const wanted = new Set(url.searchParams.getAll('ids'))
+      return reply(200, sortedNotes([...notes.entries()].filter(([prospectId]) => wanted.has(prospectId)).flatMap(([, list]) => list)))
+    }
     if (method !== 'GET' && next.reply) {
       const [status, detail] = next.reply
       next.reply = null

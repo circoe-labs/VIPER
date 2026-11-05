@@ -7,6 +7,12 @@ import { renderApp } from '../test/render'
 
 const LIST = '/api/contact/prospects'
 
+async function openList() {
+  const toggle = await screen.findByRole('button', { name: /^Prospects contactés/ })
+  if (toggle.getAttribute('aria-expanded') === 'false') await userEvent.click(toggle)
+  return screen.findByRole('list', { name: 'Prospects contactés' })
+}
+
 function lastListParams(requests: ReturnType<typeof stubContactApi>['requests']): Record<string, string> {
   const request = sent(requests, 'GET', LIST).at(-1)
   return Object.fromEntries(new URLSearchParams(request?.search ?? ''))
@@ -19,12 +25,12 @@ const DASHBOARD = contactDashboard({
     { code: 'S40', starts_on: '2026-10-05', out_of_campaign: false, prospects: 1, to_send: 0, overdue: 0, to_send_steps: [] },
     { code: 'S37', starts_on: '2026-09-07', out_of_campaign: false, prospects: 10, appointments: 1, to_send: 9, overdue: 9, to_send_steps: ['r2'] },
   ],
-  categories: [{ category: 'appointment_obtained', count: 2 }],
+  categories: [{ category: 'contacted', count: 4 }],
 })
 
 function rows() {
   return [
-    contactRow('Jean', 'Exemple', { civility: 'mr', role_label: 'Responsable transport', company_name: 'Alpha SARL', cohort_code: 'S39' }),
+    contactRow('Jean', 'Exemple', { civility: 'mr', role_label: 'Responsable transport', company_name: 'Alpha SARL', cohort_code: 'S39', messages: { contact: 'sent' } }),
     contactRow('Claire', 'Démo', {
       tracking_status: 'neutral',
       next_step: 'r1',
@@ -49,19 +55,28 @@ function rows() {
       planned_contact_at: null,
       company_name: 'Charlie SARL',
       cohort_code: 'S40',
-      messages: { contact: 'cancelled', r1: null, r2: null },
+      messages: { contact: 'sent', r1: null, r2: null },
     }),
   ]
 }
 
 describe('Contact page', () => {
+  it('shows the actual last email date independently of a later response', async () => {
+    const row = contactRow('Jean', 'Exemple', { messages: { contact: 'sent' }, last_email_sent_at: '2026-09-14T10:00:00Z', last_contact_at: '2026-10-01T10:00:00Z' })
+    stubContactApi({ rows: [row] })
+    renderApp('/contact')
+    const list = await openList()
+    expect(within(list).getByText('Dernier e-mail envoyé')).toBeInTheDocument()
+    expect(within(list).getByText('14 septembre 2026')).toBeInTheDocument()
+    expect(within(list).queryByText('1 octobre 2026')).not.toBeInTheDocument()
+  })
   it('replaces Exploitation in the navigation, and the old path leads to it', async () => {
     stubContactApi({ dashboard: DASHBOARD })
     const { router } = renderApp('/exploitation')
-    expect(await screen.findByRole('heading', { level: 1, name: 'Contact' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Contacts' })).toBeInTheDocument()
     expect(router.state.location.pathname).toBe('/contact')
     const navigation = screen.getByRole('navigation', { name: 'Navigation principale' })
-    expect(within(navigation).getByRole('link', { name: 'Contact' })).toHaveAttribute('aria-current', 'page')
+    expect(within(navigation).getByRole('link', { name: 'Contacts' })).toHaveAttribute('aria-current', 'page')
     expect(within(navigation).queryByRole('link', { name: 'Exploitation' })).not.toBeInTheDocument()
   })
 
@@ -92,195 +107,191 @@ describe('Contact page', () => {
 
     stubContactApi({ dashboard: contactDashboard({ dispatch: { active: false, reason: 'disabled', scheduled_count: 0, overdue_count: 0 } }) })
     renderApp('/contact')
-    expect(await screen.findByRole('button', { name: /S39/ })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /^Prospects contactés/ })).toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
-  it('shows one closed section per cohort S37 to S47 (no S38, no S42), then « RDV pris », with its prospect count, and reads nothing until one opens', async () => {
-    const api = stubContactApi({ dashboard: DASHBOARD, rows: rows() })
+  it('starts with one closed category of contacted prospects, without cohort codes or planning categories', async () => {
+    const people = rows()
+    people.push(contactRow('Pas', 'Contacté', { messages: { contact: 'scheduled' } }))
+    const api = stubContactApi({ dashboard: DASHBOARD, rows: people })
     renderApp('/contact')
 
-    const toggles = await screen.findAllByRole('button', { name: /^(S4?\d|RDV)/ })
-    await waitFor(() => {
-      expect(toggles[0]).toHaveTextContent('9 prospects')
-    })
-    // Per cohort: code and count, and what it prepares.
-    expect(toggles.map((button) => button.textContent)).toEqual([
-      'S379 prospectsR2',
-      'S392 prospectsR1',
-      'S401 prospectenvoyé',
-      'S410 prospectsemaine du 12/10',
-      'S430 prospectsemaine du 26/10',
-      'S440 prospectsemaine du 02/11',
-      'S450 prospectsemaine du 09/11',
-      'S460 prospectsemaine du 16/11',
-      'S470 prospectsemaine du 23/11',
-      'RDV pris2 prospects',
-    ])
-    for (const toggle of toggles) expect(toggle).toHaveAttribute('aria-expanded', 'false')
-    expect(screen.queryByRole('region', { name: 'Compteurs' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Prospects contactés/ })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('list', { name: 'Prospects contactés' })).not.toBeInTheDocument()
     expect(sent(api.requests, 'GET', LIST)).toHaveLength(0)
+
+    const list = await openList()
+    expect(within(list).getAllByRole('listitem')).toHaveLength(4)
+    expect(within(list).queryByText('Pas Contacté')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Prospects contactés/ })).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('button', { name: /^Prospects contactés/ })).toHaveTextContent('4 prospects')
+    expect(screen.queryByRole('button', { name: /^S\d/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^RDV pris/ })).not.toBeInTheDocument()
+    expect(screen.queryByText('Suivi des envois programmés')).not.toBeInTheDocument()
+    expect(lastListParams(api.requests)).toEqual({ category: 'contacted', sort: 'company', limit: '200', offset: '0' })
+    expect(sent(api.requests, 'GET', '/api/contact/scheduling')).toHaveLength(0)
   })
 
-  it('opens a section with its arrow: its own prospects, every state, alphabetical by company, then closes it', async () => {
-    const api = stubContactApi({ dashboard: DASHBOARD, rows: rows() })
+  it('keeps contacted people together across cohorts and commercial states', async () => {
+    stubContactApi({ dashboard: DASHBOARD, rows: rows() })
     renderApp('/contact')
-    const s39 = await screen.findByRole('button', { name: /^S39/ })
-
-    await userEvent.click(s39)
-    expect(s39).toHaveAttribute('aria-expanded', 'true')
-    const list = await screen.findByRole('list', { name: 'Prospects à contacter' })
-    expect(within(list).getAllByRole('listitem')).toHaveLength(2)
-    expect(within(list).queryByText('Luc Fictif')).not.toBeInTheDocument()
-    expect(lastListParams(api.requests)).toEqual({
-      category: 'cohort',
-      cohorts: 'S39',
-      sort: 'company',
-      limit: '200',
-      offset: '0',
-    })
-
-    await userEvent.click(s39)
-    expect(s39).toHaveAttribute('aria-expanded', 'false')
-    expect(screen.queryByRole('list', { name: 'Prospects à contacter' })).not.toBeInTheDocument()
-  })
-
-  it('shows each person with state, week, what to prepare and the messages', async () => {
-    stubContactApi({ dashboard: DASHBOARD, rows: rows() })
-    renderApp('/contact?section=S39')
-    const list = await screen.findByRole('list', { name: 'Prospects à contacter' })
-    const [jean, claire] = within(list).getAllByRole('listitem') as [HTMLElement, HTMLElement]
-
-    expect(jean).toHaveTextContent('Responsable transport')
-    expect(jean).toHaveTextContent('À préparer : Premier contact')
-    expect(jean).toHaveTextContent('Aucun message préparé')
-
-    // « En séquence » is the default state: no badge (the level is the next step prepared, not a state).
-    expect(claire).not.toHaveTextContent('État :')
-    expect(claire).not.toHaveTextContent('Échu')
-    expect(claire).not.toHaveTextContent(/S\d\d/)
-    expect(claire).toHaveTextContent('À préparer : Relance R1')
-    expect(claire).toHaveTextContent(/ContactEnvoyé/)
-    expect(claire).toHaveTextContent(/R1Brouillon/)
-    expect(claire).toHaveTextContent(/R2Vide/)
-  })
-
-  it('keeps the planned week and « Échu » behind a small tab, shown only when opened', async () => {
-    stubContactApi({ dashboard: DASHBOARD, rows: rows() })
-    renderApp('/contact?section=S39')
-    const claire = async () => (await screen.findByText('Claire Démo')).closest('li') as HTMLElement
-    expect(await claire()).not.toHaveTextContent('Échu')
-    expect(await claire()).not.toHaveTextContent('Semaine prévue')
-
-    const tab = within(await claire()).getByRole('button', { name: 'Détails' })
-    expect(tab).toHaveAttribute('aria-expanded', 'false')
-    await userEvent.click(tab)
-    expect(tab).toHaveAttribute('aria-expanded', 'true')
-    expect(await claire()).toHaveTextContent(/Semaine prévue : semaine du .*21 sept/)
-    expect(await claire()).toHaveTextContent('Échu')
-
-    await userEvent.click(tab)
-    expect(await claire()).not.toHaveTextContent('Échu')
-  })
-
-  it('shows nothing to prepare for a person whose mails of the week are already sent', async () => {
-    stubContactApi({ dashboard: DASHBOARD, rows: rows() })
-    renderApp('/contact?section=S40')
-    const list = await screen.findByRole('list', { name: 'Prospects à contacter' })
-    const marie = within(list).getByText('Marie Calme').closest('li') as HTMLElement
-    expect(marie).not.toHaveTextContent('À préparer')
-  })
-
-  it('lists the people who took an appointment apart from their cohort', async () => {
-    const api = stubContactApi({ dashboard: DASHBOARD, rows: rows() })
-    renderApp('/contact')
-    await userEvent.click(await screen.findByRole('button', { name: /^RDV pris/ }))
-    const list = await screen.findByRole('list', { name: 'Prospects à contacter' })
-    expect(within(list).getAllByRole('listitem')).toHaveLength(1)
+    const list = await openList()
+    expect(within(list).getByText('Jean Exemple')).toBeInTheDocument()
+    expect(within(list).getByText('Marie Calme')).toBeInTheDocument()
     expect(within(list).getByText('Luc Fictif')).toBeInTheDocument()
-    expect(lastListParams(api.requests)).toMatchObject({ category: 'appointment_obtained', sort: 'company' })
-    expect(lastListParams(api.requests)).not.toHaveProperty('cohorts')
+    expect(within(list).getByText('Claire Démo').closest('li')).toHaveTextContent('Relance R1')
   })
 
-  it('says when a cohort holds nobody yet', async () => {
+  it('can collapse and reopen the category', async () => {
     stubContactApi({ dashboard: DASHBOARD, rows: rows() })
     renderApp('/contact')
-    await userEvent.click(await screen.findByRole('button', { name: /^S44/ }))
-    expect(await screen.findByText('Aucun prospect dans cette cohorte pour le moment.')).toBeInTheDocument()
+    await openList()
+    const toggle = screen.getByRole('button', { name: /^Prospects contactés/ })
+    await userEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('list', { name: 'Prospects contactés' })).not.toBeInTheDocument()
+    await userEvent.click(toggle)
+    expect(await openList()).toBeInTheDocument()
   })
 
-  it('narrows every opened section with the search box, kept in the URL', async () => {
-    const api = stubContactApi({ dashboard: DASHBOARD, rows: rows() })
-    const { router } = renderApp('/contact?section=S39')
-    await screen.findByRole('list', { name: 'Prospects à contacter' })
-
-    await userEvent.type(screen.getByRole('searchbox'), 'alpha')
-    await waitFor(() => {
-      expect(router.state.location.search).toBe('?section=S39&q=alpha')
-    })
-    await waitFor(() => {
-      const lists = sent(api.requests, 'GET', LIST).map((r) => Object.fromEntries(new URLSearchParams(r.search)))
-      expect(lists).toContainEqual(expect.objectContaining({ q: 'alpha', cohorts: 'S39' }))
-    })
-  })
-
-  it('opens the sections that hold a match when searching, closed ones included', async () => {
-    const api = stubContactApi({ dashboard: DASHBOARD, rows: rows() })
+  it('explains when no prospect has been contacted yet', async () => {
+    stubContactApi({ rows: [contactRow('Jean', 'Nouveau')] })
     renderApp('/contact')
-    await screen.findByText('S39')
-
-    await userEvent.type(screen.getByRole('searchbox'), 'alpha')
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /S39/ })).toHaveAttribute('aria-expanded', 'true')
-    })
-    await waitFor(() => {
-      expect(sent(api.requests, 'GET', LIST).length).toBeGreaterThan(0)
-    })
+    await userEvent.click(screen.getByRole('button', { name: /^Prospects contactés/ }))
+    expect(await screen.findByText('Aucun prospect contacté pour le moment.')).toBeInTheDocument()
   })
 
-  it('shows a counters failure with « Réessayer »', async () => {
+  it('searches contacted prospects and keeps the search in the URL', async () => {
+    const api = stubContactApi({ dashboard: DASHBOARD, rows: rows() })
+    const { router } = renderApp('/contact')
+    await openList()
+    await userEvent.click(screen.getByRole('button', { name: /^Prospects contactés/ }))
+    await userEvent.type(screen.getByRole('searchbox'), 'alpha')
+    await waitFor(() => { expect(router.state.location.search).toBe('?q=alpha'); })
+    const list = await openList()
+    expect(within(list).getAllByRole('listitem')).toHaveLength(1)
+    expect(within(list).getByText('Jean Exemple')).toBeInTheDocument()
+    expect(lastListParams(api.requests)).toMatchObject({ category: 'contacted', q: 'alpha' })
+  })
+
+  it('reports an empty search', async () => {
+    stubContactApi({ rows: rows() })
+    renderApp('/contact?q=inexistant')
+    await userEvent.click(screen.getByRole('button', { name: /^Prospects contactés/ }))
+    expect(await screen.findByText('Aucun prospect contacté ne correspond à la recherche.')).toBeInTheDocument()
+  })
+
+  it('paginates beyond the API page size and resets pagination when searching', async () => {
+    const people = Array.from({ length: 201 }, (_, index) => contactRow('Jean', `Exemple ${String(index)}`, { messages: { contact: 'sent' } }))
+    const api = stubContactApi({ rows: people })
+    const { router } = renderApp('/contact')
+    const list = await openList()
+    expect(within(list).getAllByRole('listitem')).toHaveLength(200)
+    await userEvent.click(screen.getByRole('button', { name: 'Page suivante' }))
+    await waitFor(() => { expect(within(list).getAllByRole('listitem')).toHaveLength(1); })
+    expect(lastListParams(api.requests)).toMatchObject({ offset: '200' })
+    await userEvent.type(screen.getByRole('searchbox'), 'Exemple 0')
+    await waitFor(() => { expect(router.state.location.search).toBe('?q=Exemple+0'); })
+    await waitFor(() => { expect(lastListParams(api.requests)).toMatchObject({ offset: '0', q: 'Exemple 0' }); })
+    expect(screen.queryByRole('button', { name: 'Page suivante' })).not.toBeInTheDocument()
+  })
+
+  it('keeps old cohort links usable without showing a cohort category', async () => {
+    stubContactApi({ rows: rows() })
+    renderApp('/contact?section=S39')
+    expect(await openList()).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^S39/ })).not.toBeInTheDocument()
+  })
+
+  it('shows a counters failure with a retry button', async () => {
     stubContactApi({ dashboard: 'error' })
     renderApp('/contact')
     const alert = await screen.findByRole('alert')
-    expect(alert).toHaveTextContent('Compteurs indisponibles')
+    expect(alert).toHaveTextContent('Graphique indisponible')
     expect(within(alert).getByRole('button', { name: 'Réessayer' })).toBeInTheDocument()
   })
 
-  it('opens the workbench in place of the sections; Back returns to the section, open', async () => {
-    const people = rows()
+  it('opens the workbench and walks the contacted prospects; Back returns to the list', async () => {
+    const people = rows().slice(0, 2)
     const [jean, claire] = people as [ReturnType<typeof contactRow>, ReturnType<typeof contactRow>]
     const { prospectDetail } = await import('../test/prospectsApi')
     stubContactApi({
-      dashboard: DASHBOARD,
       rows: people,
       details: [prospectDetail({ id: jean.id, first_name: 'Jean', last_name: 'Exemple', civility: 'mr' })],
-      messages: { [jean.id]: { contact: message('contact', 'draft') } },
+      messages: { [jean.id]: { contact: message('contact', 'sent') } },
     })
     const { router } = renderApp('/contact')
-    await userEvent.click(await screen.findByRole('button', { name: /^S39/ }))
-    const list = await screen.findByRole('list', { name: 'Prospects à contacter' })
+    const list = await openList()
     await userEvent.click(within(list).getByRole('link', { name: 'Jean Exemple' }))
-
     expect(await screen.findByRole('heading', { level: 2, name: /Jean Exemple/ })).toBeInTheDocument()
-    expect(screen.queryByRole('list', { name: 'Prospects à contacter' })).not.toBeInTheDocument()
-    // « Précédent » / « Suivant » walk the cohort of the section, not the whole base.
     expect(await screen.findByText('1 sur 2')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Précédent' })).toBeDisabled()
-    expect(router.state.location.search).toBe(`?section=S39&prospect=${jean.id}`)
-
+    expect(router.state.location.search).toBe(`?section=CONTACTES&prospect=${jean.id}`)
     await userEvent.click(screen.getByRole('button', { name: 'Suivant' }))
-    await waitFor(() => {
-      expect(router.state.location.search).toContain(`prospect=${claire.id}`)
-    })
-    // The walk replaces the entry: Back never reopens a prospect that was left.
+    await waitFor(() => { expect(router.state.location.search).toContain(`prospect=${claire.id}`); })
     expect(router.state.historyAction).toBe('REPLACE')
-
     await userEvent.click(screen.getByRole('button', { name: 'Retour à la liste' }))
-    expect(await screen.findByRole('list', { name: 'Prospects à contacter' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^S39/ })).toHaveAttribute('aria-expanded', 'true')
-    // The section stays open in the page; the entry it returns to is the list's own.
+    expect(await openList()).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Prospects contactés/ })).toHaveAttribute('aria-expanded', 'true')
     expect(router.state.location.search).toBe('')
-    // « Retour à la liste » goes back to the list's own entry (no new entry that Back would undo).
     expect(router.state.historyAction).toBe('POP')
+  })
+
+  it('keeps each chart date independent and reads saved dates on a fresh page', async () => {
+    const api = stubContactApi({ rows: rows() })
+    const first = renderApp('/contact')
+    const date = await screen.findByLabelText('Date d’envoi du graphique — Contact')
+    const r1 = screen.getByLabelText('Date d’envoi du graphique — R1')
+    expect(date).toHaveValue('')
+    expect(r1).toHaveValue('')
+    const { fireEvent } = await import('@testing-library/react')
+    fireEvent.change(date, { target: { value: '2026-10-05' } })
+    fireEvent.blur(date)
+    await waitFor(() => {
+      expect(sent(api.requests, 'PUT', '/api/contact/chart-dates/0').at(-1)?.body).toEqual({ send_date: '2026-10-05' })
+    })
+    expect(screen.getByLabelText('Date d’envoi du graphique — R1')).toHaveValue('')
+    first.unmount()
+    renderApp('/contact')
+    expect(await screen.findByLabelText('Date d’envoi du graphique — Contact')).toHaveValue('2026-10-05')
+    await userEvent.click(screen.getByRole('button', { name: 'Effacer la date — Contact' }))
+    await waitFor(() => {
+      expect(screen.getByLabelText('Date d’envoi du graphique — Contact')).toHaveValue('')
+    })
+  })
+
+  it('filters by company and real commercial state, then resets all criteria', async () => {
+    const id = '0192aaaa-0000-7000-8000-000000000001'
+    const people = rows().map((row, index) => ({ ...row, company_id: index === 0 ? id : null }))
+    const api = stubContactApi({ rows: people })
+    const { router } = renderApp('/contact')
+    await openList()
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Entreprise' }), id)
+    await waitFor(() => {
+      expect(lastListParams(api.requests)).toMatchObject({ company: id })
+    })
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Statut' }), 'state:appointment_obtained')
+    expect(await screen.findByText('Aucun prospect contacté ne correspond à la recherche.')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Réinitialiser' }))
+    await waitFor(() => { expect(router.state.location.search).toBe('') })
+    expect(within(await openList()).getAllByRole('listitem')).toHaveLength(4)
+  })
+
+  it('loads full details only when the row expands and offers existing actions', async () => {
+    const row = contactRow('Jean', 'Exemple', { messages: { contact: 'sent' } })
+    const { prospectDetail } = await import('../test/prospectsApi')
+    const api = stubContactApi({ rows: [row], details: [prospectDetail({ id: row.id, first_name: row.first_name, last_name: row.last_name })] })
+    renderApp('/contact')
+    await openList()
+    expect(screen.queryByRole('region', { name: 'Fiche de Jean Exemple' })).not.toBeInTheDocument()
+    expect(sent(api.prospects.requests, 'GET', `/api/prospects/${row.id}`)).toHaveLength(0)
+    await userEvent.click(screen.getByRole('button', { name: 'Détails de Jean Exemple' }))
+    const details = await screen.findByRole('region', { name: 'Fiche de Jean Exemple' })
+    expect(await within(details).findByText('Informations du prospect')).toBeInTheDocument()
+    expect(within(details).getByRole('link', { name: 'Modifier la fiche' })).toHaveAttribute('href', `/prospection?prospect=${row.id}`)
+    await userEvent.click(screen.getByRole('button', { name: 'Détails de Jean Exemple' }))
+    expect(screen.queryByRole('region', { name: 'Fiche de Jean Exemple' })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Actions de Jean Exemple' }))
+    expect(await screen.findByRole('menuitem', { name: 'Ouvrir le suivi' })).toBeInTheDocument()
   })
 })

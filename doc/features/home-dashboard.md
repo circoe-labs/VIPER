@@ -1,4 +1,40 @@
-# Home — global dashboard (Task 16)
+# Home — six-card dashboard
+
+The current `/` page contains only the welcome header, the existing import/prospection actions,
+four totals and two weekly additions. The global search, authenticated account and navigation
+remain the shared shell. There are no activity feeds, charts or tables on Home.
+
+`GET /api/home/dashboard` returns these six integers and `week_start` / `week_end` (ISO dates):
+
+| Field | Definition | Destination |
+|---|---|---|
+| `prospects` | Every prospect ID, once | `/prospection?list=1` (expanded list) |
+| `companies` | Every company ID, once, including companies without prospects | `/prospection/companies` |
+| `contacted` | Distinct prospect IDs with at least one sent ContactMessage in any sequence, using `contact_dashboard.contacted_sql()` | `/contact?section=CONTACTES` (expanded contacted list) |
+| `appointments` | Existing Prospection `has_appointment()` rule: appointment status or a recorded appointment date, one tracking per prospect | `/prospection?segment=appointments` |
+| `new_companies` | Company IDs whose **created_at** is in the current calendar week | Companies with `created_from` / `created_to` |
+| `new_prospects` | Prospect IDs whose **created_at** is in that week | Prospection with the same date parameters |
+
+The appointment indicator follows the existing prospect tracking rule and its matching list;
+it does not add Agenda rows to tracking rows and count the same appointment twice.
+Different company IDs with the same name remain distinct; several prospects at one company
+never multiply the company total. No example figures are stored or shown as fallback data.
+
+The business week is Monday 00:00 inclusive through next Monday 00:00 exclusive, Europe/Paris,
+including DST changes. The two dates returned are the Monday and Sunday. The list APIs share
+calendar-day creation filters; their totals and counters use the same predicates. The destination
+shows a removable creation-period label. Modification dates never contribute to weekly additions.
+No schema change is needed: both entity models already have `created_at`.
+
+Loading and unavailable values display a dash; a failed read has an error and retry action.
+A real zero displays `0` (weekly cards: `+ 0`, singular label). The header date is formatted in
+French using the browser's current local date. Layout is 4 + 2 cards on a large screen, two
+columns on intermediate screens and one column on mobile. Hover is subtle and respects reduced motion.
+
+The legacy `/api/home` endpoint and its services remain available for compatibility. The following
+sections document that former dashboard; its extra sections are no longer rendered on Home.
+
+## Legacy dashboard (Task 16)
 
 Home (`/`, *Accueil*) answers two questions, in this order: **where do the base and the contact activity stand?**
 and **what to do next?** (locked decision 19; grill section A: global visibility first, actions beneath). Everything

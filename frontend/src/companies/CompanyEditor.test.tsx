@@ -119,6 +119,7 @@ describe('Company editor', () => {
       website_url: null,
       email_domain: null,
       size_label: null,
+      company_kind: null,
       commercial_segment_id: segment.id,
       activity_category_ids: [road.id],
       project_done_with_circoe: null,

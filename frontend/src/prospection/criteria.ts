@@ -13,6 +13,7 @@ import {
   TRACKING_STATUSES,
   type TrackingStatus,
 } from '../api/prospection'
+import { calendarDate } from '../lib/calendarDate'
 
 export interface ProspectionView extends ProspectListCriteria {
   page: number
@@ -21,6 +22,12 @@ export interface ProspectionView extends ProspectListCriteria {
 }
 
 export const DEFAULT_VIEW: ProspectionView = {
+  validated_only: false,
+  created_from: null,
+  created_to: null,
+  services: [],
+  send_stage: null,
+  company_kind: null,
   segment: 'all',
   review: null,
   q: '',
@@ -54,6 +61,12 @@ export function parseView(params: URLSearchParams): ProspectionView {
   const page = Number(params.get('page'))
   const prospect = params.get('prospect')
   return {
+    validated_only: params.get('validated_only') === 'true',
+    created_from: calendarDate(params.get('created_from')),
+    created_to: calendarDate(params.get('created_to')),
+    services: [...new Set(params.getAll('services').filter((code) => ['iguard', 'flexisme', 'transepteur', 'iadvice', 'emailing'].includes(code)))].sort(),
+    send_stage: oneOf(['sent', 'r1', 'r2'] as const, params.get('send_stage')),
+    company_kind: oneOf(['sme', 'large', 'institutional', 'unclassified'] as const, params.get('company_kind')),
     segment: oneOf<Segment>(SEGMENTS, params.get('segment')) ?? 'all',
     review: oneOf<Review>(REVIEWS, params.get('review')),
     q: params.get('q') ?? '',
@@ -77,6 +90,10 @@ export function serializeView(view: Partial<ProspectionView>): URLSearchParams {
   const params = new URLSearchParams()
   for (const key of Object.keys(DEFAULT_VIEW) as (keyof ProspectionView)[]) {
     const value = full[key]
+    if (Array.isArray(value)) {
+      for (const code of [...value].sort()) params.append(key, code)
+      continue
+    }
     if (value !== DEFAULT_VIEW[key] && value !== null && value !== '') params.set(key, String(value))
   }
   return params
@@ -96,7 +113,10 @@ export function hasSelection(view: ProspectionView): boolean {
 
 export function hasFilters(view: ProspectionView): boolean {
   return (
+    !!view.validated_only ||
     view.q.trim() !== '' ||
+    !!view.created_from || !!view.created_to ||
+    (view.services?.length ?? 0) > 0 || !!view.send_stage || !!view.company_kind ||
     [view.role, view.activity, view.referent, view.tracking_status, view.cohort, view.company, view.import_batch].some(
       (value) => value !== null,
     )

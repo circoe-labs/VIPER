@@ -57,6 +57,13 @@ export const NONE = 'none'
 
 // Criteria shared by the counters and the list (the segment only narrows the list).
 export interface ProspectFilters {
+  created_from?: string | null
+  created_to?: string | null
+  reachable?: boolean
+  validated_only?: boolean
+  services?: string[]
+  send_stage?: 'sent' | 'r1' | 'r2' | null
+  company_kind?: 'sme' | 'large' | 'institutional' | 'unclassified' | null
   q: string
   role: string | null
   activity: ActivityStatus | null
@@ -89,9 +96,17 @@ export interface Overview {
   total: number
   contacted: number
   deleted: number
+  employment_validated: number
+  employment_pending: number
+  ignored: number
 }
 
 export interface ProspectRow {
+  company_kind?: 'sme' | 'large' | 'institutional' | null
+  proposed_services?: string[]
+  quality_score?: number | null
+  quality_band?: 'red' | 'yellow' | 'green' | null
+  send_stage?: 'sent' | 'r1' | 'r2' | null
   id: string
   civility: 'mr' | 'ms' | null
   first_name: string | null
@@ -156,9 +171,12 @@ export const prospectionKeys = {
 
 function filterParams(filters: ProspectFilters): URLSearchParams {
   const params = new URLSearchParams()
+  if (filters.reachable) params.set('reachable', 'true')
+  if (filters.validated_only) params.set('validated_only', 'true')
   const q = filters.q.trim()
   if (q) params.set('q', q)
-  for (const key of ['role', 'activity', 'referent', 'tracking_status', 'cohort', 'company', 'import_batch'] as const) {
+  for (const code of filters.services ?? []) params.append('services', code)
+  for (const key of ['role', 'activity', 'referent', 'tracking_status', 'cohort', 'company', 'import_batch', 'send_stage', 'company_kind', 'created_from', 'created_to'] as const) {
     const value = filters[key]
     if (value) params.set(key, value)
   }
@@ -166,8 +184,8 @@ function filterParams(filters: ProspectFilters): URLSearchParams {
 }
 
 export function filtersOf(criteria: ProspectListCriteria): ProspectFilters {
-  const { q, role, activity, referent, tracking_status, cohort, company, import_batch } = criteria
-  return { q, role, activity, referent, tracking_status, cohort, company, import_batch }
+  const { q, role, activity, referent, tracking_status, cohort, company, import_batch, services, send_stage, company_kind, reachable, validated_only, created_from, created_to } = criteria
+  return { q, role, activity, referent, tracking_status, cohort, company, import_batch, services, send_stage, company_kind, reachable, validated_only, created_from, created_to }
 }
 
 export function useProspectionCounters(filters: ProspectFilters) {

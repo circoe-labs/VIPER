@@ -15,10 +15,10 @@ import uuid
 from datetime import UTC, date, datetime
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Path, Query, Request
 from pydantic import BaseModel
 
-from app.api.dependencies import SessionDep
+from app.api.dependencies import CurrentActor, SessionDep
 from app.api.errors import business_errors
 from app.core.contact_steps import level_keys
 from app.models.enums import (
@@ -28,7 +28,7 @@ from app.models.enums import (
     ContactMessageStatus,
     ContactTrackingStatus,
 )
-from app.services import app_settings, contact_dashboard, contact_scheduling
+from app.services import app_settings, contact_dashboard, contact_presentation, contact_scheduling
 from app.services.contact_dashboard import (
     NONE,
     ContactCategory,
@@ -190,6 +190,9 @@ class ContactRowOut(BaseModel):
     email_error: bool
     next_message_status: ContactMessageStatus | None
     messages: list[MessageStateOut]
+    primary_phone: str | None = None
+    last_contact_at: datetime | None = None
+    last_email_sent_at: datetime | None = None
 
 
 class ContactPageOut(BaseModel):
@@ -345,6 +348,8 @@ def prospects(
     level: Annotated[str | None, Query(max_length=32)] = None,
     cohort: CohortParam = None,
     cohort_codes: CohortCodes = None,
+    tracking_status: ContactTrackingStatus | None = None,
+    company: CohortParam = None,
     sort: ContactSort = ContactSort.DUE,
     limit: Annotated[int, Query(ge=1, le=LIST_MAX_LIMIT)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
@@ -367,8 +372,56 @@ def prospects(
             cohort_codes=_cohort_codes(cohort_codes),
             search=q,
             sort=sort,
+            tracking_status=tracking_status,
+            company=_cohort(company),
         )
     page = contact_dashboard.list_contacts(
         session, filters, contact_clock(), limit=limit, offset=offset
     )
     return ContactPageOut.model_validate(page, from_attributes=True)
+
+
+class ContactOverviewOut(contact_presentation.Overview):
+    dispatch: DispatchStateOut
+
+
+@router.get("/overview")
+def overview(
+    request: Request,
+    session: SessionDep,
+    q: Search = None,
+    tracking_status: ContactTrackingStatus | None = None,
+    company: CohortParam = None,
+    level: Annotated[str | None, Query(max_length=32)] = None,
+) -> ContactOverviewOut:
+    with business_errors():
+        if level is not None and level not in level_keys(app_settings.max_follow_ups(session)):
+            raise InvalidFieldError("level", "Unknown level.", "unknown_level")
+        filters = ContactFilters(
+            category=ContactCategory.CONTACTED,
+            search=q,
+            tracking_status=tracking_status,
+            company=_cohort(company),
+            level=level,
+        )
+        result = contact_presentation.overview(session, filters, contact_clock())
+    state = DispatchStateOut.model_validate(
+        dispatch_state(request.app.state, session), from_attributes=True
+    )
+    return ContactOverviewOut(**result.model_dump(), dispatch=state)
+
+
+class ChartDateInput(BaseModel):
+    send_date: date | None
+
+
+@router.put("/chart-dates/{slot}")
+def save_chart_date(
+    slot: Annotated[int, Path(ge=0, le=4)],
+    body: ChartDateInput,
+    session: SessionDep,
+    actor: CurrentActor,
+) -> ChartDateInput:
+    with business_errors():
+        value = contact_presentation.save_date(session, actor, slot, body.send_date)
+    return ChartDateInput(send_date=value)

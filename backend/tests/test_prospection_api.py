@@ -229,3 +229,27 @@ def test_overview_counts_the_whole_base_and_the_deleted(
 
 def test_overview_needs_a_session(anonymous_client: TestClient) -> None:
     assert anonymous_client.get("/api/prospection/overview").status_code == 401
+
+
+def test_overview_validation_is_not_email_verification(
+    client: TestClient, db_session: Session
+) -> None:
+    before = get(client, "/api/prospection/overview")
+    company = add_company(db_session, "Validation exemple")
+    validated = add_prospect(db_session, company, first_name="Emploi", last_name="Valide")
+    validated.employment_verified_at = datetime.now(UTC)
+    add_email(db_session, validated, "validation@exemple.example", is_primary=True)
+    add_prospect(db_session, company, first_name="Sans", last_name="Validation")
+    ignored = add_prospect(db_session, company, first_name="Mis", last_name="DeCote")
+    ignored.employment_verified_at = datetime.now(UTC)
+    db_session.add(ContactTracking(prospect_id=ignored.id, status=ContactTrackingStatus.IGNORED))
+    db_session.flush()
+    after = get(client, "/api/prospection/overview")
+    for key in ("employment_validated", "employment_pending", "ignored"):
+        assert after[key] == before[key] + 1
+    assert (
+        after["total"]
+        == after["employment_validated"] + after["employment_pending"] + after["ignored"]
+    )
+    listed = get(client, PROSPECTS, validated_only=True, q="Emploi Valide")
+    assert listed["total"] == 1

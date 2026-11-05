@@ -1,32 +1,25 @@
 import { useCallback, useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router'
+import { Link, useSearchParams } from 'react-router'
 
-import {
-  APPOINTMENTS,
-  CONTACT_SECTIONS,
-  SET_ASIDE,
-  type ContactSection,
-  useContactDashboard,
-  useContactWalk,
-} from '../api/contact'
+import { CONTACTED, useContactOverview, useContactWalk } from '../api/contact'
 import { businessToday } from '../lib/isoWeek'
 import { useDebouncedValue } from '../settings/shared'
 import { Button } from '../ui/Button'
-import { AlertIcon } from '../ui/icons'
+import { PlusIcon, RefreshIcon } from '../ui/icons'
+import { SelectField } from '../ui/fields'
 import { PageHeader } from '../ui/PageHeader'
 import { SearchField } from '../ui/SearchField'
-import { CohortSection } from './CohortSection'
-import { cohortStatus, nextStepToSchedule, sentSummary } from './cohortStatus'
+import { ContactedSection } from './ContactedSection'
+import { ContactChart } from './ContactChart'
 import { bannerText } from './dispatchCopy'
 import { DispatchWarning } from './DispatchWarning'
 import { type ContactView, listCriteria, parseView, serializeView } from './criteria'
-import { SchedulingOverview } from './SchedulingOverview'
 import { type Neighbours, Workbench } from './Workbench'
 import './contact.css'
+import './contacts-crm.css'
 
-// Contact (ex-Exploitation): one section per cohort of the campaign (S39 … S47), each opened or closed with its arrow and
-// listing its prospects alphabetically by company. A person opens the workbench — prospect sheet left, mail sequence
-// right — in place of the list; the search box narrows every section, and what shows lives in the URL (criteria.ts).
+// Contact: one searchable category of already contacted prospects, across every cohort and sequence.
+// A person opens the workbench in place of the list; the URL preserves search and the open prospect.
 export function ContactPage() {
   const [params, setParams] = useSearchParams()
   const view = parseView(params)
@@ -50,36 +43,18 @@ export function ContactPage() {
     if (settled === draft && settled !== view.q) update({ q: settled })
   }, [settled, draft, view.q, update])
 
-  const dashboard = useContactDashboard(view.q)
+  const dashboard = useContactOverview(listCriteria(view))
   const today = dashboard.data?.today ?? businessToday()
-  const walkOrder = useContactWalk(view.section ? listCriteria(view) : null, view.prospect !== null)
+  const walkOrder = useContactWalk(listCriteria(view), view.prospect !== null)
 
-  // The sections open; the one a workbench was opened from is open again when it closes.
-  const [opened, setOpened] = useState<ReadonlySet<ContactSection>>(() => new Set(view.section ? [view.section] : []))
-  // A search opens the sections that hold a match (otherwise its results stay hidden behind closed arrows); an arrow
-  // still closes one, until the search changes.
-  const searched = view.q.trim()
-  const [collapsed, setCollapsed] = useState<ReadonlySet<ContactSection>>(new Set())
+  // The category starts closed; filters reset the page without changing the user's expansion.
+  const searched = JSON.stringify([view.q.trim(), view.status, view.company])
+  const [open, setOpen] = useState(view.section === CONTACTED)
+  const [page, setPage] = useState(1)
   const [collapsedFor, setCollapsedFor] = useState(searched)
   if (searched !== collapsedFor) {
     setCollapsedFor(searched)
-    setCollapsed(new Set())
-  }
-  function hasMatch(code: ContactSection): boolean {
-    if (code === APPOINTMENTS) {
-      return (dashboard.data?.categories?.find((item) => item.category === 'appointment_obtained')?.count ?? 0) > 0
-    }
-    const summary = dashboard.data?.cohorts?.find((cohort) => cohort.code === code)
-    return (summary?.prospects ?? 0) - (summary?.appointments ?? 0) > 0
-  }
-  const isOpen = (code: ContactSection) => (searched ? hasMatch(code) && !collapsed.has(code) : opened.has(code))
-  function toggle(code: ContactSection) {
-    const set = searched ? setCollapsed : setOpened
-    set((current) => {
-      const next = new Set(current)
-      if (!next.delete(code)) next.add(code)
-      return next
-    })
+    setPage(1)
   }
 
   // The prospect whose workbench was closed last: the list gives it the focus back.
@@ -90,12 +65,12 @@ export function ContactPage() {
     setOpenedId(view.prospect)
   }
 
-  const openHref = (id: string, section: ContactSection | null = view.section) =>
-    `?${serializeView({ ...view, section, prospect: id }).toString()}`
+  const openHref = (id: string) =>
+    `?${serializeView({ ...view, section: CONTACTED, prospect: id }).toString()}`
   const listHref = `?${serializeView({ ...view, prospect: null }).toString()}`
 
   if (view.prospect !== null) {
-    // The cohort's whole order, read once when the workbench opens.
+    // The category's whole order, read once when the workbench opens.
     const ids = walkOrder.data ?? []
     const index = ids.indexOf(view.prospect)
     const neighbours: Neighbours | null =
@@ -108,9 +83,9 @@ export function ContactPage() {
             next: ids[index + 1] ?? null,
           }
     return (
-      <div className="contact contact--bench">
+      <div className="contact contact--bench contact--crm">
         {/* The workbench fits one screen: the page's own title and sentence give way to the work. */}
-        <h1 className="visually-hidden">Contact</h1>
+        <h1 className="visually-hidden">Contacts</h1>
         <Workbench
           key={view.prospect}
           prospectId={view.prospect}
@@ -123,18 +98,12 @@ export function ContactPage() {
   }
 
   return (
-    <div className="contact">
-      <PageHeader title="Contact" description="Préparer, valider et programmer les mails de la semaine." />
+    <div className="contact contact--crm">
+      <PageHeader title="Contacts" description="Retrouvez les prospects déjà contactés et suivez vos échanges." actions={
+        <Link className="btn btn--primary" to="/prospection?prospect=new"><PlusIcon size={18} /> Ajouter un contact</Link>
+      } />
 
-      {dashboard.isError && (
-        <div className="contact__state contact__state--error" role="alert">
-          <AlertIcon size={18} />
-          Compteurs indisponibles ({dashboard.error.message}).
-          <Button size="sm" onClick={() => void dashboard.refetch()}>
-            Réessayer
-          </Button>
-        </div>
-      )}
+      <ContactChart bars={dashboard.data?.bars} total={dashboard.data?.total} loading={dashboard.isPending} error={dashboard.isError} onRetry={() => void dashboard.refetch()} />
 
       {dashboard.data && !dashboard.data.dispatch.active && dashboard.data.dispatch.scheduled_count > 0 && (
         // S9: scheduled messages the server will not send — said before anything else on the page.
@@ -143,58 +112,37 @@ export function ContactPage() {
         </DispatchWarning>
       )}
 
-      <div className="contact-toolbar" role="search" aria-label="Rechercher dans les cohortes">
-        <div className="contact-toolbar__search">
-          <SearchField label="Rechercher : nom, entreprise, e-mail, téléphone" value={draft} onChange={setDraft} />
+      <div className="contacts-filters" role="search" aria-label="Rechercher dans les prospects contactés">
+        <div className="contacts-filters__search">
+          <SearchField label="Rechercher : nom, entreprise, e-mail, téléphone..." value={draft} onChange={setDraft} />
         </div>
+        <SelectField label="Statut" value={view.status ?? ''} onChange={(event) => { update({ status: event.target.value || null }) }}>
+          <option value="">Tous les statuts</option>
+          {dashboard.data?.statuses.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}
+        </SelectField>
+        <SelectField label="Entreprise" value={view.company ?? ''} onChange={(event) => { update({ company: event.target.value || null }) }}>
+          <option value="">Toutes les entreprises</option>
+          <option value="none">Sans entreprise</option>
+          {dashboard.data?.companies.map((option) => <option value={option.id} key={option.id}>{option.label}</option>)}
+        </SelectField>
+        <Button icon={RefreshIcon} onClick={() => {
+          setDraft('')
+          update({ q: '', status: null, company: null })
+        }}>Réinitialiser</Button>
       </div>
 
-      <SchedulingOverview openHref={(id) => openHref(id, null)} />
-
-      <div className="cohort-sections">
-        {CONTACT_SECTIONS.map((code) => {
-          const cohorts = dashboard.data?.cohorts ?? []
-          const appointments =
-            dashboard.data?.categories?.find((item) => item.category === 'appointment_obtained')?.count ?? 0
-          const setAside = dashboard.data?.categories?.find((item) => item.category === 'set_aside')?.count ?? 0
-          const summary = cohorts.find((cohort) => cohort.code === code)
-          const apart = code === APPOINTMENTS || code === SET_ASIDE
-          return (
-            <CohortSection
-              key={code}
-              code={code}
-              title={code === APPOINTMENTS ? 'RDV pris' : code === SET_ASIDE ? 'Écartés' : code}
-              view={view}
-              count={
-                dashboard.data
-                  ? code === APPOINTMENTS
-                    ? appointments
-                    : code === SET_ASIDE
-                      ? setAside
-                      : Math.max(
-                          (summary?.prospects ?? 0) - (summary?.appointments ?? 0) - (summary?.set_aside ?? 0),
-                          0,
-                        )
-                  : undefined
-              }
-              status={
-                dashboard.data && !apart
-                  ? cohortStatus(code, cohorts, dashboard.data.today || businessToday())
-                  : undefined
-              }
-              sent={dashboard.data && !apart ? sentSummary(code, cohorts) : null}
-              open={isOpen(code)}
-              onToggle={() => {
-                toggle(code)
-              }}
-              openHref={(id) => openHref(id, code)}
-              today={today}
-              returnedFrom={returnedFrom}
-              nextStep={dashboard.data && !apart ? nextStepToSchedule(summary) : undefined}
-            />
-          )
-        })}
-      </div>
+      <ContactedSection
+        key={searched}
+        view={view}
+        count={dashboard.data?.total}
+        open={open}
+        onToggle={() => { setOpen(!open); }}
+        page={page}
+        onPageChange={setPage}
+        openHref={openHref}
+        today={today}
+        returnedFrom={returnedFrom}
+      />
     </div>
   )
 }

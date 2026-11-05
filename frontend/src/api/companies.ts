@@ -39,6 +39,16 @@ export interface ProspectSummary {
   contactability_status: 'contactable' | 'do_not_contact'
 }
 
+// Type d'entreprise (backend `CompanyKind`): PME < 250 salariés, grande entreprise (ETI comprises), institutionnel.
+export const COMPANY_KINDS = ['sme', 'large', 'institutional'] as const
+export type CompanyKind = (typeof COMPANY_KINDS)[number]
+export type CompanyKindSelection = CompanyKind | 'unclassified' | null
+export const COMPANY_KIND_LABELS: Record<CompanyKind, string> = {
+  sme: 'PME',
+  large: 'Grande entreprise',
+  institutional: 'Institutionnel',
+}
+
 export interface Company {
   id: string
   display_name: string
@@ -47,6 +57,7 @@ export interface Company {
   website_url: string | null
   email_domain: string | null
   size_label: string | null
+  company_kind: CompanyKind | null
   commercial_segment: TaxonomyRef | null
   activity_categories: TaxonomyRef[]
   project_done_with_circoe: string | null
@@ -72,6 +83,7 @@ export interface CompanyInput {
   website_url: string | null
   email_domain: string | null
   size_label: string | null
+  company_kind: CompanyKind | null
   commercial_segment_id: string | null
   activity_category_ids: string[]
   project_done_with_circoe: string | null
@@ -87,6 +99,7 @@ export interface CompanyListItem {
   legal_name: string | null
   siren: string | null
   email_domain: string | null
+  company_kind: CompanyKind | null
   commercial_segment_label: string | null
   // City of the primary establishment.
   city: string | null
@@ -114,7 +127,7 @@ export const COMPANY_PAGE_SIZE = 50
 
 export const companyKeys = {
   all: ['companies'] as const,
-  list: (search: string, offset: number, limit: number) => ['companies', 'list', search, offset, limit] as const,
+  list: (search: string, offset: number, limit: number, kind: CompanyKindSelection = null, createdFrom: string | null = null, createdTo: string | null = null) => ['companies', 'list', search, offset, limit, kind, createdFrom, createdTo] as const,
   detail: (id: string) => ['companies', 'detail', id] as const,
   similar: (name: string, domain: string, exclude: string | null) => ['companies', 'similar', name, domain, exclude] as const,
 }
@@ -124,12 +137,15 @@ function companyPath(id: string): `/${string}` {
 }
 
 // `limit` up to 200 (the API's maximum), e.g. for a company picker.
-export function useCompanies(search: string, offset = 0, limit = COMPANY_PAGE_SIZE) {
+export function useCompanies(search: string, offset = 0, limit = COMPANY_PAGE_SIZE, kind: CompanyKindSelection = null, createdFrom: string | null = null, createdTo: string | null = null) {
   return useQuery({
-    queryKey: companyKeys.list(search, offset, limit),
+    queryKey: companyKeys.list(search, offset, limit, kind, createdFrom, createdTo),
     queryFn: ({ signal }) => {
       const params = new URLSearchParams({ limit: String(limit), offset: String(offset) })
       if (search) params.set('q', search)
+      if (kind) params.set('company_kind', kind)
+      if (createdFrom) params.set('created_from', createdFrom)
+      if (createdTo) params.set('created_to', createdTo)
       return apiGet<CompanyPage>(`/companies?${params.toString()}`, signal)
     },
     placeholderData: keepPreviousData,
@@ -142,6 +158,18 @@ export function useCompany(id: string | null) {
     queryFn: ({ signal }) => apiGet<Company>(companyPath(id ?? ''), signal),
     enabled: id !== null,
   })
+}
+
+export interface CompanyCounts {
+  all: number
+  institutional: number
+  sme: number
+  large: number
+  unclassified: number
+}
+
+export function useCompanyCounts() {
+  return useQuery({ queryKey: [...companyKeys.all, 'counts'], queryFn: ({ signal }) => apiGet<CompanyCounts>('/companies/counts', signal) })
 }
 
 // Existing companies the one being typed may duplicate ("does it already exist?"), from its name and e-mail domain.
@@ -162,7 +190,7 @@ export function useSimilarCompanies(name: string, emailDomain: string, exclude: 
 // counts in Paramètres change too, so their caches are refreshed as well.
 export function useCompanyMutations() {
   const queryClient = useQueryClient()
-  const refresh = (...keys: QueryKey[]) => refreshAfterWrite(queryClient, [companyKeys.all, ['settings'], ...keys])
+  const refresh = (...keys: QueryKey[]) => refreshAfterWrite(queryClient, [companyKeys.all, ['settings'], ['prospection'], ['home'], ...keys])
   const saved = (company: Company) => {
     queryClient.setQueryData(companyKeys.detail(company.id), company)
     void refresh(historyKeys.subject('companies', company.id))

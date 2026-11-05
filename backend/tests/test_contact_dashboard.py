@@ -272,8 +272,9 @@ def test_categories(db_session: Session, planning: dict[str, uuid.UUID]) -> None
         C.APPOINTMENT_OBTAINED: 1,
         C.NOT_INTERESTED: 0,
         C.IGNORED: 2,
-        # Replied, « Défaillant », the two ignored and the invalid mail: out of the sequences, listed apart.
+        # Replied, « Défaillant », the two ignored and invalid mail: listed apart.
         C.SET_ASIDE: 5,
+        C.CONTACTED: 5,
     }
     assert names(db_session, ContactFilters(category=C.EMAIL_ERROR)) == ["Hhh"]
     assert names(db_session, ContactFilters(category=C.FINISHED)) == ["Ddd"]
@@ -294,6 +295,79 @@ def test_each_category_count_equals_its_list(
         list_contacts(db_session, ContactFilters(category=category), CLOCK).total
         == (counts[category])
     )
+
+
+def test_contacted_includes_every_state_and_counts_people_once(db_session: Session) -> None:
+    for state in S:
+        person(
+            db_session,
+            state.value,
+            state,
+            S37,
+            sends=weekly(date(2026, 9, 7), 2),
+        )
+    person(db_session, "Not sent", cohort=S39)
+
+    result = list_contacts(db_session, ContactFilters(category=C.CONTACTED), CLOCK)
+
+    assert result.total == len(S)
+    assert {row.tracking_status for row in result.items} == set(S)
+    counts = {item.category: item.count for item in dashboard(db_session, CLOCK).categories}
+    assert counts[C.CONTACTED] == len(S)
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        ContactMessageStatus.DRAFT,
+        ContactMessageStatus.VALIDATED,
+        ContactMessageStatus.SCHEDULED,
+        ContactMessageStatus.CANCELLED,
+    ],
+)
+def test_contacted_excludes_unsent_messages(
+    db_session: Session, status: ContactMessageStatus
+) -> None:
+    prospect_id = person(db_session, "Not sent", cohort=S39)
+    sequence = db_session.query(ContactSequence).filter_by(prospect_id=prospect_id).one()
+    validated = status in (ContactMessageStatus.VALIDATED, ContactMessageStatus.SCHEDULED)
+    db_session.add(
+        ContactMessage(
+            prospect_id=prospect_id,
+            sequence_id=sequence.id,
+            rank=0,
+            status=status,
+            revision=1,
+            validated_revision=1 if validated else None,
+            validated_at=at(date(2026, 9, 29)) if validated else None,
+            validated_by_actor_id="test" if validated else None,
+            scheduled_at=at(date(2026, 10, 5))
+            if status == ContactMessageStatus.SCHEDULED
+            else None,
+            cancelled_at=at(date(2026, 9, 30))
+            if status == ContactMessageStatus.CANCELLED
+            else None,
+        )
+    )
+    db_session.flush()
+
+    assert list_contacts(db_session, ContactFilters(category=C.CONTACTED), CLOCK).total == 0
+
+
+def test_contacted_keeps_historical_sends_after_cohort_removal(db_session: Session) -> None:
+    prospect_id = person(db_session, "Historical", None, S37, sends=weekly(date(2026, 9, 7), 2))
+    contact_sequences.change_cohort(db_session, OPERATOR, prospect_id, None)
+
+    result = list_contacts(
+        db_session, ContactFilters(category=C.CONTACTED, search="Historical"), CLOCK
+    )
+
+    assert result.total == 1
+    assert result.items[0].id == prospect_id
+    assert result.items[0].cohort_code is None
+    assert result.items[0].last_email_sent_at == at(date(2026, 9, 14))
+    counts = {item.category: item.count for item in dashboard(db_session, CLOCK).categories}
+    assert counts[C.CONTACTED] == 1
 
 
 def test_each_rank_and_level_count_equals_its_list(
@@ -589,7 +663,7 @@ def test_cohorts_listed_together_by_company_without_the_appointments(db_session:
         sort=ContactSort.COMPANY,
     )
 
-    # Any state but the appointment and the replies set aside is listed, alphabetical by company then by person;
+    # All but appointments and replies set aside, alphabetical by company then person;
     # the appointment (« RDV pris ») and the people set aside (« Écartés ») are listed apart.
     assert names(db_session, wanted) == ["Ann", "Zed"]
     assert names(db_session, ContactFilters(category=C.SET_ASIDE)) == ["Cid"]
@@ -662,6 +736,7 @@ def test_the_planning_over_http(client: TestClient, db_session: Session) -> None
         "not_interested",
         "ignored",
         "set_aside",
+        "contacted",
     ]
     s2 = next(cohort for cohort in body["cohorts"] if cohort["code"] == "S2")
     assert (s2["starts_on"], s2["prospects"], s2["to_send"]) == ("2020-01-06", 1, 1)

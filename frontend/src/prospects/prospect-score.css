@@ -183,3 +183,74 @@
   color: var(--color-text-muted);
   font-size: var(--text-xs);
 }
+
+/* « Qualité de la fiche » (DataQualityCard.tsx): same band colours as the interest score, criteria in a disclosure. */
+.data-quality {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.data-quality__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.data-quality[data-band='red'] .prospect-score__band {
+  color: var(--color-danger-fg);
+}
+
+.data-quality[data-band='yellow'] .prospect-score__band {
+  color: var(--color-warning-fg);
+}
+
+.data-quality[data-band='green'] .prospect-score__band {
+  color: var(--color-success-fg);
+}
+
+.data-quality__details summary {
+  color: var(--color-accent-fg);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+.data-quality__details summary:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.data-quality__list {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-sm);
+}
+
+.data-quality__item {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.data-quality__points {
+  min-width: 3.5ch;
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-semibold);
+}
+
+/* A criterion not fully met is shown in the warning tone; the points are text, so colour is never the only signal. */
+.data-quality__item[data-met='false'] .data-quality__points {
+  color: var(--color-warning-fg);
+}
+
+/* « Robin » card (ProspectRobinCard.tsx): the two answers side by side. */
+.prospect-robin {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}

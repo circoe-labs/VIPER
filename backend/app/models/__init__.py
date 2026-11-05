@@ -15,6 +15,7 @@ from app.models.prospects import Email, Phone, Prospect, ProspectNote, ProspectS
 from app.models.quality_alerts import QualityAlert
 from app.models.taxonomies import ActivityCategory, CommercialSegment, InternalReferent, Role
 from app.models.users import User, UserSession
+from app.models.warehouses import Warehouse
 
 __all__ = [
     "ActivityCategory",
@@ -49,5 +50,6 @@ __all__ = [
     "Role",
     "User",
     "UserSession",
+    "Warehouse",
     "company_activity_categories",
 ]

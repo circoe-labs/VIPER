@@ -130,6 +130,7 @@ def test_company_lifecycle_is_attributed_to_the_signed_in_user(
         "siren": None,
         # PUT replaces the whole state: fields left out are cleared.
         "email_domain": None,
+        "company_kind": None,
         "commercial_segment_label": None,
         "city": "Lille",
         "establishment_count": 1,
@@ -286,3 +287,25 @@ def test_list_pages_are_bounded(client: TestClient) -> None:
         "items": [],
         "total": 0,
     }
+
+
+def test_company_kind_is_saved_changed_cleared_and_checked(client: TestClient) -> None:
+    created = create(client, company_kind="sme")
+    assert created["company_kind"] == "sme"
+    url = f"{COMPANIES}/{created['id']}"
+
+    body = {
+        "display_name": created["display_name"],
+        "establishments": [],
+        "activity_category_ids": [],
+    }
+    changed = client.put(url, json={**body, "company_kind": "institutional"})
+    assert changed.status_code == 200, changed.text
+    assert changed.json()["company_kind"] == "institutional"
+
+    cleared = client.put(url, json=body)
+    assert cleared.json()["company_kind"] is None
+
+    refused = client.put(url, json={**body, "company_kind": "multinationale"})
+    assert refused.status_code == 422
+    assert create(client, display_name="Sans type")["company_kind"] is None

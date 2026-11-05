@@ -349,6 +349,22 @@ export const BuildingIcon = (props: IconProps) => (
 )
 
 // Establishments in global search (Task 17)
+export const WarehouseIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M3 20.5V8l9-4.5L21 8v12.5H3Z" />
+    <path d="M7 20.5V11h10v9.5M7 14h10M7 17.5h10" />
+  </Svg>
+)
+
+export const TruckIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <rect x="2.5" y="5.5" width="11" height="10" rx="1" />
+    <path d="M13.5 9H18l3.5 4v2.5h-8M18 9v4h3.5" />
+    <circle cx="6.5" cy="17.5" r="2" />
+    <circle cx="18" cy="17.5" r="2" />
+  </Svg>
+)
+
 export const MapPinIcon = (props: IconProps) => (
   <Svg {...props}>
     <path d="M12 21s-6.5-5.7-6.5-11a6.5 6.5 0 0 1 13 0c0 5.3-6.5 11-6.5 11z" />

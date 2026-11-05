@@ -11,9 +11,12 @@ import { MissionsPage } from './missions/MissionsPage'
 import { HomePage } from './home/HomePage'
 import { ImportPage } from './imports/ImportPage'
 import { ProspectionPage } from './prospection/ProspectionPage'
+import { ReachableProspectsPage } from './prospection/ReachableProspectsPage'
+import { RobinPage } from './prospection/RobinPage'
 import { VerificationPage } from './prospection/VerificationPage'
 import { AppShell } from './shell/AppShell'
 import { SettingsPage } from './settings/SettingsPage'
+import { WarehousesPage } from './warehouses/WarehousesPage'
 
 // Component showcase for design review; `import.meta.env.DEV` is false in production builds, so the route and
 // its chunk are dropped from the bundle and never appear in the navigation.
@@ -32,6 +35,8 @@ const devRoutes: RouteObject[] = import.meta.env.DEV
 const PAGES: RouteObject[] = [
   { path: '/', element: <HomePage /> },
   { path: '/prospection', element: <ProspectionPage /> },
+  { path: '/contacts-joignables', element: <ReachableProspectsPage /> },
+  { path: '/warehouses', element: <WarehousesPage /> },
   { path: '/contact', element: <ContactPage /> },
   { path: '/missions', element: <MissionsPage /> },
   { path: '/missions/:missionId', element: <MissionDetailPage /> },
@@ -45,6 +50,7 @@ const SUBPAGES: RouteObject[] = [
   { path: '/prospection/companies', element: <CompaniesPage /> },
   { path: '/prospection/import', element: <ImportPage /> },
   { path: '/prospection/verification', element: <VerificationPage /> },
+  { path: '/prospection/robin', element: <RobinPage /> },
 ]
 
 // Everything but /login requires a session (RequireAuth); the API enforces the same rule server-side.

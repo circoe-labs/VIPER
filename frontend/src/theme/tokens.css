@@ -291,3 +291,125 @@
   --shadow-overlay: 0 24px 64px color-mix(in srgb, var(--nc-ink) 18%, transparent);
   --shadow-glow: 0 0 0 1px color-mix(in srgb, var(--nc-viper-green-deep) 20%, transparent);
 }
+
+:root {
+  --nc-prospects-canvas: #07131B;
+  --nc-prospects-panel: #0F1D27;
+  --nc-prospects-panel-high: #11232E;
+  --nc-prospects-border: #243644;
+  --nc-prospects-text: #F4F7FA;
+  --nc-prospects-muted: #AAB8C5;
+  --nc-prospects-green: #00E59B;
+  --nc-prospects-blue: #68AEFF;
+  --nc-prospects-blue-solid: #2F8CFF;
+  --nc-prospects-yellow: #F5C542;
+  --nc-prospects-red: #F05D65;
+  --nc-prospects-purple: #B98AF7;
+  --nc-prospects-orange: #F58035;
+  --nc-prospects-pink: #F08DBD;
+  --nc-prospects-light-canvas: #F4F7F7;
+  --nc-prospects-light-panel: #FFFFFF;
+  --nc-prospects-light-panel-high: #EDF3F6;
+  --nc-prospects-light-border: #D5DEE0;
+  --nc-prospects-light-text: #0F1A1F;
+  --nc-prospects-light-muted: #4E5E65;
+  --nc-prospects-light-green: #007A45;
+  --nc-prospects-light-blue: #1F5FAD;
+  --nc-prospects-light-yellow: #8A5A00;
+  --nc-prospects-light-red: #B42318;
+  --nc-prospects-light-purple: #7040AD;
+  --nc-prospects-light-orange: #9F450D;
+  --nc-prospects-light-pink: #A52C65;
+}
+/* Prospects dashboard palette; raw values remain centralized with all design tokens. */
+:root, :root[data-theme='dark'] {
+  --prospects-canvas: var(--nc-prospects-canvas);
+  --prospects-panel: var(--nc-prospects-panel);
+  --prospects-panel-high: var(--nc-prospects-panel-high);
+  --prospects-border: var(--nc-prospects-border);
+  --prospects-text: var(--nc-prospects-text);
+  --prospects-muted: var(--nc-prospects-muted);
+  --prospects-green: var(--nc-prospects-green);
+  --prospects-blue: var(--nc-prospects-blue);
+  --prospects-blue-solid: var(--nc-prospects-blue-solid);
+  --prospects-yellow: var(--nc-prospects-yellow);
+  --prospects-red: var(--nc-prospects-red);
+  --prospects-purple: var(--nc-prospects-purple);
+  --prospects-orange: var(--nc-prospects-orange);
+  --prospects-pink: var(--nc-prospects-pink);
+}
+:root[data-theme='light'] {
+  --prospects-canvas: var(--nc-prospects-light-canvas);
+  --prospects-panel: var(--nc-prospects-light-panel);
+  --prospects-panel-high: var(--nc-prospects-light-panel-high);
+  --prospects-border: var(--nc-prospects-light-border);
+  --prospects-text: var(--nc-prospects-light-text);
+  --prospects-muted: var(--nc-prospects-light-muted);
+  --prospects-green: var(--nc-prospects-light-green);
+  --prospects-blue: var(--nc-prospects-light-blue);
+  --prospects-yellow: var(--nc-prospects-light-yellow);
+  --prospects-red: var(--nc-prospects-light-red);
+  --prospects-purple: var(--nc-prospects-light-purple);
+  --prospects-orange: var(--nc-prospects-light-orange);
+  --prospects-pink: var(--nc-prospects-light-pink);
+}
+
+/* Contacts CRM palette. Referenced only by the Contacts screen and its chart. */
+:root {
+  --nc-contacts-canvas: #081218;
+  --nc-contacts-panel: #0D1B24;
+  --nc-contacts-row: #101F29;
+  --nc-contacts-hover: #142936;
+  --nc-contacts-border: #263A48;
+  --nc-contacts-border-strong: #3A5060;
+  --nc-contacts-grid: #263A4880;
+  --nc-contacts-text: #F1F5F9;
+  --nc-contacts-muted: #9CAFC0;
+  --nc-contacts-input: #DCE6EE;
+  --nc-contacts-action: #1677F2;
+  --nc-contacts-focus: #66ADFF;
+  --nc-contacts-on-action: #FFFFFF;
+  --nc-contacts-selected: #122C46;
+  --nc-contacts-success: #6EDCC2;
+  --nc-contacts-success-soft: #133B37;
+  --nc-contacts-info: #86BDFB;
+  --nc-contacts-info-soft: #18324D;
+  --nc-contacts-warning: #FFC07D;
+  --nc-contacts-warning-soft: #3B2A1C;
+  --nc-contacts-danger: #FF9AA5;
+  --nc-contacts-danger-soft: #3C202B;
+  --nc-contacts-avatar: #213848;
+  --nc-contacts-avatar-text: #B6CFDF;
+  --nc-contacts-contacted: #183440;
+  --nc-contacts-contacted-text: #9ACAC1;
+  --nc-contacts-link: #8DC3FF;
+  --nc-contacts-chart-blue: #2589F5;
+  --nc-contacts-chart-green: #20B69C;
+  --nc-contacts-chart-orange: #FF983F;
+  --nc-contacts-chart-purple: #9252E8;
+  --nc-contacts-chart-pink: #EE5B9D;
+}
+
+/* Home's six-card dashboard palette. */
+:root {
+  --nc-home-canvas: #080F13;
+  --nc-home-text: #F3F6F8;
+  --nc-home-muted: #94A3B8;
+  --nc-home-button: #111A22;
+  --nc-home-surface-hover: #15232B;
+  --nc-home-border: #293743;
+  --nc-home-shadow: #00000018;
+  --nc-home-blue: #4DA3FF;
+  --nc-home-blue-panel: #111F30;
+  --nc-home-blue-border: #253A51;
+  --nc-home-purple: #A475F5;
+  --nc-home-purple-panel: #1B192F;
+  --nc-home-purple-border: #37304C;
+  --nc-home-green: #00DC92;
+  --nc-home-green-panel: #102820;
+  --nc-home-green-border: #1D4036;
+  --nc-home-emerald-panel: #0D2823;
+  --nc-home-orange: #FF922E;
+  --nc-home-orange-panel: #29211C;
+  --nc-home-orange-border: #49372B;
+}

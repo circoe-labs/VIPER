@@ -2,11 +2,15 @@
 
 import uuid
 from collections.abc import Collection, Sequence
+from datetime import date
+from typing import Literal
 
 from sqlalchemy import ColumnElement, Row, SQLColumnExpression, and_, exists, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.core.creation_period import created_between
 from app.models import CommercialSegment, Company, Establishment, Prospect, Role
+from app.models.enums import CompanyKind
 from app.models.taxonomies import ActivityCategory
 from app.repositories.taxonomies import label_key, matches_words
 
@@ -109,11 +113,23 @@ def company_summary(
 
 
 def list_companies(
-    session: Session, *, search: str | None, limit: int, offset: int
+    session: Session,
+    *,
+    search: str | None,
+    limit: int,
+    offset: int,
+    company_kind: CompanyKind | Literal["unclassified"] | None = None,
+    created_from: date | None = None,
+    created_to: date | None = None,
 ) -> tuple[Sequence[Row[tuple[Company, str | None, int, int, str | None]]], int]:
     """`(company, segment label, prospect count, establishment count, primary city)` rows ordered
     by display name as compared (case/accents ignored), and the total number of matches."""
     where = [_search_condition(search)] if search else []
+    where.extend(created_between(Company.created_at, created_from, created_to))
+    if company_kind == "unclassified":
+        where.append(Company.company_kind.is_(None))
+    elif company_kind is not None:
+        where.append(Company.company_kind == company_kind)
     establishment_count = (
         select(func.count()).where(Establishment.company_id == Company.id).scalar_subquery()
     )
@@ -133,3 +149,22 @@ def list_companies(
     )
     total = session.execute(select(func.count()).select_from(Company).where(*where)).scalar_one()
     return session.execute(statement).tuples().all(), total
+
+
+def company_counts(session: Session) -> dict[str, int]:
+    """Every company ID exactly once, including those without a prospect or establishment."""
+    row = (
+        session.execute(
+            select(
+                func.count().label("all"),
+                *(
+                    func.count().filter(Company.company_kind == kind).label(kind.value)
+                    for kind in CompanyKind
+                ),
+                func.count().filter(Company.company_kind.is_(None)).label("unclassified"),
+            ).select_from(Company)
+        )
+        .one()
+        ._mapping
+    )
+    return dict(row)

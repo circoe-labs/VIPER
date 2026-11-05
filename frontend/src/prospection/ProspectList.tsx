@@ -44,7 +44,7 @@ function moveFocus(event: KeyboardEvent<HTMLUListElement>) {
 function reasonToVerify(row: ProspectRow): string {
   switch (row.verification_state) {
     case 'never_verified':
-      return 'Emploi jamais vérifié'
+      return 'Validation de l’emploi non enregistrée'
     case 'stale':
       return `Vérifié le ${formatDay(row.employment_verified_at ?? '')} · ancien`
     case 'channels_reset':
@@ -57,13 +57,19 @@ function reasonToVerify(row: ProspectRow): string {
 }
 
 function ReviewLine({ row }: { row: ProspectRow }) {
+  if (row.review !== 'ignored' && row.employment_verified_at) {
+    return <div>
+      <span className="review-line review-line--verified"><CheckCircleIcon size={16} /><span>Emploi validé <span className="prospect-row__muted">le {formatDay(row.employment_verified_at)}</span></span></span>
+      {row.review === 'to_verify' && <span className="prospect-row__muted">{reasonToVerify(row)}</span>}
+    </div>
+  }
   switch (row.review) {
     case 'verified':
       return (
         <span className="review-line review-line--verified">
           <CheckCircleIcon size={16} />
           <span>
-            Vérifié
+            Emploi validé
             {row.employment_verified_at && (
               <span className="prospect-row__muted"> le {formatDay(row.employment_verified_at)}</span>
             )}
@@ -115,7 +121,7 @@ function nextSend(row: ProspectRow): string | null {
   return `${stepLabel(row.next_step)} à envoyer ${row.due ? 'depuis le' : 'le'} ${formatDay(row.next_due_at)}`
 }
 
-// The contact follow-up: the cohort (or « Non validé »), the level reached by the real sends, the commercial state
+// The contact follow-up: the cohort (or « Sans campagne »), the level reached by the real sends, the commercial state
 // (none while « En séquence ») and what takes the person out of the automatic actions, then the next send, the dates
 // and the referent (sequences rework D1-D9).
 function Tracking({ row }: { row: ProspectRow }) {

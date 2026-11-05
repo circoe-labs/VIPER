@@ -1,11 +1,11 @@
 import { type ReactNode, type RefObject, useEffect, useId, useRef, useState } from 'react'
 
-import { type Company, useCompany, useCompanyMutations } from '../api/companies'
+import { COMPANY_KIND_LABELS, COMPANY_KINDS, type Company, type CompanyKind, useCompany, useCompanyMutations } from '../api/companies'
 import { HistoryTimeline } from '../history/HistoryTimeline'
 import { TaxonomyMultiSelect, TaxonomySelect } from '../settings/selectors'
 import { Button } from '../ui/Button'
 import { Drawer, Modal } from '../ui/Dialog'
-import { TextAreaField, TextField } from '../ui/fields'
+import { SelectField, TextAreaField, TextField } from '../ui/fields'
 import { AlertIcon, CheckCircleIcon, TrashIcon } from '../ui/icons'
 import {
   type CompanyDraft,
@@ -399,6 +399,22 @@ function CompanyFields({ draft, company, errors, warnings, fieldId, nameRef, onC
           {text('legal_name', 'Raison sociale')}
           {text('siren', 'SIREN', { inputMode: 'numeric', hint: '9 chiffres ; les espaces sont ignorés.' })}
           {text('size_label', 'Taille', { hint: 'Texte libre, par exemple « 50-249 salariés ».' })}
+          <SelectField
+            id={fieldId('company_kind')}
+            label="Type d’entreprise"
+            hint="PME : moins de 250 salariés. Grande entreprise : 250 et plus."
+            value={draft.company_kind ?? ''}
+            onChange={(event) => {
+              onChange({ company_kind: event.target.value ? (event.target.value as CompanyKind) : null })
+            }}
+          >
+            <option value="">Non renseigné</option>
+            {COMPANY_KINDS.map((kind) => (
+              <option key={kind} value={kind}>
+                {COMPANY_KIND_LABELS[kind]}
+              </option>
+            ))}
+          </SelectField>
           {text('website_url', 'Site web', { hint: 'https:// est ajouté si besoin.' })}
           <div className="company-editor__stack">
             {text('email_domain', 'Domaine e-mail', { hint: 'Domaine des adresses professionnelles, ex. exemple.fr.' })}

@@ -269,6 +269,11 @@ export function AgendaPage() {
         </p>
       )}
 
+      <div className="agenda-legend" aria-label="Légende de l’agenda">
+        <span className="agenda-legend__calendly">Calendly</span>
+        <span className="agenda-legend__holiday">Jours fériés nationaux · France</span>
+      </div>
+
       <AgendaCalendar
         days={days}
         anchor={anchor}

@@ -81,3 +81,17 @@ export function useNoteMutations(prospectId: string) {
     }),
   }
 }
+
+// Notes of a whole list page in one request (`GET /prospects/notes?ids=…`, newest observed first), so that a list can
+// show and write notes row by row without one query per row. A note write must invalidate `notesBatchKey`.
+export const notesBatchKey = ['prospects', 'notes-batch'] as const
+
+export function useNotesOfMany(ids: readonly string[]) {
+  return useQuery({
+    queryKey: [...notesBatchKey, ids],
+    enabled: ids.length > 0,
+    queryFn: ({ signal }) =>
+      apiGet<ProspectNote[]>(`/prospects/notes?${ids.map((id) => `ids=${encodeURIComponent(id)}`).join('&')}`, signal),
+    refetchOnWindowFocus: false,
+  })
+}

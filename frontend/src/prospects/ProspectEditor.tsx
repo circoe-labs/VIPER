@@ -37,6 +37,8 @@ import {
   validate,
 } from './prospectForm'
 import { ProspectNotes } from './ProspectNotes'
+import { DataQualityCard } from './DataQualityCard'
+import { ProspectRobinCard } from './ProspectRobinCard'
 import { ProspectScoreCard } from './ProspectScoreCard'
 import { SequenceSection } from './SequenceSection'
 import { TrackingSection } from './TrackingSection'
@@ -475,6 +477,7 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
                 </EditorSection>
               </div>
               <div className="prospect-editor__side">
+                {prospect && <ProspectRobinCard prospectId={prospect.id} />}
                 <ProspectScoreCard
                   score={prospect ? (loaded.data?.id === prospect.id ? loaded.data.score : prospect.score) : null}
                   outdated={loaded.isRefetchError}
@@ -483,6 +486,12 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
                     setNoteToShow(noteId)
                   }}
                 />
+                {prospect && (
+                  <DataQualityCard
+                    quality={loaded.data?.id === prospect.id ? loaded.data.data_quality : prospect.data_quality}
+                    discarded={prospect.contactability_status === 'do_not_contact'}
+                  />
+                )}
                 <CompanySection companyId={draft.company_id} />
               </div>
             </div>

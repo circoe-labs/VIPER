@@ -11,6 +11,38 @@ function table() {
 }
 
 describe('Companies page', () => {
+  it('filters company types and reloads the category after editing the existing company file', async () => {
+    stubCompaniesApi({ companies: [
+      company('Petit atelier', { company_kind: 'sme' }),
+      company('Grand groupe', { company_kind: 'large' }),
+      company('Mairie exemple', { company_kind: 'institutional' }),
+      company('Sans classement'),
+    ] })
+    renderApp('/prospection/companies')
+    const categories = screen.getByRole('group', { name: 'Type d’entreprise' })
+    await screen.findByRole('button', { name: 'Petit atelier' })
+    for (const [label, name] of [
+      ['Institutionnelles', 'Mairie exemple'],
+      ['PME', 'Petit atelier'],
+      ['Grosses entreprises', 'Grand groupe'],
+      ['À classer', 'Sans classement'],
+    ]) {
+      await userEvent.click(within(categories).getByRole('button', { name: label }))
+      await waitFor(() => {
+        expect(within(table()).getAllByRole('row')).toHaveLength(2)
+        expect(within(table()).getByRole('button', { name })).toBeInTheDocument()
+      })
+    }
+    await userEvent.click(within(table()).getByRole('button', { name: 'Sans classement' }))
+    const drawer = await screen.findByRole('dialog', { name: 'Sans classement' })
+    await userEvent.selectOptions(within(drawer).getByRole('combobox', { name: 'Type d’entreprise' }), 'sme')
+    await userEvent.click(within(drawer).getByRole('button', { name: 'Enregistrer' }))
+    expect(await screen.findByText('Aucune entreprise dans cette catégorie.')).toBeInTheDocument()
+    await userEvent.keyboard('{Escape}')
+    await userEvent.click(within(categories).getByRole('button', { name: 'PME' }))
+    expect(await within(await screen.findByRole('table', { name: 'Liste des entreprises' })).findByRole('button', { name: 'Sans classement' })).toBeInTheDocument()
+  })
+
   it('is a secondary page of Prospection, reachable from its header', async () => {
     stubCompaniesApi({ companies: [company('Transports Exemple')] })
     renderApp('/prospection')
@@ -45,6 +77,7 @@ describe('Companies page', () => {
     const row = await screen.findByRole('row', { name: /Transports Exemple/ })
     expect(within(row).getAllByRole('cell').map((cell) => cell.textContent)).toEqual([
       'Transports ExempleTransports Exemple SAS',
+      'À classer',
       '999 000 011',
       'exemple.fr',
       'Lyon',

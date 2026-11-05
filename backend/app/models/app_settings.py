@@ -14,7 +14,8 @@ from app.db.base import Base
 from app.models.common import TimestampMixin, UUIDPrimaryKeyMixin
 
 MAX_FOLLOW_UPS_KEY = "contact.max_follow_ups"
-KNOWN_KEYS = (MAX_FOLLOW_UPS_KEY,)
+CONTACT_CHART_DATE_KEYS = tuple(f"contact.chart.date_{slot}" for slot in range(5))
+KNOWN_KEYS = (MAX_FOLLOW_UPS_KEY, *CONTACT_CHART_DATE_KEYS)
 
 
 class AppSetting(UUIDPrimaryKeyMixin, TimestampMixin, Base):

@@ -25,6 +25,7 @@ Decisions: I-37, I-38, I-39, I-70, I-71 in the decision log. Schema: `companies`
 | | Raison sociale | `legal_name` | Optional legal name; 255. |
 | | SIREN | `siren` | Optional. Spaces ignored; 9 digits with a valid Luhn check digit. Unique across companies. |
 | | Taille | `size_label` | Free text (e.g. `50-249 salariés`); no taxonomy yet (data model). 100. |
+| | Type d'entreprise | `company_kind` | `sme` (PME, < 250 salariés) / `large` (grande entreprise, 250 et plus, ETI comprises) / `institutional` (institutionnel); null = non renseigné. Chosen by a person; `app/services/company_kind.py` suggests a value from the Excel category (« Secteur public & institutions » → institutional) or a headcount read in `size_label` (not wired to the import yet). Audited as « Type d’entreprise modifié ». |
 | | Site web | `website_url` | Optional. `https://` is added when no scheme is typed; scheme and host lowercased; `http`/`https` only; no user info. |
 | | Domaine e-mail | `email_domain` | Domain of the company's professional addresses. `@Exemple.fr`, `jean@exemple.fr` or `https://www.exemple.fr/` are stored as `exemple.fr` (lowercase, no `@`, scheme, path or `www.`). Webmail domains (`gmail.com`, `orange.fr`… — the import's list) are refused: they name no employer and would make every webmail user look like an employee in company matching. The editor suggests the website's host (*Utiliser « exemple.fr »*) while the domain is empty — a suggestion, never filled silently. |
 | Classification | Segment commercial | `commercial_segment_id` | At most one (`TaxonomySelect`, inline creation). |
@@ -114,6 +115,21 @@ Refusals (`app/api/errors.py`, shared with Settings):
 | 409 | `{code: "duplicate", field, existing: {id, label, active}}` — `existing` is the company holding the SIREN/SIRET | *Ce SIRET est déjà celui de « Logistique Témoin ».* |
 | 409 | `{code: "in_use", usage: {prospects: n}}` | *Suppression impossible : l'entreprise est rattachée à 3 prospects.* |
 | 404 | `{code: "not_found"}` | |
+
+## Séparation des entreprises dans Prospection
+
+Les boutons « Institutionnelles », « PME » et « Grosses entreprises » filtrent le type
+enregistré sur l'entreprise (`company_kind`), dans Prospection et dans Entreprises.
+« Toutes » conserve la base entière ; « À classer » correspond à un type absent.
+Dans la liste des prospects, ce dernier filtre comprend aussi les contacts sans entreprise.
+Les filtres s'appliquent côté serveur, aux compteurs et à la pagination ; aucune catégorie
+n'est déduite automatiquement du nom de l'entreprise. Le type se modifie dans l'éditeur
+entreprise existant et s'applique à tous ses contacts, indépendamment de leurs statuts.
+
+`GET /companies` accepte désormais `company_kind=sme|large|institutional|unclassified`
+et inclut `company_kind` dans chaque ligne. Le même filtre `unclassified` est accepté
+par `/prospection/prospects` et `/prospection/counters`. Aucune migration n'est nécessaire :
+`unclassified` est un filtre SQL sur NULL, pas une quatrième catégorie persistée.
 
 ## Audit
 

@@ -27,6 +27,7 @@ terminée (R<max> sent, or the sequence closed `completed`).
 **Categories** (counts and lists; a prospect may be in several):
 
 - `in_sequence` — the sequences in progress above;
+- `contacted` — at least one recorded send, including sends in a previous sequence;
 - `email_error` — an open « Erreur sur le mail » raised by a person or an import (the AI's is a
   proposal and pauses nothing); the cohort, state and history are kept;
 - `finished` — « Relance terminée »: in sequence and finished (still contactable);
@@ -63,6 +64,7 @@ from app.models import (
     ContactMessage,
     ContactSequence,
     ContactTracking,
+    Phone,
     Prospect,
     QualityAlert,
     Role,
@@ -120,6 +122,7 @@ class ContactCategory(StrEnum):
     # A cohort's whole list, whatever the state, but the appointments (listed apart under
     # `appointment_obtained`); not counted beside the planning.
     COHORT = "cohort"
+    CONTACTED = "contacted"
 
 
 CATEGORY_LABELS: dict[ContactCategory, str] = {
@@ -135,6 +138,7 @@ CATEGORY_LABELS: dict[ContactCategory, str] = {
     ContactCategory.IGNORED: "Ignoré",
     ContactCategory.SET_ASIDE: "Écartés",
     ContactCategory.COHORT: "Cohorte (hors RDV pris)",
+    ContactCategory.CONTACTED: "Prospects contactés",
 }
 # The categories counted beside the planning (`to_send` is counted per rank).
 COUNTED_CATEGORIES = tuple(
@@ -224,6 +228,8 @@ class ContactFilters:
     cohort_codes: tuple[str, ...] = ()
     search: str | None = None
     sort: ContactSort = ContactSort.DUE
+    tracking_status: ContactTrackingStatus | None = None
+    company: uuid.UUID | Literal["none"] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -290,7 +296,7 @@ class CohortSummary:
     levels: list[LevelCount]
     # Prospects of the cohort who took an appointment (listed apart from the cohort).
     appointments: int
-    # Prospects of the cohort set aside (replied, not interested, invalid mail…): listed apart, under « Écartés ».
+    # Prospects set aside (replied, not interested, invalid mail…): listed under « Écartés ».
     set_aside: int
     # The steps to send in the week (`contact`, `r1`…, by rank): what the cohort has to prepare.
     to_send_steps: list[str]
@@ -376,6 +382,9 @@ class ContactRow:
     # The status of the message at the next rank (None: nothing prepared) and every message of
     # the current sequence by rank.
     next_message_status: ContactMessageStatus | None
+    primary_phone: str | None = None
+    last_contact_at: datetime | None = None
+    last_email_sent_at: datetime | None = None
     messages: list[MessageState] = field(default_factory=list)
 
 
@@ -397,8 +406,19 @@ def _neutral() -> ColumnElement[bool]:
 
 
 def in_scope() -> ColumnElement[bool]:
-    """A current sequence, a contact tracking or an open effective « Erreur sur le mail »."""
-    return or_(has_cohort_sql(), ContactTracking.id.is_not(None), email_error_sql())
+    """A current sequence, tracking, effective email error or a recorded historical send."""
+    return or_(
+        has_cohort_sql(), ContactTracking.id.is_not(None), email_error_sql(), contacted_sql()
+    )
+
+
+def contacted_sql() -> ColumnElement[bool]:
+    """Already contacted, regardless of the current cohort, sequence or commercial state."""
+    return Prospect.id.in_(
+        select(ContactMessage.prospect_id)
+        .where(ContactMessage.status == ContactMessageStatus.SENT)
+        .distinct()
+    )
 
 
 def in_sequence() -> ColumnElement[bool]:
@@ -438,16 +458,16 @@ def _open_email_errors() -> Select[Any]:
 
 
 def set_aside_sql(invalid_mail: ColumnElement[bool] | None = None) -> ColumnElement[bool]:
-    """« Écartés »: nothing more to prepare for them, whatever their cohort — a reply (« Réponse reçue »),
-    a negative answer, « Défaillant », « Ignoré » or the opposition, or a « Mail invalide ». A taken appointment
-    has its own list (« RDV pris »), never this one. `invalid_mail`: the caller's own join on the open alerts
-    (set-based, for the planning); without it the alerts are looked up with `IN`."""
+    """« Écartés »: nothing more to prepare, whatever their cohort — a reply, a negative answer,
+    « Défaillant », « Ignoré » or the opposition, or a « Mail invalide ». A taken appointment has
+    its own list (« RDV pris »). `invalid_mail`: the caller's join on the open alerts (set-based,
+    for the planning); without it the alerts are looked up with `IN`."""
     if invalid_mail is None:
         invalid_mail = Prospect.id.in_(_open_email_errors())
     return and_(
         or_(ContactTracking.status.is_(None), ContactTracking.status != S.APPOINTMENT_OBTAINED),
         or_(
-            # No tracking row: NULL here would make the whole rule NULL, and `NOT` of it hides the person.
+            # Without tracking, NULL would make the rule NULL, and `NOT` would hide the person.
             func.coalesce(
                 ContactTracking.status.in_(
                     (S.RESPONSE_RECEIVED, S.NOT_INTERESTED, S.DISQUALIFIED, S.IGNORED)
@@ -462,6 +482,8 @@ def set_aside_sql(invalid_mail: ColumnElement[bool] | None = None) -> ColumnElem
 
 def category_condition(category: ContactCategory, window: PlanningWeek) -> ColumnElement[bool]:
     match category:
+        case ContactCategory.CONTACTED:
+            return contacted_sql()
         case ContactCategory.TO_SEND:
             return to_send(window)
         case ContactCategory.IN_SEQUENCE:
@@ -508,6 +530,14 @@ def _cohort_condition(cohort: uuid.UUID | str | None) -> list[ColumnElement[bool
 def scope_conditions(filters: ContactFilters) -> list[ColumnElement[bool]]:
     """The page's scope under `cohort` and `q` (dashboard and lists)."""
     conditions = [in_scope(), *_cohort_condition(filters.cohort)]
+    if filters.tracking_status is not None:
+        conditions.append(
+            func.coalesce(ContactTracking.status, S.NEUTRAL.value) == filters.tracking_status
+        )
+    if filters.company == NONE:
+        conditions.append(Prospect.company_id.is_(None))
+    elif filters.company is not None:
+        conditions.append(Prospect.company_id == filters.company)
     if filters.cohort_codes:
         conditions.append(and_(has_cohort_sql(), Cohort.code.in_(filters.cohort_codes)))
     search = (filters.search or "").strip()
@@ -542,27 +572,31 @@ def _derived(filters: ContactFilters, window: PlanningWeek) -> Any:
     then aggregated)."""
     sending = to_send(window)
     invalid = _open_email_errors().subquery("invalid_mail")
-    statement = join_segment_sources(
-        select(
-            Cohort.id.label("cohort_id"),
-            func.coalesce(sending, false()).label("to_send"),
-            func.coalesce(and_(sending, overdue(window)), false()).label("overdue"),
-            next_rank_sql().label("next_rank"),
-            next_due_at_sql().label("next_due_at"),
-            level_key_sql().label("level"),
-            func.coalesce(in_sequence(), false()).label("in_sequence"),
-            _due_week().label("due_week"),
-            *(
-                func.coalesce(
-                    set_aside_sql(invalid.c.prospect_id.is_not(None))
-                    if category is ContactCategory.SET_ASIDE
-                    else category_condition(category, window),
-                    false(),
-                ).label(f"category_{category.value}")
-                for category in COUNTED_CATEGORIES
-            ),
+    statement = (
+        join_segment_sources(
+            select(
+                Cohort.id.label("cohort_id"),
+                func.coalesce(sending, false()).label("to_send"),
+                func.coalesce(and_(sending, overdue(window)), false()).label("overdue"),
+                next_rank_sql().label("next_rank"),
+                next_due_at_sql().label("next_due_at"),
+                level_key_sql().label("level"),
+                func.coalesce(in_sequence(), false()).label("in_sequence"),
+                _due_week().label("due_week"),
+                *(
+                    func.coalesce(
+                        set_aside_sql(invalid.c.prospect_id.is_not(None))
+                        if category is ContactCategory.SET_ASIDE
+                        else category_condition(category, window),
+                        false(),
+                    ).label(f"category_{category.value}")
+                    for category in COUNTED_CATEGORIES
+                ),
+            )
         )
-    ).outerjoin(invalid, invalid.c.prospect_id == Prospect.id).where(*scope_conditions(filters))
+        .outerjoin(invalid, invalid.c.prospect_id == Prospect.id)
+        .where(*scope_conditions(filters))
+    )
     return statement.subquery("planning")
 
 
@@ -810,6 +844,21 @@ def _cohort_summaries(
 
 def _page_statement(window: PlanningWeek) -> Select[Any]:
     sending = to_send(window)
+    phone = (
+        select(Phone.number)
+        .where(Phone.prospect_id == Prospect.id, Phone.is_primary, Phone.is_active)
+        .correlate(Prospect)
+        .scalar_subquery()
+    )
+    last_send = (
+        select(func.max(ContactMessage.sent_at))
+        .where(
+            ContactMessage.prospect_id == Prospect.id,
+            ContactMessage.status == ContactMessageStatus.SENT,
+        )
+        .correlate(Prospect)
+        .scalar_subquery()
+    )
     return join_segment_sources(
         select(
             Prospect,
@@ -829,6 +878,9 @@ def _page_statement(window: PlanningWeek) -> Select[Any]:
             func.coalesce(sending, false()),
             func.coalesce(and_(sending, overdue(window)), false()),
             email_error_sql(),
+            phone,
+            func.greatest(last_send, ContactTracking.response_received_at),
+            last_send,
             ContactSequence.id,
         )
     ).outerjoin(Role, Role.id == Prospect.role_id)
@@ -926,6 +978,9 @@ def list_contacts(
         sending,
         late,
         email_error,
+        primary_phone,
+        last_contact_at,
+        last_email_sent_at,
         sequence_id,
     ) in rows:
         states = messages.get(sequence_id, []) if sequence_id else []
@@ -964,6 +1019,9 @@ def list_contacts(
                 overdue=bool(late),
                 email_error=bool(email_error),
                 next_message_status=next_status,
+                primary_phone=primary_phone,
+                last_contact_at=last_contact_at,
+                last_email_sent_at=last_email_sent_at,
                 messages=states,
             )
         )

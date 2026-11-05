@@ -80,6 +80,62 @@ function panel(name: RegExp) {
 }
 
 describe('Prospection page', () => {
+  it('keeps the company directory, search and commercial follow-up folded until requested', async () => {
+    stubProspectionApi({ prospects: people() })
+    renderApp('/prospection')
+    const summary = await screen.findByText('Entreprises, recherche et suivi commercial')
+    const details = summary.closest('details')
+    expect(details).not.toHaveAttribute('open')
+    await userEvent.click(summary)
+    expect(details).toHaveAttribute('open')
+    expect(within(details as HTMLElement).getByRole('heading', { name: 'Suivi commercial' })).toBeInTheDocument()
+    await userEvent.click(summary)
+    expect(details).not.toHaveAttribute('open')
+  })
+  it.each(['/prospection', '/prospection?list=1', '/prospection?review=to_verify'])('starts with the list closed at %s', async (url) => {
+    stubProspectionApi({ prospects: people() })
+    renderApp(url)
+    const toggle = await screen.findByRole('button', { name: 'Afficher la liste' })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    await userEvent.click(toggle)
+    expect(await screen.findByRole('list', { name: 'Prospects' })).toBeVisible()
+  })
+  it('separates company types in the API and URL, keeps unclassified contacts, and resets pagination', async () => {
+    const api = stubProspectionApi({ prospects: [
+      prospect('Alice', 'PME', { company_kind: 'sme' }),
+      prospect('Bob', 'Institution', { company_kind: 'institutional' }),
+      prospect('Carole', 'Groupe', { company_kind: 'large' }),
+      prospect('David', 'SansClassement', { company_kind: null }),
+    ] })
+    const { router } = renderApp('/prospection?page=2')
+    const categories = screen.getByRole('group', { name: 'Type d’entreprise' })
+
+    for (const [label, kind, name] of [
+      ['Institutionnelles', 'institutional', 'Bob Institution'],
+      ['PME', 'sme', 'Alice PME'],
+      ['Grosses entreprises', 'large', 'Carole Groupe'],
+      ['À classer', 'unclassified', 'David SansClassement'],
+    ]) {
+      const button = within(categories).getByRole('button', { name: label })
+      await userEvent.click(button)
+      expect(button).toHaveAttribute('aria-pressed', 'true')
+      const params = new URLSearchParams(router.state.location.search)
+      expect(params.get('company_kind')).toBe(kind)
+      expect(params.has('page')).toBe(false)
+      await waitFor(() => {
+        expect(within(list()).getAllByRole('listitem')).toHaveLength(1)
+        expect(within(list()).getByRole('link', { name })).toBeInTheDocument()
+      })
+      expect(lastParams(api.requests, PROSPECTS).get('company_kind')).toBe(kind)
+      expect(lastParams(api.requests, COUNTERS).get('company_kind')).toBe(kind)
+    }
+    await userEvent.click(within(categories).getByRole('button', { name: 'Toutes' }))
+    await waitFor(() => {
+      expect(within(list()).getAllByRole('listitem')).toHaveLength(4)
+    })
+    expect(router.state.location.search).toBe('')
+  })
+
   it('offers the section’s entry points; Add opens the prospect editor on a new person', async () => {
     stubProspectionApi({ prospects: people() })
     const { router } = renderApp('/prospection')
@@ -100,41 +156,35 @@ describe('Prospection page', () => {
     expect(await screen.findByRole('dialog', { name: 'Nouveau prospect' })).toBeInTheDocument()
   })
 
-  it('shows the three panels with their week figures and filters the list with a click, in the URL', async () => {
+  it('counts employment validation independently of email checks and opens the matching list', async () => {
     const api = stubProspectionApi({
       prospects: [
-        prospect('Vera', 'Verifiee', { review: 'verified', verification_state: 'verified', email_state: 'verified' }, [], true),
-        prospect('Victor', 'Verifie', { review: 'verified', verification_state: 'verified', email_state: 'verified' }),
+        prospect('Vera', 'Verifiee', { employment_verified_at: '2026-09-01T10:00:00Z', review: 'verified', verification_state: 'verified', email_state: 'verified' }),
+        prospect('Victor', 'Verifie', { employment_verified_at: '2026-09-01T10:00:00Z', review: 'to_verify', verification_state: 'verified', email_state: 'unverified' }),
         prospect('Alix', 'Averifier', {}, [], true),
         prospect('Igor', 'Ignore', { review: 'ignored', tracking_status: 'ignored' }),
       ],
     })
     const { router } = renderApp('/prospection')
-    await unfold()
-
-    // « 2 dont +1 cette semaine »: the size and what arrived since Monday.
     await waitFor(() => {
-      expect(panel(/^Vérifiés : 2, dont 1 cette semaine/)).toBeInTheDocument()
+      expect(panel(/^Emploi validé : 2$/)).toBeInTheDocument()
     })
-    expect(panel(/^À vérifier : 1, dont 1 cette semaine/)).toHaveAttribute('aria-pressed', 'false')
-    expect(panel(/^Ignorés : 1, dont 0 cette semaine/)).toBeInTheDocument()
-    expect(screen.getByText(/Semaine 37/)).toBeInTheDocument()
-    expect(within(list()).getAllByRole('listitem')).toHaveLength(4)
+    expect(panel(/^Validation non enregistrée : 1$/)).toBeInTheDocument()
+    expect(panel(/^Mis de côté : 1$/)).toBeInTheDocument()
+    expect(screen.queryByRole('list', { name: 'Prospects' })).not.toBeInTheDocument()
 
-    await userEvent.click(panel(/^Vérifiés/))
+    await userEvent.click(panel(/^Emploi validé/))
 
-    expect(router.state.location.search).toBe('?review=verified')
-    expect(panel(/^Vérifiés/)).toHaveAttribute('aria-pressed', 'true')
+    expect(router.state.location.search).toBe('?validated_only=true')
     await waitFor(() => {
       expect(within(list()).getAllByRole('listitem')).toHaveLength(2)
     })
-    expect(screen.getByRole('heading', { level: 2, name: /Prospects vérifiés\s*2 prospects/ })).toBeInTheDocument()
-    expect(lastParams(api.requests, PROSPECTS).get('review')).toBe('verified')
-    // The panels keep counting every review under the same criteria.
-    expect(lastParams(api.requests, COUNTERS).has('review')).toBe(false)
+    expect(screen.getByRole('heading', { level: 2, name: /Prospects dont l’emploi est validé\s*2 prospects/ })).toBeInTheDocument()
+    expect(lastParams(api.requests, PROSPECTS).get('validated_only')).toBe('true')
+    expect(screen.queryByText('Non validé')).not.toBeInTheDocument()
+    expect(within(list()).getAllByText(/Emploi validé/)).toHaveLength(2)
 
-    // Pressed again: everyone.
-    await userEvent.click(panel(/^Vérifiés/))
+    await userEvent.click(screen.getByRole('button', { name: 'Réinitialiser' }))
     expect(router.state.location.search).toBe('')
   })
 
@@ -145,14 +195,15 @@ describe('Prospection page', () => {
     expect(await screen.findByRole('heading', { level: 2, name: /Échus\s*1 prospect/ })).toBeInTheDocument()
     expect(lastParams(api.requests, PROSPECTS).get('segment')).toBe('due')
 
-    await userEvent.click(panel(/^À vérifier/))
+    await userEvent.click(panel(/^Validation non enregistrée/))
 
-    expect(router.state.location.search).toBe('?review=to_verify')
+    expect(router.state.location.search).toBe('?segment=never_verified&review=to_verify')
   })
 
   it('searches: panels and list follow the same criteria, kept in the URL', async () => {
     const api = stubProspectionApi({ prospects: people() })
     const { router } = renderApp('/prospection?review=to_verify')
+    await unfold()
     await within(await screen.findByRole('list', { name: 'Prospects' })).findByRole('link', { name: 'Luc Fictif' })
 
     await userEvent.type(screen.getByRole('searchbox'), 'zzz')
@@ -160,10 +211,8 @@ describe('Prospection page', () => {
     await waitFor(() => {
       expect(router.state.location.search).toBe('?review=to_verify&q=zzz')
     })
-    await waitFor(() => {
-      expect(panel(/^À vérifier : 0/)).toBeInTheDocument()
-    })
-    expect(lastParams(api.requests, COUNTERS).get('q')).toBe('zzz')
+    expect(await screen.findByText('Recherche ou filtres actifs')).toBeInTheDocument()
+    await waitFor(() => { expect(lastParams(api.requests, COUNTERS).get('q')).toBe('zzz') })
     expect(await screen.findByText('Aucun prospect ne correspond à ces critères.')).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: 'Réinitialiser' }))
@@ -183,7 +232,7 @@ describe('Prospection page', () => {
     expect(Object.fromEntries(sent)).toMatchObject({ review: 'to_verify', q: 'luc', activity: 'unknown', role: role.id })
     expect(screen.getByRole('searchbox')).toHaveValue('luc')
     expect(screen.getByRole('combobox', { name: 'Activité' })).toHaveValue('unknown')
-    expect(panel(/^À vérifier/)).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('heading', { name: /Prospects à vérifier/ })).toBeInTheDocument()
     await waitFor(() => {
       expect(screen.getByRole('combobox', { name: 'Rôle' })).toHaveValue(role.id)
     })
@@ -222,10 +271,10 @@ describe('Prospection page', () => {
 
     expect(within(claire).getByText('Ne pas contacter')).toBeInTheDocument()
     expect(claire).toHaveTextContent('Plus en poste')
-    expect(within(claire).getByText('Emploi jamais vérifié')).toBeInTheDocument()
+    expect(within(claire).getByText('Validation de l’emploi non enregistrée')).toBeInTheDocument()
     expect(within(claire).getByText('Pas d’e-mail principal')).toBeInTheDocument()
     expect(claire).toHaveTextContent('Rôle non renseigné')
-    expect(within(claire).getByText('Non validé')).toBeInTheDocument()
+    expect(within(claire).getByText('Sans campagne')).toBeInTheDocument()
 
     expect(within(luc).getByText('Coordonnées à revérifier')).toBeInTheDocument()
     expect(within(luc).getByText('Adresse non vérifiée')).toBeInTheDocument()

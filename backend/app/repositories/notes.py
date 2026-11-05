@@ -24,6 +24,21 @@ def list_notes(session: Session, prospect_id: uuid.UUID) -> Sequence[ProspectNot
     return session.scalars(statement).all()
 
 
+def notes_of(session: Session, prospect_ids: Sequence[uuid.UUID]) -> Sequence[ProspectNote]:
+    """The notes of several prospects at once, ordered like `list_notes` (newest observed first)."""
+    statement = (
+        select(ProspectNote)
+        .where(ProspectNote.prospect_id.in_(prospect_ids))
+        .order_by(
+            ProspectNote.noted_on.desc().nulls_last(),
+            ProspectNote.created_at.desc(),
+            ProspectNote.id.desc(),
+        )
+    )
+    return session.scalars(statement).all()
+
+
+
 def scored_notes(
     session: Session, prospect_id: uuid.UUID, *, on: date | None = None
 ) -> Sequence[ProspectNote]:

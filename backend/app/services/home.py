@@ -40,7 +40,7 @@ from app.models.enums import (
 )
 from app.services import audit, history, import_batches
 from app.services.audit import AuditSource
-from app.services.contact_dashboard import ContactClock, overdue, to_send
+from app.services.contact_dashboard import ContactClock, contacted_sql, overdue, to_send
 from app.services.contact_sequences import email_error_sql, next_due_at_sql
 from app.services.contact_workflow import (
     APPOINTMENT_CODES,
@@ -83,6 +83,50 @@ EDIT_SUBJECT_TYPES = ("prospect", "company")
 EDIT_ACTOR_TYPES = (ActorType.HUMAN, ActorType.AGENT)
 # Summaries need no labels: Home shows no value.
 NO_LOOKUPS = history.Lookups()
+
+
+@dataclass(frozen=True, slots=True)
+class HomeDashboard:
+    prospects: int
+    companies: int
+    contacted: int
+    appointments: int
+    new_companies: int
+    new_prospects: int
+    week_start: date
+    week_end: date
+
+
+def dashboard_summary(session: Session, today: date) -> HomeDashboard:
+    """Six cards, counting entity IDs once and creation timestamps in the Paris calendar week.
+
+    Appointments follow the existing Prospection appointment predicate (one tracking per person).
+    Contacted follows recorded sends across every sequence, as on the Contacts page.
+    """
+    monday = today - timedelta(days=today.weekday())
+    sunday = monday + timedelta(days=6)
+    start, end = start_of_day(monday), start_of_day(monday + timedelta(days=7))
+    statement = (
+        select(
+            func.count(Prospect.id),
+            func.count(Prospect.id).filter(contacted_sql()),
+            func.count(Prospect.id).filter(has_appointment()),
+            func.count(Prospect.id).filter(Prospect.created_at >= start, Prospect.created_at < end),
+        )
+        .select_from(Prospect)
+        .outerjoin(ContactTracking, ContactTracking.prospect_id == Prospect.id)
+    )
+    with whole_base_plan(session):
+        prospects, contacted, appointments, new_prospects = session.execute(statement).one()
+    companies, new_companies = session.execute(
+        select(
+            func.count(Company.id),
+            func.count(Company.id).filter(Company.created_at >= start, Company.created_at < end),
+        )
+    ).one()
+    return HomeDashboard(
+        prospects, companies, contacted, appointments, new_companies, new_prospects, monday, sunday
+    )
 
 
 @dataclass(frozen=True, slots=True)

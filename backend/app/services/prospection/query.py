@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session, aliased
 
 from app.core.business_time import BUSINESS_TIMEZONE
 from app.core.contact_steps import level_key, level_label, step_code
+from app.core.creation_period import created_between
 from app.db.session import whole_base_plan
 from app.models import (
     AuditLogEntry,
@@ -73,6 +74,7 @@ from app.services.prospection.segments import (
     review_state,
     segment_counts,
     verification_state,
+    verification_validated,
 )
 
 LIST_MAX_LIMIT = 200
@@ -109,6 +111,13 @@ class ProspectFilters:
     cohort: uuid.UUID | Literal["none"] | None = None
     company_id: uuid.UUID | None = None
     import_batch_id: uuid.UUID | None = None
+    services: tuple[str, ...] = ()
+    send_stage: str | None = None
+    company_kind: str | None = None
+    reachable: bool = False
+    validated_only: bool = False
+    created_from: date | None = None
+    created_to: date | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -237,6 +246,31 @@ def _optional_ref(
 def filter_conditions(filters: ProspectFilters) -> list[ColumnElement[bool]]:
     """WHERE conditions over `join_segment_sources` rows, shared by counters and list."""
     conditions: list[ColumnElement[bool]] = []
+    conditions.extend(
+        created_between(Prospect.created_at, filters.created_from, filters.created_to)
+    )
+    if filters.validated_only:
+        from app.services.prospection.segments import verification_validated
+
+        conditions.append(verification_validated())
+    if filters.reachable:
+        from app.services.prospection.segments import reachable
+
+        conditions.append(reachable())
+    if filters.services:
+        conditions.append(Company.proposed_services.overlap(list(filters.services)))
+    if filters.company_kind:
+        from app.services.prospection.segments import ignored
+
+        conditions.append(~func.coalesce(ignored(), False))
+    if filters.company_kind == "unclassified":
+        conditions.append(Company.company_kind.is_(None))
+    elif filters.company_kind:
+        conditions.append(Company.company_kind == filters.company_kind)
+    if filters.send_stage:
+        from app.services.prospection.dashboard import sent_stage
+
+        conditions.append(sent_stage({"sent": 0, "r1": 1, "r2": 2}[filters.send_stage]))
     search = (filters.search or "").strip()
     if search:
         conditions.append(search_condition(search))
@@ -277,7 +311,7 @@ def _order_by(sort: ProspectSort) -> list[SQLColumnExpression[Any]]:
         case ProspectSort.NAME:
             keys = person
         case ProspectSort.COMPANY:
-            keys = [label_key(Company.display_name).nulls_last(), *person]
+            keys = [label_key(Company.display_name).nulls_last(), Company.id.nulls_last(), *person]
         case ProspectSort.NEXT_DUE | ProspectSort.PLANNED_CONTACT:
             keys = [next_due_at_sql().asc().nulls_last(), *person]
         case ProspectSort.VERIFICATION:
@@ -338,19 +372,37 @@ class BaseOverview:
     total: int
     contacted: int
     deleted: int
+    employment_validated: int
+    employment_pending: int
+    ignored: int
 
 
 def base_overview(session: Session, context: SegmentContext) -> BaseOverview:
     """Exact sizes of the whole base. `deleted` counts the `prospect.deleted` events of the audit
     log (append-only, so a deletion is never forgotten even though its rows are gone)."""
-    counts = count_segments(session, ProspectFilters(), context).counts
+    statement = join_segment_sources(
+        select(
+            func.count().label("total"),
+            func.count().filter(predicate(Segment.CONTACTED, context)).label("contacted"),
+            func.count().filter(verification_validated()).label("validated"),
+            func.count().filter(review_predicate(Review.IGNORED, context)).label("ignored"),
+        )
+    )
+    # One snapshot for the partition: email changes cannot move a validated employment out of it.
+    with whole_base_plan(session):
+        figures = session.execute(statement).one()._mapping
     deleted = session.scalar(
         select(func.count())
         .select_from(AuditLogEntry)
         .where(AuditLogEntry.entity_type == "prospect", AuditLogEntry.action == "prospect.deleted")
     )
     return BaseOverview(
-        total=counts[Segment.ALL], contacted=counts[Segment.CONTACTED], deleted=deleted or 0
+        total=figures["total"],
+        contacted=figures["contacted"],
+        deleted=deleted or 0,
+        employment_validated=figures["validated"],
+        employment_pending=figures["total"] - figures["validated"] - figures["ignored"],
+        ignored=figures["ignored"],
     )
 
 

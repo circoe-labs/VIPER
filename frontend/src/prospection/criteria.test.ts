@@ -8,6 +8,12 @@ describe('Prospection URL state', () => {
   it('round-trips every criterion and omits defaults', () => {
     const view = {
       ...DEFAULT_VIEW,
+      validated_only: true,
+      services: ['iguard', 'iadvice'].sort(),
+      send_stage: 'r1' as const,
+      company_kind: 'sme' as const,
+      created_from: '2026-10-26',
+      created_to: '2026-11-01',
       segment: 'due' as const,
       q: 'jean exemple',
       role: 'none',
@@ -66,5 +72,6 @@ describe('Prospection URL state', () => {
     expect(hasFilters({ ...DEFAULT_VIEW, q: 'jean' })).toBe(true)
     expect(hasFilters({ ...DEFAULT_VIEW, import_batch: ID })).toBe(true)
     expect(hasFilters({ ...DEFAULT_VIEW, cohort: 'none' })).toBe(true)
+    expect(hasFilters({ ...DEFAULT_VIEW, created_from: '2026-10-26' })).toBe(true)
   })
 })

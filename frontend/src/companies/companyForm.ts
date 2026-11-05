@@ -1,4 +1,4 @@
-import type { Company, CompanyInput, Establishment, EstablishmentInput } from '../api/companies'
+import type { Company, CompanyInput, CompanyKind, Establishment, EstablishmentInput } from '../api/companies'
 
 // Form model of the Company editor (Task 07): the draft keeps what the user typed; `toInput` produces the API payload
 // (trimmed, blank → null, whitespace collapsed like the server). Validation mirrors the server rules
@@ -26,6 +26,7 @@ export interface CompanyDraft {
   website_url: string
   email_domain: string
   size_label: string
+  company_kind: CompanyKind | null
   commercial_segment_id: string | null
   activity_category_ids: string[]
   project_done_with_circoe: string
@@ -65,6 +66,7 @@ export function emptyDraft(): CompanyDraft {
     website_url: '',
     email_domain: '',
     size_label: '',
+    company_kind: null,
     commercial_segment_id: null,
     activity_category_ids: [],
     project_done_with_circoe: '',
@@ -99,6 +101,7 @@ export function draftFromCompany(company: Company): CompanyDraft {
     website_url: company.website_url ?? '',
     email_domain: company.email_domain ?? '',
     size_label: company.size_label ?? '',
+    company_kind: company.company_kind,
     commercial_segment_id: company.commercial_segment?.id ?? null,
     activity_category_ids: company.activity_categories.map((category) => category.id),
     project_done_with_circoe: company.project_done_with_circoe ?? '',
@@ -141,6 +144,7 @@ export function toInput(draft: CompanyDraft): CompanyInput {
     website_url: draft.website_url.trim() || null,
     email_domain: draft.email_domain.trim() || null,
     size_label: line(draft.size_label),
+    company_kind: draft.company_kind,
     commercial_segment_id: draft.commercial_segment_id,
     activity_category_ids: draft.activity_category_ids,
     project_done_with_circoe: paragraph(draft.project_done_with_circoe),

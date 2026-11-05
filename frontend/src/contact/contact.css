@@ -1,4 +1,4 @@
-/* Contact page: search, one section per cohort and the list in Prospection's card language, then the workbench —
+/* Contact page: search, already contacted prospects and the list in Prospection's card language, then the workbench —
    prospect sheet left, mail sequence right. Tokens only; see doc/design/design-system.md (Contact page). */
 
 .contact__state {
@@ -35,11 +35,22 @@
   width: 100%;
 }
 
-/* --- cohort sections: a header with an arrow, then the cohort's prospects --- */
+/* --- contacted prospects: a header with an arrow, then the list --- */
 
 .cohort-sections {
   display: grid;
   gap: var(--space-3);
+}
+
+.contact-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
 }
 
 .cohort-section {
@@ -54,7 +65,7 @@
 
 .cohort-section__toggle {
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
   gap: var(--space-3) var(--space-5);
   width: 100%;
@@ -79,6 +90,7 @@
 
 .cohort-section__name {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3);
 }

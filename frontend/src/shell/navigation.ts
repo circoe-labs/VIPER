@@ -1,4 +1,4 @@
-import { CalendarIcon, DatabaseIcon, HomeIcon, type IconComponent, MailIcon, SlidersIcon, SparklesIcon, UsersIcon } from '../ui/icons'
+import { CalendarIcon, CheckCircleIcon, DatabaseIcon, HomeIcon, type IconComponent, MailIcon, SlidersIcon, SparklesIcon, TruckIcon, UsersIcon } from '../ui/icons'
 
 export interface NavigationItem {
   path: string
@@ -9,7 +9,9 @@ export interface NavigationItem {
 export const NAVIGATION: readonly NavigationItem[] = [
   { path: '/', label: 'Accueil', icon: HomeIcon },
   { path: '/prospection', label: 'Prospection', icon: UsersIcon },
-  { path: '/contact', label: 'Contact', icon: MailIcon },
+  { path: '/contacts-joignables', label: 'Prospects validés', icon: CheckCircleIcon },
+  { path: '/warehouses', label: 'Entrepôts', icon: TruckIcon },
+  { path: '/contact', label: 'Contacts', icon: MailIcon },
   { path: '/missions', label: 'Missions', icon: SparklesIcon },
   { path: '/agenda', label: 'Agenda', icon: CalendarIcon },
   { path: '/database', label: 'Base de données', icon: DatabaseIcon },

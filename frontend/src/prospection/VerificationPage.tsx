@@ -2,7 +2,7 @@ import { type SyntheticEvent, useDeferredValue, useState } from 'react'
 import { Link } from 'react-router'
 
 import { ApiError, apiGet } from '../api/client'
-import { type Company, useCompanyMutations } from '../api/companies'
+import { type Company, type CompanyPage, useCompanyMutations } from '../api/companies'
 import { useProspectPage } from '../api/prospection'
 import { type Prospect, useProspect, useProspectMutations } from '../api/prospects'
 import { useProspectAlerts, useSequenceMutations } from '../api/sequences'
@@ -26,6 +26,7 @@ import type { Point } from '../ui/floating'
 import { AlertIcon, BanIcon, CheckCircleIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon, CopyIcon, PlusIcon } from '../ui/icons'
 import { Menu, type MenuSection } from '../ui/Menu'
 import { PageHeader } from '../ui/PageHeader'
+import { foldText } from '../lib/text'
 import { type FicheSnapshot, toExcelRow, toJson, toPlainText, toPrompt } from './verificationCopy'
 import { IgnoredReading, VerificationOverview, VerifiedReading } from './VerificationOverview'
 import {
@@ -39,8 +40,6 @@ import './verification.css'
 // Espace de vérification : les fiches « À vérifier » une par une, avec ce qu'il faut pour trancher en quelques clics —
 // Valider (emploi + e-mail + téléphone vérifiés, cohorte au choix), Incertain (alerte « Fonction à vérifier »),
 // Ignorer (inactif + « Ignoré », définitif) ou Passer. Réutilise les écritures de l'éditeur de prospect.
-
-const PAGE_SIZE = 50
 
 function problem(error: unknown): string {
   if (error instanceof ApiError) return error.message
@@ -81,14 +80,22 @@ function Queue({ kind, figures }: { kind: 'todo' | 'uncertain'; figures: Verific
   const [skipped, setSkipped] = useState<string[]>([])
   const [done, setDone] = useState<string[]>([])
   const todo = kind === 'todo'
-  const page = Math.floor(skipped.length / PAGE_SIZE) + 1
+  const [page, setPage] = useState(1)
   const list = useProspectPage(todoCriteria({ q, cohort: cohort || null }), page)
   const hidden = new Set([...skipped, ...done, ...(todo ? figures.uncertainIds : [])])
   const currentId = todo
     ? (list.data?.items.find((row) => !hidden.has(row.id))?.id ?? null)
     : (figures.uncertainIds.find((id) => !hidden.has(id)) ?? null)
-  const waiting = todo ? list.isPending : figures.loading
+  const morePages = todo && !!list.data && list.data.offset + list.data.limit < list.data.total
+  const advancing = !currentId && morePages
+  const waiting = figures.loading || (todo && (list.isPending || list.isPlaceholderData || advancing || (!currentId && list.isFetching)))
   const left = todo ? figures.todo : figures.uncertain
+
+  // Skips and doubts stay in the server list, whereas saved fiches can leave it.
+  // Walk actual pages, only after their fresh contents have been exhausted.
+  if (advancing && !figures.loading && !list.isFetching && !list.isPlaceholderData && !list.isError) {
+    setPage(page + 1)
+  }
 
   // « Retour » : the fiches left behind, most recent last; going back shows one again (even if already validated).
   const [trail, setTrail] = useState<string[]>([])
@@ -122,6 +129,9 @@ function Queue({ kind, figures }: { kind: 'todo' | 'uncertain'; figures: Verific
               onChange={(event) => {
                 setSearch(event.target.value)
                 setSkipped([])
+                setPage(1)
+                setRevisit(null)
+                setTrail([])
               }}
             />
             <SelectField
@@ -130,6 +140,9 @@ function Queue({ kind, figures }: { kind: 'todo' | 'uncertain'; figures: Verific
               onChange={(event) => {
                 setCohort(event.target.value)
                 setSkipped([])
+                setPage(1)
+                setRevisit(null)
+                setTrail([])
               }}
             >
               <option value="">Toutes</option>
@@ -153,7 +166,8 @@ function Queue({ kind, figures }: { kind: 'todo' | 'uncertain'; figures: Verific
         </p>
       )}
       {list.isError && <p role="alert">Impossible de charger la liste.</p>}
-      {!waiting && !currentId && (
+      {waiting && !shownId && !list.isError && <p role="status">Chargement des fiches…</p>}
+      {!waiting && !list.isError && !shownId && (
         <EmptyState
           icon={CheckCircleIcon}
           title={skipped.length > 0 ? 'Plus de fiche pour le moment' : todo ? 'Tout est vérifié' : 'Aucun doute en attente'}
@@ -163,6 +177,9 @@ function Queue({ kind, figures }: { kind: 'todo' | 'uncertain'; figures: Verific
               <Button
                 onClick={() => {
                   setSkipped([])
+                  setPage(1)
+                  setRevisit(null)
+                  setTrail([])
                 }}
               >
                 Reprendre les fiches passées
@@ -171,7 +188,7 @@ function Queue({ kind, figures }: { kind: 'todo' | 'uncertain'; figures: Verific
           }
         />
       )}
-      {shownId && (
+      {shownId && !list.isPlaceholderData && (
         <VerificationCard
           key={shownId}
           id={shownId}
@@ -179,14 +196,18 @@ function Queue({ kind, figures }: { kind: 'todo' | 'uncertain'; figures: Verific
           onValidated={() => {
             leave(shownId)
             setDone((ids) => [...ids, shownId])
+            setSkipped((ids) => ids.filter((id) => id !== shownId))
+            // A save can shift every later page: resume scanning from the start.
+            setPage(1)
           }}
           onSkip={() => {
             leave(shownId)
-            setSkipped((ids) => [...ids, shownId])
+            setSkipped((ids) => ids.includes(shownId) ? ids : [...ids, shownId])
           }}
           onUncertain={(message) => {
             leave(shownId)
-            setSkipped((ids) => [...ids, shownId])
+            setSkipped((ids) => ids.includes(shownId) ? ids : [...ids, shownId])
+            setPage(1)
             setNotice(message)
           }}
         />
@@ -304,14 +325,14 @@ function VerificationForm({ prospect, onValidated, onSkip, onUncertain, onBack }
   const [copied, setCopied] = useState(false)
   const [copyMenuAt, setCopyMenuAt] = useState<Point | null>(null)
   const [warned, setWarned] = useState(false)
-  const [companyName, setCompanyName] = useState(prospect.company?.display_name ?? '')
   const [error, setError] = useState<string | null>(null)
+  const [companyName, setCompanyName] = useState(prospect.company?.display_name ?? '')
   const companies = useCompanyMutations()
   const mutations = useProspectMutations()
   const sequence = useSequenceMutations(prospect.id)
   const cohorts = useCohorts()
   const alerts = useProspectAlerts(prospect.id)
-  const busy = companies.update.isPending || mutations.update.isPending || mutations.tracking.isPending || sequence.changeCohort.isPending || sequence.raiseAlert.isPending
+  const busy = companies.create.isPending || mutations.update.isPending || mutations.tracking.isPending || sequence.changeCohort.isPending || sequence.raiseAlert.isPending
 
   const openAlerts = (alerts.data?.items ?? []).filter((alert) => alert.open)
   const source = prospect.sources[0]
@@ -353,9 +374,12 @@ function VerificationForm({ prospect, onValidated, onSkip, onUncertain, onBack }
     },
   ]
   const messages = validate(draft, { isNew: false, today: prospect.today })
+  // The company is typed as plain text: it is resolved when saving (see `companyIdOf`), so the draft's id is not an error.
+  if (companyName.trim() !== '') delete messages.company_id
+
+  const blank = (value: string) => value.trim() === ''
 
   // Empty boxes: shown in red once « Valider » was pressed with some missing (a second press validates anyway).
-  const blank = (value: string) => value.trim() === ''
   const filled = (aliases: AliasDraft[]) => aliases.some((alias) => alias.is_active && !blank(alias.value))
   const allGaps = [
     { key: 'company', label: 'entreprise', empty: blank(companyName) },
@@ -420,30 +444,34 @@ function VerificationForm({ prospect, onValidated, onSkip, onUncertain, onBack }
     )
   }
 
-  // Renames the company (for all its fiches) when the name was edited; the other company fields are sent back as read.
-  async function renameCompany() {
-    const current = prospect.company
+  // The company typed in the box, for this fiche only — the company a fiche belongs to is never renamed from here (it is
+  // shared with other fiches). Same name as now: unchanged. Another company with exactly that name: that one. Otherwise a
+  // new company with that name. No suggestion, nothing renamed.
+  async function companyIdOf(): Promise<string | null> {
     const name = companyName.replace(/\s+/g, ' ').trim()
-    if (!current || !name || name === current.display_name) return
-    const company = await apiGet<Company>(`/companies/${encodeURIComponent(current.id)}`)
-    await companies.update.mutateAsync({
-      id: company.id,
-      input: {
-        display_name: name,
-        legal_name: company.legal_name,
-        siren: company.siren,
-        website_url: company.website_url,
-        email_domain: company.email_domain,
-        size_label: company.size_label,
-        commercial_segment_id: company.commercial_segment?.id ?? null,
-        activity_category_ids: company.activity_categories.map((category) => category.id),
-        project_done_with_circoe: company.project_done_with_circoe,
-        project_type: company.project_type,
-        circoe_references: company.circoe_references,
-        client_approach: company.client_approach,
-        establishments: company.establishments,
-      },
+    const current = prospect.company
+    if (!name) return draft.company_id
+    if (current && foldText(current.display_name) === foldText(name)) return current.id
+    const found = await apiGet<CompanyPage>(`/companies?${new URLSearchParams({ q: name, limit: '200', offset: '0' }).toString()}`)
+    const same = found.items.find((item) => foldText(item.display_name) === foldText(name))
+    if (same) return same.id
+    const created: Company = await companies.create.mutateAsync({
+      display_name: name,
+      legal_name: null,
+      siren: null,
+      website_url: null,
+      email_domain: null,
+      size_label: null,
+      company_kind: null,
+      commercial_segment_id: null,
+      activity_category_ids: [],
+      project_done_with_circoe: null,
+      project_type: null,
+      circoe_references: null,
+      client_approach: null,
+      establishments: [],
     })
+    return created.id
   }
 
   async function validateAndNext(event?: SyntheticEvent) {
@@ -461,6 +489,7 @@ function VerificationForm({ prospect, onValidated, onSkip, onUncertain, onBack }
     try {
       const next: ProspectDraft = {
         ...draft,
+        company_id: await companyIdOf(),
         verification: { action: 'verified_now', day: '' },
         emails: verified(draft.emails),
         phones: verified(draft.phones),
@@ -470,7 +499,6 @@ function VerificationForm({ prospect, onValidated, onSkip, onUncertain, onBack }
         version: prospect.version,
         input: toInput(next, prospect.company?.id ?? null),
       })
-      await renameCompany()
       if (cohortId) await sequence.changeCohort.mutateAsync(cohortId)
       for (const alert of openAlerts.filter((item) => item.type === 'function_to_check')) {
         await sequence.resolveAlert.mutateAsync({ id: alert.id, note: 'Vérifié dans l’espace de vérification.' })
@@ -489,7 +517,6 @@ function VerificationForm({ prospect, onValidated, onSkip, onUncertain, onBack }
       return
     }
     try {
-      await renameCompany()
       await sequence.raiseAlert.mutateAsync({
         type: 'function_to_check',
         note: note.trim() || 'Incertitude sur ce contact : à contacter pour vérifier si on le garde.',
@@ -510,7 +537,7 @@ function VerificationForm({ prospect, onValidated, onSkip, onUncertain, onBack }
       const saved = await mutations.update.mutateAsync({
         id: prospect.id,
         version: prospect.version,
-        input: toInput({ ...draft, activity_status: 'inactive' }, prospect.company?.id ?? null),
+        input: toInput({ ...draft, company_id: await companyIdOf(), activity_status: 'inactive' }, prospect.company?.id ?? null),
       })
       await mutations.tracking.mutateAsync({ id: prospect.id, version: saved.version, patch: { status: 'ignored' } })
       onValidated()
@@ -570,11 +597,10 @@ function VerificationForm({ prospect, onValidated, onSkip, onUncertain, onBack }
             value={companyName}
             hint={
               prospect.company && prospect.company.prospect_count > 1
-                ? `Renomme l’entreprise pour ses ${String(prospect.company.prospect_count)} fiches.`
+                ? `Modifie l’entreprise de cette fiche seulement (les ${String(prospect.company.prospect_count - 1)} autres ne changent pas).`
                 : undefined
             }
             error={redIf('company') ?? messages.company_id}
-            disabled={!prospect.company}
             onChange={(event) => {
               setCompanyName(event.target.value)
             }}

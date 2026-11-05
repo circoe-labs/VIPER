@@ -27,6 +27,7 @@ export function company(display_name: string, fields: Partial<Company> = {}): Co
     website_url: null,
     email_domain: null,
     size_label: null,
+    company_kind: null,
     commercial_segment: null,
     activity_categories: [],
     project_done_with_circoe: null,
@@ -71,6 +72,7 @@ function listItem(row: Company): CompanyListItem {
     legal_name: row.legal_name,
     siren: row.siren,
     email_domain: row.email_domain,
+    company_kind: row.company_kind,
     commercial_segment_label: row.commercial_segment?.label ?? null,
     city: row.establishments.find((establishment) => establishment.is_primary)?.city ?? null,
     establishment_count: row.establishments.length,
@@ -117,6 +119,13 @@ export function stubCompaniesApi(options: CompaniesStubOptions = {}) {
   }
 
   function handle(method: string, url: URL, body: unknown): Promise<Response> {
+    if (url.pathname === '/api/companies/counts') return reply(200, {
+      all: store.length,
+      sme: store.filter((row) => row.company_kind === 'sme').length,
+      large: store.filter((row) => row.company_kind === 'large').length,
+      institutional: store.filter((row) => row.company_kind === 'institutional').length,
+      unclassified: store.filter((row) => row.company_kind === null).length,
+    })
     const id = /^\/api\/companies\/([^/]+)$/.exec(url.pathname)?.[1]
     if (url.pathname === '/api/companies/similar') return reply(200, similar)
     const historyOf = /^\/api\/companies\/([^/]+)\/history$/.exec(url.pathname)?.[1]
@@ -145,6 +154,10 @@ export function stubCompaniesApi(options: CompaniesStubOptions = {}) {
         [row.display_name, row.legal_name, row.email_domain, row.siren].filter(Boolean).join(' ')
       const found = store
         .filter((row) => !q || matchesWords(text(row), q))
+        .filter((row) => {
+          const kind = url.searchParams.get('company_kind')
+          return !kind || (kind === 'unclassified' ? row.company_kind === null : row.company_kind === kind)
+        })
         .sort((a, b) => foldText(a.display_name).localeCompare(foldText(b.display_name), 'fr'))
       return reply(200, { items: found.slice(offset, offset + limit).map(listItem), total: found.length })
     }

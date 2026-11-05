@@ -2,6 +2,7 @@ import { vi } from 'vitest'
 
 import type {
   ContactDashboard,
+  ContactOverview,
   ContactRow,
   GenerateRequest,
   Message,
@@ -12,6 +13,8 @@ import type {
   Scheduling,
 } from '../api/contact'
 import type { Prospect } from '../api/prospects'
+import { TRACKING_STATUSES } from '../api/prospection'
+import { TRACKING_LABELS } from '../prospection/labels'
 import { stubProspectsApi } from './prospectsApi'
 import type { RecordedRequest } from './settingsApi'
 
@@ -32,6 +35,18 @@ export function contactDashboard(overrides: Partial<ContactDashboard> = {}): Con
     cohorts: [],
     weeks: [],
     dispatch: { active: true, reason: null, scheduled_count: 0, overdue_count: 0 },
+    ...overrides,
+  }
+}
+
+export function contactOverview(overrides: Partial<ContactOverview> = {}): ContactOverview {
+  return {
+    today: TODAY,
+    total: 0,
+    bars: Array.from({ length: 5 }, (_, slot) => ({ slot, label: slot === 0 ? 'Contact' : `R${String(slot)}`, count: 0, send_date: null })),
+    companies: [],
+    statuses: [],
+    dispatch: contactDashboard().dispatch,
     ...overrides,
   }
 }
@@ -115,6 +130,7 @@ export function message(step: MessageStep, status: MessageStatus, fields: Partia
 }
 
 interface ContactStubOptions {
+  overview?: ContactOverview
   dashboard?: ContactDashboard | 'error'
   scheduling?: Scheduling
   rows?: ContactRow[]
@@ -143,6 +159,7 @@ export function stubContactApi(options: ContactStubOptions = {}) {
   const prospects = stubProspectsApi({ details: options.details ?? [] })
   const prospectsFetch = globalThis.fetch
   const rows = options.rows ?? []
+  const chartDates = options.overview?.bars.map((bar) => bar.send_date) ?? Array<string | null>(5).fill(null)
   const store = new Map<string, Partial<Record<MessageStep, Message>>>(
     Object.entries(options.messages ?? {}).map(([id, steps]) => [id, structuredClone(steps)]),
   )
@@ -344,9 +361,18 @@ export function stubContactApi(options: ContactStubOptions = {}) {
     })
   }
 
-  // `category=cohort`: the cohorts asked (`cohorts`), every state but the appointment; `appointment_obtained`: « RDV pris ».
+  // `contacted`: at least one recorded send, across all cohorts and states.
   // Rows are given in the API's order (alphabetical by company; the backend tests cover the sort).
   function listed(url: URL): ContactRow[] {
+    if (url.searchParams.get('category') === 'contacted') {
+      const query = (url.searchParams.get('q') ?? '').trim().toLocaleLowerCase('fr')
+      return rows.filter((row) =>
+        Object.values(row.messages).includes('sent') &&
+        (!url.searchParams.get('tracking_status') || row.tracking_status === url.searchParams.get('tracking_status')) &&
+        (!url.searchParams.get('company') || (url.searchParams.get('company') === 'none' ? !row.company_id : row.company_id === url.searchParams.get('company'))) &&
+        (!query || [row.first_name, row.last_name, row.company_name, row.primary_email].filter(Boolean).join(' ').toLocaleLowerCase('fr').includes(query)),
+      )
+    }
     if (url.searchParams.get('category') === 'appointment_obtained') {
       return rows.filter((row) => row.tracking_status === 'appointment_obtained')
     }
@@ -361,6 +387,33 @@ export function stubContactApi(options: ContactStubOptions = {}) {
     const url = new URL(input, 'http://localhost')
     const method = init?.method ?? 'GET'
     const body: unknown = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined
+    if (url.pathname === '/api/contact/overview') {
+      requests.push({ method, path: url.pathname, search: url.search, body })
+      if (options.dashboard === 'error') return json(500, { detail: 'boom' })
+      const filtered = new URL(url)
+      filtered.searchParams.set('category', 'contacted')
+      const people = listed(filtered)
+      const counts = Array<number>(5).fill(0)
+      for (const row of people) {
+        const ranks = Object.entries(row.messages).filter(([, status]) => status === 'sent').map(([step]) => step === 'contact' ? 0 : Number(step.slice(1)))
+        const slot = Math.min(Math.max(...ranks), 4)
+        counts[slot] = (counts[slot] ?? 0) + 1
+      }
+      return json(200, options.overview ? { ...options.overview, bars: options.overview.bars.map((bar) => ({ ...bar, send_date: chartDates[bar.slot] ?? null })) } : {
+        today: TODAY, total: people.length,
+        bars: counts.map((count, slot) => ({ slot, label: slot === 0 ? 'Contact' : `R${String(slot)}`, count, send_date: chartDates[slot] ?? null })),
+        companies: rows.filter((row) => row.company_id).map((row) => ({ id: row.company_id, label: row.company_name })),
+        statuses: TRACKING_STATUSES.map((state) => ({ value: `state:${state}`, label: TRACKING_LABELS[state] })),
+        dispatch: options.dashboard ? options.dashboard.dispatch : contactDashboard().dispatch,
+      })
+    }
+    const chartDate = /^\/api\/contact\/chart-dates\/([0-4])$/.exec(url.pathname)
+    if (method === 'PUT' && chartDate?.[1]) {
+      requests.push({ method, path: url.pathname, search: url.search, body })
+      const value = (body as { send_date: string | null }).send_date
+      chartDates[Number(chartDate[1])] = value
+      return json(200, { send_date: value })
+    }
     if (url.pathname === '/api/contact/dashboard') {
       requests.push({ method, path: url.pathname, search: url.search, body })
       if (options.dashboard === 'error') return json(500, { detail: 'boom' })
@@ -380,7 +433,7 @@ export function stubContactApi(options: ContactStubOptions = {}) {
     const found = /^\/api\/prospects\/([^/]+)\/messages(?:\/(contact|r1|r2))?(?:\/([\w-]+))?$/.exec(url.pathname)
     if (found?.[1]) {
       requests.push({ method, path: url.pathname, search: url.search, body })
-      return handleMessages(method, found[1], found[2] as MessageStep | undefined, found[3], body)
+      return handleMessages(method, found[1], found[2], found[3], body)
     }
     return prospectsFetch(input, init)
   })

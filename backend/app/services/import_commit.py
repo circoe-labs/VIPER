@@ -30,6 +30,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from functools import partial
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -372,7 +373,7 @@ class Committer:
         rows = [self.plan.row(number) for number in plan.rows]
         proposals = [(p.row.row_number, p.row.company) for p in rows if p.row.company is not None]
         first = proposals[0][1]
-        texts = {
+        texts: dict[str, Any] = {
             name.value: next(
                 (value for _, c in proposals if (value := fitting(getattr(c, name.value)))), None
             )

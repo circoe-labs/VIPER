@@ -52,6 +52,7 @@ from app.models import (
     ProspectSource,
     QualityAlert,
     Role,
+    Warehouse,
 )
 from app.models.audit import AuditLogEntry
 from app.repositories import audit as audit_repository
@@ -221,6 +222,7 @@ AUDITED_ENTITIES: dict[type[Any], AuditedEntity] = {
     ImportBatch: AuditedEntity("import_batch", "import_batch"),
     AppSetting: AuditedEntity("app_setting", "app_setting"),
     Appointment: AuditedEntity("appointment", "appointment"),
+    Warehouse: AuditedEntity("warehouse", "warehouse"),
 }
 ENTITY_ORDER = {model: position for position, model in enumerate(AUDITED_ENTITIES)}
 NOT_AUDITED_TABLES = {

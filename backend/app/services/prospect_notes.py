@@ -11,6 +11,7 @@ only, never the fact. Refusals: `NotFoundError` (prospect or note), `InvalidFiel
 
 import logging
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from typing import Final
@@ -109,6 +110,13 @@ def _note(session: Session, prospect_id: uuid.UUID, note_id: uuid.UUID) -> Prosp
 def list_notes(session: Session, prospect_id: uuid.UUID) -> list[ProspectNote]:
     _existing_prospect(session, prospect_id)
     return list(repository.list_notes(session, prospect_id))
+
+
+def notes_of_many(session: Session, prospect_ids: Sequence[uuid.UUID]) -> list[ProspectNote]:
+    """Notes of a batch of prospects (unknown ids simply have none): one query for a whole list."""
+    if not prospect_ids:
+        return []
+    return list(repository.notes_of(session, prospect_ids))
 
 
 def create_note(

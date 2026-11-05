@@ -110,6 +110,16 @@ export function stubProspectionApi(options: ProspectionStubOptions = {}) {
     const activity = params.get('activity')
     return prospects.filter(
       (row) =>
+        (params.get('validated_only') !== 'true' || (row.employment_verified_at !== null && row.review !== 'ignored')) &&
+        (params.get('reachable') !== 'true' || (
+          row.contactability_status === 'contactable' && row.activity_status !== 'inactive' &&
+          !['ignored', 'disqualified', 'not_interested'].includes(row.tracking_status ?? '') &&
+          ((!!row.primary_email && row.email_state !== 'invalid') || !!row.primary_phone)
+        )) &&
+        (!params.getAll('services').length || params.getAll('services').some((code) => row.proposed_services?.includes(code))) &&
+        (!params.get('company_kind') || (params.get('company_kind') === 'unclassified'
+          ? row.company_kind == null : row.company_kind === params.get('company_kind'))) &&
+        (!params.get('send_stage') || row.send_stage === params.get('send_stage')) &&
         (!q || matchesWords([row.first_name, row.last_name, row.company_name, row.primary_email].join(' '), q)) &&
         (!company || row.company_id === company) &&
         (!activity || row.activity_status === activity),
@@ -123,8 +133,22 @@ export function stubProspectionApi(options: ProspectionStubOptions = {}) {
   function handle(url: URL): Promise<Response> {
     if (options.failWith) return reply(options.failWith, { detail: 'boom' })
     const found = matching(url.searchParams)
+    if (url.pathname === '/api/prospection/dashboard') {
+      const base = url.searchParams.get('validated_only') === 'true' ? prospects.filter((row) => row.employment_verified_at !== null && row.review !== 'ignored') : prospects
+      const scored = base.flatMap((row) => row.quality_score == null ? [] : [row.quality_score])
+      return reply(200, {
+        total: base.length,
+        reviews: Object.fromEntries(REVIEWS.map((key) => [key, url.searchParams.get('validated_only') === 'true' ? (key === 'verified' ? base.length : 0) : base.filter((row) => row.review === key).length])),
+        sends: Object.fromEntries(['sent', 'r1', 'r2'].map((key) => [key, base.filter((row) => row.send_stage === key).length])),
+        due: base.filter((row) => row.due).length,
+        average_quality: scored.length ? scored.reduce((sum, value) => sum + value, 0) / scored.length : null,
+        scored_count: scored.length,
+      })
+    }
     if (url.pathname === '/api/prospection/overview') {
-      return reply(200, { total: prospects.length, contacted: 0, deleted: 0 })
+      const ignored = prospects.filter((row) => row.review === 'ignored').length
+      const employment_validated = prospects.filter((row) => row.employment_verified_at !== null && row.review !== 'ignored').length
+      return reply(200, { total: prospects.length, contacted: 0, deleted: 0, ignored, employment_validated, employment_pending: prospects.length - ignored - employment_validated })
     }
     if (url.pathname === '/api/prospection/counters') {
       const counts = Object.fromEntries(
@@ -158,6 +182,7 @@ export function stubProspectionApi(options: ProspectionStubOptions = {}) {
       requests.push({ method: init?.method ?? 'GET', path: url.pathname, search: url.search, body: undefined })
       return handle(url)
     }
+    if (url.pathname === '/api/companies/counts') return reply(200, { all: companies.length, sme: 0, large: 0, institutional: 0, unclassified: companies.length })
     if (url.pathname === '/api/companies') {
       const items = companies.map((company) => ({ id: company.id, display_name: company.display_name }) as CompanyListItem)
       return reply(200, { items, total: items.length })

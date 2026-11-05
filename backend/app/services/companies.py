@@ -26,7 +26,8 @@ import re
 import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, fields, replace
-from datetime import datetime
+from datetime import date, datetime
+from typing import Literal
 from urllib.parse import urlsplit, urlunsplit
 
 from sqlalchemy.exc import IntegrityError
@@ -34,7 +35,7 @@ from sqlalchemy.orm import Session
 
 from app.core.actor import ActorContext
 from app.models import CommercialSegment, Company, Establishment
-from app.models.enums import ActivityStatus, Civility, ContactabilityStatus
+from app.models.enums import ActivityStatus, Civility, CompanyKind, ContactabilityStatus
 from app.models.taxonomies import ActivityCategory
 from app.repositories import companies as repository
 from app.repositories import import_reference
@@ -101,6 +102,7 @@ class CompanyInput:
     website_url: str | None = None
     email_domain: str | None = None
     size_label: str | None = None
+    company_kind: CompanyKind | None = None
     commercial_segment_id: uuid.UUID | None = None
     activity_category_ids: Sequence[uuid.UUID] = ()
     project_done_with_circoe: str | None = None
@@ -154,6 +156,7 @@ class CompanyDetail:
     website_url: str | None
     email_domain: str | None
     size_label: str | None
+    company_kind: CompanyKind | None
     commercial_segment: TaxonomyRef | None
     activity_categories: list[TaxonomyRef]
     project_done_with_circoe: str | None
@@ -176,6 +179,7 @@ class CompanyListItem:
     legal_name: str | None
     siren: str | None
     email_domain: str | None
+    company_kind: CompanyKind | None
     commercial_segment_label: str | None
     # City of the primary establishment.
     city: str | None
@@ -369,6 +373,7 @@ def _clean(session: Session, data: CompanyInput, company: Company | None) -> _Cl
         website_url=normalize_website(data.website_url),
         email_domain=normalize_email_domain(data.email_domain),
         size_label=_line("size_label", data.size_label, SIZE_MAX_LENGTH),
+        company_kind=data.company_kind,
         commercial_segment_id=data.commercial_segment_id,
         activity_category_ids=list(dict.fromkeys(data.activity_category_ids)),
         project_done_with_circoe=_paragraphs(
@@ -495,6 +500,7 @@ def get_company(session: Session, company_id: uuid.UUID) -> CompanyDetail:
         website_url=company.website_url,
         email_domain=company.email_domain,
         size_label=company.size_label,
+        company_kind=company.company_kind,
         commercial_segment=_ref(segment) if segment else None,
         activity_categories=sorted(
             (_ref(row) for row in company.activity_categories), key=lambda ref: ref.label.casefold()
@@ -512,13 +518,23 @@ def get_company(session: Session, company_id: uuid.UUID) -> CompanyDetail:
 
 
 def list_companies(
-    session: Session, *, search: str | None = None, limit: int = 50, offset: int = 0
+    session: Session,
+    *,
+    search: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    company_kind: CompanyKind | Literal["unclassified"] | None = None,
+    created_from: date | None = None,
+    created_to: date | None = None,
 ) -> CompanyPage:
     """Ordered by display name; `search` matches every word in the names, e-mail domain and
     website (case/accents ignored), or digits in a SIREN/SIRET."""
     rows, total = repository.list_companies(
         session,
         search=(search or "").strip() or None,
+        company_kind=company_kind,
+        created_from=created_from,
+        created_to=created_to,
         limit=max(1, min(limit, LIST_MAX_LIMIT)),
         offset=max(0, offset),
     )
@@ -529,6 +545,7 @@ def list_companies(
             legal_name=company.legal_name,
             siren=company.siren,
             email_domain=company.email_domain,
+            company_kind=company.company_kind,
             commercial_segment_label=segment_label,
             city=city,
             establishment_count=establishments,
@@ -538,6 +555,10 @@ def list_companies(
         for company, segment_label, prospects, establishments, city in rows
     ]
     return CompanyPage(items=items, total=total)
+
+
+def company_counts(session: Session) -> dict[str, int]:
+    return repository.company_counts(session)
 
 
 def find_similar(
@@ -589,6 +610,7 @@ COMPANY_FIELDS = (
     "website_url",
     "email_domain",
     "size_label",
+    "company_kind",
     "commercial_segment_id",
     "project_done_with_circoe",
     "project_type",

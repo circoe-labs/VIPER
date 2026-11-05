@@ -121,6 +121,10 @@
   border-top: var(--border-width) solid var(--color-border);
 }
 
+.sidebar__help { color: var(--color-text-muted); font-size: var(--text-xs); margin-bottom: var(--space-4); }
+.sidebar__help summary { cursor: pointer; padding: var(--space-2) var(--space-3); }
+.sidebar__help p { padding: 0 var(--space-3); line-height: 1.6; }
+
 .app-shell[data-sidebar='collapsed'] .sidebar__footer {
   flex-direction: column;
 }

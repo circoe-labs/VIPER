@@ -1,0 +1,61 @@
+/* « Qui connaît Robin ? » (RobinPage.tsx): valid prospects, one row each, with a two-state choice and a free remark. */
+
+.robin {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.robin__count {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.robin__muted {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.robin__choice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.robin__remark {
+  margin-bottom: var(--space-2);
+  overflow-wrap: anywhere;
+}
+
+.robin__form {
+  display: flex;
+  align-items: end;
+  gap: var(--space-2);
+}
+
+.robin__error {
+  margin: var(--space-1) 0 0;
+  color: var(--color-danger-fg);
+  font-size: var(--text-sm);
+}
+
+.robin__pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+}
+
+.robin__open {
+  color: var(--color-accent-fg);
+  text-decoration: none;
+}
+
+.robin__open:hover {
+  text-decoration: underline;
+}
+
+.robin__open:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}

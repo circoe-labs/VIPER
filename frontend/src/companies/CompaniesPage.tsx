@@ -1,10 +1,12 @@
 import { useState } from 'react'
-import { Link } from 'react-router'
+import { Link, useSearchParams } from 'react-router'
 
-import { COMPANY_PAGE_SIZE, useCompanies } from '../api/companies'
+import { COMPANY_PAGE_SIZE, type CompanyKindSelection, useCompanies } from '../api/companies'
 import { ExportWorkbookButton } from '../exports/ExportWorkbookButton'
 import { useDebouncedValue } from '../settings/shared'
 import { Button } from '../ui/Button'
+import { CreationPeriod } from '../ui/CreationPeriod'
+import { calendarDate } from '../lib/calendarDate'
 import { EmptyState } from '../ui/EmptyState'
 import {
   AlertIcon,
@@ -17,19 +19,23 @@ import {
 } from '../ui/icons'
 import { PageHeader } from '../ui/PageHeader'
 import { SearchField } from '../ui/SearchField'
-import { Table } from '../ui/Table'
 import { useCompanyEditor } from './CompanyEditorProvider'
-import { formatSiren } from './companyForm'
+import { CompanyTable } from './CompanyTable'
+import { CompanyKindFilter } from './CompanyKindFilter'
 import './companies.css'
 
 // Entreprises (Task 07), a secondary page of Prospection (`/prospection/companies`): search the companies and open
 // the lightweight Company editor. Deliberately compact — the people list is Prospection's job (Task 14).
 export function CompaniesPage() {
+  const [params, setParams] = useSearchParams()
+  const createdFrom = calendarDate(params.get('created_from'))
+  const createdTo = calendarDate(params.get('created_to'))
   const openEditor = useCompanyEditor()
   const [search, setSearch] = useState('')
   const [offset, setOffset] = useState(0)
+  const [kind, setKind] = useState<CompanyKindSelection>(null)
   const query = useDebouncedValue(search.trim(), 250)
-  const companies = useCompanies(query, offset)
+  const companies = useCompanies(query, offset, COMPANY_PAGE_SIZE, kind, createdFrom, createdTo)
   const page = companies.data
   const last = page ? Math.min(offset + COMPANY_PAGE_SIZE, page.total) : 0
 
@@ -61,6 +67,17 @@ export function CompaniesPage() {
           </>
         }
       />
+      <CreationPeriod start={createdFrom} end={createdTo} onClear={() => {
+        setParams((current) => { current.delete('created_from'); current.delete('created_to'); return current }, { replace: true })
+        setOffset(0)
+      }} />
+      <CompanyKindFilter
+        value={kind}
+        onChange={(next) => {
+          setKind(next)
+          setOffset(0)
+        }}
+      />
       <div className="companies-page__toolbar">
         <SearchField
           label="Rechercher : nom, raison sociale, SIREN, SIRET, domaine"
@@ -88,7 +105,9 @@ export function CompaniesPage() {
         </div>
       )}
       {page?.total === 0 &&
-        (query ? (
+        (kind ? (
+          <p className="company-editor__state">Aucune entreprise dans cette catégorie{query ? ` pour « ${query} »` : ''}.</p>
+        ) : query ? (
           <p className="company-editor__state">Aucune entreprise ne correspond à « {query} ».</p>
         ) : (
           <EmptyState
@@ -109,49 +128,7 @@ export function CompaniesPage() {
         ))}
       {page && page.items.length > 0 && (
         <>
-          <Table caption="Liste des entreprises">
-            <thead>
-              <tr>
-                <th scope="col">Entreprise</th>
-                <th scope="col">SIREN</th>
-                <th scope="col">Domaine e-mail</th>
-                <th scope="col">Ville</th>
-                <th scope="col">Segment</th>
-                <th scope="col" className="table__numeric">
-                  Établissements
-                </th>
-                <th scope="col" className="table__numeric">
-                  Prospects
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {page.items.map((company) => (
-                <tr key={company.id}>
-                  <td>
-                    <button
-                      type="button"
-                      className="companies-table__open"
-                      onClick={() => {
-                        openEditor(company.id)
-                      }}
-                    >
-                      {company.display_name}
-                    </button>
-                    {company.legal_name && company.legal_name !== company.display_name && (
-                      <span className="companies-table__legal">{company.legal_name}</span>
-                    )}
-                  </td>
-                  <td className="companies-table__id">{company.siren ? formatSiren(company.siren) : '—'}</td>
-                  <td>{company.email_domain ?? '—'}</td>
-                  <td>{company.city ?? '—'}</td>
-                  <td>{company.commercial_segment_label ?? '—'}</td>
-                  <td className="table__numeric">{company.establishment_count}</td>
-                  <td className="table__numeric">{company.prospect_count}</td>
-                </tr>
-              ))}
-            </tbody>
-          </Table>
+          <CompanyTable items={page.items} />
           {page.total > COMPANY_PAGE_SIZE && (
             <nav className="companies-page__pager" aria-label="Pages de la liste">
               <span>

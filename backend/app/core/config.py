@@ -127,6 +127,11 @@ class Settings(BaseSettings):
     prospect_score_red_below: Annotated[int, Field(ge=1, le=100)] = 40
     prospect_score_green_from: Annotated[int, Field(ge=1, le=100)] = 70
 
+    # Data-quality score (« Qualité de la fiche », `app.services.prospect_data_quality`): same band
+    # rule as the interest score, with its own thresholds. Proposed defaults, to be confirmed.
+    prospect_data_score_red_below: Annotated[int, Field(ge=1, le=100)] = 50
+    prospect_data_score_green_from: Annotated[int, Field(ge=1, le=100)] = 80
+
     # AI mail drafting context (prospect-contact-ux S5): how many of the prospect's notes (newest
     # first) and how many score contributions (largest |delta| first) reach the prompt.
     contact_mail_max_notes: Annotated[int, Field(ge=1, le=100)] = 20
@@ -273,6 +278,11 @@ class Settings(BaseSettings):
         if self.prospect_score_red_below >= self.prospect_score_green_from:
             raise ValueError(
                 "VIPER_PROSPECT_SCORE_RED_BELOW must be lower than VIPER_PROSPECT_SCORE_GREEN_FROM"
+            )
+        if self.prospect_data_score_red_below >= self.prospect_data_score_green_from:
+            raise ValueError(
+                "VIPER_PROSPECT_DATA_SCORE_RED_BELOW must be lower than"
+                " VIPER_PROSPECT_DATA_SCORE_GREEN_FROM"
             )
         return self
 

@@ -316,6 +316,23 @@ ProspectScore { total: 0..100, summary: str, band: "red"|"yellow"|"green",
   1 défavorable), bilan +7. ». "Score absent" does not exist in the API: the view always has a score.
 - Contributions are ordered newest observed first (same order as the notes).
 
+**Qualité de la fiche** (second score, automatic, separate from the interest score above). `GET /prospects/{id}`
+also carries `data_quality: DataQualityScore | null`, computed on read by `app/services/prospect_data_quality.py`
+(never stored). It measures how reachable and trustworthy the record is, from 9 criteria whose maximums add up to 100:
+active e-mail 20, verified e-mail 20 (the primary one, else any active; `invalid` never counts), active phone 10,
+verified phone 5, employment verified 15 (8 when older than `VIPER_VERIFICATION_STALE_DAYS`), known activity 5,
+company 10, role 10, exact job title 5.
+
+```
+DataQualityScore { total: 0..100, band: "red"|"yellow"|"green", summary: str,
+                   criteria: [{ id, label, points, max_points, detail }] }
+```
+
+`data_quality` is `null` for a prospect under durable opposition (`do_not_contact`): the card then says « Écarté ».
+Bands: `VIPER_PROSPECT_DATA_SCORE_RED_BELOW` (default **50**) and `VIPER_PROSPECT_DATA_SCORE_GREEN_FROM` (**80**), red-below
+lower than green-from; to be confirmed by the product. UI: `DataQualityCard.tsx`, under the interest score in the
+Profil tab; words *Insuffisante* / *Correcte* / *Bonne*, criteria in a *Voir les critères* disclosure.
+
 **Configuration** (environment, `core/config.py`; the contract does not contain these numbers):
 `VIPER_PROSPECT_SCORE_BASE` (default **50**), `VIPER_PROSPECT_SCORE_RED_BELOW` (**40**) and
 `VIPER_PROSPECT_SCORE_GREEN_FROM` (**70**): red below 40, yellow from 40 to 69, green from 70; red-below must be lower

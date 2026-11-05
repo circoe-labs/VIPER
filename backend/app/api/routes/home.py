@@ -24,6 +24,23 @@ from app.services.prospection.segments import Segment
 router = APIRouter(prefix="/home", tags=["home"])
 
 
+class DashboardOut(BaseModel):
+    prospects: int
+    companies: int
+    contacted: int
+    appointments: int
+    new_companies: int
+    new_prospects: int
+    week_start: date
+    week_end: date
+
+
+@router.get("/dashboard")
+def dashboard(session: SessionDep, settings: SettingsDep) -> DashboardOut:
+    result = home.dashboard_summary(session, segment_context(settings).today)
+    return DashboardOut.model_validate(result, from_attributes=True)
+
+
 class MonthProgressOut(BaseModel):
     month: date
     contacted: int

@@ -6,7 +6,7 @@ test.beforeEach(async ({ page }) => {
   await signIn(page)
 })
 
-test('app shell boots with the five French sections and a connected API', async ({ page }) => {
+test('app shell boots with the French navigation and a connected API', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByText('API : connectée')).toBeVisible()
 
@@ -14,7 +14,10 @@ test('app shell boots with the five French sections and a connected API', async 
   await expect(navigation.getByRole('link')).toHaveText([
     'Accueil',
     'Prospection',
-    'Contact',
+    'Prospects validés',
+    'Entrepôts',
+    'Contacts',
+    'Agenda',
     'Base de données',
     'Paramètres',
   ])

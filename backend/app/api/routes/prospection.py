@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
 from app.api.dependencies import SessionDep, SettingsDep
+from app.api.errors import business_errors
 from app.core.config import Settings
 from app.models.enums import (
     ActivityStatus,
@@ -25,7 +26,8 @@ from app.models.enums import (
     PhoneType,
     VerificationStatus,
 )
-from app.services.prospection import query
+from app.services.errors import InvalidFieldError
+from app.services.prospection import dashboard, query
 from app.services.prospection.query import ProspectFilters, ProspectSort
 from app.services.prospection.segments import (
     EmailState,
@@ -59,9 +61,17 @@ class OverviewOut(BaseModel):
     total: int
     contacted: int
     deleted: int
+    employment_validated: int
+    employment_pending: int
+    ignored: int
 
 
 class ProspectRowOut(BaseModel):
+    company_kind: str | None = None
+    proposed_services: list[str] = []
+    quality_score: int | None = None
+    quality_band: str | None = None
+    send_stage: str | None = None
     id: uuid.UUID
     civility: Civility | None
     first_name: str | None
@@ -116,7 +126,19 @@ def prospect_filters(
     cohort: uuid.UUID | OrNone | None = None,
     company: uuid.UUID | None = None,
     import_batch: uuid.UUID | None = None,
+    services: Annotated[list[dashboard.ServiceCode] | None, Query()] = None,
+    send_stage: Literal["sent", "r1", "r2"] | None = None,
+    company_kind: Literal["sme", "large", "institutional", "unclassified"] | None = None,
+    reachable: bool = False,
+    validated_only: bool = False,
+    created_from: date | None = None,
+    created_to: date | None = None,
 ) -> ProspectFilters:
+    with business_errors():
+        if created_from is not None and created_to is not None and created_to < created_from:
+            raise InvalidFieldError(
+                "created_to", "The end must not precede the start.", "before_start"
+            )
     return ProspectFilters(
         search=q,
         role=role,
@@ -126,6 +148,13 @@ def prospect_filters(
         cohort=cohort,
         company_id=company,
         import_batch_id=import_batch,
+        services=tuple(services or ()),
+        send_stage=send_stage,
+        company_kind=company_kind,
+        reachable=reachable,
+        validated_only=validated_only,
+        created_from=created_from,
+        created_to=created_to,
     )
 
 
@@ -172,4 +201,14 @@ def prospects(
         limit=limit,
         offset=offset,
     )
-    return ProspectPageOut.model_validate(page, from_attributes=True)
+    result = ProspectPageOut.model_validate(page, from_attributes=True)
+    details = dashboard.page_details(session, [item.id for item in page.items], settings)
+    result.items = [item.model_copy(update=details[item.id]) for item in result.items]
+    return result
+
+
+@router.get("/dashboard")
+def dashboard_overview(
+    session: SessionDep, settings: SettingsDep, validated_only: bool = False
+) -> dashboard.DashboardOut:
+    return dashboard.overview(session, settings, validated_only=validated_only)

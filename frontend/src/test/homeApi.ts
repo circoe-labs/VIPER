@@ -1,4 +1,4 @@
-import type { HomeData } from '../api/home'
+import type { HomeDashboard, HomeData } from '../api/home'
 import { SEGMENTS } from '../api/prospection'
 import type { ApiReply } from './render'
 
@@ -40,8 +40,17 @@ export function homeData(overrides: Partial<HomeData> = {}): HomeData {
   }
 }
 
+export function homeDashboard(overrides: Partial<HomeDashboard> = {}): HomeDashboard {
+  return {
+    prospects: 0, companies: 0, contacted: 0, appointments: 0,
+    new_companies: 0, new_prospects: 0, week_start: '2026-10-26', week_end: '2026-11-01',
+    ...overrides,
+  }
+}
+
 // What any page of the signed-in shell may ask on load when it lands on Accueil: the health probe and Home.
 export const SHELL_API: Record<string, ApiReply> = {
   'GET /api/health': [200, { status: 'ok', database: 'ok' }],
   'GET /api/home': [200, homeData()],
+  'GET /api/home/dashboard': [200, homeDashboard()],
 }

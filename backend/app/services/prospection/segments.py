@@ -189,6 +189,35 @@ def actionable() -> ColumnElement[bool]:
     return and_(contactable(), Prospect.activity_status != ActivityStatus.INACTIVE)
 
 
+def reachable() -> ColumnElement[bool]:
+    """A usable contact channel, without treating unverified as invalid or sending anything.
+
+    Mail errors exclude e-mail contact but leave a usable phone available. Explicit refusals,
+    opposition, ignored/disqualified records and known departures remain excluded.
+    """
+    usable_email = and_(
+        ~email_error_sql(),
+        exists().where(
+            Email.prospect_id == Prospect.id,
+            Email.is_active,
+            Email.verification_status != VerificationStatus.INVALID,
+        ),
+    )
+    usable_phone = exists().where(
+        Phone.prospect_id == Prospect.id,
+        Phone.is_active,
+        Phone.verification_status != VerificationStatus.INVALID,
+    )
+    return and_(
+        actionable(),
+        or_(
+            ContactTracking.id.is_(None),
+            ContactTracking.status.not_in((S.IGNORED, S.DISQUALIFIED, S.NOT_INTERESTED)),
+        ),
+        or_(usable_email, usable_phone),
+    )
+
+
 def any_send() -> ColumnElement[bool]:
     """A message of the prospect was really sent, in any of its sequences."""
     return exists().where(
@@ -248,6 +277,18 @@ def to_send_before(bound: datetime) -> ColumnElement[bool]:
 
 def ignored() -> ColumnElement[bool]:
     return ContactTracking.status == S.IGNORED
+
+
+def verification_validated() -> ColumnElement[bool]:
+    """The Verification workspace's validated box: employment checked, not ignored.
+
+    Matches total - never-verified non-ignored - ignored in verificationFigures.ts.
+    Primary e-mail verification and channel availability do not narrow this human review.
+    """
+    return and_(
+        Prospect.employment_verified_at.is_not(None),
+        ~func.coalesce(ignored(), false()),
+    )
 
 
 def fully_verified(context: SegmentContext) -> ColumnElement[bool]:

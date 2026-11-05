@@ -33,6 +33,7 @@ from app.api.routes import (
     sequences,
     settings,
     toolbox,
+    warehouses,
 )
 
 public_router = APIRouter()
@@ -46,6 +47,7 @@ api_router.include_router(agents.results_router)
 api_router.include_router(auth.router)
 api_router.include_router(audit.router)
 api_router.include_router(companies.router)
+api_router.include_router(warehouses.router)
 api_router.include_router(contact.router)
 api_router.include_router(contact_messages.router)
 api_router.include_router(contact_messages.cohorts_router)

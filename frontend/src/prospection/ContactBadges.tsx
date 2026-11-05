@@ -44,7 +44,7 @@ export function StateBadge({ status }: { status: TrackingStatus | null }) {
 }
 
 interface CohortBadgeProps {
-  // `S39`, `S0`; null: no cohort (not validated).
+  // `S39`, `S0`; null: no campaign cohort. Employment validation is independent.
   code: string | null
   // The cohort's real start date, for the tooltip, when known.
   startsOn?: string | null
@@ -55,8 +55,8 @@ export function CohortBadge({ code, startsOn = null }: CohortBadgeProps) {
   if (code === null) {
     return (
       <StatusBadge tone="neutral">
-        <span className="visually-hidden">Validation : </span>
-        Non validé
+        <span className="visually-hidden">Campagne : </span>
+        Sans campagne
       </StatusBadge>
     )
   }

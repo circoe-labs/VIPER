@@ -31,6 +31,39 @@ describe('Agenda page', () => {
     const day = await screen.findByRole('region', { name: 'lundi 26 octobre 2026' })
     expect(await within(day).findByRole('button', { name: CHIP })).toBeInTheDocument()
     expect(screen.getByRole('heading', { level: 2, name: /octobre 2026/i })).toBeInTheDocument()
+    expect(day.querySelector('.agenda-day__season-mark')).toHaveTextContent('🍁')
+    const cells = document.querySelectorAll('.agenda-day')
+    expect(document.querySelectorAll('.agenda-day__season-mark')).toHaveLength(cells.length)
+    expect(within(screen.getByRole('region', { name: 'samedi 31 octobre 2026' })).getByText('Halloween')).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'samedi 31 octobre 2026' }).querySelector('.agenda-day__festive-icons')).toHaveTextContent('🎃👻')
+  })
+
+  it('shows holidays in the month grid and in week view without hiding them on mobile', async () => {
+    stubAgendaApi()
+    renderApp('/agenda')
+
+    const holiday = await screen.findByRole('region', { name: 'dimanche 1 novembre 2026' })
+    expect(within(holiday).getByText('Toussaint')).toBeInTheDocument()
+    expect(holiday).not.toHaveClass('agenda-day--empty')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Mois suivant' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Semaine' }))
+    expect(within(screen.getByRole('region', { name: 'dimanche 1 novembre 2026' })).getByText('Toussaint')).toBeInTheDocument()
+  })
+
+  it('includes holidays from the next year when the month grid crosses New Year', async () => {
+    vi.setSystemTime(new Date('2026-12-15T09:00:00+01:00'))
+    stubAgendaApi()
+    renderApp('/agenda')
+
+    const newYear = await screen.findByRole('region', { name: 'vendredi 1 janvier 2027' })
+    expect(within(newYear).getByText('Jour de l’an')).toBeInTheDocument()
+    const christmas = screen.getByRole('region', { name: 'vendredi 25 décembre 2026' })
+    expect(within(christmas).getAllByText('Noël')).toHaveLength(1)
+    expect(christmas.querySelector('.agenda-day__festive-icons')).toHaveTextContent('🎄🎅')
+    expect(christmas.querySelector('.agenda-day__season-mark')).toHaveTextContent('❄️')
+    expect(newYear.querySelector('.agenda-day__season-mark')).toHaveTextContent('❄️')
+    expect(screen.getByRole('group', { name: 'Ambiance : Hiver' })).toHaveTextContent('Décembre en fête')
   })
 
   it('reminds of tomorrow’s appointments with the last mail the prospect received', async () => {

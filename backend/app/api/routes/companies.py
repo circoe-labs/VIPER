@@ -10,26 +10,74 @@ holds a SIREN/SIRET, 409 `in_use` when prospects still reference a company to de
 
 import uuid
 from datetime import date, datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Query, status
 from pydantic import BaseModel, Field, StringConstraints
+from sqlalchemy import select
 
 from app.api.dependencies import CurrentActor, SessionDep
 from app.api.errors import business_errors
 from app.api.history import HistoryCursor, HistoryLimit, HistoryPageOut
+from app.models import Company
 from app.models.enums import (
     ActivityStatus,
     Civility,
+    CompanyKind,
     ContactabilityStatus,
     SignalKind,
     SignalOrigin,
 )
-from app.services import companies, company_signals, history
+from app.services import audit, companies, company_signals, history
 from app.services.companies import CompanyDetail, CompanyInput, EstablishmentInput
+from app.services.errors import InvalidFieldError, NotFoundError
 from app.services.imports.models import MatchReason
+from app.services.prospection.dashboard import ServiceCode
 
 router = APIRouter(prefix="/companies", tags=["companies"])
+
+
+class ServiceInterestIn(BaseModel):
+    identified: bool
+
+
+class ServiceInterestsOut(BaseModel):
+    company_id: uuid.UUID
+    services: list[ServiceCode]
+
+
+@router.get("/{company_id}/services")
+def company_services(company_id: uuid.UUID, session: SessionDep) -> ServiceInterestsOut:
+    with business_errors():
+        company = session.get(Company, company_id)
+        if company is None:
+            raise NotFoundError("company", company_id)
+        return ServiceInterestsOut(company_id=company.id, services=company.proposed_services)
+
+
+@router.put("/{company_id}/services/{code}")
+def set_company_service(
+    company_id: uuid.UUID,
+    code: ServiceCode,
+    body: ServiceInterestIn,
+    session: SessionDep,
+    actor: CurrentActor,
+) -> ServiceInterestsOut:
+    # A locked, single-association edit cannot overwrite another operator's other choices.
+    with business_errors():
+        company = session.scalar(select(Company).where(Company.id == company_id).with_for_update())
+        if company is None:
+            raise NotFoundError("company", company_id)
+        selected = set(company.proposed_services)
+        if body.identified:
+            selected.add(code)
+        else:
+            selected.discard(code)
+        audit.annotate(session, actor, company, "company.updated")
+        company.proposed_services = sorted(selected)
+        session.flush()
+        return ServiceInterestsOut(company_id=company.id, services=company.proposed_services)
+
 
 # Raw input bounds only; the service applies the precise limits with field-level codes.
 Line = Annotated[str, StringConstraints(max_length=1000)]
@@ -64,6 +112,7 @@ class CompanyIn(BaseModel):
     website_url: Line | None = None
     email_domain: Line | None = None
     size_label: Line | None = None
+    company_kind: CompanyKind | None = None
     commercial_segment_id: uuid.UUID | None = None
     activity_category_ids: list[uuid.UUID] = Field(default_factory=list, max_length=MAX_ITEMS)
     project_done_with_circoe: Paragraph | None = None
@@ -125,6 +174,7 @@ class CompanyOut(BaseModel):
     website_url: str | None
     email_domain: str | None
     size_label: str | None
+    company_kind: CompanyKind | None
     commercial_segment: TaxonomyRefOut | None
     activity_categories: list[TaxonomyRefOut]
     project_done_with_circoe: str | None
@@ -145,6 +195,7 @@ class CompanyListItemOut(BaseModel):
     legal_name: str | None
     siren: str | None
     email_domain: str | None
+    company_kind: CompanyKind | None
     commercial_segment_label: str | None
     city: str | None
     establishment_count: int
@@ -182,11 +233,40 @@ def list_companies(
     q: Annotated[str | None, Query(max_length=200)] = None,
     limit: Annotated[int, Query(ge=1, le=companies.LIST_MAX_LIMIT)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
+    company_kind: CompanyKind | Literal["unclassified"] | None = None,
+    created_from: date | None = None,
+    created_to: date | None = None,
 ) -> CompanyPageOut:
     """Ordered by name; `q` matches every word of the names, e-mail domain and website (case and
     accents ignored), or digits of a SIREN/SIRET."""
-    page = companies.list_companies(session, search=q, limit=limit, offset=offset)
+    with business_errors():
+        if created_from is not None and created_to is not None and created_to < created_from:
+            raise InvalidFieldError(
+                "created_to", "The end must not precede the start.", "before_start"
+            )
+        page = companies.list_companies(
+            session,
+            search=q,
+            limit=limit,
+            offset=offset,
+            company_kind=company_kind,
+            created_from=created_from,
+            created_to=created_to,
+        )
     return CompanyPageOut.model_validate(page, from_attributes=True)
+
+
+class CompanyCountsOut(BaseModel):
+    all: int
+    institutional: int
+    sme: int
+    large: int
+    unclassified: int
+
+
+@router.get("/counts")
+def company_counts(session: SessionDep) -> CompanyCountsOut:
+    return CompanyCountsOut(**companies.company_counts(session))
 
 
 @router.get("/similar")

@@ -1,9 +1,17 @@
-import { screen, within } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router'
 import { describe, expect, it } from 'vitest'
 
 import { contactScheduling, stubContactApi } from '../test/contactApi'
-import { renderApp } from '../test/render'
+import { SchedulingOverview } from './SchedulingOverview'
+
+// The scheduling component remains available independently of the redesigned Contacts landing page.
+function renderScheduling() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(<QueryClientProvider client={client}><MemoryRouter><SchedulingOverview openHref={(id) => `/contact?prospect=${id}`} /></MemoryRouter></QueryClientProvider>)
+}
 
 const step = (rank: number, fields: Record<string, number> = {}) => ({
   rank,
@@ -68,7 +76,7 @@ describe('Contact › Suivi des envois programmés', () => {
         ],
       }),
     })
-    renderApp('/contact')
+    renderScheduling()
 
     const region = within(await panel())
     expect(await region.findByText('3 à programmer')).toBeInTheDocument()
@@ -107,7 +115,7 @@ describe('Contact › Suivi des envois programmés', () => {
         ],
       }),
     })
-    renderApp('/contact')
+    renderScheduling()
 
     const region = within(await panel())
     await userEvent.click(await region.findByRole('button', { name: 'À programmer R1 : 1, voir la liste' }))
@@ -126,7 +134,7 @@ describe('Contact › Suivi des envois programmés', () => {
         days: [{ day: '2026-10-06', total: 2, by_step: { contact: 2 }, past: true }],
       }),
     })
-    renderApp('/contact')
+    renderScheduling()
 
     const region = within(await panel())
     expect((await region.findAllByRole('button', { name: /À programmer/ }))[0]).toBeDisabled()
@@ -138,7 +146,7 @@ describe('Contact › Suivi des envois programmés', () => {
 
   it('shows an empty state when nothing is scheduled yet', async () => {
     stubContactApi({})
-    renderApp('/contact')
+    renderScheduling()
 
     expect(await within(await panel()).findByText('Aucun mail n’est programmé pour le moment.')).toBeInTheDocument()
   })
@@ -181,7 +189,7 @@ describe('Contact › Suivi des envois programmés › the tiles', () => {
         ],
       }),
     })
-    renderApp('/contact')
+    renderScheduling()
 
     const region = within(await panel())
     await user.click(await region.findByRole('button', { name: /Brouillons/ }))

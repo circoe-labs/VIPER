@@ -1,5 +1,8 @@
 # Interface Spec — V1 (reviewed)
 
+The original Prospection layout below is restored. A separate
+[Contacts joignables dashboard](prospects-dashboard.md) preserves the redesign and reachability work.
+
 ## Global shell
 
 Left navigation: Home, Prospection, Contact, Database, Settings — French labels and routes `Accueil` (`/`),

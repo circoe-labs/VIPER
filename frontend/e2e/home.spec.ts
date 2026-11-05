@@ -1,159 +1,118 @@
 import { expect, type Page, test } from '@playwright/test'
 
-import { createDueProspect, importProspects, uniqueSuffix } from './data'
-import { SCREENSHOTS, useTheme } from './helpers'
+import type { HomeDashboard } from '../src/api/home'
+import { createCompany, csrfToken, post, uniqueSuffix } from './data'
+import { useTheme } from './helpers'
 import { signIn } from './session'
 
-// Home dashboard (Task 16) against the real backend. The test imports its own synthetic people (names carry its
-// `uniqueSuffix()`; its « Échu » person is created through the API, see `createDueProspect`); Home's figures are
-// global, so they are compared with the /api/home answer the page displays — never with numbers known in advance
-// (I-81) — and the drill-down is checked on the test's own people through a search.
-
-test.beforeEach(async ({ page }) => {
+// Only the dedicated *_e2e database receives these synthetic records.
+test('Home: six real counters, working destinations and responsive cards', async ({ page }) => {
+  test.setTimeout(120_000)
   await signIn(page)
-})
-
-test.use({ viewport: { width: 1440, height: 900 } })
-
-const NUMBER = new Intl.NumberFormat('fr-FR')
-const DAY = 24 * 60 * 60 * 1000
-
-interface HomeAnswer {
-  counts: Record<string, number>
-  companies: number
-  next_actions: Record<'appointments' | 'due' | 'responses', { total: number; items: { prospect_id: string }[] }>
-  recent_imports: { id: string; filename: string; status: string }[]
-}
-
-// Opens Home and returns the /api/home answer it renders.
-async function openHome(page: Page): Promise<HomeAnswer> {
-  const answer = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/home' && response.ok())
-  await page.goto('/')
-  const data = (await (await answer).json()) as HomeAnswer
-  await expect(page.getByRole('heading', { level: 2, name: 'État de la base' })).toBeVisible()
-  return data
-}
-
-function kpi(page: Page, group: string, label: string) {
-  return page.getByRole('list', { name: group, exact: true }).getByRole('link', { name: new RegExp(`^${label}`) })
-}
-
-test('Home shows the global state it reads, and a card opens its Prospection segment', async ({ page }) => {
-  const suffix = uniqueSuffix()
-  const tag = `HE2E${suffix}`
-  const pastDay = new Date(Date.now() - 10 * DAY)
-  const company = `Transports ${tag}`
-  const file = `accueil-${suffix}.xlsx`
-  await importProspects(
-    page,
-    file,
-    [
-      { company, civility: 'Mme', first_name: 'Claire', last_name: `Relance${suffix}`, relance1: 'x' },
-      { company, civility: 'M.', first_name: 'Hugo', last_name: `Rdv${suffix}`, rdv: 'oui' },
-    ],
-  )
-  await createDueProspect(page, company, { civility: 'mr', first_name: 'Jean', last_name: `Echu${suffix}` }, pastDay)
-
-  const data = await openHome(page)
-
-  for (const name of ['État de la base', 'Activité de contact', 'Prochaines actions', 'Progression du mois']) {
-    await expect(page.getByRole('heading', { level: 2, name })).toBeVisible()
+  const tag = `Dashboard${uniqueSuffix()}`
+  const company = await createCompany(page, { display_name: tag })
+  const first = await post<{ id: string }>(page, '/api/prospects', {
+    first_name: 'Alice', last_name: tag, company_id: company.id,
+    tracking: { status: 'appointment_obtained' },
+    emails: [{ address: `${tag.toLowerCase()}@dashboard-e2e.example`, is_primary: true }],
+    provenance: { legal_basis_or_collection_context: 'Données synthétiques de test E2E' },
+  })
+  await post(page, '/api/prospects', {
+    first_name: 'Bob', last_name: tag, company_id: company.id,
+    provenance: { legal_basis_or_collection_context: 'Données synthétiques de test E2E' },
+  })
+  const cohort = await post<{ id: string }>(page, '/api/settings/cohorts', { code: 'S902', starts_on: '2026-09-28' })
+  const assigned = await page.request.put(`/api/prospects/${first.id}/cohort`, {
+    data: { cohort_id: cohort.id }, headers: { 'X-CSRF-Token': await csrfToken(page) },
+  })
+  expect(assigned.ok(), await assigned.text()).toBe(true)
+  for (const rank of [0, 1]) {
+    await post(page, `/api/prospects/${first.id}/messages/mark-sent`, { rank, sent_at: `2026-10-0${String(rank + 1)}T09:00:00+02:00` })
   }
-  await expect(page.getByRole('heading', { level: 2, name: 'Derniers imports' })).toBeVisible()
-  await expect(page.getByRole('heading', { level: 2, name: 'Dernières modifications' })).toBeVisible()
+  const data = await dashboard(page)
+  const owned = await page.request.get(`/api/contact/overview?q=${tag}`)
+  expect((await owned.json() as { total: number }).total).toBe(1)
 
-  // Every figure is the one the API answered.
-  await expect(kpi(page, 'Base', 'Prospects')).toContainText(NUMBER.format(data.counts.all ?? -1))
-  await expect(kpi(page, 'Base', 'Entreprises')).toContainText(NUMBER.format(data.companies))
-  for (const [label, segment] of [
-    ['Jamais vérifiés', 'never_verified'],
-    ['E-mail manquant', 'email_missing'],
-  ] as const) {
-    await expect(kpi(page, 'Vérification', label)).toContainText(NUMBER.format(data.counts[segment] ?? -1))
-  }
-  for (const [label, segment] of [
-    ['À contacter', 'to_contact'],
-    ['Échus', 'due'],
-    ['Contactés', 'contacted'],
-    ['Sans réponse', 'no_response'],
-    ['Réponses', 'responses'],
-    ['Rendez-vous', 'appointments'],
-  ] as const) {
-    await expect(kpi(page, 'Suivi de contact', label)).toContainText(NUMBER.format(data.counts[segment] ?? -1))
-  }
-  // The post-appointment group is gone (Contact port P3).
-  await expect(page.getByRole('heading', { name: 'Suivi commercial léger' })).toHaveCount(0)
-  const due = page.getByRole('list', { name: /^Contacts échus/ })
-  const dueLinks = due.getByRole('link')
-  await expect(dueLinks).toHaveCount(data.next_actions.due.items.length)
-  for (const [index, item] of data.next_actions.due.items.entries()) {
-    await expect(dueLinks.nth(index)).toHaveAttribute(
-      'href',
-      `/prospection?segment=due&sort=planned_contact&prospect=${item.prospect_id}`,
-    )
-  }
-  const imports = page.getByRole('list', { name: 'Derniers imports' }).getByRole('listitem')
-  await expect(imports).toHaveCount(data.recent_imports.length)
-  await expect(imports.first()).toContainText(data.recent_imports[0]?.filename ?? '')
-  await expect(page.getByRole('meter', { name: 'RDV pris' })).toHaveAttribute(
-    'aria-valuetext',
-    /sur un objectif indicatif de 10 /,
-  )
-
-  // Drill-down: « Échus » opens Prospection on that segment; the test's own due person is in it.
-  await kpi(page, 'Suivi de contact', 'Échus').click()
-  await expect(page).toHaveURL(/\/prospection\?segment=due$/)
-  const counters = page.getByRole('region', { name: 'Compteurs' })
-  await expect(counters.getByRole('button', { name: /^Échus/ })).toHaveAttribute('aria-pressed', 'true')
-  await page.getByRole('searchbox', { name: /Rechercher/ }).fill(tag)
-  const people = page.getByRole('list', { name: 'Prospects' }).getByRole('listitem')
-  await expect(people).toHaveCount(1)
-  await expect(people.first()).toContainText(`Echu${suffix}`)
-
-  // Back on Home, « Sans réponse » narrows to the followed-up person only.
-  await openHome(page)
-  await kpi(page, 'Suivi de contact', 'Sans réponse').click()
-  await expect(page).toHaveURL(/segment=no_response/)
-  await page.getByRole('searchbox', { name: /Rechercher/ }).fill(tag)
-  await expect(people).toHaveCount(1)
-  await expect(people.first()).toContainText(`Relance${suffix}`)
-})
-
-test('a committed import in the recent activity opens Prospection filtered on it', async ({ page }) => {
-  const suffix = uniqueSuffix()
-  const company = `Logistique HI${suffix}`
-  await importProspects(page, `accueil-import-${suffix}.xlsx`, [
-    { company, civility: 'Mme', first_name: 'Léa', last_name: `Import${suffix}` },
-  ])
-
-  const data = await openHome(page)
-
-  // Other tests import concurrently: take the newest committed import the page shows, whoever made it.
-  const shown = data.recent_imports.find((batch) => batch.status === 'committed')
-  expect(shown).toBeDefined()
-  await page.getByRole('list', { name: 'Derniers imports' }).getByRole('link', { name: shown?.filename }).first().click()
-  await expect(page).toHaveURL(`/prospection?import_batch=${shown?.id ?? ''}`)
-  await expect(page.getByRole('combobox', { name: 'Import' })).toHaveValue(shown?.id ?? '')
-})
-
-for (const [width, height] of [
-  [1440, 900],
-  [1280, 800],
-] as const) {
   for (const theme of ['dark', 'light'] as const) {
-    test(`home screenshots (${theme}, ${String(width)} px)`, async ({ page }) => {
-      await page.setViewportSize({ width, height })
-      await useTheme(page, theme)
-      await openHome(page)
-      await page.mouse.move(0, 0)
-      await page.screenshot({ path: `${SCREENSHOTS}/home-${theme}-${String(width)}.png`, animations: 'disabled' })
-      await page.screenshot({
-        path: `${SCREENSHOTS}/home-full-${theme}-${String(width)}.png`,
-        animations: 'disabled',
-        fullPage: true,
-      })
-      const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth)
-      expect(scrollWidth).toBeLessThanOrEqual(width)
-    })
+    await page.goto('/')
+    await useTheme(page, theme)
+    for (const width of [1440, 1024, 390]) {
+      await page.setViewportSize({ width, height: 1000 })
+      // Other specs may add people concurrently: compare with the exact response this visit renders.
+      const answer = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/home/dashboard' && response.ok())
+      await page.goto('/')
+      const shown = await (await answer).json() as HomeDashboard
+      await expect(page.getByRole('heading', { name: 'Accueil', exact: true })).toBeVisible()
+      await expect(page.getByRole('combobox', { name: 'Recherche globale' })).toBeVisible()
+      const totals = page.getByRole('list', { name: 'Chiffres clés' })
+      const growth = page.getByRole('list', { name: 'Nouveautés cette semaine' })
+      await expect(totals.getByRole('link')).toHaveCount(4)
+      await expect(growth.getByRole('link')).toHaveCount(2)
+      for (const [index, value] of [shown.prospects, shown.companies, shown.contacted, shown.appointments].entries()) {
+        await expect(totals.locator('.home-stat__value').nth(index)).toHaveText(new Intl.NumberFormat('fr-FR').format(value))
+      }
+      const cards = totals.getByRole('link')
+      const boxes = await Promise.all([0, 1, 2, 3].map((index) => cards.nth(index).boundingBox()))
+      expect(boxes.every(Boolean)).toBe(true)
+      if (width === 1440) expect(new Set(boxes.map((box) => box?.y)).size).toBe(1)
+      if (width === 1024) expect(new Set(boxes.map((box) => box?.y)).size).toBe(2)
+      if (width === 390) expect(new Set(boxes.map((box) => box?.y)).size).toBe(4)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
+      if (width === 390) {
+        const search = page.getByRole('combobox', { name: 'Recherche globale' })
+        await search.fill(tag)
+        await expect(page.getByRole('listbox')).toBeVisible()
+        expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
+        await search.fill('')
+        await search.press('Escape')
+      }
+      expect(await page.locator('.home-stat__value').evaluateAll((values) => values.every((value) => value.scrollWidth <= value.clientWidth))).toBe(true)
+      await expect(page.getByRole('main').getByRole('table')).toHaveCount(0)
+      await page.evaluate(() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); window.scrollTo(0, 0) })
+      await page.screenshot({ path: `test-results/home-dashboard-${theme}-${String(width)}.png`, fullPage: true })
+    }
   }
+
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.goto('/')
+  await page.getByRole('list', { name: 'Chiffres clés' }).getByRole('link', { name: /Prospects$/ }).click()
+  await expect(page.getByRole('list', { name: 'Prospects', exact: true })).toBeVisible()
+  await page.goto('/')
+  await page.getByRole('list', { name: 'Chiffres clés' }).getByRole('link', { name: /Entreprises$/ }).click()
+  await expect(page.getByRole('heading', { name: 'Entreprises', exact: true })).toBeVisible()
+  await page.goto('/')
+  await page.getByRole('list', { name: 'Chiffres clés' }).getByRole('link', { name: /Contactés$/ }).click()
+  await expect(page.getByRole('button', { name: /^Prospects contactés/ })).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.getByRole('list', { name: 'Prospects contactés' })).toBeVisible()
+  await page.goto('/')
+  await page.getByRole('list', { name: 'Chiffres clés' }).getByRole('link', { name: /RDV pris$/ }).click()
+  await expect(page).toHaveURL(/segment=appointments/)
+  await expect(page.getByRole('list', { name: 'Prospects', exact: true })).toBeVisible()
+
+  for (const [kind, expected] of [['entreprise', 1], ['prospect', 2]] as const) {
+    await page.goto('/')
+    await page.getByRole('list', { name: 'Nouveautés cette semaine' }).getByRole('link', { name: new RegExp(kind) }).click()
+    await expect(page.getByRole('group', { name: 'Filtre de date de création' })).toBeVisible()
+    const params = new URL(page.url()).searchParams
+    expect(params.get('created_from')).toBe(data.week_start)
+    expect(params.get('created_to')).toBe(data.week_end)
+    params.set('q', tag)
+    const result = await page.request.get(`/api/${kind === 'entreprise' ? 'companies' : 'prospection/prospects'}?${params.toString()}`)
+    expect((await result.json() as { total: number }).total).toBe(expected)
+    await page.getByRole('button', { name: 'Retirer le filtre de création' }).click()
+    await expect(page.getByRole('group', { name: 'Filtre de date de création' })).toHaveCount(0)
+    expect(new URL(page.url()).searchParams.has('created_from')).toBe(false)
+  }
+  await page.goto('/')
+  await page.getByRole('link', { name: 'Importer Excel', exact: true }).click()
+  await expect(page).toHaveURL(/\/prospection\/import/)
+  await page.goto('/')
+  await page.getByRole('link', { name: 'Ouvrir la prospection', exact: true }).click()
+  await expect(page).toHaveURL(/\/prospection$/)
+})
+
+async function dashboard(page: Page): Promise<HomeDashboard> {
+  const result = await page.request.get('/api/home/dashboard')
+  expect(result.ok(), await result.text()).toBe(true)
+  return await result.json() as HomeDashboard
 }

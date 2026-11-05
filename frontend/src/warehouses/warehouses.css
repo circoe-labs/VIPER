@@ -1,0 +1,65 @@
+.warehouses-page { display: grid; gap: var(--space-5); min-width: 0; }
+.warehouses-page .page-header { margin-bottom: var(--space-2); }
+.warehouse-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4); }
+.warehouse-toolbar .search-field { flex: 1; min-width: min(100%, 15rem); max-width: 42rem; }
+.warehouse-muted { color: var(--color-text-muted); font-size: var(--text-sm); line-height: 1.6; }
+.warehouse-error { color: var(--color-danger-fg); }
+.warehouse-notice { color: var(--color-success-fg); }
+.warehouse-list { display: grid; gap: var(--space-3); }
+.warehouse-card { min-width: 0; border: var(--border-width) solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); overflow: hidden; }
+.warehouse-card__header { display: flex; align-items: center; gap: var(--space-3); padding-right: var(--space-4); }
+.warehouse-card__toggle { display: flex; flex: 1; min-width: 0; align-items: center; gap: var(--space-3); padding: var(--space-4); border: 0; background: transparent; color: var(--color-text); text-align: left; cursor: pointer; }
+.warehouse-card__toggle:hover { background: var(--color-surface-hover); }
+.warehouse-card__icon { display: grid; place-items: center; flex: none; width: 42px; height: 42px; border-radius: var(--radius-md); background: var(--color-info-soft); color: var(--color-info-fg); }
+.warehouse-card__identity { display: grid; gap: var(--space-1); flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.warehouse-card__identity > span { color: var(--color-text-muted); font-size: var(--text-sm); }
+.warehouse-card__toggle > svg { flex: none; color: var(--color-accent-fg); stroke-width: 3; }
+.warehouse-card__chevron--open { transform: rotate(180deg); }
+.warehouse-card__details { padding: var(--space-5); border-top: var(--border-width) solid var(--color-border); }
+.warehouse-card__details h3 { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-md); margin-bottom: var(--space-2); }
+.warehouse-owner { padding-bottom: var(--space-4); margin-bottom: var(--space-4); border-bottom: var(--border-width) solid var(--color-border); }
+.warehouse-contacts { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); margin: var(--space-3) 0 0; padding: 0; list-style: none; }
+.warehouse-contacts > li { min-width: 0; display: grid; align-content: start; justify-items: start; gap: var(--space-2); padding: var(--space-4); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-md); background: var(--color-canvas); }
+.warehouse-contact-email { color: var(--color-text); font-size: var(--text-sm); overflow-wrap: anywhere; }
+.warehouse-contacts a, .warehouse-owner a { color: var(--color-info-fg); font-size: var(--text-sm); }
+.warehouse-address { display: flex; align-items: flex-start; gap: var(--space-2); margin-bottom: var(--space-4); color: var(--color-text-muted); font-size: var(--text-sm); }
+.warehouse-address p > span { display: block; margin-top: var(--space-1); }
+.warehouse-source { margin-top: var(--space-4); color: var(--color-text-muted); font-size: var(--text-xs); }
+.warehouse-notes { white-space: pre-wrap; margin-top: var(--space-4); }
+.warehouse-pagination, .warehouse-form__actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: var(--space-3); }
+.warehouse-form { display: grid; gap: var(--space-5); }
+.warehouse-form fieldset { display: grid; gap: var(--space-3); min-width: 0; border: 0; padding: 0; }
+.warehouse-form legend { font-weight: var(--weight-semibold); margin-bottom: var(--space-3); }
+.warehouse-form__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
+.warehouse-form .warehouse-contact-form { border: var(--border-width) solid var(--color-border); border-radius: var(--radius-md); padding: var(--space-4); }
+.warehouse-import-preview { display: grid; gap: var(--space-3); }
+.warehouse-import-preview ul { max-height: 18rem; overflow-y: auto; padding-left: var(--space-5); font-size: var(--text-sm); line-height: 1.8; }
+@media (max-width: 60rem) { .warehouses-page .page-header { align-items: flex-start; flex-direction: column; gap: var(--space-4); } }
+@media (max-width: 48rem) {
+  .app-shell:has(.warehouses-page), .app-shell[data-sidebar='collapsed']:has(.warehouses-page) { grid-template-columns: 60px minmax(0, 1fr); }
+  .app-shell:has(.warehouses-page) .app-shell__main { padding: 24px 16px; }
+  .app-shell:has(.warehouses-page) .sidebar { padding: 16px 6px; }
+  .app-shell:has(.warehouses-page) .sidebar__brand { padding: 0; min-height: 32px; margin-bottom: 28px; }
+  .app-shell:has(.warehouses-page) .sidebar__brand img { max-width: 44px; height: auto !important; }
+  .app-shell:has(.warehouses-page) .nav-link { justify-content: center; padding: 0; }
+  .app-shell:has(.warehouses-page) .nav-link span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .app-shell:has(.warehouses-page) .sidebar__help, .app-shell:has(.warehouses-page) .api-status { display: none; }
+  .app-shell:has(.warehouses-page) .sidebar__footer { justify-content: center; }
+  .app-shell:has(.warehouses-page) .app-header { height: auto; min-height: 112px; padding: 10px 16px; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
+  .app-shell:has(.warehouses-page) .app-header__search { flex: 1 0 100%; min-width: 0; }
+  .app-shell:has(.warehouses-page) .global-search__popup { width: 100%; max-width: 100%; }
+  .app-shell:has(.warehouses-page) .user-menu__name { display: none; }
+  .warehouse-contacts, .warehouse-form__grid { grid-template-columns: minmax(0, 1fr); }
+  .warehouse-card__header { gap: var(--space-1); padding-right: var(--space-2); }
+  .warehouse-card__toggle { padding: var(--space-3); gap: var(--space-2); }
+  .warehouse-card__icon { display: none; }
+  .warehouse-card__details { padding: var(--space-3); }
+}
+
+/* Distinguish the owner from the people to contact, with text labels as well as colour. */
+.warehouse-owner { padding: var(--space-4); border: 1px solid var(--color-border); border-left: 4px solid var(--color-info-fg); border-radius: var(--radius-md); background: var(--color-info-soft); }
+.warehouse-contacts > li { border-left: 4px solid var(--color-success-fg); }
+.warehouse-contact-name { color: var(--color-success-fg); font-size: var(--text-md); }
+.warehouse-contacts p, .warehouse-owner p { overflow-wrap: anywhere; }
+
+.warehouse-contact-role { color: var(--color-danger-fg); font-weight: var(--weight-semibold); }

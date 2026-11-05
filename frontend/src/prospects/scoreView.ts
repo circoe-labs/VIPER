@@ -8,6 +8,9 @@ export const BAND_LABELS: Record<ScoreBand, string> = { red: 'Faible', yellow: '
 
 export const BAND_TONES: Record<ScoreBand, ScoreRingTone> = { red: 'danger', yellow: 'warning', green: 'success' }
 
+// Same bands, worded for the record's quality (DataQualityCard.tsx).
+export const DATA_QUALITY_LABELS: Record<ScoreBand, string> = { red: 'Insuffisante', yellow: 'Correcte', green: 'Bonne' }
+
 // Contributions by decreasing weight of what they bring: the positives (and zeros) from the largest, then the negatives
 // from the most damaging; equal deltas keep the API's order (a stable sort).
 export function sortContributions(contributions: readonly ScoreContribution[]): ScoreContribution[] {

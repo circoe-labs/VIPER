@@ -6,13 +6,14 @@ import {
   fetchProspectPage,
   filtersOf,
   PROSPECT_PAGE_SIZE,
-  type Review,
   useProspectionCounters,
   useProspectPage,
 } from '../api/prospection'
 import { ExportWorkbookButton } from '../exports/ExportWorkbookButton'
+import { CompanyDirectory } from '../companies/CompanyDirectory'
 import { useDebouncedValue } from '../settings/shared'
 import { Button } from '../ui/Button'
+import { CreationPeriod } from '../ui/CreationPeriod'
 import { EmptyState } from '../ui/EmptyState'
 import {
   AlertIcon,
@@ -36,7 +37,8 @@ import { ProspectList } from './ProspectList'
 import { useProspectEditor } from './prospectEditor'
 import { createProspectQueue, type ProspectQueue } from './queue'
 import { OverviewPanel } from './OverviewPanel'
-import { ReviewPanels } from './ReviewPanels'
+import { ValidationSummary } from './ValidationSummary'
+import { ContactActivity } from './ContactActivity'
 import './prospection.css'
 
 const NUMBER = new Intl.NumberFormat('fr-FR')
@@ -101,18 +103,13 @@ export function ProspectionPage() {
   )
 
   const openHref = (id: string) => `?${serializeView({ ...view, prospect: id }).toString()}`
-  // The full list stays folded on a plain visit; a deep link (segment, panel, filters, an open prospect) shows it.
-  const [showList, setShowList] = useState(() => hasSelection(view) || hasFilters(view) || view.prospect !== null)
+  // Start folded on every visit, including links with filters; actions on this page can open it.
+  const [showList, setShowList] = useState(false)
   const filtered = hasFilters(view)
   const emptyBase = counters.data?.counts.all === 0 && !filtered
   const last = page ? Math.min(page.offset + page.items.length, page.total) : 0
-  const hint = view.review ? REVIEW_INFO[view.review].hint : SEGMENT_INFO[view.segment].hint
-  const heading = selectionLabel(view)
-
-  // A panel replaces whatever segment Home's link opened: one reading at a time.
-  function selectReview(next: Review | null) {
-    refine({ review: next, segment: 'all' })
-  }
+  const hint = view.validated_only ? 'Emploi validé, indépendamment du statut de vérification de l’e-mail.' : view.segment === 'never_verified' && view.review === 'to_verify' ? 'Aucune validation de l’emploi enregistrée dans VIPER, hors prospects mis de côté.' : view.review ? REVIEW_INFO[view.review].hint : SEGMENT_INFO[view.segment].hint
+  const heading = view.validated_only ? `Prospects dont l’emploi est validé${hasSelection(view) ? ` — ${selectionLabel(view)}` : ''}` : view.segment === 'never_verified' && view.review === 'to_verify' ? 'Prospects sans validation de l’emploi enregistrée' : selectionLabel(view)
 
   return (
     <div className="prospection">
@@ -128,6 +125,10 @@ export function ProspectionPage() {
             <Link to="/prospection/verification" className="btn btn--primary btn--md">
               <CheckCircleIcon size={18} />
               Vérifier les fiches
+            </Link>
+            <Link to="/prospection/robin" className="btn btn--secondary btn--md">
+              <UsersIcon size={18} />
+              Qui connaît Robin ?
             </Link>
             <Link to="/prospection/companies" className="btn btn--ghost btn--md">
               <BuildingIcon size={18} />
@@ -183,10 +184,24 @@ export function ProspectionPage() {
         />
       ) : (
         <>
-          <OverviewPanel />
+          <OverviewPanel onOpenList={() => { setShowList(true) }} />
+          <ValidationSummary onSelect={(patch) => { update({ ...DEFAULT_VIEW, ...patch }); setShowList(true) }} />
+          <CreationPeriod start={view.created_from} end={view.created_to} onClear={() => { refine({ created_from: null, created_to: null }) }} />
 
-          <ReviewPanels counters={counters.data} active={view.review} onSelect={selectReview} />
+          <details className="prospection-exploration">
+            <summary>Entreprises, recherche et suivi commercial</summary>
+          <CompanyDirectory
+            value={view.company_kind ?? null}
+            onChange={(company_kind) => {
+              refine({ company_kind })
+              setShowList(true)
+            }}
+          />
 
+          <div className="prospection-section__head prospection-section__head--selection">
+            <h2>Explorer les prospects</h2>
+            <span>{filtered ? 'Recherche ou filtres actifs' : 'Tous les prospects · aucun filtre'}</span>
+          </div>
           <ProspectionFilters
             view={view}
             onChange={refine}
@@ -194,6 +209,9 @@ export function ProspectionPage() {
               <SearchField label="Rechercher : nom, entreprise, e-mail, téléphone" value={draft} onChange={setDraft} />
             }
           />
+
+          <ContactActivity counters={counters.isError ? undefined : counters.data} active={view.review ? 'all' : view.segment} onSelect={(segment) => { refine({ segment, review: null }); setShowList(true) }} />
+          </details>
 
           <section className="prospection__results" aria-labelledby="prospection-results-title">
             <div className="prospection__results-head">

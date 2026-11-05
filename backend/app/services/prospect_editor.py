@@ -65,6 +65,11 @@ from app.services.errors import (
     NotFoundError,
 )
 from app.services.history import HistoryActor, snapshot_actor
+from app.services.prospect_data_quality import (
+    DataQualityConfig,
+    DataQualityScore,
+    data_quality_of,
+)
 from app.services.prospect_score import ProspectScore, ScoreConfig, get_score
 from app.services.prospection.query import iso_week, prospect_verification_state
 from app.services.prospection.segments import SegmentContext, VerificationState
@@ -157,6 +162,8 @@ class EditorClock:
     stale_days: int | None = None
     # Base and band thresholds of the score shown in the view (from `Settings`).
     score: ScoreConfig = field(default_factory=ScoreConfig)
+    # Band thresholds of the data-quality score (its stale threshold is `stale_days`).
+    data_quality: DataQualityConfig = field(default_factory=DataQualityConfig)
 
     @property
     def segments(self) -> SegmentContext:
@@ -298,6 +305,8 @@ class ProspectView:
     stale_threshold_days: int | None
     # Computed on read from the notes' contributions (`prospect_score`); never stored.
     score: ProspectScore
+    # « Qualité de la fiche », computed on read; None for a prospect under durable opposition.
+    data_quality: DataQualityScore | None
     created_at: datetime
     updated_at: datetime
 
@@ -326,6 +335,14 @@ def _local_parts(moment: datetime) -> tuple[date, time | None]:
     local = moment.astimezone(BUSINESS_TIMEZONE)
     at = local.time().replace(second=0, microsecond=0)
     return local.date(), (None if at == time() else at)
+
+
+def _data_quality(prospect: Prospect, clock: EditorClock) -> DataQualityScore | None:
+    """No score under durable opposition: the record is not worked on, the UI says « Écarté »."""
+    if prospect.contactability_status is ContactabilityStatus.DO_NOT_CONTACT:
+        return None
+    config = replace(clock.data_quality, stale_days=clock.stale_days)
+    return data_quality_of(prospect, clock.now, config)
 
 
 def _imported_unverified(channel: Email | Phone) -> bool:
@@ -485,6 +502,7 @@ def get_view(session: Session, prospect_id: uuid.UUID, clock: EditorClock) -> Pr
         today=clock.segments.today,
         stale_threshold_days=clock.stale_days,
         score=get_score(session, prospect.id, clock.score),
+        data_quality=_data_quality(prospect, clock),
         created_at=prospect.created_at,
         updated_at=prospect.updated_at,
     )

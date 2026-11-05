@@ -52,6 +52,7 @@ from app.services import history, prospect_editor, prospect_notes
 from app.services.contact_channels import ChannelItem
 from app.services.contact_workflow import PauseReason
 from app.services.errors import InvalidFieldError
+from app.services.prospect_data_quality import DataQualityConfig, DataQualityScore
 from app.services.prospect_editor import (
     EditorClock,
     EditorResult,
@@ -327,6 +328,8 @@ class ProspectOut(BaseModel):
     stale_threshold_days: int | None
     # Computed by the backend from the notes' contributions: the UI only displays it.
     score: ProspectScore
+    # « Qualité de la fiche » (automatic, separate from `score`); null under durable opposition.
+    data_quality: DataQualityScore | None
     created_at: datetime
     updated_at: datetime
 
@@ -353,6 +356,7 @@ def editor_clock(settings: SettingsDep) -> EditorClock:
         now=datetime.now(UTC),
         stale_days=settings.verification_stale_days,
         score=ScoreConfig.from_settings(settings),
+        data_quality=DataQualityConfig.from_settings(settings),
     )
 
 
@@ -389,6 +393,19 @@ def prospect_form(body: ProspectIn) -> ProspectForm:
         ],
         tracking=TrackingForm(**tracking.model_dump()) if tracking else None,
     )
+
+
+MAX_NOTE_BATCH = 200
+
+
+@router.get("/notes")
+def list_notes_of_many(
+    session: SessionDep,
+    ids: Annotated[list[uuid.UUID], Query(max_length=MAX_NOTE_BATCH)],
+) -> list[NoteOut]:
+    """The notes of several prospects (`?ids=a&ids=b`), newest observed first: a list page reads
+    them in one request instead of one per row. Declared before `/{prospect_id}`."""
+    return [note_out(note) for note in prospect_notes.notes_of_many(session, ids)]
 
 
 @router.get("/{prospect_id}")

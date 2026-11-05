@@ -1,5 +1,23 @@
 # Prospection — segments, counters, filters and the people list (Task 14)
 
+Prospection now separates the global base overview, employment validation, company directory,
+search/filters and commercial follow-up. The validated-prospect view remains at
+`/contacts-joignables`; see [prospects-dashboard.md](prospects-dashboard.md).
+
+The main validation strip uses three exhaustive, exclusive groups: employment validated
+(`verification_validated()`), ignored, and the remainder with no employment validation recorded.
+Email verification never removes employment validation. `/api/prospection/overview` exposes these
+three totals; `?validated_only=true` opens exactly the validated employment list. The pending link
+uses `segment=never_verified&review=to_verify`, excluding ignored prospects.
+
+The former review cards and their weekly figures are no longer displayed on this page. Their
+legacy API predicates below remain available for existing links. A missing campaign cohort is
+labelled **Sans campagne**, never **Non validé**: campaign membership and employment validation
+are independent. Rows show employment validation separately from outstanding email/channel checks.
+Global figures exclude search filters; commercial indicators follow them and may overlap (responses
+include appointments). Deletions are shown as historical context, already excluded from current totals.
+The canonical segment definitions below remain authoritative.
+
 Prospection (`/prospection`) is the daily manual-work page: isolate the next people to verify or contact, open them,
 move on. Its counters are filters over **one canonical set of segment definitions** that Home (Task 16) reuses
 verbatim — never re-derive "due" or "no response" elsewhere.

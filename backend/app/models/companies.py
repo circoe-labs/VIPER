@@ -13,10 +13,12 @@ from sqlalchemy import (
     false,
     text,
 )
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
-from app.models.common import TimestampMixin, UUIDPrimaryKeyMixin, trigram_index
+from app.models.common import TimestampMixin, UUIDPrimaryKeyMixin, text_enum, trigram_index
+from app.models.enums import CompanyKind
 from app.models.taxonomies import ActivityCategory
 
 company_activity_categories = Table(
@@ -42,6 +44,13 @@ class Company(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         CheckConstraint("btrim(display_name) <> ''", name="display_name_not_blank"),
         CheckConstraint("siren ~ '^[0-9]{9}$'", name="siren_format"),
         CheckConstraint(
+            "proposed_services <@ ARRAY['iguard','flexisme','transepteur',"
+            "'iadvice','emailing']::varchar[] "
+            "AND array_position(proposed_services, NULL) IS NULL",
+            name="services_allowed",
+        ),
+        Index("ix_companies_proposed_services", "proposed_services", postgresql_using="gin"),
+        CheckConstraint(
             "email_domain = lower(email_domain) AND email_domain ~ '^[^@\\s]+\\.[^@\\s]+$'",
             name="email_domain_format",
         ),
@@ -58,6 +67,11 @@ class Company(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     website_url: Mapped[str | None] = mapped_column(Text)
     email_domain: Mapped[str | None] = mapped_column(String(253), index=True)
     size_label: Mapped[str | None] = mapped_column(String(100))
+    # NULL = not classified yet (PME / grande entreprise / institutionnel), set by a person.
+    company_kind: Mapped[CompanyKind | None] = mapped_column(text_enum(CompanyKind, "company_kind"))
+    proposed_services: Mapped[list[str]] = mapped_column(
+        ARRAY(String(32)), server_default=text("'{}'"), nullable=False
+    )
     commercial_segment_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("commercial_segments.id", ondelete="RESTRICT"), index=True
     )

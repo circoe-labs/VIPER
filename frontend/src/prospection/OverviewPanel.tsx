@@ -1,66 +1,35 @@
-import { useProspectionOverview } from '../api/prospection'
+import { Link } from 'react-router'
+import { useCompanyCounts } from '../api/companies'
+import { filtersOf, useProspectionCounters, useProspectionOverview } from '../api/prospection'
+import { DEFAULT_VIEW } from './criteria'
+import { BuildingIcon, CalendarIcon, ChevronRightIcon, MailIcon, UsersIcon } from '../ui/icons'
 import './overview.css'
 
 const NUMBER = new Intl.NumberFormat('fr-FR')
-const PERCENT = new Intl.NumberFormat('fr-FR', { style: 'percent', maximumFractionDigits: 0 })
 
-// The whole base in three exact figures — people held, contacted, deleted since the start — and one bar showing how much
-// of the base has been reached. Not narrowed by the search or the filters below: these are the base's own numbers.
-export function OverviewPanel() {
+// These figures describe the whole base. Search and work filters live in the next section.
+export function OverviewPanel({ onOpenList }: { onOpenList?: () => void }) {
   const overview = useProspectionOverview()
-  const data = overview.data
-  if (overview.isError) {
-    return (
-      <section className="overview" aria-labelledby="overview-title">
-        <h2 id="overview-title" className="eyebrow">
-          Bilan de la base
-        </h2>
-        <p className="overview__error" role="alert">
-          Bilan indisponible ({overview.error.message}).
-        </p>
-      </section>
-    )
-  }
-  const notContacted = data ? Math.max(data.total - data.contacted, 0) : 0
-  const share = data && data.total > 0 ? data.contacted / data.total : 0
-  return (
-    <section className="overview" aria-labelledby="overview-title">
-      <h2 id="overview-title" className="eyebrow">
-        Bilan de la base
-      </h2>
-      <dl className="overview__figures">
-        <div className="overview__figure">
-          <dt>Prospects actuellement dans la base</dt>
-          <dd>{data ? NUMBER.format(data.total) : '–'}</dd>
-        </div>
-        <div className="overview__figure overview__figure--contacted">
-          <dt>Contactés</dt>
-          <dd>{data ? NUMBER.format(data.contacted) : '–'}</dd>
-        </div>
-        <div className="overview__figure overview__figure--deleted">
-          <dt>Supprimés (déjà retirés de la base)</dt>
-          <dd>{data ? NUMBER.format(data.deleted) : '–'}</dd>
-        </div>
-      </dl>
-      {data && data.total > 0 && (
-        <figure className="overview__chart">
-          <svg
-            viewBox="0 0 100 4"
-            preserveAspectRatio="none"
-            role="img"
-            aria-label={`${NUMBER.format(data.contacted)} prospects contactés sur ${NUMBER.format(data.total)} (${PERCENT.format(share)}), ${NUMBER.format(notContacted)} pas encore contactés`}
-          >
-            <rect className="overview__bar-rest" x="0" y="0" width="100" height="4" rx="1" />
-            <rect className="overview__bar-contacted" x="0" y="0" width={share * 100} height="4" rx="1" />
-          </svg>
-          <figcaption>
-            <span className="overview__key overview__key--contacted">
-              Contactés : {NUMBER.format(data.contacted)} ({PERCENT.format(share)})
-            </span>
-            <span className="overview__key">Pas encore contactés : {NUMBER.format(notContacted)}</span>
-          </figcaption>
-        </figure>
-      )}
-    </section>
-  )
+  const companies = useCompanyCounts()
+  const counters = useProspectionCounters(filtersOf(DEFAULT_VIEW))
+  const cards = [
+    { label: 'Prospects', value: overview.data?.total, error: overview.isError, icon: UsersIcon, href: '/prospection?list=1', hint: 'Personnes présentes dans la base', tone: 'blue' },
+    { label: 'Entreprises', value: companies.data?.all, error: companies.isError, icon: BuildingIcon, href: '/prospection/companies', hint: 'Fiches entreprises distinctes', tone: 'purple' },
+    { label: 'Avec un échange', value: overview.data?.contacted, error: overview.isError, icon: MailIcon, href: '/prospection?segment=contacted', hint: 'Envoi, réponse ou RDV enregistré', tone: 'green' },
+    { label: 'RDV pris', value: counters.data?.counts.appointments, error: counters.isError, icon: CalendarIcon, href: '/prospection?segment=appointments', hint: 'Prospects avec un rendez-vous enregistré', tone: 'orange' },
+  ]
+  return <section className="overview" aria-labelledby="overview-title">
+    <div className="prospection-section__head">
+      <h2 id="overview-title">Vue d’ensemble</h2>
+      <span>Toute la base · hors filtres</span>
+    </div>
+    <div className="overview__figures">
+      {cards.map(({ label, value, error, icon: Icon, href, hint, tone }) => <Link key={label} to={href} onClick={onOpenList} className={`overview__figure overview__figure--${tone}`}>
+        <span className="overview__label"><Icon size={19} />{label}<ChevronRightIcon size={16} /></span>
+        <strong>{error ? 'Indisponible' : value === undefined ? '…' : NUMBER.format(value)}</strong>
+        <span className="overview__hint">{hint}</span>
+      </Link>)}
+    </div>
+    <p className="overview__archive">{overview.isError ? 'Historique des suppressions indisponible.' : overview.data ? `${NUMBER.format(overview.data.deleted)} prospects supprimés depuis l’origine, déjà exclus des chiffres ci-dessus.` : 'Chargement du bilan…'}</p>
+  </section>
 }

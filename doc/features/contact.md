@@ -19,6 +19,35 @@ Every endpoint below requires a session; `PUT`/`POST` also the CSRF header (`X-C
 shared shape `{"detail": {"code": "...", "message": "...", ...}}`; a malformed request (unknown field, wrong type,
 missing `expected_revision`, naive `scheduled_at`, unknown step/counter) is FastAPI's 422 `{"detail": [...]}`.
 
+## Contact page: contacted prospects
+
+The **Contacts** landing page keeps `/contact` and the existing shell/navigation routes. It shows a five-bar
+chart, search, status and company filters, then one initially collapsed category, **Prospects contactés**.
+Rows are compact, with on-demand inline details (real prospect coordinates and complete sequence history),
+the existing workbench, and links to the prospect editor. The Add contact button opens the existing creation
+flow at `/prospection?prospect=new`. Pagination remains 200 prospects per page.
+
+`GET /api/contact/overview` uses the same search/company/commercial-state/level predicates as
+`GET /api/contact/prospects?category=contacted`. Its histogram partitions each prospect once by the latest
+recorded send across all sequences: Contact, R1, R2, R3, R4 or later. The bars have no visible category labels;
+their accessible descriptions identify the actual steps. Zero means a real zero, never a demo value.
+
+Each bar's separate date annotation uses `PUT /api/contact/chart-dates/{slot}` (slot 0–4,
+`{"send_date": "YYYY-MM-DD" | null}`). Migration 0020 extends the existing audited `app_settings` keys with
+five independent `contact.chart.date_<slot>` values; absent values are empty. These are human chart notes,
+not scheduled sends: they never change individual message dates, sequence due dates or the dispatcher.
+The list's `last_contact_at` reads the latest real send or recorded response, including previous sequences.
+
+A prospect belongs to it once at least one message is recorded as `sent`, including an imported/manual send or
+one in a previous sequence. Drafts, validated, scheduled and cancelled messages do not qualify. Subsequent
+cohort changes/removal, replies, appointments or other commercial states do not erase that contact history.
+The workbench and its message actions remain available from the list and direct prospect links.
+
+The Contacts-only palette and responsive shell overrides live in `contact/contacts-crm.css`; other routes retain
+their styles. On small screens the chart scrolls horizontally with dates aligned beneath their respective bars.
+Validation: `tests/test_contact_presentation.py`, Contact page component tests and `e2e/contact-crm.spec.ts`
+(real API, dedicated synthetic E2E database, desktop/mobile screenshots).
+
 ## Cohorts, sequences and alerts (sequences rework)
 
 - **Cohort** `Sxx`: a prospecting session with the **real date** of its first send, entered by a person (never an ISO

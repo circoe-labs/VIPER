@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import { company } from '../test/companiesApi'
 import { prospect } from '../test/prospectionApi'
-import { companySummary, lastBody, prospectDetail, stubProspectsApi } from '../test/prospectsApi'
+import { companySummary, lastBody, prospectDetail, qualityAlert, stubProspectsApi } from '../test/prospectsApi'
 import { renderApp } from '../test/render'
 
 const employer = company('Transports Exemple SARL')
@@ -55,7 +55,71 @@ function people({ withPhone = true }: { withPhone?: boolean } = {}) {
   return stubProspectsApi({ details: [anne, bruno], rows, companies: [employer] })
 }
 
+function pagedPeople(uncertainCount: number, remaining: number) {
+  const details = Array.from({ length: uncertainCount + remaining }, (_, index) => prospectDetail({
+    civility: 'mr',
+    first_name: 'Personne',
+    last_name: `Fiche ${String(index + 1)}`,
+    exact_job_title: 'Directeur',
+    company: companySummary(employer),
+    emails: [email(`personne${String(index)}@exemple.test`)],
+    phones: [phone('+33235226424')],
+  }))
+  const rows = details.map((detail) => prospect('Personne', detail.last_name ?? '', { id: detail.id }, ['never_verified']))
+  const api = stubProspectsApi({
+    details,
+    rows,
+    companies: [employer],
+    alerts: details.slice(0, uncertainCount).map((detail) => qualityAlert({ prospect_id: detail.id })),
+  })
+  return { api, rows }
+}
+
 describe('Espace de vérification', () => {
+  it('finds the remaining fiche beyond a whole page of doubts, and lets you resume it after a skip', async () => {
+    pagedPeople(50, 1)
+    renderApp('/prospection/verification')
+
+    expect(await screen.findByDisplayValue('Fiche 51')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Passer' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Reprendre les fiches passées' }))
+
+    expect(await screen.findByDisplayValue('Fiche 51')).toBeInTheDocument()
+  })
+
+  it('keeps later fiches accessible when a validation shrinks the pages, then resumes skipped fiches', async () => {
+    const { rows } = pagedPeople(49, 3)
+    renderApp('/prospection/verification')
+    await screen.findByDisplayValue('Fiche 50')
+    await userEvent.click(screen.getByRole('button', { name: 'Passer' }))
+    await screen.findByDisplayValue('Fiche 51')
+
+    // Saving removes this fiche from the server list, moving fiche 52 up one place.
+    rows.splice(50, 1)
+    await userEvent.click(screen.getByRole('button', { name: 'Valider et suivant' }))
+    expect(await screen.findByDisplayValue('Fiche 52')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Passer' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Reprendre les fiches passées' }))
+
+    expect(await screen.findByDisplayValue('Fiche 50')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Passer' }))
+    expect(await screen.findByDisplayValue('Fiche 52')).toBeInTheDocument()
+  })
+
+  it('does not count a skipped fiche twice when revisiting it', async () => {
+    people()
+    renderApp('/prospection/verification')
+    await screen.findByDisplayValue('Premier')
+    await userEvent.click(screen.getByRole('button', { name: 'Passer' }))
+    await screen.findByDisplayValue('Second')
+    await userEvent.click(screen.getByRole('button', { name: 'Retour' }))
+    await screen.findByDisplayValue('Premier')
+    await userEvent.click(screen.getByRole('button', { name: 'Passer' }))
+
+    expect(await screen.findByDisplayValue('Second')).toBeInTheDocument()
+    expect(screen.getByText(/1 passée/)).toBeInTheDocument()
+  })
+
   it('shows the first fiche to verify and the number left', async () => {
     people()
     renderApp('/prospection/verification')
@@ -90,17 +154,32 @@ describe('Espace de vérification', () => {
     expect(body.emails[0]?.verified_now).toBe(true)
   })
 
-  it('renames the company when its name was edited, then validates', async () => {
+  it('keeps the company untouched when its name is not edited', async () => {
     const api = people()
     renderApp('/prospection/verification')
-    const field = await screen.findByLabelText('Entreprise')
-    await userEvent.clear(field)
-    await userEvent.type(field, 'Transports Exemple Groupe')
+    expect(await screen.findByLabelText('Entreprise')).toHaveValue('Transports Exemple SARL')
 
     await userEvent.click(screen.getByRole('button', { name: 'Valider et suivant' }))
 
     expect(await screen.findByDisplayValue('Second')).toBeInTheDocument()
-    expect(api.companies.find((row) => row.id === employer.id)?.display_name).toBe('Transports Exemple Groupe')
+    expect(api.requests.some((request) => request.method !== 'GET' && request.path.includes('/companies'))).toBe(false)
+  })
+
+  it('moves only this fiche to a new company typed as plain text, never renaming the shared one', async () => {
+    const api = people()
+    renderApp('/prospection/verification')
+    const field = await screen.findByLabelText('Entreprise')
+    await userEvent.clear(field)
+    await userEvent.type(field, 'Nouvelle Société')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Valider et suivant' }))
+
+    expect(await screen.findByDisplayValue('Second')).toBeInTheDocument()
+    expect(api.companies.find((row) => row.id === employer.id)?.display_name).toBe('Transports Exemple SARL')
+    expect(api.requests.some((request) => request.method === 'PUT' && request.path.includes('/companies'))).toBe(false)
+    const created = api.companies.find((row) => row.display_name === 'Nouvelle Société')
+    expect(created).toBeDefined()
+    expect((lastBody(api.requests, 'PUT') as { company_id: string }).company_id).toBe(created?.id)
   })
 
   it('marks the empty boxes in red on « Valider » and validates on the second press', async () => {

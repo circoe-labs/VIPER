@@ -82,6 +82,16 @@ describe('Prospect editor — Profil summary', () => {
     }
   })
 
+  it('copies a labelled, readable summary of the main details', async () => {
+    const user = userEvent.setup()
+    await open(complete())
+    await waitFor(() => expect(region('Résumé du profil')).toHaveTextContent('Transports Exemple SARL'))
+    await user.click(within(region('Résumé du profil')).getByRole('button', { name: 'Copier les informations' }))
+    expect(await navigator.clipboard.readText()).toContain('E-mail : jean@exemple.example')
+    expect(await navigator.clipboard.readText()).toContain('Entreprise : Transports Exemple SARL')
+    expect(within(region('Résumé du profil')).getByRole('status')).toHaveTextContent('Fiche copiée')
+  })
+
   it('says so when the e-mail or the phone is missing', async () => {
     await open(complete({ emails: [], phones: [] }))
 
@@ -153,7 +163,9 @@ describe('Prospect editor — Profil summary', () => {
     expect(slot).not.toBeNull()
     expect(slot?.closest('.prospect-editor__side')).not.toBeNull()
     expect(within(slot as HTMLElement).getByRole('region', { name: 'Score prospect' })).toBeInTheDocument()
-    expect(slot?.nextElementSibling).toBe(region('Entreprise'))
+    // The data-quality card follows the interest score, then the company.
+    expect(slot?.nextElementSibling).toBe(region('Qualité de la fiche'))
+    expect(region('Qualité de la fiche').nextElementSibling).toBe(region('Entreprise'))
   })
 })
 

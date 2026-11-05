@@ -9,14 +9,9 @@ import type { ToolboxState } from './toolbox'
 // Mirrors backend/app/api/routes/contact.py (the Contact dashboard and list) and contact_messages.py (the mail
 // sequence Contact / R1 / R2 of one prospect). Rules and refusal codes: doc/features/contact.md.
 
-// The cohorts of the campaign, one section each on the Contact page (a cohort without prospect yet stays empty).
-export const CAMPAIGN_COHORTS = ['S37', 'S39', 'S40', 'S41', 'S43', 'S44', 'S45', 'S46', 'S47'] as const
-export type CampaignCohort = (typeof CAMPAIGN_COHORTS)[number]
-// The sections of the page: the cohorts, then the people who took an appointment (« RDV pris », whatever the cohort).
-export const APPOINTMENTS = 'RDV'
-// Then the people set aside (replied, not interested, invalid mail…): out of every cohort's list.
-export const SET_ASIDE = 'ECARTES'
-export const CONTACT_SECTIONS = [...CAMPAIGN_COHORTS, APPOINTMENTS, SET_ASIDE] as const
+// One Contact category, across all cohorts: prospects with at least one recorded send.
+export const CONTACTED = 'CONTACTES'
+export const CONTACT_SECTIONS = [CONTACTED] as const
 export type ContactSection = (typeof CONTACT_SECTIONS)[number]
 
 // The steps every sequence has; the server adds R3… up to « max relances » (Paramètres, 4 by default).
@@ -113,6 +108,9 @@ export interface ContactRow {
   messages: Record<string, MessageStatus | null>
   // When each step really left (`sent_at`) or is scheduled for (`scheduled_at`), by step code.
   message_dates?: Record<string, { sent_at: string | null; scheduled_at: string | null }>
+  primary_phone?: string | null
+  last_contact_at?: string | null
+  last_email_sent_at?: string | null
 }
 
 export interface ContactPage {
@@ -122,14 +120,57 @@ export interface ContactPage {
   offset: number
 }
 
-// A section's whole list, alphabetical by company; `q` narrows it like the search box. A cohort lists every state but
-// the appointment, which « RDV pris » lists apart.
+// Already contacted prospects, alphabetical by company; `q` narrows the list.
 export interface ContactListCriteria {
   section: ContactSection | null
   q: string
+  status?: string | null
+  company?: string | null
 }
 
-// A section lists its whole cohort in one page (the API caps a page at 200).
+export interface ContactChartBar {
+  slot: number
+  label: string
+  count: number
+  send_date: string | null
+}
+
+export interface ContactOverview {
+  today: string
+  total: number
+  bars: ContactChartBar[]
+  companies: { id: string; label: string }[]
+  statuses: { value: string; label: string }[]
+  dispatch: DispatchState
+}
+
+function contactFilterParams(criteria: ContactListCriteria): URLSearchParams {
+  const params = new URLSearchParams()
+  if (criteria.q.trim()) params.set('q', criteria.q.trim())
+  if (criteria.company) params.set('company', criteria.company)
+  if (criteria.status?.startsWith('state:')) params.set('tracking_status', criteria.status.slice(6))
+  if (criteria.status?.startsWith('level:')) params.set('level', criteria.status.slice(6))
+  return params
+}
+
+export function useContactOverview(criteria: ContactListCriteria) {
+  return useQuery({
+    queryKey: [...contactKeys.all, 'overview', criteria],
+    queryFn: ({ signal }) => apiGet<ContactOverview>(`/contact/overview?${contactFilterParams(criteria).toString()}`, signal),
+    placeholderData: keepPreviousData,
+  })
+}
+
+export function useChartDateMutation() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({ slot, date }: { slot: number; date: string | null }) =>
+      apiRequest<{ send_date: string | null }>('PUT', `/contact/chart-dates/${String(slot)}`, { body: { send_date: date } }),
+    onSuccess: async () => { await refreshAfterWrite(client, [[...contactKeys.all, 'overview']]) },
+  })
+}
+
+// The API caps a page at 200; the category provides pagination.
 export const CONTACT_PAGE_SIZE = 200
 
 export type ReviewVerdict = 'correct' | 'to_revise'
@@ -381,17 +422,9 @@ export function useContactScheduling() {
 }
 
 function listPath(criteria: ContactListCriteria, limit: number, offset: number): `/${string}` {
-  const params = new URLSearchParams()
-  if (criteria.section === APPOINTMENTS) {
-    params.set('category', 'appointment_obtained')
-  } else if (criteria.section === SET_ASIDE) {
-    params.set('category', 'set_aside')
-  } else {
-    params.set('category', 'cohort')
-    if (criteria.section) params.set('cohorts', criteria.section)
-  }
+  const params = contactFilterParams(criteria)
+  params.set('category', 'contacted')
   params.set('sort', 'company')
-  if (criteria.q.trim()) params.set('q', criteria.q.trim())
   params.set('limit', String(limit))
   params.set('offset', String(offset))
   return `/contact/prospects?${params.toString()}`

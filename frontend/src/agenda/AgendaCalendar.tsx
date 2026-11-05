@@ -1,4 +1,4 @@
-import type { MouseEvent } from 'react'
+import { type MouseEvent, useMemo } from 'react'
 
 import type { Appointment } from '../api/agenda'
 import { IconButton } from '../ui/Button'
@@ -6,6 +6,9 @@ import { MoreIcon } from '../ui/icons'
 import type { Point } from '../ui/floating'
 import { type AgendaView, dayFull, dayNumber, sameMonth, timeOf, weekdayShort } from './dates'
 import { who } from './AppointmentParts'
+import { frenchHolidays } from './holidays'
+import { calendarMood, type Celebration, celebrationsFor } from './seasonal'
+import { SeasonBanner } from './SeasonBanner'
 
 const MAX_CHIPS_IN_MONTH = 3
 const WEEKDAYS = ['lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.', 'dim.']
@@ -30,7 +33,7 @@ function Chip({
 }: Pick<CalendarProps, 'onOpen' | 'onMenu'> & { appointment: Appointment }) {
   const label = `${timeOf(appointment.starts_at)} ${who(appointment)}`
   return (
-    <li className={`agenda-chip agenda-chip--${appointment.status}`}>
+    <li className={`agenda-chip agenda-chip--${appointment.source} agenda-chip--${appointment.status}`}>
       <button
         type="button"
         className="agenda-chip__main"
@@ -63,8 +66,23 @@ function Chip({
 
 // Days of the month or the week, Monday first. On a phone the grid becomes a list of the days that have something.
 export function AgendaCalendar({ days, anchor, today, view, byDay, onOpen, onMenu, onShowWeek }: CalendarProps) {
+  const mood = calendarMood(anchor)
+  const { holidays, celebrations } = useMemo(() => {
+    const grouped = new Map<string, string[]>()
+    const occasions = new Map<string, Celebration>()
+    const years = new Set(days.map((day) => Number(day.slice(0, 4))))
+    for (const year of years) {
+      for (const [day, occasion] of celebrationsFor(year)) occasions.set(day, occasion)
+      for (const holiday of frenchHolidays(year)) {
+        grouped.set(holiday.day, [...(grouped.get(holiday.day) ?? []), holiday.name])
+      }
+    }
+    return { holidays: grouped, celebrations: occasions }
+  }, [days])
+
   return (
-    <div className={`agenda-grid agenda-grid--${view}`}>
+    <div className={`agenda-grid agenda-grid--${view} agenda-grid--${mood.season}`}>
+      <SeasonBanner day={anchor} />
       <div className="agenda-grid__head" aria-hidden="true">
         {WEEKDAYS.map((weekday) => (
           <span key={weekday}>{weekday}</span>
@@ -73,13 +91,17 @@ export function AgendaCalendar({ days, anchor, today, view, byDay, onOpen, onMen
       <div className="agenda-grid__days">
         {days.map((day) => {
           const items = byDay.get(day) ?? []
+          const holidayNames = holidays.get(day) ?? []
+          const celebration = celebrations.get(day)
           const shown = view === 'month' ? items.slice(0, MAX_CHIPS_IN_MONTH) : items
           const hidden = items.length - shown.length
           const classes = [
             'agenda-day',
             day === today && 'agenda-day--today',
             view === 'month' && !sameMonth(day, anchor) && 'agenda-day--outside',
-            items.length === 0 && 'agenda-day--empty',
+            holidayNames.length > 0 && 'agenda-day--holiday',
+            celebration && 'agenda-day--celebration',
+            items.length === 0 && holidayNames.length === 0 && !celebration && 'agenda-day--empty',
           ]
             .filter(Boolean)
             .join(' ')
@@ -89,6 +111,19 @@ export function AgendaCalendar({ days, anchor, today, view, byDay, onOpen, onMen
                 <span className="agenda-day__weekday">{weekdayShort(day)} </span>
                 <span className="agenda-day__number">{dayNumber(day)}</span>
               </h3>
+              {celebration && (
+                <div className="agenda-day__celebration" title={holidayNames.includes(celebration.name) ? `Jour férié : ${celebration.name}` : celebration.name}>
+                  <span className="agenda-day__festive-icons" aria-hidden="true">
+                    {celebration.decorations.map((symbol, index) => <span key={index}>{symbol}</span>)}
+                  </span>
+                  <span className={holidayNames.includes(celebration.name) ? 'agenda-day__holiday' : 'agenda-day__occasion'}>{celebration.name}</span>
+                </div>
+              )}
+              {holidayNames.filter((name) => name !== celebration?.name).map((name) => (
+                <p key={name} className="agenda-day__holiday" title={`Jour férié : ${name}`}>
+                  {name}
+                </p>
+              ))}
               {shown.length > 0 && (
                 <ul className="agenda-day__list">
                   {shown.map((appointment) => (
@@ -107,6 +142,7 @@ export function AgendaCalendar({ days, anchor, today, view, byDay, onOpen, onMen
                   +{hidden} autre{hidden > 1 ? 's' : ''}
                 </button>
               )}
+              <span className="agenda-day__season-mark" aria-hidden="true">{calendarMood(day).symbol}</span>
             </section>
           )
         })}

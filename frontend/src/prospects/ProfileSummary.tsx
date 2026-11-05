@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useCompany } from '../api/companies'
 import type { Prospect } from '../api/prospects'
 import { useTaxonomyValues } from '../api/settings'
@@ -44,6 +45,7 @@ interface ProfileSummaryProps {
 // The person at a glance (Profil tab): a read view derived from the editor's draft, never a second copy — a pending
 // edit shows here as soon as it is typed. Missing values say so instead of leaving a hole.
 export function ProfileSummary({ draft, prospect, labels }: ProfileSummaryProps) {
+  const [copyStatus, setCopyStatus] = useState('')
   const name = [civilityLabel(draft.civility || null), draft.first_name.trim(), draft.last_name.trim()].filter(Boolean).join(' ')
   const email = mainAlias(draft.emails)
   const phone = mainAlias(draft.phones)
@@ -86,6 +88,24 @@ export function ProfileSummary({ draft, prospect, labels }: ProfileSummaryProps)
           </dd>
         </div>
       </dl>
+      <div className="prospect-summary__copy">
+        <button type="button" onClick={() => {
+          const lines = [
+            `Nom : ${name || 'Non renseigné'}`,
+            `Entreprise : ${labels.company || 'Non renseignée'}`,
+            `Rôle : ${labels.role || 'Non renseigné'}`,
+            `E-mail : ${email.alias?.value.trim() || 'Non renseigné'}`,
+            `Téléphone : ${phone.alias?.value.trim() || 'Non renseigné'}`,
+            ...(blocked ? ['Ne pas contacter'] : []),
+            ...(tracking ? [`Suivi : ${tracking}`] : []),
+          ]
+          void (navigator.clipboard ? navigator.clipboard.writeText(lines.join('\n')) : Promise.reject()).then(
+            () => { setCopyStatus('Fiche copiée') },
+            () => { setCopyStatus('Copie impossible : sélectionnez le texte pour le copier.') },
+          )
+        }}>Copier les informations</button>
+        <span role="status">{copyStatus}</span>
+      </div>
       {(tracking || blocked) && (
         <div className="prospect-summary__status">
           {blocked && (

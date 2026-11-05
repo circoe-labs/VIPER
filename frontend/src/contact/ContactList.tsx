@@ -1,167 +1,86 @@
 import { type KeyboardEvent, useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router'
+import { Link, useNavigate } from 'react-router'
 
-import { type ContactRow, MESSAGE_STEPS } from '../api/contact'
-import { mondayLabel, parseIsoWeek, relativeWeekLabel, weeksFrom } from '../lib/isoWeek'
+import type { ContactRow } from '../api/contact'
 import { StateBadge } from '../prospection/ContactBadges'
-import { civilityLabel, personName } from '../prospection/labels'
-import { StatusBadge } from '../ui/Badge'
-import { BuildingIcon, ChevronDownIcon, ClockIcon } from '../ui/icons'
+import { personName } from '../prospection/labels'
+import { IconButton } from '../ui/Button'
+import { ChevronDownIcon, MailIcon, MoreIcon } from '../ui/icons'
+import { Menu } from '../ui/Menu'
+import type { Point } from '../ui/floating'
+import { ContactDetails } from './ContactDetails'
 import { FROM_LIST } from './criteria'
-import { formatDateTime, NEXT_STEP_LABELS, stepLabel } from './labels'
-import { MessageBadge } from './MessageBadge'
+import { stepLabel } from './labels'
 
 interface ContactListProps {
   rows: ContactRow[]
-  // URL (search part) that opens a prospect in the workbench.
   openHref: (id: string) => string
-  // Business day, `YYYY-MM-DD`.
   today: string
-  // The prospect whose workbench was just closed: its link takes the focus back.
   returnedFrom: string | null
 }
 
-function initials(row: ContactRow): string {
-  return [row.first_name, row.last_name].map((part) => part?.trim()[0] ?? '').join('').toUpperCase() || '?'
-}
-
-// ↑/↓ move between people, Home/End jump to the first/last one; Enter opens (native link).
 function moveFocus(event: KeyboardEvent<HTMLUListElement>) {
   const links = [...event.currentTarget.querySelectorAll<HTMLAnchorElement>('.contact-row__open')]
   const index = links.findIndex((link) => link === document.activeElement)
   if (index < 0) return
-  const target = { ArrowDown: Math.min(index + 1, links.length - 1), ArrowUp: Math.max(index - 1, 0), Home: 0, End: links.length - 1 }[
-    event.key
-  ]
+  const target = { ArrowDown: Math.min(index + 1, links.length - 1), ArrowUp: Math.max(index - 1, 0), Home: 0, End: links.length - 1 }[event.key]
   if (target === undefined) return
   event.preventDefault()
   links[target]?.focus()
 }
 
-// The week the next action is planned and whether it is late, behind a small tab: shown only when the person opens it.
-function RowDetails({ row, today }: { row: ContactRow; today: string }) {
-  const [open, setOpen] = useState(false)
-  const week = parseIsoWeek(row.next_action_week)
-  if (!week) return null
-  const late = row.tracking_status === 'neutral' && weeksFrom(today, week) < 0
-  const id = `row-details-${row.id}`
+const DAY = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Paris' })
+
+function ContactLine({ row, href }: { row: ContactRow; href: string }) {
+  const [expanded, setExpanded] = useState(false)
+  const [menu, setMenu] = useState<Point | null>(null)
+  const navigate = useNavigate()
+  const name = personName(row) || 'Nom non renseigné'
+  const initials = [row.first_name, row.last_name].map((part) => part?.trim()[0] ?? '').join('').toUpperCase() || '?'
+  const lastEmail = row.last_email_sent_at
+  const job = row.exact_job_title ?? row.role_label
   return (
-    <div className="contact-row__details">
-      <button
-        type="button"
-        className="contact-row__more"
-        aria-expanded={open}
-        aria-controls={id}
-        onClick={() => {
-          setOpen((current) => !current)
-        }}
-      >
-        <ChevronDownIcon size={14} className="contact-row__more-arrow" />
-        Détails
-      </button>
-      {open && (
-        <p id={id} className="contact-row__detail">
-          <span className="contact-row__muted">Semaine prévue :</span> semaine du {mondayLabel(week)} (
-          {relativeWeekLabel(today, week)})
-          {late && (
-            <StatusBadge tone="warning" icon={ClockIcon}>
-              Échu
-            </StatusBadge>
+    <li className="contacts-line">
+      <div className="contacts-line__summary">
+        <IconButton icon={ChevronDownIcon} size="sm" className="contacts-line__expand" label={`Détails de ${name}`} aria-expanded={expanded} aria-controls={`contact-details-${row.id}`} onClick={() => { setExpanded(!expanded) }} />
+        <span className="contacts-line__avatar" aria-hidden="true">{initials}</span>
+        <div className="contacts-line__identity">
+          <Link className="contact-row__open" data-prospect={row.id} to={href} state={FROM_LIST}>{name}</Link>
+          <span title={[job, row.company_name].filter(Boolean).join(' · ')}>{[job, row.company_name].filter(Boolean).join(' · ') || 'Informations à compléter'}</span>
+        </div>
+        <div className="contacts-line__stage">
+          {row.tracking_status !== 'neutral' ? <StateBadge status={row.tracking_status} /> : (
+            <span className={`contacts-stage${row.due && row.next_step ? ' contacts-stage--due' : ''}`}>
+              {row.due && row.next_step ? `À préparer : ${row.next_step === 'contact' ? 'Contact' : `Relance ${stepLabel(row.next_step)}`}` : 'Contacté'}
+            </span>
           )}
-        </p>
-      )}
-    </div>
+        </div>
+        <span className="contacts-line__channel" title="E-mail enregistré"><MailIcon size={18} /><span className="visually-hidden">E-mail</span></span>
+        <div className="contacts-line__last">
+          <span>Dernier e-mail envoyé</span>
+          {lastEmail ? <time dateTime={lastEmail}>{DAY.format(new Date(lastEmail))}</time> : <span>Date non renseignée</span>}
+        </div>
+        <IconButton icon={MoreIcon} size="sm" label={`Actions de ${name}`} className="contacts-line__options" aria-haspopup="menu" onClick={(event) => {
+          const box = event.currentTarget.getBoundingClientRect()
+          setMenu({ x: box.right, y: box.bottom })
+        }} />
+      </div>
+      {expanded && <ContactDetails id={row.id} name={name} openHref={href} />}
+      {menu && <Menu label={`Actions de ${name}`} position={menu} alignRight sections={[{ items: [
+        { id: 'follow', label: 'Ouvrir le suivi', onSelect: () => { void navigate(href, { state: FROM_LIST }) } },
+        { id: 'edit', label: 'Modifier le prospect', onSelect: () => { void navigate(`/prospection?prospect=${row.id}`) } },
+        { id: 'details', label: expanded ? 'Replier les détails' : 'Afficher les détails', onSelect: () => { setExpanded(!expanded) } },
+      ] }]} onClose={() => { setMenu(null) }} />}
+    </li>
   )
 }
 
-// The Contact list: one compact card per person, in the card language of Prospection — identity and company, the
-// two independent indicators (state, next-action week) with what the week prepares, and the status of the three
-// messages. The name is the card's link (the whole card is clickable) and opens the workbench.
-export function ContactList({ rows, openHref, today, returnedFrom }: ContactListProps) {
-  const listRef = useRef<HTMLUListElement>(null)
+export function ContactList({ rows, openHref, returnedFrom }: ContactListProps) {
+  const ref = useRef<HTMLUListElement>(null)
   useEffect(() => {
-    if (!returnedFrom) return
-    listRef.current?.querySelector<HTMLAnchorElement>(`[data-prospect="${CSS.escape(returnedFrom)}"]`)?.focus()
+    if (returnedFrom) ref.current?.querySelector<HTMLAnchorElement>(`[data-prospect="${CSS.escape(returnedFrom)}"]`)?.focus()
   }, [returnedFrom])
-
-  return (
-    <ul ref={listRef} className="contact-list" aria-label="Prospects à contacter" onKeyDown={moveFocus}>
-      {rows.map((row) => {
-        const civility = civilityLabel(row.civility)
-        const steps = [...new Set([...MESSAGE_STEPS, ...Object.keys(row.messages)])]
-        const title = [row.role_label, row.exact_job_title].filter(Boolean)
-        return (
-          <li key={row.id} className="contact-row">
-            <div className="contact-row__identity">
-              <span className="contact-row__avatar" aria-hidden="true">
-                {initials(row)}
-              </span>
-              <div className="contact-row__who">
-                <span className="contact-row__name-line">
-                  {civility && <span className="contact-row__muted">{civility}</span>}
-                  <Link className="contact-row__open" to={openHref(row.id)} state={FROM_LIST} data-prospect={row.id}>
-                    {personName(row) || 'Nom non renseigné'}
-                  </Link>
-                </span>
-                <span className="contact-row__muted contact-row__line">
-                  {title.length > 0 ? title.join(' · ') : 'Rôle non renseigné'}
-                </span>
-                <span className="contact-row__company contact-row__line">
-                  <BuildingIcon size={16} />
-                  {row.company_name ?? <span className="contact-row__muted">Sans entreprise</span>}
-                  {row.primary_email ? (
-                    <span className="contact-row__muted contact-row__email" title={row.primary_email}>
-                      · {row.primary_email}
-                    </span>
-                  ) : (
-                    <StatusBadge tone="warning">Pas d’e-mail principal</StatusBadge>
-                  )}
-                </span>
-              </div>
-            </div>
-            <div className="contact-row__tracking">
-              <span className="contact-row__badges">
-                <StateBadge status={row.tracking_status} />
-              </span>
-              {row.next_step && row.due && (
-                <span className="contact-row__next">
-                  <span className="contact-row__muted">À préparer :</span> {NEXT_STEP_LABELS[row.next_step] ?? row.next_step.toUpperCase()}
-                </span>
-              )}
-              <RowDetails row={row} today={today} />
-            </div>
-            {steps.every((step) => !row.messages[step]) ? (
-              <p className="contact-row__muted contact-row__no-message">Aucun message préparé</p>
-            ) : (
-              <dl className="contact-row__messages">
-                {steps.map((step) => {
-                  const status = row.messages[step]
-                  return (
-                    <div key={step} className="contact-row__message">
-                      <dt>{stepLabel(step)}</dt>
-                      <dd>
-                        {status ? <MessageBadge status={status} /> : <span className="contact-row__muted">Vide</span>}
-                        {status === 'sent' && row.message_dates?.[step]?.sent_at && (
-                          <span className="contact-row__muted contact-row__when">
-                            {' '}
-                            le {formatDateTime(row.message_dates[step].sent_at)}
-                          </span>
-                        )}
-                        {status === 'scheduled' && row.message_dates?.[step]?.scheduled_at && (
-                          <span className="contact-row__muted contact-row__when">
-                            {' '}
-                            prévu le {formatDateTime(row.message_dates[step].scheduled_at)}
-                          </span>
-                        )}
-                      </dd>
-                    </div>
-                  )
-                })}
-              </dl>
-            )}
-          </li>
-        )
-      })}
-    </ul>
-  )
+  return <ul ref={ref} className="contacts-list" aria-label="Prospects contactés" onKeyDown={moveFocus}>
+    {rows.map((row) => <ContactLine key={row.id} row={row} href={openHref(row.id)} />)}
+  </ul>
 }

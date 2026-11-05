@@ -172,3 +172,31 @@ def test_deleting_a_prospect_deletes_its_notes(client: TestClient, db_session: S
 
     assert response.status_code == 204, response.text
     assert db_session.scalar(select(func.count()).select_from(ProspectNote)) == 0
+
+
+def test_notes_of_several_prospects_come_in_one_request(
+    client: TestClient, db_session: Session
+) -> None:
+    company = add_company(db_session)
+    first, second, third = (add_prospect(db_session, company) for _ in range(3))
+    note_a = make(client, first.id, fact_text="Connaît Robin")
+    note_b = make(client, second.id, fact_text="Ne connaît pas Robin")
+    make(client, third.id, fact_text="Hors lot")
+
+    response = client.get(
+        PROSPECTS + "/notes", params=[("ids", str(first.id)), ("ids", str(second.id))]
+    )
+
+    assert response.status_code == 200
+    assert {note["id"] for note in response.json()} == {note_a["id"], note_b["id"]}
+
+
+def test_notes_of_many_need_a_session_and_valid_ids(
+    client: TestClient, anonymous_client: TestClient
+) -> None:
+    assert (
+        anonymous_client.get(PROSPECTS + "/notes", params={"ids": str(uuid.uuid4())}).status_code
+        == 401
+    )
+    assert client.get(PROSPECTS + "/notes", params={"ids": "pas-un-uuid"}).status_code == 422
+    assert client.get(PROSPECTS + "/notes").status_code == 422
