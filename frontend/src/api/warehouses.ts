@@ -7,6 +7,7 @@ export interface WarehouseContact {
   role: string | null
   email: string | null
   linkedin: string | null
+  to_contact?: boolean
 }
 export interface WarehouseInput {
   name: string
@@ -34,10 +35,17 @@ export interface WarehousePreview {
 }
 export interface WarehouseImportResult { created: number; skipped: number; contacts: number }
 
-export function useWarehouses(search: string, offset: number) {
+export function useWarehouseCounts() {
   return useQuery({
-    queryKey: ['warehouses', 'list', search, offset],
-    queryFn: ({ signal }) => apiGet<{ items: Warehouse[]; total: number }>(`/warehouses?${new URLSearchParams({ q: search, offset: String(offset), limit: '50' }).toString()}`, signal),
+    queryKey: ['warehouses', 'counts'],
+    queryFn: ({ signal }) => apiGet<{ warehouses: number; contacts: number; to_contact: number }>('/warehouses/counts', signal),
+  })
+}
+
+export function useWarehouses(search: string, offset: number, toContact = false) {
+  return useQuery({
+    queryKey: ['warehouses', 'list', search, offset, toContact],
+    queryFn: ({ signal }) => apiGet<{ items: Warehouse[]; total: number }>(`/warehouses?${new URLSearchParams({ q: search, offset: String(offset), limit: '50', ...(toContact ? { to_contact: 'true' } : {}) }).toString()}`, signal),
     placeholderData: keepPreviousData,
   })
 }

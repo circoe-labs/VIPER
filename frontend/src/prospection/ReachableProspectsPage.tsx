@@ -40,7 +40,6 @@ import { ReachableProspectList } from './ReachableProspectList'
 import { useProspectEditor } from './prospectEditor'
 import { createProspectQueue, type ProspectQueue } from './queue'
 import { ProspectsDashboard } from './ProspectsDashboard'
-import { SERVICES } from './services'
 import { SelectField } from '../ui/fields'
 import './prospection.css'
 import './prospects-dashboard.css'
@@ -196,49 +195,7 @@ export function ReachableProspectsPage() {
         />
       ) : (
         <>
-          <ProspectsDashboard
-            stage={view.send_stage}
-            due={view.segment === 'due'}
-            onStage={(stage) => {
-              refine({ send_stage: view.send_stage === stage ? null : stage, segment: 'all' })
-            }}
-            onDue={() => {
-              refine({ segment: view.segment === 'due' ? 'all' : 'due', send_stage: null })
-            }}
-          />
-          <section className="dashboard-panel services-panel" aria-labelledby="services-title">
-            <div className="section-heading">
-              <div>
-                <h2 id="services-title">Prestations proposées</h2>
-                <p>Identifiez les besoins des entreprises et personnalisez votre approche.</p>
-              </div>
-              <span className="section-caption">Plusieurs choix possibles · au moins une correspondance</span>
-            </div>
-            <div className="service-filters">
-              {SERVICES.map(({ code, label, icon: Icon }) => {
-                const selected = view.services?.includes(code) ?? false
-                return (
-                  <button
-                    type="button"
-                    key={code}
-                    className={`service-choice service-choice--${code}`}
-                    aria-pressed={selected}
-                    onClick={() => {
-                      refine({
-                        services: selected
-                          ? (view.services ?? []).filter((item) => item !== code)
-                          : [...(view.services ?? []), code],
-                      })
-                    }}
-                  >
-                    <Icon size={21} />
-                    <span>{label}</span>
-                    {selected && <CheckCircleIcon size={16} />}
-                  </button>
-                )
-              })}
-            </div>
-          </section>
+          <ProspectsDashboard />
 
           <section className="prospection__results" aria-labelledby="prospection-results-title">
             <div className="prospection__results-head">

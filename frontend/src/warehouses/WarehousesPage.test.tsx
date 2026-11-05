@@ -6,6 +6,7 @@ import { renderApp, stubApi } from '../test/render'
 import type { Warehouse } from '../api/warehouses'
 
 const ROW: Warehouse = { id: '00000000-0000-7000-a000-000000000001', version: '2026-11-03T10:00:00+00:00', name: 'Entrepôt Exemple', owner_name: 'Propriétaire Test', owner_role: 'Foncière', owner_email: null, owner_linkedin: null, address: null, city: 'Lyon', postal_code: null, siret: null, notes: null, source_reference: 'synthetic.xlsx · Sites', contacts: [{ full_name: 'Anne Test', role: 'Responsable', email: 'anne@exemple.test ou a.test@exemple.test', linkedin: 'https://www.linkedin.com/in/test-anne' }] }
+const API = { ...SHELL_API, 'GET /api/warehouses/counts': [200, { warehouses: 1, contacts: 1, to_contact: 0 }] } as const
 
 describe('Warehouse directory', () => {
   it('places directors first, then logistics managers, and keeps the other contacts in their original order', async () => {
@@ -18,7 +19,7 @@ describe('Warehouse directory', () => {
       contact('Gérant', 'Gérant logistique'),
       contact('Directeur', 'Directeur logistique'),
     ] }
-    stubApi({ ...SHELL_API, 'GET /api/warehouses': [200, { items: [warehouse], total: 1 }] })
+    stubApi({ ...API, 'GET /api/warehouses': [200, { items: [warehouse], total: 1 }] })
     renderApp('/warehouses')
     await userEvent.click(await screen.findByRole('button', { name: 'Détails de Entrepôt Exemple' }))
     const list = screen.getByRole('list', { name: 'Interlocuteurs de Entrepôt Exemple' })
@@ -28,9 +29,12 @@ describe('Warehouse directory', () => {
   })
 
   it('has its own navigation, compact closed sites and real source contacts on demand', async () => {
-    stubApi({ ...SHELL_API, 'GET /api/warehouses': [200, { items: [ROW], total: 1 }] })
+    stubApi({ ...API, 'GET /api/warehouses': [200, { items: [ROW], total: 1 }], 'GET /api/warehouses/counts': [200, { warehouses: 51, contacts: 145, to_contact: 0 }] })
     renderApp('/warehouses')
     expect(screen.getByRole('heading', { level: 1, name: 'Entrepôts' })).toBeVisible()
+    const totals = screen.getByRole('region', { name: 'Totaux des entrepôts' })
+    expect(await within(totals).findByText('51')).toBeVisible()
+    expect(within(totals).getByText('145')).toBeVisible()
     expect(within(screen.getByRole('navigation', { name: 'Navigation principale' })).getByRole('link', { name: 'Entrepôts' })).toHaveAttribute('aria-current', 'page')
     const open = await screen.findByRole('button', { name: 'Détails de Entrepôt Exemple' })
     expect(open).toHaveAttribute('aria-expanded', 'false')
@@ -44,9 +48,28 @@ describe('Warehouse directory', () => {
     expect(screen.getByText('Anne Test')).not.toBeVisible()
   })
 
+  it('saves a contact selection and offers a dedicated category', async () => {
+    const selected = { ...ROW, contacts: ROW.contacts.map((contact) => ({ ...contact, to_contact: true })) }
+    stubApi({ ...API,
+      'GET /api/warehouses': (url) => [200, { items: [url.searchParams.has('to_contact') ? selected : ROW], total: 1 }],
+      [`PUT /api/warehouses/${ROW.id}`]: [200, selected],
+    })
+    const { queryClient } = renderApp('/warehouses')
+    await userEvent.click(await screen.findByRole('button', { name: 'Détails de Entrepôt Exemple' }))
+    let submitted: unknown
+    const unsubscribe = queryClient.getMutationCache().subscribe((event) => {
+      if (event.mutation?.state.status === 'success') submitted = event.mutation.state.variables
+    })
+    await userEvent.click(screen.getByRole('checkbox', { name: 'À contacter prochainement' }))
+    await waitFor(() => expect(submitted).toMatchObject({ id: ROW.id, version: ROW.version, data: { contacts: [{ full_name: 'Anne Test', to_contact: true }] } }))
+    unsubscribe()
+    await userEvent.click(screen.getByRole('button', { name: /À contacter \(/ }))
+    expect(await screen.findByRole('checkbox', { name: 'À contacter prochainement' })).toBeChecked()
+  })
+
   it('shows an honest empty state and creates a site with its interlocutors', async () => {
     let saved: unknown
-    stubApi({ ...SHELL_API, 'GET /api/warehouses': [200, { items: [], total: 0 }],
+    stubApi({ ...API, 'GET /api/warehouses': [200, { items: [], total: 0 }],
       'POST /api/warehouses': () => [201, ROW] })
     const { queryClient } = renderApp('/warehouses')
     expect(await screen.findByText('Votre répertoire d’entrepôts')).toBeVisible()
@@ -66,7 +89,7 @@ describe('Warehouse directory', () => {
   })
 
   it('preserves the read version and contacts when editing an existing site', async () => {
-    stubApi({ ...SHELL_API, 'GET /api/warehouses': [200, { items: [ROW], total: 1 }],
+    stubApi({ ...API, 'GET /api/warehouses': [200, { items: [ROW], total: 1 }],
       [`GET /api/warehouses/${ROW.id}`]: [200, ROW], [`PUT /api/warehouses/${ROW.id}`]: [409, { detail: { code: 'conflict' } }] })
     renderApp('/warehouses')
     await userEvent.click(await screen.findByRole('button', { name: 'Modifier Entrepôt Exemple' }))
@@ -79,7 +102,7 @@ describe('Warehouse directory', () => {
   })
 
   it('reports a list failure rather than showing a false empty directory', async () => {
-    stubApi({ ...SHELL_API, 'GET /api/warehouses': [500, {}] })
+    stubApi({ ...API, 'GET /api/warehouses': [500, {}] })
     renderApp('/warehouses')
     expect(await screen.findByRole('alert')).toHaveTextContent('Impossible de charger les entrepôts.')
     expect(screen.queryByText('Votre répertoire d’entrepôts')).not.toBeInTheDocument()

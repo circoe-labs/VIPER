@@ -7,6 +7,7 @@ from datetime import UTC
 
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import Text, cast, func, select
+from sqlalchemy.dialects.postgresql import JSONPATH
 from sqlalchemy.orm import Session
 
 from app.core.actor import ActorContext
@@ -23,6 +24,7 @@ class WarehouseContact(BaseModel):
     role: str | None = Field(default=None, max_length=1000)
     email: str | None = Field(default=None, max_length=2000)
     linkedin: str | None = Field(default=None, max_length=2000)
+    to_contact: bool = False
 
 
 class WarehouseInput(BaseModel):
@@ -51,6 +53,32 @@ class WarehousePage(BaseModel):
     total: int
 
 
+class WarehouseCounts(BaseModel):
+    warehouses: int
+    contacts: int
+    to_contact: int
+
+
+def count_warehouses(session: Session) -> WarehouseCounts:
+    warehouses, contacts, to_contact = session.execute(
+        select(
+            func.count(),
+            func.coalesce(func.sum(func.jsonb_array_length(Warehouse.contacts)), 0),
+            func.coalesce(
+                func.sum(
+                    func.jsonb_array_length(
+                        func.jsonb_path_query_array(
+                            Warehouse.contacts, cast("$[*] ? (@.to_contact == true)", JSONPATH)
+                        )
+                    )
+                ),
+                0,
+            ),
+        ).select_from(Warehouse)
+    ).one()
+    return WarehouseCounts(warehouses=warehouses, contacts=contacts, to_contact=to_contact)
+
+
 def version(row: Warehouse) -> str:
     values = {field: getattr(row, field) for field in WarehouseInput.model_fields}
     values["updated_at"] = row.updated_at.astimezone(UTC).isoformat()
@@ -67,7 +95,7 @@ def present(row: Warehouse) -> WarehouseOut:
 
 
 def list_warehouses(
-    session: Session, search: str = "", limit: int = 50, offset: int = 0
+    session: Session, search: str = "", limit: int = 50, offset: int = 0, to_contact: bool = False
 ) -> WarehousePage:
     text = func.concat_ws(
         " ",
@@ -81,6 +109,8 @@ def list_warehouses(
         cast(Warehouse.contacts, Text),
     )
     conditions = matches_words(text, search.strip()) if search.strip() else []
+    if to_contact:
+        conditions.append(Warehouse.contacts.contains([{"to_contact": True}]))
     total = session.scalar(select(func.count()).select_from(Warehouse).where(*conditions)) or 0
     rows = session.scalars(
         select(Warehouse)

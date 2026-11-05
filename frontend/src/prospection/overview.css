@@ -1,8 +1,9 @@
 .overview { margin-bottom: var(--space-6); }
-.overview__figures { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-4); }
+.overview__figures { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--space-4); }
 .overview__figure { --overview-tone: var(--color-info-fg); display: grid; gap: var(--space-3); padding: var(--space-5); border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: color-mix(in srgb, var(--overview-tone) 4%, var(--color-surface)); color: var(--color-text); text-decoration: none; transition: border-color 160ms; }
 .overview__figure:hover { border-color: var(--overview-tone); }
 .overview__figure--purple { --overview-tone: #a475f5; }
+.overview__figure--teal { --overview-tone: #26b8b2; }
 .overview__figure--green { --overview-tone: var(--color-accent-fg); }
 .overview__figure--orange { --overview-tone: #ff983f; }
 .overview__label { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); font-weight: 600; }

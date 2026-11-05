@@ -24,6 +24,12 @@ population, without duplicates. The count remains dynamic, not a hardcoded value
 
 The original `/prospection` page and the two workspaces' shared editor are unchanged.
 
+The validated dashboard shows the summary cards and the prospect list; the distribution chart
+also shows the uncertain count used by Verification, alongside the validated count. The list
+and quality score remain scoped to validated prospects. The sending-progress
+and proposed-service filter panels are not displayed. Service interests remain editable in
+the company contacts table, and existing filter links and API parameters continue to work.
+
 The validated list is grouped by company id, with a company header followed by its contacts.
 The server sorts the full filtered population by company name, company id and contact name
 before pagination. Namesake companies remain distinct; prospects without a company are grouped
@@ -47,7 +53,7 @@ Expansion state is kept per company while using the list; hiding a group never c
   The denominator is displayed. No eligible records means `null` / “Aucun score disponible”.
 - Send counts represent distinct prospects with a message actually `sent` at rank 0, 1 or 2,
   across **all sequences**, including closed ones. They are cumulative milestones and can overlap;
-  the tooltip explains this. Validated, scheduled and draft emails never count as sent. Filtering
+  the dashboard API reports these counts. Validated, scheduled and draft emails never count as sent. Filtering
   a milestone uses exactly the same predicate. The row shows the highest sent rank, capped
   visually at R2; later sends remain in the existing editor history. No sending action is added.
 - “À traiter” uses the existing `due` predicate and its contactability/eligibility rules. It is

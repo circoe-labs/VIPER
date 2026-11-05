@@ -2,6 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import { prospect, stubProspectionApi } from '../test/prospectionApi'
+import { qualityAlert, stubProspectsApi } from '../test/prospectsApi'
 import { renderApp } from '../test/render'
 
 function people() {
@@ -15,6 +16,17 @@ function people() {
 }
 
 describe('Separate Verification-validated workspace', () => {
+  it('shows uncertain prospects alongside validated prospects in the chart', async () => {
+    const validated = prospect('Anne', 'Validee', { employment_verified_at: '2026-10-29T09:00:00Z', review: 'verified' })
+    const uncertain = prospect('Bruno', 'Incertain', {}, ['never_verified'])
+    stubProspectsApi({ rows: [validated, uncertain], alerts: [qualityAlert({ prospect_id: uncertain.id })] })
+    renderApp('/contacts-joignables')
+    const chart = (await screen.findByRole('heading', { name: 'Validés et incertains' })).closest('article') as HTMLElement
+    await waitFor(() => expect(within(chart).getByText('Incertains').parentElement).toHaveTextContent('1'))
+    expect(within(chart).getByText('Validés').parentElement).toHaveTextContent('1')
+    expect(within(chart).getAllByText('50 %')).toHaveLength(2)
+  })
+
   it('keeps the original prospection page and all its records available', async () => {
     stubProspectionApi({ prospects: people() })
     renderApp('/prospection')

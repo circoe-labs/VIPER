@@ -31,7 +31,7 @@ test.beforeEach(async ({ page }) => {
 })
 test.use({ viewport: { width: 1440, height: 1000 } })
 
-test('dashboard uses real totals, three stages and an accessible responsive table', async ({ page }) => {
+test('dashboard uses real totals and an accessible responsive table', async ({ page }) => {
   await useTheme(page, 'dark')
   await page.goto('/contacts-joignables')
   await expect(page.getByRole('heading', { name: 'Prospects validés', exact: true })).toBeVisible()
@@ -43,7 +43,8 @@ test('dashboard uses real totals, three stages and an accessible responsive tabl
   await expect(page.locator('.stat-total .stat-value')).toHaveText(
     new Intl.NumberFormat('fr-FR').format(data.total),
   )
-  await expect(page.locator('.sending-stage-wrap')).toHaveCount(3)
+  await expect(page.getByRole('heading', { name: 'Suivi des envois' })).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'Prestations propos\u00e9es' })).toHaveCount(0)
   await expect(page.locator('.prospects-dashboard')).not.toContainText(/R3|R4|S37|S39/)
   await page.screenshot({ path: `${SCREENSHOTS}/prospects-dashboard-dark.png`, fullPage: false })
   await page.setViewportSize({ width: 1280, height: 800 })
@@ -60,7 +61,7 @@ test('dashboard uses real totals, three stages and an accessible responsive tabl
   await expect(page.getByRole('table', { name: 'Prospects' })).toBeVisible()
 })
 
-test('several interests persist, appear on all company contacts and filter with OR semantics', async ({
+test('several interests persist and appear on all company contacts', async ({
   page,
 }) => {
   const tag = `Services${uniqueSuffix()}`
@@ -89,11 +90,6 @@ test('several interests persist, appear on all company contacts and filter with 
   await expandCompanies(page)
   await expect(table.getByRole('button', { name: /^IGUARD.*besoin identifié/ })).toHaveCount(2)
   await expect(table.getByRole('button', { name: /^IADVICE.*besoin identifié/ })).toHaveCount(2)
-  await page.getByRole('button', { name: 'IGUARD', exact: true }).click()
-  await page.getByRole('button', { name: 'EMAILING', exact: true }).click()
-  await expect(table.locator('tbody tr[data-prospect-id]')).toHaveCount(2)
-  await page.getByRole('button', { name: 'IGUARD', exact: true }).click()
-  await expect(page.getByText('Aucun prospect ne correspond à ces critères.')).toBeVisible()
   const saved = await page.request.get(`/api/companies/${company.id}/services`)
   expect(((await saved.json()) as { services: string[] }).services).toEqual(['iadvice', 'iguard'])
 })

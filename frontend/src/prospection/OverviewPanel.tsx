@@ -1,8 +1,9 @@
 import { Link } from 'react-router'
 import { useCompanyCounts } from '../api/companies'
+import { useWarehouses } from '../api/warehouses'
 import { filtersOf, useProspectionCounters, useProspectionOverview } from '../api/prospection'
 import { DEFAULT_VIEW } from './criteria'
-import { BuildingIcon, CalendarIcon, ChevronRightIcon, MailIcon, UsersIcon } from '../ui/icons'
+import { BuildingIcon, CalendarIcon, ChevronRightIcon, MailIcon, UsersIcon, WarehouseIcon } from '../ui/icons'
 import './overview.css'
 
 const NUMBER = new Intl.NumberFormat('fr-FR')
@@ -11,10 +12,12 @@ const NUMBER = new Intl.NumberFormat('fr-FR')
 export function OverviewPanel({ onOpenList }: { onOpenList?: () => void }) {
   const overview = useProspectionOverview()
   const companies = useCompanyCounts()
+  const warehouses = useWarehouses('', 0)
   const counters = useProspectionCounters(filtersOf(DEFAULT_VIEW))
   const cards = [
     { label: 'Prospects', value: overview.data?.total, error: overview.isError, icon: UsersIcon, href: '/prospection?list=1', hint: 'Personnes présentes dans la base', tone: 'blue' },
     { label: 'Entreprises', value: companies.data?.all, error: companies.isError, icon: BuildingIcon, href: '/prospection/companies', hint: 'Fiches entreprises distinctes', tone: 'purple' },
+    { label: 'Entrepôts', value: warehouses.data?.total, error: warehouses.isError, icon: WarehouseIcon, href: '/warehouses', hint: 'Sites dans le répertoire', tone: 'teal' },
     { label: 'Avec un échange', value: overview.data?.contacted, error: overview.isError, icon: MailIcon, href: '/prospection?segment=contacted', hint: 'Envoi, réponse ou RDV enregistré', tone: 'green' },
     { label: 'RDV pris', value: counters.data?.counts.appointments, error: counters.isError, icon: CalendarIcon, href: '/prospection?segment=appointments', hint: 'Prospects avec un rendez-vous enregistré', tone: 'orange' },
   ]

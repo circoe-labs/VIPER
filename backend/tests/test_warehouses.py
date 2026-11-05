@@ -167,6 +167,32 @@ def test_search_matches_contacts_and_accents_and_pagination_is_real(client: Test
     assert [item["name"] for item in second["items"]] == ["Site Bêta"]
 
 
+def test_counts_cover_all_sites_and_update_when_contacts_change(client: TestClient) -> None:
+    assert client.get("/api/warehouses/counts").json() == {
+        "warehouses": 0,
+        "contacts": 0,
+        "to_contact": 0,
+    }
+    upload(client, "import")
+    assert client.get("/api/warehouses/counts").json() == {
+        "warehouses": 2,
+        "contacts": 3,
+        "to_contact": 0,
+    }
+    site = client.get("/api/warehouses?limit=1").json()["items"][0]
+    site["contacts"].append({"full_name": "Nouveau contact", "to_contact": True})
+    assert client.put(f"/api/warehouses/{site['id']}", json=site).status_code == 200
+    assert client.get("/api/warehouses/counts").json() == {
+        "warehouses": 2,
+        "contacts": 4,
+        "to_contact": 1,
+    }
+    filtered = client.get("/api/warehouses?to_contact=true").json()
+    assert filtered["total"] == 1
+    assert filtered["items"][0]["id"] == site["id"]
+    assert filtered["items"][0]["contacts"][-1]["to_contact"] is True
+
+
 @pytest.mark.parametrize(
     "path", ["/api/warehouses", "/api/warehouses/import-preview", "/api/warehouses/import"]
 )
@@ -175,6 +201,10 @@ def test_warehouse_endpoints_require_authentication(
 ) -> None:
     assert anonymous_client.get(path).status_code in (401, 405)
     assert anonymous_client.post(path, json={"name": "No session"}).status_code == 401
+
+
+def test_warehouse_counts_require_authentication(anonymous_client: TestClient) -> None:
+    assert anonymous_client.get("/api/warehouses/counts").status_code == 401
 
 
 def test_invalid_workbook_and_name_are_rejected_without_writes(client: TestClient) -> None:

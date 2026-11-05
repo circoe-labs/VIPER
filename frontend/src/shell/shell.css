@@ -90,6 +90,18 @@
   flex: none;
 }
 
+.nav-link[href='/']:not([aria-current='page']) svg,
+.nav-link[href='/database']:not([aria-current='page']) svg { color: var(--color-info-fg); }
+.nav-link[href='/prospection']:not([aria-current='page']) svg,
+.nav-link[href='/contacts-joignables']:not([aria-current='page']) svg { color: var(--color-success-fg); }
+.nav-link[href='/warehouses']:not([aria-current='page']) svg,
+.nav-link[href='/historique-agents']:not([aria-current='page']) svg { color: var(--color-warning-fg); }
+.nav-link[href='/contact']:not([aria-current='page']) svg,
+.nav-link[href='/organisation']:not([aria-current='page']) svg { color: var(--prospects-purple); }
+.nav-link[href='/missions']:not([aria-current='page']) svg,
+.nav-link[href='/agenda']:not([aria-current='page']) svg { color: var(--color-danger-fg); }
+.nav-link[href='/settings']:not([aria-current='page']) svg { color: var(--prospects-blue); }
+
 .nav-link:hover {
   background: var(--color-surface-hover);
   color: var(--color-text);

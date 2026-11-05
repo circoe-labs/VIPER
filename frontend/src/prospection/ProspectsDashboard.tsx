@@ -1,8 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
 import { apiGet } from '../api/client'
-import type { Review } from '../api/prospection'
+import { useProspectPage, type Review } from '../api/prospection'
+import { useUncertainAlerts } from '../api/sequences'
+import { todoCriteria } from './verificationFigures'
 import { Button } from '../ui/Button'
-import { CheckCircleIcon, ChevronRightIcon, ClockIcon, MailIcon, SparklesIcon, UsersIcon } from '../ui/icons'
+import { SparklesIcon, UsersIcon } from '../ui/icons'
 
 export interface DashboardData {
   total: number
@@ -14,26 +16,23 @@ export interface DashboardData {
 }
 const number = new Intl.NumberFormat('fr-FR')
 const percent = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1 })
-const STATUSES = [
-  { key: 'verified', label: 'Validés', tone: 'green' },
-] as const
 
-export function ProspectsDashboard({
-  stage,
-  due,
-  onStage,
-  onDue,
-}: {
-  stage: string | null | undefined
-  due: boolean
-  onStage: (value: 'sent' | 'r1' | 'r2') => void
-  onDue: () => void
-}) {
+export function ProspectsDashboard() {
   const query = useQuery({
     queryKey: ['prospection', 'dashboard', 'verification-validated'],
     queryFn: ({ signal }) => apiGet<DashboardData>('/prospection/dashboard?validated_only=true', signal),
   })
   const data = query.data
+  const never = useProspectPage(todoCriteria(), 1)
+  const alerts = useUncertainAlerts()
+  const uncertain = never.data && alerts.data
+    ? Math.min(new Set(alerts.data.items.flatMap((alert) => alert.prospect_id ? [alert.prospect_id] : [])).size, never.data.total)
+    : null
+  const distributionTotal = data && uncertain !== null ? data.total + uncertain : null
+  const statuses = [
+    { key: 'verified', label: 'Validés', tone: 'green', count: data?.total ?? null },
+    { key: 'uncertain', label: 'Incertains', tone: 'yellow', count: uncertain },
+  ] as const
   if (query.isError)
     return (
       <div className="dashboard-panel" role="alert">
@@ -42,7 +41,7 @@ export function ProspectsDashboard({
     )
   return (
     <>
-      <section className="prospects-stats" aria-label="Vue d’ensemble de la base" aria-busy={query.isPending}>
+      <section className="prospects-stats" aria-label="Vue d’ensemble de la base" aria-busy={query.isPending || never.isPending || alerts.isPending}>
         <article className="dashboard-panel stat-total">
           <span className="stat-icon tone-blue">
             <UsersIcon size={24} />
@@ -52,20 +51,14 @@ export function ProspectsDashboard({
           <p>Fiches validées dans Vérification</p>
         </article>
         <article className="dashboard-panel stat-distribution">
-          <h2>Base validée</h2>
+          <h2>Validés et incertains</h2>
           <div className="distribution-body">
             <div className="distribution-ring">
               <svg viewBox="0 0 120 120" aria-hidden="true">
                 <circle cx="60" cy="60" r="48" className="donut-track" />
-                {STATUSES.map(({ key, tone }, index) => {
-                  const share = data && data.total > 0 ? (data.reviews[key] / data.total) * 100 : 0
-                  const start =
-                    data && data.total > 0
-                      ? STATUSES.slice(0, index).reduce(
-                          (sum, status) => sum + (data.reviews[status.key] / data.total) * 100,
-                          0,
-                        )
-                      : 0
+                {statuses.map(({ key, tone, count }, index) => {
+                  const share = distributionTotal && count !== null ? (count / distributionTotal) * 100 : 0
+                  const start = index === 0 || !distributionTotal ? 0 : ((statuses[0].count ?? 0) / distributionTotal) * 100
                   return (
                     <circle
                       key={key}
@@ -82,31 +75,26 @@ export function ProspectsDashboard({
                 })}
               </svg>
               <span>
-                <strong>{data ? number.format(data.total) : '—'}</strong>
+                <strong>{distributionTotal !== null ? number.format(distributionTotal) : '—'}</strong>
                 <small>prospects</small>
               </span>
             </div>
             <div className="distribution-legend">
-              {STATUSES.map(({ key, label, tone }) => (
-                <div
-                  key={key}
-                  title={
-                    `${label} dans Vérification`
-                  }
-                >
+              {statuses.map(({ key, label, tone, count }) => (
+                <div key={key} title={`${label} dans Vérification`}>
                   <span className={`legend-dot tone-${tone}`} />
                   <span>{label}</span>
-                  <strong>{data ? number.format(data.reviews[key]) : '—'}</strong>
+                  <strong>{count !== null ? number.format(count) : '—'}</strong>
                   <small>
-                    {data
-                      ? `${percent.format(data.total ? (data.reviews[key] / data.total) * 100 : 0)} %`
+                    {count !== null && distributionTotal !== null
+                      ? `${percent.format(distributionTotal ? (count / distributionTotal) * 100 : 0)} %`
                       : '—'}
                   </small>
                 </div>
               ))}
             </div>
           </div>
-          <p className="distribution-note">Validation de la fiche, indépendante de celle de l’e-mail.</p>
+          <p className="distribution-note">{never.isError || alerts.isError ? 'Nombre de prospects incertains indisponible.' : 'Incertains : fiches avec une fonction à vérifier. La liste reste limitée aux prospects validés.'}</p>
         </article>
         <article className="dashboard-panel stat-quality">
           <span className="stat-icon tone-green">
@@ -125,69 +113,6 @@ export function ProspectsDashboard({
           </p>
           <span className="stat-footnote">Fiches en opposition exclues</span>
         </article>
-      </section>
-      <section className="dashboard-panel sending-panel" aria-labelledby="sending-title">
-        <div className="section-heading">
-          <div>
-            <h2 id="sending-title">Suivi des envois</h2>
-            <p>Où en sont vos prospects dans le processus de prospection.</p>
-          </div>
-          <span className="section-caption">Envois réels · tout l’historique</span>
-        </div>
-        <div className="sending-stages">
-          {(
-            [
-              { key: 'sent', label: 'Envoyé', detail: 'Premier e-mail envoyé', tone: 'blue', icon: MailIcon },
-              {
-                key: 'r1',
-                label: 'R1',
-                detail: 'Première relance effectuée',
-                tone: 'green',
-                icon: CheckCircleIcon,
-              },
-              {
-                key: 'r2',
-                label: 'R2',
-                detail: 'Deuxième relance effectuée',
-                tone: 'yellow',
-                icon: CheckCircleIcon,
-              },
-            ] as const
-          ).map(({ key, label, detail, tone, icon: Icon }, index) => (
-            <div className="sending-stage-wrap" key={key}>
-              <button
-                type="button"
-                className={`sending-stage tone-${tone}`}
-                aria-label={`${label} · ${detail} : ${data ? number.format(data.sends[key]) : 'chargement'} prospects`}
-                aria-pressed={stage === key}
-                onClick={() => {
-                  onStage(key)
-                }}
-                title="Nombre de prospects ayant atteint cette étape dans leur historique ; les étapes peuvent se recouper."
-              >
-                <Icon size={22} />
-                <span>
-                  {label}
-                  <small>{detail}</small>
-                </span>
-                <strong>{data ? number.format(data.sends[key]) : '—'}</strong>
-              </button>
-              {index < 2 && <ChevronRightIcon className="stage-arrow" size={18} />}
-            </div>
-          ))}
-          <button
-            type="button"
-            className="sending-stage sending-stage--due"
-            aria-pressed={due}
-            onClick={onDue}
-          >
-            <ClockIcon size={22} />
-            <span>
-              À traiter<small>Envois échus et éligibles</small>
-            </span>
-            <strong>{data ? number.format(data.due) : '—'}</strong>
-          </button>
-        </div>
       </section>
     </>
   )

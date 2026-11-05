@@ -183,6 +183,7 @@ export function stubProspectionApi(options: ProspectionStubOptions = {}) {
       return handle(url)
     }
     if (url.pathname === '/api/companies/counts') return reply(200, { all: companies.length, sme: 0, large: 0, institutional: 0, unclassified: companies.length })
+    if (url.pathname === '/api/warehouses') return reply(200, { items: [], total: 0 })
     if (url.pathname === '/api/companies') {
       const items = companies.map((company) => ({ id: company.id, display_name: company.display_name }) as CompanyListItem)
       return reply(200, { items, total: items.length })

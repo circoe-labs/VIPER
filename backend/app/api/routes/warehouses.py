@@ -10,7 +10,7 @@ from starlette.datastructures import UploadFile
 from app.api.dependencies import CurrentActor, SessionDep
 from app.api.errors import business_errors, refusal
 from app.services import warehouse_import, warehouses
-from app.services.warehouses import WarehouseInput, WarehouseOut, WarehousePage
+from app.services.warehouses import WarehouseCounts, WarehouseInput, WarehouseOut, WarehousePage
 
 router = APIRouter(prefix="/warehouses", tags=["warehouses"])
 
@@ -25,8 +25,9 @@ def list_warehouses(
     q: Annotated[str, Query(max_length=200)] = "",
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
+    to_contact: bool = False,
 ) -> WarehousePage:
-    return warehouses.list_warehouses(session, q, limit, offset)
+    return warehouses.list_warehouses(session, q, limit, offset, to_contact)
 
 
 @router.post("", status_code=201)
@@ -65,6 +66,11 @@ async def import_warehouses(
     content, filename = await uploaded(request)
     with business_errors():
         return warehouse_import.import_workbook(session, actor, content, filename)
+
+
+@router.get("/counts")
+def count_warehouses(session: SessionDep) -> WarehouseCounts:
+    return warehouses.count_warehouses(session)
 
 
 @router.get("/{warehouse_id}")

@@ -23,6 +23,12 @@ Actual company/establishment links can be introduced once they have been identif
 
 - Search matches sites, owners, cities, SIRETs and source contacts, ignoring case and accents.
 - Sites are ordered by name, paginated by 50 and closed by default.
+- The directory shows totals for all warehouse sites and their recorded interlocutors, independent
+  of search and pagination. The interlocutor count is the number of contact entries across sites;
+  the same person listed at two sites counts twice.
+- An interlocutor can be checked « À contacter prochainement ». The « À contacter » category
+  shows the sites and checked contacts, and the checkbox can be cleared. These selections are
+  saved on the warehouse record using the existing version check and audit trail; no message is sent.
 - Details show the owner, location if known, interlocutors and source. The editor supports
   adding/removing interlocutors and changing site details. It does not send messages.
 - Raw alternative email candidates (including “ou”) are preserved and visibly remain to verify.
@@ -32,7 +38,7 @@ Actual company/establishment links can be introduced once they have been identif
 
 Authenticated, CSRF-protected endpoints:
 
-- `GET /api/warehouses`, `GET /api/warehouses/{id}`
+- `GET /api/warehouses`, `GET /api/warehouses/counts`, `GET /api/warehouses/{id}`
 - `POST /api/warehouses`, `PUT /api/warehouses/{id}` (version required)
 - `POST /api/warehouses/import-preview`, `POST /api/warehouses/import` (multipart `file`)
 
