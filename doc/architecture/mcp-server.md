@@ -490,9 +490,10 @@ distinguish "Lucie did it" from "Lucie's assistant did it".
   - the moment of the call;
   - `user_email` and the token's label, both copied from the token so they survive a revocation;
   - the tool and its arguments (texts cut at 300 characters, lists at 50 items, nesting at 4 levels);
-  - `outcome`: `ok`, or `refused` with the tool's error code and message;
+  - `outcome`: `ok`, `refused` with the tool's error code and message, or `error` (code `internal`) when the tool crashed;
   - the duration.
 - **Refused calls are kept.** The row is written outside the tool's savepoint, so a refused call stays in the history.
+- **Crashed calls are kept.** An unexpected exception in a tool is not a 500: its savepoint is rolled back (the tool writes nothing), the traceback goes to the server log, the agent gets an `isError` result with code `internal`, and the call is kept with `outcome = error`.
 - **Not logged:** `initialize`, `ping` and `tools/list`.
 - **Where to read it.** Paramètres › MCP › « Historique des appels » shows the history, filterable by person and by
   tool, through `GET /api/settings/mcp/calls`.
