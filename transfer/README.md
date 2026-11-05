@@ -5,7 +5,7 @@ chiffrée avec GnuPG (AES-256). La phrase de déchiffrement est transmise sépar
 pas être ajoutée au dépôt. L'archive contient aussi les comptes et données techniques : la
 garder privée après déchiffrement.
 
-Cette copie correspond à la révision Alembic `0031` et contient 36 entrepôts, 118 contacts
+Cette copie correspond à la révision Alembic `0032` et contient 40 entrepôts, 138 contacts
 d'entrepôt, 812 entreprises et 1 049 prospects. Sa restauration dans une base temporaire a été
 testée. Elle représente un instantané, pas une liste des changements depuis la production.
 
