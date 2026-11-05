@@ -154,13 +154,13 @@ describe('MissionsPage', () => {
     expect(within(dialog).getByRole('radio', { name: 'Compléter des fiches' })).toHaveAttribute('aria-checked', 'true')
     expect(within(dialog).getByRole('status')).toHaveTextContent('Liez au moins une fiche')
     expect(within(dialog).getByRole('button', { name: 'Créer la mission' })).toBeDisabled()
-    expect(within(dialog).getByRole('button', { name: 'Créer et lancer' })).toBeDisabled()
+    expect(within(dialog).getByRole('button', { name: 'Créer la mission' })).toBeDisabled()
 
     // A discovery starts from nothing: ready at once.
     await user.click(within(dialog).getByRole('radio', { name: 'Découvrir des sociétés' }))
     expect(within(dialog).getByRole('status')).toHaveTextContent('Prête à être lancée')
     expect(within(dialog).getByRole('button', { name: 'Créer la mission' })).toBeEnabled()
-    expect(within(dialog).getByRole('button', { name: 'Créer et lancer' })).toBeEnabled()
+    expect(within(dialog).getByRole('button', { name: 'Créer la mission' })).toBeEnabled()
   })
 
   it('blocks a signals mission without a company to watch, and explains each kind on hover', async () => {
@@ -171,7 +171,7 @@ describe('MissionsPage', () => {
 
     expect(within(dialog).getByRole('status')).toHaveTextContent('Liez au moins une société à surveiller')
     expect(within(dialog).getByRole('button', { name: 'Créer la mission' })).toBeDisabled()
-    expect(within(dialog).getByRole('button', { name: 'Créer et lancer' })).toBeDisabled()
+    expect(within(dialog).getByRole('button', { name: 'Créer la mission' })).toBeDisabled()
     // The explanation is a hover/focus tip, linked to its « i » for assistive tech.
     const tip = within(dialog).getByRole('button', { name: 'Aide : Surveiller des signaux' })
     expect(tip).toHaveAccessibleDescription(/surveille les sociétés liées/)
@@ -191,7 +191,7 @@ describe('MissionsPage', () => {
     expect(within(dialog).getByRole('radio', { name: 'Vérifier des fiches' })).toHaveFocus()
   })
 
-  it('offers « Reprendre » on a paused card', async () => {
+  it('activates an inactive mission from the switch on its card', async () => {
     const fetchMock = stubApi({
       ...SHELL_API,
       ...COMMON,
@@ -201,8 +201,10 @@ describe('MissionsPage', () => {
     const user = userEvent.setup()
     renderApp('/missions')
 
-    expect(await screen.findByText('En pause : aucune exécution prévue')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Reprendre la mission Nouveaux entrepôts — Normandie' }))
+    expect(await screen.findByText('Inactive : fermée aux agents')).toBeInTheDocument()
+    const toggle = screen.getByRole('switch', { name: 'Mission Nouveaux entrepôts — Normandie active' })
+    expect(toggle).not.toBeChecked()
+    await user.click(toggle)
 
     const patch = fetchMock.mock.calls.find(([, init]) => init?.method === 'PATCH')?.[1]?.body
     expect(typeof patch === 'string' ? JSON.parse(patch) : null).toEqual({ status: 'active' })
@@ -309,7 +311,7 @@ describe('MissionDetailPage', () => {
     expect(screen.getByRole('button', { name: 'Relire' })).toBeInTheDocument()
   })
 
-  it('says why the last run failed and that a paused mission creates no task', async () => {
+  it('says why the last run failed and that an inactive mission is closed to the agents', async () => {
     const mission = detail()
     mission.card = card({ status: 'paused', next_run_at: null })
     const [firstRun] = mission.runs
@@ -321,10 +323,10 @@ describe('MissionDetailPage', () => {
 
     renderApp(`/missions/${MISSION}`)
 
-    expect(await screen.findByText(/aucune tâche n’est créée/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Reprendre' })).toBeInTheDocument()
+    expect(await screen.findByText(/ne sont plus proposées aux agents/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Activer' })).toBeInTheDocument()
     expect(screen.getByText(/Dernière exécution en échec : Liez au moins une société/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Lancer maintenant' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: 'Lancer maintenant' })).not.toBeInTheDocument()
   })
 
   it('deletes the mission after a confirmation and goes back to the list', async () => {

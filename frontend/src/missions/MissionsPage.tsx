@@ -15,6 +15,7 @@ import { ReviewDialog } from '../agents/ReviewDialog'
 import { Button, IconButton } from '../ui/Button'
 import { Card } from '../ui/Card'
 import { EmptyState } from '../ui/EmptyState'
+import { Switch } from '../ui/fields'
 import { PageHeader } from '../ui/PageHeader'
 import type { Point } from '../ui/floating'
 import {
@@ -46,30 +47,28 @@ import './missions.css'
 const FILTERS: { id: 'all' | MissionStatus; label: string }[] = [
   { id: 'all', label: 'Toutes' },
   { id: 'active', label: 'Actives' },
-  { id: 'paused', label: 'En pause' },
+  { id: 'paused', label: 'Inactives' },
   { id: 'done', label: 'Terminées' },
 ]
 
 // A right-click on the card, or its « … » button (keyboard, touch), asks for the mission's menu at a point.
 type OpenMenu = (card: MissionCard, position: Point, alignRight: boolean) => void
 
-// « Reprendre » right on a paused card: a paused mission creates no task, so an agent asking for work finds none.
-function ResumeButton({ card }: { card: MissionCard }) {
+// Active: its tasks are open to the agents that connect; inactive: they are no longer offered.
+function ActiveSwitch({ card }: { card: MissionCard }) {
   const setStatus = useSetMissionStatus(card.id)
+  const active = card.status === 'active'
   return (
-    <Button
-      size="sm"
-      variant="primary"
-      icon={PlayIcon}
-      className="mission-card__resume"
-      loading={setStatus.isPending}
-      aria-label={`Reprendre la mission ${card.name}`}
-      onClick={() => {
-        setStatus.mutate('active')
+    <Switch
+      className="mission-card__switch"
+      label={active ? 'Active' : 'Inactive'}
+      aria-label={`Mission ${card.name} active`}
+      checked={active}
+      disabled={setStatus.isPending}
+      onChange={() => {
+        setStatus.mutate(active ? 'paused' : 'active')
       }}
-    >
-      Reprendre
-    </Button>
+    />
   )
 }
 
@@ -119,7 +118,7 @@ function MissionTile({ card, onMenu }: { card: MissionCard; onMenu: OpenMenu }) 
         </p>
         <p className="mission-card__run">
           <ClockIcon size={14} />
-          {next ? `Prochaine : ${next}` : card.status === 'paused' ? 'En pause : aucune exécution prévue' : 'Aucune exécution prévue'}
+          {next ? `Prochaine : ${next}` : card.status === 'paused' ? 'Inactive : fermée aux agents' : 'Aucune exécution prévue'}
         </p>
         {card.results_pending > 0 && (
           <p className="mission-card__todo">
@@ -128,7 +127,7 @@ function MissionTile({ card, onMenu }: { card: MissionCard; onMenu: OpenMenu }) 
         )}
       </Link>
       <div className="mission-card__actions">
-        {card.status === 'paused' && <ResumeButton card={card} />}
+        {(card.status === 'active' || card.status === 'paused') && <ActiveSwitch card={card} />}
         <IconButton
           size="sm"
           icon={MoreIcon}
