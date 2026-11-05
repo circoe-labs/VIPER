@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react'
+import { fireEvent, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
@@ -72,7 +72,8 @@ describe('OrganizationPage', () => {
 
     const table = await screen.findByRole('table', { name: 'Membres de l’organisation' })
     expect(within(table).queryByRole('combobox')).not.toBeInTheDocument()
-    expect(within(table).queryByRole('button')).not.toBeInTheDocument()
+    // Only the « ⋯ » menu (copy the address); nothing that changes a member.
+    expect(within(table).queryByRole('button', { name: /Désactiver|Réactiver/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Ajouter un membre' })).not.toBeInTheDocument()
     // The roles explain themselves on hover, not in a paragraph.
     expect(screen.getByRole('button', { name: 'Aide : Manager' })).toBeInTheDocument()
@@ -96,5 +97,31 @@ describe('OrganizationPage', () => {
     expect(JSON.parse(post?.[1]?.body as string)).toEqual({ name: 'Acme', email_domain: null })
     expect(await screen.findByRole('heading', { level: 2, name: 'Acme' })).toBeInTheDocument()
     expect(screen.getByRole('navigation', { name: 'Organisations' })).toBeInTheDocument()
+  })
+
+  it('opens a member menu on right click: edit, role, deactivate, delete with confirmation', async () => {
+    const fetchMock = stubApi({
+      'GET /api/organizations': [200, { organizations: [SUMMARY], can_create: false }],
+      [`GET /api/organizations/${CIRCOE}`]: [200, detail({})],
+      [`DELETE /api/organizations/${CIRCOE}/members/m-1`]: [204, null],
+    })
+    renderApp('/organisation')
+
+    const table = await screen.findByRole('table', { name: 'Membres de l’organisation' })
+    const row = within(table).getByText('Marie Durand').closest('tr')
+    if (!row) throw new Error('row')
+    fireEvent.contextMenu(row)
+
+    const menu = screen.getByRole('menu', { name: 'Actions pour Marie Durand' })
+    for (const name of ['Modifier…', 'Copier l’adresse e-mail', 'Manager', 'Désactiver', 'Supprimer…']) {
+      expect(within(menu).getByRole('menuitem', { name })).toBeInTheDocument()
+    }
+    await userEvent.click(within(menu).getByRole('menuitem', { name: 'Supprimer…' }))
+    const dialog = screen.getByRole('dialog', { name: 'Supprimer Marie Durand ?' })
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Supprimer' }))
+
+    expect(fetchMock.mock.calls.some(([url, init]) => init?.method === 'DELETE' && url.endsWith('/members/m-1'))).toBe(
+      true,
+    )
   })
 })

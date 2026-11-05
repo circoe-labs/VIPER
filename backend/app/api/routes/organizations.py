@@ -66,6 +66,7 @@ class MemberInput(BaseModel):
 class MemberPatch(BaseModel):
     role: OrganizationRole | None = None
     is_active: bool | None = None
+    display_name: str | None = Field(default=None, max_length=255)
 
 
 def _organization(organization: Organization, members: int) -> OrganizationOut:
@@ -186,5 +187,26 @@ def update_member(
             user_id,
             role=body.role,
             is_active=body.is_active,
+            display_name=body.display_name,
         )
         return _member(auth.user, member)
+
+
+@router.delete("/{organization_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_member(
+    organization_id: uuid.UUID,
+    user_id: uuid.UUID,
+    auth: AuthDep,
+    session: SessionDep,
+    actor: CurrentActor,
+) -> None:
+    with business_errors():
+        organizations.remove_member(session, auth.user, actor, organization_id, user_id)
+
+
+@router.delete("/{organization_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_organization(
+    organization_id: uuid.UUID, auth: AuthDep, session: SessionDep, actor: CurrentActor
+) -> None:
+    with business_errors():
+        organizations.delete_organization(session, auth.user, actor, organization_id)

@@ -160,6 +160,8 @@ class AuditAction(StrEnum):
     ORGANIZATION_UPDATED = "organization.updated"
     MEMBER_ADDED = "organization.member_added"
     MEMBER_UPDATED = "organization.member_updated"
+    MEMBER_REMOVED = "organization.member_removed"
+    ORGANIZATION_DELETED = "organization.deleted"
     # A query of the read-only SQL console: hash and length of the text, never the text (I-67).
     EXPLORER_SQL_EXECUTED = "explorer.sql_executed"
     # A downloaded Excel export (Task 10): rows per sheet and size, never a value.
