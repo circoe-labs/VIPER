@@ -55,6 +55,10 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # The Infomaniak account (`sub` claim) bound at the first Infomaniak sign-in.
     infomaniak_sub: Mapped[str | None] = mapped_column(String(255), unique=True)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Self-service sign-up (`services/signups.py`): set while the account waits for an admin's
+    # approval (`is_active` false); the SHA-256 of the token in the approval link sent to the admin.
+    signup_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    signup_token_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
 
     organization: Mapped[Organization] = relationship(lazy="joined")
 

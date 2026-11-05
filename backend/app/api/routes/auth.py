@@ -1,18 +1,20 @@
 import logging
 import uuid
+from datetime import datetime
 from urllib.parse import quote
 
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field, SecretStr
 
 from app.api.dependencies import AuthDep, SessionDep, SettingsDep
+from app.api.errors import business_errors
 from app.api.session_cookie import SESSION_COOKIE, clear_session_cookie, set_session_cookie
 from app.core.security import MAX_PASSWORD_LENGTH, csrf_token
 from app.models.organizations import OrganizationRole
 from app.models.users import User
 from app.services import auth as auth_service
-from app.services import infomaniak_login, organizations
+from app.services import infomaniak_login, organizations, signups
 from app.services.login_throttle import LoginThrottle
 
 logger = logging.getLogger(__name__)
@@ -232,3 +234,106 @@ def _sign_in(
     response = RedirectResponse("/", status.HTTP_302_FOUND)
     set_session_cookie(response, opened.token, settings)
     return response
+
+
+# --- « Créer un compte » (services/signups.py) ---------------------------------------------------
+
+
+class SignupRequest(BaseModel):
+    email: str = Field(min_length=1, max_length=320)
+    display_name: str = Field(min_length=1, max_length=255)
+    password: SecretStr = Field(min_length=1, max_length=MAX_PASSWORD_LENGTH)
+
+
+class SignupAccepted(BaseModel):
+    status: str = "pending"
+
+
+@public_router.post(
+    "/signup",
+    status_code=status.HTTP_202_ACCEPTED,
+    responses={
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {"description": "Refused: `{code, message}`."},
+        status.HTTP_429_TOO_MANY_REQUESTS: {"description": "Too many requests."},
+    },
+)
+def signup(
+    body: SignupRequest,
+    request: Request,
+    session: SessionDep,
+    settings: SettingsDep,
+    background: BackgroundTasks,
+) -> SignupAccepted:
+    """Ask for an account: created deactivated, the platform admin is e-mailed a confirmation
+    link. The same answer whether the address already has an account or not."""
+    throttle: LoginThrottle = request.app.state.login_throttle
+    client = request.client.host if request.client else "unknown"
+    email = auth_service.normalize_email(body.email)
+    retry_after = throttle.retry_after(email, client)
+    if retry_after is not None:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "Too many requests.",
+            headers={"Retry-After": str(retry_after)},
+        )
+    # Counted like a failed sign-in: a client cannot flood the admin's mailbox.
+    throttle.record_failure(email, client)
+    try:
+        requested = signups.request_signup(
+            session,
+            email=email,
+            display_name=body.display_name,
+            password=body.password.get_secret_value(),
+            allowed_domains=settings.signin_domains,
+        )
+    except signups.SignupRefused as refused:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, {"code": refused.code, "message": str(refused)}
+        ) from refused
+    if requested is not None:
+        link = str(request.base_url).rstrip("/") + f"/inscriptions/{requested.token}"
+        background.add_task(
+            signups.notify_admin,
+            request.app.state.session_factory,
+            request.app.state.toolbox.mail_toolbox(),
+            user_id=requested.user_id,
+            link=link,
+        )
+    return SignupAccepted()
+
+
+class SignupOut(BaseModel):
+    email: str
+    display_name: str
+    organization: str
+    requested_at: datetime | None
+
+
+@router.get("/signups/{token}")
+def get_signup(token: str, auth: AuthDep, session: SessionDep) -> SignupOut:
+    with business_errors():
+        user = signups.pending_by_token(session, token)
+        return SignupOut(
+            email=user.email,
+            display_name=user.display_name,
+            organization=user.organization.name,
+            requested_at=user.signup_requested_at,
+        )
+
+
+@router.post("/signups/{token}/approve")
+def approve_signup(token: str, auth: AuthDep, session: SessionDep) -> SignupOut:
+    with business_errors():
+        user = signups.approve(session, auth.user, token)
+        return SignupOut(
+            email=user.email,
+            display_name=user.display_name,
+            organization=user.organization.name,
+            requested_at=None,
+        )
+
+
+@router.post("/signups/{token}/refuse", status_code=status.HTTP_204_NO_CONTENT)
+def refuse_signup(token: str, auth: AuthDep, session: SessionDep) -> None:
+    with business_errors():
+        signups.refuse(session, auth.user, token)

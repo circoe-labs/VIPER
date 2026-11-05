@@ -1,5 +1,5 @@
 import { type SubmitEvent, useRef, useState } from 'react'
-import { Navigate, useLocation, useSearchParams } from 'react-router'
+import { Link, Navigate, useLocation, useSearchParams } from 'react-router'
 
 import { ApiError } from '../api/client'
 import { BrandLogo } from '../brand/BrandLogo'
@@ -24,6 +24,7 @@ const NOTICES = {
 // `?erreur=` set by the Infomaniak callback (backend/app/api/routes/auth.py) when it does not open a session.
 const SIGN_IN_REFUSALS: Record<string, string> = {
   domain: 'Seules les adresses @circoe.com peuvent se connecter pour le moment.',
+  pending: 'Votre compte attend la confirmation de l’administrateur.',
   inactive: 'Ce compte est désactivé. Contactez un administrateur de votre organisation.',
   organization: 'Votre organisation n’est pas encore ouverte.',
   unverified: 'Votre adresse Infomaniak n’est pas vérifiée.',
@@ -37,6 +38,8 @@ const SIGN_IN_REFUSALS: Record<string, string> = {
 function loginErrorMessage(error: unknown): string {
   if (error instanceof ApiError && error.status === 401) return 'Adresse e-mail ou mot de passe incorrect.'
   if (error instanceof ApiError && error.status === 403) {
+    const code = (error.detail as { code?: string } | undefined)?.code
+    if (code === 'pending') return 'Votre compte attend la confirmation de l’administrateur.'
     return 'Connexion refusée : seules les adresses @circoe.com d’un compte actif peuvent se connecter.'
   }
   if (error instanceof ApiError && error.status === 429) {
@@ -157,6 +160,11 @@ export function LoginPage() {
               {login.isPending ? 'Connexion…' : 'Se connecter'}
             </Button>
           </form>
+        )}
+        {passwordForm && (
+          <p className="login-card__alt">
+            Pas encore de compte ? <Link to="/inscription">Créer un compte</Link>
+          </p>
         )}
       </main>
     </div>
