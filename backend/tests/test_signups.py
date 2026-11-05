@@ -172,3 +172,12 @@ def test_the_request_stays_pending_when_the_mail_cannot_leave(
     assert ask(anonymous_client).status_code == 202
     user = db_session.scalar(select(User).where(User.email == "nouveau@circoe.com"))
     assert user is not None and user.signup_requested_at is not None
+
+
+def test_signing_in_with_an_address_outside_the_open_domains_says_not_allowed(
+    anonymous_client: TestClient,
+) -> None:
+    response = anonymous_client.post(LOGIN, json={"email": "quelqu.un@gmail.com", "password": "x"})
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "domain"
+    assert "circoe" not in response.text.lower()

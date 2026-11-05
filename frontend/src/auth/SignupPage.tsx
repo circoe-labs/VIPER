@@ -27,7 +27,7 @@ interface FieldErrors {
 
 // `{code}` of a refused request (backend/app/services/signups.py).
 const REFUSALS: Record<string, string> = {
-  domain: 'Seules les adresses @circoe.com peuvent demander un compte.',
+  domain: 'Adresse e-mail non autorisée.',
   email: 'L’adresse e-mail n’est pas valide.',
   name: 'Indiquez votre nom.',
   password: `Le mot de passe doit faire au moins ${String(MIN_PASSWORD)} caractères.`,
@@ -119,7 +119,6 @@ export function SignupPage() {
                 name="email"
                 autoComplete="username"
                 spellCheck={false}
-                hint="Une adresse @circoe.com."
                 value={email}
                 error={errors.email}
                 onChange={(event) => {

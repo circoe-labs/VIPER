@@ -23,7 +23,7 @@ const NOTICES = {
 
 // `?erreur=` set by the Infomaniak callback (backend/app/api/routes/auth.py) when it does not open a session.
 const SIGN_IN_REFUSALS: Record<string, string> = {
-  domain: 'Seules les adresses @circoe.com peuvent se connecter pour le moment.',
+  domain: 'Adresse e-mail non autorisée.',
   pending: 'Votre compte attend la confirmation de l’administrateur.',
   inactive: 'Ce compte est désactivé. Contactez un administrateur de votre organisation.',
   organization: 'Votre organisation n’est pas encore ouverte.',
@@ -40,7 +40,9 @@ function loginErrorMessage(error: unknown): string {
   if (error instanceof ApiError && error.status === 403) {
     const code = (error.detail as { code?: string } | undefined)?.code
     if (code === 'pending') return 'Votre compte attend la confirmation de l’administrateur.'
-    return 'Connexion refusée : seules les adresses @circoe.com d’un compte actif peuvent se connecter.'
+    // No reason given for an address outside the open domains: the rule is not shown to visitors.
+    if (code === 'domain') return 'Adresse e-mail non autorisée.'
+    return 'Connexion refusée : ce compte n’est pas actif.'
   }
   if (error instanceof ApiError && error.status === 429) {
     return 'Trop de tentatives de connexion. Réessayez dans quelques minutes.'

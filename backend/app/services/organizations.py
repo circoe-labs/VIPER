@@ -73,7 +73,7 @@ def check_can_sign_in(user: User, settings: Settings) -> None:
     if not user.is_active:
         raise SignInRefused("inactive", "This account is deactivated.")
     if _domain(user.email) not in settings.signin_domains:
-        raise SignInRefused("domain", "Only CIRCOE addresses may sign in for now.")
+        raise SignInRefused("domain", "Email address not allowed.")
     if user.organization_id != CIRCOE_ORGANIZATION_ID:
         # Reads are not filtered per organisation yet: only CIRCOE's own members come in.
         raise SignInRefused("organization", "This organisation is not open yet.")
@@ -99,7 +99,7 @@ def sign_in_identity(session: Session, settings: Settings, identity: Identity) -
     if identity.email_verified is False:
         raise SignInRefused("unverified", "The Infomaniak address is not verified.")
     if not EMAIL_PATTERN.fullmatch(email) or _domain(email) not in settings.signin_domains:
-        raise SignInRefused("domain", "Only CIRCOE addresses may sign in for now.")
+        raise SignInRefused("domain", "Email address not allowed.")
     user = session.scalar(select(User).where(User.infomaniak_sub == identity.sub))
     if user is None:
         user = user_repository.get_user_by_email(session, email)

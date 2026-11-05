@@ -90,6 +90,11 @@ def login(
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Sign in with Infomaniak.")
     throttle: LoginThrottle = request.app.state.login_throttle
     email = auth_service.normalize_email(body.email)
+    if email.rsplit("@", 1)[-1] not in settings.signin_domains:
+        # Said before the password is checked, without naming the open domains.
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, {"code": "domain", "message": "Email address not allowed."}
+        )
     client = request.client.host if request.client else "unknown"
     retry_after = throttle.retry_after(email, client)
     if retry_after is not None:

@@ -82,7 +82,7 @@ def request_signup(
     except DomainError as error:
         raise SignupRefused("password", str(error)) from error
     if _domain(email) not in allowed_domains:
-        raise SignupRefused("domain", "Only CIRCOE addresses may ask for an account.")
+        raise SignupRefused("domain", "Email address not allowed.")
     organization = session.scalar(
         select(Organization).where(Organization.email_domain == _domain(email))
     )

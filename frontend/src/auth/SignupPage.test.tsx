@@ -59,6 +59,6 @@ describe('SignupPage', () => {
 
     await fill()
 
-    expect(await screen.findByText('Seules les adresses @circoe.com peuvent demander un compte.')).toBeInTheDocument()
+    expect(await screen.findByText('Adresse e-mail non autorisée.')).toBeInTheDocument()
   })
 })
