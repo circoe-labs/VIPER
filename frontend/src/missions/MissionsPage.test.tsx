@@ -446,4 +446,90 @@ describe('Signal review', () => {
       'https://example.test/2sn',
     )
   })
+
+  it('shows a discovered company with its sites and its trigger', async () => {
+    const result: ResultView = {
+      id: '00000000-0000-7000-e000-000000000041',
+      task_id: '00000000-0000-7000-e000-000000000030',
+      task_type: 'find_prospects',
+      task_status: 'submitted',
+      status: 'pending_review',
+      submitted_at: '2026-10-30T08:05:00+00:00',
+      submitted_by_label: 'Agent découverte',
+      digest: 'b'.repeat(64),
+      proposal: {
+        kind: 'find_prospects',
+        items: [
+          {
+            key: 'company:0:logistique y',
+            field: 'companies.0',
+            label: 'Logistique Y',
+            before: null,
+            after: 'Nouvelle société',
+            status: 'add',
+            source: 'https://annuaire.example/logistique-y',
+            quote: null,
+            store: {
+              display_name: 'Logistique Y',
+              establishments: [
+                {
+                  name: 'Plateforme de Honfleur',
+                  kind: 'entrepôt',
+                  siret: '73282932010008',
+                  postal_code: '14600',
+                  city: 'Honfleur',
+                  opened_on: '2026-09-12',
+                  surface_m2: 18000,
+                  source: 'https://presse.example/honfleur',
+                },
+              ],
+              trigger: {
+                kind: 'facility_opening',
+                signal: 'Ouverture d’un nouvel entrepôt de 18 000 m².',
+                score_delta: 20,
+                score_reason: 'Nouvelle implantation logistique.',
+                source_url: 'https://presse.example/honfleur',
+                observed_on: '2026-09-12',
+              },
+            },
+          },
+        ],
+        refused: [],
+        stale: false,
+        confidence: 80,
+        notes: null,
+      },
+      accepted_items: null,
+      applied: null,
+      decision_note: null,
+      decided_at: null,
+      decided_by_display: null,
+      company_name: null,
+      prospect_name: null,
+    }
+    const mission = detail()
+    const firstTask = mission.tasks[0]
+    expect(firstTask).toBeDefined()
+    if (firstTask) firstTask.result_id = result.id
+    stubApi({
+      ...SHELL_API,
+      ...COMMON,
+      [`GET /api/missions/${MISSION}`]: [200, mission],
+      [`GET /api/agents/results/${result.id}`]: [200, result],
+    })
+    const user = userEvent.setup()
+
+    renderApp(`/missions/${MISSION}`)
+    await user.click(await screen.findByRole('button', { name: 'Relire' }))
+
+    const sites = await screen.findByRole('list', { name: 'Établissements' })
+    expect(within(sites).getByText('Plateforme de Honfleur')).toBeInTheDocument()
+    expect(within(sites).getByText('14600 Honfleur')).toBeInTheDocument()
+    expect(within(sites).getByText('SIRET 73282932010008')).toBeInTheDocument()
+    expect(within(sites).getByText('18000 m²')).toBeInTheDocument()
+    const trigger = screen.getByRole('group', { name: 'Déclencheur' })
+    expect(within(trigger).getByText('Ouverture de site')).toBeInTheDocument()
+    expect(within(trigger).getByText('Ouverture d’un nouvel entrepôt de 18 000 m².')).toBeInTheDocument()
+    expect(within(trigger).getByText('+20')).toBeInTheDocument()
+  })
 })

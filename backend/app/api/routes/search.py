@@ -109,6 +109,11 @@ def search(
     (SIRET, name, city) matching `q` — 2 characters at least (422 otherwise)."""
     with business_errors():
         results = service.search(session, q)
+    return search_out(results)
+
+
+def search_out(results: service.SearchResults) -> SearchOut:
+    """The answer's shape, shared with the MCP tool `viper_search`."""
     return SearchOut.model_validate(
         {
             "query": results.query,

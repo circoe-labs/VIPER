@@ -9,6 +9,7 @@ A rejection does not destroy the work: the result keeps `raw` and the reason, an
 to the queue while attempts remain.
 """
 
+import logging
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -20,7 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.core.actor import ActorContext
 from app.models.agent_missions import AgentTask, AgentTaskResult
-from app.models.companies import Company
+from app.models.companies import Company, Establishment
 from app.models.enums import (
     ActivityStatus,
     AgentResultStatus,
@@ -37,6 +38,7 @@ from app.models.prospects import Prospect, ProspectNote
 from app.models.taxonomies import Role
 from app.repositories.taxonomies import find_by_label
 from app.services import audit, companies, prospect_editor
+from app.services.agent_payloads import site_place
 from app.services.companies import CompanyInput, EstablishmentInput, EstablishmentView, get_company
 from app.services.contact_channels import ChannelItem
 from app.services.errors import ConflictError, InvalidFieldError, NotFoundError
@@ -48,6 +50,8 @@ from app.services.prospect_editor import (
     VerificationAction,
     aggregate_version,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -308,14 +312,88 @@ def _apply_find_employees(
     return {"company_id": str(company.id), "created": created}
 
 
+def _site_key(site: dict[str, Any] | EstablishmentView) -> str | tuple[str, str] | None:
+    """SIRET first, then (city, name): the identity of a proposed or created site."""
+    if isinstance(site, EstablishmentView):
+        return site.siret or site_place(site.city, site.name)
+    return site.get("siret") or site_place(site.get("city"), site.get("name"))
+
+
+def _new_sites(
+    session: Session, sites: Sequence[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """The proposed sites still to create, and those skipped because they are known.
+
+    Checked again at acceptance: a SIRET may have entered the base since the agent submitted.
+    """
+    kept: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    seen: set[str | tuple[str, str]] = set()
+    for site in sites:
+        key = _site_key(site)
+        siret = site.get("siret")
+        if siret and session.scalar(select(Establishment.id).where(Establishment.siret == siret)):
+            skipped.append({"name": site.get("name"), "siret": siret, "reason": "already_known"})
+            continue
+        if key is None or key in seen:
+            skipped.append({"name": site.get("name"), "siret": siret, "reason": "duplicate"})
+            continue
+        seen.add(key)
+        kept.append(site)
+    return kept, skipped
+
+
+def _signal_note(
+    store: dict[str, Any],
+    result_id: uuid.UUID,
+    *,
+    company_id: uuid.UUID | None,
+    prospect_id: uuid.UUID | None = None,
+) -> ProspectNote:
+    """The signal row of an accepted proposal (`origin=agent`, its source and its result)."""
+    return ProspectNote(
+        prospect_id=prospect_id,
+        company_id=company_id,
+        fact_text=str(store["signal"]),
+        noted_on=date.fromisoformat(str(store["observed_on"])),
+        source_type=(
+            NoteSourceType(str(store["source_channel"])) if store.get("source_channel") else None
+        ),
+        source_url=str(store["source_url"]),
+        kind=SignalKind(str(store["kind"])),
+        origin=SignalOrigin.AGENT,
+        observed_on=date.fromisoformat(str(store["observed_on"])),
+        valid_until=(
+            date.fromisoformat(str(store["valid_until"])) if store.get("valid_until") else None
+        ),
+        relevance=store.get("relevance"),
+        sentiment=store.get("sentiment"),
+        score_delta=store.get("score_delta"),
+        task_result_id=result_id,
+    )
+
+
 def _apply_find_prospects(
-    session: Session, actor: ActorContext, task: AgentTask, items: Sequence[dict[str, Any]]
+    session: Session,
+    actor: ActorContext,
+    items: Sequence[dict[str, Any]],
+    result_id: uuid.UUID,
 ) -> dict[str, Any]:
-    """Create the accepted companies. The mission result keeps the source of each one."""
+    """Create each accepted company with its sites and its trigger signal, in the caller's
+    transaction: a failure on any of them leaves nothing written.
+
+    Provenance: the company and its sites are audited as the deciding person's acceptance; the
+    signal carries `source_url`, `origin=agent` and `task_result_id`; `applied` maps every created
+    id to the source, opening date and surface the agent cited (no column holds those yet).
+    Proposals stored before sites and triggers existed have neither key and create the company
+    alone.
+    """
     created: list[str] = []
+    applied: list[dict[str, Any]] = []
     for item in items:
         store = item["store"]
         segment_id = store.get("commercial_segment_id")
+        sites, skipped = _new_sites(session, store.get("establishments") or [])
         data = CompanyInput(
             display_name=str(store["display_name"]),
             legal_name=store.get("legal_name"),
@@ -327,10 +405,58 @@ def _apply_find_prospects(
             activity_category_ids=[
                 uuid.UUID(str(value)) for value in store.get("activity_category_ids", [])
             ],
+            establishments=[
+                EstablishmentInput(
+                    name=site.get("name"),
+                    siret=site.get("siret"),
+                    address_line1=site.get("address_line1"),
+                    postal_code=site.get("postal_code"),
+                    city=site.get("city"),
+                    country=site.get("country"),
+                    kind=site.get("kind"),
+                )
+                for site in sites
+            ],
         )
         detail = companies.create_company(session, actor, data)
         created.append(str(detail.id))
-    return {"created": created}
+        by_key = {_site_key(site): site for site in sites}
+        establishments = [
+            {
+                "id": str(view.id),
+                "name": view.name,
+                "siret": view.siret,
+                "source": by_key.get(_site_key(view), {}).get("source"),
+                "opened_on": by_key.get(_site_key(view), {}).get("opened_on"),
+                "surface_m2": by_key.get(_site_key(view), {}).get("surface_m2"),
+            }
+            for view in detail.establishments
+        ]
+        signal_id = None
+        trigger = store.get("trigger")
+        if trigger:
+            note = _signal_note(trigger, result_id, company_id=detail.id)
+            session.add(note)
+            session.flush()
+            signal_id = str(note.id)
+        applied.append(
+            {
+                "company_id": str(detail.id),
+                "source": store.get("source"),
+                "establishments": establishments,
+                "skipped_establishments": skipped,
+                "signal_id": signal_id,
+            }
+        )
+        logger.info(
+            "find_prospects accepted: company=%s sites=%d skipped=%d trigger=%s result=%s",
+            detail.id,
+            len(establishments),
+            len(skipped),
+            signal_id is not None,
+            result_id,
+        )
+    return {"created": created, "companies": applied}
 
 
 def _apply_signals(
@@ -346,30 +472,7 @@ def _apply_signals(
         store = item["store"]
         prospect_id = uuid.UUID(str(store["prospect_id"])) if store.get("prospect_id") else None
         company_id = uuid.UUID(str(store["company_id"])) if store.get("company_id") else None
-        note = ProspectNote(
-            prospect_id=prospect_id,
-            company_id=company_id,
-            fact_text=str(store["signal"]),
-            noted_on=date.fromisoformat(str(store["observed_on"])),
-            source_type=(
-                NoteSourceType(str(store["source_channel"]))
-                if store.get("source_channel")
-                else None
-            ),
-            source_url=str(store["source_url"]),
-            kind=SignalKind(str(store["kind"])),
-            origin=SignalOrigin.AGENT,
-            observed_on=date.fromisoformat(str(store["observed_on"])),
-            valid_until=(
-                date.fromisoformat(str(store["valid_until"]))
-                if store.get("valid_until")
-                else None
-            ),
-            relevance=store.get("relevance"),
-            sentiment=store.get("sentiment"),
-            score_delta=store.get("score_delta"),
-            task_result_id=result_id,
-        )
+        note = _signal_note(store, result_id, company_id=company_id, prospect_id=prospect_id)
         session.add(note)
         session.flush()
         created.append(str(note.id))
@@ -403,7 +506,7 @@ def accept(
         case AgentTaskType.FIND_EMPLOYEES:
             applied = _apply_find_employees(session, actor, task, selected)
         case AgentTaskType.FIND_PROSPECTS:
-            applied = _apply_find_prospects(session, actor, task, selected)
+            applied = _apply_find_prospects(session, actor, selected, result.id)
         case AgentTaskType.SURVEIL_SIGNALS:
             applied = _apply_signals(session, actor, task, selected, result.id)
         case _:

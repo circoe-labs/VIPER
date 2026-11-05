@@ -20,7 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.agent_missions import AgentTask, AgentThread
-from app.models.companies import Company
+from app.models.companies import Company, Establishment
 from app.models.enums import (
     ActivityStatus,
     AgentTaskType,
@@ -38,13 +38,17 @@ from app.services.companies import (
     get_company,
     normalize_email_domain,
     normalize_siren,
+    normalize_siret,
     normalize_website,
 )
 from app.services.contact_channels import normalize_email_address, normalize_phone_number
 from app.services.errors import InvalidFieldError
 from app.services.imports.matching import company_key
 
-SCHEMA_VERSION = 1
+# Bumped when a result shape changes (`agent-missions.md` §6.3). 2: `find_prospects` companies may
+# carry `establishments` and a `trigger` (ChatGPT handoff, Slice 04; both optional, so a result in
+# the version-1 shape stays valid).
+SCHEMA_VERSION = 2
 
 # --- `update_company` ---------------------------------------------------------------------------
 
@@ -164,39 +168,7 @@ class FindEmployeesResult(BaseModel):
     notes: str | None = Field(None, max_length=2000)
 
 
-# --- `find_prospects` ---------------------------------------------------------------------------
-
-
-class CompanyProposal(BaseModel):
-    """One company the agent found for a discovery mission, with its public source."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    display_name: str = Field(min_length=1, max_length=200)
-    legal_name: str | None = Field(None, max_length=300)
-    siren: str | None = Field(None, max_length=20)
-    website_url: str | None = Field(None, max_length=1000)
-    email_domain: str | None = Field(None, max_length=255)
-    size_label: str | None = Field(None, max_length=100)
-    commercial_segment: str | None = Field(None, max_length=200)
-    activity_categories: list[str] = Field(default_factory=list, max_length=20)
-    confidence: int = Field(ge=0, le=100)
-    evidence: list[Evidence] = Field(default_factory=list, max_length=50)
-    notes: str | None = Field(None, max_length=2000)
-
-
-class FindProspectsResult(BaseModel):
-    """`find_prospects`: companies matching the mission's brief, none of them in the base yet."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    companies: list[CompanyProposal] = Field(default_factory=list, max_length=50)
-    summary: str | None = Field(None, max_length=2000)
-    confidence: int = Field(ge=0, le=100)
-    notes: str | None = Field(None, max_length=2000)
-
-
-# --- `surveil_signals` --------------------------------------------------------------------------
+# --- signals (`surveil_signals`, and the discovery trigger of `find_prospects`) ---------------
 
 
 class SignalSubject(BaseModel):
@@ -223,6 +195,82 @@ class SignalProposal(BaseModel):
     observed_on: date
     relevance: int = Field(ge=0, le=100)
     sentiment: Literal["positive", "neutral", "negative"] | None = None
+
+
+# --- `find_prospects` ---------------------------------------------------------------------------
+
+
+class EstablishmentProposal(BaseModel):
+    """One site of a discovered company (« Plateforme de Honfleur », an `entrepôt`).
+
+    Mirrors `companies.EstablishmentInput` for what becomes the row; `opened_on`, `surface_m2` and
+    `source` are the facts that made the site worth proposing: they stay on the reviewed result
+    (`proposal` and `applied`), the `establishments` table has no column for them yet.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(None, max_length=255)
+    kind: str | None = Field(
+        None, max_length=100, description="Free text: siège, agence, entrepôt, usine…"
+    )
+    siret: str | None = Field(None, max_length=20)
+    address_line1: str | None = Field(None, max_length=255)
+    postal_code: str | None = Field(None, max_length=16)
+    city: str | None = Field(None, max_length=255)
+    country: str | None = Field(None, max_length=100)
+    opened_on: date | None = None
+    surface_m2: int | None = Field(None, ge=1, le=10_000_000)
+    source: str | None = Field(None, max_length=2000, description="Public http(s) URL.")
+
+
+class CompanyProposal(BaseModel):
+    """One company the agent found for a discovery mission, with its public source.
+
+    `establishments` and `trigger` are optional (results submitted before them stay valid): the
+    sites the brief is about, and the dated event that brought the company in — the same shape as
+    a `surveil_signals` signal, always about the company itself.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    display_name: str = Field(min_length=1, max_length=200)
+    legal_name: str | None = Field(None, max_length=300)
+    siren: str | None = Field(None, max_length=20)
+    website_url: str | None = Field(None, max_length=1000)
+    email_domain: str | None = Field(None, max_length=255)
+    size_label: str | None = Field(None, max_length=100)
+    commercial_segment: str | None = Field(None, max_length=200)
+    activity_categories: list[str] = Field(default_factory=list, max_length=20)
+    confidence: int = Field(ge=0, le=100)
+    evidence: list[Evidence] = Field(default_factory=list, max_length=50)
+    notes: str | None = Field(None, max_length=2000)
+    establishments: list[EstablishmentProposal] = Field(
+        default_factory=list,
+        max_length=20,
+        description="The sites the brief is about (a new warehouse, a plant under construction).",
+    )
+    trigger: SignalProposal | None = Field(
+        None,
+        description=(
+            "The dated, sourced event that makes this company a prospect now (facility_opening, "
+            "facility_expansion, construction, relocation…). Always about the company itself."
+        ),
+    )
+
+
+class FindProspectsResult(BaseModel):
+    """`find_prospects`: companies matching the mission's brief, none of them in the base yet."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    companies: list[CompanyProposal] = Field(default_factory=list, max_length=50)
+    summary: str | None = Field(None, max_length=2000)
+    confidence: int = Field(ge=0, le=100)
+    notes: str | None = Field(None, max_length=2000)
+
+
+# --- `surveil_signals` --------------------------------------------------------------------------
 
 
 class SurveilSignalsResult(BaseModel):
@@ -273,7 +321,14 @@ INSTRUCTIONS: dict[AgentTaskType, str] = {
         "Find dated, sourced signals about this company and its people, and say why each one "
         "matters for a commercial approach."
     ),
-    AgentTaskType.FIND_PROSPECTS: "Find companies or people matching this brief.",
+    AgentTaskType.FIND_PROSPECTS: (
+        "Find companies matching this brief that are not in the base yet. Cite a public source for "
+        "each one. When the brief is about sites (a warehouse opened, a plant built or extended, "
+        "a move), list those sites under `establishments` (name, kind, SIRET, address, city, "
+        "opened_on, surface_m2, source) and give the dated event as `trigger`, with the kind "
+        "that names it (facility_opening, facility_expansion, construction, relocation) and why "
+        "it matters commercially."
+    ),
 }
 
 RESULT_MODELS: dict[AgentTaskType, type[BaseModel]] = {
@@ -429,9 +484,7 @@ def _missing_employee_fields(prospect: Prospect) -> list[str]:
 
 
 def _company_prospect_ids(session: Session, company_id: uuid.UUID) -> list[uuid.UUID]:
-    return list(
-        session.scalars(select(Prospect.id).where(Prospect.company_id == company_id))
-    )
+    return list(session.scalars(select(Prospect.id).where(Prospect.company_id == company_id)))
 
 
 def _known_signals(session: Session, company_id: uuid.UUID) -> list[dict[str, Any]]:
@@ -440,8 +493,7 @@ def _known_signals(session: Session, company_id: uuid.UUID) -> list[dict[str, An
     rows = session.scalars(
         select(ProspectNote).where(
             ProspectNote.source_url.is_not(None),
-            (ProspectNote.company_id == company_id)
-            | (ProspectNote.prospect_id.in_(prospect_ids)),
+            (ProspectNote.company_id == company_id) | (ProspectNote.prospect_id.in_(prospect_ids)),
         )
     ).all()
     return [
@@ -484,6 +536,34 @@ def _existing_people(session: Session, company_id: uuid.UUID) -> list[dict[str, 
     return people
 
 
+def mission_rule(mission: Mission) -> dict[str, Any]:
+    """The rule a run works under: the payload's `mission` block. Kept on each run when it starts
+    (`MissionRun.config`), so « Modifier la mission » only changes the next runs."""
+    return {
+        "id": str(mission.id),
+        "name": mission.name,
+        "type": mission.type.value,
+        "prompt": mission.prompt,
+        "result_kind": mission.result_kind.value,
+        "result_limit": mission.result_limit,
+        "geography": mission.geography,
+        "period_days": mission.period_days,
+        "exclusions": mission.exclusions,
+    }
+
+
+def _task_mission(
+    session: Session, task: AgentTask
+) -> tuple[Mission | None, dict[str, Any] | None]:
+    """`(mission, rule)` of a mission task: the rule kept by its run, or the live one for a run
+    made before migration 0027; `(None, None)` for a tool-mode task or a deleted mission."""
+    run = session.get(MissionRun, task.run_id) if task.run_id else None
+    mission = session.get(Mission, run.mission_id) if run is not None else None
+    if run is None or mission is None:
+        return None, None
+    return mission, run.config if run.config is not None else mission_rule(mission)
+
+
 def build_payload(
     session: Session,
     task: AgentTask,
@@ -493,8 +573,7 @@ def build_payload(
 ) -> dict[str, Any]:
     """The JSON an agent receives when it claims `task`. Read-only."""
     thread = session.get(AgentThread, task.thread_id) if task.thread_id else None
-    run = session.get(MissionRun, task.run_id) if task.run_id else None
-    mission = session.get(Mission, run.mission_id) if run is not None else None
+    _, rule = _task_mission(session, task)
     moment = now or datetime.now(UTC)
     model = result_model(task.type)
     payload: dict[str, Any] = {
@@ -502,24 +581,8 @@ def build_payload(
         "task": task.type.value,
         "task_label": TASK_LABELS[task.type],
         "instruction": INSTRUCTIONS[task.type],
-        "thread": (
-            {"id": str(thread.id), "title": thread.title} if thread is not None else None
-        ),
-        "mission": (
-            {
-                "id": str(mission.id),
-                "name": mission.name,
-                "type": mission.type.value,
-                "prompt": mission.prompt,
-                "result_kind": mission.result_kind.value,
-                "result_limit": mission.result_limit,
-                "geography": mission.geography,
-                "period_days": mission.period_days,
-                "exclusions": mission.exclusions,
-            }
-            if mission is not None
-            else None
-        ),
+        "thread": ({"id": str(thread.id), "title": thread.title} if thread is not None else None),
+        "mission": rule,
         "subject": {},
         "user_data": None,
         "company_data": None,
@@ -553,9 +616,7 @@ def build_payload(
             payload["search_hints"] = _search_hints(company)
         case AgentTaskType.UPDATE_EMPLOYEE:
             if task.prospect_id is None or task.company_id is None:
-                raise InvalidFieldError(
-                    "task", "This task has no prospect.", "missing_subject"
-                )
+                raise InvalidFieldError("task", "This task has no prospect.", "missing_subject")
             prospect = session.get(Prospect, task.prospect_id)
             if prospect is None:
                 raise InvalidFieldError("task", "This task has no prospect.", "missing_subject")
@@ -591,13 +652,13 @@ def build_payload(
         case AgentTaskType.FIND_PROSPECTS:
             # Discovery: the brief lives in the mission block; there is no subject record.
             payload["missing_fields"] = ["companies"]
-            if mission is not None:
-                payload["constraints"]["max_items"] = mission.result_limit
+            if rule is not None:
+                payload["constraints"]["max_items"] = rule["result_limit"]
                 payload["search_hints"] = [
-                    mission.prompt,
+                    rule["prompt"],
                     (
-                        f"entreprises {mission.geography}"
-                        if mission.geography
+                        f"entreprises {rule['geography']}"
+                        if rule["geography"]
                         else "annuaire des entreprises"
                     ),
                 ]
@@ -615,8 +676,8 @@ def build_payload(
                 f'"{company.display_name}" actualité',
                 f'site:linkedin.com/company "{company.display_name}"',
             ]
-            if mission is not None:
-                payload["constraints"]["max_items"] = mission.result_limit
+            if rule is not None:
+                payload["constraints"]["max_items"] = rule["result_limit"]
         case _:
             raise InvalidFieldError("task", "This task type has no payload yet.", "unsupported")
     return payload
@@ -912,15 +973,12 @@ def _employee_proposal(
 
 
 def _mission_context(session: Session, task: AgentTask) -> str:
-    if task.run_id is None:
-        return "Informations professionnelles publiques."
-    run = session.get(MissionRun, task.run_id)
-    mission = session.get(Mission, run.mission_id) if run is not None else None
-    if mission is None:
+    mission, rule = _task_mission(session, task)
+    if mission is None or rule is None:
         return "Informations professionnelles publiques."
     return (
         "Recherche d’informations professionnelles publiques pour la mission "
-        f"« {mission.name} », demandée par {mission.created_by_display} "
+        f"« {rule['name']} », demandée par {mission.created_by_display} "
         "et validée par une personne."
     )
 
@@ -948,8 +1006,12 @@ def _find_employees_proposal(
             last = _clean_text("last_name", person.last_name)
         except InvalidFieldError as error:
             refused.append(
-                {"field": field, "label": label, "reason": error.reason or "invalid",
-                 "message": str(error)}
+                {
+                    "field": field,
+                    "label": label,
+                    "reason": error.reason or "invalid",
+                    "message": str(error),
+                }
             )
             continue
         key = _person_key(first, last)
@@ -969,8 +1031,12 @@ def _find_employees_proposal(
                 email = normalize_email_address("email", person.email)
             except InvalidFieldError as error:
                 refused.append(
-                    {"field": field, "label": label, "reason": error.reason or "invalid",
-                     "message": str(error)}
+                    {
+                        "field": field,
+                        "label": label,
+                        "reason": error.reason or "invalid",
+                        "message": str(error),
+                    }
                 )
                 continue
             if email in known_emails:
@@ -989,8 +1055,12 @@ def _find_employees_proposal(
                 phone = normalize_phone_number("phone", person.phone)
             except InvalidFieldError as error:
                 refused.append(
-                    {"field": field, "label": label, "reason": error.reason or "invalid",
-                     "message": str(error)}
+                    {
+                        "field": field,
+                        "label": label,
+                        "reason": error.reason or "invalid",
+                        "message": str(error),
+                    }
                 )
                 continue
         sources = [evidence for evidence in person.evidence if evidence.source.strip()]
@@ -1045,23 +1115,207 @@ def _find_employees_proposal(
     }
 
 
+def _optional_text(value: str | None) -> str | None:
+    return (value or "").strip() or None
+
+
+def site_place(city: Any, name: Any) -> tuple[str, str] | None:
+    """The (city, name) pair that identifies a site without SIRET; None when either is missing."""
+    city_key = " ".join(str(city or "").split()).casefold()
+    name_key = " ".join(str(name or "").split()).casefold()
+    return (city_key, name_key) if city_key and name_key else None
+
+
+def _refusal(field: str, label: str, reason: str, message: str) -> dict[str, Any]:
+    return {"field": field, "label": label, "reason": reason, "message": message}
+
+
+def _establishments_store(
+    session: Session,
+    sites: list[EstablishmentProposal],
+    field: str,
+    claimed_sirets: set[str],
+    refused: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """The cleaned sites of one discovered company, deduplicated by SIRET, then by (city, name).
+
+    A site whose SIRET is already in the base (or already proposed for another company of this
+    result) is refused, not recreated; an invalid site is refused alone, never its company.
+    """
+    wanted: list[str] = []
+    for site in sites:
+        try:
+            siret = normalize_siret("siret", site.siret) if site.siret else None
+        except InvalidFieldError:
+            # intentional: an invalid SIRET is reported below, in the loop that refuses the site.
+            siret = None
+        if siret is not None:
+            wanted.append(siret)
+    in_base = (
+        set(session.scalars(select(Establishment.siret).where(Establishment.siret.in_(wanted))))
+        if wanted
+        else set()
+    )
+    kept: list[dict[str, Any]] = []
+    places: set[tuple[str, str]] = set()
+    for index, site in enumerate(sites):
+        path = f"{field}.establishments.{index}"
+        name = _optional_text(site.name)
+        city = _optional_text(site.city)
+        label = name or city or site.siret or f"Établissement {index + 1}"
+        try:
+            siret = normalize_siret(f"{path}.siret", site.siret) if site.siret else None
+            source = _signal_url(site.source) if site.source else None
+        except InvalidFieldError as error:
+            refused.append(_refusal(path, label, error.reason or "invalid", str(error)))
+            continue
+        place = site_place(city, name)
+        if siret is None and place is None:
+            refused.append(
+                _refusal(
+                    path,
+                    label,
+                    "unidentified",
+                    "Un établissement sans SIRET doit avoir un nom et une ville.",
+                )
+            )
+            continue
+        if siret is not None and siret in in_base:
+            refused.append(
+                _refusal(
+                    path, label, "already_known", "Cet établissement (SIRET) est déjà dans la base."
+                )
+            )
+            continue
+        if (siret is not None and siret in claimed_sirets) or (siret is None and place in places):
+            refused.append(
+                _refusal(path, label, "duplicate", "Cet établissement est proposé deux fois.")
+            )
+            continue
+        if siret is not None:
+            claimed_sirets.add(siret)
+        if place is not None:
+            places.add(place)
+        kept.append(
+            {
+                "name": name,
+                "kind": _optional_text(site.kind),
+                "siret": siret,
+                "address_line1": _optional_text(site.address_line1),
+                "postal_code": _optional_text(site.postal_code),
+                "city": city,
+                "country": _optional_text(site.country),
+                "opened_on": site.opened_on.isoformat() if site.opened_on else None,
+                "surface_m2": site.surface_m2,
+                "source": source,
+            }
+        )
+    return kept
+
+
+def _site_owner(
+    session: Session, sites: list[EstablishmentProposal], siren_owners: dict[str, uuid.UUID]
+) -> uuid.UUID | None:
+    """The existing company a proposed site already belongs to: by its SIRET in `establishments`,
+    or by its first nine digits (the SIREN) on a company. A company found through one of its
+    sites is that company, whatever name or SIREN the agent gave it."""
+    sirets: list[str] = []
+    for site in sites:
+        try:
+            siret = normalize_siret("siret", site.siret) if site.siret else None
+        except InvalidFieldError:
+            # intentional: an invalid SIRET identifies nothing; `_establishments_store` refuses it.
+            siret = None
+        if siret is not None:
+            sirets.append(siret)
+    if not sirets:
+        return None
+    holder = session.scalar(
+        select(Establishment.company_id).where(Establishment.siret.in_(sirets)).limit(1)
+    )
+    if holder is not None:
+        return holder
+    return next((siren_owners[s[:9]] for s in sirets if s[:9] in siren_owners), None)
+
+
+def _signal_store(
+    signal: SignalProposal, source: str, subject: str, *, unresolved: str | None = None
+) -> dict[str, Any]:
+    """What an accepted signal row is built from (`agent_review._signal_note`)."""
+    valid_until = signal.observed_on + timedelta(days=SIGNAL_VALID_DAYS[signal.kind])
+    return {
+        "subject": subject,
+        "kind": signal.kind.value,
+        "signal": signal.signal,
+        "score_delta": signal.score,
+        "score_reason": signal.score_reason,
+        "source_url": source,
+        "source_channel": signal.source_channel.value if signal.source_channel else None,
+        "observed_on": signal.observed_on.isoformat(),
+        "valid_until": valid_until.isoformat(),
+        "relevance": signal.relevance,
+        "sentiment": signal.sentiment,
+        "unresolved_person": unresolved,
+    }
+
+
+def _signal_date_refusal(
+    observed_on: date, today: date, period: int | None
+) -> tuple[str, str] | None:
+    """(reason, message) when a signal's date is outside what a mission accepts."""
+    if observed_on > today:
+        return "future", "Un signal ne peut pas être daté dans le futur."
+    if period is not None and observed_on < today - timedelta(days=period):
+        return "too_old", f"Plus ancien que la période recherchée ({period} jours)."
+    return None
+
+
+def _trigger_store(
+    trigger: SignalProposal,
+    field: str,
+    company_name: str,
+    period: int | None,
+    refused: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """The discovery trigger, checked like a `surveil_signals` signal; refused alone if invalid."""
+    path = f"{field}.trigger"
+    label = trigger.signal[:80]
+    try:
+        source = _signal_url(trigger.source)
+    except InvalidFieldError as error:
+        refused.append(_refusal(path, label, error.reason or "invalid", str(error)))
+        return None
+    dated = _signal_date_refusal(trigger.observed_on, datetime.now(UTC).date(), period)
+    if dated is not None:
+        refused.append(_refusal(path, label, *dated))
+        return None
+    # A brand-new company has no people yet: a person subject stays on the company, flagged.
+    unresolved = (
+        (trigger.subject.name or "personne sans nom") if trigger.subject.type == "person" else None
+    )
+    return _signal_store(trigger, source, company_name, unresolved=unresolved)
+
+
 def _find_prospects_proposal(
     session: Session, task: AgentTask, raw: dict[str, Any]
 ) -> dict[str, Any]:
     result = FindProspectsResult.model_validate(raw)
-    run = session.get(MissionRun, task.run_id) if task.run_id else None
-    mission = session.get(Mission, run.mission_id) if run is not None else None
-    limit = mission.result_limit if mission is not None else 20
+    _, rule = _task_mission(session, task)
+    limit = rule["result_limit"] if rule is not None else 20
+    period = rule["period_days"] if rule is not None else None
+    claimed_sirets: set[str] = set()
     legal_basis = _mission_context(session, task)
     known_names: set[str] = set()
     known_sirens: set[str] = set()
     known_domains: set[str] = set()
-    for display_name, siren, domain in session.execute(
-        select(Company.display_name, Company.siren, Company.email_domain)
+    siren_owners: dict[str, uuid.UUID] = {}
+    for company_id, display_name, siren, domain in session.execute(
+        select(Company.id, Company.display_name, Company.siren, Company.email_domain)
     ):
         known_names.add(company_key(display_name))
         if siren:
             known_sirens.add(siren)
+            siren_owners[siren] = company_id
         if domain:
             known_domains.add(domain)
     items: list[dict[str, Any]] = []
@@ -1084,8 +1338,12 @@ def _find_prospects_proposal(
             key = company_key(name)
         except InvalidFieldError as error:
             refused.append(
-                {"field": field, "label": label, "reason": error.reason or "invalid",
-                 "message": str(error)}
+                {
+                    "field": field,
+                    "label": label,
+                    "reason": error.reason or "invalid",
+                    "message": str(error),
+                }
             )
             continue
         if key in known_names:
@@ -1101,9 +1359,7 @@ def _find_prospects_proposal(
         try:
             siren = normalize_siren(company.siren, current=None) if company.siren else None
             website = normalize_website(company.website_url) if company.website_url else None
-            domain = (
-                normalize_email_domain(company.email_domain) if company.email_domain else None
-            )
+            domain = normalize_email_domain(company.email_domain) if company.email_domain else None
             segment = (
                 _segment(session, company.commercial_segment)
                 if company.commercial_segment
@@ -1112,8 +1368,12 @@ def _find_prospects_proposal(
             categories = _categories(session, company.activity_categories)
         except InvalidFieldError as error:
             refused.append(
-                {"field": field, "label": label, "reason": error.reason or "invalid",
-                 "message": str(error)}
+                {
+                    "field": field,
+                    "label": label,
+                    "reason": error.reason or "invalid",
+                    "message": str(error),
+                }
             )
             continue
         if siren is not None and siren in known_sirens:
@@ -1136,6 +1396,20 @@ def _find_prospects_proposal(
                 }
             )
             continue
+        owner = _site_owner(session, company.establishments, siren_owners)
+        if owner is not None:
+            refused.append(
+                {
+                    "field": field,
+                    "label": label,
+                    "reason": "already_known",
+                    "message": (
+                        "Un de ses établissements (SIRET) appartient déjà à une société de la base."
+                    ),
+                    "company_id": str(owner),
+                }
+            )
+            continue
         sources = [evidence for evidence in company.evidence if evidence.source.strip()]
         if not sources:
             refused.append(
@@ -1154,6 +1428,14 @@ def _find_prospects_proposal(
             known_sirens.add(siren)
         if domain is not None:
             known_domains.add(domain)
+        sites = _establishments_store(
+            session, company.establishments, field, claimed_sirets, refused
+        )
+        trigger = (
+            _trigger_store(company.trigger, field, name, period, refused)
+            if company.trigger is not None
+            else None
+        )
         items.append(
             {
                 "key": f"company:{index}:{key}",
@@ -1181,6 +1463,8 @@ def _find_prospects_proposal(
                     "activity_category_ids": [str(row.id) for row in categories],
                     "source": sources[0].source,
                     "legal_basis": legal_basis,
+                    "establishments": sites,
+                    "trigger": trigger,
                 },
                 "source": sources[0].source,
                 "quote": sources[0].quote,
@@ -1206,6 +1490,11 @@ SIGNAL_VALID_DAYS: dict[SignalKind, int] = {
     SignalKind.PARTNERSHIP: 180,
     SignalKind.TECH_CHANGE: 365,
     SignalKind.NEED_EXPRESSED: 90,
+    # A site event stays a reason to call for months: the site is fitted out after it opens.
+    SignalKind.FACILITY_OPENING: 180,
+    SignalKind.FACILITY_EXPANSION: 180,
+    SignalKind.CONSTRUCTION: 365,
+    SignalKind.RELOCATION: 180,
     SignalKind.OTHER: 90,
 }
 
@@ -1223,10 +1512,9 @@ def _signals_proposal(
 ) -> dict[str, Any]:
     result = SurveilSignalsResult.model_validate(raw)
     company = get_company(session, company_id)
-    run = session.get(MissionRun, task.run_id) if task.run_id else None
-    mission = session.get(Mission, run.mission_id) if run is not None else None
-    limit = mission.result_limit if mission is not None else 20
-    period = mission.period_days if mission is not None else None
+    _, rule = _task_mission(session, task)
+    limit = rule["result_limit"] if rule is not None else 20
+    period = rule["period_days"] if rule is not None else None
     people = session.scalars(select(Prospect).where(Prospect.company_id == company_id)).all()
     names: dict[str, uuid.UUID] = {}
     for person in people:
@@ -1255,8 +1543,12 @@ def _signals_proposal(
             source = _signal_url(signal.source)
         except InvalidFieldError as error:
             refused.append(
-                {"field": field, "label": signal.signal[:80],
-                 "reason": error.reason or "invalid", "message": str(error)}
+                {
+                    "field": field,
+                    "label": signal.signal[:80],
+                    "reason": error.reason or "invalid",
+                    "message": str(error),
+                }
             )
             continue
         if source in known_sources:
@@ -1269,25 +1561,9 @@ def _signals_proposal(
                 }
             )
             continue
-        if signal.observed_on > today:
-            refused.append(
-                {
-                    "field": field,
-                    "label": signal.signal[:80],
-                    "reason": "future",
-                    "message": "Un signal ne peut pas être daté dans le futur.",
-                }
-            )
-            continue
-        if period is not None and signal.observed_on < today - timedelta(days=period):
-            refused.append(
-                {
-                    "field": field,
-                    "label": signal.signal[:80],
-                    "reason": "too_old",
-                    "message": f"Plus ancien que la période recherchée ({period} jours).",
-                }
-            )
+        dated = _signal_date_refusal(signal.observed_on, today, period)
+        if dated is not None:
+            refused.append(_refusal(field, signal.signal[:80], *dated))
             continue
         prospect_id: uuid.UUID | None = None
         unresolved: str | None = None
@@ -1310,7 +1586,6 @@ def _signals_proposal(
             if prospect_id is not None
             else company.display_name
         )
-        valid_until = signal.observed_on + timedelta(days=SIGNAL_VALID_DAYS[signal.kind])
         known_sources.add(source)
         items.append(
             {
@@ -1321,22 +1596,9 @@ def _signals_proposal(
                 "after": signal.signal,
                 "status": "add",
                 "store": {
-                    "subject": subject_name,
+                    **_signal_store(signal, source, subject_name, unresolved=unresolved),
                     "prospect_id": str(prospect_id) if prospect_id is not None else None,
                     "company_id": None if prospect_id is not None else str(company_id),
-                    "kind": signal.kind.value,
-                    "signal": signal.signal,
-                    "score_delta": signal.score,
-                    "score_reason": signal.score_reason,
-                    "source_url": source,
-                    "source_channel": (
-                        signal.source_channel.value if signal.source_channel else None
-                    ),
-                    "observed_on": signal.observed_on.isoformat(),
-                    "valid_until": valid_until.isoformat(),
-                    "relevance": signal.relevance,
-                    "sentiment": signal.sentiment,
-                    "unresolved_person": unresolved,
                 },
                 "source": source,
                 "quote": signal.score_reason,

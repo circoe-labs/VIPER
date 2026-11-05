@@ -1,0 +1,22 @@
+# VIPER × ChatGPT — interface conversationnelle
+
+- Handoff d'origine : [HANDOFF.md](HANDOFF.md), rédigé contre `main@699ec3b`.
+- Readiness (Slice 00) : [READINESS.md](READINESS.md), **READY** le 2026-11-03.
+- Branche : `feat/chatgpt-conversational`, créée depuis `main@0339153` (PR #12 fusionnée).
+- Rapport en ligne : https://claude.ai/artifact/U5FFAgHj4zJ7X4z4CVMSj2
+
+| Slice | Sujet | Tier QA | Dépend de | État |
+|---|---|---|---|---|
+| 00 | Readiness PM | docs | — | DONE |
+| 01 | Capacités d'agent (extension de `McpToken`) et `viper_whoami` | critical | 00 | DONE |
+| 02 | Lectures conversationnelles MCP | glue | 00 (câblage final : 01) | DONE |
+| 03 | Actions de mission MCP et annotations | critical | 01 | DONE |
+| 04 | Découverte : établissements et déclencheur | critical | 00 | DONE |
+| 05 | Skill `viper-use` et routage CIRCOE (côté ChatGPT, hors dépôt) | docs | 02, 03 (noms d’outils) | DONE (hors dépôt, recalé le 2026-11-04) |
+| 06 | UI de création de mission (app MCP) | ui | 03 (contrat) | DONE (à essayer dans ChatGPT) |
+| 07 | Brouillons de contact via MCP | critical | 01 | DONE |
+| 08 | Intégration et validation finale | release | toutes | DONE (machine) — essai ChatGPT réel à faire |
+| 03.1 | Annuler ou mettre en pause une mission arrête ses tâches | critical | 03 | DONE (QA + rework re-vérifiés) |
+| 09 | Qui peut voir et révoquer un accès MCP | critical | 01 | DONE (QA, aucun bloquant) |
+
+Les problèmes non bloquants sont consignés dans `Issues/`. Rapport final : [FINAL_REPORT.md](FINAL_REPORT.md) ; outils : [FINAL_TOOLS.md](FINAL_TOOLS.md).

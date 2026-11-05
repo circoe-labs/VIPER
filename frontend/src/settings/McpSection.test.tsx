@@ -30,6 +30,17 @@ const SETTINGS: McpSettings = {
       parameters: [],
     },
   ],
+  capabilities: [
+    { name: 'tasks.work', label: 'Traiter les tâches de mission (prendre, rendre, soumettre)' },
+    { name: 'records.read', label: 'Lire les entreprises et les personnes' },
+    { name: 'missions.cancel', label: 'Annuler et supprimer une mission' },
+  ],
+  mode_defaults: {
+    worker: ['tasks.work', 'records.read'],
+    interactive: ['tasks.work', 'records.read', 'missions.cancel'],
+    scheduled: ['records.read'],
+  },
+  grantable: ['tasks.work', 'records.read', 'missions.cancel'],
 }
 
 describe('McpSection', () => {
@@ -62,6 +73,9 @@ describe('McpSection', () => {
       label: 'ChatGPT (OAuth)',
       origin: 'oauth',
       owner_email: 'pilote.test@circoe.com',
+      provider: 'chatgpt',
+      mode: 'interactive',
+      capabilities: ['records.read'],
       created_at: '2026-11-03T10:00:00+00:00',
       last_used_at: '2026-11-03T11:00:00+00:00',
       revoked_at: null,
@@ -81,12 +95,103 @@ describe('McpSection', () => {
     renderApp('/settings/mcp')
     const access = await screen.findByRole('region', { name: 'Accès autorisés' })
     expect(await within(access).findByText('ChatGPT (OAuth)')).toBeInTheDocument()
-    expect(within(access).getByText(/Connecteur OAuth/)).toBeInTheDocument()
+    expect(within(access).getByText(/Connecteur OAuth · ChatGPT · Assistant \(agit pour vous\)/)).toBeInTheDocument()
+    expect(within(access).getByText('Lire les entreprises et les personnes')).toBeInTheDocument()
     await user.click(within(access).getByRole('button', { name: 'Révoquer' }))
     await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Révoquer l’accès' }))
 
     expect(await within(access).findByText('Révoqué')).toBeInTheDocument()
     expect(revoked).toBe(true)
+  })
+
+  it('creates a token with its mode and capabilities and shows it once', async () => {
+    const created = {
+      id: 'a-9',
+      label: 'Worker nuit',
+      origin: 'cli',
+      owner_email: 'pilote.test@circoe.com',
+      provider: 'claude',
+      mode: 'worker',
+      capabilities: ['tasks.work'],
+      created_at: '2026-11-03T10:00:00+00:00',
+      last_used_at: null,
+      revoked_at: null,
+    }
+    const fetchMock = stubApi({
+      ...SHELL_API,
+      'GET /api/settings/mcp': [200, SETTINGS],
+      'GET /api/settings/mcp/agents': [200, []],
+      'POST /api/settings/mcp/agents': [201, { token: 'viper_secret-token', agent: created }],
+    })
+    const user = userEvent.setup()
+
+    renderApp('/settings/mcp')
+    const access = await screen.findByRole('region', { name: 'Accès autorisés' })
+    await user.click(within(access).getByRole('button', { name: 'Créer un jeton' }))
+    const dialog = await screen.findByRole('dialog')
+    await user.type(within(dialog).getByLabelText(/Nom/), 'Worker nuit')
+    await user.selectOptions(within(dialog).getByLabelText('Plateforme'), 'claude')
+    // The worker defaults are checked; one of them is unchecked.
+    expect(within(dialog).getByLabelText('Annuler et supprimer une mission')).not.toBeChecked()
+    await user.click(within(dialog).getByLabelText('Lire les entreprises et les personnes'))
+    await user.click(within(dialog).getByRole('button', { name: 'Créer le jeton' }))
+
+    expect(await screen.findByText('viper_secret-token')).toBeInTheDocument()
+    const post = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST')
+    expect(JSON.parse(post?.[1]?.body as string)).toEqual({
+      label: 'Worker nuit',
+      provider: 'claude',
+      mode: 'worker',
+      capabilities: ['tasks.work'],
+    })
+  })
+
+  it('says when the role does not allow a capability', async () => {
+    stubApi({
+      ...SHELL_API,
+      'GET /api/settings/mcp': [200, SETTINGS],
+      'GET /api/settings/mcp/agents': [200, []],
+      'POST /api/settings/mcp/agents': [403, { detail: { code: 'forbidden', message: 'Your role may not grant.' } }],
+    })
+    const user = userEvent.setup()
+
+    renderApp('/settings/mcp')
+    const access = await screen.findByRole('region', { name: 'Accès autorisés' })
+    await user.click(within(access).getByRole('button', { name: 'Créer un jeton' }))
+    const dialog = await screen.findByRole('dialog')
+    await user.type(within(dialog).getByLabelText(/Nom/), 'Worker')
+    await user.click(within(dialog).getByRole('button', { name: 'Créer le jeton' }))
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('Votre rôle ne permet pas')
+  })
+
+  it('offers only what the role allows, so a member’s assistant is created as it is', async () => {
+    const member: McpSettings = { ...SETTINGS, grantable: ['tasks.work', 'records.read'] }
+    const fetchMock = stubApi({
+      ...SHELL_API,
+      'GET /api/settings/mcp': [200, member],
+      'GET /api/settings/mcp/agents': [200, []],
+      'POST /api/settings/mcp/agents': [403, { detail: { code: 'forbidden', message: 'Your role may not grant.' } }],
+    })
+    const user = userEvent.setup()
+
+    renderApp('/settings/mcp')
+    const access = await screen.findByRole('region', { name: 'Accès autorisés' })
+    await user.click(within(access).getByRole('button', { name: 'Créer un jeton' }))
+    const dialog = await screen.findByRole('dialog')
+    await user.type(within(dialog).getByLabelText(/Nom/), 'ChatGPT')
+    await user.selectOptions(within(dialog).getByLabelText('Mode'), 'interactive')
+
+    const cancel = within(dialog).getByLabelText('Annuler et supprimer une mission')
+    expect(cancel).not.toBeChecked()
+    expect(cancel).toBeDisabled()
+    expect(within(dialog).getByText('Votre rôle ne permet pas de l’accorder.')).toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: 'Créer le jeton' }))
+    const post = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST')
+    expect(JSON.parse(post?.[1]?.body as string)).toMatchObject({
+      mode: 'interactive',
+      capabilities: ['tasks.work', 'records.read'],
+    })
   })
 
   it('shows who called which tool, filters by person and opens the detail', async () => {

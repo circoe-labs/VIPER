@@ -9,7 +9,13 @@ Each token names the person it acts for (`owner_email`: who approved the OAuth c
 `--owner-email` of the command line); every tool call is kept in `mcp_calls` under that address
 (« Historique des appels », Paramètres > MCP).
 
-Tokens are minted by `python -m app.cli create-agent-token` and revoked by setting `revoked_at`;
+A token is also the agent's identity (no separate principal table): `provider` says which platform
+calls (ChatGPT, Claude…), `mode` the role it plays (`interactive`, `worker`, `scheduled`) and
+`capabilities` what it may do, in the functional vocabulary of `app.services.agent_capabilities`.
+`scopes` stays a filter on task types, distinct from the capabilities.
+
+Tokens are minted by `python -m app.cli create-agent-token`, Paramètres > MCP, or an OAuth
+approval, and revoked by setting `revoked_at`;
 they are never exposed by the API, never audited (they are secrets) and never shown in the
 explorer. Contract: `doc/architecture/mcp-server.md` §4.2.
 """
@@ -33,7 +39,8 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
-from app.models.common import TimestampMixin, UUIDPrimaryKeyMixin
+from app.models.common import TimestampMixin, UUIDPrimaryKeyMixin, text_enum
+from app.models.enums import AgentMode, AgentProvider
 from app.models.organizations import OrganizationOwnedMixin
 
 TOKEN_HASH_LENGTH = 64
@@ -65,6 +72,16 @@ class McpToken(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, Base
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # The person behind the agent: the history of calls is kept under this address.
     owner_email: Mapped[str | None] = mapped_column(String(EMAIL_MAX_LENGTH))
+    # Which platform calls with this token, and the role the agent plays.
+    provider: Mapped[AgentProvider] = mapped_column(
+        text_enum(AgentProvider, "provider"), server_default=AgentProvider.OTHER.value
+    )
+    mode: Mapped[AgentMode] = mapped_column(
+        text_enum(AgentMode, "mode"), server_default=AgentMode.WORKER.value
+    )
+    # What the agent may do (`app.services.agent_capabilities.CAPABILITIES`), before the
+    # intersection with the delegated person's role.
+    capabilities: Mapped[list[Any]] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
 
 
 class McpCall(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, Base):

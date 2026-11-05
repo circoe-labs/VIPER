@@ -35,7 +35,7 @@ and nothing leaves VIPER.
 
 import uuid
 from datetime import UTC, datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Path, Request, Response, status
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints
@@ -281,13 +281,20 @@ def get_mail_generator(request: Request, settings: SettingsDep) -> MailGenerator
     """The OpenAI adapter, or None when the drafting is not configured (tests override this).
     Built per request from the effective settings: a key saved from Paramètres > Connexions (S8)
     applies to the next drafting without a restart."""
+    return mail_generator_for(request.app.state)
+
+
+def mail_generator_for(state: Any) -> MailGenerator | None:
+    """The OpenAI adapter from the app's `State` (effective settings, test transport), or None
+    when the drafting is not configured. Shared with the MCP tool `viper_generate_contact_draft`."""
+    settings: Settings = state.settings
     config = config_from_settings(settings)
     if config is None:
         return None
     return OpenAIMailGenerator(
         config,
         booking_url=settings.contact_booking_url,
-        transport=request.app.state.openai_transport,
+        transport=state.openai_transport,
     )
 
 
@@ -348,13 +355,19 @@ def result_out(result: MessageResult) -> MessageResultOut:
 
 
 @router.get("")
-def list_messages(
-    prospect_id: uuid.UUID, request: Request, session: SessionDep, settings: SettingsDep
-) -> MessagesOut:
+def list_messages(prospect_id: uuid.UUID, request: Request, session: SessionDep) -> MessagesOut:
     with business_errors():
-        read = service.prospect_messages(session, prospect_id, settings.default_outbound_email)
-    toolbox_state = request.app.state.toolbox.status().state
-    reason = sending_reason(request.app.state)
+        return messages_out(request.app.state, session, prospect_id)
+
+
+def messages_out(state: Any, session: Session, prospect_id: uuid.UUID) -> MessagesOut:
+    """One prospect's mail sequence; `state` is the app's `State` (settings, Toolbox, dispatcher).
+    Raises the service's refusals (`NotFoundError`…). Shared with the MCP tool
+    `viper_get_prospect_messages`."""
+    settings: Settings = state.settings
+    read = service.prospect_messages(session, prospect_id, settings.default_outbound_email)
+    toolbox_state = state.toolbox.status().state
+    reason = sending_reason(state)
     context = read.context
     progress = read.place.progress
     return MessagesOut(

@@ -406,6 +406,22 @@ def base_overview(session: Session, context: SegmentContext) -> BaseOverview:
     )
 
 
+def count_added_since(
+    session: Session, since: datetime, context: SegmentContext
+) -> dict[Segment, int]:
+    """Every segment's size among the people added to the base since `since` (`created_at`).
+
+    « Nouveaux prospects sur N jours »: the same segment predicates as `count_segments`, narrowed
+    to recent additions, in one aggregate query. A deleted person is gone, so it is not counted.
+    """
+    statement = join_segment_sources(select(*segment_counts(context))).where(
+        Prospect.created_at >= since
+    )
+    with whole_base_plan(session):
+        row = session.execute(statement).one()._mapping
+    return {segment: row[segment.value] for segment in Segment}
+
+
 def _page_statement(context: SegmentContext) -> Select[Any]:
     referent_name = func.concat_ws(" ", InternalReferent.first_name, InternalReferent.last_name)
     return (

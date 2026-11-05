@@ -52,6 +52,7 @@ def test_initialize_and_tools_list(client: TestClient, db_session: Session) -> N
     assert hello["protocolVersion"]
     assert hello["serverInfo"]["name"] == "VIPER"
     assert [tool["name"] for tool in tools] == [
+        "viper_whoami",
         "viper_claim_task",
         "viper_heartbeat_task",
         "viper_submit_task_result",
@@ -64,6 +65,22 @@ def test_initialize_and_tools_list(client: TestClient, db_session: Session) -> N
         "viper_get_prospect",
         "viper_update_company",
         "viper_update_prospect",
+        "viper_search",
+        "viper_get_dashboard",
+        "viper_get_prospection_metrics",
+        "viper_list_missions",
+        "viper_get_mission",
+        "viper_list_pending_reviews",
+        "viper_get_contact_overview",
+        "viper_get_prospect_messages",
+        "viper_mission_options",
+        "viper_create_mission",
+        "viper_update_mission",
+        "viper_run_mission",
+        "viper_set_mission_status",
+        "viper_delete_mission",
+        "viper_generate_contact_draft",
+        "viper_update_contact_draft",
     ]
     assert tools[0]["inputSchema"]["type"] == "object"
 
@@ -216,7 +233,7 @@ def test_a_lost_claim_is_refused(client: TestClient, db_session: Session) -> Non
 def test_an_unknown_method_is_a_jsonrpc_error(client: TestClient, db_session: Session) -> None:
     token = mint(db_session)
 
-    response = rpc(client, token, "resources/list").json()
+    response = rpc(client, token, "prompts/list").json()
 
     assert response["error"]["code"] == -32601
 

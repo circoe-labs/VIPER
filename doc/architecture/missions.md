@@ -69,7 +69,10 @@ target:
 - **prospection** with company targets → `find_employees` (people to discover, deduped against the
   base, created as `future_agent` after review);
 - **prospection** without targets, expected result « Sociétés » → one `find_prospects` task: new
-  companies matching the brief, deduped by name/SIREN/domain, created after review.
+  companies matching the brief, deduped by name/SIREN/domain, created after review — with the sites
+  the brief is about (deduped by SIRET, then city + name) and the dated trigger that brought each
+  one in (a company signal such as `facility_opening`), all three in the acceptance's single
+  transaction (`agent-missions.md` §5.5).
 
 Prospect-only or company-only missions are therefore both possible. A run's status is derived from
 its tasks (`refresh_run`): `running` while a task is pending/claimed/submitted, `done` when all are
@@ -81,6 +84,13 @@ A mission may name its agent: every generated task carries `assigned_agent_id`, 
 **Scheduling.** A recurring mission whose start is now (or in the past) gets `next_run_at = now`, so
 the worker starts it on its next pass; a future start waits. After each run, `next_run_at` advances
 by the interval, and an exhausted recurrence (`ends_at` or `max_runs`) closes the mission.
+
+**A run keeps its rule.** When a run starts, `mission_runs.config` (migration 0027) stores the
+payload's `mission` block (§5: name, type, prompt, result kind and limit, geography, period,
+exclusions; `agent_payloads.mission_rule`). Its tasks are claimed with that block, and their results
+are checked against its `result_limit` / `period_days`, so « Modifier la mission » only changes the
+next runs (HANDOFF §15, PM decision 4); a task already made keeps its subject and its consigne. A
+run made before 0027 (`config` NULL) reads the live mission.
 
 ## 5. What the agent receives
 
@@ -110,7 +120,7 @@ shows the source next to each proposed value. For a mission, the agent must quot
 value without a source is still reviewable but visibly unsourced.
 
 Signals add `observed_on`, `source_channel`, `score_reason`, `relevance`, `valid_until` and a
-`SignalKind`; the same rule holds: no signal without a dated, public source. A signal about a named
+`SignalKind` (site events included: `facility_opening`, `facility_expansion`, `construction`, `relocation`); the same rule holds: no signal without a dated, public source. A signal about a named
 person is resolved against the company's prospects; an unresolved name stays company-level and the
 review shows it as such.
 
@@ -121,9 +131,9 @@ review shows it as such.
 | `GET /api/missions` | cards: name, type, status, agent, recurrence, targets, last/next run, pending results |
 | `POST /api/missions` | create, with `run_now` for « Créer et lancer » |
 | `GET /api/missions/{id}` | detail: targets, runs, tasks, consigne, expected result |
-| `PATCH /api/missions/{id}` | pause / resume / close |
-| `PUT /api/missions/{id}` | « Modifier la mission » (page de la mission, or the list's right-click / « … » menu): the whole rule, linked data included, is rewritten (`mission.updated` with the changed fields); runs already made and their tasks stay as they are, the next run follows the new rule; a done or cancelled mission is refused (409). The detail answers the rest of the rule (`rule`: agent, start, end, geography, period, exclusions) to prefill the form |
-| `DELETE /api/missions/{id}` | « Supprimer la mission » (after a confirmation): its open tasks (pending, claimed, submitted) are cancelled (`agent_task.cancelled`, reason `mission_deleted`), then the mission goes with its targets and runs (FK cascade); the tasks stay with `run_id` NULL; results already accepted are not undone (`mission.deleted`) |
+| `PATCH /api/missions/{id}` | pause / resume / close. Pause hides the mission's pending tasks from the agents' queue and claims (a claimed task may finish); resume offers them again. Cancel, in the same transaction, sets every open task (pending, claimed, submitted) to `cancelled` (`agent_task.cancelled`, reason `mission_cancelled`), rejects a result still waiting for review, and sets every `scheduled` / `running` run to `cancelled`; a worker still holding a task is refused with `task_cancelled` |
+| `PUT /api/missions/{id}` | « Modifier la mission » (page de la mission, or the list's right-click / « … » menu): the whole rule, linked data included, is rewritten (`mission.updated` with the changed fields); runs already made and their tasks stay as they are (each run keeps its rule, §4), the next run follows the new rule; a done or cancelled mission is refused (409). The detail answers the rest of the rule (`rule`: agent, start, end, geography, period, exclusions) to prefill the form |
+| `DELETE /api/missions/{id}` | « Supprimer la mission » (after a confirmation): its open tasks (pending, claimed, submitted) are cancelled (`agent_task.cancelled`, reason `mission_deleted`) and a result still waiting for review is rejected with the same reason, then the mission goes with its targets and runs (FK cascade); the tasks stay with `run_id` NULL; results already accepted are not undone (`mission.deleted`) |
 | `POST /api/missions/{id}/run` | « Lancer maintenant » |
 | `GET /api/missions/options` | types/result kinds with their `executable` flag, units, limits |
 | `GET /api/missions/agents` | labels and scopes of the live MCP tokens (never the token itself) |

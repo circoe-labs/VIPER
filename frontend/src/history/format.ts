@@ -33,18 +33,24 @@ export function actorBadge(actor: HistoryActor, currentUserId: string | null): A
   }
 }
 
-// What follows the badge: the source, the command or agent's own label, and who confirmed an import.
+// Who stands behind an automated actor: the person who confirmed an import, or the one an agent acts for
+// (« ChatGPT (OAuth) pour Lucie » — the agent stays the actor).
+function behalfText(actor: HistoryActor): string | null {
+  if (!actor.on_behalf_of) return null
+  return actor.kind === 'agent' ? `pour ${actor.on_behalf_of}` : `confirmé par ${actor.on_behalf_of}`
+}
+
+// What follows the badge: the source, the command or agent's own label, and the person behind it.
 export function actorDetails(actor: HistoryActor, source: AuditSource | null): string[] {
   const sourceLabel = source ? SOURCE_LABELS[source] : null
   const own = (actor.kind === 'system' || actor.kind === 'agent') && actor.label !== sourceLabel ? actor.label : null
-  return [sourceLabel, own, actor.on_behalf_of ? `confirmé par ${actor.on_behalf_of}` : null].filter(
-    (part): part is string => part !== null,
-  )
+  return [sourceLabel, own, behalfText(actor)].filter((part): part is string => part !== null)
 }
 
 // Home's one-line origin: the person (or agent) and, for a Database Explorer edit, where.
 export function actorName(actor: HistoryActor): string {
-  return actor.kind === 'agent' ? `Agent « ${actor.label} »` : actor.label
+  if (actor.kind !== 'agent') return actor.label
+  return actor.on_behalf_of ? `Agent « ${actor.label} » pour ${actor.on_behalf_of}` : `Agent « ${actor.label} »`
 }
 
 const MOMENT = new Intl.DateTimeFormat('fr-FR', {

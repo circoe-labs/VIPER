@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { type ReactNode, useState } from 'react'
 
 import { type ProposalItem, useAcceptResult, useRejectResult, useResult } from '../api/agents'
 import { ApiError } from '../api/client'
@@ -21,6 +21,76 @@ function shown(value: unknown): string {
 function signalValue(item: ProposalItem, key: string): string {
   const value = item.store?.[key]
   return typeof value === 'string' ? value : ''
+}
+
+function textOf(record: Record<string, unknown>, key: string): string {
+  const value = record[key]
+  if (typeof value === 'string') return value
+  if (typeof value === 'number') return value.toString()
+  return ''
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function SourceLink({ href }: { href: string }) {
+  return href ? (
+    <a href={href} target="_blank" rel="noreferrer noopener">
+      source
+    </a>
+  ) : null
+}
+
+// A discovered company's sites and the dated event that brought it in (`find_prospects`). Results
+// submitted before these fields existed carry neither key and show nothing here.
+function DiscoveryDetails({ item }: { item: ProposalItem }) {
+  const rawSites = item.store?.establishments
+  const sites = Array.isArray(rawSites) ? rawSites.filter(isRecord) : []
+  const trigger = isRecord(item.store?.trigger) ? item.store.trigger : null
+  if (sites.length === 0 && !trigger) return null
+  const kind = trigger ? textOf(trigger, 'kind') : ''
+  const score = trigger?.score_delta
+  return (
+    <div className="review-discovery">
+      {sites.length > 0 && (
+        <ul className="review-discovery__sites" aria-label="Établissements">
+          {sites.map((site, index) => {
+            const place = [textOf(site, 'postal_code'), textOf(site, 'city')].filter(Boolean).join(' ')
+            const surface = textOf(site, 'surface_m2')
+            return (
+              <li key={textOf(site, 'siret') || `${place}-${String(index)}`}>
+                <strong>{textOf(site, 'name') || place || 'Établissement'}</strong>
+                {textOf(site, 'kind') && <span>{textOf(site, 'kind')}</span>}
+                {place && <span>{place}</span>}
+                {textOf(site, 'siret') && <span>SIRET {textOf(site, 'siret')}</span>}
+                {textOf(site, 'opened_on') && <span>ouvert le {textOf(site, 'opened_on')}</span>}
+                {surface && <span>{surface} m²</span>}
+                <SourceLink href={textOf(site, 'source')} />
+              </li>
+            )
+          })}
+        </ul>
+      )}
+      {trigger && (
+        <div className="review-discovery__trigger" role="group" aria-label="Déclencheur">
+          <span className="review-signal__kind">{SIGNAL_KIND_LABELS[kind] ?? kind}</span>
+          <span>{textOf(trigger, 'observed_on')}</span>
+          <span className="review-signal__text">{textOf(trigger, 'signal')}</span>
+          {typeof score === 'number' && (
+            <span className={score < 0 ? 'review-signal__score is-negative' : 'review-signal__score'}>
+              {score > 0 ? '+' : ''}
+              {String(score)}
+            </span>
+          )}
+          {textOf(trigger, 'score_reason') && (
+            <span className="review-discovery__reason">{textOf(trigger, 'score_reason')}</span>
+          )}
+          <SourceLink href={textOf(trigger, 'source_url')} />
+        </div>
+      )}
+    </div>
+  )
 }
 
 function SignalRow({
@@ -77,10 +147,12 @@ function ItemRow({
   item,
   checked,
   onToggle,
+  children,
 }: {
   item: ProposalItem
   checked: boolean
   onToggle: () => void
+  children?: ReactNode
 }) {
   return (
     <li className="review-item">
@@ -99,6 +171,7 @@ function ItemRow({
           '—'
         )}
       </span>
+      {children}
     </li>
   )
 }
@@ -201,7 +274,9 @@ export function ReviewDialog({
                   onToggle={() => {
                     toggle(item.key)
                   }}
-                />
+                >
+                  {proposal.kind === 'find_prospects' && <DiscoveryDetails item={item} />}
+                </ItemRow>
               ))}
             </ul>
           )}

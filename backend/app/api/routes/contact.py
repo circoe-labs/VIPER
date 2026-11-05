@@ -13,10 +13,11 @@ doc/features/contact.md. The prospect detail is `GET /api/prospects/{id}`; its m
 import re
 import uuid
 from datetime import UTC, date, datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Path, Query, Request
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from app.api.dependencies import CurrentActor, SessionDep
 from app.api.errors import business_errors
@@ -318,14 +319,22 @@ def dashboard(
 ) -> ContactDashboardOut:
     with business_errors():
         filters = ContactFilters(week=parse_week(week), cohort=_cohort(cohort), search=q)
+    return dashboard_out(request.app.state, session, filters)
+
+
+def dashboard_out(state: Any, session: Session, filters: ContactFilters) -> ContactDashboardOut:
+    """The week's planning with the dispatch state; `state` is the app's `State`. Shared with the
+    MCP tool `viper_get_contact_overview`."""
     result = contact_dashboard.dashboard(session, contact_clock(), filters)
-    state = dispatch_state(request.app.state, session)
+    dispatch = dispatch_state(state, session)
     payload = {
         name: getattr(result, name)
         for name in ContactDashboardOut.model_fields
         if name != "dispatch"
     }
-    return ContactDashboardOut.model_validate({**payload, "dispatch": state}, from_attributes=True)
+    return ContactDashboardOut.model_validate(
+        {**payload, "dispatch": dispatch}, from_attributes=True
+    )
 
 
 @router.get("/scheduling")

@@ -1,8 +1,10 @@
 """Missions: create the rule, launch a run, and read the cards the page shows.
 
 A mission is persistent; a **run** is one execution and owns the tasks an agent claims. The
-consigne is never copied into a task: the task carries a `run_id` and a subject id, and the MCP
-payload re-reads the mission and the live record at claim time. Nothing here applies a result.
+consigne is never copied into a task: the task carries a `run_id` and a subject id. The run keeps
+the rule it started under (`MissionRun.config`), and the MCP payload reads that rule and the live
+record at claim time, so modifying a mission changes only its next runs. Nothing here applies a
+result.
 
 Contract: `doc/architecture/missions.md`.
 """
@@ -35,7 +37,7 @@ from app.models.enums import (
 from app.models.mcp import McpToken
 from app.models.missions import Mission, MissionRun, MissionTarget
 from app.models.prospects import Prospect
-from app.services import agent_missions, audit, companies, mcp_reads
+from app.services import agent_missions, agent_payloads, audit, companies, mcp_reads
 from app.services.errors import ConflictError, DomainError, InvalidFieldError, NotFoundError
 
 # Types whose execution maps to the result schemas that exist today. Discovery and signals need
@@ -467,13 +469,14 @@ def _validate(data: MissionInput, now: datetime) -> None:
     """Shape checks only: a type whose schema is not ready can be saved, not launched."""
     if not 1 <= data.result_limit <= RESULT_LIMIT_MAX:
         raise InvalidFieldError("result_limit", "Between 1 and 500.", "range")
-    if data.is_recurring:
-        if data.interval_count < 1:
-            raise InvalidFieldError("interval_count", "At least 1.", "range")
-        if data.end_kind is MissionEndKind.DATE and data.ends_at is None:
-            raise InvalidFieldError("ends_at", "A date is required.", "missing")
-        if data.end_kind is MissionEndKind.AFTER and (data.max_runs or 0) < 1:
-            raise InvalidFieldError("max_runs", "At least 1 run.", "range")
+    if data.is_recurring and data.interval_count < 1:
+        raise InvalidFieldError("interval_count", "At least 1.", "range")
+    # The end rule is checked for every mission, one-off included: the table's constraints
+    # (`ck_missions_end_date_required`, `ck_missions_end_runs_required`) apply to all of them.
+    if data.end_kind is MissionEndKind.DATE and data.ends_at is None:
+        raise InvalidFieldError("ends_at", "A date is required.", "missing")
+    if data.end_kind is MissionEndKind.AFTER and (data.max_runs or 0) < 1:
+        raise InvalidFieldError("max_runs", "At least 1 run.", "range")
     if data.end_kind is MissionEndKind.DATE and data.ends_at is not None and data.ends_at <= now:
         raise InvalidFieldError("ends_at", "The end must be in the future.", "range")
 
@@ -849,6 +852,8 @@ def run_mission(
         trigger=trigger,
         scheduled_at=moment,
         started_at=moment,
+        # The rule this run's tasks work under: a later « Modifier » changes only the next runs.
+        config=agent_payloads.mission_rule(mission),
     )
     session.add(run)
     session.flush()
@@ -1092,10 +1097,26 @@ def set_status(
             select(func.count()).select_from(MissionRun).where(MissionRun.mission_id == mission.id)
         )
         mission.next_run_at = next_occurrence(mission, _now(now), runs_count=runs_count or 0)
-    elif status is MissionStatus.PAUSED:
-        mission.next_run_at = None
     else:
+        # Paused: its pending tasks stay but are no longer offered (`agent_missions.offered`); a
+        # task already claimed may still be finished. Cancelled: see below.
         mission.next_run_at = None
+    reason = None
+    if status is MissionStatus.CANCELLED:
+        moment = _now(now)
+        cancelled = _cancel_open_tasks(session, actor, mission, "mission_cancelled", moment)
+        runs = session.scalars(
+            select(MissionRun)
+            .where(
+                MissionRun.mission_id == mission.id,
+                MissionRun.status.in_((MissionRunStatus.SCHEDULED, MissionRunStatus.RUNNING)),
+            )
+            .with_for_update()
+        ).all()
+        for run in runs:
+            run.status = MissionRunStatus.CANCELLED
+            run.finished_at = moment
+        reason = f"cancelled_tasks={cancelled} cancelled_runs={len(runs)}"
     session.flush()
     audit.record_event(
         session,
@@ -1104,22 +1125,54 @@ def set_status(
         entity_type="mission",
         entity_id=mission.id,
         changes={"status": {"before": previous.value, "after": status.value}},
+        reason=reason,
     )
     return mission
 
 
-def delete(session: Session, actor: ActorContext, mission_id: uuid.UUID) -> None:
-    """« Supprimer la mission »: the rule, its targets and its runs go (FK cascade). Its open tasks
-    are cancelled first, so no agent keeps working for a mission that no longer exists and no
-    result waits for a review nobody can open; the tasks themselves stay, with their audit trail
-    (`run_id` set to NULL by the FK). Accepted results already applied are not undone."""
-    mission = session.scalar(select(Mission).where(Mission.id == mission_id).with_for_update())
-    if mission is None:
-        raise NotFoundError("Unknown mission.")
+def _cancel_open_tasks(
+    session: Session, actor: ActorContext, mission: Mission, reason: str, moment: datetime
+) -> int:
+    """Close every open task of the mission's runs (`cancelled`), in the caller's transaction.
+
+    Pending and claimed tasks stop being offered; a worker still holding one is refused with
+    `task_cancelled` on its next call. A submitted result still waiting for review is rejected
+    with the same reason: nobody may apply work for a mission that was stopped. Returns the count.
+    """
     runs = select(MissionRun.id).where(MissionRun.mission_id == mission.id).scalar_subquery()
+    open_ids = (
+        select(AgentTask.id)
+        .where(AgentTask.run_id.in_(runs), AgentTask.status.in_(OPEN_TASK_STATUSES))
+        .scalar_subquery()
+    )
+    # Results first, then tasks: the order `agent_review._locked` takes, so a review racing the
+    # cancellation waits instead of deadlocking.
+    waiting = session.scalars(
+        select(AgentTaskResult)
+        .where(
+            AgentTaskResult.task_id.in_(open_ids),
+            AgentTaskResult.status == AgentResultStatus.PENDING_REVIEW,
+        )
+        .order_by(AgentTaskResult.id)
+        .with_for_update()
+    ).all()
     open_tasks = session.scalars(
         select(AgentTask)
         .where(AgentTask.run_id.in_(runs), AgentTask.status.in_(OPEN_TASK_STATUSES))
+        .order_by(AgentTask.id)
+        .with_for_update()
+    ).all()
+    # A review that won the race decided its result first: only results still pending are closed.
+    # A submission that committed between the two locks added a result: it is closed too.
+    known = {result.id for result in waiting}
+    waiting = [result for result in waiting if result.status is AgentResultStatus.PENDING_REVIEW]
+    waiting += session.scalars(
+        select(AgentTaskResult)
+        .where(
+            AgentTaskResult.task_id.in_([task.id for task in open_tasks]),
+            AgentTaskResult.status == AgentResultStatus.PENDING_REVIEW,
+            AgentTaskResult.id.not_in(known),
+        )
         .with_for_update()
     ).all()
     for task in open_tasks:
@@ -1135,9 +1188,36 @@ def delete(session: Session, actor: ActorContext, mission_id: uuid.UUID) -> None
             changes={
                 "status": {"before": previous.value, "after": AgentTaskStatus.CANCELLED.value}
             },
-            reason="mission_deleted",
+            reason=reason,
+        )
+    for result in waiting:
+        result.status = AgentResultStatus.REJECTED
+        result.decided_at = moment
+        result.decided_by_id = actor.id
+        result.decided_by_display = actor.display
+        result.decision_note = reason
+        audit.record_event(
+            session,
+            actor,
+            audit.AuditAction.AGENT_TASK_RESULT_REJECTED,
+            entity_type="agent_task_result",
+            entity_id=result.id,
+            changes={"status": {"before": "pending_review", "after": "rejected"}},
+            reason=reason,
         )
     session.flush()
+    return len(open_tasks)
+
+
+def delete(session: Session, actor: ActorContext, mission_id: uuid.UUID) -> None:
+    """« Supprimer la mission »: the rule, its targets and its runs go (FK cascade). Its open tasks
+    are cancelled first, so no agent keeps working for a mission that no longer exists and no
+    result waits for a review nobody can open; the tasks themselves stay, with their audit trail
+    (`run_id` set to NULL by the FK). Accepted results already applied are not undone."""
+    mission = session.scalar(select(Mission).where(Mission.id == mission_id).with_for_update())
+    if mission is None:
+        raise NotFoundError("Unknown mission.")
+    cancelled = _cancel_open_tasks(session, actor, mission, "mission_deleted", _now(None))
     audit.record_event(
         session,
         actor,
@@ -1145,7 +1225,7 @@ def delete(session: Session, actor: ActorContext, mission_id: uuid.UUID) -> None
         entity_type="mission",
         entity_id=mission.id,
         changes={"name": {"before": mission.name, "after": None}},
-        reason=f"cancelled_tasks={len(open_tasks)}",
+        reason=f"cancelled_tasks={cancelled}",
     )
     session.delete(mission)
     session.flush()
