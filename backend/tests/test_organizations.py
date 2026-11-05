@@ -292,3 +292,51 @@ def test_every_record_belongs_to_circoe(client: TestClient, db_session: Session)
     assert uuid.UUID(client.get("/api/auth/session").json()["user"]["organization"]["id"]) == (
         CIRCOE_ORGANIZATION_ID
     )
+
+
+# --- Context menu: rename, remove, delete ---------------------------------------------------------
+
+
+def test_an_admin_renames_and_removes_a_member_a_manager_cannot_remove(make_client: Any) -> None:
+    admin, _ = make_client(OrganizationRole.ADMIN, "chef@circoe.com")
+    manager, _ = make_client(OrganizationRole.MANAGER, "manager@circoe.com")
+    _, member = make_client(OrganizationRole.MEMBER, "membre@circoe.com")
+    url = f"{ORGS}/{CIRCOE}/members/{member.id}"
+
+    renamed = admin.patch(url, json={"display_name": "  Nouveau Nom  "})
+    assert renamed.status_code == 200, renamed.text
+    assert renamed.json()["display_name"] == "Nouveau Nom"
+    assert admin.patch(url, json={"display_name": "  "}).status_code == 422
+
+    assert manager.delete(url).status_code == 403
+    assert admin.delete(url).status_code == 204
+    names = [m["email"] for m in admin.get(f"{ORGS}/{CIRCOE}").json()["members"]]
+    assert "membre@circoe.com" not in names
+
+
+def test_the_last_admin_cannot_be_removed(make_client: Any) -> None:
+    root, _ = make_client(OrganizationRole.ADMIN, "root@circoe.com", is_superadmin=True)
+    acme = root.post(ORGS, json={"name": "Acme"}).json()["organization"]["id"]
+    boss = root.post(
+        f"{ORGS}/{acme}/members",
+        json={"email": "boss@acme.fr", "display_name": "Boss", "role": "admin"},
+    ).json()["id"]
+
+    assert root.delete(f"{ORGS}/{acme}/members/{boss}").status_code == 409
+
+
+def test_only_an_empty_organisation_other_than_circoe_is_deleted(make_client: Any) -> None:
+    root, _ = make_client(OrganizationRole.ADMIN, "root@circoe.com", is_superadmin=True)
+    admin, _ = make_client(OrganizationRole.ADMIN, "chef@circoe.com")
+    acme = root.post(ORGS, json={"name": "Acme"}).json()["organization"]["id"]
+    member = root.post(
+        f"{ORGS}/{acme}/members",
+        json={"email": "a@acme.fr", "display_name": "A", "role": "member"},
+    ).json()["id"]
+
+    assert admin.delete(f"{ORGS}/{acme}").status_code == 403
+    assert root.delete(f"{ORGS}/{CIRCOE}").status_code == 409
+    assert root.delete(f"{ORGS}/{acme}").status_code == 409
+    assert root.delete(f"{ORGS}/{acme}/members/{member}").status_code == 204
+    assert root.delete(f"{ORGS}/{acme}").status_code == 204
+    assert root.get(f"{ORGS}/{acme}").status_code == 404

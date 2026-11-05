@@ -118,7 +118,7 @@ def test_wrong_password_and_unknown_email_get_the_same_answer_and_cost(
     monkeypatch.setattr(PasswordHasher, "verify", spy)
 
     wrong_password = login(anonymous_client, password=WRONG_PASSWORD)
-    unknown_email = login(anonymous_client, email="inconnu.test@example.com")
+    unknown_email = login(anonymous_client, email="inconnu.test@circoe.com")
 
     assert wrong_password.status_code == unknown_email.status_code == 401
     assert wrong_password.json() == unknown_email.json() == INVALID_CREDENTIALS
@@ -189,9 +189,9 @@ def test_unknown_emails_are_throttled_exactly_like_existing_ones(
     anonymous_client: TestClient,
 ) -> None:
     for _ in range(5):
-        assert login(anonymous_client, email="inconnu.test@example.com").status_code == 401
+        assert login(anonymous_client, email="inconnu.test@circoe.com").status_code == 401
 
-    assert login(anonymous_client, email="inconnu.test@example.com").status_code == 429
+    assert login(anonymous_client, email="inconnu.test@circoe.com").status_code == 429
 
 
 def test_a_successful_login_clears_the_account_failures(
@@ -358,7 +358,7 @@ def test_sign_in_and_sign_out_are_audited_without_credentials_or_client_details(
     anonymous_client: TestClient, pilot_user: User, db_session: Session
 ) -> None:
     assert login(anonymous_client, password=WRONG_PASSWORD).status_code == 401
-    assert login(anonymous_client, email="inconnu.test@example.com").status_code == 401
+    assert login(anonymous_client, email="inconnu.test@circoe.com").status_code == 401
     assert audit_events(db_session) == []
 
     csrf = login(anonymous_client).json()["csrf_token"]

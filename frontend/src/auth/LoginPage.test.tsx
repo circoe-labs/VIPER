@@ -54,7 +54,7 @@ describe('LoginPage', () => {
 
     const link = await screen.findByRole('link', { name: 'Se connecter avec Infomaniak' })
     expect(link).toHaveAttribute('href', '/api/auth/infomaniak')
-    expect(screen.getByRole('alert')).toHaveTextContent('Seules les adresses @circoe.com')
+    expect(screen.getByRole('alert')).toHaveTextContent('Adresse e-mail non autorisée.')
     expect(screen.queryByLabelText('Mot de passe')).not.toBeInTheDocument()
   })
 
