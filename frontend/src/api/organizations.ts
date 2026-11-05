@@ -55,6 +55,7 @@ export interface MemberInput {
 export interface MemberPatch {
   role?: OrganizationRole
   is_active?: boolean
+  display_name?: string
 }
 
 const ROOT = ['organizations'] as const
@@ -111,6 +112,22 @@ export function useUpdateMember(organizationId: string) {
   return useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: MemberPatch }) =>
       apiRequest<Member>('PATCH', `/organizations/${organizationId}/members/${id}`, { body: patch }),
+    onSuccess: refresh,
+  })
+}
+
+export function useRemoveMember(organizationId: string) {
+  const refresh = useRefresh()
+  return useMutation({
+    mutationFn: (id: string) => apiRequest<undefined>('DELETE', `/organizations/${organizationId}/members/${id}`),
+    onSuccess: refresh,
+  })
+}
+
+export function useDeleteOrganization() {
+  const refresh = useRefresh()
+  return useMutation({
+    mutationFn: (id: string) => apiRequest<undefined>('DELETE', `/organizations/${id}`),
     onSuccess: refresh,
   })
 }

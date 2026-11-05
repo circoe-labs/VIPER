@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.actor import ActorContext, ActorType
@@ -378,6 +379,7 @@ def update_member(
     *,
     role: OrganizationRole | None = None,
     is_active: bool | None = None,
+    display_name: str | None = None,
 ) -> User:
     get_organization(session, viewer, organization_id)
     member = session.get(User, user_id)
@@ -387,6 +389,12 @@ def update_member(
         raise ForbiddenError("Your role cannot change this member.")
     was_admin = member.is_active and member.role is OrganizationRole.ADMIN
     changes: dict[str, dict[str, object]] = {}
+    if display_name is not None and display_name.strip() != member.display_name:
+        name = display_name.strip()
+        if not name:
+            raise InvalidFieldError("display_name", "The name cannot be empty.")
+        changes["display_name"] = {"before": member.display_name, "after": name[:255]}
+        member.display_name = name[:255]
     if role is not None and role is not member.role:
         if not can_change_role(viewer, member) or role not in assignable_roles(
             viewer, organization_id
@@ -418,6 +426,66 @@ def update_member(
         changes=changes,
     )
     return member
+
+
+def remove_member(
+    session: Session,
+    viewer: User,
+    actor: ActorContext,
+    organization_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    """Delete the account (its sessions go with it). Admins only: a manager deactivates instead.
+    The audit log keeps the events by id; the account row itself is gone."""
+    get_organization(session, viewer, organization_id)
+    member = session.get(User, user_id)
+    if member is None or member.organization_id != organization_id:
+        raise NotFoundError("Unknown member.")
+    if not can_change_role(viewer, member):
+        raise ForbiddenError("Your role cannot remove this member.")
+    was_admin = member.is_active and member.role is OrganizationRole.ADMIN
+    session.delete(member)
+    session.flush()
+    if was_admin:
+        _keep_an_admin(session, organization_id)
+    audit.record_event(
+        session,
+        actor,
+        audit.AuditAction.MEMBER_REMOVED,
+        entity_type=USER_ENTITY,
+        entity_id=user_id,
+        subject=(ORGANIZATION_ENTITY, organization_id),
+    )
+
+
+def delete_organization(
+    session: Session, viewer: User, actor: ActorContext, organization_id: uuid.UUID
+) -> None:
+    """Only an empty organisation (no member, no data) other than CIRCOE."""
+    _require_platform_admin(viewer)
+    organization = get_organization(session, viewer, organization_id)
+    if organization.id == CIRCOE_ORGANIZATION_ID:
+        raise ConflictError("CIRCOE cannot be deleted.")
+    members = session.scalar(
+        select(func.count()).select_from(User).where(User.organization_id == organization_id)
+    )
+    if members:
+        raise ConflictError("Remove its members before deleting the organisation.")
+    name = organization.name
+    try:
+        with session.begin_nested():
+            session.delete(organization)
+            session.flush()
+    except IntegrityError as error:
+        raise ConflictError("The organisation still holds data: it cannot be deleted.") from error
+    audit.record_event(
+        session,
+        actor,
+        audit.AuditAction.ORGANIZATION_DELETED,
+        entity_type=ORGANIZATION_ENTITY,
+        entity_id=organization_id,
+        changes={"name": {"before": name}},
+    )
 
 
 def _keep_an_admin(session: Session, organization_id: uuid.UUID) -> None:

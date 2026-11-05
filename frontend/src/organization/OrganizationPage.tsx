@@ -1,4 +1,4 @@
-import { type ReactNode, useState } from 'react'
+import { type MouseEvent, type ReactNode, useRef, useState } from 'react'
 
 import { ApiError } from '../api/client'
 import {
@@ -8,8 +8,10 @@ import {
   type OrganizationSummary,
   useAddMember,
   useCreateOrganization,
+  useDeleteOrganization,
   useOrganization,
   useOrganizations,
+  useRemoveMember,
   useUpdateMember,
   useUpdateOrganization,
 } from '../api/organizations'
@@ -24,16 +26,20 @@ import {
   BuildingIcon,
   CheckCircleIcon,
   ClockIcon,
+  CopyIcon,
   type IconComponent,
   KeyIcon,
   LockIcon,
+  MoreIcon,
   PencilIcon,
   PlusIcon,
   ShieldCheckIcon,
+  TrashIcon,
   UserPlusIcon,
   UsersIcon,
 } from '../ui/icons'
 import { InfoTip } from '../ui/InfoTip'
+import { Menu, type MenuItem, type MenuSection } from '../ui/Menu'
 import { PageHeader } from '../ui/PageHeader'
 import { Table } from '../ui/Table'
 import './organization.css'
@@ -61,6 +67,84 @@ function errorText(error: unknown, fallback: string): string {
   return fallback
 }
 
+interface Point {
+  x: number
+  y: number
+}
+
+// Right click, or the « ⋯ » button (keyboard): the same menu at the pointer or under the button.
+function pointOf(event: MouseEvent<HTMLElement>, fromButton: boolean): Point {
+  if (!fromButton) return { x: event.clientX, y: event.clientY }
+  const box = event.currentTarget.getBoundingClientRect()
+  return { x: box.right, y: box.bottom + 4 }
+}
+
+function copy(text: string) {
+  void navigator.clipboard.writeText(text).catch(() => undefined)
+}
+
+interface Confirmation {
+  title: string
+  text: string
+  confirmLabel: string
+  onConfirm: () => Promise<unknown>
+}
+
+// « Retour » focused first so Enter never confirms a deletion by accident.
+function ConfirmModal({ confirmation, onClose }: { confirmation: Confirmation | null; onClose: () => void }) {
+  const backRef = useRef<HTMLButtonElement>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  return (
+    <Modal
+      open={confirmation !== null}
+      size="sm"
+      title={confirmation?.title ?? ''}
+      initialFocusRef={backRef}
+      onClose={() => {
+        setError(null)
+        onClose()
+      }}
+      footer={
+        <>
+          <Button ref={backRef} disabled={busy} onClick={onClose}>
+            Retour
+          </Button>
+          <Button
+            variant="danger"
+            loading={busy}
+            onClick={() => {
+              if (!confirmation) return
+              setBusy(true)
+              setError(null)
+              confirmation
+                .onConfirm()
+                .then(onClose)
+                .catch((failure: unknown) => {
+                  setError(errorText(failure, 'L’action n’a pas pu être effectuée.'))
+                })
+                .finally(() => {
+                  setBusy(false)
+                })
+            }}
+          >
+            {confirmation?.confirmLabel}
+          </Button>
+        </>
+      }
+    >
+      <div className="organization-form">
+        <p>{confirmation?.text}</p>
+        {error && (
+          <p className="organization-error" role="alert">
+            {error}
+          </p>
+        )}
+      </div>
+    </Modal>
+  )
+}
+
 function SectionHeader({ icon: Icon, title, actions }: { icon: IconComponent; title: ReactNode; actions?: ReactNode }) {
   return (
     <header className="organization-section__header">
@@ -80,8 +164,85 @@ export function OrganizationPage() {
   const list = useOrganizations()
   const [selected, setSelected] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+  const [editing, setEditing] = useState<OrganizationSummary | null>(null)
+  const [menu, setMenu] = useState<{ organization: OrganizationSummary; position: Point } | null>(null)
+  const [confirmation, setConfirmation] = useState<Confirmation | null>(null)
+  const remove = useDeleteOrganization()
   const organizationId = selected ?? me.organization.id
   const detail = useOrganization(organizationId)
+  // The platform admin creates, edits and deletes organisations.
+  const canManage = list.data?.can_create === true
+
+  function openMenu(organization: OrganizationSummary, position: Point) {
+    setMenu({ organization, position })
+  }
+
+  function organizationSections(organization: OrganizationSummary): MenuSection[] {
+    const items: MenuItem[] = [
+      {
+        id: 'open',
+        label: 'Ouvrir',
+        icon: BuildingIcon,
+        onSelect: () => {
+          setSelected(organization.id)
+        },
+      },
+    ]
+    if (canManage) {
+      items.push({
+        id: 'edit',
+        label: 'Modifier…',
+        icon: PencilIcon,
+        onSelect: () => {
+          setEditing(organization)
+        },
+      })
+    }
+    const domain = organization.email_domain
+    if (domain) {
+      items.push({
+        id: 'copy-domain',
+        label: 'Copier le domaine',
+        icon: CopyIcon,
+        onSelect: () => {
+          copy(domain)
+        },
+      })
+    }
+    const sections: MenuSection[] = [{ items }]
+    if (canManage) {
+      const own = organization.id === me.organization.id
+      const occupied = organization.members > 0
+      sections.push({
+        items: [
+          {
+            id: 'delete',
+            label: 'Supprimer…',
+            icon: TrashIcon,
+            danger: true,
+            disabled: own || occupied,
+            title: own
+              ? 'Votre propre organisation ne peut pas être supprimée.'
+              : occupied
+                ? 'Retirez d’abord ses membres.'
+                : undefined,
+            onSelect: () => {
+              setConfirmation({
+                title: `Supprimer ${organization.name} ?`,
+                text: 'L’organisation est supprimée définitivement. Ce n’est possible que si elle ne contient plus ni membre ni donnée.',
+                confirmLabel: 'Supprimer',
+                onConfirm: () =>
+                  remove.mutateAsync(organization.id).then(() => {
+                    if (organizationId === organization.id) setSelected(null)
+                  }),
+              })
+            },
+          },
+        ],
+      })
+    }
+    return sections
+  }
 
   return (
     <div className="organization-page">
@@ -112,6 +273,10 @@ export function OrganizationPage() {
               onClick={() => {
                 setSelected(organization.id)
               }}
+              onContextMenu={(event) => {
+                event.preventDefault()
+                openMenu(organization, pointOf(event, false))
+              }}
             >
               <BuildingIcon size={16} />
               <span>{organization.name}</span>
@@ -128,7 +293,40 @@ export function OrganizationPage() {
           L’organisation n’a pas pu être chargée.
         </p>
       )}
-      {detail.data && <OrganizationView key={detail.data.organization.id} detail={detail.data} meId={me.id} />}
+      {detail.data && (
+        <OrganizationView
+          key={detail.data.organization.id}
+          detail={detail.data}
+          meId={me.id}
+          onOrganizationMenu={(event, fromButton) => {
+            openMenu(detail.data.organization, pointOf(event, fromButton))
+          }}
+        />
+      )}
+      {menu && (
+        <Menu
+          label={`Actions de l’organisation ${menu.organization.name}`}
+          position={menu.position}
+          sections={organizationSections(menu.organization)}
+          onClose={() => {
+            setMenu(null)
+          }}
+        />
+      )}
+      {editing && (
+        <OrganizationDialog
+          organization={editing}
+          onClose={() => {
+            setEditing(null)
+          }}
+        />
+      )}
+      <ConfirmModal
+        confirmation={confirmation}
+        onClose={() => {
+          setConfirmation(null)
+        }}
+      />
       {creating && (
         <OrganizationDialog
           onClose={() => {
@@ -141,9 +339,16 @@ export function OrganizationPage() {
   )
 }
 
-function OrganizationView({ detail, meId }: { detail: OrganizationDetail; meId: string }) {
+function OrganizationView({
+  detail,
+  meId,
+  onOrganizationMenu,
+}: {
+  detail: OrganizationDetail
+  meId: string
+  onOrganizationMenu: (event: MouseEvent<HTMLElement>, fromButton: boolean) => void
+}) {
   const [adding, setAdding] = useState(false)
-  const [renaming, setRenaming] = useState(false)
   const { organization, members, assignable_roles: assignable } = detail
   const active = members.filter((member) => member.is_active).length
   const inactive = members.length - active
@@ -151,22 +356,27 @@ function OrganizationView({ detail, meId }: { detail: OrganizationDetail; meId: 
   return (
     <>
       <Card className="organization-section">
-        <SectionHeader
-          icon={BuildingIcon}
-          title={organization.name}
-          actions={
-            detail.can_rename && (
+        <div
+          onContextMenu={(event) => {
+            event.preventDefault()
+            onOrganizationMenu(event, false)
+          }}
+        >
+          <SectionHeader
+            icon={BuildingIcon}
+            title={organization.name}
+            actions={
               <IconButton
-                icon={PencilIcon}
+                icon={MoreIcon}
                 size="sm"
-                label="Modifier l’organisation"
-                onClick={() => {
-                  setRenaming(true)
+                label="Actions de l’organisation"
+                onClick={(event) => {
+                  onOrganizationMenu(event, true)
                 }}
               />
-            )
-          }
-        />
+            }
+          />
+        </div>
         <dl className="organization-facts">
           <div>
             <dt>
@@ -235,14 +445,6 @@ function OrganizationView({ detail, meId }: { detail: OrganizationDetail; meId: 
           }}
         />
       )}
-      {renaming && (
-        <OrganizationDialog
-          organization={organization}
-          onClose={() => {
-            setRenaming(false)
-          }}
-        />
-      )}
     </>
   )
 }
@@ -259,6 +461,88 @@ function MembersTable({
   meId: string
 }) {
   const update = useUpdateMember(organizationId)
+  const remove = useRemoveMember(organizationId)
+  const [menu, setMenu] = useState<{ member: Member; position: Point } | null>(null)
+  const [editing, setEditing] = useState<Member | null>(null)
+  const [confirmation, setConfirmation] = useState<Confirmation | null>(null)
+
+  function memberSections(member: Member): MenuSection[] {
+    const main: MenuItem[] = []
+    if (member.can_edit) {
+      main.push({
+        id: 'edit',
+        label: 'Modifier…',
+        icon: PencilIcon,
+        onSelect: () => {
+          setEditing(member)
+        },
+      })
+    }
+    main.push({
+      id: 'copy-email',
+      label: 'Copier l’adresse e-mail',
+      icon: CopyIcon,
+      onSelect: () => {
+        copy(member.email)
+      },
+    })
+    const sections: MenuSection[] = [{ items: main }]
+    if (member.can_change_role) {
+      sections.push({
+        label: 'Rôle',
+        items: ROLES.filter((role) => role === member.role || assignable.includes(role)).map((role) => ({
+          id: `role-${role}`,
+          label: ROLE_LABELS[role],
+          icon: role === member.role ? CheckCircleIcon : undefined,
+          disabled: role === member.role,
+          onSelect: () => {
+            update.mutate({ id: member.id, patch: { role } })
+          },
+        })),
+      })
+    }
+    const risky: MenuItem[] = []
+    if (member.can_edit) {
+      risky.push(
+        member.is_active
+          ? {
+              id: 'deactivate',
+              label: 'Désactiver',
+              icon: BanIcon,
+              onSelect: () => {
+                update.mutate({ id: member.id, patch: { is_active: false } })
+              },
+            }
+          : {
+              id: 'activate',
+              label: 'Réactiver',
+              icon: CheckCircleIcon,
+              onSelect: () => {
+                update.mutate({ id: member.id, patch: { is_active: true } })
+              },
+            },
+      )
+    }
+    if (member.can_change_role) {
+      risky.push({
+        id: 'remove',
+        label: 'Supprimer…',
+        icon: TrashIcon,
+        danger: true,
+        onSelect: () => {
+          setConfirmation({
+            title: `Supprimer ${member.display_name} ?`,
+            text: `Le compte ${member.email} est supprimé définitivement : la personne ne peut plus se connecter. L’historique garde ses actions. Pour une absence temporaire, préférez « Désactiver ».`,
+            confirmLabel: 'Supprimer',
+            onConfirm: () => remove.mutateAsync(member.id),
+          })
+        },
+      })
+    }
+    if (risky.length > 0) sections.push({ items: risky })
+    return sections
+  }
+
   return (
     <>
       {update.isError && (
@@ -280,7 +564,14 @@ function MembersTable({
         </thead>
         <tbody>
           {members.map((member) => (
-            <tr key={member.id} className={member.is_active ? undefined : 'member-row--inactive'}>
+            <tr
+              key={member.id}
+              className={member.is_active ? undefined : 'member-row--inactive'}
+              onContextMenu={(event) => {
+                event.preventDefault()
+                setMenu({ member, position: pointOf(event, false) })
+              }}
+            >
               <td>
                 <div className="member-cell">
                   <span className="member-cell__name">
@@ -340,6 +631,14 @@ function MembersTable({
                 {member.last_login_at ? dateFormat.format(new Date(member.last_login_at)) : '—'}
               </td>
               <td className="member-actions">
+                <IconButton
+                  icon={MoreIcon}
+                  size="sm"
+                  label={`Actions pour ${member.display_name}`}
+                  onClick={(event) => {
+                    setMenu({ member, position: pointOf(event, true) })
+                  }}
+                />
                 {member.can_edit &&
                   (member.is_active ? (
                     <IconButton
@@ -367,7 +666,114 @@ function MembersTable({
           ))}
         </tbody>
       </Table>
+      {menu && (
+        <Menu
+          label={`Actions pour ${menu.member.display_name}`}
+          position={menu.position}
+          alignRight
+          sections={memberSections(menu.member)}
+          onClose={() => {
+            setMenu(null)
+          }}
+        />
+      )}
+      {editing && (
+        <EditMemberDialog
+          organizationId={organizationId}
+          member={editing}
+          assignable={assignable}
+          onClose={() => {
+            setEditing(null)
+          }}
+        />
+      )}
+      <ConfirmModal
+        confirmation={confirmation}
+        onClose={() => {
+          setConfirmation(null)
+        }}
+      />
     </>
+  )
+}
+
+function EditMemberDialog({
+  organizationId,
+  member,
+  assignable,
+  onClose,
+}: {
+  organizationId: string
+  member: Member
+  assignable: OrganizationRole[]
+  onClose: () => void
+}) {
+  const update = useUpdateMember(organizationId)
+  const [name, setName] = useState(member.display_name)
+  const [role, setRole] = useState<OrganizationRole>(member.role)
+  const roles = ROLES.filter((value) => value === member.role || assignable.includes(value))
+  return (
+    <Modal
+      open
+      size="sm"
+      title={`Modifier ${member.display_name}`}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>Annuler</Button>
+          <Button
+            variant="primary"
+            disabled={name.trim() === ''}
+            loading={update.isPending}
+            onClick={() => {
+              update.mutate(
+                {
+                  id: member.id,
+                  patch: {
+                    display_name: name.trim(),
+                    ...(member.can_change_role && role !== member.role ? { role } : {}),
+                  },
+                },
+                { onSuccess: onClose },
+              )
+            }}
+          >
+            Enregistrer
+          </Button>
+        </>
+      }
+    >
+      <div className="organization-form">
+        <TextField
+          label="Nom affiché"
+          value={name}
+          onChange={(event) => {
+            setName(event.target.value)
+          }}
+        />
+        <TextField label="Adresse e-mail" value={member.email} disabled readOnly />
+        {member.can_change_role && (
+          <SelectField
+            label="Rôle"
+            value={role}
+            onChange={(event) => {
+              setRole(event.target.value as OrganizationRole)
+            }}
+          >
+            {roles.map((value) => (
+              <option key={value} value={value}>
+                {ROLE_LABELS[value]}
+              </option>
+            ))}
+          </SelectField>
+        )}
+        {update.isError && (
+          <p className="organization-error" role="alert">
+            {errorText(update.error, 'La modification n’a pas pu être enregistrée.')}
+          </p>
+        )}
+      </div>
+    </Modal>
   )
 }
 
