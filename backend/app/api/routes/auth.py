@@ -1,14 +1,21 @@
+import logging
 import uuid
+from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field, SecretStr
 
 from app.api.dependencies import AuthDep, SessionDep, SettingsDep
 from app.api.session_cookie import SESSION_COOKIE, clear_session_cookie, set_session_cookie
 from app.core.security import MAX_PASSWORD_LENGTH, csrf_token
+from app.models.organizations import OrganizationRole
 from app.models.users import User
 from app.services import auth as auth_service
+from app.services import infomaniak_login, organizations
 from app.services.login_throttle import LoginThrottle
+
+logger = logging.getLogger(__name__)
 
 # Sign-in is the only public auth route; `public_router` is mounted without the session guard.
 public_router = APIRouter(prefix="/auth", tags=["auth"])
@@ -23,10 +30,19 @@ class LoginRequest(BaseModel):
     password: SecretStr = Field(min_length=1, max_length=MAX_PASSWORD_LENGTH)
 
 
+class OrganizationRef(BaseModel):
+    id: uuid.UUID
+    name: str
+
+
 class UserResponse(BaseModel):
     id: uuid.UUID
     email: str
     display_name: str
+    role: OrganizationRole
+    # The single platform admin: creates organisations, manages every member.
+    is_superadmin: bool
+    organization: OrganizationRef
 
 
 class SessionResponse(BaseModel):
@@ -37,7 +53,14 @@ class SessionResponse(BaseModel):
 
 def session_response(user: User, token: str) -> SessionResponse:
     return SessionResponse(
-        user=UserResponse(id=user.id, email=user.email, display_name=user.display_name),
+        user=UserResponse(
+            id=user.id,
+            email=user.email,
+            display_name=user.display_name,
+            role=user.role,
+            is_superadmin=user.is_superadmin,
+            organization=OrganizationRef(id=user.organization.id, name=user.organization.name),
+        ),
         csrf_token=csrf_token(token),
     )
 
@@ -60,6 +83,9 @@ def login(
 
     Only JSON bodies are parsed, so a cross-site HTML form cannot submit it.
     """
+    if not settings.password_login_allowed:
+        # Infomaniak is configured: it is the only way in.
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Sign in with Infomaniak.")
     throttle: LoginThrottle = request.app.state.login_throttle
     email = auth_service.normalize_email(body.email)
     client = request.client.host if request.client else "unknown"
@@ -75,6 +101,13 @@ def login(
         throttle.record_failure(email, client)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, INVALID_CREDENTIALS)
     throttle.reset(email, client)
+    try:
+        organizations.check_can_sign_in(user, settings)
+    except organizations.SignInRefused as refused:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, {"code": refused.code, "message": str(refused)}
+        ) from refused
+    organizations.touch_login(user)
     if previous_token := request.cookies.get(SESSION_COOKIE):
         auth_service.revoke_token(session, previous_token)
     opened = auth_service.open_session(
@@ -94,3 +127,108 @@ def get_current_session(auth: AuthDep) -> SessionResponse:
 def logout(auth: AuthDep, session: SessionDep, settings: SettingsDep, response: Response) -> None:
     auth_service.sign_out(session, auth.record)
     clear_session_cookie(response, settings)
+
+
+# --- « Se connecter avec Infomaniak » ------------------------------------------------------------
+
+# The flow cookie travels only to the callback; `Lax` because Infomaniak sends the browser back
+# with a cross-site top-level navigation (a `Strict` cookie would not come along).
+FLOW_COOKIE = "viper_infomaniak_flow"
+FLOW_COOKIE_PATH = "/api/auth/infomaniak"
+FLOW_SECONDS = 600
+CALLBACK_PATH = "/api/auth/infomaniak/callback"
+
+
+class SignInMethods(BaseModel):
+    infomaniak: bool
+    password: bool
+
+
+@public_router.get("/methods")
+def sign_in_methods(settings: SettingsDep) -> SignInMethods:
+    """What the sign-in page offers: Infomaniak once configured, the password form otherwise."""
+    return SignInMethods(
+        infomaniak=settings.infomaniak_configured, password=settings.password_login_allowed
+    )
+
+
+def _callback_uri(request: Request) -> str:
+    # Behind the proxy, uvicorn's `--proxy-headers` gives the public scheme and host.
+    return str(request.base_url).rstrip("/") + CALLBACK_PATH
+
+
+def _back_to_login(error: str) -> RedirectResponse:
+    return RedirectResponse(f"/login?erreur={quote(error)}", status.HTTP_302_FOUND)
+
+
+@public_router.get("/infomaniak")
+def infomaniak_start(request: Request, settings: SettingsDep) -> RedirectResponse:
+    if not settings.infomaniak_configured:
+        return _back_to_login("unavailable")
+    started = infomaniak_login.start(settings, _callback_uri(request))
+    response = RedirectResponse(started.url, status.HTTP_302_FOUND)
+    response.set_cookie(
+        FLOW_COOKIE,
+        started.cookie,
+        max_age=FLOW_SECONDS,
+        path=FLOW_COOKIE_PATH,
+        secure=settings.session_cookie_secure,
+        httponly=True,
+        samesite="lax",
+    )
+    return response
+
+
+@public_router.get("/infomaniak/callback")
+def infomaniak_callback(
+    request: Request,
+    session: SessionDep,
+    settings: SettingsDep,
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+) -> RedirectResponse:
+    """Back from Infomaniak: check the flow, identify the person, open the VIPER session."""
+    verifier = infomaniak_login.verifier_for(request.cookies.get(FLOW_COOKIE), state)
+    if not settings.infomaniak_configured:
+        response = _back_to_login("unavailable")
+    elif error is not None:
+        response = _back_to_login("cancelled")
+    elif verifier is None or not code:
+        response = _back_to_login("expired")
+    else:
+        response = _sign_in(request, session, settings, code=code, verifier=verifier)
+    response.delete_cookie(
+        FLOW_COOKIE, path=FLOW_COOKIE_PATH, secure=settings.session_cookie_secure, httponly=True
+    )
+    return response
+
+
+def _sign_in(
+    request: Request, session: SessionDep, settings: SettingsDep, *, code: str, verifier: str
+) -> RedirectResponse:
+    try:
+        identity = infomaniak_login.identify(
+            settings,
+            code=code,
+            verifier=verifier,
+            redirect_uri=_callback_uri(request),
+            transport=getattr(request.app.state, "infomaniak_transport", None),
+        )
+    except infomaniak_login.InfomaniakError as failure:
+        logger.warning("infomaniak.signin_failed reason=%s", failure)
+        return _back_to_login("infomaniak")
+    try:
+        user = organizations.sign_in_identity(session, settings, identity)
+    except organizations.SignInRefused as refused:
+        logger.info("infomaniak.signin_refused code=%s", refused.code)
+        return _back_to_login(refused.code)
+    organizations.touch_login(user)
+    if previous_token := request.cookies.get(SESSION_COOKIE):
+        auth_service.revoke_token(session, previous_token)
+    opened = auth_service.open_session(
+        session, user, auth_service.SessionPolicy.from_settings(settings)
+    )
+    response = RedirectResponse("/", status.HTTP_302_FOUND)
+    set_session_cookie(response, opened.token, settings)
+    return response

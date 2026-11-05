@@ -244,6 +244,62 @@ distinguish "Lucie did it" from "Lucie's assistant did it".
   values and error messages (product convention). To be confirmed — it is the one place where the
   two conventions meet.
 
+### 4.5 OAuth for connectors (ChatGPT, claude.ai)
+
+> **Status: implemented** (migration `0022`). Hosted connectors cannot be given a fixed bearer
+> token: ChatGPT (developer mode) and claude.ai (custom connector) only offer OAuth or no
+> authentication. VIPER is therefore its own OAuth 2.1 authorization server for `/mcp`.
+
+- **Discovery.** `/mcp` answers 401 with `WWW-Authenticate: Bearer resource_metadata="…"` pointing
+  to `/.well-known/oauth-protected-resource` (RFC 9728; also under `/mcp`), which names VIPER as
+  the authorization server; `/.well-known/oauth-authorization-server` (RFC 8414, aliased as
+  `openid-configuration`) lists the endpoints. URLs follow the request's scheme and host (uvicorn
+  trusts Caddy's forwarded headers).
+- **Registration.** `POST /oauth/register` (RFC 7591), open: HTTPS redirect URIs (HTTP only to
+  localhost), at most 10, no fragment; public clients (`none`, PKCE only) or confidential ones
+  (`client_secret_post` / `client_secret_basic`, the secret answered once, stored hashed);
+  1 000 clients at most.
+- **Authorization.** `GET /oauth/authorize` checks the client and its exact redirect URI (an
+  unknown one is never followed: the person lands on `/autoriser?erreur=…`), `response_type=code`
+  and PKCE `S256` (other faults go back to the redirect with `error` and `state`), stores the
+  request (10 min) and sends the browser to the SPA page `/autoriser?demande=<id>`. That page is
+  behind the sign-in like every page; « Autoriser » / « Refuser » are
+  `POST /api/oauth/requests/{id}/approve|deny` (session + CSRF). An approval mints an ordinary
+  `mcp_tokens` row labelled « <client> (OAuth) » with every scope — the connector is one more
+  agent, with the same claims, attribution and audit — and a one-time code (5 min).
+- **Tokens.** `POST /oauth/token`: `authorization_code` (client, code, redirect URI and PKCE
+  verifier checked) answers an access token (`viper_at_…`, 1 h) and a refresh token
+  (`viper_rt_…`, 60 days); `refresh_token` rotates the pair. A code or a refresh token used twice
+  revokes every token of the grant (the revocation is committed although the request fails).
+  `/mcp` accepts both kinds of credential: a CLI token or a live OAuth access token whose agent is
+  not revoked. Only SHA-256 hashes are stored (`oauth_clients`, `oauth_authorizations`,
+  `oauth_tokens`; hidden from the explorer, not audited — they are secrets).
+- **Revocation.** Paramètres › MCP › « Accès autorisés » lists every agent credential (OAuth or
+  CLI, never a token) with « Révoquer » (`POST /api/settings/mcp/agents/{id}/revoke`): the agent
+  and every OAuth token derived from it stop at once.
+- **Deployment.** Caddy proxies `/.well-known/*` and `/oauth/*` to the API next to `/api/*` and
+  `/mcp*`. The Vite dev server proxies `/api` only: test the connector flow against the deployed
+  stack (or `deploy/docker-compose.prod.yml` locally).
+
+### 4.6 Call history (« Historique des appels »)
+
+- **Owner of each token.** Every agent token names the person it acts for, in `mcp_tokens.owner_email`.
+  - For an OAuth connector, this is the account that approved it.
+  - For a command-line token, it is `--owner-email`.
+- **One row per call.** Each `tools/call` writes a row in `mcp_calls`, with:
+  - the moment of the call;
+  - `user_email` and the token's label, both copied from the token so they survive a revocation;
+  - the tool and its arguments (texts cut at 300 characters, lists at 50 items, nesting at 4 levels);
+  - `outcome`: `ok`, or `refused` with the tool's error code and message;
+  - the duration.
+- **Refused calls are kept.** The row is written outside the tool's savepoint, so a refused call stays in the history.
+- **Not logged:** `initialize`, `ping` and `tools/list`.
+- **Where to read it.** Paramètres › MCP › « Historique des appels » shows the history, filterable by person and by
+  tool, through `GET /api/settings/mcp/calls`.
+  - Parameters: `email`, `tool`, `agent_id`, `before`, `limit` (at most 200).
+  - Results are newest first. To get the next page, pass the `created_at` of the last row as `before`.
+- **Write-once.** The table is not audited and is not shown in the explorer.
+
 ## 5. Rollout
 
 **M1 — read-only (no product decision needed).** *Partially shipped:* the basic company/person

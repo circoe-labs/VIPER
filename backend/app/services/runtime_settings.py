@@ -173,7 +173,7 @@ def _refusal(error: ValidationError) -> InvalidFieldError:
     would echo a submitted key."""
     first = error.errors(include_input=False, include_url=False)[0]
     location = first.get("loc") or ()
-    # The cross-field rule (`_model_with_key`) has no location: the model is what is missing.
+    # A cross-field rule has no location: the model is the field the person is choosing.
     field = str(location[0]) if location else "openai_model"
     message = str(first.get("msg", "invalid value")).removeprefix("Value error, ")
     return InvalidFieldError(field, message, reason=str(first.get("type", "invalid")))

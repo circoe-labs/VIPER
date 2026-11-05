@@ -19,7 +19,8 @@ from sqlalchemy.orm.attributes import instance_state
 type FieldChange = dict[str, Any]
 type ChangeSet = dict[str, FieldChange]
 
-TECHNICAL_FIELDS = frozenset({"id", "created_at", "updated_at"})
+# `organization_id`: the owner, set by the database default (organizations.md §1), not an edit.
+TECHNICAL_FIELDS = frozenset({"id", "created_at", "updated_at", "organization_id"})
 
 
 def to_json(value: Any) -> Any:

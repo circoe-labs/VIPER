@@ -10,7 +10,9 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: WEB_PORT,
-    strictPort: true,
+    // An explicit VIPER_WEB_PORT (scripts/dev.py, worktrees) must be honoured exactly; the default 5173 falls back
+    // to the next free port when another project's dev server already holds it, instead of failing at launch.
+    strictPort: process.env.VIPER_WEB_PORT !== undefined,
     proxy: { '/api': API_TARGET },
   },
   test: {

@@ -35,11 +35,12 @@ from app.core.cohort_codes import OUT_OF_CAMPAIGN_CODE
 from app.db.base import Base
 from app.models.common import TimestampMixin, UUIDPrimaryKeyMixin, text_enum
 from app.models.enums import SequenceEndReason
+from app.models.organizations import OrganizationOwnedMixin
 
 COHORT_CODE_MAX_LENGTH = 16
 
 
-class Cohort(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+class Cohort(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, Base):
     __tablename__ = "cohorts"
     __table_args__ = (
         # Normalized `S<n>`: uppercase S, a number without leading zero.
@@ -61,7 +62,7 @@ class Cohort(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         return self.code == OUT_OF_CAMPAIGN_CODE
 
 
-class ContactSequence(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+class ContactSequence(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, Base):
     __tablename__ = "contact_sequences"
     __table_args__ = (
         CheckConstraint("(closed_at IS NULL) = (end_reason IS NULL)", name="closed_has_reason"),

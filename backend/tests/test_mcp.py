@@ -103,7 +103,7 @@ def test_a_scoped_token_never_sees_another_type(client: TestClient, db_session: 
     other = mint(db_session, scopes=["update_employee"])
 
     # Nothing of its own type is queued, and it may not widen its scope by asking.
-    assert call(client, other, "viper_claim_task", {})["structuredContent"] == {"task": None}
+    assert call(client, other, "viper_claim_task", {})["structuredContent"]["task"] is None
     assert call(client, other, "viper_claim_task", {"task_types": ["update_company"]})["isError"]
 
     allowed = mint(db_session, scopes=["update_company"])

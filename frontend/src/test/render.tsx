@@ -14,6 +14,9 @@ export const TEST_USER: CurrentUser = {
   id: '01920000-0000-7000-8000-000000000001',
   email: 'pilote.test@example.com',
   display_name: 'Pilote Test',
+  role: 'admin',
+  is_superadmin: false,
+  organization: { id: '01a00000-0000-7000-8000-00000000c1c0', name: 'CIRCOE' },
 }
 export const TEST_CSRF_TOKEN = 'csrf-token-de-test'
 

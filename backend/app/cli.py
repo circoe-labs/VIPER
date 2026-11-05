@@ -120,6 +120,7 @@ def create_agent_token(session_factory: sessionmaker[Session], args: argparse.Na
             label=args.label,
             scopes=scopes,
             max_concurrent=args.max_concurrent,
+            owner_email=args.owner_email,
         )
         token_id = record.id
     return (
@@ -146,6 +147,9 @@ def main(
         help="comma-separated task types, or * for all of them",
     )
     agent.add_argument("--max-concurrent", type=int, default=3)
+    agent.add_argument(
+        "--owner-email", help="the person the agent acts for (its calls are kept under it)"
+    )
     create = commands.add_parser("create-user", help="create a login account or reset its password")
     create.add_argument("--email", required=True)
     create.add_argument("--display-name", help="required when creating; kept on reset if omitted")

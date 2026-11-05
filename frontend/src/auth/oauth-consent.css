@@ -1,0 +1,39 @@
+/* « Autoriser … à accéder à VIPER ? »: one card, centred, readable on a phone. */
+.oauth-consent {
+  max-width: 40rem;
+  margin: var(--space-8) auto;
+  padding: 0 var(--space-4);
+}
+
+.oauth-consent__body {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.oauth-consent__text,
+.oauth-consent__list {
+  margin: 0;
+}
+
+.oauth-consent__list {
+  display: grid;
+  gap: var(--space-1);
+  padding-left: var(--space-5);
+}
+
+.oauth-consent__muted {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.oauth-consent__error {
+  margin: 0;
+  color: var(--color-danger-fg);
+}
+
+.oauth-consent__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}

@@ -293,8 +293,9 @@ printing paths only. Only synthetic fixtures under `backend/tests/fixtures/synth
 
 ## Troubleshooting
 
-- `Port 5173 is already in use` — Vite uses `strictPort`; stop the other dev server, or give this checkout its own
-  ports (`VIPER_WEB_PORT`, see *Ports and parallel checkouts*). Playwright uses 5180 and 8044 the same way
+- `Port 5173 is already in use` — only when `VIPER_WEB_PORT` is set (then `strictPort`); without it Vite moves to the
+  next free port and prints it, and `scripts/dev.py` picks free ports itself. The Toolbox OAuth redirect expects
+  5173: stop the other dev server if you need it (see *Ports and parallel checkouts*). Playwright uses 5180 and 8044 the same way
   (`VIPER_E2E_WEB_PORT` / `VIPER_E2E_API_PORT`).
 - Sign-in says `Adresse e-mail ou mot de passe incorrect.` — no account yet in this database, or a wrong password:
   (re)run `python -m app.cli create-user --email …`. `Trop de tentatives…` — 5 failures for one e-mail (20 in total)

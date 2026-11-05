@@ -1,6 +1,12 @@
-import { type McpParameter, type McpTool, useMcpSettings } from '../api/mcpSettings'
-import { Badge } from '../ui/Badge'
+import { useState } from 'react'
+
+import { type McpAgent, type McpParameter, type McpTool, useMcpAgents, useMcpSettings, useRevokeMcpAgent } from '../api/mcpSettings'
+import { formatDateTime } from '../contact/labels'
+import { Badge, StatusBadge } from '../ui/Badge'
+import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
+import { Modal } from '../ui/Dialog'
+import { McpCallsCard } from './McpCallsCard'
 import './settings.css'
 
 function ParameterRow({ parameter }: { parameter: McpParameter }) {
@@ -46,8 +52,128 @@ function ToolCard({ tool }: { tool: McpTool }) {
   )
 }
 
-// Paramètres > MCP: what an agent can call, and with which parameters. Nothing to edit — the tools are the code
-// (`app/api/mcp.py`), and a token is minted from the command line.
+// How to plug a connector in: the full address, and what each client asks for.
+function ConnectCard({ endpoint }: { endpoint: string }) {
+  const url = `${window.location.origin}${endpoint}`
+  return (
+    <Card title="Connecter ChatGPT, Claude ou un autre client MCP">
+      <div className="mcp-connect">
+        <p className="mcp-connect__url">
+          Adresse du serveur : <code>{url}</code>
+        </p>
+        <ul className="mcp-connect__steps">
+          <li>
+            <strong>ChatGPT</strong> (mode développeur) et <strong>claude.ai</strong> (connecteur personnalisé) : collez
+            cette adresse et choisissez l’authentification <strong>OAuth</strong>. VIPER vous demande alors d’autoriser
+            l’accès.
+          </li>
+          <li>
+            <strong>Claude Code</strong> et les clients qui acceptent un en-tête : un jeton créé en ligne de commande (
+            <code>python -m app.cli create-agent-token --label …</code>), envoyé en <code>Authorization: Bearer …</code>.
+          </li>
+        </ul>
+      </div>
+    </Card>
+  )
+}
+
+function lastUse(agent: McpAgent): string {
+  if (agent.revoked_at) return `Révoqué le ${formatDateTime(agent.revoked_at)}`
+  return agent.last_used_at ? `Dernière utilisation le ${formatDateTime(agent.last_used_at)}` : 'Jamais utilisé'
+}
+
+// « Accès autorisés »: who may call /mcp, and « Révoquer » (immediate, OAuth tokens included).
+function AgentsCard() {
+  const agents = useMcpAgents()
+  const revoke = useRevokeMcpAgent()
+  const [confirming, setConfirming] = useState<McpAgent | null>(null)
+  return (
+    <Card title="Accès autorisés">
+      {agents.isLoading && <p className="settings-muted">Chargement…</p>}
+      {agents.isError && <p className="settings-error">Les accès n’ont pas pu être chargés.</p>}
+      {agents.data?.length === 0 && <p className="settings-muted">Aucun accès pour l’instant.</p>}
+      {agents.data && agents.data.length > 0 && (
+        <ul className="mcp-agents">
+          {agents.data.map((agent) => (
+            <li key={agent.id} className="mcp-agent">
+              <div className="mcp-agent__main">
+                <span className="mcp-agent__label">{agent.label}</span>
+                <span className="mcp-agent__meta">
+                  {agent.origin === 'oauth' ? 'Connecteur OAuth' : 'Jeton en ligne de commande'}
+                  {agent.owner_email ? ` · pour ${agent.owner_email}` : ''} · créé le{' '}
+                  {formatDateTime(agent.created_at)} · {lastUse(agent)}
+                </span>
+              </div>
+              {agent.revoked_at ? (
+                <StatusBadge tone="neutral">Révoqué</StatusBadge>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => {
+                    revoke.reset()
+                    setConfirming(agent)
+                  }}
+                >
+                  Révoquer
+                </Button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      <Modal
+        open={confirming !== null}
+        size="sm"
+        title={`Révoquer « ${confirming?.label ?? ''} » ?`}
+        onClose={() => {
+          setConfirming(null)
+        }}
+        footer={
+          <>
+            <Button
+              disabled={revoke.isPending}
+              onClick={() => {
+                setConfirming(null)
+              }}
+            >
+              Retour
+            </Button>
+            <Button
+              variant="danger"
+              loading={revoke.isPending}
+              onClick={() => {
+                if (!confirming) return
+                revoke.mutate(confirming.id, {
+                  onSuccess: () => {
+                    setConfirming(null)
+                  },
+                })
+              }}
+            >
+              Révoquer l’accès
+            </Button>
+          </>
+        }
+      >
+        <div className="settings-dialog">
+          <p>
+            Cet agent ne peut plus appeler le serveur MCP, immédiatement. Pour un connecteur (ChatGPT, Claude…), il faudra
+            l’autoriser à nouveau depuis l’application.
+          </p>
+          {revoke.isError && (
+            <p className="settings-error" role="alert">
+              L’accès n’a pas pu être révoqué : réessayez.
+            </p>
+          )}
+        </div>
+      </Modal>
+    </Card>
+  )
+}
+
+// Paramètres > MCP: how to connect, who may connect, and what an agent can call (with which parameters). The tools
+// are the code (`app/api/mcp.py`).
 export function McpSection() {
   const settings = useMcpSettings()
 
@@ -59,10 +185,13 @@ export function McpSection() {
   return (
     <div className="mcp">
       <p className="mcp-lead">
-        Les agents se connectent au serveur MCP de VIPER sur <code>{settings.data.endpoint}</code> (protocole{' '}
-        <code>{settings.data.protocol_version}</code>), avec un jeton d’accès créé en ligne de commande. Aucun de ces
-        outils n’écrit dans la base : une soumission devient une proposition que vous validez dans Missions.
+        Les agents se connectent au serveur MCP de VIPER (protocole <code>{settings.data.protocol_version}</code>), par
+        OAuth ou avec un jeton d’accès. Aucun de ces outils n’écrit dans la base sans vous : une soumission devient une
+        proposition que vous validez dans Missions.
       </p>
+      <ConnectCard endpoint={settings.data.endpoint} />
+      <AgentsCard />
+      <McpCallsCard />
       <div className="mcp-tools">
         {settings.data.tools.map((tool) => (
           <ToolCard key={tool.name} tool={tool} />

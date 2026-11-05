@@ -140,6 +140,8 @@ class AuditAction(StrEnum):
     AGENT_TASK_RESULT_REJECTED = "agent_task_result.rejected"
     MISSION_CREATED = "mission.created"
     MISSION_STATUS_CHANGED = "mission.status_changed"
+    MISSION_UPDATED = "mission.updated"
+    MISSION_DELETED = "mission.deleted"
     MISSION_RUN_STARTED = "mission_run.started"
     MISSION_RUN_FINISHED = "mission_run.finished"
     # A person resolved a data-quality alert (D8).
@@ -152,6 +154,12 @@ class AuditAction(StrEnum):
     AUTH_LOGOUT = "auth.logout"
     AUTH_USER_CREATED = "auth.user_created"
     AUTH_PASSWORD_RESET = "auth.password_reset"
+    # « Organisation » (doc/architecture/organizations.md): the platform admin's and the roles'
+    # actions; account rows themselves never enter the log.
+    ORGANIZATION_CREATED = "organization.created"
+    ORGANIZATION_UPDATED = "organization.updated"
+    MEMBER_ADDED = "organization.member_added"
+    MEMBER_UPDATED = "organization.member_updated"
     # A query of the read-only SQL console: hash and length of the text, never the text (I-67).
     EXPLORER_SQL_EXECUTED = "explorer.sql_executed"
     # A downloaded Excel export (Task 10): rows per sheet and size, never a value.
@@ -244,7 +252,12 @@ NOT_AUDITED_TABLES = {
     "mission_targets": "mission links; managed by the mission service",
     "mission_runs": "mission executions; mission_run.* events are written by the service",
     "agent_task_results": "write-once submission: the row is the record (raw, proposal, decision)",
-    "mcp_tokens": "machine credentials: only a token hash; minting and revocation are CLI acts",
+    "mcp_tokens": "machine credentials: only a token hash; minted by the CLI or an OAuth approval",
+    "oauth_clients": "self-registered MCP connectors (RFC 7591): ids and secret hashes",
+    "oauth_authorizations": "OAuth requests and one-time codes; an approval mints an agent token",
+    "oauth_tokens": "OAuth access/refresh token hashes; secrets, never audited",
+    "organizations": "organisations; organization.* events are written by the service",
+    "mcp_calls": "the MCP call history is itself a log (write-once)",
 }
 
 

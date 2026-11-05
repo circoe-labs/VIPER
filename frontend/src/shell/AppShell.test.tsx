@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { SHELL_API } from '../test/homeApi'
 import { renderApp, stubApi, stubFetchJson } from '../test/render'
 
-const LABELS = ['Accueil', 'Prospection', 'Prospects validés', 'Entrepôts', 'Contacts', 'Missions', 'Agenda', 'Base de données', 'Paramètres']
+const LABELS = ['Accueil', 'Prospection', 'Prospects validés', 'Entrepôts', 'Contacts', 'Missions', 'Agenda', 'Base de données', 'Organisation', 'Paramètres']
 // The Database page lists its tables on load.
 const DATABASE_API = { 'GET /api/health': [200, { status: 'ok', database: 'ok' }], 'GET /api/explorer/tables': [200, []] } as const
 
@@ -14,7 +14,7 @@ function navigation() {
 }
 
 describe('AppShell', () => {
-  it('lists the seven sections in French, in order', () => {
+  it('lists the eight sections in French, in order', () => {
     stubApi(SHELL_API)
     renderApp()
 

@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from sqlalchemy import delete as sql_delete
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -167,6 +168,20 @@ class MissionTaskRow:
 
 
 @dataclass(frozen=True, slots=True)
+class MissionRule:
+    """The rest of the rule, for « Modifier la mission » (the card holds the visible part)."""
+
+    agent_id: uuid.UUID | None
+    starts_at: datetime | None
+    end_kind: MissionEndKind
+    ends_at: datetime | None
+    max_runs: int | None
+    geography: str | None
+    period_days: int | None
+    exclusions: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
 class MissionDetail:
     card: MissionCard
     targets: list[TargetRow]
@@ -175,6 +190,7 @@ class MissionDetail:
     prompt: str
     result_kind: MissionResultKind
     result_limit: int
+    rule: MissionRule
 
 
 def _now(now: datetime | None) -> datetime:
@@ -235,9 +251,10 @@ def _target_rows(session: Session, mission_id: uuid.UUID) -> list[TargetRow]:
             prospect = prospects_by_id.get(prospect_id)
             if prospect is None:
                 continue
-            name = " ".join(
-                part for part in (prospect.first_name, prospect.last_name) if part
-            ) or "Prospect sans nom"
+            name = (
+                " ".join(part for part in (prospect.first_name, prospect.last_name) if part)
+                or "Prospect sans nom"
+            )
             company_name = (
                 prospect_companies.get(prospect.company_id)
                 if prospect.company_id is not None
@@ -268,9 +285,7 @@ def _task_rows(session: Session, mission_id: uuid.UUID) -> list[MissionTaskRow]:
     }
     prospect_ids = {task.prospect_id for task in tasks if task.prospect_id is not None}
     names = {
-        prospect.id: " ".join(
-            part for part in (prospect.first_name, prospect.last_name) if part
-        )
+        prospect.id: " ".join(part for part in (prospect.first_name, prospect.last_name) if part)
         for prospect in session.scalars(select(Prospect).where(Prospect.id.in_(prospect_ids)))
     }
     rows = [
@@ -354,9 +369,7 @@ def list_cards(session: Session, *, status: MissionStatus | None = None) -> list
     if status is not None:
         statement = statement.where(Mission.status == status)
     missions = session.scalars(
-        statement.order_by(
-            Mission.status.asc(), Mission.created_at.desc()
-        )
+        statement.order_by(Mission.status.asc(), Mission.created_at.desc())
     ).all()
     return [_card(session, mission) for mission in missions]
 
@@ -392,6 +405,16 @@ def detail(session: Session, mission_id: uuid.UUID) -> MissionDetail:
         prompt=mission.prompt,
         result_kind=mission.result_kind,
         result_limit=mission.result_limit,
+        rule=MissionRule(
+            agent_id=mission.agent_id,
+            starts_at=mission.starts_at,
+            end_kind=mission.end_kind,
+            ends_at=mission.ends_at,
+            max_runs=mission.max_runs,
+            geography=mission.geography,
+            period_days=mission.period_days,
+            exclusions=dict(mission.exclusions or {}),
+        ),
     )
 
 
@@ -451,18 +474,15 @@ def _validate(data: MissionInput, now: datetime) -> None:
             raise InvalidFieldError("ends_at", "A date is required.", "missing")
         if data.end_kind is MissionEndKind.AFTER and (data.max_runs or 0) < 1:
             raise InvalidFieldError("max_runs", "At least 1 run.", "range")
-    if (
-        data.end_kind is MissionEndKind.DATE
-        and data.ends_at is not None
-        and data.ends_at <= now
-    ):
+    if data.end_kind is MissionEndKind.DATE and data.ends_at is not None and data.ends_at <= now:
         raise InvalidFieldError("ends_at", "The end must be in the future.", "range")
 
 
+def _target_kinds(targets: tuple[TargetInput, ...]) -> list[str]:
+    return ["company" if target.company_id is not None else "prospect" for target in targets]
 
-def _create_targets(
-    session: Session, mission: Mission, targets: tuple[TargetInput, ...]
-) -> None:
+
+def _create_targets(session: Session, mission: Mission, targets: tuple[TargetInput, ...]) -> None:
     seen: set[tuple[str, uuid.UUID]] = set()
     for target in targets:
         if (target.company_id is None) == (target.prospect_id is None):
@@ -501,6 +521,7 @@ def create(
     name = _text("name", data.name, 200)
     prompt = _text("prompt", data.prompt, 5000)
     _validate(data, moment)
+    check_runnable(data.type, data.result_kind, _target_kinds(data.targets))
     token: McpToken | None = None
     if data.agent_id is not None:
         token = session.get(McpToken, data.agent_id)
@@ -557,6 +578,121 @@ def create(
     return mission
 
 
+# The fields « Modifier la mission » rewrites, compared for the audit entry.
+EDITED_FIELDS = (
+    "name",
+    "type",
+    "prompt",
+    "agent_id",
+    "is_recurring",
+    "interval_count",
+    "interval_unit",
+    "starts_at",
+    "end_kind",
+    "ends_at",
+    "max_runs",
+    "result_kind",
+    "result_limit",
+    "geography",
+    "period_days",
+    "exclusions",
+)
+
+
+def _audit_value(value: object) -> object:
+    if isinstance(value, uuid.UUID):
+        return str(value)
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, MissionType | RecurrenceUnit | MissionEndKind | MissionResultKind):
+        return value.value
+    return value
+
+
+def update(
+    session: Session,
+    actor: ActorContext,
+    mission_id: uuid.UUID,
+    data: MissionInput,
+    now: datetime | None = None,
+) -> Mission:
+    """« Modifier la mission »: the whole rule is rewritten, linked data included. Runs already
+    made and their tasks stay as they are; the next run follows the new rule. A closed mission
+    (done, cancelled) is not edited: create a new one."""
+    moment = _now(now)
+    mission = session.scalar(select(Mission).where(Mission.id == mission_id).with_for_update())
+    if mission is None:
+        raise NotFoundError("Unknown mission.")
+    if mission.status in (MissionStatus.DONE, MissionStatus.CANCELLED):
+        raise ConflictError("This mission is closed.")
+    name = _text("name", data.name, 200)
+    prompt = _text("prompt", data.prompt, 5000)
+    _validate(data, moment)
+    check_runnable(data.type, data.result_kind, _target_kinds(data.targets))
+    agent_label: str | None = None
+    if data.agent_id is not None and data.agent_id == mission.agent_id:
+        # Unchanged agent: keep the snapshotted label even if its token was revoked since.
+        agent_label = mission.agent_label
+    elif data.agent_id is not None:
+        token = session.get(McpToken, data.agent_id)
+        if token is None or token.revoked_at is not None:
+            raise InvalidFieldError("agent_id", "Unknown or revoked agent.", "not_found")
+        agent_label = token.label
+    before = {
+        field_name: _audit_value(getattr(mission, field_name)) for field_name in EDITED_FIELDS
+    }
+
+    mission.name = name
+    mission.type = data.type
+    mission.prompt = prompt
+    mission.agent_id = data.agent_id
+    mission.agent_label = agent_label
+    mission.is_recurring = data.is_recurring
+    mission.interval_count = data.interval_count
+    mission.interval_unit = data.interval_unit
+    mission.starts_at = data.starts_at or mission.starts_at or moment
+    mission.end_kind = data.end_kind
+    mission.ends_at = data.ends_at
+    mission.max_runs = data.max_runs
+    mission.result_kind = data.result_kind
+    mission.result_limit = data.result_limit
+    mission.geography = (data.geography or "").strip() or None
+    mission.period_days = data.period_days
+    mission.exclusions = data.exclusions
+
+    # A paused mission keeps no next run: « Reprendre » computes it.
+    if mission.status is MissionStatus.ACTIVE:
+        runs_count = session.scalar(
+            select(func.count()).select_from(MissionRun).where(MissionRun.mission_id == mission.id)
+        )
+        if mission.starts_at is not None and mission.starts_at > moment:
+            mission.next_run_at = mission.starts_at
+        elif mission.is_recurring and not runs_count:
+            mission.next_run_at = moment
+        else:
+            mission.next_run_at = next_occurrence(mission, moment, runs_count=runs_count or 0)
+
+    session.execute(sql_delete(MissionTarget).where(MissionTarget.mission_id == mission.id))
+    session.flush()
+    _create_targets(session, mission, data.targets)
+    after = {field_name: _audit_value(getattr(mission, field_name)) for field_name in EDITED_FIELDS}
+    changes: dict[str, dict[str, Any]] = {
+        field_name: {"before": before[field_name], "after": after[field_name]}
+        for field_name in EDITED_FIELDS
+        if before[field_name] != after[field_name]
+    }
+    audit.record_event(
+        session,
+        actor,
+        audit.AuditAction.MISSION_UPDATED,
+        entity_type="mission",
+        entity_id=mission.id,
+        changes=changes,
+        reason=f"targets={len(data.targets)}",
+    )
+    return mission
+
+
 def _open_tasks(session: Session, mission_id: uuid.UUID) -> bool:
     runs = select(MissionRun.id).where(MissionRun.mission_id == mission_id).scalar_subquery()
     count = session.scalar(
@@ -596,6 +732,100 @@ def refresh_run(session: Session, run: MissionRun) -> MissionRun:
     return run
 
 
+def idle_summary(session: Session, *, limit: int = 10) -> list[dict[str, Any]]:
+    """Why an agent finds nothing to claim: the open missions, their state and next run.
+
+    A task only exists once a run starts (« Lancer maintenant » or the next due moment); an agent
+    told « no task » without this would not know whether to wait or to ask for a launch.
+    """
+    open_missions = session.scalars(
+        select(Mission)
+        .where(Mission.status.in_((MissionStatus.ACTIVE, MissionStatus.PAUSED)))
+        .order_by(Mission.next_run_at.asc().nulls_last())
+        .limit(limit)
+    ).all()
+    summary: list[dict[str, Any]] = []
+    for mission in open_missions:
+        last = session.scalars(
+            select(MissionRun)
+            .where(MissionRun.mission_id == mission.id)
+            .order_by(MissionRun.scheduled_at.desc())
+            .limit(1)
+        ).first()
+        summary.append(
+            {
+                "mission_id": str(mission.id),
+                "name": mission.name,
+                "status": mission.status.value,
+                "next_run_at": mission.next_run_at.isoformat() if mission.next_run_at else None,
+                "last_run": (
+                    {"status": last.status.value, "note": last.note} if last is not None else None
+                ),
+            }
+        )
+    return summary
+
+
+def check_runnable(
+    mission_type: MissionType, result_kind: MissionResultKind, target_kinds: list[str]
+) -> None:
+    """Refuse a rule that could never produce a task. Checked when the mission is saved (the
+    dialog shows the reason next to the field) and again when a run starts."""
+    if mission_type not in EXECUTABLE_TYPES:
+        raise InvalidFieldError(
+            "type",
+            "Ce type de mission n’est pas encore exécutable : la découverte et les signaux "
+            "arrivent avec leurs schémas de résultat.",
+            "unsupported",
+        )
+    if result_kind not in EXECUTABLE_RESULT_KINDS:
+        raise InvalidFieldError(
+            "result_kind",
+            "Ce résultat attendu n’est pas encore pris en charge (signaux : phase 2).",
+            "unsupported",
+        )
+    discovery = not target_kinds
+    if mission_type is MissionType.SIGNALS:
+        if result_kind is not MissionResultKind.SIGNALS:
+            raise InvalidFieldError(
+                "result_kind",
+                "Une mission de signaux attend le résultat « Signaux ».",
+                "unsupported",
+            )
+        if discovery or "company" not in target_kinds:
+            raise InvalidFieldError(
+                "targets",
+                "Une mission « Signaux » surveille des sociétés déjà en base : "
+                "liez-en au moins une. Pour découvrir de nouvelles sociétés, "
+                "choisissez « Prospection » → « Sociétés ».",
+                "empty",
+            )
+    elif discovery:
+        if (
+            mission_type is not MissionType.PROSPECTION
+            or result_kind is not MissionResultKind.COMPANIES
+        ):
+            raise InvalidFieldError(
+                "targets",
+                "Ajoutez des données liées : cette mission travaille sur des fiches existantes.",
+                "empty",
+            )
+    elif mission_type is MissionType.PROSPECTION:
+        if result_kind is not MissionResultKind.PROSPECTS:
+            raise InvalidFieldError(
+                "result_kind",
+                "Avec des sociétés liées, la prospection cherche des contacts : "
+                "choisissez « Prospects ».",
+                "unsupported",
+            )
+        if "company" not in target_kinds:
+            raise InvalidFieldError(
+                "targets",
+                "Ajoutez au moins une société à explorer.",
+                "empty",
+            )
+
+
 def run_mission(
     session: Session,
     actor: ActorContext,
@@ -610,58 +840,9 @@ def run_mission(
         raise NotFoundError("Unknown mission.")
     if mission.status is not MissionStatus.ACTIVE:
         raise ConflictError("This mission is not active.")
-    if mission.type not in EXECUTABLE_TYPES:
-        raise InvalidFieldError(
-            "type",
-            "Ce type de mission n’est pas encore exécutable : la découverte et les signaux "
-            "arrivent avec leurs schémas de résultat.",
-            "unsupported",
-        )
-    if mission.result_kind not in EXECUTABLE_RESULT_KINDS:
-        raise InvalidFieldError(
-            "result_kind",
-            "Ce résultat attendu n’est pas encore pris en charge (signaux : phase 2).",
-            "unsupported",
-        )
     targets = _target_rows(session, mission.id)
     discovery = not targets
-    if mission.type is MissionType.SIGNALS:
-        if mission.result_kind is not MissionResultKind.SIGNALS:
-            raise InvalidFieldError(
-                "result_kind",
-                "Une mission de signaux attend le résultat « Signaux ».",
-                "unsupported",
-            )
-        if discovery or not any(target.kind == "company" for target in targets):
-            raise InvalidFieldError(
-                "targets",
-                "Ajoutez au moins une société à surveiller.",
-                "empty",
-            )
-    elif discovery:
-        if (
-            mission.type is not MissionType.PROSPECTION
-            or mission.result_kind is not MissionResultKind.COMPANIES
-        ):
-            raise InvalidFieldError(
-                "targets",
-                "Ajoutez des données liées : cette mission travaille sur des fiches existantes.",
-                "empty",
-            )
-    elif mission.type is MissionType.PROSPECTION:
-        if mission.result_kind is not MissionResultKind.PROSPECTS:
-            raise InvalidFieldError(
-                "result_kind",
-                "Avec des sociétés liées, la prospection cherche des contacts : "
-                "choisissez « Prospects ».",
-                "unsupported",
-            )
-        if not any(target.kind == "company" for target in targets):
-            raise InvalidFieldError(
-                "targets",
-                "Ajoutez au moins une société à explorer.",
-                "empty",
-            )
+    check_runnable(mission.type, mission.result_kind, [target.kind for target in targets])
     run = MissionRun(
         mission_id=mission.id,
         status=MissionRunStatus.RUNNING,
@@ -771,14 +952,12 @@ SCHEDULER_ACTOR = ActorContext(
 )
 
 
-def run_due(
-    session: Session, *, now: datetime | None = None, limit: int = 20
-) -> list[MissionRun]:
+def run_due(session: Session, *, now: datetime | None = None, limit: int = 20) -> list[MissionRun]:
     """Start the runs whose `next_run_at` is due. Called by the scheduler worker and by tests.
 
     Each mission is locked `SKIP LOCKED`: two scheduler passes never start the same run. A mission
-    whose recurrence is exhausted (end date or max runs) closes; a mission whose type cannot run
-    yet is paused rather than retried forever.
+    whose recurrence is exhausted (end date or max runs) closes; a rule that cannot run
+    records a failed run (its reason on the page) and keeps its recurrence: never a silent pause.
     """
     moment = _now(now)
     due = session.scalars(
@@ -829,19 +1008,32 @@ def run_due(
                     now=moment,
                 )
             )
-        except DomainError:
-            # The type cannot run yet (discovery/signals): stop the recurrence instead of
-            # retrying every minute forever.
-            mission.status = MissionStatus.PAUSED
-            mission.next_run_at = None
+        except DomainError as error:
+            # A rule that cannot run (saved before the checks existed, or data deleted since):
+            # the failure is recorded as a run the page shows, and the recurrence carries on.
+            # The mission is never paused behind the person's back.
+            failed = MissionRun(
+                mission_id=mission.id,
+                status=MissionRunStatus.FAILED,
+                trigger=MissionRunTrigger.SCHEDULE,
+                scheduled_at=moment,
+                started_at=moment,
+                finished_at=moment,
+                note=str(error)[:500],
+            )
+            session.add(failed)
+            mission.last_run_at = moment
+            mission.next_run_at = next_occurrence(mission, moment, runs_count=(runs_count or 0) + 1)
+            session.flush()
             audit.record_event(
                 session,
                 SCHEDULER_ACTOR,
-                audit.AuditAction.MISSION_STATUS_CHANGED,
-                entity_type="mission",
-                entity_id=mission.id,
-                changes={"status": {"before": "active", "after": "paused"}},
-                reason="type not executable",
+                audit.AuditAction.MISSION_RUN_STARTED,
+                entity_type="mission_run",
+                entity_id=failed.id,
+                subject=("mission", mission.id),
+                changes={"tasks": {"after": 0}},
+                reason=f"not runnable: {str(error)[:200]}",
             )
     return started
 
@@ -899,9 +1091,7 @@ def set_status(
         runs_count = session.scalar(
             select(func.count()).select_from(MissionRun).where(MissionRun.mission_id == mission.id)
         )
-        mission.next_run_at = next_occurrence(
-            mission, _now(now), runs_count=runs_count or 0
-        )
+        mission.next_run_at = next_occurrence(mission, _now(now), runs_count=runs_count or 0)
     elif status is MissionStatus.PAUSED:
         mission.next_run_at = None
     else:
@@ -916,6 +1106,49 @@ def set_status(
         changes={"status": {"before": previous.value, "after": status.value}},
     )
     return mission
+
+
+def delete(session: Session, actor: ActorContext, mission_id: uuid.UUID) -> None:
+    """« Supprimer la mission »: the rule, its targets and its runs go (FK cascade). Its open tasks
+    are cancelled first, so no agent keeps working for a mission that no longer exists and no
+    result waits for a review nobody can open; the tasks themselves stay, with their audit trail
+    (`run_id` set to NULL by the FK). Accepted results already applied are not undone."""
+    mission = session.scalar(select(Mission).where(Mission.id == mission_id).with_for_update())
+    if mission is None:
+        raise NotFoundError("Unknown mission.")
+    runs = select(MissionRun.id).where(MissionRun.mission_id == mission.id).scalar_subquery()
+    open_tasks = session.scalars(
+        select(AgentTask)
+        .where(AgentTask.run_id.in_(runs), AgentTask.status.in_(OPEN_TASK_STATUSES))
+        .with_for_update()
+    ).all()
+    for task in open_tasks:
+        previous = task.status
+        task.status = AgentTaskStatus.CANCELLED
+        agent_missions.clear_claim(task)
+        audit.record_event(
+            session,
+            actor,
+            audit.AuditAction.AGENT_TASK_CANCELLED,
+            entity_type="agent_task",
+            entity_id=task.id,
+            changes={
+                "status": {"before": previous.value, "after": AgentTaskStatus.CANCELLED.value}
+            },
+            reason="mission_deleted",
+        )
+    session.flush()
+    audit.record_event(
+        session,
+        actor,
+        audit.AuditAction.MISSION_DELETED,
+        entity_type="mission",
+        entity_id=mission.id,
+        changes={"name": {"before": mission.name, "after": None}},
+        reason=f"cancelled_tasks={len(open_tasks)}",
+    )
+    session.delete(mission)
+    session.flush()
 
 
 def pending_proposals(session: Session) -> list[ProposalRow]:
@@ -940,9 +1173,7 @@ def pending_proposals(session: Session) -> list[ProposalRow]:
         for company in session.scalars(select(Company).where(Company.id.in_(company_ids)))
     }
     prospect_names = {
-        prospect.id: " ".join(
-            part for part in (prospect.first_name, prospect.last_name) if part
-        )
+        prospect.id: " ".join(part for part in (prospect.first_name, prospect.last_name) if part)
         for prospect in session.scalars(select(Prospect).where(Prospect.id.in_(prospect_ids)))
     }
     proposals = []
@@ -968,10 +1199,7 @@ def agents(session: Session) -> list[dict[str, Any]]:
     tokens = session.scalars(
         select(McpToken).where(McpToken.revoked_at.is_(None)).order_by(McpToken.label)
     ).all()
-    return [
-        {"id": str(token.id), "label": token.label, "scopes": token.scopes}
-        for token in tokens
-    ]
+    return [{"id": str(token.id), "label": token.label, "scopes": token.scopes} for token in tokens]
 
 
 def target_options(
@@ -985,9 +1213,7 @@ def target_options(
                 "id": str(company.id),
                 "label": company.display_name,
                 "hint": " · ".join(
-                    part
-                    for part in (company.city, company.commercial_segment_label)
-                    if part
+                    part for part in (company.city, company.commercial_segment_label) if part
                 )
                 or None,
             }
@@ -1010,8 +1236,7 @@ def target_options(
 def options() -> dict[str, Any]:
     return {
         "types": [
-            {"value": type_.value, "executable": type_ in EXECUTABLE_TYPES}
-            for type_ in MissionType
+            {"value": type_.value, "executable": type_ in EXECUTABLE_TYPES} for type_ in MissionType
         ],
         "result_kinds": [
             {"value": kind.value, "executable": kind in EXECUTABLE_RESULT_KINDS}

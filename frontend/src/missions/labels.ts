@@ -1,4 +1,5 @@
 import type { StatusTone } from '../ui/Badge'
+import { BanIcon, CheckCircleIcon, type IconComponent, PauseIcon, PlayIcon } from '../ui/icons'
 import type {
   MissionCard,
   MissionResultKind,
@@ -31,6 +32,14 @@ export const MISSION_STATUS_TONES: Record<MissionStatus, StatusTone> = {
   paused: 'warning',
   done: 'success',
   cancelled: 'neutral',
+}
+
+// A mission's state reads as a shape too: running (play), paused, done, cancelled.
+export const MISSION_STATUS_ICONS: Record<MissionStatus, IconComponent> = {
+  active: PlayIcon,
+  paused: PauseIcon,
+  done: CheckCircleIcon,
+  cancelled: BanIcon,
 }
 
 export const RUN_STATUS_LABELS: Record<MissionRunStatus, string> = {

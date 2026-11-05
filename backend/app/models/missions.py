@@ -43,6 +43,7 @@ from app.models.enums import (
     MissionType,
     RecurrenceUnit,
 )
+from app.models.organizations import OrganizationOwnedMixin
 
 NAME_MAX_LENGTH = 200
 PROMPT_MAX_LENGTH = 5000
@@ -55,7 +56,7 @@ INTERVAL_MAX = 1000
 MAX_RUNS_MAX = 1000
 
 
-class Mission(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+class Mission(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, Base):
     """The rule a person writes once: what to look for, on which records, how often."""
 
     __tablename__ = "missions"
@@ -73,9 +74,7 @@ class Mission(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             name="period_range",
         ),
         CheckConstraint(f"interval_count BETWEEN 1 AND {INTERVAL_MAX}", name="interval_range"),
-        CheckConstraint(
-            "end_kind <> 'date' OR ends_at IS NOT NULL", name="end_date_required"
-        ),
+        CheckConstraint("end_kind <> 'date' OR ends_at IS NOT NULL", name="end_date_required"),
         CheckConstraint("end_kind <> 'after' OR max_runs IS NOT NULL", name="end_runs_required"),
         Index("ix_missions_status", "status"),
         Index("ix_missions_next_run_at", "next_run_at"),
@@ -111,9 +110,7 @@ class Mission(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     geography: Mapped[str | None] = mapped_column(String(GEOGRAPHY_MAX_LENGTH))
     period_days: Mapped[int | None] = mapped_column(SmallInteger)
     # Free-form advanced exclusions: {"known_companies": true, "domains": ["…"]}.
-    exclusions: Mapped[dict[str, Any]] = mapped_column(
-        JSONB, server_default=text("'{}'::jsonb")
-    )
+    exclusions: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_by_type: Mapped[ActorType] = mapped_column(text_enum(ActorType, "created_by_type"))
@@ -126,9 +123,7 @@ class MissionTarget(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     __tablename__ = "mission_targets"
     __table_args__ = (
-        CheckConstraint(
-            "num_nonnulls(company_id, prospect_id) = 1", name="exactly_one_subject"
-        ),
+        CheckConstraint("num_nonnulls(company_id, prospect_id) = 1", name="exactly_one_subject"),
         Index(
             "uq_mission_targets_company",
             "mission_id",
@@ -160,9 +155,7 @@ class MissionRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     """One occurrence of a mission: what the page shows as « exécution »."""
 
     __tablename__ = "mission_runs"
-    __table_args__ = (
-        Index("ix_mission_runs_mission_scheduled", "mission_id", "scheduled_at"),
-    )
+    __table_args__ = (Index("ix_mission_runs_mission_scheduled", "mission_id", "scheduled_at"),)
 
     mission_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("missions.id", ondelete="CASCADE"), index=True

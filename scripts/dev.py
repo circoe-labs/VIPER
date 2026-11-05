@@ -62,9 +62,24 @@ def digest(*files: Path) -> str:
 
 
 def port_busy(port: int) -> bool:
-    with socket.socket() as s:
-        s.settimeout(0.5)
-        return s.connect_ex(("127.0.0.1", port)) == 0
+    # Both stacks: Node resolves "localhost" to ::1, so another project's Vite can hold the port on IPv6 only.
+    for family, host in ((socket.AF_INET, "127.0.0.1"), (socket.AF_INET6, "::1")):
+        try:
+            with socket.socket(family) as s:
+                s.settimeout(0.5)
+                if s.connect_ex((host, port)) == 0:
+                    return True
+        except OSError:
+            pass  # stack unavailable on this machine
+    return False
+
+
+def free_port(preferred: int) -> int:
+    for port in range(preferred, preferred + 20):
+        if not port_busy(port):
+            return port
+    die(f"aucun port libre entre {preferred} et {preferred + 19}.")
+    raise AssertionError  # unreachable: die() exits
 
 
 def ensure_docker() -> None:
@@ -214,10 +229,12 @@ def ensure_user() -> None:
         )
 
 
-def wait_health() -> None:
+def wait_health(api: subprocess.Popen[bytes], port: int) -> None:
     for _ in range(60):
+        if api.poll() is not None:
+            die(f"le backend s'est arrete au demarrage (code {api.returncode}).")
         try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{API_PORT}/api/health", timeout=2) as r:
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=2) as r:
                 if r.status == 200:
                     return
         except OSError:
@@ -225,11 +242,29 @@ def wait_health() -> None:
     die("le backend ne repond pas sur /api/health.")
 
 
-def start() -> None:
-    for port in (API_PORT, WEB_PORT):
+def wait_web(web: subprocess.Popen[bytes], port: int) -> None:
+    for _ in range(60):
+        if web.poll() is not None:
+            die(f"Vite s'est arrete au demarrage (code {web.returncode}), voir le message ci-dessus.")
         if port_busy(port):
-            die(f"le port {port} est deja utilise (un serveur VIPER tourne deja ?).")
-    say(f"Demarrage : API {API_PORT}, Vite {WEB_PORT}")
+            return
+        time.sleep(0.5)
+    die(f"Vite n'ecoute pas sur le port {port} apres 30 s.")
+
+
+def start() -> None:
+    # A busy default port (another project's dev server, a forgotten VIPER) shifts to the next free one
+    # instead of failing at launch; both servers are told the actual ports.
+    api_port, web_port = free_port(API_PORT), free_port(WEB_PORT)
+    for wanted, got in ((API_PORT, api_port), (WEB_PORT, web_port)):
+        if got != wanted:
+            print(f"    (port {wanted} deja utilise par un autre processus : {got} a la place)", flush=True)
+    if web_port != WEB_PORT:
+        print(
+            "    (la connexion OAuth Toolbox attend le port 5173 : liberez-le si vous en avez besoin)",
+            flush=True,
+        )
+    say(f"Demarrage : API {api_port}, Vite {web_port}")
     api = subprocess.Popen(
         [
             str(VENV_PY),
@@ -239,15 +274,21 @@ def start() -> None:
             "--factory",
             "--reload",
             "--port",
-            str(API_PORT),
+            str(api_port),
         ],
         cwd=BACKEND,
     )
     try:
-        wait_health()
-        web = subprocess.Popen([NPM, "run", "dev"], cwd=FRONTEND)
+        wait_health(api, api_port)
+        env = {
+            **os.environ,
+            "VIPER_WEB_PORT": str(web_port),
+            "VIPER_API_TARGET": f"http://127.0.0.1:{api_port}",
+        }
+        web = subprocess.Popen([NPM, "run", "dev"], cwd=FRONTEND, env=env)
+        wait_web(web, web_port)
         print(
-            f"\n    Pret : http://localhost:{WEB_PORT}   (Ctrl+C pour tout arreter)\n", flush=True
+            f"\n    Pret : http://localhost:{web_port}   (Ctrl+C pour tout arreter)\n", flush=True
         )
         web.wait()
     except KeyboardInterrupt:

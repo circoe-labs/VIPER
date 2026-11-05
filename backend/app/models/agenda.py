@@ -14,9 +14,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 from app.models.common import TimestampMixin, UUIDPrimaryKeyMixin, text_enum
 from app.models.enums import AppointmentSource, AppointmentStatus
+from app.models.organizations import OrganizationOwnedMixin
 
 
-class Appointment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+class Appointment(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, Base):
     __tablename__ = "appointments"
     __table_args__ = (
         CheckConstraint("ends_at >= starts_at", name="ends_after_start"),

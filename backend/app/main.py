@@ -8,6 +8,7 @@ from fastapi.exceptions import RequestValidationError
 
 from app.api.errors import validation_refused
 from app.api.mcp import router as mcp_router
+from app.api.oauth import router as oauth_router
 from app.api.router import api_router, public_router
 from app.api.security_headers import SecurityHeadersMiddleware
 from app.api.worker_wake import WakeCleanupWorkerMiddleware
@@ -83,4 +84,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Outside `/api` on purpose: a machine has no cookie and no CSRF header, so `/mcp` carries its
     # own bearer check and its own agent actor (doc/architecture/mcp-server.md §4.1).
     app.include_router(mcp_router)
+    # OAuth for MCP connectors (discovery, registration, authorize, token): public like `/mcp`.
+    app.include_router(oauth_router)
     return app
