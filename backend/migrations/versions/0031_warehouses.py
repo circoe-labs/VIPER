@@ -1,7 +1,7 @@
 """Warehouse directory with source contacts; existing prospect records are untouched.
 
-Revision ID: 0028
-Revises: 0027
+Revision ID: 0031
+Revises: 0030
 """
 
 from collections.abc import Sequence
@@ -10,8 +10,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision: str = "0028"
-down_revision: str | None = "0027"
+revision: str = "0031"
+down_revision: str | None = "0030"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
