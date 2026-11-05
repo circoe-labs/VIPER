@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { SHELL_API } from '../test/homeApi'
 import { renderApp, stubApi, stubFetchJson } from '../test/render'
 
-const LABELS = ['Accueil', 'Prospection', 'Prospects validés', 'Entrepôts', 'Contacts', 'Missions', 'Agenda', 'Base de données', 'Organisation', 'Paramètres']
+const LABELS = ['Accueil', 'Prospection', 'Prospects validés', 'Entrepôts', 'Contacts', 'Missions', 'Agenda', 'Base de données', 'Organisation', 'Historique agents', 'Paramètres']
 // The Database page lists its tables on load.
 const DATABASE_API = { 'GET /api/health': [200, { status: 'ok', database: 'ok' }], 'GET /api/explorer/tables': [200, []] } as const
 

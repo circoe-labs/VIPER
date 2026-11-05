@@ -17,6 +17,7 @@ import { ReachableProspectsPage } from './prospection/ReachableProspectsPage'
 import { RobinPage } from './prospection/RobinPage'
 import { VerificationPage } from './prospection/VerificationPage'
 import { AppShell } from './shell/AppShell'
+import { AgentHistoryPage } from './settings/AgentHistoryPage'
 import { SettingsPage } from './settings/SettingsPage'
 import { WarehousesPage } from './warehouses/WarehousesPage'
 
@@ -47,6 +48,7 @@ const PAGES: RouteObject[] = [
   { path: '/agenda', element: <AgendaPage /> },
   { path: '/database/:table?', element: <DatabasePage /> },
   { path: '/organisation', element: <OrganizationPage /> },
+  { path: '/historique-agents', element: <AgentHistoryPage /> },
   { path: '/settings/:section?', element: <SettingsPage /> },
 ]
 

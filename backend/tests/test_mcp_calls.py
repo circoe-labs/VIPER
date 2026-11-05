@@ -73,6 +73,7 @@ def test_the_history_needs_a_session(anonymous_client: TestClient) -> None:
 def test_a_crashing_tool_is_kept_as_error(
     client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    add_user(db_session, "a@circoe.com", display_name="A", role=OrganizationRole.MEMBER)
     token, _ = mcp_tokens.mint(db_session, label="Agent", scopes=["*"], owner_email="a@circoe.com")
 
     def crash(*_args: object, **_kwargs: object) -> None:
