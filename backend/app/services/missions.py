@@ -531,13 +531,10 @@ def create(
         if token is None or token.revoked_at is not None:
             raise InvalidFieldError("agent_id", "Unknown or revoked agent.", "not_found")
     starts_at = data.starts_at or moment
-    next_run_at: datetime | None
-    if data.is_recurring:
-        # « Démarrer maintenant »: a start in the past (or omitted) is due immediately, so the
-        # scheduler picks it up on its next pass; a future start waits for its moment.
-        next_run_at = starts_at if starts_at > moment else moment
-    else:
-        next_run_at = starts_at if starts_at > moment else None
+    # An active mission is open to the agents: started (now or at a past date), its first run
+    # and its tasks are created right away; a future start waits for its moment (scheduler).
+    starts_now = starts_at <= moment
+    next_run_at: datetime | None = None if starts_now else starts_at
     mission = Mission(
         name=name,
         type=data.type,
@@ -576,8 +573,9 @@ def create(
             "type": {"after": mission.type.value},
         },
     )
-    if run_now:
-        run_mission(session, actor, mission.id, trigger=MissionRunTrigger.MANUAL, now=moment)
+    if run_now or starts_now:
+        trigger = MissionRunTrigger.MANUAL if run_now else MissionRunTrigger.SCHEDULE
+        run_mission(session, actor, mission.id, trigger=trigger, now=moment)
     return mission
 
 
@@ -670,7 +668,8 @@ def update(
         )
         if mission.starts_at is not None and mission.starts_at > moment:
             mission.next_run_at = mission.starts_at
-        elif mission.is_recurring and not runs_count:
+        elif not runs_count:
+            # Never run yet: due now, the scheduler opens it to the agents on its next pass.
             mission.next_run_at = moment
         else:
             mission.next_run_at = next_occurrence(mission, moment, runs_count=runs_count or 0)
@@ -969,7 +968,6 @@ def run_due(session: Session, *, now: datetime | None = None, limit: int = 20) -
         select(Mission)
         .where(
             Mission.status == MissionStatus.ACTIVE,
-            Mission.is_recurring.is_(True),
             Mission.next_run_at.is_not(None),
             Mission.next_run_at <= moment,
         )
@@ -1092,11 +1090,19 @@ def set_status(
         raise ConflictError("This mission is closed.")
     previous = mission.status
     mission.status = status
+    first_run = False
     if status is MissionStatus.ACTIVE:
+        moment = _now(now)
         runs_count = session.scalar(
             select(func.count()).select_from(MissionRun).where(MissionRun.mission_id == mission.id)
         )
-        mission.next_run_at = next_occurrence(mission, _now(now), runs_count=runs_count or 0)
+        if runs_count:
+            mission.next_run_at = next_occurrence(mission, moment, runs_count=runs_count)
+        elif mission.starts_at is not None and mission.starts_at > moment:
+            mission.next_run_at = mission.starts_at
+        else:
+            # Activated before its first run: its tasks are open to the agents right away.
+            first_run = True
     else:
         # Paused: its pending tasks stay but are no longer offered (`agent_missions.offered`); a
         # task already claimed may still be finished. Cancelled: see below.
@@ -1118,6 +1124,8 @@ def set_status(
             run.finished_at = moment
         reason = f"cancelled_tasks={cancelled} cancelled_runs={len(runs)}"
     session.flush()
+    if first_run:
+        run_mission(session, actor, mission.id, trigger=MissionRunTrigger.SCHEDULE, now=now)
     audit.record_event(
         session,
         actor,

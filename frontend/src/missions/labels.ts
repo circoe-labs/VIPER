@@ -22,7 +22,7 @@ export const MISSION_TYPE_LABELS: Record<MissionType, string> = {
 
 export const MISSION_STATUS_LABELS: Record<MissionStatus, string> = {
   active: 'Active',
-  paused: 'En pause',
+  paused: 'Inactive',
   done: 'Terminée',
   cancelled: 'Annulée',
 }
