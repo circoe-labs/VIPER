@@ -6,8 +6,23 @@
 .warehouse-totals span { color: var(--color-text-muted); font-size: var(--text-sm); }
 .warehouse-totals strong { font-size: var(--text-lg); font-variant-numeric: tabular-nums; }
 .warehouse-categories { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.warehouse-drafts { display: grid; gap: var(--space-3); }
+.warehouse-drafts h2 { font-size: var(--text-lg); }
+.warehouse-draft { border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
+.warehouse-draft summary { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); padding: var(--space-4); cursor: pointer; }
+.warehouse-draft summary > span:first-child { display: grid; gap: var(--space-1); }
+.warehouse-draft summary > span:nth-child(2) { display: grid; gap: var(--space-1); flex: 1; }
+.warehouse-draft__chevron { flex: none; transition: transform 150ms; }
+.warehouse-draft[open] .warehouse-draft__chevron { transform: rotate(180deg); }
+.warehouse-draft__actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.warehouse-draft summary small { color: var(--color-text-muted); }
+.warehouse-draft__badge { color: var(--color-warning-fg, #d58c35); font-size: var(--text-xs); white-space: nowrap; }
+.warehouse-draft__content { display: grid; gap: var(--space-3); padding: var(--space-4); border-top: 1px solid var(--color-border); overflow-wrap: anywhere; }
+.warehouse-draft__note { color: var(--color-text-muted); }
+.warehouse-draft__body { white-space: pre-wrap; }
 .warehouse-contact-select { display: flex; align-items: center; gap: var(--space-2); color: var(--color-text); font-size: var(--text-sm); cursor: pointer; }
 .warehouse-contact-select input { accent-color: var(--color-accent); width: 1rem; height: 1rem; }
+.warehouse-selection-actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3); margin-top: var(--space-4); }
 .warehouse-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4); }
 .warehouse-toolbar .search-field { flex: 1; min-width: min(100%, 15rem); max-width: 42rem; }
 .warehouse-muted { color: var(--color-text-muted); font-size: var(--text-sm); line-height: 1.6; }

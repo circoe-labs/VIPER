@@ -26,13 +26,29 @@ Actual company/establishment links can be introduced once they have been identif
 - The directory shows totals for all warehouse sites and their recorded interlocutors, independent
   of search and pagination. The interlocutor count is the number of contact entries across sites;
   the same person listed at two sites counts twice.
-- An interlocutor can be checked « À contacter prochainement ». The « À contacter » category
-  shows the sites and checked contacts, and the checkbox can be cleared. These selections are
-  saved on the warehouse record using the existing version check and audit trail; no message is sent.
+- Interlocutors can be checked « À contacter prochainement » and move to the top of each site.
+  « Valider la sélection » saves all changed checkboxes on that site; before validation they are
+  only a draft. The « À contacter » category shows the sites and saved checked contacts. The
+  existing version check and audit trail apply; no message is sent.
 - Details show the owner, location if known, interlocutors and source. The editor supports
   adding/removing interlocutors and changing site details. It does not send messages.
 - Raw alternative email candidates (including “ou”) are preserved and visibly remain to verify.
 - Existing protocol checks prevent source URLs from becoming script links.
+
+## Warehouse mail drafts
+
+Drafts can be reviewed, edited, validated and scheduled individually. Scheduling stores the
+approved revision and the requested instant; the existing Contact dispatch worker sends due
+warehouse messages through the connected Toolbox, subject to the same sending switch, recipient
+allowlist and maximum lateness. An inactive dispatcher is shown in the editor. A scheduled mail
+can be unscheduled until the worker claims it. The worker records a durable claim before contacting
+the Toolbox; a timeout, error or interrupted send is never retried automatically, and the user
+must check the mailbox before taking further action. The messages are separate from Contact
+sequences and do not change a prospect's Contact status.
+The group action previews recipients and subjects and schedules the listed saved revisions for
+one date. Missing or invalid recipients and messages already scheduled, sent or awaiting an
+outcome are excluded. The server checks every revision under lock and commits the whole batch or
+none of it.
 
 ## Workbook import
 

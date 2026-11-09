@@ -12,6 +12,7 @@ Definitions: doc/features/home-dashboard.md (decisions I-110 … I-117).
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from itertools import pairwise
 from typing import Any
 
 from sqlalchemy import ColumnElement, and_, exists, func, or_, select, union_all
@@ -29,6 +30,7 @@ from app.models import (
     InternalReferent,
     Phone,
     Prospect,
+    Warehouse,
 )
 from app.models.contact_tracking import ContactTrackingStatusHistory
 from app.models.enums import (
@@ -88,6 +90,7 @@ NO_LOOKUPS = history.Lookups()
 @dataclass(frozen=True, slots=True)
 class HomeDashboard:
     prospects: int
+    warehouse_contacts: int
     companies: int
     contacted: int
     appointments: int
@@ -95,6 +98,8 @@ class HomeDashboard:
     new_prospects: int
     week_start: date
     week_end: date
+    prospect_trend: list[dict[str, Any]]
+    weekly_activity: dict[str, int]
 
 
 def dashboard_summary(session: Session, today: date) -> HomeDashboard:
@@ -118,14 +123,59 @@ def dashboard_summary(session: Session, today: date) -> HomeDashboard:
     )
     with whole_base_plan(session):
         prospects, contacted, appointments, new_prospects = session.execute(statement).one()
+    warehouse_contacts = session.scalar(
+        select(func.coalesce(func.sum(func.jsonb_array_length(Warehouse.contacts)), 0))
+    ) or 0
     companies, new_companies = session.execute(
         select(
             func.count(Company.id),
             func.count(Company.id).filter(Company.created_at >= start, Company.created_at < end),
         )
     ).one()
+    # Contacts belong to warehouse records and have no individual creation timestamp.
+    # Attribute their current number to the week their warehouse was created.
+    weeks = [monday - timedelta(weeks=offset) for offset in range(1, -1, -1)]
+    boundaries = [*weeks, monday + timedelta(days=7)]
+    prospect_counts = session.execute(select(*(
+        func.count(Prospect.id).filter(
+            Prospect.created_at >= start_of_day(start), Prospect.created_at < start_of_day(end)
+        ) for start, end in pairwise(boundaries)
+    ))).one()
+    warehouse_counts = session.execute(select(*(
+        func.coalesce(func.sum(func.jsonb_array_length(Warehouse.contacts)).filter(
+            Warehouse.created_at >= start_of_day(start), Warehouse.created_at < start_of_day(end)
+        ), 0) for start, end in pairwise(boundaries)
+    ))).one()
+    trend = [
+        dict(week=week, prospects=prospect_counts[i], warehouses=warehouse_counts[i])
+        for i, week in enumerate(weeks)
+    ]
+    new_warehouses = session.scalar(select(func.count(Warehouse.id)).where(
+        Warehouse.created_at >= start, Warehouse.created_at < end
+    )) or 0
+    sends = select(
+        ContactMessage.prospect_id.label("prospect_id"),
+        ContactMessage.sent_at.label("at"),
+        ContactMessage.sent_source.in_(RECORDED_SEND_SOURCES).label("recorded"),
+    ).where(ContactMessage.status == ContactMessageStatus.SENT)
+    first_contacts = _firsts(union_all(sends, _history_events(CONTACT_ATTEMPT_CODES)))
+    first_appointments = _firsts(_history_events(APPOINTMENT_CODES))
+
+    def recorded_firsts(rows: Any) -> int:
+        return session.scalar(select(func.count()).select_from(rows).where(
+            rows.c.first == rows.c.recorded, rows.c.first >= start, rows.c.first < end
+        )) or 0
+
+    with whole_base_plan(session):
+        weekly_contacts = recorded_firsts(first_contacts)
+        weekly_appointments = recorded_firsts(first_appointments)
     return HomeDashboard(
-        prospects, companies, contacted, appointments, new_companies, new_prospects, monday, sunday
+        prospects + warehouse_contacts, warehouse_contacts, companies, contacted, appointments, new_companies, new_prospects,
+        monday, sunday, trend, {
+            "prospects": new_prospects, "companies": new_companies,
+            "warehouses": new_warehouses, "contacts": weekly_contacts,
+            "appointments": weekly_appointments,
+        },
     )
 
 

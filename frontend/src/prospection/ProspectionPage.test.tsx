@@ -142,6 +142,8 @@ describe('Prospection page', () => {
     await unfold()
 
     expect(screen.getByRole('heading', { level: 1, name: 'Prospection' })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Entreprises' })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByText('Autres actions'))
     expect(screen.getByRole('link', { name: 'Entreprises' })).toHaveAttribute('href', '/prospection/companies')
     expect(screen.getByRole('link', { name: 'Importer Excel' })).toHaveAttribute('href', '/prospection/import')
     // The full-database export of Task 10 (downloads through `ExportWorkbookButton`, tested there).
@@ -448,6 +450,8 @@ describe('Prospection page', () => {
     renderApp('/prospection')
 
     expect(await screen.findByRole('heading', { level: 2, name: 'Aucun prospect pour l’instant' })).toBeInTheDocument()
+    expect(screen.getAllByRole('link', { name: 'Importer Excel' })).toHaveLength(1)
+    await userEvent.click(screen.getByText('Autres actions'))
     expect(screen.getAllByRole('link', { name: 'Importer Excel' })).toHaveLength(2)
     expect(screen.queryByRole('region', { name: 'Vérification de la base' })).not.toBeInTheDocument()
   })

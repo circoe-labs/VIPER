@@ -23,6 +23,7 @@ export interface ProspectionView extends ProspectListCriteria {
 
 export const DEFAULT_VIEW: ProspectionView = {
   validated_only: false,
+  verification_box: null,
   created_from: null,
   created_to: null,
   services: [],
@@ -62,6 +63,7 @@ export function parseView(params: URLSearchParams): ProspectionView {
   const prospect = params.get('prospect')
   return {
     validated_only: params.get('validated_only') === 'true',
+    verification_box: oneOf(['validated', 'uncertain', 'todo', 'ignored'] as const, params.get('verification_box')),
     created_from: calendarDate(params.get('created_from')),
     created_to: calendarDate(params.get('created_to')),
     services: [...new Set(params.getAll('services').filter((code) => ['iguard', 'flexisme', 'transepteur', 'iadvice', 'emailing'].includes(code)))].sort(),
@@ -114,6 +116,7 @@ export function hasSelection(view: ProspectionView): boolean {
 export function hasFilters(view: ProspectionView): boolean {
   return (
     !!view.validated_only ||
+    !!view.verification_box ||
     view.q.trim() !== '' ||
     !!view.created_from || !!view.created_to ||
     (view.services?.length ?? 0) > 0 || !!view.send_stage || !!view.company_kind ||

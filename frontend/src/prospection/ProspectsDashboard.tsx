@@ -1,8 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { apiGet } from '../api/client'
-import { useProspectPage, type Review } from '../api/prospection'
-import { useUncertainAlerts } from '../api/sequences'
-import { todoCriteria } from './verificationFigures'
+import { useProspectionOverview, type Review } from '../api/prospection'
 import { Button } from '../ui/Button'
 import { SparklesIcon, UsersIcon } from '../ui/icons'
 
@@ -23,11 +21,8 @@ export function ProspectsDashboard() {
     queryFn: ({ signal }) => apiGet<DashboardData>('/prospection/dashboard?validated_only=true', signal),
   })
   const data = query.data
-  const never = useProspectPage(todoCriteria(), 1)
-  const alerts = useUncertainAlerts()
-  const uncertain = never.data && alerts.data
-    ? Math.min(new Set(alerts.data.items.flatMap((alert) => alert.prospect_id ? [alert.prospect_id] : [])).size, never.data.total)
-    : null
+  const overview = useProspectionOverview()
+  const uncertain = overview.data?.uncertain ?? null
   const distributionTotal = data && uncertain !== null ? data.total + uncertain : null
   const statuses = [
     { key: 'verified', label: 'Validés', tone: 'green', count: data?.total ?? null },
@@ -41,7 +36,7 @@ export function ProspectsDashboard() {
     )
   return (
     <>
-      <section className="prospects-stats" aria-label="Vue d’ensemble de la base" aria-busy={query.isPending || never.isPending || alerts.isPending}>
+      <section className="prospects-stats" aria-label="Vue d’ensemble de la base" aria-busy={query.isPending || overview.isPending}>
         <article className="dashboard-panel stat-total">
           <span className="stat-icon tone-blue">
             <UsersIcon size={24} />
@@ -94,7 +89,7 @@ export function ProspectsDashboard() {
               ))}
             </div>
           </div>
-          <p className="distribution-note">{never.isError || alerts.isError ? 'Nombre de prospects incertains indisponible.' : 'Incertains : fiches avec une fonction à vérifier. La liste reste limitée aux prospects validés.'}</p>
+          <p className="distribution-note">{overview.isError ? 'Nombre de prospects incertains indisponible.' : 'Incertains : fiches avec une fonction à vérifier. La liste reste limitée aux prospects validés.'}</p>
         </article>
         <article className="dashboard-panel stat-quality">
           <span className="stat-icon tone-green">

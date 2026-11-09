@@ -19,7 +19,7 @@
 .contact-activity__item strong { font-size: var(--text-xl); font-variant-numeric: tabular-nums; }
 .prospection-section__hint { margin-top: var(--space-3); }
 .validation-summary { margin: var(--space-6) 0; }
-.validation-summary__groups { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; background: var(--color-surface); }
+.validation-summary__groups { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; background: var(--color-surface); }
 .validation-summary__group { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-5); border: 0; border-right: 1px solid var(--color-border); background: transparent; color: var(--color-text); cursor: pointer; text-align: left; }
 .validation-summary__group:last-child { border-right: 0; }
 .validation-summary__group:hover { background: var(--color-surface-hover); }
@@ -79,6 +79,23 @@
 .prospection .page-header__actions {
   flex: 1 1 44rem;
 }
+
+/* Keep the overview actions alongside the title whenever space allows. */
+.prospection--overview .page-header { align-items: flex-start; gap: var(--space-3) var(--space-4); }
+.prospection--overview .page-header__text { flex: 1 1 15rem; min-width: 0; }
+.prospection--overview .page-header__actions { flex: 0 1 auto; justify-content: flex-end; margin-left: auto; gap: var(--space-2); }
+@media (max-width: 760px) {
+  .prospection--overview .page-header__text { flex-basis: 12rem; }
+  .prospection--overview .page-header__actions { flex-basis: auto; }
+}
+
+.prospection-actions { position: relative; }
+.prospection-actions > summary { cursor: pointer; list-style: none; }
+.prospection-actions > summary::-webkit-details-marker { display: none; }
+.prospection-actions__menu { position: absolute; z-index: 20; right: 0; top: calc(100% + 6px); display: flex; flex-direction: column; align-items: stretch; min-width: 220px; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); box-shadow: 0 8px 24px #0004; }
+.prospection-actions__menu[hidden] { display: none; }
+.prospection-actions__menu .btn { justify-content: flex-start; width: 100%; }
+.prospection-actions__menu .export-workbook { display: block; }
 
 /* --- search, sort and filters --- */
 

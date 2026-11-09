@@ -34,12 +34,15 @@ import { DEFAULT_VIEW, hasFilters, hasSelection, parseView, type ProspectionView
 import { REVIEW_INFO, SEGMENT_INFO, selectionLabel } from './labels'
 import { ProspectionFilters } from './ProspectionFilters'
 import { ProspectList } from './ProspectList'
+import { ReachableProspectList } from './ReachableProspectList'
+import { ProspectsDashboard } from './ProspectsDashboard'
 import { useProspectEditor } from './prospectEditor'
 import { createProspectQueue, type ProspectQueue } from './queue'
 import { OverviewPanel } from './OverviewPanel'
 import { ValidationSummary } from './ValidationSummary'
 import { ContactActivity } from './ContactActivity'
 import './prospection.css'
+import './prospects-dashboard.css'
 
 const NUMBER = new Intl.NumberFormat('fr-FR')
 const ADD_UNAVAILABLE = 'Disponible avec l’éditeur de prospect'
@@ -86,6 +89,7 @@ export function ProspectionPage() {
   const page = list.data
 
   // The queue is the list order when the editor opened (Save & Next, Task 15); it ends when the editor closes.
+  const [actionsOpen, setActionsOpen] = useState(false)
   const [queue, setQueue] = useState<ProspectQueue | null>(null)
   if (view.prospect === null && queue !== null) setQueue(null)
   if (view.prospect !== null && queue === null && page && !list.isPlaceholderData) {
@@ -104,15 +108,16 @@ export function ProspectionPage() {
 
   const openHref = (id: string) => `?${serializeView({ ...view, prospect: id }).toString()}`
   // Start folded on every visit, including links with filters; actions on this page can open it.
-  const [showList, setShowList] = useState(false)
+  const [showList, setShowList] = useState(params.get('list') === '1')
   const filtered = hasFilters(view)
   const emptyBase = counters.data?.counts.all === 0 && !filtered
   const last = page ? Math.min(page.offset + page.items.length, page.total) : 0
   const hint = view.validated_only ? 'Emploi validé, indépendamment du statut de vérification de l’e-mail.' : view.segment === 'never_verified' && view.review === 'to_verify' ? 'Aucune validation de l’emploi enregistrée dans VIPER, hors prospects mis de côté.' : view.review ? REVIEW_INFO[view.review].hint : SEGMENT_INFO[view.segment].hint
-  const heading = view.validated_only ? `Prospects dont l’emploi est validé${hasSelection(view) ? ` — ${selectionLabel(view)}` : ''}` : view.segment === 'never_verified' && view.review === 'to_verify' ? 'Prospects sans validation de l’emploi enregistrée' : selectionLabel(view)
+  const boxHeading = view.verification_box ? { validated: 'Prospects validés', uncertain: 'Prospects incertains', todo: 'Prospects à vérifier', ignored: 'Prospects mis de côté' }[view.verification_box] : null
+  const heading = boxHeading ?? (view.validated_only ? `Prospects dont l’emploi est validé${hasSelection(view) ? ` — ${selectionLabel(view)}` : ''}` : view.segment === 'never_verified' && view.review === 'to_verify' ? 'Prospects sans validation de l’emploi enregistrée' : selectionLabel(view))
 
   return (
-    <div className="prospection">
+    <div className="prospection prospection--overview">
       <Link to="/" className="prospection__back">
         <ArrowLeftIcon size={16} />
         Accueil
@@ -126,19 +131,6 @@ export function ProspectionPage() {
               <CheckCircleIcon size={18} />
               Vérifier les fiches
             </Link>
-            <Link to="/prospection/robin" className="btn btn--secondary btn--md">
-              <UsersIcon size={18} />
-              Qui connaît Robin ?
-            </Link>
-            <Link to="/prospection/companies" className="btn btn--ghost btn--md">
-              <BuildingIcon size={18} />
-              Entreprises
-            </Link>
-            <Link to="/prospection/import" className="btn btn--secondary btn--md">
-              <UploadIcon size={18} />
-              Importer Excel
-            </Link>
-            <ExportWorkbookButton />
             <Button
               variant="primary"
               icon={PlusIcon}
@@ -156,6 +148,24 @@ export function ProspectionPage() {
                 {ADD_UNAVAILABLE}
               </span>
             )}
+            <details className="prospection-actions" onToggle={(event) => setActionsOpen(event.currentTarget.open)} onKeyDown={(event) => { if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus() } }}>
+              <summary className="btn btn--secondary btn--md">Autres actions <ChevronDownIcon size={18} /></summary>
+              <div className="prospection-actions__menu" hidden={!actionsOpen}>
+            <Link to="/prospection/robin" className="btn btn--ghost btn--md">
+              <UsersIcon size={18} />
+              Qui connaît Robin ?
+            </Link>
+            <Link to="/prospection/companies" className="btn btn--ghost btn--md">
+              <BuildingIcon size={18} />
+              Entreprises
+            </Link>
+            <Link to="/prospection/import" className="btn btn--ghost btn--md">
+              <UploadIcon size={18} />
+              Importer Excel
+            </Link>
+            <ExportWorkbookButton variant="ghost" />
+              </div>
+            </details>
           </>
         }
       />
@@ -186,6 +196,7 @@ export function ProspectionPage() {
         <>
           <OverviewPanel onOpenList={() => { setShowList(true) }} />
           <ValidationSummary onSelect={(patch) => { update({ ...DEFAULT_VIEW, ...patch }); setShowList(true) }} />
+          {view.validated_only && <ProspectsDashboard />}
           <CreationPeriod start={view.created_from} end={view.created_to} onClear={() => { refine({ created_from: null, created_to: null }) }} />
 
           <details className="prospection-exploration">
@@ -276,7 +287,7 @@ export function ProspectionPage() {
               </p>
             )}
             {page && page.items.length > 0 && (
-              <ProspectList rows={page.items} openHref={openHref} />
+              view.validated_only ? <ReachableProspectList rows={page.items} openHref={openHref} /> : <ProspectList rows={page.items} openHref={openHref} />
             )}
             {page && page.total > PROSPECT_PAGE_SIZE && (
               <nav className="prospection__pager" aria-label="Pages de la liste">

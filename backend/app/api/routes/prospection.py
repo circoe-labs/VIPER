@@ -63,6 +63,8 @@ class OverviewOut(BaseModel):
     deleted: int
     employment_validated: int
     employment_pending: int
+    uncertain: int
+    todo: int
     ignored: int
 
 
@@ -131,6 +133,7 @@ def prospect_filters(
     company_kind: Literal["sme", "large", "institutional", "unclassified"] | None = None,
     reachable: bool = False,
     validated_only: bool = False,
+    verification_box: Literal["validated", "uncertain", "todo", "ignored"] | None = None,
     created_from: date | None = None,
     created_to: date | None = None,
 ) -> ProspectFilters:
@@ -153,6 +156,7 @@ def prospect_filters(
         company_kind=company_kind,
         reachable=reachable,
         validated_only=validated_only,
+        verification_box=verification_box,
         created_from=created_from,
         created_to=created_to,
     )

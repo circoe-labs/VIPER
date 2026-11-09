@@ -24,8 +24,15 @@ from app.services.prospection.segments import Segment
 router = APIRouter(prefix="/home", tags=["home"])
 
 
+class ProspectTrendOut(BaseModel):
+    week: date
+    prospects: int
+    warehouses: int
+
+
 class DashboardOut(BaseModel):
     prospects: int
+    warehouse_contacts: int
     companies: int
     contacted: int
     appointments: int
@@ -33,6 +40,8 @@ class DashboardOut(BaseModel):
     new_prospects: int
     week_start: date
     week_end: date
+    prospect_trend: list[ProspectTrendOut]
+    weekly_activity: dict[str, int]
 
 
 @router.get("/dashboard")

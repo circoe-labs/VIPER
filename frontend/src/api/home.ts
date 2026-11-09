@@ -85,6 +85,7 @@ export const homeKeys = { all: ['home'] as const }
 
 export interface HomeDashboard {
   prospects: number
+  warehouse_contacts: number
   companies: number
   contacted: number
   appointments: number
@@ -92,6 +93,8 @@ export interface HomeDashboard {
   new_prospects: number
   week_start: string
   week_end: string
+  weekly_activity: { prospects: number; companies: number; warehouses: number; contacts: number; appointments: number }
+  prospect_trend: { week: string; prospects: number; warehouses: number }[]
 }
 
 export function useHomeDashboard() {

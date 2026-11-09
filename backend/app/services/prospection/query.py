@@ -39,6 +39,7 @@ from app.models import (
     Phone,
     Prospect,
     ProspectSource,
+    QualityAlert,
     Role,
 )
 from app.models.enums import (
@@ -48,6 +49,7 @@ from app.models.enums import (
     ContactTrackingStatus,
     ImportBatchStatus,
     PhoneType,
+    QualityAlertType,
     VerificationStatus,
 )
 from app.models.imports import ImportBatch, ImportRowMetadata
@@ -66,6 +68,7 @@ from app.services.prospection.segments import (
     SegmentContext,
     VerificationState,
     email_state,
+    ignored,
     join_segment_sources,
     predicate,
     primary_email,
@@ -116,6 +119,7 @@ class ProspectFilters:
     company_kind: str | None = None
     reachable: bool = False
     validated_only: bool = False
+    verification_box: Literal["validated", "uncertain", "todo", "ignored"] | None = None
     created_from: date | None = None
     created_to: date | None = None
 
@@ -243,12 +247,31 @@ def _optional_ref(
     return [column.is_(None) if value == NONE else column == value]
 
 
+def verification_box_predicate(
+    box: Literal["validated", "uncertain", "todo", "ignored"],
+) -> ColumnElement[bool]:
+    is_ignored = func.coalesce(ignored(), false())
+    has_uncertainty = exists().where(
+        QualityAlert.prospect_id == Prospect.id,
+        QualityAlert.type == QualityAlertType.FUNCTION_TO_CHECK,
+        QualityAlert.resolved_at.is_(None),
+    )
+    if box == "ignored":
+        return is_ignored
+    if box == "validated":
+        return verification_validated()
+    unverified = and_(~is_ignored, Prospect.employment_verified_at.is_(None))
+    return and_(unverified, has_uncertainty if box == "uncertain" else ~has_uncertainty)
+
+
 def filter_conditions(filters: ProspectFilters) -> list[ColumnElement[bool]]:
     """WHERE conditions over `join_segment_sources` rows, shared by counters and list."""
     conditions: list[ColumnElement[bool]] = []
     conditions.extend(
         created_between(Prospect.created_at, filters.created_from, filters.created_to)
     )
+    if filters.verification_box:
+        conditions.append(verification_box_predicate(filters.verification_box))
     if filters.validated_only:
         from app.services.prospection.segments import verification_validated
 
@@ -374,6 +397,8 @@ class BaseOverview:
     deleted: int
     employment_validated: int
     employment_pending: int
+    uncertain: int
+    todo: int
     ignored: int
 
 
@@ -386,6 +411,7 @@ def base_overview(session: Session, context: SegmentContext) -> BaseOverview:
             func.count().filter(predicate(Segment.CONTACTED, context)).label("contacted"),
             func.count().filter(verification_validated()).label("validated"),
             func.count().filter(review_predicate(Review.IGNORED, context)).label("ignored"),
+            func.count().filter(verification_box_predicate("uncertain")).label("uncertain"),
         )
     )
     # One snapshot for the partition: email changes cannot move a validated employment out of it.
@@ -402,6 +428,8 @@ def base_overview(session: Session, context: SegmentContext) -> BaseOverview:
         deleted=deleted or 0,
         employment_validated=figures["validated"],
         employment_pending=figures["total"] - figures["validated"] - figures["ignored"],
+        uncertain=figures["uncertain"],
+        todo=figures["total"] - figures["validated"] - figures["ignored"] - figures["uncertain"],
         ignored=figures["ignored"],
     )
 

@@ -81,14 +81,12 @@ function Queue({ kind, figures }: { kind: 'todo' | 'uncertain'; figures: Verific
   const [done, setDone] = useState<string[]>([])
   const todo = kind === 'todo'
   const [page, setPage] = useState(1)
-  const list = useProspectPage(todoCriteria({ q, cohort: cohort || null }), page)
-  const hidden = new Set([...skipped, ...done, ...(todo ? figures.uncertainIds : [])])
-  const currentId = todo
-    ? (list.data?.items.find((row) => !hidden.has(row.id))?.id ?? null)
-    : (figures.uncertainIds.find((id) => !hidden.has(id)) ?? null)
-  const morePages = todo && !!list.data && list.data.offset + list.data.limit < list.data.total
+  const list = useProspectPage(todoCriteria({ q, cohort: cohort || null, verification_box: todo ? 'todo' : 'uncertain' }), page)
+  const hidden = new Set([...skipped, ...done])
+  const currentId = list.data?.items.find((row) => !hidden.has(row.id))?.id ?? null
+  const morePages = !!list.data && list.data.offset + list.data.limit < list.data.total
   const advancing = !currentId && morePages
-  const waiting = figures.loading || (todo && (list.isPending || list.isPlaceholderData || advancing || (!currentId && list.isFetching)))
+  const waiting = figures.loading || list.isPending || list.isPlaceholderData || advancing || (!currentId && list.isFetching)
   const left = todo ? figures.todo : figures.uncertain
 
   // Skips and doubts stay in the server list, whereas saved fiches can leave it.

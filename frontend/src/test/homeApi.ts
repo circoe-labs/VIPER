@@ -42,8 +42,9 @@ export function homeData(overrides: Partial<HomeData> = {}): HomeData {
 
 export function homeDashboard(overrides: Partial<HomeDashboard> = {}): HomeDashboard {
   return {
-    prospects: 0, companies: 0, contacted: 0, appointments: 0,
-    new_companies: 0, new_prospects: 0, week_start: '2026-10-26', week_end: '2026-11-01',
+    prospects: 0, warehouse_contacts: 0, companies: 0, contacted: 0, appointments: 0,
+    weekly_activity: { prospects: 0, companies: 0, warehouses: 0, contacts: 0, appointments: 0 },
+    prospect_trend: [], new_companies: 0, new_prospects: 0, week_start: '2026-10-26', week_end: '2026-11-01',
     ...overrides,
   }
 }

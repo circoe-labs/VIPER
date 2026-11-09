@@ -220,14 +220,15 @@ interface ProspectsStubOptions {
 
 export function stubProspectsApi(options: ProspectsStubOptions = {}) {
   const companies = stubCompaniesApi({ companies: options.companies ?? [] })
+  const alerts: QualityAlert[] = structuredClone(options.alerts ?? [])
   const prospection = stubProspectionApi({
     prospects: options.rows ?? [],
     roles: options.roles ?? [],
     referents: options.referents ?? [],
+    isUncertain: (id) => alerts.some((alert) => alert.prospect_id === id && alert.open && alert.type === 'function_to_check'),
     ...(options.cohorts ? { cohorts: options.cohorts } : {}),
   })
   const sequences = new Map(Object.entries(structuredClone(options.sequences ?? {})))
-  const alerts: QualityAlert[] = structuredClone(options.alerts ?? [])
   const store = new Map((options.details ?? []).map((detail) => [detail.id, structuredClone(detail)]))
   const requests: RecordedRequest[] = []
   // Replaces the answer of the next write (e.g. a 409 or 422 the fake would not produce); `notesReply`, of the next

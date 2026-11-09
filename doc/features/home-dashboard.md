@@ -8,7 +8,8 @@ remain the shared shell. There are no activity feeds, charts or tables on Home.
 
 | Field | Definition | Destination |
 |---|---|---|
-| `prospects` | Every prospect ID, once | `/prospection?list=1` (expanded list) |
+| `prospects` | Prospect records plus contacts on warehouse records; the same person can appear in both | `/prospection?list=1` and `/warehouses` |
+| `warehouse_contacts` | Number of contacts listed on warehouse records, included in `prospects` | `/warehouses` |
 | `companies` | Every company ID, once, including companies without prospects | `/prospection/companies` |
 | `contacted` | Distinct prospect IDs with at least one sent ContactMessage in any sequence, using `contact_dashboard.contacted_sql()` | `/contact?section=CONTACTES` (expanded contacted list) |
 | `appointments` | Existing Prospection `has_appointment()` rule: appointment status or a recorded appointment date, one tracking per prospect | `/prospection?segment=appointments` |
@@ -248,3 +249,7 @@ the base and the contact activity. Styles: `frontend/src/home/home.css` (see the
   (jour de S41 à confirmer).
 - **Dernières modifications** : repliées, limitées aux dernières 24 h.
 - Les chiffres ajoutés viennent de `figures` dans `GET /api/home` (`services/home.py › home_figures`).
+
+## Évolution des ajouts sur l’accueil
+
+`GET /api/home/dashboard` fournit deux semaines calendaires, la semaine dernière et la semaine courante, du lundi au dimanche en heure de Paris. Chaque point `prospect_trend` contient `week` (date du lundi), `prospects` (fiches de prospection créées) et `warehouses` (nombre d’interlocuteurs figurant actuellement sur les fiches d’entrepôt créées cette semaine). Les deux séries restent distinctes. Les interlocuteurs n’ayant pas de date de création individuelle, un ajout ou une suppression ultérieure modifie le total attribué à la semaine de création de l’entrepôt : ce n’est pas un historique précis des modifications.

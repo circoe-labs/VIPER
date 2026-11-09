@@ -63,16 +63,7 @@
 .contacts-chart__column { height: 100%; display: flex; align-items: flex-end; justify-content: center; }
 .contacts-chart__bar { position: relative; width: min(64%, 90px); min-height: 0; border-radius: 2px 2px 0 0; }
 .contacts-chart__bar > span { position: absolute; left: 50%; bottom: calc(100% + 8px); transform: translateX(-50%); color: var(--nc-contacts-text); font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.contacts-chart__dates { margin-left: 52px; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 20px; }
-.contacts-chart__date-group { position: relative; min-width: 0; }
-.contacts-chart__date { display: flex; align-items: center; gap: 5px; min-height: 38px; padding: 0 8px; border: 1px solid var(--nc-contacts-border-strong); border-radius: 7px; background: var(--nc-contacts-row); color: var(--nc-contacts-muted); }
-.contacts-chart__date > svg { flex: none; }
-.contacts-chart__date input { width: 100%; min-width: 0; padding: 0; border: 0; outline: 0; background: transparent; color: var(--nc-contacts-input); font-family: inherit; font-size: 12px; }
-.contacts-chart__date:focus-within { border-color: var(--nc-contacts-focus); box-shadow: 0 0 0 1px var(--nc-contacts-focus); }
-.contacts-chart__date input::-webkit-calendar-picker-indicator { width: 13px; margin: 0; padding: 0; opacity: .7; }
-.contacts-chart__date-actions { position: absolute; right: 0; top: 40px; display: flex; }
-.contacts-chart__date-actions .btn { min-height: 22px; padding: 2px 4px; }
-.contacts-chart__date-status { min-height: 24px; margin: 4px 34px 0 0; color: var(--nc-contacts-muted); font-size: 10px; }
+.contacts-chart__labels { margin-left: 52px; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 20px; color: var(--nc-contacts-muted); font-size: 12px; text-align: center; }
 
 .contacts-filters { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(150px, 190px) minmax(150px, 190px) auto; align-items: end; gap: 12px; }
 .contacts-filters__search { min-width: 0; }
@@ -158,3 +149,11 @@
   .contacts-details dl > div { grid-template-columns: minmax(0, 1fr); gap: 4px; }
   .contacts-details .btn { white-space: normal; }
 }
+
+.warehouse-contact-list { display: grid; gap: var(--space-4); }
+.warehouse-contact-list > p, .warehouse-contact-list__site p { color: var(--color-text-muted); }
+.warehouse-contact-list__site { border-top: 1px solid var(--color-border); padding-top: var(--space-3); }
+.warehouse-contact-list__site h3 { font-size: var(--text-sm); margin-bottom: var(--space-2); }
+.warehouse-contact-list__site ul { list-style: none; margin: 0; padding: 0; }
+.warehouse-contact-list__site li { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); padding: var(--space-2) 0; }
+.warehouse-contact-list__site li span { color: var(--color-text-muted); overflow-wrap: anywhere; }

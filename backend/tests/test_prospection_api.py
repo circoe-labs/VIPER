@@ -231,6 +231,40 @@ def test_overview_needs_a_session(anonymous_client: TestClient) -> None:
     assert anonymous_client.get("/api/prospection/overview").status_code == 401
 
 
+def test_verification_boxes_partition_the_base_and_match_filtered_lists(
+    client: TestClient, db_session: Session
+) -> None:
+    company = add_company(db_session, "Partition exemple")
+    validated = add_prospect(db_session, company, first_name="A", last_name="Partition")
+    validated.employment_verified_at = datetime.now(UTC)
+    uncertain = add_prospect(db_session, company, first_name="B", last_name="Partition")
+    todo = add_prospect(db_session, company, first_name="C", last_name="Partition")
+    excluded = add_prospect(db_session, company, first_name="D", last_name="Partition")
+    db_session.add(ContactTracking(prospect_id=excluded.id, status=ContactTrackingStatus.IGNORED))
+    db_session.flush()
+    for person in (validated, uncertain, uncertain, excluded):
+        response = client.post(
+            "/api/alerts", json={"type": "function_to_check", "prospect_id": str(person.id)}
+        )
+        assert response.status_code == 201, response.text
+    summary = get(client, "/api/prospection/overview")
+    assert (
+        summary["total"]
+        == summary["employment_validated"]
+        + summary["uncertain"]
+        + summary["todo"]
+        + summary["ignored"]
+    )
+    for box, person in [
+        ("validated", validated),
+        ("uncertain", uncertain),
+        ("todo", todo),
+        ("ignored", excluded),
+    ]:
+        page = get(client, PROSPECTS, verification_box=box, q="Partition")
+        assert [row["id"] for row in page["items"]] == [str(person.id)]
+
+
 def test_overview_validation_is_not_email_verification(
     client: TestClient, db_session: Session
 ) -> None:
