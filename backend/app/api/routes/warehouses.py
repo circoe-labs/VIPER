@@ -105,7 +105,8 @@ def edit_draft(
     draft.body = body.body.strip()
     draft.validated_at = None
     draft.validated_by = None
-    draft.send_state = None
+    if draft.send_state != "planned":
+        draft.send_state = None
     draft.revision += 1
     session.flush()
     audit.record_event(
@@ -215,22 +216,21 @@ def schedule_draft_batch(
             raise HTTPException(
                 422, "Un brouillon ne contient pas une adresse et un message valides."
             )
-    now = datetime.now(UTC)
     for draft in drafts:
-        draft.validated_at = now
-        draft.validated_by = actor.display
+        draft.validated_at = None
+        draft.validated_by = None
         draft.scheduled_at = body.scheduled_at
-        draft.send_state = "scheduled"
+        draft.send_state = "planned"
         draft.remote_draft_id = None
         draft.revision += 1
         audit.record_event(
             session,
             actor,
-            "warehouse_draft.scheduled",
+            "warehouse_draft.planned",
             entity_type="warehouse_draft",
             entity_id=draft.id,
         )
-    return {"scheduled": len(drafts)}
+    return {"planned": len(drafts)}
 
 
 @router.post("/drafts/{draft_id}/unschedule", response_model=WarehouseDraftOut)
@@ -238,7 +238,7 @@ def unschedule_draft(
     draft_id: uuid.UUID, body: WarehouseDraftValidation, session: SessionDep, actor: CurrentActor
 ) -> WarehouseDraft:
     draft = locked_draft(session, draft_id, body.revision)
-    if draft.send_state != "scheduled":
+    if draft.send_state not in ("scheduled", "planned"):
         raise HTTPException(409, "La programmation ne peut plus être retirée ; vérifiez son état.")
     draft.scheduled_at = None
     draft.send_state = None

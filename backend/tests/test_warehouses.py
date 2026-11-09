@@ -151,7 +151,20 @@ def test_batch_schedule_is_atomic(client: TestClient, db_session: Session) -> No
         "/api/warehouses/drafts/schedule-batch", json={"drafts": items, "scheduled_at": when}
     )
     assert response.status_code == 200, response.text
-    assert response.json() == {"scheduled": 2}
+    assert response.json() == {"planned": 2}
+    db_session.expire_all()
+    assert all(db_session.get(WarehouseDraft, d.id).send_state == "planned" for d in drafts)
+    assert all(db_session.get(WarehouseDraft, d.id).validated_at is None for d in drafts)
+    first = db_session.get(WarehouseDraft, drafts[0].id)
+    result = client.post(
+        f"/api/warehouses/drafts/{first.id}/schedule",
+        json={"revision": first.revision, "scheduled_at": when},
+    )
+    assert result.status_code == 200
+    assert result.json()["send_state"] == "scheduled"
+    assert result.json()["validated_at"] is not None
+    db_session.expire_all()
+    assert db_session.get(WarehouseDraft, drafts[1].id).send_state == "planned"
 
 
 @pytest.mark.parametrize("fail", [False, True])
@@ -183,6 +196,7 @@ def test_warehouse_dispatch_never_retries_uncertain_send(
         review_note="À vérifier",
         scheduled_at=datetime.now(UTC) - timedelta(minutes=1),
         send_state="scheduled",
+        validated_at=datetime.now(UTC) - timedelta(minutes=2),
     )
     db_session.add(draft)
     db_session.flush()
@@ -199,6 +213,41 @@ def test_warehouse_dispatch_never_retries_uncertain_send(
     db_session.expire_all()
     assert db_session.get(WarehouseDraft, draft.id).send_state == ("uncertain" if fail else "sent")
     assert toolbox.sends == 1
+
+
+def test_preplanned_draft_is_never_sent_without_validation(
+    db_session: Session, session_factory: sessionmaker[Session]
+) -> None:
+    class Toolbox:
+        def create_draft(self, draft: Any) -> str:
+            raise AssertionError("An unvalidated draft must not be sent")
+
+    site = Warehouse(name="Site", contacts=[])
+    db_session.add(site)
+    db_session.flush()
+    draft = WarehouseDraft(
+        warehouse_id=site.id,
+        warehouse_name="Site",
+        contact_name="Anne",
+        recipient="anne@example.test",
+        subject="Objet",
+        body="Bonjour",
+        review_note="À vérifier",
+        scheduled_at=datetime.now(UTC) - timedelta(minutes=1),
+        send_state="planned",
+    )
+    db_session.add(draft)
+    db_session.flush()
+    config = DispatchConfig(
+        interval=timedelta(seconds=30),
+        max_lateness=timedelta(hours=6),
+        claim_ttl=timedelta(minutes=10),
+        max_attempts=3,
+        retry_base=timedelta(minutes=1),
+    )
+    dispatch_warehouses(session_factory, config, Toolbox())  # type: ignore[arg-type]
+    db_session.expire_all()
+    assert db_session.get(WarehouseDraft, draft.id).send_state == "planned"
 
 
 def workbook() -> bytes:

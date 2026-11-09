@@ -45,10 +45,11 @@ can be unscheduled until the worker claims it. The worker records a durable clai
 the Toolbox; a timeout, error or interrupted send is never retried automatically, and the user
 must check the mailbox before taking further action. The messages are separate from Contact
 sequences and do not change a prospect's Contact status.
-The group action previews recipients and subjects and schedules the listed saved revisions for
-one date. Missing or invalid recipients and messages already scheduled, sent or awaiting an
-outcome are excluded. The server checks every revision under lock and commits the whole batch or
-none of it.
+The group action previews recipients and subjects and prepares a date for each listed draft. It
+does not validate or schedule sends: each message must be reviewed and individually validated and
+scheduled before the dispatcher can send it. Missing or invalid recipients and messages already
+scheduled, sent or awaiting an outcome are excluded. The server checks every revision under lock
+and commits the whole batch or none of it. Editing a preprogrammed draft retains its proposed date.
 
 ## Workbook import
 

@@ -91,6 +91,7 @@ class AuditAction(StrEnum):
     WAREHOUSE_DRAFT_UPDATED = "warehouse_draft.updated"
     WAREHOUSE_DRAFT_VALIDATED = "warehouse_draft.validated"
     WAREHOUSE_DRAFT_SCHEDULED = "warehouse_draft.scheduled"
+    WAREHOUSE_DRAFT_PLANNED = "warehouse_draft.planned"
     WAREHOUSE_DRAFT_UNSCHEDULED = "warehouse_draft.unscheduled"
     WAREHOUSE_DRAFT_SENT = "warehouse_draft.sent"
     WAREHOUSE_DRAFT_FAILED = "warehouse_draft.failed"
