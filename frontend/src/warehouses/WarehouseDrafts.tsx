@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { type WarehouseDraft, useWarehouseDispatchStatus, useWarehouseDraftActions, useWarehouseDrafts } from '../api/warehouses'
-import { Button } from '../ui/Button'
+import { Button, IconButton } from '../ui/Button'
 import { TextAreaField, TextField } from '../ui/fields'
-import { ChevronDownIcon } from '../ui/icons'
+import { ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon } from '../ui/icons'
 
 function localDateTime(value: string | null): string {
   if (!value) return ''
@@ -12,7 +12,10 @@ function localDateTime(value: string | null): string {
   return local.toISOString().slice(0, 16)
 }
 
-function DraftCard({ draft, dispatchActive }: { draft: WarehouseDraft; dispatchActive: boolean }) {
+function DraftCard({ draft, dispatchActive, open, onToggle, onMove, position, total }: {
+  draft: WarehouseDraft; dispatchActive: boolean; open: boolean; onToggle: () => void
+  onMove: (direction: -1 | 1) => void; position: number; total: number
+}) {
   const [recipient, setRecipient] = useState(draft.recipient ?? '')
   const [subject, setSubject] = useState(draft.subject)
   const [body, setBody] = useState(draft.body)
@@ -47,8 +50,8 @@ function DraftCard({ draft, dispatchActive }: { draft: WarehouseDraft; dispatchA
     catch { setError('Impossible de retirer la programmation. Rechargez pour vérifier son état.') }
   }
   const mailto = `mailto:${encodeURIComponent(draft.recipient ?? '')}?subject=${encodeURIComponent(draft.subject)}&body=${encodeURIComponent(draft.body)}`
-  return <details className="warehouse-draft">
-    <summary><ChevronDownIcon className="warehouse-draft__chevron" size={18} /><span><strong>{draft.contact_name}</strong><small>{draft.warehouse_name}{draft.contact_role ? ` · ${draft.contact_role}` : ''}</small><small>{draft.recipient || 'Destinataire à choisir'}</small></span><span className="warehouse-draft__badge">{draft.send_state === 'planned' ? 'Préprogrammé · à valider' : draft.send_state === 'scheduled' ? 'Programmé' : draft.send_state === 'sent' ? 'Envoyé' : draft.send_state === 'sending' || draft.send_state === 'uncertain' ? 'Envoi à vérifier' : draft.send_state === 'failed' ? 'Envoi non effectué' : valid ? 'Validé' : 'À vérifier'}</span></summary>
+  return <details className="warehouse-draft" open={open}>
+    <summary id={`warehouse-draft-${draft.id}`} onClick={(event) => { event.preventDefault(); onToggle() }}><ChevronDownIcon className="warehouse-draft__chevron" size={18} /><span><strong>{draft.contact_name}</strong><small>{draft.warehouse_name}{draft.contact_role ? ` · ${draft.contact_role}` : ''}</small><small>{draft.recipient || 'Destinataire à choisir'}</small></span><span className="warehouse-draft__badge">{draft.send_state === 'planned' ? 'Préprogrammé · à valider' : draft.send_state === 'scheduled' ? 'Programmé' : draft.send_state === 'sent' ? 'Envoyé' : draft.send_state === 'sending' || draft.send_state === 'uncertain' ? 'Envoi à vérifier' : draft.send_state === 'failed' ? 'Envoi non effectué' : valid ? 'Validé' : 'À vérifier'}</span></summary>
     <div className="warehouse-draft__content">
       <p><strong>Adresse source : </strong>{draft.source_email || 'Non renseignée'}</p>
       <p className="warehouse-draft__note">{draft.review_note}</p>
@@ -70,6 +73,11 @@ function DraftCard({ draft, dispatchActive }: { draft: WarehouseDraft; dispatchA
         {valid && !locked && <a className="btn btn--secondary btn--md" href={mailto}>Ouvrir dans la messagerie</a>}
       </div>
       <p className="warehouse-muted">{valid ? `Validé par ${draft.validated_by ?? 'un utilisateur'}. ` : ''}La programmation utilise la connexion et les paramètres d’envoi de VIPER.</p>
+      <nav className="warehouse-draft__navigation" aria-label="Navigation entre les brouillons">
+        <span>{position} / {total}</span>
+        <IconButton icon={ChevronLeftIcon} label="Brouillon précédent" variant="secondary" disabled={position === 1 || busy} onClick={() => onMove(-1)} />
+        <IconButton icon={ChevronRightIcon} label="Brouillon suivant" variant="secondary" disabled={position === total || busy} onClick={() => onMove(1)} />
+      </nav>
     </div>
   </details>
 }
@@ -81,9 +89,20 @@ export function WarehouseDrafts() {
   const [batchWhen, setBatchWhen] = useState('')
   const [batchError, setBatchError] = useState('')
   const [batchSuccess, setBatchSuccess] = useState('')
+  const [openDraft, setOpenDraft] = useState<string | null>(null)
   if (drafts.isPending) return <p role="status" className="warehouse-muted">Chargement des brouillons…</p>
   if (drafts.isError) return <p role="alert" className="warehouse-error">Impossible de charger les brouillons. <Button size="sm" onClick={() => void drafts.refetch()}>Réessayer</Button></p>
   const eligible = drafts.data.filter((draft) => draft.recipient && /^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$/.test(draft.recipient) && draft.subject.trim() && draft.body.trim() && !['scheduled', 'sending', 'uncertain', 'sent'].includes(draft.send_state ?? ''))
+  function moveDraft(index: number) {
+    const target = drafts.data?.[index]
+    if (!target) return
+    setOpenDraft(target.id)
+    requestAnimationFrame(() => {
+      const summary = document.getElementById(`warehouse-draft-${target.id}`)
+      summary?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
+      summary?.focus({ preventScroll: true })
+    })
+  }
   async function scheduleAll() {
     setBatchError('')
     setBatchSuccess('')
@@ -109,6 +128,6 @@ export function WarehouseDrafts() {
       {batchSuccess && <p role="status">{batchSuccess}</p>}
     </div>
     {drafts.data.length === 0 && <p className="warehouse-muted">Aucun brouillon pour le moment.</p>}
-    {drafts.data.map((draft) => <DraftCard draft={draft} dispatchActive={dispatch.data?.active === true} key={draft.id} />)}
+    {drafts.data.map((draft, index) => <DraftCard draft={draft} dispatchActive={dispatch.data?.active === true} key={draft.id} open={openDraft === draft.id} onToggle={() => setOpenDraft((current) => current === draft.id ? null : draft.id)} onMove={(direction) => moveDraft(index + direction)} position={index + 1} total={drafts.data.length} />)}
   </section>
 }

@@ -9,6 +9,26 @@ const ROW: Warehouse = { id: '00000000-0000-7000-a000-000000000001', version: '2
 const API = { ...SHELL_API, 'GET /api/warehouses/counts': [200, { warehouses: 1, contacts: 1, to_contact: 0 }] } as const
 
 describe('Warehouse directory', () => {
+  it('navigates between drafts and keeps unsaved edits when returning', async () => {
+    const base = { warehouse_name: 'Entrepôt Exemple', contact_role: 'Responsable', source_email: 'a@example.test', recipient: 'a@example.test', subject: 'Objet', body: 'Bonjour', review_note: 'À vérifier', revision: 1, validated_at: null, validated_by: null, send_state: null, scheduled_at: null }
+    const items = [{ ...base, id: 'one', contact_name: 'Anne Test' }, { ...base, id: 'two', contact_name: 'Bruno Test' }]
+    stubApi({ ...API, 'GET /api/warehouses': [200, { items: [ROW], total: 1 }], 'GET /api/warehouses/drafts': [200, items], 'GET /api/warehouses/drafts/dispatch-status': [200, { active: true }] })
+    renderApp('/warehouses')
+    await userEvent.click(screen.getByRole('button', { name: 'Brouillons' }))
+    const anne = await screen.findByText('Anne Test')
+    await userEvent.click(anne)
+    const firstCard = anne.closest('details')!
+    const secondCard = screen.getByText('Bruno Test').closest('details')!
+    await userEvent.type(within(firstCard).getByLabelText('Message'), ' modifié')
+    expect(within(firstCard).getByRole('button', { name: 'Brouillon précédent' })).toBeDisabled()
+    await userEvent.click(within(firstCard).getByRole('button', { name: 'Brouillon suivant' }))
+    expect(secondCard).toHaveAttribute('open')
+    expect(within(secondCard).getByRole('button', { name: 'Brouillon suivant' })).toBeDisabled()
+    expect(within(secondCard).getByText('2 / 2')).toBeVisible()
+    await userEvent.click(within(secondCard).getByRole('button', { name: 'Brouillon précédent' }))
+    expect(firstCard).toHaveAttribute('open')
+    expect(within(firstCard).getByLabelText('Message')).toHaveValue('Bonjour modifié')
+  })
   it('allows a saved draft to be validated and scheduled', async () => {
     const draft = { id: 'draft-1', warehouse_name: 'Entrepôt Exemple', contact_name: 'Anne Test', contact_role: 'Responsable', source_email: 'a@example.test', recipient: 'a@example.test', subject: 'Prise de contact', body: 'Bonjour', review_note: 'À vérifier', revision: 1, validated_at: null, validated_by: null, send_state: null, scheduled_at: null }
     stubApi({ ...API, 'GET /api/warehouses': [200, { items: [ROW], total: 1 }], 'GET /api/warehouses/drafts': [200, [draft]], 'GET /api/warehouses/drafts/dispatch-status': [200, { active: true }], 'POST /api/warehouses/drafts/draft-1/schedule': [200, { ...draft, revision: 2, send_state: 'scheduled' }] })
