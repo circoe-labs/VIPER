@@ -1,5 +1,6 @@
 """Dispatch explicitly scheduled warehouse mails, without retrying an uncertain send."""
 
+import logging
 from datetime import UTC, datetime
 
 from sqlalchemy import select
@@ -12,8 +13,10 @@ from app.models import WarehouseDraft
 from app.services import audit
 from app.services.contact_dispatch import DispatchConfig
 from app.services.toolbox.mcp_client import DraftInput, MailToolbox
+from app.services.toolbox.errors import ToolboxError
 
 ACTOR = ActorContext(type=ActorType.SYSTEM, display="VIPER")
+logger = logging.getLogger(__name__)
 
 
 def dispatch_warehouses(
@@ -63,6 +66,7 @@ def dispatch_warehouses(
             draft.revision += 1
             content = DraftInput(to=[draft.recipient], subject=draft.subject, text=draft.body)
         # The committed sending state is a durable claim; unknown outcomes are never retried.
+        stage = "create_draft"
         try:
             remote_id = toolbox.create_draft(content)
             with unit_of_work(factory) as session:
@@ -70,8 +74,18 @@ def dispatch_warehouses(
                 if claimed is None or claimed.send_state != "sending":
                     continue
                 claimed.remote_draft_id = remote_id
+            stage = "send_draft"
             toolbox.send_draft(remote_id)
-        except Exception:
+        except Exception as error:
+            error_code = error.code if isinstance(error, ToolboxError) else type(error).__name__
+            upstream_status = error.upstream_status if isinstance(error, ToolboxError) else None
+            logger.error(
+                "warehouse_dispatch.failed draft_id=%s stage=%s error_code=%s upstream_status=%s",
+                draft_id,
+                stage,
+                error_code,
+                upstream_status,
+            )
             with unit_of_work(factory) as session:
                 claimed = session.get(WarehouseDraft, draft_id, with_for_update=True)
                 if claimed is not None and claimed.send_state == "sending":
@@ -83,6 +97,8 @@ def dispatch_warehouses(
                         "warehouse_draft.failed",
                         entity_type="warehouse_draft",
                         entity_id=claimed.id,
+                        reason=f"{stage}:{error_code}"
+                        + (f":http_{upstream_status}" if upstream_status is not None else ""),
                     )
             continue
         with unit_of_work(factory) as session:

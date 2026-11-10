@@ -89,10 +89,15 @@ export function WarehouseDrafts() {
   const [batchWhen, setBatchWhen] = useState('')
   const [batchError, setBatchError] = useState('')
   const [batchSuccess, setBatchSuccess] = useState('')
+  const [recoveryWhen, setRecoveryWhen] = useState('')
+  const [recoveryConfirmed, setRecoveryConfirmed] = useState(false)
+  const [recoveryError, setRecoveryError] = useState('')
+  const [recoverySuccess, setRecoverySuccess] = useState('')
   const [openDraft, setOpenDraft] = useState<string | null>(null)
   if (drafts.isPending) return <p role="status" className="warehouse-muted">Chargement des brouillons…</p>
   if (drafts.isError) return <p role="alert" className="warehouse-error">Impossible de charger les brouillons. <Button size="sm" onClick={() => void drafts.refetch()}>Réessayer</Button></p>
   const eligible = drafts.data.filter((draft) => draft.recipient && /^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$/.test(draft.recipient) && draft.subject.trim() && draft.body.trim() && !['scheduled', 'sending', 'uncertain', 'sent'].includes(draft.send_state ?? ''))
+  const recoveryEligible = drafts.data.filter((draft) => draft.recovery_possible)
   function moveDraft(index: number) {
     const target = drafts.data?.[index]
     if (!target) return
@@ -114,6 +119,23 @@ export function WarehouseDrafts() {
       setBatchSuccess(`${String(result.planned)} messages préprogrammés. Chacun doit encore être relu et validé individuellement.`)
     } catch { setBatchError('Programmation groupée impossible. Rechargez la liste et vérifiez les destinataires et les messages.') }
   }
+  async function recoverAll() {
+    setRecoveryError('')
+    setRecoverySuccess('')
+    const at = new Date(recoveryWhen)
+    if (!recoveryConfirmed) { setRecoveryError('Confirmez d’abord la vérification de la boîte Infomaniak.'); return }
+    if (!recoveryWhen || !Number.isFinite(at.getTime()) || at.getTime() <= Date.now()) { setRecoveryError('Choisissez une date et une heure futures.'); return }
+    if (!window.confirm(`Reprogrammer ${String(recoveryEligible.length)} messages pour le ${new Intl.DateTimeFormat('fr-FR', { dateStyle: 'long', timeStyle: 'short' }).format(at)} ? Vous confirmez qu’aucun n’apparaît dans Envoyés ni dans Brouillons Infomaniak.`)) return
+    try {
+      const result = await actions.recoverBatch.mutateAsync({
+        scheduled_at: at.toISOString(),
+        confirmed_not_sent: true,
+        drafts: recoveryEligible.map(({ id, revision }) => ({ id, revision })),
+      })
+      setRecoverySuccess(`${String(result.scheduled)} messages reprogrammés. Leur validation et leur contenu sont conservés.`)
+      setRecoveryConfirmed(false)
+    } catch { setRecoveryError('Reprogrammation impossible. Rechargez la liste : un message a peut-être changé depuis la vérification.') }
+  }
   return <section className="warehouse-drafts" aria-labelledby="warehouse-drafts-title">
     <div><h2 id="warehouse-drafts-title">Brouillons à vérifier ({drafts.data.length})</h2><p className="warehouse-muted">Ouvrez un message, vérifiez son destinataire et son contenu, enregistrez vos modifications puis validez-le.</p></div>
     <div className="warehouse-draft__content warehouse-draft">
@@ -127,6 +149,16 @@ export function WarehouseDrafts() {
       {batchError && <p role="alert" className="warehouse-error">{batchError}</p>}
       {batchSuccess && <p role="status">{batchSuccess}</p>}
     </div>
+    {recoveryEligible.length > 0 && <div className="warehouse-draft__content warehouse-draft">
+      <h3>Reprogrammer les envois à vérifier</h3>
+      <p>{recoveryEligible.length} messages déjà validés peuvent être repris. Vérifiez dans Infomaniak qu’ils ne figurent ni dans Envoyés ni dans Brouillons. La Toolbox doit être rétablie avant l’heure choisie.</p>
+      <details><summary>Voir les destinataires et objets concernés</summary><ul>{recoveryEligible.map((draft) => <li key={draft.id}>{draft.contact_name} — {draft.recipient} — {draft.subject}</li>)}</ul></details>
+      <label className="warehouse-recovery-confirm"><input type="checkbox" checked={recoveryConfirmed} onChange={(event) => setRecoveryConfirmed(event.target.checked)} /> J’ai vérifié la boîte Infomaniak : aucun de ces messages n’apparaît dans Envoyés ni dans Brouillons.</label>
+      <TextField label="Nouvelle date et heure pour tous les messages" type="datetime-local" value={recoveryWhen} onChange={(event) => setRecoveryWhen(event.target.value)} />
+      <div><Button variant="primary" disabled={!recoveryConfirmed || !recoveryWhen || actions.recoverBatch.isPending} onClick={() => void recoverAll()}>Reprogrammer les messages vérifiés</Button></div>
+      {recoveryError && <p role="alert" className="warehouse-error">{recoveryError}</p>}
+      {recoverySuccess && <p role="status">{recoverySuccess}</p>}
+    </div>}
     {drafts.data.length === 0 && <p className="warehouse-muted">Aucun brouillon pour le moment.</p>}
     {drafts.data.map((draft, index) => <DraftCard draft={draft} dispatchActive={dispatch.data?.active === true} key={draft.id} open={openDraft === draft.id} onToggle={() => setOpenDraft((current) => current === draft.id ? null : draft.id)} onMove={(direction) => moveDraft(index + direction)} position={index + 1} total={drafts.data.length} />)}
   </section>

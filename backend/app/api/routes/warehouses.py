@@ -3,7 +3,7 @@
 import re
 import uuid
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
@@ -35,6 +35,7 @@ class WarehouseDraftOut(BaseModel):
     validated_by: str | None
     scheduled_at: datetime | None
     send_state: str | None
+    recovery_possible: bool
 
 
 @router.get("/drafts", response_model=list[WarehouseDraftOut])
@@ -69,6 +70,12 @@ class WarehouseDraftBatchItem(WarehouseDraftValidation):
 
 class WarehouseDraftBatchSchedule(BaseModel):
     scheduled_at: AwareDatetime
+    drafts: list[WarehouseDraftBatchItem] = Field(min_length=1, max_length=500)
+
+
+class WarehouseDraftBatchRecovery(BaseModel):
+    scheduled_at: AwareDatetime
+    confirmed_not_sent: Literal[True]
     drafts: list[WarehouseDraftBatchItem] = Field(min_length=1, max_length=500)
 
 
@@ -231,6 +238,58 @@ def schedule_draft_batch(
             entity_id=draft.id,
         )
     return {"planned": len(drafts)}
+
+
+@router.post("/drafts/recover-batch")
+def recover_uncertain_draft_batch(
+    body: WarehouseDraftBatchRecovery, session: SessionDep, actor: CurrentActor
+) -> dict[str, int]:
+    """Reprogram approved mails only after a person confirms the mailbox check.
+
+    Unknown sends with a saved remote draft id stay locked: they need individual reconciliation.
+    """
+    if body.scheduled_at <= datetime.now(UTC):
+        raise HTTPException(422, "Choisissez une date et une heure futures.")
+    ids = [item.id for item in body.drafts]
+    if len(set(ids)) != len(ids):
+        raise HTTPException(422, "Un brouillon apparaît plusieurs fois.")
+    expected = {item.id: item.revision for item in body.drafts}
+    drafts = list(
+        session.scalars(
+            select(WarehouseDraft)
+            .where(WarehouseDraft.id.in_(ids))
+            .order_by(WarehouseDraft.id)
+            .with_for_update()
+        )
+    )
+    if len(drafts) != len(ids):
+        raise HTTPException(409, "Un brouillon est introuvable. Rechargez la liste.")
+    for draft in drafts:
+        if draft.revision != expected[draft.id] or not draft.recovery_possible:
+            raise HTTPException(
+                409,
+                "Un brouillon ne peut plus être repris sans vérification. Rechargez la liste.",
+            )
+        if (
+            not draft.recipient
+            or not re.fullmatch(r"[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+", draft.recipient)
+            or not draft.subject.strip()
+            or not draft.body.strip()
+        ):
+            raise HTTPException(422, "Un brouillon ne contient pas une adresse et un message valides.")
+    for draft in drafts:
+        draft.scheduled_at = body.scheduled_at
+        draft.send_state = "scheduled"
+        draft.revision += 1
+        audit.record_event(
+            session,
+            actor,
+            "warehouse_draft.scheduled",
+            entity_type="warehouse_draft",
+            entity_id=draft.id,
+            reason="Reprogrammé après confirmation humaine de l’absence dans les envoyés et brouillons Infomaniak.",
+        )
+    return {"scheduled": len(drafts)}
 
 
 @router.post("/drafts/{draft_id}/unschedule", response_model=WarehouseDraftOut)

@@ -24,6 +24,8 @@
 .warehouse-draft__body { white-space: pre-wrap; }
 .warehouse-contact-select { display: flex; align-items: center; gap: var(--space-2); color: var(--color-text); font-size: var(--text-sm); cursor: pointer; }
 .warehouse-contact-select input { accent-color: var(--color-accent); width: 1rem; height: 1rem; }
+.warehouse-recovery-confirm { display: flex; align-items: flex-start; gap: var(--space-2); color: var(--color-text); font-size: var(--text-sm); line-height: 1.5; cursor: pointer; }
+.warehouse-recovery-confirm input { accent-color: var(--color-accent); width: 1rem; height: 1rem; margin-top: .15rem; flex: none; }
 .warehouse-selection-actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3); margin-top: var(--space-4); }
 .warehouse-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4); }
 .warehouse-toolbar .search-field { flex: 1; min-width: min(100%, 15rem); max-width: 42rem; }

@@ -31,3 +31,12 @@ class WarehouseDraft(UUIDPrimaryKeyMixin, Base):
     scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     send_state: Mapped[str | None] = mapped_column(String(30))
     remote_draft_id: Mapped[str | None] = mapped_column(String(255))
+
+    @property
+    def recovery_possible(self) -> bool:
+        """A human may reprogram only an approved send with no saved remote draft."""
+        return (
+            self.send_state == "uncertain"
+            and self.validated_at is not None
+            and self.remote_draft_id is None
+        )

@@ -50,6 +50,7 @@ export interface WarehouseDraft {
   validated_by: string | null
   scheduled_at: string | null
   send_state: 'planned' | 'scheduled' | 'sending' | 'uncertain' | 'sent' | 'failed' | null
+  recovery_possible?: boolean
 }
 
 export function useWarehouseDrafts() {
@@ -69,6 +70,7 @@ export function useWarehouseDraftActions() {
     schedule: useMutation({ mutationFn: ({ id, revision, scheduled_at }: { id: string; revision: number; scheduled_at: string }) => apiRequest<WarehouseDraft>('POST', `/warehouses/drafts/${id}/schedule`, { body: { revision, scheduled_at } }), onSuccess: refresh }),
     unschedule: useMutation({ mutationFn: ({ id, revision }: { id: string; revision: number }) => apiRequest<WarehouseDraft>('POST', `/warehouses/drafts/${id}/unschedule`, { body: { revision } }), onSuccess: refresh }),
     scheduleBatch: useMutation({ mutationFn: (body: { scheduled_at: string; drafts: { id: string; revision: number }[] }) => apiRequest<{ planned: number }>('POST', '/warehouses/drafts/schedule-batch', { body }), onSuccess: refresh }),
+    recoverBatch: useMutation({ mutationFn: (body: { scheduled_at: string; confirmed_not_sent: true; drafts: { id: string; revision: number }[] }) => apiRequest<{ scheduled: number }>('POST', '/warehouses/drafts/recover-batch', { body }), onSuccess: refresh }),
   }
 }
 
