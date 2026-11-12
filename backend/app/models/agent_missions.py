@@ -3,7 +3,7 @@
 A **thread** (`agent_threads`) is one « Analyse »: a company to complete, or a prospecting brief.
 A **task** (`agent_tasks`) is one unit of work an agent claims under a lease — `claim_id` rotates
 at each claim, `lease_expires_at` bounds it, `SKIP LOCKED` makes concurrent claims safe. A
-**result** (`agent_task_results`) is one submission, immutable and kept per attempt; it is a
+**result** (`agent_task_results`) is one submission, immutable and kept in history; it is a
 proposal until a person accepts it.
 
 Nothing in this module writes to the domain: applying an accepted result is
@@ -104,12 +104,7 @@ class AgentThread(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, B
 
 
 class AgentTask(UUIDPrimaryKeyMixin, TimestampMixin, Base):
-    """One unit of work, claimed under a lease by one agent.
-
-    `attempts` counts the claims, not the successes: a task that keeps dying on its agent ends up
-    `failed` instead of looping. A lease that expires returns the task to `pending` without
-    touching `attempts` — the claim already counted it.
-    """
+    """One unit of work, claimed under a lease by one agent."""
 
     __tablename__ = "agent_tasks"
     __table_args__ = (
@@ -131,7 +126,6 @@ class AgentTask(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             " AND claimed_by_label IS NOT NULL)",
             name="claim_is_complete",
         ),
-        CheckConstraint("attempts >= 0 AND max_attempts >= 1", name="attempts_valid"),
         CheckConstraint(
             f"priority BETWEEN {PRIORITY_MIN} AND {PRIORITY_MAX}", name="priority_range"
         ),
@@ -190,8 +184,6 @@ class AgentTask(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         text_enum(AgentTaskStatus, "status"), server_default="pending"
     )
     priority: Mapped[int] = mapped_column(SmallInteger, server_default="0")
-    attempts: Mapped[int] = mapped_column(SmallInteger, server_default="0")
-    max_attempts: Mapped[int] = mapped_column(SmallInteger, server_default="3")
     # Rotates at each claim: a submission must carry the current one (exactly-once submit).
     claim_id: Mapped[uuid.UUID | None] = mapped_column()
     claimed_by_id: Mapped[str | None] = mapped_column(String(ACTOR_ID_MAX_LENGTH))
@@ -201,6 +193,9 @@ class AgentTask(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     last_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     failure_code: Mapped[str | None] = mapped_column(String(FAILURE_CODE_MAX_LENGTH))
     failure_message: Mapped[str | None] = mapped_column(Text)
+    staged_actions: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
 
 
 class AgentTaskResult(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -212,8 +207,7 @@ class AgentTaskResult(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     __tablename__ = "agent_task_results"
     __table_args__ = (
-        # One submission per attempt, and at most one awaiting review at a time.
-        Index("uq_agent_task_results_attempt", "task_id", "attempt", unique=True),
+        # At most one submission awaits review at a time; decided results remain in history.
         Index(
             "uq_agent_task_results_pending",
             "task_id",
@@ -224,14 +218,13 @@ class AgentTaskResult(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         CheckConstraint(
             "(status = 'pending_review') = (decided_at IS NULL)", name="decision_matches_status"
         ),
-        CheckConstraint("attempt >= 1", name="attempt_positive"),
         CheckConstraint(f"char_length(digest) = {DIGEST_LENGTH}", name="digest_length"),
         Index("ix_agent_task_results_submitted_at", "submitted_at"),
     )
 
-    # Covered by `uq_agent_task_results_attempt`, which starts with this column.
-    task_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agent_tasks.id", ondelete="CASCADE"))
-    attempt: Mapped[int] = mapped_column(SmallInteger)
+    task_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("agent_tasks.id", ondelete="CASCADE"), index=True
+    )
     submitted_by_id: Mapped[str | None] = mapped_column(String(ACTOR_ID_MAX_LENGTH))
     submitted_by_label: Mapped[str] = mapped_column(String(AGENT_LABEL_MAX_LENGTH))
     submitted_at: Mapped[datetime] = mapped_column(

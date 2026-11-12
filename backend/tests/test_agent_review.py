@@ -147,7 +147,33 @@ def test_rejecting_requeues_the_task(client: TestClient, db_session: Session) ->
     task = db_session.get(AgentTask, uuid.UUID(body["task_id"]))
     assert task is not None
     assert task.status is AgentTaskStatus.PENDING
-    assert task.attempts == 1
+
+
+def test_rejections_keep_the_task_available_and_preserve_results(
+    client: TestClient, db_session: Session
+) -> None:
+    result_id = submitted(client, db_session, {"legal_name": "2SN SAS", "confidence": 50})
+    token = mint(db_session)
+    result_ids = [result_id]
+    for _ in range(5):
+        rejected = client.post(
+            f"/api/agents/results/{result_id}/reject", json={"reason": "À revoir"}
+        )
+        assert rejected.status_code == 200, rejected.text
+        payload = call(client, token, "viper_claim_task", {"task_types": ["update_company"]})
+        result_id = call(
+            client,
+            token,
+            "viper_submit_task_result",
+            {
+                "task_id": payload["task_id"],
+                "claim_id": payload["claim_id"],
+                "result": {"legal_name": "2SN SAS", "confidence": 50},
+            },
+        )["result_id"]
+        result_ids.append(result_id)
+    assert len(set(result_ids)) == 6
+    assert all(client.get(f"/api/agents/results/{item}").status_code == 200 for item in result_ids)
 
 
 def test_a_result_cannot_be_decided_twice(client: TestClient, db_session: Session) -> None:

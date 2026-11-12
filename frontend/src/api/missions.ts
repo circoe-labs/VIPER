@@ -56,8 +56,6 @@ export interface MissionTaskRow {
   prospect_name: string | null
   claimed_by_label: string | null
   assigned_agent_id: string | null
-  attempts: number
-  max_attempts: number
   result_id: string | null
   submitted_at: string | null
 }

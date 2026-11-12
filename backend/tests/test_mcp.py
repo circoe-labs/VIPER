@@ -63,6 +63,7 @@ def test_initialize_and_tools_list(client: TestClient, db_session: Session) -> N
         "viper_get_company",
         "viper_list_prospects",
         "viper_get_prospect",
+        "viper_add_company",
         "viper_update_company",
         "viper_update_prospect",
         "viper_search",

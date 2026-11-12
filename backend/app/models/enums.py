@@ -226,12 +226,12 @@ class AgentTaskStatus(StrEnum):
 
 
 class AgentResultStatus(StrEnum):
-    """One submission (`agent_task_results`): immutable, one row per attempt."""
+    """One immutable submission (`agent_task_results`)."""
 
     PENDING_REVIEW = "pending_review"
     ACCEPTED = "accepted"
     REJECTED = "rejected"
-    # An earlier attempt of the same task, kept for the history.
+    # An earlier submission of the same task, kept for the history.
     SUPERSEDED = "superseded"
 
 

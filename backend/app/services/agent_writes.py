@@ -86,7 +86,7 @@ def _task(
     company_id: uuid.UUID,
     prospect_id: uuid.UUID | None = None,
 ) -> AgentTask:
-    """The open task this proposal targets, or a fresh one with a single attempt."""
+    """The open task this proposal targets, or a fresh one."""
     conditions = [
         AgentTask.type == task_type,
         AgentTask.company_id == company_id,
@@ -108,9 +108,6 @@ def _task(
         prospect_id=prospect_id,
         status=AgentTaskStatus.PENDING,
         priority=agent_missions.TASK_PRIORITIES[task_type],
-        # A tool proposal has no queue of agents behind it: a rejection closes it and the
-        # assistant may post a corrected result in a new call.
-        max_attempts=1,
     )
     session.add(task)
     session.flush()

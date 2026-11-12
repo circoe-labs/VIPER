@@ -163,8 +163,6 @@ class MissionTaskRow:
     prospect_name: str | None
     claimed_by_label: str | None
     assigned_agent_id: uuid.UUID | None
-    attempts: int
-    max_attempts: int
     result_id: uuid.UUID | None
     submitted_at: datetime | None
 
@@ -300,8 +298,6 @@ def _task_rows(session: Session, mission_id: uuid.UUID) -> list[MissionTaskRow]:
             prospect_name=names.get(task.prospect_id) if task.prospect_id else None,
             claimed_by_label=task.claimed_by_label,
             assigned_agent_id=task.assigned_agent_id,
-            attempts=task.attempts,
-            max_attempts=task.max_attempts,
             result_id=result_ids.get(task.id),
             submitted_at=task.updated_at if task.status is AgentTaskStatus.SUBMITTED else None,
         )
@@ -1059,7 +1055,6 @@ def _task(
         prospect_id=prospect_id,
         status=AgentTaskStatus.PENDING,
         priority=agent_missions.TASK_PRIORITIES.get(task_type, 50),
-        max_attempts=3,
         assigned_agent_id=mission.agent_id,
     )
     session.add(task)
@@ -1186,6 +1181,7 @@ def _cancel_open_tasks(
     for task in open_tasks:
         previous = task.status
         task.status = AgentTaskStatus.CANCELLED
+        task.staged_actions = []
         agent_missions.clear_claim(task)
         audit.record_event(
             session,

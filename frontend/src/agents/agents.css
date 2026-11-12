@@ -310,6 +310,13 @@
   font-size: var(--text-sm);
 }
 
+.review-json pre {
+  max-height: 24rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .review-reason textarea {
   width: 100%;
   resize: vertical;

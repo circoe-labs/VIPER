@@ -54,8 +54,6 @@ class TaskRowOut(BaseModel):
     type: str
     status: AgentTaskStatus
     priority: int
-    attempts: int
-    max_attempts: int
     company_id: uuid.UUID | None
     prospect_id: uuid.UUID | None
     prospect_name: str | None
@@ -91,6 +89,7 @@ class ResultOut(BaseModel):
     submitted_at: datetime
     submitted_by_label: str
     digest: str
+    raw: dict[str, Any]
     proposal: dict[str, Any]
     accepted_items: dict[str, Any] | None
     applied: dict[str, Any] | None
@@ -200,6 +199,7 @@ def _result_out(review: agent_review.Review) -> ResultOut:
         submitted_at=result.submitted_at,
         submitted_by_label=result.submitted_by_label,
         digest=result.digest,
+        raw=result.raw,
         proposal=result.proposal,
         accepted_items=result.accepted_items,
         applied=result.applied,
@@ -230,6 +230,13 @@ def accept_result(
         return _result_out(agent_review.get_review(session, result_id))
 
 
+@results_router.post("/{result_id}/rebuild")
+def rebuild_result(result_id: uuid.UUID, session: SessionDep, actor: CurrentActor) -> ResultOut:
+    with business_errors():
+        agent_review.rebuild(session, actor, result_id)
+        return _result_out(agent_review.get_review(session, result_id))
+
+
 @results_router.post("/{result_id}/reject")
 def reject_result(
     result_id: uuid.UUID,
@@ -249,8 +256,6 @@ def _rows(tasks: list[agent_missions.TaskRow]) -> list[TaskRowOut]:
             type=task.type.value,
             status=task.status,
             priority=task.priority,
-            attempts=task.attempts,
-            max_attempts=task.max_attempts,
             company_id=task.company_id,
             prospect_id=task.prospect_id,
             prospect_name=task.prospect_name,

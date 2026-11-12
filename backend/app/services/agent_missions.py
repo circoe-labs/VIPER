@@ -2,8 +2,7 @@
 
 Claiming is the heart. One short transaction:
 
-1. release the expired leases (a task whose agent died returns to the queue without losing the
-   attempt it already used);
+1. release expired leases (a task whose agent died returns to the queue);
 2. pick one free task under `FOR UPDATE SKIP LOCKED`, highest priority first, oldest first.
 
 `SKIP LOCKED` is what makes several agents safe: two claimers never see the same free row and
@@ -332,7 +331,6 @@ def claim(
     conditions = [
         AgentTask.status == AgentTaskStatus.PENDING,
         AgentTask.type.in_(list(types)),
-        AgentTask.attempts < AgentTask.max_attempts,
         offered(),
     ]
     if thread_id is not None:
@@ -365,7 +363,6 @@ def claim(
     task.claimed_at = moment
     task.last_heartbeat_at = moment
     task.lease_expires_at = moment + lease
-    task.attempts += 1
     session.flush()
     _event(
         session,
@@ -375,6 +372,8 @@ def claim(
         changes={"status": {"before": "pending", "after": "claimed"}},
     )
     payload = build_payload(session, task, lease_expires_at=task.lease_expires_at, now=moment)
+    if task.staged_actions:
+        payload["staged_actions"] = task.staged_actions
     return ClaimedTask(task=task, payload=payload, lease_seconds=int(lease.total_seconds()))
 
 
@@ -397,7 +396,7 @@ def claim_specific(
     task = session.scalar(select(AgentTask).where(AgentTask.id == task_id).with_for_update())
     if task is None:
         raise NotFoundError("Unknown task.")
-    if task.status is not AgentTaskStatus.PENDING or task.attempts >= task.max_attempts:
+    if task.status is not AgentTaskStatus.PENDING:
         raise ConflictError("This task is not waiting to be claimed.")
     if session.scalar(select(AgentTask.id).where(AgentTask.id == task.id, offered())) is None:
         raise ConflictError("This task's mission is paused: it cannot be claimed now.")
@@ -408,7 +407,6 @@ def claim_specific(
     task.claimed_at = moment
     task.last_heartbeat_at = moment
     task.lease_expires_at = moment + lease
-    task.attempts += 1
     session.flush()
     _event(
         session,
@@ -478,19 +476,28 @@ def submit(
     """Store a submission as a proposal awaiting review. Never applies anything."""
     moment = _moment(now)
     task = _claimed(session, actor, task_id, claim_id, moment)
-    try:
-        validated = result_model(task.type).model_validate(raw).model_dump(mode="json")
-    except ValidationError as error:
-        first = error.errors()[0]
-        field = ".".join(str(part) for part in first["loc"]) or "result"
-        raise InvalidFieldError(field, first["msg"], "schema") from error
-    proposal = build_proposal(session, task, validated)
+    if task.staged_actions:
+        if raw:
+            raise InvalidFieldError(
+                "result", "Submit an empty result when using staged actions.", "conflict"
+            )
+        from app.services import agent_actions
+
+        validated = {"actions": task.staged_actions}
+        proposal = agent_actions.proposal(session, task, task.staged_actions)
+    else:
+        try:
+            validated = result_model(task.type).model_validate(raw).model_dump(mode="json")
+        except ValidationError as error:
+            first = error.errors()[0]
+            field = ".".join(str(part) for part in first["loc"]) or "result"
+            raise InvalidFieldError(field, first["msg"], "schema") from error
+        proposal = build_proposal(session, task, validated)
     digest = hashlib.sha256(
         json.dumps(validated, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
     result = AgentTaskResult(
         task_id=task.id,
-        attempt=task.attempts,
         submitted_by_id=actor.id,
         submitted_by_label=actor.display,
         submitted_at=moment,
@@ -501,6 +508,7 @@ def submit(
     )
     session.add(result)
     task.status = AgentTaskStatus.SUBMITTED
+    task.staged_actions = []
     clear_claim(task)
     session.flush()
     _event(
@@ -509,7 +517,6 @@ def submit(
         audit.AuditAction.AGENT_TASK_SUBMITTED,
         task,
         changes={"status": {"before": "claimed", "after": "submitted"}},
-        reason=f"attempt {task.attempts}",
     )
     return result
 
@@ -523,14 +530,12 @@ def fail(
     message: str,
     now: datetime | None = None,
 ) -> AgentTask:
-    """The agent could not do the work. Back to the queue until `max_attempts`, then `failed`."""
+    """The agent could not do the work. Return the task to the queue."""
     task = _claimed(session, actor, task_id, claim_id, now)
     task.failure_code = code[:64]
     task.failure_message = message
     clear_claim(task)
-    task.status = (
-        AgentTaskStatus.PENDING if task.attempts < task.max_attempts else AgentTaskStatus.FAILED
-    )
+    task.status = AgentTaskStatus.PENDING
     session.flush()
     _event(
         session,
@@ -553,12 +558,7 @@ def release(
     """The agent gives the task back without failing it (it stops, another may take it)."""
     task = _claimed(session, actor, task_id, claim_id, now)
     clear_claim(task)
-    if task.attempts >= task.max_attempts:
-        task.status = AgentTaskStatus.FAILED
-        task.failure_code = "released"
-        task.failure_message = "The last agent gave the task back without a result."
-    else:
-        task.status = AgentTaskStatus.PENDING
+    task.status = AgentTaskStatus.PENDING
     session.flush()
     _event(
         session,
@@ -602,8 +602,6 @@ class TaskRow:
     type: AgentTaskType
     status: AgentTaskStatus
     priority: int
-    attempts: int
-    max_attempts: int
     company_id: uuid.UUID | None
     prospect_id: uuid.UUID | None
     prospect_name: str | None
@@ -737,8 +735,6 @@ def thread_detail(
             type=task.type,
             status=task.status,
             priority=task.priority,
-            attempts=task.attempts,
-            max_attempts=task.max_attempts,
             company_id=task.company_id,
             prospect_id=task.prospect_id,
             prospect_name=" ".join(part for part in (first, last) if part) or None,
@@ -790,7 +786,6 @@ def queue_counts(session: Session, types: Sequence[AgentTaskType]) -> dict[str, 
         .where(
             AgentTask.status == AgentTaskStatus.PENDING,
             AgentTask.type.in_(list(types)),
-            AgentTask.attempts < AgentTask.max_attempts,
             offered(),
         )
         .group_by(AgentTask.type)

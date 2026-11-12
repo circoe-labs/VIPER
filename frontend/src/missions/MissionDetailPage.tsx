@@ -251,7 +251,7 @@ export function MissionDetailPage() {
                   {TASK_STATUS_LABELS[task.status]}
                 </StatusBadge>
                 <span className="mission-task__meta">
-                  {task.claimed_by_label ?? 'libre'} · tentative {String(task.attempts)}/{String(task.max_attempts)}
+                  {task.claimed_by_label ?? 'libre'}
                 </span>
                 {task.result_id && (
                   <Button

@@ -72,14 +72,12 @@ def add_task(
 def add_result(
     session: Session,
     task: AgentTask,
-    attempt: int = 1,
     status: AgentResultStatus = AgentResultStatus.PENDING_REVIEW,
     **fields: object,
 ) -> AgentTaskResult:
     fields.setdefault("decided_at", None)
     result = AgentTaskResult(
         task_id=task.id,
-        attempt=attempt,
         submitted_by_label="claude-01",
         raw={"ok": True},
         digest=DIGEST,
@@ -208,17 +206,17 @@ def test_one_result_awaits_review_per_task(db_session: Session) -> None:
     add_result(db_session, task)
 
     with rejected(db_session, "uq_agent_task_results_pending"):
-        add_result(db_session, task, attempt=2)
+        add_result(db_session, task)
 
 
-def test_one_result_per_attempt(db_session: Session) -> None:
+def test_decided_results_are_preserved(db_session: Session) -> None:
     company = add_company(db_session)
     thread = add_thread(db_session, company=company)
     task = add_task(db_session, thread, AgentTaskType.UPDATE_COMPANY, company=company)
     add_result(db_session, task, status=AgentResultStatus.REJECTED, decided_at=NOW)
 
-    with rejected(db_session, "uq_agent_task_results_attempt"):
-        add_result(db_session, task, status=AgentResultStatus.REJECTED, decided_at=NOW)
+    another = add_result(db_session, task, status=AgentResultStatus.REJECTED, decided_at=NOW)
+    assert another.id is not None
 
 
 def test_a_decision_carries_its_moment(db_session: Session) -> None:

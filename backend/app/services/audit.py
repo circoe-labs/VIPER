@@ -137,6 +137,7 @@ class AuditAction(StrEnum):
     AGENT_TASK_RELEASED = "agent_task.released"
     AGENT_TASK_CANCELLED = "agent_task.cancelled"
     AGENT_TASK_RESULT_ACCEPTED = "agent_task_result.accepted"
+    AGENT_TASK_RESULT_REBUILT = "agent_task_result.rebuilt"
     AGENT_TASK_RESULT_REJECTED = "agent_task_result.rejected"
     MISSION_CREATED = "mission.created"
     MISSION_STATUS_CHANGED = "mission.status_changed"

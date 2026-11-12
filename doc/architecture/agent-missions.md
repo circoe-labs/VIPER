@@ -43,7 +43,7 @@ person decides.**
 - **Task** (`agent_tasks`) — « Mission » : one unit of work an agent can claim, for one type and one
   subject.
 - **Result** (`agent_task_results`) — « Résultat » : one agent's submission, immutable, kept with its
-  attempt number. This is the **draft** the human reviews.
+  submission. This is the **draft** the human reviews.
 - **Proposal** — the normalised form of a result: field changes with before/after, or items to
   create, or signals to store. Computed by VIPER on submission, never by the agent.
 - **Signal** (`signals`) — a short dated fact with a source and an optional score delta, about a
@@ -105,8 +105,6 @@ Constraints:
 | `prospect_id` | FK `prospects` `CASCADE`, indexed, null | `update_employee` only |
 | `status` | enum | `pending`, `claimed`, `submitted`, `accepted`, `failed`, `cancelled` |
 | `priority` | smallint | default from the type (§5), editable by the person |
-| `attempts` | smallint, default 0 | incremented at each claim |
-| `max_attempts` | smallint, default 3 | after it, `failed` |
 | `claim_id` | uuid, null | rotates at each claim; proves which agent holds the task |
 | `claimed_by_id` / `claimed_by_label` | | agent token id + label, snapshotted |
 | `claimed_at` | timestamptz, null | « depuis combien de temps » |
@@ -130,13 +128,12 @@ Constraints:
 
 ### 4.3 `agent_task_results`
 
-Append-only: one row per submission attempt.
+Append-only: one row per submission.
 
 | Column | Type | Notes |
 |---|---|---|
 | `id` | uuid | |
 | `task_id` | FK `agent_tasks` `CASCADE`, indexed | |
-| `attempt` | smallint | the task's `attempts` at submission |
 | `submitted_by_id` / `submitted_by_label` | | the agent |
 | `submitted_at` | timestamptz | |
 | `raw` | JSONB | exactly what the agent sent, after schema validation |
@@ -150,8 +147,7 @@ Append-only: one row per submission attempt.
 
 The result under review is read from `agent_task_results`, never pointed at by the task: keeping a
 `result_id` on both sides would make a circular foreign key for no gain.
-`UNIQUE (task_id, attempt)` — one submission per attempt, and `attempt` is the task's `attempts`
-at submission time. `UNIQUE (task_id) WHERE status = 'pending_review'` — at most one result waits
+`UNIQUE (task_id) WHERE status = 'pending_review'` — at most one result waits
 for a person at a time; a rejection closes it before the task can be claimed again.
 
 ### 4.4 `signals` (phase 2) — `prospect_notes`, renamed and opened to companies
@@ -277,6 +273,21 @@ Priority defaults, in the order the human sees them on the card.
   that company; each carries its own `score_delta`.
 
 ### 5.5 `find_prospects` — « Trouver de nouveaux prospects »
+
+The claim exposes active commercial segments and activity categories in `known_values`. Unknown
+optional taxonomy labels are reported as refused fields and omitted from the proposed company;
+they do not discard the rest of a sourced company. The review API exposes the submitted `raw` JSON
+alongside the normalized proposal. A pending discovery review can be recalculated from its retained
+JSON without re-running the agent or writing any business record; the reviewer then decides.
+
+Claimed agents can alternatively stage individual `viper_add_company`, `viper_update_company`, and
+`viper_update_prospect` calls with the task ID, claim ID and a stable action UUID. A repeated UUID
+with identical data is idempotent; reusing it with different data is refused. Updates require the
+existing proposal capabilities and task-type scopes. Final `viper_submit_task_result` with an empty
+`result` packages all staged actions in one result and one selectable review. The actions are held
+through releases, failures and expired claims; the next claimant receives the staged actions.
+Cancellation clears them. They never write business records before human acceptance. The existing single-result schema remains
+available when no actions were staged. Acceptance applies the selected changes in one transaction.
 
 - **Target**: the thread's `brief`, no company. **Priority** 20.
 - **Goal**: companies or people matching the brief, with the evidence that they match.
@@ -418,20 +429,17 @@ read — the score is never stored.
       ▲                               │                                │
       │                               │ fail / abandon                 │ accept (person)
       │                               ▼                                ▼
-      │                            pending ──attempts > max──> failed  accepted
+      │                            pending                            accepted
       │                               ▲
       └──────── reject (person) ──────┘
    any state ──── cancel (person) ────> cancelled
 ```
 
 - **Lease expiry** is not a state: a sweeper (lazy, at the start of any claim) puts an expired
-  `claimed` task back to `pending`. `attempts` was already incremented at claim, so a task that
-  keeps dying on one agent ends up `failed` instead of looping forever.
+  `claimed` task back to `pending`; there is no retry limit.
 - **`submitted` is the only state a person acts on.** No timeout: a submitted result waits as long
   as the review takes.
-- **Rejection** puts the task back to `pending` (another attempt) and records the reason on the
-  result; after `max_attempts` it becomes `failed` with `failure_code = 'rejected'`. The person can
-  always « Relancer » a task explicitly, which resets `attempts`.
+- **Rejection** puts the task back to `pending` and records the reason on the result.
 - **`accepted` and `failed` are terminal** for the task; the thread can be re-opened by adding a
   task, never by silently reviving a decided one.
 
@@ -457,7 +465,7 @@ SELECT id FROM agent_tasks
 ```
 
 Then the row is updated with a fresh `claim_id`, the agent's identity, `lease_expires_at =
-now() + lease`, `attempts = attempts + 1`, `status = 'claimed'`. `SKIP LOCKED` is what makes
+now() + lease`, `status = 'claimed'`. `SKIP LOCKED` is what makes
 concurrent agents safe: two claimers never see the same free row, and neither waits for the other.
 The dispatcher already relies on the same primitive (`contact_dispatch.py:355`).
 
@@ -560,7 +568,7 @@ submission from a lost claim is refused (`claim_lost`, 409) without touching the
 | `PATCH /api/agents/threads/{id}` | `status` (pause/resume/close), `priority`, `note` |
 | `POST /api/agents/threads/{id}/tasks` | Add a task by hand (`type` + target) |
 | `GET /api/agents/tasks` | The global queue, filterable by type/status/thread/agent — « organiser la liste des tâches » |
-| `PATCH /api/agents/tasks/{id}` | `priority`, `cancel`, `retry` (reset attempts) |
+| `PATCH /api/agents/tasks/{id}` | `priority`, `cancel`, `retry` |
 | `GET /api/agents/results/{id}` | The proposal + diff + evidence + digest |
 | `POST /api/agents/results/{id}/accept` | `accepted_items`, `overrides`, optional `note` |
 | `POST /api/agents/results/{id}/reject` | `reason` (required) |
@@ -637,7 +645,7 @@ On submission, VIPER (never the agent):
 
 ```
 ┌ 2SN › Compléter un employé ──────────────── Marie Dupont ─────────────┐
-│ Agent « claude-01 » · soumis il y a 12 min · tentative 1/3            │
+│ Agent « claude-01 » · soumis il y a 12 min                            │
 │                                                                       │
 │  Champ              Actuel            Proposé            Source        │
 │  Fonction           —                 Directrice RH      [linkedin]    │
@@ -666,7 +674,7 @@ brief asks.
 - **Filters** — by status, by kind, « seulement celles avec des résultats à relire » (the default
   landing view should surface work waiting for a person, not empty threads).
 - **Thread detail** — tasks grouped by type, each row: type icon, subject (person or company),
-  status pill, agent label, elapsed time, attempts, « Relancer » / « Annuler ». A task with a
+  status pill, agent label, elapsed time, « Relancer » / « Annuler ». A task with a
   `submitted` result opens the review card (§11.3). Accepted signals are listed under the thread.
 - **Empty state** — « Aucune analyse en cours. Ajoutez une société pour commencer. »
 - **Prospect/company side** — the existing detail views gain an `agent_activity` block (« Analyse

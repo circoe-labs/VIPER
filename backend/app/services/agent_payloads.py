@@ -652,6 +652,22 @@ def build_payload(
         case AgentTaskType.FIND_PROSPECTS:
             # Discovery: the brief lives in the mission block; there is no subject record.
             payload["missing_fields"] = ["companies"]
+            payload["known_values"] = {
+                "commercial_segments": list(
+                    session.scalars(
+                        select(CommercialSegment.label)
+                        .where(CommercialSegment.active.is_(True))
+                        .order_by(CommercialSegment.label)
+                    )
+                ),
+                "activity_categories": list(
+                    session.scalars(
+                        select(ActivityCategory.label)
+                        .where(ActivityCategory.active.is_(True))
+                        .order_by(ActivityCategory.label)
+                    )
+                ),
+            }
             if rule is not None:
                 payload["constraints"]["max_items"] = rule["result_limit"]
                 payload["search_hints"] = [
@@ -1360,12 +1376,6 @@ def _find_prospects_proposal(
             siren = normalize_siren(company.siren, current=None) if company.siren else None
             website = normalize_website(company.website_url) if company.website_url else None
             domain = normalize_email_domain(company.email_domain) if company.email_domain else None
-            segment = (
-                _segment(session, company.commercial_segment)
-                if company.commercial_segment
-                else None
-            )
-            categories = _categories(session, company.activity_categories)
         except InvalidFieldError as error:
             refused.append(
                 {
@@ -1376,6 +1386,32 @@ def _find_prospects_proposal(
                 }
             )
             continue
+        segment = None
+        if company.commercial_segment:
+            try:
+                segment = _segment(session, company.commercial_segment)
+            except InvalidFieldError as error:
+                refused.append(
+                    {
+                        "field": f"{field}.commercial_segment",
+                        "label": f"{label} — segment : {company.commercial_segment}",
+                        "reason": error.reason or "invalid",
+                        "message": "Segment inconnu : la société sera proposée sans segment.",
+                    }
+                )
+        categories = []
+        for category_label in dict.fromkeys(company.activity_categories):
+            try:
+                categories.extend(_categories(session, [category_label]))
+            except InvalidFieldError as error:
+                refused.append(
+                    {
+                        "field": f"{field}.activity_categories.{category_label}",
+                        "label": f"{label} — catégorie : {category_label}",
+                        "reason": error.reason or "invalid",
+                        "message": "Catégorie inconnue : elle ne sera pas ajoutée.",
+                    }
+                )
         if siren is not None and siren in known_sirens:
             refused.append(
                 {

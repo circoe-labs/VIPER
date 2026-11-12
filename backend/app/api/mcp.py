@@ -42,6 +42,7 @@ from app.models.agent_missions import AgentTask
 from app.models.enums import AgentTaskStatus, AgentTaskType
 from app.models.mcp import McpToken
 from app.services import (
+    agent_actions,
     agent_capabilities,
     agent_missions,
     agent_writes,
@@ -149,7 +150,9 @@ TOOLS: list[dict[str, Any]] = [
             "Claim the next task matching this token's scopes. Returns the mission payload: the "
             "subject, its current values, the missing fields, the sources, and the JSON Schema "
             "the result must follow. A claimed task is leased: send `claim_id` with every later "
-            "call, and heartbeat before the lease runs out."
+            "call, and heartbeat before the lease runs out. To stage individual writes, call "
+            "viper_add_company or viper_update_company / viper_update_prospect with task_id, "
+            "claim_id and a unique action_id; then submit result {} once for the whole task."
         ),
         "inputSchema": _CLAIM_SCHEMA,
     },
@@ -282,17 +285,39 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "viper_add_company",
+        "description": (
+            "Stage a discovered company for the claimed find_prospects task. No company is "
+            "written. Give each action a stable UUID; retrying the same action is safe. "
+            "company_data follows the companies item in the task's output_schema, including "
+            "confidence and public evidence. Finish with viper_submit_task_result and result {}."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                **_CLAIMED_SCHEMA["properties"],
+                "action_id": {"type": "string", "format": "uuid"},
+                "company_data": {"type": "object"},
+            },
+            "required": ["task_id", "claim_id", "action_id", "company_data"],
+            "additionalProperties": False,
+        },
+    },
+    {
         "name": "viper_update_company",
         "description": (
             "Propose updated information for a company. The JSON is the same shape as an "
             "`update_company` mission result. VIPER stores it as a proposal awaiting a person's "
-            "review — it never writes to the base by itself."
+            "review — it never writes to the base by itself. For a claimed task provide task_id, "
+            "claim_id and action_id to stage it in that task's single result."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "company_id": {"type": "string", "format": "uuid"},
                 "result": {"type": "object"},
+                **_CLAIMED_SCHEMA["properties"],
+                "action_id": {"type": "string", "format": "uuid"},
             },
             "required": ["company_id", "result"],
             "additionalProperties": False,
@@ -304,12 +329,16 @@ TOOLS: list[dict[str, Any]] = [
             "Propose updated information for one person (identity, role, job title, e-mail "
             "addresses, phones, activity). The JSON is the same shape as an `update_employee` "
             "mission result, and is stored for review — never applied directly."
+            " For a claimed task provide task_id, claim_id and action_id to stage it in that "
+            "task's single result."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "prospect_id": {"type": "string", "format": "uuid"},
                 "result": {"type": "object"},
+                **_CLAIMED_SCHEMA["properties"],
+                "action_id": {"type": "string", "format": "uuid"},
             },
             "required": ["prospect_id", "result"],
             "additionalProperties": False,
@@ -483,6 +512,8 @@ def _claim(
         allowed = [task for task in allowed if task.value in wanted]
     if not allowed:
         raise InvalidFieldError("task_types", "No allowed task type.", "empty")
+    # Expired leases must not count against the agent's concurrent-claims limit.
+    agent_missions.sweep_expired(session)
     live = session.scalar(
         select(func.count(AgentTask.id)).where(
             AgentTask.claimed_by_id == actor.id,
@@ -663,9 +694,41 @@ def _call_tool(
             return _payload(
                 mcp_reads.get_prospect(session, _uuid(args, "prospect_id"), state.settings)
             )
+        case "viper_add_company":
+            require(record, "tasks.work")
+            _require_scope(record, AgentTaskType.FIND_PROSPECTS)
+            data = args.get("company_data")
+            if not isinstance(data, dict):
+                raise InvalidFieldError("company_data", "Expected an object.", "format")
+            return _payload(
+                agent_actions.stage(
+                    session,
+                    actor,
+                    _uuid(args, "task_id"),
+                    _uuid(args, "claim_id"),
+                    _uuid(args, "action_id"),
+                    "add_company",
+                    data,
+                    None,
+                )
+            )
         case "viper_update_company":
             require(record, "records.propose")
             _require_scope(record, AgentTaskType.UPDATE_COMPANY)
+            if any(key in args for key in ("task_id", "claim_id", "action_id")):
+                require(record, "tasks.work")
+                return _payload(
+                    agent_actions.stage(
+                        session,
+                        actor,
+                        _uuid(args, "task_id"),
+                        _uuid(args, "claim_id"),
+                        _uuid(args, "action_id"),
+                        "update_company",
+                        _result(args),
+                        _uuid(args, "company_id"),
+                    )
+                )
             stored = agent_writes.propose_company_update(
                 session, actor, _uuid(args, "company_id"), _result(args)
             )
@@ -673,6 +736,20 @@ def _call_tool(
         case "viper_update_prospect":
             require(record, "records.propose")
             _require_scope(record, AgentTaskType.UPDATE_EMPLOYEE)
+            if any(key in args for key in ("task_id", "claim_id", "action_id")):
+                require(record, "tasks.work")
+                return _payload(
+                    agent_actions.stage(
+                        session,
+                        actor,
+                        _uuid(args, "task_id"),
+                        _uuid(args, "claim_id"),
+                        _uuid(args, "action_id"),
+                        "update_prospect",
+                        _result(args),
+                        _uuid(args, "prospect_id"),
+                    )
+                )
             stored = agent_writes.propose_prospect_update(
                 session, actor, _uuid(args, "prospect_id"), _result(args)
             )

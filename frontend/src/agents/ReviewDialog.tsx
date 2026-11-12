@@ -1,6 +1,6 @@
 import { type ReactNode, useState } from 'react'
 
-import { type ProposalItem, useAcceptResult, useRejectResult, useResult } from '../api/agents'
+import { type ProposalItem, useAcceptResult, useRebuildResult, useRejectResult, useResult } from '../api/agents'
 import { ApiError } from '../api/client'
 import { StatusBadge } from '../ui/Badge'
 import { Button } from '../ui/Button'
@@ -48,11 +48,17 @@ function DiscoveryDetails({ item }: { item: ProposalItem }) {
   const rawSites = item.store?.establishments
   const sites = Array.isArray(rawSites) ? rawSites.filter(isRecord) : []
   const trigger = isRecord(item.store?.trigger) ? item.store.trigger : null
-  if (sites.length === 0 && !trigger) return null
+  const detailFields: [string, string][] = [
+    ['Raison sociale', 'legal_name'], ['SIREN', 'siren'], ['Site web', 'website_url'],
+    ['Domaine e-mail', 'email_domain'], ['Effectif', 'size_label'],
+  ]
+  const details = detailFields.map(([label, key]) => [label, textOf(item.store ?? {}, key)]).filter(([, value]) => value)
+  if (sites.length === 0 && !trigger && details.length === 0) return null
   const kind = trigger ? textOf(trigger, 'kind') : ''
   const score = trigger?.score_delta
   return (
     <div className="review-discovery">
+      {details.length > 0 && <p>{details.map(([label, value]) => `${label} : ${value}`).join(' · ')}</p>}
       {sites.length > 0 && (
         <ul className="review-discovery__sites" aria-label="Établissements">
           {sites.map((site, index) => {
@@ -186,13 +192,14 @@ export function ReviewDialog({
   const result = useResult(resultId)
   const accept = useAcceptResult(resultId ?? '')
   const reject = useRejectResult(resultId ?? '')
+  const rebuild = useRebuildResult(resultId ?? '')
   // `null` means "everything the agent proposed": the selection follows the proposal until the
   // person unchecks something, so no effect has to copy the item list into state.
   const [chosen, setChosen] = useState<Set<string> | null>(null)
   const [reason, setReason] = useState('')
 
-  const failure = accept.error ?? reject.error
-  const busy = accept.isPending || reject.isPending
+  const failure = accept.error ?? reject.error ?? rebuild.error
+  const busy = accept.isPending || reject.isPending || rebuild.isPending
   const proposal = result.data?.proposal
   const keys = proposal?.items.map((item) => item.key) ?? []
   const selected = chosen ?? new Set(keys)
@@ -275,7 +282,7 @@ export function ReviewDialog({
                     toggle(item.key)
                   }}
                 >
-                  {proposal.kind === 'find_prospects' && <DiscoveryDetails item={item} />}
+                  {(proposal.kind === 'find_prospects' || item.action_operation === 'add_company') && <DiscoveryDetails item={item} />}
                 </ItemRow>
               ))}
             </ul>
@@ -290,8 +297,17 @@ export function ReviewDialog({
                   </li>
                 ))}
               </ul>
+              {result.data?.task_type === 'find_prospects' && !('actions' in result.data.raw) && (
+                <Button disabled={busy} loading={rebuild.isPending} onClick={() => {
+                  rebuild.mutate(undefined, { onSuccess: () => { setChosen(null) } })
+                }}>Recalculer la prévisualisation</Button>
+              )}
             </div>
           )}
+          <details className="review-json">
+            <summary>JSON soumis par l’agent</summary>
+            <pre>{JSON.stringify(result.data?.raw, null, 2)}</pre>
+          </details>
           <label className="review-reason">
             <span>Motif (obligatoire pour rejeter)</span>
             <textarea

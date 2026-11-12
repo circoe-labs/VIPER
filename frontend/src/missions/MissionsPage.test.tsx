@@ -81,8 +81,6 @@ function detail(): MissionDetail {
         prospect_name: null,
         claimed_by_label: 'Agent claude-01',
         assigned_agent_id: null,
-        attempts: 1,
-        max_attempts: 3,
         result_id: '00000000-0000-7000-e000-000000000040',
         submitted_at: '2026-10-30T08:05:00+00:00',
       },
@@ -389,6 +387,7 @@ describe('Signal review', () => {
       submitted_at: '2026-10-30T08:05:00+00:00',
       submitted_by_label: 'Agent claude-01',
       digest: 'a'.repeat(64),
+      raw: {},
       proposal: {
         kind: 'signals',
         items: [
@@ -459,6 +458,7 @@ describe('Signal review', () => {
       submitted_at: '2026-10-30T08:05:00+00:00',
       submitted_by_label: 'Agent découverte',
       digest: 'b'.repeat(64),
+      raw: { companies: [{ display_name: 'Logistique Y' }] },
       proposal: {
         kind: 'find_prospects',
         items: [
@@ -533,5 +533,7 @@ describe('Signal review', () => {
     expect(within(trigger).getByText('Ouverture de site')).toBeInTheDocument()
     expect(within(trigger).getByText('Ouverture d’un nouvel entrepôt de 18 000 m².')).toBeInTheDocument()
     expect(within(trigger).getByText('+20')).toBeInTheDocument()
+    await user.click(screen.getByText('JSON soumis par l’agent'))
+    expect(screen.getByText(/"display_name": "Logistique Y"/)).toBeInTheDocument()
   })
 })

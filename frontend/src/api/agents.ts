@@ -46,8 +46,6 @@ export interface TaskRow {
   type: TaskType
   status: TaskStatus
   priority: number
-  attempts: number
-  max_attempts: number
   company_id: string | null
   prospect_id: string | null
   prospect_name: string | null
@@ -81,6 +79,7 @@ export interface ProposalItem {
   quote: string | null
   // Signals carry their own fields (kind, subject, observed_on, score, relevance) here.
   store?: Record<string, unknown>
+  action_operation?: string
 }
 
 export interface ProposalRefused {
@@ -108,6 +107,7 @@ export interface ResultView {
   submitted_at: string
   submitted_by_label: string
   digest: string
+  raw: Record<string, unknown>
   proposal: Proposal
   accepted_items: { keys: string[] } | null
   applied: { fields?: string[] } | null
@@ -176,6 +176,14 @@ export function useAcceptResult(id: string) {
   return useMutation({
     mutationFn: (input: { accepted_items: string[]; note?: string }) =>
       apiRequest<ResultView>('POST', `/agents/results/${encodeURIComponent(id)}/accept`, { body: input }),
+    onSuccess: () => refreshAgents(queryClient),
+  })
+}
+
+export function useRebuildResult(id: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => apiRequest<ResultView>('POST', `/agents/results/${encodeURIComponent(id)}/rebuild`),
     onSuccess: () => refreshAgents(queryClient),
   })
 }

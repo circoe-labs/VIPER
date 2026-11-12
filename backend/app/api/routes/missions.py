@@ -118,8 +118,6 @@ class MissionTaskOut(BaseModel):
     prospect_name: str | None
     claimed_by_label: str | None
     assigned_agent_id: uuid.UUID | None
-    attempts: int
-    max_attempts: int
     result_id: uuid.UUID | None
     submitted_at: datetime | None
 

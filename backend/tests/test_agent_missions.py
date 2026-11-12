@@ -63,7 +63,6 @@ def add_task(
     company: Company | None = None,
     prospect: Prospect | None = None,
     priority: int = 0,
-    max_attempts: int = 3,
 ) -> AgentTask:
     task = AgentTask(
         thread_id=thread.id,
@@ -72,7 +71,6 @@ def add_task(
         prospect_id=prospect.id if prospect else None,
         status=AgentTaskStatus.PENDING,
         priority=priority,
-        max_attempts=max_attempts,
     )
     session.add(task)
     session.flush()
@@ -98,7 +96,6 @@ def test_claim_returns_a_task_and_its_payload(session: Session) -> None:
     assert claimed is not None
     assert claimed.task.id == task.id
     assert claimed.task.status is AgentTaskStatus.CLAIMED
-    assert claimed.task.attempts == 1
     assert claimed.task.claimed_by_label == AGENT.display
     payload = claimed.payload
     assert payload["task_id"] == str(task.id)
@@ -150,7 +147,6 @@ def test_an_expired_lease_returns_the_task_to_the_queue(session: Session) -> Non
 
     assert second is not None
     assert second.task.id == task.id
-    assert second.task.attempts == 2
     assert second.task.claimed_by_id == OTHER_AGENT.id
 
 
@@ -287,18 +283,19 @@ def test_an_invalid_schema_keeps_the_task_claimed(session: Session) -> None:
     assert claimed.claim_id is not None
 
 
-def test_fail_requeues_then_gives_up(session: Session) -> None:
+def test_failure_can_be_retried_without_a_limit(session: Session) -> None:
     company = add_company(session)
     thread = add_thread(session, company)
-    task = add_task(session, thread, company=company, max_attempts=1)
-    claimed = agent_missions.claim(session, AGENT, types=[AgentTaskType.UPDATE_COMPANY], now=NOW)
-    assert claimed is not None
-
-    agent_missions.fail(
-        session, AGENT, claimed.task.id, claimed.claim_id, "not_found", "No source.", now=NOW
-    )
-
-    assert task.status is AgentTaskStatus.FAILED
+    task = add_task(session, thread, company=company)
+    for _ in range(5):
+        claimed = agent_missions.claim(
+            session, AGENT, types=[AgentTaskType.UPDATE_COMPANY], now=NOW
+        )
+        assert claimed is not None
+        agent_missions.fail(
+            session, AGENT, claimed.task.id, claimed.claim_id, "not_found", "No source.", now=NOW
+        )
+        assert task.status is AgentTaskStatus.PENDING
     assert task.failure_code == "not_found"
 
 

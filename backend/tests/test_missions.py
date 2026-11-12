@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Company, Mission, Prospect, ProspectSource
-from app.models.agent_missions import AgentTask
+from app.models.agent_missions import AgentTask, AgentTaskResult
 from app.models.audit import AuditLogEntry
 from app.models.enums import (
     MissionRunStatus,
@@ -581,6 +581,8 @@ def test_a_discovery_mission_finds_new_companies(client: TestClient, db_session:
                         "website_url": "https://logistique-y.fr",
                         "email_domain": "logistique-y.fr",
                         "size_label": "50-99 salariés",
+                        "commercial_segment": "Segment inconnu",
+                        "activity_categories": ["Catégorie inconnue"],
                         "confidence": 80,
                         "evidence": [
                             {
@@ -602,9 +604,22 @@ def test_a_discovery_mission_finds_new_companies(client: TestClient, db_session:
     )
     assert submitted["isError"] is False, submitted["structuredContent"]
     result_id = submitted["structuredContent"]["result_id"]
-    proposal = client.get(f"/api/agents/results/{result_id}").json()["proposal"]
+    review = client.get(f"/api/agents/results/{result_id}").json()
+    proposal = review["proposal"]
     assert len(proposal["items"]) == 1
-    assert proposal["refused"][0]["reason"] == "already_known"
+    assert {item["reason"] for item in proposal["refused"]} == {"unknown", "already_known"}
+    assert review["raw"]["companies"][0]["commercial_segment"] == "Segment inconnu"
+    assert db_session.scalar(select(Company).where(Company.display_name == "Logistique Y")) is None
+
+    # An older pending result can be rebuilt from its saved JSON without rerunning the agent.
+    stored = db_session.get(AgentTaskResult, uuid.UUID(result_id))
+    assert stored is not None
+    stored.proposal = {**stored.proposal, "items": []}
+    db_session.flush()
+    rebuilt = client.post(f"/api/agents/results/{result_id}/rebuild")
+    assert rebuilt.status_code == 200, rebuilt.text
+    assert len(rebuilt.json()["proposal"]["items"]) == 1
+    assert db_session.scalar(select(Company).where(Company.display_name == "Logistique Y")) is None
 
     accepted = client.post(f"/api/agents/results/{result_id}/accept", json={})
 
@@ -614,6 +629,100 @@ def test_a_discovery_mission_finds_new_companies(client: TestClient, db_session:
     assert created is not None
     assert created.siren == "732829320"
     assert created.website_url == "https://logistique-y.fr"
+
+
+def test_task_actions_form_one_review_without_writes_before_acceptance(
+    client: TestClient, db_session: Session
+) -> None:
+    existing = add_company(db_session, display_name="Société existante")
+    prospect = add_prospect(db_session, existing, first_name="Marie", last_name="Dupont")
+    create(
+        client,
+        name="Découverte",
+        kind=MissionType.PROSPECTION,
+        prompt="Cherche des entreprises",
+        result_kind="companies",
+        run_now=True,
+    )
+    token = mint(db_session)
+    claim = rpc(client, token, "viper_claim_task", {})["structuredContent"]
+    base = {"task_id": claim["task_id"], "claim_id": claim["claim_id"]}
+    action_id = str(uuid.uuid4())
+    add_args = {
+        **base,
+        "action_id": action_id,
+        "company_data": {
+            "display_name": "Nouvelle entreprise",
+            "confidence": 80,
+            "commercial_segment": "Segment inconnu",
+            "evidence": [{"field": "display_name", "source": "https://example.test"}],
+        },
+    }
+    first = rpc(client, token, "viper_add_company", add_args)
+    retry = rpc(client, token, "viper_add_company", add_args)
+    assert first["isError"] is False and retry["structuredContent"]["staged_count"] == 1
+    second = rpc(
+        client,
+        token,
+        "viper_add_company",
+        {
+            **add_args,
+            "action_id": str(uuid.uuid4()),
+            "company_data": {**add_args["company_data"], "display_name": "Autre entreprise"},
+        },
+    )
+    assert second["isError"] is False
+    bad_claim = rpc(client, token, "viper_add_company", {**add_args, "claim_id": str(uuid.uuid4())})
+    assert bad_claim["isError"] is True
+    released = rpc(client, token, "viper_release_task", base)
+    assert released["isError"] is False
+    resumed = rpc(client, token, "viper_claim_task", {})["structuredContent"]
+    assert len(resumed["staged_actions"]) == 2
+    base = {"task_id": resumed["task_id"], "claim_id": resumed["claim_id"]}
+    for name, target, data in [
+        (
+            "viper_update_company",
+            {"company_id": str(existing.id)},
+            {"legal_name": "Existante SAS", "confidence": 80},
+        ),
+        (
+            "viper_update_prospect",
+            {"prospect_id": str(prospect.id)},
+            {"exact_job_title": "Directrice", "confidence": 80},
+        ),
+    ]:
+        answer = rpc(
+            client, token, name, {**base, **target, "action_id": str(uuid.uuid4()), "result": data}
+        )
+        assert answer["isError"] is False, answer
+    submitted = rpc(client, token, "viper_submit_task_result", {**base, "result": {}})
+    assert submitted["isError"] is False, submitted
+    result_id = submitted["structuredContent"]["result_id"]
+    review = client.get(f"/api/agents/results/{result_id}").json()
+    assert len(review["raw"]["actions"]) == 4
+    assert len(review["proposal"]["items"]) == 4
+    assert review["proposal"]["refused"][0]["reason"] == "unknown"
+    db_session.expire_all()
+    assert (
+        db_session.scalar(select(Company).where(Company.display_name == "Nouvelle entreprise"))
+        is None
+    )
+    assert db_session.get(Company, existing.id).legal_name is None
+    assert db_session.get(Prospect, prospect.id).exact_job_title is None
+    selected = [
+        item["key"]
+        for item in review["proposal"]["items"]
+        if item["action_operation"] != "update_prospect"
+    ]
+    accepted = client.post(
+        f"/api/agents/results/{result_id}/accept", json={"accepted_items": selected}
+    )
+    assert accepted.status_code == 200, accepted.text
+    db_session.expire_all()
+    assert db_session.scalar(select(Company).where(Company.display_name == "Nouvelle entreprise"))
+    assert db_session.scalar(select(Company).where(Company.display_name == "Autre entreprise"))
+    assert db_session.get(Company, existing.id).legal_name == "Existante SAS"
+    assert db_session.get(Prospect, prospect.id).exact_job_title is None
 
 
 def test_a_discovery_with_a_contacts_expectation_is_refused(

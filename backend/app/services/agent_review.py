@@ -6,7 +6,7 @@ decided, and `source=agent` keeps the proposal's origin. Nothing is applied item
 transaction: either the accepted items are written, or none is.
 
 A rejection does not destroy the work: the result keeps `raw` and the reason, and the task returns
-to the queue while attempts remain.
+to the queue for further work.
 """
 
 import logging
@@ -108,6 +108,34 @@ def _subject(task: AgentTask) -> tuple[str, uuid.UUID] | None:
     return None
 
 
+def rebuild(session: Session, actor: ActorContext, result_id: uuid.UUID) -> AgentTaskResult:
+    """Re-evaluate a pending discovery using its preserved submission, without applying it."""
+    from app.services.agent_payloads import build_proposal
+
+    result, task = _locked(session, result_id)
+    if task.type is not AgentTaskType.FIND_PROSPECTS or "actions" in result.raw:
+        raise InvalidFieldError(
+            "result", "Only discovery submissions can be recalculated.", "unsupported"
+        )
+    result.proposal = build_proposal(session, task, result.raw)
+    session.flush()
+    logger.info(
+        "agent discovery rebuilt: result=%s items=%d refused=%d",
+        result.id,
+        len(result.proposal["items"]),
+        len(result.proposal["refused"]),
+    )
+    audit.record_event(
+        session,
+        actor,
+        audit.AuditAction.AGENT_TASK_RESULT_REBUILT,
+        entity_type="agent_task_result",
+        entity_id=result.id,
+        subject=_subject(task),
+    )
+    return result
+
+
 def _establishment(site: EstablishmentView) -> EstablishmentInput:
     return EstablishmentInput(
         id=site.id,
@@ -207,9 +235,7 @@ def _employee_form(prospect: Prospect, items: Sequence[dict[str, Any]]) -> Prosp
         first_name=values.get("first_name", prospect.first_name),
         last_name=values.get("last_name", prospect.last_name),
         company_id=prospect.company_id,
-        civility=(
-            Civility(str(values["civility"])) if "civility" in values else prospect.civility
-        ),
+        civility=(Civility(str(values["civility"])) if "civility" in values else prospect.civility),
         role_id=uuid.UUID(str(values["role"])) if "role" in values else prospect.role_id,
         exact_job_title=values.get("exact_job_title", prospect.exact_job_title),
         activity_status=(
@@ -265,9 +291,7 @@ def _apply_find_employees(
             else:
                 role_label = str(store["role"])
         emails = (
-            [
-                ChannelItem(value=str(store["email"]), is_primary=True, verified_now=True)
-            ]
+            [ChannelItem(value=str(store["email"]), is_primary=True, verified_now=True)]
             if store.get("email")
             else []
         )
@@ -296,9 +320,7 @@ def _apply_find_employees(
                 if store.get("activity_status")
                 else ActivityStatus.UNKNOWN
             ),
-            employment_verification=EmploymentVerification(
-                action=VerificationAction.VERIFIED_NOW
-            ),
+            employment_verification=EmploymentVerification(action=VerificationAction.VERIFIED_NOW),
             emails=emails,
             phones=phones,
         )
@@ -498,19 +520,25 @@ def accept(
     if not selected:
         raise InvalidFieldError("accepted_items", "Nothing to accept.", "empty")
     applied: dict[str, Any] = {}
-    match task.type:
-        case AgentTaskType.UPDATE_COMPANY:
-            applied = _apply_company(session, actor, task, selected)
-        case AgentTaskType.UPDATE_EMPLOYEE:
-            applied = _apply_employee(session, actor, task, selected)
-        case AgentTaskType.FIND_EMPLOYEES:
-            applied = _apply_find_employees(session, actor, task, selected)
-        case AgentTaskType.FIND_PROSPECTS:
-            applied = _apply_find_prospects(session, actor, selected, result.id)
-        case AgentTaskType.SURVEIL_SIGNALS:
-            applied = _apply_signals(session, actor, task, selected, result.id)
-        case _:
-            raise InvalidFieldError("task", "No apply path for this task type.", "unsupported")
+    if result.proposal.get("kind") == "actions":
+        applied_groups = []
+        for group_id in dict.fromkeys(item["action_group"] for item in selected):
+            group = [item for item in selected if item["action_group"] == group_id]
+            operation = group[0]["action_operation"]
+            target = group[0]["action_target"]
+            if operation == "add_company":
+                applied_groups.append(_apply_find_prospects(session, actor, group, result.id))
+            elif operation == "update_company":
+                virtual = AgentTask(company_id=uuid.UUID(target))
+                applied_groups.append(_apply_company(session, actor, virtual, group))
+            elif operation == "update_prospect":
+                virtual = AgentTask(prospect_id=uuid.UUID(target))
+                applied_groups.append(_apply_employee(session, actor, virtual, group))
+            else:
+                raise InvalidFieldError("operation", "Unknown staged operation.", "unsupported")
+        applied = {"actions": applied_groups}
+    else:
+        applied = _apply_task(session, actor, task, selected, result.id)
     moment = datetime.now(UTC)
     result.status = AgentResultStatus.ACCEPTED
     result.decided_at = moment
@@ -536,10 +564,33 @@ def accept(
     return result
 
 
+def _apply_task(
+    session: Session,
+    actor: ActorContext,
+    task: AgentTask,
+    selected: list[dict[str, Any]],
+    result_id: uuid.UUID,
+) -> dict[str, Any]:
+    match task.type:
+        case AgentTaskType.UPDATE_COMPANY:
+            applied = _apply_company(session, actor, task, selected)
+        case AgentTaskType.UPDATE_EMPLOYEE:
+            applied = _apply_employee(session, actor, task, selected)
+        case AgentTaskType.FIND_EMPLOYEES:
+            applied = _apply_find_employees(session, actor, task, selected)
+        case AgentTaskType.FIND_PROSPECTS:
+            applied = _apply_find_prospects(session, actor, selected, result_id)
+        case AgentTaskType.SURVEIL_SIGNALS:
+            applied = _apply_signals(session, actor, task, selected, result_id)
+        case _:
+            raise InvalidFieldError("task", "No apply path for this task type.", "unsupported")
+    return applied
+
+
 def reject(
     session: Session, actor: ActorContext, result_id: uuid.UUID, reason: str
 ) -> AgentTaskResult:
-    """Refuse the proposal; the task goes back to the queue while attempts remain."""
+    """Refuse the proposal and return the task to the queue."""
     if not reason.strip():
         raise InvalidFieldError("reason", "A reason is required.", "empty")
     result, task = _locked(session, result_id)
@@ -550,12 +601,9 @@ def reject(
     result.decided_by_display = actor.display
     result.decision_note = reason.strip()
     session.flush()
-    if task.attempts < task.max_attempts:
-        task.status = AgentTaskStatus.PENDING
-    else:
-        task.status = AgentTaskStatus.FAILED
-        task.failure_code = "rejected"
-        task.failure_message = reason.strip()
+    task.status = AgentTaskStatus.PENDING
+    task.failure_code = "rejected"
+    task.failure_message = reason.strip()
     session.flush()
     audit.record_event(
         session,
