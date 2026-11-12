@@ -4,7 +4,7 @@
 `[ ]` not started · `[~]` in progress · `[x]` complete · `[-]` deferred with rationale
 
 - [x] **00** `00-project-manager` — readiness audit, reconciliation and dispatch plan
-- [ ] **01** `01-telemetry-contract` — canonical session/log/research-report contract
+- [x] **01** `01-telemetry-contract` — canonical session/log/research-report contract
 - [ ] **02** `02-agent-evidence-contract` — per-item confidence and source date metadata
 - [ ] **03** `03-session-log-persistence` — migration, models, lifecycle and timeout persistence
 - [ ] **04** `04-mcp-session-logging` — MCP tools, auto-session integration, agent guidance and traces

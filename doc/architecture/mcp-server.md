@@ -218,6 +218,12 @@ them). No SQL in the handlers, no generic query tool, nothing writes.
   unknown id comes back as `isError: true` with the domain code (`invalid`/`format`, `not_found`),
   and is kept in « Historique des appels » like any call.
 
+**Telemetry tools (contract, Slice 04).** Three further task-side tools are specified in
+[`mission-telemetry.md`](mission-telemetry.md) §11: `viper_log_mission_activity` (factual activity log, own
+session only), and the optional `viper_end_mission_session` and `viper_get_mission_session`. The session
+itself is opened automatically by `viper_claim_task` and touched by `viper_heartbeat_task`; there is no
+register or log-off tool, and none of these changes the 15-minute lease. No tool reads other agents' logs.
+
 ### 3.10 Mission actions (shipped)
 
 What an assistant does with a mission for the person it acts for. Code:

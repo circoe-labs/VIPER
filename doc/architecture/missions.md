@@ -145,6 +145,16 @@ review shows it as such.
 Results keep their existing surface (`/api/agents/results/{id}`, accept/reject): a mission task is
 reviewed exactly like a legacy one.
 
+## 7b. Supervision and telemetry
+
+A run also has **agent sessions** and an append-only **activity log** (who works on it, what was
+searched, opened, observed, verified), opened automatically when an agent claims a mission task and
+closed after 3 hours without activity. This is observation only: it never changes tasks, leases or
+results, and a result is still accepted by a person. Contract, read routes
+(`/api/missions/{id}/sessions`, `/activity`, …) and the factual research-report policy:
+[`mission-telemetry.md`](mission-telemetry.md). *Contract only so far; persistence, tools and routes
+follow in later slices.*
+
 ## 8. Phases
 
 1. **Shipped** — model, API, page, modal, linked data, enrichment/verification runs, agent

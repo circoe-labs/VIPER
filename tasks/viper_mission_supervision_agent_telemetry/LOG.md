@@ -20,3 +20,18 @@ Reserved for implementation agents. Record durable execution notes, deviations, 
 **State: `HUMAN_DECISION_REQUIRED`** — need the Task Type vocabulary (or explicit waiver) before dispatching Slice 01.
 
 **Human decision (2026-11-12):** Task Types waived ("on s en branle du TaskType"). State -> READY. Dispatch order: 01 -> 02,03 -> 04 -> 05 -> 06 -> 07,08,09 -> 10.
+
+## Slice 01 — telemetry contract (2026-11-12)
+
+Doc only. New canonical contract `doc/architecture/mission-telemetry.md`; links added in `missions.md` (§7b), `agent-missions.md` (§8 + open question 3), `mcp-server.md` (§3.7).
+
+Decisions:
+- **Sweep:** `MissionScheduler.run_once` calls `mission_telemetry.sweep_timed_out` after `run_due`, same transaction. `agent_missions.sweep_expired` and the 15-min lease untouched. Timeout = `ended_at = last_seen_at + 3h`, `timed_out` / `inactivity_timeout`, one `warning` log, audit `mission_agent_session.timed_out`.
+- **Auto-open:** get-or-open in claim's transaction (partial unique index `(run_id, agent_id) WHERE status='active'`); touch on claim/heartbeat/log/submit/fail/release; touch after end/timeout opens a new session. No register/log-off.
+- **Read policy:** org users see all agents' sessions/logs of the mission by default (filters available); MCP agents write own-session only (derived from task_id+claim_id) and have no cross-agent read.
+- **Pagination:** activity = cursor (`before`, `next_cursor`, UUIDv7, like `history`); sessions/results = limit/offset with `total`.
+- **MCP tools:** `viper_log_mission_activity`, optional `viper_end_mission_session`, `viper_get_mission_session`.
+- **Evidence:** nullable `confidence` (int 0-100), `source_published_at`, `source_checked_at`, copied onto proposal items.
+- Sessions/logs carry no `organization_id` (inherited via mission). Migration number = next after head at implementation time (0038 today).
+
+Unresolved / for later slices: no time-based retention purge (deferred); append-only trigger must allow cascade delete from mission deletion (Slice 03 to design); `run_finished` / `mission_cancelled` session ends need hooks in `refresh_run` / `set_status`.
