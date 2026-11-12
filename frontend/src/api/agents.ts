@@ -174,7 +174,8 @@ export function useResult(id: string | null) {
 }
 
 function refreshAgents(queryClient: ReturnType<typeof useQueryClient>) {
-  return refreshAfterWrite(queryClient, [['agents']])
+  // 'missions': a decision changes the mission's result queue, counts and overview.
+  return refreshAfterWrite(queryClient, [['agents'], ['missions']])
 }
 
 export function useAcceptResult(id: string) {

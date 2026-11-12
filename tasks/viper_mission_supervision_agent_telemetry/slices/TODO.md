@@ -11,7 +11,7 @@
 - [x] **05** `05-mission-supervision-api` — overview/activity/results/statistics read APIs
 - [x] **06** `06-mission-tabs-overview` — tabbed Mission shell and compact Overview feedback
 - [x] **07** `07-activity-tab` — live/recent agent activity UX
-- [ ] **08** `08-results-review-ux` — result cards + redesigned review dialog + reject-on-demand
+- [x] **08** `08-results-review-ux` — result cards + redesigned review dialog + reject-on-demand
 - [x] **09** `09-statistics-tab` — activity/result metrics and chronological charts
 - [ ] **10** `10-integration-hardening` — E2E, concurrency, accessibility, documentation and final QA
 
