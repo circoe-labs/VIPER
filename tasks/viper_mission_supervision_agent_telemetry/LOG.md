@@ -99,3 +99,104 @@ Findings (agent-trace checklist: calls, errors, unnecessary calls, guidance, cos
 - Guidance cost: the `telemetry` block adds about 1.3 KB (~350 tokens) to each mission claim, one-off per task. Acceptable; could be shortened by dropping the per-type descriptions (the tool schema already lists the enum) if claim size becomes an issue.
 - Guidance gap noted, not fixed: after submit, a late log is refused with `conflict` "The claim is lost: this task is no longer yours" (generic `_claimed` message). Correct and non-fatal, but a more specific message would help; left as is to keep `_claimed` semantics unchanged. `heartbeat_every_seconds: 300` (payload) vs 15-min lease is pre-existing.
 - A real LLM agent was not run (no model in this environment): the trace scripts the calls an agent following the guidance would make. Compliance with "facts only, French, one per source" must still be reviewed on a real agent run (Slice 10).
+
+
+## Slice 05 — mission supervision read APIs (2026-11-12)
+
+Implements `mission-telemetry.md` §8. Frontend: Slices 06-09 code against the endpoints and the TypeScript types/hooks below (`frontend/src/api/missions.ts`, "Mission supervision" block; no UI).
+
+**Code.** `backend/app/api/routes/mission_supervision.py` (router, Pydantic models, registered in `router.py`), `backend/app/services/mission_supervision.py` (overview / results / statistics; activity and sessions reuse `mission_telemetry.list_logs` / `list_sessions` from S3). No migration: the S3 indexes (`(mission_id, created_at DESC, id DESC)` on logs, `(mission_id, started_at)` on sessions) and the existing `agent_task_results.task_id` / `agent_tasks.run_id` indexes cover every query; `0039` was not needed.
+
+**Rules common to all routes.** `GET` only, read-only (a test asserts no `last_seen_at` moves), signed-in session (401 otherwise). Organization scope: the mission must belong to the viewer's organization (`mission_supervision.visible_mission`), else `404 {"detail":{"code":"not_found"}}` (same answer as an unknown id). Same access level as the other mission routes (any signed-in member; the existing routes have no per-capability gate). Superadmin gets no cross-organization bypass here. Bad enum/limit/offset -> FastAPI `422`; bad `before` cursor and `days` out of range -> `422 {"code":"invalid","field":...}`. `GET /api/missions/{id}` is unchanged.
+
+### Endpoint list
+
+| Route | Query params | Pagination |
+|---|---|---|
+| `GET /api/missions/{id}/overview` | none | none |
+| `GET /api/missions/{id}/sessions` | `run_id`, `status` (repeat: `active`,`ended`,`timed_out`), `agent_id`, `limit` 1-100 (25), `offset` >=0 | offset + `total` |
+| `GET /api/missions/{id}/activity` | `run_id`, `session_id`, `agent_id`, `task_id`, `event_type` (repeat, 8 closed types), `since` (datetime), `before` (log id), `limit` 1-100 (50) | cursor `next_cursor`, newest first |
+| `GET /api/missions/{id}/results` | `status` (repeat: `pending_review`,`accepted`,`rejected`,`superseded`), `agent_id`, `run_id`, `limit` 1-100 (25), `offset` >=0 | offset + `total`, `submitted_at` desc |
+| `GET /api/missions/{id}/statistics` | `bucket` `day`\|`hour` (day), `days` 1-90 (14; max 7 with `hour`) | none |
+
+The full result payload for the review dialog stays on the existing review endpoint (`result.id` is the key). Mission-wide results = results of tasks that belong to a run of the mission (tool-mode results without a run are never included).
+
+**overview**
+```json
+{
+  "mission_id": "0193...", "name": "Compléter les fiches", "status": "active", "next_run_at": null,
+  "current_run": {"id": "0193...", "status": "running", "scheduled_at": "2026-11-10T09:00:00Z",
+    "started_at": "2026-11-10T09:00:01Z", "finished_at": null, "tasks_total": 4, "results_count": 3},
+  "active_sessions": 1, "active_agents": 1,
+  "agents": [{"agent_id": "5f2c...", "agent_label": "Agent claude-01", "session_id": "0193...",
+    "run_id": "0193...", "started_at": "2026-11-10T09:30:00Z", "last_seen_at": "2026-11-10T13:30:00Z"}],
+  "last_activity_at": "2026-11-11T09:30:00Z",
+  "tasks": {"total": 4, "finished": 3, "by_status": {"pending": 0, "claimed": 0, "submitted": 1, "accepted": 2, "failed": 1, "cancelled": 0}},
+  "pending_reviews": 1,
+  "warnings": [{"code": "sessions_timed_out", "message": "Des sessions d'agent ont expiré (3 h d'inactivité) dans la dernière exécution.", "count": 1}]
+}
+```
+`current_run` = latest run by `scheduled_at` (null before the first run); `tasks.finished` = accepted + failed + cancelled (progress = finished / total). `last_activity_at` = max(session `last_seen_at`, newest log, newest result submission), null if none. `warnings[].code` in `sessions_timed_out` (timed-out sessions of the latest run), `tasks_failed` (failed tasks of the latest run), `no_active_agent` (run running, tasks waiting, no active session; count 0). Empty mission: zeros, `current_run: null`, `agents: []`, `warnings: []`, `last_activity_at: null`.
+
+**sessions**
+```json
+{"items": [{"id": "0193...", "run_id": "0193...", "agent_id": "5f2c...", "agent_label": "Agent claude-01",
+  "status": "timed_out", "started_at": "2026-11-10T09:30:00Z", "last_seen_at": "2026-11-10T10:00:00Z",
+  "ended_at": "2026-11-10T13:00:00Z", "disconnect_reason": "inactivity_timeout", "logs_count": 12}],
+ "total": 2, "limit": 25, "offset": 0}
+```
+`disconnect_reason`: null while active, else `agent_ended`, `run_finished`, `mission_cancelled`, `inactivity_timeout`.
+
+**activity** (poll the first page, merge by `id`; older page = `before=<next_cursor>`)
+```json
+{"items": [{"id": "0193...", "session_id": "0193...", "run_id": "0193...", "task_id": "0193...",
+  "agent_id": "5f2c...", "agent_label": "Agent claude-01", "session_status": "active",
+  "event_type": "verification", "message": "SIREN confirmé sur le registre.",
+  "source_url": "https://exemple.fr/a-propos", "source_published_at": null,
+  "created_at": "2026-11-10T09:31:00Z", "metadata": {"field": "siren", "outcome": "confirmed"}}],
+ "next_cursor": "0193..."}
+```
+`next_cursor` is null on the last page. `task_id` is null for the timeout warning and for logs of a deleted task.
+
+**results**
+```json
+{"items": [{"id": "0193...", "task_id": "0193...", "run_id": "0193...", "task_type": "update_company",
+  "status": "pending_review", "agent_id": "5f2c...", "agent_label": "Agent claude-01",
+  "subject_label": "2SN", "summary": "Société confirmée sur deux sources.", "confidence": 88,
+  "items_count": 4, "refused_count": 1, "sources_count": 2,
+  "submitted_at": "2026-11-10T09:30:00Z", "decided_at": null, "decided_by": null}],
+ "total": 3, "limit": 25, "offset": 0,
+ "status_counts": {"pending_review": 1, "accepted": 1, "rejected": 1, "superseded": 0}}
+```
+`summary` = the agent's `notes` of the proposal (<= 280 chars, `…` when cut), null if none. `confidence` = the proposal's global confidence, falling back to the raw payload's, else null. `items_count`/`refused_count` = lengths of the proposal's `items`/`refused`; `sources_count` = distinct non-empty item `source` values. A historical result (before S2 evidence fields, or a staged-actions proposal) is read defensively: missing or malformed data gives null / 0, nothing is invented. `status_counts` ignores the `status` filter (tab badges) but honours `agent_id` and `run_id`.
+
+**statistics** (`?bucket=day&days=14`)
+```json
+{"bucket": "day", "days": 14, "since": "2026-10-29T00:00:00Z", "until": "2026-11-12T10:00:00Z",
+ "results_by_status": {"pending_review": 1, "accepted": 1, "rejected": 1, "superseded": 0},
+ "tasks_by_status": {"pending": 0, "claimed": 0, "submitted": 1, "accepted": 2, "failed": 0, "cancelled": 0},
+ "sessions_by_status": {"active": 2, "ended": 0, "timed_out": 0},
+ "logs_by_event_type": {"search": 1, "source_opened": 1, "observation": 0, "verification": 0, "progress": 0, "warning": 1, "error": 0, "decision_summary": 0},
+ "results_series": [{"bucket": "2026-11-10T00:00:00Z", "pending_review": 0, "accepted": 1, "rejected": 1, "superseded": 0}],
+ "sessions_series": [{"bucket": "2026-11-10T00:00:00Z", "count": 2}],
+ "logs_series": [{"bucket": "2026-11-10T00:00:00Z", "count": 3}],
+ "decided_count": 2, "acceptance_rate": 0.5, "avg_review_seconds": 1200.0,
+ "agents": [{"agent_id": "5f2c...", "agent_label": "Agent claude-01", "sessions": 1, "logs": 2, "results": 2, "accepted": 1, "rejected": 0, "pending_review": 1}]}
+```
+Totals (`*_by_status`, `logs_by_event_type`, `decided_count`, rates, `agents`) cover the whole mission; the three `*_series` cover the window and are zero-filled (one point per bucket, UTC boundaries; results by `submitted_at`, sessions by `started_at`, logs by `created_at`). `acceptance_rate` = accepted / (accepted + rejected), `avg_review_seconds` = mean(`decided_at` - `submitted_at`) of decided results; both null until a result is decided. Aggregation is SQL (`GROUP BY` + `date_trunc`); `agents` merges three grouped queries by `agent_id`, ordered by label.
+
+### Run-finished caveat (S3) fixed
+`run_finished` session ending only ran inside `refresh_run`, i.e. when the mission card was read. New `missions.refresh_open_runs` (locks `running` runs `SKIP LOCKED`, max 200, reuses `refresh_run` as the single derivation rule) is now called by `MissionScheduler.run_once` before the timeout sweep, same transaction: a run whose last task was reviewed/failed/cancelled turns `done` and ends its sessions within one scheduler pass (60 s) even if nobody opens the page. Contract unchanged (`run_finished`, system actor, audited).
+
+### Tests and gates
+- `backend/tests/test_mission_supervision.py` (27): 401 on all 5 routes; 404 on a foreign-organization mission and unknown id for all 5 routes; existing detail shape untouched; empty mission (zeros/nulls, empty series values); overview live state / progress / warnings / no-active-agent; overview query-count ceiling; sessions pagination + filters + `logs_count`; activity cursor + all filters + 422 on bad type/cursor; reads never touch a session; result cards (summary, confidence, counts, agent, decision); results pagination, filters, `status_counts`; no leak of other missions' or tool-mode results; historical/odd proposals read as unknown; summary truncation; statistics aggregates with seeded data (by-status, series, acceptance rate, average review time, per-agent); hourly buckets and bounds (422); scheduler pass ends sessions of a finished run.
+- DB `viper_s5_test`. Targeted run (supervision, telemetry, missions, mission_stop, agent_missions, mcp, mcp_telemetry, mcp_missions, agent_review, audit, migrations): all pass except the 3 known pre-existing warehouse failures (`test_every_table_is_either_audited_or_explicitly_not`, `test_every_table_with_updated_at_has_the_trigger`, `test_every_foreign_key_is_covered_by_a_full_index`).
+- `ruff check` / `ruff format --check` clean on touched files; `mypy app`: only the pre-existing `warehouse_dispatch` error. `npm run typecheck` clean (the pre-existing `missions.ts` is not prettier-clean at HEAD, so the new block was appended without reformatting the file).
+
+### Deviations / risks
+- `activity` of the slice text = the contract's two routes: sessions list is `/sessions`, logs are `/activity` (as `mission-telemetry.md` §8).
+- No per-capability role check (consistent with existing mission routes, which only require a session); organization check is strict even for the superadmin.
+- `last_activity_at` and `no_active_agent` treat session `last_seen_at`, logs and result submissions as "activity"; heartbeats show through `last_seen_at`.
+- Results `agent_id` filter matches `submitted_by_id` (the MCP token id as a string); results from before token ids were recorded (null) cannot be filtered by agent.
+- `results` summary is the proposal `notes` (the agent's research report text); there is no separate summary column.
+- Statistics series use UTC day boundaries; the UI shows local time, so a day bucket can differ from the user's local day.

@@ -56,6 +56,9 @@ class MissionScheduler:
         """One pass, committed when it returns: the unit the tests and the loop share."""
         with unit_of_work(self._session_factory) as session:
             started = [run.id for run in missions.run_due(session, now=now)]
+            # A run whose last task was reviewed ends its sessions here, not only when the mission
+            # card is read (`run_finished`, mission-telemetry.md §3.4).
+            missions.refresh_open_runs(session)
             # Housekeeping of the same pass and transaction (mission-telemetry.md §4): agent
             # sessions silent for 3 h time out. Never touches a task or a lease.
             mission_telemetry.sweep_timed_out(session, now)

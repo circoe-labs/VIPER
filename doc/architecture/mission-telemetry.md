@@ -6,7 +6,7 @@
 > `end_run_sessions`, `sweep_timed_out`, `append_log`, `list_logs`, `list_sessions`),
 > `agent_missions.log_activity`, balayage dans `MissionScheduler.run_once`. **Outils MCP livrés (Slice 04)** :
 > `app/api/mcp_telemetry.py`, limite de 120 écritures/min/jeton (`check_log_rate`), consignes
-> `telemetry` dans la charge utile du claim. Reste à faire : les routes de lecture (Slice 05). Ce document est la **source canonique** ; en cas de divergence
+> `telemetry` dans la charge utile du claim. **Routes de lecture livrées (Slice 05)** : `app/api/routes/mission_supervision.py`, service `app/services/mission_supervision.py`, exemples JSON dans le `LOG.md` du handoff. Ce document est la **source canonique** ; en cas de divergence
 > avec les fiches de la tâche, il prévaut. Documentation technique en anglais, vocabulaire produit
 > en français (comme les documents frères).
 
@@ -364,6 +364,7 @@ it uses the cursor form; offset would skip or repeat rows as new ones arrive.
 | `GET /api/missions/{id}/results` | review queue cards | `limit`/`offset`, `{items, total, limit, offset}` (Slice 05) |
 | `GET /api/missions/{id}/statistics` | aggregate counters and time buckets | none |
 
+- `overview` and `results` shapes (Slice 05): `overview` = status, latest run, `active_sessions`/`active_agents` + live `agents`, `last_activity_at`, `tasks{total,finished,by_status}`, `pending_reviews`, `warnings[]` (`sessions_timed_out`, `tasks_failed`, `no_active_agent`); `results` cards = summary (proposal notes), global `confidence`, `items_count`, `refused_count`, `sources_count`, status, agent, dates, plus `status_counts`; `statistics` takes `bucket=day|hour` and `days` (1–90, 7 max hourly). A run that finished ends its sessions in the scheduler pass (`missions.refresh_open_runs`), not only when the card is read.
 - **Live refresh.** A client polls the first page of `activity` (no `before`) and merges by `id`;
   no websocket is introduced.
 - An activity item carries the log fields of §5.1 plus `agent_label` and `session_status`, so the UI

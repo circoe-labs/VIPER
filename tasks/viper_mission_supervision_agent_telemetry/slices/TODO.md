@@ -8,7 +8,7 @@
 - [x] **02** `02-agent-evidence-contract` — per-item confidence and source date metadata
 - [x] **03** `03-session-log-persistence` — migration, models, lifecycle and timeout persistence
 - [x] **04** `04-mcp-session-logging` — MCP tools, auto-session integration, agent guidance and traces
-- [ ] **05** `05-mission-supervision-api` — overview/activity/results/statistics read APIs
+- [x] **05** `05-mission-supervision-api` — overview/activity/results/statistics read APIs
 - [ ] **06** `06-mission-tabs-overview` — tabbed Mission shell and compact Overview feedback
 - [ ] **07** `07-activity-tab` — live/recent agent activity UX
 - [ ] **08** `08-results-review-ux` — result cards + redesigned review dialog + reject-on-demand

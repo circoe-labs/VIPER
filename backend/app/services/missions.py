@@ -743,6 +743,26 @@ def refresh_run(session: Session, run: MissionRun) -> MissionRun:
     return run
 
 
+def refresh_open_runs(session: Session, *, limit: int = 200) -> int:
+    """Settle the runs still `running`: a run whose last task was reviewed, failed or cancelled
+    becomes `done` and ends its agents' sessions (`run_finished`) without waiting for someone
+    to open the mission card. Called by the scheduler pass; `refresh_run` stays the one rule.
+    Returns how many runs changed status."""
+    runs = session.scalars(
+        select(MissionRun)
+        .where(MissionRun.status == MissionRunStatus.RUNNING)
+        .order_by(MissionRun.scheduled_at)
+        .limit(limit)
+        .with_for_update(skip_locked=True)
+    ).all()
+    settled = 0
+    for run in runs:
+        refresh_run(session, run)
+        if run.status is not MissionRunStatus.RUNNING:
+            settled += 1
+    return settled
+
+
 def idle_summary(session: Session, *, limit: int = 10) -> list[dict[str, Any]]:
     """Why an agent finds nothing to claim: the open missions, their state and next run.
 

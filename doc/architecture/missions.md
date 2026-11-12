@@ -152,8 +152,8 @@ searched, opened, observed, verified), opened automatically when an agent claims
 closed after 3 hours without activity. This is observation only: it never changes tasks, leases or
 results, and a result is still accepted by a person. Contract, read routes
 (`/api/missions/{id}/sessions`, `/activity`, …) and the factual research-report policy:
-[`mission-telemetry.md`](mission-telemetry.md). *Contract only so far; persistence, tools and routes
-follow in later slices.*
+[`mission-telemetry.md`](mission-telemetry.md). *Persistence, MCP tools and the read routes
+(overview, sessions, activity, results, statistics) are shipped; the Mission page tabs follow.*
 
 ## 8. Phases
 
