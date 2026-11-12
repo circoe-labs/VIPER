@@ -166,6 +166,15 @@ the token and turns the whole Toolbox integration off (its workers stop).
    reader's grants (the console answers « Table non accessible » until then; it never exposes more).
 4. Start the process, check `/api/health`, sign in.
 
+**Release with mission supervision (migration `0038`).** It adds `mission_agent_sessions` and the append-only
+`mission_agent_logs` (a trigger refuses UPDATE/TRUNCATE; only the cascade of a deleted mission passes). The migration
+is additive and reversible; run `provision-sql-reader` as usual (the two tables are withheld from the console anyway).
+Agent sessions time out and finished runs settle in the mission scheduler pass **inside the API process**: if the
+process is down or the scheduler is disabled, sessions stay « En cours » until the next pass and nothing else breaks.
+Logs and sessions have no retention purge yet (rows grow with agent activity; bounded by 120 logs/min/token). After
+deploying, check one real mission: claim with a test agent, see the session in the Activité tab, send nothing for 3 h
+(or trust the automated timeout tests).
+
 Provisioning serializes itself across the cluster (an advisory lock in the `postgres` database, I-151); it needs
 that database to accept connections from the application role, else it locks in the VIPER database only.
 

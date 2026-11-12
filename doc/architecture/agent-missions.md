@@ -564,8 +564,8 @@ log writes / submit / fail / release *touch* it (`last_seen_at`). There is no re
 call. The session times out after **3 hours** without activity; this is independent of the
 **15-minute lease**, which keeps its exact semantics (`sweep_expired`, heartbeat, claim). Factual
 activity logs are written with `viper_log_mission_activity` (the claim payload carries `telemetry` guidance; 120 logs/min/token). Full contract:
-[`mission-telemetry.md`](mission-telemetry.md). Results' evidence will also carry per-item
-`confidence`, `source_published_at` and `source_checked_at` (`mission-telemetry.md` §9).
+[`mission-telemetry.md`](mission-telemetry.md). Results' evidence also carries per-item
+`confidence`, `source_published_at` and `source_checked_at` (shipped, Slice 02; `mission-telemetry.md` §9).
 
 ## 9. REST surface (human side)
 

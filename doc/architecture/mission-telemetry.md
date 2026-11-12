@@ -6,7 +6,8 @@
 > `end_run_sessions`, `sweep_timed_out`, `append_log`, `list_logs`, `list_sessions`),
 > `agent_missions.log_activity`, balayage dans `MissionScheduler.run_once`. **Outils MCP livrés (Slice 04)** :
 > `app/api/mcp_telemetry.py`, limite de 120 écritures/min/jeton (`check_log_rate`), consignes
-> `telemetry` dans la charge utile du claim. **Routes de lecture livrées (Slice 05)** : `app/api/routes/mission_supervision.py`, service `app/services/mission_supervision.py`, exemples JSON dans le `LOG.md` du handoff. Ce document est la **source canonique** ; en cas de divergence
+> `telemetry` dans la charge utile du claim. **Interface livrée (Slices 06-09, intégrée en Slice 10)** : page Mission à
+> onglets (§13). **Routes de lecture livrées (Slice 05)** : `app/api/routes/mission_supervision.py`, service `app/services/mission_supervision.py`, exemples JSON dans le `LOG.md` du handoff. Ce document est la **source canonique** ; en cas de divergence
 > avec les fiches de la tâche, il prévaut. Documentation technique en anglais, vocabulaire produit
 > en français (comme les documents frères).
 
@@ -456,3 +457,32 @@ writes). Tool descriptions follow §6 and §10.
 - 04: the three tools of §11, schema and description conformance (§6), auto-session through the
   claim, rate limit, agent guidance and a real agent trace.
 - 05: the routes and pagination shapes of §8.
+
+
+## 13. Shipped behaviour for operators (Slices 06-10)
+
+What a person sees and what to expect (validated end to end by `frontend/e2e/mission-supervision.spec.ts`
+and `backend/tests/test_mission_supervision_hardening.py`):
+
+- **Sessions.** One card per agent and run: *En cours*, *Terminée* (the agent ended it, the run
+  finished or the mission was cancelled) or *Expirée*. An *Expirée* card says so in words: no activity
+  for 3 hours, the agent was disconnected before finishing. The task itself is **not** touched by the
+  timeout: its 15-minute lease follows its own rules (`agent_missions.sweep_expired`), so a silent
+  agent loses the task to the lease long before its session times out, and a returning agent opens a
+  new session (the old row stays).
+- **Timing.** The timeout and the settling of a finished run run in the scheduler pass (every 60 s)
+  inside the API process; nobody has to open the page. A session therefore shows as expired within
+  about a minute after `last_seen_at + 3 h`, and `ended_at` is exactly `last_seen_at + 3 h`.
+- **Concurrency.** Several agents on one run each get their own session; however many tasks one agent
+  holds, it has one active session per run (partial unique index, `INSERT .. ON CONFLICT`). Two agents
+  never get the same task (`FOR UPDATE SKIP LOCKED`).
+- **Log content is business data.** Messages and URLs are stored and shown, never written to the
+  application log or echoed in a refusal (conformance test). They also appear, shortened, in « Historique
+  des appels » (MCP call history), which is organization-scoped.
+- **SQL console.** `mission_agent_sessions` and `mission_agent_logs` are withheld from the SQL
+  explorer (default deny, `explorer/policy.py`), like `mission_runs`.
+- **Statistics.** Day buckets are UTC (the page says so); the previous figures stay on screen while a
+  new range loads (« Mise à jour des chiffres… »).
+- **Known limits.** No retention purge of sessions/logs (§7.3 deferred). The agent claim queue is not
+  organization-scoped (pre-existing, see the task `Issues/`). A real model's compliance with the logging
+  guidance is not machine-verifiable and needs a human review of real runs.

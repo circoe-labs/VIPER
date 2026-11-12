@@ -13,7 +13,7 @@
 - [x] **07** `07-activity-tab` — live/recent agent activity UX
 - [x] **08** `08-results-review-ux` — result cards + redesigned review dialog + reject-on-demand
 - [x] **09** `09-statistics-tab` — activity/result metrics and chronological charts
-- [ ] **10** `10-integration-hardening` — E2E, concurrency, accessibility, documentation and final QA
+- [x] **10** `10-integration-hardening` — E2E, concurrency, accessibility, documentation and final QA
 
 ## Dependency graph
 - 00 gates everything.

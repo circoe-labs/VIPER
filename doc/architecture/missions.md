@@ -152,8 +152,19 @@ searched, opened, observed, verified), opened automatically when an agent claims
 closed after 3 hours without activity. This is observation only: it never changes tasks, leases or
 results, and a result is still accepted by a person. Contract, read routes
 (`/api/missions/{id}/sessions`, `/activity`, …) and the factual research-report policy:
-[`mission-telemetry.md`](mission-telemetry.md). *Persistence, MCP tools and the read routes
-(overview, sessions, activity, results, statistics) are shipped; the Mission page tabs follow.*
+[`mission-telemetry.md`](mission-telemetry.md). *All of it is shipped: persistence, MCP tools, read
+routes and the Mission page below.*
+
+**Mission page (shipped).** `/missions/:id` is a supervision page, not a one-page form: header and
+actions, a live strip (agents active now, last activity, `finished/total` progress, reviews waiting,
+the API's warnings such as timed-out sessions), then four tabs, URL-synced with `?tab=` (overview =
+no parameter): **Vue d'ensemble** (consigne, linked data, runs, tasks), **Activité** (agent sessions +
+the factual log, filters, cursor pagination), **Résultats** (review queue; a card opens the review
+dialog) and **Statistiques** (KPIs and UTC bucket charts). The live strip and the sessions poll while
+the browser tab is visible. In the review dialog the rejection reason field appears only after
+« Rejeter »; accepting never asks for one, and a decision is still the only way a proposal changes
+business data. The French status and event-type wording lives in one module
+(`frontend/src/missions/vocabulary.ts`: singular for badges, plural for counts).
 
 ## 8. Phases
 
