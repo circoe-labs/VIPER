@@ -4,9 +4,9 @@
 > **Persistance implémentée (Slice 03)** : migration `0038`, modèles `MissionAgentSession` /
 > `MissionAgentLog`, service `app/services/mission_telemetry.py` (`touch_session`, `end_session`,
 > `end_run_sessions`, `sweep_timed_out`, `append_log`, `list_logs`, `list_sessions`),
-> `agent_missions.log_activity`, balayage dans `MissionScheduler.run_once`. Restent à faire : les
-> outils MCP (Slice 04, dont la limite de 120 écritures/min), les routes de lecture (Slice 05),
-> l'extension des preuves (Slice 02). Ce document est la **source canonique** ; en cas de divergence
+> `agent_missions.log_activity`, balayage dans `MissionScheduler.run_once`. **Outils MCP livrés (Slice 04)** :
+> `app/api/mcp_telemetry.py`, limite de 120 écritures/min/jeton (`check_log_rate`), consignes
+> `telemetry` dans la charge utile du claim. Reste à faire : les routes de lecture (Slice 05). Ce document est la **source canonique** ; en cas de divergence
 > avec les fiches de la tâche, il prévaut. Documentation technique en anglais, vocabulaire produit
 > en français (comme les documents frères).
 
@@ -421,7 +421,7 @@ Decision 6: every agent working a mission produces a **factual** research/activi
   instructions and trace review; the server does not refuse a `submit` for lack of logs (a result is
   never blocked by telemetry).
 
-## 11. MCP surface (implemented in Slice 04)
+## 11. MCP surface (implemented in Slice 04, `mcp-server.md` §3.9)
 
 Existing tools (`viper_claim_task`, `viper_heartbeat_task`, `viper_submit_task_result`,
 `viper_fail_task`, `viper_release_task`) keep their names, parameters and results unchanged; they

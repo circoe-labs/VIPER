@@ -596,6 +596,7 @@ def log_activity(
     the lease nor changes the task; it only touches the session (`mission-telemetry.md` §5.6)."""
     moment = _moment(now)
     task = _claimed(session, actor, task_id, claim_id, moment)
+    mission_telemetry.check_log_rate(session, actor, moment)
     return mission_telemetry.append_log(
         session,
         actor,

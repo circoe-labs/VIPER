@@ -34,7 +34,7 @@ from fastapi.responses import JSONResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api import mcp_contact, mcp_conversational, mcp_missions, mcp_ui
+from app.api import mcp_contact, mcp_conversational, mcp_missions, mcp_telemetry, mcp_ui
 from app.api.oauth import resource_metadata_url
 from app.core.actor import ActorContext, ActorType
 from app.db.session import unit_of_work
@@ -152,13 +152,20 @@ TOOLS: list[dict[str, Any]] = [
             "the result must follow. A claimed task is leased: send `claim_id` with every later "
             "call, and heartbeat before the lease runs out. To stage individual writes, call "
             "viper_add_company or viper_update_company / viper_update_prospect with task_id, "
-            "claim_id and a unique action_id; then submit result {} once for the whole task."
+            "claim_id and a unique action_id; then submit result {} once for the whole task. "
+            "A mission task also opens your work session automatically (nothing to register) and "
+            "its payload carries `telemetry` guidance: log facts (searches, sources opened, "
+            "observations, verifications, progress, warnings) with viper_log_mission_activity, "
+            "and put a short factual research report in the result `notes` when you submit."
         ),
         "inputSchema": _CLAIM_SCHEMA,
     },
     {
         "name": "viper_heartbeat_task",
-        "description": "Renew the lease of a claimed task.",
+        "description": (
+            "Renew the lease of a claimed task. It also keeps your work session alive; a log "
+            "(viper_log_mission_activity) does the same for the session, not for the lease."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -177,7 +184,9 @@ TOOLS: list[dict[str, Any]] = [
         "name": "viper_submit_task_result",
         "description": (
             "Submit the finished work. The result is validated against the task's output schema "
-            "and stored as a proposal awaiting a person's review — it never writes to the base."
+            "and stored as a proposal awaiting a person's review — it never writes to the base. "
+            "Put a short factual research report in `notes`: what you searched, which sources you "
+            "opened, what you verified or could not find."
         ),
         "inputSchema": {
             "type": "object",
@@ -359,6 +368,7 @@ for _tool in TOOLS:
 TOOLS.extend(tool.definition() for tool in mcp_conversational.TOOLS)
 TOOLS.extend(tool.definition() for tool in mcp_missions.TOOLS)
 TOOLS.extend(tool.definition() for tool in mcp_contact.TOOLS)
+TOOLS.extend(mcp_telemetry.TOOLS)
 # The card the host renders with a tool's result, and the tools that card calls (`mcp_ui`).
 for _tool in TOOLS:
     _meta = mcp_ui.tool_meta(_tool["name"])
@@ -648,6 +658,15 @@ def _call_tool(
                 lease=_lease(args),
             )
             return _payload({"lease_expires_at": expires.isoformat()})
+        case "viper_log_mission_activity":
+            require(record, mcp_telemetry.CAPABILITY)
+            return _payload(mcp_telemetry.log_mission_activity(session, actor, args))
+        case "viper_end_mission_session":
+            require(record, mcp_telemetry.CAPABILITY)
+            return _payload(mcp_telemetry.end_mission_session(session, actor, args))
+        case "viper_get_mission_session":
+            require(record, mcp_telemetry.CAPABILITY)
+            return _payload(mcp_telemetry.get_mission_session(session, actor, args))
         case "viper_submit_task_result":
             require(record, "tasks.work")
             return _payload(_submit(session, actor, args))

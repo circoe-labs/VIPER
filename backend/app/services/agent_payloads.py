@@ -399,6 +399,38 @@ INSTRUCTIONS: dict[AgentTaskType, str] = {
     ),
 }
 
+# Sent with every mission task (`mission-telemetry.md` §6, §10, §11): sessions are automatic and the
+# agent logs facts. Never a request for reasoning: only what was done and found.
+TELEMETRY_GUIDANCE: dict[str, Any] = {
+    "session": (
+        "Your work session on this mission opens automatically when you claim the task and stays "
+        "alive while you heartbeat or log. Nothing to register, nothing to close."
+    ),
+    "log_tool": "viper_log_mission_activity",
+    "event_types": {
+        "search": "a query you ran (what you looked for)",
+        "source_opened": "a source you opened (source_url; source_published_at only if the page "
+        "states a date)",
+        "observation": "a fact you read, with its source_url",
+        "verification": "a value you checked: confirmed, contradicted or not found",
+        "progress": "a step finished (7 companies out of 20)",
+        "warning": "something notable but not blocking (a blocked site, a skipped source)",
+        "error": "something that failed in your work",
+        "decision_summary": "the outcome of a choice and the evidence it rests on, in one sentence",
+    },
+    "rules": [
+        "Log what you did and what you found, one short factual sentence each, in French, past "
+        "tense, plain text. Never explain or justify your choices step by step.",
+        "Never invent a date, a source or a quote: leave source_published_at out when unknown.",
+        "Do not paste e-mails, phones or profiles into logs; they belong in the result.",
+        "Log at least one entry per source consulted. A refused log (rate_limited, a lost claim) "
+        "is not fatal: keep working.",
+        "When you submit, put a short factual research report in the result `notes`: what you "
+        "searched, which sources you opened, what you verified or could not find.",
+    ],
+    "rate_limit_per_minute": 120,
+}
+
 RESULT_MODELS: dict[AgentTaskType, type[BaseModel]] = {
     AgentTaskType.UPDATE_COMPANY: CompanyUpdateResult,
     # Tool mode only for now: a person may post a person update without claiming a mission, but
@@ -672,6 +704,8 @@ def build_payload(
         },
         "context": {"today": moment.date().isoformat(), "locale": "fr-FR"},
     }
+    if task.run_id is not None:
+        payload["telemetry"] = TELEMETRY_GUIDANCE
     match task.type:
         case AgentTaskType.UPDATE_COMPANY:
             if task.company_id is None:

@@ -82,6 +82,9 @@ def test_initialize_and_tools_list(client: TestClient, db_session: Session) -> N
         "viper_delete_mission",
         "viper_generate_contact_draft",
         "viper_update_contact_draft",
+        "viper_log_mission_activity",
+        "viper_end_mission_session",
+        "viper_get_mission_session",
     ]
     assert tools[0]["inputSchema"]["type"] == "object"
 

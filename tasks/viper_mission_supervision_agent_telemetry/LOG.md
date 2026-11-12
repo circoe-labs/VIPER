@@ -61,3 +61,41 @@ Implemented the contract of `doc/architecture/mission-telemetry.md` §3-§5, no 
 - Tests: `backend/tests/test_mission_telemetry.py` (concurrent open with 8 threads on real commits, touch/end/reopen, run finished, mission cancelled, 3 h timeout, lease/timeout independence, validation matrix, append-only, task SET NULL, cascades on mission and run, org isolation, cursor and offset pagination, index use, scheduler pass). Run on a dedicated database (`viper_s3_test`) because another agent shares `viper_test`.
 - Evidence (backend/, Docker Postgres): telemetry + agent_missions(+model) + mission_stop + agent_review + missions + mcp_missions = 146 passed; mcp*/audit*/agent_capabilities/agents_api = 164 passed, 1 failed; `test_migrations.py` 5 passed, 2 failed. The 3 failures are pre-existing and unrelated: `warehouse_drafts`/`warehouses` missing from `NOT_AUDITED_TABLES`, `warehouses` lacks the `set_updated_at` trigger, `fk_warehouse_drafts_warehouse_id_warehouses` has no index. The migration round trip and model/migration drift tests pass with 0038.
 - Gates: `ruff check`/`ruff format --check` clean on all touched files (repo-wide ruff, `mypy tests` and the full suite have pre-existing failures in untouched warehouse/auth files); `mypy app` has only the pre-existing `warehouse_dispatch` import error.
+
+
+## Slice 04 — MCP session and logging tools (2026-11-12)
+
+Implements `mission-telemetry.md` §11 (+§5.6, §6, §10). No contract deviation.
+
+- **Tools** (`backend/app/api/mcp_telemetry.py`, wired in `mcp.py`, capability `tasks.work`, `require()` first, call history via `_log_call`): `viper_log_mission_activity`, `viper_end_mission_session`, `viper_get_mission_session`. Inputs carry no session/run/mission/agent id; `agent_missions.log_activity` re-runs the `_claimed` checks (`not_allowed`, `conflict`, `task_cancelled`) and derives the session from task + token. End/get resolve the run from `task_id` and the session from the token; unknown task or no own session -> `not_found`. Annotations: writes non-destructive, get read-only.
+- **Rate limit:** `mission_telemetry.check_log_rate` (120 logs / rolling 60 s / token, `rate_limited`, 429, `limit`, `window_seconds`). Counted in the DB (via the token's sessions seen in the window, so the small table + `(session_id, created_at)` index), not in memory: correct across API workers. Soft under concurrency (two simultaneous writes can both pass at 119). Checked after the claim check, before validation.
+- **Guidance:** claim payload of a task with a `run_id` gets `telemetry` (`agent_payloads.TELEMETRY_GUIDANCE`: automatic session, 8 event types, facts-only rules, no personal data, one log per source, refused log non-fatal, factual research report in result `notes`). Descriptions of `viper_claim_task`, `viper_heartbeat_task`, `viper_submit_task_result` updated. No vocabulary of §6 anywhere (conformance test over tool names, properties, descriptions and the guidance). Thread (legacy) tasks get no `telemetry` block.
+- **Docs:** `mcp-server.md` §3.9 telemetry tools section rewritten as shipped; `mission-telemetry.md` status; `agent-missions.md` §8 note.
+- **Tests** `backend/tests/test_mcp_telemetry.py` (19) + `test_mcp.py` tools list: listing/annotations/no register tool, forbidden vocabulary, auto-session + guidance, thread task without guidance, log in own session + touch, spoofed ids ignored, capability_denied (3 tools), 401, wrong claim_id, other agent's task, cancelled mission, field caps/closed taxonomy matrix, rate limit (per token, window, history row), get read-only / end idempotent / reopen after end, own-session only, full flow + submit unchanged, trace.
+- **Evidence** (DB `viper_s4_test`): `test_mcp*` + telemetry + agent_missions + mission_stop + missions + agent_review + evidence + capabilities + agents_api + audit + migrations: all pass except the 3 known pre-existing warehouse failures (`test_every_table_is_either_audited_or_explicitly_not`, `..._has_the_trigger`, `..._covered_by_a_full_index`). `ruff check/format` clean on touched files; `mypy app` only the `warehouse_dispatch` error.
+
+### Agent trace (real `/mcp` endpoint, `test_agent_trace_claim_log_heartbeat_submit`, `VIPER_TRACE_OUT=file` dumps it)
+
+Worker token "Agent trace", mission with one company. 10 JSON-RPC `tools/call` requests (session rows after each in brackets):
+
+| # | Request | Response | Sessions / logs |
+|---|---|---|---|
+| 0 | `viper_claim_task {task_types:[update_company]}` | payload + `claim_id` + `telemetry` block | 1 active / 0 |
+| 1 | `viper_log_mission_activity {task_id, claim_id, event_type:search, message, metadata:{engine:web}}` | `{log_id, session_id, created_at}` | 1 / 1 |
+| 2 | same, `source_opened` + `source_url` | same session_id | 1 / 2 |
+| 3 | same, `observation` + `source_url` | same | 1 / 3 |
+| 4 | same, `verification` + `metadata:{field:siren, outcome:confirmed}` | same | 1 / 4 |
+| 5 | `viper_heartbeat_task {task_id, claim_id}` | `{lease_expires_at}` (+15 min) | 1 / 4 |
+| 6 | `viper_get_mission_session {task_id}` | `{status:active, started_at, last_seen_at (= heartbeat time), logs_count:4, ended_at:null}` | unchanged |
+| 7 | log `progress` `{done:1,total:1}` | ok | 1 / 5 |
+| 8 | `viper_submit_task_result {…, result:{legal_name, confidence, notes}}` | `{result_id, status:pending_review, summary}` | 1 active / 5 |
+| 9 | `viper_end_mission_session {task_id}` | `{status:ended, ended_at}` | 1 ended / 5 |
+
+All five logs share one `session_id`, created by the claim (no register call; audit `mission_agent_session.opened` by the agent). Submit left the session `active` (contract §3.3: submit is activity, not an end). Result stayed a proposal awaiting review.
+
+Findings (agent-trace checklist: calls, errors, unnecessary calls, guidance, cost):
+- No errors, no retries, no unknown-tool calls; every log landed in the right session, 1 call per fact.
+- Unnecessary calls: none required. `viper_get_mission_session` (#6) and `viper_end_mission_session` (#9) are optional and the guidance does not push them (they are in the tool list only). A log does **not** renew the lease, so `viper_heartbeat_task` (#5) stays necessary; the description now says so (agents may otherwise believe frequent logging is enough, then lose the task at 15 min).
+- Guidance cost: the `telemetry` block adds about 1.3 KB (~350 tokens) to each mission claim, one-off per task. Acceptable; could be shortened by dropping the per-type descriptions (the tool schema already lists the enum) if claim size becomes an issue.
+- Guidance gap noted, not fixed: after submit, a late log is refused with `conflict` "The claim is lost: this task is no longer yours" (generic `_claimed` message). Correct and non-fatal, but a more specific message would help; left as is to keep `_claimed` semantics unchanged. `heartbeat_every_seconds: 300` (payload) vs 15-min lease is pre-existing.
+- A real LLM agent was not run (no model in this environment): the trace scripts the calls an agent following the guidance would make. Compliance with "facts only, French, one per source" must still be reviewed on a real agent run (Slice 10).

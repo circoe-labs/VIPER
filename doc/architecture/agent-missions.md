@@ -558,12 +558,12 @@ it, and returns `{ "result_id", "status": "pending_review", "proposal_summary": 
 (same `claim_id`, same `digest`) returns the existing result instead of creating a second one. A
 submission from a lost claim is refused (`claim_lost`, 409) without touching the task.
 
-**Mission telemetry (contract, not yet implemented).** For a task with a `run_id`, `viper_claim_task`
+**Mission telemetry (shipped, Slice 04).** For a task with a `run_id`, `viper_claim_task`
 automatically opens (or reuses) the agent's **session** for that run, and `viper_heartbeat_task` /
 log writes / submit / fail / release *touch* it (`last_seen_at`). There is no register or log-off
 call. The session times out after **3 hours** without activity; this is independent of the
 **15-minute lease**, which keeps its exact semantics (`sweep_expired`, heartbeat, claim). Factual
-activity logs are written with the optional `viper_log_mission_activity` tool. Full contract:
+activity logs are written with `viper_log_mission_activity` (the claim payload carries `telemetry` guidance; 120 logs/min/token). Full contract:
 [`mission-telemetry.md`](mission-telemetry.md). Results' evidence will also carry per-item
 `confidence`, `source_published_at` and `source_checked_at` (`mission-telemetry.md` §9).
 

@@ -35,10 +35,19 @@ from app.models.mission_telemetry import (
 )
 from app.models.missions import Mission, MissionRun
 from app.services import audit
-from app.services.errors import ActorNotAllowedError, InvalidFieldError, NotFoundError
+from app.services.errors import (
+    ActorNotAllowedError,
+    BusinessRuleError,
+    InvalidFieldError,
+    NotFoundError,
+)
 
 # Distinct from, and never derived from, the task lease (§2).
 SESSION_INACTIVITY_TIMEOUT = timedelta(hours=3)
+# §5.6: at most this many log writes per token in any rolling minute (`rate_limited` beyond).
+LOG_RATE_LIMIT_PER_MINUTE = 120
+LOG_RATE_WINDOW = timedelta(minutes=1)
+RATE_LIMITED = "rate_limited"
 SWEEP_BATCH_SIZE = 200
 
 # Log limits (§5.4, §5.1).
@@ -190,6 +199,86 @@ def _close(
     )
 
 
+def _latest_own_session(
+    session: Session, actor: ActorContext, run_id: uuid.UUID, *, lock: bool = False
+) -> MissionAgentSession:
+    """The most recent session of the calling agent in `run_id`; `NotFoundError` when it has none
+    (the same answer for an unknown run and for another agent's run: nothing is revealed)."""
+    statement = (
+        select(MissionAgentSession)
+        .where(
+            MissionAgentSession.run_id == run_id,
+            MissionAgentSession.agent_id == _agent_id(actor),
+        )
+        .order_by(MissionAgentSession.started_at.desc(), MissionAgentSession.id.desc())
+        .limit(1)
+    )
+    row = session.scalar(statement.with_for_update() if lock else statement)
+    if row is None:
+        raise NotFoundError("This agent has no session in this run.")
+    return row
+
+
+def _task_run_id(session: Session, task_id: uuid.UUID) -> uuid.UUID:
+    run_id = session.scalar(select(AgentTask.run_id).where(AgentTask.id == task_id))
+    if run_id is None:
+        # Unknown task or a task without a run (legacy thread): no session can exist for it.
+        raise NotFoundError("This agent has no session for this task.")
+    return run_id
+
+
+def own_session_of_task(
+    session: Session, actor: ActorContext, task_id: uuid.UUID
+) -> tuple[MissionAgentSession, int]:
+    """Read-only: the calling agent's latest session in the run of `task_id`, with its logs count.
+    Never touches the session (§3.3) and never shows another agent's (§7.1)."""
+    row = _latest_own_session(session, actor, _task_run_id(session, task_id))
+    count = session.scalar(
+        select(func.count(MissionAgentLog.id)).where(MissionAgentLog.session_id == row.id)
+    )
+    return row, count or 0
+
+
+def end_own_session(
+    session: Session, actor: ActorContext, task_id: uuid.UUID, now: datetime | None = None
+) -> MissionAgentSession:
+    """`end_session` for the run of `task_id` (the task need not still be claimed)."""
+    return end_session(session, actor, _task_run_id(session, task_id), now)
+
+
+def check_log_rate(session: Session, actor: ActorContext, now: datetime | None = None) -> None:
+    """Refuse (`rate_limited`, 429) the log write of a token that already wrote
+    `LOG_RATE_LIMIT_PER_MINUTE` logs in the last minute (§5.6). Counted in the database, so every
+    API worker sees the same figure; a refused log is non-fatal for the agent's work.
+
+    Only sessions seen within the window can hold such logs (every log write touches its session),
+    which keeps the count on the small table and the `(session_id, created_at)` stream index.
+    """
+    moment = _moment(now)
+    cutoff = moment - LOG_RATE_WINDOW
+    recent = (
+        select(MissionAgentSession.id)
+        .where(
+            MissionAgentSession.agent_id == _agent_id(actor),
+            MissionAgentSession.last_seen_at >= cutoff,
+        )
+        .scalar_subquery()
+    )
+    written = session.scalar(
+        select(func.count(MissionAgentLog.id)).where(
+            MissionAgentLog.session_id.in_(recent), MissionAgentLog.created_at >= cutoff
+        )
+    )
+    if (written or 0) >= LOG_RATE_LIMIT_PER_MINUTE:
+        raise BusinessRuleError(
+            RATE_LIMITED,
+            429,
+            f"At most {LOG_RATE_LIMIT_PER_MINUTE} logs per minute: keep working, log less often.",
+            limit=LOG_RATE_LIMIT_PER_MINUTE,
+            window_seconds=int(LOG_RATE_WINDOW.total_seconds()),
+        )
+
+
 def end_session(
     session: Session, actor: ActorContext, run_id: uuid.UUID, now: datetime | None = None
 ) -> MissionAgentSession:
@@ -198,16 +287,7 @@ def end_session(
     Resolved from the token, never from a client-supplied session id. Releases and fails nothing.
     An already terminal session is returned unchanged (the most recent one of the agent in the run).
     """
-    agent_id = _agent_id(actor)
-    row = session.scalar(
-        select(MissionAgentSession)
-        .where(MissionAgentSession.run_id == run_id, MissionAgentSession.agent_id == agent_id)
-        .order_by(MissionAgentSession.started_at.desc(), MissionAgentSession.id.desc())
-        .limit(1)
-        .with_for_update()
-    )
-    if row is None:
-        raise NotFoundError("This agent has no session in this run.")
+    row = _latest_own_session(session, actor, run_id, lock=True)
     if row.status is MissionAgentSessionStatus.ACTIVE:
         _close(
             session,
