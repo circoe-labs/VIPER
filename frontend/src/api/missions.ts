@@ -523,12 +523,13 @@ export function useMissionOverview(id: string | undefined, liveMs?: number) {
   })
 }
 
-export function useMissionSessions(id: string | undefined, filters: SessionsFilters = {}) {
+export function useMissionSessions(id: string | undefined, filters: SessionsFilters = {}, liveMs?: number) {
   return useQuery({
     queryKey: supervisionKeys.sessions(id ?? '', filters),
     queryFn: ({ signal }) =>
       apiGet<AgentSessionPage>(missionPath(id ?? '', `sessions${queryString(filters)}`), signal),
     enabled: Boolean(id),
+    refetchInterval: liveMs,
     refetchOnWindowFocus: false,
   })
 }
