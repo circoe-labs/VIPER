@@ -18,3 +18,5 @@ Reserved for implementation agents. Record durable execution notes, deviations, 
 **Task Types:** all `metadata.json` have `task_type: null`; no Workspace Task Type vocabulary found in repo or skills. Per Slice 00, no Slice may be dispatched without a valid type.
 
 **State: `HUMAN_DECISION_REQUIRED`** — need the Task Type vocabulary (or explicit waiver) before dispatching Slice 01.
+
+**Human decision (2026-11-12):** Task Types waived ("on s en branle du TaskType"). State -> READY. Dispatch order: 01 -> 02,03 -> 04 -> 05 -> 06 -> 07,08,09 -> 10.
