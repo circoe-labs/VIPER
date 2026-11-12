@@ -174,7 +174,7 @@ export function CreateMissionDialog({ open, onClose, mission, onSaved }: Mission
     onClose()
   }
 
-  const submit = (runNow: boolean) => {
+  const submit = () => {
     const input: MissionInput = {
       name: name.trim(),
       type,
@@ -193,7 +193,7 @@ export function CreateMissionDialog({ open, onClose, mission, onSaved }: Mission
       geography: geography.trim() || null,
       period_days: periodDays ? Number(periodDays) : null,
       exclusions: { ...(rule?.exclusions ?? {}), known_companies: excludeKnown },
-      run_now: runNow,
+      run_now: false,
     }
     if (!excludeKnown) delete input.exclusions.known_companies
     if (editing) {
@@ -230,7 +230,7 @@ export function CreateMissionDialog({ open, onClose, mission, onSaved }: Mission
               disabled={!canSave || update.isPending}
               loading={update.isPending}
               onClick={() => {
-                submit(false)
+                submit()
               }}
             >
               Enregistrer
@@ -242,24 +242,14 @@ export function CreateMissionDialog({ open, onClose, mission, onSaved }: Mission
               Annuler
             </Button>
             <Button
-              variant="secondary"
-              disabled={!canSave || create.isPending}
-              onClick={() => {
-                submit(false)
-              }}
-            >
-              Créer la mission
-            </Button>
-            <Button
               variant="primary"
-              icon={PlayIcon}
               disabled={!canSave || create.isPending}
               loading={create.isPending}
               onClick={() => {
-                submit(true)
+                submit()
               }}
             >
-              Créer et lancer
+              Créer la mission
             </Button>
           </div>
         )
@@ -378,8 +368,8 @@ export function CreateMissionDialog({ open, onClose, mission, onSaved }: Mission
           <h3 className="mission-form__title">
             <ClockIcon size={18} /> Exécution
             <InfoTip label="Aide : exécution">
-              Une mission crée des tâches à chaque exécution : maintenant (« Créer et lancer »), à la date de démarrage,
-              puis à chaque échéance si elle est récurrente. Une exécution impossible est notée en échec sur la mission,
+              Une mission active est accessible aux agents : ses tâches leur sont proposées dès sa création (ou à la
+              date de démarrage), puis à chaque échéance si elle est récurrente. Une exécution impossible est notée en échec sur la mission,
               qui reste active.
             </InfoTip>
           </h3>

@@ -273,10 +273,3 @@ export function useDeleteMission(id: string) {
   })
 }
 
-export function useRunMission(id: string) {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: () => apiRequest<MissionDetail>('POST', `/missions/${encodeURIComponent(id)}/run`),
-    onSuccess: () => refreshAfterWrite(queryClient, [['missions'], missionKeys.detail(id)]),
-  })
-}

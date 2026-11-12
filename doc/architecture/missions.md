@@ -59,8 +59,12 @@ Prospects), multiple checkboxes, then chips (`Transports X × Jean Dupont × +11
 
 ## 4. Runs and tasks
 
-`POST /api/missions/{id}/run` (and « Créer et lancer ») creates a `mission_runs` row and one task per
-target:
+**An active mission is open to the agents; there is no « Lancer maintenant ».** VIPER never starts
+an agent: agents connect and claim the tasks of active missions. A run is created when the mission
+becomes active (at creation, or « Activer » before its first run) unless its start is in the
+future, then by the scheduler at its start date and at each recurrence (`run_due`, one-offs
+included). « Désactiver » (`paused`, shown « Inactive ») hides its tasks from the agents. A run
+creates a `mission_runs` row and one task per target:
 
 - enrichment / verification, company target → `update_company` (public fields, SIREN/website/
   domain/segment/categories);
@@ -129,12 +133,11 @@ review shows it as such.
 | Route | Purpose |
 |---|---|
 | `GET /api/missions` | cards: name, type, status, agent, recurrence, targets, last/next run, pending results |
-| `POST /api/missions` | create, with `run_now` for « Créer et lancer » |
+| `POST /api/missions` | create: active, its first run and tasks created at once unless it starts later (`run_now` is kept for the MCP tool) |
 | `GET /api/missions/{id}` | detail: targets, runs, tasks, consigne, expected result |
-| `PATCH /api/missions/{id}` | pause / resume / close. Pause hides the mission's pending tasks from the agents' queue and claims (a claimed task may finish); resume offers them again. Cancel, in the same transaction, sets every open task (pending, claimed, submitted) to `cancelled` (`agent_task.cancelled`, reason `mission_cancelled`), rejects a result still waiting for review, and sets every `scheduled` / `running` run to `cancelled`; a worker still holding a task is refused with `task_cancelled` |
+| `PATCH /api/missions/{id}` | « Désactiver » / « Activer » (the switch on the card, the button on the page; `paused` / `active`) / close. Activating a mission that never ran creates its first run. Pause hides the mission's pending tasks from the agents' queue and claims (a claimed task may finish); resume offers them again. Cancel, in the same transaction, sets every open task (pending, claimed, submitted) to `cancelled` (`agent_task.cancelled`, reason `mission_cancelled`), rejects a result still waiting for review, and sets every `scheduled` / `running` run to `cancelled`; a worker still holding a task is refused with `task_cancelled` |
 | `PUT /api/missions/{id}` | « Modifier la mission » (page de la mission, or the list's right-click / « … » menu): the whole rule, linked data included, is rewritten (`mission.updated` with the changed fields); runs already made and their tasks stay as they are (each run keeps its rule, §4), the next run follows the new rule; a done or cancelled mission is refused (409). The detail answers the rest of the rule (`rule`: agent, start, end, geography, period, exclusions) to prefill the form |
 | `DELETE /api/missions/{id}` | « Supprimer la mission » (after a confirmation): its open tasks (pending, claimed, submitted) are cancelled (`agent_task.cancelled`, reason `mission_deleted`) and a result still waiting for review is rejected with the same reason, then the mission goes with its targets and runs (FK cascade); the tasks stay with `run_id` NULL; results already accepted are not undone (`mission.deleted`) |
-| `POST /api/missions/{id}/run` | « Lancer maintenant » |
 | `GET /api/missions/options` | types/result kinds with their `executable` flag, units, limits |
 | `GET /api/missions/agents` | labels and scopes of the live MCP tokens (never the token itself) |
 | `GET /api/missions/targets?kind=&q=` | the linked-data picker |

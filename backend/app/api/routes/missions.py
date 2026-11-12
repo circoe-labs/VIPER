@@ -309,16 +309,3 @@ def delete_mission(mission_id: uuid.UUID, session: SessionDep, actor: CurrentAct
     """« Supprimer la mission »: its open tasks are cancelled, then the mission goes."""
     with business_errors():
         missions.delete(session, actor, mission_id)
-
-
-@router.post("/{mission_id}/run")
-def run_mission(
-    mission_id: uuid.UUID,
-    session: SessionDep,
-    actor: CurrentActor,
-) -> MissionDetailOut:
-    """« Lancer maintenant »: one manual execution, whatever the recurrence says."""
-    with business_errors():
-        missions.run_mission(session, actor, mission_id)
-        detail = missions.detail(session, mission_id)
-    return detail_out(detail)

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 
-import { useMission, useRunMission, useSetMissionStatus } from '../api/missions'
+import { useMission, useSetMissionStatus } from '../api/missions'
 import { TASK_STATUS_LABELS, TASK_STATUS_TONES, TASK_TYPE_LABELS } from '../agents/labels'
 import { ReviewDialog } from '../agents/ReviewDialog'
 import { StatusBadge } from '../ui/Badge'
@@ -12,7 +12,6 @@ import { PageHeader } from '../ui/PageHeader'
 import {
   AlertIcon,
   ArrowLeftIcon,
-  BoltIcon,
   BuildingIcon,
   PauseIcon,
   PencilIcon,
@@ -41,7 +40,6 @@ import './missions.css'
 export function MissionDetailPage() {
   const { missionId } = useParams()
   const mission = useMission(missionId)
-  const run = useRunMission(missionId ?? '')
   const setStatus = useSetMissionStatus(missionId ?? '')
   const navigate = useNavigate()
   const [reviewId, setReviewId] = useState<string | null>(null)
@@ -70,9 +68,8 @@ export function MissionDetailPage() {
 
   const { card, targets, runs, tasks, prompt, result_kind, result_limit } = mission.data
   const open = card.status === 'active'
-  // Same rule as the server: a run that would create no task is not offered.
+  // Same rule as the server: a rule that would create no task is flagged.
   const missing = missingForRun(card.type, result_kind, targets)
-  const canRun = card.status === 'active' && missing === null
   const lastRun = runs[0]
   const closed = card.status === 'done' || card.status === 'cancelled'
 
@@ -95,45 +92,17 @@ export function MissionDetailPage() {
         }
         actions={
           <div className="missions-detail__actions">
-            <Button
-              icon={BoltIcon}
-              disabled={!canRun}
-              loading={run.isPending}
-              title={
-                canRun
-                  ? undefined
-                  : card.status !== 'active'
-                    ? 'Reprenez la mission pour lancer une exécution.'
-                    : (missing ?? undefined)
-              }
-              onClick={() => {
-                run.mutate()
-              }}
-            >
-              Lancer maintenant
-            </Button>
-            {open && (
+            {!closed && (
               <Button
-                variant="secondary"
-                icon={PauseIcon}
+                variant={open ? 'secondary' : 'primary'}
+                icon={open ? PauseIcon : PlayIcon}
                 loading={setStatus.isPending}
+                title={open ? 'Les agents ne reçoivent plus ses tâches.' : 'Ses tâches redeviennent accessibles aux agents.'}
                 onClick={() => {
-                  setStatus.mutate('paused')
+                  setStatus.mutate(open ? 'paused' : 'active')
                 }}
               >
-                Mettre en pause
-              </Button>
-            )}
-            {card.status === 'paused' && (
-              <Button
-                variant="primary"
-                icon={PlayIcon}
-                loading={setStatus.isPending}
-                onClick={() => {
-                  setStatus.mutate('active')
-                }}
-              >
-                Reprendre
+                {open ? 'Désactiver' : 'Activer'}
               </Button>
             )}
             <Button
@@ -159,7 +128,6 @@ export function MissionDetailPage() {
           </div>
         }
       />
-      {run.isError && <p className="missions-error">L’exécution n’a pas pu démarrer.</p>}
       {setStatus.isError && <p className="missions-error">Le statut n’a pas pu être changé.</p>}
       {editing && (
         <CreateMissionDialog
@@ -184,7 +152,7 @@ export function MissionDetailPage() {
       {card.status === 'paused' && (
         <p className="missions-banner" role="status">
           <PauseIcon size={18} />
-          En pause : aucune exécution n’est prévue et aucune tâche n’est créée. « Reprendre » la relance.
+          Inactive : ses tâches ne sont plus proposées aux agents. « Activer » les leur rouvre.
         </p>
       )}
       {card.status === 'active' && missing && (

@@ -401,7 +401,10 @@ def test_a_manager_cancels_and_deletes(client: TestClient, db_session: Session) 
     deleted = body(call(client, token, "viper_delete_mission", {"mission_id": second}))
     assert deleted == {"deleted": True, "mission_id": second}
     assert db_session.get(Mission, second) is None
-    assert db_session.scalars(select(AgentTask)).one().status is AgentTaskStatus.CANCELLED
+    # Both missions opened a task at creation: cancelled, then deleted, neither stays offered.
+    assert {task.status for task in db_session.scalars(select(AgentTask))} == {
+        AgentTaskStatus.CANCELLED
+    }
 
 
 def test_status_must_be_one_an_assistant_may_set(client: TestClient, db_session: Session) -> None:

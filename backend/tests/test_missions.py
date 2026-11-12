@@ -27,7 +27,14 @@ from app.models.enums import (
 from app.models.missions import MissionRun, MissionTarget
 from app.models.prospects import ProspectNote
 from app.services import mcp_tokens, missions
-from tests.builders import add_company, add_email, add_phone, add_prospect, add_role
+from tests.builders import (
+    FIXTURE_ACTOR,
+    add_company,
+    add_email,
+    add_phone,
+    add_prospect,
+    add_role,
+)
 
 MISSIONS = "/api/missions"
 
@@ -92,7 +99,8 @@ def test_create_a_mission_and_list_its_card(client: TestClient, db_session: Sess
     listed = client.get(MISSIONS).json()
     assert listed["total"] == 1
     assert listed["items"][0]["targets_count"] == 1
-    assert listed["items"][0]["runs_count"] == 0
+    # Active from its creation: the first run and its task are open to the agents right away.
+    assert listed["items"][0]["runs_count"] == 1
 
 
 def test_a_run_creates_one_task_per_linked_company(client: TestClient, db_session: Session) -> None:
@@ -317,6 +325,8 @@ def due_mission(client: TestClient, db_session: Session, company: Company, **ext
         is_recurring=True,
         interval_count=1,
         interval_unit="hours",
+        # A future start: nothing runs at creation; the test then makes it due.
+        starts_at=(datetime.now(UTC) + timedelta(hours=1)).isoformat(),
         **extra,
     )
     mission = db_session.get(Mission, uuid.UUID(detail["card"]["id"]))
@@ -395,7 +405,7 @@ def test_the_scheduler_records_a_failed_run_and_never_pauses(
     assert run.note
 
 
-def test_a_recurring_mission_starting_now_is_due_immediately(
+def test_a_recurring_mission_starting_now_is_open_to_agents_at_once(
     client: TestClient, db_session: Session
 ) -> None:
     company = add_company(db_session, display_name="2SN")
@@ -407,13 +417,35 @@ def test_a_recurring_mission_starting_now_is_due_immediately(
         interval_count=24,
         interval_unit="hours",
     )
+
+    # No « Lancer maintenant »: active from its creation, its first tasks already wait.
+    assert len(detail["runs"]) == 1
+    assert len(detail["tasks"]) == 1
     mission = db_session.get(Mission, uuid.UUID(detail["card"]["id"]))
     assert mission is not None
-    assert mission.next_run_at is not None
+    assert mission.next_run_at is not None and mission.next_run_at > datetime.now(UTC)
+    assert missions.run_due(db_session, now=datetime.now(UTC)) == []
 
-    started = missions.run_due(db_session, now=datetime.now(UTC))
 
-    assert len(started) == 1
+def test_activating_a_mission_before_its_first_run_opens_it_to_agents(
+    client: TestClient, db_session: Session
+) -> None:
+    company = add_company(db_session, display_name="2SN")
+    mission = due_mission(client, db_session, company)
+    mission_id = str(mission.id)
+    assert client.patch(f"{MISSIONS}/{mission_id}", json={"status": "paused"}).status_code == 200
+    db_session.expire_all()
+    mission = db_session.get(Mission, mission.id)
+    assert mission is not None
+    mission.starts_at = datetime.now(UTC) - timedelta(minutes=1)
+    db_session.flush()
+
+    activated = client.patch(f"{MISSIONS}/{mission_id}", json={"status": "active"})
+
+    assert activated.status_code == 200, activated.text
+    detail = client.get(f"{MISSIONS}/{mission_id}").json()
+    assert len(detail["runs"]) == 1
+    assert len(detail["tasks"]) == 1
 
 
 def test_a_prospection_mission_finds_new_contacts(client: TestClient, db_session: Session) -> None:
@@ -815,7 +847,7 @@ def test_a_run_keeps_the_rule_it_started_under(client: TestClient, db_session: S
     )
     assert claimed["mission"]["result_limit"] == 20
     # The next run follows the new rule.
-    assert client.post(f"{MISSIONS}/{mission_id}/run").status_code == 200
+    missions.run_mission(db_session, FIXTURE_ACTOR, uuid.UUID(mission_id))
     run = db_session.scalars(
         select(MissionRun)
         .where(MissionRun.mission_id == uuid.UUID(mission_id))
