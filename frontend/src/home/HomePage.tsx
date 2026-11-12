@@ -94,8 +94,8 @@ export function HomePage() {
       <ul className="home-dashboard__totals" aria-label="Chiffres clés">
         {groups.primary.map((card) => <DashboardCard key={card.label} {...card} />)}
       </ul>
-      {home.data && <p className="home-dashboard__prospect-note">Prospects : <Link to="/prospection?list=1">{NUMBER.format(home.data.prospects - home.data.warehouse_contacts)} en prospection</Link> et <Link to="/warehouses">{NUMBER.format(home.data.warehouse_contacts)} contacts d?entrep?t</Link>. Une personne pr?sente dans les deux listes peut ?tre compt?e deux fois.</p>}
-      <Link className="home-opportunities-link" to="/prospection/opportunities"><span><strong>Opportunit?s ? explorer</strong><small>6 pistes de prospection en Normandie</small></span><ChevronRightIcon size={21} /></Link>
+      {home.data && <p className="home-dashboard__prospect-note">Prospects : <Link to="/prospection?list=1">{NUMBER.format(home.data.prospects - home.data.warehouse_contacts)} en prospection</Link> et <Link to="/warehouses">{NUMBER.format(home.data.warehouse_contacts)} contacts d’entrepôt</Link>.</p>}
+      <Link className="home-opportunities-link" to="/prospection/opportunities"><span><strong>Opportunités à explorer</strong><small>6 pistes de prospection en Normandie</small></span><ChevronRightIcon size={21} /></Link>
       <ProspectTrend data={home.data} />
     </div>
   )

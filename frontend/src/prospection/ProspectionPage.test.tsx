@@ -80,6 +80,16 @@ function panel(name: RegExp) {
 }
 
 describe('Prospection page', () => {
+  it('includes warehouse contacts in the unfiltered total while keeping filtered totals separate', async () => {
+    stubProspectionApi({ prospects: people(), warehouseContacts: 2 })
+    const { router } = renderApp('/prospection')
+    expect(await screen.findByText('5 prospects')).toBeVisible()
+    expect(screen.getByRole('link', { name: '2 interlocuteurs d’entrepôt' })).toHaveAttribute('href', '/warehouses')
+    expect(screen.getByText(/Une personne présente dans les deux listes/)).toBeVisible()
+    await act(async () => { await router.navigate('/prospection?review=to_verify') })
+    expect(await screen.findByText('3 prospects')).toBeVisible()
+    expect(screen.queryByRole('link', { name: '2 interlocuteurs d’entrepôt' })).not.toBeInTheDocument()
+  })
   it('keeps the company directory, search and commercial follow-up folded until requested', async () => {
     stubProspectionApi({ prospects: people() })
     renderApp('/prospection')

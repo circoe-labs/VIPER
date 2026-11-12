@@ -10,6 +10,7 @@ import {
   useProspectPage,
 } from '../api/prospection'
 import { ExportWorkbookButton } from '../exports/ExportWorkbookButton'
+import { useWarehouseCounts } from '../api/warehouses'
 import { CompanyDirectory } from '../companies/CompanyDirectory'
 import { useDebouncedValue } from '../settings/shared'
 import { Button } from '../ui/Button'
@@ -85,6 +86,7 @@ export function ProspectionPage() {
 
   const criteria = { ...filtersOf(view), segment: view.segment, review: view.review, sort: view.sort }
   const counters = useProspectionCounters(filtersOf(view))
+  const warehouseCounts = useWarehouseCounts()
   const list = useProspectPage(criteria, view.page)
   const page = list.data
 
@@ -110,6 +112,7 @@ export function ProspectionPage() {
   // Start folded on every visit, including links with filters; actions on this page can open it.
   const [showList, setShowList] = useState(params.get('list') === '1')
   const filtered = hasFilters(view)
+  const showCombinedTotal = !filtered && !hasSelection(view) && warehouseCounts.data !== undefined
   const emptyBase = counters.data?.counts.all === 0 && !filtered
   const last = page ? Math.min(page.offset + page.items.length, page.total) : 0
   const hint = view.validated_only ? 'Emploi validé, indépendamment du statut de vérification de l’e-mail.' : view.segment === 'never_verified' && view.review === 'to_verify' ? 'Aucune validation de l’emploi enregistrée dans VIPER, hors prospects mis de côté.' : view.review ? REVIEW_INFO[view.review].hint : SEGMENT_INFO[view.segment].hint
@@ -241,10 +244,10 @@ export function ProspectionPage() {
                     <ChevronDownIcon size={18} />
                   </button>
                   {heading}
-                  {page && <span className="prospection__results-count">{peopleCount(page.total)}</span>}
+                  {page && <span className="prospection__results-count">{peopleCount(page.total + (showCombinedTotal ? warehouseCounts.data.contacts : 0))}</span>}
                   {list.isFetching && <SpinnerIcon size={16} className="btn__spinner" />}
                 </h2>
-                <p className="prospection__results-hint">{hint}</p>
+                <p className="prospection__results-hint">{showCombinedTotal && page ? <>{NUMBER.format(page.total)} en prospection · <Link to="/warehouses">{NUMBER.format(warehouseCounts.data.contacts)} interlocuteurs d’entrepôt</Link>. Une personne présente dans les deux listes peut être comptée deux fois.</> : hint}</p>
               </div>
               {(filtered || hasSelection(view)) && (
                 <Button
