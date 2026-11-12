@@ -1,0 +1,10 @@
+{
+  "title": "VIPER Mission supervision, agent telemetry and review UX",
+  "project": "VIPER",
+  "repository": "circoe-labs/VIPER",
+  "handoff_slug": "viper_mission_supervision_agent_telemetry",
+  "source": "Current project discussion + functional source of truth + repository inspection",
+  "slice_count": 11,
+  "primary_outcome": "Tabbed mission supervision console with live agent activity, fast result review, mission statistics, richer evidence and factual agent research logs",
+  "task_type_resolution": "Workspace Task Type vocabulary was not exposed during task creation; Slice 00 must resolve valid Task Types before dispatch."
+}

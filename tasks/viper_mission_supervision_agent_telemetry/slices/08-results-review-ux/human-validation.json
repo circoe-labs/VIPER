@@ -1,0 +1,1 @@
+[{"id":"HV-08-01","check":"Review three representative results (high confidence, mixed confidence, missing source date) and confirm the evidence hierarchy supports a decision without consulting raw JSON."},{"id":"HV-08-02","check":"Confirm Reject reveals a focused reason prompt only after the action and that canceling it returns cleanly to review."}]
