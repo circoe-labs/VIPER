@@ -37,9 +37,10 @@ from app.models.enums import (
     AgentThreadStatus,
     MissionStatus,
 )
+from app.models.mission_telemetry import MissionAgentLog
 from app.models.missions import Mission, MissionRun
 from app.models.prospects import Prospect
-from app.services import audit
+from app.services import audit, mission_telemetry
 from app.services.agent_payloads import (
     build_payload,
     build_proposal,
@@ -371,6 +372,8 @@ def claim(
         task,
         changes={"status": {"before": "pending", "after": "claimed"}},
     )
+    # Part of the claim's transaction: a claimed mission task always has an active session.
+    mission_telemetry.touch_session(session, actor, task, moment)
     payload = build_payload(session, task, lease_expires_at=task.lease_expires_at, now=moment)
     if task.staged_actions:
         payload["staged_actions"] = task.staged_actions
@@ -415,6 +418,7 @@ def claim_specific(
         task,
         changes={"status": {"before": "pending", "after": "claimed"}},
     )
+    mission_telemetry.touch_session(session, actor, task, moment)
     return task
 
 
@@ -462,6 +466,7 @@ def heartbeat(
     task.last_heartbeat_at = moment
     task.lease_expires_at = moment + lease
     session.flush()
+    mission_telemetry.touch_session(session, actor, task, moment)
     return task.lease_expires_at
 
 
@@ -518,6 +523,7 @@ def submit(
         task,
         changes={"status": {"before": "claimed", "after": "submitted"}},
     )
+    mission_telemetry.touch_session(session, actor, task, moment)
     return result
 
 
@@ -545,6 +551,7 @@ def fail(
         changes={"status": {"before": "claimed", "after": task.status.value}},
         reason=code,
     )
+    mission_telemetry.touch_session(session, actor, task, now)
     return task
 
 
@@ -567,7 +574,39 @@ def release(
         task,
         changes={"status": {"before": "claimed", "after": task.status.value}},
     )
+    mission_telemetry.touch_session(session, actor, task, now)
     return task
+
+
+def log_activity(
+    session: Session,
+    actor: ActorContext,
+    task_id: uuid.UUID,
+    claim_id: uuid.UUID,
+    event_type: str,
+    message: str,
+    *,
+    source_url: str | None = None,
+    source_published_at: datetime | None = None,
+    metadata: dict[str, Any] | None = None,
+    now: datetime | None = None,
+) -> MissionAgentLog:
+    """Append a factual log to the agent's own session: needs the live claim, exactly like
+    `heartbeat` (same refusals: `task_cancelled`, claim lost, expired lease). It neither renews
+    the lease nor changes the task; it only touches the session (`mission-telemetry.md` §5.6)."""
+    moment = _moment(now)
+    task = _claimed(session, actor, task_id, claim_id, moment)
+    return mission_telemetry.append_log(
+        session,
+        actor,
+        task,
+        event_type,
+        message,
+        source_url=source_url,
+        source_published_at=source_published_at,
+        metadata=metadata,
+        now=moment,
+    )
 
 
 # --- reading the page ---------------------------------------------------------------------------

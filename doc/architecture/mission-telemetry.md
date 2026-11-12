@@ -1,10 +1,14 @@
 # Mission telemetry — agent sessions, activity logs and research report
 
 > **Status: contrat de niveau 2 (Slice 01 du handoff `viper_mission_supervision_agent_telemetry`).**
-> Rien de ce document n'est encore implémenté : la persistance est la Slice 03, les outils MCP la
-> Slice 04, les routes de lecture la Slice 05, l'extension des preuves la Slice 02. Ce document est la
-> **source canonique** ; en cas de divergence avec les fiches de la tâche, il prévaut. Documentation
-> technique en anglais, vocabulaire produit en français (comme les documents frères).
+> **Persistance implémentée (Slice 03)** : migration `0038`, modèles `MissionAgentSession` /
+> `MissionAgentLog`, service `app/services/mission_telemetry.py` (`touch_session`, `end_session`,
+> `end_run_sessions`, `sweep_timed_out`, `append_log`, `list_logs`, `list_sessions`),
+> `agent_missions.log_activity`, balayage dans `MissionScheduler.run_once`. Restent à faire : les
+> outils MCP (Slice 04, dont la limite de 120 écritures/min), les routes de lecture (Slice 05),
+> l'extension des preuves (Slice 02). Ce document est la **source canonique** ; en cas de divergence
+> avec les fiches de la tâche, il prévaut. Documentation technique en anglais, vocabulaire produit
+> en français (comme les documents frères).
 
 Companion of [`missions.md`](missions.md) (Mission → Run → Task → Result) and
 [`agent-missions.md`](agent-missions.md) (claim, lease, heartbeat, review). VIPER stays the human
@@ -240,7 +244,10 @@ with `422`, §6). Not indexed beyond what Slice 05 needs; not a substitute for t
 - No application path updates or deletes a log row (no `PATCH`, no `DELETE`, no MCP tool for it).
   `mission_agent_logs` joins the audit-style protection of ADR-0002: Slice 03 adds a database
   trigger rejecting `UPDATE` and `TRUNCATE`, and rejecting `DELETE` except as the cascade of a
-  deleted mission/run/session (§7). A correction is a *new* log, not an edit.
+  deleted mission/run/session (§7). Implemented as `mission_agent_logs_guard()`: a `DELETE` passes
+  only when the log's mission, run or session row no longer exists (the cascade's RI trigger runs
+  after the parent is gone); the only `UPDATE` that passes is the `task_id` SET NULL of a deleted
+  task (every other column unchanged). A correction is a *new* log, not an edit.
 - A session's `warning` on timeout is itself an ordinary appended row (§4).
 
 ### 5.6 Write rule (MCP agents write **own session only**)

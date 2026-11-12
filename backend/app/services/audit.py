@@ -153,6 +153,10 @@ class AuditAction(StrEnum):
     MISSION_DELETED = "mission.deleted"
     MISSION_RUN_STARTED = "mission_run.started"
     MISSION_RUN_FINISHED = "mission_run.finished"
+    # Agent session lifecycle (doc/architecture/mission-telemetry.md §7.2); logs are not audited.
+    MISSION_AGENT_SESSION_OPENED = "mission_agent_session.opened"
+    MISSION_AGENT_SESSION_ENDED = "mission_agent_session.ended"
+    MISSION_AGENT_SESSION_TIMED_OUT = "mission_agent_session.timed_out"
     # A person resolved a data-quality alert (D8).
     QUALITY_ALERT_RESOLVED = "quality_alert.resolved"
     IMPORT_BATCH_STARTED = "import_batch.started"
@@ -269,6 +273,11 @@ NOT_AUDITED_TABLES = {
     "oauth_tokens": "OAuth access/refresh token hashes; secrets, never audited",
     "organizations": "organisations; organization.* events are written by the service",
     "mcp_calls": "the MCP call history is itself a log (write-once)",
+    # Mission telemetry (doc/architecture/mission-telemetry.md §7.2): the session lifecycle is
+    # audited explicitly (`mission_agent_session.*`); the logs are their own append-only record.
+    "mission_agent_sessions": "agent sessions; mission_agent_session.* events come from the "
+    "service",
+    "mission_agent_logs": "own append-only telemetry (database trigger), high volume",
 }
 
 

@@ -6,7 +6,7 @@
 - [x] **00** `00-project-manager` — readiness audit, reconciliation and dispatch plan
 - [x] **01** `01-telemetry-contract` — canonical session/log/research-report contract
 - [x] **02** `02-agent-evidence-contract` — per-item confidence and source date metadata
-- [ ] **03** `03-session-log-persistence` — migration, models, lifecycle and timeout persistence
+- [x] **03** `03-session-log-persistence` — migration, models, lifecycle and timeout persistence
 - [ ] **04** `04-mcp-session-logging` — MCP tools, auto-session integration, agent guidance and traces
 - [ ] **05** `05-mission-supervision-api` — overview/activity/results/statistics read APIs
 - [ ] **06** `06-mission-tabs-overview` — tabbed Mission shell and compact Overview feedback

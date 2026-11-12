@@ -10,6 +10,7 @@ from app.models.contact_sequences import Cohort, ContactSequence
 from app.models.contact_tracking import ContactTracking, ContactTrackingStatusHistory
 from app.models.imports import ImportBatch, ImportRowMetadata
 from app.models.mcp import McpCall, McpToken
+from app.models.mission_telemetry import MissionAgentLog, MissionAgentSession
 from app.models.missions import Mission, MissionRun, MissionTarget
 from app.models.oauth import OAuthAuthorization, OAuthClient, OAuthToken
 from app.models.organizations import Organization
@@ -17,8 +18,8 @@ from app.models.prospects import Email, Phone, Prospect, ProspectNote, ProspectS
 from app.models.quality_alerts import QualityAlert
 from app.models.taxonomies import ActivityCategory, CommercialSegment, InternalReferent, Role
 from app.models.users import User, UserSession
-from app.models.warehouses import Warehouse
 from app.models.warehouse_drafts import WarehouseDraft
+from app.models.warehouses import Warehouse
 
 __all__ = [
     "ActivityCategory",
@@ -44,6 +45,8 @@ __all__ = [
     "McpCall",
     "McpToken",
     "Mission",
+    "MissionAgentLog",
+    "MissionAgentSession",
     "MissionRun",
     "MissionTarget",
     "OAuthAuthorization",
