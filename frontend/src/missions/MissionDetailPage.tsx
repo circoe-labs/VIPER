@@ -1,26 +1,21 @@
 import { useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 
-import { useMission, useSetMissionStatus } from '../api/missions'
-import { TASK_STATUS_LABELS, TASK_STATUS_TONES, TASK_TYPE_LABELS } from '../agents/labels'
-import { ReviewDialog } from '../agents/ReviewDialog'
+import { useMission, useMissionOverview, useSetMissionStatus } from '../api/missions'
 import { StatusBadge } from '../ui/Badge'
 import { Button } from '../ui/Button'
-import { Card } from '../ui/Card'
 import { EmptyState } from '../ui/EmptyState'
 import { PageHeader } from '../ui/PageHeader'
+import { type TabItem, Tabs } from '../ui/Tabs'
 import {
   AlertIcon,
   ArrowLeftIcon,
-  BuildingIcon,
   PauseIcon,
   PencilIcon,
   PlayIcon,
   SparklesIcon,
   TrashIcon,
-  UsersIcon,
 } from '../ui/icons'
-import { InfoTip } from '../ui/InfoTip'
 import { CreateMissionDialog } from './CreateMissionDialog'
 import { DeleteMissionDialog } from './DeleteMissionDialog'
 import {
@@ -28,21 +23,35 @@ import {
   MISSION_STATUS_LABELS,
   MISSION_STATUS_TONES,
   MISSION_TYPE_LABELS,
-  momentLabel,
+  MISSION_TAB_LABELS,
+  MISSION_TABS,
+  type MissionTabId,
+  parseMissionTab,
   recurrenceLabel,
-  RESULT_KIND_LABELS,
-  RUN_STATUS_LABELS,
-  RUN_STATUS_TONES,
 } from './labels'
+import { ActivityTab } from './ActivityTab'
+import { MissionLiveStrip } from './MissionLiveStrip'
+import { MissionOverviewTab } from './MissionOverviewTab'
 import { missingForRun } from './missionKinds'
+import { ResultsTab } from './ResultsTab'
+import { StatsTab } from './StatsTab'
 import './missions.css'
+
+// Live strip refresh; the polling pauses by itself while the browser tab is hidden.
+const OVERVIEW_POLL_MS = 15_000
 
 export function MissionDetailPage() {
   const { missionId } = useParams()
   const mission = useMission(missionId)
   const setStatus = useSetMissionStatus(missionId ?? '')
   const navigate = useNavigate()
-  const [reviewId, setReviewId] = useState<string | null>(null)
+  // Polled only while the page is visible (react-query does not refetch in a background tab).
+  const overview = useMissionOverview(missionId, OVERVIEW_POLL_MS)
+  const [params, setParams] = useSearchParams()
+  const tab = parseMissionTab(params.get('tab'))
+  function selectTab(id: MissionTabId) {
+    setParams(id === 'overview' ? {} : { tab: id }, { replace: true })
+  }
   const [editing, setEditing] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
@@ -66,7 +75,19 @@ export function MissionDetailPage() {
     )
   }
 
-  const { card, targets, runs, tasks, prompt, result_kind, result_limit } = mission.data
+  const { card, targets, runs, result_kind } = mission.data
+  const pending = overview.data?.pending_reviews ?? card.results_pending
+  const tabs: TabItem<MissionTabId>[] = MISSION_TABS.map((id) => ({
+    id,
+    label: MISSION_TAB_LABELS[id],
+    extra:
+      id === 'results' && pending > 0 ? (
+        <span className="mission-tab-count">
+          {String(pending)}
+          <span className="visually-hidden"> à relire</span>
+        </span>
+      ) : undefined,
+  }))
   const open = card.status === 'active'
   // Same rule as the server: a rule that would create no task is flagged.
   const missing = missingForRun(card.type, result_kind, targets)
@@ -167,116 +188,19 @@ export function MissionDetailPage() {
           Dernière exécution en échec : {lastRun.note}
         </p>
       )}
-      {card.results_pending > 0 && (
-        <p className="missions-notice">
-          {String(card.results_pending)} résultat{card.results_pending > 1 ? 's' : ''} attend
-          {card.results_pending > 1 ? 'ent' : ''} votre relecture : ouvrez la tâche concernée.
-        </p>
-      )}
-
-      <div className="missions-detail__grid">
-        <Card title="Consigne">
-          <p className="mission-prompt">{prompt}</p>
-          <p className="missions-muted">
-            Résultat attendu : {RESULT_KIND_LABELS[result_kind]} · limite {String(result_limit)} par exécution
-          </p>
-        </Card>
-        <Card title={`Données liées (${String(targets.length)})`}>
-          {targets.length === 0 ? (
-            <p className="missions-muted">
-              Aucune donnée liée.{' '}
-              <InfoTip label="Aide : sans données liées">
-                Seule une mission « Découvrir des sociétés » part de zéro ; les autres travaillent sur des fiches liées.
-              </InfoTip>
-            </p>
-          ) : (
-            <ul className="mission-targets">
-              {targets.map((target) => (
-                <li key={`${target.kind}:${target.id}`} className="mission-target">
-                  <span
-                    className="mission-target__icon"
-                    role="img"
-                    aria-label={target.kind === 'company' ? 'Société' : 'Prospect'}
-                  >
-                    {target.kind === 'company' ? <BuildingIcon size={14} /> : <UsersIcon size={14} />}
-                  </span>
-                  <span className="mission-target__label">{target.label}</span>
-                  {target.hint && <span className="mission-target__hint">{target.hint}</span>}
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
-      </div>
-
-      <Card title={`Exécutions (${String(runs.length)})`}>
-        {runs.length === 0 ? (
-          <p className="missions-muted">Aucune exécution pour l’instant.</p>
-        ) : (
-          <ul className="mission-runs">
-            {runs.map((item) => (
-              <li key={item.id} className="mission-run">
-                <span className="mission-run__when">{momentLabel(item.scheduled_at)}</span>
-                <StatusBadge tone={RUN_STATUS_TONES[item.status]}>
-                  {RUN_STATUS_LABELS[item.status]}
-                </StatusBadge>
-                <span className="mission-run__counts">
-                  {String(item.tasks_total)} tâche{item.tasks_total > 1 ? 's' : ''} ·{' '}
-                  {String(item.results_count)} résultat{item.results_count > 1 ? 's' : ''}
-                </span>
-                {item.note && (
-                  <span className={`mission-run__note${item.status === 'failed' ? ' is-failed' : ''}`}>
-                    {item.status === 'failed' && <AlertIcon size={14} />}
-                    {item.note}
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
-
-      <Card title="Tâches">
-        {tasks.length === 0 ? (
-          <p className="missions-muted">Aucune tâche : lancez la mission pour en créer.</p>
-        ) : (
-          <ul className="mission-tasks">
-            {tasks.map((task) => (
-              <li key={task.id} className="mission-task">
-                <div className="mission-task__main">
-                  <span className="mission-task__type">{TASK_TYPE_LABELS[task.type]}</span>
-                  {task.prospect_name && <span className="mission-task__target">{task.prospect_name}</span>}
-                </div>
-                <StatusBadge tone={TASK_STATUS_TONES[task.status]}>
-                  {TASK_STATUS_LABELS[task.status]}
-                </StatusBadge>
-                <span className="mission-task__meta">
-                  {task.claimed_by_label ?? 'libre'}
-                </span>
-                {task.result_id && (
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => {
-                      setReviewId(task.result_id)
-                    }}
-                  >
-                    Relire
-                  </Button>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
-
-      <ReviewDialog
-        key={reviewId ?? 'closed'}
-        resultId={reviewId}
-        onClose={() => {
-          setReviewId(null)
+      <MissionLiveStrip
+        overview={overview}
+        onOpenResults={() => {
+          selectTab('results')
         }}
       />
+
+      <Tabs label="Sections de la mission" tabs={tabs} selected={tab} onSelect={selectTab}>
+        {tab === 'overview' && <MissionOverviewTab mission={mission.data} />}
+        {tab === 'activity' && <ActivityTab missionId={card.id} />}
+        {tab === 'results' && <ResultsTab missionId={card.id} />}
+        {tab === 'stats' && <StatsTab missionId={card.id} />}
+      </Tabs>
     </div>
   )
 }

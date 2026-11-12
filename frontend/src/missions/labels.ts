@@ -89,3 +89,31 @@ export function shortMomentLabel(value: string | null): string | null {
   if (!value) return null
   return new Intl.DateTimeFormat('fr-FR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value))
 }
+
+// Mission detail tabs (URL value `?tab=` -> visible name). `overview` is the default and has no query value.
+export const MISSION_TABS = ['overview', 'activity', 'results', 'stats'] as const
+export type MissionTabId = (typeof MISSION_TABS)[number]
+
+export const MISSION_TAB_LABELS: Record<MissionTabId, string> = {
+  overview: 'Vue d’ensemble',
+  activity: 'Activité',
+  results: 'Résultats',
+  stats: 'Statistiques',
+}
+
+export function parseMissionTab(value: string | null): MissionTabId {
+  return MISSION_TABS.find((id) => id === value) ?? 'overview'
+}
+
+// « il y a 3 min » for the live strip; `now` injected so the wording is testable.
+export function relativeMomentLabel(value: string | null, now: number = Date.now()): string | null {
+  if (!value) return null
+  const seconds = Math.max(0, Math.round((now - new Date(value).getTime()) / 1000))
+  if (seconds < 45) return 'à l’instant'
+  const minutes = Math.round(seconds / 60)
+  if (minutes < 60) return `il y a ${String(minutes)} min`
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return `il y a ${String(hours)} h`
+  const days = Math.round(hours / 24)
+  return `il y a ${String(days)} j`
+}
