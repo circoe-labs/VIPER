@@ -8,6 +8,7 @@ import { PageHeader } from '../ui/PageHeader'
 import { SearchField } from '../ui/SearchField'
 import { WarehouseEditor, warehouseError } from './WarehouseEditor'
 import { WarehouseImport } from './WarehouseImport'
+import { WarehouseDrafts } from './WarehouseDrafts'
 import './warehouses.css'
 
 // The source role is free text; keep the original order when no priority can be inferred.
@@ -31,10 +32,25 @@ function LinkedIn({ url }: { url: string | null }) {
 function WarehouseRow({ warehouse, onEdit, onlyToContact }: { warehouse: Warehouse; onEdit: () => void; onlyToContact: boolean }) {
   const [open, setOpen] = useState(onlyToContact)
   const [error, setError] = useState<string | null>(null)
+  const [baseline, setBaseline] = useState(warehouse)
+  const [selection, setSelection] = useState(() => warehouse.contacts.map((contact) => contact.to_contact ?? false))
   const { save } = useWarehouseWrites()
-  const contacts = warehouse.contacts.map((contact, index) => ({ contact, index }))
-    .filter(({ contact }) => !onlyToContact || contact.to_contact)
-    .sort((a, b) => contactPriority(a.contact) - contactPriority(b.contact))
+  const changed = baseline.contacts.some((contact, index) => (contact.to_contact ?? false) !== selection[index])
+  if (!changed && warehouse.version !== baseline.version) {
+    setBaseline(warehouse)
+    setSelection(warehouse.contacts.map((contact) => contact.to_contact ?? false))
+  }
+  const contacts = baseline.contacts.map((contact, index) => ({ contact, index }))
+    .filter(({ contact, index }) => !onlyToContact || contact.to_contact || selection[index])
+    .sort((a, b) => Number(selection[b.index]) - Number(selection[a.index]) || contactPriority(a.contact) - contactPriority(b.contact))
+  async function validateSelection() {
+    setError(null)
+    try {
+      const saved = await save.mutateAsync({ id: baseline.id, version: baseline.version, data: { ...baseline, contacts: baseline.contacts.map((contact, index) => ({ ...contact, to_contact: selection[index] ?? false })) } })
+      setBaseline(saved)
+      setSelection(saved.contacts.map((contact) => contact.to_contact ?? false))
+    } catch (caught) { setError(warehouseError(caught)) }
+  }
   return <article className="warehouse-card">
     <div className="warehouse-card__header">
       <button className="warehouse-card__toggle" type="button" aria-label={`Détails de ${warehouse.name}`} aria-expanded={open} aria-controls={`warehouse-${warehouse.id}`} onClick={() => { setOpen(!open) }}>
@@ -58,10 +74,10 @@ function WarehouseRow({ warehouse, onEdit, onlyToContact }: { warehouse: Warehou
       <p className="warehouse-muted">Coordonnées à vérifier avant contact.</p>
       {warehouse.contacts.length === 0 ? <p className="warehouse-muted">Aucun interlocuteur renseigné pour le moment.</p> : <ul className="warehouse-contacts" aria-label={`Interlocuteurs de ${warehouse.name}`}>
         {contacts.map(({ contact, index }) => <li key={index}>
-          <label className="warehouse-contact-select"><input type="checkbox" checked={contact.to_contact ?? false} disabled={save.isPending} onChange={(event) => {
+          <label className="warehouse-contact-select"><input type="checkbox" checked={selection[index] ?? false} disabled={save.isPending} onChange={(event) => {
             const checked = event.target.checked
+            setSelection((current) => current.map((value, position) => position === index ? checked : value))
             setError(null)
-            void save.mutateAsync({ id: warehouse.id, version: warehouse.version, data: { ...warehouse, contacts: warehouse.contacts.map((item, position) => position === index ? { ...item, to_contact: checked } : item) } }).catch((caught: unknown) => { setError(warehouseError(caught)) })
           }} /> À contacter prochainement</label>
           <strong className="warehouse-contact-name">{contact.full_name}</strong>
           {contact.role && <p className="warehouse-contact-role"><strong>Fonction : </strong>{contact.role}</p>}
@@ -69,6 +85,10 @@ function WarehouseRow({ warehouse, onEdit, onlyToContact }: { warehouse: Warehou
           <LinkedIn url={contact.linkedin} />
         </li>)}
       </ul>}
+      {baseline.contacts.length > 0 && <div className="warehouse-selection-actions">
+        <Button variant="primary" disabled={!changed || save.isPending} loading={save.isPending} onClick={() => { void validateSelection() }}>Valider la sélection</Button>
+        {changed && <span className="warehouse-muted">Sélection non enregistrée</span>}
+      </div>}
       {error && <p className="warehouse-error" role="alert">{error}</p>}
       {warehouse.notes && <p className="warehouse-notes"><strong>Notes : </strong>{warehouse.notes}</p>}
       {warehouse.source_reference && <p className="warehouse-source">Source : {warehouse.source_reference}</p>}
@@ -83,6 +103,7 @@ export function WarehousesPage() {
   const [importing, setImporting] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [onlyToContact, setOnlyToContact] = useState(false)
+  const [showDrafts, setShowDrafts] = useState(false)
   const counts = useWarehouseCounts()
   const query = useWarehouses(useDebouncedValue(search.trim(), 250), offset, onlyToContact)
   const page = query.data
@@ -95,9 +116,11 @@ export function WarehousesPage() {
       {counts.isError && <p className="warehouse-error" role="alert">Totaux indisponibles. <Button size="sm" onClick={() => void counts.refetch()}>Réessayer</Button></p>}
     </section>
     <div className="warehouse-categories" aria-label="Catégorie des interlocuteurs">
-      <Button variant={onlyToContact ? 'secondary' : 'primary'} aria-pressed={!onlyToContact} onClick={() => { setOnlyToContact(false); setOffset(0) }}>Tous les entrepôts</Button>
-      <Button variant={onlyToContact ? 'primary' : 'secondary'} aria-pressed={onlyToContact} onClick={() => { setOnlyToContact(true); setOffset(0) }}>À contacter{counts.data ? ` (${counts.data.to_contact})` : ''}</Button>
+      <Button variant={!showDrafts && !onlyToContact ? 'primary' : 'secondary'} aria-pressed={!showDrafts && !onlyToContact} onClick={() => { setShowDrafts(false); setOnlyToContact(false); setOffset(0) }}>Tous les entrepôts</Button>
+      <Button variant={!showDrafts && onlyToContact ? 'primary' : 'secondary'} aria-pressed={!showDrafts && onlyToContact} onClick={() => { setShowDrafts(false); setOnlyToContact(true); setOffset(0) }}>À contacter{counts.data ? ` (${String(counts.data.to_contact)})` : ''}</Button>
+      <Button variant={showDrafts ? 'primary' : 'secondary'} aria-pressed={showDrafts} onClick={() => { setShowDrafts(true) }}>Brouillons</Button>
     </div>
+    {showDrafts ? <WarehouseDrafts /> : <>
     <div className="warehouse-toolbar">
       <SearchField label="Rechercher un entrepôt, un propriétaire, un interlocuteur…" value={search} onChange={(value) => { setSearch(value); setOffset(0) }} />
       <span className="warehouse-muted" aria-live="polite">{page ? `${String(page.total)} entrepôt${page.total > 1 ? 's' : ''}` : '—'}</span>
@@ -109,6 +132,7 @@ export function WarehousesPage() {
     {page?.total === 0 && !query.isError && (onlyToContact ? <p className="warehouse-muted">Aucun interlocuteur à contacter ne correspond à cette sélection.</p> : search ? <p className="warehouse-muted">Aucun entrepôt ne correspond à votre recherche.</p> : <EmptyState icon={WarehouseIcon} title="Votre répertoire d’entrepôts" description="Importez votre fichier Excel ou ajoutez votre premier site, puis renseignez ses propriétaires et interlocuteurs." action={<Button variant="primary" icon={PlusIcon} onClick={() => { setEditing(null) }}>Ajouter le premier entrepôt</Button>} />)}
     <div className="warehouse-list">{page?.items.map((warehouse) => <WarehouseRow key={`${warehouse.id}-${String(onlyToContact)}`} warehouse={warehouse} onlyToContact={onlyToContact} onEdit={() => { setEditing(warehouse.id) }} />)}</div>
     {page && page.total > 50 && <nav className="warehouse-pagination" aria-label="Pages des entrepôts"><span>{offset + 1}–{Math.min(offset + page.items.length, page.total)} sur {page.total}</span><Button icon={ChevronLeftIcon} disabled={offset === 0} onClick={() => { setOffset(offset - 50) }}>Précédents</Button><Button icon={ChevronRightIcon} disabled={offset + 50 >= page.total} onClick={() => { setOffset(offset + 50) }}>Suivants</Button></nav>}
+    </>}
     {editing !== undefined && <WarehouseEditor id={editing} onClose={() => { setEditing(undefined) }} />}
     {importing && <WarehouseImport onClose={() => { setImporting(false) }} onImported={(result) => { setImporting(false); setSearch(''); setOffset(0); setNotice(`${String(result.created)} entrepôt(s) ajouté(s), ${String(result.contacts)} interlocuteur(s) importé(s)${result.skipped ? ` · ${String(result.skipped)} entrepôt(s) déjà présent(s)` : ''}.`) }} />}
   </div>

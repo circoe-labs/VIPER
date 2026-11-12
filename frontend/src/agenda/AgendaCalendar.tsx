@@ -8,7 +8,6 @@ import { type AgendaView, dayFull, dayNumber, sameMonth, timeOf, weekdayShort } 
 import { who } from './AppointmentParts'
 import { frenchHolidays } from './holidays'
 import { calendarMood, type Celebration, celebrationsFor } from './seasonal'
-import { SeasonBanner } from './SeasonBanner'
 
 const MAX_CHIPS_IN_MONTH = 3
 const WEEKDAYS = ['lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.', 'dim.']
@@ -82,7 +81,6 @@ export function AgendaCalendar({ days, anchor, today, view, byDay, onOpen, onMen
 
   return (
     <div className={`agenda-grid agenda-grid--${view} agenda-grid--${mood.season}`}>
-      <SeasonBanner day={anchor} />
       <div className="agenda-grid__head" aria-hidden="true">
         {WEEKDAYS.map((weekday) => (
           <span key={weekday}>{weekday}</span>

@@ -11,6 +11,7 @@ import { PageHeader } from '../ui/PageHeader'
 import { SearchField } from '../ui/SearchField'
 import { ContactedSection } from './ContactedSection'
 import { ContactChart } from './ContactChart'
+import { WarehouseContacts } from './WarehouseContacts'
 import { bannerText } from './dispatchCopy'
 import { DispatchWarning } from './DispatchWarning'
 import { type ContactView, listCriteria, parseView, serializeView } from './criteria'
@@ -99,7 +100,7 @@ export function ContactPage() {
 
   return (
     <div className="contact contact--crm">
-      <PageHeader title="Contacts" description="Retrouvez les prospects déjà contactés et suivez vos échanges." actions={
+      <PageHeader title="Contacts" description="Retrouvez les prospects contactés et les interlocuteurs des entrepôts." actions={
         <Link className="btn btn--primary" to="/prospection?prospect=new"><PlusIcon size={18} /> Ajouter un contact</Link>
       } />
 
@@ -131,6 +132,7 @@ export function ContactPage() {
         }}>Réinitialiser</Button>
       </div>
 
+      <WarehouseContacts />
       <ContactedSection
         key={searched}
         view={view}

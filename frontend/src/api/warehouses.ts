@@ -1,4 +1,4 @@
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiGet, apiRequest } from './client'
 import { refreshAfterWrite } from './refresh'
 
@@ -35,6 +35,45 @@ export interface WarehousePreview {
 }
 export interface WarehouseImportResult { created: number; skipped: number; contacts: number }
 
+export interface WarehouseDraft {
+  id: string
+  warehouse_name: string
+  contact_name: string
+  contact_role: string | null
+  source_email: string | null
+  recipient: string | null
+  subject: string
+  body: string
+  review_note: string
+  revision: number
+  validated_at: string | null
+  validated_by: string | null
+  scheduled_at: string | null
+  send_state: 'planned' | 'scheduled' | 'sending' | 'uncertain' | 'sent' | 'failed' | null
+  recovery_possible?: boolean
+}
+
+export function useWarehouseDrafts() {
+  return useQuery({ queryKey: ['warehouses', 'drafts'], queryFn: ({ signal }) => apiGet<WarehouseDraft[]>('/warehouses/drafts', signal), refetchInterval: 15000 })
+}
+
+export function useWarehouseDispatchStatus() {
+  return useQuery({ queryKey: ['warehouses', 'dispatch-status'], queryFn: ({ signal }) => apiGet<{ active: boolean }>('/warehouses/drafts/dispatch-status', signal), refetchInterval: 30000 })
+}
+
+export function useWarehouseDraftActions() {
+  const client = useQueryClient()
+  const refresh = () => client.invalidateQueries({ queryKey: ['warehouses', 'drafts'] })
+  return {
+    save: useMutation({ mutationFn: ({ id, ...body }: { id: string; revision: number; recipient: string; subject: string; body: string }) => apiRequest<WarehouseDraft>('PUT', `/warehouses/drafts/${id}`, { body }), onSuccess: refresh }),
+    validate: useMutation({ mutationFn: ({ id, revision }: { id: string; revision: number }) => apiRequest<WarehouseDraft>('POST', `/warehouses/drafts/${id}/validate`, { body: { revision } }), onSuccess: refresh }),
+    schedule: useMutation({ mutationFn: ({ id, revision, scheduled_at }: { id: string; revision: number; scheduled_at: string }) => apiRequest<WarehouseDraft>('POST', `/warehouses/drafts/${id}/schedule`, { body: { revision, scheduled_at } }), onSuccess: refresh }),
+    unschedule: useMutation({ mutationFn: ({ id, revision }: { id: string; revision: number }) => apiRequest<WarehouseDraft>('POST', `/warehouses/drafts/${id}/unschedule`, { body: { revision } }), onSuccess: refresh }),
+    scheduleBatch: useMutation({ mutationFn: (body: { scheduled_at: string; drafts: { id: string; revision: number }[] }) => apiRequest<{ planned: number }>('POST', '/warehouses/drafts/schedule-batch', { body }), onSuccess: refresh }),
+    recoverBatch: useMutation({ mutationFn: (body: { scheduled_at: string; confirmed_not_sent: true; drafts: { id: string; revision: number }[] }) => apiRequest<{ scheduled: number }>('POST', '/warehouses/drafts/recover-batch', { body }), onSuccess: refresh }),
+  }
+}
+
 export function useWarehouseCounts() {
   return useQuery({
     queryKey: ['warehouses', 'counts'],
@@ -46,7 +85,7 @@ export function useWarehouses(search: string, offset: number, toContact = false)
   return useQuery({
     queryKey: ['warehouses', 'list', search, offset, toContact],
     queryFn: ({ signal }) => apiGet<{ items: Warehouse[]; total: number }>(`/warehouses?${new URLSearchParams({ q: search, offset: String(offset), limit: '50', ...(toContact ? { to_contact: 'true' } : {}) }).toString()}`, signal),
-    placeholderData: keepPreviousData,
+    placeholderData: (previous, previousQuery) => previousQuery?.queryKey[4] === toContact ? previous : undefined,
   })
 }
 export function useWarehouse(id: string | null) {

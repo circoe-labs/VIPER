@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.services.contact_dispatch import DispatchConfig, Dispatcher, DispatchReport
 from app.services.toolbox.integration import ToolboxIntegration
+from app.services.warehouse_dispatch import dispatch_warehouses
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,8 @@ class ContactDispatcher:
         self._integration = integration
         self._interval = config.interval.total_seconds()
         self._dispatcher = Dispatcher(session_factory, config, now=now)
+        self._warehouse_factory = session_factory
+        self._warehouse_config = config
         self._now = now
         self._stop = threading.Event()
         self._pass = threading.Lock()
@@ -63,6 +66,7 @@ class ContactDispatcher:
             return None
         try:
             report = self._dispatcher.run_pass(toolbox)
+            dispatch_warehouses(self._warehouse_factory, self._warehouse_config, toolbox)
             self._last_outcome = "ok"
             return report
         except Exception:

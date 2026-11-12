@@ -5,7 +5,7 @@ import { useTheme } from './helpers'
 import { signIn } from './session'
 
 // This spec writes only synthetic data in the dedicated *_e2e database.
-test('Contacts: real statistics, independent chart dates, filters, compact details and responsive layout', async ({ page }) => {
+test('Contacts: real statistics, read-only chart markers, filters, compact details and responsive layout', async ({ page }) => {
   test.setTimeout(90_000)
   await signIn(page)
   const suffix = uniqueSuffix()
@@ -35,23 +35,8 @@ test('Contacts: real statistics, independent chart dates, filters, compact detai
   const section = page.getByRole('button', { name: /^Prospects contactés/ })
   await expect(section).toHaveAttribute('aria-expanded', 'false')
   await expect(page.getByRole('list', { name: 'Prospects contactés' })).toHaveCount(0)
-  const dates = page.locator('.contacts-chart__date input')
-  await expect(dates).toHaveCount(5)
-  for (let index = 0; index < 5; index++) await expect(dates.nth(index)).toHaveValue('')
-  await dates.nth(0).fill('2026-10-05')
-  await dates.nth(0).blur()
-  await expect.poll(async () => (await (await page.request.get(`/api/contact/overview?q=${tag}`)).json() as { bars: { send_date: string | null }[] }).bars[0]?.send_date).toBe('2026-10-05')
-  await dates.nth(1).fill('2026-10-12')
-  await dates.nth(1).blur()
-  await expect.poll(async () => (await (await page.request.get(`/api/contact/overview?q=${tag}`)).json() as { bars: { send_date: string | null }[] }).bars[1]?.send_date).toBe('2026-10-12')
-  await page.reload()
-  await expect(dates.nth(0)).toHaveValue('2026-10-05')
-  await expect(dates.nth(1)).toHaveValue('2026-10-12')
-  await expect(dates.nth(2)).toHaveValue('')
-  await page.getByRole('button', { name: 'Effacer la date — Contact', exact: true }).click()
-  await page.reload()
-  await expect(dates.nth(0)).toHaveValue('')
-  await expect(dates.nth(1)).toHaveValue('2026-10-12')
+  await expect(page.locator('.contacts-chart__date')).toHaveCount(5)
+  await expect(page.locator('.contacts-chart input[type="date"]')).toHaveCount(0)
   await section.click()
   const list = page.getByRole('list', { name: 'Prospects contactés' })
   await expect(list.getByRole('listitem')).toHaveCount(2)
@@ -85,7 +70,7 @@ async function checkLayout(page: Page, tag: string) {
     for (const width of [1440, 1280, 390]) {
       await page.setViewportSize({ width, height: 1000 })
       await page.goto(`/contact?q=${tag}`)
-      await expect(page.locator('.contacts-chart__date input')).toHaveCount(5)
+      await expect(page.locator('.contacts-chart__date')).toHaveCount(5)
       await expect(page.getByRole('button', { name: /^Prospects contactés/ })).toHaveAttribute('aria-expanded', 'false')
       const columns = page.locator('.contacts-chart__column')
       const dates = page.locator('.contacts-chart__date')

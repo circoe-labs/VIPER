@@ -1,18 +1,253 @@
 """Warehouse parsing, persistence and protection, with synthetic workbook data only."""
 
 import io
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 from openpyxl import Workbook
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
-from app.models import Company, Email, Prospect, Warehouse
+from app.models import Company, Email, Prospect, Warehouse, WarehouseDraft
+from app.services.contact_dispatch import DispatchConfig
 from app.services.errors import InvalidFieldError
+from app.services.warehouse_dispatch import dispatch_warehouses
 from app.services.warehouse_import import preview
 from tests.builders import audit_events
+
+
+def test_warehouse_drafts_are_read_only_and_require_authentication(
+    client: TestClient, anonymous_client: TestClient, db_session: Session
+) -> None:
+    site = Warehouse(name="Site Exemple", contacts=[])
+    db_session.add(site)
+    db_session.flush()
+    db_session.add(
+        WarehouseDraft(
+            warehouse_id=site.id,
+            warehouse_name=site.name,
+            contact_name="Anne Test",
+            source_email="a@example.test ou b@example.test",
+            recipient=None,
+            subject="Prise de contact",
+            body="Bonjour",
+            review_note="Adresse à vérifier",
+        )
+    )
+    db_session.flush()
+    assert anonymous_client.get("/api/warehouses/drafts").status_code == 401
+    response = client.get("/api/warehouses/drafts")
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+    assert response.json()[0]["recipient"] is None
+    assert response.json()[0]["body"] == "Bonjour"
+    assert client.post("/api/warehouses/drafts", json={}).status_code == 405
+
+
+def test_warehouse_draft_can_be_saved_and_validated(
+    client: TestClient, db_session: Session
+) -> None:
+    site = Warehouse(name="Site Exemple", contacts=[])
+    db_session.add(site)
+    db_session.flush()
+    draft = WarehouseDraft(
+        warehouse_id=site.id,
+        warehouse_name=site.name,
+        contact_name="Anne Test",
+        recipient=None,
+        subject="Prise de contact",
+        body="Bonjour",
+        review_note="À vérifier",
+    )
+    db_session.add(draft)
+    db_session.flush()
+    response = client.put(
+        f"/api/warehouses/drafts/{draft.id}",
+        json={
+            "revision": draft.revision,
+            "recipient": "anne@example.test",
+            "subject": "Prise de contact",
+            "body": "Bonjour",
+        },
+    )
+    assert response.status_code == 200, response.text
+    response = client.post(
+        f"/api/warehouses/drafts/{draft.id}/validate",
+        json={"revision": response.json()["revision"]},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["validated_at"] is not None
+
+
+def test_schedule_and_remove_warehouse_draft(client: TestClient, db_session: Session) -> None:
+    site = Warehouse(name="Site", contacts=[])
+    db_session.add(site)
+    db_session.flush()
+    draft = WarehouseDraft(
+        warehouse_id=site.id,
+        warehouse_name="Site",
+        contact_name="Anne",
+        recipient="anne@example.test",
+        subject="Objet",
+        body="Bonjour",
+        review_note="À vérifier",
+    )
+    db_session.add(draft)
+    db_session.flush()
+    when = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
+    response = client.post(
+        f"/api/warehouses/drafts/{draft.id}/schedule",
+        json={"revision": draft.revision, "scheduled_at": when},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["send_state"] == "scheduled"
+    revision = response.json()["revision"]
+    assert (
+        client.put(
+            f"/api/warehouses/drafts/{draft.id}",
+            json={"revision": revision, "recipient": "a@example.test", "subject": "x", "body": "x"},
+        ).status_code
+        == 409
+    )
+    response = client.post(
+        f"/api/warehouses/drafts/{draft.id}/unschedule", json={"revision": revision}
+    )
+    assert response.status_code == 200
+    assert response.json()["send_state"] is None
+
+
+def test_batch_schedule_is_atomic(client: TestClient, db_session: Session) -> None:
+    site = Warehouse(name="Site", contacts=[])
+    db_session.add(site)
+    db_session.flush()
+    drafts = [
+        WarehouseDraft(
+            warehouse_id=site.id,
+            warehouse_name="Site",
+            contact_name=name,
+            recipient=f"{name}@example.test",
+            subject="Objet",
+            body="Bonjour",
+            review_note="À vérifier",
+        )
+        for name in ("anne", "bruno")
+    ]
+    db_session.add_all(drafts)
+    db_session.flush()
+    when = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
+    items = [{"id": str(d.id), "revision": d.revision} for d in drafts]
+    invalid = [items[0], {**items[1], "revision": items[1]["revision"] + 1}]
+    assert (
+        client.post(
+            "/api/warehouses/drafts/schedule-batch", json={"drafts": invalid, "scheduled_at": when}
+        ).status_code
+        == 409
+    )
+    db_session.expire_all()
+    assert all(db_session.get(WarehouseDraft, d.id).send_state is None for d in drafts)
+    response = client.post(
+        "/api/warehouses/drafts/schedule-batch", json={"drafts": items, "scheduled_at": when}
+    )
+    assert response.status_code == 200, response.text
+    assert response.json() == {"planned": 2}
+    db_session.expire_all()
+    assert all(db_session.get(WarehouseDraft, d.id).send_state == "planned" for d in drafts)
+    assert all(db_session.get(WarehouseDraft, d.id).validated_at is None for d in drafts)
+    first = db_session.get(WarehouseDraft, drafts[0].id)
+    result = client.post(
+        f"/api/warehouses/drafts/{first.id}/schedule",
+        json={"revision": first.revision, "scheduled_at": when},
+    )
+    assert result.status_code == 200
+    assert result.json()["send_state"] == "scheduled"
+    assert result.json()["validated_at"] is not None
+    db_session.expire_all()
+    assert db_session.get(WarehouseDraft, drafts[1].id).send_state == "planned"
+
+
+@pytest.mark.parametrize("fail", [False, True])
+def test_warehouse_dispatch_never_retries_uncertain_send(
+    db_session: Session, session_factory: sessionmaker[Session], fail: bool
+) -> None:
+    class Toolbox:
+        sends = 0
+
+        def create_draft(self, draft: Any) -> str:
+            assert draft.to == ["anne@example.test"]
+            return "remote-1"
+
+        def send_draft(self, draft_id: str) -> None:
+            self.sends += 1
+            if fail:
+                raise TimeoutError()
+
+    site = Warehouse(name="Site", contacts=[])
+    db_session.add(site)
+    db_session.flush()
+    draft = WarehouseDraft(
+        warehouse_id=site.id,
+        warehouse_name="Site",
+        contact_name="Anne",
+        recipient="anne@example.test",
+        subject="Objet",
+        body="Bonjour",
+        review_note="À vérifier",
+        scheduled_at=datetime.now(UTC) - timedelta(minutes=1),
+        send_state="scheduled",
+        validated_at=datetime.now(UTC) - timedelta(minutes=2),
+    )
+    db_session.add(draft)
+    db_session.flush()
+    config = DispatchConfig(
+        interval=timedelta(seconds=30),
+        max_lateness=timedelta(hours=6),
+        claim_ttl=timedelta(minutes=10),
+        max_attempts=3,
+        retry_base=timedelta(minutes=1),
+    )
+    toolbox = Toolbox()
+    dispatch_warehouses(session_factory, config, toolbox)  # type: ignore[arg-type]
+    dispatch_warehouses(session_factory, config, toolbox)  # type: ignore[arg-type]
+    db_session.expire_all()
+    assert db_session.get(WarehouseDraft, draft.id).send_state == ("uncertain" if fail else "sent")
+    assert toolbox.sends == 1
+
+
+def test_preplanned_draft_is_never_sent_without_validation(
+    db_session: Session, session_factory: sessionmaker[Session]
+) -> None:
+    class Toolbox:
+        def create_draft(self, draft: Any) -> str:
+            raise AssertionError("An unvalidated draft must not be sent")
+
+    site = Warehouse(name="Site", contacts=[])
+    db_session.add(site)
+    db_session.flush()
+    draft = WarehouseDraft(
+        warehouse_id=site.id,
+        warehouse_name="Site",
+        contact_name="Anne",
+        recipient="anne@example.test",
+        subject="Objet",
+        body="Bonjour",
+        review_note="À vérifier",
+        scheduled_at=datetime.now(UTC) - timedelta(minutes=1),
+        send_state="planned",
+    )
+    db_session.add(draft)
+    db_session.flush()
+    config = DispatchConfig(
+        interval=timedelta(seconds=30),
+        max_lateness=timedelta(hours=6),
+        claim_ttl=timedelta(minutes=10),
+        max_attempts=3,
+        retry_base=timedelta(minutes=1),
+    )
+    dispatch_warehouses(session_factory, config, Toolbox())  # type: ignore[arg-type]
+    db_session.expire_all()
+    assert db_session.get(WarehouseDraft, draft.id).send_state == "planned"
 
 
 def workbook() -> bytes:

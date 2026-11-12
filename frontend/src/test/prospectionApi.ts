@@ -88,6 +88,7 @@ function reply(status: number, body?: unknown): Promise<Response> {
 
 interface ProspectionStubOptions {
   prospects?: FakeProspect[]
+  warehouseContacts?: number
   roles?: TaxonomyValue[]
   referents?: Referent[]
   // Paramètres › Cohortes (S0 is always there).
@@ -97,6 +98,7 @@ interface ProspectionStubOptions {
   staleThresholdDays?: number | null
   // Answer every /api/prospection request with this status (error states).
   failWith?: number
+  isUncertain?: (id: string) => boolean
 }
 
 export function stubProspectionApi(options: ProspectionStubOptions = {}) {
@@ -110,6 +112,13 @@ export function stubProspectionApi(options: ProspectionStubOptions = {}) {
     const activity = params.get('activity')
     return prospects.filter(
       (row) =>
+        (!params.get('verification_box') || (() => {
+          const ignored = row.review === 'ignored'
+          const validated = !ignored && row.employment_verified_at !== null
+          const uncertain = !ignored && !validated && !!options.isUncertain?.(row.id)
+          const box = ignored ? 'ignored' : validated ? 'validated' : uncertain ? 'uncertain' : 'todo'
+          return box === params.get('verification_box')
+        })()) &&
         (params.get('validated_only') !== 'true' || (row.employment_verified_at !== null && row.review !== 'ignored')) &&
         (params.get('reachable') !== 'true' || (
           row.contactability_status === 'contactable' && row.activity_status !== 'inactive' &&
@@ -148,7 +157,8 @@ export function stubProspectionApi(options: ProspectionStubOptions = {}) {
     if (url.pathname === '/api/prospection/overview') {
       const ignored = prospects.filter((row) => row.review === 'ignored').length
       const employment_validated = prospects.filter((row) => row.employment_verified_at !== null && row.review !== 'ignored').length
-      return reply(200, { total: prospects.length, contacted: 0, deleted: 0, ignored, employment_validated, employment_pending: prospects.length - ignored - employment_validated })
+      const uncertain = prospects.filter((row) => row.review !== 'ignored' && row.employment_verified_at === null && options.isUncertain?.(row.id)).length
+      return reply(200, { total: prospects.length, contacted: 0, deleted: 0, ignored, employment_validated, employment_pending: prospects.length - ignored - employment_validated, uncertain, todo: prospects.length - ignored - employment_validated - uncertain })
     }
     if (url.pathname === '/api/prospection/counters') {
       const counts = Object.fromEntries(
@@ -183,6 +193,7 @@ export function stubProspectionApi(options: ProspectionStubOptions = {}) {
       return handle(url)
     }
     if (url.pathname === '/api/companies/counts') return reply(200, { all: companies.length, sme: 0, large: 0, institutional: 0, unclassified: companies.length })
+    if (url.pathname === '/api/warehouses/counts') return reply(200, { warehouses: 0, contacts: options.warehouseContacts ?? 0, to_contact: 0 })
     if (url.pathname === '/api/warehouses') return reply(200, { items: [], total: 0 })
     if (url.pathname === '/api/companies') {
       const items = companies.map((company) => ({ id: company.id, display_name: company.display_name }) as CompanyListItem)

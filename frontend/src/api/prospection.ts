@@ -61,6 +61,7 @@ export interface ProspectFilters {
   created_to?: string | null
   reachable?: boolean
   validated_only?: boolean
+  verification_box?: 'validated' | 'uncertain' | 'todo' | 'ignored' | null
   services?: string[]
   send_stage?: 'sent' | 'r1' | 'r2' | null
   company_kind?: 'sme' | 'large' | 'institutional' | 'unclassified' | null
@@ -98,6 +99,8 @@ export interface Overview {
   deleted: number
   employment_validated: number
   employment_pending: number
+  uncertain: number
+  todo: number
   ignored: number
 }
 
@@ -176,7 +179,7 @@ function filterParams(filters: ProspectFilters): URLSearchParams {
   const q = filters.q.trim()
   if (q) params.set('q', q)
   for (const code of filters.services ?? []) params.append('services', code)
-  for (const key of ['role', 'activity', 'referent', 'tracking_status', 'cohort', 'company', 'import_batch', 'send_stage', 'company_kind', 'created_from', 'created_to'] as const) {
+  for (const key of ['role', 'activity', 'referent', 'tracking_status', 'cohort', 'company', 'import_batch', 'send_stage', 'company_kind', 'created_from', 'created_to', 'verification_box'] as const) {
     const value = filters[key]
     if (value) params.set(key, value)
   }
@@ -184,8 +187,8 @@ function filterParams(filters: ProspectFilters): URLSearchParams {
 }
 
 export function filtersOf(criteria: ProspectListCriteria): ProspectFilters {
-  const { q, role, activity, referent, tracking_status, cohort, company, import_batch, services, send_stage, company_kind, reachable, validated_only, created_from, created_to } = criteria
-  return { q, role, activity, referent, tracking_status, cohort, company, import_batch, services, send_stage, company_kind, reachable, validated_only, created_from, created_to }
+  const { q, role, activity, referent, tracking_status, cohort, company, import_batch, services, send_stage, company_kind, reachable, validated_only, verification_box, created_from, created_to } = criteria
+  return { q, role, activity, referent, tracking_status, cohort, company, import_batch, services, send_stage, company_kind, reachable, validated_only, verification_box, created_from, created_to }
 }
 
 export function useProspectionCounters(filters: ProspectFilters) {

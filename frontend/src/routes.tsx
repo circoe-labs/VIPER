@@ -1,4 +1,4 @@
-import { Navigate, type RouteObject } from 'react-router'
+import { Navigate, useLocation, type RouteObject } from 'react-router'
 
 import { AgendaPage } from './agenda/AgendaPage'
 import { LoginPage } from './auth/LoginPage'
@@ -11,9 +11,9 @@ import { MissionDetailPage } from './missions/MissionDetailPage'
 import { MissionsPage } from './missions/MissionsPage'
 import { HomePage } from './home/HomePage'
 import { OrganizationPage } from './organization/OrganizationPage'
+import { OpportunitiesPage } from './opportunities/OpportunitiesPage'
 import { ImportPage } from './imports/ImportPage'
 import { ProspectionPage } from './prospection/ProspectionPage'
-import { ReachableProspectsPage } from './prospection/ReachableProspectsPage'
 import { RobinPage } from './prospection/RobinPage'
 import { VerificationPage } from './prospection/VerificationPage'
 import { AppShell } from './shell/AppShell'
@@ -35,12 +35,21 @@ const devRoutes: RouteObject[] = import.meta.env.DEV
     ]
   : []
 
+function ValidatedProspectsRedirect() {
+  const location = useLocation()
+  const params = new URLSearchParams(location.search)
+  params.set('validated_only', 'true')
+  params.set('sort', 'company')
+  params.set('list', '1')
+  return <Navigate to={`/prospection?${params.toString()}${location.hash}`} replace />
+}
+
 // One page per navigation section (shell/navigation.ts). Contact replaced Exploitation (Contact port P4): the old
 // path redirects, so bookmarks keep working.
 const PAGES: RouteObject[] = [
   { path: '/', element: <HomePage /> },
   { path: '/prospection', element: <ProspectionPage /> },
-  { path: '/contacts-joignables', element: <ReachableProspectsPage /> },
+  { path: '/contacts-joignables', element: <ValidatedProspectsRedirect /> },
   { path: '/warehouses', element: <WarehousesPage /> },
   { path: '/contact', element: <ContactPage /> },
   { path: '/missions', element: <MissionsPage /> },
@@ -57,6 +66,7 @@ const PAGES: RouteObject[] = [
 
 // Secondary pages inside a section (the section's navigation item stays current).
 const SUBPAGES: RouteObject[] = [
+  { path: '/prospection/opportunities', element: <OpportunitiesPage /> },
   { path: '/prospection/companies', element: <CompaniesPage /> },
   { path: '/prospection/import', element: <ImportPage /> },
   { path: '/prospection/verification', element: <VerificationPage /> },

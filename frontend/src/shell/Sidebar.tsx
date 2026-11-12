@@ -32,7 +32,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           ))}
         </ul>
       </nav>
-      {!collapsed && <details className="sidebar__help"><summary>Aide</summary><p>Rechercher : Ctrl+K. Ouvrez une fiche pour modifier ses informations. Le nouveau tableau de bord et les prestations sont dans « Prospects validés ».</p></details>}
+      {!collapsed && <details className="sidebar__help"><summary>Aide</summary><p>Rechercher : Ctrl+K. Ouvrez une fiche pour modifier ses informations. Retrouvez les prospects validés dans Prospection.</p></details>}
       <div className="sidebar__footer">
         <ApiStatus compact={collapsed} />
         <IconButton

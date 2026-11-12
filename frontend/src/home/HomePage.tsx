@@ -33,8 +33,7 @@ function DashboardCard({ label, count, icon: Icon, tone, href, growth = false }:
   return <li>{href ? <Link className={className} to={href} aria-label={accessible}>{content}</Link> : <div className={className} aria-label={accessible} aria-busy={count === undefined}>{content}</div>}</li>
 }
 
-function cards(data: HomeDashboard | undefined): { primary: CardProps[]; growth: CardProps[] } {
-  const period = data ? new URLSearchParams({ created_from: data.week_start, created_to: data.week_end }).toString() : undefined
+function cards(data: HomeDashboard | undefined): { primary: CardProps[] } {
   return {
     primary: [
       { label: 'Prospects', count: data?.prospects, icon: UsersIcon, tone: 'blue', href: '/prospection?list=1' },
@@ -42,11 +41,37 @@ function cards(data: HomeDashboard | undefined): { primary: CardProps[]; growth:
       { label: 'Contactés', count: data?.contacted, icon: MailIcon, tone: 'green', href: '/contact?section=CONTACTES' },
       { label: 'RDV pris', count: data?.appointments, icon: CalendarIcon, tone: 'orange', href: '/prospection?segment=appointments' },
     ],
-    growth: [
-      { label: (data?.new_companies ?? 0) > 1 ? 'nouvelles entreprises' : 'nouvelle entreprise', count: data?.new_companies, icon: BuildingIcon, tone: 'emerald', href: period ? `/prospection/companies?${period}` : undefined, growth: true },
-      { label: (data?.new_prospects ?? 0) > 1 ? 'nouveaux prospects' : 'nouveau prospect', count: data?.new_prospects, icon: UsersIcon, tone: 'blue', href: period ? `/prospection?${period}` : undefined, growth: true },
-    ],
   }
+}
+
+function ProspectTrend({ data }: { data: HomeDashboard | undefined }) {
+  const weeks = data?.prospect_trend ?? []
+  const maximum = Math.max(1, ...weeks.flatMap((week) => [week.prospects, week.warehouses]))
+  const label = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short', timeZone: 'UTC' })
+  return <section className="home-trend" aria-labelledby="home-trend-title">
+    <div className="home-trend__header">
+      <div><h2 id="home-trend-title">Évolution des ajouts</h2><p>Nouveaux prospects · semaine dernière et semaine en cours</p></div>
+      <div className="home-trend__legend"><span>Prospection</span><span>Entrepôt</span></div>
+    </div>
+    {data && weeks.length > 0 ? <>
+      <svg className="home-trend__lines" viewBox="0 0 600 200" preserveAspectRatio="none" aria-hidden="true">
+        {[0, 1, 2, 3, 4].map((step) => <line key={step} x1="60" x2="540" y1={20 + step * 40} y2={20 + step * 40} className="home-trend__gridline" />)}
+        {(['prospects', 'warehouses'] as const).map((series) => {
+          const points = weeks.map((week, index) => ({ x: weeks.length === 1 ? 300 : 60 + index * 480 / (weeks.length - 1), y: 180 - week[series] / maximum * 150, value: week[series] }))
+          return <g key={series} className={`home-trend__series home-trend__series--${series}`}>
+            <polyline points={points.map(({ x, y }) => `${x},${y}`).join(' ')} />
+            {points.map(({ x, y, value }, index) => <g key={index}><circle cx={x} cy={y} r="5" /><text x={x} y={y - 10} textAnchor="middle">{NUMBER.format(value)}</text></g>)}
+          </g>
+        })}
+      </svg>
+      <ul className="home-trend__chart" aria-label="Ajouts hebdomadaires">
+        {weeks.map((week, index) => <li key={week.week} aria-label={`Semaine du ${label.format(new Date(`${week.week}T00:00:00Z`))} : ${NUMBER.format(week.prospects)} prospects en prospection, ${NUMBER.format(week.warehouses)} prospects entrepôt`}>
+          <span className="home-trend__month">{index === 0 ? 'Semaine dernière' : 'Cette semaine'}<br />{label.format(new Date(`${week.week}T00:00:00Z`))}</span>
+        </li>)}
+      </ul>
+    </> : <p className="home-trend__empty">{data ? 'Aucune donnée disponible.' : 'Données indisponibles.'}</p>}
+    <p className="home-trend__note">Les prospects entrepôt sont rattachés à la semaine de création de leur fiche d’entrepôt.</p>
+  </section>
 }
 
 export function HomePage() {
@@ -69,9 +94,9 @@ export function HomePage() {
       <ul className="home-dashboard__totals" aria-label="Chiffres clés">
         {groups.primary.map((card) => <DashboardCard key={card.label} {...card} />)}
       </ul>
-      <ul className="home-dashboard__growth" aria-label="Nouveautés cette semaine">
-        {groups.growth.map((card, index) => <DashboardCard key={index} {...card} />)}
-      </ul>
+      {home.data && <p className="home-dashboard__prospect-note">Prospects : <Link to="/prospection?list=1">{NUMBER.format(home.data.prospects - home.data.warehouse_contacts)} en prospection</Link> et <Link to="/warehouses">{NUMBER.format(home.data.warehouse_contacts)} contacts d’entrepôt</Link>.</p>}
+      <Link className="home-opportunities-link" to="/prospection/opportunities"><span><strong>Opportunités à explorer</strong><small>6 pistes de prospection en Normandie</small></span><ChevronRightIcon size={21} /></Link>
+      <ProspectTrend data={home.data} />
     </div>
   )
 }

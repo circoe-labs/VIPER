@@ -5,7 +5,8 @@ import type { ProspectionView } from './criteria'
 const NUMBER = new Intl.NumberFormat('fr-FR')
 const GROUPS = [
   { key: 'employment_validated', label: 'Emploi validé', hint: 'Validation enregistrée dans VIPER', icon: CheckCircleIcon, patch: { validated_only: true, segment: 'all', review: null } },
-  { key: 'employment_pending', label: 'Validation non enregistrée', hint: 'Fiches à examiner pour retrouver ou confirmer la validation', icon: AlertIcon, patch: { validated_only: false, segment: 'never_verified', review: 'to_verify' } },
+  { key: 'uncertain', label: 'Incertains', hint: 'Fonction à vérifier', icon: AlertIcon, patch: { verification_box: 'uncertain' } },
+  { key: 'todo', label: 'À vérifier', hint: 'Validation non enregistrée', icon: AlertIcon, patch: { verification_box: 'todo' } },
   { key: 'ignored', label: 'Mis de côté', hint: 'Prospects ignorés, conservés dans la base', icon: BanIcon, patch: { validated_only: false, segment: 'all', review: 'ignored' } },
 ] as const
 

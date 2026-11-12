@@ -1,5 +1,4 @@
-import { filtersOf, type ProspectListCriteria, useProspectionCounters, useProspectPage } from '../api/prospection'
-import { useUncertainAlerts } from '../api/sequences'
+import { filtersOf, type ProspectListCriteria, useProspectionCounters, useProspectionOverview } from '../api/prospection'
 import { type Cohort, useCohorts } from '../api/settings'
 
 // The four boxes of the verification space, as Lucie reads her base (colour code of her Excel): « Vérifié » = the
@@ -23,7 +22,6 @@ export interface VerificationFigures {
   verified: number
   uncertain: number
   ignored: number
-  uncertainIds: string[]
   cohorts: CohortFigure[]
   // Verified people with no campaign cohort (no cohort, or S0).
   withoutCohort: number
@@ -61,29 +59,22 @@ function cohortFigures(cohorts: Cohort[], today: string): CohortFigure[] {
 export function useVerificationFigures(): VerificationFigures {
   const criteria = todoCriteria()
   const counters = useProspectionCounters(filtersOf(criteria))
-  const never = useProspectPage(criteria, 1)
-  const alerts = useUncertainAlerts()
+  const overview = useProspectionOverview()
   const cohorts = useCohorts()
 
-  const reviews = counters.data?.reviews
-  const total = reviews ? reviews.verified.total + reviews.to_verify.total + reviews.ignored.total : 0
-  const ignored = reviews?.ignored.total ?? 0
-  const neverVerified = never.data?.total ?? 0
-  const uncertainIds = [
-    ...new Set((alerts.data?.items ?? []).flatMap((alert) => (alert.prospect_id ? [alert.prospect_id] : []))),
-  ]
-  const uncertain = Math.min(uncertainIds.length, neverVerified)
+  const total = overview.data?.total ?? 0
+  const ignored = overview.data?.ignored ?? 0
+  const uncertain = overview.data?.uncertain ?? 0
   const figures = cohortFigures(cohorts.data ?? [], counters.data?.today ?? '')
-  const verified = Math.max(total - neverVerified - ignored, 0)
+  const verified = overview.data?.employment_validated ?? 0
   const inCampaign = figures.reduce((sum, figure) => sum + figure.count, 0)
   return {
-    loading: counters.isPending || never.isPending || alerts.isPending || cohorts.isPending,
+    loading: counters.isPending || overview.isPending || cohorts.isPending,
     total,
-    todo: Math.max(neverVerified - uncertain, 0),
+    todo: overview.data?.todo ?? 0,
     verified,
     uncertain,
     ignored,
-    uncertainIds,
     cohorts: figures,
     withoutCohort: Math.max(verified - inCampaign, 0),
   }

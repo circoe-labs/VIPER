@@ -32,10 +32,9 @@ flow at `/prospection?prospect=new`. Pagination remains 200 prospects per page.
 recorded send across all sequences: Contact, R1, R2, R3, R4 or later. The bars have no visible category labels;
 their accessible descriptions identify the actual steps. Zero means a real zero, never a demo value.
 
-Each bar's separate date annotation uses `PUT /api/contact/chart-dates/{slot}` (slot 0–4,
-`{"send_date": "YYYY-MM-DD" | null}`). Migration 0020 extends the existing audited `app_settings` keys with
-five independent `contact.chart.date_<slot>` values; absent values are empty. These are human chart notes,
-not scheduled sends: they never change individual message dates, sequence due dates or the dispatcher.
+Each bar's old date annotation is displayed read-only as a historical marker. It is not a send date or a
+scheduling control and does not affect individual messages, due dates or the dispatcher. Existing marker
+values remain stored in the audited `contact.chart.date_<slot>` settings and are not erased.
 The list's `last_contact_at` reads the latest real send or recorded response, including previous sequences.
 
 A prospect belongs to it once at least one message is recorded as `sent`, including an imported/manual send or

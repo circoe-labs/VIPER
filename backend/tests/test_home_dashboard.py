@@ -23,14 +23,21 @@ def test_dashboard_empty_base_is_really_zero(client: TestClient) -> None:
     response = client.get("/api/home/dashboard")
     assert response.status_code == 200
     body = response.json()
-    assert {key: value for key, value in body.items() if not key.startswith("week_")} == {
+    counters = {
+        key: value for key, value in body.items()
+        if not key.startswith("week_") and key not in {"prospect_trend", "weekly_activity"}
+    }
+    assert counters == {
         "prospects": 0,
+        "warehouse_contacts": 0,
         "companies": 0,
         "contacted": 0,
         "appointments": 0,
         "new_companies": 0,
         "new_prospects": 0,
     }
+    assert len(body["prospect_trend"]) == 2
+    assert all(row["prospects"] == row["warehouses"] == 0 for row in body["prospect_trend"])
     assert date.fromisoformat(body["week_start"]).weekday() == 0
     assert date.fromisoformat(body["week_end"]).weekday() == 6
 
@@ -122,3 +129,45 @@ def test_week_boundaries_are_paris_midnight_and_creation_not_modification(
 def test_creation_period_rejects_reversed_dates(client: TestClient, path: str) -> None:
     response = client.get(path, params={"created_from": "2026-11-02", "created_to": "2026-11-01"})
     assert response.status_code == 422, response.text
+
+
+def test_weekly_trend_counts_warehouse_contacts_and_paris_boundaries(db_session: Session) -> None:
+    from app.models import Warehouse
+
+    monday = date(2026, 10, 19)
+    start = start_of_day(monday)
+    end = start_of_day(monday + timedelta(days=7))
+    company = add_company(db_session, "Trend")
+    for at in (start - timedelta(microseconds=1), start, end - timedelta(microseconds=1), end):
+        add_prospect(db_session, company, created_at=at)
+    db_session.add_all([
+        Warehouse(name="A", created_at=start, contacts=[{"full_name": str(i)} for i in range(145)]),
+        Warehouse(name="B", created_at=end, contacts=[{"full_name": "Next"}]),
+        Warehouse(name="Empty", created_at=start, contacts=[]),
+    ])
+    db_session.flush()
+    summary = dashboard_summary(db_session, date(2026, 10, 26))
+    assert summary.prospects == 150  # four prospect records plus 146 warehouse contacts
+    assert summary.warehouse_contacts == 146
+    trend = summary.prospect_trend
+    assert trend[-2] == {"week": monday, "prospects": 2, "warehouses": 145}
+    assert trend[-1] == {"week": monday + timedelta(days=7), "prospects": 1, "warehouses": 1}
+
+
+def test_weekly_activity_counts_recorded_firsts_and_new_sites(db_session: Session) -> None:
+    from app.models import Warehouse
+
+    monday = date(2026, 10, 19)
+    start = start_of_day(monday)
+    company = add_company(db_session, "Weekly", created_at=start)
+    person = add_prospect(db_session, company, created_at=start)
+    sequence = start_sequence(db_session, person)
+    add_send(db_session, sequence, 0, start + timedelta(hours=1))
+    add_send(db_session, sequence, 1, start + timedelta(days=1))
+    db_session.add(Warehouse(name="Weekly site", created_at=start, contacts=[]))
+    db_session.flush()
+    result = dashboard_summary(db_session, monday)
+    assert result.weekly_activity == {
+        "prospects": 1, "companies": 1, "warehouses": 1,
+        "contacts": 1, "appointments": 0,
+    }

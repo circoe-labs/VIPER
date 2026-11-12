@@ -80,6 +80,16 @@ function panel(name: RegExp) {
 }
 
 describe('Prospection page', () => {
+  it('includes warehouse contacts in the unfiltered total while keeping filtered totals separate', async () => {
+    stubProspectionApi({ prospects: people(), warehouseContacts: 2 })
+    const { router } = renderApp('/prospection')
+    expect(await screen.findByText('5 prospects')).toBeVisible()
+    expect(screen.getByRole('link', { name: '2 interlocuteurs d’entrepôt' })).toHaveAttribute('href', '/warehouses')
+    expect(screen.getByText(/Une personne présente dans les deux listes/)).toBeVisible()
+    await act(async () => { await router.navigate('/prospection?review=to_verify') })
+    expect(await screen.findByText('3 prospects')).toBeVisible()
+    expect(screen.queryByRole('link', { name: '2 interlocuteurs d’entrepôt' })).not.toBeInTheDocument()
+  })
   it('keeps the company directory, search and commercial follow-up folded until requested', async () => {
     stubProspectionApi({ prospects: people() })
     renderApp('/prospection')
@@ -142,6 +152,8 @@ describe('Prospection page', () => {
     await unfold()
 
     expect(screen.getByRole('heading', { level: 1, name: 'Prospection' })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Entreprises' })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByText('Autres actions'))
     expect(screen.getByRole('link', { name: 'Entreprises' })).toHaveAttribute('href', '/prospection/companies')
     expect(screen.getByRole('link', { name: 'Importer Excel' })).toHaveAttribute('href', '/prospection/import')
     // The full-database export of Task 10 (downloads through `ExportWorkbookButton`, tested there).
@@ -448,6 +460,8 @@ describe('Prospection page', () => {
     renderApp('/prospection')
 
     expect(await screen.findByRole('heading', { level: 2, name: 'Aucun prospect pour l’instant' })).toBeInTheDocument()
+    expect(screen.getAllByRole('link', { name: 'Importer Excel' })).toHaveLength(1)
+    await userEvent.click(screen.getByText('Autres actions'))
     expect(screen.getAllByRole('link', { name: 'Importer Excel' })).toHaveLength(2)
     expect(screen.queryByRole('region', { name: 'Vérification de la base' })).not.toBeInTheDocument()
   })

@@ -18,6 +18,7 @@ from app.models.quality_alerts import QualityAlert
 from app.models.taxonomies import ActivityCategory, CommercialSegment, InternalReferent, Role
 from app.models.users import User, UserSession
 from app.models.warehouses import Warehouse
+from app.models.warehouse_drafts import WarehouseDraft
 
 __all__ = [
     "ActivityCategory",
@@ -58,5 +59,6 @@ __all__ = [
     "User",
     "UserSession",
     "Warehouse",
+    "WarehouseDraft",
     "company_activity_categories",
 ]

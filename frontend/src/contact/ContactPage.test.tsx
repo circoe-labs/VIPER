@@ -2,7 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
-import { contactDashboard, contactRow, message, sent, stubContactApi } from '../test/contactApi'
+import { contactDashboard, contactOverview, contactRow, message, sent, stubContactApi } from '../test/contactApi'
 import { renderApp } from '../test/render'
 
 const LIST = '/api/contact/prospects'
@@ -237,27 +237,16 @@ describe('Contact page', () => {
     expect(router.state.historyAction).toBe('POP')
   })
 
-  it('keeps each chart date independent and reads saved dates on a fresh page', async () => {
-    const api = stubContactApi({ rows: rows() })
-    const first = renderApp('/contact')
-    const date = await screen.findByLabelText('Date d’envoi du graphique — Contact')
-    const r1 = screen.getByLabelText('Date d’envoi du graphique — R1')
-    expect(date).toHaveValue('')
-    expect(r1).toHaveValue('')
-    const { fireEvent } = await import('@testing-library/react')
-    fireEvent.change(date, { target: { value: '2026-10-05' } })
-    fireEvent.blur(date)
-    await waitFor(() => {
-      expect(sent(api.requests, 'PUT', '/api/contact/chart-dates/0').at(-1)?.body).toEqual({ send_date: '2026-10-05' })
-    })
-    expect(screen.getByLabelText('Date d’envoi du graphique — R1')).toHaveValue('')
-    first.unmount()
+  it('hides old chart date markers while keeping category labels', async () => {
+    const overview = contactOverview()
+    overview.bars[0]!.send_date = '2026-10-05'
+    const api = stubContactApi({ rows: rows(), overview })
     renderApp('/contact')
-    expect(await screen.findByLabelText('Date d’envoi du graphique — Contact')).toHaveValue('2026-10-05')
-    await userEvent.click(screen.getByRole('button', { name: 'Effacer la date — Contact' }))
-    await waitFor(() => {
-      expect(screen.getByLabelText('Date d’envoi du graphique — Contact')).toHaveValue('')
-    })
+    expect(await screen.findByRole('region', { name: 'Graphique des contacts' })).toBeVisible()
+    expect(screen.queryByText('05/10/2026')).not.toBeInTheDocument()
+    expect(screen.queryByText('Aucun repère')).not.toBeInTheDocument()
+    expect(document.querySelector('.contacts-chart input[type="date"]')).toBeNull()
+    expect(sent(api.requests, 'PUT', '/api/contact/chart-dates/0')).toHaveLength(0)
   })
 
   it('filters by company and real commercial state, then resets all criteria', async () => {
