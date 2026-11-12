@@ -100,16 +100,23 @@ describe('Mission detail tabs', () => {
     expect(router.state.location.search).toBe('?tab=activity')
     await user.keyboard('{End}')
     expect(screen.getByRole('tab', { name: 'Statistiques' })).toHaveFocus()
-    expect(await screen.findByText('Statistiques de la mission')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Statistiques' })).toHaveAttribute('aria-selected', 'true')
+    expect(router.state.location.search).toBe('?tab=stats')
     await user.keyboard('{Home}')
     expect(first).toHaveFocus()
     expect(first).toHaveAttribute('aria-selected', 'true')
   })
 
   it('opens the tab named by the URL', async () => {
-    stubApi(api([200, overview()]))
+    stubApi({
+      ...api([200, overview()]),
+      [`GET /api/missions/${MISSION}/results`]: [
+        200,
+        { items: [], total: 0, limit: 12, offset: 0, status_counts: { pending_review: 0, accepted: 0, rejected: 0, superseded: 0 } },
+      ],
+    })
     renderApp(`/missions/${MISSION}?tab=results`)
-    expect(await screen.findByText('Résultats des agents')).toBeInTheDocument()
+    expect(await screen.findByText('Rien à relire')).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: /Résultats/ })).toHaveAttribute('aria-selected', 'true')
   })
 
