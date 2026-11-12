@@ -119,7 +119,7 @@ search hints), which makes prospect enrichment claimable.
 ## 6. Evidence
 
 Evidence is part of the result, not an afterthought: every `CompanyUpdateResult` /
-`EmployeeUpdateResult` carries `confidence`, `evidence[{field, source, quote}]`, and the review card
+`EmployeeUpdateResult` carries `confidence`, `evidence[{field, source, quote, confidence?, source_published_at?, source_checked_at?}]` (the last three nullable, per item: `mission-telemetry.md` §9; copied onto each proposal item), and the review card
 shows the source next to each proposed value. For a mission, the agent must quote a public URL; a
 value without a source is still reviewable but visibly unsourced.
 

@@ -35,3 +35,14 @@ Decisions:
 - Sessions/logs carry no `organization_id` (inherited via mission). Migration number = next after head at implementation time (0038 today).
 
 Unresolved / for later slices: no time-based retention purge (deferred); append-only trigger must allow cascade delete from mission deletion (Slice 03 to design); `run_finished` / `mission_cancelled` session ends need hooks in `refresh_run` / `set_status`.
+
+## Slice 02 — agent evidence contract (2026-11-12)
+
+Implements `mission-telemetry.md` §9. `agent_payloads.py`: new `SourceFreshness` base (nullable `confidence` 0-100, `source_published_at` date|datetime, `source_checked_at` datetime; future published > now+1d and checked > now+5min refused); `Evidence` and `SignalProposal` inherit it. `build_proposal` copies `confidence`, `source_published_at`, `source_checked_at` (ISO strings, nulls when absent) next to `source`/`quote` on every item (company/employee field changes, emails, phones, created people, created companies, signals) via `evidence_item_fields`. `frontend/src/api/agents.ts` `ProposalItem` gets the three optional fields (types only). `missions.md` §6 updated. Tests: `backend/tests/test_agent_evidence_freshness.py` (old/new validation, bounds, future dates, extra still forbidden, proposal carries fields, never invents publication, historical rebuild).
+
+Decisions / deviations:
+- `SCHEMA_VERSION` not bumped: fields are additive and optional, old results validate unchanged.
+- `date | datetime` union order on purpose: a bare date stays a date (pydantic smart union otherwise turns it into midnight datetime = invented time).
+- Signals have no evidence list: the three fields sit directly on `SignalProposal`; item `quote` stays `score_reason` as before.
+- No MCP schema/description change: submit tool does not describe evidence (Slice 04 owns guidance); JSON Schema published to agents picks the fields up from the model.
+- `npm run lint` already fails on 33 pre-existing errors in untouched files; `typecheck` clean.

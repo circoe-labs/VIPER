@@ -15,7 +15,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal
 from urllib.parse import urlparse
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -53,7 +53,58 @@ SCHEMA_VERSION = 2
 # --- `update_company` ---------------------------------------------------------------------------
 
 
-class Evidence(BaseModel):
+PUBLISHED_FUTURE_TOLERANCE = timedelta(days=1)
+CHECKED_FUTURE_TOLERANCE = timedelta(minutes=5)
+
+
+def _as_aware(value: datetime) -> datetime:
+    """A naive datetime is read as UTC (only used to compare against the clock)."""
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+
+
+def _check_published_at(value: datetime | date | None) -> datetime | date | None:
+    """`source_published_at` is the source's own date, never invented: not in the future."""
+    if value is None:
+        return None
+    limit = datetime.now(UTC) + PUBLISHED_FUTURE_TOLERANCE
+    moment = (
+        _as_aware(value)
+        if isinstance(value, datetime)
+        else datetime(value.year, value.month, value.day, tzinfo=UTC)
+    )
+    if moment > limit:
+        raise ValueError("source_published_at cannot be in the future.")
+    return value
+
+
+def _check_checked_at(value: datetime | None) -> datetime | None:
+    if value is not None and _as_aware(value) > datetime.now(UTC) + CHECKED_FUTURE_TOLERANCE:
+        raise ValueError("source_checked_at cannot be in the future.")
+    return value
+
+
+class SourceFreshness(BaseModel):
+    """Per-item confidence and source dates (`mission-telemetry.md` §9). All nullable: results and
+    proposals from before the extension stay valid and read as « unknown »."""
+
+    # `source_published_at`: only what the source states (never the retrieval date, never inferred);
+    # `source_checked_at` is when the agent actually opened the source, from its own clock.
+    confidence: int | None = Field(None, ge=0, le=100)
+    source_published_at: date | datetime | None = None
+    source_checked_at: datetime | None = None
+
+    @field_validator("source_published_at")
+    @classmethod
+    def _published_not_future(cls, value: datetime | date | None) -> datetime | date | None:
+        return _check_published_at(value)
+
+    @field_validator("source_checked_at")
+    @classmethod
+    def _checked_not_future(cls, value: datetime | None) -> datetime | None:
+        return _check_checked_at(value)
+
+
+class Evidence(SourceFreshness):
     """Where a proposed value comes from: an agent cites, or it says nothing."""
 
     model_config = ConfigDict(extra="forbid")
@@ -61,6 +112,23 @@ class Evidence(BaseModel):
     field: str = Field(min_length=1, max_length=100)
     source: str = Field(min_length=1, max_length=1000)
     quote: str | None = Field(None, max_length=1000)
+
+
+def _iso_date(value: datetime | date | None) -> str | None:
+    return value.isoformat() if value is not None else None
+
+
+def evidence_item_fields(
+    evidence: SourceFreshness | None, source: str | None, quote: str | None
+) -> dict[str, Any]:
+    """The source/quote/confidence/dates every review item carries (`mission-telemetry.md` §9)."""
+    return {
+        "source": source,
+        "quote": quote,
+        "confidence": evidence.confidence if evidence else None,
+        "source_published_at": _iso_date(evidence.source_published_at) if evidence else None,
+        "source_checked_at": _iso_date(evidence.source_checked_at) if evidence else None,
+    }
 
 
 class CompanyUpdateResult(BaseModel):
@@ -180,7 +248,7 @@ class SignalSubject(BaseModel):
     name: str | None = Field(None, max_length=200)
 
 
-class SignalProposal(BaseModel):
+class SignalProposal(SourceFreshness):
     """One dated, sourced fact with its commercial reading."""
 
     model_config = ConfigDict(extra="forbid")
@@ -712,13 +780,11 @@ def _clean_text(field: str, value: str) -> str:
     return cleaned
 
 
-def _evidence_for(
-    result: CompanyUpdateResult | EmployeeUpdateResult, field: str
-) -> tuple[str | None, str | None]:
+def _evidence_for(result: CompanyUpdateResult | EmployeeUpdateResult, field: str) -> dict[str, Any]:
     for evidence in result.evidence:
         if evidence.field == field:
-            return evidence.source, evidence.quote
-    return None, None
+            return evidence_item_fields(evidence, evidence.source, evidence.quote)
+    return evidence_item_fields(None, None, None)
 
 
 def _segment(session: Session, label: str) -> TaxonomyRow:
@@ -815,7 +881,7 @@ def _company_proposal(
             if stored == before_stored:
                 continue
             status = "add" if before_stored in (None, "") else "change"
-        source, quote = _evidence_for(result, field)
+        evidence_fields = _evidence_for(result, field)
         items.append(
             {
                 "key": field,
@@ -826,8 +892,7 @@ def _company_proposal(
                 "status": status,
                 # What acceptance writes, already normalised (a taxonomy id, not its label).
                 "store": _json_safe(stored),
-                "source": source,
-                "quote": quote,
+                **evidence_fields,
             }
         )
     stale = bool(task.claimed_at and company.updated_at > task.claimed_at)
@@ -912,7 +977,7 @@ def _employee_proposal(
             continue
         if stored == before_stored:
             continue
-        source, quote = _evidence_for(result, field)
+        evidence_fields = _evidence_for(result, field)
         items.append(
             {
                 "key": field,
@@ -922,8 +987,7 @@ def _employee_proposal(
                 "after": shown,
                 "status": "add" if before_stored in (None, "") else "change",
                 "store": _json_safe(stored),
-                "source": source,
-                "quote": quote,
+                **evidence_fields,
             }
         )
 
@@ -937,7 +1001,7 @@ def _employee_proposal(
         if address in known_emails:
             continue
         known_emails.add(address)
-        source, quote = _evidence_for(result, "emails")
+        evidence_fields = _evidence_for(result, "emails")
         items.append(
             {
                 "key": f"email:{address}",
@@ -947,8 +1011,7 @@ def _employee_proposal(
                 "after": address,
                 "status": "add",
                 "store": {"address": address},
-                "source": source,
-                "quote": quote,
+                **evidence_fields,
             }
         )
 
@@ -962,7 +1025,7 @@ def _employee_proposal(
         if number in known_phones:
             continue
         known_phones.add(number)
-        source, quote = _evidence_for(result, "phones")
+        evidence_fields = _evidence_for(result, "phones")
         items.append(
             {
                 "key": f"phone:{number}",
@@ -972,8 +1035,7 @@ def _employee_proposal(
                 "after": number,
                 "status": "add",
                 "store": {"number": number, "type": phone.type.value},
-                "source": source,
-                "quote": quote,
+                **evidence_fields,
             }
         )
 
@@ -1116,8 +1178,7 @@ def _find_employees_proposal(
                     "source": sources[0].source,
                     "legal_basis": legal_basis,
                 },
-                "source": sources[0].source,
-                "quote": sources[0].quote,
+                **evidence_item_fields(sources[0], sources[0].source, sources[0].quote),
             }
         )
     stale = bool(task.claimed_at and company.updated_at > task.claimed_at)
@@ -1502,8 +1563,7 @@ def _find_prospects_proposal(
                     "establishments": sites,
                     "trigger": trigger,
                 },
-                "source": sources[0].source,
-                "quote": sources[0].quote,
+                **evidence_item_fields(sources[0], sources[0].source, sources[0].quote),
             }
         )
     return {
@@ -1636,8 +1696,7 @@ def _signals_proposal(
                     "prospect_id": str(prospect_id) if prospect_id is not None else None,
                     "company_id": None if prospect_id is not None else str(company_id),
                 },
-                "source": source,
-                "quote": signal.score_reason,
+                **evidence_item_fields(signal, source, signal.score_reason),
             }
         )
     return {
