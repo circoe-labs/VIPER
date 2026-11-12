@@ -77,6 +77,12 @@ export interface ProposalItem {
   status: 'add' | 'change'
   source: string | null
   quote: string | null
+  // Per-item confidence (0-100) and source dates (`mission-telemetry.md` §9). null = unknown;
+  // `source_published_at` is the source's own date (never the check date), ISO date or datetime.
+  // Optional: proposals stored before the extension do not carry them.
+  confidence?: number | null
+  source_published_at?: string | null
+  source_checked_at?: string | null
   // Signals carry their own fields (kind, subject, observed_on, score, relevance) here.
   store?: Record<string, unknown>
   action_operation?: string
@@ -168,7 +174,8 @@ export function useResult(id: string | null) {
 }
 
 function refreshAgents(queryClient: ReturnType<typeof useQueryClient>) {
-  return refreshAfterWrite(queryClient, [['agents']])
+  // 'missions': a decision changes the mission's result queue, counts and overview.
+  return refreshAfterWrite(queryClient, [['agents'], ['missions']])
 }
 
 export function useAcceptResult(id: string) {

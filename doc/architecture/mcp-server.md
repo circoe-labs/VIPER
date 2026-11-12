@@ -218,6 +218,42 @@ them). No SQL in the handlers, no generic query tool, nothing writes.
   unknown id comes back as `isError: true` with the domain code (`invalid`/`format`, `not_found`),
   and is kept in « Historique des appels » like any call.
 
+**Telemetry tools (shipped, Slice 04).** Three task-side tools in `backend/app/api/mcp_telemetry.py`,
+specified in [`mission-telemetry.md`](mission-telemetry.md) §11, all `tasks.work`, same bearer
+token, actor and call history as the task tools:
+
+| Tool | Params | Result |
+|---|---|---|
+| `viper_log_mission_activity` | `task_id`, `claim_id`, `event_type` (closed list), `message` (≤ 1000), optional `source_url`, `source_published_at` (ISO date or date-time), `metadata` | `{log_id, session_id, created_at}` |
+| `viper_end_mission_session` (optional courtesy) | `task_id` | `{session_id, status, ended_at}`; idempotent; `not_found` without a session |
+| `viper_get_mission_session` (read-only) | `task_id` | `{session_id, status, started_at, last_seen_at, ended_at, disconnect_reason, logs_count}`; does not touch the session |
+
+- The session is opened by `viper_claim_task` and touched by `viper_heartbeat_task` and each log;
+  there is no register / log-off tool, and none of these changes the 15-minute lease (a log keeps
+  the *session* alive, only `viper_heartbeat_task` renews the *lease*). No tool reads other agents'
+  logs or sessions.
+- **Own session only.** `session_id`, `run_id`, `mission_id` and `agent_id` are never parameters:
+  they are derived from the claimed task and the token (`agent_missions.log_activity` runs the
+  `_claimed` checks of a heartbeat: `not_allowed` for another agent's task, `conflict` for a wrong
+  or lost claim, `task_cancelled`). `viper_end_mission_session` / `viper_get_mission_session` resolve
+  the run from `task_id` and the session from the token: an agent with no session in that run, or an
+  unknown task, gets `not_found` (nothing is revealed about another agent's session).
+- **Refusals.** Field errors name the field (`event_type`, `message`, `source_url`,
+  `source_published_at`, `metadata`); `rate_limited` (HTTP-style 429, with `limit` and
+  `window_seconds`) beyond **120 logs per minute per token**, counted in the database
+  (`mission_telemetry.check_log_rate`, rolling 60 s). A refused log is non-fatal: the agent keeps
+  working.
+- **Annotations.** The two writes carry the non-destructive write hints, `viper_get_mission_session`
+  the read-only hints.
+- **Agent guidance (no reasoning requested).** The claim payload of a mission task carries
+  `telemetry` (`agent_payloads.TELEMETRY_GUIDANCE`): the session is automatic, the event types, and
+  the rules (one short factual sentence in French, past tense; never invent a date, source or quote;
+  no personal data pasted into logs; one log per source consulted; a refused log is not fatal; a
+  short factual research report in the result `notes` at submit). The descriptions of
+  `viper_claim_task`, `viper_heartbeat_task` and `viper_submit_task_result` say the same. A
+  conformance test (`tests/test_mcp_telemetry.py`) asserts that no tool property or description
+  uses the forbidden vocabulary of `mission-telemetry.md` §6.
+
 ### 3.10 Mission actions (shipped)
 
 What an assistant does with a mission for the person it acts for. Code:

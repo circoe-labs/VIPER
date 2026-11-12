@@ -558,6 +558,15 @@ it, and returns `{ "result_id", "status": "pending_review", "proposal_summary": 
 (same `claim_id`, same `digest`) returns the existing result instead of creating a second one. A
 submission from a lost claim is refused (`claim_lost`, 409) without touching the task.
 
+**Mission telemetry (shipped, Slice 04).** For a task with a `run_id`, `viper_claim_task`
+automatically opens (or reuses) the agent's **session** for that run, and `viper_heartbeat_task` /
+log writes / submit / fail / release *touch* it (`last_seen_at`). There is no register or log-off
+call. The session times out after **3 hours** without activity; this is independent of the
+**15-minute lease**, which keeps its exact semantics (`sweep_expired`, heartbeat, claim). Factual
+activity logs are written with `viper_log_mission_activity` (the claim payload carries `telemetry` guidance; 120 logs/min/token). Full contract:
+[`mission-telemetry.md`](mission-telemetry.md). Results' evidence also carries per-item
+`confidence`, `source_published_at` and `source_checked_at` (shipped, Slice 02; `mission-telemetry.md` §9).
+
 ## 9. REST surface (human side)
 
 | Route | Purpose |
@@ -728,7 +737,8 @@ caps, retention job, `agent_activity` on the prospect and company pages, retry p
 2. **Can an agent hold several tasks of the same thread?** Default: yes, up to `max_concurrent`.
    The alternative (one agent per thread) spreads the risk but serialises a 20-employee company.
 3. **Lease length and heartbeat.** Proposed: 15 min lease, heartbeat every 5 min, no automatic
-   re-queue before expiry.
+   re-queue before expiry. (The 3 h *session* timeout of [`mission-telemetry.md`](mission-telemetry.md)
+   is a separate supervision state and does not change the lease.)
 4. **`find_prospects` output.** Companies first (then the human picks which to analyse), or people
    directly? The first matches the thread model better; the second matches the current base.
 5. **Company-level score.** §4.5 keeps the score per prospect and shows a company subtotal. If the

@@ -119,7 +119,7 @@ search hints), which makes prospect enrichment claimable.
 ## 6. Evidence
 
 Evidence is part of the result, not an afterthought: every `CompanyUpdateResult` /
-`EmployeeUpdateResult` carries `confidence`, `evidence[{field, source, quote}]`, and the review card
+`EmployeeUpdateResult` carries `confidence`, `evidence[{field, source, quote, confidence?, source_published_at?, source_checked_at?}]` (the last three nullable, per item: `mission-telemetry.md` §9; copied onto each proposal item), and the review card
 shows the source next to each proposed value. For a mission, the agent must quote a public URL; a
 value without a source is still reviewable but visibly unsourced.
 
@@ -144,6 +144,27 @@ review shows it as such.
 
 Results keep their existing surface (`/api/agents/results/{id}`, accept/reject): a mission task is
 reviewed exactly like a legacy one.
+
+## 7b. Supervision and telemetry
+
+A run also has **agent sessions** and an append-only **activity log** (who works on it, what was
+searched, opened, observed, verified), opened automatically when an agent claims a mission task and
+closed after 3 hours without activity. This is observation only: it never changes tasks, leases or
+results, and a result is still accepted by a person. Contract, read routes
+(`/api/missions/{id}/sessions`, `/activity`, …) and the factual research-report policy:
+[`mission-telemetry.md`](mission-telemetry.md). *All of it is shipped: persistence, MCP tools, read
+routes and the Mission page below.*
+
+**Mission page (shipped).** `/missions/:id` is a supervision page, not a one-page form: header and
+actions, a live strip (agents active now, last activity, `finished/total` progress, reviews waiting,
+the API's warnings such as timed-out sessions), then four tabs, URL-synced with `?tab=` (overview =
+no parameter): **Vue d'ensemble** (consigne, linked data, runs, tasks), **Activité** (agent sessions +
+the factual log, filters, cursor pagination), **Résultats** (review queue; a card opens the review
+dialog) and **Statistiques** (KPIs and UTC bucket charts). The live strip and the sessions poll while
+the browser tab is visible. In the review dialog the rejection reason field appears only after
+« Rejeter »; accepting never asks for one, and a decision is still the only way a proposal changes
+business data. The French status and event-type wording lives in one module
+(`frontend/src/missions/vocabulary.ts`: singular for badges, plural for counts).
 
 ## 8. Phases
 

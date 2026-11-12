@@ -78,6 +78,8 @@ export default defineConfig({
       // the fake OpenAI server with a fake key (every VIPER_OPENAI_* is set, so a backend/.env cannot leak in).
       env: {
         VIPER_DATABASE_URL: E2E_DATABASE_URL,
+        // The synthetic E2E account (example.com) must be allowed to sign in: the default allowlist is the real domain.
+        VIPER_SIGNIN_EMAIL_DOMAINS: 'example.com',
         // Settings saved from Paramètres › Connexions (S8) go to a temporary file of this run, never ~/.viper.
         VIPER_RUNTIME_SETTINGS_PATH: E2E_RUNTIME_SETTINGS,
         VIPER_DEFAULT_OUTBOUND_EMAIL: 'prospection@exemple.example',

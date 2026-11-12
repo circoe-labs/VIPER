@@ -341,3 +341,35 @@ class SignalOrigin(StrEnum):
 
     MANUAL = "manual"
     AGENT = "agent"
+
+
+class MissionAgentSessionStatus(StrEnum):
+    """One participation of an agent in a run (`mission_agent_sessions`); `ended` and `timed_out`
+    are terminal (`doc/architecture/mission-telemetry.md` §3.4)."""
+
+    ACTIVE = "active"
+    ENDED = "ended"
+    TIMED_OUT = "timed_out"
+
+
+class MissionAgentDisconnectReason(StrEnum):
+    """Why a session left `active` (`mission_agent_sessions.disconnect_reason`)."""
+
+    AGENT_ENDED = "agent_ended"
+    RUN_FINISHED = "run_finished"
+    MISSION_CANCELLED = "mission_cancelled"
+    INACTIVITY_TIMEOUT = "inactivity_timeout"
+
+
+class MissionAgentLogEvent(StrEnum):
+    """The closed taxonomy of an agent activity log (`mission-telemetry.md` §5.2): what the agent
+    did or found, never why it thought so (§6)."""
+
+    SEARCH = "search"
+    SOURCE_OPENED = "source_opened"
+    OBSERVATION = "observation"
+    VERIFICATION = "verification"
+    PROGRESS = "progress"
+    WARNING = "warning"
+    ERROR = "error"
+    DECISION_SUMMARY = "decision_summary"

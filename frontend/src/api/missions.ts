@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import type { TaskStatus, TaskType } from './agents'
 import { apiGet, apiRequest } from './client'
@@ -271,3 +271,302 @@ export function useDeleteMission(id: string) {
   })
 }
 
+
+// --- Mission supervision (read-only): Overview, Activity, Results, Statistics ---------------------
+// Mirrors backend/app/api/routes/mission_supervision.py and doc/architecture/mission-telemetry.md §8.
+// Nothing here writes or touches an agent session; a result is still opened and decided through the
+// existing review endpoints. Keys sit under ['missions', id, ...] so a mission write refreshes them.
+
+export const AGENT_SESSION_STATUSES = ['active', 'ended', 'timed_out'] as const
+export type AgentSessionStatus = (typeof AGENT_SESSION_STATUSES)[number]
+
+export const SESSION_DISCONNECT_REASONS = [
+  'agent_ended',
+  'run_finished',
+  'mission_cancelled',
+  'inactivity_timeout',
+] as const
+export type SessionDisconnectReason = (typeof SESSION_DISCONNECT_REASONS)[number]
+
+export const ACTIVITY_EVENT_TYPES = [
+  'search',
+  'source_opened',
+  'observation',
+  'verification',
+  'progress',
+  'warning',
+  'error',
+  'decision_summary',
+] as const
+export type ActivityEventType = (typeof ACTIVITY_EVENT_TYPES)[number]
+
+export const RESULT_STATUSES = ['pending_review', 'accepted', 'rejected', 'superseded'] as const
+export type MissionResultStatus = (typeof RESULT_STATUSES)[number]
+
+export interface MissionRunSummary {
+  id: string
+  status: MissionRunStatus
+  scheduled_at: string
+  started_at: string | null
+  finished_at: string | null
+  tasks_total: number
+  results_count: number
+}
+
+export interface LiveAgent {
+  agent_id: string
+  agent_label: string
+  session_id: string
+  run_id: string
+  started_at: string
+  last_seen_at: string
+}
+
+export interface MissionWarning {
+  // sessions_timed_out | tasks_failed | no_active_agent
+  code: string
+  message: string
+  count: number
+}
+
+export interface MissionOverview {
+  mission_id: string
+  name: string
+  status: MissionStatus
+  next_run_at: string | null
+  current_run: MissionRunSummary | null
+  active_sessions: number
+  active_agents: number
+  // Live agents (active sessions), most recently seen first, at most 50.
+  agents: LiveAgent[]
+  // Newest of session activity, log and result submission; null when nothing happened yet.
+  last_activity_at: string | null
+  tasks: { total: number; finished: number; by_status: Record<TaskStatus, number> }
+  pending_reviews: number
+  warnings: MissionWarning[]
+}
+
+export interface AgentSession {
+  id: string
+  run_id: string
+  agent_id: string
+  agent_label: string
+  status: AgentSessionStatus
+  started_at: string
+  last_seen_at: string
+  ended_at: string | null
+  disconnect_reason: SessionDisconnectReason | null
+  logs_count: number
+}
+
+export interface Page<T> {
+  items: T[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export type AgentSessionPage = Page<AgentSession>
+
+export interface ActivityEntry {
+  id: string
+  session_id: string
+  run_id: string
+  task_id: string | null
+  agent_id: string
+  agent_label: string
+  session_status: AgentSessionStatus
+  event_type: ActivityEventType
+  message: string
+  source_url: string | null
+  // The source's own stated date; null = unknown (never the retrieval date).
+  source_published_at: string | null
+  created_at: string
+  metadata: Record<string, unknown>
+}
+
+// Newest first. Older page: pass `before = next_cursor`; null = no older entry.
+export interface ActivityPage {
+  items: ActivityEntry[]
+  next_cursor: string | null
+}
+
+export interface MissionResultCard {
+  id: string
+  task_id: string
+  run_id: string
+  task_type: TaskType
+  status: MissionResultStatus
+  agent_id: string | null
+  agent_label: string
+  subject_label: string | null
+  summary: string | null
+  // Global confidence 0-100; null when the result carries none (historical results).
+  confidence: number | null
+  items_count: number
+  refused_count: number
+  sources_count: number
+  submitted_at: string
+  decided_at: string | null
+  decided_by: string | null
+}
+
+export interface MissionResultPage extends Page<MissionResultCard> {
+  // Count per status ignoring the `status` filter (for the tab badges).
+  status_counts: Record<MissionResultStatus, number>
+}
+
+export type StatsBucket = 'day' | 'hour'
+
+export type ResultsSeriesPoint = Record<MissionResultStatus, number> & { bucket: string }
+
+export interface CountSeriesPoint {
+  bucket: string
+  count: number
+}
+
+export interface AgentStats {
+  agent_id: string
+  agent_label: string
+  sessions: number
+  logs: number
+  results: number
+  accepted: number
+  rejected: number
+  pending_review: number
+}
+
+export interface MissionStatistics {
+  bucket: StatsBucket
+  days: number
+  since: string
+  until: string
+  // Totals cover the whole mission; the series cover the last `days`, zero-filled per bucket.
+  results_by_status: Record<MissionResultStatus, number>
+  tasks_by_status: Record<TaskStatus, number>
+  sessions_by_status: Record<AgentSessionStatus, number>
+  logs_by_event_type: Record<ActivityEventType, number>
+  results_series: ResultsSeriesPoint[]
+  sessions_series: CountSeriesPoint[]
+  logs_series: CountSeriesPoint[]
+  decided_count: number
+  // accepted / (accepted + rejected); null until a result is decided.
+  acceptance_rate: number | null
+  avg_review_seconds: number | null
+  agents: AgentStats[]
+}
+
+export interface SessionsFilters {
+  run_id?: string
+  status?: AgentSessionStatus[]
+  agent_id?: string
+  limit?: number
+  offset?: number
+}
+
+export interface ActivityFilters {
+  run_id?: string
+  session_id?: string
+  agent_id?: string
+  task_id?: string
+  event_type?: ActivityEventType[]
+  since?: string
+  before?: string
+  limit?: number
+}
+
+export interface ResultsFilters {
+  status?: MissionResultStatus[]
+  agent_id?: string
+  run_id?: string
+  limit?: number
+  offset?: number
+}
+
+export interface StatisticsOptions {
+  bucket?: StatsBucket
+  // 1-90; at most 7 with hourly buckets.
+  days?: number
+}
+
+function queryString(values: object): string {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(values) as [string, string | number | string[] | undefined][]) {
+    if (value === undefined) continue
+    for (const item of Array.isArray(value) ? value : [value]) params.append(key, String(item))
+  }
+  const text = params.toString()
+  return text ? `?${text}` : ''
+}
+
+export const supervisionKeys = {
+  overview: (id: string) => ['missions', id, 'overview'] as const,
+  sessions: (id: string, filters: SessionsFilters) => ['missions', id, 'sessions', filters] as const,
+  activity: (id: string, filters: ActivityFilters) => ['missions', id, 'activity', filters] as const,
+  results: (id: string, filters: ResultsFilters) => ['missions', id, 'results', filters] as const,
+  statistics: (id: string, options: StatisticsOptions) =>
+    ['missions', id, 'statistics', options] as const,
+}
+
+function missionPath(id: string, route: string): `/${string}` {
+  return `/missions/${encodeURIComponent(id)}/${route}`
+}
+
+// `liveMs`: poll interval for a live tab (the first Activity page is polled and merged by `id`).
+export function useMissionOverview(id: string | undefined, liveMs?: number) {
+  return useQuery({
+    queryKey: supervisionKeys.overview(id ?? ''),
+    queryFn: ({ signal }) => apiGet<MissionOverview>(missionPath(id ?? '', 'overview'), signal),
+    enabled: Boolean(id),
+    refetchInterval: liveMs,
+    refetchOnWindowFocus: false,
+  })
+}
+
+export function useMissionSessions(id: string | undefined, filters: SessionsFilters = {}, liveMs?: number) {
+  return useQuery({
+    queryKey: supervisionKeys.sessions(id ?? '', filters),
+    queryFn: ({ signal }) =>
+      apiGet<AgentSessionPage>(missionPath(id ?? '', `sessions${queryString(filters)}`), signal),
+    enabled: Boolean(id),
+    refetchInterval: liveMs,
+    refetchOnWindowFocus: false,
+  })
+}
+
+export function useMissionActivity(
+  id: string | undefined,
+  filters: ActivityFilters = {},
+  liveMs?: number,
+) {
+  return useQuery({
+    queryKey: supervisionKeys.activity(id ?? '', filters),
+    queryFn: ({ signal }) =>
+      apiGet<ActivityPage>(missionPath(id ?? '', `activity${queryString(filters)}`), signal),
+    enabled: Boolean(id),
+    refetchInterval: liveMs,
+    refetchOnWindowFocus: false,
+  })
+}
+
+export function useMissionResults(id: string | undefined, filters: ResultsFilters = {}) {
+  return useQuery({
+    queryKey: supervisionKeys.results(id ?? '', filters),
+    queryFn: ({ signal }) =>
+      apiGet<MissionResultPage>(missionPath(id ?? '', `results${queryString(filters)}`), signal),
+    enabled: Boolean(id),
+    refetchOnWindowFocus: false,
+  })
+}
+
+export function useMissionStatistics(id: string | undefined, options: StatisticsOptions = {}) {
+  return useQuery({
+    queryKey: supervisionKeys.statistics(id ?? '', options),
+    queryFn: ({ signal }) =>
+      apiGet<MissionStatistics>(missionPath(id ?? '', `statistics${queryString(options)}`), signal),
+    enabled: Boolean(id),
+    refetchOnWindowFocus: false,
+    // New bucket/range: the previous figures stay (their headings name their own bucket/days) until the new ones land.
+    placeholderData: keepPreviousData,
+  })
+}

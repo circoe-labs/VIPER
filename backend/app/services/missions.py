@@ -26,6 +26,7 @@ from app.models.enums import (
     AgentResultStatus,
     AgentTaskStatus,
     AgentTaskType,
+    MissionAgentDisconnectReason,
     MissionEndKind,
     MissionResultKind,
     MissionRunStatus,
@@ -37,7 +38,14 @@ from app.models.enums import (
 from app.models.mcp import McpToken
 from app.models.missions import Mission, MissionRun, MissionTarget
 from app.models.prospects import Prospect
-from app.services import agent_missions, agent_payloads, audit, companies, mcp_reads
+from app.services import (
+    agent_missions,
+    agent_payloads,
+    audit,
+    companies,
+    mcp_reads,
+    mission_telemetry,
+)
 from app.services.errors import ConflictError, DomainError, InvalidFieldError, NotFoundError
 
 # Types whose execution maps to the result schemas that exist today. Discovery and signals need
@@ -722,12 +730,37 @@ def refresh_run(session: Session, run: MissionRun) -> MissionRun:
         run.finished_at = None
     else:
         if run.status is not MissionRunStatus.CANCELLED:
+            if run.status is not MissionRunStatus.DONE:
+                # The run just finished: its agents' sessions end with it (telemetry §3.4).
+                mission_telemetry.end_run_sessions(
+                    session, [run.id], MissionAgentDisconnectReason.RUN_FINISHED
+                )
             run.status = MissionRunStatus.DONE
             if run.finished_at is None:
                 run.finished_at = max(
                     (task.updated_at for task in tasks), default=run.started_at or run.scheduled_at
                 )
     return run
+
+
+def refresh_open_runs(session: Session, *, limit: int = 200) -> int:
+    """Settle the runs still `running`: a run whose last task was reviewed, failed or cancelled
+    becomes `done` and ends its agents' sessions (`run_finished`) without waiting for someone
+    to open the mission card. Called by the scheduler pass; `refresh_run` stays the one rule.
+    Returns how many runs changed status."""
+    runs = session.scalars(
+        select(MissionRun)
+        .where(MissionRun.status == MissionRunStatus.RUNNING)
+        .order_by(MissionRun.scheduled_at)
+        .limit(limit)
+        .with_for_update(skip_locked=True)
+    ).all()
+    settled = 0
+    for run in runs:
+        refresh_run(session, run)
+        if run.status is not MissionRunStatus.RUNNING:
+            settled += 1
+    return settled
 
 
 def idle_summary(session: Session, *, limit: int = 10) -> list[dict[str, Any]]:
@@ -1117,6 +1150,13 @@ def set_status(
         for run in runs:
             run.status = MissionRunStatus.CANCELLED
             run.finished_at = moment
+        # Every run, not only the open ones: a session never outlives a cancelled mission.
+        mission_run_ids = session.scalars(
+            select(MissionRun.id).where(MissionRun.mission_id == mission.id)
+        ).all()
+        mission_telemetry.end_run_sessions(
+            session, mission_run_ids, MissionAgentDisconnectReason.MISSION_CANCELLED, moment
+        )
         reason = f"cancelled_tasks={cancelled} cancelled_runs={len(runs)}"
     session.flush()
     if first_run:

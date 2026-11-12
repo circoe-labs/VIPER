@@ -16,7 +16,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.session import unit_of_work
-from app.services import missions
+from app.services import mission_telemetry, missions
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,8 @@ DEFAULT_INTERVAL_SECONDS = 60
 
 
 class MissionScheduler:
-    """A daemon thread that runs `missions.run_due` every `interval_seconds`."""
+    """A daemon thread that runs `missions.run_due`, then the session timeout sweep, every
+    `interval_seconds`."""
 
     def __init__(
         self,
@@ -54,7 +55,14 @@ class MissionScheduler:
     def run_once(self, now: datetime | None = None) -> list[uuid.UUID]:
         """One pass, committed when it returns: the unit the tests and the loop share."""
         with unit_of_work(self._session_factory) as session:
-            return [run.id for run in missions.run_due(session, now=now)]
+            started = [run.id for run in missions.run_due(session, now=now)]
+            # A run whose last task was reviewed ends its sessions here, not only when the mission
+            # card is read (`run_finished`, mission-telemetry.md §3.4).
+            missions.refresh_open_runs(session)
+            # Housekeeping of the same pass and transaction (mission-telemetry.md §4): agent
+            # sessions silent for 3 h time out. Never touches a task or a lease.
+            mission_telemetry.sweep_timed_out(session, now)
+            return started
 
     def _loop(self) -> None:
         while not self._stop.wait(self._interval):
