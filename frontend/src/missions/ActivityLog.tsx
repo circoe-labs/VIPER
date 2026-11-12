@@ -6,12 +6,12 @@ import { Button } from '../ui/Button'
 import { AlertIcon, LinkIcon, RefreshIcon } from '../ui/icons'
 import {
   absoluteMomentLabel,
-  EVENT_TYPE_LABELS,
   EVENT_TYPE_TONES,
   safeSourceUrl,
   sourceDateLabel,
 } from './activityLabels'
 import { relativeMomentLabel } from './labels'
+import { EVENT_TYPE_LABELS } from './vocabulary'
 
 export const PAGE_SIZE = 50
 

@@ -7,7 +7,7 @@ import { EmptyState } from '../ui/EmptyState'
 import { SelectField } from '../ui/fields'
 import { CheckCircleIcon, ChevronLeftIcon, ChevronRightIcon } from '../ui/icons'
 import { ResultsCard } from './ResultsCard'
-import { RESULT_STATUS_LABELS } from './resultsLabels'
+import { RESULT_STATUS_LABELS } from './vocabulary'
 import './results.css'
 
 interface TabProps {

@@ -248,6 +248,10 @@ UNEXPOSED_TABLES: Mapping[str, str] = {
     "oauth_tokens": "Jetons OAuth des connecteurs MCP : seuls des condensats.",
     "organizations": "Organisations : gérées depuis la page Organisation.",
     "mcp_calls": "Historique des appels MCP : consulté dans Paramètres > MCP.",
+    "mission_agent_sessions": "Sessions des agents sur une mission : ouvertes, renouvelées et "
+    "expirées (3 h) par le service, lues dans l’onglet Activité de la mission.",
+    "mission_agent_logs": "Journal factuel des agents (append-only) : écrit par les outils MCP, "
+    "lu dans l’onglet Activité de la mission, jamais édité à la main.",
 }
 
 DEFAULT_POLICY = ExposurePolicy(tables=EXPOSED_TABLES)

@@ -12,7 +12,8 @@ import { SelectField } from '../ui/fields'
 import { AlertIcon, CloseIcon, RefreshIcon } from '../ui/icons'
 import { ActivityLog } from './ActivityLog'
 import { ActivitySessions } from './ActivitySessions'
-import { absoluteMomentLabel, EVENT_TYPE_LABELS, sessionLabel } from './activityLabels'
+import { absoluteMomentLabel, sessionLabel } from './activityLabels'
+import { EVENT_TYPE_LABELS } from './vocabulary'
 import './activity.css'
 
 interface TabProps {

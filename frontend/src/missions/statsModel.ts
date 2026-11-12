@@ -1,10 +1,9 @@
 import type {
-  ActivityEventType,
   AgentStats,
-  MissionResultStatus,
   MissionStatistics,
   StatsBucket,
 } from "../api/missions";
+import { RESULT_STATUS_COUNT_LABELS } from "./vocabulary";
 
 // Pure view-model helpers of the Statistiques tab: labels, formatting and series arithmetic. No React here so the
 // transformations are unit-testable. Buckets are UTC (the API's boundaries); every label says so.
@@ -19,24 +18,6 @@ export const DEFAULT_DAYS: RangeDays = 30;
 export const BUCKET_LABELS: Record<StatsBucket, string> = {
   day: "Par jour",
   hour: "Par heure",
-};
-
-export const RESULT_STATUS_LABELS: Record<MissionResultStatus, string> = {
-  pending_review: "À relire",
-  accepted: "Acceptés",
-  rejected: "Refusés",
-  superseded: "Remplacés",
-};
-
-export const EVENT_TYPE_LABELS: Record<ActivityEventType, string> = {
-  search: "Recherches",
-  source_opened: "Sources ouvertes",
-  observation: "Observations",
-  verification: "Vérifications",
-  progress: "Avancées",
-  warning: "Avertissements",
-  error: "Erreurs",
-  decision_summary: "Synthèses de décision",
 };
 
 // Days selectable for a bucket size.
@@ -109,16 +90,16 @@ export interface ChartPoint {
 }
 
 export const RESULT_SERIES: ChartSeries[] = [
-  { key: "accepted", label: RESULT_STATUS_LABELS.accepted, tone: "success" },
-  { key: "rejected", label: RESULT_STATUS_LABELS.rejected, tone: "danger" },
+  { key: "accepted", label: RESULT_STATUS_COUNT_LABELS.accepted, tone: "success" },
+  { key: "rejected", label: RESULT_STATUS_COUNT_LABELS.rejected, tone: "danger" },
   {
     key: "pending_review",
-    label: RESULT_STATUS_LABELS.pending_review,
+    label: RESULT_STATUS_COUNT_LABELS.pending_review,
     tone: "warning",
   },
   {
     key: "superseded",
-    label: RESULT_STATUS_LABELS.superseded,
+    label: RESULT_STATUS_COUNT_LABELS.superseded,
     tone: "neutral",
   },
 ];

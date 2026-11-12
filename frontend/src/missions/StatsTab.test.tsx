@@ -249,6 +249,33 @@ describe("Statistiques tab", () => {
     expect(screen.getByRole("button", { name: "30 jours" })).toBeEnabled();
   });
 
+  it("keeps the previous figures on screen while a new range loads", async () => {
+    const user = userEvent.setup();
+    let release: (response: Response) => void = () => undefined;
+    const pending = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    renderTab((url) =>
+      url.searchParams.get("days") === "90" ? pending : [200, stats()],
+    );
+    await screen.findByText("Taux d’acceptation", { selector: "dt" });
+
+    await user.click(screen.getByRole("button", { name: "90 jours" }));
+    expect(await screen.findByText("Mise à jour des chiffres…")).toBeVisible();
+    expect(screen.getByText("Taux d’acceptation", { selector: "dt" })).toBeVisible();
+    expect(screen.queryByText("Chargement des statistiques…")).toBeNull();
+
+    release(
+      new Response(JSON.stringify(stats({ days: 90 })), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    await waitFor(() => {
+      expect(screen.queryByText("Mise à jour des chiffres…")).toBeNull();
+    });
+  });
+
   it("says buckets are UTC", async () => {
     renderTab([200, stats()]);
     expect(await screen.findByText(/bornes UTC/)).toBeInTheDocument();

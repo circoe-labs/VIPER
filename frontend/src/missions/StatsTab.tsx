@@ -19,7 +19,6 @@ import {
   countPoints,
   DEFAULT_BUCKET,
   DEFAULT_DAYS,
-  EVENT_TYPE_LABELS,
   formatCount,
   formatDuration,
   formatRate,
@@ -27,10 +26,10 @@ import {
   hasNoHistory,
   RANGE_DAYS,
   RESULT_SERIES,
-  RESULT_STATUS_LABELS,
   resultPoints,
   sumValues,
 } from "./statsModel";
+import { EVENT_TYPE_COUNT_LABELS, RESULT_STATUS_COUNT_LABELS } from "./vocabulary";
 import "./stats.css";
 
 interface TabProps {
@@ -55,7 +54,7 @@ function Kpi({ label, value, hint, tone, zero }: KpiProps) {
     <div className={classes.filter(Boolean).join(" ")}>
       <dt>{label}</dt>
       <dd>{value}</dd>
-      {hint && <p className="stats-kpi__hint">{hint}</p>}
+      {hint && <dd className="stats-kpi__hint">{hint}</dd>}
     </div>
   );
 }
@@ -101,13 +100,13 @@ function Kpis({ stats }: { stats: MissionStatistics }) {
     <div className="stats-kpi-groups">
       <KpiGroup id="results" title="Résultats (toute la mission)">
         {count(
-          RESULT_STATUS_LABELS.pending_review,
+          RESULT_STATUS_COUNT_LABELS.pending_review,
           results.pending_review,
           "warning",
         )}
-        {count(RESULT_STATUS_LABELS.accepted, results.accepted, "success")}
-        {count(RESULT_STATUS_LABELS.rejected, results.rejected, "danger")}
-        {count(RESULT_STATUS_LABELS.superseded, results.superseded)}
+        {count(RESULT_STATUS_COUNT_LABELS.accepted, results.accepted, "success")}
+        {count(RESULT_STATUS_COUNT_LABELS.rejected, results.rejected, "danger")}
+        {count(RESULT_STATUS_COUNT_LABELS.superseded, results.superseded)}
         <Kpi
           label="Taux d’acceptation"
           value={formatRate(stats.acceptance_rate)}
@@ -169,7 +168,7 @@ function EventBreakdown({ stats }: { stats: MissionStatistics }) {
         {ACTIVITY_EVENT_TYPES.map((type) => (
           <li key={type} className="stats-events__row">
             <span className="stats-events__label">
-              {EVENT_TYPE_LABELS[type]}
+              {EVENT_TYPE_COUNT_LABELS[type]}
             </span>
             <span className="stats-events__bar" aria-hidden="true">
               <i style={{ width: `${String((values[type] / peak) * 100)}%` }} />
@@ -349,6 +348,11 @@ export function StatsTab({ missionId }: TabProps) {
 
       {stats && !hasNoHistory(stats) && (
         <>
+          {query.isPlaceholderData && (
+            <p className="stats-muted" role="status">
+              Mise à jour des chiffres…
+            </p>
+          )}
           {query.isError && (
             <p className="stats-muted" role="status">
               Actualisation impossible : les chiffres affichés peuvent être

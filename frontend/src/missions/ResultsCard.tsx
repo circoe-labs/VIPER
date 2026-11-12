@@ -2,7 +2,8 @@ import type { MissionResultCard } from '../api/missions'
 import { ConfidenceBadge } from '../agents/ReviewConfidence'
 import { TASK_TYPE_LABELS, sinceLabel } from '../agents/labels'
 import { StatusBadge } from '../ui/Badge'
-import { RESULT_STATUS_LABELS, RESULT_STATUS_TONES, plural } from './resultsLabels'
+import { RESULT_STATUS_TONES, plural } from './resultsLabels'
+import { RESULT_STATUS_LABELS } from './vocabulary'
 
 // One result of the review queue: enough to decide what to open first (who, what, how sure, how big, how old).
 // The whole card is the button that opens the validation dialog; the full proposal is read there, not here.

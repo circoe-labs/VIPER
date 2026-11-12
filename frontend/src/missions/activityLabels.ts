@@ -4,17 +4,6 @@ import { relativeMomentLabel } from './labels'
 
 // Wording for the Activité tab. Factual vocabulary only: what the agent did, found or checked (never its reasoning).
 
-export const EVENT_TYPE_LABELS: Record<ActivityEventType, string> = {
-  search: 'Recherche',
-  source_opened: 'Source ouverte',
-  observation: 'Constat',
-  verification: 'Vérification',
-  progress: 'Avancement',
-  warning: 'Alerte',
-  error: 'Erreur',
-  decision_summary: 'Bilan',
-}
-
 export const EVENT_TYPE_TONES: Record<ActivityEventType, StatusTone> = {
   search: 'neutral',
   source_opened: 'info',

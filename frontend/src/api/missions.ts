@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import type { TaskStatus, TaskType } from './agents'
 import { apiGet, apiRequest } from './client'
@@ -566,5 +566,7 @@ export function useMissionStatistics(id: string | undefined, options: Statistics
       apiGet<MissionStatistics>(missionPath(id ?? '', `statistics${queryString(options)}`), signal),
     enabled: Boolean(id),
     refetchOnWindowFocus: false,
+    // New bucket/range: the previous figures stay (their headings name their own bucket/days) until the new ones land.
+    placeholderData: keepPreviousData,
   })
 }
