@@ -392,3 +392,32 @@ follow category defaults, and Slice 07 puts `mission_context.resolve` and the ef
 2. Who may launch a mission assigned to an agent that is currently offline?
 3. Should a recurring mission stop itself when a run fails, or keep trying?
 4. `find_prospects` output: companies first, or people directly? (See `agent-missions.md` §15.4.)
+
+## 7e. Administration UI, grouped navigation and the mission form
+
+*Task `viper_mission_agent_configuration_v2`, Slice 05. Front only; code in `frontend/src/admin/`,
+`frontend/src/missions/` and `frontend/src/shell/navigation.ts`.*
+
+- **Sidebar** (`shell/navigation.ts`, `NAVIGATION_SECTIONS`): *Principal* (Accueil, Prospection, Entrepôts, Missions,
+  Agenda, Base de données), *Configuration* (Organisation, Historique agents, Paramètres), *Administration*
+  (Catégories, Skills, Sources; shown only to the platform admin or an « Organisation » admin, same rule as the API's
+  `require_admin`). Routes `/administration/:section` (`categories` | `skills` | `sources`) are guarded by
+  `auth/RequireAdmin` (anyone else is sent to Accueil); the API still checks every write.
+- **Administration.** *Catégories*: one-page editor (name, immutable execution type, description, icon, colour, general
+  prompt, default skills, default sources); a built-in or used category cannot be deleted (the button says why).
+  *Skills*: instruction blocks only. *Sources*: root > sub-sources tree with the **successful-use** count (accepted
+  items supported; a root shows its roll-up), edit/delete with the server's `in_use` refusal shown in the dialog.
+- **Mission form** (`CreateMissionDialog`, state in `useMissionForm`). The category tiles carry the category's icon and
+  colour. `prompt`, `skill_ids` and `source_ids` are sent as **`null` while the mission follows its category** and as a
+  value once overridden; an `Hérité` / `Personnalisé` note with a reset button shows which. An empty consigne field means
+  « use the category's general prompt » (shown as the placeholder). Internal context records (`context_refs`, read-only,
+  searched through `/missions/context-candidates`) are a separate section from the linked data (`targets`). Execution:
+  *Une fois / Récurrente* with the existing recurrence fields, `objective` (`tasks_accepted` | `accepted_items` + count
+  <= `result_limit`) and `allow_multiple`.
+- **Visual identity.** Mission cards and the detail header take icon and colour from `card.category`
+  (`missions/categoryVisual.ts`), not from the id; status keeps its own semantic chip.
+- **Mission-creator prompt.** Paramètres › *Assistant de mission* (`/settings/mission-creator`) edits
+  `mission_creator_prompt` with the same editor and reset-to-default rule as the contact prompt.
+- **Slice 06 seam.** `CreateMissionDialog` takes `initialDraft` and `assistantSlot(form)`; the form API
+  (`useMissionForm`) exposes `applyDraft(MissionDraft)` and `toInput()`.
+

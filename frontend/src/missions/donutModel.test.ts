@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { donutModel, donutSummary } from './donutModel'
-import { MISSION_ACCENTS, accentForMission } from './missionAccent'
+import { categoryAccent, categoryIcon } from './categoryVisual'
 
 const seg = (key: string, value: number) => ({ key, label: key.toUpperCase(), value, hue: 'blue' as const })
 
@@ -37,11 +37,15 @@ describe('donutModel', () => {
   })
 })
 
-describe('accentForMission', () => {
-  it('is stable and always one of the six accents', () => {
-    expect(accentForMission('01a1cf34-738d')).toBe(accentForMission('01a1cf34-738d'))
-    for (const id of ['', 'a', 'b', 'mission-42', 'x'.repeat(200)]) {
-      expect(MISSION_ACCENTS).toContain(accentForMission(id))
-    }
+describe('category visual identity', () => {
+  it('derives the accent from the stored colour, never from an id', () => {
+    expect(JSON.stringify(categoryAccent('#16a34a'))).toContain('#16a34a')
+    expect(categoryAccent('not-a-colour')).toBeUndefined()
+    expect(categoryAccent(null)).toBeUndefined()
+  })
+
+  it('draws a glyph for an unknown key', () => {
+    expect(categoryIcon('shield-check')).not.toBe(categoryIcon('something-new'))
+    expect(categoryIcon('something-new')).toBe(categoryIcon('sparkles'))
   })
 })

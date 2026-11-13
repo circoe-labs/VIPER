@@ -154,6 +154,22 @@ export interface MissionRule {
   geography: string | null
   period_days: number | null
   exclusions: Record<string, boolean | string[]>
+  // Slice 04: one item per submission (false) or a list; the per-run goal.
+  allow_multiple?: boolean
+  objective?: MissionObjective
+}
+
+// `tasks_accepted`: every task of the run is accepted. `accepted_items`: `count` accepted items (<= result_limit).
+export interface MissionObjective {
+  kind: 'tasks_accepted' | 'accepted_items'
+  count: number | null
+}
+
+export interface ObjectiveProgress {
+  kind: string
+  target: number | null
+  current: number
+  met: boolean
 }
 
 export interface MissionDetail {
@@ -171,6 +187,7 @@ export interface MissionDetail {
   inheritance?: MissionInheritance
   // The instruction skills the mission works with (its own list when overridden, else its category's).
   skills?: SkillRef[]
+  objective_progress?: ObjectiveProgress | null
 }
 
 export interface MissionList {
@@ -210,7 +227,8 @@ export interface MissionInput {
   // Slice 05: `category_id` picks the category; `prompt` / `skill_ids` null = follow it, a value = override.
   category_id?: string | null
   skill_ids?: string[] | null
-  prompt: string
+  // null = follow the category's general prompt (the server copies it); a text = this mission's own consigne.
+  prompt: string | null
   targets: { kind: 'company' | 'prospect'; id: string }[]
   // Slice 02: null = follow the category's default sources, a list (possibly empty) = override.
   source_ids: string[] | null
@@ -226,6 +244,8 @@ export interface MissionInput {
   max_runs: number | null
   result_kind: MissionResultKind
   result_limit: number
+  allow_multiple?: boolean
+  objective?: MissionObjective
   geography: string | null
   period_days: number | null
   exclusions: Record<string, boolean | string[]>

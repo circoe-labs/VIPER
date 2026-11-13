@@ -3,9 +3,11 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
 import { SHELL_API } from '../test/homeApi'
-import { renderApp, stubApi, stubFetchJson } from '../test/render'
+import { renderApp, stubApi, stubFetchJson, TEST_USER } from '../test/render'
 
 const LABELS = ['Accueil', 'Prospection', 'Entrepôts', 'Missions', 'Agenda', 'Base de données', 'Organisation', 'Historique agents', 'Paramètres']
+// TEST_USER is an administrator: the Administration group follows the main and configuration ones.
+const ADMIN_LABELS = ['Catégories', 'Skills', 'Sources']
 // The Database page lists its tables on load.
 const DATABASE_API = { 'GET /api/health': [200, { status: 'ok', database: 'ok' }], 'GET /api/explorer/tables': [200, []] } as const
 
@@ -14,12 +16,36 @@ function navigation() {
 }
 
 describe('AppShell', () => {
-  it('lists the eight sections in French, in order', () => {
+  it('lists the sections in French, grouped main / configuration / administration', () => {
     stubApi(SHELL_API)
     renderApp()
 
     const links = within(navigation()).getAllByRole('link')
+    expect(links.map((link) => link.textContent)).toEqual([...LABELS, ...ADMIN_LABELS])
+  })
+
+  it('names the three groups of the sidebar', () => {
+    stubApi(SHELL_API)
+    renderApp()
+
+    const groups = within(navigation()).getAllByRole('list')
+    expect(groups.map((group) => group.getAttribute('aria-labelledby'))).toEqual([
+      'nav-group-main',
+      'nav-group-configuration',
+      'nav-group-admin',
+    ])
+    expect(within(navigation()).getByText('Administration')).toBeInTheDocument()
+  })
+
+  it('hides the Administration group from a non-administrator and sends them away from its routes', async () => {
+    stubApi(SHELL_API)
+    const member = { ...TEST_USER, role: 'member' as const }
+    renderApp('/administration/categories', { session: { status: 'authenticated', user: member } })
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Accueil' })).toBeInTheDocument()
+    const links = within(navigation()).getAllByRole('link')
     expect(links.map((link) => link.textContent)).toEqual(LABELS)
+    expect(within(navigation()).queryByText('Administration')).not.toBeInTheDocument()
   })
 
   it('renders the requested route and marks it as current', () => {
@@ -79,7 +105,7 @@ describe('AppShell', () => {
     expect(screen.getByRole('img', { name: 'VIPER' })).toHaveAttribute('src', expect.stringMatching(/viper-mark-white/))
     expect(screen.getByRole('button', { name: 'Déplier la navigation' })).toHaveAttribute('aria-expanded', 'false')
     const links = within(navigation()).getAllByRole('link')
-    expect(links.map((link) => link.textContent)).toEqual(LABELS)
+    expect(links.map((link) => link.textContent)).toEqual([...LABELS, ...ADMIN_LABELS])
     expect(within(navigation()).getByRole('link', { name: 'Base de données' })).toHaveAttribute('aria-current', 'page')
 
     unmount()

@@ -108,62 +108,158 @@ describe('MissionsPage', () => {
     return { user, dialog: await screen.findByRole('dialog', { name: 'Créer mission' }) }
   }
 
+  const category = (dialog: HTMLElement, name: string) => within(dialog).getByRole('radio', { name })
+
+  function postedBody(fetchMock: ReturnType<typeof stubApi>) {
+    const [, init] =
+      fetchMock.mock.calls.find(([url, request]) => url.endsWith('/api/missions') && request?.method === 'POST') ?? []
+    return JSON.parse(init?.body as string) as Record<string, unknown>
+  }
+
+  async function openCreateWith(replies: Record<string, ApiReply> = {}) {
+    const fetchMock = stubApi({
+      ...SHELL_API,
+      ...COMMON,
+      'GET /api/missions': [200, { items: [], total: 0 }],
+      'POST /api/missions': [201, detail()],
+      [`GET /api/missions/${MISSION}`]: [200, detail()],
+      ...replies,
+    })
+    const user = userEvent.setup()
+    renderApp('/missions')
+    await user.click((await screen.findAllByRole('button', { name: 'Nouvelle mission' }))[0] as HTMLElement)
+    const dialog = await screen.findByRole('dialog', { name: 'Créer mission' })
+    return { fetchMock, user, dialog }
+  }
+
   it('suggests a name from the consigne and says what is missing before saving', async () => {
     const { user, dialog } = await openCreate()
 
     await user.type(within(dialog).getByLabelText(/Consigne/), 'Trouve les commissaires au transport en Normandie')
 
     expect(within(dialog).getByLabelText(/Nom/)).toHaveValue('Trouve les commissaires au transport en Normandie')
-    // « Compléter des fiches » by default: it works on linked records, none yet.
-    expect(within(dialog).getByRole('combobox', { name: 'Catégorie' })).toHaveDisplayValue('Compléter des fiches')
+    // « Enrichissement » by default: it works on linked records, none yet.
+    expect(await within(dialog).findByRole('radio', { name: 'Enrichissement', checked: true })).toBeInTheDocument()
     expect(within(dialog).getByRole('status')).toHaveTextContent('Liez au moins une fiche')
-    expect(within(dialog).getByRole('button', { name: 'Créer la mission' })).toBeDisabled()
     expect(within(dialog).getByRole('button', { name: 'Créer la mission' })).toBeDisabled()
 
     // A discovery starts from nothing: ready at once.
-    await user.selectOptions(within(dialog).getByRole('combobox', { name: 'Catégorie' }), 'Découvrir des sociétés')
+    await user.click(category(dialog, 'Prospection'))
+    expect(within(dialog).getByRole('combobox', { name: 'Résultat attendu' })).toHaveDisplayValue('Découvrir des sociétés')
     expect(within(dialog).getByRole('status')).toHaveTextContent('Prête à être lancée')
     expect(within(dialog).getByRole('button', { name: 'Créer la mission' })).toBeEnabled()
-    expect(within(dialog).getByRole('button', { name: 'Créer la mission' })).toBeEnabled()
+  })
+
+  it('follows the category until the person overrides: null prompt, skills and sources are sent to inherit', async () => {
+    const { fetchMock, user, dialog } = await openCreateWith()
+    await user.type(within(dialog).getByLabelText(/^Nom/), 'Découverte Normandie')
+    await user.click(await within(dialog).findByRole('radio', { name: 'Prospection' }))
+    // The category's general prompt is the placeholder of the empty consigne.
+    expect(within(dialog).getByRole('textbox', { name: 'Consigne' })).toHaveAttribute('placeholder', 'Consigne générale : Prospection.')
+
+    await user.click(within(dialog).getByRole('button', { name: 'Créer la mission' }))
+
+    expect(postedBody(fetchMock)).toMatchObject({
+      category_id: 'cat-prospection',
+      type: 'prospection',
+      prompt: null,
+      skill_ids: null,
+      source_ids: null,
+      allow_multiple: false,
+      objective: { kind: 'tasks_accepted', count: null },
+    })
+  })
+
+  it('sends own values once overridden, and goes back to the category with the reset button', async () => {
+    const { fetchMock, user, dialog } = await openCreateWith()
+    await user.click(await within(dialog).findByRole('radio', { name: 'Prospection' }))
+    await user.type(within(dialog).getByLabelText(/Consigne/), 'Cherche des transporteurs')
+    await user.click(within(dialog).getByRole('button', { name: /Skills/ }))
+    expect(within(dialog).getByText('Suit la catégorie « Prospection ».')).toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: 'Personnaliser les skills' }))
+    await user.click(await within(dialog).findByRole('checkbox', { name: /Sources fiables/ }))
+    await user.click(within(dialog).getByRole('button', { name: /Sources/ }))
+    await user.click(within(dialog).getByRole('button', { name: 'Personnaliser les sources' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Revenir aux sources de la catégorie' }))
+
+    await user.click(within(dialog).getByRole('button', { name: 'Créer la mission' }))
+
+    expect(postedBody(fetchMock)).toMatchObject({
+      prompt: 'Cherche des transporteurs',
+      skill_ids: ['skill-1'],
+      source_ids: null,
+    })
   })
 
   it('saves a link under Sources and uses it in the mission', async () => {
     const saved = { id: 'source-9', url: 'https://www.example.com/annuaire', label: null, missions_count: 0 }
-    const fetchMock = stubApi({
-      ...SHELL_API,
-      ...COMMON,
-      'GET /api/missions': [200, { items: [], total: 0 }],
-      'POST /api/missions/sources': [201, saved],
-      'POST /api/missions': [201, detail()],
-      [`GET /api/missions/${MISSION}`]: [200, detail()],
-    })
-    const user = userEvent.setup()
-    renderApp('/missions')
-    await user.click((await screen.findAllByRole('button', { name: 'Nouvelle mission' }))[0] as HTMLElement)
-    const dialog = await screen.findByRole('dialog', { name: 'Créer mission' })
+    const { fetchMock, user, dialog } = await openCreateWith({ 'POST /api/missions/sources': [201, saved] })
     await user.type(within(dialog).getByLabelText(/Consigne/), 'Trouve des transporteurs')
-    await user.selectOptions(within(dialog).getByRole('combobox', { name: 'Catégorie' }), 'Découvrir des sociétés')
+    await user.click(await within(dialog).findByRole('radio', { name: 'Prospection' }))
 
     await user.click(within(dialog).getByRole('button', { name: /Sources/ }))
-    await user.type(within(dialog).getByLabelText('Lien'), 'https://www.example.com/annuaire')
+    await user.click(within(dialog).getByRole('button', { name: 'Personnaliser les sources' }))
+    await user.type(within(dialog).getByLabelText('Nouveau lien'), 'https://www.example.com/annuaire')
     await user.click(within(dialog).getByRole('button', { name: 'Enregistrer le lien' }))
     await user.click(within(dialog).getByRole('button', { name: 'Créer la mission' }))
 
-    const [, init] = fetchMock.mock.calls.find(([url, request]) => url.endsWith('/api/missions') && request?.method === 'POST') ?? []
-    expect(JSON.parse(init?.body as string)).toMatchObject({ source_ids: ['source-9'] })
+    expect(postedBody(fetchMock)).toMatchObject({ source_ids: ['source-9'] })
   })
 
-  it('blocks a signals mission without a company to watch, and explains the chosen category', async () => {
+  it('links internal context apart from the targets, and sends the objective and one-item mode', async () => {
+    const { fetchMock, user, dialog } = await openCreateWith({
+      'GET /api/missions/context-candidates': [200, [{ kind: 'company', id: COMPANY, label: 'Transports X', hint: 'Rouen' }]],
+    })
+    await user.type(within(dialog).getByLabelText(/Consigne/), 'Trouve des transporteurs')
+    await user.click(await within(dialog).findByRole('radio', { name: 'Prospection' }))
+    await user.click(within(dialog).getByRole('button', { name: /Sources/ }))
+    await user.click(within(dialog).getByRole('button', { name: 'Ajouter du contexte' }))
+    const picker = await screen.findByRole('dialog', { name: 'Ajouter du contexte VIPER' })
+    await user.click(await within(picker).findByRole('checkbox', { name: /Transports X/ }))
+    await user.click(within(picker).getByRole('button', { name: /Ajouter \(1\)/ }))
+    await user.selectOptions(within(dialog).getByRole('combobox', { name: 'Objectif' }), 'Un nombre d’éléments validés')
+    await user.clear(within(dialog).getByLabelText('Éléments à valider'))
+    await user.type(within(dialog).getByLabelText('Éléments à valider'), '5')
+    await user.click(within(dialog).getByRole('checkbox', { name: /Plusieurs éléments/ }))
+
+    await user.click(within(dialog).getByRole('button', { name: 'Créer la mission' }))
+
+    expect(postedBody(fetchMock)).toMatchObject({
+      targets: [],
+      context_refs: [{ kind: 'company', id: COMPANY, note: null }],
+      objective: { kind: 'accepted_items', count: 5 },
+      allow_multiple: true,
+    })
+  })
+
+  it('blocks an objective above the per-run limit', async () => {
+    const { user, dialog } = await openCreate()
+    await user.type(within(dialog).getByLabelText(/Consigne/), 'Trouve des transporteurs')
+    await user.click(await within(dialog).findByRole('radio', { name: 'Prospection' }))
+    await user.selectOptions(within(dialog).getByRole('combobox', { name: 'Objectif' }), 'Un nombre d’éléments validés')
+    await user.clear(within(dialog).getByLabelText('Éléments à valider'))
+    await user.type(within(dialog).getByLabelText('Éléments à valider'), '50')
+
+    expect(within(dialog).getByRole('status')).toHaveTextContent('limite par exécution (20)')
+    expect(within(dialog).getByRole('button', { name: 'Créer la mission' })).toBeDisabled()
+  })
+
+  it('blocks a signals mission without a company to watch', async () => {
     const { user, dialog } = await openCreate()
     await user.type(within(dialog).getByLabelText(/Consigne/), 'Nouveaux entrepôts en Normandie')
 
-    await user.selectOptions(within(dialog).getByRole('combobox', { name: 'Catégorie' }), 'Surveiller des signaux')
+    await user.click(await within(dialog).findByRole('radio', { name: 'Signaux' }))
 
     expect(within(dialog).getByRole('status')).toHaveTextContent('Liez au moins une société à surveiller')
     expect(within(dialog).getByRole('button', { name: 'Créer la mission' })).toBeDisabled()
+  })
+
+  it('shows an inline error and retries when the categories cannot be loaded', async () => {
+    const { dialog } = await openCreateWith({ 'GET /api/mission-categories': [500, { detail: 'boom' }] })
+
+    expect(await within(dialog).findByText(/catégories n’ont pas pu être chargées/)).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'Réessayer' })).toBeInTheDocument()
     expect(within(dialog).getByRole('button', { name: 'Créer la mission' })).toBeDisabled()
-    // The explanation sits under the list, for the chosen category.
-    expect(within(dialog).getByRole('combobox', { name: 'Catégorie' })).toHaveAccessibleDescription(/surveille les sociétés liées/)
   })
 
   it('activates an inactive mission from the switch on its card', async () => {

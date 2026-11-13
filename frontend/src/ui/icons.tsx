@@ -462,3 +462,10 @@ export const TargetIcon = (props: IconProps) => (
     <circle cx="12" cy="12" r="1" />
   </Svg>
 )
+
+export const TagIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M3 12V4h8l9.5 9.5a1.4 1.4 0 0 1 0 2L15.5 20.5a1.4 1.4 0 0 1-2 0z" />
+    <circle cx="7.5" cy="8.5" r="1" />
+  </Svg>
+)

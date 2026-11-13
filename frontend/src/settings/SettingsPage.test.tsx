@@ -26,7 +26,7 @@ const feedback = (section = 'Rôles') => within(screen.getByRole('region', { nam
 const row = (name: string) => screen.getByRole('row', { name: new RegExp(name) })
 
 describe('SettingsPage', () => {
-  it('shows the eight sections, the roles by default, with usage and status', async () => {
+  it('shows the nine sections, the roles by default, with usage and status', async () => {
     seededApi()
     renderApp('/settings')
 
@@ -41,6 +41,7 @@ describe('SettingsPage', () => {
       'Connexions',
       'MCP',
       'Prompt initial',
+      'Assistant de mission',
     ])
     expect(screen.getByRole('heading', { level: 2, name: 'Rôles' })).toBeInTheDocument()
 

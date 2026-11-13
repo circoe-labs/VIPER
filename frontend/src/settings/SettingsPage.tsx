@@ -9,7 +9,7 @@ import { PageHeader } from '../ui/PageHeader'
 import { CohortSection } from './CohortSection'
 import { ConnectionsSection } from './ConnectionsSection'
 import { McpSection } from './McpSection'
-import { PromptSection } from './PromptSection'
+import { MissionCreatorPromptSection, PromptSection } from './PromptSection'
 import { ReferentSection } from './ReferentSection'
 import { TaxonomySection, type TaxonomySectionConfig } from './TaxonomySection'
 import { STATE_BADGES } from './toolboxCopy'
@@ -58,6 +58,8 @@ const COHORTS_PATH = 'cohorts'
 const CONNECTIONS_PATH = 'connections'
 // The brief given to the AI before it drafts an e-mail (Contact port, AI drafting).
 const PROMPT_PATH = 'prompt'
+// The behaviour prompt of the mission-creator assistant (distinct from the category prompts of Administration).
+const MISSION_CREATOR_PATH = 'mission-creator'
 // The tools VIPER exposes to agents (MCP endpoint, doc/architecture/mcp-server.md).
 const MCP_PATH = 'mcp'
 
@@ -73,6 +75,7 @@ export function SettingsPage() {
     section !== COHORTS_PATH &&
     section !== CONNECTIONS_PATH &&
     section !== PROMPT_PATH &&
+    section !== MISSION_CREATOR_PATH &&
     section !== MCP_PATH
   ) {
     return <Navigate to="/settings" replace />
@@ -85,9 +88,11 @@ export function SettingsPage() {
         ? 'Connexions'
         : section === PROMPT_PATH
           ? 'Prompt initial'
-          : section === MCP_PATH
-            ? 'MCP'
-            : 'Référents internes')
+          : section === MISSION_CREATOR_PATH
+            ? 'Assistant de mission'
+            : section === MCP_PATH
+              ? 'MCP'
+              : 'Référents internes')
 
   return (
     <>
@@ -116,6 +121,9 @@ export function SettingsPage() {
         <SectionLink path={PROMPT_PATH} title="Prompt initial" current={section === PROMPT_PATH}>
           {null}
         </SectionLink>
+        <SectionLink path={MISSION_CREATOR_PATH} title="Assistant de mission" current={section === MISSION_CREATOR_PATH}>
+          {null}
+        </SectionLink>
       </nav>
       <section className="settings-panel" aria-label={panelLabel}>
         {taxonomy ? (
@@ -126,6 +134,8 @@ export function SettingsPage() {
           <ConnectionsSection />
         ) : section === PROMPT_PATH ? (
           <PromptSection />
+        ) : section === MISSION_CREATOR_PATH ? (
+          <MissionCreatorPromptSection />
         ) : section === MCP_PATH ? (
           <McpSection />
         ) : (
