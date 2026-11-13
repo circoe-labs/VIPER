@@ -469,3 +469,18 @@ export const TagIcon = (props: IconProps) => (
     <circle cx="7.5" cy="8.5" r="1" />
   </Svg>
 )
+
+// Voice mission assistant: microphone and spoken answers on/off.
+export const MicIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <rect x="9" y="3" width="6" height="11" rx="3" />
+    <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M9 21h6" />
+  </Svg>
+)
+
+export const VolumeIcon = ({ muted = false, ...props }: IconProps & { muted?: boolean }) => (
+  <Svg {...props}>
+    <path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z" />
+    {muted ? <path d="m16 9.5 5 5m0-5-5 5" /> : <path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11" />}
+  </Svg>
+)

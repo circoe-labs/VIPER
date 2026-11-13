@@ -452,3 +452,69 @@ follow category defaults, and Slice 07 puts `mission_context.resolve` and the ef
 - **Slice 06 seam.** `CreateMissionDialog` takes `initialDraft` and `assistantSlot(form)`; the form API
   (`useMissionForm`) exposes `applyDraft(MissionDraft)` and `toInput()`.
 
+
+## 7f. Voice mission assistant
+
+*Task `viper_mission_agent_configuration_v2`, Slice 06. Backend `app/services/mission_assistant.py`,
+`assistant_llm.py`, `speech_to_text.py`, `app/api/routes/mission_assistant.py`; front
+`frontend/src/missions/voice/`. No migration.*
+
+**Principle.** Voice is an alternate input over the ordinary mission **draft** (the `useMissionForm`
+state). The assistant never writes: each turn it receives the person's sentence plus the form's current
+draft and answers with a short sentence and **draft actions** that the browser lays over the same form
+(`applyDraft`). A mission is created only by the form's own save (`POST /api/missions`, the normal
+validation); closing the overlay (X, Esc, « Fermer ») just leaves the draft in the form.
+
+**Entry.** `CreateMissionDialog.assistantSlot(form, { submit })` renders `VoiceAssistantEntry`
+(« Créer à la voix », creation only). Disabled with the reason when the AI is not configured.
+
+**API** (`/api/missions/assistant`, signed-in person):
+
+| Route | Purpose |
+|---|---|
+| `GET /capabilities` | `{assistant, speech}`: OpenAI key + model set / Whisper-compatible service configured |
+| `POST /turn` | `{messages[{role,content}], draft: DraftSnapshot}` → `{reply, actions[{tool,args,summary}], finalize, model}` |
+| `POST /transcribe` | multipart `audio` → `{text}` (only when `VIPER_STT_BASE_URL` is set) |
+
+Errors are the typed `{code, message}`: `ai_not_configured` 503, `ai_timeout`, `ai_rate_limited`,
+`ai_auth_failed`, `ai_upstream_error`, `ai_refused`, `ai_invalid_output` (same as the Contact drafting) and
+`stt_not_configured` 503, `stt_invalid_audio` 422, `stt_timeout` 504, `stt_upstream_error` 502.
+
+**Model and prompt.** Same provider and settings as the Contact drafting (`VIPER_OPENAI_*`, Paramètres ›
+Connexions; OpenAI **Responses API** with function tools, `store: false`, same timeouts/retries). The
+system prompt is read **server-side at every turn** from `mission_creator_prompt(settings)` (§7c: the Settings
+prompt, built-in default), followed by fixed interface rules, the catalogue (categories and skills with ids)
+and the current draft. Category prompts are never sent as behaviour; they stay worker instructions. Editing the
+creator prompt therefore applies to the next turn, with no category change.
+
+**Tools** (closed list, `TOOLS`). Draft: `set_name`, `set_category` (+ `result_kind`), `set_prompt`
+(`null` = follow category), `set_skills`, `set_sources` (`null` = follow category), `add_/remove_context_record`
+(read-only context), `add_/remove_target` (the subject to process), `set_objective`, `set_recurrence`,
+`set_options` (`allow_multiple`, `result_limit`, `geography`, `period_days`, `exclude_known`). Read:
+`get_draft`, `search_sources` (the library), `search_context_records` (the allowlisted company/prospect
+candidate search of the form). `request_creation` only sets `finalize`. Every draft call is validated against
+the real data (unknown category/skill/source, a record that no search returned in the turn, out-of-range
+numbers, bad dates); a refused call is answered to the model (`{"error"}`) and never returned. No SQL, no table
+access, no direct create. `request_creation` is refused in a turn that fetched records (their text is data).
+Bounds: 6 model rounds, 14 tool calls, 24 history messages per turn.
+
+**`finalize`.** The browser then checks `form.canSave`: if true it closes the overlay and runs the dialog's
+`submit()` (so server validation and its errors show in the form); if not, the assistant says what is missing
+(`form.missing`) and the conversation continues.
+
+**Speech to text, graceful degradation.** The adapter (`useSpeechInput`) picks, in order:
+1. **server**: `VIPER_STT_BASE_URL` (+ `VIPER_STT_MODEL` default `whisper-1`, `VIPER_STT_API_KEY`,
+   `VIPER_STT_TIMEOUT_MS`): any Whisper-compatible `POST {base}/audio/transcriptions` (faster-whisper-server,
+   whisper.cpp server, LocalAI, OpenAI…), so audio can stay on the machine. The browser records one utterance
+   (silence endpointing), the server transcribes; final text only (no live partials). Audio is not stored or
+   logged.
+2. **browser**: `SpeechRecognition` / `webkitSpeechRecognition` (live partials; in Chrome/Edge the audio goes
+   to the browser vendor).
+3. **none**: typed input only; the overlay says so. Typed input is always available in every mode.
+Microphone refused / absent / busy, no speech heard, STT or model failures are shown in the overlay
+(`role="alert"`) with « Réessayer » / « Écrire plutôt ». Spoken answers use `speechSynthesis` when present
+(toggle in the overlay).
+
+**Layout.** Black blurred stage: close top-left, the assistant's answer in large white type in the upper third
+(`aria-live`), the person's words in blue lower down (live partial in italic), the level-driven orb bottom-right
+(tap = start / « j'ai fini »), applied edits as chips under the answer.

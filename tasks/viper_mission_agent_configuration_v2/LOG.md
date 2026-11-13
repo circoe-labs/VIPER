@@ -44,3 +44,10 @@ Backend only, no migration. Contract: doc/architecture/missions.md section 5 (Co
 - Already satisfied by S02/S04 (verified, not re-implemented): evidence -> citations/counters at accept (idempotent ledger), objective settle + one-off close / recurring reset, not_found/blocked closes.
 - Residual: staged `actions` proposals carry no per-item evidence for source counters (pre-existing, documented).
 - Tests: tests/test_mission_runtime.py (8, real JSON-RPC /mcp traces). Updated sources shape (+description) in two tests.
+
+## Slice 06 - Voice mission assistant (2026-11-13)
+Front + backend, no migration. Contract: doc/architecture/missions.md section 7f.
+- Backend: POST /api/missions/assistant/turn (OpenAI Responses tool loop, bounded; draft tools validated and returned as actions, nothing written; request_creation = flag only), GET /capabilities, POST /transcribe (optional Whisper-compatible STT, env VIPER_STT_*). Creator prompt read server-side each turn from mission_creator_prompt(settings).
+- Front: missions/voice/ (VoiceAssistantEntry in the dialog's assistantSlot, VoiceOverlay, useSpeechInput server|browser|none, useVoiceConversation, draftActions). CreateMissionDialog.assistantSlot now receives (form, { submit }) as 2nd arg.
+- Tests: backend/tests/test_mission_assistant.py (16, incl. transcript -> tool calls -> actions -> validated create trace), frontend voice/VoiceAssistant.test.tsx (5).
+- Not verified without a live key/mic: real model tool loop (reasoning models + store:false + include reasoning.encrypted_content), real microphone/STT, TTS.
