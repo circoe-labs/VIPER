@@ -1,0 +1,319 @@
+/* Mission UI shared primitives (Slice 01 of viper_mission_ui_redesign; contract: tasks/viper_mission_ui_redesign/
+   01-ui-contract/CONTRACT.md). Only what two or more Mission surfaces use: hue mapping, KPI tile, accent panel,
+   donut. Surface-specific rules live in each surface's own stylesheet, never here. Tokens only (no colour literal);
+   dark and light come from the semantic roles. Classes are prefixed `mui-` to stay clear of missions.css. */
+
+/* --- Hue mapping -----------------------------------------------------------------------------------------------
+   `data-hue` on any element sets two private variables: the foreground (text/icon/arc, >= 4.5:1 on the surface in
+   both themes, asserted by theme/tokens.test.ts) and its tint (background of an accent tile). */
+[data-hue='green'] {
+  --mui-fg: var(--color-accent-fg);
+  --mui-soft: var(--color-accent-soft);
+}
+
+[data-hue='blue'] {
+  --mui-fg: var(--color-info-fg);
+  --mui-soft: var(--color-info-soft);
+}
+
+[data-hue='amber'] {
+  --mui-fg: var(--color-warning-fg);
+  --mui-soft: var(--color-warning-soft);
+}
+
+[data-hue='purple'] {
+  --mui-fg: var(--color-violet-fg);
+  --mui-soft: var(--color-violet-soft);
+}
+
+[data-hue='teal'] {
+  --mui-fg: var(--color-accent-2-fg);
+  --mui-soft: var(--color-teal-soft);
+}
+
+[data-hue='indigo'] {
+  --mui-fg: var(--color-indigo-fg);
+  --mui-soft: var(--color-indigo-soft);
+}
+
+[data-hue='success'] {
+  --mui-fg: var(--color-success-fg);
+  --mui-soft: var(--color-success-soft);
+}
+
+[data-hue='danger'] {
+  --mui-fg: var(--color-danger-fg);
+  --mui-soft: var(--color-danger-soft);
+}
+
+[data-hue='neutral'] {
+  --mui-fg: var(--color-neutral-fg);
+  --mui-soft: var(--color-neutral-soft);
+}
+
+/* --- Accent surface: a card that carries a hue --------------------------------------------------------------------
+   Used by MissionPanel and, directly, by the clickable list tile. The tint is a gradient from the hue's soft colour
+   to the plain surface; the edge is the hue mixed into the normal border so a light theme stays quiet. */
+.mui-accent {
+  --mui-edge: color-mix(in srgb, var(--mui-fg, var(--color-border-strong)) 42%, var(--color-border));
+  border: var(--border-width) solid var(--mui-edge);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(155deg, var(--mui-soft, var(--color-surface)), var(--color-surface) 85%);
+  box-shadow: var(--shadow-card);
+}
+
+.mui-icon-tile {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--mui-fg, var(--color-neutral-fg)) 16%, var(--color-surface));
+  color: var(--mui-fg, var(--color-neutral-fg));
+}
+
+.mui-panel {
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+  min-width: 0;
+  padding: var(--space-4) var(--space-5);
+}
+
+.mui-panel__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.mui-panel__title {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-tight);
+  line-height: var(--leading-tight);
+}
+
+.mui-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+/* --- KPI tiles ---------------------------------------------------------------------------------------------------- */
+.mui-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.mui-kpi {
+  display: grid;
+  align-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-4);
+  border: var(--border-width) solid color-mix(in srgb, var(--mui-fg) 38%, var(--color-border));
+  border-radius: var(--radius-lg);
+  background: linear-gradient(155deg, var(--mui-soft), var(--color-surface) 90%);
+  box-shadow: var(--shadow-card);
+}
+
+.mui-kpi__label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-tight);
+}
+
+.mui-kpi__icon {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  color: var(--mui-fg);
+}
+
+.mui-kpi__value {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--text-2xl);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-tight);
+  line-height: 1.2;
+}
+
+.mui-kpi__hint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+}
+
+/* --- Donut ---------------------------------------------------------------------------------------------------------- */
+.mui-donut {
+  display: grid;
+  grid-template-columns: minmax(9rem, 11rem) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-4) var(--space-5);
+}
+
+.mui-donut__ring {
+  width: 100%;
+  height: auto;
+}
+
+.mui-donut__track,
+.mui-donut__arc {
+  fill: none;
+  stroke-width: 14;
+}
+
+.mui-donut__track {
+  stroke: var(--color-border);
+}
+
+.mui-donut__arc {
+  stroke: var(--mui-fg);
+  stroke-linecap: butt;
+}
+
+.mui-donut__total {
+  fill: var(--color-text);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-bold);
+}
+
+.mui-donut__unit {
+  fill: var(--color-text-muted);
+  font-size: 7px;
+}
+
+.mui-donut__legend {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mui-donut__row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.mui-donut__swatch {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: var(--radius-full);
+  background: var(--mui-fg);
+}
+
+.mui-donut__label {
+  overflow-wrap: anywhere;
+}
+
+.mui-donut__value,
+.mui-donut__share,
+.mui-num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.mui-donut__share {
+  min-width: 3.5rem;
+  color: var(--color-text-muted);
+}
+
+.mui-donut__data {
+  grid-column: 1 / -1;
+  font-size: var(--text-sm);
+}
+
+.mui-donut__data summary {
+  width: fit-content;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.mui-donut__data summary:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-focus);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* --- States: empty / unavailable / error ---------------------------------------------------------------------------- */
+.mui-state {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.mui-state[role='alert'] {
+  background: var(--color-danger-soft);
+  color: var(--color-danger-fg);
+}
+
+/* Skeleton block while a query loads; the caller adds aria-busy on the region and a visible label. */
+.mui-skeleton {
+  min-height: 4rem;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(90deg, var(--color-surface), var(--color-surface-hover), var(--color-surface));
+  background-size: 200% 100%;
+  animation: mui-shimmer 1.4s var(--ease-standard) infinite;
+}
+
+@keyframes mui-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+
+  to {
+    background-position: -100% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mui-skeleton {
+    animation: none;
+  }
+}
+
+/* --- Responsive ----------------------------------------------------------------------------------------------------- */
+@media (max-width: 40rem) {
+  .mui-donut {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+  }
+
+  .mui-donut__ring {
+    max-width: 11rem;
+  }
+
+  .mui-donut__legend {
+    width: 100%;
+  }
+
+  .mui-panel {
+    padding: var(--space-4);
+  }
+
+  .mui-panel__actions {
+    margin-left: 0;
+  }
+}

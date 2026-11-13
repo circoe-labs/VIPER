@@ -36,3 +36,7 @@ Unchanged: 01 -> (02 ‖ 03 ‖ 04) -> 05. Task Types: not applicable (UI redesi
 ### Risks for Human check
 - Target "Appels API" widgets cannot be backed by real data today.
 - Tab naming differs from target.
+
+## Slice 01 - UI contract (implementer)
+Contract: `01-ui-contract/CONTRACT.md`. Shared primitives under `frontend/src/missions/` (`missionUi.css`, KPI tile, panel, status chip, donut, accent). New tokens violet/indigo/teal-soft in `tokens.css`. Open decisions D1-D6 in CONTRACT section 6 (30-day completed KPI, agents count, API-call widgets unavailable, overview vs statistics split).
+Known pre-existing failures in `theme/tokens.test.ts` (not from this slice): `prospection/overview.css`, `warehouses/warehouses.css` contain raw colour literals.

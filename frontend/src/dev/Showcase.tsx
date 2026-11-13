@@ -19,6 +19,11 @@ import { MessageBadge } from '../contact/MessageBadge'
 import { CohortBadge, DueBadge, EmailErrorBadge, LevelBadge, StateBadge } from '../prospection/ContactBadges'
 import { CounterCard, CounterGroup } from '../ui/CounterCards'
 import { Tabs } from '../ui/Tabs'
+import { MissionDonut } from '../missions/MissionDonut'
+import { MissionKpiGrid, MissionKpiTile } from '../missions/MissionKpiTile'
+import { MISSION_ACCENTS } from '../missions/missionAccent'
+import { MissionPanel } from '../missions/MissionPanel'
+import { MissionStatusChip } from '../missions/MissionStatusChip'
 import { ReferentSelect, TaxonomyMultiSelect, TaxonomySelect } from '../settings/selectors'
 import './showcase.css'
 
@@ -125,6 +130,38 @@ export function Showcase() {
             <StatusBadge tone="neutral">Inconnu</StatusBadge>
             <Badge>Étiquette</Badge>
             <Badge tone="accent">12</Badge>
+          </div>
+        </Card>
+
+        <Card title="Missions : tuiles, panneaux, anneau">
+          <div className="showcase__stack">
+            <MissionKpiGrid label="Indicateurs d’exemple">
+              {MISSION_ACCENTS.map((hue, index) => (
+                <MissionKpiTile key={hue} hue={hue} icon={icons.SparklesIcon} label={`Indicateur ${hue}`} value={(index + 1) * 12} />
+              ))}
+              <MissionKpiTile label="Chargement" value={undefined} />
+              <MissionKpiTile label="Indisponible" value={null} />
+            </MissionKpiGrid>
+            <div className="showcase__row">
+              <MissionStatusChip status="active" />
+              <MissionStatusChip status="paused" />
+              <MissionStatusChip status="done" />
+              <MissionStatusChip status="cancelled" />
+            </div>
+            <MissionPanel title="Répartition d’exemple" icon={icons.UsersIcon} hue="purple">
+              <MissionDonut
+                title="Répartition d’exemple"
+                unit="éléments"
+                segments={[
+                  { key: 'a', label: 'Catégorie A', value: 46, hue: 'green' },
+                  { key: 'b', label: 'Catégorie B', value: 31, hue: 'blue' },
+                  { key: 'c', label: 'Catégorie C', value: 23, hue: 'amber' },
+                ]}
+              />
+            </MissionPanel>
+            <MissionPanel title="Anneau vide" icon={icons.UsersIcon} hue="teal">
+              <MissionDonut title="Anneau vide" unit="éléments" segments={[{ key: 'a', label: 'A', value: 0, hue: 'green' }]} />
+            </MissionPanel>
           </div>
         </Card>
 
