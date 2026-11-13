@@ -1,146 +1,26 @@
-import { type MouseEvent, useState } from 'react'
-import { Link, useNavigate } from 'react-router'
+import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router'
 
-import {
-  type MissionCard,
-  type MissionStatus,
-  useMission,
-  useMissionProposals,
-  useMissions,
-  useSetMissionStatus,
-} from '../api/missions'
-import { StatusBadge } from '../ui/Badge'
+import { type MissionCard, useMission, useMissionProposals, useMissions } from '../api/missions'
 import { TASK_TYPE_LABELS } from '../agents/labels'
 import { ReviewDialog } from '../agents/ReviewDialog'
-import { Button, IconButton } from '../ui/Button'
+import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
 import { EmptyState } from '../ui/EmptyState'
-import { Switch } from '../ui/fields'
 import { PageHeader } from '../ui/PageHeader'
 import type { Point } from '../ui/floating'
-import {
-  AlertIcon,
-  ClockIcon,
-  LinkIcon,
-  MoreIcon,
-  PencilIcon,
-  PlayIcon,
-  PlusIcon,
-  RepeatIcon,
-  SparklesIcon,
-  TrashIcon,
-} from '../ui/icons'
+import { PencilIcon, PlusIcon, SparklesIcon, TrashIcon } from '../ui/icons'
 import { InfoTip } from '../ui/InfoTip'
 import { Menu } from '../ui/Menu'
 import { CreateMissionDialog } from './CreateMissionDialog'
 import { DeleteMissionDialog } from './DeleteMissionDialog'
-import {
-  MISSION_STATUS_ICONS,
-  MISSION_STATUS_LABELS,
-  MISSION_STATUS_TONES,
-  MISSION_TYPE_LABELS,
-  momentLabel,
-  recurrenceLabel,
-} from './labels'
+import { momentLabel } from './labels'
+import { MissionCardTile, type OpenMenu } from './MissionCardTile'
+import { MissionsKpiBar } from './MissionsKpiBar'
+import { DEFAULT_FILTERS, filterMissions, isFiltered, type ListFilters, sortMissions } from './missionsListModel'
+import { MissionsToolbar } from './MissionsToolbar'
 import './missions.css'
-
-const FILTERS: { id: 'all' | MissionStatus; label: string }[] = [
-  { id: 'all', label: 'Toutes' },
-  { id: 'active', label: 'Actives' },
-  { id: 'paused', label: 'Inactives' },
-  { id: 'done', label: 'Terminées' },
-]
-
-// A right-click on the card, or its « … » button (keyboard, touch), asks for the mission's menu at a point.
-type OpenMenu = (card: MissionCard, position: Point, alignRight: boolean) => void
-
-// Active: its tasks are open to the agents that connect; inactive: they are no longer offered.
-function ActiveSwitch({ card }: { card: MissionCard }) {
-  const setStatus = useSetMissionStatus(card.id)
-  const active = card.status === 'active'
-  return (
-    <Switch
-      className="mission-card__switch"
-      label={active ? 'Active' : 'Inactive'}
-      aria-label={`Mission ${card.name} active`}
-      checked={active}
-      disabled={setStatus.isPending}
-      onChange={() => {
-        setStatus.mutate(active ? 'paused' : 'active')
-      }}
-    />
-  )
-}
-
-function MissionTile({ card, onMenu }: { card: MissionCard; onMenu: OpenMenu }) {
-  const last = momentLabel(card.last_run_at)
-  const next = momentLabel(card.next_run_at)
-  const failed = card.last_run_status === 'failed'
-  return (
-    <>
-      <Link
-        to={`/missions/${card.id}`}
-        className="mission-card"
-        onContextMenu={(event: MouseEvent) => {
-          event.preventDefault()
-          onMenu(card, { x: event.clientX, y: event.clientY }, false)
-        }}
-      >
-        <div className="mission-card__head">
-          <h2 className="mission-card__title">{card.name}</h2>
-          <StatusBadge tone={MISSION_STATUS_TONES[card.status]} icon={MISSION_STATUS_ICONS[card.status]}>
-            {MISSION_STATUS_LABELS[card.status]}
-          </StatusBadge>
-        </div>
-        <p className="mission-card__meta">
-          {MISSION_TYPE_LABELS[card.type]} · {card.agent_label ?? 'Automatique'}
-        </p>
-        <p className="mission-card__prompt">{card.prompt}</p>
-        <p className="mission-card__facts">
-          <span className="mission-card__fact">
-            <LinkIcon size={14} />
-            {String(card.targets_count)} donnée{card.targets_count > 1 ? 's' : ''} liée
-            {card.targets_count > 1 ? 's' : ''}
-          </span>
-          <span className="mission-card__fact">
-            {card.is_recurring ? <RepeatIcon size={14} /> : <PlayIcon size={14} />}
-            {recurrenceLabel(card)}
-          </span>
-        </p>
-        <p
-          className={`mission-card__run${failed ? ' is-failed' : ''}`}
-          title={failed ? 'La dernière exécution n’a créé aucune tâche : la raison est notée dans la mission.' : undefined}
-        >
-          {failed ? <AlertIcon size={14} /> : <ClockIcon size={14} />}
-          {last ? `Dernière exécution : ${last}` : 'Jamais exécutée'}
-          {failed && ' (échec)'}
-          {card.last_run_results > 0 && ` · ${String(card.last_run_results)} résultat${card.last_run_results > 1 ? 's' : ''}`}
-        </p>
-        <p className="mission-card__run">
-          <ClockIcon size={14} />
-          {next ? `Prochaine : ${next}` : card.status === 'paused' ? 'Inactive : fermée aux agents' : 'Aucune exécution prévue'}
-        </p>
-        {card.results_pending > 0 && (
-          <p className="mission-card__todo">
-            {String(card.results_pending)} résultat{card.results_pending > 1 ? 's' : ''} à relire
-          </p>
-        )}
-      </Link>
-      <div className="mission-card__actions">
-        {(card.status === 'active' || card.status === 'paused') && <ActiveSwitch card={card} />}
-        <IconButton
-          size="sm"
-          icon={MoreIcon}
-          label={`Actions de la mission ${card.name}`}
-          onClick={(event) => {
-            const box = event.currentTarget.getBoundingClientRect()
-            onMenu(card, { x: box.right, y: box.bottom }, true)
-          }}
-        />
-      </div>
-    </>
-  )
-}
+import './missionsList.css'
 
 // « Modifier… » from the list: the form needs the whole rule, read first.
 function EditMission({ id, onClose }: { id: string; onClose: () => void }) {
@@ -157,19 +37,32 @@ function EditMission({ id, onClose }: { id: string; onClose: () => void }) {
 }
 
 export function MissionsPage() {
-  const [filter, setFilter] = useState<'all' | MissionStatus>('all')
+  const [filters, setFilters] = useState<ListFilters>(DEFAULT_FILTERS)
   const [creating, setCreating] = useState(false)
-  const missions = useMissions(filter === 'all' ? undefined : filter)
+  // One unfiltered query: the counters read all of it, the cards read the filtered and sorted view of it.
+  const missions = useMissions()
   const proposals = useMissionProposals()
   const [reviewId, setReviewId] = useState<string | null>(null)
   const [menu, setMenu] = useState<{ card: MissionCard; position: Point; alignRight: boolean } | null>(null)
   const [editId, setEditId] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<MissionCard | null>(null)
   const navigate = useNavigate()
-  const cards = missions.data?.items ?? []
+  const all = missions.data?.items
+  const cards = useMemo(() => sortMissions(filterMissions(all ?? [], filters), filters.sort), [all, filters])
   const openMenu: OpenMenu = (card, position, alignRight) => {
     setMenu({ card, position, alignRight })
   }
+  const newMission = (
+    <Button
+      variant="primary"
+      icon={PlusIcon}
+      onClick={() => {
+        setCreating(true)
+      }}
+    >
+      Nouvelle mission
+    </Button>
+  )
 
   return (
     <div className="missions">
@@ -177,7 +70,7 @@ export function MissionsPage() {
         title="Missions"
         description={
           <span className="missions-detail__meta">
-            Ce que vous confiez aux agents.
+            Pilotez et suivez l’exécution de vos missions par les agents.
             <InfoTip label="Aide : missions">
               Une mission = une consigne, des données VIPER, une exécution. Chaque exécution crée des tâches que les agents
               connectés (Claude, ChatGPT…) prennent ; leurs propositions attendent votre relecture, rien n’est écrit sans
@@ -185,17 +78,11 @@ export function MissionsPage() {
             </InfoTip>
           </span>
         }
-        actions={
-          <Button
-            variant="primary"
-            icon={PlusIcon}
-            onClick={() => {
-              setCreating(true)
-            }}
-          >
-            Nouvelle mission
-          </Button>
-        }
+        actions={newMission}
+      />
+      <MissionsKpiBar
+        items={missions.isError ? null : all}
+        toReview={proposals.isError ? null : proposals.data?.length}
       />
       {(proposals.data?.length ?? 0) > 0 && (
         <Card title={`Propositions à relire (${String(proposals.data?.length ?? 0)})`}>
@@ -222,46 +109,60 @@ export function MissionsPage() {
           </ul>
         </Card>
       )}
-      <div className="missions__filters" role="group" aria-label="Filtrer les missions">
-        {FILTERS.map((item) => (
+      {(all?.length ?? 0) > 0 && <MissionsToolbar filters={filters} onChange={setFilters} />}
+      {missions.isLoading && (
+        <section aria-busy="true" aria-label="Chargement des missions">
+          <p className="missions-muted" role="status">
+            Chargement des missions…
+          </p>
+          <ul className="mlist-grid" aria-hidden="true">
+            {[0, 1, 2].map((index) => (
+              <li key={index} className="mui-skeleton mlist-skeleton" />
+            ))}
+          </ul>
+        </section>
+      )}
+      {missions.isError && (
+        <p className="mui-state" role="alert">
+          Les missions n’ont pas pu être chargées.{' '}
           <Button
-            key={item.id}
             size="sm"
-            variant={filter === item.id ? 'primary' : 'secondary'}
-            aria-pressed={filter === item.id}
+            variant="secondary"
             onClick={() => {
-              setFilter(item.id)
+              void missions.refetch()
             }}
           >
-            {item.label}
+            Réessayer
           </Button>
-        ))}
-      </div>
-      {missions.isLoading && <p className="missions-muted">Chargement…</p>}
-      {missions.isError && <p className="missions-error">Les missions n’ont pas pu être chargées.</p>}
-      {missions.isSuccess && cards.length === 0 && (
+        </p>
+      )}
+      {missions.isSuccess && all?.length === 0 && (
         <EmptyState
           icon={SparklesIcon}
           title="Aucune mission"
           description="Créez une mission : une consigne, des fiches liées, et les agents travaillent pendant que vous relisez les résultats."
-          action={
-            <Button
-              variant="primary"
-              icon={PlusIcon}
-              onClick={() => {
-                setCreating(true)
-              }}
-            >
-              Nouvelle mission
-            </Button>
-          }
+          action={newMission}
         />
       )}
+      {missions.isSuccess && (all?.length ?? 0) > 0 && cards.length === 0 && (
+        <p className="mui-state" role="status">
+          Aucune mission ne correspond à ces filtres.{' '}
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => {
+              setFilters({ ...DEFAULT_FILTERS, sort: filters.sort })
+            }}
+          >
+            Réinitialiser les filtres
+          </Button>
+        </p>
+      )}
       {cards.length > 0 && (
-        <ul className="mission-cards">
+        <ul className="mlist-grid" aria-label={isFiltered(filters) ? 'Missions filtrées' : 'Missions'}>
           {cards.map((card) => (
-            <li key={card.id} className="mission-cards__item">
-              <MissionTile card={card} onMenu={openMenu} />
+            <li key={card.id}>
+              <MissionCardTile card={card} onMenu={openMenu} />
             </li>
           ))}
         </ul>
