@@ -57,6 +57,9 @@ with linked records is a *base-work* mission. That is why there is no `discovery
 with a unique pair per mission. The consigne is never a copy of the record: the agent re-reads the
 live company/prospect when it claims the task, so a mission written on Monday works on Friday's row.
 
+Targets are **not** context: a record linked as supporting context (read-only, `mission_context_refs`,
+§7d) is never a task subject and never a write path.
+
 The modal's « + Ajouter des données » behaves like an attachment: a search by type (Sociétés /
 Prospects), multiple checkboxes, then chips (`Transports X × Jean Dupont × +11`). The picker reuses
 `companies.list_companies` and `GET /api/missions/targets?kind=prospect&q=`.
@@ -226,7 +229,7 @@ category edit never rewrites it. A built-in category is edited but never deleted
 is deleted only when no mission uses it (409 `in_use`, `usage.missions`). Deleting a skill detaches
 it everywhere (audit reason says how many places).
 
-**Inheritance (field level, explicit).** Inheritable fields: `prompt` and `skills`.
+**Inheritance (field level, explicit).** Inheritable fields: `prompt`, `skills` and (Slice 02, §7d) `sources`.
 `missions.overridden_fields` records which ones a person set; it is never inferred by comparing texts.
 
 | Action | Result |
@@ -273,6 +276,98 @@ empty = default; the integrations answer carries `mission_creator_prompt_default
 `app.services.mission_creator_prompt.DEFAULT_MISSION_CREATOR_PROMPT`; effective value:
 `mission_creator_prompt(settings)`. Read contract for Slices 05/06: `GET /api/missions/creator-prompt`
 → `{prompt, default, is_default, source: ui | env | default}`.
+
+## 7d. Source library, internal context and evidence effectiveness
+
+*Task `viper_mission_agent_configuration_v2`, Slice 02. Migration `0050`. Code:
+`app/services/mission_sources.py`, `app/services/mission_context.py`, models in
+`app/models/missions.py` (`MissionSource`) and `app/models/mission_sources.py`.*
+
+**Two classes of mission source, never mixed.**
+
+| | External research source | Internal context reference |
+|---|---|---|
+| What | a reusable website / service the agent searches (LinkedIn, Hunter.io) | a VIPER record (company, prospect) that helps the agent |
+| Table | `mission_sources` (+ `mission_source_links`, `mission_category_sources`) | `mission_context_refs` |
+| Reaches the agent as | `mission.sources[{url, label}]` | `mission_context.resolve` (Slice 07 wires it into the claim) |
+| Can earn an effectiveness counter | yes, through accepted evidence | never |
+| Is it a `MissionTarget`? | no | **no**: a target is what a task processes (one task per target); context is supporting data, never a subject and never a write path |
+
+**Library (external).** `mission_sources` keeps its 0046 identity (`url`, exact-URL unique per
+organisation, `label`) and gains `description`, `parent_id`, `domain`, `path_prefix`,
+`successful_uses`. One level only: a **root** (`parent_id` null: LinkedIn) and optional
+**sub-sources** (LinkedIn > Jobs, `path_prefix=/jobs`). `domain` = host lower-cased without `www.`
+and port; `path_prefix` = path without trailing slash (query/fragment never identify a source).
+Adding a URL with no `parent_id` files it under the existing root of its site that covers it, else it
+is a root and adopts the childless top-level sources it covers. A cited URL **rolls up** to the most
+specific entry that covers it (`resolve_source`: subdomains and deeper paths match, longest domain then
+longest path prefix wins); a URL that matches nothing is evidence, not a new library row (no spam).
+Deleting a root that still has sub-sources is 409 `in_use` (`usage.sub_sources`).
+
+**Defaults and inheritance (reuses Slice 01).** `sources` joins `INHERITABLE_FIELDS`. A category lists
+default sources (`mission_category_sources`, ordered); a mission follows them until `sources` is in
+`Mission.overridden_fields`, when its own `mission_source_links` win. `MissionIn.source_ids`:
+`null` = follow the category (and drop an earlier override), a list (possibly empty) = override, omitted on
+« Modifier » = state kept; resubmitting the inherited list unchanged stays inherited.
+`mission_sources.effective_sources(session, mission)` is the one reading; the claim's `mission.sources`
+(`agent_payloads.mission_rule`) uses it. A category default edit writes nothing to missions (live read).
+Migration: every mission that already had links gets `sources` in `overridden_fields`, so its list keeps
+winning.
+
+**Evidence and effectiveness.** *Successful contribution* = a result item **accepted by a person**
+that cites a URL the library covers. `agent_review.accept` calls
+`mission_sources.credit_accepted_result(session, result, task, accepted_keys)`, which, for each accepted
+item only:
+
+1. reads the item's cited URLs from the raw result with the Slice 04 `Evidence` shape (`update_*`: the
+   `evidence[]` entries whose `field` is the item's; `find_employees` / `find_prospects`: the `evidence`
+   of the person / company at the item's index; `surveil_signals`: the signal's `source`); free text
+   that is not an http(s) URL is skipped;
+2. stores each distinct URL in `mission_evidence_citations` (`result_id`, `item_key`, `field`, `url`,
+   `quote`, `confidence`, `source_published_at`, `source_checked_at`, `source_id`, `mission_id`), unique
+   per (result, item, url): the **concrete URL is always kept**, even when the library shows only its
+   root / sub-source;
+3. credits each distinct library source it resolves to **once** for the (result, item) in
+   `mission_source_contributions` (unique source/result/item) and recomputes
+   `MissionSource.successful_uses` from that ledger.
+
+So a fact supported by three sources credits all three once; two LinkedIn URLs for one item credit the
+root once; a rejected, pending or non-accepted item credits nothing; `source_opened` telemetry never
+counts; resubmission, rebuild or calling the function again stores nothing twice
+(`refresh_counters` can rebuild every counter). `rolled_up_uses` of a root = distinct accepted items
+credited to it or its sub-sources. Deleting a source cascades its ledger and nulls the `source_id` of
+its citations. Not recorded: staged `actions` proposals (tool mode) carry no per-item evidence yet.
+
+**Internal context.** `mission_context_refs(mission_id, company_id | prospect_id, note)`: typed FKs for
+the allowlist `CONTEXT_KINDS = (company, prospect)` (a new kind = a new column + serializer; there is no
+generic table/SQL selector), unique per mission and record, at most 50, a deleted record cascades away.
+`mission_context.resolve(session, mission_id)` is the runtime contract: it reads the records **now** and
+serialises a fixed allowlist, each text clipped, read-only:
+`[{kind, id, label, note, read_only: true, fields}]`. Company fields: `legal_name`, `siren`,
+`website_url`, `email_domain`, `size_label`, `commercial_segment`, `activity_categories`, `sites[≤5]`
+(`name`, `city`, `postal_code`). Prospect fields: `exact_job_title`, `role`, `activity_status`, `company`.
+Deliberately **excluded**: the Circoe-internal company notes (`project_done_with_circoe`, `project_type`,
+`circoe_references`, `client_approach`) and every contact channel of a person (e-mails, phones,
+do-not-contact data): widening the allowlist is a conscious code + doc change.
+
+| Route | Purpose |
+|---|---|
+| `GET /api/missions/sources` | library, flat: `q`, `parent_id`, `roots_only`, `min_successful_uses` (roll-up), `order=recent\|name\|uses`; rows `{id, url, label, description, domain, path_prefix, parent_id, children_count, successful_uses, rolled_up_uses, missions_count, categories_count, created_at}` |
+| `POST /api/missions/sources` | `{url, label?, description?, parent_id?}` (open to any signed-in person: the mission form saves links; 422 `too_deep` / `domain` / `not_found` on a bad parent) |
+| `GET / PATCH / DELETE /api/missions/sources/{id}` | read; edit `label`, `description`, `parent_id` (`null` = make it a root; **admin**); forget (409 `in_use` for a root with sub-sources) |
+| `GET /api/missions/sources/{id}/citations?limit=` | the concrete cited URLs behind a source and its sub-sources, newest first |
+| `PUT /api/mission-categories/{id}/sources` | `{source_ids}`: ordered default sources (**admin**); `CategoryOut.sources[{id,url,label}]`; `source_ids` on `POST/PUT` category is also accepted (omitted on `PUT` = kept) |
+| `GET /api/missions/context-candidates?kind=company\|prospect&q=` | search the records that may be linked as context (same shape as `/targets`) |
+| `GET /api/missions/{id}/context` | what the agent would receive now (resolved, allowlisted) |
+| `POST /api/missions/{id}/context` | `{kind, id, note?}` link one record (idempotent; 404 unknown record, 422 unknown kind) |
+| `DELETE /api/missions/{id}/context/{kind}/{record_id}` | unlink (404 when not linked) |
+
+Mission create / edit also take `context_refs: [{kind, id, note?}]` (replace-all; omitted on edit = kept).
+`GET /api/missions/{id}` answers `sources` (the effective external sources, same row shape as the library),
+`context_refs[{kind, id, label, hint, note}]` (distinct from `targets`) and
+`inheritance.sources_inherited` / `inheritance.category_sources`. Known gap for Slice 05/07: the current
+create dialog always sends `source_ids` (an array), which counts as an override; Slice 05 sends `null` to
+follow category defaults, and Slice 07 puts `mission_context.resolve` and the effective skills in the claim.
 
 ## 8. Phases
 

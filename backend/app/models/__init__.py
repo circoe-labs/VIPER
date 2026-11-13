@@ -16,6 +16,12 @@ from app.models.mission_categories import (
     MissionSkill,
     MissionSkillLink,
 )
+from app.models.mission_sources import (
+    MissionCategorySource,
+    MissionContextRef,
+    MissionEvidenceCitation,
+    MissionSourceContribution,
+)
 from app.models.mission_telemetry import MissionAgentLog, MissionAgentSession
 from app.models.missions import (
     Mission,
@@ -61,10 +67,14 @@ __all__ = [
     "MissionAgentSession",
     "MissionCategory",
     "MissionCategorySkill",
+    "MissionCategorySource",
+    "MissionContextRef",
+    "MissionEvidenceCitation",
     "MissionRun",
     "MissionSkill",
     "MissionSkillLink",
     "MissionSource",
+    "MissionSourceContribution",
     "MissionSourceLink",
     "MissionTarget",
     "OAuthAuthorization",

@@ -24,3 +24,11 @@ Implemented in a worktree (migration 0048, down_revision 0047; 0047 belongs to S
 Merged in order 01, 03, 04 on the task branch (conflicts only additive, in routes/missions.py, services/missions.py, test_mission_supervision.py; both sides kept). Alembic head = 0049, linear. Targeted suites (categories, identity, output, missions, supervision, mcp*, agent_missions, telemetry, runtime_settings) pass on merged tree. `test_migrations.py` has 3 failures (check-constraint match, updated_at trigger, FK index: warehouse tables) that are IDENTICAL on `main` → pre-existing, not ours.
 Product decision to confirm with Human: `result_limit` = the "nombre maximum" cap (Slice 04 conclusion). Behaviour change: one-off missions now close `done` when run objective met.
 Next: dispatch 02 (needs 01). 05 needs 01+02; 07 needs 01+02+03+04.
+
+## Slice 02 - Source library, internal context, evidence (2026-11-13)
+Implemented in a worktree (migration 0050, down_revision 0049). Contract: doc/architecture/missions.md section 7d.
+- mission_sources evolved in place (parent_id one level, description, domain, path_prefix, successful_uses); existing links kept; domains with several URLs get a root; every mission that had links gets `sources` in overridden_fields.
+- `sources` is now an inheritable field (category defaults in mission_category_sources, same overridden_fields mechanism as skills). `source_ids` null = follow the category.
+- Evidence: agent_review.accept -> mission_sources.credit_accepted_result: citations stored (concrete URLs), each library source credited once per accepted (result, item) via a unique ledger; counter derived from it (idempotent).
+- Internal context: mission_context_refs (company/prospect typed FKs) + mission_context.resolve allowlist; distinct from MissionTarget; Circoe-internal notes and contact channels excluded. Slice 07 wires resolve() (and effective skills) into the claim.
+- Tests: tests/test_mission_sources.py (18). Two stale expectations updated (detail key set, MCP create_mission required list).

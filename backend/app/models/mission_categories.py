@@ -45,7 +45,7 @@ COLOR_PATTERN = r"^#[0-9a-fA-F]{6}$"
 # A glyph key the front end resolves (`frontend/src/ui/icons.tsx`), never markup.
 ICON_PATTERN = r"^[a-z0-9]+(-[a-z0-9]+)*$"
 # Mission fields that follow their category until a person overrides them.
-INHERITABLE_FIELDS = ("prompt", "skills")
+INHERITABLE_FIELDS = ("prompt", "skills", "sources")
 
 
 class MissionCategory(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, Base):

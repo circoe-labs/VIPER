@@ -271,6 +271,13 @@ NOT_AUDITED_TABLES = {
     "mission_targets": "mission links; managed by the mission service",
     "mission_category_skills": "link table; the skill ids are recorded on the category event",
     "mission_skill_links": "mission skill override; managed by the mission service",
+    "mission_sources": "source library rows; the mission service writes mission.* events, the "
+    "counters are derived from mission_source_contributions",
+    "mission_source_links": "mission source override; managed by the mission service",
+    "mission_category_sources": "link table; managed by the category service",
+    "mission_evidence_citations": "write-once evidence of an accepted result (itself audited)",
+    "mission_source_contributions": "write-once effectiveness ledger of accepted results",
+    "mission_context_refs": "mission context links; managed by the mission service",
     "mission_runs": "mission executions; mission_run.* events are written by the service",
     "agent_task_results": "write-once submission: the row is the record (raw, proposal, decision)",
     "mcp_tokens": "machine credentials: only a token hash; minted by the CLI or an OAuth approval",

@@ -6,7 +6,8 @@ mission service (`app.services.missions`) uses `resolve_category`, `apply_inheri
 
 - A category's `mission_type` is the technical execution discriminator (`MissionType`): chosen at
   creation, immutable, copied to `Mission.type`. Editing the taxonomy never re-routes a mission.
-- Inheritable mission fields: `prompt` and `skills` (`INHERITABLE_FIELDS`). A field is *overridden*
+- Inheritable mission fields: `prompt`, `skills` and `sources` (`INHERITABLE_FIELDS`; the
+  source library and its defaults live in `mission_sources`, Slice 02). A field is *overridden*
   only when `Mission.overridden_fields` says so; a category edit rewrites `Mission.prompt` for
   the missions that still inherit it, never for an overriding one.
 - A seeded (keyed) category is edited but never deleted; any other category is deleted only when
@@ -20,7 +21,7 @@ Contract: `doc/architecture/missions.md`.
 import re
 import uuid
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from sqlalchemy import delete as sql_delete
@@ -46,7 +47,7 @@ from app.models.mission_categories import (
     MissionSkillLink,
 )
 from app.models.missions import Mission
-from app.services import audit
+from app.services import audit, mission_sources
 from app.services.errors import (
     BusinessRuleError,
     DuplicateValueError,
@@ -58,6 +59,7 @@ from app.services.errors import (
 
 PROMPT_FIELD = "prompt"
 SKILLS_FIELD = "skills"
+SOURCES_FIELD = mission_sources.SOURCES_FIELD
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +75,8 @@ class CategoryInput:
     mission_type: MissionType | None = None
     skill_ids: tuple[uuid.UUID, ...] = ()
     position: int | None = None
+    # None = leave the default sources as they are (a `PUT` without the field keeps them).
+    source_ids: tuple[uuid.UUID, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,6 +118,8 @@ class CategoryRow:
     missions_count: int
     created_at: datetime
     updated_at: datetime
+    # The external sources a mission of this category follows until it overrides `sources`.
+    sources: list[mission_sources.SourceRef] = field(default_factory=list)
 
     @property
     def is_system(self) -> bool:
@@ -141,6 +147,8 @@ class MissionInheritance:
     # What the category would give now (`None` without a category): « Rétablir » shows it.
     category_prompt: str | None
     category_skills: list[SkillRef]
+    sources_inherited: bool = True
+    category_sources: list[mission_sources.SourceRef] = field(default_factory=list)
 
 
 # --- validation ---------------------------------------------------------------------------------
@@ -328,6 +336,7 @@ def _category_row(session: Session, category: MissionCategory) -> CategoryRow:
         missions_count=missions or 0,
         created_at=category.created_at,
         updated_at=category.updated_at,
+        sources=mission_sources.category_source_refs(session, category.id),
     )
 
 
@@ -406,6 +415,45 @@ def set_category_skills(
     return _category_row(session, category)
 
 
+def _replace_default_sources(
+    session: Session,
+    actor: ActorContext,
+    category: MissionCategory,
+    source_ids: Sequence[uuid.UUID],
+) -> None:
+    """Replace the category's default sources; the change is audited on the category."""
+    previous = [source.id for source in mission_sources.category_sources(session, category.id)]
+    stored = mission_sources.set_category_sources(session, category, source_ids)
+    if stored == previous:
+        return
+    audit.record_event(
+        session,
+        actor,
+        audit.lifecycle_action("mission_category", audit.Lifecycle.UPDATED),
+        entity_type="mission_category",
+        entity_id=category.id,
+        changes={
+            "source_ids": {
+                "before": [str(source_id) for source_id in previous],
+                "after": [str(source_id) for source_id in stored],
+            }
+        },
+    )
+
+
+def set_category_sources(
+    session: Session,
+    actor: ActorContext,
+    category_id: uuid.UUID,
+    source_ids: Sequence[uuid.UUID],
+) -> CategoryRow:
+    """`PUT /mission-categories/{id}/sources`: the whole ordered list of default sources. Nothing
+    is written to missions: those still inheriting `sources` read the live defaults."""
+    category = _category(session, category_id, lock=True)
+    _replace_default_sources(session, actor, category, source_ids)
+    return _category_row(session, category)
+
+
 def create_category(session: Session, actor: ActorContext, data: CategoryInput) -> CategoryRow:
     if data.mission_type is None:
         raise InvalidFieldError("mission_type", "The execution type is required.", "missing")
@@ -433,6 +481,8 @@ def create_category(session: Session, actor: ActorContext, data: CategoryInput) 
     session.flush()
     if data.skill_ids:
         _set_default_skills(session, category, data.skill_ids)
+    if data.source_ids:
+        mission_sources.set_category_sources(session, category, data.source_ids)
     return _category_row(session, category)
 
 
@@ -463,6 +513,8 @@ def update_category(
         category.position = data.position
     session.flush()
     _replace_default_skills(session, actor, category, data.skill_ids)
+    if data.source_ids is not None:
+        _replace_default_sources(session, actor, category, data.source_ids)
     if prompt_changed:
         propagate_prompt(session, actor, category)
     return _category_row(session, category)
@@ -597,14 +649,16 @@ def apply_inheritance(
     skill_ids: Sequence[uuid.UUID] | None,
     creating: bool,
     keep: frozenset[str] = frozenset(),
+    source_ids: Sequence[uuid.UUID] | None = None,
 ) -> None:
-    """Set `mission.prompt`, its skills and `overridden_fields` from what the person sent.
+    """Set `mission.prompt`, its skills, its sources and `overridden_fields` from what the person
+    sent.
 
-    `prompt` / `skill_ids` of `None` mean « follow the category » (and reset an earlier override);
-    a value overrides; a field named in `keep` (omitted from an update) keeps its state. On update
-    only, a value equal to what an inherited field already holds is a form resubmitted unchanged:
-    it stays inherited (and follows the category). Without a category a field cannot be inherited
-    (a prompt is then required)."""
+    `prompt` / `skill_ids` / `source_ids` of `None` mean « follow the category » (and reset an
+    earlier override); a value overrides; a field named in `keep` (omitted from an update) keeps
+    its state. On update only, a value equal to what an inherited field already holds is a form
+    resubmitted unchanged: it stays inherited (and follows the category). Without a category a
+    field cannot be inherited (a prompt is then required)."""
     overridden = [name for name in (mission.overridden_fields or []) if name in INHERITABLE_FIELDS]
 
     if PROMPT_FIELD in keep and not creating:
@@ -651,6 +705,25 @@ def apply_inheritance(
             set_mission_skills(session, mission, wanted)
             if SKILLS_FIELD not in overridden:
                 overridden.append(SKILLS_FIELD)
+    if SOURCES_FIELD in keep and not creating:
+        pass
+    elif source_ids is None:
+        if SOURCES_FIELD in overridden:
+            mission_sources.clear_mission_sources(session, mission)
+            overridden = [name for name in overridden if name != SOURCES_FIELD]
+    else:
+        wanted_sources = list(dict.fromkeys(source_ids))
+        unchanged_sources = (
+            not creating
+            and SOURCES_FIELD not in overridden
+            and category is not None
+            and wanted_sources
+            == [source.id for source in mission_sources.effective_sources(session, mission)]
+        )
+        if not unchanged_sources:
+            mission_sources.set_mission_sources(session, mission, wanted_sources)
+            if SOURCES_FIELD not in overridden:
+                overridden.append(SOURCES_FIELD)
     mission.overridden_fields = sorted(overridden)
     session.flush()
 
@@ -665,4 +738,10 @@ def inheritance(session: Session, mission: Mission) -> MissionInheritance:
         skills_inherited=category is not None and SKILLS_FIELD not in overridden,
         category_prompt=category.general_prompt if category is not None else None,
         category_skills=category_skill_refs(session, category.id) if category is not None else [],
+        sources_inherited=category is not None and SOURCES_FIELD not in overridden,
+        category_sources=(
+            mission_sources.category_source_refs(session, category.id)
+            if category is not None
+            else []
+        ),
     )

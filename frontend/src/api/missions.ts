@@ -48,6 +48,9 @@ export interface MissionInheritance {
   skills_inherited: boolean
   category_prompt: string | null
   category_skills: SkillRef[]
+  // Slice 02: false once the mission has its own external-source list.
+  sources_inherited?: boolean
+  category_sources?: { id: string; url: string; label: string | null }[]
 }
 
 export interface MissionCard {
@@ -106,11 +109,31 @@ export interface MissionTargetRow {
   hint: string | null
 }
 
+// An external library entry (Slice 02): a root (`parent_id` null) or one sub-level.
+// `successful_uses` counts accepted items it supported (never visits); `rolled_up_uses` adds its sub-sources'.
 export interface MissionSource {
   id: string
   url: string
   label: string | null
+  description?: string | null
+  domain?: string
+  path_prefix?: string
+  parent_id?: string | null
+  children_count?: number
+  successful_uses?: number
+  rolled_up_uses?: number
   missions_count: number
+  categories_count?: number
+  created_at?: string | null
+}
+
+// A VIPER record linked as read-only context (Slice 02). Not a target and not evidence.
+export interface MissionContextRef {
+  kind: 'company' | 'prospect'
+  id: string
+  label: string
+  hint: string | null
+  note: string | null
 }
 
 export interface MissionProposal {
@@ -136,7 +159,9 @@ export interface MissionRule {
 export interface MissionDetail {
   card: MissionCard
   targets: MissionTargetRow[]
+  // The external sources the mission works with (its own list, else its category's defaults).
   sources: MissionSource[]
+  context_refs?: MissionContextRef[]
   runs: MissionRunRow[]
   tasks: MissionTaskRow[]
   prompt: string
@@ -187,7 +212,10 @@ export interface MissionInput {
   skill_ids?: string[] | null
   prompt: string
   targets: { kind: 'company' | 'prospect'; id: string }[]
-  source_ids: string[]
+  // Slice 02: null = follow the category's default sources, a list (possibly empty) = override.
+  source_ids: string[] | null
+  // Read-only internal records supplied as context (omitted on edit = kept).
+  context_refs?: { kind: 'company' | 'prospect'; id: string; note?: string | null }[]
   agent_id: string | null
   is_recurring: boolean
   interval_count: number
