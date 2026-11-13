@@ -1,12 +1,12 @@
 /* The voice mission assistant: an immersive, always-dark surface (it does not follow the light theme on purpose: a
    black blurred stage the voice fills). Own tokens, scoped to .voice. */
 .voice {
-  --voice-bg: rgb(3 5 9 / 0.84);
-  --voice-text: #fff;
-  --voice-muted: rgb(255 255 255 / 0.62);
-  --voice-blue: #7db2ff;
-  --voice-blue-deep: #3d7bff;
-  --voice-danger: #ff9b8f;
+  --voice-bg: color-mix(in srgb, var(--nc-voice-ink) 84%, transparent);
+  --voice-text: var(--nc-white);
+  --voice-muted: color-mix(in srgb, var(--nc-white) 62%, transparent);
+  --voice-blue: var(--nc-voice-blue);
+  --voice-blue-deep: var(--nc-voice-blue-deep);
+  --voice-danger: var(--nc-voice-danger);
   --level: 0;
 
   position: fixed;
@@ -51,13 +51,13 @@
   min-height: 2.75rem;
   padding: 0 1rem 0 0.75rem;
   color: var(--voice-text);
-  background: rgb(255 255 255 / 0.08);
-  border: 1px solid rgb(255 255 255 / 0.16);
+  background: color-mix(in srgb, var(--nc-white) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--nc-white) 16%, transparent);
   border-radius: 999px;
 }
 
 .voice__close:hover {
-  background: rgb(255 255 255 / 0.16);
+  background: color-mix(in srgb, var(--nc-white) 16%, transparent);
 }
 
 .voice__tools {
@@ -85,7 +85,7 @@
 
 .voice[data-phase='listening'] .voice__dot {
   background: var(--voice-blue);
-  box-shadow: 0 0 0 4px rgb(125 178 255 / 0.25);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--nc-voice-blue) 25%, transparent);
 }
 
 .voice__icon-button {
@@ -95,7 +95,7 @@
   height: 2.5rem;
   color: var(--voice-text);
   background: transparent;
-  border: 1px solid rgb(255 255 255 / 0.16);
+  border: 1px solid color-mix(in srgb, var(--nc-white) 16%, transparent);
   border-radius: 50%;
 }
 
@@ -152,7 +152,7 @@
   padding: 0.3rem 0.7rem;
   color: var(--voice-muted);
   font-size: 0.85rem;
-  background: rgb(255 255 255 / 0.07);
+  background: color-mix(in srgb, var(--nc-white) 7%, transparent);
   border-radius: 999px;
   overflow-wrap: anywhere;
 }
@@ -172,8 +172,8 @@
   margin: 0 auto 1rem;
   padding: 0.75rem 1rem;
   color: var(--voice-danger);
-  background: rgb(255 120 100 / 0.12);
-  border: 1px solid rgb(255 155 143 / 0.35);
+  background: color-mix(in srgb, var(--nc-voice-alert) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--nc-voice-danger) 35%, transparent);
   border-radius: 0.75rem;
 }
 
@@ -189,8 +189,8 @@
 .voice__error-actions button {
   padding: 0.35rem 0.8rem;
   color: var(--voice-text);
-  background: rgb(255 255 255 / 0.1);
-  border: 1px solid rgb(255 255 255 / 0.2);
+  background: color-mix(in srgb, var(--nc-white) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--nc-white) 20%, transparent);
   border-radius: 999px;
 }
 
@@ -243,8 +243,8 @@
   padding: 0 1rem;
   color: var(--voice-text);
   font: inherit;
-  background: rgb(255 255 255 / 0.07);
-  border: 1px solid rgb(255 255 255 / 0.18);
+  background: color-mix(in srgb, var(--nc-white) 7%, transparent);
+  border: 1px solid color-mix(in srgb, var(--nc-white) 18%, transparent);
   border-radius: 999px;
 }
 
@@ -254,7 +254,7 @@
 
 .voice__typed button {
   padding: 0 1.1rem;
-  color: #0a1020;
+  color: var(--nc-voice-on-light);
   font-weight: 600;
   background: var(--voice-text);
   border: 0;
@@ -274,7 +274,7 @@
   width: 6.5rem;
   height: 6.5rem;
   padding: 0;
-  color: #fff;
+  color: var(--nc-white);
   background: transparent;
   border: 0;
   border-radius: 50%;
@@ -289,7 +289,7 @@
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  background: radial-gradient(circle, rgb(125 178 255 / 0.55), rgb(61 123 255 / 0) 70%);
+  background: radial-gradient(circle, color-mix(in srgb, var(--nc-voice-blue) 55%, transparent), transparent 70%);
   transform: scale(calc(0.72 + var(--level) * 0.9));
   transition: transform 90ms linear;
 }
@@ -301,8 +301,8 @@
   width: 4.25rem;
   height: 4.25rem;
   border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, #cfe1ff, var(--voice-blue-deep) 72%);
-  box-shadow: 0 0 2.5rem rgb(61 123 255 / 0.55);
+  background: radial-gradient(circle at 35% 30%, var(--nc-voice-glow), var(--voice-blue-deep) 72%);
+  box-shadow: 0 0 2.5rem color-mix(in srgb, var(--nc-voice-blue-deep) 55%, transparent);
 }
 
 .voice[data-phase='thinking'] .voice__orb-ring,

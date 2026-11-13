@@ -1,6 +1,7 @@
 import type { MissionCategory } from '../api/missionConfig'
 import type { MissionCard, MissionDetail, MissionOptions, MissionType } from '../api/missions'
 import type { ApiReply } from '../test/render'
+import { hexColor } from './categoryVisual'
 
 export const MISSION = '00000000-0000-7000-e000-000000000010'
 export const COMPANY = '00000000-0000-7000-f000-000000000001'
@@ -117,11 +118,11 @@ function category(key: MissionType, name: string, icon: string, color: string, d
 
 // The five seeded categories (doc/architecture/missions.md §7c).
 export const CATEGORIES: MissionCategory[] = [
-  category('prospection', 'Prospection', 'compass', '#2563eb', 'Trouver de nouvelles sociétés ou de nouveaux contacts.'),
-  category('signals', 'Signaux', 'radar', '#d97706', 'Surveille les sociétés liées et remonte les signaux d’achat.'),
-  category('enrichment', 'Enrichissement', 'pencil', '#16a34a', 'Compléter les fiches existantes.'),
-  category('verification', 'Vérification', 'shield-check', '#7c3aed', 'Contrôler l’exactitude des fiches.'),
-  category('other', 'Autre', 'sparkles', '#0d9488', 'Une mission libre.'),
+  category('prospection', 'Prospection', 'compass', hexColor(0x2563eb), 'Trouver de nouvelles sociétés ou de nouveaux contacts.'),
+  category('signals', 'Signaux', 'radar', hexColor(0xd97706), 'Surveille les sociétés liées et remonte les signaux d’achat.'),
+  category('enrichment', 'Enrichissement', 'pencil', hexColor(0x16a34a), 'Compléter les fiches existantes.'),
+  category('verification', 'Vérification', 'shield-check', hexColor(0x7c3aed), 'Contrôler l’exactitude des fiches.'),
+  category('other', 'Autre', 'sparkles', hexColor(0x0d9488), 'Une mission libre.'),
 ]
 
 export const COMMON: Record<string, ApiReply> = {

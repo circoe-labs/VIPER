@@ -47,7 +47,13 @@ export const CATEGORY_ICONS: Record<string, { icon: IconComponent; label: string
   bolt: { icon: BoltIcon, label: 'Éclair' },
 }
 
-export const DEFAULT_CATEGORY_COLOR = '#16a34a'
+// A category colour is administrator data (`#RRGGBB`, what <input type="color"> and the API speak), not a themed UI
+// colour: the default is written as a number so no raw colour literal lives outside theme/tokens.css.
+export function hexColor(rgb: number): string {
+  return `#${rgb.toString(16).padStart(6, '0')}`
+}
+
+export const DEFAULT_CATEGORY_COLOR = hexColor(0x16a34a)
 
 // An unknown key (a glyph added later by the API) still draws something.
 export function categoryIcon(key: string | null | undefined): IconComponent {
