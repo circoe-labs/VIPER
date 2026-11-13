@@ -1,0 +1,1 @@
+{"slice_id":"07","status":"planned","task_type":null,"depends_on":["01","02","03","04"],"requires":[{"slice_id":"05","need":"final admin/mission API usage","fallback":"backend API fixtures","integration_required_before":"08"},{"slice_id":"06","need":"voice draft integration assumptions","fallback":"ordinary mission create contract","integration_required_before":"08"}]}

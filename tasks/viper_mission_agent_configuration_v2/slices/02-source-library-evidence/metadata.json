@@ -1,0 +1,1 @@
+{"slice_id":"02","status":"planned","task_type":null,"depends_on":["01"],"requires":[{"slice_id":"04","need":"final result/evidence envelope","fallback":"store URL/check/result-item bridge behind adapter","integration_required_before":"07"}]}
