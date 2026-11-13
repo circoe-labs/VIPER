@@ -45,108 +45,11 @@
   margin: 0;
 }
 
-/* KPI cards */
-.stats-kpi-groups {
-  display: grid;
-  gap: var(--space-5);
-}
-
-.stats-group {
-  display: grid;
-  gap: var(--space-2);
-}
-
-.stats-group h3 {
-  margin: 0;
-}
-
-.stats-kpis {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
-  gap: var(--space-3);
-  margin: 0;
-}
-
-.stats-kpi {
-  display: grid;
-  align-content: start;
-  gap: var(--space-1);
-  padding: var(--space-3) var(--space-4);
-  border-radius: var(--radius-lg);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-card);
-}
-
-.stats-kpi dt {
-  color: var(--color-text-muted);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-medium);
-  line-height: var(--leading-tight);
-}
-
-.stats-kpi dd {
-  margin: 0;
-  color: var(--color-text);
-  font-size: var(--text-2xl);
-  font-weight: var(--weight-bold);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: var(--tracking-tight);
-  line-height: 1.2;
-}
-
-.stats-kpi--success:not(.stats-kpi--zero) dd {
-  color: var(--color-success-fg);
-}
-
-.stats-kpi--danger:not(.stats-kpi--zero) dd {
-  color: var(--color-danger-fg);
-}
-
-.stats-kpi--warning:not(.stats-kpi--zero) dd {
-  color: var(--color-warning-fg);
-}
-
-.stats-kpi--zero dd {
-  color: var(--color-text-muted);
-  font-weight: var(--weight-regular);
-}
-
-.stats-kpi dd.stats-kpi__hint {
-  margin: 0;
-  color: var(--color-text-muted);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-regular, 400);
-  letter-spacing: normal;
-}
-
-/* Blocks */
-.stats-block {
-  display: grid;
-  gap: var(--space-3);
-  min-width: 0;
-}
-
-.stats-block__title,
+/* Chart titles (KPI tiles, panels, donuts and event bars live in missionUi.css / statsPanels.css). */
 .stats-chart__title {
   margin: 0;
-  font-size: var(--text-lg);
-  font-weight: var(--weight-semibold);
-}
-
-.stats-chart__title {
   font-size: var(--text-md);
-}
-
-.stats-charts {
-  display: grid;
-  gap: var(--space-6);
-}
-
-.stats-split {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(40rem, 1fr));
-  gap: var(--space-6);
-  align-items: start;
+  font-weight: var(--weight-semibold);
 }
 
 .stats-num {
@@ -320,42 +223,6 @@
 
 .stats-chart__data[open] summary {
   margin-bottom: var(--space-2);
-}
-
-/* Event-type breakdown */
-.stats-events {
-  display: grid;
-  gap: var(--space-2);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.stats-events__row {
-  display: grid;
-  grid-template-columns: minmax(8rem, 11rem) minmax(0, 1fr) 3rem;
-  align-items: center;
-  gap: var(--space-3);
-  font-size: var(--text-sm);
-}
-
-.stats-events__bar {
-  height: 0.625rem;
-  border-radius: var(--radius-full);
-  background: var(--color-surface-hover);
-  overflow: hidden;
-}
-
-.stats-events__bar i {
-  display: block;
-  height: 100%;
-  border-radius: var(--radius-full);
-  background: var(--color-info-fg);
-}
-
-.stats-events__count {
-  font-variant-numeric: tabular-nums;
-  text-align: right;
 }
 
 /* A 90-day data table stays a scroll region instead of pushing the page down. */

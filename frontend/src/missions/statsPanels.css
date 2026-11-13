@@ -1,0 +1,236 @@
+/* Statistiques tab panels (UI redesign Slice 03, prefix stp-). Layout and small figures only: the tiles, panels,
+   donuts and states come from missionUi.css (mui-*). Tokens only, no colour literal. Widths are of the content area
+   (sidebar excluded), see CONTRACT.md section 3. */
+
+.stp-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.7fr);
+  gap: var(--space-4);
+  align-items: stretch;
+}
+
+.stp-top .mui-kpis {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.stp-layout {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.stp-row-3 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+  gap: var(--space-4);
+  align-items: stretch;
+}
+
+.stp-row-2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(24rem, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+}
+
+/* Three donuts side by side are too narrow for ring + legend in a row: ring above, legend full width. */
+.stp-row-3 .mui-donut {
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+}
+
+.stp-row-3 .mui-donut__ring {
+  max-width: 11rem;
+}
+
+.stp-row-3 .mui-donut__legend {
+  width: 100%;
+}
+
+.stp-muted {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.stp-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.stp-state p {
+  margin: 0;
+}
+
+/* Progression */
+.stp-progress__body {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.stp-progress__main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.stp-progress__text {
+  display: grid;
+  flex: 1 1 10rem;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.stp-progress__caption {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+}
+
+.stp-progress__count {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.stp-progress__bar {
+  width: 100%;
+  height: 0.5rem;
+  accent-color: var(--color-success-fg);
+}
+
+/* Big figures above the activity chart */
+.stp-figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-6);
+  margin: 0;
+}
+
+.stp-figures div {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.stp-figures dd {
+  order: -1;
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-bold);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-tight);
+  line-height: 1.1;
+}
+
+.stp-figures dt {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+/* Label / value rows (analysis, attention) */
+.stp-rows {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.stp-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  font-size: var(--text-sm);
+}
+
+.stp-row dt {
+  color: var(--color-text-muted);
+}
+
+.stp-row dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.stp-row strong {
+  color: var(--color-text);
+  font-weight: var(--weight-semibold);
+}
+
+.stp-row__note {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.stp-row[data-tone='danger'] strong {
+  color: var(--color-danger-fg);
+}
+
+.stp-row[data-tone='warning'] strong {
+  color: var(--color-warning-fg);
+}
+
+/* Event-type bars */
+.stp-events {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stp-events__row {
+  display: grid;
+  grid-template-columns: minmax(6rem, 9rem) minmax(0, 1fr) 2.5rem;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.stp-events__bar {
+  height: 0.625rem;
+  overflow: hidden;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-hover);
+}
+
+.stp-events__bar i {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: var(--color-info-fg);
+}
+
+.stp-events__count {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+@media (max-width: 70rem) {
+  .stp-top {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .stp-top .mui-kpis {
+    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  }
+}
+
+@media (max-width: 40rem) {
+  .stp-row-3,
+  .stp-row-2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

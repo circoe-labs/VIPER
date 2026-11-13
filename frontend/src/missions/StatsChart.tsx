@@ -19,6 +19,8 @@ interface StatsChartProps {
   series: ChartSeries[];
   points: ChartPoint[];
   bucket: StatsBucket;
+  // Inside a MissionPanel that already shows the title: keep the name for assistive tech only (h4 under the panel h3).
+  hideTitle?: boolean;
 }
 
 // Hand-rolled stacked column chart (no chart library in the repo; same approach as ContactChart). The plot is
@@ -31,17 +33,29 @@ export function StatsChart({
   series,
   points,
   bucket,
+  hideTitle = false,
 }: StatsChartProps) {
   const { step, maximum } = axisFor(points);
   const labelEvery = Math.max(1, Math.ceil(points.length / 10));
   const multi = series.length > 1;
   const summary = chartSummary(title, series, points, bucket);
+  // Inside a titled MissionPanel the panel is already the named region: a second landmark with the same name is noise.
+  const Wrapper = hideTitle ? "div" : "section";
 
   return (
-    <section className="stats-chart" aria-labelledby={`${id}-title`}>
-      <h3 id={`${id}-title`} className="stats-chart__title">
-        {title}
-      </h3>
+    <Wrapper
+      className="stats-chart"
+      aria-labelledby={hideTitle ? undefined : `${id}-title`}
+    >
+      {hideTitle ? (
+        <h4 id={`${id}-title`} className="visually-hidden">
+          {title}
+        </h4>
+      ) : (
+        <h3 id={`${id}-title`} className="stats-chart__title">
+          {title}
+        </h3>
+      )}
       <ul className="stats-legend" aria-label="Légende">
         {series.map((s) => (
           <li key={s.key} className="stats-legend__item">
@@ -148,6 +162,6 @@ export function StatsChart({
           </tbody>
         </Table>
       </details>
-    </section>
+    </Wrapper>
   );
 }
