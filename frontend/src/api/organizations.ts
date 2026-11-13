@@ -116,6 +116,20 @@ export function useUpdateMember(organizationId: string) {
   })
 }
 
+export interface PasswordResetResult {
+  // false: the mail could not be sent (mailer not connected).
+  sent: boolean
+  email: string
+}
+
+// Sends the member a one-hour link to choose a new password. Nothing the lists show changes: no refresh.
+export function useResetMemberPassword(organizationId: string) {
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiRequest<PasswordResetResult>('POST', `/organizations/${organizationId}/members/${id}/password-reset`),
+  })
+}
+
 export function useRemoveMember(organizationId: string) {
   const refresh = useRefresh()
   return useMutation({
