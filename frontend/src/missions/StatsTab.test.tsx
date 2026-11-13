@@ -3,7 +3,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
-import type { MissionStatistics } from "../api/missions";
+import type { MissionOverview, MissionStatistics } from "../api/missions";
 import { type ApiReply, stubApi } from "../test/render";
 import { MISSION } from "./missionTestData";
 import { StatsTab } from "./StatsTab";
@@ -20,6 +20,35 @@ import {
 } from "./statsModel";
 
 const ROUTE = `GET /api/missions/${MISSION}/statistics`;
+const OVERVIEW_ROUTE = `GET /api/missions/${MISSION}/overview`;
+
+function overview(finished = 87, total = 100): MissionOverview {
+  return {
+    mission_id: MISSION,
+    name: "Mission",
+    status: "active",
+    next_run_at: null,
+    current_run: null,
+    active_sessions: 3,
+    active_agents: 3,
+    agents: [],
+    last_activity_at: null,
+    tasks: {
+      total,
+      finished,
+      by_status: {
+        pending: 0,
+        claimed: 0,
+        submitted: 0,
+        accepted: finished,
+        failed: 0,
+        cancelled: 0,
+      },
+    },
+    pending_reviews: 0,
+    warnings: [],
+  };
+}
 
 function stats(overrides: Partial<MissionStatistics> = {}): MissionStatistics {
   const days = overrides.days ?? 30;
@@ -133,8 +162,11 @@ function empty(): MissionStatistics {
   });
 }
 
-function renderTab(reply: ApiReply) {
-  const fetchMock = stubApi({ [ROUTE]: reply });
+function renderTab(reply: ApiReply, overviewReply: ApiReply = [200, overview()]) {
+  const fetchMock = stubApi({
+    [ROUTE]: reply,
+    [OVERVIEW_ROUTE]: overviewReply,
+  });
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -148,7 +180,8 @@ function renderTab(reply: ApiReply) {
 
 function lastQuery(fetchMock: ReturnType<typeof stubApi>): URLSearchParams {
   const calls = fetchMock.mock.calls as unknown as [string][];
-  const last = calls[calls.length - 1]?.[0] ?? "";
+  const statistics = calls.filter(([url]) => url.includes("/statistics"));
+  const last = statistics[statistics.length - 1]?.[0] ?? "";
   return new URL(last, "http://localhost").searchParams;
 }
 
@@ -163,19 +196,50 @@ describe("Statistiques tab", () => {
     renderTab([200, stats()]);
     await screen.findByText("Taux d’acceptation", { selector: "dt" });
 
-    expect(within(kpi("Acceptés")).getByText("3")).toBeInTheDocument();
-    expect(within(kpi("Refusés")).getByText("1")).toBeInTheDocument();
-    expect(within(kpi("À relire")).getByText("1")).toBeInTheDocument();
     expect(
       within(kpi("Taux d’acceptation")).getByText("75 %"),
     ).toBeInTheDocument();
     expect(
       within(kpi("Délai moyen de relecture")).getByText("20 min"),
     ).toBeInTheDocument();
-    expect(within(kpi("Échec")).getByText("2")).toBeInTheDocument();
     expect(within(kpi("Sessions")).getByText("4")).toBeInTheDocument();
     expect(within(kpi("Journaux")).getByText("17")).toBeInTheDocument();
     expect(within(kpi("Sources ouvertes")).getByText("6")).toBeInTheDocument();
+    expect(
+      within(kpi("Tâches en échec")).getByText("2"),
+    ).toBeInTheDocument();
+    expect(within(kpi("Erreurs signalées")).getByText("3")).toBeInTheDocument();
+  });
+
+  it("shows progress and the four task tiles from the overview", async () => {
+    renderTab([200, stats()], [200, overview(87, 100)]);
+    expect(
+      await screen.findByText("87 % des tâches traitées"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("87 / 100")).toBeInTheDocument();
+    expect(within(kpi("Agents actifs")).getByText("3")).toBeInTheDocument();
+    expect(within(kpi("Tâches traitées")).getByText("87")).toBeInTheDocument();
+    expect(within(kpi("Tâches restantes")).getByText("13")).toBeInTheDocument();
+    expect(within(kpi("Tâches totales")).getByText("100")).toBeInTheDocument();
+    // no invented API-call figure anywhere
+    expect(screen.queryByText(/appels/i)).not.toBeInTheDocument();
+  });
+
+  it("says there is no task instead of 0 %, and keeps the rest when the overview fails", async () => {
+    const user = userEvent.setup();
+    let fail = true;
+    renderTab([200, stats()], () =>
+      fail ? [500, { detail: "boom" }] : [200, overview(0, 0)],
+    );
+    const alert = await screen.findByText(/progression est indisponible/);
+    expect(alert).toBeVisible();
+    expect(within(kpi("Tâches totales")).getByText("—")).toBeInTheDocument();
+    // statistics panels still render
+    expect(kpi("Taux d’acceptation")).toBeVisible();
+    fail = false;
+    await user.click(screen.getByRole("button", { name: "Réessayer" }));
+    expect(await screen.findByText(/Aucune tâche pour l’instant/)).toBeVisible();
+    expect(screen.queryByText(/des tâches traitées/)).not.toBeInTheDocument();
   });
 
   it("shows a dash, not a fake rate, until a result is decided", async () => {
@@ -194,7 +258,9 @@ describe("Statistiques tab", () => {
 
   it("lists agents and the event-type breakdown", async () => {
     renderTab([200, stats()]);
-    const table = await screen.findByRole("table", { name: /par agent/i });
+    const table = await screen.findByRole("table", {
+      name: "Statistiques par agent (toute la mission)",
+    });
     const rows = within(table).getAllByRole("row");
     expect(
       within(rows[1] as HTMLElement).getByText("Agent claude-01"),
@@ -203,8 +269,9 @@ describe("Statistiques tab", () => {
       within(rows[1] as HTMLElement).getByText("75 %"),
     ).toBeInTheDocument();
     expect(within(rows[2] as HTMLElement).getByText("—")).toBeInTheDocument();
-    const events = screen.getByRole("heading", { name: /type d’événement/i })
-      .parentElement as HTMLElement;
+    const events = screen
+      .getByRole("heading", { name: /type d’événement/i })
+      .closest("section") as HTMLElement;
     expect(within(events).getAllByRole("listitem")).toHaveLength(8);
     expect(
       within(events).getByText("Sources ouvertes").parentElement,
@@ -285,9 +352,7 @@ describe("Statistiques tab", () => {
     const user = userEvent.setup();
     let fail = true;
     renderTab(() => (fail ? [500, { detail: "boom" }] : [200, stats()]));
-    expect(screen.getByRole("status")).toHaveTextContent(
-      "Chargement des statistiques",
-    );
+    expect(screen.getByText("Chargement des statistiques…")).toBeVisible();
     expect(await screen.findByRole("alert")).toHaveTextContent("indisponibles");
     fail = false;
     await user.click(screen.getByRole("button", { name: "Réessayer" }));
@@ -310,20 +375,37 @@ describe("Statistiques tab", () => {
     renderTab([200, stats()]);
     await screen.findByText("Taux d’acceptation", { selector: "dt" });
 
-    const plots = screen.getAllByRole("img");
-    expect(plots).toHaveLength(3);
-    expect(plots[0]).toHaveAccessibleName(
-      /Résultats déposés \(UTC\) : 3 acceptés, 1 refusés, 0 à relire, 0 remplacés sur 3 périodes/,
-    );
-    expect(plots[1]).toHaveAccessibleName(
-      /Journaux des agents \(UTC\) : 16 journaux/,
-    );
+    // 3 time charts + 3 donuts, each one a named image with its figures in words
+    expect(screen.getAllByRole("img")).toHaveLength(6);
+    expect(
+      screen.getByRole("img", {
+        name: /Résultats déposés \(UTC\) : 3 acceptés, 1 refusés, 0 à relire, 0 remplacés sur 3 périodes/,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("img", {
+        name: /Activité des agents \(entrées de journal\) \(UTC\) : 16 journaux/,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("img", {
+        name: /Répartition de l’activité par agent : Agent claude-01 10 \(66,7\s%\), Agent claude-02 5 \(33,3\s%\)\. Total : 15 entrées/,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("img", { name: /Résultats par statut : Acceptés 3/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("img", { name: /Tâches par statut : .*Échec 2/ }),
+    ).toBeInTheDocument();
 
     expect(screen.getAllByRole("region", { name: /graphique/ })).toHaveLength(
       3,
     );
-    const summaries = screen.getAllByText("Voir les données en tableau");
-    await user.click(summaries[0] as HTMLElement);
+    const chart = screen
+      .getByRole("region", { name: "Résultats déposés : graphique" })
+      .closest("section") as HTMLElement;
+    await user.click(within(chart).getByText("Voir les données en tableau"));
     const table = screen.getByRole("table", {
       name: "Résultats déposés : données (UTC)",
     });
