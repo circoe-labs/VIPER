@@ -35,3 +35,12 @@ Implemented in a worktree (migration 0050, down_revision 0049). Contract: doc/ar
 
 ## Slice 02 merged (2026-11-13)
 Head 0050. Targeted suites pass. Pre-existing on main: 3 test_migrations, test_audit warehouse_drafts, test_explorer_editability. To confirm w/ Human: new URL under an existing root is auto-filed there; missions w/o links now follow category default sources. Dialog must send null for prompt/skill_ids/source_ids to inherit (Slice 05). Slice 07 must wire mission_context.resolve + effective_skills + output_contract into claim payload. Dispatching 05 + 07 concurrently (front vs back).
+
+## Slice 07 - Mission runtime convergence (2026-11-13)
+Backend only, no migration. Contract: doc/architecture/missions.md section 5 (Convergence), agent-missions.md 7.3, mcp-server.md 4.9.
+- Claim payload now carries mission.category, mission.skills (effective, instruction text), mission.sources (+description), internal_context (mission_context.resolve, read live at each claim), agent (numbered identity) and lifecycle (submit / release / viper_leave_work + the independent 15 min lease and 3 h session timeout, task concurrency wording). category/skills/sources are snapshotted in mission_runs.config; pre-Slice-07 runs read skills/category live.
+- Mission-level leave = viper_leave_work(task_id): no extra mechanism needed.
+- Deprecation: staged add_company/update_* inside a mission run now obey the output contract (own target only -> wrong_target; discovery stages 1 company unless allow_multiple, else result_limit -> too_many). Tool-mode (no run) unchanged. test_missions staged-review test updated accordingly.
+- Already satisfied by S02/S04 (verified, not re-implemented): evidence -> citations/counters at accept (idempotent ledger), objective settle + one-off close / recurring reset, not_found/blocked closes.
+- Residual: staged `actions` proposals carry no per-item evidence for source counters (pre-existing, documented).
+- Tests: tests/test_mission_runtime.py (8, real JSON-RPC /mcp traces). Updated sources shape (+description) in two tests.

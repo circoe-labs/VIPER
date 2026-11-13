@@ -150,6 +150,38 @@ different concepts: the limit caps what a run may *propose*; the objective says 
 
 The payload also carries `output_contract` and `objective` (`agent-missions.md` §7.4).
 
+**Convergence (Slice 07).** One claim now carries everything the mission configures:
+
+| Payload key | Source | Frozen with the run? |
+|---|---|---|
+| `mission.prompt` | the mission's consigne (the category `general_prompt` while it is inherited, §7c) | yes (`mission_runs.config`) |
+| `mission.category` | `{key, name}` of the category | yes |
+| `mission.skills` | `[{name, content}]`, `mission_categories.effective_skills` (instruction text only) | yes |
+| `mission.sources` | `[{url, label, description}]`, `mission_sources.effective_sources` (external research sources) | yes |
+| `internal_context` | `mission_context.resolve`: allowlisted, bounded, read-only VIPER records; **not** the target, **not** evidence | no: read at each claim, so it is current |
+| `output_contract`, `objective` | Slice 04 | yes (`allow_multiple`, objective) |
+| `agent` | `{identity, agent_id}`: the numbered label VIPER gives the token (`viper_whoami` has the rest) | n/a |
+| `lifecycle` | how to finish / give back / stop (`viper_submit_task_result`, `viper_release_task`, `viper_leave_work`) and the independent safety nets | n/a |
+
+A run started before Slice 07 has no `skills` / `category` in its snapshot: they are then read live.
+A task is one target: `subject` names only that record; the mission's other targets and its context
+references never appear as work. Editing a category's skills or sources changes the next runs only.
+
+**Lifecycle exits** (no dead end): submit (a proposal; a refusal such as `too_many` keeps the task
+claimed so the agent can fix it), `viper_release_task` (task back to the queue, unfailed; the
+session stays open), `viper_leave_work` (every task of the caller, or of one run with `task_id`,
+goes back and the session ends: it composes `release_claimed` + `end_own_active_sessions`, so a
+mission-level leave needs nothing more). The 15-minute lease and the 3-hour session timeout remain
+the independent fallbacks; `max_concurrent` limits tasks held at once, never the number of agents
+(§4.9 of `mcp-server.md`).
+
+**Staging inside a mission.** `viper_add_company` / `viper_update_company` / `viper_update_prospect`
+with a `claim_id` only *stage* proposals (review applies them), but in a mission run they obey the
+same contract as `result`: an update must name the task's own record (`wrong_target` otherwise) and
+a `find_prospects` task stages at most one company unless `allow_multiple` (then `result_limit`).
+Tool-mode tasks (no run) are not constrained. Staged proposals still carry no per-item evidence for
+source counters (§7d).
+
 `thread` is `null` for a mission task. The rest of the payload (subject, current values, missing
 fields, `output_schema`, lease) is unchanged, so the agent loop is the same as
 `agent-missions.md` §8. `update_employee` now has its payload too (person + company + sources +
@@ -245,8 +277,7 @@ it everywhere (audit reason says how many places).
 `category_id` and `type` on save: a `category_id` gives the type (a contradicting `type` is 422
 `category_mismatch`); a bare `type` (legacy form, MCP agents) resolves to the built-in category of
 that type; on edit, naming neither keeps the current category. The effective skills of a mission are
-`mission_categories.effective_skills(session, mission)` (Slice 07 injects them into the payload;
-they are not in the payload yet).
+`mission_categories.effective_skills(session, mission)`; the claim carries them (§5, Slice 07).
 
 **Read models.** The card carries `category: {id, key, name, icon, color}` (stable visual identity;
 no longer hashed from the mission id once Slice 05 renders it); the detail adds `inheritance`

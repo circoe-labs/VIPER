@@ -33,6 +33,7 @@ from app.models.missions import Mission, MissionRun
 from app.models.prospects import Prospect, ProspectNote
 from app.models.taxonomies import ActivityCategory, CommercialSegment, Role
 from app.repositories.taxonomies import TaxonomyRow, find_by_label
+from app.services import mission_context
 from app.services.companies import (
     CompanyDetail,
     get_company,
@@ -406,10 +407,35 @@ INSTRUCTIONS: dict[AgentTaskType, str] = {
 
 # Sent with every mission task (`mission-telemetry.md` §6, §10, §11): sessions are automatic and the
 # agent logs facts. Never a request for reasoning: only what was done and found.
+LIFECYCLE_GUIDANCE: dict[str, Any] = {
+    "finish": (
+        "viper_submit_task_result with this task_id and claim_id: the result is a proposal a "
+        "person reviews; you apply nothing."
+    ),
+    "give_back": (
+        "viper_release_task when you cannot do this task now: it returns to the queue, not "
+        "failed, and your session stays open."
+    ),
+    "stop": (
+        "viper_leave_work when you are done or stopping: hands back every task you hold and ends "
+        "your session in one call (pass task_id to leave only this mission run). Safe to repeat."
+    ),
+    "safety_nets": (
+        "Never required: an unrenewed task lease expires after 15 minutes (the task returns to "
+        "the queue); an idle session closes after 3 hours. They are independent: a closed "
+        "session never strands a task and an expired lease never ends a session."
+    ),
+    "task_limit": (
+        "You may hold at most `max_concurrent_tasks` tasks at once (see viper_whoami); that is "
+        "not a limit on how many conversations or agents a person has."
+    ),
+}
+
 TELEMETRY_GUIDANCE: dict[str, Any] = {
     "session": (
         "Your work session on this mission opens automatically when you claim the task and stays "
-        "alive while you heartbeat or log. Nothing to register, nothing to close."
+        "alive while you heartbeat or log. Nothing to register; end it with viper_leave_work "
+        "(see `lifecycle`) or it closes after 3 hours without activity."
     ),
     "log_tool": "viper_log_mission_activity",
     "event_types": {
@@ -655,7 +681,40 @@ def _mission_source_refs(mission: Mission) -> list[dict[str, str | None]]:
         if session is not None
         else list(mission.sources)
     )
-    return [{"url": source.url, "label": source.label} for source in sources]
+    return [
+        {"url": source.url, "label": source.label, "description": source.description}
+        for source in sources
+    ]
+
+
+def _mission_skill_refs(mission: Mission) -> list[dict[str, str]]:
+    """The effective instruction skills (own list, else the category defaults): text only, they
+    grant no tool. A detached mission (no session) has none to read."""
+    from sqlalchemy.orm import object_session
+
+    from app.services import mission_categories
+
+    session = object_session(mission)
+    if session is None:
+        return []
+    return [
+        {"name": skill.name, "content": skill.content}
+        for skill in mission_categories.effective_skills(session, mission)
+    ]
+
+
+def _mission_category_ref(mission: Mission) -> dict[str, str | None] | None:
+    from sqlalchemy.orm import object_session
+
+    from app.models.mission_categories import MissionCategory
+
+    session = object_session(mission)
+    category = (
+        session.get(MissionCategory, mission.category_id)
+        if session is not None and mission.category_id is not None
+        else None
+    )
+    return {"key": category.key, "name": category.name} if category is not None else None
 
 
 def mission_rule(mission: Mission) -> dict[str, Any]:
@@ -677,6 +736,10 @@ def mission_rule(mission: Mission) -> dict[str, Any]:
         "objective": parse_objective(mission.objective),
         # Saved links the agent should read first (« Sources » on the mission form).
         "sources": _mission_source_refs(mission),
+        # Where the instructions come from (Slice 07): the category the `prompt` above defaults
+        # from and the instruction skills in force, snapshotted with the run like the prompt.
+        "category": _mission_category_ref(mission),
+        "skills": _mission_skill_refs(mission),
     }
 
 
@@ -706,7 +769,7 @@ def build_payload(
 ) -> dict[str, Any]:
     """The JSON an agent receives when it claims `task`. Read-only."""
     thread = session.get(AgentThread, task.thread_id) if task.thread_id else None
-    _, rule = _task_mission(session, task)
+    mission, rule = _task_mission(session, task)
     moment = now or datetime.now(UTC)
     model = result_model(task.type)
     # A legacy rule (before migration 0049) or a tool-mode task kept the list form.
@@ -750,6 +813,19 @@ def build_payload(
     }
     if task.run_id is not None:
         payload["telemetry"] = TELEMETRY_GUIDANCE
+        payload["lifecycle"] = LIFECYCLE_GUIDANCE
+    if mission is not None and rule is not None:
+        # A run made before Slice 07 did not snapshot its instruction sources: read them live.
+        if "skills" not in rule:
+            rule = {
+                **rule,
+                "skills": _mission_skill_refs(mission),
+                "category": _mission_category_ref(mission),
+            }
+            payload["mission"] = rule
+        # Supporting VIPER records, read now (current, allowlisted, bounded, read-only). Not the
+        # target: the task's `subject` is. Not evidence either: cite external URLs for that.
+        payload["internal_context"] = mission_context.resolve(session, mission.id)
     match task.type:
         case AgentTaskType.UPDATE_COMPANY:
             if task.company_id is None:
