@@ -59,6 +59,10 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # approval (`is_active` false); the SHA-256 of the token in the approval link sent to the admin.
     signup_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     signup_token_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
+    # Password reset (`services/password_reset.py`): the SHA-256 of the token in the e-mailed link
+    # and when it stops working. Both cleared once used; a new request replaces them.
+    password_reset_token_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
+    password_reset_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     organization: Mapped[Organization] = relationship(lazy="joined")
 

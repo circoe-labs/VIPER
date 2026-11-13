@@ -1,7 +1,9 @@
 import { Navigate, useLocation, type RouteObject } from 'react-router'
 
 import { AgendaPage } from './agenda/AgendaPage'
+import { ForgotPasswordPage } from './auth/ForgotPasswordPage'
 import { LoginPage } from './auth/LoginPage'
+import { ResetPasswordPage } from './auth/ResetPasswordPage'
 import { OAuthConsentPage } from './auth/OAuthConsentPage'
 import { RequireAuth } from './auth/RequireAuth'
 import { CompaniesPage } from './companies/CompaniesPage'
@@ -77,6 +79,8 @@ const SUBPAGES: RouteObject[] = [
 export const routes: RouteObject[] = [
   { path: '/login', element: <LoginPage /> },
   { path: '/inscription', element: <SignupPage /> },
+  { path: '/mot-de-passe-oublie', element: <ForgotPasswordPage /> },
+  { path: '/reinitialisation/:token', element: <ResetPasswordPage /> },
   {
     element: (
       <RequireAuth>

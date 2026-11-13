@@ -158,6 +158,9 @@ export function LoginPage() {
                 setPassword(event.target.value)
               }}
             />
+            <Link className="login-card__forgot" to="/mot-de-passe-oublie">
+              Mot de passe oublié ?
+            </Link>
             <Button type="submit" variant="primary" loading={login.isPending} className="login-card__submit">
               {login.isPending ? 'Connexion…' : 'Se connecter'}
             </Button>
