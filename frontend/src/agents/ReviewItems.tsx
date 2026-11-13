@@ -1,5 +1,3 @@
-import type { ReactNode } from 'react'
-
 import type { ProposalItem } from '../api/agents'
 import { ReviewEvidence } from './ReviewEvidence'
 import { SIGNAL_KIND_LABELS } from './labels'
@@ -143,23 +141,3 @@ export function SignalRow({ item, checked, locked, onToggle }: RowProps) {
   )
 }
 
-export function ItemRow({ item, checked, locked, onToggle, children }: RowProps & { children?: ReactNode }) {
-  return (
-    <li className="review-item">
-      <label className="review-item__check">
-        <input type="checkbox" checked={checked} disabled={locked} onChange={onToggle} />
-        <span className="review-item__label">{item.label}</span>
-      </label>
-      <span className="review-item__before">
-        <span className="review-item__tag">Avant</span>
-        {shown(item.before)}
-      </span>
-      <span className={`review-item__after review-item__after--${item.status}`}>
-        <span className="review-item__tag">Proposé</span>
-        {shown(item.after)}
-      </span>
-      <ReviewEvidence item={item} />
-      {children}
-    </li>
-  )
-}

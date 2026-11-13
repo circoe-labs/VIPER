@@ -33,6 +33,13 @@ function posted(fetchMock: ReturnType<typeof stubApi>, path: string): unknown[] 
     .map(([, init]) => JSON.parse(typeof init?.body === 'string' ? init.body : 'null') as unknown)
 }
 
+// The table row of one proposed value, found through its selection checkbox.
+function rowOf(dialog: HTMLElement, label: string): HTMLElement {
+  const row = within(dialog).getByRole('checkbox', { name: label }).closest('tr')
+  if (!row) throw new Error(`no row for ${label}`)
+  return row
+}
+
 describe('ReviewDialog', () => {
   it('puts the global confidence, counts and research report first', async () => {
     const user = userEvent.setup()
@@ -48,20 +55,24 @@ describe('ReviewDialog', () => {
     expect(within(summary).getByText('Deux sources concordantes trouvées.')).toBeInTheDocument()
   })
 
-  it('shows per-item confidence, source, publication date and checked-at', async () => {
+  it('lays the proposal out as a table: field, before, proposed, confidence, source, published, checked', async () => {
     const user = userEvent.setup()
     const { dialog } = await openDialog(user, resultView())
 
-    const website = within(dialog).getByRole('group', { name: 'Éléments de preuve : Site web' })
-    expect(within(website).getByText('Confiance élevée · 90 %')).toBeInTheDocument()
+    const table = within(dialog).getByRole('table', { name: 'Propositions' })
+    const headers = within(table).getAllByRole('columnheader').map((cell) => cell.textContent)
+    expect(headers).toEqual(['Retenir', 'Champ', 'Avant', 'Proposé', 'Confiance', 'Source', 'Publiée', 'Vérifiée'])
+
+    const website = rowOf(dialog, 'Site web')
+    expect(within(website).getByText('Élevée · 90 %')).toBeInTheDocument()
     expect(within(website).getByRole('link', { name: 'source' })).toHaveAttribute('href', 'https://registre.example/2sn')
     expect(within(website).getByText('registre.example')).toBeInTheDocument()
     expect(within(website).getByText('12 sept. 2026')).toBeInTheDocument()
     expect(within(website).queryByText('ancienne')).not.toBeInTheDocument()
     expect(within(website).getByText(/10 nov. 2026/)).toBeInTheDocument()
 
-    const email = within(dialog).getByRole('group', { name: 'Éléments de preuve : Domaine e-mail' })
-    expect(within(email).getByText('Confiance moyenne · 55 %')).toBeInTheDocument()
+    const email = rowOf(dialog, 'Domaine e-mail')
+    expect(within(email).getByText('Moyenne · 55 %')).toBeInTheDocument()
     expect(within(email).getByText('ancienne')).toBeInTheDocument() // published in 2019
   })
 
@@ -69,10 +80,10 @@ describe('ReviewDialog', () => {
     const user = userEvent.setup()
     const { dialog } = await openDialog(user, historicalResult())
 
-    const first = within(dialog).getByRole('group', { name: 'Éléments de preuve : Site web' })
-    expect(within(first).getByText('Confiance non renseignée')).toBeInTheDocument()
+    const first = rowOf(dialog, 'Site web')
+    expect(within(first).getByText('Non renseignée')).toBeInTheDocument()
     expect(within(first).getByText('aucune source')).toBeInTheDocument()
-    expect(within(first).getByText('date inconnue')).toBeInTheDocument()
+    expect(within(first).getByText('inconnue')).toBeInTheDocument()
     expect(within(first).getByText('non datée')).toBeInTheDocument()
     expect(within(dialog).getByText('L’agent n’a fourni aucun rapport de recherche.')).toBeInTheDocument()
     // the global confidence of a historical result is still shown

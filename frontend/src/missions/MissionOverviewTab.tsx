@@ -5,9 +5,9 @@ import { ReviewDialog } from '../agents/ReviewDialog'
 import type { MissionDetail } from '../api/missions'
 import { StatusBadge } from '../ui/Badge'
 import { Button } from '../ui/Button'
-import { Card } from '../ui/Card'
-import { AlertIcon, BuildingIcon, UsersIcon } from '../ui/icons'
+import { AlertIcon, BoltIcon, BuildingIcon, CalendarIcon, SparklesIcon, TargetIcon, UsersIcon } from '../ui/icons'
 import { InfoTip } from '../ui/InfoTip'
+import { MissionPanel } from './MissionPanel'
 import { momentLabel, RESULT_KIND_LABELS, RUN_STATUS_LABELS, RUN_STATUS_TONES } from './labels'
 
 interface MissionOverviewTabProps {
@@ -21,15 +21,15 @@ export function MissionOverviewTab({ mission }: MissionOverviewTabProps) {
   const { targets, runs, tasks, prompt, result_kind, result_limit } = mission
 
   return (
-    <div className="missions">
-      <div className="missions-detail__grid">
-        <Card title="Consigne">
+    <div className="missions mdet-overview">
+      <div className="mdet-grid">
+        <MissionPanel title="Consigne" icon={SparklesIcon} hue="purple" level={2}>
           <p className="mission-prompt">{prompt}</p>
           <p className="missions-muted">
             Résultat attendu : {RESULT_KIND_LABELS[result_kind]} · limite {String(result_limit)} par exécution
           </p>
-        </Card>
-        <Card title={`Données liées (${String(targets.length)})`}>
+        </MissionPanel>
+        <MissionPanel title={`Données liées (${String(targets.length)})`} icon={TargetIcon} hue="blue" level={2}>
           {targets.length === 0 ? (
             <p className="missions-muted">
               Aucune donnée liée.{' '}
@@ -54,10 +54,10 @@ export function MissionOverviewTab({ mission }: MissionOverviewTabProps) {
               ))}
             </ul>
           )}
-        </Card>
+        </MissionPanel>
       </div>
 
-      <Card title={`Exécutions (${String(runs.length)})`}>
+      <MissionPanel title={`Exécutions (${String(runs.length)})`} icon={CalendarIcon} hue="teal" level={2}>
         {runs.length === 0 ? (
           <p className="missions-muted">Aucune exécution pour l’instant.</p>
         ) : (
@@ -80,9 +80,9 @@ export function MissionOverviewTab({ mission }: MissionOverviewTabProps) {
             ))}
           </ul>
         )}
-      </Card>
+      </MissionPanel>
 
-      <Card title="Tâches">
+      <MissionPanel title="Tâches" icon={BoltIcon} hue="amber" level={2}>
         {tasks.length === 0 ? (
           <p className="missions-muted">Aucune tâche : lancez la mission pour en créer.</p>
         ) : (
@@ -110,7 +110,7 @@ export function MissionOverviewTab({ mission }: MissionOverviewTabProps) {
             ))}
           </ul>
         )}
-      </Card>
+      </MissionPanel>
 
       <ReviewDialog
         key={reviewId ?? 'closed'}
