@@ -37,6 +37,8 @@ built-in text while none is saved; *Rétablir le texte par défaut* puts it back
 follow it and are **not** editable. A change applies to the next generation, without a restart.
 `GET /settings/integrations` also returns `initial_prompt_default` (the built-in text).
 
+The same pattern stores a second prompt, the **mission-creator assistant's behaviour prompt** (`mission_creator_prompt`, ≤ 8 000 characters, built-in `DEFAULT_MISSION_CREATOR_PROMPT`, `mission_creator_prompt_default` in the answer). It briefs the assistant that helps write a mission draft and is distinct from a category's general prompt (`doc/architecture/missions.md` §7c). Its Settings UI belongs to the admin-navigation slice; the backend, the API field and `GET /api/missions/creator-prompt` exist.
+
 ## Integration settings (S8) — `app/services/runtime_settings.py`, `app/services/integration_runtime.py`
 
 **Editable here**: `openai_api_key` (secret), `openai_model`, `openai_base_url`, `openai_timeout_ms`,

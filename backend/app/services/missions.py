@@ -37,6 +37,7 @@ from app.models.enums import (
     RecurrenceUnit,
 )
 from app.models.mcp import McpToken
+from app.models.mission_categories import MissionCategory
 from app.models.missions import (
     SOURCE_LABEL_MAX_LENGTH,
     SOURCE_URL_MAX_LENGTH,
@@ -53,9 +54,11 @@ from app.services import (
     audit,
     companies,
     mcp_reads,
+    mission_categories,
     mission_telemetry,
 )
 from app.services.errors import ConflictError, DomainError, InvalidFieldError, NotFoundError
+from app.services.mission_categories import CategoryRef, MissionInheritance, SkillRef
 
 # Types whose execution maps to the result schemas that exist today. Discovery and signals need
 # their `find_*` / `surveil_signals` schemas (agent-missions.md §5, phase 2): the modal says so.
@@ -98,9 +101,13 @@ class TargetInput:
 
 @dataclass(frozen=True, slots=True)
 class MissionInput:
+    """What « Créer / Modifier la mission » sends. `type` (the technical discriminator) and
+    `prompt` may be left out when a category gives them: a missing `prompt` inherits the
+    category's general prompt, a given one overrides it (see `mission_categories`)."""
+
     name: str
-    type: MissionType
-    prompt: str
+    type: MissionType | None
+    prompt: str | None
     targets: tuple[TargetInput, ...] = ()
     source_ids: tuple[uuid.UUID, ...] = ()
     agent_id: uuid.UUID | None = None
@@ -116,6 +123,12 @@ class MissionInput:
     geography: str | None = None
     period_days: int | None = None
     exclusions: dict[str, Any] = field(default_factory=dict)
+    category_id: uuid.UUID | None = None
+    # None = follow the category's default skills; a tuple (possibly empty) overrides them.
+    skill_ids: tuple[uuid.UUID, ...] | None = None
+    # On update: the inheritable fields the request did not mention (`prompt`, `skills`) keep
+    # their value and their inherited/overridden state.
+    unchanged_fields: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,6 +136,9 @@ class MissionCard:
     id: uuid.UUID
     name: str
     type: MissionType
+    # The category's visual identity (icon, colour): what the card shows. None only for a mission
+    # written outside the service.
+    category: CategoryRef | None
     status: MissionStatus
     agent_label: str | None
     prompt: str
@@ -218,6 +234,9 @@ class MissionDetail:
     result_kind: MissionResultKind
     result_limit: int
     rule: MissionRule
+    inheritance: MissionInheritance
+    # The instruction skills the mission works with (its own list, else its category's defaults).
+    skills: list[SkillRef]
 
 
 def _now(now: datetime | None) -> datetime:
@@ -366,10 +385,12 @@ def _card(session: Session, mission: Mission) -> MissionCard:
         .where(MissionTarget.mission_id == mission.id)
     )
     total, done, pending = _counts(session, mission.id)
+    category = session.get(MissionCategory, mission.category_id) if mission.category_id else None
     return MissionCard(
         id=mission.id,
         name=mission.name,
         type=mission.type,
+        category=mission_categories.category_ref(category) if category is not None else None,
         status=mission.status,
         agent_label=mission.agent_label,
         prompt=mission.prompt,
@@ -441,6 +462,11 @@ def detail(session: Session, mission_id: uuid.UUID) -> MissionDetail:
             period_days=mission.period_days,
             exclusions=dict(mission.exclusions or {}),
         ),
+        inheritance=mission_categories.inheritance(session, mission),
+        skills=[
+            SkillRef(id=skill.id, name=skill.name)
+            for skill in mission_categories.effective_skills(session, mission)
+        ],
     )
 
 
@@ -639,9 +665,11 @@ def create(
 ) -> Mission:
     moment = _now(now)
     name = _text("name", data.name, 200)
-    prompt = _text("prompt", data.prompt, 5000)
+    category, mission_type = mission_categories.resolve_category(
+        session, data.category_id, data.type
+    )
     _validate(data, moment)
-    check_runnable(data.type, data.result_kind, _target_kinds(data.targets))
+    check_runnable(mission_type, data.result_kind, _target_kinds(data.targets))
     token: McpToken | None = None
     if data.agent_id is not None:
         token = session.get(McpToken, data.agent_id)
@@ -654,8 +682,11 @@ def create(
     next_run_at: datetime | None = None if starts_now else starts_at
     mission = Mission(
         name=name,
-        type=data.type,
-        prompt=prompt,
+        type=mission_type,
+        category_id=category.id if category is not None else None,
+        overridden_fields=[],
+        # Replaced by `apply_inheritance` below (the category's or the person's text).
+        prompt="-",
         status=MissionStatus.ACTIVE,
         agent_id=data.agent_id,
         agent_label=token.label if token is not None else None,
@@ -678,6 +709,14 @@ def create(
     )
     session.add(mission)
     session.flush()
+    mission_categories.apply_inheritance(
+        session,
+        mission,
+        category,
+        prompt=data.prompt,
+        skill_ids=data.skill_ids,
+        creating=True,
+    )
     _create_targets(session, mission, data.targets)
     _set_sources(session, mission, data.source_ids)
     audit.record_event(
@@ -689,6 +728,8 @@ def create(
         changes={
             "name": {"after": mission.name},
             "type": {"after": mission.type.value},
+            "category_id": {"after": str(category.id) if category is not None else None},
+            "overridden_fields": {"after": list(mission.overridden_fields)},
         },
     )
     if run_now or starts_now:
@@ -728,6 +769,31 @@ def _audit_value(value: object) -> object:
     return value
 
 
+# The category link and the inherited/overridden state are audited with the rule, but are not
+# plain edited fields (`MissionInput.category_id`, `skill_ids`).
+AUDITED_INHERITANCE_FIELDS = ("category_id", "overridden_fields")
+
+
+def _audited_rule(mission: Mission) -> dict[str, object]:
+    return {
+        field_name: _audit_value(getattr(mission, field_name))
+        for field_name in (*EDITED_FIELDS, *AUDITED_INHERITANCE_FIELDS)
+    }
+
+
+def _update_category(
+    session: Session, mission: Mission, data: MissionInput
+) -> tuple[MissionCategory | None, MissionType]:
+    """The category and technical type an edited mission ends up with. Nothing named: it keeps
+    its own. Only a type named (the legacy form): the current category if that is its type, else
+    the seeded category of the type."""
+    if data.category_id is None and (data.type is None or data.type is mission.type):
+        current = session.get(MissionCategory, mission.category_id) if mission.category_id else None
+        if current is not None or data.type is None:
+            return current, mission.type
+    return mission_categories.resolve_category(session, data.category_id, data.type)
+
+
 def update(
     session: Session,
     actor: ActorContext,
@@ -745,9 +811,9 @@ def update(
     if mission.status in (MissionStatus.DONE, MissionStatus.CANCELLED):
         raise ConflictError("This mission is closed.")
     name = _text("name", data.name, 200)
-    prompt = _text("prompt", data.prompt, 5000)
+    category, mission_type = _update_category(session, mission, data)
     _validate(data, moment)
-    check_runnable(data.type, data.result_kind, _target_kinds(data.targets))
+    check_runnable(mission_type, data.result_kind, _target_kinds(data.targets))
     agent_label: str | None = None
     if data.agent_id is not None and data.agent_id == mission.agent_id:
         # Unchanged agent: keep the snapshotted label even if its token was revoked since.
@@ -757,13 +823,20 @@ def update(
         if token is None or token.revoked_at is not None:
             raise InvalidFieldError("agent_id", "Unknown or revoked agent.", "not_found")
         agent_label = token.label
-    before = {
-        field_name: _audit_value(getattr(mission, field_name)) for field_name in EDITED_FIELDS
-    }
+    before = _audited_rule(mission)
 
     mission.name = name
-    mission.type = data.type
-    mission.prompt = prompt
+    mission.type = mission_type
+    mission.category_id = category.id if category is not None else None
+    mission_categories.apply_inheritance(
+        session,
+        mission,
+        category,
+        prompt=data.prompt,
+        skill_ids=data.skill_ids,
+        creating=False,
+        keep=data.unchanged_fields,
+    )
     mission.agent_id = data.agent_id
     mission.agent_label = agent_label
     mission.is_recurring = data.is_recurring
@@ -796,10 +869,10 @@ def update(
     session.flush()
     _create_targets(session, mission, data.targets)
     _set_sources(session, mission, data.source_ids)
-    after = {field_name: _audit_value(getattr(mission, field_name)) for field_name in EDITED_FIELDS}
+    after = _audited_rule(mission)
     changes: dict[str, dict[str, Any]] = {
         field_name: {"before": before[field_name], "after": after[field_name]}
-        for field_name in EDITED_FIELDS
+        for field_name in before
         if before[field_name] != after[field_name]
     }
     audit.record_event(

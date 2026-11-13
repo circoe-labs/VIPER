@@ -8,11 +8,12 @@ import uuid
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.dependencies import CurrentActor, SessionDep
 from app.api.errors import business_errors
+from app.core.config import Settings
 from app.models.enums import (
     AgentTaskStatus,
     AgentTaskType,
@@ -24,7 +25,9 @@ from app.models.enums import (
     MissionType,
     RecurrenceUnit,
 )
+from app.services import mission_creator_prompt as creator_prompt
 from app.services import missions
+from app.services.runtime_settings import RuntimeSettings
 
 router = APIRouter(prefix="/missions", tags=["missions"])
 
@@ -39,9 +42,17 @@ class TargetIn(StrictModel):
 
 
 class MissionIn(StrictModel):
+    """The rule. `category_id` picks the product category (its icon, colour, general prompt and
+    default skills); `type` is the technical discriminator, deduced from the category and optional
+    (a bare `type` resolves to its built-in category). `prompt` and `skill_ids` follow the
+    category unless sent: `null` = inherit, a value = override. On « Modifier », a field left out
+    keeps its value and its inherited/overridden state."""
+
     name: str = Field(min_length=1, max_length=200)
-    type: MissionType
-    prompt: str = Field(min_length=1, max_length=5000)
+    type: MissionType | None = None
+    category_id: uuid.UUID | None = None
+    prompt: str | None = Field(default=None, min_length=1, max_length=5000)
+    skill_ids: list[uuid.UUID] | None = Field(default=None, max_length=100)
     targets: list[TargetIn] = Field(default_factory=list, max_length=500)
     source_ids: list[uuid.UUID] = Field(default_factory=list, max_length=100)
     agent_id: uuid.UUID | None = None
@@ -64,10 +75,37 @@ class MissionStatusIn(StrictModel):
     status: MissionStatus
 
 
+class CategoryRefOut(BaseModel):
+    """The category's visual identity on a card; the UI never derives colour from the id."""
+
+    id: uuid.UUID
+    key: str | None
+    name: str
+    icon: str
+    color: str
+
+
+class SkillRefOut(BaseModel):
+    id: uuid.UUID
+    name: str
+
+
+class InheritanceOut(BaseModel):
+    """Which category-derived fields the mission still follows (`prompt`, `skills`)."""
+
+    category_id: uuid.UUID | None
+    overridden_fields: list[str]
+    prompt_inherited: bool
+    skills_inherited: bool
+    category_prompt: str | None
+    category_skills: list[SkillRefOut]
+
+
 class MissionCardOut(BaseModel):
     id: uuid.UUID
     name: str
     type: MissionType
+    category: CategoryRefOut | None
     status: MissionStatus
     agent_label: str | None
     prompt: str
@@ -156,6 +194,18 @@ class MissionDetailOut(BaseModel):
     result_kind: MissionResultKind
     result_limit: int
     rule: MissionRuleOut
+    inheritance: InheritanceOut
+    # The instruction skills the mission works with (own list when overridden, else the category's).
+    skills: list[SkillRefOut]
+
+
+class CreatorPromptOut(BaseModel):
+    """The mission-creator assistant's behaviour prompt (distinct from category prompts)."""
+
+    prompt: str
+    default: str
+    is_default: bool
+    source: Literal["ui", "env", "default"]
 
 
 class OptionOut(BaseModel):
@@ -196,6 +246,8 @@ def detail_out(detail: missions.MissionDetail) -> MissionDetailOut:
         result_kind=detail.result_kind,
         result_limit=detail.result_limit,
         rule=MissionRuleOut.model_validate(detail.rule, from_attributes=True),
+        inheritance=InheritanceOut.model_validate(detail.inheritance, from_attributes=True),
+        skills=[SkillRefOut.model_validate(row, from_attributes=True) for row in detail.skills],
     )
 
 
@@ -232,6 +284,14 @@ def mission_input(body: MissionIn) -> missions.MissionInput:
         geography=body.geography,
         period_days=body.period_days,
         exclusions=body.exclusions,
+        category_id=body.category_id,
+        skill_ids=tuple(body.skill_ids) if body.skill_ids is not None else None,
+        # Meaningful on « Modifier » only: what the request did not mention keeps its state.
+        unchanged_fields=frozenset(
+            name
+            for name, field_name in (("prompt", "prompt"), ("skills", "skill_ids"))
+            if field_name not in body.model_fields_set
+        ),
     )
 
 
@@ -248,6 +308,21 @@ def list_missions(
 @router.get("/options")
 def mission_options() -> MissionOptionsOut:
     return MissionOptionsOut.model_validate(missions.options())
+
+
+@router.get("/creator-prompt")
+def mission_creator_prompt(request: Request) -> CreatorPromptOut:
+    """The mission-creator assistant's behaviour prompt: the person's override from Paramètres, else
+    the built-in default. Edited through `PUT /settings/integrations` (`mission_creator_prompt`)."""
+    settings: Settings = request.app.state.settings
+    runtime: RuntimeSettings = request.app.state.runtime_settings
+    override = settings.mission_creator_prompt
+    return CreatorPromptOut(
+        prompt=creator_prompt.mission_creator_prompt(settings),
+        default=creator_prompt.DEFAULT_MISSION_CREATOR_PROMPT,
+        is_default=not override,
+        source=runtime.source("mission_creator_prompt"),
+    )
 
 
 @router.get("/proposals")

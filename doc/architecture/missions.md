@@ -34,8 +34,10 @@ proposals; a mission task carries `run_id` and no `thread_id`.
 | Field | Notes |
 |---|---|
 | `name` | free, suggested from the first line of the consigne |
-| `type` | `prospection`, `signals`, `enrichment`, `verification`, `other` |
-| `prompt` | the consigne, verbatim; never copied into a task |
+| `type` | the **technical execution discriminator**: `prospection`, `signals`, `enrichment`, `verification`, `other`. Routing (`check_runnable`, task generation, payload) reads this column only; it always equals the category's `mission_type` (§7c) |
+| `category_id` | the product category (name, icon, colour, general prompt, default skills), `RESTRICT` on delete; `NULL` only for a row written outside the service |
+| `overridden_fields` | JSON list of the category-derived fields a person set explicitly (`prompt`, `skills`); a field not listed follows its category (§7c) |
+| `prompt` | the consigne, verbatim; never copied into a task. Inherited from the category's general prompt unless `prompt` is in `overridden_fields` |
 | `agent_id` / `agent_label` | `NULL` = « Automatique »: any agent with the scope may claim; the label is snapshotted |
 | `is_recurring`, `interval_count`, `interval_unit` | ponctuelle, or every N hours/days/weeks/months |
 | `starts_at`, `end_kind`, `ends_at`, `max_runs` | now or a date; never / at a date / after N runs |
@@ -138,6 +140,7 @@ review shows it as such.
 | `PATCH /api/missions/{id}` | « Désactiver » / « Activer » (the switch on the card, the button on the page; `paused` / `active`) / close. Activating a mission that never ran creates its first run. Pause hides the mission's pending tasks from the agents' queue and claims (a claimed task may finish); resume offers them again. Cancel, in the same transaction, sets every open task (pending, claimed, submitted) to `cancelled` (`agent_task.cancelled`, reason `mission_cancelled`), rejects a result still waiting for review, and sets every `scheduled` / `running` run to `cancelled`; a worker still holding a task is refused with `task_cancelled` |
 | `PUT /api/missions/{id}` | « Modifier la mission » (page de la mission, or the list's right-click / « … » menu): the whole rule, linked data included, is rewritten (`mission.updated` with the changed fields); runs already made and their tasks stay as they are (each run keeps its rule, §4), the next run follows the new rule; a done or cancelled mission is refused (409). The detail answers the rest of the rule (`rule`: agent, start, end, geography, period, exclusions) to prefill the form |
 | `DELETE /api/missions/{id}` | « Supprimer la mission » (after a confirmation): its open tasks (pending, claimed, submitted) are cancelled (`agent_task.cancelled`, reason `mission_deleted`) and a result still waiting for review is rejected with the same reason, then the mission goes with its targets and runs (FK cascade); the tasks stay with `run_id` NULL; results already accepted are not undone (`mission.deleted`) |
+| `GET /api/missions/creator-prompt` | the mission-creator assistant's behaviour prompt: `{prompt, default, is_default, source}` (§7c) |
 | `GET /api/missions/options` | types/result kinds with their `executable` flag, units, limits |
 | `GET /api/missions/agents` | labels and scopes of the live MCP tokens (never the token itself) |
 | `GET /api/missions/targets?kind=&q=` | the linked-data picker |
@@ -165,6 +168,77 @@ the browser tab is visible. In the review dialog the rejection reason field appe
 « Rejeter »; accepting never asks for one, and a decision is still the only way a proposal changes
 business data. The French status and event-type wording lives in one module
 (`frontend/src/missions/vocabulary.ts`: singular for badges, plural for counts).
+
+## 7c. Categories, skills and inheritance
+
+*Task `viper_mission_agent_configuration_v2`, Slice 01. Migration `0047`.*
+
+**Why two vocabularies.** What a person picks and sees is a **category** (admin-managed rows); how
+VIPER executes it is the technical `MissionType`. A category carries an immutable `mission_type`
+chosen at creation; `Mission.type` is copied from it, so editing the taxonomy never re-routes a
+mission and no routing code reads the category.
+
+**Tables.** `mission_categories` (name unique per organisation case-insensitively, description, `icon`
+= a glyph key such as `shield-check`, `color` = `#rrggbb`, `general_prompt`, `mission_type`,
+`position`, `key`), `mission_skills` (name, description, `content` = instruction text),
+`mission_category_skills` (ordered default skills of a category; a skill is reusable by many
+categories) and `mission_skill_links` (a mission's own list, written only while `skills` is
+overridden). Skills are **instruction text only**: no tool or capability is granted through them.
+
+**Seeds and backfill.** The five built-in categories (`key` = `prospection`, `signals`,
+`enrichment`, `verification`, `other`) are seeded for CIRCOE. Every pre-existing mission points to the
+category of its `type` and keeps its own consigne (`overridden_fields = ['prompt']`), so a later
+category edit never rewrites it. A built-in category is edited but never deleted; a created category
+is deleted only when no mission uses it (409 `in_use`, `usage.missions`). Deleting a skill detaches
+it everywhere (audit reason says how many places).
+
+**Inheritance (field level, explicit).** Inheritable fields: `prompt` and `skills`.
+`missions.overridden_fields` records which ones a person set; it is never inferred by comparing texts.
+
+| Action | Result |
+|---|---|
+| create with `category_id`, no `prompt` / `skill_ids` | prompt copied from the category, skills follow its defaults |
+| create / edit with a `prompt` (or `skill_ids`) | override: the field stays what was sent, even if equal to the category text |
+| edit sending `null` | back to following the category (prompt re-copied, own skill links dropped) |
+| edit omitting the field | state and value kept |
+| edit resubmitting an *inherited* field unchanged | stays inherited (a form sends the whole rule) |
+| category `general_prompt` edit | rewrites `missions.prompt` of the missions whose `overridden_fields` lacks `prompt` (one `mission.updated` event each, reason `category default propagated`); overriding missions are untouched; runs keep their own snapshot (§4) |
+| category default skills edit | nothing is written: inheriting missions read the live defaults |
+
+`category_id` and `type` on save: a `category_id` gives the type (a contradicting `type` is 422
+`category_mismatch`); a bare `type` (legacy form, MCP agents) resolves to the built-in category of
+that type; on edit, naming neither keeps the current category. The effective skills of a mission are
+`mission_categories.effective_skills(session, mission)` (Slice 07 injects them into the payload;
+they are not in the payload yet).
+
+**Read models.** The card carries `category: {id, key, name, icon, color}` (stable visual identity;
+no longer hashed from the mission id once Slice 05 renders it); the detail adds `inheritance`
+(`category_id`, `overridden_fields`, `prompt_inherited`, `skills_inherited`, `category_prompt`,
+`category_skills`) and `skills` (`[{id, name}]`, the effective list).
+
+**Admin API.** Reads are open to any signed-in person; writes need the platform admin or an
+« Organisation » admin (403 `forbidden`). Errors: 404 `not_found`, 422 `invalid` (`field`, `reason`
+`format` / `immutable` / `category_mismatch` / `not_found`), 409 `duplicate`, 409 `in_use`, 409
+`category_system`. Changes are audited as `mission_category.*` / `mission_skill.*`.
+
+| Route | Purpose |
+|---|---|
+| `GET /api/mission-categories` / `GET …/{id}` | `{id, key, is_system, name, description, icon, color, general_prompt, mission_type, position, skills[{id,name}], missions_count, created_at, updated_at}` |
+| `POST /api/mission-categories` | create (`name`, `description?`, `icon`, `color`, `general_prompt`, `mission_type` required, `skill_ids?`, `position?`) |
+| `PUT /api/mission-categories/{id}` | rewrite the editable fields and default skills; `mission_type`, if sent, must equal the stored one |
+| `PUT /api/mission-categories/{id}/skills` | `{skill_ids}`: the ordered default skills |
+| `DELETE /api/mission-categories/{id}` | 204; refused for a built-in or a used category |
+| `GET /api/mission-skills` / `GET …/{id}` | `{id, name, description, content, categories_count, missions_count}` |
+| `POST /api/mission-skills`, `PUT …/{id}`, `DELETE …/{id}` | `{name, description?, content}` |
+
+**Mission-creator prompt.** The assistant that helps write a mission draft has its own behaviour
+prompt, *distinct from a category's general prompt and from skills* (those instruct the worker).
+It follows the `contact_initial_prompt` pattern: the `mission_creator_prompt` field of
+`Settings`, editable from the browser (`PUT /api/settings/integrations`, ≤ 8 000 characters, `null` or
+empty = default; the integrations answer carries `mission_creator_prompt_default`). Built-in default:
+`app.services.mission_creator_prompt.DEFAULT_MISSION_CREATOR_PROMPT`; effective value:
+`mission_creator_prompt(settings)`. Read contract for Slices 05/06: `GET /api/missions/creator-prompt`
+→ `{prompt, default, is_default, source: ui | env | default}`.
 
 ## 8. Phases
 

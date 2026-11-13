@@ -118,6 +118,18 @@ class Mission(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, Base)
     created_by_type: Mapped[ActorType] = mapped_column(text_enum(ActorType, "created_by_type"))
     created_by_id: Mapped[str | None] = mapped_column(String(ACTOR_ID_MAX_LENGTH))
     created_by_display: Mapped[str] = mapped_column(String(AGENT_LABEL_MAX_LENGTH))
+    # The product category (visual identity, default prompt and skills); `type` stays the technical
+    # execution discriminator and always equals the category's `mission_type`. RESTRICT: a category
+    # still used by a mission cannot be deleted. NULL only for a row written outside the service.
+    category_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("mission_categories.id", ondelete="RESTRICT"), index=True
+    )
+    # Which category-derived fields a person set explicitly (`prompt`, `skills`; see
+    # `INHERITABLE_FIELDS`). A field not listed follows its category; never inferred by comparing
+    # texts.
+    overridden_fields: Mapped[list[str]] = mapped_column(
+        JSONB, server_default=text("'[]'::jsonb")
+    )
     # The links this mission reads (read-only view; written through `MissionSourceLink`).
     sources: Mapped[list["MissionSource"]] = relationship(
         secondary="mission_source_links",

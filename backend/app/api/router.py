@@ -26,6 +26,7 @@ from app.api.routes import (
     imports,
     integrations,
     mcp_settings,
+    mission_categories,
     mission_supervision,
     missions,
     oauth,
@@ -70,6 +71,8 @@ api_router.include_router(toolbox.router)
 api_router.include_router(integrations.router)
 api_router.include_router(mcp_settings.router)
 api_router.include_router(missions.router)
+api_router.include_router(mission_categories.categories_router)
+api_router.include_router(mission_categories.skills_router)
 api_router.include_router(mission_supervision.router)
 api_router.include_router(oauth.router)
 api_router.include_router(organizations.router)

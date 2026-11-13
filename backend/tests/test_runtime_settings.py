@@ -194,6 +194,7 @@ def test_the_api_reports_values_sources_and_fallbacks(client: TestClient) -> Non
         "openai_max_retries",
         "contact_booking_url",
         "contact_initial_prompt",
+        "mission_creator_prompt",
         "default_outbound_email",
         "toolbox_mail_enabled",
         "toolbox_mcp_url",
