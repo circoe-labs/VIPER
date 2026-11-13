@@ -486,3 +486,28 @@ and `backend/tests/test_mission_supervision_hardening.py`):
 - **Known limits.** No retention purge of sessions/logs (§7.3 deferred). The agent claim queue is not
   organization-scoped (pre-existing, see the task `Issues/`). A real model's compliance with the logging
   guidance is not machine-verifiable and needs a human review of real runs.
+
+## 14. Statistiques tab: source of every figure (UI redesign, `viper_mission_ui_redesign`)
+
+No read model changed: the redesigned tab composes `GET /missions/{id}/statistics` (`MissionStatistics`) and
+`GET /missions/{id}/overview` (`MissionOverview`, same React Query key as the Vue d'ensemble, no extra polling) through the pure
+selectors of `frontend/src/missions/statsSelectors.ts` (unit-tested). There is **no tool / API-call counter** in the
+telemetry (§5.2): the reference's « Appels API » widgets are shown as journal entries, sessions, tasks and results, never
+as calls.
+
+| Figure (French label) | Source field | Aggregation |
+|---|---|---|
+| Progression de la mission (ring, bar, « n / total ») | `overview.tasks.finished`, `overview.tasks.total` | `finished / total`, rounded; no task = « Aucune tâche », never 0 %. « Traitées » = accepted + failed + cancelled (not « validées », unlike the list card). |
+| Agents actifs | `overview.active_agents` | Agents with an active session now. |
+| Tâches traitées / restantes / totales | `overview.tasks` | `finished`; `max(total - finished, 0)`; `total`. |
+| Activité du journal (area chart) | `statistics.logs_series` | One point per UTC bucket of the selected period. |
+| Répartition par agent (donut + table) | `statistics.agents[].logs` | Journal entries per agent, biggest first; agents with no entry omitted. |
+| Résultats (donut) | `statistics.results_by_status` | Accepted / rejected / pending review / superseded. |
+| Tâches (donut) | `statistics.tasks_by_status` | One slice per task status. |
+| Analyse de l'activité | `sum(logs_by_event_type)`, `sessions_by_status`, `agents[]`, `logs_series` | Journal entries (whole mission), sessions, entries per agent and per session (null without agent / session), busiest bucket of the window. |
+| À surveiller | `logs_by_event_type.error` / `.warning`, `tasks_by_status.failed`, `sessions_by_status.timed_out` | Exact row counts; a zero is a proven zero. |
+
+Loading shows « – », a failed read without data shows « — » with the reason, never a placeholder zero.
+Missions list (`MissionCard`): « Terminées » counts all-time done missions (no completion date on the card, decision D1);
+the card's agents fact reads `agent_label ?? 'Automatique'` (D2). Both are open questions in
+`tasks/viper_mission_ui_redesign/01-ui-contract/CONTRACT.md` §6.

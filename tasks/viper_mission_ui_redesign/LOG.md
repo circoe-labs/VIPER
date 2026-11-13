@@ -40,3 +40,11 @@ Unchanged: 01 -> (02 ‖ 03 ‖ 04) -> 05. Task Types: not applicable (UI redesi
 ## Slice 01 - UI contract (implementer)
 Contract: `01-ui-contract/CONTRACT.md`. Shared primitives under `frontend/src/missions/` (`missionUi.css`, KPI tile, panel, status chip, donut, accent). New tokens violet/indigo/teal-soft in `tokens.css`. Open decisions D1-D6 in CONTRACT section 6 (30-day completed KPI, agents count, API-call widgets unavailable, overview vs statistics split).
 Known pre-existing failures in `theme/tokens.test.ts` (not from this slice): `prospection/overview.css`, `warehouses/warehouses.css` contain raw colour literals.
+
+## Slice 05 - Integration and final validation
+- Removed dead `.mission-card*`, `.mission-cards*`, `.mission-live*`, `.missions__filters`, `.missions-detail__actions/__grid`, `.mission-target__kind` from `missions.css` (34 rules, grep-verified unused).
+- Defects fixed: list grid 4 columns at 1672 px (cut-off agent label) -> `minmax(min(24rem,100%),1fr)` = 3 columns at 1672, 2 at 1280, 1 at 390; « En attente de relecture » tile ignored mission results (read only run-less proposals) -> `reviewQueueTotal` (cards' `results_pending` + proposals); « 3 tâches traitée » grammar in the live strip.
+- E2E: `mission-supervision.spec.ts` gains the list -> mission -> Statistiques -> Résultats -> accept flow with active/inactive switch (list + header), pending review, axe; the dialog axe check waits for the fade-in (was flaky); claims are mission-scoped (`claimOwn`) because the MCP claim queue is global.
+- Results: unit 1288 pass / 13 fail (all 13 identical on main); full Playwright 50 pass / 65 fail / 9 not run, failing set a subset of main's (main: 48 / 66 / 9). Mission specs pass.
+- Statistiques source-field table: `doc/architecture/mission-telemetry.md` §14.
+- Issues filed: `issues/01..04`.

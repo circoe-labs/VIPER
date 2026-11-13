@@ -1,6 +1,6 @@
 /* Missions list surface (Slice 02 of viper_mission_ui_redesign). Prefix `mlist-`. Composes the shared `mui-*`
-   primitives (missionUi.css); tokens only, no colour literal. The old `.mission-card*` rules in missions.css are
-   left for Slice 05 to delete. */
+   primitives (missionUi.css); tokens only, no colour literal. (The legacy `.mission-card*` rules were removed from
+   missions.css in Slice 05.) */
 
 /* --- Toolbar: Statut / Type on the left, Tri on the right ------------------------------------------------------- */
 .mlist-toolbar {
@@ -25,7 +25,7 @@
 /* --- Grid ------------------------------------------------------------------------------------------------------- */
 .mlist-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(24rem, 100%), 1fr));
   gap: var(--space-4);
   margin: 0;
   padding: 0;

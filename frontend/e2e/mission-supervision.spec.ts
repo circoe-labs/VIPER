@@ -43,6 +43,8 @@ async function ok(page: Page, token: string, name: string, args: Record<string, 
 }
 
 async function expectAccessible(page: Page, name: string, include?: string) {
+  // The dialog fades in: axe must not sample a mid-fade colour (a cold first run did, on the danger button).
+  await page.waitForFunction(() => document.getAnimations().every((animation) => animation.playState !== 'running'))
   const builder = new AxeBuilder({ page }).withTags(WCAG)
   const { violations } = await (include ? builder.include(include) : builder).analyze()
   const blocking = violations.filter((violation) => violation.impact === 'serious' || violation.impact === 'critical')
@@ -53,6 +55,24 @@ async function expectAccessible(page: Page, name: string, include?: string) {
     (violation) => `${violation.id}: ${violation.nodes.map((node) => node.target.join(' ')).join(' | ')}`,
   )
   expect(summary, `${name}: serious/critical axe violations`).toEqual([])
+}
+
+// The claim queue is global (not scoped to a mission or organization) and the specs run in parallel on one database:
+// a claim may return another spec's task. Give such a task back and try again until the claim is one of ours.
+async function claimOwn(page: Page, token: string, companyIds: string[]): Promise<Claimed> {
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const claimed = (await ok(page, token, 'viper_claim_task', { task_types: ['update_company'] })) as unknown as Partial<Claimed> & {
+      subject?: { company_id?: string }
+    }
+    if (claimed.task_id === undefined || claimed.claim_id === undefined) {
+      await page.waitForTimeout(250)
+      continue
+    }
+    if (companyIds.includes(claimed.subject?.company_id ?? '')) return { ...claimed, task_id: claimed.task_id, claim_id: claimed.claim_id }
+    await ok(page, token, 'viper_release_task', { task_id: claimed.task_id, claim_id: claimed.claim_id })
+    await page.waitForTimeout(100 + Math.floor(Math.random() * 300))
+  }
+  throw new Error('no task of this spec could be claimed')
 }
 
 const ids = (claimed: Claimed) => ({ task_id: claimed.task_id, claim_id: claimed.claim_id })
@@ -84,8 +104,8 @@ test('an operator supervises a mission worked by an agent, from claim to review 
   await expect(page.getByText('Recherche du site officiel.')).toHaveCount(0)
 
   // The agent claims through the real MCP endpoint: the session opens by itself, with the logging guidance.
-  const first = (await ok(page, created.token, 'viper_claim_task', { task_types: ['update_company'] })) as unknown as Claimed
-  const second = (await ok(page, created.token, 'viper_claim_task', { task_types: ['update_company'] })) as unknown as Claimed
+  const first = await claimOwn(page, created.token, [accepted.id, rejected.id])
+  const second = await claimOwn(page, created.token, [accepted.id, rejected.id])
   expect(first.telemetry).toBeTruthy()
 
   await ok(page, created.token, 'viper_log_mission_activity', {
@@ -159,4 +179,87 @@ test('an operator supervises a mission worked by an agent, from claim to review 
   await page.goto(base)
   await expect(page.getByRole('tab', { name: /Vue d.ensemble/ })).toHaveAttribute('aria-selected', 'true')
   await expectAccessible(page, 'mission — Vue d’ensemble')
+})
+
+// The redesigned Missions list -> mission -> Statistiques -> Résultats path, driven by clicks (no deep links), with the
+// active / inactive (paused) switch on both surfaces and a pending review that is accepted from the dialog.
+test('the Missions list leads to a mission, its statistics and its pending review; active and inactive states', async ({
+  page,
+}) => {
+  await signIn(page)
+  const suffix = uniqueSuffix()
+  const company = await createCompany(page, { display_name: `Parcours ${suffix}` })
+  const created = await post<{ token: string }>(page, '/api/settings/mcp/agents', {
+    label: `Agent parcours ${suffix}`,
+    mode: 'worker',
+  })
+  const name = `Parcours ${suffix}`
+  const detail = await post<{ card: { id: string } }>(page, '/api/missions', {
+    name,
+    type: 'enrichment',
+    prompt: 'Complète le site web de cette société.',
+    targets: [{ kind: 'company', id: company.id }],
+    result_kind: 'enrichment',
+    run_now: true,
+  })
+
+  // A proposal waits for review.
+  const claimed = await claimOwn(page, created.token, [company.id])
+  await ok(page, created.token, 'viper_submit_task_result', {
+    ...ids(claimed),
+    result: { website_url: 'https://exemple.example', confidence: 80, notes: 'Site confirmé.' },
+  })
+
+  // List: KPI tiles, toolbar, the card with its status and its pending-review chip; axe.
+  await page.goto('/missions')
+  await expect(page.getByRole('heading', { name: 'Missions', level: 1 })).toBeVisible()
+  await expect(page.getByLabel('Indicateurs des missions')).toBeVisible()
+  await expect(page.getByRole('group', { name: 'Filtrer et trier les missions' })).toBeVisible()
+  const card = page.getByRole('link', { name: new RegExp(name) })
+  await expect(card).toBeVisible()
+  await expect(card.getByText('Active', { exact: true })).toBeVisible()
+  await expect(card.getByText('1 à relire')).toBeVisible()
+  await expectAccessible(page, 'liste des missions')
+
+  // Inactive (paused) from the list switch, then active again.
+  const toggle = page.getByRole('switch', { name: `Mission ${name} active` })
+  await expect(toggle).toBeChecked()
+  await toggle.click()
+  await expect(toggle).not.toBeChecked()
+  await expect(card.getByText('Inactive', { exact: true })).toBeVisible()
+  await expect(card.getByText('Inactive : fermée aux agents')).toBeVisible()
+  await expectAccessible(page, 'liste des missions — inactive')
+
+  // Open the mission: the header shows the paused state and offers « Activer »; reactivate it there.
+  await card.click()
+  await expect(page).toHaveURL(new RegExp(`/missions/${detail.card.id}`))
+  await expect(page.getByRole('heading', { name, level: 1 })).toBeVisible()
+  const chips = page.getByRole('list', { name: 'Caractéristiques de la mission' })
+  await expect(chips.getByText('Inactive', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Activer' }).click()
+  await expect(chips.getByText('Active', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Désactiver' })).toBeVisible()
+  await expectAccessible(page, 'mission — Vue d’ensemble (active)')
+
+  // Statistiques, by clicking the tab.
+  await page.getByRole('tab', { name: 'Statistiques' }).click()
+  await expect(page.getByRole('tab', { name: 'Statistiques' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page).toHaveURL(/tab=stats/)
+  await expect(page.locator('dt', { hasText: 'Taux d’acceptation' })).toBeVisible()
+  await expectAccessible(page, 'mission — Statistiques (parcours)')
+
+  // Résultats: the pending proposal is accepted from the review dialog.
+  await page.getByRole('tab', { name: /Résultats/ }).click()
+  const cards = page.getByRole('list', { name: 'Résultats des agents' }).getByRole('button')
+  await expect(cards).toHaveCount(1)
+  await cards.first().click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('button', { name: /^Accepter la sélection/ }).click()
+  await expect(dialog).toBeHidden()
+  await expect(cards).toHaveCount(0)
+
+  // Back on the list: nothing left to review for this mission.
+  await page.goto('/missions')
+  await expect(page.getByRole('link', { name: new RegExp(name) }).getByText('1 à relire')).toHaveCount(0)
 })

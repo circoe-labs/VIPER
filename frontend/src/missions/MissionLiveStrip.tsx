@@ -86,7 +86,7 @@ export function MissionLiveStrip({ overview, onOpenResults }: MissionLiveStripPr
                 <span>
                   {tasks.total === 0
                     ? 'Aucune tâche'
-                    : `${String(tasks.finished)} / ${String(tasks.total)} tâche${tasks.total > 1 ? 's' : ''} traitée${tasks.finished > 1 ? 's' : ''}`}
+                    : `${String(tasks.finished)} / ${String(tasks.total)} tâche${tasks.total > 1 ? 's' : ''} traitée${tasks.total > 1 ? 's' : ''}`}
                 </span>
                 <progress
                   className="mdet-live__progress"

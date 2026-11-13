@@ -82,7 +82,7 @@ export function MissionsPage() {
       />
       <MissionsKpiBar
         items={missions.isError ? null : all}
-        toReview={proposals.isError ? null : proposals.data?.length}
+        proposals={proposals.isError ? null : proposals.data?.length}
       />
       {(proposals.data?.length ?? 0) > 0 && (
         <Card title={`Propositions à relire (${String(proposals.data?.length ?? 0)})`}>

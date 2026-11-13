@@ -72,6 +72,12 @@ export function missionCounters(items: MissionCard[]): MissionCounters {
   }
 }
 
+// « En attente de relecture »: every result a person still has to decide. A mission's own results are on its cards
+// (`results_pending`); tool-mode proposals outside any mission run come from `GET /missions/proposals` and are added.
+export function reviewQueueTotal(items: MissionCard[], standaloneProposals: number): number {
+  return items.reduce((sum, card) => sum + card.results_pending, standaloneProposals)
+}
+
 // Share of the mission's tasks that were accepted (« X % validées »), 0-100. `null` when the mission has no task:
 // never 0 % for « nothing to do yet ».
 export function progressPercent(card: Pick<MissionCard, 'tasks_done' | 'tasks_total'>): number | null {

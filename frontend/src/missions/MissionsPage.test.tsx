@@ -61,6 +61,31 @@ describe('MissionsPage', () => {
     expect(await screen.findByText('Nouveaux entrepôts — Normandie')).toBeInTheDocument()
   })
 
+  it('counts every result waiting for review: the missions’ own and the proposals outside any mission', async () => {
+    stubApi({
+      ...SHELL_API,
+      ...COMMON,
+      'GET /api/missions': [200, { items: [card({ results_pending: 3 }), card({ id: 'b', name: 'Veille', results_pending: 1 })], total: 2 }],
+      'GET /api/missions/proposals': [
+        200,
+        [
+          {
+            result_id: '00000000-0000-7000-e000-0000000000aa',
+            task_type: 'update_company',
+            submitted_by_label: 'Agent claude-01',
+            submitted_at: '2026-10-30T08:05:00+00:00',
+            subject_label: 'Transports X',
+          },
+        ],
+      ],
+    })
+    renderApp('/missions')
+
+    await screen.findByText('Veille')
+    const tile = await screen.findByText('En attente de relecture')
+    expect(tile.closest('.mui-kpi')).toHaveTextContent('5')
+  })
+
   it('says why the list is missing and retries', async () => {
     stubApi({ ...SHELL_API, ...COMMON, 'GET /api/missions': [500, { detail: 'boom' }] })
     renderApp('/missions')

@@ -9,6 +9,7 @@ import {
   missionCounters,
   plural,
   progressPercent,
+  reviewQueueTotal,
   sortMissions,
 } from './missionsListModel'
 
@@ -88,6 +89,13 @@ describe('missionCounters', () => {
   it('counts from the items given (the caller passes the unfiltered list)', () => {
     expect(missionCounters(ALL)).toEqual({ total: 4, active: 2, done: 1 })
     expect(missionCounters([])).toEqual({ total: 0, active: 0, done: 0 })
+  })
+})
+
+describe('reviewQueueTotal', () => {
+  it('adds the results pending on the cards to the proposals outside any mission', () => {
+    expect(reviewQueueTotal([card({ id: 'x', results_pending: 3 }), card({ id: 'y', results_pending: 0 })], 2)).toBe(5)
+    expect(reviewQueueTotal([], 0)).toBe(0)
   })
 })
 
