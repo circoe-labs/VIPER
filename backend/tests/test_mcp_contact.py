@@ -225,7 +225,8 @@ def test_the_agent_stays_the_actor_for_its_person(
             AuditLogEntry.action == "contact_message.created",
         )
     ).one()
-    assert (event.actor_type, event.actor_display) == ("agent", "ChatGPT (test)")
+    # The audit actor reads as the numbered identity (task viper_mission_agent_configuration_v2, S3).
+    assert (event.actor_type, event.actor_display) == ("agent", "Agent pilote.test #1")
     assert event.context["source"] == "agent"
     assert event.context["on_behalf_of"]["type"] == "human"
 

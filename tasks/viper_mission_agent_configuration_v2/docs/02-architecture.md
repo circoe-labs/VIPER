@@ -3,7 +3,7 @@
 ## Ownership boundaries
 
 ### Category + skill catalog
-Persist `MissionCategory` and `MissionSkill` (names illustrative; PM must reconcile repository naming). Categories carry visual/product defaults and a stable technical execution mapping where needed. Category-skill and category-source associations are reusable defaults.
+Persisted as `MissionCategory` and `MissionSkill` (`backend/app/models/mission_categories.py`, migration 0047; reconciled in Slice 08). Categories carry visual/product defaults and a stable technical execution mapping where needed. Category-skill and category-source associations are reusable defaults.
 
 ### Mission inheritance snapshot/override state
 A mission must be able to answer, for each inherited field, whether its current value is still inherited or explicitly overridden. Do not infer this only by comparing strings after the fact. Use explicit override metadata/columns or an equivalent durable mechanism.
@@ -47,3 +47,13 @@ Voice is an alternate input adapter over the ordinary mission draft. Speech-to-t
 - Reuse human review/apply services.
 - Reuse current mission telemetry factual-log policy.
 - Reuse current Mission UI redesign components where shipped; do not reintroduce pre-redesign layouts.
+
+## Delivered contract (Slice 08 reconciliation)
+This document records the intent. The delivered, canonical behavior lives in `doc/architecture/` and wins on any difference:
+- Categories, skills, field-level inheritance, creator prompt: `missions.md` section 7c (migration 0047).
+- Agent identity, per-owner cap (`VIPER_MCP_MAX_AGENTS_PER_OWNER`, default 100), `viper_leave_work`: `mcp-server.md` section 4.9 (migration 0048).
+- Objective and output contract, `result_limit` as the cap (not a new maximum field): `missions.md` section 4b (migration 0049).
+- Source library, internal context, evidence ledger: `missions.md` section 7d (migration 0050).
+- Runtime claim payload and lifecycle: `missions.md` section 5, `agent-missions.md`, `mcp-server.md`.
+- Admin UI, grouped navigation, voice assistant: `missions.md` sections 7e and 7f.
+No task-only contract remains: nothing above is specified only in this handoff.
