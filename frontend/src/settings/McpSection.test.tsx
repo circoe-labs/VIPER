@@ -71,6 +71,9 @@ describe('McpSection', () => {
     const agent: McpAgent = {
       id: '00000000-0000-7000-a000-000000000001',
       label: 'ChatGPT (OAuth)',
+      display_label: 'ChatGPT pilote.test #1',
+      instance_number: 1,
+      max_concurrent: 3,
       origin: 'oauth',
       owner_email: 'pilote.test@circoe.com',
       provider: 'chatgpt',
@@ -94,8 +97,8 @@ describe('McpSection', () => {
 
     renderApp('/settings/mcp')
     const access = await screen.findByRole('region', { name: 'Accès autorisés' })
-    expect(await within(access).findByText('ChatGPT (OAuth)')).toBeInTheDocument()
-    expect(within(access).getByText(/Connecteur OAuth · ChatGPT · Assistant \(agit pour vous\)/)).toBeInTheDocument()
+    expect(await within(access).findByText('ChatGPT pilote.test #1')).toBeInTheDocument()
+    expect(within(access).getByText(/ChatGPT \(OAuth\) · Connecteur OAuth · ChatGPT · Assistant \(agit pour vous\)/)).toBeInTheDocument()
     expect(within(access).getByText('Lire les entreprises et les personnes')).toBeInTheDocument()
     await user.click(within(access).getByRole('button', { name: 'Révoquer' }))
     await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Révoquer l’accès' }))
@@ -108,6 +111,9 @@ describe('McpSection', () => {
     const created = {
       id: 'a-9',
       label: 'Worker nuit',
+      display_label: 'Claude pilote.test #1',
+      instance_number: 1,
+      max_concurrent: 3,
       origin: 'cli',
       owner_email: 'pilote.test@circoe.com',
       provider: 'claude',
