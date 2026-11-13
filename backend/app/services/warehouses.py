@@ -2,8 +2,10 @@
 
 import hashlib
 import json
+import re
 import uuid
 from datetime import UTC
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import Text, cast, func, select
@@ -11,11 +13,12 @@ from sqlalchemy.dialects.postgresql import JSONPATH
 from sqlalchemy.orm import Session
 
 from app.core.actor import ActorContext
-from app.models import Warehouse
+from app.models import Warehouse, WarehouseDraft
 from app.repositories.taxonomies import label_key, matches_words
 from app.services import audit
 from app.services.companies import normalize_siret
 from app.services.errors import ConflictError, NotFoundError
+from app.services.warehouse_draft_text import apply_category, draft_subject, draft_text
 
 
 class WarehouseContact(BaseModel):
@@ -30,6 +33,7 @@ class WarehouseContact(BaseModel):
 class WarehouseInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
     name: str = Field(min_length=1, max_length=500)
+    prospecting_category: Literal['sme', 'other'] | None = None
     owner_name: str | None = Field(default=None, max_length=500)
     owner_role: str | None = Field(default=None, max_length=1000)
     owner_email: str | None = Field(default=None, max_length=2000)
@@ -57,10 +61,13 @@ class WarehouseCounts(BaseModel):
     warehouses: int
     contacts: int
     to_contact: int
+    sme: int
+    other: int
+    unclassified: int
 
 
 def count_warehouses(session: Session) -> WarehouseCounts:
-    warehouses, contacts, to_contact = session.execute(
+    warehouses, contacts, to_contact, sme, other, unclassified = session.execute(
         select(
             func.count(),
             func.coalesce(func.sum(func.jsonb_array_length(Warehouse.contacts)), 0),
@@ -74,9 +81,15 @@ def count_warehouses(session: Session) -> WarehouseCounts:
                 ),
                 0,
             ),
+            func.count().filter(Warehouse.prospecting_category == 'sme'),
+            func.count().filter(Warehouse.prospecting_category == 'other'),
+            func.count().filter(Warehouse.prospecting_category.is_(None)),
         ).select_from(Warehouse)
     ).one()
-    return WarehouseCounts(warehouses=warehouses, contacts=contacts, to_contact=to_contact)
+    return WarehouseCounts(
+        warehouses=warehouses, contacts=contacts, to_contact=to_contact,
+        sme=sme, other=other, unclassified=unclassified,
+    )
 
 
 def version(row: Warehouse) -> str:
@@ -95,7 +108,8 @@ def present(row: Warehouse) -> WarehouseOut:
 
 
 def list_warehouses(
-    session: Session, search: str = "", limit: int = 50, offset: int = 0, to_contact: bool = False
+    session: Session, search: str = "", limit: int = 50, offset: int = 0, to_contact: bool = False,
+    category: Literal['sme', 'other', 'unclassified'] | None = None,
 ) -> WarehousePage:
     text = func.concat_ws(
         " ",
@@ -111,6 +125,10 @@ def list_warehouses(
     conditions = matches_words(text, search.strip()) if search.strip() else []
     if to_contact:
         conditions.append(Warehouse.contacts.contains([{"to_contact": True}]))
+    if category == 'unclassified':
+        conditions.append(Warehouse.prospecting_category.is_(None))
+    elif category is not None:
+        conditions.append(Warehouse.prospecting_category == category)
     total = session.scalar(select(func.count()).select_from(Warehouse).where(*conditions)) or 0
     rows = session.scalars(
         select(Warehouse)
@@ -143,6 +161,7 @@ def save_warehouse(
     row = get_warehouse(session, warehouse_id, lock=True) if warehouse_id else Warehouse()
     if warehouse_id and version(row) != expected_version:
         raise ConflictError("The warehouse changed since it was opened.")
+    previous_category = row.prospecting_category if warehouse_id else None
     values = data.model_dump()
     values["siret"] = normalize_siret(
         "siret", data.siret, current=row.siret if warehouse_id else None
@@ -154,5 +173,74 @@ def save_warehouse(
         session.add(row)
     audit.annotate(session, actor, row)
     session.flush()
+    if warehouse_id:
+        roles = {contact.full_name: contact.role for contact in data.contacts}
+        existing_drafts = session.scalars(select(WarehouseDraft).where(
+            WarehouseDraft.warehouse_id == row.id,
+        ).with_for_update())
+        for draft in existing_drafts:
+            if (draft.contact_name in roles and draft.contact_role != roles[draft.contact_name]
+                    and draft.send_state not in ('sending', 'uncertain', 'sent')):
+                draft.contact_role = roles[draft.contact_name]
+                draft.human_validated = False
+                draft.validated_at = None
+                draft.validated_by = None
+                if draft.send_state == 'scheduled':
+                    draft.send_state = 'planned'
+                draft.revision += 1
+                audit.record_event(session, actor, 'warehouse_draft.updated',
+                                   entity_type='warehouse_draft', entity_id=draft.id,
+                                   reason='Fonction du contact mise à jour.')
+    if warehouse_id and data.prospecting_category != previous_category:
+        drafts = session.scalars(select(WarehouseDraft).where(
+            WarehouseDraft.warehouse_id == row.id,
+        ).with_for_update())
+        for draft in drafts:
+            if draft.send_state in ('sending', 'uncertain', 'sent'):
+                continue
+            new_body = apply_category(draft.body, data.prospecting_category)
+            if new_body != draft.body:
+                draft.body = new_body
+                draft.human_validated = False
+                if draft.send_state == 'scheduled':
+                    draft.send_state = 'planned'
+                    draft.validated_at = None
+                    draft.validated_by = None
+                draft.revision += 1
+                audit.record_event(
+                    session, actor, 'warehouse_draft.updated', entity_type='warehouse_draft',
+                    entity_id=draft.id, reason='Adaptation DIHNAMO à la catégorie de l’entrepôt.',
+                )
+    for contact in data.contacts:
+        if not contact.to_contact:
+            continue
+        existing = session.scalars(select(WarehouseDraft).where(
+            WarehouseDraft.warehouse_id == row.id,
+            WarehouseDraft.phase == 2,
+            WarehouseDraft.contact_name == contact.full_name,
+        )).all()
+        source_email = (contact.email or "").strip()
+        addresses = list(dict.fromkeys(re.findall(
+            r"[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+",
+            source_email,
+        )))
+        # Existing drafts may have been edited; never replace or duplicate them on reselection.
+        if existing:
+            continue
+        for recipient in addresses or [None]:
+            draft = WarehouseDraft(
+                warehouse_id=row.id, warehouse_name=row.name, phase=2,
+                contact_name=contact.full_name, contact_role=contact.role,
+                source_email=contact.email, recipient=recipient,
+                subject=draft_subject(contact.role),
+                body=draft_text(contact.full_name, row.name, contact.role, data.prospecting_category),
+                review_note="Simulation à relire : vérifiez le destinataire, la fonction et le texte.",
+            )
+            session.add(draft)
+            session.flush()
+            audit.record_event(
+                session, actor, "warehouse_draft.created",
+                entity_type="warehouse_draft", entity_id=draft.id,
+            )
     session.refresh(row)
     return present(row)

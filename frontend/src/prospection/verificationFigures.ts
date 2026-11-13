@@ -5,7 +5,7 @@ import { type Cohort, useCohorts } from '../api/settings'
 // employment was verified by a person, « Incertitude » = an open « Fonction à vérifier » alert, « Ignoré » = set aside,
 // « À vérifier » = everything else. Computed from the existing lists and counters (nothing new on the server).
 
-export type VerificationTab = 'todo' | 'verified' | 'uncertain' | 'ignored'
+export type VerificationTab = 'todo' | 'verified' | 'uncertain' | 'ignored' | 'warehouses'
 
 export interface CohortFigure {
   code: string

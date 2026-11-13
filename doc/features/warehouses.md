@@ -37,6 +37,14 @@ Actual company/establishment links can be introduced once they have been identif
 
 ## Warehouse mail drafts
 
+The draft view has PME/TPE and other-company tabs. Selecting a common date preplans drafts
+across both categories without authorizing dispatch. Each draft must then be reviewed and
+validated individually; validation authorizes its scheduled dispatch and opens the next draft.
+Validation checks the recorded name, warehouse, role, civilité and the DIHNAMO rule. When a
+role or category is missing it must be completed on the warehouse record before validation.
+Changing a validated message or its relevant warehouse details returns it to planned status.
+Unknown or alternative email addresses must be resolved before validation.
+
 Drafts can be reviewed, edited, validated and scheduled individually. Scheduling stores the
 approved revision and the requested instant; the existing Contact dispatch worker sends due
 warehouse messages through the connected Toolbox, subject to the same sending switch, recipient
@@ -45,11 +53,9 @@ can be unscheduled until the worker claims it. The worker records a durable clai
 the Toolbox; a timeout, error or interrupted send is never retried automatically, and the user
 must check the mailbox before taking further action. The messages are separate from Contact
 sequences and do not change a prospect's Contact status.
-The group action previews recipients and subjects and prepares a date for each listed draft. It
-does not validate or schedule sends: each message must be reviewed and individually validated and
-scheduled before the dispatcher can send it. Missing or invalid recipients and messages already
-scheduled, sent or awaiting an outcome are excluded. The server checks every revision under lock
-and commits the whole batch or none of it. Editing a preprogrammed draft retains its proposed date.
+The group action sets the same proposed date on all eligible drafts; it does not validate them.
+The server checks every revision under lock and commits the whole batch or none of it. Editing a
+preprogrammed draft retains its proposed date. A fresh group plan clears previous validations.
 
 ## Workbook import
 

@@ -11,6 +11,7 @@ export interface WarehouseContact {
 }
 export interface WarehouseInput {
   name: string
+  prospecting_category?: 'sme' | 'other' | null
   owner_name: string | null
   owner_role: string | null
   owner_email: string | null
@@ -37,6 +38,8 @@ export interface WarehouseImportResult { created: number; skipped: number; conta
 
 export interface WarehouseDraft {
   id: string
+  prospecting_category?: 'sme' | 'other' | null
+  phase: number
   warehouse_name: string
   contact_name: string
   contact_role: string | null
@@ -48,6 +51,7 @@ export interface WarehouseDraft {
   revision: number
   validated_at: string | null
   validated_by: string | null
+  human_validated?: boolean
   scheduled_at: string | null
   send_state: 'planned' | 'scheduled' | 'sending' | 'uncertain' | 'sent' | 'failed' | null
   recovery_possible?: boolean
@@ -69,7 +73,8 @@ export function useWarehouseDraftActions() {
     validate: useMutation({ mutationFn: ({ id, revision }: { id: string; revision: number }) => apiRequest<WarehouseDraft>('POST', `/warehouses/drafts/${id}/validate`, { body: { revision } }), onSuccess: refresh }),
     schedule: useMutation({ mutationFn: ({ id, revision, scheduled_at }: { id: string; revision: number; scheduled_at: string }) => apiRequest<WarehouseDraft>('POST', `/warehouses/drafts/${id}/schedule`, { body: { revision, scheduled_at } }), onSuccess: refresh }),
     unschedule: useMutation({ mutationFn: ({ id, revision }: { id: string; revision: number }) => apiRequest<WarehouseDraft>('POST', `/warehouses/drafts/${id}/unschedule`, { body: { revision } }), onSuccess: refresh }),
-    scheduleBatch: useMutation({ mutationFn: (body: { scheduled_at: string; drafts: { id: string; revision: number }[] }) => apiRequest<{ planned: number }>('POST', '/warehouses/drafts/schedule-batch', { body }), onSuccess: refresh }),
+    scheduleBatch: useMutation({ mutationFn: (body: { scheduled_at: string; drafts: { id: string; revision: number }[] }) => apiRequest<{ scheduled: number }>('POST', '/warehouses/drafts/schedule-batch', { body }), onSuccess: refresh }),
+    planBatch: useMutation({ mutationFn: (body: { scheduled_at: string; drafts: { id: string; revision: number }[] }) => apiRequest<{ scheduled: number }>('POST', '/warehouses/drafts/plan-batch', { body }), onSuccess: refresh }),
     recoverBatch: useMutation({ mutationFn: (body: { scheduled_at: string; confirmed_not_sent: true; drafts: { id: string; revision: number }[] }) => apiRequest<{ scheduled: number }>('POST', '/warehouses/drafts/recover-batch', { body }), onSuccess: refresh }),
   }
 }
@@ -77,15 +82,15 @@ export function useWarehouseDraftActions() {
 export function useWarehouseCounts() {
   return useQuery({
     queryKey: ['warehouses', 'counts'],
-    queryFn: ({ signal }) => apiGet<{ warehouses: number; contacts: number; to_contact: number }>('/warehouses/counts', signal),
+    queryFn: ({ signal }) => apiGet<{ warehouses: number; contacts: number; to_contact: number; sme: number; other: number; unclassified: number }>('/warehouses/counts', signal),
   })
 }
 
-export function useWarehouses(search: string, offset: number, toContact = false) {
+export function useWarehouses(search: string, offset: number, toContact = false, category: 'sme' | 'other' | 'unclassified' | null = null) {
   return useQuery({
-    queryKey: ['warehouses', 'list', search, offset, toContact],
-    queryFn: ({ signal }) => apiGet<{ items: Warehouse[]; total: number }>(`/warehouses?${new URLSearchParams({ q: search, offset: String(offset), limit: '50', ...(toContact ? { to_contact: 'true' } : {}) }).toString()}`, signal),
-    placeholderData: (previous, previousQuery) => previousQuery?.queryKey[4] === toContact ? previous : undefined,
+    queryKey: ['warehouses', 'list', search, offset, toContact, category],
+    queryFn: ({ signal }) => apiGet<{ items: Warehouse[]; total: number }>(`/warehouses?${new URLSearchParams({ q: search, offset: String(offset), limit: '50', ...(toContact ? { to_contact: 'true' } : {}), ...(category ? { category } : {}) }).toString()}`, signal),
+    placeholderData: (previous, previousQuery) => previousQuery?.queryKey[4] === toContact && previousQuery?.queryKey[5] === category ? previous : undefined,
   })
 }
 export function useWarehouse(id: string | null) {

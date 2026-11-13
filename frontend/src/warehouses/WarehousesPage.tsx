@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useWarehouseCounts, useWarehouseWrites, useWarehouses, type Warehouse, type WarehouseContact } from '../api/warehouses'
+import { useWarehouseCounts, useWarehouseDrafts, useWarehouseWrites, useWarehouses, type Warehouse, type WarehouseContact } from '../api/warehouses'
 import { useDebouncedValue } from '../settings/shared'
 import { Button } from '../ui/Button'
 import { EmptyState } from '../ui/EmptyState'
@@ -30,7 +30,7 @@ function LinkedIn({ url }: { url: string | null }) {
 }
 
 function WarehouseRow({ warehouse, onEdit, onlyToContact }: { warehouse: Warehouse; onEdit: () => void; onlyToContact: boolean }) {
-  const [open, setOpen] = useState(onlyToContact)
+  const [open, setOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [baseline, setBaseline] = useState(warehouse)
   const [selection, setSelection] = useState(() => warehouse.contacts.map((contact) => contact.to_contact ?? false))
@@ -56,7 +56,7 @@ function WarehouseRow({ warehouse, onEdit, onlyToContact }: { warehouse: Warehou
       <button className="warehouse-card__toggle" type="button" aria-label={`Détails de ${warehouse.name}`} aria-expanded={open} aria-controls={`warehouse-${warehouse.id}`} onClick={() => { setOpen(!open) }}>
         <ChevronDownIcon className={open ? 'warehouse-card__chevron--open' : ''} size={26} />
         <span className="warehouse-card__icon"><WarehouseIcon size={22} /></span>
-        <span className="warehouse-card__identity"><strong>{warehouse.name}</strong><span>{warehouse.contacts.length} interlocuteur{warehouse.contacts.length > 1 ? 's' : ''}{warehouse.city ? ` · ${warehouse.city}` : ''}</span></span>
+        <span className="warehouse-card__identity"><strong>{warehouse.name}</strong><span>{warehouse.contacts.length} interlocuteur{warehouse.contacts.length > 1 ? 's' : ''}{warehouse.city ? ` · ${warehouse.city}` : ''} · {warehouse.prospecting_category === 'sme' ? 'PME/TPE' : warehouse.prospecting_category === 'other' ? 'Autres' : 'À classer'}</span></span>
       </button>
       <Button size="sm" onClick={onEdit} aria-label={`Modifier ${warehouse.name}`}>Modifier</Button>
     </div>
@@ -103,12 +103,15 @@ export function WarehousesPage() {
   const [importing, setImporting] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [onlyToContact, setOnlyToContact] = useState(false)
-  const [showDrafts, setShowDrafts] = useState(false)
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const [category, setCategory] = useState<'sme' | 'other' | 'unclassified' | null>(null)
+  const [showDrafts, setShowDrafts] = useState<'sme' | 'other' | 'unclassified' | null>(null)
   const counts = useWarehouseCounts()
-  const query = useWarehouses(useDebouncedValue(search.trim(), 250), offset, onlyToContact)
+  const drafts = useWarehouseDrafts()
+  const query = useWarehouses(useDebouncedValue(search.trim(), 250), offset, onlyToContact, category)
   const page = query.data
   return <div className="warehouses-page">
-    <PageHeader title="Entrepôts" description="Les sites, leurs propriétaires et vos interlocuteurs."
+    <PageHeader mascot="build" title="Entrepôts" description="Les sites, leurs propriétaires et vos interlocuteurs."
       actions={<><Button icon={UploadIcon} onClick={() => { setImporting(true) }}>Importer Excel</Button><Button variant="primary" icon={PlusIcon} onClick={() => { setEditing(null) }}>Ajouter un entrepôt</Button></>} />
     <section className="warehouse-totals" aria-label="Totaux des entrepôts" aria-busy={counts.isPending}>
       <div><WarehouseIcon size={20} /><span>Entrepôts</span><strong>{counts.data ? counts.data.warehouses.toLocaleString('fr-FR') : '—'}</strong></div>
@@ -116,11 +119,27 @@ export function WarehousesPage() {
       {counts.isError && <p className="warehouse-error" role="alert">Totaux indisponibles. <Button size="sm" onClick={() => void counts.refetch()}>Réessayer</Button></p>}
     </section>
     <div className="warehouse-categories" aria-label="Catégorie des interlocuteurs">
-      <Button variant={!showDrafts && !onlyToContact ? 'primary' : 'secondary'} aria-pressed={!showDrafts && !onlyToContact} onClick={() => { setShowDrafts(false); setOnlyToContact(false); setOffset(0) }}>Tous les entrepôts</Button>
-      <Button variant={!showDrafts && onlyToContact ? 'primary' : 'secondary'} aria-pressed={!showDrafts && onlyToContact} onClick={() => { setShowDrafts(false); setOnlyToContact(true); setOffset(0) }}>À contacter{counts.data ? ` (${String(counts.data.to_contact)})` : ''}</Button>
-      <Button variant={showDrafts ? 'primary' : 'secondary'} aria-pressed={showDrafts} onClick={() => { setShowDrafts(true) }}>Brouillons</Button>
+      <Button variant={!showDrafts && !onlyToContact ? 'primary' : 'secondary'} aria-pressed={!showDrafts && !onlyToContact} onClick={() => { setShowDrafts(null); setOnlyToContact(false); setOffset(0) }}>Tous les entrepôts</Button>
+      <Button variant={!showDrafts && onlyToContact ? 'primary' : 'secondary'} aria-pressed={!showDrafts && onlyToContact} onClick={() => { setShowDrafts(null); setOnlyToContact(true); setOffset(0) }}>À contacter{counts.data ? ` (${String(counts.data.to_contact)})` : ''}</Button>
+      <Button variant={showDrafts ? 'primary' : 'secondary'} aria-pressed={Boolean(showDrafts)} onClick={() => { setShowDrafts('sme') }}>Brouillons</Button>
     </div>
-    {showDrafts ? <WarehouseDrafts /> : <>
+    {!showDrafts && <>
+    <div className="warehouse-filter-panel">
+      <button type="button" className="warehouse-filter-panel__toggle" aria-expanded={filtersOpen} aria-controls="warehouse-prospecting-filters" onClick={() => { setFiltersOpen(!filtersOpen) }}>
+        <ChevronDownIcon className={filtersOpen ? 'warehouse-card__chevron--open' : ''} size={18} />
+        Catégorie de prospection : {showDrafts ? `Brouillons ${showDrafts === 'sme' ? 'PME/TPE' : showDrafts === 'other' ? 'Autres' : 'À classer'}` : category === 'sme' ? 'PME/TPE' : category === 'other' ? 'Autres' : category === 'unclassified' ? 'À classer' : 'Toutes'}
+      </button>
+      <div id="warehouse-prospecting-filters" className="warehouse-categories" role="group" aria-label="Catégorie de prospection" hidden={!filtersOpen}>
+      {([ [null, 'Toutes', counts.data?.warehouses], ['sme', 'PME/TPE', counts.data?.sme], ['other', 'Autres', counts.data?.other], ['unclassified', 'À classer', counts.data?.unclassified] ] as const).map(([value, label, count]) => <Button key={value ?? 'all'} variant={category === value ? 'primary' : 'secondary'} aria-pressed={category === value} onClick={() => { setCategory(value); setOffset(0) }}>{label}{count !== undefined ? ` (${String(count)})` : ''}</Button>)}
+    </div>
+      </div>
+    </>}
+    {showDrafts && <div className="warehouse-categories" role="group" aria-label="Catégories de brouillons">
+      <Button aria-pressed={showDrafts === 'sme'} variant={showDrafts === 'sme' ? 'primary' : 'secondary'} onClick={() => setShowDrafts('sme')}>Brouillons PME/TPE ({drafts.data?.filter(d => d.prospecting_category === 'sme').length ?? 0})</Button>
+      <Button aria-pressed={showDrafts === 'other'} variant={showDrafts === 'other' ? 'primary' : 'secondary'} onClick={() => setShowDrafts('other')}>Brouillons Autres entreprises ({drafts.data?.filter(d => d.prospecting_category === 'other').length ?? 0})</Button>
+      {drafts.data?.some(d => !d.prospecting_category) && <p>Classez les entrepôts sans catégorie pour accéder à leurs brouillons.</p>}
+    </div>}
+    {showDrafts ? <WarehouseDrafts key={showDrafts} category={showDrafts} /> : <>
     <div className="warehouse-toolbar">
       <SearchField label="Rechercher un entrepôt, un propriétaire, un interlocuteur…" value={search} onChange={(value) => { setSearch(value); setOffset(0) }} />
       <span className="warehouse-muted" aria-live="polite">{page ? `${String(page.total)} entrepôt${page.total > 1 ? 's' : ''}` : '—'}</span>
@@ -129,7 +148,7 @@ export function WarehousesPage() {
     {notice && <p className="warehouse-notice" role="status">{notice}</p>}
     {query.isPending && <p role="status" className="warehouse-muted">Chargement des entrepôts…</p>}
     {query.isError && <p role="alert" className="warehouse-error">Impossible de charger les entrepôts. <Button onClick={() => void query.refetch()}>Réessayer</Button></p>}
-    {page?.total === 0 && !query.isError && (onlyToContact ? <p className="warehouse-muted">Aucun interlocuteur à contacter ne correspond à cette sélection.</p> : search ? <p className="warehouse-muted">Aucun entrepôt ne correspond à votre recherche.</p> : <EmptyState icon={WarehouseIcon} title="Votre répertoire d’entrepôts" description="Importez votre fichier Excel ou ajoutez votre premier site, puis renseignez ses propriétaires et interlocuteurs." action={<Button variant="primary" icon={PlusIcon} onClick={() => { setEditing(null) }}>Ajouter le premier entrepôt</Button>} />)}
+    {page?.total === 0 && !query.isError && (onlyToContact ? <p className="warehouse-muted">Aucun interlocuteur à contacter ne correspond à cette sélection.</p> : search || category ? <p className="warehouse-muted">Aucun entrepôt ne correspond à cette sélection.</p> : <EmptyState icon={WarehouseIcon} title="Votre répertoire d’entrepôts" description="Importez votre fichier Excel ou ajoutez votre premier site, puis renseignez ses propriétaires et interlocuteurs." action={<Button variant="primary" icon={PlusIcon} onClick={() => { setEditing(null) }}>Ajouter le premier entrepôt</Button>} />)}
     <div className="warehouse-list">{page?.items.map((warehouse) => <WarehouseRow key={`${warehouse.id}-${String(onlyToContact)}`} warehouse={warehouse} onlyToContact={onlyToContact} onEdit={() => { setEditing(warehouse.id) }} />)}</div>
     {page && page.total > 50 && <nav className="warehouse-pagination" aria-label="Pages des entrepôts"><span>{offset + 1}–{Math.min(offset + page.items.length, page.total)} sur {page.total}</span><Button icon={ChevronLeftIcon} disabled={offset === 0} onClick={() => { setOffset(offset - 50) }}>Précédents</Button><Button icon={ChevronRightIcon} disabled={offset + 50 >= page.total} onClick={() => { setOffset(offset + 50) }}>Suivants</Button></nav>}
     </>}

@@ -45,6 +45,7 @@ function WarehouseForm({ warehouse, onClose }: { warehouse: Warehouse | undefine
     <fieldset disabled={save.isPending}>
       <legend>Le site</legend>
       {text('name', 'Nom de l’entrepôt', true)}
+      <label className="field"><span className="field__label">Catégorie de prospection</span><select className="field__control" value={draft.prospecting_category ?? ''} onChange={(event) => setDraft((current) => ({ ...current, prospecting_category: event.target.value === 'sme' ? 'sme' : event.target.value === 'other' ? 'other' : null }))}><option value="">À classer</option><option value="sme">PME/TPE</option><option value="other">Autres</option></select></label>
       <div className="warehouse-form__grid">{text('city', 'Ville')}{text('postal_code', 'Code postal')}</div>
       {text('address', 'Adresse')}{text('siret', 'SIRET')}
     </fieldset>
