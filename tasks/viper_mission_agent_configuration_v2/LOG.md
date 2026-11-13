@@ -32,3 +32,6 @@ Implemented in a worktree (migration 0050, down_revision 0049). Contract: doc/ar
 - Evidence: agent_review.accept -> mission_sources.credit_accepted_result: citations stored (concrete URLs), each library source credited once per accepted (result, item) via a unique ledger; counter derived from it (idempotent).
 - Internal context: mission_context_refs (company/prospect typed FKs) + mission_context.resolve allowlist; distinct from MissionTarget; Circoe-internal notes and contact channels excluded. Slice 07 wires resolve() (and effective skills) into the claim.
 - Tests: tests/test_mission_sources.py (18). Two stale expectations updated (detail key set, MCP create_mission required list).
+
+## Slice 02 merged (2026-11-13)
+Head 0050. Targeted suites pass. Pre-existing on main: 3 test_migrations, test_audit warehouse_drafts, test_explorer_editability. To confirm w/ Human: new URL under an existing root is auto-filed there; missions w/o links now follow category default sources. Dialog must send null for prompt/skill_ids/source_ids to inherit (Slice 05). Slice 07 must wire mission_context.resolve + effective_skills + output_contract into claim payload. Dispatching 05 + 07 concurrently (front vs back).
