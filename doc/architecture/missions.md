@@ -41,7 +41,9 @@ proposals; a mission task carries `run_id` and no `thread_id`.
 | `agent_id` / `agent_label` | `NULL` = « Automatique »: any agent with the scope may claim; the label is snapshotted |
 | `is_recurring`, `interval_count`, `interval_unit` | ponctuelle, or every N hours/days/weeks/months |
 | `starts_at`, `end_kind`, `ends_at`, `max_runs` | now or a date; never / at a date / after N runs |
-| `result_kind`, `result_limit` | what is expected, and the cap per run |
+| `result_kind`, `result_limit` | what is expected, and the **cap** per run (never the goal: see `objective`) |
+| `allow_multiple` | `false` (default): one item per submission; `true`: the list envelope (`agent-missions.md` §7.4). Missions that predate migration 0049 are `true` |
+| `objective` | machine-evaluable goal, §4b. `NULL` = `tasks_accepted` |
 | `geography`, `period_days`, `exclusions` | advanced filters, passed to the agent in the payload |
 | `next_run_at`, `last_run_at` | derived scheduling state |
 
@@ -98,6 +100,35 @@ are checked against its `result_limit` / `period_days`, so « Modifier la missio
 next runs (HANDOFF §15, PM decision 4); a task already made keeps its subject and its consigne. A
 run made before 0027 (`config` NULL) reads the live mission.
 
+## 4b. Objective and completion
+
+`objective` is `{kind, count}`:
+
+| `kind` | Fulfilled when | Use |
+|---|---|---|
+| `tasks_accepted` (default, `count` null) | every non-cancelled task of the run is `accepted` (a person accepted it, or the agent answered `not_found`) | targeted work: « all these companies are done » |
+| `accepted_items` + `count` (1 ≤ count ≤ `result_limit`) | the items a person accepted across the run's tasks reach `count` | discovery, prospection, signals: « 5 new companies » |
+
+Progress is derived from server state (task status, accepted result items), never from an agent's
+claim: a submitted-but-unreviewed result counts for nothing. `result_limit` and the objective are
+different concepts: the limit caps what a run may *propose*; the objective says when the work is
+*done*. That is why a count above `result_limit` is refused (`objective.count`, `range`).
+
+- Each run snapshots the objective (and `allow_multiple`) in `mission_runs.config`; editing the
+  mission changes only the next runs, and history is not rewritten. `mission_runs.objective_met_at`
+  stamps when that run's objective was first fulfilled.
+- **One-off**: when its run's objective is fulfilled, the mission becomes `done`
+  (`reason: objective fulfilled`). A run that ends with the objective unmet (a task `failed`, no
+  more accepted items) is `done` with the note « Objectif non atteint (n/N) » and the mission stays
+  `active`: it never finishes by default.
+- **Recurring**: each run gets a fresh objective instance from the current rule. Fulfilling it
+  stamps the run and nothing else: the mission keeps its `next_run_at` and closes only by the
+  existing end rule (`ends_at` / `max_runs`).
+- Settling happens when a result is accepted (`agent_review.accept`) and on every
+  `refresh_run` (scheduler pass, mission card). `GET /api/missions/{id}` answers
+  `objective_progress` (latest run: `kind`, `target`, `current`, `met`) and `rule.objective` /
+  `rule.allow_multiple`.
+
 ## 5. What the agent receives
 
 `build_payload` adds a `mission` block to the task payload:
@@ -108,10 +139,13 @@ run made before 0027 (`config` NULL) reads the live mission.
     "id": "…", "name": "Nouveaux entrepôts — Normandie",
     "type": "enrichment", "prompt": "Complète ces fiches…",
     "result_kind": "enrichment", "result_limit": 20,
+    "allow_multiple": false, "objective": {"kind": "tasks_accepted", "count": null},
     "geography": "Normandie", "period_days": 30, "exclusions": {"known_companies": true}
   }
 }
 ```
+
+The payload also carries `output_contract` and `objective` (`agent-missions.md` §7.4).
 
 `thread` is `null` for a mission task. The rest of the payload (subject, current values, missing
 fields, `output_schema`, lease) is unchanged, so the agent loop is the same as
@@ -135,7 +169,7 @@ review shows it as such.
 | Route | Purpose |
 |---|---|
 | `GET /api/missions` | cards: name, type, status, agent, recurrence, targets, last/next run, pending results |
-| `POST /api/missions` | create: active, its first run and tasks created at once unless it starts later (`run_now` is kept for the MCP tool) |
+| `POST /api/missions` | (also `allow_multiple`, `objective{kind,count}`, §4b) create: active, its first run and tasks created at once unless it starts later (`run_now` is kept for the MCP tool) |
 | `GET /api/missions/{id}` | detail: targets, runs, tasks, consigne, expected result |
 | `PATCH /api/missions/{id}` | « Désactiver » / « Activer » (the switch on the card, the button on the page; `paused` / `active`) / close. Activating a mission that never ran creates its first run. Pause hides the mission's pending tasks from the agents' queue and claims (a claimed task may finish); resume offers them again. Cancel, in the same transaction, sets every open task (pending, claimed, submitted) to `cancelled` (`agent_task.cancelled`, reason `mission_cancelled`), rejects a result still waiting for review, and sets every `scheduled` / `running` run to `cancelled`; a worker still holding a task is refused with `task_cancelled` |
 | `PUT /api/missions/{id}` | « Modifier la mission » (page de la mission, or the list's right-click / « … » menu): the whole rule, linked data included, is rewritten (`mission.updated` with the changed fields); runs already made and their tasks stay as they are (each run keeps its rule, §4), the next run follows the new rule; a done or cancelled mission is refused (409). The detail answers the rest of the rule (`rule`: agent, start, end, geography, period, exclusions) to prefill the form |

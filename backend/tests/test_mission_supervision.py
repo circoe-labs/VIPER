@@ -170,6 +170,7 @@ def test_the_existing_mission_detail_is_untouched(client: TestClient, mission: M
     assert set(body) == {
         "card",
         "targets",
+        "sources",
         "runs",
         "tasks",
         "prompt",
@@ -179,6 +180,7 @@ def test_the_existing_mission_detail_is_untouched(client: TestClient, mission: M
         "sources",
         "inheritance",
         "skills",
+        "objective_progress",
     }
 
 

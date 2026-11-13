@@ -108,7 +108,14 @@ class Mission(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, Base)
     result_kind: Mapped[MissionResultKind] = mapped_column(
         text_enum(MissionResultKind, "result_kind")
     )
+    # The cap on items one run may propose (a ceiling, never the goal: see `objective`).
     result_limit: Mapped[int] = mapped_column(SmallInteger, server_default="20")
+    # One item per submission (false, the default) or a list envelope (true). Missions that
+    # existed before migration 0049 keep the list form they always had.
+    allow_multiple: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+    # The machine-evaluable goal (`mission_output.MissionObjective`); NULL = « every task of the
+    # run is accepted ». Each run snapshots it in `MissionRun.config`.
+    objective: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     geography: Mapped[str | None] = mapped_column(String(GEOGRAPHY_MAX_LENGTH))
     period_days: Mapped[int | None] = mapped_column(SmallInteger)
     # Free-form advanced exclusions: {"known_companies": true, "domains": ["…"]}.
@@ -230,3 +237,6 @@ class MissionRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # The rule this run works under (the payload's mission block, `agent_payloads.mission_rule`),
     # so modifying the mission changes only the next runs. NULL before migration 0027: live rule.
     config: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    # When this run's own objective was first fulfilled (NULL: not yet / never). Progress itself is
+    # derived from the run's tasks and results, never self-asserted by an agent.
+    objective_met_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
