@@ -12,11 +12,12 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.models.enums import AgentMode, AgentProvider
 from app.models.missions import Mission, MissionRun
-from app.services import missions
+from app.services import mcp_tokens, missions
 from tests.builders import add_company
 from tests.test_mission_output import _claim, _submit
-from tests.test_missions import MISSIONS, due_mission, mint, rpc
+from tests.test_missions import MISSIONS, due_mission, rpc
 
 
 def _accept(client: TestClient, submitted: dict[str, Any]) -> None:
@@ -61,10 +62,34 @@ def test_a_recurring_objective_is_reset_per_run_by_the_existing_scheduler(
     assert detail["objective_progress"]["met"] is False
 
 
-def test_two_owners_are_told_apart_end_to_end(client: TestClient, db_session: Session) -> None:
-    first = mint(db_session, label="Claude Chat A")
-    second = mint(db_session, label="Claude Chat B")
-    who = [rpc(client, token, "viper_whoami", {}) for token in (first, second)]
-    assert all(answer["isError"] is False for answer in who), who
-    identities = {str(answer["structuredContent"]) for answer in who}
-    assert len(identities) == 2
+def _identity(client: TestClient, token: str) -> str:
+    answer = rpc(client, token, "viper_whoami", {})
+    assert answer["isError"] is False, answer
+    return str(answer["structuredContent"]["identity"])
+
+
+def test_owners_conversations_and_a_scheduled_agent_are_told_apart_over_mcp(
+    client: TestClient, db_session: Session
+) -> None:
+    def mint_for(owner: str, mode: AgentMode = AgentMode.INTERACTIVE) -> str:
+        token, _ = mcp_tokens.mint(
+            db_session,
+            label="Conversation",
+            scopes=["*"],
+            owner_email=owner,
+            provider=AgentProvider.CHATGPT,
+            mode=mode,
+        )
+        return token
+
+    scheduled = mint_for("lucie@circoe.com", AgentMode.SCHEDULED)
+    first = mint_for("lucie@circoe.com")
+    second = mint_for("lucie@circoe.com")
+    other_owner = mint_for("paul@circoe.com")
+
+    # The scheduled agent reserves #1 of its owner; conversations take the next numbers; another
+    # owner counts from 1 again.
+    assert _identity(client, scheduled) == "ChatGPT lucie #1"
+    assert _identity(client, first) == "ChatGPT lucie #2"
+    assert _identity(client, second) == "ChatGPT lucie #3"
+    assert _identity(client, other_owner) == "ChatGPT paul #1"

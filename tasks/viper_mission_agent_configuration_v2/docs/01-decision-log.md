@@ -40,3 +40,5 @@
 
 ## Open detail to reconcile
 - The product owner started a requirement as "un nombre maximum de…" without completing the noun. Do **not** invent a new maximum field. During Slice 00/04, first check whether the intended control is the existing `result_limit` / per-run cap. If not semantically equivalent, surface a targeted product decision before adding another maximum concept.
+
+- **Resolved (Slice 04, confirmed in Slice 08):** the "nombre maximum" control is the existing `result_limit` (1..500, default 20). No new maximum field exists. The objective count may not exceed it. Product owner confirmation still requested (see LOG.md).
