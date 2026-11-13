@@ -24,8 +24,9 @@ interface MissionDialogProps {
   // Pre-fills a new mission (initialised once, like `mission`).
   initialDraft?: MissionDraft
   // Slice 06 seam: the voice / conversation entry point. Rendered at the top of the form with the form API
-  // (`applyDraft` lays a draft over the fields, `toInput` reads what would be saved). Nothing is rendered when absent.
-  assistantSlot?: (form: MissionFormApi) => ReactNode
+  // (`applyDraft` lays a draft over the fields, `toInput` reads what would be saved) and the form's own `submit`
+  // (ordinary validation + save). Nothing is rendered when absent.
+  assistantSlot?: (form: MissionFormApi, actions: { submit: () => void }) => ReactNode
 }
 
 // « + Nouvelle mission » / « Modifier la mission »: name, category (icon + colour tiles that apply their defaults),
@@ -87,7 +88,7 @@ export function CreateMissionDialog({ open, onClose, mission, onSaved, initialDr
       }
     >
       <div className="mission-form">
-        {assistantSlot?.(form)}
+        {assistantSlot?.(form, { submit })}
         <TextField
           label="Nom"
           value={form.name}
