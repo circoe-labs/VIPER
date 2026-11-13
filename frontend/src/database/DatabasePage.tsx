@@ -63,7 +63,7 @@ export function DatabasePage() {
 
   return (
     <div className="explorer-page">
-      <PageHeader
+      <PageHeader mascot="stats"
         title="Base de données"
         description="Exploration des tables de VIPER ; les modifications restent en attente jusqu’à « Enregistrer »."
         actions={

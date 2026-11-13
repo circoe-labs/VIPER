@@ -52,6 +52,7 @@ export function detail(): MissionDetail {
   return {
     card: card(),
     targets: [{ kind: 'company', id: COMPANY, label: 'Transports X', hint: 'Rouen' }],
+    sources: [{ id: 'source-1', url: 'https://www.example.com/annuaire', label: 'Annuaire', missions_count: 2 }],
     runs: [
       {
         id: '00000000-0000-7000-e000-000000000020',

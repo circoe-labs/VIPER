@@ -43,6 +43,7 @@ class MissionIn(StrictModel):
     type: MissionType
     prompt: str = Field(min_length=1, max_length=5000)
     targets: list[TargetIn] = Field(default_factory=list, max_length=500)
+    source_ids: list[uuid.UUID] = Field(default_factory=list, max_length=100)
     agent_id: uuid.UUID | None = None
     is_recurring: bool = False
     interval_count: int = Field(default=1, ge=1, le=1000)
@@ -97,6 +98,18 @@ class TargetOut(BaseModel):
     hint: str | None
 
 
+class SourceOut(BaseModel):
+    id: uuid.UUID
+    url: str
+    label: str | None
+    missions_count: int
+
+
+class SourceIn(StrictModel):
+    url: str = Field(min_length=1, max_length=2000)
+    label: str | None = Field(default=None, max_length=200)
+
+
 class RunOut(BaseModel):
     id: uuid.UUID
     status: MissionRunStatus
@@ -136,6 +149,7 @@ class MissionRuleOut(BaseModel):
 class MissionDetailOut(BaseModel):
     card: MissionCardOut
     targets: list[TargetOut]
+    sources: list[SourceOut]
     runs: list[RunOut]
     tasks: list[MissionTaskOut]
     prompt: str
@@ -175,6 +189,7 @@ def detail_out(detail: missions.MissionDetail) -> MissionDetailOut:
     return MissionDetailOut(
         card=MissionCardOut.model_validate(detail.card, from_attributes=True),
         targets=[TargetOut.model_validate(row, from_attributes=True) for row in detail.targets],
+        sources=[SourceOut.model_validate(row, from_attributes=True) for row in detail.sources],
         runs=[RunOut.model_validate(row, from_attributes=True) for row in detail.runs],
         tasks=[MissionTaskOut.model_validate(row, from_attributes=True) for row in detail.tasks],
         prompt=detail.prompt,
@@ -203,6 +218,7 @@ def mission_input(body: MissionIn) -> missions.MissionInput:
         type=body.type,
         prompt=body.prompt,
         targets=targets,
+        source_ids=tuple(body.source_ids),
         agent_id=body.agent_id,
         is_recurring=body.is_recurring,
         interval_count=body.interval_count,
@@ -258,6 +274,28 @@ def mission_targets(
     return [
         TargetOut.model_validate(row) for row in missions.target_options(session, kind, q, limit)
     ]
+
+
+@router.get("/sources")
+def mission_sources(session: SessionDep) -> list[SourceOut]:
+    """The saved links, reusable by any mission."""
+    return [
+        SourceOut.model_validate(row, from_attributes=True)
+        for row in missions.list_sources(session)
+    ]
+
+
+@router.post("/sources", status_code=status.HTTP_201_CREATED)
+def add_mission_source(body: SourceIn, session: SessionDep, actor: CurrentActor) -> SourceOut:
+    with business_errors():
+        row = missions.add_source(session, actor, body.url, body.label)
+    return SourceOut.model_validate(row, from_attributes=True)
+
+
+@router.delete("/sources/{source_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_mission_source(source_id: uuid.UUID, session: SessionDep) -> None:
+    with business_errors():
+        missions.delete_source(session, source_id)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)

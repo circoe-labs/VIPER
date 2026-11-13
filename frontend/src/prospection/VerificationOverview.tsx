@@ -10,7 +10,7 @@ const RADIUS = 15.9155 // circumference 100: a slice's length is its percentage
 interface Box {
   tab: VerificationTab
   label: string
-  tone: 'info' | 'success' | 'warning' | 'danger'
+  tone: 'info' | 'success' | 'warning' | 'danger' | 'copy'
   value: (figures: VerificationFigures) => number
 }
 
@@ -20,6 +20,9 @@ const BOXES: Box[] = [
   { tab: 'uncertain', label: 'Incertitude', tone: 'warning', value: (f) => f.uncertain },
   { tab: 'ignored', label: 'Ignoré', tone: 'danger', value: (f) => f.ignored },
 ]
+
+// « Entrepôts » is a different base (the directory's interlocutors): its box sits beside the four, outside the ring.
+const WAREHOUSE_BOX = { tab: 'warehouses', label: 'Entrepôts', tone: 'copy' } as const
 
 const color = (tone: Box['tone']) => `var(--color-${tone}-fg)`
 
@@ -82,17 +85,23 @@ function Ring({ slices, total, label }: { slices: Slice[]; total: number; label:
 
 interface OverviewProps {
   figures: VerificationFigures
+  // Interlocutors of the Normandy warehouses: a base of their own, all counted as valid.
+  warehouseContacts: number
   tab: VerificationTab
   onTab: (tab: VerificationTab) => void
 }
 
-export function VerificationOverview({ figures, tab, onTab }: OverviewProps) {
-  const slices = BOXES.map((box) => ({
-    key: box.tab,
-    label: box.label,
-    value: box.value(figures),
-    stroke: color(box.tone),
-  }))
+export function VerificationOverview({ figures, warehouseContacts, tab, onTab }: OverviewProps) {
+  const slices = [
+    ...BOXES.map((box) => ({
+      key: box.tab,
+      label: box.label,
+      value: box.value(figures),
+      stroke: color(box.tone),
+    })),
+    { key: WAREHOUSE_BOX.tab, label: WAREHOUSE_BOX.label, value: warehouseContacts, stroke: color(WAREHOUSE_BOX.tone) },
+  ]
+  const total = figures.total + warehouseContacts
   return (
     <section className="verification-overview" aria-label="Où en est la vérification">
       <div className="verification-boxes" role="group" aria-label="Choisir une catégorie">
@@ -108,21 +117,33 @@ export function VerificationOverview({ figures, tab, onTab }: OverviewProps) {
           >
             <span className="verification-box__label">{box.label}</span>
             <strong className="verification-box__value">{box.value(figures)}</strong>
-            <span className="verification-box__share">{percent(box.value(figures), figures.total)}</span>
+            <span className="verification-box__share">{percent(box.value(figures), total)}</span>
           </button>
         ))}
+        <button
+          type="button"
+          className={`verification-box verification-box--${WAREHOUSE_BOX.tone}`}
+          aria-pressed={tab === WAREHOUSE_BOX.tab}
+          onClick={() => {
+            onTab(WAREHOUSE_BOX.tab)
+          }}
+        >
+          <span className="verification-box__label">{WAREHOUSE_BOX.label}</span>
+          <strong className="verification-box__value">{warehouseContacts}</strong>
+          <span className="verification-box__share">{percent(warehouseContacts, total)}</span>
+        </button>
       </div>
       <div className="verification-total">
-        <Ring slices={slices} total={figures.total} label="Répartition de la base par catégorie de vérification" />
+        <Ring slices={slices} total={total} label="Répartition de la base par catégorie de vérification" />
         <div>
           <p className="verification-total__figure">
-            <strong>{figures.total}</strong> prospects dans la base
+            <strong>{total}</strong> prospects dans la base
           </p>
           <ul className="verification-legend">
             {slices.map((slice) => (
               <li key={slice.key}>
                 <span className="verification-legend__swatch" style={{ background: slice.stroke }} aria-hidden="true" />
-                {slice.label} <strong>{slice.value}</strong> · {percent(slice.value, figures.total)}
+                {slice.label} <strong>{slice.value}</strong> · {percent(slice.value, total)}
               </li>
             ))}
           </ul>

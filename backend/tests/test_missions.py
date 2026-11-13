@@ -1024,3 +1024,55 @@ def test_edit_refuses_a_closed_or_unknown_mission(client: TestClient, db_session
     assert client.put(f"{MISSIONS}/{mission_id}", json=body).status_code == 409
     assert client.put(f"{MISSIONS}/{uuid.uuid4()}", json=body).status_code == 404
     assert client.put(f"{MISSIONS}/{mission_id}", json={**body, "name": ""}).status_code == 422
+
+
+def test_a_saved_link_is_kept_once_and_reused_by_another_mission(client: TestClient) -> None:
+    first = client.post(f"{MISSIONS}/sources", json={"url": " https://www.example.com/annuaire ", "label": "Annuaire"})
+    again = client.post(f"{MISSIONS}/sources", json={"url": "https://www.example.com/annuaire"})
+    assert first.status_code == 201
+    assert again.json()["id"] == first.json()["id"]
+    source_id = first.json()["id"]
+
+    one = create(client, name="Mission A", kind=MissionType.PROSPECTION, result_kind="companies", source_ids=[source_id])
+    two = create(client, name="Mission B", kind=MissionType.PROSPECTION, result_kind="companies", source_ids=[source_id])
+
+    assert [row["url"] for row in one["sources"]] == ["https://www.example.com/annuaire"]
+    assert [row["url"] for row in two["sources"]] == ["https://www.example.com/annuaire"]
+    saved = client.get(f"{MISSIONS}/sources").json()
+    assert len(saved) == 1
+    assert saved[0]["missions_count"] == 2
+
+
+def test_a_link_must_be_a_full_http_address(client: TestClient) -> None:
+    for bad in ("example.com", "javascript:alert(1)", "https://", "ftp://example.com/x"):
+        response = client.post(f"{MISSIONS}/sources", json={"url": bad})
+        assert response.status_code == 422, bad
+
+
+def test_the_agent_receives_the_mission_links(client: TestClient, db_session: Session) -> None:
+    company = add_company(db_session, display_name="2SN")
+    source = client.post(
+        f"{MISSIONS}/sources", json={"url": "https://www.example.com/annuaire", "label": "Annuaire"}
+    ).json()
+    create(
+        client,
+        targets=[{"kind": "company", "id": str(company.id)}],
+        source_ids=[source["id"]],
+        run_now=True,
+    )
+
+    answer = rpc(client, mint(db_session), "viper_claim_task", {"task_types": ["update_company"]})
+
+    assert answer["structuredContent"]["mission"]["sources"] == [
+        {"url": "https://www.example.com/annuaire", "label": "Annuaire"}
+    ]
+
+
+def test_forgetting_a_link_removes_it_from_its_missions(client: TestClient) -> None:
+    source = client.post(f"{MISSIONS}/sources", json={"url": "https://www.example.com/a"}).json()
+    mission = create(client, kind=MissionType.PROSPECTION, result_kind="companies", source_ids=[source["id"]])
+
+    assert client.delete(f"{MISSIONS}/sources/{source['id']}").status_code == 204
+
+    assert client.get(f"{MISSIONS}/{mission['card']['id']}").json()["sources"] == []
+    assert client.delete(f"{MISSIONS}/sources/{source['id']}").status_code == 404

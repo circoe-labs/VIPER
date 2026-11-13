@@ -21,7 +21,7 @@ from tests.builders import audit_events
 def test_warehouse_drafts_are_read_only_and_require_authentication(
     client: TestClient, anonymous_client: TestClient, db_session: Session
 ) -> None:
-    site = Warehouse(name="Site Exemple", contacts=[])
+    site = Warehouse(name="Site Exemple", contacts=[], prospecting_category="other")
     db_session.add(site)
     db_session.flush()
     db_session.add(
@@ -49,13 +49,14 @@ def test_warehouse_drafts_are_read_only_and_require_authentication(
 def test_warehouse_draft_can_be_saved_and_validated(
     client: TestClient, db_session: Session
 ) -> None:
-    site = Warehouse(name="Site Exemple", contacts=[])
+    site = Warehouse(name="Site Exemple", contacts=[], prospecting_category="other")
     db_session.add(site)
     db_session.flush()
     draft = WarehouseDraft(
         warehouse_id=site.id,
         warehouse_name=site.name,
         contact_name="Anne Test",
+        contact_role="responsable logistique",
         recipient=None,
         subject="Prise de contact",
         body="Bonjour",
@@ -69,16 +70,99 @@ def test_warehouse_draft_can_be_saved_and_validated(
             "revision": draft.revision,
             "recipient": "anne@example.test",
             "subject": "Prise de contact",
-            "body": "Bonjour",
+            "body": "Bonjour Madame Anne Test, chez Site Exemple votre rôle de responsable logistique.",
         },
     )
     assert response.status_code == 200, response.text
+    response = client.post('/api/warehouses/drafts/plan-batch', json={
+        'scheduled_at': (datetime.now(UTC) + timedelta(days=1)).isoformat(),
+        'drafts': [{'id': str(draft.id), 'revision': response.json()['revision']}],
+    })
+    assert response.status_code == 200, response.text
+    response = client.get('/api/warehouses/drafts')
     response = client.post(
         f"/api/warehouses/drafts/{draft.id}/validate",
-        json={"revision": response.json()["revision"]},
+        json={"revision": response.json()[0]["revision"]},
     )
     assert response.status_code == 200, response.text
     assert response.json()["validated_at"] is not None
+    assert response.json()["human_validated"] is True
+    edited = client.put(
+        f"/api/warehouses/drafts/{draft.id}",
+        json={"revision": response.json()["revision"], "recipient": "anne@example.test", "subject": "Prise de contact", "body": "Bonjour modifié"},
+    )
+    assert edited.status_code == 200, edited.text
+    assert edited.json()["human_validated"] is False
+
+
+def test_new_selections_create_one_draft_per_address(client: TestClient) -> None:
+    response = client.post('/api/warehouses', json={
+        'name': 'Site Exemple', 'prospecting_category': 'sme', 'contacts': [
+            {'full_name': 'Anne Test', 'role': 'responsable logistique',
+             'email': 'anne@example.test', 'to_contact': False},
+            {'full_name': 'Jean Test', 'email': 'a@example.test ou b@example.test',
+             'to_contact': False},
+        ],
+    })
+    assert response.status_code == 201
+    site = response.json()
+    site['contacts'][0]['to_contact'] = True
+    site['contacts'][1]['to_contact'] = True
+    response = client.put(f"/api/warehouses/{site['id']}", json=site)
+    assert response.status_code == 200, response.text
+    drafts = client.get('/api/warehouses/drafts').json()
+    assert len(drafts) == 3
+    assert drafts[0]['phase'] == 2
+    assert drafts[0]['contact_name'] == 'Anne Test'
+    assert drafts[0]['recipient'] == 'anne@example.test'
+    assert drafts[0]['subject'] == 'Échangeons sur vos priorités logistiques et le numérique'
+    assert 'Anne Test' in drafts[0]['body']
+    assert drafts[0]['body'].startswith('Bonjour Madame Anne Test,\n\n')
+    assert 'Site Exemple' in drafts[0]['body']
+    assert 'votre quotidien dans vos fonctions de responsable logistique' in drafts[0]['body']
+    assert 'activité chez Site Exemple' in drafts[0]['body']
+    assert 'DIHNAMO' in drafts[0]['body']
+    assert 'https://calendly.com/experts-circoe/30min' in drafts[0]['body']
+    assert 'Chez Circoé' in drafts[0]['body']
+    assert 'dont Circoé est partenaire' in drafts[0]['body']
+    assert 'Lucie Jerier' in drafts[0]['body']
+    assert '(' not in drafts[0]['body'] and ')' not in drafts[0]['body']
+    assert '+33 2 76 40 80 00' in drafts[0]['body']
+    assert drafts[1]['body'].startswith('Bonjour Madame, Monsieur Jean Test,\n\n')
+    assert {draft['recipient'] for draft in drafts if draft['contact_name'] == 'Jean Test'} == {
+        'a@example.test', 'b@example.test',
+    }
+    assert all(draft['subject'] == 'Échangeons sur vos projets et les outils numériques' for draft in drafts if draft['contact_name'] == 'Jean Test')
+    site = response.json()
+    site['contacts'][0]['to_contact'] = False
+    site = client.put(f"/api/warehouses/{site['id']}", json=site).json()
+    site['contacts'][0]['to_contact'] = True
+    assert client.put(f"/api/warehouses/{site['id']}", json=site).status_code == 200
+    assert len(client.get('/api/warehouses/drafts').json()) == 3
+
+
+def test_draft_greetings_include_known_civilities() -> None:
+    from app.services.warehouse_draft_text import greeting
+
+    assert greeting('Stéphanie PELAZZA') == 'Bonjour Madame Stéphanie PELAZZA,'
+    assert greeting('COUDRAIS Jean-Paul') == 'Bonjour Monsieur COUDRAIS Jean-Paul,'
+    assert greeting('Josik Morel') == 'Bonjour Monsieur Josik Morel,'
+
+
+def test_saving_an_existing_selection_creates_its_missing_draft(client: TestClient, db_session: Session) -> None:
+    site = Warehouse(name='Site déjà sélectionné', contacts=[{
+        'full_name': 'Anne Test', 'email': 'anne@example.test', 'to_contact': True,
+    }])
+    db_session.add(site)
+    db_session.flush()
+    data = client.get(f'/api/warehouses/{site.id}').json()
+    response = client.put(f'/api/warehouses/{site.id}', json=data)
+    assert response.status_code == 200, response.text
+    drafts = client.get('/api/warehouses/drafts').json()
+    assert len(drafts) == 1
+    assert drafts[0]['recipient'] == 'anne@example.test'
+    assert client.put(f'/api/warehouses/{site.id}', json=response.json()).status_code == 200
+    assert len(client.get('/api/warehouses/drafts').json()) == 1
 
 
 def test_schedule_and_remove_warehouse_draft(client: TestClient, db_session: Session) -> None:
@@ -92,6 +176,7 @@ def test_schedule_and_remove_warehouse_draft(client: TestClient, db_session: Ses
         recipient="anne@example.test",
         subject="Objet",
         body="Bonjour",
+        human_validated=True,
         review_note="À vérifier",
     )
     db_session.add(draft)
@@ -104,13 +189,14 @@ def test_schedule_and_remove_warehouse_draft(client: TestClient, db_session: Ses
     assert response.status_code == 200, response.text
     assert response.json()["send_state"] == "scheduled"
     revision = response.json()["revision"]
-    assert (
-        client.put(
-            f"/api/warehouses/drafts/{draft.id}",
-            json={"revision": revision, "recipient": "a@example.test", "subject": "x", "body": "x"},
-        ).status_code
-        == 409
+    edited = client.put(
+        f"/api/warehouses/drafts/{draft.id}",
+        json={"revision": revision, "recipient": "a@example.test", "subject": "x", "body": "x"},
     )
+    assert edited.status_code == 200
+    assert edited.json()["send_state"] == "planned"
+    assert edited.json()["validated_at"] is None
+    revision = edited.json()["revision"]
     response = client.post(
         f"/api/warehouses/drafts/{draft.id}/unschedule", json={"revision": revision}
     )
@@ -141,30 +227,48 @@ def test_batch_schedule_is_atomic(client: TestClient, db_session: Session) -> No
     invalid = [items[0], {**items[1], "revision": items[1]["revision"] + 1}]
     assert (
         client.post(
-            "/api/warehouses/drafts/schedule-batch", json={"drafts": invalid, "scheduled_at": when}
+            "/api/warehouses/drafts/plan-batch", json={"drafts": invalid, "scheduled_at": when}
         ).status_code
         == 409
     )
     db_session.expire_all()
     assert all(db_session.get(WarehouseDraft, d.id).send_state is None for d in drafts)
     response = client.post(
-        "/api/warehouses/drafts/schedule-batch", json={"drafts": items, "scheduled_at": when}
+        "/api/warehouses/drafts/plan-batch", json={"drafts": items, "scheduled_at": when}
     )
     assert response.status_code == 200, response.text
-    assert response.json() == {"planned": 2}
+    assert response.json() == {"scheduled": 2}
     db_session.expire_all()
     assert all(db_session.get(WarehouseDraft, d.id).send_state == "planned" for d in drafts)
+    assert all(not db_session.get(WarehouseDraft, d.id).human_validated for d in drafts)
     assert all(db_session.get(WarehouseDraft, d.id).validated_at is None for d in drafts)
-    first = db_session.get(WarehouseDraft, drafts[0].id)
-    result = client.post(
-        f"/api/warehouses/drafts/{first.id}/schedule",
-        json={"revision": first.revision, "scheduled_at": when},
-    )
-    assert result.status_code == 200
-    assert result.json()["send_state"] == "scheduled"
-    assert result.json()["validated_at"] is not None
-    db_session.expire_all()
-    assert db_session.get(WarehouseDraft, drafts[1].id).send_state == "planned"
+
+
+def test_planned_draft_requires_personalization_before_authorizing_send(client: TestClient) -> None:
+    site = client.post('/api/warehouses', json={
+        'name': 'Site Atlas', 'prospecting_category': 'sme',
+        'contacts': [{'full_name': 'Anne Test', 'role': 'Responsable logistique',
+                      'email': 'anne@example.test', 'to_contact': True}],
+    }).json()
+    draft = client.get('/api/warehouses/drafts').json()[0]
+    assert client.post(f"/api/warehouses/drafts/{draft['id']}/validate",
+                       json={'revision': draft['revision']}).status_code == 422
+    when = (datetime.now(UTC) + timedelta(days=1)).isoformat()
+    assert client.post('/api/warehouses/drafts/plan-batch', json={
+        'scheduled_at': when, 'drafts': [{'id': draft['id'], 'revision': draft['revision']}],
+    }).status_code == 200
+    draft = client.get('/api/warehouses/drafts').json()[0]
+    assert draft['send_state'] == 'planned' and not draft['human_validated']
+    response = client.post(f"/api/warehouses/drafts/{draft['id']}/validate",
+                           json={'revision': draft['revision']})
+    assert response.status_code == 200, response.text
+    assert response.json()['send_state'] == 'scheduled'
+    assert response.json()['human_validated'] is True
+    site['prospecting_category'] = 'other'
+    assert client.put(f"/api/warehouses/{site['id']}", json=site).status_code == 200
+    draft = client.get('/api/warehouses/drafts').json()[0]
+    assert 'DIHNAMO' not in draft['body']
+    assert draft['send_state'] == 'planned' and not draft['human_validated']
 
 
 @pytest.mark.parametrize("fail", [False, True])
@@ -197,6 +301,7 @@ def test_warehouse_dispatch_never_retries_uncertain_send(
         scheduled_at=datetime.now(UTC) - timedelta(minutes=1),
         send_state="scheduled",
         validated_at=datetime.now(UTC) - timedelta(minutes=2),
+        human_validated=True,
     )
     db_session.add(draft)
     db_session.flush()
@@ -407,12 +512,14 @@ def test_counts_cover_all_sites_and_update_when_contacts_change(client: TestClie
         "warehouses": 0,
         "contacts": 0,
         "to_contact": 0,
+        "sme": 0, "other": 0, "unclassified": 0,
     }
     upload(client, "import")
     assert client.get("/api/warehouses/counts").json() == {
         "warehouses": 2,
         "contacts": 3,
         "to_contact": 0,
+        "sme": 0, "other": 0, "unclassified": 2,
     }
     site = client.get("/api/warehouses?limit=1").json()["items"][0]
     site["contacts"].append({"full_name": "Nouveau contact", "to_contact": True})
@@ -421,11 +528,62 @@ def test_counts_cover_all_sites_and_update_when_contacts_change(client: TestClie
         "warehouses": 2,
         "contacts": 4,
         "to_contact": 1,
+        "sme": 0, "other": 0, "unclassified": 2,
     }
     filtered = client.get("/api/warehouses?to_contact=true").json()
     assert filtered["total"] == 1
     assert filtered["items"][0]["id"] == site["id"]
     assert filtered["items"][0]["contacts"][-1]["to_contact"] is True
+
+
+def test_category_filters_and_updates_dihnamo_in_drafts(client: TestClient) -> None:
+    site = client.post('/api/warehouses', json={
+        'name': 'Site PME', 'prospecting_category': 'sme',
+        'contacts': [{'full_name': 'Anne Test', 'to_contact': True}],
+    }).json()
+    draft = client.get('/api/warehouses/drafts').json()[0]
+    assert 'DIHNAMO' in draft['body']
+    assert client.get('/api/warehouses?category=sme').json()['total'] == 1
+    assert client.get('/api/warehouses?category=other').json()['total'] == 0
+    site['prospecting_category'] = 'other'
+    response = client.put(f"/api/warehouses/{site['id']}", json=site)
+    assert response.status_code == 200, response.text
+    draft = client.get('/api/warehouses/drafts').json()[0]
+    assert 'DIHNAMO' not in draft['body']
+    assert 'L’objectif : faciliter' not in draft['body']
+    assert 'https://calendly.com/experts-circoe/30min' in draft['body']
+    assert client.get('/api/warehouses?category=other').json()['total'] == 1
+    site = response.json()
+    site['prospecting_category'] = 'sme'
+    assert client.put(f"/api/warehouses/{site['id']}", json=site).status_code == 200
+    assert 'DIHNAMO' in client.get('/api/warehouses/drafts').json()[0]['body']
+    site = client.get(f"/api/warehouses/{site['id']}").json()
+    site['prospecting_category'] = None
+    assert client.put(f"/api/warehouses/{site['id']}", json=site).status_code == 200
+    assert 'DIHNAMO' not in client.get('/api/warehouses/drafts').json()[0]['body']
+
+
+def test_other_and_unclassified_drafts_have_specific_openings_without_dihnamo() -> None:
+    from app.services.warehouse_draft_text import draft_text
+
+    for category in ('other', None):
+        body = draft_text('Anne Test', 'Site', 'Responsable logistique', category)
+        assert 'logistique' in body
+        assert 'DIHNAMO' not in body
+        assert '\n\n\n' not in body
+    commercial = draft_text('Anne Test', 'Site', 'Directrice commerciale', 'other')
+    assert 'suivi des clients' in commercial
+
+
+def test_draft_uses_company_name_without_site_location() -> None:
+    from app.services.warehouse_draft_text import company_name, draft_text
+
+    label = 'Entreposage Havrais – Allée de la Plaine'
+    body = draft_text('Anne Test', label, 'Coordinatrice logistique', 'sme')
+    assert company_name(label) == 'Entreposage Havrais'
+    assert 'Entreposage Havrais' in body
+    assert 'Allée de la Plaine' not in body
+    assert 'Coordinatrice logistique' in body
 
 
 @pytest.mark.parametrize(

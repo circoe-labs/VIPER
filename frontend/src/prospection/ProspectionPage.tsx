@@ -125,7 +125,7 @@ export function ProspectionPage() {
         <ArrowLeftIcon size={16} />
         Accueil
       </Link>
-      <PageHeader
+      <PageHeader mascot="search"
         title="Prospection"
         description="Vérifier la base, préparer les contacts, suivre les réponses."
         actions={

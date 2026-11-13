@@ -11,7 +11,13 @@ from app.models.contact_tracking import ContactTracking, ContactTrackingStatusHi
 from app.models.imports import ImportBatch, ImportRowMetadata
 from app.models.mcp import McpCall, McpToken
 from app.models.mission_telemetry import MissionAgentLog, MissionAgentSession
-from app.models.missions import Mission, MissionRun, MissionTarget
+from app.models.missions import (
+    Mission,
+    MissionRun,
+    MissionSource,
+    MissionSourceLink,
+    MissionTarget,
+)
 from app.models.oauth import OAuthAuthorization, OAuthClient, OAuthToken
 from app.models.organizations import Organization
 from app.models.prospects import Email, Phone, Prospect, ProspectNote, ProspectSource
@@ -48,6 +54,8 @@ __all__ = [
     "MissionAgentLog",
     "MissionAgentSession",
     "MissionRun",
+    "MissionSource",
+    "MissionSourceLink",
     "MissionTarget",
     "OAuthAuthorization",
     "OAuthClient",

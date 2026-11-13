@@ -105,7 +105,7 @@ describe('MissionsPage', () => {
     const [firstCreate] = await screen.findAllByRole('button', { name: 'Nouvelle mission' })
     expect(firstCreate).toBeDefined()
     await user.click(firstCreate as HTMLElement)
-    return { user, dialog: await screen.findByRole('dialog', { name: 'Nouvelle mission' }) }
+    return { user, dialog: await screen.findByRole('dialog', { name: 'Créer mission' }) }
   }
 
   it('suggests a name from the consigne and says what is missing before saving', async () => {
@@ -115,44 +115,55 @@ describe('MissionsPage', () => {
 
     expect(within(dialog).getByLabelText(/Nom/)).toHaveValue('Trouve les commissaires au transport en Normandie')
     // « Compléter des fiches » by default: it works on linked records, none yet.
-    expect(within(dialog).getByRole('radio', { name: 'Compléter des fiches' })).toHaveAttribute('aria-checked', 'true')
+    expect(within(dialog).getByRole('combobox', { name: 'Catégorie' })).toHaveDisplayValue('Compléter des fiches')
     expect(within(dialog).getByRole('status')).toHaveTextContent('Liez au moins une fiche')
     expect(within(dialog).getByRole('button', { name: 'Créer la mission' })).toBeDisabled()
     expect(within(dialog).getByRole('button', { name: 'Créer la mission' })).toBeDisabled()
 
     // A discovery starts from nothing: ready at once.
-    await user.click(within(dialog).getByRole('radio', { name: 'Découvrir des sociétés' }))
+    await user.selectOptions(within(dialog).getByRole('combobox', { name: 'Catégorie' }), 'Découvrir des sociétés')
     expect(within(dialog).getByRole('status')).toHaveTextContent('Prête à être lancée')
     expect(within(dialog).getByRole('button', { name: 'Créer la mission' })).toBeEnabled()
     expect(within(dialog).getByRole('button', { name: 'Créer la mission' })).toBeEnabled()
   })
 
-  it('blocks a signals mission without a company to watch, and explains each kind on hover', async () => {
+  it('saves a link under Sources and uses it in the mission', async () => {
+    const saved = { id: 'source-9', url: 'https://www.example.com/annuaire', label: null, missions_count: 0 }
+    const fetchMock = stubApi({
+      ...SHELL_API,
+      ...COMMON,
+      'GET /api/missions': [200, { items: [], total: 0 }],
+      'POST /api/missions/sources': [201, saved],
+      'POST /api/missions': [201, detail()],
+      [`GET /api/missions/${MISSION}`]: [200, detail()],
+    })
+    const user = userEvent.setup()
+    renderApp('/missions')
+    await user.click((await screen.findAllByRole('button', { name: 'Nouvelle mission' }))[0] as HTMLElement)
+    const dialog = await screen.findByRole('dialog', { name: 'Créer mission' })
+    await user.type(within(dialog).getByLabelText(/Consigne/), 'Trouve des transporteurs')
+    await user.selectOptions(within(dialog).getByRole('combobox', { name: 'Catégorie' }), 'Découvrir des sociétés')
+
+    await user.click(within(dialog).getByRole('button', { name: /Sources/ }))
+    await user.type(within(dialog).getByLabelText('Lien'), 'https://www.example.com/annuaire')
+    await user.click(within(dialog).getByRole('button', { name: 'Enregistrer le lien' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Créer la mission' }))
+
+    const [, init] = fetchMock.mock.calls.find(([url, request]) => url.endsWith('/api/missions') && request?.method === 'POST') ?? []
+    expect(JSON.parse(init?.body as string)).toMatchObject({ source_ids: ['source-9'] })
+  })
+
+  it('blocks a signals mission without a company to watch, and explains the chosen category', async () => {
     const { user, dialog } = await openCreate()
     await user.type(within(dialog).getByLabelText(/Consigne/), 'Nouveaux entrepôts en Normandie')
 
-    await user.click(within(dialog).getByRole('radio', { name: 'Surveiller des signaux' }))
+    await user.selectOptions(within(dialog).getByRole('combobox', { name: 'Catégorie' }), 'Surveiller des signaux')
 
     expect(within(dialog).getByRole('status')).toHaveTextContent('Liez au moins une société à surveiller')
     expect(within(dialog).getByRole('button', { name: 'Créer la mission' })).toBeDisabled()
     expect(within(dialog).getByRole('button', { name: 'Créer la mission' })).toBeDisabled()
-    // The explanation is a hover/focus tip, linked to its « i » for assistive tech.
-    const tip = within(dialog).getByRole('button', { name: 'Aide : Surveiller des signaux' })
-    expect(tip).toHaveAccessibleDescription(/surveille les sociétés liées/)
-    await user.hover(tip)
-    expect(document.querySelector('.info-tip__bubble')).toHaveTextContent(/surveille les sociétés liées/)
-    await user.unhover(tip)
-    expect(document.querySelector('.info-tip__bubble')).toBeNull()
-  })
-
-  it('moves between kinds with the arrow keys', async () => {
-    const { user, dialog } = await openCreate()
-    within(dialog).getByRole('radio', { name: 'Compléter des fiches' }).focus()
-
-    await user.keyboard('{ArrowRight}')
-
-    expect(within(dialog).getByRole('radio', { name: 'Vérifier des fiches' })).toHaveAttribute('aria-checked', 'true')
-    expect(within(dialog).getByRole('radio', { name: 'Vérifier des fiches' })).toHaveFocus()
+    // The explanation sits under the list, for the chosen category.
+    expect(within(dialog).getByRole('combobox', { name: 'Catégorie' })).toHaveAccessibleDescription(/surveille les sociétés liées/)
   })
 
   it('activates an inactive mission from the switch on its card', async () => {
@@ -232,6 +243,7 @@ describe('the mission menu (right-click on a card)', () => {
     expect(within(dialog).getByRole('textbox', { name: 'Consigne' })).toHaveValue(
       'Complète ces fiches avec le site web et le domaine e-mail.',
     )
+    await user.click(within(dialog).getByRole('button', { name: /Sources/ }))
     expect(within(dialog).getByText('Transports X')).toBeInTheDocument()
     await user.clear(name)
     await user.type(name, 'Entrepôts — Normandie et Bretagne')
@@ -501,5 +513,17 @@ describe('Signal review', () => {
     expect(within(trigger).getByText('+20')).toBeInTheDocument()
     await user.click(screen.getByText('JSON soumis par l’agent'))
     expect(screen.getByText(/"display_name": "Logistique Y"/)).toBeInTheDocument()
+  })
+})
+
+describe('Résultat mission', () => {
+  it('shows the result card layout for a mission without results yet', async () => {
+    stubApi({ ...SHELL_API, ...COMMON, [`GET /api/missions/${MISSION}`]: [200, { ...detail(), tasks: [] }] })
+
+    renderApp(`/missions/${MISSION}/resultat`)
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Résultat mission' })).toBeInTheDocument()
+    expect(await screen.findByText(/Aucun résultat pour l’instant/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Nouveaux entrepôts/ })).toHaveAttribute('href', `/missions/${MISSION}`)
   })
 })

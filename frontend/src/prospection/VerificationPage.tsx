@@ -4,6 +4,7 @@ import { Link } from 'react-router'
 import { ApiError, apiGet } from '../api/client'
 import { type Company, type CompanyPage, useCompanyMutations } from '../api/companies'
 import { useProspectPage } from '../api/prospection'
+import { useWarehouseCounts } from '../api/warehouses'
 import { type Prospect, useProspect, useProspectMutations } from '../api/prospects'
 import { useProspectAlerts, useSequenceMutations } from '../api/sequences'
 import { useCohorts } from '../api/settings'
@@ -35,6 +36,7 @@ import {
   type VerificationFigures,
   type VerificationTab,
 } from './verificationFigures'
+import { WarehouseProspectForm } from './WarehouseProspectForm'
 import './verification.css'
 
 // Espace de vérification : les fiches « À vérifier » une par une, avec ce qu'il faut pour trancher en quelques clics —
@@ -49,6 +51,7 @@ function problem(error: unknown): string {
 export function VerificationPage() {
   const [tab, setTab] = useState<VerificationTab>('todo')
   const figures = useVerificationFigures()
+  const warehouseContacts = useWarehouseCounts().data?.contacts ?? 0
 
   return (
     <div className="verification">
@@ -61,9 +64,10 @@ export function VerificationPage() {
           </Link>
         }
       />
-      <VerificationOverview figures={figures} tab={tab} onTab={setTab} />
+      <VerificationOverview figures={figures} warehouseContacts={warehouseContacts} tab={tab} onTab={setTab} />
       {tab === 'verified' && <VerifiedReading figures={figures} />}
       {tab === 'ignored' && <IgnoredReading figures={figures} />}
+      {tab === 'warehouses' && <WarehouseProspectForm />}
       {tab === 'todo' && <Queue key="todo" kind="todo" figures={figures} />}
       {tab === 'uncertain' && <Queue key="uncertain" kind="uncertain" figures={figures} />}
     </div>

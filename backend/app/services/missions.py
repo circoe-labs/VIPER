@@ -14,6 +14,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from urllib.parse import urlsplit
 
 from sqlalchemy import delete as sql_delete
 from sqlalchemy import func, select
@@ -36,7 +37,15 @@ from app.models.enums import (
     RecurrenceUnit,
 )
 from app.models.mcp import McpToken
-from app.models.missions import Mission, MissionRun, MissionTarget
+from app.models.missions import (
+    SOURCE_LABEL_MAX_LENGTH,
+    SOURCE_URL_MAX_LENGTH,
+    Mission,
+    MissionRun,
+    MissionSource,
+    MissionSourceLink,
+    MissionTarget,
+)
 from app.models.prospects import Prospect
 from app.services import (
     agent_missions,
@@ -93,6 +102,7 @@ class MissionInput:
     type: MissionType
     prompt: str
     targets: tuple[TargetInput, ...] = ()
+    source_ids: tuple[uuid.UUID, ...] = ()
     agent_id: uuid.UUID | None = None
     is_recurring: bool = False
     interval_count: int = 1
@@ -190,9 +200,18 @@ class MissionRule:
 
 
 @dataclass(frozen=True, slots=True)
+class SourceRow:
+    id: uuid.UUID
+    url: str
+    label: str | None
+    missions_count: int
+
+
+@dataclass(frozen=True, slots=True)
 class MissionDetail:
     card: MissionCard
     targets: list[TargetRow]
+    sources: list[SourceRow]
     runs: list[RunRow]
     tasks: list[MissionTaskRow]
     prompt: str
@@ -406,6 +425,7 @@ def detail(session: Session, mission_id: uuid.UUID) -> MissionDetail:
     return MissionDetail(
         card=card,
         targets=_target_rows(session, mission.id),
+        sources=_linked_sources(session, mission.id),
         runs=runs,
         tasks=_task_rows(session, mission.id),
         prompt=mission.prompt,
@@ -489,6 +509,99 @@ def _target_kinds(targets: tuple[TargetInput, ...]) -> list[str]:
     return ["company" if target.company_id is not None else "prospect" for target in targets]
 
 
+def normalize_source_url(raw: str) -> str:
+    """A saved link must be an absolute http(s) URL; surrounding spaces are dropped."""
+    url = raw.strip()
+    if len(url) > SOURCE_URL_MAX_LENGTH:
+        raise InvalidFieldError("url", f"At most {SOURCE_URL_MAX_LENGTH} characters.", "too_long")
+    parts = urlsplit(url)
+    if parts.scheme not in ("http", "https") or not parts.netloc or " " in url:
+        raise InvalidFieldError(
+            "url", "Enter a full link starting with http:// or https://.", "invalid"
+        )
+    return url
+
+
+def _source_rows(session: Session, sources: list[MissionSource]) -> list[SourceRow]:
+    counts = dict(
+        session.execute(
+            select(MissionSourceLink.source_id, func.count())
+            .where(MissionSourceLink.source_id.in_([source.id for source in sources]))
+            .group_by(MissionSourceLink.source_id)
+        ).all()
+    )
+    return [
+        SourceRow(
+            id=source.id,
+            url=source.url,
+            label=source.label,
+            missions_count=counts.get(source.id, 0),
+        )
+        for source in sources
+    ]
+
+
+def list_sources(session: Session) -> list[SourceRow]:
+    """The saved links, newest first, with how many missions use each."""
+    return _source_rows(
+        session,
+        list(session.scalars(select(MissionSource).order_by(MissionSource.created_at.desc()))),
+    )
+
+
+def _linked_sources(session: Session, mission_id: uuid.UUID) -> list[SourceRow]:
+    return _source_rows(
+        session,
+        list(
+            session.scalars(
+                select(MissionSource)
+                .join(MissionSourceLink, MissionSourceLink.source_id == MissionSource.id)
+                .where(MissionSourceLink.mission_id == mission_id)
+                .order_by(MissionSource.created_at)
+            )
+        ),
+    )
+
+
+def add_source(session: Session, actor: ActorContext, url: str, label: str | None) -> SourceRow:
+    """Save a link once; saving it again returns the existing one (a label fills a blank)."""
+    clean_url = normalize_source_url(url)
+    clean_label = (label or "").strip() or None
+    if clean_label is not None and len(clean_label) > SOURCE_LABEL_MAX_LENGTH:
+        raise InvalidFieldError(
+            "label", f"At most {SOURCE_LABEL_MAX_LENGTH} characters.", "too_long"
+        )
+    source = session.scalar(select(MissionSource).where(MissionSource.url == clean_url))
+    if source is None:
+        source = MissionSource(url=clean_url, label=clean_label, created_by_display=actor.display)
+        session.add(source)
+    elif source.label is None and clean_label is not None:
+        source.label = clean_label
+    session.flush()
+    return _source_rows(session, [source])[0]
+
+
+def delete_source(session: Session, source_id: uuid.UUID) -> None:
+    """Forget a saved link; the missions that used it simply lose it (FK cascade)."""
+    source = session.get(MissionSource, source_id)
+    if source is None:
+        raise NotFoundError("Unknown source.")
+    session.delete(source)
+    session.flush()
+
+
+def _set_sources(session: Session, mission: Mission, source_ids: tuple[uuid.UUID, ...]) -> None:
+    """Replace the links the mission uses with `source_ids` (each must be a saved source)."""
+    session.execute(sql_delete(MissionSourceLink).where(MissionSourceLink.mission_id == mission.id))
+    session.flush()
+    for source_id in dict.fromkeys(source_ids):
+        if session.get(MissionSource, source_id) is None:
+            raise NotFoundError("Unknown source.")
+        session.add(MissionSourceLink(mission_id=mission.id, source_id=source_id))
+    session.flush()
+    session.expire(mission, ["sources"])
+
+
 def _create_targets(session: Session, mission: Mission, targets: tuple[TargetInput, ...]) -> None:
     seen: set[tuple[str, uuid.UUID]] = set()
     for target in targets:
@@ -566,6 +679,7 @@ def create(
     session.add(mission)
     session.flush()
     _create_targets(session, mission, data.targets)
+    _set_sources(session, mission, data.source_ids)
     audit.record_event(
         session,
         actor,
@@ -681,6 +795,7 @@ def update(
     session.execute(sql_delete(MissionTarget).where(MissionTarget.mission_id == mission.id))
     session.flush()
     _create_targets(session, mission, data.targets)
+    _set_sources(session, mission, data.source_ids)
     after = {field_name: _audit_value(getattr(mission, field_name)) for field_name in EDITED_FIELDS}
     changes: dict[str, dict[str, Any]] = {
         field_name: {"before": before[field_name], "after": after[field_name]}

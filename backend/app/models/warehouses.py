@@ -15,9 +15,14 @@ class Warehouse(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __table_args__ = (
         CheckConstraint("btrim(name) <> ''", name="name_not_blank"),
         CheckConstraint("jsonb_typeof(contacts) = 'array'", name="contacts_array"),
+        CheckConstraint(
+            "prospecting_category IS NULL OR prospecting_category IN ('sme', 'other')",
+            name="prospecting_category",
+        ),
     )
 
     name: Mapped[str] = mapped_column(String(500))
+    prospecting_category: Mapped[str | None] = mapped_column(String(20))
     owner_name: Mapped[str | None] = mapped_column(String(500))
     owner_role: Mapped[str | None] = mapped_column(String(1000))
     owner_email: Mapped[str | None] = mapped_column(Text)

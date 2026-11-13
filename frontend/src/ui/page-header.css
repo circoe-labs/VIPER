@@ -27,3 +27,29 @@
   flex-wrap: wrap;
   gap: var(--space-3);
 }
+
+.page-header__lead {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.page-header__mascot {
+  height: 5.5rem;
+  width: auto;
+  flex: none;
+}
+
+@media (max-width: 640px) {
+  .page-header__mascot {
+    height: 4rem;
+  }
+}
+
+/* Un liseré aux couleurs de l'accent sous chaque titre de page. */
+.page-header {
+  padding-bottom: var(--space-4);
+  border-bottom: 2px solid transparent;
+  border-image: linear-gradient(90deg, var(--color-accent), transparent 70%) 1;
+}

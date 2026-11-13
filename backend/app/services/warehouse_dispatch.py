@@ -49,6 +49,7 @@ def dispatch_warehouses(
             if (
                 now - draft.scheduled_at > config.max_lateness
                 or draft.validated_at is None
+                or not draft.human_validated
                 or not draft.recipient
                 or not allowlist_permits(config.allowlist, [draft.recipient])
             ):

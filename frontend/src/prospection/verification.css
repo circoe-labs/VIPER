@@ -143,6 +143,9 @@
 .verification-box--danger {
   --box-color: var(--color-danger-fg);
 }
+.verification-box--copy {
+  --box-color: var(--color-copy);
+}
 
 .verification-box__label {
   font-weight: 600;
@@ -229,4 +232,28 @@
 .verification-bars__count,
 .verification-bars__code {
   font-size: var(--text-sm);
+}
+
+/* --- warehouse prospect entry: one screen, no scrolling ------------------------------------------------------- */
+
+.verification-warehouse-form {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.verification-warehouse-form__row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: var(--space-3);
+}
+
+.verification-warehouse__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.verification-warehouse__spacer {
+  flex: 1;
 }

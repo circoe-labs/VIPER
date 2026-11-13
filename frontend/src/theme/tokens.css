@@ -15,6 +15,18 @@
   --nc-ice: #EAF2F1;
   --nc-deep-emerald: #10261F;
 
+  /* Couleurs d'accent au choix (AccentPicker) : version sombre, puis version claire plus profonde. */
+  --nc-accent-blue: #4DA3FF;
+  --nc-accent-violet: #A78BFA;
+  --nc-accent-orange: #FFB020;
+  --nc-accent-pink: #FF5FA2;
+  --nc-accent-teal: #2DD4BF;
+  --nc-accent-blue-deep: #1F6FD1;
+  --nc-accent-violet-deep: #6D4AD6;
+  --nc-accent-orange-deep: #B86E00;
+  --nc-accent-pink-deep: #C2185B;
+  --nc-accent-teal-deep: #0F8F80;
+
   /* Derived dark steps */
   --nc-graphite: #11171B;
   --nc-charcoal-high: #222C33;

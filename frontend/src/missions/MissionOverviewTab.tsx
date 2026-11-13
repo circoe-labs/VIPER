@@ -5,7 +5,7 @@ import { ReviewDialog } from '../agents/ReviewDialog'
 import type { MissionDetail } from '../api/missions'
 import { StatusBadge } from '../ui/Badge'
 import { Button } from '../ui/Button'
-import { AlertIcon, BoltIcon, BuildingIcon, CalendarIcon, SparklesIcon, TargetIcon, UsersIcon } from '../ui/icons'
+import { AlertIcon, BoltIcon, BuildingIcon, CalendarIcon, LinkIcon, SparklesIcon, TargetIcon, UsersIcon } from '../ui/icons'
 import { InfoTip } from '../ui/InfoTip'
 import { MissionPanel } from './MissionPanel'
 import { momentLabel, RESULT_KIND_LABELS, RUN_STATUS_LABELS, RUN_STATUS_TONES } from './labels'
@@ -18,7 +18,7 @@ interface MissionOverviewTabProps {
 // above the tabs (MissionLiveStrip); mission actions stay in the page header.
 export function MissionOverviewTab({ mission }: MissionOverviewTabProps) {
   const [reviewId, setReviewId] = useState<string | null>(null)
-  const { targets, runs, tasks, prompt, result_kind, result_limit } = mission
+  const { targets, sources, runs, tasks, prompt, result_kind, result_limit } = mission
 
   return (
     <div className="missions mdet-overview">
@@ -56,6 +56,23 @@ export function MissionOverviewTab({ mission }: MissionOverviewTabProps) {
           )}
         </MissionPanel>
       </div>
+
+      <MissionPanel title={`Liens (${String(sources.length)})`} icon={LinkIcon} hue="blue" level={2}>
+        {sources.length === 0 ? (
+          <p className="missions-muted">Aucun lien. « Modifier » permet d’en ajouter, depuis « Sources ».</p>
+        ) : (
+          <ul className="mission-sources">
+            {sources.map((source) => (
+              <li key={source.id} className="mission-source">
+                <a href={source.url} target="_blank" rel="noreferrer noopener">
+                  {source.label ?? source.url}
+                </a>
+                {source.label && <span className="mission-source__url">{source.url}</span>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </MissionPanel>
 
       <MissionPanel title={`Exécutions (${String(runs.length)})`} icon={CalendarIcon} hue="teal" level={2}>
         {runs.length === 0 ? (

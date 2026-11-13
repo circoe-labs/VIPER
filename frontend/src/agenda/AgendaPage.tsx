@@ -141,7 +141,7 @@ export function AgendaPage() {
 
   return (
     <div className="agenda">
-      <PageHeader
+      <PageHeader mascot="checklist"
         title="Agenda"
         description="Les rendez-vous pris, ce qui a été envoyé avant, et leur suivi."
         actions={
