@@ -42,6 +42,12 @@ class SkillRefOut(BaseModel):
     name: str
 
 
+class SourceRefOut(BaseModel):
+    id: uuid.UUID
+    url: str
+    label: str | None
+
+
 class CategoryOut(BaseModel):
     id: uuid.UUID
     # A built-in category carries its technical type here and cannot be deleted; null otherwise.
@@ -56,6 +62,8 @@ class CategoryOut(BaseModel):
     mission_type: MissionType
     position: int
     skills: list[SkillRefOut]
+    # The external sources a mission of this category follows until it overrides `sources`.
+    sources: list[SourceRefOut]
     missions_count: int
     created_at: datetime
     updated_at: datetime
@@ -71,10 +79,16 @@ class CategoryIn(StrictModel):
     mission_type: MissionType | None = None
     skill_ids: list[uuid.UUID] = Field(default_factory=list, max_length=100)
     position: int | None = Field(default=None, ge=0, le=10_000)
+    # Omitted: the default sources are left as they are.
+    source_ids: list[uuid.UUID] | None = Field(default=None, max_length=100)
 
 
 class CategorySkillsIn(StrictModel):
     skill_ids: list[uuid.UUID] = Field(max_length=100)
+
+
+class CategorySourcesIn(StrictModel):
+    source_ids: list[uuid.UUID] = Field(max_length=100)
 
 
 class SkillOut(BaseModel):
@@ -105,6 +119,9 @@ def _category_out(row: service.CategoryRow) -> CategoryOut:
         mission_type=row.mission_type,
         position=row.position,
         skills=[SkillRefOut(id=skill.id, name=skill.name) for skill in row.skills],
+        sources=[
+            SourceRefOut(id=source.id, url=source.url, label=source.label) for source in row.sources
+        ],
         missions_count=row.missions_count,
         created_at=row.created_at,
         updated_at=row.updated_at,
@@ -121,6 +138,7 @@ def _category_input(body: CategoryIn) -> service.CategoryInput:
         mission_type=body.mission_type,
         skill_ids=tuple(body.skill_ids),
         position=body.position,
+        source_ids=tuple(body.source_ids) if body.source_ids is not None else None,
     )
 
 
@@ -176,6 +194,23 @@ def set_category_skills(
         require_admin(auth)
         return _category_out(
             service.set_category_skills(session, actor, category_id, body.skill_ids)
+        )
+
+
+@categories_router.put("/{category_id}/sources")
+def set_category_sources(
+    category_id: uuid.UUID,
+    body: CategorySourcesIn,
+    session: SessionDep,
+    actor: CurrentActor,
+    auth: AuthDep,
+) -> CategoryOut:
+    """The ordered default external sources of the category (association API). Missions still
+    inheriting `sources` read them live; the others are untouched."""
+    with business_errors():
+        require_admin(auth)
+        return _category_out(
+            service.set_category_sources(session, actor, category_id, body.source_ids)
         )
 
 

@@ -641,6 +641,23 @@ def _existing_people(session: Session, company_id: uuid.UUID) -> list[dict[str, 
     return people
 
 
+def _mission_source_refs(mission: Mission) -> list[dict[str, str | None]]:
+    """The external sources of the mission: its own list, else its category's defaults
+    (`mission_sources.effective_sources`). Without a session (a detached mission) only the loaded
+    own links are known."""
+    from sqlalchemy.orm import object_session
+
+    from app.services import mission_sources
+
+    session = object_session(mission)
+    sources = (
+        mission_sources.effective_sources(session, mission)
+        if session is not None
+        else list(mission.sources)
+    )
+    return [{"url": source.url, "label": source.label} for source in sources]
+
+
 def mission_rule(mission: Mission) -> dict[str, Any]:
     """The rule a run works under: the payload's `mission` block. Kept on each run when it starts
     (`MissionRun.config`), so « Modifier la mission » only changes the next runs."""
@@ -659,7 +676,7 @@ def mission_rule(mission: Mission) -> dict[str, Any]:
         "allow_multiple": mission.allow_multiple,
         "objective": parse_objective(mission.objective),
         # Saved links the agent should read first (« Sources » on the mission form).
-        "sources": [{"url": source.url, "label": source.label} for source in mission.sources],
+        "sources": _mission_source_refs(mission),
     }
 
 

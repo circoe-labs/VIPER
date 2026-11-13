@@ -56,6 +56,9 @@ INTERVAL_MAX = 1000
 MAX_RUNS_MAX = 1000
 SOURCE_URL_MAX_LENGTH = 2000
 SOURCE_LABEL_MAX_LENGTH = 200
+SOURCE_DESCRIPTION_MAX_LENGTH = 1000
+SOURCE_DOMAIN_MAX_LENGTH = 255
+SOURCE_PATH_MAX_LENGTH = 500
 
 
 class Mission(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, Base):
@@ -138,7 +141,7 @@ class Mission(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, Base)
         JSONB, server_default=text("'[]'::jsonb")
     )
     # The links this mission reads (read-only view; written through `MissionSourceLink`).
-    sources: Mapped[list["MissionSource"]] = relationship(
+    sources: Mapped[list[MissionSource]] = relationship(
         secondary="mission_source_links",
         viewonly=True,
         order_by="MissionSource.created_at",
@@ -146,18 +149,40 @@ class Mission(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, Base)
 
 
 class MissionSource(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, Base):
-    """A link VIPER keeps for reuse: saved once, attachable to any mission."""
+    """An external research source of the library: a **root** (LinkedIn, Hunter.io) or one level of
+    **sub-source** under it (LinkedIn > Jobs). Reusable across missions and category defaults.
+
+    `url` is the identity of the entry (exact-URL unique per organisation, as before migration
+    0050). `domain` / `path_prefix` are its normalised form and what a cited URL is matched against
+    (`services.mission_sources.resolve_source`): the concrete URLs an agent cited stay in
+    `mission_evidence_citations`, never become library rows. `successful_uses` counts the accepted
+    result items this very source supported (derived from `mission_source_contributions`).
+    """
 
     __tablename__ = "mission_sources"
     __table_args__ = (
         CheckConstraint(
             f"btrim(url) <> '' AND char_length(url) <= {SOURCE_URL_MAX_LENGTH}", name="url_valid"
         ),
+        CheckConstraint("parent_id IS NULL OR parent_id <> id", name="not_own_parent"),
+        CheckConstraint("successful_uses >= 0", name="uses_positive"),
         Index("uq_mission_sources_organization_url", "organization_id", "url", unique=True),
+        Index("ix_mission_sources_domain", "organization_id", "domain"),
     )
 
     url: Mapped[str] = mapped_column(String(SOURCE_URL_MAX_LENGTH))
     label: Mapped[str | None] = mapped_column(String(SOURCE_LABEL_MAX_LENGTH))
+    # What the source is good for (« annuaire des sites logistiques de Normandie »).
+    description: Mapped[str | None] = mapped_column(String(SOURCE_DESCRIPTION_MAX_LENGTH))
+    # NULL = a root. Only one level: a sub-source never has children (enforced by the service).
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("mission_sources.id", ondelete="RESTRICT"), index=True
+    )
+    # Lower-case host without `www.` and port; `path_prefix` has no trailing slash (« » for the
+    # whole site).
+    domain: Mapped[str] = mapped_column(String(SOURCE_DOMAIN_MAX_LENGTH))
+    path_prefix: Mapped[str] = mapped_column(String(SOURCE_PATH_MAX_LENGTH), server_default="")
+    successful_uses: Mapped[int] = mapped_column(Integer, server_default="0")
     created_by_display: Mapped[str] = mapped_column(String(AGENT_LABEL_MAX_LENGTH))
 
 
