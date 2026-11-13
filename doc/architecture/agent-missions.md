@@ -286,7 +286,10 @@ with identical data is idempotent; reusing it with different data is refused. Up
 existing proposal capabilities and task-type scopes. Final `viper_submit_task_result` with an empty
 `result` packages all staged actions in one result and one selectable review. The actions are held
 through releases, failures and expired claims; the next claimant receives the staged actions.
-Cancellation clears them. They never write business records before human acceptance. The existing single-result schema remains
+Cancellation clears them. They never write business records before human acceptance. Inside a
+mission run staging is bound by the output contract (an update names the task's own record, a
+discovery task stages one company unless `allow_multiple`; `wrong_target` / `too_many`, Slice 07).
+The existing single-result schema remains
 available when no actions were staged. Acceptance applies the selected changes in one transaction.
 
 - **Target**: the thread's `brief`, no company. **Priority** 20.
@@ -520,6 +523,10 @@ one type at a time; the server does not shuffle.
   "output_schema_version": 2,
   "output_contract": { "version": 1, "envelope": "single", "max_items": 1, "omit_unchanged": true, "…": "§7.4" },
   "objective": { "kind": "tasks_accepted", "count": null },
+  "mission": { "prompt": "…", "category": { "key": "enrichment", "name": "Enrichissement" }, "skills": [{ "name": "…", "content": "…" }], "sources": [{ "url": "https://hunter.io", "label": "Hunter", "description": null }], "…": "missions.md §5" },
+  "internal_context": [{ "kind": "company", "id": "…", "label": "…", "read_only": true, "fields": {} }],
+  "agent": { "identity": "ChatGPT lucie #2", "agent_id": "…" },
+  "lifecycle": { "finish": "…", "give_back": "…", "stop": "viper_leave_work …", "safety_nets": "…", "task_limit": "…" },
   "constraints": {
     "no_guessing": true,
     "quote_evidence": true,
@@ -532,6 +539,9 @@ one type at a time; the server does not shuffle.
 ```
 
 Rules:
+- `mission`, `internal_context`, `agent` and `lifecycle` are present for a mission task only (a
+  tool-mode task has none); `internal_context` is read-only supporting data, never the target and
+  never evidence (`missions.md` §5, Slice 07).
 - `user_data` carries only the fields needed to judge what is missing — no `version`, no internal
   ids beyond the subject, no audit.
 - `sources` are URLs VIPER already knows (never crawled content); `search_hints` are suggested

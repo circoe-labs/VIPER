@@ -407,7 +407,7 @@ def test_the_agent_claim_carries_the_category_default_sources(
     answer = rpc(client, mint(db_session), "viper_claim_task", {"task_types": ["update_company"]})
 
     assert answer["structuredContent"]["mission"]["sources"] == [
-        {"url": "https://hunter.io", "label": "Hunter"}
+        {"url": "https://hunter.io", "label": "Hunter", "description": None}
     ]
 
 

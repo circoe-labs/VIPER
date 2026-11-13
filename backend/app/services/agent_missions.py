@@ -376,6 +376,9 @@ def claim(
     # Part of the claim's transaction: a claimed mission task always has an active session.
     mission_telemetry.touch_session(session, actor, task, moment)
     payload = build_payload(session, task, lease_expires_at=task.lease_expires_at, now=moment)
+    # Who VIPER sees (the numbered identity of the token), as it appears in logs and the Activity
+    # page: never what the model says it is (`viper_whoami` gives the full picture).
+    payload["agent"] = {"identity": actor.display, "agent_id": agent_id}
     if task.staged_actions:
         payload["staged_actions"] = task.staged_actions
     return ClaimedTask(task=task, payload=payload, lease_seconds=int(lease.total_seconds()))

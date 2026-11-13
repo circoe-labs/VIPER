@@ -674,7 +674,9 @@ separate principal: the `mcp_tokens` row is the agent.
   With `task_id`, only the run of that task (its tasks held by the caller and its session).
   Answers `{released_tasks, ended_sessions, scope: all|run}`; idempotent (zeros the second time);
   unknown `task_id` is `not_found`. Fallback aggregate for the mission-level « leave » that Slice 07
-  may reuse as `agent_lifecycle.leave_work`.
+  may reuse as `agent_lifecycle.leave_work`. Slice 07 decision: the mission-level « leave » **is**
+  this call (`task_id` = the run), nothing more is needed; the claim payload's `lifecycle` and
+  `agent` blocks tell the agent so (`missions.md` §5).
 - **Independence of the two safety nets.** Never required: the 15-minute task lease
   (`agent_missions.sweep_expired`) and the 3-hour session timeout
   (`mission_telemetry.sweep_timed_out`, unchanged) touch disjoint data — a timed-out session never
