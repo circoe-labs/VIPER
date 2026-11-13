@@ -2,40 +2,27 @@ import { useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 
 import { useMission, useMissionOverview, useSetMissionStatus } from '../api/missions'
-import { StatusBadge } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { EmptyState } from '../ui/EmptyState'
-import { PageHeader } from '../ui/PageHeader'
 import { type TabItem, Tabs } from '../ui/Tabs'
 import {
   AlertIcon,
   ArrowLeftIcon,
   PauseIcon,
-  PencilIcon,
-  PlayIcon,
   SparklesIcon,
-  TrashIcon,
 } from '../ui/icons'
 import { CreateMissionDialog } from './CreateMissionDialog'
 import { DeleteMissionDialog } from './DeleteMissionDialog'
-import {
-  MISSION_STATUS_ICONS,
-  MISSION_STATUS_LABELS,
-  MISSION_STATUS_TONES,
-  MISSION_TYPE_LABELS,
-  MISSION_TAB_LABELS,
-  MISSION_TABS,
-  type MissionTabId,
-  parseMissionTab,
-  recurrenceLabel,
-} from './labels'
+import { MISSION_TAB_LABELS, MISSION_TABS, type MissionTabId, parseMissionTab } from './labels'
 import { ActivityTab } from './ActivityTab'
+import { MissionHeader } from './MissionHeader'
 import { MissionLiveStrip } from './MissionLiveStrip'
 import { MissionOverviewTab } from './MissionOverviewTab'
 import { missingForRun } from './missionKinds'
 import { ResultsTab } from './ResultsTab'
 import { StatsTab } from './StatsTab'
 import './missions.css'
+import './missionDetail.css'
 
 // Live strip refresh; the polling pauses by itself while the browser tab is hidden.
 const OVERVIEW_POLL_MS = 15_000
@@ -92,62 +79,24 @@ export function MissionDetailPage() {
   // Same rule as the server: a rule that would create no task is flagged.
   const missing = missingForRun(card.type, result_kind, targets)
   const lastRun = runs[0]
-  const closed = card.status === 'done' || card.status === 'cancelled'
 
   return (
     <div className="missions">
       <Link to="/missions" className="missions-back">
         <ArrowLeftIcon size={16} /> Missions
       </Link>
-      <PageHeader
-        title={card.name}
-        description={
-          <span className="missions-detail__meta">
-            <StatusBadge tone={MISSION_STATUS_TONES[card.status]} icon={MISSION_STATUS_ICONS[card.status]}>
-              {MISSION_STATUS_LABELS[card.status]}
-            </StatusBadge>
-            <span>
-              {MISSION_TYPE_LABELS[card.type]} · {card.agent_label ?? 'Automatique'} · {recurrenceLabel(card)}
-            </span>
-          </span>
-        }
-        actions={
-          <div className="missions-detail__actions">
-            {!closed && (
-              <Button
-                variant={open ? 'secondary' : 'primary'}
-                icon={open ? PauseIcon : PlayIcon}
-                loading={setStatus.isPending}
-                title={open ? 'Les agents ne reçoivent plus ses tâches.' : 'Ses tâches redeviennent accessibles aux agents.'}
-                onClick={() => {
-                  setStatus.mutate(open ? 'paused' : 'active')
-                }}
-              >
-                {open ? 'Désactiver' : 'Activer'}
-              </Button>
-            )}
-            <Button
-              variant="secondary"
-              icon={PencilIcon}
-              disabled={closed}
-              title={closed ? 'Mission terminée : créez-en une nouvelle.' : undefined}
-              onClick={() => {
-                setEditing(true)
-              }}
-            >
-              Modifier
-            </Button>
-            <Button
-              variant="secondary"
-              icon={TrashIcon}
-              onClick={() => {
-                setDeleting(true)
-              }}
-            >
-              Supprimer
-            </Button>
-          </div>
-        }
+      <MissionHeader
+        mission={mission.data}
+        statusPending={setStatus.isPending}
+        onToggleStatus={() => {
+          setStatus.mutate(open ? 'paused' : 'active')
+        }}
+        onEdit={() => {
+          setEditing(true)
+        }}
+        onDelete={() => {
+          setDeleting(true)
+        }}
       />
       {setStatus.isError && <p className="missions-error">Le statut n’a pas pu être changé.</p>}
       {editing && (

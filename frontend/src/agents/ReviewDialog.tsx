@@ -6,7 +6,8 @@ import { StatusBadge } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { Modal } from '../ui/Dialog'
 import { ReviewDecision } from './ReviewDecision'
-import { DiscoveryDetails, ItemRow, SignalRow } from './ReviewItems'
+import { ReviewProposalTable } from './ReviewProposalTable'
+import { DiscoveryDetails, SignalRow } from './ReviewItems'
 import { ReviewSummary } from './ReviewSummary'
 import { TASK_TYPE_LABELS, sinceLabel } from './labels'
 import { safeHref } from './reviewFormat'
@@ -146,23 +147,17 @@ export function ReviewDialog({
               ))}
             </ul>
           ) : (
-            <ul className="review-items" aria-label="Propositions">
-              {proposal.items.map((item) => (
-                <ItemRow
-                  key={item.key}
-                  item={item}
-                  checked={selected.has(item.key)}
-                  locked={decided !== null}
-                  onToggle={() => {
-                    toggle(item.key)
-                  }}
-                >
-                  {(proposal.kind === 'find_prospects' || item.action_operation === 'add_company') && (
-                    <DiscoveryDetails item={item} />
-                  )}
-                </ItemRow>
-              ))}
-            </ul>
+            <ReviewProposalTable
+              items={proposal.items}
+              selected={selected}
+              locked={decided !== null}
+              onToggle={toggle}
+              detail={(item) =>
+                proposal.kind === 'find_prospects' || item.action_operation === 'add_company' ? (
+                  <DiscoveryDetails item={item} />
+                ) : null
+              }
+            />
           )}
           {proposal.refused.length > 0 && (
             <div className="review-refused">

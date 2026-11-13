@@ -1,0 +1,135 @@
+/* Review proposal table (Slice 04, prefix rvt-). Tokens only. Base table look comes from ui/table.css. */
+
+.rvt .table td,
+.rvt .table th {
+  vertical-align: top;
+}
+
+.rvt .table thead th {
+  position: static;
+}
+
+.rvt-check {
+  width: 2.5rem;
+  padding-inline-end: 0;
+}
+
+.rvt-check input {
+  width: 1.125rem;
+  height: 1.125rem;
+  accent-color: var(--color-accent-fg);
+  cursor: pointer;
+}
+
+.rvt-check input:disabled {
+  cursor: not-allowed;
+}
+
+.rvt .table th.rvt-field {
+  color: var(--color-text);
+  font-size: inherit;
+  letter-spacing: normal;
+  text-transform: none;
+  font-weight: var(--weight-semibold);
+  white-space: normal;
+  background: transparent;
+}
+
+.rvt-before,
+.rvt-after {
+  overflow-wrap: anywhere;
+}
+
+.rvt-before {
+  color: var(--color-text-muted);
+}
+
+.rvt-after--add {
+  color: var(--color-success-fg);
+  font-weight: var(--weight-semibold);
+}
+
+.rvt-after--change {
+  color: var(--color-warning-fg);
+  font-weight: var(--weight-semibold);
+}
+
+.rvt-missing,
+.rvt-host {
+  color: var(--color-text-muted);
+}
+
+.rvt-missing {
+  font-style: italic;
+}
+
+.rvt-row.is-selected td,
+.rvt-row.is-selected th.rvt-field {
+  background: color-mix(in srgb, var(--color-accent-soft) 45%, transparent);
+}
+
+/* The detail row belongs to the row above: no rule between them. */
+.rvt-row:has(+ .rvt-detail) > td,
+.rvt-row:has(+ .rvt-detail) > th {
+  border-bottom: 0;
+}
+
+.rvt-detail td {
+  padding-block-start: 0;
+}
+
+.rvt-quote {
+  display: block;
+  margin-block-end: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+/* Narrow: each proposal stacks as labelled lines, checkbox first. */
+@media (max-width: 40rem) {
+  .rvt .table,
+  .rvt .table tbody,
+  .rvt .table tr,
+  .rvt .table td,
+  .rvt .table th[scope='row'] {
+    display: block;
+    width: 100%;
+  }
+
+  .rvt .table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .rvt .table tr.rvt-row {
+    padding-block: var(--space-2);
+    border-bottom: var(--border-width) solid var(--color-border);
+  }
+
+  .rvt .table tr.rvt-row > td,
+  .rvt .table tr.rvt-row > th {
+    padding: var(--space-1) var(--space-3);
+    border-bottom: 0;
+  }
+
+  .rvt .table td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    color: var(--color-text-muted);
+    font-size: var(--text-xs);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+  }
+
+  .rvt-check {
+    width: auto;
+  }
+
+  .rvt-check input {
+    width: 1.5rem;
+    height: 1.5rem;
+  }
+}

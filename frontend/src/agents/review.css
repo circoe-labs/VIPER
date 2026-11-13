@@ -7,7 +7,7 @@
   gap: var(--space-3) var(--space-5);
   padding: var(--space-4);
   border: var(--border-width) solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   background: var(--color-surface-raised);
 }
 
@@ -115,6 +115,16 @@
   grid-column: 1 / -1;
 }
 
+.review-refused {
+  gap: var(--space-2);
+  background: var(--color-danger-soft);
+  color: var(--color-danger-fg);
+}
+
+.review-refused strong {
+  color: inherit;
+}
+
 .review-footer {
   display: grid;
   gap: var(--space-2);
@@ -138,5 +148,15 @@
 
   .review-item {
     grid-template-columns: 1fr;
+  }
+
+  /* Decision buttons stay large enough to hit on a phone (contract §3). */
+  .review-actions {
+    flex-wrap: wrap;
+  }
+
+  .review-actions .btn {
+    flex: 1 1 10rem;
+    min-height: 2.75rem;
   }
 }
