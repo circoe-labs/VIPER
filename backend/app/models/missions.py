@@ -29,7 +29,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.actor import ActorType
 from app.db.base import Base
@@ -54,6 +54,8 @@ RESULT_LIMIT_MAX = 500
 PERIOD_DAYS_MAX = 3650
 INTERVAL_MAX = 1000
 MAX_RUNS_MAX = 1000
+SOURCE_URL_MAX_LENGTH = 2000
+SOURCE_LABEL_MAX_LENGTH = 200
 
 
 class Mission(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, Base):
@@ -116,6 +118,44 @@ class Mission(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, Base)
     created_by_type: Mapped[ActorType] = mapped_column(text_enum(ActorType, "created_by_type"))
     created_by_id: Mapped[str | None] = mapped_column(String(ACTOR_ID_MAX_LENGTH))
     created_by_display: Mapped[str] = mapped_column(String(AGENT_LABEL_MAX_LENGTH))
+    # The links this mission reads (read-only view; written through `MissionSourceLink`).
+    sources: Mapped[list["MissionSource"]] = relationship(
+        secondary="mission_source_links",
+        viewonly=True,
+        order_by="MissionSource.created_at",
+    )
+
+
+class MissionSource(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, Base):
+    """A link VIPER keeps for reuse: saved once, attachable to any mission."""
+
+    __tablename__ = "mission_sources"
+    __table_args__ = (
+        CheckConstraint(
+            f"btrim(url) <> '' AND char_length(url) <= {SOURCE_URL_MAX_LENGTH}", name="url_valid"
+        ),
+        Index("uq_mission_sources_organization_url", "organization_id", "url", unique=True),
+    )
+
+    url: Mapped[str] = mapped_column(String(SOURCE_URL_MAX_LENGTH))
+    label: Mapped[str | None] = mapped_column(String(SOURCE_LABEL_MAX_LENGTH))
+    created_by_display: Mapped[str] = mapped_column(String(AGENT_LABEL_MAX_LENGTH))
+
+
+class MissionSourceLink(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """A mission uses a saved source."""
+
+    __tablename__ = "mission_source_links"
+    __table_args__ = (
+        Index("uq_mission_source_links_pair", "mission_id", "source_id", unique=True),
+    )
+
+    mission_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("missions.id", ondelete="CASCADE"), index=True
+    )
+    source_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("mission_sources.id", ondelete="CASCADE"), index=True
+    )
 
 
 class MissionTarget(UUIDPrimaryKeyMixin, TimestampMixin, Base):

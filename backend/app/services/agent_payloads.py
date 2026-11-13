@@ -549,6 +549,8 @@ def mission_rule(mission: Mission) -> dict[str, Any]:
         "geography": mission.geography,
         "period_days": mission.period_days,
         "exclusions": mission.exclusions,
+        # Saved links the agent should read first (« Sources » on the mission form).
+        "sources": [{"url": source.url, "label": source.label} for source in mission.sources],
     }
 
 

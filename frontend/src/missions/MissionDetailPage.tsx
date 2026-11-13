@@ -66,7 +66,7 @@ export function MissionDetailPage() {
     )
   }
 
-  const { card, targets, runs, tasks, prompt, result_kind, result_limit } = mission.data
+  const { card, targets, sources, runs, tasks, prompt, result_kind, result_limit } = mission.data
   const open = card.status === 'active'
   // Same rule as the server: a rule that would create no task is flagged.
   const missing = missingForRun(card.type, result_kind, targets)
@@ -208,6 +208,23 @@ export function MissionDetailPage() {
           )}
         </Card>
       </div>
+
+      <Card title={`Liens (${String(sources.length)})`}>
+        {sources.length === 0 ? (
+          <p className="missions-muted">Aucun lien. « Modifier » permet d’en ajouter, depuis « Sources ».</p>
+        ) : (
+          <ul className="mission-sources">
+            {sources.map((source) => (
+              <li key={source.id} className="mission-source">
+                <a href={source.url} target="_blank" rel="noreferrer noopener">
+                  {source.label ?? source.url}
+                </a>
+                {source.label && <span className="mission-source__url">{source.url}</span>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
 
       <Card title={`Exécutions (${String(runs.length)})`}>
         {runs.length === 0 ? (

@@ -79,6 +79,13 @@ export interface MissionTargetRow {
   hint: string | null
 }
 
+export interface MissionSource {
+  id: string
+  url: string
+  label: string | null
+  missions_count: number
+}
+
 export interface MissionProposal {
   result_id: string
   task_type: TaskType
@@ -102,6 +109,7 @@ export interface MissionRule {
 export interface MissionDetail {
   card: MissionCard
   targets: MissionTargetRow[]
+  sources: MissionSource[]
   runs: MissionRunRow[]
   tasks: MissionTaskRow[]
   prompt: string
@@ -146,6 +154,7 @@ export interface MissionInput {
   type: MissionType
   prompt: string
   targets: { kind: 'company' | 'prospect'; id: string }[]
+  source_ids: string[]
   agent_id: string | null
   is_recurring: boolean
   interval_count: number
@@ -170,6 +179,7 @@ export const missionKeys = {
   agents: ['missions', 'agents'] as const,
   targets: (kind: string, search: string) => ['missions', 'targets', kind, search] as const,
   proposals: ['missions', 'proposals'] as const,
+  sources: ['missions', 'sources'] as const,
 }
 
 export function useMissions(status?: MissionStatus) {
@@ -224,6 +234,33 @@ export function useMissionTargets(kind: 'company' | 'prospect', search: string, 
       ),
     enabled,
     refetchOnWindowFocus: false,
+  })
+}
+
+// The saved links, reusable by any mission.
+export function useMissionSources() {
+  return useQuery({
+    queryKey: missionKeys.sources,
+    queryFn: ({ signal }) => apiGet<MissionSource[]>('/missions/sources', signal),
+    refetchOnWindowFocus: false,
+  })
+}
+
+// Saves a link once (the same link again returns the saved one).
+export function useAddMissionSource() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { url: string; label: string | null }) =>
+      apiRequest<MissionSource>('POST', '/missions/sources', { body: input }),
+    onSuccess: () => refreshAfterWrite(queryClient, [missionKeys.sources]),
+  })
+}
+
+export function useDeleteMissionSource() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => apiRequest<undefined>('DELETE', `/missions/sources/${encodeURIComponent(id)}`),
+    onSuccess: () => refreshAfterWrite(queryClient, [missionKeys.sources, ['missions']]),
   })
 }
 

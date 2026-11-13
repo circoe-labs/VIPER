@@ -356,62 +356,6 @@
   right: 0;
 }
 
-/* « Que doit faire l’agent ? » */
-.mission-kinds {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: var(--space-2);
-}
-
-.mission-kind {
-  position: relative;
-}
-
-.mission-kind__choice {
-  display: grid;
-  justify-items: center;
-  gap: var(--space-2);
-  width: 100%;
-  height: 100%;
-  padding: var(--space-4) var(--space-3) var(--space-3);
-  border: var(--border-width) solid var(--color-border);
-  border-radius: var(--radius-lg);
-  background: var(--color-surface);
-  color: var(--color-text-muted);
-  cursor: pointer;
-  font: inherit;
-  text-align: center;
-}
-
-.mission-kind__choice:hover {
-  border-color: var(--color-border-strong);
-  background: var(--color-surface-hover);
-  color: var(--color-text);
-}
-
-.mission-kind__choice:focus-visible {
-  outline: var(--focus-ring-width) solid var(--color-focus);
-  outline-offset: var(--focus-ring-offset);
-}
-
-.mission-kind.is-selected .mission-kind__choice {
-  border-color: var(--color-focus);
-  background: var(--color-surface-hover);
-  color: var(--color-text);
-  box-shadow: inset 0 0 0 1px var(--color-focus);
-}
-
-.mission-kind__label {
-  font-size: var(--text-sm);
-  font-weight: var(--weight-medium);
-}
-
-.mission-kind__tip {
-  position: absolute;
-  top: var(--space-1);
-  right: var(--space-1);
-}
-
 /* Une fois / Récurrente */
 .mission-form__segmented {
   display: inline-flex;
@@ -596,4 +540,170 @@
   column-gap: var(--space-2);
   font-size: var(--text-sm);
   color: var(--color-text-muted);
+}
+
+/* --- « Créer mission » / « Résultat mission »: green-outlined look --- */
+
+.dialog--mission {
+  --mission-green: var(--color-accent);
+  background: var(--color-surface);
+}
+
+.dialog--mission .dialog__header {
+  border-bottom: 2px solid var(--mission-green);
+}
+
+.dialog--mission .dialog__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--text-3xl);
+  font-weight: var(--weight-bold);
+}
+
+.dialog__title-icon {
+  display: inline-flex;
+  color: var(--mission-green);
+}
+
+.dialog--mission .dialog__footer {
+  border-top: 2px solid var(--mission-green);
+}
+
+.dialog--mission .field__label {
+  font-size: var(--text-md);
+  font-weight: var(--weight-bold);
+}
+
+.dialog--mission .field__control {
+  border: 2px solid var(--mission-green);
+  border-radius: var(--radius-lg);
+  min-height: 3rem;
+}
+
+.dialog--mission .field__control--multiline {
+  min-height: 7rem;
+}
+
+.mission-form__panels {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+
+.mission-form__panel-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-height: 3.5rem;
+  padding: 0 var(--space-5);
+  border: 2px solid var(--color-accent);
+  border-radius: var(--radius-lg);
+  background: var(--color-field);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-bold);
+  cursor: pointer;
+}
+
+.mission-form__panel-toggle > svg {
+  color: var(--color-accent);
+}
+
+.mission-form__panel-toggle[aria-expanded='true'] {
+  background: var(--color-accent-soft);
+}
+
+.mission-form__panel {
+  display: grid;
+  gap: var(--space-5);
+  padding: var(--space-4);
+  border: 2px solid var(--color-accent);
+  border-radius: var(--radius-lg);
+}
+
+.mission-result__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding-bottom: var(--space-3);
+  border-bottom: 2px solid var(--color-accent);
+  font-size: var(--text-3xl);
+  font-weight: var(--weight-bold);
+}
+
+.mission-result__title > svg {
+  color: var(--color-accent);
+}
+
+.mission-result-card {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  border: 2px solid var(--color-accent);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+
+.mission-result-card__score {
+  justify-self: start;
+  padding: var(--space-1) var(--space-4);
+  border-radius: var(--radius-pill, 999px);
+  background: var(--color-accent-soft);
+  color: var(--color-text);
+  font-weight: var(--weight-bold);
+}
+
+.mission-result-card__rows {
+  display: grid;
+  margin: 0;
+}
+
+.mission-result-card__row {
+  display: grid;
+  grid-template-columns: minmax(7rem, 14rem) 1fr;
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.mission-result-card__row:last-child {
+  border-bottom: 0;
+}
+
+.mission-result-card__row dt {
+  font-weight: var(--weight-bold);
+}
+
+.mission-result-card__row dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .mission-form__panels {
+    grid-template-columns: 1fr;
+  }
+}
+
+.mission-sources {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mission-source {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.mission-source__url {
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
 }

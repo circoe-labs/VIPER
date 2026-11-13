@@ -1,4 +1,4 @@
-import { type KeyboardEvent, useRef, useState } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router'
 
 import {
@@ -8,7 +8,10 @@ import {
   type MissionResultKind,
   type RecurrenceUnit,
   type TargetOption,
+  useAddMissionSource,
   useCreateMission,
+  useDeleteMissionSource,
+  useMissionSources,
   useUpdateMission,
   useMissionAgents,
   useMissionOptions,
@@ -19,16 +22,18 @@ import { Modal } from '../ui/Dialog'
 import { Checkbox, SelectField, TextAreaField, TextField } from '../ui/fields'
 import {
   AlertIcon,
+  ArrowRightIcon,
+  BoltIcon,
   BuildingIcon,
   CheckCircleIcon,
   ClockIcon,
   CloseIcon,
+  DatabaseIcon,
   LinkIcon,
   PlayIcon,
   PlusIcon,
   RepeatIcon,
   SlidersIcon,
-  SparklesIcon,
   UsersIcon,
 } from '../ui/icons'
 import { InfoTip } from '../ui/InfoTip'
@@ -67,55 +72,6 @@ interface MissionDialogProps {
   onSaved?: (detail: MissionDetail) => void
 }
 
-// « Que doit faire l’agent ? »: a radio group of tiles (arrows move the choice, Tab leaves the group). Each tile's
-// explanation sits in an InfoTip beside it, not in plain text.
-function KindTiles({ value, onChange }: { value: MissionKind; onChange: (kind: MissionKind) => void }) {
-  const refs = useRef<(HTMLButtonElement | null)[]>([])
-  const move = (event: KeyboardEvent, index: number) => {
-    const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key]
-    if (step === undefined) return
-    event.preventDefault()
-    const next = (index + step + MISSION_KINDS.length) % MISSION_KINDS.length
-    const target = MISSION_KINDS[next]
-    if (!target) return
-    onChange(target.id)
-    refs.current[next]?.focus()
-  }
-  return (
-    <div className="mission-kinds" role="radiogroup" aria-label="Que doit faire l’agent ?">
-      {MISSION_KINDS.map((item, index) => {
-        const selected = item.id === value
-        return (
-          <div key={item.id} className={`mission-kind${selected ? ' is-selected' : ''}`}>
-            <button
-              ref={(element) => {
-                refs.current[index] = element
-              }}
-              type="button"
-              role="radio"
-              aria-checked={selected}
-              tabIndex={selected ? 0 : -1}
-              className="mission-kind__choice"
-              onClick={() => {
-                onChange(item.id)
-              }}
-              onKeyDown={(event) => {
-                move(event, index)
-              }}
-            >
-              <item.icon size={22} />
-              <span className="mission-kind__label">{item.label}</span>
-            </button>
-            <span className="mission-kind__tip">
-              <InfoTip label={`Aide : ${item.label}`}>{item.help}</InfoTip>
-            </span>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
 // « + Nouvelle mission » / « Modifier la mission »: the tiles, the consigne, the linked data, the run, then the
 // advanced block; a live line says whether the rule can run. The linked records are
 export function CreateMissionDialog({ open, onClose, mission, onSaved }: MissionDialogProps) {
@@ -150,6 +106,14 @@ export function CreateMissionDialog({ open, onClose, mission, onSaved }: Mission
   const [excludeKnown, setExcludeKnown] = useState(rule?.exclusions.known_companies === true)
   const [nameTouched, setNameTouched] = useState(editing)
   const [picking, setPicking] = useState(false)
+  // The two panels under the consigne: « Skills » (agent, execution, options) and « Sources » (linked records).
+  const sources = useMissionSources()
+  const addSource = useAddMissionSource()
+  const deleteSource = useDeleteMissionSource()
+  const [sourceIds, setSourceIds] = useState<string[]>(mission?.sources.map((source) => source.id) ?? [])
+  const [sourceUrl, setSourceUrl] = useState('')
+  const [sourceLabel, setSourceLabel] = useState('')
+  const [panel, setPanel] = useState<'skills' | 'sources' | null>(null)
 
   const spec = kindSpec(kind)
   const type = spec.type
@@ -169,6 +133,25 @@ export function CreateMissionDialog({ open, onClose, mission, onSaved }: Mission
     setResultKind(kindSpec(next).resultKind)
   }
 
+  const toggleSource = (id: string) => {
+    setSourceIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]))
+  }
+
+  // Saves the link in VIPER's library (once) and uses it in this mission.
+  const saveSource = () => {
+    if (sourceUrl.trim() === '') return
+    addSource.mutate(
+      { url: sourceUrl, label: sourceLabel.trim() || null },
+      {
+        onSuccess: (saved) => {
+          setSourceIds((current) => (current.includes(saved.id) ? current : [...current, saved.id]))
+          setSourceUrl('')
+          setSourceLabel('')
+        },
+      },
+    )
+  }
+
   const close = () => {
     setPicking(false)
     onClose()
@@ -180,6 +163,7 @@ export function CreateMissionDialog({ open, onClose, mission, onSaved }: Mission
       type,
       prompt: prompt.trim(),
       targets: targets.map((target) => ({ kind: target.kind, id: target.id })),
+      source_ids: sourceIds,
       agent_id: agentId || null,
       is_recurring: recurring,
       interval_count: intervalCount,
@@ -208,7 +192,7 @@ export function CreateMissionDialog({ open, onClose, mission, onSaved }: Mission
     create.mutate(input, {
       onSuccess: (detail) => {
         close()
-        void navigate(`/missions/${detail.card.id}`)
+        void navigate(`/missions/${detail.card.id}/resultat`)
       },
     })
   }
@@ -218,7 +202,9 @@ export function CreateMissionDialog({ open, onClose, mission, onSaved }: Mission
       open={open}
       onClose={close}
       size="lg"
-      title={editing ? 'Modifier la mission' : 'Nouvelle mission'}
+      title={editing ? 'Modifier la mission' : 'Créer mission'}
+      titleIcon={<CheckCircleIcon size={34} />}
+      className="dialog--mission"
       footer={
         editing ? (
           <div className="mission-form__footer">
@@ -250,46 +236,77 @@ export function CreateMissionDialog({ open, onClose, mission, onSaved }: Mission
               }}
             >
               Créer la mission
+              <ArrowRightIcon size={18} />
             </Button>
           </div>
         )
       }
     >
       <div className="mission-form">
-        <section className="mission-form__section">
-          <h3 className="mission-form__title">
-            <SparklesIcon size={18} /> Que doit faire l’agent ?
-            <InfoTip label="Aide : que doit faire l’agent ?">
-              Une consigne, des données VIPER, une exécution. Les agents proposent ; rien n’est écrit dans la base sans
-              votre validation.
-            </InfoTip>
-          </h3>
-          <KindTiles value={kind} onChange={chooseKind} />
-        </section>
+        <TextField
+          label="Nom"
+          value={name}
+          onChange={(event) => {
+            setNameTouched(true)
+            setName(event.target.value)
+          }}
+          placeholder="Saisir un nom de mission"
+          required
+        />
+        <SelectField
+          label="Catégorie"
+          value={kind}
+          hint={kindSpec(kind).help}
+          onChange={(event) => {
+            chooseKind(event.target.value as MissionKind)
+          }}
+        >
+          {MISSION_KINDS.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.label}
+            </option>
+          ))}
+        </SelectField>
+        <TextAreaField
+          label="Consigne"
+          value={prompt}
+          rows={4}
+          onChange={(event) => {
+            setPrompt(event.target.value)
+            if (!nameTouched) setName(suggestion(event.target.value))
+          }}
+          placeholder="Saisir la consigne"
+          required
+        />
 
-        <section className="mission-form__section">
-          <TextAreaField
-            label="Consigne"
-            value={prompt}
-            rows={4}
-            onChange={(event) => {
-              setPrompt(event.target.value)
-              if (!nameTouched) setName(suggestion(event.target.value))
+        <div className="mission-form__panels" role="group" aria-label="Réglages de la mission">
+          <button
+            type="button"
+            className="mission-form__panel-toggle"
+            aria-expanded={panel === 'skills'}
+            onClick={() => {
+              setPanel(panel === 'skills' ? null : 'skills')
             }}
-            placeholder="Complète ces fiches avec le site web, le domaine e-mail et les coordonnées professionnelles disponibles."
-            required
-          />
-          <div className="mission-form__row">
-            <TextField
-              label="Nom"
-              value={name}
-              onChange={(event) => {
-                setNameTouched(true)
-                setName(event.target.value)
-              }}
-              placeholder="Nouveaux entrepôts — Normandie"
-              required
-            />
+          >
+            <BoltIcon size={24} /> Skills
+          </button>
+          <button
+            type="button"
+            className="mission-form__panel-toggle"
+            aria-expanded={panel === 'sources'}
+            onClick={() => {
+              setPanel(panel === 'sources' ? null : 'sources')
+            }}
+          >
+            <DatabaseIcon size={24} /> Sources
+            {sourceIds.length + targets.length > 0 && (
+              <span className="mission-form__count">{sourceIds.length + targets.length}</span>
+            )}
+          </button>
+        </div>
+
+        {panel === 'skills' && (
+          <div className="mission-form__panel">
             <div className="mission-form__tipped">
               <SelectField
                 label="Agent"
@@ -312,58 +329,6 @@ export function CreateMissionDialog({ open, onClose, mission, onSaved }: Mission
                 </InfoTip>
               </span>
             </div>
-          </div>
-        </section>
-
-        <section className="mission-form__section">
-          <h3 className="mission-form__title">
-            <LinkIcon size={18} /> Données liées <span className="mission-form__count">{targets.length || ''}</span>
-            <InfoTip label="Aide : données liées">
-              Sociétés ou prospects déjà dans VIPER. La mission garde leur référence : l’agent relit la fiche à jour à
-              chaque exécution.
-            </InfoTip>
-          </h3>
-          {targets.length > 0 && (
-            <ul className="mission-targets">
-              {targets.map((target) => {
-                const KindIcon = target.kind === 'company' ? BuildingIcon : UsersIcon
-                return (
-                  <li key={targetKey(target)} className="mission-target">
-                    <span
-                      className="mission-target__icon"
-                      role="img"
-                      aria-label={target.kind === 'company' ? 'Société' : 'Prospect'}
-                    >
-                      <KindIcon size={14} />
-                    </span>
-                    <span className="mission-target__label">{target.label}</span>
-                    <button
-                      type="button"
-                      className="mission-target__remove"
-                      aria-label={`Retirer ${target.label}`}
-                      onClick={() => {
-                        setTargets(targets.filter((item) => targetKey(item) !== targetKey(target)))
-                      }}
-                    >
-                      <CloseIcon size={14} />
-                    </button>
-                  </li>
-                )
-              })}
-            </ul>
-          )}
-          <Button
-            variant="secondary"
-            size="sm"
-            icon={PlusIcon}
-            onClick={() => {
-              setPicking(true)
-            }}
-          >
-            Ajouter des données
-          </Button>
-        </section>
-
         <section className="mission-form__section">
           <h3 className="mission-form__title">
             <ClockIcon size={18} /> Exécution
@@ -515,6 +480,146 @@ export function CreateMissionDialog({ open, onClose, mission, onSaved }: Mission
             }}
           />
         </details>
+          </div>
+        )}
+
+        {panel === 'sources' && (
+          <div className="mission-form__panel">
+            <section className="mission-form__section">
+              <h3 className="mission-form__title">
+                <LinkIcon size={18} /> Liens
+                <InfoTip label="Aide : liens">
+                  VIPER enregistre chaque lien une seule fois. Cochez ceux que cette mission doit consulter : l’agent
+                  les reçoit avec la consigne, et ils restent disponibles pour vos autres missions.
+                </InfoTip>
+              </h3>
+              <div className="mission-form__row">
+                <TextField
+                  label="Lien"
+                  type="url"
+                  value={sourceUrl}
+                  onChange={(event) => {
+                    setSourceUrl(event.target.value)
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      saveSource()
+                    }
+                  }}
+                  placeholder="https://…"
+                />
+                <TextField
+                  label="Nom (facultatif)"
+                  value={sourceLabel}
+                  onChange={(event) => {
+                    setSourceLabel(event.target.value)
+                  }}
+                  placeholder="Annuaire des transporteurs"
+                />
+              </div>
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={PlusIcon}
+                loading={addSource.isPending}
+                disabled={sourceUrl.trim() === '' || addSource.isPending}
+                onClick={saveSource}
+              >
+                Enregistrer le lien
+              </Button>
+              {addSource.isError && (
+                <p className="missions-error" role="alert">
+                  {addSource.error instanceof ApiError
+                    ? addSource.error.message
+                    : 'Le lien n’a pas pu être enregistré.'}
+                </p>
+              )}
+              {(sources.data ?? []).length > 0 && (
+                <ul className="mission-sources" aria-label="Liens enregistrés">
+                  {(sources.data ?? []).map((source) => (
+                    <li key={source.id} className="mission-source">
+                      <Checkbox
+                        label={source.label ?? source.url}
+                        hint={
+                          <>
+                            {source.label && <span className="mission-source__url">{source.url} · </span>}
+                            {source.missions_count === 0
+                              ? 'Pas encore utilisé'
+                              : `Utilisé par ${String(source.missions_count)} mission${source.missions_count > 1 ? 's' : ''}`}
+                          </>
+                        }
+                        checked={sourceIds.includes(source.id)}
+                        onChange={() => {
+                          toggleSource(source.id)
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="mission-target__remove"
+                        aria-label={`Oublier le lien ${source.label ?? source.url}`}
+                        onClick={() => {
+                          setSourceIds((current) => current.filter((item) => item !== source.id))
+                          deleteSource.mutate(source.id)
+                        }}
+                      >
+                        <CloseIcon size={14} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+        <section className="mission-form__section">
+          <h3 className="mission-form__title">
+            <LinkIcon size={18} /> Données liées <span className="mission-form__count">{targets.length || ''}</span>
+            <InfoTip label="Aide : données liées">
+              Sociétés ou prospects déjà dans VIPER. La mission garde leur référence : l’agent relit la fiche à jour à
+              chaque exécution.
+            </InfoTip>
+          </h3>
+          {targets.length > 0 && (
+            <ul className="mission-targets">
+              {targets.map((target) => {
+                const KindIcon = target.kind === 'company' ? BuildingIcon : UsersIcon
+                return (
+                  <li key={targetKey(target)} className="mission-target">
+                    <span
+                      className="mission-target__icon"
+                      role="img"
+                      aria-label={target.kind === 'company' ? 'Société' : 'Prospect'}
+                    >
+                      <KindIcon size={14} />
+                    </span>
+                    <span className="mission-target__label">{target.label}</span>
+                    <button
+                      type="button"
+                      className="mission-target__remove"
+                      aria-label={`Retirer ${target.label}`}
+                      onClick={() => {
+                        setTargets(targets.filter((item) => targetKey(item) !== targetKey(target)))
+                      }}
+                    >
+                      <CloseIcon size={14} />
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={PlusIcon}
+            onClick={() => {
+              setPicking(true)
+            }}
+          >
+            Ajouter des données
+          </Button>
+        </section>
+          </div>
+        )}
 
         <p className={`mission-form__ready${ready ? ' is-ready' : ''}`} role="status">
           {ready ? <CheckCircleIcon size={18} /> : <AlertIcon size={18} />}

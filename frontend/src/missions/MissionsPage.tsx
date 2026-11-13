@@ -173,7 +173,7 @@ export function MissionsPage() {
 
   return (
     <div className="missions">
-      <PageHeader
+      <PageHeader mascot="mission"
         title="Missions"
         description={
           <span className="missions-detail__meta">
