@@ -94,7 +94,7 @@ def _submit(
         prompt=mission["prompt"],
         result_kind="companies",
         run_now=True,
-        **(rule or {}),
+        **{"allow_multiple": True, **(rule or {})},
     )
     if edit_after_run is not None:
         edited = client.put(

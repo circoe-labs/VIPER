@@ -40,13 +40,14 @@ from app.models.enums import (
 from app.models.mission_telemetry import MissionAgentLog
 from app.models.missions import Mission, MissionRun
 from app.models.prospects import Prospect
-from app.services import audit, mission_telemetry
+from app.services import audit, mission_output, mission_telemetry
 from app.services.agent_payloads import (
     build_payload,
     build_proposal,
     queueable,
     result_model,
     supports,
+    task_rule,
 )
 from app.services.companies import CompanyDetail, get_company
 from app.services.errors import (
@@ -497,7 +498,12 @@ def submit(
             first = error.errors()[0]
             field = ".".join(str(part) for part in first["loc"]) or "result"
             raise InvalidFieldError(field, first["msg"], "schema") from error
-        proposal = build_proposal(session, task, validated)
+        outcome = mission_output.check_submission(task, validated, task_rule(session, task))
+        proposal = (
+            build_proposal(session, task, validated)
+            if outcome == mission_output.OUTCOME_COMPLETED
+            else mission_output.no_result_proposal(outcome, validated)
+        )
     digest = hashlib.sha256(
         json.dumps(validated, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
@@ -513,6 +519,8 @@ def submit(
     )
     session.add(result)
     task.status = AgentTaskStatus.SUBMITTED
+    if proposal.get("kind") == "no_result":
+        _close_without_data(task, result, proposal["outcome"], moment)
     task.staged_actions = []
     clear_claim(task)
     session.flush()
@@ -521,10 +529,28 @@ def submit(
         actor,
         audit.AuditAction.AGENT_TASK_SUBMITTED,
         task,
-        changes={"status": {"before": "claimed", "after": "submitted"}},
+        changes={"status": {"before": "claimed", "after": task.status.value}},
     )
     mission_telemetry.touch_session(session, actor, task, moment)
     return result
+
+
+def _close_without_data(
+    task: AgentTask, result: AgentTaskResult, outcome: str, moment: datetime
+) -> None:
+    """A not_found / blocked answer has nothing to review or apply: the task closes with the
+    result kept for the history (`superseded`, not a person's decision). not_found answers the
+    question (accepted, counts for « tasks accepted »); blocked is a failure the page shows."""
+    result.status = AgentResultStatus.SUPERSEDED
+    result.decided_at = moment
+    result.decided_by_display = "VIPER — aucune donnée à appliquer"
+    result.applied = {"outcome": outcome}
+    if outcome == mission_output.OUTCOME_NOT_FOUND:
+        task.status = AgentTaskStatus.ACCEPTED
+    else:
+        task.status = AgentTaskStatus.FAILED
+        task.failure_code = outcome
+        task.failure_message = (result.proposal.get("notes") or "")[:2000]
 
 
 def fail(

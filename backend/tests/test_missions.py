@@ -459,6 +459,7 @@ def test_a_prospection_mission_finds_new_contacts(client: TestClient, db_session
         targets=[{"kind": "company", "id": str(company.id)}],
         result_kind="prospects",
         run_now=True,
+        allow_multiple=True,
     )
     token = mint(db_session, label="Agent contacts", scopes=["find_employees"])
 
@@ -556,6 +557,7 @@ def test_a_discovery_mission_finds_new_companies(client: TestClient, db_session:
         prompt="Trouve les commissaires au transport de matières dangereuses en Normandie.",
         result_kind="companies",
         run_now=True,
+        allow_multiple=True,
     )
     token = mint(db_session, label="Agent découverte", scopes=["find_prospects"])
 
@@ -756,6 +758,7 @@ def test_a_signals_mission_stores_dated_sourced_signals(
         targets=[{"kind": "company", "id": str(company.id)}],
         result_kind="signals",
         run_now=True,
+        allow_multiple=True,
     )
     token = mint(db_session, label="Agent veille", scopes=["surveil_signals"])
 

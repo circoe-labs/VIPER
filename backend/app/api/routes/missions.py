@@ -38,6 +38,14 @@ class TargetIn(StrictModel):
     id: uuid.UUID
 
 
+class ObjectiveIn(StrictModel):
+    """The machine-evaluable goal of a run: `tasks_accepted` (default: every task of the run is
+    accepted) or `accepted_items` with a `count` (at most `result_limit`, the per-run cap)."""
+
+    kind: Literal["tasks_accepted", "accepted_items"] = "tasks_accepted"
+    count: int | None = Field(default=None, ge=1, le=500)
+
+
 class MissionIn(StrictModel):
     name: str = Field(min_length=1, max_length=200)
     type: MissionType
@@ -54,6 +62,8 @@ class MissionIn(StrictModel):
     max_runs: int | None = Field(default=None, ge=1, le=1000)
     result_kind: MissionResultKind = MissionResultKind.ENRICHMENT
     result_limit: int = Field(default=20, ge=1, le=500)
+    allow_multiple: bool = False
+    objective: ObjectiveIn | None = None
     geography: str | None = Field(default=None, max_length=200)
     period_days: int | None = Field(default=None, ge=1, le=3650)
     exclusions: dict[str, Any] = Field(default_factory=dict)
@@ -120,6 +130,7 @@ class RunOut(BaseModel):
     tasks_total: int
     results_count: int
     note: str | None
+    objective_met_at: datetime | None = None
 
 
 class MissionTaskOut(BaseModel):
@@ -144,6 +155,15 @@ class MissionRuleOut(BaseModel):
     geography: str | None
     period_days: int | None
     exclusions: dict[str, Any]
+    allow_multiple: bool
+    objective: ObjectiveIn
+
+
+class ObjectiveProgressOut(BaseModel):
+    kind: str
+    target: int | None
+    current: int
+    met: bool
 
 
 class MissionDetailOut(BaseModel):
@@ -156,6 +176,7 @@ class MissionDetailOut(BaseModel):
     result_kind: MissionResultKind
     result_limit: int
     rule: MissionRuleOut
+    objective_progress: ObjectiveProgressOut | None = None
 
 
 class OptionOut(BaseModel):
@@ -196,6 +217,11 @@ def detail_out(detail: missions.MissionDetail) -> MissionDetailOut:
         result_kind=detail.result_kind,
         result_limit=detail.result_limit,
         rule=MissionRuleOut.model_validate(detail.rule, from_attributes=True),
+        objective_progress=(
+            ObjectiveProgressOut.model_validate(detail.objective_progress)
+            if detail.objective_progress is not None
+            else None
+        ),
     )
 
 
@@ -229,6 +255,8 @@ def mission_input(body: MissionIn) -> missions.MissionInput:
         max_runs=body.max_runs,
         result_kind=body.result_kind,
         result_limit=body.result_limit,
+        allow_multiple=body.allow_multiple,
+        objective=body.objective.model_dump() if body.objective is not None else None,
         geography=body.geography,
         period_days=body.period_days,
         exclusions=body.exclusions,

@@ -184,7 +184,10 @@ TOOLS: list[dict[str, Any]] = [
         "name": "viper_submit_task_result",
         "description": (
             "Submit the finished work. The result is validated against the task's output schema "
-            "and stored as a proposal awaiting a person's review — it never writes to the base. "
+            "and output_contract (one item unless the contract says list; omit unchanged fields; "
+            "outcome not_found or blocked, with notes and no data, when there is nothing to "
+            "propose) and stored as a proposal awaiting a person's review — it never writes to "
+            "the base. "
             "Put a short factual research report in `notes`: what you searched, which sources you "
             "opened, what you verified or could not find."
         ),

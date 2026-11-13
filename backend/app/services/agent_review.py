@@ -561,7 +561,21 @@ def accept(
         changes={"status": {"before": "pending_review", "after": "accepted"}},
         reason=note,
     )
+    _settle_run(session, task)
     return result
+
+
+def _settle_run(session: Session, task: AgentTask) -> None:
+    """An accepted result may fulfil its run's objective (and close a one-off mission) right
+    away instead of at the scheduler's next pass. Imported here: `missions` imports this layer."""
+    if task.run_id is None:
+        return
+    from app.models.missions import MissionRun
+    from app.services import missions
+
+    run = session.get(MissionRun, task.run_id)
+    if run is not None:
+        missions.refresh_run(session, run)
 
 
 def _apply_task(

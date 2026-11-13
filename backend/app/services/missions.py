@@ -53,6 +53,7 @@ from app.services import (
     audit,
     companies,
     mcp_reads,
+    mission_output,
     mission_telemetry,
 )
 from app.services.errors import ConflictError, DomainError, InvalidFieldError, NotFoundError
@@ -113,6 +114,10 @@ class MissionInput:
     max_runs: int | None = None
     result_kind: MissionResultKind = MissionResultKind.ENRICHMENT
     result_limit: int = DEFAULT_RESULT_LIMIT
+    # One item per submission by default; true = the list envelope (Slice 04).
+    allow_multiple: bool = False
+    # The machine-evaluable goal (`mission_output.MissionObjective` as a dict); None = default.
+    objective: dict[str, Any] | None = None
     geography: str | None = None
     period_days: int | None = None
     exclusions: dict[str, Any] = field(default_factory=dict)
@@ -160,6 +165,7 @@ class RunRow:
     tasks_total: int
     results_count: int
     note: str | None
+    objective_met_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,6 +203,8 @@ class MissionRule:
     geography: str | None
     period_days: int | None
     exclusions: dict[str, Any]
+    allow_multiple: bool
+    objective: dict[str, Any]
 
 
 @dataclass(frozen=True, slots=True)
@@ -218,6 +226,8 @@ class MissionDetail:
     result_kind: MissionResultKind
     result_limit: int
     rule: MissionRule
+    # The latest run's standing against its objective (None before any run).
+    objective_progress: dict[str, Any] | None
 
 
 def _now(now: datetime | None) -> datetime:
@@ -415,6 +425,7 @@ def detail(session: Session, mission_id: uuid.UUID) -> MissionDetail:
             tasks_total=run.tasks_total,
             results_count=run.results_count,
             note=run.note,
+            objective_met_at=run.objective_met_at,
         )
         for run in session.scalars(
             select(MissionRun)
@@ -440,7 +451,10 @@ def detail(session: Session, mission_id: uuid.UUID) -> MissionDetail:
             geography=mission.geography,
             period_days=mission.period_days,
             exclusions=dict(mission.exclusions or {}),
+            allow_multiple=mission.allow_multiple,
+            objective=mission_output.parse_objective(mission.objective),
         ),
+        objective_progress=_latest_progress(session, runs[0].id if runs else None),
     )
 
 
@@ -493,6 +507,19 @@ def _validate(data: MissionInput, now: datetime) -> None:
     """Shape checks only: a type whose schema is not ready can be saved, not launched."""
     if not 1 <= data.result_limit <= RESULT_LIMIT_MAX:
         raise InvalidFieldError("result_limit", "Between 1 and 500.", "range")
+    objective = mission_output.parse_objective(data.objective)
+    if objective["kind"] == mission_output.OBJECTIVE_ACCEPTED_ITEMS:
+        if data.targets and data.type not in (MissionType.PROSPECTION, MissionType.SIGNALS):
+            raise InvalidFieldError(
+                "objective.kind",
+                "Counting accepted items needs a discovery, prospection or signals mission.",
+                "unsupported",
+            )
+        # `result_limit` caps what a run may propose: a goal above it could never be reached.
+        if objective["count"] > data.result_limit:
+            raise InvalidFieldError(
+                "objective.count", "Cannot exceed the per-run limit (result_limit).", "range"
+            )
     if data.is_recurring and data.interval_count < 1:
         raise InvalidFieldError("interval_count", "At least 1.", "range")
     # The end rule is checked for every mission, one-off included: the table's constraints
@@ -503,6 +530,11 @@ def _validate(data: MissionInput, now: datetime) -> None:
         raise InvalidFieldError("max_runs", "At least 1 run.", "range")
     if data.end_kind is MissionEndKind.DATE and data.ends_at is not None and data.ends_at <= now:
         raise InvalidFieldError("ends_at", "The end must be in the future.", "range")
+
+
+def _stored_objective(raw: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The objective as persisted: None stays « default » (every task accepted)."""
+    return None if raw is None else mission_output.parse_objective(raw)
 
 
 def _target_kinds(targets: tuple[TargetInput, ...]) -> list[str]:
@@ -668,6 +700,8 @@ def create(
         max_runs=data.max_runs,
         result_kind=data.result_kind,
         result_limit=data.result_limit,
+        allow_multiple=data.allow_multiple,
+        objective=_stored_objective(data.objective),
         geography=(data.geography or "").strip() or None,
         period_days=data.period_days,
         exclusions=data.exclusions,
@@ -712,6 +746,8 @@ EDITED_FIELDS = (
     "max_runs",
     "result_kind",
     "result_limit",
+    "allow_multiple",
+    "objective",
     "geography",
     "period_days",
     "exclusions",
@@ -775,6 +811,8 @@ def update(
     mission.max_runs = data.max_runs
     mission.result_kind = data.result_kind
     mission.result_limit = data.result_limit
+    mission.allow_multiple = data.allow_multiple
+    mission.objective = _stored_objective(data.objective)
     mission.geography = (data.geography or "").strip() or None
     mission.period_days = data.period_days
     mission.exclusions = data.exclusions
@@ -827,9 +865,91 @@ def _open_tasks(session: Session, mission_id: uuid.UUID) -> bool:
     return bool(count)
 
 
+def _run_objective(session: Session, run: MissionRun) -> dict[str, Any] | None:
+    """The objective a run works under: its snapshot, else the live mission's (runs made before
+    migration 0049 have none and use the default)."""
+    snapshot = (run.config or {}).get("objective")
+    if snapshot is not None:
+        return dict(snapshot)
+    if run.config is not None:
+        return None
+    mission = session.get(Mission, run.mission_id)
+    return mission.objective if mission is not None else None
+
+
+def _latest_progress(session: Session, run_id: uuid.UUID | None) -> dict[str, Any] | None:
+    run = session.get(MissionRun, run_id) if run_id is not None else None
+    if run is None:
+        return None
+    tasks = session.scalars(select(AgentTask).where(AgentTask.run_id == run.id)).all()
+    return mission_output.progress(session, tasks, _run_objective(session, run)).as_dict()
+
+
+def _continue_discovery(
+    session: Session, mission: Mission, run: MissionRun, tasks: list[AgentTask]
+) -> bool:
+    """Discovery work one item at a time: while the objective is not met and the last accepted
+    result brought something, open the next task of the same run. Bounded: each step needs a
+    non-empty accepted result, and the count is capped by `result_limit`."""
+    if not tasks or any(task.type is not AgentTaskType.FIND_PROSPECTS for task in tasks):
+        return False
+    state = mission_output.progress(session, tasks, _run_objective(session, run))
+    if (
+        state.kind != mission_output.OBJECTIVE_ACCEPTED_ITEMS
+        or state.met
+        or state.last_accepted_items < 1
+        or state.items_accepted >= int((run.config or {}).get("result_limit", RESULT_LIMIT_MAX))
+        or tasks[-1].status is not AgentTaskStatus.ACCEPTED
+    ):
+        return False
+    _task(
+        session,
+        SCHEDULER_ACTOR,
+        mission,
+        run,
+        AgentTaskType.FIND_PROSPECTS,
+        company_id=None,
+        prospect_id=None,
+    )
+    return True
+
+
+def _settle_objective(
+    session: Session, run: MissionRun, tasks: list[AgentTask], now: datetime
+) -> None:
+    """A finished run is checked against its own objective. Fulfilled: stamp it, and close a
+    one-off mission (a recurring one stays scheduled; its end rule is the scheduler's).
+    Not fulfilled: say so on the run and leave the mission open: never « done » by default."""
+    mission = session.get(Mission, run.mission_id)
+    if mission is None:
+        return
+    state = mission_output.progress(session, tasks, _run_objective(session, run))
+    if state.met:
+        if run.objective_met_at is None:
+            run.objective_met_at = now
+        if not mission.is_recurring and mission.status is MissionStatus.ACTIVE:
+            mission.status = MissionStatus.DONE
+            mission.next_run_at = None
+            audit.record_event(
+                session,
+                SCHEDULER_ACTOR,
+                audit.AuditAction.MISSION_STATUS_CHANGED,
+                entity_type="mission",
+                entity_id=mission.id,
+                changes={"status": {"before": "active", "after": "done"}},
+                reason="objective fulfilled",
+            )
+    elif run.note is None:
+        run.note = f"Objectif non atteint ({state.current}/{state.target})."
+
+
 def refresh_run(session: Session, run: MissionRun) -> MissionRun:
     """Derive a run's status and counts from its tasks (no second source of truth)."""
-    tasks = session.scalars(select(AgentTask).where(AgentTask.run_id == run.id)).all()
+    tasks = list(
+        session.scalars(
+            select(AgentTask).where(AgentTask.run_id == run.id).order_by(AgentTask.created_at)
+        )
+    )
     run.tasks_total = len(tasks)
     if not tasks:
         return run
@@ -840,6 +960,15 @@ def refresh_run(session: Session, run: MissionRun) -> MissionRun:
         .where(AgentTaskResult.task_id.in_([task.id for task in tasks]))
     )
     run.results_count = results or 0
+    mission = session.get(Mission, run.mission_id)
+    if (
+        run.status is MissionRunStatus.RUNNING
+        and mission is not None
+        and not any(status in OPEN_TASK_STATUSES for status in statuses)
+        and _continue_discovery(session, mission, run, tasks)
+    ):
+        statuses = [*statuses, AgentTaskStatus.PENDING]
+        run.tasks_total += 1
     if any(status in OPEN_TASK_STATUSES for status in statuses):
         run.status = MissionRunStatus.RUNNING
         run.finished_at = None
@@ -855,6 +984,7 @@ def refresh_run(session: Session, run: MissionRun) -> MissionRun:
                 run.finished_at = max(
                     (task.updated_at for task in tasks), default=run.started_at or run.scheduled_at
                 )
+            _settle_objective(session, run, tasks, run.finished_at)
     return run
 
 
