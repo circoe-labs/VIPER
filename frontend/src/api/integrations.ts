@@ -17,6 +17,7 @@ export type IntegrationField =
   | 'openai_max_retries'
   | 'contact_booking_url'
   | 'contact_initial_prompt'
+  | 'mission_creator_prompt'
   | 'default_outbound_email'
   | 'toolbox_mail_enabled'
   | 'toolbox_mcp_url'
@@ -62,6 +63,8 @@ export interface Integrations {
   generation_available: boolean
   // The built-in prompt `contact_initial_prompt` falls back to.
   initial_prompt_default: string
+  // The built-in behaviour prompt `mission_creator_prompt` (mission-creator assistant) falls back to.
+  mission_creator_prompt_default: string
   toolbox: { enabled: boolean; state: string; configured: boolean }
   // S9: `reason` why a scheduled message will not leave, and how many wait (`overdue_count`: their time has passed).
   dispatch: {

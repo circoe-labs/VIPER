@@ -25,10 +25,37 @@ export type RecurrenceUnit = (typeof RECURRENCE_UNITS)[number]
 export const END_KINDS = ['never', 'date', 'after'] as const
 export type MissionEndKind = (typeof END_KINDS)[number]
 
+// The category's visual identity on a card (`GET /api/missions`): icon key (see ui/icons), `#rrggbb` colour. Slice 05
+// renders it; the previous id-hashed accent stays until then.
+export interface MissionCategoryRef {
+  id: string
+  key: string | null
+  name: string
+  icon: string
+  color: string
+}
+
+export interface SkillRef {
+  id: string
+  name: string
+}
+
+// Which category-derived fields a mission still follows (`prompt`, `skills`).
+export interface MissionInheritance {
+  category_id: string | null
+  overridden_fields: string[]
+  prompt_inherited: boolean
+  skills_inherited: boolean
+  category_prompt: string | null
+  category_skills: SkillRef[]
+}
+
 export interface MissionCard {
   id: string
   name: string
   type: MissionType
+  // Optional in the type so older fixtures compile; the API always sends it (null only for a legacy row).
+  category?: MissionCategoryRef | null
   status: MissionStatus
   agent_label: string | null
   prompt: string
@@ -116,6 +143,9 @@ export interface MissionDetail {
   result_kind: MissionResultKind
   result_limit: number
   rule: MissionRule
+  inheritance?: MissionInheritance
+  // The instruction skills the mission works with (its own list when overridden, else its category's).
+  skills?: SkillRef[]
 }
 
 export interface MissionList {
@@ -152,6 +182,9 @@ export interface TargetOption {
 export interface MissionInput {
   name: string
   type: MissionType
+  // Slice 05: `category_id` picks the category; `prompt` / `skill_ids` null = follow it, a value = override.
+  category_id?: string | null
+  skill_ids?: string[] | null
   prompt: string
   targets: { kind: 'company' | 'prospect'; id: string }[]
   source_ids: string[]
