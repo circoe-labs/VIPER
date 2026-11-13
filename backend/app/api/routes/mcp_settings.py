@@ -20,7 +20,14 @@ from app.api.mcp import PROTOCOL_VERSION, TOOLS
 from app.models.enums import AgentMode, AgentProvider
 from app.models.mcp import LABEL_MAX_LENGTH, McpToken
 from app.models.oauth import OAuthAuthorization
-from app.services import agent_capabilities, mcp_access, mcp_calls, mcp_tokens, oauth
+from app.services import (
+    agent_capabilities,
+    agent_identity,
+    mcp_access,
+    mcp_calls,
+    mcp_tokens,
+    oauth,
+)
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -114,7 +121,13 @@ def mcp_settings(auth: AuthDep) -> McpSettingsOut:
 
 class McpAgentOut(BaseModel):
     id: uuid.UUID
+    # What the person called it (descriptive); `display_label` is the resolved identity.
     label: str
+    # « Claude lucie #2 »: provider, owner and owner-relative instance number.
+    display_label: str
+    instance_number: int | None
+    # Tasks it may hold claimed at once (task concurrency, not a cap on tokens).
+    max_concurrent: int
     # `oauth`: approved from a connector (ChatGPT, Claude…); `cli`: made in the command line.
     origin: str
     # The person the agent acts for: its calls are kept under this address.
@@ -132,6 +145,9 @@ def _agent_out(record: McpToken, origin: str) -> McpAgentOut:
     return McpAgentOut(
         id=record.id,
         label=record.label,
+        display_label=agent_identity.identity_label(record),
+        instance_number=record.instance_number,
+        max_concurrent=record.max_concurrent,
         origin=origin,
         owner_email=record.owner_email,
         provider=record.provider,

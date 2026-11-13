@@ -472,7 +472,7 @@ The dispatcher already relies on the same primitive (`contact_dispatch.py:355`).
 Then the payload is built **at claim time**, from live data — never stored at task creation, so an
 agent never works on a stale snapshot.
 
-**Fairness.** A token declares `max_concurrent` (default 3). A claim is refused
+**Fairness.** A token declares `max_concurrent` (default 3) — task concurrency per token, not a cap on tokens per person (that is `VIPER_MCP_MAX_AGENTS_PER_OWNER`, `mcp-server.md` §4.9). A claim is refused
 (`too_many_claims`, 429) above it, so one agent cannot drain a thread. Optionally an agent asks for
 one type at a time; the server does not shuffle.
 

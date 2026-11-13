@@ -346,7 +346,7 @@ def test_an_agent_acting_for_a_person_stays_the_actor_and_carries_that_person(
     assert events
     event = events[-1]
     assert event.actor_type == "agent"
-    assert event.actor_display == "ChatGPT (OAuth)"
+    assert event.actor_display == "ChatGPT pilote.test #1"
     assert event.context["source"] == "agent"
     assert event.context["on_behalf_of"]["display"] == "Pilote Test"
     assert event.context["on_behalf_of"]["type"] == "human"

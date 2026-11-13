@@ -12,3 +12,10 @@ Freshness audit (backend/app, frontend/src):
   Rule: pre-assigned linear alembic chain: S1 = 0047 (down 0046), S3 = 0048 (down 0047), S4 = 0049 (down 0048). Each slice works in its own git worktree; orchestrator merges in order 01,03,04 and fixes chain/conflicts. Slices must keep migrations independent of each other's tables.
 
 Readiness: **READY**. Dispatch 01 + 03 + 04 concurrently (worktree isolation).
+
+## Slice 03 - Agent identity/lifecycle (2026-11-13)
+Implemented in a worktree (migration 0048, down_revision 0047; 0047 belongs to Slice 01 and is absent from that tree, so the chain resolves only once 01 is merged first). Contract: doc/architecture/mcp-server.md section 4.9.
+- mcp_tokens.instance_number + live partial unique index; allocator services/agent_identity.py (lowest vacant number per owner+provider, advisory lock); cap = Settings.mcp_max_agents_per_owner (env VIPER_MCP_MAX_AGENTS_PER_OWNER, default 100), 409 agent_cap_reached; no app_settings key (avoids the known_key constraint hot spot with Slice 01).
+- actor_for display is now the identity label (ChatGPT lucie #2); label kept as descriptive name. Existing test expectations on actor display updated.
+- viper_leave_work (MCP) / agent_lifecycle.leave_work: release all held tasks + end own sessions, idempotent, optional run scope.
+- Timeout/lease independence covered by test; 3h timeout untouched.

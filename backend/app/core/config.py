@@ -121,6 +121,10 @@ class Settings(BaseSettings):
     sql_statement_timeout_ms: PositiveInt = 5000
     sql_max_rows: PositiveInt = 1000
 
+    # Agent safety cap: live MCP tokens (agent identities) one person may hold. Distinct from a
+    # token's `max_concurrent` (tasks it may claim at once). `VIPER_MCP_MAX_AGENTS_PER_OWNER`.
+    mcp_max_agents_per_owner: Annotated[int, Field(ge=1, le=10_000)] = 100
+
     # Excel/CSV import bounds (ADR-0007): uploads above them are refused with a clear message.
     import_max_file_mb: PositiveInt = 10
     import_max_rows: PositiveInt = 5000

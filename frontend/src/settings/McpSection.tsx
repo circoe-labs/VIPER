@@ -128,8 +128,9 @@ function AgentsCard({ settings }: { settings: McpSettings }) {
           {agents.data.map((agent) => (
             <li key={agent.id} className="mcp-agent">
               <div className="mcp-agent__main">
-                <span className="mcp-agent__label">{agent.label}</span>
+                <span className="mcp-agent__label">{agent.display_label}</span>
                 <span className="mcp-agent__meta">
+                  {agent.label !== agent.display_label ? `${agent.label} · ` : ''}
                   {agent.origin === 'oauth' ? 'Connecteur OAuth' : 'Jeton d’accès'} · {PROVIDER_LABELS[agent.provider]}{' '}
                   · {MODE_LABELS[agent.mode]}
                   {agent.owner_email ? ` · pour ${agent.owner_email}` : ''} · créé le {formatDateTime(agent.created_at)}{' '}
@@ -158,7 +159,7 @@ function AgentsCard({ settings }: { settings: McpSettings }) {
       <Modal
         open={confirming !== null}
         size="sm"
-        title={`Révoquer « ${confirming?.label ?? ''} » ?`}
+        title={`Révoquer « ${confirming?.display_label ?? ''} » ?`}
         onClose={() => {
           setConfirming(null)
         }}

@@ -154,6 +154,11 @@ never a correctness requirement. Ending sets `status=ended`, `ended_at=now`,
 already-terminal session returns it unchanged). The agent can only end **its own** session (resolved
 from its token, never from a client-supplied `session_id`).
 
+**`viper_leave_work`** (`mcp-server.md` §4.9) composes this end with the existing task release: it
+returns every task the agent holds to the queue and ends all its active sessions (or those of one
+run) in one idempotent call. The 3-hour timeout of §4 stays the fallback and is unchanged; it never
+touches a lease, and lease expiry never touches a session.
+
 ## 4. Inactivity timeout (3 hours)
 
 - **Constant.** `SESSION_INACTIVITY_TIMEOUT = timedelta(hours=3)` in
@@ -436,6 +441,9 @@ task tools (`mcp-server.md` §3.7):
 | `viper_log_mission_activity` | `task_id`, `claim_id`, `event_type`, `message`, optional `source_url`, `source_published_at`, `metadata` | `{ log_id, session_id, created_at }` | **the** log write (§5.6). Required to be a held, uncancelled mission task. Non-business write |
 | `viper_end_mission_session` | `task_id` (a mission task of the agent in the run; need not still be claimed) | `{ session_id, status, ended_at }` | **optional** (§3.5): ends the caller's own active session of that task's run; idempotent; `not_found` if the agent has no session in that run |
 | `viper_get_mission_session` | `task_id` | `{ session_id, status, started_at, last_seen_at, ended_at, disconnect_reason, logs_count }` | **optional**, read-only, own session only; lets an agent see that it was timed out. Does **not** touch the session |
+
+A fourth, task-level tool, `viper_leave_work` (`mcp-server.md` §4.9), ends sessions as part of
+« release everything and leave ».
 
 There is deliberately **no** `viper_register_*`, `viper_start_mission_session`, `viper_logoff` or
 any tool that opens a session (§3.2), and **no** tool to read logs of other agents (§7.1). Refusals

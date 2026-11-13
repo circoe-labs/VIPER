@@ -290,7 +290,7 @@ def test_another_agents_task_is_refused(client: TestClient, db_session: Session)
     )
     assert own["status"] == "active"
     row_b = next(row for row in sessions(db_session) if str(row.id) == own["session_id"])
-    assert row_b.agent_label == "Agent B"
+    assert row_b.agent_label == "Agent #2"
 
 
 def test_a_cancelled_mission_refuses_the_log(client: TestClient, db_session: Session) -> None:

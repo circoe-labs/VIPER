@@ -158,7 +158,12 @@ def main(
         default=mcp_tokens.ANY_SCOPE,
         help="comma-separated task types, or * for all of them",
     )
-    agent.add_argument("--max-concurrent", type=int, default=3)
+    agent.add_argument(
+        "--max-concurrent",
+        type=int,
+        default=3,
+        help="tasks this token may hold claimed at once (not a cap on tokens per person)",
+    )
     agent.add_argument(
         "--owner-email", help="the person the agent acts for (its calls are kept under it)"
     )

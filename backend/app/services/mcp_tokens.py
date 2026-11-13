@@ -15,7 +15,7 @@ from app.core.actor import ActorContext, ActorType
 from app.models.enums import AgentMode, AgentProvider, AgentTaskType
 from app.models.mcp import LABEL_MAX_LENGTH, McpToken
 from app.models.users import User
-from app.services import agent_capabilities
+from app.services import agent_capabilities, agent_identity
 from app.services.errors import ForbiddenError, InvalidFieldError
 
 TOKEN_PREFIX = "viper_"
@@ -52,16 +52,22 @@ def mint(
     """Create a token and return `(token, record)`; the token itself is never stored.
 
     `capabilities` defaults to those of `mode` (`agent_capabilities.DEFAULT_CAPABILITIES`).
+    The token gets the lowest vacant `#N` of its (owner, provider) and counts against the
+    per-owner identity cap (`agent_identity`, 409 `agent_cap_reached`); `max_concurrent` is only
+    the number of tasks it may hold at once.
     """
+    owner = owner_email.strip().lower() if owner_email else None
+    number = agent_identity.allocate(session, owner, provider)
     token = TOKEN_PREFIX + secrets.token_urlsafe(TOKEN_BYTES)
     record = McpToken(
         label=label,
         token_hash=hash_token(token),
         scopes=_scopes(scopes),
         max_concurrent=max_concurrent,
-        owner_email=owner_email.strip().lower() if owner_email else None,
+        owner_email=owner,
         provider=provider,
         mode=mode,
+        instance_number=number,
         capabilities=(
             agent_capabilities.defaults(mode)
             if capabilities is None
@@ -127,7 +133,9 @@ def resolve(session: Session, token: str, now: datetime | None = None) -> McpTok
 
 def actor_for(record: McpToken) -> ActorContext:
     """The identity every claim, submission and audit event of this agent carries."""
-    return ActorContext(type=ActorType.AGENT, id=str(record.id), display=record.label)
+    return ActorContext(
+        type=ActorType.AGENT, id=str(record.id), display=agent_identity.identity_label(record)
+    )
 
 
 def task_types(record: McpToken) -> list[AgentTaskType]:
