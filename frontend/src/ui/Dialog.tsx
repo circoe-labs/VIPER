@@ -19,6 +19,10 @@ interface DialogProps {
   // Called on Esc, backdrop click and the close button. Guard unsaved changes here.
   onClose: () => void
   title: string
+  // Decorative icon before the title (the dialog name stays the title text).
+  titleIcon?: ReactNode
+  // Extra class on the dialog box, for a screen-specific look.
+  className?: string
   description?: ReactNode
   footer?: ReactNode
   // Element focused on open (e.g. the first field of an editor); defaults to the dialog itself.
@@ -47,6 +51,8 @@ function OpenDialog({
   size,
   onClose,
   title,
+  titleIcon,
+  className,
   description,
   footer,
   initialFocusRef,
@@ -133,12 +139,13 @@ function OpenDialog({
         aria-labelledby={titleId}
         aria-describedby={description ? descriptionId : undefined}
         tabIndex={-1}
-        className={`dialog dialog--${kind} dialog--${size}`}
+        className={`dialog dialog--${kind} dialog--${size}${className ? ` ${className}` : ''}`}
         onKeyDown={handleKeyDown}
       >
         <header className="dialog__header">
           <div className="dialog__heading">
             <h2 id={titleId} className="dialog__title">
+              {titleIcon && <span className="dialog__title-icon" aria-hidden="true">{titleIcon}</span>}
               {title}
             </h2>
             {description && (

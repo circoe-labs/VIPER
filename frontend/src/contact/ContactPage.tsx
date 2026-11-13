@@ -100,7 +100,7 @@ export function ContactPage() {
 
   return (
     <div className="contact contact--crm">
-      <PageHeader title="Contacts" description="Retrouvez les prospects contactés et les interlocuteurs des entrepôts." actions={
+      <PageHeader mascot="contact" title="Contacts" description="Retrouvez les prospects contactés et les interlocuteurs des entrepôts." actions={
         <Link className="btn btn--primary" to="/prospection?prospect=new"><PlusIcon size={18} /> Ajouter un contact</Link>
       } />
 

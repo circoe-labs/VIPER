@@ -1,0 +1,80 @@
+/* Couleur d'accent choisie (AccentPicker). Le vert VIPER reste la valeur d'origine : sans choix, rien ne change. */
+
+:root[data-accent='blue'] { --accent: var(--nc-accent-blue); }
+:root[data-accent='violet'] { --accent: var(--nc-accent-violet); }
+:root[data-accent='orange'] { --accent: var(--nc-accent-orange); }
+:root[data-accent='pink'] { --accent: var(--nc-accent-pink); }
+:root[data-accent='teal'] { --accent: var(--nc-accent-teal); }
+
+/* Thème clair : des variantes plus profondes, lisibles sur fond clair. */
+:root[data-theme='light'][data-accent='blue'] { --accent: var(--nc-accent-blue-deep); }
+:root[data-theme='light'][data-accent='violet'] { --accent: var(--nc-accent-violet-deep); }
+:root[data-theme='light'][data-accent='orange'] { --accent: var(--nc-accent-orange-deep); }
+:root[data-theme='light'][data-accent='pink'] { --accent: var(--nc-accent-pink-deep); }
+:root[data-theme='light'][data-accent='teal'] { --accent: var(--nc-accent-teal-deep); }
+
+:root[data-accent]:not([data-accent='green']) {
+  --color-accent: var(--accent);
+  --color-accent-hover: color-mix(in srgb, var(--accent) 82%, white);
+  --color-accent-fg: var(--accent);
+  --color-accent-soft: color-mix(in srgb, var(--accent) 20%, var(--color-surface));
+  --color-focus: var(--accent);
+  /* L'accueil a ses propres jetons verts. */
+  --nc-home-green: var(--accent);
+}
+
+.accent-picker {
+  position: relative;
+}
+
+.accent-picker__summary {
+  display: grid;
+  place-items: center;
+  width: var(--control-md);
+  height: var(--control-md);
+  border-radius: var(--radius-sm);
+  list-style: none;
+  cursor: pointer;
+}
+
+.accent-picker__summary::-webkit-details-marker {
+  display: none;
+}
+
+.accent-picker__summary:hover {
+  background: var(--color-surface-hover);
+}
+
+.accent-picker__dot {
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 50%;
+  background: conic-gradient(var(--nc-viper-green), var(--nc-accent-blue), var(--nc-accent-violet), var(--nc-accent-pink), var(--nc-accent-orange), var(--nc-accent-teal), var(--nc-viper-green));
+}
+
+.accent-picker__panel {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  z-index: var(--z-header);
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-overlay);
+}
+
+.accent-picker__swatch {
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.accent-picker__swatch[aria-checked='true'] {
+  border-color: var(--color-text);
+  box-shadow: 0 0 0 2px var(--color-surface-raised) inset;
+}

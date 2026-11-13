@@ -3,6 +3,7 @@ import { Outlet } from 'react-router'
 
 import { CompanyEditorProvider } from '../companies/CompanyEditorProvider'
 import { readStorage, writeStorage } from '../lib/storage'
+import { AccentPicker } from '../theme/AccentPicker'
 import { ThemeSwitch } from '../theme/ThemeSwitch'
 import { GlobalSearch } from './GlobalSearch'
 import { Sidebar } from './Sidebar'
@@ -33,6 +34,7 @@ export function AppShell() {
               <GlobalSearch />
             </div>
             <div className="app-header__actions">
+              <AccentPicker />
               <ThemeSwitch />
               <UserMenu />
             </div>

@@ -14,17 +14,15 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers() })
 
 describe('Home dashboard', () => {
-  it('shows four counters and the weekly additions chart', async () => {
+  it('shows four counters and the veille link', async () => {
     stubApi({ ...SHELL_API, 'GET /api/home/dashboard': [200, DATA] })
     renderApp('/')
     const totals = await screen.findByRole('list', { name: 'Chiffres clés' })
     await within(totals).findByRole('link', { name: /1\s053 Prospects/ })
     expect(within(totals).getAllByRole('listitem')).toHaveLength(4)
-    expect(within(totals).getAllByRole('link').map((link) => link.textContent)).toEqual(['Prospects1\u202f053', 'Entreprises812', 'Contactés189', 'RDV pris6'])
-    expect(screen.getByRole('region', { name: 'Évolution des ajouts' })).toBeInTheDocument()
-    expect(screen.getByText(/Semaine dernière/)).toBeInTheDocument()
-    expect(screen.getByText(/Cette semaine/)).toBeInTheDocument()
-    expect(screen.getByRole('listitem', { name: /28 prospects en prospection, 145 prospects entrepôt/ })).toBeInTheDocument()
+    expect(within(totals).getAllByRole('link').map((link) => link.textContent)).toEqual(['Prospects1\u202f053', 'Entreprises812', 'RDV pris6'])
+    expect(screen.getByRole('link', { name: /Veille/ })).toHaveAttribute('href', '/missions')
+    expect(screen.queryByText('Évolution des ajouts')).not.toBeInTheDocument()
     const main = within(screen.getByRole('main'))
     for (const old of ['Base', 'Activité de contact', 'Semaine à contacter', 'Campagne d’envoi', 'Progression du mois', 'Défaillant', 'À vérifier', 'Sans réponse', 'Mail invalide']) expect(main.queryByText(old)).not.toBeInTheDocument()
   })
@@ -32,11 +30,11 @@ describe('Home dashboard', () => {
   it('keeps actions and links every card to its corresponding real view and date filters', async () => {
     stubApi({ ...SHELL_API, 'GET /api/home/dashboard': [200, DATA] })
     renderApp('/')
-    await screen.findByRole('region', { name: 'Évolution des ajouts' })
+    await screen.findByRole('link', { name: /Veille/ })
     const totals = within(screen.getByRole('list', { name: 'Chiffres clés' }))
     expect(totals.getByRole('link', { name: /Prospects$/ })).toHaveAttribute('href', '/prospection?list=1')
     expect(totals.getByRole('link', { name: /Entreprises$/ })).toHaveAttribute('href', '/prospection/companies')
-    expect(totals.getByRole('link', { name: /Contactés$/ })).toHaveAttribute('href', '/contact?section=CONTACTES')
+    expect(totals.queryByRole('link', { name: /Contactés/ })).not.toBeInTheDocument()
     expect(totals.getByRole('link', { name: /RDV pris$/ })).toHaveAttribute('href', '/prospection?segment=appointments')
     expect(screen.getByRole('link', { name: 'Importer Excel' })).toHaveAttribute('href', '/prospection/import')
     expect(screen.getByRole('link', { name: 'Ouvrir la prospection' })).toHaveAttribute('href', '/prospection')
@@ -46,7 +44,7 @@ describe('Home dashboard', () => {
     stubApi(SHELL_API)
     renderApp('/')
     expect(screen.getByText(/vendredi 30 octobre 2026/)).toBeInTheDocument()
-    expect(await screen.findByText('Aucune donnée disponible.')).toBeInTheDocument()
+    await screen.findByRole('link', { name: /Prospects0|0 Prospects/ })
     expect(within(screen.getByRole('list', { name: 'Chiffres clés' })).getAllByRole('link').every((link) => link.textContent.endsWith('0'))).toBe(true)
   })
 
@@ -66,6 +64,6 @@ describe('Home dashboard', () => {
     expect(screen.getAllByText('—')).toHaveLength(4)
     failed = false
     await userEvent.click(screen.getByRole('button', { name: 'Réessayer' }))
-    expect(await screen.findByRole('listitem', { name: /28 prospects en prospection, 145 prospects entrepôt/ })).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: /1\s053 Prospects/ })).toBeInTheDocument()
   })
 })

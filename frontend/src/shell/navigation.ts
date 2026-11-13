@@ -1,4 +1,4 @@
-import { BuildingIcon, CalendarIcon, ClockIcon, DatabaseIcon, HomeIcon, type IconComponent, MailIcon, SlidersIcon, SparklesIcon, UsersIcon, WarehouseIcon } from '../ui/icons'
+import { BuildingIcon, CalendarIcon, ClockIcon, DatabaseIcon, HomeIcon, type IconComponent, SlidersIcon, SparklesIcon, UsersIcon, WarehouseIcon } from '../ui/icons'
 
 export interface NavigationItem {
   path: string
@@ -10,7 +10,6 @@ export const NAVIGATION: readonly NavigationItem[] = [
   { path: '/', label: 'Accueil', icon: HomeIcon },
   { path: '/prospection', label: 'Prospection', icon: UsersIcon },
   { path: '/warehouses', label: 'Entrepôts', icon: WarehouseIcon },
-  { path: '/contact', label: 'Contacts', icon: MailIcon },
   { path: '/missions', label: 'Missions', icon: SparklesIcon },
   { path: '/agenda', label: 'Agenda', icon: CalendarIcon },
   { path: '/database', label: 'Base de données', icon: DatabaseIcon },

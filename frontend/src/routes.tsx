@@ -8,6 +8,7 @@ import { CompaniesPage } from './companies/CompaniesPage'
 import { ContactPage } from './contact/ContactPage'
 import { DatabasePage } from './database/DatabasePage'
 import { MissionDetailPage } from './missions/MissionDetailPage'
+import { MissionResultPage } from './missions/MissionResultPage'
 import { MissionsPage } from './missions/MissionsPage'
 import { HomePage } from './home/HomePage'
 import { OrganizationPage } from './organization/OrganizationPage'
@@ -54,6 +55,7 @@ const PAGES: RouteObject[] = [
   { path: '/contact', element: <ContactPage /> },
   { path: '/missions', element: <MissionsPage /> },
   { path: '/missions/:missionId', element: <MissionDetailPage /> },
+  { path: '/missions/:missionId/resultat', element: <MissionResultPage /> },
   // « Autoriser … à accéder à VIPER ? »: where /oauth/authorize sends an MCP connector's person (ChatGPT, Claude…).
   { path: '/autoriser', element: <OAuthConsentPage /> },
   { path: '/agenda', element: <AgendaPage /> },
