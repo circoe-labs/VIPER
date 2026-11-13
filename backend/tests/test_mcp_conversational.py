@@ -201,7 +201,7 @@ def test_pending_reviews_count_tool_proposals_and_mission_results(
     proposal = pending["proposals"][0]
     assert proposal["result_id"] == stored["result_id"]
     assert proposal["subject_label"] == "2SN"
-    assert proposal["submitted_by_label"] == "Agent claude-01"
+    assert proposal["submitted_by_label"] == "Agent #1"
     assert proposal["digest"]
     rest_rows = client.get("/api/missions/proposals").json()
     assert {key: proposal[key] for key in rest_rows[0]} == rest_rows[0]
