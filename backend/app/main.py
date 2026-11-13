@@ -72,6 +72,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.integrations = IntegrationRuntime(app.state)
     # Test seam of « Tester la clé » (an `httpx2.MockTransport`); None = the network.
     app.state.openai_transport = None
+    # Same seam for the optional Whisper-compatible speech-to-text (voice mission assistant).
+    app.state.stt_transport = None
     # The Agenda's Calendly sync worker (started with a token) and its test seam.
     app.state.calendly_worker = None
     app.state.calendly_transport = None
