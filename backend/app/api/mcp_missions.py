@@ -184,6 +184,10 @@ def _current_rule(session: Session, mission_id: uuid.UUID) -> dict[str, Any]:
         .where(MissionTarget.mission_id == mission_id)
         .order_by(MissionTarget.created_at)
     ).all()
+    # The category follows `type` when only one of them changes (a bare `type` resolves to its
+    # built-in category; a new `category_id` brings its own type): `_update` drops the one the
+    # call does not mention.
+    rule["category_id"] = mission.category_id
     rule["targets"] = [
         {"kind": "company", "id": target.company_id}
         if target.company_id is not None
@@ -233,7 +237,12 @@ def _update(ctx: MissionContext, args: dict[str, Any]) -> dict[str, Any]:
         raise InvalidFieldError(
             "run_now", "Modifying never launches: call viper_run_mission.", "invalid"
         )
-    body = _mission_in({**_current_rule(ctx.session, mission_id), **changes})
+    rule = _current_rule(ctx.session, mission_id)
+    if "category_id" in changes and "type" not in changes:
+        rule.pop("type")
+    elif "type" in changes and "category_id" not in changes:
+        rule.pop("category_id")
+    body = _mission_in({**rule, **changes})
     missions.update(ctx.session, ctx.actor, mission_id, mission_routes.mission_input(body))
     return _detail(ctx, mission_id)
 

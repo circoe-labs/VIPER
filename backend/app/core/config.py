@@ -181,6 +181,9 @@ class Settings(BaseSettings):
     # The task brief always given to the model before it drafts (Paramètres > Prompt initial);
     # unset = the built-in `DEFAULT_INITIAL_PROMPT`.
     contact_initial_prompt: Annotated[str, Field(max_length=8000)] | None = None
+    # The behaviour prompt of the mission-creator assistant (Paramètres > Prompt, mission-creator
+    # slice S1); unset = `DEFAULT_MISSION_CREATOR_PROMPT`. Not a category's general prompt.
+    mission_creator_prompt: Annotated[str, Field(max_length=8000)] | None = None
 
     # CIRCOE Toolbox (S6, handoff Task 15): Infomaniak drafts of validated messages through the
     # Toolbox MCP server (OAuth 2.1 + PKCE). Off by default: everything stays local. « Se connecter
@@ -235,6 +238,7 @@ class Settings(BaseSettings):
         "infomaniak_client_secret",
         "contact_booking_url",
         "contact_initial_prompt",
+        "mission_creator_prompt",
         "toolbox_mcp_url",
         "toolbox_oauth_redirect_uri",
         "toolbox_token_store_path",

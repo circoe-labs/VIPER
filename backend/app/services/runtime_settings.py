@@ -52,7 +52,7 @@ OPENAI_FIELDS = (
     "openai_max_retries",
     "contact_booking_url",
 )
-PROMPT_FIELDS = ("contact_initial_prompt",)
+PROMPT_FIELDS = ("contact_initial_prompt", "mission_creator_prompt")
 SENDER_FIELDS = ("default_outbound_email",)
 TOOLBOX_FIELDS = ("toolbox_mail_enabled", "toolbox_mcp_url", "toolbox_oauth_redirect_uri")
 DISPATCH_FIELDS = (

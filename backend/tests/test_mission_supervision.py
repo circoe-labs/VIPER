@@ -176,6 +176,9 @@ def test_the_existing_mission_detail_is_untouched(client: TestClient, mission: M
         "result_kind",
         "result_limit",
         "rule",
+        "sources",
+        "inheritance",
+        "skills",
     }
 
 
