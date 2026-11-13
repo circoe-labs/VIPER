@@ -7,7 +7,8 @@ import { IconButton } from '../ui/Button'
 import { Switch } from '../ui/fields'
 import type { Point } from '../ui/floating'
 import { AlertIcon, CheckCircleIcon, ClockIcon, MoreIcon, TargetIcon, UsersIcon } from '../ui/icons'
-import { accentForMission, MISSION_TYPE_ICONS } from './missionAccent'
+import { MissionGlyph } from './CategoryGlyph'
+import { categoryAccent } from './categoryVisual'
 import { MissionStatusChip } from './MissionStatusChip'
 import { agentLabel, plural, progressPercent } from './missionsListModel'
 import { MISSION_TYPE_LABELS, momentLabel, recurrenceLabel } from './labels'
@@ -59,13 +60,13 @@ export function MissionCardTile({ card, onMenu }: { card: MissionCard; onMenu: O
   const last = momentLabel(card.last_run_at)
   const next = momentLabel(card.next_run_at)
   const failed = card.last_run_status === 'failed'
-  const TypeIcon = MISSION_TYPE_ICONS[card.type]
   return (
     <div className="mlist-item">
       <Link
         to={`/missions/${card.id}`}
         className="mlist-card mui-accent"
-        data-hue={accentForMission(card.id)}
+        data-hue={card.category ? undefined : 'neutral'}
+        style={categoryAccent(card.category?.color)}
         onContextMenu={(event: MouseEvent) => {
           event.preventDefault()
           onMenu(card, { x: event.clientX, y: event.clientY }, false)
@@ -73,14 +74,14 @@ export function MissionCardTile({ card, onMenu }: { card: MissionCard; onMenu: O
       >
         <div className="mlist-card__head">
           <span className="mui-icon-tile" aria-hidden="true">
-            <TypeIcon size={20} />
+            <MissionGlyph category={card.category} type={card.type} size={20} />
           </span>
           <h2 className="mlist-card__title" title={card.prompt}>
             {card.name}
           </h2>
         </div>
         <div className="mlist-card__chips">
-          <Badge>{MISSION_TYPE_LABELS[card.type]}</Badge>
+          <Badge>{card.category?.name ?? MISSION_TYPE_LABELS[card.type]}</Badge>
           <MissionStatusChip status={card.status} />
           {card.results_pending > 0 && <StatusBadge tone="warning">{String(card.results_pending)} à relire</StatusBadge>}
         </div>

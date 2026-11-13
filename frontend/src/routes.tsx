@@ -1,10 +1,12 @@
 import { Navigate, useLocation, type RouteObject } from 'react-router'
 
+import { AdministrationPage } from './admin/AdministrationPage'
 import { AgendaPage } from './agenda/AgendaPage'
 import { ForgotPasswordPage } from './auth/ForgotPasswordPage'
 import { LoginPage } from './auth/LoginPage'
 import { ResetPasswordPage } from './auth/ResetPasswordPage'
 import { OAuthConsentPage } from './auth/OAuthConsentPage'
+import { RequireAdmin } from './auth/RequireAdmin'
 import { RequireAuth } from './auth/RequireAuth'
 import { CompaniesPage } from './companies/CompaniesPage'
 import { ContactPage } from './contact/ContactPage'
@@ -66,6 +68,15 @@ const PAGES: RouteObject[] = [
   { path: '/historique-agents', element: <AgentHistoryPage /> },
   { path: '/inscriptions/:token', element: <SignupApprovalPage /> },
   { path: '/settings/:section?', element: <SettingsPage /> },
+  // Administration group of the sidebar (categories, skills, source library): administrators only.
+  {
+    path: '/administration/:section?',
+    element: (
+      <RequireAdmin>
+        <AdministrationPage />
+      </RequireAdmin>
+    ),
+  },
 ]
 
 // Secondary pages inside a section (the section's navigation item stays current).

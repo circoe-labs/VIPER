@@ -1,0 +1,66 @@
+.mcat {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.mcat__tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: var(--space-2);
+}
+
+.mcat__tile {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 3rem;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.mcat__tile:hover {
+  background: var(--color-surface-hover);
+}
+
+.mcat__tile[aria-checked='true'] {
+  background: var(--mui-soft, var(--color-accent-soft));
+  box-shadow: inset 0 0 0 2px var(--mui-fg, var(--color-accent));
+  font-weight: var(--weight-semibold);
+}
+
+.mcat__tile:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-focus);
+}
+
+.mcat__name {
+  overflow-wrap: anywhere;
+}
+
+.mcat__help,
+.mcat__state {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.mcat__state--error {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-danger-fg);
+}
+
+/* « Hérité » / « Personnalisé » line shared by consigne, skills and sources. */
+.minh {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
