@@ -81,6 +81,77 @@ describe('Menu', () => {
   })
 })
 
+describe('Menu submenu', () => {
+  const onPick = vi.fn()
+  function SubHarness() {
+    return (
+      <Menu
+        label="Membre"
+        position={{ x: 10, y: 10 }}
+        onClose={vi.fn()}
+        sections={[
+          {
+            items: [
+              { id: 'a', label: 'Autre', onSelect: vi.fn() },
+              {
+                id: 'role',
+                label: 'Rôle : Manager',
+                onSelect: vi.fn(),
+                submenu: {
+                  label: 'Changer le rôle',
+                  items: [
+                    { id: 'admin', label: 'Administrateur', onSelect: onPick },
+                    { id: 'manager', label: 'Manager', checked: true, onSelect: onPick },
+                  ],
+                },
+              },
+            ],
+          },
+        ]}
+      />
+    )
+  }
+
+  it('opens on hover after a short delay without taking focus, closes when leaving', async () => {
+    render(<SubHarness />)
+    const parent = screen.getByRole('menuitem', { name: 'Rôle : Manager' })
+    expect(parent).toHaveAttribute('aria-expanded', 'false')
+
+    await userEvent.hover(parent)
+
+    expect(await screen.findByRole('menu', { name: 'Changer le rôle' })).toBeInTheDocument()
+    expect(parent).toHaveAttribute('aria-expanded', 'true')
+    expect(parent).not.toHaveFocus()
+    await userEvent.hover(screen.getByRole('menuitem', { name: 'Autre' }))
+    expect(screen.queryByRole('menu', { name: 'Changer le rôle' })).not.toBeInTheDocument()
+  })
+
+  it('opens with ArrowRight on the checked choice; ArrowLeft and Escape close only the submenu', async () => {
+    render(<SubHarness />)
+    await userEvent.keyboard('{ArrowDown}{ArrowRight}')
+
+    expect(screen.getByRole('menuitemradio', { name: 'Manager' })).toHaveFocus()
+    await userEvent.keyboard('{ArrowUp}')
+    expect(screen.getByRole('menuitemradio', { name: 'Administrateur' })).toHaveFocus()
+    await userEvent.keyboard('{ArrowLeft}')
+    expect(screen.queryByRole('menu', { name: 'Changer le rôle' })).not.toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Rôle : Manager' })).toHaveFocus()
+
+    await userEvent.keyboard('{Enter}')
+    expect(screen.getByRole('menuitemradio', { name: 'Manager' })).toHaveFocus()
+    await userEvent.keyboard('{Escape}')
+    expect(screen.getByRole('menu', { name: 'Membre' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Rôle : Manager' })).toHaveFocus()
+  })
+
+  it('runs the chosen radio item', async () => {
+    render(<SubHarness />)
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Rôle : Manager' }))
+    await userEvent.click(screen.getByRole('menuitemradio', { name: 'Administrateur' }))
+    expect(onPick).toHaveBeenCalledOnce()
+  })
+})
+
 describe('Popover', () => {
   it('focuses its first field and closes on Escape, restoring focus', async () => {
     function Harness() {

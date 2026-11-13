@@ -33,6 +33,10 @@ describe('SignupPage', () => {
     await fill()
 
     expect(await screen.findByText(/Demande envoyée/)).toBeInTheDocument()
+    // Same answer whether the address is new, pending or already registered: the page says what that means.
+    expect(screen.getByText(/votre mot de passe d’origine reste valable/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Mot de passe oublié ?' })).toHaveAttribute('href', '/mot-de-passe-oublie')
+    expect(screen.getByRole('link', { name: 'Retour à la connexion' })).toHaveAttribute('href', '/login')
     const [, init] = fetchMock.mock.calls.find(([url]) => url.endsWith('/auth/signup')) ?? []
     expect(JSON.parse(init?.body as string)).toEqual({
       email: 'nouveau@circoe.com',

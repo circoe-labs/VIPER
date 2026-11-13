@@ -87,11 +87,20 @@ export function SignupPage() {
           <>
             <p className="login-card__message login-card__message--info" role="status">
               <CheckCircleIcon size={18} />
-              Demande envoyée. Vous pourrez vous connecter dès que l’administrateur aura confirmé votre compte.
+              <span>
+                Demande envoyée. Vous pourrez vous connecter dès que l’administrateur aura confirmé votre compte.
+                <br />
+                Si cette adresse a déjà une demande en attente ou un compte, rien n’est modifié : votre mot de passe
+                d’origine reste valable et l’administrateur a déjà été prévenu. Dans ce cas, connectez-vous une fois
+                votre compte confirmé, ou utilisez « Mot de passe oublié ? ».
+              </span>
             </p>
             <Link className="btn btn--secondary btn--md login-card__submit" to="/login">
               Retour à la connexion
             </Link>
+            <p className="login-card__alt">
+              <Link to="/mot-de-passe-oublie">Mot de passe oublié ?</Link>
+            </p>
           </>
         ) : (
           <>
