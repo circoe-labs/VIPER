@@ -19,13 +19,54 @@ describe('MissionsPage', () => {
 
     expect(screen.getByRole('heading', { level: 1, name: 'Missions' })).toBeInTheDocument()
     expect(await screen.findByText('Nouveaux entrepôts — Normandie')).toBeInTheDocument()
-    expect(screen.getByText(/Enrichissement · Agent claude-01/)).toBeInTheDocument()
-    expect(screen.getByText(/Toutes les 24 heures/)).toBeInTheDocument()
-    expect(screen.getByText(/1 résultat à relire/)).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /Nouveaux entrepôts/ })).toHaveAttribute(
-      'href',
-      `/missions/${MISSION}`,
-    )
+    const link = screen.getByRole('link', { name: /Nouveaux entrepôts/ })
+    expect(link).toHaveAttribute('href', `/missions/${MISSION}`)
+    expect(within(link).getByText('Enrichissement')).toBeInTheDocument()
+    expect(within(link).getByText('Agent claude-01')).toBeInTheDocument()
+    expect(within(link).getByText('Toutes les 24 heures')).toBeInTheDocument()
+    expect(within(link).getByText('1 à relire')).toBeInTheDocument()
+    expect(within(link).getByText('1 à valider')).toBeInTheDocument()
+    expect(within(link).getByText('1 tâche')).toBeInTheDocument()
+    // 0 of 1 task accepted: a real 0 %, with a labelled bar.
+    expect(within(link).getByRole('progressbar', { name: 'Progression : 0 % des tâches validées' })).toBeInTheDocument()
+  })
+
+  it('counts the whole list in the header tiles, whatever the filters', async () => {
+    const other = card({ id: 'other', name: 'Veille', type: 'signals', status: 'paused', agent_label: null, tasks_total: 0, results_pending: 0 })
+    const done = card({ id: 'done', name: 'Close', status: 'done' })
+    stubApi({
+      ...SHELL_API,
+      ...COMMON,
+      'GET /api/missions': [200, { items: [card(), other, done], total: 3 }],
+    })
+    const user = userEvent.setup()
+    renderApp('/missions')
+
+    await screen.findByText('Veille')
+    // The tile of « Toutes les missions »: a <dt> label and its figure.
+    const total = () => document.querySelector('.mui-kpi')
+    const counters = total()
+    expect(counters).toHaveTextContent('3')
+    expect(screen.getByText('Automatique')).toBeInTheDocument()
+    expect(screen.getByText('Aucune tâche')).toBeInTheDocument()
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Statut' }), 'paused')
+    expect(screen.queryByText('Nouveaux entrepôts — Normandie')).not.toBeInTheDocument()
+    expect(screen.getByText('Veille')).toBeInTheDocument()
+    expect(total()).toHaveTextContent('3')
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Type' }), 'prospection')
+    expect(await screen.findByText('Aucune mission ne correspond à ces filtres.')).toBeInTheDocument()
+    await user.click(screen.getAllByRole('button', { name: 'Réinitialiser les filtres' })[0] as HTMLElement)
+    expect(await screen.findByText('Nouveaux entrepôts — Normandie')).toBeInTheDocument()
+  })
+
+  it('says why the list is missing and retries', async () => {
+    stubApi({ ...SHELL_API, ...COMMON, 'GET /api/missions': [500, { detail: 'boom' }] })
+    renderApp('/missions')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Les missions n’ont pas pu être chargées.')
+    expect(screen.getByRole('button', { name: 'Réessayer' })).toBeInTheDocument()
   })
 
   async function openCreate() {
