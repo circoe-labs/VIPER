@@ -29,6 +29,7 @@ Styling approach and rationale: [ADR-0003](../adr/0003-styling-and-theming.md).
 | Prospection page: counter cards, toolbar, people cards (Task 14) | `src/prospection/*` (`prospection.css`) — see *Prospection people list* below |
 | Home dashboard (Task 16) | `src/home/*` (`home.css`) — see *Home dashboard* below |
 | Contact page: counters, toolbar, list, workbench (Contact port S4) | `src/contact/*` (`contact.css`) — see *Contact page* below |
+| Mission UI primitives (KPI tile, accent panel, status chip, donut with table alternative) | `src/missions/missionUi.css`, `MissionKpiTile.tsx`, `MissionPanel.tsx`, `MissionStatusChip.tsx`, `MissionDonut.tsx`, `missionAccent.ts` — contract, hues and chart rules in [`tasks/viper_mission_ui_redesign/01-ui-contract/CONTRACT.md`](../../tasks/viper_mission_ui_redesign/01-ui-contract/CONTRACT.md); tokens `--color-violet-*`, `--color-indigo-*`, `--color-teal-soft` (decorative Mission accents, never a status) |
 | Global search (Task 17) | `src/shell/GlobalSearch.tsx`, `src/shell/global-search.css` — see *App shell* below |
 | Font | `@fontsource-variable/inter` (self-hosted Inter Variable, imported in `src/main.tsx`; no CDN) |
 

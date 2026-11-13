@@ -4,7 +4,9 @@ import type { MissionOverview } from '../api/missions'
 import { StatusBadge } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { AlertIcon, RefreshIcon } from '../ui/icons'
+import { ScoreRing } from '../ui/ScoreRing'
 import { relativeMomentLabel } from './labels'
+import './missionDetail.css'
 
 interface MissionLiveStripProps {
   overview: UseQueryResult<MissionOverview>
@@ -28,7 +30,7 @@ export function MissionLiveStrip({ overview, onOpenResults }: MissionLiveStripPr
   if (!data) {
     if (overview.isError) {
       return (
-        <div className="mission-live mission-live--error" role="status">
+        <div className="mdet-live mdet-live--error" role="status">
           <AlertIcon size={18} />
           <span>Le suivi en direct est indisponible.</span>
           <Button
@@ -46,7 +48,7 @@ export function MissionLiveStrip({ overview, onOpenResults }: MissionLiveStripPr
       )
     }
     return (
-      <p className="mission-live mission-live--loading" role="status">
+      <p className="mdet-live mdet-live--loading" role="status">
         Chargement du suivi en direct…
       </p>
     )
@@ -58,47 +60,54 @@ export function MissionLiveStrip({ overview, onOpenResults }: MissionLiveStripPr
   const lastActivity = relativeMomentLabel(data.last_activity_at)
 
   return (
-    <section className="mission-live" aria-label="Suivi en direct">
+    <section className="mdet-live" aria-label="Suivi en direct">
       {noRun ? (
-        <p className="mission-live__empty">
+        <p className="mdet-live__empty">
           Aucune exécution pour l’instant : le suivi en direct apparaît dès le premier lancement.
         </p>
       ) : (
-        <dl className="mission-live__stats">
-          <div className="mission-live__stat">
+        <dl className="mdet-live__stats">
+          <div className="mdet-live__stat">
             <dt>Agents actifs</dt>
             <dd>
-              <span className={`mission-live__dot${data.active_agents > 0 ? ' is-live' : ''}`} aria-hidden="true" />
+              <span className={`mdet-live__dot${data.active_agents > 0 ? ' is-live' : ''}`} aria-hidden="true" />
               {agentsText(data)}
             </dd>
           </div>
-          <div className="mission-live__stat">
+          <div className="mdet-live__stat">
             <dt>Dernière activité</dt>
             <dd>{lastActivity ?? 'Aucune pour l’instant'}</dd>
           </div>
-          <div className="mission-live__stat">
+          <div className="mdet-live__stat mdet-live__stat--progress">
             <dt>Progression</dt>
             <dd>
-              {String(tasks.finished)} / {String(tasks.total)} tâche{tasks.total > 1 ? 's' : ''}
-              <progress
-                className="mission-live__progress"
-                max={Math.max(tasks.total, 1)}
-                value={tasks.finished}
-                aria-label={`Progression : ${String(percent)} %`}
-              />
+              {tasks.total > 0 && <ScoreRing value={percent} tone={percent === 100 ? 'success' : 'neutral'} />}
+              <span className="mdet-live__progress-text">
+                <span>
+                  {tasks.total === 0
+                    ? 'Aucune tâche'
+                    : `${String(tasks.finished)} / ${String(tasks.total)} tâche${tasks.total > 1 ? 's' : ''} traitée${tasks.total > 1 ? 's' : ''}`}
+                </span>
+                <progress
+                  className="mdet-live__progress"
+                  max={Math.max(tasks.total, 1)}
+                  value={tasks.finished}
+                  aria-label={`Progression : ${String(percent)} %`}
+                />
+              </span>
             </dd>
           </div>
         </dl>
       )}
       {data.pending_reviews > 0 && (
-        <button type="button" className="mission-live__reviews" onClick={onOpenResults}>
+        <button type="button" className="mdet-live__reviews" onClick={onOpenResults}>
           <StatusBadge tone="warning" strong>
             {String(data.pending_reviews)} résultat{data.pending_reviews > 1 ? 's' : ''} à relire
           </StatusBadge>
         </button>
       )}
       {overview.isError && (
-        <p className="mission-live__stale" role="status">
+        <p className="mdet-live__stale" role="status">
           Actualisation impossible : dernières données connues affichées.
         </p>
       )}

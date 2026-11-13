@@ -89,6 +89,17 @@
   --nc-fog-night: #232D33;
   --nc-fog-deep: #3E4D54;
   --nc-fog-mist: #E9EEEF;
+  /* Mission UI accents (violet, indigo, teal tint): decorative hues of the Mission screens, never a status. */
+  --nc-violet: #B98AF7;
+  --nc-violet-night: #1B1330;
+  --nc-violet-deep: #7040AD;
+  --nc-violet-mist: #F1EAFB;
+  --nc-indigo: #94A3FF;
+  --nc-indigo-night: #12163A;
+  --nc-indigo-deep: #3F4DB8;
+  --nc-indigo-mist: #ECEEFD;
+  --nc-teal-night: #0A2528;
+  --nc-teal-mist: #DFF5F3;
 
   /* Typography */
   --font-sans: 'Inter Variable', Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
@@ -225,6 +236,11 @@
   --color-info-soft: var(--nc-sky-night);
   --color-neutral-fg: var(--nc-fog);
   --color-neutral-soft: var(--nc-fog-night);
+  --color-violet-fg: var(--nc-violet);
+  --color-violet-soft: var(--nc-violet-night);
+  --color-indigo-fg: var(--nc-indigo);
+  --color-indigo-soft: var(--nc-indigo-night);
+  --color-teal-soft: var(--nc-teal-night);
 
   --color-scrim: color-mix(in srgb, var(--nc-void) 72%, transparent);
   --shadow-sm: 0 1px 2px color-mix(in srgb, var(--nc-void) 60%, transparent);
@@ -283,6 +299,11 @@
   --color-info-soft: var(--nc-sky-mist);
   --color-neutral-fg: var(--nc-fog-deep);
   --color-neutral-soft: var(--nc-fog-mist);
+  --color-violet-fg: var(--nc-violet-deep);
+  --color-violet-soft: var(--nc-violet-mist);
+  --color-indigo-fg: var(--nc-indigo-deep);
+  --color-indigo-soft: var(--nc-indigo-mist);
+  --color-teal-soft: var(--nc-teal-mist);
 
   --color-scrim: color-mix(in srgb, var(--nc-ink) 40%, transparent);
   --shadow-sm: 0 1px 2px color-mix(in srgb, var(--nc-ink) 8%, transparent);

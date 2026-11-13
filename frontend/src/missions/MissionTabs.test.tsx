@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
@@ -144,6 +144,17 @@ describe('Mission detail tabs', () => {
   })
 })
 
+describe('Mission header', () => {
+  it('shows status, type, recurrence and agent chips, and no place chip when the rule has no geography', async () => {
+    stubApi(api([200, overview()]))
+    renderApp(`/missions/${MISSION}`)
+    const chips = await screen.findByRole('list', { name: 'Caractéristiques de la mission' })
+    expect(within(chips).getByText('Active')).toBeInTheDocument()
+    expect(within(chips).getAllByRole('listitem').length).toBeGreaterThanOrEqual(4)
+    expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument()
+  })
+})
+
 describe('Mission live strip', () => {
   it('shows a loading state while the overview is pending, without blocking the page', async () => {
     stubApi(api(() => new Promise<Response>(() => undefined)))
@@ -166,7 +177,7 @@ describe('Mission live strip', () => {
     renderApp(`/missions/${MISSION}`)
 
     expect(await screen.findByText('1 · Agent claude-01')).toBeInTheDocument()
-    expect(screen.getByText('3 / 4 tâches')).toBeInTheDocument()
+    expect(screen.getByText('3 / 4 tâches traitées')).toBeInTheDocument()
     expect(screen.getByRole('progressbar', { name: 'Progression : 75 %' })).toBeInTheDocument()
     expect(screen.getByText('à l’instant')).toBeInTheDocument()
     expect(screen.getByText(/Des sessions d’agent ont expiré/)).toBeInTheDocument()

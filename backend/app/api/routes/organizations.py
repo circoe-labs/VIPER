@@ -5,14 +5,14 @@ the service checks them again on every change (`app.services.organizations`)."""
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Request, status
 from pydantic import BaseModel, Field
 
 from app.api.dependencies import AuthDep, CurrentActor, SessionDep
 from app.api.errors import business_errors
 from app.models.organizations import NAME_MAX_LENGTH, Organization, OrganizationRole
 from app.models.users import User
-from app.services import organizations
+from app.services import organizations, password_reset
 
 router = APIRouter(prefix="/organizations", tags=["organizations"])
 
@@ -190,6 +190,30 @@ def update_member(
             display_name=body.display_name,
         )
         return _member(auth.user, member)
+
+
+class PasswordResetSent(BaseModel):
+    # False: the link was issued but the mail could not leave (Toolbox not connected, or failing).
+    sent: bool
+    email: str
+
+
+@router.post("/{organization_id}/members/{user_id}/password-reset")
+def send_member_password_reset(
+    organization_id: uuid.UUID,
+    user_id: uuid.UUID,
+    request: Request,
+    auth: AuthDep,
+    session: SessionDep,
+) -> PasswordResetSent:
+    """E-mail a reset link to a member the signed-in person may edit."""
+    with business_errors():
+        issued = password_reset.request_for_member(session, auth.user, organization_id, user_id)
+    link = str(request.base_url).rstrip("/") + f"/reinitialisation/{issued.token}"
+    sent = password_reset.send_reset_mail(
+        request.app.state.toolbox.mail_toolbox(), to=issued.email, link=link
+    )
+    return PasswordResetSent(sent=sent, email=issued.email)
 
 
 @router.delete("/{organization_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)

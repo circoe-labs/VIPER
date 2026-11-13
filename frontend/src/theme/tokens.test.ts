@@ -77,6 +77,14 @@ const TEXT_PAIRS: [string, string][] = [
   ['success-fg', 'success-soft'],
   ['info-fg', 'info-soft'],
   ['neutral-fg', 'neutral-soft'],
+  // Mission UI accents: text/icons of an accent on the surface, and on its own tint.
+  ['violet-fg', 'surface'],
+  ['indigo-fg', 'surface'],
+  ['violet-fg', 'violet-soft'],
+  ['indigo-fg', 'indigo-soft'],
+  ['accent-2-fg', 'teal-soft'],
+  ['info-fg', 'surface'],
+  ['neutral-fg', 'surface'],
 ]
 
 // Non-text UI that must be perceivable (focus ring, field boundaries, switch thumb): WCAG 1.4.11 3:1.

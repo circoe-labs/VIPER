@@ -1,6 +1,7 @@
 .menu {
   position: fixed;
   z-index: var(--z-overlay);
+  width: max-content;
   min-width: 14rem;
   max-width: 28rem;
   padding: var(--space-1);
@@ -94,6 +95,44 @@
 .menu__item--danger:focus-visible {
   background: var(--color-danger-soft);
   color: var(--color-danger-fg);
+}
+
+/* Parent of a submenu: the nested menu is positioned against it (and stays inside its hover area). */
+.menu__host {
+  position: relative;
+}
+
+.menu--sub {
+  position: absolute;
+  top: calc(var(--space-1) * -1);
+  left: calc(100% + var(--space-1) / 2);
+  z-index: 1;
+  min-width: 11rem;
+}
+
+.menu--sub-left {
+  left: auto;
+  right: calc(100% + var(--space-1) / 2);
+}
+
+.menu__chevron {
+  flex: none;
+  color: var(--color-text-muted);
+}
+
+.menu__item[aria-expanded='true'] {
+  background: var(--color-accent-soft);
+  color: var(--color-accent-fg);
+}
+
+.menu__item[aria-checked='true'] {
+  font-weight: var(--weight-semibold);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .menu--sub {
+    animation: none;
+  }
 }
 
 @keyframes menu-in {

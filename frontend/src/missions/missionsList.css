@@ -1,0 +1,282 @@
+/* Missions list surface (Slice 02 of viper_mission_ui_redesign). Prefix `mlist-`. Composes the shared `mui-*`
+   primitives (missionUi.css); tokens only, no colour literal. (The legacy `.mission-card*` rules were removed from
+   missions.css in Slice 05.) */
+
+/* --- Toolbar: Statut / Type on the left, Tri on the right ------------------------------------------------------- */
+.mlist-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-3);
+}
+
+.mlist-toolbar .field {
+  flex: 0 1 14rem;
+}
+
+.mlist-toolbar .field:last-of-type {
+  margin-left: auto;
+}
+
+.mlist-toolbar__select {
+  min-width: 0;
+}
+
+/* --- Grid ------------------------------------------------------------------------------------------------------- */
+.mlist-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(24rem, 100%), 1fr));
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mlist-grid > li {
+  min-width: 0;
+}
+
+.mlist-skeleton {
+  min-height: 13rem;
+}
+
+/* --- Card ------------------------------------------------------------------------------------------------------- */
+.mlist-item {
+  position: relative;
+  height: 100%;
+}
+
+.mlist-card {
+  display: grid;
+  align-content: start;
+  gap: var(--space-3);
+  height: 100%;
+  padding: var(--space-4);
+  color: inherit;
+  text-decoration: none;
+  transition:
+    border-color var(--duration-fast) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-standard);
+}
+
+.mlist-card:hover {
+  border-color: var(--mui-fg);
+}
+
+.mlist-card:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-focus);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.mlist-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  /* Room for the switch and the « … » button, which sit over the top-right corner. */
+  padding-right: 6.5rem;
+}
+
+.mlist-card .mui-icon-tile {
+  width: 2.75rem;
+  height: 2.75rem;
+}
+
+.mlist-card__title {
+  margin: 0;
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-tight);
+  line-height: var(--leading-tight);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow-wrap: anywhere;
+}
+
+.mlist-card__chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* --- Progress: tasks accepted / tasks total --------------------------------------------------------------------- */
+.mlist-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.mlist-progress--none {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.mlist-progress__bar {
+  appearance: none;
+  flex: 1;
+  min-width: 0;
+  height: 0.5rem;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: var(--color-border);
+  accent-color: var(--mui-fg);
+}
+
+.mlist-progress__bar::-webkit-progress-bar {
+  background: var(--color-border);
+}
+
+.mlist-progress__bar::-webkit-progress-value {
+  border-radius: var(--radius-full);
+  background: var(--mui-fg);
+}
+
+.mlist-progress__bar::-moz-progress-bar {
+  border-radius: var(--radius-full);
+  background: var(--mui-fg);
+}
+
+.mlist-progress__figure {
+  flex: none;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.mlist-progress__figure strong {
+  color: var(--color-text);
+  font-weight: var(--weight-bold);
+}
+
+/* --- Facts: tâches / à valider / agent -------------------------------------------------------------------------- */
+.mlist-card__facts {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+  padding: var(--space-3) 0;
+  border-block: var(--border-width) solid var(--color-border);
+  list-style: none;
+  color: var(--color-text);
+  font-size: var(--text-sm);
+}
+
+.mlist-fact {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.mlist-fact svg {
+  flex: none;
+  color: var(--mui-fg);
+}
+
+/* The agent label can be long (« Agent claude-01 »): it truncates, its full text stays in the title and the DOM. */
+.mlist-fact:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- Footer ----------------------------------------------------------------------------------------------------- */
+.mlist-card__foot {
+  display: grid;
+  gap: var(--space-1);
+  margin-top: auto;
+}
+
+.mlist-card__run,
+.mlist-card__plan {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.mlist-card__run {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text);
+}
+
+.mlist-card__run svg {
+  flex: none;
+  color: var(--color-text-muted);
+}
+
+.mlist-card__run.is-failed,
+.mlist-card__run.is-failed svg {
+  color: var(--color-danger-fg);
+}
+
+.mlist-card__plan {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+/* --- Switch + « … » over the top-right corner (outside the link) ------------------------------------------------ */
+.mlist-item__actions {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* The switch stands alone: its word is the status chip of the card, read out by assistive technology only. */
+.mlist-switch .toggle__label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.mlist-switch {
+  display: flex;
+}
+
+/* --- Responsive (content width) --------------------------------------------------------------------------------- */
+@media (max-width: 43.75rem) {
+  .mlist-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .mlist-toolbar .field,
+  .mlist-toolbar .field:last-of-type {
+    flex: none;
+    margin-left: 0;
+  }
+
+  .mlist-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mlist-card__facts {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .mlist-fact:last-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mlist-card {
+    transition: none;
+  }
+}

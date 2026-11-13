@@ -6,12 +6,14 @@ import {
   type OrganizationDetail,
   type OrganizationRole,
   type OrganizationSummary,
+  type PasswordResetResult,
   useAddMember,
   useCreateOrganization,
   useDeleteOrganization,
   useOrganization,
   useOrganizations,
   useRemoveMember,
+  useResetMemberPassword,
   useUpdateMember,
   useUpdateOrganization,
 } from '../api/organizations'
@@ -63,6 +65,7 @@ const dateFormat = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium', timeS
 
 function errorText(error: unknown, fallback: string): string {
   if (error instanceof ApiError && error.status === 403) return 'Votre rôle ne permet pas cette action.'
+  if (error instanceof ApiError && error.status === 404) return 'Cette personne est introuvable (déjà supprimée ?).'
   if (error instanceof ApiError && (error.status === 409 || error.status === 422)) return error.message
   return fallback
 }
@@ -87,6 +90,8 @@ interface Confirmation {
   title: string
   text: string
   confirmLabel: string
+  // Destructive by default; a harmless confirmation (sending a mail) passes "primary".
+  variant?: 'danger' | 'primary'
   onConfirm: () => Promise<unknown>
 }
 
@@ -111,7 +116,7 @@ function ConfirmModal({ confirmation, onClose }: { confirmation: Confirmation | 
             Retour
           </Button>
           <Button
-            variant="danger"
+            variant={confirmation?.variant ?? 'danger'}
             loading={busy}
             onClick={() => {
               if (!confirmation) return
@@ -462,6 +467,8 @@ function MembersTable({
 }) {
   const update = useUpdateMember(organizationId)
   const remove = useRemoveMember(organizationId)
+  const resetPassword = useResetMemberPassword(organizationId)
+  const [notice, setNotice] = useState<PasswordResetResult | null>(null)
   const [menu, setMenu] = useState<{ member: Member; position: Point } | null>(null)
   const [editing, setEditing] = useState<Member | null>(null)
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null)
@@ -486,21 +493,45 @@ function MembersTable({
         copy(member.email)
       },
     })
-    const sections: MenuSection[] = [{ items: main }]
     if (member.can_change_role) {
-      sections.push({
-        label: 'Rôle',
-        items: ROLES.filter((role) => role === member.role || assignable.includes(role)).map((role) => ({
-          id: `role-${role}`,
-          label: ROLE_LABELS[role],
-          icon: role === member.role ? CheckCircleIcon : undefined,
-          disabled: role === member.role,
-          onSelect: () => {
-            update.mutate({ id: member.id, patch: { role } })
-          },
-        })),
+      main.push({
+        id: 'role',
+        label: `Rôle : ${ROLE_LABELS[member.role]}`,
+        icon: ShieldCheckIcon,
+        submenu: {
+          label: 'Changer le rôle',
+          items: ROLES.filter((role) => role === member.role || assignable.includes(role)).map((role) => ({
+            id: `role-${role}`,
+            label: ROLE_LABELS[role],
+            checked: role === member.role,
+            onSelect: () => {
+              if (role !== member.role) update.mutate({ id: member.id, patch: { role } })
+            },
+          })),
+        },
+        onSelect: () => undefined,
       })
     }
+    if (member.can_edit) {
+      main.push({
+        id: 'reset-password',
+        label: 'Réinitialiser le mot de passe…',
+        icon: KeyIcon,
+        onSelect: () => {
+          setNotice(null)
+          setConfirmation({
+            title: 'Réinitialiser le mot de passe ?',
+            text: `Envoyer un e-mail de réinitialisation à ${member.email} ? La personne recevra un lien valable 1 h pour choisir un nouveau mot de passe.`,
+            confirmLabel: 'Envoyer l’e-mail',
+            variant: 'primary',
+            onConfirm: async () => {
+              setNotice(await resetPassword.mutateAsync(member.id))
+            },
+          })
+        },
+      })
+    }
+    const sections: MenuSection[] = [{ items: main }]
     const risky: MenuItem[] = []
     if (member.can_edit) {
       risky.push(
@@ -548,6 +579,18 @@ function MembersTable({
       {update.isError && (
         <p className="organization-error" role="alert">
           {errorText(update.error, 'La modification n’a pas pu être enregistrée.')}
+        </p>
+      )}
+      {notice?.sent === true && (
+        <p className="organization-notice" role="status">
+          <CheckCircleIcon size={16} />
+          E-mail de réinitialisation envoyé à {notice.email}
+        </p>
+      )}
+      {notice?.sent === false && (
+        <p className="organization-error" role="alert">
+          L’e-mail n’a pas pu partir (messagerie non connectée). Réessayez plus tard ou contactez l’administrateur de la
+          plateforme.
         </p>
       )}
       <Table caption="Membres de l’organisation">

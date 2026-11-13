@@ -66,3 +66,8 @@
   --counters-columns: 3;
   margin: var(--space-5) 0 0;
 }
+
+.showcase__stack {
+  display: grid;
+  gap: var(--space-4);
+}

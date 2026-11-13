@@ -1,0 +1,3 @@
+# Full Playwright suite: 65 failing specs on main, and a DB downgrade that breaks re-runs
+
+Pre-existing, same set on `main` and on the task branch (see LOG): `shell.spec.ts` and most Prospection / Contact / Companies / Settings / Import specs fail, e.g. the sidebar now has a « Prospects validés » link the specs do not expect. Also `alembic downgrade base` on the `viper_e2e` database fails (`table "agent_task_results" does not exist` in a downgrade), so `global-setup.ts` cannot re-run on a database left at head; the schema has to be dropped by hand between runs. Follow-up: update the specs, fix the faulty downgrade (or make global setup recreate the schema), and make the MCP claim queue test-isolated (it is global, parallel specs can claim each other's tasks).

@@ -115,6 +115,11 @@
   text-decoration: none;
 }
 
+.login-card__forgot {
+  align-self: flex-start;
+  font-size: var(--text-sm);
+}
+
 .login-card__alt {
   margin: 0;
   color: var(--color-text-muted);

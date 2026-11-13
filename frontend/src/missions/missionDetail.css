@@ -1,0 +1,183 @@
+/* Mission detail shell (Slice 04, prefix mdet-): header, live strip, overview grid. Tokens only; hues via missionUi.css. */
+
+/* --- Header ------------------------------------------------------------------------------------------------------- */
+.mdet-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+  margin: 0;
+}
+
+.mdet-header__tile {
+  width: 3.25rem;
+  height: 3.25rem;
+  border-radius: var(--radius-lg);
+}
+
+.mdet-header__text {
+  display: grid;
+  flex: 1 1 18rem;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.mdet-header__title {
+  margin: 0;
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-tight);
+  line-height: var(--leading-tight);
+  overflow-wrap: anywhere;
+}
+
+.mdet-header__chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mdet-header__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* --- Live strip --------------------------------------------------------------------------------------------------- */
+.mdet-live {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-6);
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+  font-size: var(--text-sm);
+}
+
+.mdet-live--loading,
+.mdet-live__empty,
+.mdet-live__stale {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.mdet-live--error {
+  gap: var(--space-2);
+  border-color: transparent;
+  background: var(--color-danger-soft);
+  color: var(--color-danger-fg);
+}
+
+.mdet-live__stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-8);
+  margin: 0;
+}
+
+.mdet-live__stat {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.mdet-live__stat dt {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.mdet-live__stat dd {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
+}
+
+.mdet-live__stat--progress .score-ring {
+  flex: none;
+  width: 2.75rem;
+  height: 2.75rem;
+}
+
+.mdet-live__progress-text {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.mdet-live__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: var(--color-text-muted);
+}
+
+.mdet-live__dot.is-live {
+  background: var(--color-success-fg);
+}
+
+.mdet-live__progress {
+  width: 8rem;
+  height: 6px;
+  accent-color: var(--color-accent-fg);
+}
+
+.mdet-live__reviews {
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.mdet-live__reviews:focus-visible {
+  border-radius: var(--radius-full);
+  outline: 2px solid var(--color-accent-fg);
+  outline-offset: 2px;
+}
+
+/* Banners raised by the overview (timed-out sessions, no active agent) take the full strip width. */
+.mdet-live > .missions-banner {
+  flex-basis: 100%;
+}
+
+/* --- Overview ----------------------------------------------------------------------------------------------------- */
+.mdet-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+}
+
+@media (max-width: 40rem) {
+  .mdet-header__tile {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+
+  .mdet-header__actions {
+    width: 100%;
+  }
+
+  .mdet-live__stats {
+    gap: var(--space-3);
+  }
+
+  .mdet-live__reviews {
+    margin-left: 0;
+  }
+
+  .mdet-grid {
+    grid-template-columns: 1fr;
+  }
+}
