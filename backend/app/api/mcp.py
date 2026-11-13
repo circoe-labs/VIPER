@@ -44,6 +44,8 @@ from app.models.mcp import McpToken
 from app.services import (
     agent_actions,
     agent_capabilities,
+    agent_identity,
+    agent_lifecycle,
     agent_missions,
     agent_writes,
     audit,
@@ -138,7 +140,8 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "viper_whoami",
         "description": (
-            "Who you are for VIPER: this agent's id and label, its provider and mode, the person "
+            "Who you are for VIPER: this agent's id, label and numbered identity (« Claude lucie "
+            "#2 »), its provider and mode, the person "
             "it acts for (e-mail and role) and their organisation, and the capabilities this "
             "agent may use now. Call it first; a tool outside these capabilities is refused."
         ),
@@ -216,6 +219,21 @@ TOOLS: list[dict[str, Any]] = [
         "name": "viper_release_task",
         "description": "Give a claimed task back without failing it (another agent may take it).",
         "inputSchema": _CLAIMED_SCHEMA,
+    },
+    {
+        "name": "viper_leave_work",
+        "description": (
+            "Hand back all the tasks you hold and end your mission work session(s), in one call, "
+            "when you are done or stopping (no claim_id needed). Pass `task_id` to leave only the "
+            "mission run of that task. Released tasks go back to the queue unfailed; safe to "
+            "repeat (answers zeros). Optional courtesy: unreleased leases expire after 15 minutes "
+            "and an idle session closes by itself after 3 hours."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"task_id": {"type": "string", "format": "uuid"}},
+            "additionalProperties": False,
+        },
     },
     {
         "name": "viper_task_queue",
@@ -532,8 +550,8 @@ def _claim(
     )
     if live is not None and live >= record.max_concurrent:
         raise ConflictError(
-            f"This token already holds {live} tasks (max {record.max_concurrent}): "
-            "submit or release one first."
+            f"This agent already holds {live} claimed tasks (task concurrency limit: "
+            f"{record.max_concurrent} at once): submit, release or leave_work first."
         )
     thread_id = args.get("thread_id")
     claimed = agent_missions.claim(
@@ -580,6 +598,10 @@ def _whoami() -> dict[str, Any]:
     return {
         "agent_id": str(record.id),
         "label": record.label,
+        "identity": agent_identity.identity_label(record),
+        "instance_number": record.instance_number,
+        # Tasks this agent may hold at once: unrelated to the cap on a person's agent identities.
+        "max_concurrent_tasks": record.max_concurrent,
         "provider": record.provider.value,
         "mode": record.mode.value,
         "delegated_user": (
@@ -681,6 +703,12 @@ def _call_tool(
                 str(args.get("message") or ""),
             )
             return _payload({"status": task.status.value})
+        case "viper_leave_work":
+            require(record, "tasks.work")
+            raw = args.get("task_id")
+            return _payload(
+                agent_lifecycle.leave_work(session, actor, _uuid(args, "task_id") if raw else None)
+            )
         case "viper_release_task":
             require(record, "tasks.work")
             task = agent_missions.release(

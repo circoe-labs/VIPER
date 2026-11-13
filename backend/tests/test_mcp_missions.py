@@ -124,7 +124,7 @@ def test_an_interactive_agent_creates_and_launches_a_mission_for_its_person(
     mission = db_session.get(Mission, detail["card"]["id"])
     assert mission is not None
     assert mission.created_by_type == "agent"
-    assert mission.created_by_display == "ChatGPT (member)"
+    assert mission.created_by_display == "ChatGPT member #1"
     event = db_session.scalars(
         select(AuditLogEntry).where(AuditLogEntry.action == "mission.created")
     ).one()

@@ -564,6 +564,15 @@ def release(
 ) -> AgentTask:
     """The agent gives the task back without failing it (it stops, another may take it)."""
     task = _claimed(session, actor, task_id, claim_id, now)
+    release_claimed(session, actor, task)
+    mission_telemetry.touch_session(session, actor, task, now)
+    return task
+
+
+def release_claimed(session: Session, actor: ActorContext, task: AgentTask) -> None:
+    """Put a task the actor holds back in the queue (no claim check: the caller has verified the
+    holder, `release` by claim id, `agent_lifecycle.leave_work` by `claimed_by_id`). Audited; does
+    not touch the agent's mission session."""
     clear_claim(task)
     task.status = AgentTaskStatus.PENDING
     session.flush()
@@ -574,8 +583,6 @@ def release(
         task,
         changes={"status": {"before": "claimed", "after": task.status.value}},
     )
-    mission_telemetry.touch_session(session, actor, task, now)
-    return task
 
 
 def log_activity(

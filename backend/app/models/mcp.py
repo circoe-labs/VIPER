@@ -58,6 +58,18 @@ class McpToken(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, Base
         ),
         CheckConstraint(f"char_length(token_hash) = {TOKEN_HASH_LENGTH}", name="token_hash_length"),
         CheckConstraint("max_concurrent >= 1", name="max_concurrent_positive"),
+        CheckConstraint(
+            "instance_number IS NULL OR instance_number >= 1", name="instance_number_positive"
+        ),
+        # `#N` is unique among the live tokens of one (owner, provider); a revoked one frees it.
+        Index(
+            "uq_mcp_tokens_live_instance",
+            text("coalesce(owner_email, '')"),
+            "provider",
+            "instance_number",
+            unique=True,
+            postgresql_where=text("revoked_at IS NULL AND instance_number IS NOT NULL"),
+        ),
     )
 
     # What the person calls it in the interface (« Agent claude-01 »).
@@ -65,6 +77,8 @@ class McpToken(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, Base
     token_hash: Mapped[str] = mapped_column(String(TOKEN_HASH_LENGTH), unique=True)
     # Task types this token may claim; `["*"]` for all of them.
     scopes: Mapped[list[Any]] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    # Task concurrency: how many tasks this token may hold claimed at once. NOT a cap on the
+    # number of tokens of a person (`Settings.mcp_max_agents_per_owner`).
     max_concurrent: Mapped[int] = mapped_column(
         SmallInteger, server_default=str(DEFAULT_MAX_CONCURRENT)
     )
@@ -82,6 +96,9 @@ class McpToken(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, Base
     # What the agent may do (`app.services.agent_capabilities.CAPABILITIES`), before the
     # intersection with the delegated person's role.
     capabilities: Mapped[list[Any]] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    # The `#N` of the agent's identity (« Claude lucie #2 »), owner- and provider-relative
+    # (`app.services.agent_identity`). Kept on a revoked token for history.
+    instance_number: Mapped[int | None] = mapped_column(Integer)
 
 
 class McpCall(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, Base):
