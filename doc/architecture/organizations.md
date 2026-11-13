@@ -95,3 +95,20 @@ sont jamais journalisées.
   (`signup.notify_skipped` in the server log): the request stays pending and reactivating the member in
   « Organisation » approves it too.
 - Code: `backend/app/services/signups.py`, `backend/app/api/routes/auth.py`, migration `0032`.
+
+## Password reset (« Mot de passe oublié ? »)
+
+- The sign-in page links to `/mot-de-passe-oublie`. `POST /api/auth/forgot-password {email}` (public, throttled like
+  sign-in) always answers `202 {status: "sent"}`; only an existing, active, non-pending account gets a mail (no
+  enumeration). The mail goes through the CIRCOE Toolbox after the response and never undoes the request.
+- The link `/reinitialisation/<token>` is valid **1 hour**, single-use; a new request replaces the previous token. Only
+  the SHA-256 is stored (`users.password_reset_token_hash`, `password_reset_expires_at`).
+  `POST /api/auth/reset-password {token, password}` answers `204`, or `422 {code: "token"}` (unknown, used or
+  expired) / `422 {code: "password"}` (same rule as sign-up). It clears the token and revokes every session of the
+  account (`auth.password_reset` audit event). Wrong tokens are throttled.
+- « Organisation »: `POST /api/organizations/{organization_id}/members/{user_id}/password-reset` sends the link to a
+  member; allowed exactly when `can_edit_member` is (403 otherwise, 404 unknown), audited. Answer
+  `{sent: bool, email}`; `sent: false` means the link was issued but the mail could not leave (Toolbox not connected
+  or failing).
+- Code: `backend/app/services/password_reset.py`, `backend/app/api/routes/auth.py`, `routes/organizations.py`,
+  migration `0039`.

@@ -14,7 +14,7 @@ from app.core.security import MAX_PASSWORD_LENGTH, csrf_token
 from app.models.organizations import OrganizationRole
 from app.models.users import User
 from app.services import auth as auth_service
-from app.services import infomaniak_login, organizations, signups
+from app.services import infomaniak_login, organizations, password_reset, signups
 from app.services.login_throttle import LoginThrottle
 
 logger = logging.getLogger(__name__)
@@ -342,3 +342,84 @@ def approve_signup(token: str, auth: AuthDep, session: SessionDep) -> SignupOut:
 def refuse_signup(token: str, auth: AuthDep, session: SessionDep) -> None:
     with business_errors():
         signups.refuse(session, auth.user, token)
+
+
+# --- « Mot de passe oublié ? » (services/password_reset.py) --------------------------------------
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: str = Field(min_length=1, max_length=320)
+
+
+class ForgotPasswordAccepted(BaseModel):
+    status: str = "sent"
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(min_length=1, max_length=256)
+    password: SecretStr = Field(min_length=1, max_length=MAX_PASSWORD_LENGTH)
+
+
+def _throttled(request: Request, key: str) -> LoginThrottle:
+    """The shared throttle, or 429 when `key` (an address or a fixed label) is blocked."""
+    throttle: LoginThrottle = request.app.state.login_throttle
+    client = request.client.host if request.client else "unknown"
+    retry_after = throttle.retry_after(key, client)
+    if retry_after is not None:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "Too many requests.",
+            headers={"Retry-After": str(retry_after)},
+        )
+    return throttle
+
+
+@public_router.post(
+    "/forgot-password",
+    status_code=status.HTTP_202_ACCEPTED,
+    responses={status.HTTP_429_TOO_MANY_REQUESTS: {"description": "Too many requests."}},
+)
+def forgot_password(
+    body: ForgotPasswordRequest,
+    request: Request,
+    session: SessionDep,
+    background: BackgroundTasks,
+) -> ForgotPasswordAccepted:
+    """Mail a reset link when the address has an active account. Always the same answer."""
+    email = auth_service.normalize_email(body.email)
+    throttle = _throttled(request, email)
+    # Counted like a failed sign-in: a client cannot flood a mailbox.
+    throttle.record_failure(email, request.client.host if request.client else "unknown")
+    issued = password_reset.request_reset(session, email)
+    if issued is not None:
+        link = str(request.base_url).rstrip("/") + f"/reinitialisation/{issued.token}"
+        background.add_task(
+            password_reset.send_reset_mail,
+            request.app.state.toolbox.mail_toolbox(),
+            to=issued.email,
+            link=link,
+        )
+    return ForgotPasswordAccepted()
+
+
+@public_router.post(
+    "/reset-password",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {"description": "Refused: `{code, message}`."},
+        status.HTTP_429_TOO_MANY_REQUESTS: {"description": "Too many requests."},
+    },
+)
+def reset_password(body: ResetPasswordRequest, request: Request, session: SessionDep) -> None:
+    """Set a new password with the e-mailed token (single-use, one hour)."""
+    throttle = _throttled(request, "password-reset")
+    client = request.client.host if request.client else "unknown"
+    try:
+        password_reset.confirm_reset(session, body.token, body.password.get_secret_value())
+    except password_reset.PasswordResetRefused as refused:
+        # Token guesses are counted; a typo in the new password is not an attack.
+        if refused.code == "token":
+            throttle.record_failure("password-reset", client)
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, {"code": refused.code, "message": str(refused)}
+        ) from refused
