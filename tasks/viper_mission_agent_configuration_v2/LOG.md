@@ -19,3 +19,8 @@ Implemented in a worktree (migration 0048, down_revision 0047; 0047 belongs to S
 - actor_for display is now the identity label (ChatGPT lucie #2); label kept as descriptive name. Existing test expectations on actor display updated.
 - viper_leave_work (MCP) / agent_lifecycle.leave_work: release all held tasks + end own sessions, idempotent, optional run scope.
 - Timeout/lease independence covered by test; 3h timeout untouched.
+
+## Orchestrator — merge of 01/03/04 (2026-11-13)
+Merged in order 01, 03, 04 on the task branch (conflicts only additive, in routes/missions.py, services/missions.py, test_mission_supervision.py; both sides kept). Alembic head = 0049, linear. Targeted suites (categories, identity, output, missions, supervision, mcp*, agent_missions, telemetry, runtime_settings) pass on merged tree. `test_migrations.py` has 3 failures (check-constraint match, updated_at trigger, FK index: warehouse tables) that are IDENTICAL on `main` → pre-existing, not ours.
+Product decision to confirm with Human: `result_limit` = the "nombre maximum" cap (Slice 04 conclusion). Behaviour change: one-off missions now close `done` when run objective met.
+Next: dispatch 02 (needs 01). 05 needs 01+02; 07 needs 01+02+03+04.
