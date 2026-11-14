@@ -29,7 +29,7 @@ function LinkedIn({ url }: { url: string | null }) {
   return safe ? <a href={url} target="_blank" rel="noopener noreferrer">Profil LinkedIn</a> : <span>{url}</span>
 }
 
-function WarehouseRow({ warehouse, onEdit, onlyToContact }: { warehouse: Warehouse; onEdit: () => void; onlyToContact: boolean }) {
+export function WarehouseRow({ warehouse, onEdit, onlyToContact }: { warehouse: Warehouse; onEdit: () => void; onlyToContact: boolean }) {
   const [open, setOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [baseline, setBaseline] = useState(warehouse)
