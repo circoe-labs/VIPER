@@ -8,7 +8,6 @@ import { prospectDetail, stubProspectsApi } from '../test/prospectsApi'
 import { renderApp } from '../test/render'
 import { type ProspectEditorProps, ProspectEditorContext } from './prospectEditor'
 
-const COUNTERS = '/api/prospection/counters'
 const PROSPECTS = '/api/prospection/prospects'
 const COMPANY = '00000000-0000-7000-a000-000000000001'
 
@@ -70,45 +69,47 @@ function list() {
   return screen.getByRole('list', { name: 'Prospects' })
 }
 
-// The full list is folded on a plain visit to /prospection.
-async function unfold() {
-  await userEvent.click(await screen.findByRole('button', { name: 'Afficher la liste' }))
-}
-
 function panel(name: RegExp) {
   return screen.getByRole('button', { name })
 }
 
 describe('Prospection page', () => {
-  it('includes warehouse contacts in the unfiltered total while keeping filtered totals separate', async () => {
+  it('shows the entity selector with totals; each entity is a URL and Back returns to the previous one', async () => {
     stubProspectionApi({ prospects: people(), warehouseContacts: 2 })
     const { router } = renderApp('/prospection')
-    expect(await screen.findByText('5 prospects')).toBeVisible()
-    expect(screen.getByRole('link', { name: '2 interlocuteurs d’entrepôt' })).toHaveAttribute('href', '/warehouses')
-    expect(screen.getByText(/Une personne présente dans les deux listes/)).toBeVisible()
-    await act(async () => { await router.navigate('/prospection?review=to_verify') })
-    expect(await screen.findByText('3 prospects')).toBeVisible()
-    expect(screen.queryByRole('link', { name: '2 interlocuteurs d’entrepôt' })).not.toBeInTheDocument()
+    const nav = await screen.findByRole('navigation', { name: 'Type de fiche' })
+    expect(within(nav).getByRole('link', { name: /^Prospects/ })).toHaveAttribute('aria-current', 'page')
+    expect(within(nav).getByRole('link', { name: /^Entreprises/ })).toHaveAttribute('href', '/prospection?entity=company')
+    expect(within(nav).getByRole('link', { name: /^Entrepôts/ })).toHaveAttribute('href', '/prospection?entity=warehouse')
+    await waitFor(() => { expect(within(nav).getByRole('link', { name: /^Prospects\s*3$/ })).toBeInTheDocument() })
+
+    await userEvent.click(within(nav).getByRole('link', { name: /^Entreprises/ }))
+    expect(router.state.location.search).toBe('?entity=company')
+    expect(await screen.findByRole('group', { name: 'Type d’entreprise' })).toBeVisible()
+    expect(screen.queryByRole('list', { name: 'Prospects' })).not.toBeInTheDocument()
+
+    await userEvent.click(within(nav).getByRole('link', { name: /^Entrepôts/ }))
+    expect(router.state.location.search).toBe('?entity=warehouse')
+    expect(await screen.findByRole('group', { name: 'Catégorie d’entrepôt' })).toBeVisible()
+    await userEvent.click(screen.getByRole('button', { name: /^Interlocuteurs à contacter/ }))
+    expect(router.state.location.search).toBe('?entity=warehouse&warehouse_to_contact=true')
+
+    await act(async () => { await router.navigate(-2) })
+    expect(await screen.findByRole('list', { name: 'Prospects' })).toBeVisible()
   })
-  it('keeps the company directory, search and commercial follow-up folded until requested', async () => {
+  it('says the weekly additions are unavailable instead of inventing them', async () => {
     stubProspectionApi({ prospects: people() })
     renderApp('/prospection')
-    const summary = await screen.findByText('Entreprises, recherche et suivi commercial')
-    const details = summary.closest('details')
-    expect(details).not.toHaveAttribute('open')
-    await userEvent.click(summary)
-    expect(details).toHaveAttribute('open')
-    expect(within(details as HTMLElement).getByRole('heading', { name: 'Suivi commercial' })).toBeInTheDocument()
-    await userEvent.click(summary)
-    expect(details).not.toHaveAttribute('open')
+    const all = await screen.findByRole('button', { name: /^Tous/ })
+    await waitFor(() => { expect(within(all).getByText('ajouts de la semaine indisponibles')).toBeVisible() })
+    expect(screen.queryByText(/cette semaine/)).not.toBeInTheDocument()
   })
-  it.each(['/prospection', '/prospection?list=1', '/prospection?review=to_verify'])('starts with the list closed at %s', async (url) => {
+  it.each(['/prospection', '/prospection?list=1', '/prospection?review=to_verify'])('shows the table directly, with no section to unfold, at %s', async (url) => {
     stubProspectionApi({ prospects: people() })
     renderApp(url)
-    const toggle = await screen.findByRole('button', { name: 'Afficher la liste' })
-    expect(toggle).toHaveAttribute('aria-expanded', 'false')
-    await userEvent.click(toggle)
     expect(await screen.findByRole('list', { name: 'Prospects' })).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Afficher la liste' })).not.toBeInTheDocument()
+    expect(document.querySelector('details.prospection-exploration')).toBeNull()
   })
   it('separates company types in the API and URL, keeps unclassified contacts, and resets pagination', async () => {
     const api = stubProspectionApi({ prospects: [
@@ -137,7 +138,6 @@ describe('Prospection page', () => {
         expect(within(list()).getByRole('link', { name })).toBeInTheDocument()
       })
       expect(lastParams(api.requests, PROSPECTS).get('company_kind')).toBe(kind)
-      expect(lastParams(api.requests, COUNTERS).get('company_kind')).toBe(kind)
     }
     await userEvent.click(within(categories).getByRole('button', { name: 'Toutes' }))
     await waitFor(() => {
@@ -149,12 +149,9 @@ describe('Prospection page', () => {
   it('offers the section’s entry points; Add opens the prospect editor on a new person', async () => {
     stubProspectionApi({ prospects: people() })
     const { router } = renderApp('/prospection')
-    await unfold()
 
     expect(screen.getByRole('heading', { level: 1, name: 'Prospection' })).toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: 'Entreprises' })).not.toBeInTheDocument()
     await userEvent.click(screen.getByText('Autres actions'))
-    expect(screen.getByRole('link', { name: 'Entreprises' })).toHaveAttribute('href', '/prospection/companies')
     expect(screen.getByRole('link', { name: 'Importer Excel' })).toHaveAttribute('href', '/prospection/import')
     // The full-database export of Task 10 (downloads through `ExportWorkbookButton`, tested there).
     expect(screen.getByRole('button', { name: 'Exporter Excel' })).toBeEnabled()
@@ -179,22 +176,23 @@ describe('Prospection page', () => {
     })
     const { router } = renderApp('/prospection')
     await waitFor(() => {
-      expect(panel(/^Emploi validé : 2$/)).toBeInTheDocument()
+      expect(panel(/^Emploi validé\s*2$/)).toBeInTheDocument()
     })
-    expect(panel(/^Validation non enregistrée : 1$/)).toBeInTheDocument()
-    expect(panel(/^Mis de côté : 1$/)).toBeInTheDocument()
-    expect(screen.queryByRole('list', { name: 'Prospects' })).not.toBeInTheDocument()
+    expect(panel(/^À vérifier\s*1$/)).toBeInTheDocument()
+    expect(panel(/^Mis de côté\s*1$/)).toBeInTheDocument()
 
     await userEvent.click(panel(/^Emploi validé/))
 
     expect(router.state.location.search).toBe('?validated_only=true')
+    // The validated view is the reachable-prospects table (grouped by company).
+    const table = await screen.findByRole('table', { name: 'Prospects' })
     await waitFor(() => {
-      expect(within(list()).getAllByRole('listitem')).toHaveLength(2)
+      expect(within(table).getByText(/Vera/)).toBeInTheDocument()
     })
+    expect(within(table).queryByText(/Alix/)).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { level: 2, name: /Prospects dont l’emploi est validé\s*2 prospects/ })).toBeInTheDocument()
     expect(lastParams(api.requests, PROSPECTS).get('validated_only')).toBe('true')
     expect(screen.queryByText('Non validé')).not.toBeInTheDocument()
-    expect(within(list()).getAllByText(/Emploi validé/)).toHaveLength(2)
 
     await userEvent.click(screen.getByRole('button', { name: 'Réinitialiser' }))
     expect(router.state.location.search).toBe('')
@@ -207,15 +205,14 @@ describe('Prospection page', () => {
     expect(await screen.findByRole('heading', { level: 2, name: /Échus\s*1 prospect/ })).toBeInTheDocument()
     expect(lastParams(api.requests, PROSPECTS).get('segment')).toBe('due')
 
-    await userEvent.click(panel(/^Validation non enregistrée/))
+    await userEvent.click(panel(/^À vérifier/))
 
-    expect(router.state.location.search).toBe('?segment=never_verified&review=to_verify')
+    expect(router.state.location.search).toBe('?verification_box=todo')
   })
 
-  it('searches: panels and list follow the same criteria, kept in the URL', async () => {
+  it('searches: capsules and list follow the same criteria, kept in the URL', async () => {
     const api = stubProspectionApi({ prospects: people() })
     const { router } = renderApp('/prospection?review=to_verify')
-    await unfold()
     await within(await screen.findByRole('list', { name: 'Prospects' })).findByRole('link', { name: 'Luc Fictif' })
 
     await userEvent.type(screen.getByRole('searchbox'), 'zzz')
@@ -223,8 +220,7 @@ describe('Prospection page', () => {
     await waitFor(() => {
       expect(router.state.location.search).toBe('?review=to_verify&q=zzz')
     })
-    expect(await screen.findByText('Recherche ou filtres actifs')).toBeInTheDocument()
-    await waitFor(() => { expect(lastParams(api.requests, COUNTERS).get('q')).toBe('zzz') })
+    await waitFor(() => { expect(lastParams(api.requests, PROSPECTS).get('q')).toBe('zzz') })
     expect(await screen.findByText('Aucun prospect ne correspond à ces critères.')).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: 'Réinitialiser' }))
@@ -260,7 +256,6 @@ describe('Prospection page', () => {
   it('renders each person’s states with text and icons, never colour alone', async () => {
     stubProspectionApi({ prospects: people() })
     renderApp('/prospection')
-    await unfold()
     const links = await within(await screen.findByRole('list', { name: 'Prospects' })).findAllByRole('link')
     const rows = links.map((link) => link.closest('li') as HTMLElement)
     const [jean, claire, luc] = rows as [HTMLElement, HTMLElement, HTMLElement]
@@ -311,7 +306,6 @@ describe('Prospection page', () => {
       ],
     })
     renderApp('/prospection?segment=all&q=')
-    await unfold()
     const rows = within(await screen.findByRole('list', { name: 'Prospects' })).getAllByRole('listitem')
     const [odile, denis, fanny, emma] = rows as [HTMLElement, HTMLElement, HTMLElement, HTMLElement]
 
@@ -360,7 +354,7 @@ describe('Prospection page', () => {
 
     await userEvent.selectOptions(filter, 'S39 — 28 sept. 2026')
     await waitFor(() => {
-      expect(lastParams(api.requests, COUNTERS).get('cohort')).toBe(s39.id)
+      expect(lastParams(api.requests, PROSPECTS).get('cohort')).toBe(s39.id)
     })
     await userEvent.selectOptions(filter, 'Sans cohorte (non validé)')
     await waitFor(() => {
@@ -372,7 +366,6 @@ describe('Prospection page', () => {
     const rows = people()
     stubProspectsApi({ rows, details: rows.map((row) => prospectDetail({ id: row.id, first_name: row.first_name, last_name: row.last_name })) })
     const { router } = renderApp('/prospection?segment=all&q=')
-    await unfold()
     const first = await within(await screen.findByRole('list', { name: 'Prospects' })).findByRole('link', {
       name: 'Jean Exemple',
     })
@@ -428,7 +421,6 @@ describe('Prospection page', () => {
     const { router } = renderApp('/prospection?sort=company', {
       wrap: (app) => <ProspectEditorContext.Provider value={{ canCreate: true, Editor }}>{app}</ProspectEditorContext.Provider>,
     })
-    await unfold()
     const [jean, claire, luc] = rows.map((row) => row.id)
 
     await userEvent.click(await screen.findByRole('link', { name: 'Jean Exemple' }))
@@ -469,7 +461,6 @@ describe('Prospection page', () => {
   it('says when the list cannot be loaded and retries', async () => {
     stubProspectionApi({ prospects: people(), failWith: 500 })
     renderApp('/prospection')
-    await unfold()
 
     expect(await screen.findByText('Liste indisponible.')).toBeInTheDocument()
     expect(screen.getByText('Compteurs indisponibles.')).toBeInTheDocument()

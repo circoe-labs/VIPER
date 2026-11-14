@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { DEFAULT_VIEW, hasFilters, parseView, prospectionHref, serializeView } from './criteria'
+import { DEFAULT_VIEW, entityHref, hasEntityFilters, hasFilters, parseView, prospectionHref, serializeView } from './criteria'
 
 const ID = '0192f0aa-0000-7000-8000-000000000042'
 
@@ -73,5 +73,16 @@ describe('Prospection URL state', () => {
     expect(hasFilters({ ...DEFAULT_VIEW, import_batch: ID })).toBe(true)
     expect(hasFilters({ ...DEFAULT_VIEW, cohort: 'none' })).toBe(true)
     expect(hasFilters({ ...DEFAULT_VIEW, created_from: '2026-10-26' })).toBe(true)
+  })
+
+  it('serializes the entity selector and its filters; prospect is the omitted default; garbage falls back', () => {
+    expect(entityHref('prospect')).toBe('/prospection')
+    expect(entityHref('company')).toBe('/prospection?entity=company')
+    const view = parseView(new URLSearchParams('entity=warehouse&warehouse_category=sme&warehouse_to_contact=true&q=x&page=2'))
+    expect(view).toMatchObject({ entity: 'warehouse', warehouse_category: 'sme', warehouse_to_contact: true, q: 'x', page: 2 })
+    expect(serializeView(view).toString()).toBe('entity=warehouse&warehouse_category=sme&warehouse_to_contact=true&q=x&page=2')
+    expect(hasEntityFilters(view)).toBe(true)
+    expect(hasEntityFilters({ ...DEFAULT_VIEW, entity: 'company' })).toBe(false)
+    expect(parseView(new URLSearchParams('entity=nope&warehouse_category=nope'))).toMatchObject({ entity: 'prospect', warehouse_category: null })
   })
 })
