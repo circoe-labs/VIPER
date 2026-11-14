@@ -1,0 +1,5 @@
+# Slice 04 — Home as concise pilotage cockpit
+Depends: 00; soft 01 (hide unsupported counts), soft 02/03 final routes (central route-descriptor abstraction; update before 05). Concise cockpit from Prospection, Contact, Missions/Reviews: new prospects/companies/warehouses this week, appointments, to contact/due, to verify, missions in progress/completed, pending reviews — small actionable set. Every card navigates to the right filtered destination. Reuse DashboardCard/Home styling; no detail tables on Home.
+
+## Common (all slices)
+Scope out: mission UI redesign, new global design system, merging IProspect/IContact/VIPER, fabricated stats. Reuse existing contracts. Coding slices: /caveman + /coding-guideline; frontend: /impeccable. Impl slices: review + targeted type/build/static + bounded smoke ONLY (no full unit suite; Slice 06 owns it). Never expose an invented metric: render unknown/unavailable or drop the card. Prefix commits with slice id. Document new/changed contracts in repo docs. Report collisions / dishonest-metric cases to PM.
