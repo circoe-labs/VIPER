@@ -1076,3 +1076,37 @@ def test_forgetting_a_link_removes_it_from_its_missions(client: TestClient) -> N
 
     assert client.get(f"{MISSIONS}/{mission['card']['id']}").json()["sources"] == []
     assert client.delete(f"{MISSIONS}/sources/{source['id']}").status_code == 404
+
+
+def test_patch_changes_only_the_sources_of_a_mission(client: TestClient) -> None:
+    first = client.post(f"{MISSIONS}/sources", json={"url": "https://www.example.com/a"}).json()
+    second = client.post(f"{MISSIONS}/sources", json={"url": "https://www.other.org/b"}).json()
+    mission = create(
+        client,
+        name="Sources éditables",
+        kind=MissionType.PROSPECTION,
+        result_kind="companies",
+        source_ids=[first["id"]],
+    )
+    url = f"{MISSIONS}/{mission['card']['id']}"
+
+    own = client.patch(url, json={"source_ids": [first["id"], second["id"]]})
+    assert own.status_code == 200, own.text
+    assert {row["id"] for row in own.json()["sources"]} == {first["id"], second["id"]}
+    assert own.json()["card"]["name"] == "Sources éditables"
+
+    none = client.patch(url, json={"source_ids": []})
+    assert none.json()["sources"] == []
+    assert none.json()["inheritance"]["sources_inherited"] is False
+
+    back = client.patch(url, json={"source_ids": None})
+    assert back.json()["inheritance"]["sources_inherited"] is True
+
+
+def test_patch_refuses_an_empty_body_a_closed_mission_or_unknown_source(client: TestClient) -> None:
+    mission = create(client, kind=MissionType.PROSPECTION, result_kind="companies")
+    url = f"{MISSIONS}/{mission['card']['id']}"
+    assert client.patch(url, json={}).status_code == 422
+    assert client.patch(url, json={"source_ids": [str(uuid.uuid4())]}).status_code in (404, 422)
+    assert client.patch(url, json={"status": "cancelled"}).status_code == 200
+    assert client.patch(url, json={"source_ids": []}).status_code == 409

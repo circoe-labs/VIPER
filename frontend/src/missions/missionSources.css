@@ -1,0 +1,72 @@
+/* Sources card of the mission page (edit mode, empty state, picker dialogs). Tokens only. */
+
+.msrc-state {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.msrc-empty {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.msrc-list {
+  gap: var(--space-1);
+}
+
+.msrc-row {
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.msrc-row__text {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 0.125rem;
+}
+
+.msrc-row__text a {
+  overflow-wrap: anywhere;
+}
+
+.msrc-dirty {
+  color: var(--color-warning-fg);
+  font-size: var(--text-sm);
+}
+
+.msrc-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.msrc-tools__far {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+.msrc-picker,
+.msrc-manual {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.msrc-picker__list {
+  max-height: 22rem;
+}
+
+.msrc-picker__site {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}

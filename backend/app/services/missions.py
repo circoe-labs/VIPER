@@ -832,6 +832,44 @@ def update(
     return mission
 
 
+def set_sources(
+    session: Session,
+    actor: ActorContext,
+    mission_id: uuid.UUID,
+    source_ids: tuple[uuid.UUID, ...] | None,
+) -> Mission:
+    """Change only the external sources of a mission: `None` = follow the category's defaults,
+    a tuple = the mission's own list (empty = no source at all). A closed mission is not edited."""
+    mission = session.scalar(select(Mission).where(Mission.id == mission_id).with_for_update())
+    if mission is None:
+        raise NotFoundError("Unknown mission.")
+    if mission.status in (MissionStatus.DONE, MissionStatus.CANCELLED):
+        raise ConflictError("This mission is closed.")
+    category = session.get(MissionCategory, mission.category_id) if mission.category_id else None
+    before = [str(row.id) for row in mission_sources.effective_sources(session, mission)]
+    mission_categories.apply_inheritance(
+        session,
+        mission,
+        category,
+        prompt=None,
+        skill_ids=None,
+        source_ids=source_ids,
+        creating=False,
+        keep=frozenset({mission_categories.PROMPT_FIELD, mission_categories.SKILLS_FIELD}),
+    )
+    after = [str(row.id) for row in mission_sources.effective_sources(session, mission)]
+    audit.record_event(
+        session,
+        actor,
+        audit.AuditAction.MISSION_UPDATED,
+        entity_type="mission",
+        entity_id=mission.id,
+        changes={"sources": {"before": before, "after": after}},
+        reason=f"sources={len(after)}",
+    )
+    return mission
+
+
 def _open_tasks(session: Session, mission_id: uuid.UUID) -> bool:
     runs = select(MissionRun.id).where(MissionRun.mission_id == mission_id).scalar_subquery()
     count = session.scalar(

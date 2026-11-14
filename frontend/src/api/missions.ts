@@ -376,6 +376,21 @@ export function useUpdateMission(id: string) {
   })
 }
 
+// Changes only the external sources of a mission (PATCH): null = follow the category's defaults, a list = the mission's
+// own (`[]` = no source at all). The answer is the fresh detail, so the page updates without a reload.
+export function useUpdateMissionSources(id: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (sourceIds: string[] | null) =>
+      apiRequest<MissionDetail>('PATCH', `/missions/${encodeURIComponent(id)}`, { body: { source_ids: sourceIds } }),
+    onSuccess: (detail) => {
+      queryClient.setQueryData(missionKeys.detail(id), detail)
+      // The save is done once the server answered: the lists refresh behind it, they do not keep the editor waiting.
+      void refreshAfterWrite(queryClient, [['missions']])
+    },
+  })
+}
+
 // « Supprimer la mission »: the server cancels its open agent tasks, then deletes it with its targets and runs.
 export function useDeleteMission(id: string) {
   const queryClient = useQueryClient()

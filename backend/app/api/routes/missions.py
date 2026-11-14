@@ -29,7 +29,7 @@ from app.models.enums import (
 from app.models.missions import Mission
 from app.services import mission_context, mission_sources, missions
 from app.services import mission_creator_prompt as creator_prompt
-from app.services.errors import NotFoundError
+from app.services.errors import InvalidFieldError, NotFoundError
 from app.services.runtime_settings import RuntimeSettings
 
 router = APIRouter(prefix="/missions", tags=["missions"])
@@ -95,8 +95,12 @@ class MissionIn(StrictModel):
     run_now: bool = False
 
 
-class MissionStatusIn(StrictModel):
-    status: MissionStatus
+class MissionPatchIn(StrictModel):
+    """Partial edit: `status` and/or `source_ids` (null = follow the category's default sources, a
+    list = the mission's own, [] = no source at all). Only what is sent changes."""
+
+    status: MissionStatus | None = None
+    source_ids: list[uuid.UUID] | None = Field(default=None, max_length=100)
 
 
 class CategoryRefOut(BaseModel):
@@ -590,12 +594,25 @@ def get_mission(mission_id: uuid.UUID, session: SessionDep) -> MissionDetailOut:
 @router.patch("/{mission_id}")
 def update_mission(
     mission_id: uuid.UUID,
-    body: MissionStatusIn,
+    body: MissionPatchIn,
     session: SessionDep,
     actor: CurrentActor,
 ) -> MissionDetailOut:
     with business_errors():
-        missions.set_status(session, actor, mission_id, body.status)
+        sent = body.model_fields_set
+        if "status" in sent and body.status is None:
+            raise InvalidFieldError("status", "A status is required.", "empty")
+        if not sent & {"status", "source_ids"}:
+            raise InvalidFieldError("status", "Nothing to change.", "empty")
+        if body.status is not None:
+            missions.set_status(session, actor, mission_id, body.status)
+        if "source_ids" in sent:
+            missions.set_sources(
+                session,
+                actor,
+                mission_id,
+                tuple(body.source_ids) if body.source_ids is not None else None,
+            )
         detail = missions.detail(session, mission_id)
     return detail_out(detail)
 
