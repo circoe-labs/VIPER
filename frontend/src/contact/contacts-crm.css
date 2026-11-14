@@ -1,50 +1,44 @@
 /* All CRM styling is scoped to Contacts; other routes retain their existing design. */
+/* Contact follows the app's DA (theme/tokens.css): the former `--nc-contacts-*` names only alias the global tokens, so
+   the rules below keep working while the page looks like every other one (green accent, same canvas and surfaces). */
 .contact--crm {
-  --color-canvas: var(--nc-contacts-canvas);
-  --color-surface: var(--nc-contacts-panel);
-  --color-surface-hover: var(--nc-contacts-hover);
-  --color-border: var(--nc-contacts-border);
-  --color-text: var(--nc-contacts-text);
-  --color-text-muted: var(--nc-contacts-muted);
-  --color-accent: var(--nc-contacts-action);
-  --color-accent-hover: var(--nc-contacts-chart-blue);
-  --color-accent-fg: var(--nc-contacts-focus);
-  --color-on-accent: var(--nc-contacts-on-action);
-  --color-focus: var(--nc-contacts-focus);
-  --color-success-fg: var(--nc-contacts-success);
-  --color-success-soft: var(--nc-contacts-success-soft);
-  --color-info-fg: var(--nc-contacts-info);
-  --color-info-soft: var(--nc-contacts-info-soft);
-  --color-warning-fg: var(--nc-contacts-warning);
-  --color-warning-soft: var(--nc-contacts-warning-soft);
-  --color-danger-fg: var(--nc-contacts-danger);
-  --color-danger-soft: var(--nc-contacts-danger-soft);
+  --nc-contacts-canvas: var(--color-canvas);
+  --nc-contacts-panel: var(--color-surface);
+  --nc-contacts-row: var(--color-surface-raised);
+  --nc-contacts-hover: var(--color-surface-hover);
+  --nc-contacts-border: var(--color-border);
+  --nc-contacts-border-strong: var(--color-border-strong);
+  --nc-contacts-grid: color-mix(in srgb, var(--color-border) 60%, transparent);
+  --nc-contacts-text: var(--color-text);
+  --nc-contacts-muted: var(--color-text-muted);
+  --nc-contacts-input: var(--color-text);
+  --nc-contacts-action: var(--color-accent);
+  --nc-contacts-focus: var(--color-accent-fg);
+  --nc-contacts-on-action: var(--color-on-accent);
+  --nc-contacts-selected: var(--color-accent-soft);
+  --nc-contacts-success: var(--color-success-fg);
+  --nc-contacts-success-soft: var(--color-success-soft);
+  --nc-contacts-info: var(--color-info-fg);
+  --nc-contacts-info-soft: var(--color-info-soft);
+  --nc-contacts-warning: var(--color-warning-fg);
+  --nc-contacts-warning-soft: var(--color-warning-soft);
+  --nc-contacts-danger: var(--color-danger-fg);
+  --nc-contacts-danger-soft: var(--color-danger-soft);
+  --nc-contacts-avatar: var(--color-surface-raised);
+  --nc-contacts-avatar-text: var(--color-text-muted);
+  --nc-contacts-contacted: var(--color-surface-hover);
+  --nc-contacts-contacted-text: var(--color-text-muted);
+  --nc-contacts-link: var(--color-accent-fg);
+  --nc-contacts-chart-blue: var(--color-info-fg);
+  --nc-contacts-chart-green: var(--color-accent);
+  --nc-contacts-chart-orange: var(--color-warning-fg);
+  --nc-contacts-chart-purple: #9252E8;
+  --nc-contacts-chart-pink: #EE5B9D;
   display: grid;
-  gap: 24px;
+  gap: var(--space-4);
   min-width: 0;
   color: var(--color-text);
-  color-scheme: dark;
 }
-
-.app-shell:has(.contact--crm) { background: var(--nc-contacts-canvas); }
-.app-shell:has(.contact--crm) .app-shell__main { padding: 24px; }
-.app-shell:has(.contact--crm) .app-header {
-  --color-text: var(--nc-contacts-text);
-  --color-text-muted: var(--nc-contacts-muted);
-  --color-field: var(--nc-contacts-panel);
-  --color-border: var(--nc-contacts-border);
-  --color-border-strong: var(--nc-contacts-border-strong);
-  background: var(--nc-contacts-canvas);
-  border-color: var(--nc-contacts-border);
-  color: var(--nc-contacts-text);
-}
-.app-shell:has(.contact--crm) .nav-link[aria-current='page'] { background: var(--nc-contacts-selected); color: var(--nc-contacts-focus); }
-.app-shell:has(.contact--crm) .nav-link[aria-current='page']::before { background: var(--nc-contacts-action); box-shadow: none; }
-.contact--crm .page-header { margin: 0; }
-.contact--crm .page-header__title { color: var(--nc-contacts-text); font-size: 30px; letter-spacing: -0.025em; }
-.contact--crm .page-header__description { color: var(--nc-contacts-muted); }
-.contact--crm .btn { box-shadow: none; border-radius: 8px; }
-.contact--crm .btn--secondary { background: var(--nc-contacts-hover); color: var(--nc-contacts-text); border-color: var(--nc-contacts-border-strong); }
 .contact--crm .page-header__actions .btn { display: inline-flex; align-items: center; gap: 8px; min-height: 42px; text-decoration: none; white-space: nowrap; }
 
 .contacts-chart, .contacts-panel { min-width: 0; border: 1px solid var(--nc-contacts-border); border-radius: 10px; background: var(--nc-contacts-panel); }
@@ -65,14 +59,6 @@
 .contacts-chart__bar > span { position: absolute; left: 50%; bottom: calc(100% + 8px); transform: translateX(-50%); color: var(--nc-contacts-text); font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .contacts-chart__labels { margin-left: 52px; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 20px; color: var(--nc-contacts-muted); font-size: 12px; text-align: center; }
 
-.contacts-filters { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(150px, 190px) minmax(150px, 190px) auto; align-items: end; gap: 12px; }
-.contacts-filters__search { min-width: 0; }
-.contacts-filters .search-field { width: 100%; height: 42px; border: 1px solid var(--nc-contacts-border); border-radius: 8px; background: var(--nc-contacts-panel); box-shadow: none; }
-.contacts-filters .search-field input { min-width: 0; color: var(--nc-contacts-text); }
-.contacts-filters .field { gap: 5px; min-width: 0; }
-.contacts-filters .field__label { font-size: 11px; color: var(--nc-contacts-muted); }
-.contacts-filters .field__control { height: 42px; border-radius: 8px; background: var(--nc-contacts-panel); border-color: var(--nc-contacts-border); color: var(--nc-contacts-text); }
-.contacts-filters > .btn { height: 42px; background: var(--nc-contacts-panel); border-color: var(--nc-contacts-border); white-space: nowrap; }
 
 .contacts-panel .cohort-section__toggle { padding: 18px 20px; border-radius: 10px; font-size: 16px; }
 .contacts-panel .cohort-section__name { gap: 12px; }
@@ -111,7 +97,6 @@
 .contacts-details__next { margin: 14px 0; }
 
 @media (max-width: 1100px) {
-  .contacts-filters { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .contacts-line__summary { grid-template-columns: 24px 32px minmax(120px, 1fr) minmax(100px, .8fr) 120px 24px; gap: 8px; }
   .contacts-line__channel { display: none; }
 }
@@ -133,9 +118,6 @@
   .contacts-chart { padding: 18px 12px 8px; }
   .contacts-chart h2 { font-size: 15px; }
   .contacts-chart__caption { line-height: 1.6; }
-  .contacts-filters { gap: 10px; }
-  .contacts-filters__search { grid-column: 1 / -1; }
-  .contacts-filters > .btn { grid-column: 1 / -1; justify-content: center; }
   .contacts-panel .cohort-section__toggle { padding: 16px 12px; }
   .contacts-panel .cohort-section__name { gap: 8px; }
   .contacts-panel .cohort-section__count { margin-left: 26px; }
@@ -159,22 +141,9 @@
 .warehouse-contact-list__site li span { color: var(--color-text-muted); overflow-wrap: anywhere; }
 
 /* Commercial capsules: one figure + one label = one list (see ContactCapsules.tsx). */
-.contact-capsules { display: grid; gap: 8px; }
-.contact-capsules__list { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 10px; }
-.contact-capsule { height: 100%; display: grid; align-content: start; gap: 2px; padding: 12px 14px; border: 1px solid var(--nc-contacts-border); border-left-width: 3px; border-radius: 10px; background: var(--nc-contacts-panel); color: var(--nc-contacts-text); text-decoration: none; }
-.contact-capsule:hover { background: var(--nc-contacts-hover); }
-.contact-capsule:focus-visible { outline: 2px solid var(--nc-contacts-focus); outline-offset: 2px; }
-.contact-capsule[aria-current='page'] { background: var(--nc-contacts-selected); border-color: var(--nc-contacts-action); }
-.contact-capsule--info { border-left-color: var(--nc-contacts-info); }
-.contact-capsule--warning { border-left-color: var(--nc-contacts-warning); }
-.contact-capsule--danger { border-left-color: var(--nc-contacts-danger); }
-.contact-capsule--success { border-left-color: var(--nc-contacts-success); }
-.contact-capsule__label { font-size: 12px; color: var(--nc-contacts-muted); }
-.contact-capsule__count { font-size: 26px; font-weight: 600; line-height: 1.1; font-variant-numeric: tabular-nums; }
-.contact-capsule__hint { font-size: 11px; color: var(--nc-contacts-muted); }
+.contact-capsules { display: grid; }
 .contact-capsules__state { margin: 0; font-size: 12px; color: var(--nc-contacts-muted); }
 .contact-capsules__retry { padding: 0; border: 0; background: none; color: var(--nc-contacts-focus); text-decoration: underline; cursor: pointer; font: inherit; }
-.contact-weeks { max-width: 320px; }
 .contacts-panel__heading { margin: 0; padding: 18px 20px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; font-size: 16px; font-weight: 600; }
 .contacts-panel__count { font-size: 13px; font-weight: 400; color: var(--nc-contacts-muted); }
 .contacts-line__earlier { color: var(--nc-contacts-muted); font-size: 11px; }

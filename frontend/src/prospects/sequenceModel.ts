@@ -30,7 +30,7 @@ export function pauseText(place: Place, state: TrackingStatus): string | null {
     case null:
       return null
     case 'no_cohort':
-      return 'Aucune cohorte : le prospect n’est pas validé, aucun envoi n’est prévu.'
+      return 'Aucune semaine de contact : le prospect n’est pas validé, aucun envoi n’est prévu.'
     case 'out_of_campaign':
       return 'S0 : validé mais hors campagne, aucun envoi n’est prévu.'
     case 'state':
@@ -93,7 +93,7 @@ export function sequenceActions(place: Place, prospect: Prospect): SequenceActio
       state === 'ignored'
         ? '« Ignoré » est définitif : ce prospect ne reprend jamais de séquence.'
         : opposed
-          ? 'Opposition « Ne pas contacter » : levez-la d’abord (avec son motif) pour changer la cohorte.'
+          ? 'Opposition « Ne pas contacter » : levez-la d’abord (avec son motif) pour changer la semaine de contact.'
           : null,
     disqualify: state !== 'ignored' && state !== 'disqualified',
     resume: state === 'disqualified' || state === 'not_interested',
@@ -104,8 +104,8 @@ export function sequenceActions(place: Place, prospect: Prospect): SequenceActio
 // --- history ---------------------------------------------------------------------------------------------------------
 
 export const END_REASON_LABELS: Record<SequenceEndReason, string> = {
-  cohort_changed: 'Close : changement de cohorte',
-  cohort_removed: 'Close : cohorte retirée',
+  cohort_changed: 'Close : changement de semaine de contact',
+  cohort_removed: 'Close : semaine de contact retirée',
   completed: 'Close : relances terminées',
 }
 
@@ -145,7 +145,7 @@ const FIELD_LABELS: Record<string, string> = {
   phones: 'Téléphone',
   referent_id: 'Référent',
   contact_state: 'État commercial',
-  cohort: 'Cohorte',
+  cohort: 'Semaine de contact',
   commercial_segment_id: 'Segment commercial',
   activity_category_ids: 'Catégories d’activité',
   address: 'Adresse',
@@ -188,9 +188,9 @@ export interface SequenceRefusal {
 }
 
 const MESSAGES: Record<string, string> = {
-  sequence_changed: 'La cohorte a changé entre-temps : la séquence affichée n’est plus celle en cours. La fiche est rechargée.',
+  sequence_changed: 'La semaine de contact a changé entre-temps : la séquence affichée n’est plus celle en cours. La fiche est rechargée.',
   rank_not_next: 'L’envoi suivant a changé entre-temps (un autre envoi a été déclaré). La fiche est rechargée.',
-  no_open_sequence: 'Aucune séquence ouverte : mettez d’abord le prospect dans une cohorte.',
+  no_open_sequence: 'Aucune séquence ouverte : mettez d’abord le prospect dans une semaine de contact.',
   prospect_sequence_closed: 'L’état commercial actuel a sorti la séquence des actions : aucun envoi ne peut être déclaré.',
   out_of_campaign: 'S0 : prospect hors campagne, aucun envoi ne peut être déclaré.',
   prospect_do_not_contact:

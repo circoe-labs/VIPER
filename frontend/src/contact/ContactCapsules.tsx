@@ -1,9 +1,7 @@
-import { Link } from 'react-router'
-
-import { type Capsule, type ContactViewKey } from './commercialModel'
+import { AlertIcon, CalendarIcon, CheckCircleIcon, ClockIcon, type IconComponent, MailIcon, RepeatIcon, UsersIcon } from '../ui/icons'
+import { KpiCard, type KpiTone, KpiGrid } from '../ui/KpiCard'
+import { type Capsule, type ContactViewKey, VIEW_META } from './commercialModel'
 import { contactHref } from './criteria'
-
-const NUMBER = new Intl.NumberFormat('fr-FR')
 
 interface ContactCapsulesProps {
   capsules: Capsule[]
@@ -13,28 +11,39 @@ interface ContactCapsulesProps {
   onRetry: () => void
 }
 
-// One capsule = one list: the figure is the list's size, the click opens the list (and the URL says which).
+const ICONS: Record<ContactViewKey, IconComponent> = {
+  to_contact: MailIcon,
+  follow_ups: RepeatIcon,
+  overdue: ClockIcon,
+  contacted: CheckCircleIcon,
+  responses: UsersIcon,
+  appointments: CalendarIcon,
+  mail_errors: AlertIcon,
+}
+
+// The tone only colours what asks something (late, errors) or is good (replies, appointments); the rest stays green.
+const TONES: Record<Capsule['tone'], KpiTone> = { info: 'default', neutral: 'default', warning: 'warning', danger: 'danger', success: 'success' }
+
+// One capsule = one list: the figure is the list's size, the click opens the list (and the URL says which). They are the
+// shared KpiCards, like the Prospection counters.
 export function ContactCapsules({ capsules, active, loading, error, onRetry }: ContactCapsulesProps) {
   return (
     <nav className="contact-capsules" aria-label="Suivi commercial">
-      <ul className="contact-capsules__list">
+      <KpiGrid columns={4} label="Compteurs de contact">
         {capsules.map((capsule) => (
-          <li key={capsule.key}>
-            <Link
-              className={`contact-capsule contact-capsule--${capsule.tone}`}
-              to={contactHref({ view: capsule.key })}
-              aria-current={capsule.key === active ? 'page' : undefined}
-            >
-              <span className="contact-capsule__label">{capsule.label}</span>
-              <strong className="contact-capsule__count">
-                {capsule.count === null ? '—' : NUMBER.format(capsule.count)}
-                {capsule.count === null && <span className="visually-hidden"> indisponible</span>}
-              </strong>
-              {capsule.hint && <span className="contact-capsule__hint">{capsule.hint}</span>}
-            </Link>
-          </li>
+          <KpiCard
+            key={capsule.key}
+            label={capsule.label}
+            icon={ICONS[capsule.key]}
+            value={capsule.count}
+            note={capsule.hint}
+            hint={VIEW_META[capsule.key].title}
+            tone={TONES[capsule.tone]}
+            active={capsule.key === active}
+            to={contactHref({ view: capsule.key })}
+          />
         ))}
-      </ul>
+      </KpiGrid>
       {loading && <p className="contact-capsules__state" role="status">Chargement des compteurs…</p>}
       {error && (
         <p className="contact-capsules__state" role="alert">

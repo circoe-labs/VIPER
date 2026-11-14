@@ -126,10 +126,10 @@ export function SequenceSection({ prospect, pendingChanges = false, onChanged, c
             void run(async () => {
               const change = await mutations.changeCohort.mutateAsync(cohortId)
               if (resolveEmailError && cohortId !== null) {
-                for (const id of alertIds) await mutations.resolveAlert.mutateAsync({ id, note: 'Nouvelle adresse et nouvelle cohorte.' })
+                for (const id of alertIds) await mutations.resolveAlert.mutateAsync({ id, note: 'Nouvelle adresse et nouvelle semaine de contact.' })
               }
               return change
-            }, cohortId === null ? 'Cohorte retirée : le prospect n’est plus validé.' : 'Nouvelle séquence ouverte : compteur remis à zéro.')
+            }, cohortId === null ? 'Semaine de contact retirée : le prospect n’est plus validé.' : 'Nouvelle séquence ouverte : compteur remis à zéro.')
           }
         />
       )}
@@ -161,7 +161,7 @@ export function SequenceSection({ prospect, pendingChanges = false, onChanged, c
           lines={[
             'Décision humaine : contact à éliminer. Le prospect sort du pipeline actif et des séquences ; il reste dans la base avec son historique.',
             'Les messages non envoyés de la séquence sont annulés.',
-            'Pour le reprendre : « Reprendre en séquence » ou un changement de cohorte.',
+            'Pour le reprendre : « Reprendre en séquence » ou un changement de semaine de contact.',
           ]}
           pending={pending}
           confirmLabel="Confirmer « Défaillant »"
@@ -184,7 +184,7 @@ export function SequenceSection({ prospect, pendingChanges = false, onChanged, c
           title="Reprendre en séquence ?"
           lines={[
             'L’état repasse « En séquence » : la séquence actuelle reprend là où elle s’était arrêtée (le niveau est conservé).',
-            'Pour repartir de zéro avec une nouvelle séquence, changez plutôt de cohorte.',
+            'Pour repartir de zéro avec une nouvelle séquence, changez plutôt de semaine de contact.',
           ]}
           pending={pending}
           confirmLabel="Reprendre en séquence"
@@ -205,9 +205,9 @@ export function SequenceSection({ prospect, pendingChanges = false, onChanged, c
         <ConfirmActionDialog
           title="Signaler une erreur sur le mail ?"
           lines={[
-            'Le prospect garde sa cohorte, son état et son historique ; il sort des actions automatiques (plus rien n’est dû) et apparaît dans « Erreur sur le mail ».',
+            'Le prospect garde sa semaine de contact, son état et son historique ; il sort des actions automatiques (plus rien n’est dû) et apparaît dans « Erreur sur le mail ».',
             'Il ne devient ni « Défaillant » ni invalide.',
-            'Pour le reprendre : enregistrez une nouvelle adresse e-mail, puis changez de cohorte (nouvelle Sxx).',
+            'Pour le reprendre : enregistrez une nouvelle adresse e-mail, puis changez de semaine de contact (nouvelle Sxx).',
           ]}
           pending={pending}
           note
@@ -259,8 +259,8 @@ function SequenceBody({ prospect, place, sequences, onAction, notice, compact }:
           <MailIcon size={18} />
           <p>
             <strong>Erreur sur le mail.</strong> Ce prospect est sorti des actions automatiques : rien n’est dû tant que
-            l’alerte est ouverte. Il garde sa cohorte, son état et son historique. Pour le reprendre : enregistrez une
-            nouvelle adresse e-mail, puis changez de cohorte (nouvelle Sxx).
+            l’alerte est ouverte. Il garde sa semaine de contact, son état et son historique. Pour le reprendre : enregistrez une
+            nouvelle adresse e-mail, puis changez de semaine de contact (nouvelle Sxx).
           </p>
         </div>
       )}
@@ -332,7 +332,7 @@ function SequenceBody({ prospect, place, sequences, onAction, notice, compact }:
             onAction('cohort')
           }}
         >
-          {place.cohort ? 'Changer de cohorte…' : 'Valider dans une cohorte…'}
+          {place.cohort ? 'Changer de semaine de contact…' : 'Valider dans une semaine de contact…'}
         </Button>
         {actions.resume && (
           <Button

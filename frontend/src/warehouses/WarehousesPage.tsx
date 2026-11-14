@@ -1,8 +1,7 @@
 import { useState } from 'react'
-import { Link } from 'react-router'
 import { useWarehouseDrafts, useWarehouseWrites, type Warehouse, type WarehouseContact } from '../api/warehouses'
 import { Button } from '../ui/Button'
-import { ArrowLeftIcon, BuildingIcon, ChevronDownIcon, MapPinIcon, WarehouseIcon } from '../ui/icons'
+import { BuildingIcon, ChevronDownIcon, MapPinIcon, WarehouseIcon } from '../ui/icons'
 import { PageHeader } from '../ui/PageHeader'
 import { warehouseError } from './WarehouseEditor'
 import { WarehouseDrafts } from './WarehouseDrafts'
@@ -54,14 +53,16 @@ export function WarehouseRow({ warehouse, onEdit, onlyToContact }: { warehouse: 
       <button className="warehouse-card__toggle" type="button" aria-label={`Détails de ${warehouse.name}`} aria-expanded={open} aria-controls={`warehouse-${warehouse.id}`} onClick={() => { setOpen(!open) }}>
         <ChevronDownIcon className={open ? 'warehouse-card__chevron--open' : ''} size={26} />
         <span className="warehouse-card__icon"><WarehouseIcon size={22} /></span>
-        <span className="warehouse-card__identity"><strong>{warehouse.name}</strong><span>{warehouse.contacts.length} interlocuteur{warehouse.contacts.length > 1 ? 's' : ''}{warehouse.city ? ` · ${warehouse.city}` : ''} · {warehouse.prospecting_category === 'sme' ? 'PME/TPE' : warehouse.prospecting_category === 'other' ? 'Autres' : 'À classer'}</span></span>
+        <span className="warehouse-card__identity"><strong>{warehouse.name}</strong>
+          <span className={warehouse.owner_name ? 'warehouse-card__owner' : 'warehouse-card__owner warehouse-card__owner--missing'}><BuildingIcon size={14} />{warehouse.owner_name ? <><span className="warehouse-card__owner-label">Société rattachée</span> {warehouse.owner_name}</> : 'Société rattachée à renseigner'}</span>
+          <span>{warehouse.contacts.length} interlocuteur{warehouse.contacts.length > 1 ? 's' : ''}{warehouse.city ? ` · ${warehouse.city}` : ''} · {warehouse.prospecting_category === 'sme' ? 'PME/TPE' : warehouse.prospecting_category === 'other' ? 'Autres' : 'À classer'}</span></span>
       </button>
       <Button size="sm" onClick={onEdit} aria-label={`Modifier ${warehouse.name}`}>Modifier</Button>
     </div>
     <div id={`warehouse-${warehouse.id}`} hidden={!open} className="warehouse-card__details">
       <section className="warehouse-owner" aria-label={`Propriétaire de ${warehouse.name}`}>
-        <h3><BuildingIcon size={16} /> Propriétaire immobilier ou foncier</h3>
-        {warehouse.owner_name ? <p><strong>{warehouse.owner_name}</strong>{warehouse.owner_role && <span> · {warehouse.owner_role}</span>}</p> : <p className="warehouse-muted">Propriétaire à renseigner</p>}
+        <h3><BuildingIcon size={16} /> Société rattachée (propriétaire)</h3>
+        {warehouse.owner_name ? <p><strong>{warehouse.owner_name}</strong>{warehouse.owner_role && <span> · {warehouse.owner_role}</span>}</p> : <p className="warehouse-muted">Société rattachée à renseigner</p>}
         {warehouse.owner_email && <p className="warehouse-contact-email"><strong>E-mail : </strong>{warehouse.owner_email}</p>}
         <LinkedIn url={warehouse.owner_linkedin} />
       </section>
@@ -102,8 +103,7 @@ export function WarehouseDraftsPage() {
   const [category, setCategory] = useState<DraftCategory>('sme')
   const drafts = useWarehouseDrafts()
   return <div className="warehouses-page">
-    <Link to="/prospection?entity=warehouse" className="prospection__back"><ArrowLeftIcon size={16} />Entrepôts</Link>
-    <PageHeader mascot="build" title="Brouillons d’entrepôts" description="Les messages préparés pour les interlocuteurs des entrepôts." />
+    <PageHeader mascot="build" back={{ to: '/prospection?entity=warehouse', label: 'Entrepôts' }} title="Brouillons d’entrepôts" description="Les messages préparés pour les interlocuteurs des entrepôts." />
     <div className="warehouse-categories" role="group" aria-label="Catégories de brouillons">
       <Button aria-pressed={category === 'sme'} variant={category === 'sme' ? 'primary' : 'secondary'} onClick={() => { setCategory('sme') }}>Brouillons PME/TPE ({drafts.data?.filter(d => d.prospecting_category === 'sme').length ?? 0})</Button>
       <Button aria-pressed={category === 'other'} variant={category === 'other' ? 'primary' : 'secondary'} onClick={() => { setCategory('other') }}>Brouillons Autres entreprises ({drafts.data?.filter(d => d.prospecting_category === 'other').length ?? 0})</Button>

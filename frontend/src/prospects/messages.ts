@@ -47,7 +47,7 @@ const FIELD_INVALID: Record<string, string> = {
   'provenance.legal_basis_or_collection_context.blank': 'Indiquez le contexte de collecte (ou la base légale).',
   'provenance.legal_basis_or_collection_context.length': 'Texte trop long (2 000 caractères au plus).',
   'provenance.source_reference.length': 'Texte trop long (2 000 caractères au plus).',
-  'next_action_week.derived': 'La prochaine échéance se calcule depuis la cohorte et les envois réels.',
+  'next_action_week.derived': 'La prochaine échéance se calcule depuis la semaine de contact et les envois réels.',
   'status.empty': 'Rien à enregistrer : choisissez un état.',
   'sent_at.in_future': 'La date d’envoi ne peut pas être dans le futur.',
   'sent_at.before_previous_send': 'La date d’envoi ne peut pas précéder l’envoi précédent de la séquence.',
@@ -113,7 +113,7 @@ export function prospectRefusal(error: unknown, indexes: AliasIndexes = { emails
     case 'human_actor_required':
       return {
         field: null,
-        message: 'Seule une personne connectée peut changer l’état, la cohorte ou déclarer un envoi (pas un agent).',
+        message: 'Seule une personne connectée peut changer l’état, la semaine de contact ou déclarer un envoi (pas un agent).',
       }
     case 'not_found':
       return { field: null, message: 'Ce prospect n’existe plus : il a peut-être été supprimé entre-temps.' }

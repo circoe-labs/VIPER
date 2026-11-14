@@ -83,7 +83,7 @@ const REMARK_GROUPS: { label: string; prefixes: string[] }[] = [
   { label: 'Catégorie et rôle', prefixes: ['category.', 'role.'] },
   { label: 'Référent', prefixes: ['referent.'] },
   { label: 'E-mails et téléphones', prefixes: ['email.', 'phone.', 'duplicate.email'] },
-  { label: 'Cohorte et activité', prefixes: ['cohort.', 'activity.', 'tracking.'] },
+  { label: 'Semaine de contact et activité', prefixes: ['cohort.', 'activity.', 'tracking.'] },
 ]
 
 function remarkGroup(code: string): string {

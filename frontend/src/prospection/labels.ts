@@ -32,7 +32,7 @@ export const SEGMENT_INFO: Record<Segment, SegmentInfo> = {
   },
   never_verified: {
     label: 'Jamais vérifiés',
-    hint: 'Personne n’a encore confirmé l’emploi actuel (entreprise, rôle, activité). Cas typiques : prospect importé sans cohorte, ajouté à la main, ou ayant changé d’entreprise. Se règle avec « Vérifié aujourd’hui » dans la fiche.',
+    hint: 'Personne n’a encore confirmé l’emploi actuel (entreprise, rôle, activité). Cas typiques : prospect importé sans semaine de contact, ajouté à la main, ou ayant changé d’entreprise. Se règle avec « Vérifié aujourd’hui » dans la fiche.',
     icon: AlertIcon,
   },
   needs_recheck: {
@@ -53,7 +53,7 @@ export const SEGMENT_INFO: Record<Segment, SegmentInfo> = {
   },
   to_contact: {
     label: 'À contacter',
-    hint: 'Dans une cohorte de campagne, Contact pas encore envoyé (hors S0, opposition, inactifs et erreur sur le mail).',
+    hint: 'Dans une semaine de contact de campagne, Contact pas encore envoyé (hors S0, opposition, inactifs et erreur sur le mail).',
     icon: UsersIcon,
   },
   due: {

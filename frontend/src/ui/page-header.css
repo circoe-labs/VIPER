@@ -53,3 +53,15 @@
   border-bottom: 2px solid transparent;
   border-image: linear-gradient(90deg, var(--color-accent), transparent 70%) 1;
 }
+
+/* Dense header (with a back link): one aligned row — back | mascot title subtitle ... actions. */
+.page-header--dense { align-items: center; flex-wrap: wrap; gap: var(--space-3) var(--space-6); margin-bottom: var(--space-5); }
+.page-header--dense .page-header__lead { align-items: center; flex: 1 1 24rem; gap: var(--space-4); }
+.page-header--dense .page-header__mascot { height: 3.75rem; }
+.page-header--dense .page-header__text { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-4); min-width: 0; }
+.page-header--dense .page-header__description { max-width: none; font-size: var(--text-sm); }
+.page-header--dense .page-header__actions { align-items: center; margin-left: auto; gap: var(--space-2); }
+.page-header__back { display: inline-flex; flex: none; align-items: center; gap: var(--space-2); color: var(--color-text); font-weight: var(--weight-medium); text-decoration: none; }
+.page-header__back:hover { color: var(--color-accent-fg); }
+.page-header__divider { flex: none; align-self: stretch; width: 1px; margin: var(--space-2) 0; background: var(--color-border-strong); }
+@media (max-width: 640px) { .page-header--dense .page-header__mascot { height: 2.75rem; } .page-header__divider { display: none; } }

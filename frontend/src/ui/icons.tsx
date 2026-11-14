@@ -211,6 +211,12 @@ export const FilterIcon = (props: IconProps) => (
   </Svg>
 )
 
+export const SortIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M8 4v16M4.5 16.5 8 20l3.5-3.5M16 20V4M12.5 7.5 16 4l3.5 3.5" />
+  </Svg>
+)
+
 export const KeyIcon = (props: IconProps) => (
   <Svg {...props}>
     <circle cx="8" cy="15" r="4" />

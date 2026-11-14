@@ -26,7 +26,7 @@ describe('Contact criteria', () => {
   })
 
   it('lists under the trimmed search, whatever the view', () => {
-    expect(listCriteria({ ...DEFAULT_VIEW, q: ' fret ', view: 'contacted' })).toEqual({ section: 'CONTACTES', q: 'fret', status: null, company: null })
-    expect(listCriteria({ ...DEFAULT_VIEW, view: 'responses' })).toEqual({ section: null, q: '', status: null, company: null })
+    expect(listCriteria({ ...DEFAULT_VIEW, q: ' fret ', view: 'contacted' })).toEqual({ section: 'CONTACTES', q: 'fret', status: null, company: null, validation: null })
+    expect(listCriteria({ ...DEFAULT_VIEW, view: 'responses' })).toEqual({ section: null, q: '', status: null, company: null, validation: null })
   })
 })

@@ -60,6 +60,7 @@ describe('Excel import page', () => {
     stubImports()
     renderApp('/prospection')
 
+    await userEvent.click(await screen.findByText('Autres actions', { selector: 'summary' }))
     await userEvent.click(screen.getByRole('link', { name: 'Importer Excel' }))
 
     expect(screen.getByRole('heading', { level: 1, name: 'Importer un fichier Excel' })).toBeInTheDocument()

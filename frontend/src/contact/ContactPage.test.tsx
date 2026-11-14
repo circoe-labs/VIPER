@@ -195,6 +195,7 @@ describe('Contact page', () => {
   it('lists the people to contact week by week, the week living in the URL', async () => {
     const api = stubContactApi({ dashboard: PLANNING, rows: rows() })
     const { router } = renderApp('/contact?view=to_contact')
+    await userEvent.click(await screen.findByText('Filtres', { selector: 'summary' }))
     const select = await screen.findByRole('combobox', { name: 'Semaine d’envoi' })
     // Past weeks are overdue, not « upcoming »: only this week and the next ones are offered.
     expect(within(select).getAllByRole('option').map((option) => option.getAttribute('value'))).toEqual(['', '2026-W40', '2026-W42'])
@@ -327,15 +328,27 @@ describe('Contact page', () => {
     const api = stubContactApi({ rows: people })
     const { router } = renderApp(CONTACTED)
     await openList()
+    await userEvent.click(screen.getByText('Filtres', { selector: 'summary' }))
     await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Entreprise' }), id)
     await waitFor(() => {
       expect(lastListParams(api.requests)).toMatchObject({ company: id })
     })
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Statut' }), 'state:appointment_obtained')
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Statut de contact' }), 'state:appointment_obtained')
     expect(await screen.findByText('Aucun prospect ne correspond à la recherche.')).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Réinitialiser' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Tout effacer' }))
     await waitFor(() => { expect(router.state.location.search).toBe('?view=contacted') })
     expect(within(await openList()).getAllByRole('listitem')).toHaveLength(4)
+  })
+
+  it('filters by the prospect validation status, kept in the URL and sent to the API', async () => {
+    const api = stubContactApi({ rows: rows() })
+    const { router } = renderApp(CONTACTED)
+    await openList()
+    await userEvent.click(screen.getByText('Filtres', { selector: 'summary' }))
+    await userEvent.click(screen.getByRole('button', { name: 'À vérifier' }))
+    await waitFor(() => { expect(router.state.location.search).toBe('?view=contacted&validation=todo') })
+    await waitFor(() => { expect(lastListParams(api.requests)).toMatchObject({ verification_box: 'todo' }) })
+    expect(within(screen.getByRole('group', { name: 'Filtres appliqués' })).getByText('À vérifier')).toBeVisible()
   })
 
   it('loads full details only when the row expands and offers existing actions', async () => {

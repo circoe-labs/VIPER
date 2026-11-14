@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router'
 
 import { ExportWorkbookButton } from '../exports/ExportWorkbookButton'
 import { useDebouncedValue } from '../settings/shared'
-import { ArrowLeftIcon, CheckCircleIcon, ChevronDownIcon, UploadIcon, UsersIcon } from '../ui/icons'
+import { CheckCircleIcon, ChevronDownIcon, UploadIcon, UsersIcon } from '../ui/icons'
 import { PageHeader } from '../ui/PageHeader'
 import { SearchField } from '../ui/SearchField'
 import { CompaniesPanel } from './CompaniesPanel'
@@ -56,11 +56,8 @@ export function ProspectionPage() {
 
   return (
     <div className="prospection prospection--overview">
-      <Link to="/" className="prospection__back">
-        <ArrowLeftIcon size={16} />
-        Accueil
-      </Link>
       <PageHeader mascot="search"
+        back={{ to: '/', label: 'Accueil' }}
         title="Prospection"
         description="L’état de la base : prospects, entreprises, entrepôts."
         actions={

@@ -13,11 +13,16 @@ export interface ContactView {
   q: string
   status: string | null
   company: string | null
+  // The prospect's validation box: validated, uncertain, todo, ignored.
+  validation: ValidationBox | null
   // The prospect open in the workbench.
   prospect: string | null
 }
 
-export const DEFAULT_VIEW: ContactView = { view: null, week: null, q: '', status: null, company: null, prospect: null }
+export const VALIDATION_BOXES = ['validated', 'uncertain', 'todo', 'ignored'] as const
+export type ValidationBox = (typeof VALIDATION_BOXES)[number]
+
+export const DEFAULT_VIEW: ContactView = { view: null, week: null, q: '', status: null, company: null, validation: null, prospect: null }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -39,6 +44,7 @@ export function parseView(params: URLSearchParams): ContactView {
     q: params.get('q') ?? '',
     status: validStatus ? status : null,
     company: company === 'none' || (company !== null && UUID.test(company)) ? company : null,
+    validation: VALIDATION_BOXES.find((box) => box === params.get('validation')) ?? null,
     prospect: prospect !== null && UUID.test(prospect) ? prospect.toLowerCase() : null,
   }
 }
@@ -55,7 +61,7 @@ export function serializeView(view: Partial<ContactView>): URLSearchParams {
 
 // The filters shared by every list and by the overview, under the search box.
 export function listCriteria(view: ContactView): ContactListCriteria {
-  return { section: view.view === 'contacted' ? CONTACTED : null, q: view.q.trim(), status: view.status, company: view.company }
+  return { section: view.view === 'contacted' ? CONTACTED : null, q: view.q.trim(), status: view.status, company: view.company, validation: view.validation }
 }
 
 export function contactHref(view: Partial<ContactView> = {}): string {
