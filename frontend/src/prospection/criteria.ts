@@ -24,10 +24,9 @@ export const WAREHOUSE_CATEGORIES = ['sme', 'other', 'unclassified'] as const
 export type WarehouseCategory = (typeof WAREHOUSE_CATEGORIES)[number]
 
 // `?sort=`: `name` (default), `created`, `updated` for every entity; prospects also keep the older orders of
-// GET /prospection/prospects (company, next_due, verification, file). The backend has no « created » order for
-// prospects, so there it reads as the default (see `sortFor`).
+// GET /prospection/prospects (company, next_due, verification, file).
 export type ViewSort = ProspectSort | 'created'
-export const VIEW_SORTS: readonly ViewSort[] = [...PROSPECT_SORTS, 'created']
+export const VIEW_SORTS: readonly ViewSort[] = PROSPECT_SORTS
 export const ENTITY_SORTS: Record<Entity, readonly ViewSort[]> = {
   prospect: PROSPECT_SORTS,
   company: ['name', 'created', 'updated'],

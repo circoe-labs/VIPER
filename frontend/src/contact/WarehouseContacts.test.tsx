@@ -22,6 +22,6 @@ describe('Warehouse contacts', () => {
     expect(within(section).getByText('Anne Exemple')).toBeVisible()
     expect(within(section).getByText('anne@example.test')).toBeVisible()
     expect(within(section).queryByText('Bruno Exemple')).not.toBeInTheDocument()
-    expect(within(section).getByRole('link', { name: /Gérer les fiches/ })).toHaveAttribute('href', '/warehouses')
+    expect(within(section).getByRole('link', { name: /Gérer les fiches/ })).toHaveAttribute('href', '/prospection?entity=warehouse')
   })
 })

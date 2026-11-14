@@ -19,8 +19,12 @@ describe('Companies (Prospection entity=company)', () => {
       company('Sans classement'),
     ] })
     renderApp('/prospection?entity=company')
-    const categories = screen.getByRole('group', { name: 'Type d’entreprise' })
     await screen.findByRole('button', { name: 'Petit atelier' })
+    // The company types are the quick filters of the « Filtres » menu (opened on demand).
+    const categories = async () => {
+      if (!screen.queryByRole('group', { name: 'Filtres rapides' })) await userEvent.click(screen.getByText('Filtres', { selector: 'summary' }))
+      return within(screen.getByRole('group', { name: 'Filtres rapides' }))
+    }
     const kinds: [string, string][] = [
       ['Institutionnelles', 'Mairie exemple'],
       ['PME', 'Petit atelier'],
@@ -28,7 +32,7 @@ describe('Companies (Prospection entity=company)', () => {
       ['À classer', 'Sans classement'],
     ]
     for (const [label, name] of kinds) {
-      await userEvent.click(within(categories).getByRole('button', { name: new RegExp(`^${label}`) }))
+      await userEvent.click((await categories()).getByRole('button', { name: new RegExp(`^${label}`) }))
       await waitFor(() => {
         expect(within(table()).getAllByRole('row')).toHaveLength(2)
         expect(within(table()).getByRole('button', { name })).toBeInTheDocument()
@@ -40,7 +44,7 @@ describe('Companies (Prospection entity=company)', () => {
     await userEvent.click(within(drawer).getByRole('button', { name: 'Enregistrer' }))
     expect(await screen.findByText('Aucune entreprise ne correspond à ces critères.')).toBeInTheDocument()
     await userEvent.keyboard('{Escape}')
-    await userEvent.click(within(categories).getByRole('button', { name: /^PME/ }))
+    await userEvent.click((await categories()).getByRole('button', { name: /^PME/ }))
     expect(await within(await screen.findByRole('table', { name: 'Liste des entreprises' })).findByRole('button', { name: 'Sans classement' })).toBeInTheDocument()
   })
 

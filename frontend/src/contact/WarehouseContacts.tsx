@@ -47,7 +47,7 @@ export function WarehouseContacts() {
         <h3>{site}</h3>
         <ul>{items.map((draft) => <li key={draft.id}><strong>{draft.contact_name}</strong>{draft.contact_role && <span>{draft.contact_role}</span>}{draft.recipient && <span>{draft.recipient}</span>}{draft.scheduled_at && <span>{DATE.format(new Date(draft.scheduled_at))}</span>}</li>)}</ul>
       </section>)}
-      <Link to="/warehouses">Gérer les fiches d’entrepôt</Link>
+      <Link to="/prospection?entity=warehouse">Gérer les fiches d’entrepôt</Link>
     </div>}
   </section>
 }

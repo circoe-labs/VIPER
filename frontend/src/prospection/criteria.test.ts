@@ -86,11 +86,11 @@ describe('Prospection URL state', () => {
     expect(parseView(new URLSearchParams('entity=nope&warehouse_category=nope'))).toMatchObject({ entity: 'prospect', warehouse_category: null })
   })
 
-  it('switching entity keeps q and the shared filters only; sort created is kept for companies, not for prospects', () => {
+  it('switching entity keeps q and the shared filters only; sort created is kept by every entity', () => {
     const view = parseView(new URLSearchParams('validated_only=true&q=abc&created_from=2026-11-02&company_kind=sme&sort=created&role=none'))
     expect(serializeView(switchEntity(view, 'company')).toString()).toBe('entity=company&created_from=2026-11-02&company_kind=sme&q=abc&sort=created')
     expect(serializeView(switchEntity(view, 'warehouse')).toString()).toBe('entity=warehouse&q=abc&sort=created')
-    expect(sortFor(view)).toBe('name')
+    expect(sortFor({ entity: 'prospect', sort: 'created' })).toBe('created')
     expect(sortFor({ entity: 'company', sort: 'created' })).toBe('created')
     expect(serializeView(clearedFilters('prospect')).toString()).toBe('')
   })
