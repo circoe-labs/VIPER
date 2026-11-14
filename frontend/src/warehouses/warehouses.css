@@ -105,3 +105,9 @@
 .warehouse-contacts p, .warehouse-owner p { overflow-wrap: anywhere; }
 
 .warehouse-contact-role { color: var(--color-danger-fg); font-weight: var(--weight-semibold); }
+
+/* The owning company (société rattachée) of a warehouse, always visible in its row. */
+.warehouse-card__identity > .warehouse-card__owner { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); color: var(--color-text); font-weight: var(--weight-medium); }
+.warehouse-card__owner svg { flex: none; color: var(--color-accent-fg); }
+.warehouse-card__owner-label { color: var(--color-text-muted); font-weight: var(--weight-regular); }
+.warehouse-card__identity > .warehouse-card__owner--missing { color: var(--color-warning-fg); }

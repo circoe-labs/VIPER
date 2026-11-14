@@ -135,7 +135,7 @@ describe('Espace de vérification', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /Vérifié/ }))
 
-    expect(await screen.findByText('Combien de vérifiés dans quelle cohorte ?')).toBeInTheDocument()
+    expect(await screen.findByText('Combien de vérifiés dans quelle semaine de contact ?')).toBeInTheDocument()
   })
 
   it('validates: employment and primary e-mail verified, then the next fiche comes up', async () => {

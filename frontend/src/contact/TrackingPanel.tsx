@@ -22,7 +22,7 @@ const STATE_HINTS: Partial<Record<TrackingStatus, string>> = {
   neutral: 'La séquence reprend là où elle s’était arrêtée (le niveau est conservé).',
   response_received: 'Les messages non envoyés seront annulés.',
   appointment_obtained: 'Fin de la séquence : les messages non envoyés seront annulés.',
-  not_interested: 'Réponse négative : fin de la séquence, les messages non envoyés seront annulés. Réversible (changement de cohorte).',
+  not_interested: 'Réponse négative : fin de la séquence, les messages non envoyés seront annulés. Réversible (changement de semaine de contact).',
   ignored: 'Définitif : le prospect passe en « Ne pas contacter » et sort de Contact.',
 }
 

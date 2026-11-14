@@ -11,6 +11,7 @@ export function commercialPath(plan: ListPlan, criteria: ContactListCriteria, li
   const params = new URLSearchParams({ category: plan.category, sort: plan.sort, limit: String(limit), offset: String(offset) })
   if (criteria.q.trim()) params.set('q', criteria.q.trim())
   if (criteria.company) params.set('company', criteria.company)
+  if (criteria.validation) params.set('verification_box', criteria.validation)
   if (criteria.status?.startsWith('state:')) params.set('tracking_status', criteria.status.slice(6))
   if (criteria.status?.startsWith('level:')) params.set('level', criteria.status.slice(6))
   if (plan.rank !== null) params.set('rank', String(plan.rank))

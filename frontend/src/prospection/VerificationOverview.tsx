@@ -156,7 +156,7 @@ export function VerificationOverview({ figures, warehouseContacts, tab, onTab }:
 function CohortBars({ cohorts, verified }: { cohorts: CohortFigure[]; verified: number }) {
   const max = Math.max(1, ...cohorts.map((cohort) => cohort.count))
   return (
-    <ul className="verification-bars" aria-label="Vérifiés par cohorte">
+    <ul className="verification-bars" aria-label="Vérifiés par semaine de contact">
       {cohorts.map((cohort) => (
         <li key={cohort.code} title={`${cohort.code} : ${String(cohort.count)} (${percent(cohort.count, verified)})`}>
           <span className="verification-bars__count">{cohort.count}</span>
@@ -186,7 +186,7 @@ export function VerifiedReading({ figures }: { figures: VerificationFigures }) {
   }))
   return (
     <div className="verification-reading">
-      <h3>Combien de vérifiés dans quelle cohorte ?</h3>
+      <h3>Combien de vérifiés dans quelle semaine de contact ?</h3>
       {figures.verified === 0 ? (
         <p>Aucun prospect vérifié pour le moment.</p>
       ) : (
@@ -208,7 +208,7 @@ export function VerifiedReading({ figures }: { figures: VerificationFigures }) {
           <h3>Programmés</h3>
           <div className="verification-total">
             {programmed > 0 ? (
-              <Ring slices={slices} total={programmed} label="Prospects vérifiés des cohortes programmées" />
+              <Ring slices={slices} total={programmed} label="Prospects vérifiés des semaines de contact programmées" />
             ) : null}
             <ul className="verification-legend">
               {planned.map((cohort, index) => (
@@ -221,12 +221,12 @@ export function VerifiedReading({ figures }: { figures: VerificationFigures }) {
                   {cohort.code} : {cohort.count} ({percent(cohort.count, figures.verified)})
                 </li>
               ))}
-              {planned.length === 0 && <li>Aucune cohorte programmée.</li>}
+              {planned.length === 0 && <li>Aucune semaine de contact programmée.</li>}
             </ul>
           </div>
           <p>
             Déjà envoyés : <strong>{sentTotal}</strong> ({percent(sentTotal, figures.verified)}) · Non programmés (vérifiés
-            sans cohorte) : <strong>{figures.withoutCohort}</strong> ({percent(figures.withoutCohort, figures.verified)})
+            sans semaine de contact) : <strong>{figures.withoutCohort}</strong> ({percent(figures.withoutCohort, figures.verified)})
           </p>
         </>
       )}

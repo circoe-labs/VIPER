@@ -128,6 +128,8 @@ export interface ContactListCriteria {
   q: string
   status?: string | null
   company?: string | null
+  // The prospect's validation box (`verification_box` of the API): validated, uncertain, todo, ignored.
+  validation?: string | null
 }
 
 export interface ContactChartBar {
@@ -150,6 +152,7 @@ function contactFilterParams(criteria: ContactListCriteria): URLSearchParams {
   const params = new URLSearchParams()
   if (criteria.q.trim()) params.set('q', criteria.q.trim())
   if (criteria.company) params.set('company', criteria.company)
+  if (criteria.validation) params.set('verification_box', criteria.validation)
   if (criteria.status?.startsWith('state:')) params.set('tracking_status', criteria.status.slice(6))
   if (criteria.status?.startsWith('level:')) params.set('level', criteria.status.slice(6))
   return params

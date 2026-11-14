@@ -1,15 +1,18 @@
-import { Link } from 'react-router'
-
 import { useCompanyCounts } from '../api/companies'
 import { useProspectionOverview } from '../api/prospection'
 import { useWarehouseCounts } from '../api/warehouses'
 import { BuildingIcon, UsersIcon, WarehouseIcon } from '../ui/icons'
+import { KpiCard, KpiGrid } from '../ui/KpiCard'
 import { type Entity, entityHref, type ProspectionView } from './criteria'
 import { weeklyFor } from './entityPanel'
 import { useWeeklyAdditions } from './weeklyAdditions'
 import './entities.css'
 
-const NUMBER = new Intl.NumberFormat('fr-FR')
+const HINTS: Record<Entity, string> = {
+  prospect: 'Les personnes de la base. Cliquer affiche leur liste.',
+  company: 'Les entreprises de la base. Cliquer affiche leur liste.',
+  warehouse: 'Les entrepôts de la base, avec leur société rattachée. Cliquer affiche leur liste.',
+}
 const ENTITY_ITEMS = [
   { entity: 'prospect', label: 'Prospects', icon: UsersIcon },
   { entity: 'company', label: 'Entreprises', icon: BuildingIcon },
@@ -31,23 +34,21 @@ export function EntityNav({ view }: { view: ProspectionView }) {
     warehouse: warehouses.data?.warehouses,
   }
   return (
-    <nav className="entity-cards" aria-label="Type de fiche">
-      {ENTITY_ITEMS.map(({ entity: item, label, icon: Icon }) => {
-        const total = totals[item]
-        const added = weeklyFor(weekly, item)
-        return (
-          <Link key={item} to={entityHref(view, item)} className="entity-card" aria-current={item === view.entity ? 'page' : undefined}>
-            <span className="entity-card__icon"><Icon size={20} /></span>
-            <span className="entity-card__name">{label}</span>
-            <strong className="entity-card__total">{total === undefined ? '…' : NUMBER.format(total)}</strong>
-            {added !== undefined && (
-              <span className={added === null ? 'entity-card__delta entity-card__delta--unknown' : 'entity-card__delta'} title={added === null ? 'Ajouts de la semaine indisponibles' : undefined}>
-                {added === null ? '—' : `+${NUMBER.format(added)} cette semaine`}
-              </span>
-            )}
-          </Link>
-        )
-      })}
+    <nav aria-label="Type de fiche">
+      <KpiGrid label="Compteurs de la base" columns={3}>
+        {ENTITY_ITEMS.map(({ entity: item, label, icon }) => (
+          <KpiCard
+            key={item}
+            label={label}
+            icon={icon}
+            value={totals[item]}
+            weekly={weeklyFor(weekly, item)}
+            hint={HINTS[item]}
+            active={item === view.entity}
+            to={entityHref(view, item)}
+          />
+        ))}
+      </KpiGrid>
     </nav>
   )
 }

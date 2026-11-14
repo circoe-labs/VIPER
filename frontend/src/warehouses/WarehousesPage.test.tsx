@@ -209,7 +209,7 @@ describe('Warehouse directory', () => {
     await userEvent.click(open)
     expect(screen.getByText('Anne Test')).toBeVisible()
     expect(screen.getByText('anne@exemple.test ou a.test@exemple.test')).toBeVisible()
-    expect(screen.getByText('Propriétaire Test')).toBeVisible()
+    expect(screen.getAllByText('Propriétaire Test').length).toBeGreaterThan(0)
     expect(screen.getByRole('link', { name: 'Profil LinkedIn' })).toHaveAttribute('href', ROW.contacts[0]?.linkedin)
     await userEvent.click(open)
     expect(screen.getByText('Anne Test')).not.toBeVisible()

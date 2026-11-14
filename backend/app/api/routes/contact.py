@@ -51,6 +51,7 @@ Search = Annotated[str | None, Query(max_length=200)]
 Week = Annotated[str | None, Query(max_length=16)]
 CohortParam = Annotated[uuid.UUID | Literal["none"] | None, Query()]
 # Cohort codes (`S39`): several at once, e.g. `?cohorts=S39&cohorts=S40`.
+VerificationBox = Annotated[Literal["validated", "uncertain", "todo", "ignored"] | None, Query()]
 CohortCodes = Annotated[list[str] | None, Query(max_length=20, alias="cohorts")]
 COHORT_CODE = re.compile(r"S\d{1,3}")
 
@@ -359,6 +360,7 @@ def prospects(
     cohort_codes: CohortCodes = None,
     tracking_status: ContactTrackingStatus | None = None,
     company: CohortParam = None,
+    verification_box: VerificationBox = None,
     sort: ContactSort = ContactSort.DUE,
     limit: Annotated[int, Query(ge=1, le=LIST_MAX_LIMIT)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
@@ -383,6 +385,7 @@ def prospects(
             sort=sort,
             tracking_status=tracking_status,
             company=_cohort(company),
+            verification_box=verification_box,
         )
     page = contact_dashboard.list_contacts(
         session, filters, contact_clock(), limit=limit, offset=offset
@@ -402,6 +405,7 @@ def overview(
     tracking_status: ContactTrackingStatus | None = None,
     company: CohortParam = None,
     level: Annotated[str | None, Query(max_length=32)] = None,
+    verification_box: VerificationBox = None,
 ) -> ContactOverviewOut:
     with business_errors():
         if level is not None and level not in level_keys(app_settings.max_follow_ups(session)):
@@ -412,6 +416,7 @@ def overview(
             tracking_status=tracking_status,
             company=_cohort(company),
             level=level,
+            verification_box=verification_box,
         )
         result = contact_presentation.overview(session, filters, contact_clock())
     state = DispatchStateOut.model_validate(

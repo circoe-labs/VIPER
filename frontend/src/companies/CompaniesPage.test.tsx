@@ -70,7 +70,7 @@ describe('Companies (Prospection entity=company)', () => {
 
     const row = await screen.findByRole('row', { name: /Transports Exemple/ })
     expect(within(row).getAllByRole('cell').map((cell) => cell.textContent)).toEqual([
-      'Transports ExempleTransports Exemple SAS',
+      'TETransports ExempleTransports Exemple SAS',
       'À classer',
       '999 000 011',
       'exemple.fr',

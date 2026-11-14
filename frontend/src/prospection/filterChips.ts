@@ -66,7 +66,7 @@ export function activeFilters(view: ProspectionView, names: FilterNames = NO_NAM
   if (view.activity) add('activity', `Activité : ${ACTIVITY_LABELS[view.activity]}`, { activity: null })
   if (view.referent) add('referent', picked('Référent', view.referent, 'Sans référent', names.referent(view.referent), 'sélectionné'), { referent: null })
   if (view.tracking_status) add('tracking_status', view.tracking_status === NONE ? 'Sans état commercial' : `État : ${TRACKING_LABELS[view.tracking_status]}`, { tracking_status: null })
-  if (view.cohort) add('cohort', picked('Campagne', view.cohort, 'Sans campagne', names.cohort(view.cohort), 'sélectionnée'), { cohort: null })
+  if (view.cohort) add('cohort', picked('Semaine de contact', view.cohort, 'Sans semaine de contact', names.cohort(view.cohort), 'sélectionnée'), { cohort: null })
   if (view.company) add('company', `Entreprise : ${names.company(view.company) ?? 'sélectionnée'}`, { company: null })
   if (view.import_batch) add('import_batch', `Import : ${names.import_batch(view.import_batch) ?? 'sélectionné'}`, { import_batch: null })
   if ((view.services ?? []).length > 0) add('services', `Services : ${(view.services ?? []).map((code) => SERVICES.find((service) => service.code === code)?.label ?? code).join(', ')}`, { services: [] })
@@ -88,6 +88,18 @@ export interface QuickFilter {
 const NO_STATUS: Partial<ProspectionView> = { validated_only: false, verification_box: null, review: null, segment: 'all' }
 const KIND_CLEAR: Partial<ProspectionView> = { company_kind: null }
 const CATEGORY_CLEAR: Partial<ProspectionView> = { warehouse_category: null }
+
+const TRACKING_CLEAR: Partial<ProspectionView> = { tracking_status: null }
+
+// Contact status of a prospect, one click (prospects only): the API filters on `tracking_status`.
+export const CONTACT_QUICK_FILTERS: readonly QuickFilter[] = (['response_received', 'appointment_obtained', 'not_interested', 'disqualified'] as const).map((status) => ({
+  id: `tracking_${status}`,
+  label: TRACKING_LABELS[status],
+  hint: 'État commercial du prospect dans Contact',
+  active: (view: ProspectionView) => view.tracking_status === status,
+  apply: { tracking_status: status },
+  clear: TRACKING_CLEAR,
+}))
 
 export const QUICK_FILTERS: Record<Entity, readonly QuickFilter[]> = {
   prospect: [

@@ -164,8 +164,8 @@ export function CohortDialog({ prospectId, place, state, onConfirm, ...frame }: 
   const offerResolve = target !== undefined && target !== null && emailErrors.length > 0
   return (
     <DialogFrame
-      title={current ? 'Changer de cohorte' : 'Valider dans une cohorte'}
-      confirmLabel={choice === REMOVE ? 'Retirer la cohorte' : 'Ouvrir la nouvelle séquence'}
+      title={current ? 'Changer de semaine de contact' : 'Valider dans une semaine de contact'}
+      confirmLabel={choice === REMOVE ? 'Retirer la semaine de contact' : 'Ouvrir la nouvelle séquence'}
       canConfirm={chosen}
       formId={formId}
       {...frame}
@@ -180,20 +180,20 @@ export function CohortDialog({ prospectId, place, state, onConfirm, ...frame }: 
         }}
       >
         <SelectField
-          label="Nouvelle cohorte"
+          label="Nouvelle semaine de contact"
           value={choice}
-          hint={cohorts.isError ? 'Liste des cohortes indisponible.' : 'Créez une cohorte et sa date dans Paramètres › Cohortes.'}
+          hint={cohorts.isError ? 'Liste des semaines de contact indisponible.' : 'Créez une semaine de contact et sa date dans Paramètres › Semaines de contact.'}
           onChange={(event) => {
             setChoice(event.target.value)
           }}
         >
-          <option value="">Choisir une cohorte</option>
+          <option value="">Choisir une semaine de contact</option>
           {options.map((cohort) => (
             <option key={cohort.id} value={cohort.id}>
               {cohortChoiceLabel(cohort)}
             </option>
           ))}
-          {current && <option value={REMOVE}>Retirer la cohorte (non validé)</option>}
+          {current && <option value={REMOVE}>Retirer la semaine de contact (non validé)</option>}
         </SelectField>
         {lines.map((line) => (
           <p key={line}>{line}</p>

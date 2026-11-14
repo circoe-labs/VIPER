@@ -51,7 +51,7 @@ function WarehouseForm({ warehouse, onClose }: { warehouse: Warehouse | undefine
     </fieldset>
     <fieldset disabled={save.isPending}>
       <legend>Propriétaire immobilier ou foncier</legend>
-      {text('owner_name', 'Nom du propriétaire')}{text('owner_role', 'Fonction ou société du propriétaire')}
+      {text('owner_name', 'Société rattachée (propriétaire)')}{text('owner_role', 'Fonction du propriétaire')}
       {text('owner_email', 'E-mail du propriétaire')}{text('owner_linkedin', 'LinkedIn du propriétaire')}
     </fieldset>
     <fieldset disabled={save.isPending}>

@@ -55,23 +55,23 @@ export function CohortBadge({ code, startsOn = null }: CohortBadgeProps) {
   if (code === null) {
     return (
       <StatusBadge tone="neutral">
-        <span className="visually-hidden">Campagne : </span>
-        Sans campagne
+        <span className="visually-hidden">Semaine de contact : </span>
+        Sans semaine de contact
       </StatusBadge>
     )
   }
   if (code === 'S0') {
     return (
       <StatusBadge tone="neutral" icon={MinusCircleIcon}>
-        <span className="visually-hidden">Cohorte : </span>
+        <span className="visually-hidden">Semaine de contact : </span>
         S0 · hors campagne
       </StatusBadge>
     )
   }
-  const title = startsOn ? `Cohorte ${code}, premier envoi le ${formatDay(startsOn)}` : `Cohorte ${code}`
+  const title = startsOn ? `Semaine de contact ${code}, premier envoi le ${formatDay(startsOn)}` : `Semaine de contact ${code}`
   return (
     <Badge tone="accent" icon={CalendarIcon} title={title}>
-      <span className="visually-hidden">Cohorte : </span>
+      <span className="visually-hidden">Semaine de contact : </span>
       {code}
     </Badge>
   )

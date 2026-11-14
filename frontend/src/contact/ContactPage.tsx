@@ -4,14 +4,14 @@ import { Link, useSearchParams } from 'react-router'
 import { useContactDashboard, useContactOverview } from '../api/contact'
 import { businessToday } from '../lib/isoWeek'
 import { useDebouncedValue } from '../settings/shared'
-import { Button } from '../ui/Button'
-import { PlusIcon, RefreshIcon } from '../ui/icons'
+import { PlusIcon } from '../ui/icons'
 import { SelectField } from '../ui/fields'
 import { PageHeader } from '../ui/PageHeader'
 import { SearchField } from '../ui/SearchField'
 import { CommercialList } from './CommercialList'
 import { ContactCapsules } from './ContactCapsules'
 import { ContactChart } from './ContactChart'
+import { ContactControls } from './ContactControls'
 import { WarehouseContacts } from './WarehouseContacts'
 import { activeView, buildCapsules, listPlan, readSummarySource, upcomingWeeks } from './commercialModel'
 import { bannerText } from './dispatchCopy'
@@ -57,10 +57,11 @@ export function ContactPage() {
   const key = activeView(view)
   const plan = listPlan(view)
   const criteria = listCriteria(view)
+  const weeks = upcomingWeeks(source)
   const walkOrder = useCommercialWalk(plan, criteria, source?.current_week, view.prospect !== null)
 
   // Filters reset the page; the view and week do too.
-  const searched = JSON.stringify([view.q.trim(), view.status, view.company, key, view.week])
+  const searched = JSON.stringify([view.q.trim(), view.status, view.company, view.validation, key, view.week])
   const [page, setPage] = useState(1)
   const [collapsedFor, setCollapsedFor] = useState(searched)
   if (searched !== collapsedFor) {
@@ -110,9 +111,13 @@ export function ContactPage() {
 
   return (
     <div className="contact contact--crm">
-      <PageHeader mascot="contact" title="Contacts" description="Qui contacter, qui relancer, qui a répondu : le suivi commercial des envois." actions={
-        <Link className="btn btn--primary" to="/prospection?prospect=new"><PlusIcon size={18} /> Ajouter un contact</Link>
-      } />
+      <PageHeader
+        mascot="contact"
+        back={{ to: '/', label: 'Accueil' }}
+        title="Contacts"
+        description="Qui contacter, qui relancer, qui a répondu."
+        actions={<Link className="btn btn--primary btn--md" to="/prospection?prospect=new"><PlusIcon size={18} /> Ajouter un contact</Link>}
+      />
 
       <ContactCapsules capsules={capsules} active={key} loading={planning.isPending} error={planning.isError} onRetry={() => void planning.refetch()} />
 
@@ -123,32 +128,25 @@ export function ContactPage() {
         </DispatchWarning>
       )}
 
-      <div className="contacts-filters" role="search" aria-label="Rechercher dans la liste">
-        <div className="contacts-filters__search">
-          <SearchField label="Rechercher : nom, entreprise, e-mail, téléphone..." value={draft} onChange={setDraft} />
-        </div>
-        <SelectField label="Statut" value={view.status ?? ''} onChange={(event) => { update({ status: event.target.value || null }) }}>
-          <option value="">Tous les statuts</option>
-          {dashboard.data?.statuses.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}
-        </SelectField>
-        <SelectField label="Entreprise" value={view.company ?? ''} onChange={(event) => { update({ company: event.target.value || null }) }}>
-          <option value="">Toutes les entreprises</option>
-          <option value="none">Sans entreprise</option>
-          {dashboard.data?.companies.map((option) => <option value={option.id} key={option.id}>{option.label}</option>)}
-        </SelectField>
-        <Button icon={RefreshIcon} onClick={() => {
+      <ContactControls
+        view={view}
+        search={<SearchField label="Rechercher : nom, entreprise, e-mail, téléphone..." value={draft} onChange={setDraft} />}
+        options={dashboard.data}
+        week={key === 'to_contact' ? <WeekChoice weeks={weeks} value={view.week} onChange={(week) => { update({ week }) }} /> : null}
+        weekLabel={weeks.find((option) => option.week === view.week)?.label ?? null}
+        onChange={update}
+        onClear={() => {
           setDraft('')
-          update({ q: '', status: null, company: null })
-        }}>Réinitialiser</Button>
-      </div>
+          update({ q: '', status: null, company: null, validation: null, week: null })
+        }}
+      />
 
-      {key === 'to_contact' && <WeekChoice weeks={upcomingWeeks(source)} value={view.week} onChange={(week) => { update({ week }) }} />}
       {key === 'contacted' && <ContactChart bars={dashboard.data?.bars} total={dashboard.data?.total} loading={dashboard.isPending} error={dashboard.isError} onRetry={() => void dashboard.refetch()} />}
       <CommercialList
         key={searched}
         plan={plan}
         criteria={criteria}
-        filtered={Boolean(view.q.trim() || view.status || view.company)}
+        filtered={Boolean(view.q.trim() || view.status || view.company || view.validation)}
         capsuleCount={capsules.find((capsule) => capsule.key === key)?.count ?? null}
         currentWeek={source?.current_week}
         page={page}
@@ -167,12 +165,12 @@ export function ContactPage() {
 function WeekChoice({ weeks, value, onChange }: { weeks: { week: string; label: string; count: number }[]; value: string | null; onChange: (week: string | null) => void }) {
   if (weeks.length === 0 && value === null) return null
   return (
-    <div className="contact-weeks">
+    <>
       <SelectField label="Semaine d’envoi" value={value ?? ''} onChange={(event) => { onChange(event.target.value || null) }}>
         <option value="">Cette semaine et retards</option>
         {weeks.map((option) => <option value={option.week} key={option.week}>{`${option.label} · ${String(option.count)} prévu${option.count > 1 ? 's' : ''}`}</option>)}
         {value !== null && !weeks.some((option) => option.week === value) && <option value={value}>{value}</option>}
       </SelectField>
-    </div>
+    </>
   )
 }

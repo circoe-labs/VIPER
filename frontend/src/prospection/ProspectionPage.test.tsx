@@ -281,7 +281,7 @@ describe('Prospection page', () => {
     // « En séquence »: the cohort and the level, no state badge; due, so « Échu » with the step since when.
     expect(within(jean).getByText('S37')).toBeInTheDocument()
     expect(within(jean).getByText('Contact à envoyer')).toBeInTheDocument()
-    expect(jean.textContent).not.toMatch(/État :|Semaine|W37/)
+    expect(jean.textContent).not.toMatch(/État :|Semaine \d|W37/)
     expect(within(jean).getByText('Échu')).toBeInTheDocument()
     expect(jean).toHaveTextContent('Contact à envoyer depuis le 7 sept. 2026')
     expect(jean).toHaveTextContent('Référent : Camille Référente')
@@ -291,7 +291,7 @@ describe('Prospection page', () => {
     expect(within(claire).getByText('Validation de l’emploi non enregistrée')).toBeInTheDocument()
     expect(within(claire).getByText('Pas d’e-mail principal')).toBeInTheDocument()
     expect(claire).toHaveTextContent('Rôle non renseigné')
-    expect(within(claire).getByText('Sans campagne')).toBeInTheDocument()
+    expect(within(claire).getByText('Sans semaine de contact')).toBeInTheDocument()
 
     expect(within(luc).getByText('Coordonnées à revérifier')).toBeInTheDocument()
     expect(within(luc).getByText('Adresse non vérifiée')).toBeInTheDocument()
@@ -354,11 +354,11 @@ describe('Prospection page', () => {
     renderApp('/prospection?segment=all&q=')
     await screen.findByRole('list', { name: 'Prospects' })
     await openFilters()
-    const filter = screen.getByRole('combobox', { name: 'Cohorte' })
+    const filter = screen.getByRole('combobox', { name: 'Semaine de contact' })
     await waitFor(() => {
       expect(within(filter).getAllByRole('option').map((option) => option.textContent)).toEqual([
-        'Toutes les cohortes',
-        'Sans cohorte (non validé)',
+        'Toutes les semaines de contact',
+        'Sans semaine de contact (non validé)',
         'S0 — hors campagne',
         'S39 — 28 sept. 2026',
       ])
@@ -368,7 +368,7 @@ describe('Prospection page', () => {
     await waitFor(() => {
       expect(lastParams(api.requests, PROSPECTS).get('cohort')).toBe(s39.id)
     })
-    await userEvent.selectOptions(filter, 'Sans cohorte (non validé)')
+    await userEvent.selectOptions(filter, 'Sans semaine de contact (non validé)')
     await waitFor(() => {
       expect(lastParams(api.requests, PROSPECTS).get('cohort')).toBe('none')
     })

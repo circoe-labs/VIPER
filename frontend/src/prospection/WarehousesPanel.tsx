@@ -12,6 +12,7 @@ import { WarehouseRow } from '../warehouses/WarehousesPage'
 import { sortFor } from './criteria'
 import type { EntityPanelProps } from './entityPanel'
 import { activeFilters } from './filterChips'
+import { EntityToolbar } from './EntityToolbar'
 import { ProspectionControls } from './ProspectionFilters'
 
 const NUMBER = new Intl.NumberFormat('fr-FR')
@@ -35,15 +36,19 @@ export function WarehousesPanel({ view, update, refine, search }: EntityPanelPro
   return (
     <section aria-label="Entrepôts">
       <ProspectionControls view={view} onChange={refine} search={search} />
-      <div className="entity-panel__toolbar">
-        {page && <span className="entity-panel__count" aria-live="polite">{NUMBER.format(page.total)} entrepôt{page.total > 1 ? 's' : ''}</span>}
-        {warehouses.isFetching && <SpinnerIcon size={16} className="btn__spinner" />}
-        <div className="entity-panel__actions">
-        <Link to="/prospection/warehouse-drafts" className="btn btn--ghost btn--md">Brouillons</Link>
-        <Button icon={UploadIcon} onClick={() => { setImporting(true) }}>Importer Excel</Button>
-        <Button variant="primary" icon={PlusIcon} onClick={() => { setEditing(null) }}>Ajouter un entrepôt</Button>
-        </div>
-      </div>
+      <EntityToolbar
+        title="Tous les entrepôts"
+        count={page ? `${NUMBER.format(page.total)} entrepôt${page.total > 1 ? 's' : ''}` : undefined}
+        description="Chaque entrepôt est rattaché à sa société propriétaire."
+        busy={warehouses.isFetching}
+        actions={
+          <>
+            <Link to="/prospection/warehouse-drafts" className="btn btn--ghost btn--md">Brouillons</Link>
+            <Button icon={UploadIcon} onClick={() => { setImporting(true) }}>Importer Excel</Button>
+            <Button variant="primary" icon={PlusIcon} onClick={() => { setEditing(null) }}>Ajouter un entrepôt</Button>
+          </>
+        }
+      />
       {counts.isError && <p role="alert" className="prospection__state prospection__state--error"><AlertIcon size={18} />Totaux indisponibles.<Button size="sm" onClick={() => void counts.refetch()}>Réessayer</Button></p>}
       {notice && <p className="warehouse-notice" role="status">{notice}</p>}
       {warehouses.isPending && <p role="status" className="prospection__state"><SpinnerIcon size={18} className="btn__spinner" />Chargement des entrepôts…</p>}

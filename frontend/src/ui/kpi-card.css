@@ -1,0 +1,105 @@
+/* The shared KPI card (ui/KpiCard.tsx): icon tile, name, big figure, optional green chip. Tokens only. */
+
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--kpi-columns, 3), minmax(0, 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+@media (max-width: 70rem) {
+  .kpi-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); }
+}
+
+.kpi-card__slot { position: relative; min-width: 0; container-type: inline-size; }
+
+.kpi-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas: 'icon name' 'icon figure';
+  align-items: center;
+  column-gap: var(--space-4);
+  row-gap: var(--space-1);
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  min-height: 6.75rem;
+  padding: var(--space-4) var(--space-5);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  transition: border-color var(--duration-fast) var(--ease-standard), background-color var(--duration-fast) var(--ease-standard);
+}
+
+.kpi-card--action { cursor: pointer; }
+.kpi-card--action:hover { background: var(--color-surface-hover); }
+.kpi-card.is-active { border-color: var(--color-accent-fg); background: color-mix(in srgb, var(--color-accent-soft) 45%, var(--color-surface)); }
+
+.kpi-card__icon {
+  grid-area: icon;
+  display: grid;
+  place-items: center;
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: var(--radius-lg);
+  background: var(--color-accent-soft);
+  color: var(--color-accent-fg);
+}
+
+.kpi-card__name {
+  grid-area: name;
+  align-self: end;
+  min-width: 0;
+  padding-right: var(--space-6);
+  color: var(--color-text);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-tight);
+  overflow-wrap: anywhere;
+}
+
+.kpi-card__figure { grid-area: figure; align-self: start; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); min-width: 0; }
+
+.kpi-card__value {
+  font-size: var(--text-3xl);
+  font-weight: var(--weight-bold);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-tight);
+  line-height: 1.1;
+}
+
+.kpi-card--zero .kpi-card__value { color: var(--color-text-muted); font-weight: var(--weight-regular); }
+
+.kpi-card__chip {
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-accent-soft);
+  color: var(--color-accent-fg);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.kpi-card__chip--unknown, .kpi-card__chip--note { background: var(--color-surface-hover); color: var(--color-text-muted); }
+
+.kpi-card__tip { position: absolute; top: var(--space-3); right: var(--space-3); color: var(--color-text-muted); }
+
+/* Tones: the tile and the figure carry the meaning (never colour alone: the name and the figure stay). */
+.kpi-card--info .kpi-card__icon { background: var(--color-info-soft); color: var(--color-info-fg); }
+.kpi-card--success .kpi-card__icon { background: var(--color-success-soft); color: var(--color-success-fg); }
+.kpi-card--warning .kpi-card__icon { background: var(--color-warning-soft); color: var(--color-warning-fg); }
+.kpi-card--warning:not(.kpi-card--zero) .kpi-card__value { color: var(--color-warning-fg); }
+.kpi-card--danger .kpi-card__icon { background: var(--color-danger-soft); color: var(--color-danger-fg); }
+.kpi-card--danger:not(.kpi-card--zero) .kpi-card__value { color: var(--color-danger-fg); }
+
+@media (max-width: 40rem) {
+  .kpi-card { min-height: 5.5rem; padding: var(--space-3) var(--space-4); }
+  .kpi-card__icon { width: 2.75rem; height: 2.75rem; }
+  .kpi-card__value { font-size: var(--text-2xl); }
+}
+
+/* A narrow card stacks the chip under the figure (after the base rules: same specificity). */
+@container (max-width: 21rem) { .kpi-card__figure { flex-direction: column; align-items: flex-start; } }

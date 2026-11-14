@@ -165,7 +165,7 @@ export function Showcase() {
           </div>
         </Card>
 
-        <Card title="Cohorte, niveau et état commercial">
+        <Card title="Semaine de contact, niveau et état commercial">
           <div className="showcase__row">
             <CohortBadge code="S41" startsOn="2026-10-12" />
             <CohortBadge code="S0" />

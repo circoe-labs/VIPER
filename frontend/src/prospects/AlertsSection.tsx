@@ -90,7 +90,7 @@ export function AlertsSection({ prospectId, onChanged }: AlertsSectionProps) {
           title={`Résoudre « ${ALERT_TYPE_LABELS[resolving.type]} » ?`}
           lines={[
             resolving.type === 'email_error'
-              ? 'Le prospect revient dans les actions automatiques (si sa séquence le permet). Enregistrez d’abord la nouvelle adresse e-mail et changez de cohorte.'
+              ? 'Le prospect revient dans les actions automatiques (si sa séquence le permet). Enregistrez d’abord la nouvelle adresse e-mail et changez de semaine de contact.'
               : 'L’alerte passe dans les alertes résolues ; rien d’autre ne change sur la fiche.',
           ]}
           note

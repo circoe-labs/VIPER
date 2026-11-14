@@ -1,17 +1,16 @@
-import { type ReactNode, useState } from 'react'
+import type { ReactNode } from 'react'
 
 import { useCompanies } from '../api/companies'
 import { useImportHistory } from '../api/imports'
 import { NONE, TRACKING_STATUSES } from '../api/prospection'
 import { type Cohort, referentName, useCohorts, useReferents, useTaxonomyValues } from '../api/settings'
 import { calendarDate } from '../lib/calendarDate'
-import { Badge } from '../ui/Badge'
-import { Button } from '../ui/Button'
+import { COMPANY_KIND_LABELS } from '../api/companies'
+import { ActiveChips, ControlBar, FilterMenu, SortSelect } from '../ui/ControlBar'
 import { Combobox } from '../ui/Combobox'
 import { SelectField, TextField } from '../ui/fields'
-import { ChevronDownIcon, CloseIcon, FilterIcon } from '../ui/icons'
 import { clearedFilters, ENTITY_SORTS, type ProspectionView, sortFor, type ViewSort } from './criteria'
-import { activeFilters, type FilterChip, type FilterNames, NO_NAMES, QUICK_FILTERS } from './filterChips'
+import { activeFilters, CONTACT_QUICK_FILTERS, type FilterNames, NO_NAMES, QUICK_FILTERS, type QuickFilter } from './filterChips'
 import { ACTIVITY_LABELS, formatDay, SORT_LABELS, TRACKING_LABELS } from './labels'
 
 interface ProspectionControlsProps {
@@ -30,50 +29,32 @@ function orNull(value: string): never | null {
   return value === '' ? null : (value as never)
 }
 
-// One control row: [search] [Trier par] [Filtres] | [active filters]. Filters never change the entity: they only restrict
-// its list (filterChips.ts models them; every applied one is a removable chip and lives in the URL).
+// One control row: [search] [Trier par] [Filtres] | [applied filters] (ui/ControlBar). Filters never change the entity:
+// they only restrict its list (filterChips.ts models them; every applied one is a removable chip and lives in the URL).
 export function ProspectionControls({ view, onChange, search }: ProspectionControlsProps) {
   return (
-    <div className="prospection-controls">
-      <div className="prospection-controls__search">{search}</div>
-      <SortSelect view={view} onChange={onChange} />
-      <FiltersMenu view={view} onChange={onChange} />
-      <span className="prospection-controls__divider" aria-hidden="true" />
-      {view.entity === 'prospect' ? <ProspectActiveFilters view={view} onChange={onChange} /> : <ActiveFilters view={view} onChange={onChange} />}
-    </div>
+    <ControlBar
+      search={search}
+      sort={<SortControl view={view} onChange={onChange} />}
+      filters={<FiltersMenu view={view} onChange={onChange} />}
+      active={view.entity === 'prospect' ? <ProspectActiveFilters view={view} onChange={onChange} /> : <ActiveFilters view={view} onChange={onChange} />}
+    />
   )
 }
 
-function SortSelect({ view, onChange }: Pick<ProspectionControlsProps, 'view' | 'onChange'>) {
+function SortControl({ view, onChange }: Pick<ProspectionControlsProps, 'view' | 'onChange'>) {
   return (
-    <div className="prospection-controls__sort">
-      <SelectField label="Trier par" value={sortFor(view)} onChange={(event) => { onChange({ sort: event.target.value as ViewSort }) }}>
-        {ENTITY_SORTS[view.entity].map((sort) => (
-          <option key={sort} value={sort}>{view.entity !== 'prospect' && sort === 'updated' ? 'Dernière modification' : SORT_LABELS[sort]}</option>
-        ))}
-      </SelectField>
-    </div>
+    <SortSelect
+      value={sortFor(view)}
+      options={ENTITY_SORTS[view.entity].map((sort) => ({ value: sort, label: view.entity !== 'prospect' && sort === 'updated' ? 'Dernière modification' : SORT_LABELS[sort] }))}
+      onChange={(sort) => { onChange({ sort: sort as ViewSort }) }}
+    />
   )
 }
 
 function ActiveFilters({ view, onChange, names = NO_NAMES }: Pick<ProspectionControlsProps, 'view' | 'onChange'> & { names?: FilterNames }) {
-  const chips = activeFilters(view, names)
-  return (
-    <div className="prospection-controls__active" role="group" aria-label="Filtres appliqués">
-      {chips.length === 0 && <span className="prospection-controls__none">Aucun filtre</span>}
-      {chips.map((chip) => <Chip key={chip.id} chip={chip} onRemove={() => { onChange(chip.clear) }} />)}
-      {chips.length > 0 && <Button size="sm" variant="ghost" onClick={() => { onChange(clearedFilters(view.entity)) }}>Tout effacer</Button>}
-    </div>
-  )
-}
-
-function Chip({ chip, onRemove }: { chip: FilterChip; onRemove: () => void }) {
-  return (
-    <span className="filter-chip">
-      {chip.label}
-      <button type="button" className="filter-chip__remove" aria-label={`Retirer le filtre : ${chip.label}`} onClick={onRemove}><CloseIcon size={12} /></button>
-    </span>
-  )
+  const chips = activeFilters(view, names).map((chip) => ({ id: chip.id, label: chip.label, onRemove: () => { onChange(chip.clear) } }))
+  return <ActiveChips chips={chips} onClear={() => { onChange(clearedFilters(view.entity)) }} />
 }
 
 // The picked role / referent / cohort / company / import are shown by name, from the lists the filters already load.
@@ -93,39 +74,41 @@ function ProspectActiveFilters({ view, onChange }: Pick<ProspectionControlsProps
   return <ActiveFilters view={view} onChange={onChange} names={names} />
 }
 
-// « Filtres »: quick filters of the entity first, then the advanced ones the API supports (open by default when one is set).
+function QuickGroup({ title, label = title, filters, view, onChange }: { title: string; label?: string; filters: readonly QuickFilter[]; view: ProspectionView; onChange: (patch: Partial<ProspectionView>) => void }) {
+  return (
+    <div className="filters-menu__group" role="group" aria-label={label}>
+      <span className="filters-menu__title" aria-hidden="true">{title}</span>
+      <div className="filters-menu__quick">
+        {filters.map((filter) => {
+          const active = filter.active(view)
+          return (
+            <button key={filter.id} type="button" className="filters-menu__option" aria-pressed={active} title={filter.hint} onClick={() => { onChange(active ? filter.clear : filter.apply) }}>
+              {filter.label}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// « Filtres »: quick filters of the entity first (validation status, contact status, type), then the advanced ones the
+// API supports.
 function FiltersMenu({ view, onChange }: Pick<ProspectionControlsProps, 'view' | 'onChange'>) {
-  const [open, setOpen] = useState(false)
   const count = activeFilters(view).length
   const quick = QUICK_FILTERS[view.entity]
+  const titles: Record<ProspectionView['entity'], string> = { prospect: 'Statut du prospect', company: 'Type d’entreprise', warehouse: 'Catégorie' }
   return (
-    <details
-      className="filters-menu"
-      open={open}
-      onToggle={(event) => { setOpen(event.currentTarget.open) }}
-      onKeyDown={(event) => { if (event.key === 'Escape') { setOpen(false); event.currentTarget.querySelector('summary')?.focus() } }}
-    >
-      <summary className="btn btn--secondary btn--md" aria-label={count > 0 ? `Filtres (${String(count)} appliqués)` : 'Filtres'}>
-        <FilterIcon size={18} />
-        Filtres
-        {count > 0 && <Badge tone="accent">{count}</Badge>}
-        <ChevronDownIcon size={16} />
-      </summary>
-      <div className="filters-menu__panel" hidden={!open}>
-        <div className="filters-menu__quick" role="group" aria-label="Filtres rapides">
-          {quick.map((filter) => {
-            const active = filter.active(view)
-            return (
-              <button key={filter.id} type="button" className="filters-menu__option" aria-pressed={active} title={filter.hint} onClick={() => { onChange(active ? filter.clear : filter.apply) }}>
-                {filter.label}
-              </button>
-            )
-          })}
-        </div>
-        {view.entity !== 'warehouse' && <CreationDates view={view} onChange={onChange} />}
-        {view.entity === 'prospect' && open && <ProspectFilterFields view={view} onChange={onChange} />}
-      </div>
-    </details>
+    <FilterMenu count={count}>
+      {(open) => (
+        <>
+          <QuickGroup title={titles[view.entity]} label="Filtres rapides" filters={quick} view={view} onChange={onChange} />
+          {view.entity === 'prospect' && <QuickGroup title="État de contact" filters={CONTACT_QUICK_FILTERS} view={view} onChange={onChange} />}
+          {view.entity !== 'warehouse' && <CreationDates view={view} onChange={onChange} />}
+          {view.entity === 'prospect' && open && <ProspectFilterFields view={view} onChange={onChange} />}
+        </>
+      )}
+    </FilterMenu>
   )
 }
 
@@ -169,10 +152,10 @@ function ProspectFilterFields({ view, onChange }: Pick<ProspectionControlsProps,
           <option key={activity} value={activity}>{ACTIVITY_LABELS[activity]}</option>
         ))}
       </SelectField>
-      <SelectField label="Cohorte" value={view.cohort ?? ''} onChange={(event) => { onChange({ cohort: orNull(event.target.value) }) }}>
-        <option value="">Toutes les cohortes</option>
-        <option value={NONE}>Sans cohorte (non validé)</option>
-        {view.cohort && view.cohort !== NONE && !(cohorts.data ?? []).some((cohort) => cohort.id === view.cohort) && <option value={view.cohort}>Cohorte sélectionnée</option>}
+      <SelectField label="Semaine de contact" value={view.cohort ?? ''} onChange={(event) => { onChange({ cohort: orNull(event.target.value) }) }}>
+        <option value="">Toutes les semaines de contact</option>
+        <option value={NONE}>Sans semaine de contact (non validé)</option>
+        {view.cohort && view.cohort !== NONE && !(cohorts.data ?? []).some((cohort) => cohort.id === view.cohort) && <option value={view.cohort}>Semaine de contact sélectionnée</option>}
         {(cohorts.data ?? []).map((cohort) => (
           <option key={cohort.id} value={cohort.id}>{cohortOption(cohort)}</option>
         ))}
@@ -189,6 +172,11 @@ function ProspectFilterFields({ view, onChange }: Pick<ProspectionControlsProps,
         {(referents.data ?? []).map((referent) => (
           <option key={referent.id} value={referent.id}>{referentName(referent)}</option>
         ))}
+      </SelectField>
+      <SelectField label="Type d’entreprise" value={view.company_kind ?? ''} onChange={(event) => { onChange({ company_kind: orNull(event.target.value) }) }}>
+        <option value="">Tous les types</option>
+        {(Object.keys(COMPANY_KIND_LABELS) as (keyof typeof COMPANY_KIND_LABELS)[]).map((kind) => <option key={kind} value={kind}>{COMPANY_KIND_LABELS[kind]}</option>)}
+        <option value="unclassified">À classer</option>
       </SelectField>
       <Combobox
         label="Entreprise"

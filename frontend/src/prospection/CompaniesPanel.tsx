@@ -7,6 +7,7 @@ import { AlertIcon, BuildingIcon, ChevronLeftIcon, ChevronRightIcon, PlusIcon, S
 import { sortFor } from './criteria'
 import type { EntityPanelProps } from './entityPanel'
 import { activeFilters } from './filterChips'
+import { EntityToolbar } from './EntityToolbar'
 import { ProspectionControls } from './ProspectionFilters'
 
 const NUMBER = new Intl.NumberFormat('fr-FR')
@@ -26,11 +27,13 @@ export function CompaniesPanel({ view, update, refine, search }: EntityPanelProp
   return (
     <section aria-label="Entreprises">
       <ProspectionControls view={view} onChange={refine} search={search} />
-      <div className="entity-panel__toolbar">
-        {page && <span className="entity-panel__count" aria-live="polite">{NUMBER.format(page.total)} {page.total > 1 ? 'entreprises' : 'entreprise'}</span>}
-        {companies.isFetching && <SpinnerIcon size={16} className="btn__spinner" />}
-        <div className="entity-panel__actions"><Button variant="primary" icon={PlusIcon} onClick={() => { openEditor('new') }}>Nouvelle entreprise</Button></div>
-      </div>
+      <EntityToolbar
+        title="Toutes les entreprises"
+        count={page ? `${NUMBER.format(page.total)} ${page.total > 1 ? 'entreprises' : 'entreprise'}` : undefined}
+        description="Les sociétés de la base, avec leur type et leurs établissements."
+        busy={companies.isFetching}
+        actions={<Button variant="primary" icon={PlusIcon} onClick={() => { openEditor('new') }}>Nouvelle entreprise</Button>}
+      />
       {counts.isError && <p role="alert" className="prospection__state prospection__state--error"><AlertIcon size={18} />Répartition indisponible.<Button size="sm" onClick={() => void counts.refetch()}>Réessayer</Button></p>}
       {companies.isPending && <p role="status" className="prospection__state"><SpinnerIcon size={18} className="btn__spinner" />Chargement des entreprises…</p>}
       {companies.isError && <p role="alert" className="prospection__state prospection__state--error"><AlertIcon size={18} />Liste des entreprises indisponible.<Button size="sm" onClick={() => void companies.refetch()}>Réessayer</Button></p>}

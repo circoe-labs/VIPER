@@ -36,28 +36,6 @@
   color: var(--color-danger-fg);
 }
 
-/* Keep every header action reachable on laptop screens. */
-.prospection .page-header {
-  flex-wrap: wrap;
-}
-
-.prospection .page-header__text {
-  flex: 1 1 20rem;
-}
-
-.prospection .page-header__actions {
-  flex: 1 1 44rem;
-}
-
-/* Keep the overview actions alongside the title whenever space allows. */
-.prospection--overview .page-header { align-items: flex-start; gap: var(--space-3) var(--space-4); }
-.prospection--overview .page-header__text { flex: 1 1 15rem; min-width: 0; }
-.prospection--overview .page-header__actions { flex: 0 1 auto; justify-content: flex-end; margin-left: auto; gap: var(--space-2); }
-@media (max-width: 760px) {
-  .prospection--overview .page-header__text { flex-basis: 12rem; }
-  .prospection--overview .page-header__actions { flex-basis: auto; }
-}
-
 .prospection-actions { position: relative; }
 .prospection-actions > summary { cursor: pointer; list-style: none; }
 .prospection-actions > summary::-webkit-details-marker { display: none; }

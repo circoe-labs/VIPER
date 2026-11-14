@@ -16,6 +16,7 @@ import { Link } from 'react-router'
 import { serializeView, sortFor } from './criteria'
 import type { EntityPanelProps } from './entityPanel'
 import { activeFilters } from './filterChips'
+import { EntityToolbar } from './EntityToolbar'
 import { ProspectionControls } from './ProspectionFilters'
 import { ProspectList } from './ProspectList'
 import { useProspectEditor } from './prospectEditor'
@@ -56,23 +57,27 @@ export function ProspectsPanel({ view, update, refine, search }: EntityPanelProp
     <section aria-label="Prospects">
       <ProspectionControls view={view} onChange={refine} search={search} />
 
-      <div className="entity-panel__toolbar">
-        <span className="entity-panel__count" aria-live="polite">{page ? peopleCount(page.total) : '…'}</span>
-        {list.isFetching && <SpinnerIcon size={16} className="btn__spinner" />}
-        <div className="entity-panel__actions">
-          <Button
-            variant="primary"
-            icon={PlusIcon}
-            aria-disabled={!canCreate}
-            aria-describedby={canCreate ? undefined : 'prospection-add-unavailable'}
-            title={canCreate ? undefined : ADD_UNAVAILABLE}
-            onClick={() => { if (canCreate) update({ prospect: 'new' }, { push: true }) }}
-          >
-            Ajouter un prospect
-          </Button>
-          {!canCreate && <span id="prospection-add-unavailable" className="visually-hidden">{ADD_UNAVAILABLE}</span>}
-        </div>
-      </div>
+      <EntityToolbar
+        title="Tous les prospects"
+        count={page ? peopleCount(page.total) : undefined}
+        description="Toutes les personnes de la base."
+        busy={list.isFetching}
+        actions={
+          <>
+            <Button
+              variant="primary"
+              icon={PlusIcon}
+              aria-disabled={!canCreate}
+              aria-describedby={canCreate ? undefined : 'prospection-add-unavailable'}
+              title={canCreate ? undefined : ADD_UNAVAILABLE}
+              onClick={() => { if (canCreate) update({ prospect: 'new' }, { push: true }) }}
+            >
+              Ajouter un prospect
+            </Button>
+            {!canCreate && <span id="prospection-add-unavailable" className="visually-hidden">{ADD_UNAVAILABLE}</span>}
+          </>
+        }
+      />
 
       {overview.isError && (
         <div className="prospection__state prospection__state--error" role="alert">

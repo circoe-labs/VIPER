@@ -137,7 +137,7 @@ function Queue({ kind, figures }: { kind: 'todo' | 'uncertain'; figures: Verific
               }}
             />
             <SelectField
-              label="Cohorte"
+              label="Semaine de contact"
               value={cohort}
               onChange={(event) => {
                 setCohort(event.target.value)
@@ -148,7 +148,7 @@ function Queue({ kind, figures }: { kind: 'todo' | 'uncertain'; figures: Verific
               }}
             >
               <option value="">Toutes</option>
-              <option value="none">Sans cohorte</option>
+              <option value="none">Sans semaine de contact</option>
               {(cohorts.data ?? []).map((item) => (
                 <option key={item.id} value={item.id}>
                   {`${item.code} (${String(item.current_count)})`}
@@ -642,8 +642,8 @@ function VerificationForm({ prospect, onValidated, onSkip, onUncertain, onBack }
             onAdd={addAlias}
             onRemove={removeAlias}
           />
-          <SelectField label="Mettre en cohorte (facultatif)" value={cohortId} onChange={(event) => { setCohortId(event.target.value); }}>
-            <option value="">Aucune cohorte</option>
+          <SelectField label="Mettre en semaine de contact (facultatif)" value={cohortId} onChange={(event) => { setCohortId(event.target.value); }}>
+            <option value="">Aucune semaine de contact</option>
             {(cohorts.data ?? []).map((cohort) => (
               <option key={cohort.id} value={cohort.id}>
                 {cohort.code}

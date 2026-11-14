@@ -1,9 +1,8 @@
 import type { ReactNode } from 'react'
 
-import { CheckIcon, type IconComponent } from './icons'
+import type { IconComponent } from './icons'
+import { KpiCard } from './KpiCard'
 import './counter-cards.css'
-
-const NUMBER = new Intl.NumberFormat('fr-FR')
 
 interface CounterGroupProps {
   id: string
@@ -31,36 +30,19 @@ export function CounterGroup({ id, title, note, className, children }: CounterGr
 
 interface CounterCardProps {
   label: string
-  // What the counter counts, in one sentence (tooltip).
+  // What the counter counts, in one sentence (hover tooltip).
   hint: string
   icon: IconComponent
-  // Undefined while loading (shown « – »).
+  // Undefined while loading (shown « … »).
   count: number | undefined
   pressed: boolean
   onSelect: () => void
   // What the figure asks of the person: `attention` = something to fix (amber), `go` = something to do now (green).
-  // Untoned counters are context and stay quiet.
   tone?: 'attention' | 'go'
 }
 
-// An actionable counter: a toggle button that shows its segment in the list below (aria-pressed; the pressed one also
-// carries a check mark and a stronger outline, never colour alone). A card always equals the list it opens.
-export function CounterCard({ label, hint, icon: Icon, count, pressed, onSelect, tone }: CounterCardProps) {
-  const lit = tone && count !== undefined && count > 0
-  const classes = ['counter-card', lit && `counter-card--${tone}`, count === 0 && 'counter-card--zero']
-  return (
-    <button type="button" className={classes.filter(Boolean).join(' ')} aria-pressed={pressed} title={hint} onClick={onSelect}>
-      <span className="counter-card__label">
-        <Icon size={14} />
-        {label}
-      </span>
-      <span className="counter-card__count">{count === undefined ? '–' : NUMBER.format(count)}</span>
-      {pressed && (
-        <span className="counter-card__mark">
-          <CheckIcon size={14} />
-          <span className="visually-hidden">(affiché)</span>
-        </span>
-      )}
-    </button>
-  )
+// An actionable counter: a toggle button that shows its segment in the list below (aria-pressed). A card always equals
+// the list it opens. It is the shared KpiCard (ui/KpiCard.tsx), so it looks like every other counter of the app.
+export function CounterCard({ label, hint, icon, count, pressed, onSelect, tone }: CounterCardProps) {
+  return <KpiCard label={label} hint={hint} icon={icon} value={count} active={pressed} onSelect={onSelect} tone={tone === 'attention' ? 'warning' : tone === 'go' ? 'success' : 'default'} />
 }
