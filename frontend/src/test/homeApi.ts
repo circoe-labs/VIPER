@@ -82,6 +82,7 @@ export const SHELL_API: Record<string, ApiReply> = {
   'GET /api/home': [200, homeData()],
   'GET /api/home/dashboard': [200, homeDashboard()],
   'GET /api/metrics/weekly': [200, weeklyMetrics()],
+  'GET /api/metrics/weekly-series': [200, { timezone: 'Europe/Paris', today: '2026-11-14', weeks: [], totals: { contacted: 0, responded: 0, with_appointment: 0 } }],
   'GET /api/prospection/counters': [200, prospectionCounters()],
   'GET /api/missions': [200, NO_MISSIONS],
 }
