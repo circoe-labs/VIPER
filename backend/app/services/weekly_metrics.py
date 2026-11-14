@@ -10,14 +10,14 @@ a stock count is never differenced. Definitions: doc/features/weekly-metrics.md.
 """
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 
 from sqlalchemy import false, func, select
 from sqlalchemy.orm import Session
 
 from app.core.business_time import BusinessWeek
 from app.db.session import whole_base_plan
-from app.models import ContactTracking
+from app.models import Company, ContactTracking, Prospect, Warehouse
 from app.models.contact_tracking import ContactTrackingStatusHistory as History
 from app.models.enums import (
     ContactTrackingStatus as S,
@@ -183,3 +183,89 @@ def weekly_metrics(session: Session, today: date) -> WeeklyMetrics:
         contact_stock=contact_stock(session, clock),
         contact_events=contact_events(session, week),
     )
+
+
+MAX_SERIES_WEEKS = 26
+
+
+@dataclass(frozen=True, slots=True)
+class WeekPoint:
+    week: str  # ISO label, e.g. `2026-W43`
+    week_start: date
+    week_end: date  # Sunday, inclusive
+    additions: WeeklyAdditions
+    first_contacts: int
+    responses: int
+    appointments: int  # prospects who obtained an appointment for the first time in the week
+
+
+@dataclass(frozen=True, slots=True)
+class ConversionTotals:
+    """Stock as of now: of the prospects really contacted, how many answered / hold an RDV."""
+
+    contacted: int
+    responded: int  # contacted with a `response_received_at`
+    with_appointment: int  # contacted and `has_appointment()`
+
+
+@dataclass(frozen=True, slots=True)
+class WeeklySeries:
+    timezone: str
+    today: date
+    weeks: list[WeekPoint]  # oldest first, the current week last
+    totals: ConversionTotals
+
+
+def weekly_series(session: Session, today: date, count: int = 12) -> WeeklySeries:
+    """The last `count` business weeks (current one included), each from the same rules as
+    `weekly_metrics` (created_at, recorded events, restatements excluded). A week without
+    recorded event is an honest zero; see doc/features/weekly-metrics.md for the limits."""
+    current = BusinessWeek.of(today)
+    mondays = [current.monday - timedelta(weeks=back) for back in range(count - 1, -1, -1)]
+    weeks = [BusinessWeek(monday) for monday in mondays]
+    first, last = weeks[0], weeks[-1]
+    models = {"prospects": Prospect, "companies": Company, "warehouses": Warehouse}
+    with whole_base_plan(session):
+        added = {
+            key: session.execute(
+                select(*(
+                    func.count().filter(model.created_at >= week.start, model.created_at < week.end)
+                    for week in weeks
+                )).where(model.created_at >= first.start, model.created_at < last.end)
+            ).one()
+            for key, model in models.items()
+        }
+        firsts = home.weekly_recorded_firsts_series(session, weeks)
+        answers = session.execute(
+            select(*(
+                func.count().filter(
+                    ContactTracking.response_received_at >= week.start,
+                    ContactTracking.response_received_at < week.end,
+                )
+                for week in weeks
+            ))
+        ).one()
+        totals = session.execute(
+            join_segment_sources(
+                select(
+                    func.count().filter(contacted_sql()),
+                    func.count().filter(
+                        contacted_sql(), ContactTracking.response_received_at.is_not(None)
+                    ),
+                    func.count().filter(contacted_sql(), has_appointment()),
+                )
+            )
+        ).one()
+    points = [
+        WeekPoint(
+            week=week.label,
+            week_start=week.monday,
+            week_end=week.sunday,
+            additions=WeeklyAdditions(**{key: int(added[key][index]) for key in models}),
+            first_contacts=firsts[index][0],
+            responses=int(answers[index]),
+            appointments=firsts[index][1],
+        )
+        for index, week in enumerate(weeks)
+    ]
+    return WeeklySeries("Europe/Paris", today, points, ConversionTotals(*totals))

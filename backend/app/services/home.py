@@ -177,15 +177,20 @@ def weekly_additions(session: Session, week: BusinessWeek) -> dict[str, int]:
     }
 
 
-def weekly_recorded_firsts(session: Session, week: BusinessWeek) -> tuple[int, int]:
-    """(prospects contacted for the first time, prospects who obtained an appointment for the
-    first time) in `week`, recorded in VIPER (an import or migration restatement is not an
-    event). Run it inside `whole_base_plan`."""
-    sends = select(
+def _real_sends() -> Any:
+    """(prospect, moment, recorded) of every message really sent."""
+    return select(
         ContactMessage.prospect_id.label("prospect_id"),
         ContactMessage.sent_at.label("at"),
         ContactMessage.sent_source.in_(RECORDED_SEND_SOURCES).label("recorded"),
     ).where(ContactMessage.status == ContactMessageStatus.SENT)
+
+
+def weekly_recorded_firsts(session: Session, week: BusinessWeek) -> tuple[int, int]:
+    """(prospects contacted for the first time, prospects who obtained an appointment for the
+    first time) in `week`, recorded in VIPER (an import or migration restatement is not an
+    event). Run it inside `whole_base_plan`."""
+    sends = _real_sends()
     first_contacts = _firsts(union_all(sends, _history_events(CONTACT_ATTEMPT_CODES)))
     first_appointments = _firsts(_history_events(APPOINTMENT_CODES))
 
@@ -195,6 +200,32 @@ def weekly_recorded_firsts(session: Session, week: BusinessWeek) -> tuple[int, i
         )) or 0
 
     return recorded(first_contacts), recorded(first_appointments)
+
+
+def weekly_recorded_firsts_series(
+    session: Session, weeks: list[BusinessWeek]
+) -> list[tuple[int, int]]:
+    """`weekly_recorded_firsts` for several weeks in two statements (same rules: restatements by
+    import or migration are not events). Run it inside `whole_base_plan`."""
+    sends = _real_sends()
+    sources = (
+        _firsts(union_all(sends, _history_events(CONTACT_ATTEMPT_CODES))),
+        _firsts(_history_events(APPOINTMENT_CODES)),
+    )
+    per_source = [
+        session.execute(
+            select(*(
+                func.count().filter(
+                    rows.c.first == rows.c.recorded,
+                    rows.c.first >= week.start,
+                    rows.c.first < week.end,
+                )
+                for week in weeks
+            )).select_from(rows)
+        ).one()
+        for rows in sources
+    ]
+    return [(per_source[0][index], per_source[1][index]) for index in range(len(weeks))]
 
 
 @dataclass(frozen=True, slots=True)
@@ -376,11 +407,7 @@ def monthly_progress(session: Session, today: date) -> list[MonthProgress]:
     time), for the current month and the ones before it. A first contact is the first message
     really sent (any sequence) or, for contacts made before the sends existed, the first history
     row of a contact-attempt state; an appointment is read from the status history."""
-    sends = select(
-        ContactMessage.prospect_id.label("prospect_id"),
-        ContactMessage.sent_at.label("at"),
-        ContactMessage.sent_source.in_(RECORDED_SEND_SOURCES).label("recorded"),
-    ).where(ContactMessage.status == ContactMessageStatus.SENT)
+    sends = _real_sends()
     contacts = _firsts(union_all(sends, _history_events(CONTACT_ATTEMPT_CODES)))
     appointments = _firsts(_history_events(APPOINTMENT_CODES))
     months = [month_start(today, back) for back in range(TREND_MONTHS - 1, -1, -1)]
