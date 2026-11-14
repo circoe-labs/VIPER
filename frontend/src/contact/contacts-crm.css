@@ -32,8 +32,6 @@
   --nc-contacts-chart-blue: var(--color-info-fg);
   --nc-contacts-chart-green: var(--color-accent);
   --nc-contacts-chart-orange: var(--color-warning-fg);
-  --nc-contacts-chart-purple: #9252E8;
-  --nc-contacts-chart-pink: #EE5B9D;
   display: grid;
   gap: var(--space-4);
   min-width: 0;
