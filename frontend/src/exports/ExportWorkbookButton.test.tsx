@@ -80,15 +80,20 @@ describe('ExportWorkbookButton', () => {
   })
 
   it.each([
-    ['/prospection/companies', 'Entreprises'],
+    ['/prospection?entity=company', 'Prospection'],
     ['/prospection/import', 'Importer un fichier Excel'],
   ])('is offered in the header of %s', async (path, title) => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(() => Promise.resolve(new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } }))),
+      // Paged lists answer { items, total } (the Prospection panels read it); the other endpoints an empty array.
+      vi.fn((input: string) => {
+        const body = /\/api\/(companies|warehouses|prospection\/prospects)(\?|$)/.test(input) ? '{"items":[],"total":0}' : '[]'
+        return Promise.resolve(new Response(body, { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      }),
     )
     renderApp(path)
 
+    // Prospection: the export sits in « Autres actions » (a <details> menu inside the header actions).
     const header = (await screen.findByRole('heading', { level: 1, name: title })).closest('header')
     expect(header).not.toBeNull()
     expect(header?.querySelector('.page-header__actions')).toHaveTextContent('Exporter Excel')
