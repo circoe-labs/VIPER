@@ -14,7 +14,8 @@ from sqlalchemy.orm import Session
 
 from app.core.actor import ActorContext
 from app.models import Warehouse, WarehouseDraft
-from app.repositories.taxonomies import label_key, matches_words
+from app.repositories.list_sort import EntitySort, entity_order_by
+from app.repositories.taxonomies import matches_words
 from app.services import audit
 from app.services.companies import normalize_siret
 from app.services.errors import ConflictError, NotFoundError
@@ -110,6 +111,7 @@ def present(row: Warehouse) -> WarehouseOut:
 def list_warehouses(
     session: Session, search: str = "", limit: int = 50, offset: int = 0, to_contact: bool = False,
     category: Literal['sme', 'other', 'unclassified'] | None = None,
+    sort: EntitySort = EntitySort.NAME,
 ) -> WarehousePage:
     text = func.concat_ws(
         " ",
@@ -133,7 +135,11 @@ def list_warehouses(
     rows = session.scalars(
         select(Warehouse)
         .where(*conditions)
-        .order_by(label_key(Warehouse.name), Warehouse.id)
+        .order_by(
+            *entity_order_by(
+                sort, Warehouse.name, Warehouse.created_at, Warehouse.updated_at, Warehouse.id
+            )
+        )
         .limit(limit)
         .offset(offset)
     )

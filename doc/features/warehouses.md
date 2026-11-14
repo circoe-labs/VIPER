@@ -22,7 +22,8 @@ Actual company/establishment links can be introduced once they have been identif
 ## Directory
 
 - Search matches sites, owners, cities, SIRETs and source contacts, ignoring case and accents.
-- Sites are ordered by name, paginated by 50 and closed by default.
+- Sites are ordered by `sort` (`name` default, `created`, `updated`; see `company-directory.md`),
+  paginated by 50 and closed by default.
 - The directory shows totals for all warehouse sites and their recorded interlocutors, independent
   of search and pagination. The interlocutor count is the number of contact entries across sites;
   the same person listed at two sites counts twice.

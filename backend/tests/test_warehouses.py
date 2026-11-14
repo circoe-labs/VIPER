@@ -507,6 +507,64 @@ def test_search_matches_contacts_and_accents_and_pagination_is_real(client: Test
     assert [item["name"] for item in second["items"]] == ["Site Bêta"]
 
 
+def test_list_sort_orders_by_name_created_or_updated_with_id_tie_break(
+    client: TestClient, db_session: Session
+) -> None:
+    now = datetime.now(UTC)
+    day = timedelta(days=1)
+    stamps = {
+        "Bravo Tri": (now - 3 * day, now),
+        "Zulu Tri": (now - 2 * day, now - 3 * day),
+        "alpha Tri": (now - day, now - 2 * day),
+    }
+    for name, (created, updated) in stamps.items():
+        db_session.add(Warehouse(name=name, created_at=created, updated_at=updated))
+    tied = now - 9 * day
+    ties = [Warehouse(name="Egal Tie", created_at=tied, updated_at=tied) for _ in "abc"]
+    db_session.add_all(ties)
+    db_session.flush()
+
+    def get(q: str, sort: str | None) -> list[dict[str, Any]]:
+        params = {"q": q, **({"sort": sort} if sort else {})}
+        response = client.get("/api/warehouses", params=params)
+        assert response.status_code == 200, response.text
+        items: list[dict[str, Any]] = response.json()["items"]
+        return items
+
+    def names(sort: str | None) -> list[str]:
+        return [item["name"] for item in get("Tri", sort)]
+
+    assert names(None) == ["alpha Tri", "Bravo Tri", "Zulu Tri"]
+    assert names("name") == names(None)
+    assert names("created") == ["alpha Tri", "Zulu Tri", "Bravo Tri"]
+    assert names("updated") == ["Bravo Tri", "alpha Tri", "Zulu Tri"]
+    expected = sorted(str(row.id) for row in ties)
+    for sort in ("name", "created", "updated"):
+        assert [item["id"] for item in get("Egal Tie", sort)] == expected, sort
+
+
+def test_list_sort_rejects_unknown_values(client: TestClient) -> None:
+    assert client.get("/api/warehouses", params={"sort": "popularity"}).status_code == 422
+
+
+def test_search_covers_name_owner_city_and_address(
+    client: TestClient, db_session: Session
+) -> None:
+    db_session.add(
+        Warehouse(
+            name="Plateforme Xylophone",
+            owner_name="Société Mérovingienne",
+            city="Quimperlé",
+            address="12 rue des Tisserands",
+        )
+    )
+    db_session.flush()
+
+    for term in ("xylophone", "merovingienne", "quimperle", "tisserands"):
+        found = client.get("/api/warehouses", params={"q": term}).json()
+        assert [item["name"] for item in found["items"]] == ["Plateforme Xylophone"], term
+
+
 def test_counts_cover_all_sites_and_update_when_contacts_change(client: TestClient) -> None:
     assert client.get("/api/warehouses/counts").json() == {
         "warehouses": 0,

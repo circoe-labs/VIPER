@@ -118,6 +118,30 @@ def test_none_filters_and_validation(client: TestClient, db_session: Session) ->
     assert client.get(COUNTERS, params={"company": "x"}).status_code == 422
 
 
+def test_prospect_sort_offers_name_created_and_updated(
+    client: TestClient, db_session: Session
+) -> None:
+    now = datetime.now(UTC)
+    day = timedelta(days=1)
+    for last, created, updated in (
+        ("Bravo", now - 3 * day, now),
+        ("Zulu", now - 2 * day, now - 3 * day),
+        ("Alpha", now - day, now - 2 * day),
+    ):
+        add_prospect(
+            db_session, last_name=last, first_name="Tri", created_at=created, updated_at=updated
+        )
+
+    def last_names(sort: str | None) -> list[str]:
+        params = {"q": "Tri", **({"sort": sort} if sort else {})}
+        return [row["last_name"] for row in get(client, PROSPECTS, **params)["items"]]
+
+    assert last_names(None) == ["Alpha", "Bravo", "Zulu"]
+    assert last_names("name") == last_names(None)
+    assert last_names("created") == ["Alpha", "Zulu", "Bravo"]
+    assert last_names("updated") == ["Bravo", "Alpha", "Zulu"]
+
+
 def test_stale_threshold_comes_from_the_settings(
     app: FastAPI, client: TestClient, test_database_url: str, db_session: Session
 ) -> None:

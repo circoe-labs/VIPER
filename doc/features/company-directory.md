@@ -14,6 +14,23 @@ Counts follow the full company base. The list's own count follows its selected t
 Unclassified companies stay in `À classer`: this view neither guesses a classification nor
 creates duplicate company records. Company editor writes refresh the directory and its counts.
 
+## List `sort` contract (Prospection control bar)
+
+One `sort` query param, same values on the three entity lists, so one control bar drives them:
+
+| Endpoint | `sort` values | Default |
+| --- | --- | --- |
+| `GET /api/companies`, `GET /api/warehouses` (enum `EntitySort`, `repositories/list_sort.py`) | `name`, `created`, `updated` | `name` |
+| `GET /api/prospection/prospects` (enum `ProspectSort`) | `name`, `created`, `updated` (+ `company`, `next_due`, `planned_contact`, `verification`, `file`, kept) | `name` |
+
+- `name`: A to Z, case and accents ignored. `created`: date added, newest first. `updated`: last
+  change, newest first. Every order ends on the row name then the id, so pages never overlap or skip.
+- Unknown value: HTTP 422 (FastAPI validation). Response shapes are unchanged.
+- Company `q` covers names, e-mail domain, website, sector (commercial segment and activity
+  categories), establishment cities, contact names, or digits of a SIREN/SIRET. Warehouse `q` covers
+  name, owner, role, city, postal code, address, SIRET and contacts. Warehouses have no company link
+  or searchable category label (the category is a filter).
+
 One-off classification research uses the official French company search API. Cached evidence
 and before/after reports stay in ignored `private/company-classification/`. Only reviewed exact
 legal-name/acronym matches are applied, preferring matching postcodes; historical establishment
