@@ -272,7 +272,6 @@ export function ToolboxDiagnosticCard() {
   return (
     <IntegrationCard
       id="toolbox-test"
-      wide
       icon={TerminalIcon}
       title="Tester la Toolbox"
       subtitle="Joue toutes les opérations mail (brouillons, accents, modification, suppression, refus et, si coché, un envoi programmé réel : un brouillon est programmé, sa date est changée, puis un vrai mail part) sur une adresse de test et montre où ça casse."
