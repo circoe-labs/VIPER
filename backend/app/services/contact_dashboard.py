@@ -92,7 +92,12 @@ from app.services.contact_sequences import (
     sent_count_sql,
 )
 from app.services.contact_workflow import IsoWeek
-from app.services.prospection.query import LIST_MAX_LIMIT, iso_week, search_condition
+from app.services.prospection.query import (
+    LIST_MAX_LIMIT,
+    iso_week,
+    search_condition,
+    verification_box_predicate,
+)
 from app.services.prospection.segments import (
     actionable,
     join_segment_sources,
@@ -230,6 +235,8 @@ class ContactFilters:
     sort: ContactSort = ContactSort.DUE
     tracking_status: ContactTrackingStatus | None = None
     company: uuid.UUID | Literal["none"] | None = None
+    # The prospect's validation box (Prospection's « Emploi validé », « Incertains », « À vérifier », « Mis de côté »).
+    verification_box: Literal["validated", "uncertain", "todo", "ignored"] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -538,6 +545,8 @@ def scope_conditions(filters: ContactFilters) -> list[ColumnElement[bool]]:
         conditions.append(Prospect.company_id.is_(None))
     elif filters.company is not None:
         conditions.append(Prospect.company_id == filters.company)
+    if filters.verification_box is not None:
+        conditions.append(verification_box_predicate(filters.verification_box))
     if filters.cohort_codes:
         conditions.append(and_(has_cohort_sql(), Cohort.code.in_(filters.cohort_codes)))
     search = (filters.search or "").strip()
