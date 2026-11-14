@@ -256,7 +256,13 @@ the base and the contact activity. Styles: `frontend/src/home/home.css` (see the
 
 ## Cockpit de pilotage (Slice 04, prospection/contact/home rearchitecture)
 
-Home est un cockpit court : trois sections de cartes cliquables, aucun tableau. Chaque carte n'est produite que si sa
+Home est une vue globale : les cartes cliquables en haut (une grille de 5 colonnes), les graphiques dessous
+(`HomeCharts.tsx`, alimentés par `GET /api/metrics/weekly-series`, voir [`weekly-metrics.md`](weekly-metrics.md)) :
+histogramme empilé hebdomadaire (contacts envoyés, réponses, rendez-vous pris), conversion des prospects contactés
+(anneaux RDV / réponses) et croissance de la base (prospects, entreprises, entrepôts). Les définitions sont dans des
+InfoTip. Aucun tableau visible.
+
+Cartes : aucune n'est produite sans sa source. Chaque carte n'est produite que si sa
 source a répondu (jamais de zéro inventé) ; les sources sont lues via `frontend/src/home/cockpit.ts`
 (`buildCockpit`) : le read model `GET /api/metrics/weekly` ([`weekly-metrics.md`](weekly-metrics.md)), les compteurs
 Prospection et la liste des missions.
