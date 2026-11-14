@@ -1,0 +1,43 @@
+# Weekly metrics — « cette semaine » read-model
+
+`GET /api/metrics/weekly` (`backend/app/api/routes/metrics.py`, service `app/services/weekly_metrics.py`, types
+`frontend/src/api/metrics.ts`). Read-only, authenticated. Slice S1 of the Prospection / Contact / Home rearchitecture.
+It reuses the existing predicates; it is not a second counter system ([home-dashboard.md](home-dashboard.md),
+[prospection-kpis.md](prospection-kpis.md), [contact.md](contact.md)).
+
+## « Cette semaine »
+
+`app.core.business_time.BusinessWeek`: **Monday 00:00 inclusive to next Monday 00:00 exclusive, Europe/Paris**
+(DST-aware, so 167 to 169 real hours). `today` is the Paris business day; `week_start` is the Monday, `week_end` the
+Sunday (inclusive), `week` the ISO label (`2026-W43`). Home's `week_start` / `week_end`, Contact's `ContactClock` week
+and Prospection's `SegmentContext.week_start` are the same week.
+
+## Fields
+
+| Field | Definition | Source of truth |
+|---|---|---|
+| `additions.prospects` / `companies` / `warehouses` | rows whose **`created_at`** is in the week (never `updated_at`); warehouses = sites, not their embedded contacts | `home.weekly_additions` (also feeds `/api/home/dashboard` `weekly_activity` and `new_*`) |
+| `contact_stock.to_contact` | first contact planned, any date | segment `to_contact` |
+| `contact_stock.to_send` / `overdue` | to send by end of this week (overdue included) / due before this Monday | `contact_dashboard.to_send` / `overdue` |
+| `first_contact_to_send`, `follow_up_to_send`, `follow_up_overdue` | split of the above by next rank (0 / >= 1) | `next_rank_sql` |
+| `contact_stock.upcoming` | sequence in progress, next send due after this week | `in_sequence` and not `to_send` |
+| `contact_stock.contacted` | at least one real send | `contacted_sql` |
+| `contact_stock.responses` | state « Réponse reçue » | tracking status |
+| `contact_stock.appointments` | « RDV pris » or recorded appointment date | `has_appointment()` (= Home / Prospection `appointments`) |
+| `contact_stock.mail_error` | open effective « Erreur sur le mail » (also Home `mail_inactive`) | `email_error_sql` |
+| `contact_events.first_contacts` / `first_appointments` | first real send / first appointment recorded in the week, imports and migrations 0008/0012 restatements excluded | `home.weekly_recorded_firsts` |
+| `contact_events.responses` | `response_received_at` in the week | tracking |
+| `contact_events.mail_errors_opened` | prospects with an effective mail-error alert **created** in the week | `quality_alerts.created_at` |
+| `contact_events.status_entries` | per state (`response_received`, `appointment_obtained`, `not_interested`, `ignored`, `disqualified`): prospects whose status history gained a row entering it in the week, restatements excluded | `contact_tracking_status_history` |
+
+## Not truthfully computable
+
+- **Weekly deltas of Prospection segments / activity status** (active, inactive, unknown, opposition, email_*…): no event
+  history backs them; they would be differences of stock counts. `prospection_sub_status_deltas` is always `null`.
+- The only Prospection sub-status weekly figure that has event data is the review boxes:
+  `GET /api/prospection/counters` `reviews[x].week` (to_verify = created this week and still to verify; verified =
+  became fully verified this week; ignored = entered « Ignoré » this week). It is not a net delta.
+- `mail_inactive` has no figure distinct from `mail_error`.
+- `status_entries` counts only history written since status history exists in VIPER; a response answered by import is
+  not an event. `contact_events.responses` follows the current `response_received_at` (a cleared date drops out).
+- Quotes / opportunities: out of scope (no contractual state).

@@ -19,7 +19,7 @@ from sqlalchemy import ColumnElement, and_, exists, func, or_, select, union_all
 from sqlalchemy.orm import Session, aliased
 
 from app.core.actor import ActorType
-from app.core.business_time import start_of_day
+from app.core.business_time import BusinessWeek, start_of_day
 from app.db.session import whole_base_plan
 from app.models import (
     Company,
@@ -108,30 +108,27 @@ def dashboard_summary(session: Session, today: date) -> HomeDashboard:
     Appointments follow the existing Prospection appointment predicate (one tracking per person).
     Contacted follows recorded sends across every sequence, as on the Contacts page.
     """
-    monday = today - timedelta(days=today.weekday())
-    sunday = monday + timedelta(days=6)
-    start, end = start_of_day(monday), start_of_day(monday + timedelta(days=7))
+    week = BusinessWeek.of(today)
+    monday, sunday = week.monday, week.sunday
     statement = (
         select(
             func.count(Prospect.id),
             func.count(Prospect.id).filter(contacted_sql()),
             func.count(Prospect.id).filter(has_appointment()),
-            func.count(Prospect.id).filter(Prospect.created_at >= start, Prospect.created_at < end),
         )
         .select_from(Prospect)
         .outerjoin(ContactTracking, ContactTracking.prospect_id == Prospect.id)
     )
     with whole_base_plan(session):
-        prospects, contacted, appointments, new_prospects = session.execute(statement).one()
+        prospects, contacted, appointments = session.execute(statement).one()
     warehouse_contacts = session.scalar(
         select(func.coalesce(func.sum(func.jsonb_array_length(Warehouse.contacts)), 0))
     ) or 0
-    companies, new_companies = session.execute(
-        select(
-            func.count(Company.id),
-            func.count(Company.id).filter(Company.created_at >= start, Company.created_at < end),
-        )
-    ).one()
+    companies = session.scalar(select(func.count(Company.id))) or 0
+    added = weekly_additions(session, week)
+    new_prospects, new_companies, new_warehouses = (
+        added["prospects"], added["companies"], added["warehouses"],
+    )
     # Contacts belong to warehouse records and have no individual creation timestamp.
     # Attribute their current number to the week their warehouse was created.
     weeks = [monday - timedelta(weeks=offset) for offset in range(1, -1, -1)]
@@ -147,28 +144,11 @@ def dashboard_summary(session: Session, today: date) -> HomeDashboard:
         ), 0) for start, end in pairwise(boundaries)
     ))).one()
     trend = [
-        dict(week=week, prospects=prospect_counts[i], warehouses=warehouse_counts[i])
-        for i, week in enumerate(weeks)
+        dict(week=first_day, prospects=prospect_counts[i], warehouses=warehouse_counts[i])
+        for i, first_day in enumerate(weeks)
     ]
-    new_warehouses = session.scalar(select(func.count(Warehouse.id)).where(
-        Warehouse.created_at >= start, Warehouse.created_at < end
-    )) or 0
-    sends = select(
-        ContactMessage.prospect_id.label("prospect_id"),
-        ContactMessage.sent_at.label("at"),
-        ContactMessage.sent_source.in_(RECORDED_SEND_SOURCES).label("recorded"),
-    ).where(ContactMessage.status == ContactMessageStatus.SENT)
-    first_contacts = _firsts(union_all(sends, _history_events(CONTACT_ATTEMPT_CODES)))
-    first_appointments = _firsts(_history_events(APPOINTMENT_CODES))
-
-    def recorded_firsts(rows: Any) -> int:
-        return session.scalar(select(func.count()).select_from(rows).where(
-            rows.c.first == rows.c.recorded, rows.c.first >= start, rows.c.first < end
-        )) or 0
-
     with whole_base_plan(session):
-        weekly_contacts = recorded_firsts(first_contacts)
-        weekly_appointments = recorded_firsts(first_appointments)
+        weekly_contacts, weekly_appointments = weekly_recorded_firsts(session, week)
     return HomeDashboard(
         prospects + warehouse_contacts, warehouse_contacts, companies, contacted, appointments, new_companies, new_prospects,
         monday, sunday, trend, {
@@ -177,6 +157,44 @@ def dashboard_summary(session: Session, today: date) -> HomeDashboard:
             "appointments": weekly_appointments,
         },
     )
+
+
+def weekly_additions(session: Session, week: BusinessWeek) -> dict[str, int]:
+    """Records created in `week` (by `created_at`, never by modification): prospects, companies
+    and warehouses (sites; their embedded contacts have no creation date of their own)."""
+    return {
+        key: session.scalar(
+            select(func.count(model.id)).where(
+                model.created_at >= week.start, model.created_at < week.end
+            )
+        )
+        or 0
+        for key, model in (
+            ("prospects", Prospect),
+            ("companies", Company),
+            ("warehouses", Warehouse),
+        )
+    }
+
+
+def weekly_recorded_firsts(session: Session, week: BusinessWeek) -> tuple[int, int]:
+    """(prospects contacted for the first time, prospects who obtained an appointment for the
+    first time) in `week`, recorded in VIPER (an import or migration restatement is not an
+    event). Run it inside `whole_base_plan`."""
+    sends = select(
+        ContactMessage.prospect_id.label("prospect_id"),
+        ContactMessage.sent_at.label("at"),
+        ContactMessage.sent_source.in_(RECORDED_SEND_SOURCES).label("recorded"),
+    ).where(ContactMessage.status == ContactMessageStatus.SENT)
+    first_contacts = _firsts(union_all(sends, _history_events(CONTACT_ATTEMPT_CODES)))
+    first_appointments = _firsts(_history_events(APPOINTMENT_CODES))
+
+    def recorded(rows: Any) -> int:
+        return session.scalar(select(func.count()).select_from(rows).where(
+            rows.c.first == rows.c.recorded, rows.c.first >= week.start, rows.c.first < week.end
+        )) or 0
+
+    return recorded(first_contacts), recorded(first_appointments)
 
 
 @dataclass(frozen=True, slots=True)
@@ -316,7 +334,7 @@ def month_start(day: date, months_back: int = 0) -> date:
     return date(index // 12, index % 12 + 1, 1)
 
 
-def _restated() -> ColumnElement[bool]:
+def restated() -> ColumnElement[bool]:
     """A history row that restates a state reached earlier: written by an import, or appended by
     migration 0008/0012 (a conversion)."""
     return or_(
@@ -331,7 +349,7 @@ def _history_events(codes: tuple[TrackingHistoryStatus, ...]) -> Any:
         select(
             ContactTracking.prospect_id.label("prospect_id"),
             History.changed_at.label("at"),
-            (~_restated()).label("recorded"),
+            (~restated()).label("recorded"),
         )
         .join(ContactTracking, ContactTracking.id == History.contact_tracking_id)
         .where(History.to_status.in_(codes))
