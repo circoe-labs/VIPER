@@ -6,7 +6,7 @@ import { Table } from '../ui/Table'
 import { ResolutionBadges } from './ResolutionBadges'
 import { ConfidenceBadge } from './ReviewConfidence'
 import { shown } from './ReviewItems'
-import { formatSourceDate, isOldSource, safeHref, sourceHost } from './reviewFormat'
+import { formatSourceDate, isOldSource, safeHref, sourceLabel } from './reviewFormat'
 import './reviewTable.css'
 
 interface ReviewProposalTableProps {
@@ -24,10 +24,7 @@ function SourceCell({ item }: { item: ProposalItem }) {
   if (!href) return <span className="rvt-missing">aucune source</span>
   return (
     <>
-      <a href={href} target="_blank" rel="noreferrer noopener" title={href}>
-        source
-      </a>{' '}
-      <span className="rvt-host">{sourceHost(href)}</span>
+      <a className="review-source-link" href={href} target="_blank" rel="noreferrer noopener" title={href}>{sourceLabel(href)}</a>
     </>
   )
 }
@@ -74,7 +71,7 @@ export function ReviewProposalTable({ items, selected, locked, onToggle, detail 
             const checked = selected.has(item.key)
             const extra = detail?.(item)
             return (
-              <RowGroup key={item.key} quote={item.quote} extra={extra}>
+              <RowGroup key={item.key} extra={extra}>
                 <tr className={`rvt-row${checked ? ' is-selected' : ''}`}>
                   <td className="rvt-check">
                     <input
@@ -93,7 +90,7 @@ export function ReviewProposalTable({ items, selected, locked, onToggle, detail 
                   <td className="rvt-before" data-label="Avant">
                     {shown(item.before)}
                   </td>
-                  <td className={`rvt-after rvt-after--${item.status}`} data-label="Proposé">
+                  <td className={`rvt-after rvt-after--${item.status}`} data-label="Proposé" title={item.quote ?? undefined}>
                     {shown(item.after)}
                     <ResolutionBadges resolutions={item.resolutions} />
                   </td>
@@ -123,15 +120,15 @@ export function ReviewProposalTable({ items, selected, locked, onToggle, detail 
   )
 }
 
-// A row, plus an optional full-width detail row (agent quote, discovery details) kept visually attached to it.
-function RowGroup({ children, quote, extra }: { children: ReactNode; quote: string | null; extra: ReactNode }) {
+// A row, plus an optional full-width detail row (discovery details) kept visually attached to it. The agent quote is no longer
+// a row of its own: it is the tooltip of the proposed value.
+function RowGroup({ children, extra }: { children: ReactNode; extra: ReactNode }) {
   return (
     <>
       {children}
-      {quote || extra ? (
+      {extra ? (
         <tr className="rvt-detail">
           <td colSpan={8}>
-            {quote && <q className="rvt-quote">{quote}</q>}
             {extra}
           </td>
         </tr>

@@ -520,7 +520,7 @@ describe('Signal review', () => {
     expect(screen.getByText('2SN recrute son premier responsable commercial.')).toBeInTheDocument()
     expect(screen.getByText('2026-10-25')).toBeInTheDocument()
     expect(screen.getByText('+15')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'source' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'example.test/2sn' })).toHaveAttribute(
       'href',
       'https://example.test/2sn',
     )

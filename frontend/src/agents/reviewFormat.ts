@@ -75,3 +75,14 @@ export function safeHref(url: string | null | undefined): string | null {
     return null
   }
 }
+
+// The text of a source link: the source itself (host + path, no scheme / www / trailing slash), so the link IS the source.
+export function sourceLabel(url: string): string {
+  try {
+    const { hostname, pathname, search } = new URL(url)
+    const path = `${pathname}${search}`.replace(/\/$/, '')
+    return `${hostname.replace(/^www\./, '')}${path}`
+  } catch {
+    return url
+  }
+}

@@ -1,7 +1,7 @@
 import type { ProposalItem } from '../api/agents'
 import { ReviewEvidence } from './ReviewEvidence'
 import { SIGNAL_KIND_LABELS } from './labels'
-import { safeHref } from './reviewFormat'
+import { safeHref, sourceLabel } from './reviewFormat'
 
 export function shown(value: unknown): string {
   if (value === null || value === undefined || value === '') return '—'
@@ -32,9 +32,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function SourceLink({ href }: { href: string }) {
   const safe = safeHref(href)
   return safe ? (
-    <a href={safe} target="_blank" rel="noreferrer noopener">
-      source
-    </a>
+    <a className="review-source-link" href={safe} target="_blank" rel="noreferrer noopener" title={safe}>{sourceLabel(safe)}</a>
   ) : null
 }
 

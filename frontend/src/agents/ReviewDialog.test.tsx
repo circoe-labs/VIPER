@@ -65,8 +65,7 @@ describe('ReviewDialog', () => {
 
     const website = rowOf(dialog, 'Site web')
     expect(within(website).getByText('Élevée · 90 %')).toBeInTheDocument()
-    expect(within(website).getByRole('link', { name: 'source' })).toHaveAttribute('href', 'https://registre.example/2sn')
-    expect(within(website).getByText('registre.example')).toBeInTheDocument()
+    expect(within(website).getByRole('link', { name: 'registre.example/2sn' })).toHaveAttribute('href', 'https://registre.example/2sn')
     expect(within(website).getByText('12 sept. 2026')).toBeInTheDocument()
     expect(within(website).queryByText('ancienne')).not.toBeInTheDocument()
     expect(within(website).getByText(/10 nov. 2026/)).toBeInTheDocument()

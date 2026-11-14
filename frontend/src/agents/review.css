@@ -160,3 +160,13 @@
     min-height: 2.75rem;
   }
 }
+
+/* A source is shown as its own link (host + path); long URLs are cut with an ellipsis, the full URL is the tooltip. */
+.review-source-link {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
