@@ -1,4 +1,3 @@
-import { CalendlyCard } from './CalendlyCard'
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 
@@ -9,10 +8,12 @@ import { leaveFor } from '../lib/browser'
 import { useElapsed } from '../lib/useElapsed'
 import { Button } from '../ui/Button'
 import { Modal } from '../ui/Dialog'
+import { InfoTip } from '../ui/InfoTip'
 import { AlertIcon, ArrowLeftIcon, LinkIcon, LogOutIcon, RefreshIcon, SpinnerIcon, TerminalIcon } from '../ui/icons'
-import { DispatchCard, IntegrationCard, OpenAICard, SenderCard, ToolboxAdvanced } from './IntegrationCards'
+import { DispatchCard, IntegrationCard, OpenAICard, ToolboxAdvanced } from './IntegrationCards'
 import { type Feedback, FeedbackBanner } from './shared'
 import { ToolboxDiagnosticCard } from './ToolboxDiagnosticCard'
+import './connections.css'
 import { LIMITATIONS, STATE_BADGES, stateSentence, toolboxErrorLabel, toolboxFailure } from './toolboxCopy'
 
 // The OAuth return parameters this page consumes (and then removes from the address bar).
@@ -21,7 +22,7 @@ const CALLBACK_KEYS = ['code', 'state', 'iss', 'error', 'error_description'] as 
 const handledReturns = new Set<string>()
 
 // Paramètres › Connexions: everything VIPER needs from outside, typed here (Contact port S8 — no server file to edit).
-// Cards: Rédaction IA (OpenAI), Expéditeur, CIRCOE Toolbox (S6: « Se connecter à CIRCOE Toolbox », « Se
+// Cards: Rédaction IA (OpenAI), CIRCOE Toolbox (S6: « Se connecter à CIRCOE Toolbox », « Se
 // déconnecter… », the last failure, the limitations, advanced addresses) and Envoi programmé (S7). It is also the page
 // the Toolbox sends the browser back to: the return's query is posted to the API once, then removed from the URL.
 export function ConnectionsSection() {
@@ -104,14 +105,20 @@ export function ConnectionsSection() {
   return (
     <>
       <header className="settings-panel__header">
-        <div>
-          <h2 className="settings-panel__title">Connexions</h2>
-          <p className="settings-panel__description">
-            Services externes utilisés par VIPER, réglés ici et appliqués aussitôt. Clés et accès sont conservés sur le
-            serveur, hors de la base de données, et ne sont jamais renvoyés au navigateur. Toute personne connectée à
-            VIPER peut les remplacer.
-          </p>
-        </div>
+        <h2 className="settings-panel__title">
+          Connexions
+          {integrations.data && (
+            <InfoTip label="Aide : Connexions">
+              Services externes utilisés par VIPER, réglés ici et appliqués aussitôt. Clés et accès sont conservés sur le
+              serveur, hors de la base de données, et ne sont jamais renvoyés au navigateur. Toute personne connectée à
+              VIPER peut les remplacer. Réglages dans {integrations.data.storage_path}
+              {integrations.data.updated_at
+                ? `, modifiés le ${formatDateTime(integrations.data.updated_at)}${integrations.data.updated_by ? ` par ${integrations.data.updated_by}` : ''}`
+                : ''}
+              .
+            </InfoTip>
+          )}
+        </h2>
       </header>
 
       <FeedbackBanner feedback={feedback} />
@@ -154,8 +161,6 @@ export function ConnectionsSection() {
       {integrations.data && (
         <div className="settings-connections">
           <OpenAICard data={integrations.data} />
-          <SenderCard data={integrations.data} />
-          <CalendlyCard data={integrations.data} />
           {status.data && (
             <ToolboxCard
               status={status.data}
@@ -170,9 +175,8 @@ export function ConnectionsSection() {
               onRefresh={() => status.refetch()}
             />
           )}
-          <ToolboxDiagnosticCard />
           <DispatchCard data={integrations.data} status={status.data} />
-          <StorageNote data={integrations.data} />
+          <ToolboxDiagnosticCard />
         </div>
       )}
 
@@ -234,18 +238,6 @@ const SETTING_LABELS: Record<string, string> = {
   contact_dispatch_enabled: 'envoi automatique des mails programmés',
   contact_dispatch_interval_ms: 'délai maximal avant envoi',
   infomaniak_send_allowlist: 'adresses autorisées',
-}
-
-// Where the settings live and who changed them last.
-function StorageNote({ data }: { data: Integrations }) {
-  const last = data.updated_at
-    ? ` Dernière modification le ${formatDateTime(data.updated_at)}${data.updated_by ? ` par ${data.updated_by}` : ''}.`
-    : ''
-  return (
-    <p className="settings-connection__note">
-      Réglages conservés sur le serveur dans <span className="settings-connection__mono">{data.storage_path}</span>.{last}
-    </p>
-  )
 }
 
 interface ToolboxCardProps {
@@ -321,11 +313,18 @@ function ToolboxCard({ status, integrations, redirecting, redirectingFor, busy, 
       id="settings-connection-toolbox"
       icon={LinkIcon}
       title="CIRCOE Toolbox"
-      subtitle="Brouillons Infomaniak des messages Contact validés, et leur envoi programmé"
+      subtitle={
+        <>
+          Brouillons Infomaniak des messages Contact validés, et leur envoi programmé. {stateSentence(status)}
+          <ul className="settings-connection__limits">
+            {LIMITATIONS.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </>
+      }
       badge={STATE_BADGES[status.state]}
     >
-
-      <p className="settings-connection__sentence">{stateSentence(status)}</p>
 
       {showMethods && <ToolboxMethods tools={tools} />}
 
@@ -347,12 +346,6 @@ function ToolboxCard({ status, integrations, redirecting, redirectingFor, busy, 
             <div>
               <dt>{status.state === 'expired' ? 'Fin d’accès' : 'Valable jusqu’au'}</dt>
               <dd>{formatDateTime(status.expires_at)}</dd>
-            </div>
-          )}
-          {status.toolbox_origin && (
-            <div>
-              <dt>Serveur</dt>
-              <dd className="settings-connection__mono">{status.toolbox_origin}</dd>
             </div>
           )}
         </dl>
@@ -377,12 +370,6 @@ function ToolboxCard({ status, integrations, redirecting, redirectingFor, busy, 
 
       {!showMethods && (
         <>
-          <ul className="settings-connection__limits">
-            {LIMITATIONS.map((line) => (
-              <li key={line}>{line}</li>
-            ))}
-          </ul>
-
           <ToolboxAdvanced data={integrations} open={status.state === 'not_configured'} linked={linked} />
         </>
       )}

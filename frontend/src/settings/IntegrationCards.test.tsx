@@ -80,8 +80,10 @@ describe('Rédaction IA (OpenAI)', () => {
 
     const model = await within(await screen.findByRole('region', { name: 'Rédaction IA (OpenAI)' })).findByRole('textbox', { name: 'Modèle' })
     expect(model).toHaveValue('modele-test')
-    expect(model).toHaveAccessibleDescription(/Défini ici par Pilote Test/)
-    expect(within(openai()).getByRole('textbox', { name: 'Lien de prise de rendez-vous' })).toHaveAccessibleDescription(/Valeur par défaut/)
+    // The explanation and the source of the value live behind the « i » of the label.
+    expect(within(openai()).getByRole('button', { name: 'Aide : Modèle' })).toHaveAccessibleDescription(/Défini ici par Pilote Test/)
+    // The booking link left « Rédaction IA » for the Calendly tab.
+    expect(within(openai()).queryByRole('textbox', { name: /rendez-vous|réservation/i })).not.toBeInTheDocument()
 
     const reset = within(openai()).getByRole('button', { name: 'Rétablir' })
     expect(reset).toHaveAttribute('title', 'Rétablir la valeur par défaut : aucune valeur')
@@ -212,42 +214,24 @@ describe('the key and its API address (S8 QA M1)', () => {
   })
 })
 
-describe('Expéditeur and Envoi programmé', () => {
-  it('an emptied field goes back to the default (null), never an empty text', async () => {
-    const api = stub({
-      initial: integrations({ default_outbound_email: { value: 'ancien@exemple.example', source: 'ui', updated_by: 'Pilote Test' } }),
-    })
+describe('Envoi programmé', () => {
+  it('has no default sender card: the connected Toolbox account is the sender', async () => {
+    stub()
     renderApp('/config-ai/connections')
 
-    const card = await screen.findByRole('region', { name: 'Expéditeur' })
-    await userEvent.clear(within(card).getByRole('textbox', { name: 'Adresse « De » par défaut' }))
-    await userEvent.click(within(card).getByRole('button', { name: 'Enregistrer' }))
-
-    expect(await within(card).findByText(/Expéditeur enregistré/)).toBeInTheDocument()
-    expect(api.puts).toEqual([{ version: 0, default_outbound_email: null }])
+    await screen.findByRole('region', { name: 'Envoi programmé' })
+    expect(screen.queryByRole('region', { name: 'Expéditeur' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('textbox', { name: /Adresse « De »/ })).not.toBeInTheDocument()
   })
 
   it('says a settings file the server cannot write, in French', async () => {
     stub({ storageUnavailable: true })
     renderApp('/config-ai/connections')
 
-    const card = await screen.findByRole('region', { name: 'Expéditeur' })
-    await userEvent.type(within(card).getByRole('textbox', { name: 'Adresse « De » par défaut' }), 'a@exemple.example')
-    await userEvent.click(within(card).getByRole('button', { name: 'Enregistrer' }))
+    const card = await screen.findByRole('region', { name: 'Envoi programmé' })
+    await userEvent.click(within(card).getByRole('switch', { name: 'Envoi automatique des mails programmés' }))
 
     expect(await within(card).findByText(/ne peut pas être écrit sur le serveur/)).toBeInTheDocument()
-  })
-
-  it('saves the default sender', async () => {
-    const api = stub()
-    renderApp('/config-ai/connections')
-
-    const card = await screen.findByRole('region', { name: 'Expéditeur' })
-    await userEvent.type(within(card).getByRole('textbox', { name: 'Adresse « De » par défaut' }), 'prospection@exemple.example')
-    await userEvent.click(within(card).getByRole('button', { name: 'Enregistrer' }))
-
-    expect(await within(card).findByText(/Expéditeur enregistré/)).toBeInTheDocument()
-    expect(api.puts).toEqual([{ version: 0, default_outbound_email: 'prospection@exemple.example' }])
   })
 
   it('switches the scheduled sending off and on at once (S9)', async () => {

@@ -14,13 +14,13 @@ import { StatusBadge, type StatusTone } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { Modal } from '../ui/Dialog'
 import { FieldFrame, SelectField, Switch, TextAreaField, TextField } from '../ui/fields'
+import { InfoTip } from '../ui/InfoTip'
 import {
   AlertIcon,
   ChevronDownIcon,
   ClockIcon,
   type IconComponent,
   KeyIcon,
-  MailIcon,
   SaveIcon,
   SparklesIcon,
   TrashIcon,
@@ -53,14 +53,17 @@ interface CardShellProps {
   id: string
   icon: IconComponent
   title: string
-  subtitle: string
+  // What the card is for, shown on hover of its « i » (never a paragraph in the card).
+  subtitle: ReactNode
   badge?: { tone: StatusTone; label: string }
+  // Spans the whole grid row (a card that holds a list or a long form).
+  wide?: boolean
   children: ReactNode
 }
 
-export function IntegrationCard({ id, icon: Icon, title, subtitle, badge, children }: CardShellProps) {
+export function IntegrationCard({ id, icon: Icon, title, subtitle, badge, wide, children }: CardShellProps) {
   return (
-    <section className="settings-connection" aria-labelledby={id}>
+    <section className={wide ? 'settings-connection settings-connection--wide' : 'settings-connection'} aria-labelledby={id}>
       <header className="settings-connection__header">
         <span className="settings-connection__icon" aria-hidden="true">
           <Icon size={20} />
@@ -69,7 +72,7 @@ export function IntegrationCard({ id, icon: Icon, title, subtitle, badge, childr
           <h3 id={id} className="settings-connection__title">
             {title}
           </h3>
-          <p className="settings-connection__subtitle">{subtitle}</p>
+          <InfoTip label={`Aide : ${title}`}>{subtitle}</InfoTip>
         </div>
         {badge && <StatusBadge tone={badge.tone}>{badge.label}</StatusBadge>}
       </header>
@@ -79,7 +82,7 @@ export function IntegrationCard({ id, icon: Icon, title, subtitle, badge, childr
 }
 
 // The edited fields of one card (only what the person changed: untouched fields follow the server).
-function useCardForm(data: Integrations) {
+export function useCardForm(data: Integrations) {
   const [edits, setEdits] = useState<Partial<Record<FormField, string>>>({})
   const [errors, setErrors] = useState<Partial<Record<string, string>>>({})
   const value = (field: FormField) => edits[field] ?? toDraft(field, data.fields[field].value)
@@ -115,7 +118,7 @@ function useCardForm(data: Integrations) {
 type CardForm = ReturnType<typeof useCardForm>
 
 // Saves one card's changes; says the outcome in the card and puts a refused value's message under its field.
-function useCardSave(data: Integrations, form: CardForm) {
+export function useCardSave(data: Integrations, form: CardForm) {
   const { save } = useIntegrationsMutations()
   const [feedback, setFeedback] = useState<Feedback | null>(null)
   const [startedAt, setStartedAt] = useState<number | null>(null)
@@ -149,45 +152,45 @@ function useCardSave(data: Integrations, form: CardForm) {
   return { submit, feedback, saving: startedAt !== null, elapsed, clearMutation: save.reset }
 }
 
-interface HintProps {
-  data: Integrations
-  field: FormField
-  help?: ReactNode
-  busy: boolean
-  onReset: (field: FormField) => void
-}
-
-// Under a field: what it is for, where its value comes from, and « Rétablir » for a value set here.
-function SettingHint({ data, field, help, busy, onReset }: HintProps) {
-  const setting = data.fields[field]
+// The « i » of a field: what it is for, then where its value comes from.
+export function settingInfo(data: Integrations, field: FormField, help?: ReactNode) {
   return (
     <>
-      {help && <span className="settings-setting__help">{help}</span>}
-      <span className="settings-setting__source">
-        {sourceText(setting)}
-        {setting.source === 'ui' && (
-          <>
-            {' '}
-            <button
-              type="button"
-              className="settings-setting__reset"
-              disabled={busy}
-              title={`Rétablir la valeur par défaut : ${fallbackText(field, setting.fallback)}`}
-              onClick={() => {
-                onReset(field)
-              }}
-            >
-              <UndoIcon size={14} />
-              Rétablir
-            </button>
-          </>
-        )}
-      </span>
+      {help}
+      {help ? ' ' : null}
+      {sourceText(data.fields[field])}
     </>
   )
 }
 
-function SaveButton({ saving, elapsed, disabled, variant = 'primary', children, onClick }: {
+interface ResetProps {
+  data: Integrations
+  field: FormField
+  busy: boolean
+  onReset: (field: FormField) => void
+}
+
+// Under a field: only « Rétablir », for a value set here.
+export function ResetHint({ data, field, busy, onReset }: ResetProps) {
+  const setting = data.fields[field]
+  if (setting.source !== 'ui') return null
+  return (
+    <button
+      type="button"
+      className="settings-setting__reset"
+      disabled={busy}
+      title={`Rétablir la valeur par défaut : ${fallbackText(field, setting.fallback)}`}
+      onClick={() => {
+        onReset(field)
+      }}
+    >
+      <UndoIcon size={14} />
+      Rétablir
+    </button>
+  )
+}
+
+export function SaveButton({ saving, elapsed, disabled, variant = 'primary', children, onClick }: {
   saving: boolean
   elapsed: number
   disabled: boolean
@@ -240,23 +243,33 @@ interface ModelFieldProps {
   data: Integrations
   value: string
   error?: string
-  hint: (help: ReactNode) => ReactNode
+  fieldProps: (help: ReactNode) => { info: ReactNode; hint: ReactNode }
   busy: boolean
   onChange: (value: string) => void
   // The free-text field, when the service gives no list (no key yet, unreachable, refused key).
-  text: () => ReactNode
+  text: (extraInfo?: string) => ReactNode
 }
 
 // « Modèle »: the models the saved key can use, read live from the service (newest first). A value the list does not
 // hold (typed before, or removed by OpenAI) stays selectable, marked as such, so nothing changes behind the person.
-function ModelField({ data, value, error, hint, busy, onChange, text }: ModelFieldProps) {
+function ModelField({ data, value, error, fieldProps, busy, onChange, text }: ModelFieldProps) {
   const models = useOpenAIModels(data.openai_api_key.set)
   if (!data.openai_api_key.set || models.isError || (models.data && models.data.models.length === 0)) {
-    const notice = models.isError ? 'Liste des modèles indisponible : le serveur VIPER n’a pas répondu.' : modelsFailure(models.data?.code ?? 'ai_not_configured')
+    // No key yet: the plain field says it through its « i »; a real failure stays visible under it.
+    const failure = models.isError
+      ? 'Liste des modèles indisponible : le serveur VIPER n’a pas répondu.'
+      : models.data?.code && models.data.code !== 'ai_not_configured'
+        ? modelsFailure(models.data.code)
+        : null
     return (
       <>
-        {text()}
-        <p className="settings-setting__help">{notice}</p>
+        {text(data.openai_api_key.set ? undefined : modelsFailure('ai_not_configured'))}
+        {failure && (
+          <p className="field__warning" role="status">
+            <AlertIcon size={16} />
+            {failure}
+          </p>
+        )}
       </>
     )
   }
@@ -268,7 +281,7 @@ function ModelField({ data, value, error, hint, busy, onChange, text }: ModelFie
       value={value}
       error={error}
       disabled={busy || models.isPending}
-      hint={hint(
+      {...fieldProps(
         models.isPending
           ? 'Chargement des modèles de votre compte OpenAI…'
           : 'Modèles disponibles avec votre clé, du plus récent au plus ancien. La liste suit votre compte OpenAI.',
@@ -288,7 +301,7 @@ function ModelField({ data, value, error, hint, busy, onChange, text }: ModelFie
   )
 }
 
-const OPENAI_FIELDS = ['openai_model', 'contact_booking_url', 'openai_base_url', 'openai_timeout_ms', 'openai_max_retries'] as const
+const OPENAI_FIELDS = ['openai_model', 'openai_base_url', 'openai_timeout_ms', 'openai_max_retries'] as const
 
 interface KeyFieldProps {
   data: Integrations
@@ -322,14 +335,7 @@ function KeyField({ data, draft, replacing, error, warning, busy, onDraft, onRep
         label="Clé d’API OpenAI"
         error={error}
         warning={warning}
-        hint={
-          <>
-            <span className="settings-setting__help">
-              Jamais réaffichée ni transmise au navigateur : seule sa fin est rappelée.
-            </span>
-            <span className="settings-setting__source">{source}</span>
-          </>
-        }
+        info={`Jamais réaffichée ni transmise au navigateur : seule sa fin est rappelée. ${source}`}
       >
         {(a11y) => (
           <input
@@ -442,15 +448,16 @@ export function OpenAICard({ data }: { data: Integrations }) {
     }
   }
 
-  const hint = (field: FormField, help?: ReactNode) => (
-    <SettingHint data={data} field={field} help={help} busy={busy} onReset={(name) => void reset(name)} />
-  )
+  const fieldProps = (field: FormField, help?: ReactNode) => ({
+    info: settingInfo(data, field, help),
+    hint: <ResetHint data={data} field={field} busy={busy} onReset={(name) => void reset(name)} />,
+  })
   const text = (field: FormField, label: string, help: ReactNode, props: { type?: string; inputMode?: 'numeric' | 'decimal' } = {}) => (
     <TextField
       label={label}
       value={form.value(field)}
       error={form.errors[field]}
-      hint={hint(field, help)}
+      {...fieldProps(field, help)}
       disabled={busy}
       spellCheck={false}
       {...props}
@@ -465,14 +472,9 @@ export function OpenAICard({ data }: { data: Integrations }) {
       id="settings-connection-openai"
       icon={SparklesIcon}
       title="Rédaction IA (OpenAI)"
-      subtitle="Propositions de mails dans Contact, toujours enregistrées en Brouillon"
+      subtitle="Propositions de mails dans Contact (« Générer avec l’IA »), toujours enregistrées en brouillon à relire et à valider. Renseignez une clé d’API OpenAI et le modèle à utiliser."
       badge={data.generation_available ? { tone: 'success', label: 'Configurée' } : { tone: 'neutral', label: 'Non configurée' }}
     >
-      <p className="settings-connection__sentence">
-        {data.generation_available
-          ? '« Générer avec l’IA » est disponible dans Contact. Chaque proposition reste un brouillon à relire et à valider.'
-          : 'Saisissez une clé d’API OpenAI et le modèle à utiliser pour activer « Générer avec l’IA » dans Contact.'}
-      </p>
       <div className="settings-form">
         <KeyField
           data={data}
@@ -502,14 +504,13 @@ export function OpenAICard({ data }: { data: Integrations }) {
           data={data}
           value={form.value('openai_model')}
           error={form.errors.openai_model}
-          hint={(help) => hint('openai_model', help)}
+          fieldProps={(help) => fieldProps('openai_model', help)}
           busy={busy}
           onChange={(value) => {
             form.edit('openai_model', value)
           }}
-          text={() => text('openai_model', 'Modèle', 'Identifiant exact du modèle choisi dans votre compte OpenAI ; VIPER n’en impose aucun.')}
+          text={(extra) => text('openai_model', 'Modèle', extra ?? 'Identifiant exact du modèle choisi dans votre compte OpenAI ; VIPER n’en impose aucun.')}
         />
-        {text('contact_booking_url', 'Lien de prise de rendez-vous', 'Recopié tel quel par l’IA dans le mail. Vide : aucun lien proposé.', { type: 'url' })}
         <Advanced>
           {text('openai_base_url', 'Adresse de l’API', 'À changer seulement pour passer par un service compatible.', { type: 'url' })}
           {text('openai_timeout_ms', 'Délai d’attente (secondes)', 'Par étape réseau, entre 1 et 300.', { inputMode: 'decimal' })}
@@ -580,57 +581,6 @@ export function OpenAICard({ data }: { data: Integrations }) {
   )
 }
 
-// --- Expéditeur ---------------------------------------------------------------------------------------------------
-
-export function SenderCard({ data }: { data: Integrations }) {
-  const form = useCardForm(data)
-  const card = useCardSave(data, form)
-  const fields = ['default_outbound_email'] as const
-  const pending = form.changes(fields)
-  const dirty = Object.keys(pending.changes).length > 0
-  return (
-    <IntegrationCard
-      id="settings-connection-sender"
-      icon={MailIcon}
-      title="Expéditeur"
-      subtitle="Adresse « De » préremplie dans les nouveaux messages Contact"
-    >
-      <div className="settings-form">
-        <TextField
-          label="Adresse « De » par défaut"
-          type="email"
-          value={form.value('default_outbound_email')}
-          error={form.errors.default_outbound_email}
-          disabled={card.saving}
-          hint={
-            <SettingHint
-              data={data}
-              field="default_outbound_email"
-              busy={card.saving}
-              help="Indicative : avec CIRCOE Toolbox, le mail part de la boîte Infomaniak par défaut du compte connecté."
-              onReset={(field) => void card.submit({ [field]: null }, 'Valeur par défaut rétablie.', [field])}
-            />
-          }
-          onChange={(event) => {
-            form.edit('default_outbound_email', event.target.value)
-          }}
-        />
-      </div>
-      <FeedbackBanner feedback={card.feedback} />
-      <div className="settings-connection__actions">
-        <SaveButton
-          saving={card.saving}
-          elapsed={card.elapsed}
-          disabled={!dirty}
-          onClick={() => void card.submit(pending.changes, 'Expéditeur enregistré : il s’applique aux prochains messages.', fields)}
-        >
-          Enregistrer
-        </SaveButton>
-      </div>
-    </IntegrationCard>
-  )
-}
-
 // --- Envoi programmé ----------------------------------------------------------------------------------------------
 
 const DISPATCH_FIELDS = ['contact_dispatch_interval_ms', 'infomaniak_send_allowlist'] as const
@@ -681,10 +631,15 @@ export function DispatchCard({ data, status }: { data: Integrations; status: Too
       id="settings-connection-dispatch"
       icon={ClockIcon}
       title="Envoi programmé"
-      subtitle="Départ automatique des messages programmés dans Contact, par CIRCOE Toolbox"
+      subtitle={
+        <>
+          Départ automatique des messages programmés dans Contact, par CIRCOE Toolbox, à l’heure choisie (à{' '}
+          {seconds.toLocaleString('fr-FR')} secondes près). {dispatchSentence(data)} Un message programmé ne part que si
+          le serveur VIPER est en marche ; trop en retard, il revient à « Validé » sans partir.
+        </>
+      }
       badge={dispatchBadge(data)}
     >
-      <p className="settings-connection__sentence">{dispatchSentence(data)}</p>
       {backlog && (
         <p className="settings-feedback settings-feedback--warning">
           <AlertIcon size={18} />
@@ -696,15 +651,6 @@ export function DispatchCard({ data, status }: { data: Integrations; status: Too
           label="Envoi automatique des mails programmés"
           checked={on}
           disabled={card.saving}
-          hint={
-            <>
-              <span className="settings-setting__help">
-                VIPER envoie chaque mail programmé à l’heure choisie (à {seconds.toLocaleString('fr-FR')} secondes près)
-                via CIRCOE Toolbox.
-              </span>{' '}
-              <span className="settings-setting__source">{sourceText(data.fields.contact_dispatch_enabled)}</span>
-            </>
-          }
           onChange={(event) => {
             toggle(event.target.checked)
           }}
@@ -717,15 +663,12 @@ export function DispatchCard({ data, status }: { data: Integrations; status: Too
           error={form.errors.infomaniak_send_allowlist}
           disabled={card.saving}
           placeholder="prenom.nom@circoe.fr, @circoe.fr"
-          hint={
-            <SettingHint
-              data={data}
-              field="infomaniak_send_allowlist"
-              busy={card.saving}
-              help="Adresses ou règles « @domaine » séparées par des virgules : un message vers une autre adresse ne part pas. Vide : aucune restriction."
-              onReset={reset}
-            />
-          }
+          info={settingInfo(
+            data,
+            'infomaniak_send_allowlist',
+            'Adresses ou règles « @domaine » séparées par des virgules : un message vers une autre adresse ne part pas. Vide : aucune restriction.',
+          )}
+          hint={<ResetHint data={data} field="infomaniak_send_allowlist" busy={card.saving} onReset={reset} />}
           onChange={(event) => {
             form.edit('infomaniak_send_allowlist', event.target.value)
           }}
@@ -737,15 +680,12 @@ export function DispatchCard({ data, status }: { data: Integrations; status: Too
             value={form.value('contact_dispatch_interval_ms')}
             error={form.errors.contact_dispatch_interval_ms}
             disabled={card.saving}
-            hint={
-              <SettingHint
-                data={data}
-                field="contact_dispatch_interval_ms"
-                busy={card.saving}
-                help="VIPER regarde à ce rythme s’il y a des mails à envoyer : un mail part au plus tard ce délai après l’heure choisie. Entre 1 et 3 600 secondes."
-                onReset={reset}
-              />
-            }
+            info={settingInfo(
+              data,
+              'contact_dispatch_interval_ms',
+              'VIPER regarde à ce rythme s’il y a des mails à envoyer : un mail part au plus tard ce délai après l’heure choisie. Entre 1 et 3 600 secondes.',
+            )}
+            hint={<ResetHint data={data} field="contact_dispatch_interval_ms" busy={card.saving} onReset={reset} />}
             onChange={(event) => {
               form.edit('contact_dispatch_interval_ms', event.target.value)
             }}
@@ -774,10 +714,6 @@ export function DispatchCard({ data, status }: { data: Integrations; status: Too
           )}
         </dl>
       )}
-      <p className="settings-connection__note">
-        Un message programmé ne part que si le serveur VIPER est en marche ; trop en retard, il revient à « Validé » sans
-        partir.
-      </p>
       <FeedbackBanner feedback={card.feedback} />
       <div className="settings-connection__actions">
         <SaveButton saving={card.saving} elapsed={card.elapsed} disabled={!dirty} onClick={save}>
@@ -822,7 +758,8 @@ export function ToolboxAdvanced({ data, open, linked }: { data: Integrations; op
       placeholder={placeholder}
       error={form.errors[name]}
       disabled={card.saving}
-      hint={<SettingHint data={data} field={name} help={help} busy={card.saving} onReset={reset} />}
+      info={settingInfo(data, name, help)}
+      hint={<ResetHint data={data} field={name} busy={card.saving} onReset={reset} />}
       onChange={(event) => {
         form.edit(name, event.target.value)
       }}

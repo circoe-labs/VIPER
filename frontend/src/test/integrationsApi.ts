@@ -3,6 +3,7 @@ import { vi } from 'vitest'
 import type { Diagnostic } from '../api/toolboxDiagnostic'
 import type {
   CalendlyCheck,
+  CalendlyEvents,
   IntegrationField,
   Integrations,
   IntegrationSetting,
@@ -24,7 +25,6 @@ const DEFAULTS: Record<IntegrationField, SettingValue> = {
   contact_booking_url: null,
   contact_initial_prompt: null,
   mission_creator_prompt: null,
-  default_outbound_email: null,
   toolbox_mail_enabled: false,
   toolbox_mcp_url: 'https://toolbox.exemple.example/mcp',
   toolbox_oauth_redirect_uri: null,
@@ -82,6 +82,8 @@ interface IntegrationsStubOptions {
   models?: OpenAIModels
   // The answer of « Tester le jeton » (Calendly).
   calendlyCheck?: CalendlyCheck
+  // The answer of `GET …/calendly/events` (default: no meeting).
+  calendlyEvents?: CalendlyEvents
   // The last « Tester la Toolbox » run the server holds (null: none), and what a new run answers.
   diagnostic?: Diagnostic | null
   startedDiagnostic?: Diagnostic
@@ -110,6 +112,9 @@ export function stubIntegrationsApi(options: IntegrationsStubOptions = {}) {
     }
     if (method === 'GET' && url.pathname === '/api/settings/integrations/openai/models') {
       return json(200, options.models ?? { models: [], code: 'ai_upstream_error' })
+    }
+    if (method === 'GET' && url.pathname === '/api/settings/integrations/calendly/events') {
+      return json(200, options.calendlyEvents ?? { ok: true, code: null, events: [] })
     }
     if (method === 'POST' && url.pathname === '/api/settings/integrations/calendly/check') {
       return json(

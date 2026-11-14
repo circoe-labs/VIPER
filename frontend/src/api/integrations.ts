@@ -18,7 +18,6 @@ export type IntegrationField =
   | 'contact_booking_url'
   | 'contact_initial_prompt'
   | 'mission_creator_prompt'
-  | 'default_outbound_email'
   | 'toolbox_mail_enabled'
   | 'toolbox_mcp_url'
   | 'toolbox_oauth_redirect_uri'
@@ -98,6 +97,26 @@ export interface CalendlyCheck {
   elapsed_ms: number
 }
 
+// One meeting read live from Calendly (GET /settings/integrations/calendly/events): read-only.
+export interface CalendlyEvent {
+  uri: string | null
+  title: string
+  status: 'active' | 'canceled'
+  starts_at: string | null
+  ends_at: string | null
+  location: string | null
+  host_name: string | null
+  host_email: string | null
+  invitees: { name: string | null; email: string | null; status: string | null }[]
+}
+
+export interface CalendlyEvents {
+  ok: boolean
+  // A `calendly_*` code when Calendly could not be read.
+  code: string | null
+  events: CalendlyEvent[]
+}
+
 export interface OpenAIModels {
   // Newest first, text models only; empty with a `code` when the list could not be read.
   models: string[]
@@ -106,6 +125,8 @@ export interface OpenAIModels {
 
 export const integrationsKeys = {
   all: ['settings', 'integrations'] as const,
+  // Under `all`: a new token refetches the meetings with the rest.
+  calendlyEvents: ['settings', 'integrations', 'calendly-events'] as const,
   // Under `all`: a save (new key or API address) refetches the list with the rest.
   openaiModels: ['settings', 'integrations', 'openai-models'] as const,
 }
@@ -130,6 +151,17 @@ export function useOpenAIModels(enabled: boolean) {
     queryFn: ({ signal }) => apiGet<OpenAIModels>('/settings/integrations/openai/models', signal),
     enabled,
     staleTime: 0,
+    retry: false,
+  })
+}
+
+// The next meetings, read live from Calendly with the saved token (no Agenda write).
+export function useCalendlyEvents(enabled: boolean, daysAhead = 30) {
+  return useQuery({
+    queryKey: [...integrationsKeys.calendlyEvents, daysAhead],
+    queryFn: ({ signal }) =>
+      apiGet<CalendlyEvents>(`/settings/integrations/calendly/events?days_ahead=${String(daysAhead)}`, signal),
+    enabled,
     retry: false,
   })
 }
