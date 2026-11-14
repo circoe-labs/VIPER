@@ -1,0 +1,63 @@
+# Runtime implementation log
+
+## Slice 00 — PM readiness (2026-11-13, host CLARICE)
+Origin: remote handoff found in Drive `to-do` (folder 1EwnK-_UUs78s9nqdKbxZBTEvrZTV7mJs). Connector cannot move folders, so the Human must move it to `current` (no `current` folder known). No docs/workflows/AGENT_TASK_LIFECYCLE.md in repo: fallback = memory Drive IDs, base branch `main`. Mirrored locally under tasks/ (binary references/mission-create-current.png not downloadable; skipped).
+Branch: `task/viper_mission_agent_configuration_v2` from main @1602285.
+
+Freshness audit (backend/app, frontend/src):
+- Confirmed: `MissionType` StrEnum (models/enums.py), `McpToken.max_concurrent` (default 3, enforced api/mcp.py claim), `viper_release_task`, telemetry `SESSION_INACTIVITY_TIMEOUT=3h` + end_session (services/mission_telemetry.py), recurrence fields + `result_limit` on Mission, `MissionSource`(exact URL unique per org) + `MissionSourceLink`, `MissionTarget`, `frontend/src/settings/PromptSection.tsx`.
+- Drift: mission_sources already shipped (migration 0046 is alembic head; main merged lucie work). Slice 02 must evolve it, not create it. Migration filenames in git: 0039..0046.
+- Open detail "nombre maximum de…": `result_limit` (1..500, default 20) exists; Slice 04 must check equivalence first, no new max field.
+- Hot-file collision risk for 01/03/04: models/missions.py, models/__init__.py, agent_payloads.py, migrations.
+  Rule: pre-assigned linear alembic chain: S1 = 0047 (down 0046), S3 = 0048 (down 0047), S4 = 0049 (down 0048). Each slice works in its own git worktree; orchestrator merges in order 01,03,04 and fixes chain/conflicts. Slices must keep migrations independent of each other's tables.
+
+Readiness: **READY**. Dispatch 01 + 03 + 04 concurrently (worktree isolation).
+
+## Slice 03 - Agent identity/lifecycle (2026-11-13)
+Implemented in a worktree (migration 0048, down_revision 0047; 0047 belongs to Slice 01 and is absent from that tree, so the chain resolves only once 01 is merged first). Contract: doc/architecture/mcp-server.md section 4.9.
+- mcp_tokens.instance_number + live partial unique index; allocator services/agent_identity.py (lowest vacant number per owner+provider, advisory lock); cap = Settings.mcp_max_agents_per_owner (env VIPER_MCP_MAX_AGENTS_PER_OWNER, default 100), 409 agent_cap_reached; no app_settings key (avoids the known_key constraint hot spot with Slice 01).
+- actor_for display is now the identity label (ChatGPT lucie #2); label kept as descriptive name. Existing test expectations on actor display updated.
+- viper_leave_work (MCP) / agent_lifecycle.leave_work: release all held tasks + end own sessions, idempotent, optional run scope.
+- Timeout/lease independence covered by test; 3h timeout untouched.
+
+## Orchestrator — merge of 01/03/04 (2026-11-13)
+Merged in order 01, 03, 04 on the task branch (conflicts only additive, in routes/missions.py, services/missions.py, test_mission_supervision.py; both sides kept). Alembic head = 0049, linear. Targeted suites (categories, identity, output, missions, supervision, mcp*, agent_missions, telemetry, runtime_settings) pass on merged tree. `test_migrations.py` has 3 failures (check-constraint match, updated_at trigger, FK index: warehouse tables) that are IDENTICAL on `main` → pre-existing, not ours.
+Product decision to confirm with Human: `result_limit` = the "nombre maximum" cap (Slice 04 conclusion). Behaviour change: one-off missions now close `done` when run objective met.
+Next: dispatch 02 (needs 01). 05 needs 01+02; 07 needs 01+02+03+04.
+
+## Slice 02 - Source library, internal context, evidence (2026-11-13)
+Implemented in a worktree (migration 0050, down_revision 0049). Contract: doc/architecture/missions.md section 7d.
+- mission_sources evolved in place (parent_id one level, description, domain, path_prefix, successful_uses); existing links kept; domains with several URLs get a root; every mission that had links gets `sources` in overridden_fields.
+- `sources` is now an inheritable field (category defaults in mission_category_sources, same overridden_fields mechanism as skills). `source_ids` null = follow the category.
+- Evidence: agent_review.accept -> mission_sources.credit_accepted_result: citations stored (concrete URLs), each library source credited once per accepted (result, item) via a unique ledger; counter derived from it (idempotent).
+- Internal context: mission_context_refs (company/prospect typed FKs) + mission_context.resolve allowlist; distinct from MissionTarget; Circoe-internal notes and contact channels excluded. Slice 07 wires resolve() (and effective skills) into the claim.
+- Tests: tests/test_mission_sources.py (18). Two stale expectations updated (detail key set, MCP create_mission required list).
+
+## Slice 02 merged (2026-11-13)
+Head 0050. Targeted suites pass. Pre-existing on main: 3 test_migrations, test_audit warehouse_drafts, test_explorer_editability. To confirm w/ Human: new URL under an existing root is auto-filed there; missions w/o links now follow category default sources. Dialog must send null for prompt/skill_ids/source_ids to inherit (Slice 05). Slice 07 must wire mission_context.resolve + effective_skills + output_contract into claim payload. Dispatching 05 + 07 concurrently (front vs back).
+
+## Slice 07 - Mission runtime convergence (2026-11-13)
+Backend only, no migration. Contract: doc/architecture/missions.md section 5 (Convergence), agent-missions.md 7.3, mcp-server.md 4.9.
+- Claim payload now carries mission.category, mission.skills (effective, instruction text), mission.sources (+description), internal_context (mission_context.resolve, read live at each claim), agent (numbered identity) and lifecycle (submit / release / viper_leave_work + the independent 15 min lease and 3 h session timeout, task concurrency wording). category/skills/sources are snapshotted in mission_runs.config; pre-Slice-07 runs read skills/category live.
+- Mission-level leave = viper_leave_work(task_id): no extra mechanism needed.
+- Deprecation: staged add_company/update_* inside a mission run now obey the output contract (own target only -> wrong_target; discovery stages 1 company unless allow_multiple, else result_limit -> too_many). Tool-mode (no run) unchanged. test_missions staged-review test updated accordingly.
+- Already satisfied by S02/S04 (verified, not re-implemented): evidence -> citations/counters at accept (idempotent ledger), objective settle + one-off close / recurring reset, not_found/blocked closes.
+- Residual: staged `actions` proposals carry no per-item evidence for source counters (pre-existing, documented).
+- Tests: tests/test_mission_runtime.py (8, real JSON-RPC /mcp traces). Updated sources shape (+description) in two tests.
+
+## Slice 06 - Voice mission assistant (2026-11-13)
+Front + backend, no migration. Contract: doc/architecture/missions.md section 7f.
+- Backend: POST /api/missions/assistant/turn (OpenAI Responses tool loop, bounded; draft tools validated and returned as actions, nothing written; request_creation = flag only), GET /capabilities, POST /transcribe (optional Whisper-compatible STT, env VIPER_STT_*). Creator prompt read server-side each turn from mission_creator_prompt(settings).
+- Front: missions/voice/ (VoiceAssistantEntry in the dialog's assistantSlot, VoiceOverlay, useSpeechInput server|browser|none, useVoiceConversation, draftActions). CreateMissionDialog.assistantSlot now receives (form, { submit }) as 2nd arg.
+- Tests: backend/tests/test_mission_assistant.py (16, incl. transcript -> tool calls -> actions -> validated create trace), frontend voice/VoiceAssistant.test.tsx (5).
+- Not verified without a live key/mic: real model tool loop (reasoning models + store:false + include reasoning.encrypted_content), real microphone/STT, TTS.
+
+## Slice 08 - Final integration campaign (2026-11-13)
+Branch: task branch + commits prefixed `S8:`. Baselines run on a throwaway worktree of `main` (removed) with separate DBs.
+- Backend pytest, frontend vitest/tsc/eslint/vite build, Playwright E2E, migration 0046->0050 up/down/up on seeded data, JSON-RPC /mcp traces: see the final QA report (results below).
+- Introduced by the task and fixed (S8 commits): raw colour literals in S5/S6 files (voice.css, categoryVisual.ts, missionTestData.ts) failing theme/tokens.test.ts; two stale audit-actor-display expectations from S3 (test_mcp_contact, test_mcp_conversational).
+- Added: backend/tests/test_final_integration.py (recurring objective reset by the existing scheduler; owner/scheduled numbering over /mcp), frontend/e2e/mission-configuration.spec.ts (admin category/skill/source, creator prompt edit+reset, voice entry typed fallback + cancel, axe).
+- Docs: docs/02-architecture.md now points to the canonical doc/architecture sections; result_limit resolution recorded in docs/01-decision-log.md.
+- Pre-existing on main (not ours): 3 test_migrations, test_audit warehouse_drafts, test_explorer_editability, test_route_protection (2), explorer_policy, 12 vitest, 55 eslint, 67 Playwright (stale after UI redesign; identical set on main), E2E global-setup downgrade-to-base fails on a non-empty DB (0020 thread_id).
+- Final results: backend pytest 2202 tests -> 2165 passed, 2 skipped, 35 failed on first full run; 2 were ours (fixed), 33 are pre-existing (24 are a pollution cascade from the unchanged tests/test_mission_supervision_hardening.py committing a company + append-only audit row, reproduced on main with the same 5 files; 3 test_migrations; test_audit; test_explorer_editability; test_explorer_policy; 2 test_route_protection; 1 perf timing). Frontend: tsc OK, vite build OK, vitest 12 failed / 1371 passed (same 12 on main), eslint 55 errors (same on main). Playwright: 67 failed / 9 not run / 48 passed on both main and the task branch (identical failing set), plus 3 new passing specs in mission-configuration.spec.ts. Migration 0046 -> 0050 -> 0046 -> 0050 on seeded missions/sources/links: links, missions, overrides preserved.
+- Not validated live: real model tool loop and microphone/STT/TTS for the voice flow; real Claude/ChatGPT agent run (traces are scripted JSON-RPC against the real /mcp). Nothing touched Drive, prod, push or merge.

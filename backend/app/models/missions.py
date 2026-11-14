@@ -56,6 +56,9 @@ INTERVAL_MAX = 1000
 MAX_RUNS_MAX = 1000
 SOURCE_URL_MAX_LENGTH = 2000
 SOURCE_LABEL_MAX_LENGTH = 200
+SOURCE_DESCRIPTION_MAX_LENGTH = 1000
+SOURCE_DOMAIN_MAX_LENGTH = 255
+SOURCE_PATH_MAX_LENGTH = 500
 
 
 class Mission(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, Base):
@@ -108,7 +111,14 @@ class Mission(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, Base)
     result_kind: Mapped[MissionResultKind] = mapped_column(
         text_enum(MissionResultKind, "result_kind")
     )
+    # The cap on items one run may propose (a ceiling, never the goal: see `objective`).
     result_limit: Mapped[int] = mapped_column(SmallInteger, server_default="20")
+    # One item per submission (false, the default) or a list envelope (true). Missions that
+    # existed before migration 0049 keep the list form they always had.
+    allow_multiple: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+    # The machine-evaluable goal (`mission_output.MissionObjective`); NULL = « every task of the
+    # run is accepted ». Each run snapshots it in `MissionRun.config`.
+    objective: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     geography: Mapped[str | None] = mapped_column(String(GEOGRAPHY_MAX_LENGTH))
     period_days: Mapped[int | None] = mapped_column(SmallInteger)
     # Free-form advanced exclusions: {"known_companies": true, "domains": ["…"]}.
@@ -118,8 +128,20 @@ class Mission(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, Base)
     created_by_type: Mapped[ActorType] = mapped_column(text_enum(ActorType, "created_by_type"))
     created_by_id: Mapped[str | None] = mapped_column(String(ACTOR_ID_MAX_LENGTH))
     created_by_display: Mapped[str] = mapped_column(String(AGENT_LABEL_MAX_LENGTH))
+    # The product category (visual identity, default prompt and skills); `type` stays the technical
+    # execution discriminator and always equals the category's `mission_type`. RESTRICT: a category
+    # still used by a mission cannot be deleted. NULL only for a row written outside the service.
+    category_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("mission_categories.id", ondelete="RESTRICT"), index=True
+    )
+    # Which category-derived fields a person set explicitly (`prompt`, `skills`; see
+    # `INHERITABLE_FIELDS`). A field not listed follows its category; never inferred by comparing
+    # texts.
+    overridden_fields: Mapped[list[str]] = mapped_column(
+        JSONB, server_default=text("'[]'::jsonb")
+    )
     # The links this mission reads (read-only view; written through `MissionSourceLink`).
-    sources: Mapped[list["MissionSource"]] = relationship(
+    sources: Mapped[list[MissionSource]] = relationship(
         secondary="mission_source_links",
         viewonly=True,
         order_by="MissionSource.created_at",
@@ -127,18 +149,40 @@ class Mission(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, Base)
 
 
 class MissionSource(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, Base):
-    """A link VIPER keeps for reuse: saved once, attachable to any mission."""
+    """An external research source of the library: a **root** (LinkedIn, Hunter.io) or one level of
+    **sub-source** under it (LinkedIn > Jobs). Reusable across missions and category defaults.
+
+    `url` is the identity of the entry (exact-URL unique per organisation, as before migration
+    0050). `domain` / `path_prefix` are its normalised form and what a cited URL is matched against
+    (`services.mission_sources.resolve_source`): the concrete URLs an agent cited stay in
+    `mission_evidence_citations`, never become library rows. `successful_uses` counts the accepted
+    result items this very source supported (derived from `mission_source_contributions`).
+    """
 
     __tablename__ = "mission_sources"
     __table_args__ = (
         CheckConstraint(
             f"btrim(url) <> '' AND char_length(url) <= {SOURCE_URL_MAX_LENGTH}", name="url_valid"
         ),
+        CheckConstraint("parent_id IS NULL OR parent_id <> id", name="not_own_parent"),
+        CheckConstraint("successful_uses >= 0", name="uses_positive"),
         Index("uq_mission_sources_organization_url", "organization_id", "url", unique=True),
+        Index("ix_mission_sources_domain", "organization_id", "domain"),
     )
 
     url: Mapped[str] = mapped_column(String(SOURCE_URL_MAX_LENGTH))
     label: Mapped[str | None] = mapped_column(String(SOURCE_LABEL_MAX_LENGTH))
+    # What the source is good for (« annuaire des sites logistiques de Normandie »).
+    description: Mapped[str | None] = mapped_column(String(SOURCE_DESCRIPTION_MAX_LENGTH))
+    # NULL = a root. Only one level: a sub-source never has children (enforced by the service).
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("mission_sources.id", ondelete="RESTRICT"), index=True
+    )
+    # Lower-case host without `www.` and port; `path_prefix` has no trailing slash (« » for the
+    # whole site).
+    domain: Mapped[str] = mapped_column(String(SOURCE_DOMAIN_MAX_LENGTH))
+    path_prefix: Mapped[str] = mapped_column(String(SOURCE_PATH_MAX_LENGTH), server_default="")
+    successful_uses: Mapped[int] = mapped_column(Integer, server_default="0")
     created_by_display: Mapped[str] = mapped_column(String(AGENT_LABEL_MAX_LENGTH))
 
 
@@ -218,3 +262,6 @@ class MissionRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # The rule this run works under (the payload's mission block, `agent_payloads.mission_rule`),
     # so modifying the mission changes only the next runs. NULL before migration 0027: live rule.
     config: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    # When this run's own objective was first fulfilled (NULL: not yet / never). Progress itself is
+    # derived from the run's tasks and results, never self-asserted by an agent.
+    objective_met_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

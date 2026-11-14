@@ -1,5 +1,7 @@
-import type { MissionCard, MissionDetail, MissionOptions } from '../api/missions'
+import type { MissionCategory } from '../api/missionConfig'
+import type { MissionCard, MissionDetail, MissionOptions, MissionType } from '../api/missions'
 import type { ApiReply } from '../test/render'
+import { hexColor } from './categoryVisual'
 
 export const MISSION = '00000000-0000-7000-e000-000000000010'
 export const COMPANY = '00000000-0000-7000-f000-000000000001'
@@ -96,7 +98,37 @@ export function detail(): MissionDetail {
   }
 }
 
+function category(key: MissionType, name: string, icon: string, color: string, description: string): MissionCategory {
+  return {
+    id: `cat-${key}`,
+    key,
+    is_system: true,
+    name,
+    description,
+    icon,
+    color,
+    general_prompt: `Consigne générale : ${name}.`,
+    mission_type: key,
+    position: 0,
+    skills: key === 'enrichment' ? [{ id: 'skill-1', name: 'Sources fiables' }] : [],
+    sources: [],
+    missions_count: 0,
+  }
+}
+
+// The five seeded categories (doc/architecture/missions.md §7c).
+export const CATEGORIES: MissionCategory[] = [
+  category('prospection', 'Prospection', 'compass', hexColor(0x2563eb), 'Trouver de nouvelles sociétés ou de nouveaux contacts.'),
+  category('signals', 'Signaux', 'radar', hexColor(0xd97706), 'Surveille les sociétés liées et remonte les signaux d’achat.'),
+  category('enrichment', 'Enrichissement', 'pencil', hexColor(0x16a34a), 'Compléter les fiches existantes.'),
+  category('verification', 'Vérification', 'shield-check', hexColor(0x7c3aed), 'Contrôler l’exactitude des fiches.'),
+  category('other', 'Autre', 'sparkles', hexColor(0x0d9488), 'Une mission libre.'),
+]
+
 export const COMMON: Record<string, ApiReply> = {
+  'GET /api/mission-categories': [200, CATEGORIES],
+  'GET /api/mission-skills': [200, [{ id: 'skill-1', name: 'Sources fiables', description: null, content: 'Cite tes sources.', categories_count: 1, missions_count: 0 }]],
+  'GET /api/missions/sources': [200, []],
   'GET /api/missions/proposals': [200, []],
   'GET /api/missions/options': [200, OPTIONS],
   'GET /api/missions/agents': [200, [{ id: 'agent-1', label: 'Agent claude-01', scopes: ['*'] }]],

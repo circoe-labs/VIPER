@@ -8,6 +8,14 @@
 :root {
   /* Neon Command core palette (doc/design/design-system.md) */
   --nc-void: #0A0B0D;
+  /* Voice mission assistant stage (missions/voice/voice.css): always dark, own constants */
+  --nc-voice-ink: #030509;
+  --nc-voice-blue: #7DB2FF;
+  --nc-voice-blue-deep: #3D7BFF;
+  --nc-voice-danger: #FF9B8F;
+  --nc-voice-alert: #FF7864;
+  --nc-voice-glow: #CFE1FF;
+  --nc-voice-on-light: #0A1020;
   --nc-charcoal: #1B2329;
   --nc-slate: #2E3A40;
   --nc-viper-green: #00E676;

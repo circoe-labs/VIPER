@@ -47,6 +47,7 @@ from app.services.mail_generation.openai_client import (
     list_models,
 )
 from app.services.mail_generation.prompt import DEFAULT_INITIAL_PROMPT
+from app.services.mission_creator_prompt import DEFAULT_MISSION_CREATOR_PROMPT
 from app.services.runtime_settings import (
     EDITABLE_FIELDS,
     SECRET_FIELDS,
@@ -121,6 +122,8 @@ class IntegrationsOut(BaseModel):
     generation_available: bool
     # The built-in prompt `contact_initial_prompt` falls back to (« Rétablir le texte par défaut »).
     initial_prompt_default: str
+    # The built-in behaviour prompt `mission_creator_prompt` falls back to.
+    mission_creator_prompt_default: str
     toolbox: ToolboxSummaryOut
     dispatch: DispatchSummaryOut
 
@@ -140,6 +143,7 @@ class IntegrationsIn(BaseModel):
     openai_max_retries: int | None = None
     contact_booking_url: Text | None = None
     contact_initial_prompt: Annotated[str, Field(max_length=8000)] | None = None
+    mission_creator_prompt: Annotated[str, Field(max_length=8000)] | None = None
     default_outbound_email: Text | None = None
     toolbox_mail_enabled: bool | None = None
     toolbox_mcp_url: Text | None = None
@@ -211,6 +215,7 @@ def integrations_out(request: Request, session: Session) -> IntegrationsOut:
         ),
         generation_available=effective.generation_available,
         initial_prompt_default=DEFAULT_INITIAL_PROMPT,
+        mission_creator_prompt_default=DEFAULT_MISSION_CREATOR_PROMPT,
         toolbox=ToolboxSummaryOut(
             enabled=status.enabled, state=status.state, configured=integration.configured
         ),

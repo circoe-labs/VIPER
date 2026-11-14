@@ -14,7 +14,6 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from urllib.parse import urlsplit
 
 from sqlalchemy import delete as sql_delete
 from sqlalchemy import func, select
@@ -37,13 +36,10 @@ from app.models.enums import (
     RecurrenceUnit,
 )
 from app.models.mcp import McpToken
+from app.models.mission_categories import MissionCategory
 from app.models.missions import (
-    SOURCE_LABEL_MAX_LENGTH,
-    SOURCE_URL_MAX_LENGTH,
     Mission,
     MissionRun,
-    MissionSource,
-    MissionSourceLink,
     MissionTarget,
 )
 from app.models.prospects import Prospect
@@ -53,9 +49,14 @@ from app.services import (
     audit,
     companies,
     mcp_reads,
+    mission_categories,
+    mission_context,
+    mission_output,
+    mission_sources,
     mission_telemetry,
 )
 from app.services.errors import ConflictError, DomainError, InvalidFieldError, NotFoundError
+from app.services.mission_categories import CategoryRef, MissionInheritance, SkillRef
 
 # Types whose execution maps to the result schemas that exist today. Discovery and signals need
 # their `find_*` / `surveil_signals` schemas (agent-missions.md §5, phase 2): the modal says so.
@@ -98,11 +99,18 @@ class TargetInput:
 
 @dataclass(frozen=True, slots=True)
 class MissionInput:
+    """What « Créer / Modifier la mission » sends. `type` (the technical discriminator) and
+    `prompt` may be left out when a category gives them: a missing `prompt` inherits the
+    category's general prompt, a given one overrides it (see `mission_categories`)."""
+
     name: str
-    type: MissionType
-    prompt: str
+    type: MissionType | None
+    prompt: str | None
     targets: tuple[TargetInput, ...] = ()
-    source_ids: tuple[uuid.UUID, ...] = ()
+    # None = follow the category's default sources; a tuple (possibly empty) overrides them.
+    source_ids: tuple[uuid.UUID, ...] | None = None
+    # Read-only internal records supplied as context (never targets); None = keep on update.
+    context_refs: tuple[mission_context.ContextRefInput, ...] | None = None
     agent_id: uuid.UUID | None = None
     is_recurring: bool = False
     interval_count: int = 1
@@ -113,9 +121,20 @@ class MissionInput:
     max_runs: int | None = None
     result_kind: MissionResultKind = MissionResultKind.ENRICHMENT
     result_limit: int = DEFAULT_RESULT_LIMIT
+    # One item per submission by default; true = the list envelope (Slice 04).
+    allow_multiple: bool = False
+    # The machine-evaluable goal (`mission_output.MissionObjective` as a dict); None = default.
+    objective: dict[str, Any] | None = None
     geography: str | None = None
     period_days: int | None = None
     exclusions: dict[str, Any] = field(default_factory=dict)
+    category_id: uuid.UUID | None = None
+    # None = follow the category's default skills; a tuple (possibly empty) overrides them.
+    skill_ids: tuple[uuid.UUID, ...] | None = None
+    # On update: the inheritable fields the request did not mention (`prompt`, `skills`,
+    # `sources`) keep
+    # their value and their inherited/overridden state.
+    unchanged_fields: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,6 +142,9 @@ class MissionCard:
     id: uuid.UUID
     name: str
     type: MissionType
+    # The category's visual identity (icon, colour): what the card shows. None only for a mission
+    # written outside the service.
+    category: CategoryRef | None
     status: MissionStatus
     agent_label: str | None
     prompt: str
@@ -160,6 +182,7 @@ class RunRow:
     tasks_total: int
     results_count: int
     note: str | None
+    objective_met_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,27 +220,29 @@ class MissionRule:
     geography: str | None
     period_days: int | None
     exclusions: dict[str, Any]
-
-
-@dataclass(frozen=True, slots=True)
-class SourceRow:
-    id: uuid.UUID
-    url: str
-    label: str | None
-    missions_count: int
+    allow_multiple: bool
+    objective: dict[str, Any]
 
 
 @dataclass(frozen=True, slots=True)
 class MissionDetail:
     card: MissionCard
     targets: list[TargetRow]
-    sources: list[SourceRow]
+    # The external sources the mission works with (own list, else its category's defaults).
+    sources: list[mission_sources.SourceRow]
+    # Read-only internal records linked as context; distinct from `targets`.
+    context_refs: list[mission_context.ContextRefRow]
     runs: list[RunRow]
     tasks: list[MissionTaskRow]
     prompt: str
     result_kind: MissionResultKind
     result_limit: int
     rule: MissionRule
+    inheritance: MissionInheritance
+    # The instruction skills the mission works with (its own list, else its category's defaults).
+    skills: list[SkillRef]
+    # The latest run's standing against its objective (None before any run).
+    objective_progress: dict[str, Any] | None
 
 
 def _now(now: datetime | None) -> datetime:
@@ -366,10 +391,12 @@ def _card(session: Session, mission: Mission) -> MissionCard:
         .where(MissionTarget.mission_id == mission.id)
     )
     total, done, pending = _counts(session, mission.id)
+    category = session.get(MissionCategory, mission.category_id) if mission.category_id else None
     return MissionCard(
         id=mission.id,
         name=mission.name,
         type=mission.type,
+        category=mission_categories.category_ref(category) if category is not None else None,
         status=mission.status,
         agent_label=mission.agent_label,
         prompt=mission.prompt,
@@ -415,6 +442,7 @@ def detail(session: Session, mission_id: uuid.UUID) -> MissionDetail:
             tasks_total=run.tasks_total,
             results_count=run.results_count,
             note=run.note,
+            objective_met_at=run.objective_met_at,
         )
         for run in session.scalars(
             select(MissionRun)
@@ -425,7 +453,8 @@ def detail(session: Session, mission_id: uuid.UUID) -> MissionDetail:
     return MissionDetail(
         card=card,
         targets=_target_rows(session, mission.id),
-        sources=_linked_sources(session, mission.id),
+        sources=mission_sources.effective_source_rows(session, mission),
+        context_refs=mission_context.list_refs(session, mission.id),
         runs=runs,
         tasks=_task_rows(session, mission.id),
         prompt=mission.prompt,
@@ -440,7 +469,15 @@ def detail(session: Session, mission_id: uuid.UUID) -> MissionDetail:
             geography=mission.geography,
             period_days=mission.period_days,
             exclusions=dict(mission.exclusions or {}),
+            allow_multiple=mission.allow_multiple,
+            objective=mission_output.parse_objective(mission.objective),
         ),
+        inheritance=mission_categories.inheritance(session, mission),
+        skills=[
+            SkillRef(id=skill.id, name=skill.name)
+            for skill in mission_categories.effective_skills(session, mission)
+        ],
+        objective_progress=_latest_progress(session, runs[0].id if runs else None),
     )
 
 
@@ -493,6 +530,19 @@ def _validate(data: MissionInput, now: datetime) -> None:
     """Shape checks only: a type whose schema is not ready can be saved, not launched."""
     if not 1 <= data.result_limit <= RESULT_LIMIT_MAX:
         raise InvalidFieldError("result_limit", "Between 1 and 500.", "range")
+    objective = mission_output.parse_objective(data.objective)
+    if objective["kind"] == mission_output.OBJECTIVE_ACCEPTED_ITEMS:
+        if data.targets and data.type not in (MissionType.PROSPECTION, MissionType.SIGNALS):
+            raise InvalidFieldError(
+                "objective.kind",
+                "Counting accepted items needs a discovery, prospection or signals mission.",
+                "unsupported",
+            )
+        # `result_limit` caps what a run may propose: a goal above it could never be reached.
+        if objective["count"] > data.result_limit:
+            raise InvalidFieldError(
+                "objective.count", "Cannot exceed the per-run limit (result_limit).", "range"
+            )
     if data.is_recurring and data.interval_count < 1:
         raise InvalidFieldError("interval_count", "At least 1.", "range")
     # The end rule is checked for every mission, one-off included: the table's constraints
@@ -505,101 +555,13 @@ def _validate(data: MissionInput, now: datetime) -> None:
         raise InvalidFieldError("ends_at", "The end must be in the future.", "range")
 
 
+def _stored_objective(raw: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The objective as persisted: None stays « default » (every task accepted)."""
+    return None if raw is None else mission_output.parse_objective(raw)
+
+
 def _target_kinds(targets: tuple[TargetInput, ...]) -> list[str]:
     return ["company" if target.company_id is not None else "prospect" for target in targets]
-
-
-def normalize_source_url(raw: str) -> str:
-    """A saved link must be an absolute http(s) URL; surrounding spaces are dropped."""
-    url = raw.strip()
-    if len(url) > SOURCE_URL_MAX_LENGTH:
-        raise InvalidFieldError("url", f"At most {SOURCE_URL_MAX_LENGTH} characters.", "too_long")
-    parts = urlsplit(url)
-    if parts.scheme not in ("http", "https") or not parts.netloc or " " in url:
-        raise InvalidFieldError(
-            "url", "Enter a full link starting with http:// or https://.", "invalid"
-        )
-    return url
-
-
-def _source_rows(session: Session, sources: list[MissionSource]) -> list[SourceRow]:
-    counts = dict(
-        session.execute(
-            select(MissionSourceLink.source_id, func.count())
-            .where(MissionSourceLink.source_id.in_([source.id for source in sources]))
-            .group_by(MissionSourceLink.source_id)
-        ).all()
-    )
-    return [
-        SourceRow(
-            id=source.id,
-            url=source.url,
-            label=source.label,
-            missions_count=counts.get(source.id, 0),
-        )
-        for source in sources
-    ]
-
-
-def list_sources(session: Session) -> list[SourceRow]:
-    """The saved links, newest first, with how many missions use each."""
-    return _source_rows(
-        session,
-        list(session.scalars(select(MissionSource).order_by(MissionSource.created_at.desc()))),
-    )
-
-
-def _linked_sources(session: Session, mission_id: uuid.UUID) -> list[SourceRow]:
-    return _source_rows(
-        session,
-        list(
-            session.scalars(
-                select(MissionSource)
-                .join(MissionSourceLink, MissionSourceLink.source_id == MissionSource.id)
-                .where(MissionSourceLink.mission_id == mission_id)
-                .order_by(MissionSource.created_at)
-            )
-        ),
-    )
-
-
-def add_source(session: Session, actor: ActorContext, url: str, label: str | None) -> SourceRow:
-    """Save a link once; saving it again returns the existing one (a label fills a blank)."""
-    clean_url = normalize_source_url(url)
-    clean_label = (label or "").strip() or None
-    if clean_label is not None and len(clean_label) > SOURCE_LABEL_MAX_LENGTH:
-        raise InvalidFieldError(
-            "label", f"At most {SOURCE_LABEL_MAX_LENGTH} characters.", "too_long"
-        )
-    source = session.scalar(select(MissionSource).where(MissionSource.url == clean_url))
-    if source is None:
-        source = MissionSource(url=clean_url, label=clean_label, created_by_display=actor.display)
-        session.add(source)
-    elif source.label is None and clean_label is not None:
-        source.label = clean_label
-    session.flush()
-    return _source_rows(session, [source])[0]
-
-
-def delete_source(session: Session, source_id: uuid.UUID) -> None:
-    """Forget a saved link; the missions that used it simply lose it (FK cascade)."""
-    source = session.get(MissionSource, source_id)
-    if source is None:
-        raise NotFoundError("Unknown source.")
-    session.delete(source)
-    session.flush()
-
-
-def _set_sources(session: Session, mission: Mission, source_ids: tuple[uuid.UUID, ...]) -> None:
-    """Replace the links the mission uses with `source_ids` (each must be a saved source)."""
-    session.execute(sql_delete(MissionSourceLink).where(MissionSourceLink.mission_id == mission.id))
-    session.flush()
-    for source_id in dict.fromkeys(source_ids):
-        if session.get(MissionSource, source_id) is None:
-            raise NotFoundError("Unknown source.")
-        session.add(MissionSourceLink(mission_id=mission.id, source_id=source_id))
-    session.flush()
-    session.expire(mission, ["sources"])
 
 
 def _create_targets(session: Session, mission: Mission, targets: tuple[TargetInput, ...]) -> None:
@@ -639,9 +601,11 @@ def create(
 ) -> Mission:
     moment = _now(now)
     name = _text("name", data.name, 200)
-    prompt = _text("prompt", data.prompt, 5000)
+    category, mission_type = mission_categories.resolve_category(
+        session, data.category_id, data.type
+    )
     _validate(data, moment)
-    check_runnable(data.type, data.result_kind, _target_kinds(data.targets))
+    check_runnable(mission_type, data.result_kind, _target_kinds(data.targets))
     token: McpToken | None = None
     if data.agent_id is not None:
         token = session.get(McpToken, data.agent_id)
@@ -654,8 +618,11 @@ def create(
     next_run_at: datetime | None = None if starts_now else starts_at
     mission = Mission(
         name=name,
-        type=data.type,
-        prompt=prompt,
+        type=mission_type,
+        category_id=category.id if category is not None else None,
+        overridden_fields=[],
+        # Replaced by `apply_inheritance` below (the category's or the person's text).
+        prompt="-",
         status=MissionStatus.ACTIVE,
         agent_id=data.agent_id,
         agent_label=token.label if token is not None else None,
@@ -668,6 +635,8 @@ def create(
         max_runs=data.max_runs,
         result_kind=data.result_kind,
         result_limit=data.result_limit,
+        allow_multiple=data.allow_multiple,
+        objective=_stored_objective(data.objective),
         geography=(data.geography or "").strip() or None,
         period_days=data.period_days,
         exclusions=data.exclusions,
@@ -678,8 +647,17 @@ def create(
     )
     session.add(mission)
     session.flush()
+    mission_categories.apply_inheritance(
+        session,
+        mission,
+        category,
+        prompt=data.prompt,
+        skill_ids=data.skill_ids,
+        source_ids=data.source_ids,
+        creating=True,
+    )
     _create_targets(session, mission, data.targets)
-    _set_sources(session, mission, data.source_ids)
+    mission_context.set_refs(session, mission, data.context_refs or ())
     audit.record_event(
         session,
         actor,
@@ -689,6 +667,8 @@ def create(
         changes={
             "name": {"after": mission.name},
             "type": {"after": mission.type.value},
+            "category_id": {"after": str(category.id) if category is not None else None},
+            "overridden_fields": {"after": list(mission.overridden_fields)},
         },
     )
     if run_now or starts_now:
@@ -712,6 +692,8 @@ EDITED_FIELDS = (
     "max_runs",
     "result_kind",
     "result_limit",
+    "allow_multiple",
+    "objective",
     "geography",
     "period_days",
     "exclusions",
@@ -726,6 +708,31 @@ def _audit_value(value: object) -> object:
     if isinstance(value, MissionType | RecurrenceUnit | MissionEndKind | MissionResultKind):
         return value.value
     return value
+
+
+# The category link and the inherited/overridden state are audited with the rule, but are not
+# plain edited fields (`MissionInput.category_id`, `skill_ids`).
+AUDITED_INHERITANCE_FIELDS = ("category_id", "overridden_fields")
+
+
+def _audited_rule(mission: Mission) -> dict[str, object]:
+    return {
+        field_name: _audit_value(getattr(mission, field_name))
+        for field_name in (*EDITED_FIELDS, *AUDITED_INHERITANCE_FIELDS)
+    }
+
+
+def _update_category(
+    session: Session, mission: Mission, data: MissionInput
+) -> tuple[MissionCategory | None, MissionType]:
+    """The category and technical type an edited mission ends up with. Nothing named: it keeps
+    its own. Only a type named (the legacy form): the current category if that is its type, else
+    the seeded category of the type."""
+    if data.category_id is None and (data.type is None or data.type is mission.type):
+        current = session.get(MissionCategory, mission.category_id) if mission.category_id else None
+        if current is not None or data.type is None:
+            return current, mission.type
+    return mission_categories.resolve_category(session, data.category_id, data.type)
 
 
 def update(
@@ -745,9 +752,9 @@ def update(
     if mission.status in (MissionStatus.DONE, MissionStatus.CANCELLED):
         raise ConflictError("This mission is closed.")
     name = _text("name", data.name, 200)
-    prompt = _text("prompt", data.prompt, 5000)
+    category, mission_type = _update_category(session, mission, data)
     _validate(data, moment)
-    check_runnable(data.type, data.result_kind, _target_kinds(data.targets))
+    check_runnable(mission_type, data.result_kind, _target_kinds(data.targets))
     agent_label: str | None = None
     if data.agent_id is not None and data.agent_id == mission.agent_id:
         # Unchanged agent: keep the snapshotted label even if its token was revoked since.
@@ -757,13 +764,21 @@ def update(
         if token is None or token.revoked_at is not None:
             raise InvalidFieldError("agent_id", "Unknown or revoked agent.", "not_found")
         agent_label = token.label
-    before = {
-        field_name: _audit_value(getattr(mission, field_name)) for field_name in EDITED_FIELDS
-    }
+    before = _audited_rule(mission)
 
     mission.name = name
-    mission.type = data.type
-    mission.prompt = prompt
+    mission.type = mission_type
+    mission.category_id = category.id if category is not None else None
+    mission_categories.apply_inheritance(
+        session,
+        mission,
+        category,
+        prompt=data.prompt,
+        skill_ids=data.skill_ids,
+        source_ids=data.source_ids,
+        creating=False,
+        keep=data.unchanged_fields,
+    )
     mission.agent_id = data.agent_id
     mission.agent_label = agent_label
     mission.is_recurring = data.is_recurring
@@ -775,6 +790,8 @@ def update(
     mission.max_runs = data.max_runs
     mission.result_kind = data.result_kind
     mission.result_limit = data.result_limit
+    mission.allow_multiple = data.allow_multiple
+    mission.objective = _stored_objective(data.objective)
     mission.geography = (data.geography or "").strip() or None
     mission.period_days = data.period_days
     mission.exclusions = data.exclusions
@@ -795,11 +812,12 @@ def update(
     session.execute(sql_delete(MissionTarget).where(MissionTarget.mission_id == mission.id))
     session.flush()
     _create_targets(session, mission, data.targets)
-    _set_sources(session, mission, data.source_ids)
-    after = {field_name: _audit_value(getattr(mission, field_name)) for field_name in EDITED_FIELDS}
+    if data.context_refs is not None:
+        mission_context.set_refs(session, mission, data.context_refs)
+    after = _audited_rule(mission)
     changes: dict[str, dict[str, Any]] = {
         field_name: {"before": before[field_name], "after": after[field_name]}
-        for field_name in EDITED_FIELDS
+        for field_name in before
         if before[field_name] != after[field_name]
     }
     audit.record_event(
@@ -827,9 +845,91 @@ def _open_tasks(session: Session, mission_id: uuid.UUID) -> bool:
     return bool(count)
 
 
+def _run_objective(session: Session, run: MissionRun) -> dict[str, Any] | None:
+    """The objective a run works under: its snapshot, else the live mission's (runs made before
+    migration 0049 have none and use the default)."""
+    snapshot = (run.config or {}).get("objective")
+    if snapshot is not None:
+        return dict(snapshot)
+    if run.config is not None:
+        return None
+    mission = session.get(Mission, run.mission_id)
+    return mission.objective if mission is not None else None
+
+
+def _latest_progress(session: Session, run_id: uuid.UUID | None) -> dict[str, Any] | None:
+    run = session.get(MissionRun, run_id) if run_id is not None else None
+    if run is None:
+        return None
+    tasks = session.scalars(select(AgentTask).where(AgentTask.run_id == run.id)).all()
+    return mission_output.progress(session, tasks, _run_objective(session, run)).as_dict()
+
+
+def _continue_discovery(
+    session: Session, mission: Mission, run: MissionRun, tasks: list[AgentTask]
+) -> bool:
+    """Discovery work one item at a time: while the objective is not met and the last accepted
+    result brought something, open the next task of the same run. Bounded: each step needs a
+    non-empty accepted result, and the count is capped by `result_limit`."""
+    if not tasks or any(task.type is not AgentTaskType.FIND_PROSPECTS for task in tasks):
+        return False
+    state = mission_output.progress(session, tasks, _run_objective(session, run))
+    if (
+        state.kind != mission_output.OBJECTIVE_ACCEPTED_ITEMS
+        or state.met
+        or state.last_accepted_items < 1
+        or state.items_accepted >= int((run.config or {}).get("result_limit", RESULT_LIMIT_MAX))
+        or tasks[-1].status is not AgentTaskStatus.ACCEPTED
+    ):
+        return False
+    _task(
+        session,
+        SCHEDULER_ACTOR,
+        mission,
+        run,
+        AgentTaskType.FIND_PROSPECTS,
+        company_id=None,
+        prospect_id=None,
+    )
+    return True
+
+
+def _settle_objective(
+    session: Session, run: MissionRun, tasks: list[AgentTask], now: datetime
+) -> None:
+    """A finished run is checked against its own objective. Fulfilled: stamp it, and close a
+    one-off mission (a recurring one stays scheduled; its end rule is the scheduler's).
+    Not fulfilled: say so on the run and leave the mission open: never « done » by default."""
+    mission = session.get(Mission, run.mission_id)
+    if mission is None:
+        return
+    state = mission_output.progress(session, tasks, _run_objective(session, run))
+    if state.met:
+        if run.objective_met_at is None:
+            run.objective_met_at = now
+        if not mission.is_recurring and mission.status is MissionStatus.ACTIVE:
+            mission.status = MissionStatus.DONE
+            mission.next_run_at = None
+            audit.record_event(
+                session,
+                SCHEDULER_ACTOR,
+                audit.AuditAction.MISSION_STATUS_CHANGED,
+                entity_type="mission",
+                entity_id=mission.id,
+                changes={"status": {"before": "active", "after": "done"}},
+                reason="objective fulfilled",
+            )
+    elif run.note is None:
+        run.note = f"Objectif non atteint ({state.current}/{state.target})."
+
+
 def refresh_run(session: Session, run: MissionRun) -> MissionRun:
     """Derive a run's status and counts from its tasks (no second source of truth)."""
-    tasks = session.scalars(select(AgentTask).where(AgentTask.run_id == run.id)).all()
+    tasks = list(
+        session.scalars(
+            select(AgentTask).where(AgentTask.run_id == run.id).order_by(AgentTask.created_at)
+        )
+    )
     run.tasks_total = len(tasks)
     if not tasks:
         return run
@@ -840,6 +940,15 @@ def refresh_run(session: Session, run: MissionRun) -> MissionRun:
         .where(AgentTaskResult.task_id.in_([task.id for task in tasks]))
     )
     run.results_count = results or 0
+    mission = session.get(Mission, run.mission_id)
+    if (
+        run.status is MissionRunStatus.RUNNING
+        and mission is not None
+        and not any(status in OPEN_TASK_STATUSES for status in statuses)
+        and _continue_discovery(session, mission, run, tasks)
+    ):
+        statuses = [*statuses, AgentTaskStatus.PENDING]
+        run.tasks_total += 1
     if any(status in OPEN_TASK_STATUSES for status in statuses):
         run.status = MissionRunStatus.RUNNING
         run.finished_at = None
@@ -855,6 +964,7 @@ def refresh_run(session: Session, run: MissionRun) -> MissionRun:
                 run.finished_at = max(
                     (task.updated_at for task in tasks), default=run.started_at or run.scheduled_at
                 )
+            _settle_objective(session, run, tasks, run.finished_at)
     return run
 
 

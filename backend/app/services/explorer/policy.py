@@ -237,6 +237,11 @@ UNEXPOSED_TABLES: Mapping[str, str] = {
     "sont pilotés par le service.",
     "missions": "Règles de mission : créées et suivies depuis la page Missions, "
     "jamais éditées à la main.",
+    "mission_categories": "Catégories de mission : gérées depuis l’administration, "
+    "jamais éditées à la main.",
+    "mission_skills": "Skills d’instruction : gérés depuis l’administration.",
+    "mission_category_skills": "Skills par défaut d’une catégorie : gérés par le service.",
+    "mission_skill_links": "Skills propres à une mission : gérés par le service.",
     "mission_targets": "Données liées d’une mission : des références vers la base, "
     "gérées par le service.",
     "mission_runs": "Exécutions d’une mission : l’état est calculé depuis les tâches.",

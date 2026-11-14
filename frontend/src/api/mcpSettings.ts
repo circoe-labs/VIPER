@@ -52,7 +52,13 @@ export function useMcpSettings() {
 // token, only its label and dates.
 export interface McpAgent {
   id: string
+  // What the person called it (descriptive).
   label: string
+  // The resolved identity — provider, owner and owner-relative instance number (« Claude lucie #2 »).
+  display_label: string
+  instance_number: number | null
+  // Tasks it may hold claimed at once (task concurrency) — not a cap on the number of tokens.
+  max_concurrent: number
   // `oauth`: approved from a connector (ChatGPT, Claude…); `cli`: a bearer token (command line or « Créer un jeton »).
   origin: 'oauth' | 'cli'
   // The person the agent acts for: its calls are kept under this address.

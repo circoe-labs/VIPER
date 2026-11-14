@@ -1,0 +1,1 @@
+{"slice_id":"04","status":"planned","task_type":null,"depends_on":["00"],"requires":[{"slice_id":"01","need":"category technical execution mapping","fallback":"existing MissionType/task type","integration_required_before":"07"},{"slice_id":"02","need":"evidence identity contract","fallback":"URL/label/check-date fields","integration_required_before":"07"}]}

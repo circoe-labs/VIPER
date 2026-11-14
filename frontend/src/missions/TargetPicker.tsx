@@ -1,5 +1,6 @@
 import { useState } from 'react'
 
+import { useContextCandidates } from '../api/missionConfig'
 import { type TargetOption, useMissionTargets } from '../api/missions'
 import { Button } from '../ui/Button'
 import { Modal } from '../ui/Dialog'
@@ -10,20 +11,26 @@ function keyOf(target: TargetOption): string {
 }
 
 // « + Ajouter des données »: the attachment-like picker of existing companies and prospects. What
-// the mission keeps is a reference (`kind`, `id`), never a copy of the record.
+// the mission keeps is a reference (`kind`, `id`), never a copy of the record. `mode="context"` is the same picker for
+// the internal records linked as read-only context (searched through `/missions/context-candidates`): they inform the
+// agent but are never what its tasks process.
 export function TargetPicker({
   open,
   onClose,
   onAdd,
+  mode = 'target',
 }: {
   open: boolean
   onClose: () => void
   onAdd: (targets: TargetOption[]) => void
+  mode?: 'target' | 'context'
 }) {
   const [kind, setKind] = useState<'company' | 'prospect'>('company')
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<Record<string, TargetOption>>({})
-  const results = useMissionTargets(kind, search, open)
+  const targetResults = useMissionTargets(kind, search, open && mode === 'target')
+  const contextResults = useContextCandidates(kind, search, open && mode === 'context')
+  const results = mode === 'context' ? contextResults : targetResults
 
   const toggle = (target: TargetOption) => {
     const key = keyOf(target)
@@ -45,8 +52,12 @@ export function TargetPicker({
     <Modal
       open={open}
       onClose={close}
-      title="Ajouter des données"
-      description="Choisissez des sociétés ou des prospects déjà dans VIPER. La mission gardera leur référence, pas une copie."
+      title={mode === 'context' ? 'Ajouter du contexte VIPER' : 'Ajouter des données'}
+      description={
+        mode === 'context'
+          ? 'Choisissez des fiches VIPER qui aident l’agent à comprendre le sujet. Elles sont lues en lecture seule : l’agent ne les traite pas et ne les modifie pas.'
+          : 'Choisissez des sociétés ou des prospects déjà dans VIPER. La mission gardera leur référence, pas une copie.'
+      }
       footer={
         <div className="mission-picker__footer">
           <Button variant="secondary" onClick={close}>
@@ -88,6 +99,11 @@ export function TargetPicker({
           onChange={setSearch}
         />
         {results.isLoading && <p className="missions-muted">Recherche…</p>}
+        {results.isError && (
+          <p className="missions-error" role="alert">
+            La recherche a échoué : réessayez.
+          </p>
+        )}
         {results.data && results.data.length === 0 && (
           <p className="missions-muted">Aucun résultat. Essayez un autre mot.</p>
         )}

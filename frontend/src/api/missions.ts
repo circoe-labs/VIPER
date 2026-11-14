@@ -25,10 +25,40 @@ export type RecurrenceUnit = (typeof RECURRENCE_UNITS)[number]
 export const END_KINDS = ['never', 'date', 'after'] as const
 export type MissionEndKind = (typeof END_KINDS)[number]
 
+// The category's visual identity on a card (`GET /api/missions`): icon key (see ui/icons), `#rrggbb` colour. Slice 05
+// renders it; the previous id-hashed accent stays until then.
+export interface MissionCategoryRef {
+  id: string
+  key: string | null
+  name: string
+  icon: string
+  color: string
+}
+
+export interface SkillRef {
+  id: string
+  name: string
+}
+
+// Which category-derived fields a mission still follows (`prompt`, `skills`).
+export interface MissionInheritance {
+  category_id: string | null
+  overridden_fields: string[]
+  prompt_inherited: boolean
+  skills_inherited: boolean
+  category_prompt: string | null
+  category_skills: SkillRef[]
+  // Slice 02: false once the mission has its own external-source list.
+  sources_inherited?: boolean
+  category_sources?: { id: string; url: string; label: string | null }[]
+}
+
 export interface MissionCard {
   id: string
   name: string
   type: MissionType
+  // Optional in the type so older fixtures compile; the API always sends it (null only for a legacy row).
+  category?: MissionCategoryRef | null
   status: MissionStatus
   agent_label: string | null
   prompt: string
@@ -79,11 +109,31 @@ export interface MissionTargetRow {
   hint: string | null
 }
 
+// An external library entry (Slice 02): a root (`parent_id` null) or one sub-level.
+// `successful_uses` counts accepted items it supported (never visits); `rolled_up_uses` adds its sub-sources'.
 export interface MissionSource {
   id: string
   url: string
   label: string | null
+  description?: string | null
+  domain?: string
+  path_prefix?: string
+  parent_id?: string | null
+  children_count?: number
+  successful_uses?: number
+  rolled_up_uses?: number
   missions_count: number
+  categories_count?: number
+  created_at?: string | null
+}
+
+// A VIPER record linked as read-only context (Slice 02). Not a target and not evidence.
+export interface MissionContextRef {
+  kind: 'company' | 'prospect'
+  id: string
+  label: string
+  hint: string | null
+  note: string | null
 }
 
 export interface MissionProposal {
@@ -104,18 +154,40 @@ export interface MissionRule {
   geography: string | null
   period_days: number | null
   exclusions: Record<string, boolean | string[]>
+  // Slice 04: one item per submission (false) or a list; the per-run goal.
+  allow_multiple?: boolean
+  objective?: MissionObjective
+}
+
+// `tasks_accepted`: every task of the run is accepted. `accepted_items`: `count` accepted items (<= result_limit).
+export interface MissionObjective {
+  kind: 'tasks_accepted' | 'accepted_items'
+  count: number | null
+}
+
+export interface ObjectiveProgress {
+  kind: string
+  target: number | null
+  current: number
+  met: boolean
 }
 
 export interface MissionDetail {
   card: MissionCard
   targets: MissionTargetRow[]
+  // The external sources the mission works with (its own list, else its category's defaults).
   sources: MissionSource[]
+  context_refs?: MissionContextRef[]
   runs: MissionRunRow[]
   tasks: MissionTaskRow[]
   prompt: string
   result_kind: MissionResultKind
   result_limit: number
   rule: MissionRule
+  inheritance?: MissionInheritance
+  // The instruction skills the mission works with (its own list when overridden, else its category's).
+  skills?: SkillRef[]
+  objective_progress?: ObjectiveProgress | null
 }
 
 export interface MissionList {
@@ -152,9 +224,16 @@ export interface TargetOption {
 export interface MissionInput {
   name: string
   type: MissionType
-  prompt: string
+  // Slice 05: `category_id` picks the category; `prompt` / `skill_ids` null = follow it, a value = override.
+  category_id?: string | null
+  skill_ids?: string[] | null
+  // null = follow the category's general prompt (the server copies it); a text = this mission's own consigne.
+  prompt: string | null
   targets: { kind: 'company' | 'prospect'; id: string }[]
-  source_ids: string[]
+  // Slice 02: null = follow the category's default sources, a list (possibly empty) = override.
+  source_ids: string[] | null
+  // Read-only internal records supplied as context (omitted on edit = kept).
+  context_refs?: { kind: 'company' | 'prospect'; id: string; note?: string | null }[]
   agent_id: string | null
   is_recurring: boolean
   interval_count: number
@@ -165,6 +244,8 @@ export interface MissionInput {
   max_runs: number | null
   result_kind: MissionResultKind
   result_limit: number
+  allow_multiple?: boolean
+  objective?: MissionObjective
   geography: string | null
   period_days: number | null
   exclusions: Record<string, boolean | string[]>

@@ -18,6 +18,7 @@ from app.services.agent_payloads import (
     CompanyUpdateResult,
     EmployeeUpdateResult,
     build_proposal,
+    task_rule,
 )
 from app.services.errors import ConflictError, InvalidFieldError
 
@@ -27,7 +28,47 @@ MODELS: dict[str, type[BaseModel]] = {
     "update_prospect": EmployeeUpdateResult,
 }
 MAX_ACTIONS = 50
+# The task type whose single target each update operation may name inside a mission run.
+_OPERATION_TASK = {
+    "update_company": AgentTaskType.UPDATE_COMPANY,
+    "update_prospect": AgentTaskType.UPDATE_EMPLOYEE,
+}
 logger = logging.getLogger(__name__)
+
+
+def _check_mission_contract(
+    session: Session,
+    task: AgentTask,
+    operation: str,
+    target_id: uuid.UUID | None,
+    actions: list[dict[str, Any]],
+) -> None:
+    """Inside a mission run, staging is another way to fill the same output contract: one target
+    per task (an update names only the task's own record) and no more additions than the mission
+    returns per task (one when `allow_multiple` is false). A tool-mode task is unconstrained."""
+    if task.run_id is None:
+        return
+    if operation == "add_company":
+        rule = task_rule(session, task)
+        allow_multiple = bool(rule.get("allow_multiple", True)) if rule else True
+        cap = (rule["result_limit"] if rule else MAX_ACTIONS) if allow_multiple else 1
+        added = sum(1 for action in actions if action["operation"] == "add_company")
+        if added >= cap:
+            raise InvalidFieldError(
+                "actions",
+                "This mission returns one item at a time (allow_multiple=false)."
+                if not allow_multiple
+                else f"This mission allows at most {cap} items per task.",
+                "too_many",
+            )
+        return
+    subject = task.company_id if operation == "update_company" else task.prospect_id
+    if task.type is not _OPERATION_TASK[operation] or target_id != subject:
+        raise InvalidFieldError(
+            "target_id",
+            "A mission task works on its own target only: stage updates for this task's record.",
+            "wrong_target",
+        )
 
 
 def stage(
@@ -60,6 +101,7 @@ def stage(
         "data": validated,
     }
     actions = list(task.staged_actions or [])
+    _check_mission_contract(session, task, operation, target_id, actions)
     for previous in actions:
         if previous["id"] == action["id"]:
             if previous != action:

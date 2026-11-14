@@ -46,6 +46,8 @@ from app.models import (
     Establishment,
     ImportBatch,
     InternalReferent,
+    MissionCategory,
+    MissionSkill,
     Phone,
     Prospect,
     ProspectNote,
@@ -246,6 +248,8 @@ AUDITED_ENTITIES: dict[type[Any], AuditedEntity] = {
     AppSetting: AuditedEntity("app_setting", "app_setting"),
     Appointment: AuditedEntity("appointment", "appointment"),
     Warehouse: AuditedEntity("warehouse", "warehouse"),
+    MissionCategory: AuditedEntity("mission_category", "mission_category"),
+    MissionSkill: AuditedEntity("mission_skill", "mission_skill"),
 }
 ENTITY_ORDER = {model: position for position, model in enumerate(AUDITED_ENTITIES)}
 NOT_AUDITED_TABLES = {
@@ -265,6 +269,15 @@ NOT_AUDITED_TABLES = {
     "agent_tasks": "orchestration rows; agent_task.* events are written by the service",
     "missions": "mission rules; mission.* events are written by the service",
     "mission_targets": "mission links; managed by the mission service",
+    "mission_category_skills": "link table; the skill ids are recorded on the category event",
+    "mission_skill_links": "mission skill override; managed by the mission service",
+    "mission_sources": "source library rows; the mission service writes mission.* events, the "
+    "counters are derived from mission_source_contributions",
+    "mission_source_links": "mission source override; managed by the mission service",
+    "mission_category_sources": "link table; managed by the category service",
+    "mission_evidence_citations": "write-once evidence of an accepted result (itself audited)",
+    "mission_source_contributions": "write-once effectiveness ledger of accepted results",
+    "mission_context_refs": "mission context links; managed by the mission service",
     "mission_runs": "mission executions; mission_run.* events are written by the service",
     "agent_task_results": "write-once submission: the row is the record (raw, proposal, decision)",
     "mcp_tokens": "machine credentials: only a token hash; minted by the CLI or an OAuth approval",

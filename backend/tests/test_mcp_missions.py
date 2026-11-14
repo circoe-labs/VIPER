@@ -96,9 +96,11 @@ def test_mission_tools_are_listed_with_their_annotations(
     }
     create_schema = listed["viper_create_mission"]["inputSchema"]
     assert set(create_schema["properties"]) == set(MissionIn.model_fields)
-    assert create_schema["required"] == ["name", "type", "prompt"]
+    # The technical type and the consigne can come from a category (S1): only the name is required.
+    assert create_schema["required"] == ["name"]
     assert "$ref" not in str(create_schema)
-    assert create_schema["properties"]["type"]["enum"] == [kind.value for kind in MissionType]
+    type_options = create_schema["properties"]["type"]["anyOf"]
+    assert type_options[0]["enum"] == [kind.value for kind in MissionType]
     update_schema = listed["viper_update_mission"]["inputSchema"]
     assert update_schema["required"] == ["mission_id"]
     assert "run_now" not in update_schema["properties"]
@@ -124,7 +126,7 @@ def test_an_interactive_agent_creates_and_launches_a_mission_for_its_person(
     mission = db_session.get(Mission, detail["card"]["id"])
     assert mission is not None
     assert mission.created_by_type == "agent"
-    assert mission.created_by_display == "ChatGPT (member)"
+    assert mission.created_by_display == "ChatGPT member #1"
     event = db_session.scalars(
         select(AuditLogEntry).where(AuditLogEntry.action == "mission.created")
     ).one()

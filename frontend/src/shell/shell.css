@@ -112,6 +112,22 @@
   list-style: none;
 }
 
+.sidebar__group + .sidebar__group {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: var(--border-width) solid var(--color-border);
+}
+
+.sidebar__group-title {
+  margin: 0 0 var(--space-1);
+  padding: 0 var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs, 0.75rem);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
 .nav-link {
   position: relative;
   display: flex;
@@ -143,7 +159,8 @@
 .nav-link[href='/organisation']:not([aria-current='page']) svg { color: var(--prospects-purple); }
 .nav-link[href='/missions']:not([aria-current='page']) svg,
 .nav-link[href='/agenda']:not([aria-current='page']) svg { color: var(--color-danger-fg); }
-.nav-link[href='/settings']:not([aria-current='page']) svg { color: var(--prospects-blue); }
+.nav-link[href='/settings']:not([aria-current='page']) svg,
+.nav-link[href^='/administration']:not([aria-current='page']) svg { color: var(--prospects-blue); }
 
 .nav-link:hover {
   background: var(--color-surface-hover);

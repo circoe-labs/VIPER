@@ -110,7 +110,7 @@ def test_create_mission_carries_the_card_template(client: TestClient, db_session
     assert others == {"viper_create_mission"}
     # The schema and annotations are untouched: a client that ignores `_meta` sees the same tool.
     assert listed["viper_create_mission"]["annotations"]["readOnlyHint"] is False
-    assert listed["viper_create_mission"]["inputSchema"]["required"] == ["name", "type", "prompt"]
+    assert listed["viper_create_mission"]["inputSchema"]["required"] == ["name"]
 
 
 def test_a_created_mission_result_points_to_the_card(

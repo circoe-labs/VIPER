@@ -301,6 +301,43 @@ def end_session(
     return row
 
 
+def end_own_active_sessions(
+    session: Session,
+    actor: ActorContext,
+    run_ids: Sequence[uuid.UUID] | None = None,
+    now: datetime | None = None,
+) -> int:
+    """The agent ends **all its own active** sessions (those of `run_ids` when given); idempotent.
+
+    Same closing as `end_session` (`agent_ended`), for the « leave work » contract
+    (`agent_lifecycle.leave_work`). Returns how many sessions were closed; none is not an error.
+    """
+    statement = (
+        select(MissionAgentSession)
+        .where(
+            MissionAgentSession.agent_id == _agent_id(actor),
+            MissionAgentSession.status == MissionAgentSessionStatus.ACTIVE,
+        )
+        .order_by(MissionAgentSession.id)
+        .with_for_update()
+    )
+    if run_ids is not None:
+        statement = statement.where(MissionAgentSession.run_id.in_(list(run_ids)))
+    moment = _moment(now)
+    rows = session.scalars(statement).all()
+    for row in rows:
+        _close(
+            session,
+            row,
+            MissionAgentSessionStatus.ENDED,
+            MissionAgentDisconnectReason.AGENT_ENDED,
+            moment,
+            actor,
+            audit.AuditAction.MISSION_AGENT_SESSION_ENDED,
+        )
+    return len(rows)
+
+
 def end_run_sessions(
     session: Session,
     run_ids: Sequence[uuid.UUID],

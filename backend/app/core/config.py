@@ -121,6 +121,10 @@ class Settings(BaseSettings):
     sql_statement_timeout_ms: PositiveInt = 5000
     sql_max_rows: PositiveInt = 1000
 
+    # Agent safety cap: live MCP tokens (agent identities) one person may hold. Distinct from a
+    # token's `max_concurrent` (tasks it may claim at once). `VIPER_MCP_MAX_AGENTS_PER_OWNER`.
+    mcp_max_agents_per_owner: Annotated[int, Field(ge=1, le=10_000)] = 100
+
     # Excel/CSV import bounds (ADR-0007): uploads above them are refused with a clear message.
     import_max_file_mb: PositiveInt = 10
     import_max_rows: PositiveInt = 5000
@@ -181,6 +185,18 @@ class Settings(BaseSettings):
     # The task brief always given to the model before it drafts (Paramètres > Prompt initial);
     # unset = the built-in `DEFAULT_INITIAL_PROMPT`.
     contact_initial_prompt: Annotated[str, Field(max_length=8000)] | None = None
+    # The behaviour prompt of the mission-creator assistant (Paramètres > Prompt, mission-creator
+    # slice S1); unset = `DEFAULT_MISSION_CREATOR_PROMPT`. Not a category's general prompt.
+    mission_creator_prompt: Annotated[str, Field(max_length=8000)] | None = None
+    # Voice authoring of a mission (mission-creator slice S6): an OPTIONAL Whisper-compatible
+    # speech-to-text service (`POST {stt_base_url}/audio/transcriptions`, e.g. a local
+    # faster-whisper-server / whisper.cpp server, or any OpenAI-compatible endpoint). Unset = the
+    # browser's own speech recognition is used, else the overlay falls back to typed text. The
+    # key (if the service wants one) is never logged or returned. Environment only.
+    stt_base_url: str | None = None
+    stt_model: Annotated[str, Field(min_length=1, max_length=200)] = "whisper-1"
+    stt_api_key: SecretStr | None = None
+    stt_timeout_ms: Annotated[int, Field(ge=1000, le=300_000)] = 60_000
 
     # CIRCOE Toolbox (S6, handoff Task 15): Infomaniak drafts of validated messages through the
     # Toolbox MCP server (OAuth 2.1 + PKCE). Off by default: everything stays local. « Se connecter
@@ -235,6 +251,9 @@ class Settings(BaseSettings):
         "infomaniak_client_secret",
         "contact_booking_url",
         "contact_initial_prompt",
+        "mission_creator_prompt",
+        "stt_base_url",
+        "stt_api_key",
         "toolbox_mcp_url",
         "toolbox_oauth_redirect_uri",
         "toolbox_token_store_path",
@@ -276,6 +295,11 @@ class Settings(BaseSettings):
     def _base_url(cls, value: str) -> str:
         # `…/v1/` and `…/v1` name the same API root; requests append `/responses`.
         return _http_url(value).rstrip("/")
+
+    @field_validator("stt_base_url")
+    @classmethod
+    def _stt_url(cls, value: str | None) -> str | None:
+        return None if value is None else _http_url(value).rstrip("/")
 
     @field_validator("contact_booking_url")
     @classmethod

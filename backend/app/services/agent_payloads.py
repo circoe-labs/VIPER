@@ -33,6 +33,7 @@ from app.models.missions import Mission, MissionRun
 from app.models.prospects import Prospect, ProspectNote
 from app.models.taxonomies import ActivityCategory, CommercialSegment, Role
 from app.repositories.taxonomies import TaxonomyRow, find_by_label
+from app.services import mission_context
 from app.services.companies import (
     CompanyDetail,
     get_company,
@@ -44,6 +45,11 @@ from app.services.companies import (
 from app.services.contact_channels import normalize_email_address, normalize_phone_number
 from app.services.errors import InvalidFieldError
 from app.services.imports.matching import company_key
+from app.services.mission_output import (
+    OutcomeFields,
+    output_contract,
+    parse_objective,
+)
 
 # Bumped when a result shape changes (`agent-missions.md` §6.3). 2: `find_prospects` companies may
 # carry `establishments` and a `trigger` (ChatGPT handoff, Slice 04; both optional, so a result in
@@ -131,7 +137,7 @@ def evidence_item_fields(
     }
 
 
-class CompanyUpdateResult(BaseModel):
+class CompanyUpdateResult(OutcomeFields):
     """`update_company`: public, verifiable fields only.
 
     The Circoe-internal columns (`project_done_with_circoe`, `project_type`, `circoe_references`,
@@ -181,7 +187,7 @@ class PhoneUpdate(BaseModel):
     type: PhoneType = PhoneType.OTHER
 
 
-class EmployeeUpdateResult(BaseModel):
+class EmployeeUpdateResult(OutcomeFields):
     """`update_employee`: the person's public professional record.
 
     The commercial state, the durable opposition and the verification date stay out: a person
@@ -225,7 +231,7 @@ class PersonProposal(BaseModel):
     evidence: list[Evidence] = Field(default_factory=list, max_length=50)
 
 
-class FindEmployeesResult(BaseModel):
+class FindEmployeesResult(OutcomeFields):
     """`find_employees`: the people of one company who are not in the base yet."""
 
     model_config = ConfigDict(extra="forbid")
@@ -327,7 +333,7 @@ class CompanyProposal(BaseModel):
     )
 
 
-class FindProspectsResult(BaseModel):
+class FindProspectsResult(OutcomeFields):
     """`find_prospects`: companies matching the mission's brief, none of them in the base yet."""
 
     model_config = ConfigDict(extra="forbid")
@@ -341,7 +347,7 @@ class FindProspectsResult(BaseModel):
 # --- `surveil_signals` --------------------------------------------------------------------------
 
 
-class SurveilSignalsResult(BaseModel):
+class SurveilSignalsResult(OutcomeFields):
     """`surveil_signals`: what changed at the company, and why it matters commercially."""
 
     model_config = ConfigDict(extra="forbid")
@@ -401,10 +407,35 @@ INSTRUCTIONS: dict[AgentTaskType, str] = {
 
 # Sent with every mission task (`mission-telemetry.md` §6, §10, §11): sessions are automatic and the
 # agent logs facts. Never a request for reasoning: only what was done and found.
+LIFECYCLE_GUIDANCE: dict[str, Any] = {
+    "finish": (
+        "viper_submit_task_result with this task_id and claim_id: the result is a proposal a "
+        "person reviews; you apply nothing."
+    ),
+    "give_back": (
+        "viper_release_task when you cannot do this task now: it returns to the queue, not "
+        "failed, and your session stays open."
+    ),
+    "stop": (
+        "viper_leave_work when you are done or stopping: hands back every task you hold and ends "
+        "your session in one call (pass task_id to leave only this mission run). Safe to repeat."
+    ),
+    "safety_nets": (
+        "Never required: an unrenewed task lease expires after 15 minutes (the task returns to "
+        "the queue); an idle session closes after 3 hours. They are independent: a closed "
+        "session never strands a task and an expired lease never ends a session."
+    ),
+    "task_limit": (
+        "You may hold at most `max_concurrent_tasks` tasks at once (see viper_whoami); that is "
+        "not a limit on how many conversations or agents a person has."
+    ),
+}
+
 TELEMETRY_GUIDANCE: dict[str, Any] = {
     "session": (
         "Your work session on this mission opens automatically when you claim the task and stays "
-        "alive while you heartbeat or log. Nothing to register, nothing to close."
+        "alive while you heartbeat or log. Nothing to register; end it with viper_leave_work "
+        "(see `lifecycle`) or it closes after 3 hours without activity."
     ),
     "log_tool": "viper_log_mission_activity",
     "event_types": {
@@ -636,6 +667,56 @@ def _existing_people(session: Session, company_id: uuid.UUID) -> list[dict[str, 
     return people
 
 
+def _mission_source_refs(mission: Mission) -> list[dict[str, str | None]]:
+    """The external sources of the mission: its own list, else its category's defaults
+    (`mission_sources.effective_sources`). Without a session (a detached mission) only the loaded
+    own links are known."""
+    from sqlalchemy.orm import object_session
+
+    from app.services import mission_sources
+
+    session = object_session(mission)
+    sources = (
+        mission_sources.effective_sources(session, mission)
+        if session is not None
+        else list(mission.sources)
+    )
+    return [
+        {"url": source.url, "label": source.label, "description": source.description}
+        for source in sources
+    ]
+
+
+def _mission_skill_refs(mission: Mission) -> list[dict[str, str]]:
+    """The effective instruction skills (own list, else the category defaults): text only, they
+    grant no tool. A detached mission (no session) has none to read."""
+    from sqlalchemy.orm import object_session
+
+    from app.services import mission_categories
+
+    session = object_session(mission)
+    if session is None:
+        return []
+    return [
+        {"name": skill.name, "content": skill.content}
+        for skill in mission_categories.effective_skills(session, mission)
+    ]
+
+
+def _mission_category_ref(mission: Mission) -> dict[str, str | None] | None:
+    from sqlalchemy.orm import object_session
+
+    from app.models.mission_categories import MissionCategory
+
+    session = object_session(mission)
+    category = (
+        session.get(MissionCategory, mission.category_id)
+        if session is not None and mission.category_id is not None
+        else None
+    )
+    return {"key": category.key, "name": category.name} if category is not None else None
+
+
 def mission_rule(mission: Mission) -> dict[str, Any]:
     """The rule a run works under: the payload's `mission` block. Kept on each run when it starts
     (`MissionRun.config`), so « Modifier la mission » only changes the next runs."""
@@ -649,8 +730,16 @@ def mission_rule(mission: Mission) -> dict[str, Any]:
         "geography": mission.geography,
         "period_days": mission.period_days,
         "exclusions": mission.exclusions,
+        # The output envelope and the goal this run works under (Slice 04). Snapshotted with the
+        # rest: editing the mission changes only the next runs.
+        "allow_multiple": mission.allow_multiple,
+        "objective": parse_objective(mission.objective),
         # Saved links the agent should read first (« Sources » on the mission form).
-        "sources": [{"url": source.url, "label": source.label} for source in mission.sources],
+        "sources": _mission_source_refs(mission),
+        # Where the instructions come from (Slice 07): the category the `prompt` above defaults
+        # from and the instruction skills in force, snapshotted with the run like the prompt.
+        "category": _mission_category_ref(mission),
+        "skills": _mission_skill_refs(mission),
     }
 
 
@@ -666,6 +755,11 @@ def _task_mission(
     return mission, run.config if run.config is not None else mission_rule(mission)
 
 
+def task_rule(session: Session, task: AgentTask) -> dict[str, Any] | None:
+    """The mission rule a task works under (None for a tool-mode task)."""
+    return _task_mission(session, task)[1]
+
+
 def build_payload(
     session: Session,
     task: AgentTask,
@@ -675,9 +769,16 @@ def build_payload(
 ) -> dict[str, Any]:
     """The JSON an agent receives when it claims `task`. Read-only."""
     thread = session.get(AgentThread, task.thread_id) if task.thread_id else None
-    _, rule = _task_mission(session, task)
+    mission, rule = _task_mission(session, task)
     moment = now or datetime.now(UTC)
     model = result_model(task.type)
+    # A legacy rule (before migration 0049) or a tool-mode task kept the list form.
+    contract = output_contract(
+        task.type,
+        model.model_json_schema(),
+        allow_multiple=bool(rule.get("allow_multiple", True)) if rule else True,
+        result_limit=rule["result_limit"] if rule else None,
+    )
     payload: dict[str, Any] = {
         "task_id": str(task.id),
         "task": task.type.value,
@@ -693,8 +794,12 @@ def build_payload(
         "search_hints": [],
         "known_values": {},
         "known_signals": [],
-        "output_schema": model.model_json_schema(),
+        "output_schema": contract["schema"],
         "output_schema_version": SCHEMA_VERSION,
+        # How to read `output_schema`: envelope, omission rule, outcomes (`mission_output`).
+        "output_contract": {key: value for key, value in contract.items() if key != "schema"},
+        # The goal of this run; VIPER evaluates it from accepted work, not from what you claim.
+        "objective": rule.get("objective") if rule else None,
         "constraints": {
             "no_guessing": True,
             "quote_evidence": True,
@@ -708,6 +813,19 @@ def build_payload(
     }
     if task.run_id is not None:
         payload["telemetry"] = TELEMETRY_GUIDANCE
+        payload["lifecycle"] = LIFECYCLE_GUIDANCE
+    if mission is not None and rule is not None:
+        # A run made before Slice 07 did not snapshot its instruction sources: read them live.
+        if "skills" not in rule:
+            rule = {
+                **rule,
+                "skills": _mission_skill_refs(mission),
+                "category": _mission_category_ref(mission),
+            }
+            payload["mission"] = rule
+        # Supporting VIPER records, read now (current, allowlisted, bounded, read-only). Not the
+        # target: the task's `subject` is. Not evidence either: cite external URLs for that.
+        payload["internal_context"] = mission_context.resolve(session, mission.id)
     match task.type:
         case AgentTaskType.UPDATE_COMPANY:
             if task.company_id is None:

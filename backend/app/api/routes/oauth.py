@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 
 from app.api.dependencies import AuthDep, SessionDep
+from app.api.errors import business_errors
 from app.services import oauth
 from app.services.oauth import OAuthError
 
@@ -56,7 +57,9 @@ def read_request(request_id: uuid.UUID, session: SessionDep) -> OAuthRequestOut:
 @router.post("/requests/{request_id}/approve")
 def approve_request(request_id: uuid.UUID, session: SessionDep, auth: AuthDep) -> OAuthDecisionOut:
     try:
-        redirect = oauth.approve(session, request_id, auth.user)
+        # The agent-identity cap (`agent_cap_reached`, 409) is refused as a business rule.
+        with business_errors():
+            redirect = oauth.approve(session, request_id, auth.user)
     except OAuthError as error:
         raise _not_found(error) from None
     logger.info("oauth.request_approved request=%s by=%s", request_id, auth.user.id)

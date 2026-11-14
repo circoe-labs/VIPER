@@ -459,6 +459,7 @@ def test_a_prospection_mission_finds_new_contacts(client: TestClient, db_session
         targets=[{"kind": "company", "id": str(company.id)}],
         result_kind="prospects",
         run_now=True,
+        allow_multiple=True,
     )
     token = mint(db_session, label="Agent contacts", scopes=["find_employees"])
 
@@ -556,6 +557,7 @@ def test_a_discovery_mission_finds_new_companies(client: TestClient, db_session:
         prompt="Trouve les commissaires au transport de matières dangereuses en Normandie.",
         result_kind="companies",
         run_now=True,
+        allow_multiple=True,
     )
     token = mint(db_session, label="Agent découverte", scopes=["find_prospects"])
 
@@ -642,6 +644,7 @@ def test_task_actions_form_one_review_without_writes_before_acceptance(
         kind=MissionType.PROSPECTION,
         prompt="Cherche des entreprises",
         result_kind="companies",
+        allow_multiple=True,
         run_now=True,
     )
     token = mint(db_session)
@@ -679,6 +682,8 @@ def test_task_actions_form_one_review_without_writes_before_acceptance(
     resumed = rpc(client, token, "viper_claim_task", {})["structuredContent"]
     assert len(resumed["staged_actions"]) == 2
     base = {"task_id": resumed["task_id"], "claim_id": resumed["claim_id"]}
+    # Inside a mission run a discovery task proposes companies only: an update of another record
+    # is not the output contract of this task (Slice 07), whatever the record.
     for name, target, data in [
         (
             "viper_update_company",
@@ -694,26 +699,20 @@ def test_task_actions_form_one_review_without_writes_before_acceptance(
         answer = rpc(
             client, token, name, {**base, **target, "action_id": str(uuid.uuid4()), "result": data}
         )
-        assert answer["isError"] is False, answer
+        assert answer["isError"] is True, answer
+        assert answer["structuredContent"]["code"] == "wrong_target"
     submitted = rpc(client, token, "viper_submit_task_result", {**base, "result": {}})
     assert submitted["isError"] is False, submitted
     result_id = submitted["structuredContent"]["result_id"]
     review = client.get(f"/api/agents/results/{result_id}").json()
-    assert len(review["raw"]["actions"]) == 4
-    assert len(review["proposal"]["items"]) == 4
-    assert review["proposal"]["refused"][0]["reason"] == "unknown"
+    assert len(review["raw"]["actions"]) == 2
+    assert len(review["proposal"]["items"]) == 2
     db_session.expire_all()
     assert (
         db_session.scalar(select(Company).where(Company.display_name == "Nouvelle entreprise"))
         is None
     )
-    assert db_session.get(Company, existing.id).legal_name is None
-    assert db_session.get(Prospect, prospect.id).exact_job_title is None
-    selected = [
-        item["key"]
-        for item in review["proposal"]["items"]
-        if item["action_operation"] != "update_prospect"
-    ]
+    selected = [item["key"] for item in review["proposal"]["items"]]
     accepted = client.post(
         f"/api/agents/results/{result_id}/accept", json={"accepted_items": selected}
     )
@@ -721,7 +720,7 @@ def test_task_actions_form_one_review_without_writes_before_acceptance(
     db_session.expire_all()
     assert db_session.scalar(select(Company).where(Company.display_name == "Nouvelle entreprise"))
     assert db_session.scalar(select(Company).where(Company.display_name == "Autre entreprise"))
-    assert db_session.get(Company, existing.id).legal_name == "Existante SAS"
+    assert db_session.get(Company, existing.id).legal_name is None
     assert db_session.get(Prospect, prospect.id).exact_job_title is None
 
 
@@ -756,6 +755,7 @@ def test_a_signals_mission_stores_dated_sourced_signals(
         targets=[{"kind": "company", "id": str(company.id)}],
         result_kind="signals",
         run_now=True,
+        allow_multiple=True,
     )
     token = mint(db_session, label="Agent veille", scopes=["surveil_signals"])
 
@@ -1064,7 +1064,7 @@ def test_the_agent_receives_the_mission_links(client: TestClient, db_session: Se
     answer = rpc(client, mint(db_session), "viper_claim_task", {"task_types": ["update_company"]})
 
     assert answer["structuredContent"]["mission"]["sources"] == [
-        {"url": "https://www.example.com/annuaire", "label": "Annuaire"}
+        {"url": "https://www.example.com/annuaire", "label": "Annuaire", "description": None}
     ]
 
 

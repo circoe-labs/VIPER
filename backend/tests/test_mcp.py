@@ -58,6 +58,7 @@ def test_initialize_and_tools_list(client: TestClient, db_session: Session) -> N
         "viper_submit_task_result",
         "viper_fail_task",
         "viper_release_task",
+        "viper_leave_work",
         "viper_task_queue",
         "viper_list_companies",
         "viper_get_company",

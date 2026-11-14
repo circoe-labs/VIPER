@@ -1,0 +1,14 @@
+{
+  "project": "VIPER",
+  "repository": "circoe-labs/VIPER",
+  "slug": "viper_mission_agent_configuration_v2",
+  "title": "Mission categories, sources/context, objectives, agent identity and voice authoring",
+  "status": "to-do",
+  "initial_ready_after_pm": [
+    "01",
+    "03",
+    "04"
+  ],
+  "final_convergence_slice": "08",
+  "notes": "Preserve existing Mission/Run/Task/Result, recurrence scheduler, review, MCP auth, leases and telemetry; extend rather than duplicate. Sources include external research knowledge and read-only internal VIPER context references; creator assistant prompt is Settings-managed."
+}

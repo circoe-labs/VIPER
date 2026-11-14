@@ -60,3 +60,31 @@ describe('Paramètres › Prompt initial', () => {
     expect(within(panel()).getByText(/ne peut pas être vide/)).toBeInTheDocument()
   })
 })
+
+describe('Paramètres › Assistant de mission', () => {
+  const missionPanel = () => screen.getByRole('region', { name: 'Assistant de mission' })
+  const missionField = () => within(missionPanel()).findByRole('textbox', { name: 'Comportement de l’assistant' })
+  const MISSION_DEFAULT = integrations().mission_creator_prompt_default
+
+  it('shows the built-in behaviour and saves an edited one under mission_creator_prompt, then resets it', async () => {
+    const { puts } = stub()
+    const user = userEvent.setup()
+    renderApp('/settings/mission-creator')
+
+    const box = await missionField()
+    expect(box).toHaveValue(MISSION_DEFAULT)
+    expect(within(missionPanel()).getByRole('button', { name: 'Rétablir le texte par défaut' })).toBeDisabled()
+    await user.clear(box)
+    await user.type(box, 'Pose une question à la fois.')
+    await user.click(within(missionPanel()).getByRole('button', { name: 'Enregistrer' }))
+
+    expect(await within(missionPanel()).findByText(/Comportement enregistré/)).toBeInTheDocument()
+    expect(puts[0]).toEqual({ version: 0, mission_creator_prompt: 'Pose une question à la fois.' })
+
+    await user.click(within(missionPanel()).getByRole('button', { name: 'Rétablir le texte par défaut' }))
+    expect(await missionField()).toHaveValue(MISSION_DEFAULT)
+    await user.click(within(missionPanel()).getByRole('button', { name: 'Enregistrer' }))
+    await within(missionPanel()).findByText(/Valeur par défaut/)
+    expect(puts[1]).toEqual({ version: 1, mission_creator_prompt: null })
+  })
+})

@@ -1,0 +1,353 @@
+/* The voice mission assistant: an immersive, always-dark surface (it does not follow the light theme on purpose: a
+   black blurred stage the voice fills). Own tokens, scoped to .voice. */
+.voice {
+  --voice-bg: color-mix(in srgb, var(--nc-voice-ink) 84%, transparent);
+  --voice-text: var(--nc-white);
+  --voice-muted: color-mix(in srgb, var(--nc-white) 62%, transparent);
+  --voice-blue: var(--nc-voice-blue);
+  --voice-blue-deep: var(--nc-voice-blue-deep);
+  --voice-danger: var(--nc-voice-danger);
+  --level: 0;
+
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--z-overlay, 100) + 50);
+  display: grid;
+  grid-template-rows: auto 1fr auto auto;
+  grid-template-columns: 1fr;
+  padding: clamp(1rem, 3vw, 2.25rem);
+  color: var(--voice-text);
+  background: var(--voice-bg);
+  backdrop-filter: blur(28px) saturate(0.7);
+  -webkit-backdrop-filter: blur(28px) saturate(0.7);
+  animation: voice-in 220ms ease-out both;
+  outline: none;
+}
+
+@keyframes voice-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.voice button {
+  font: inherit;
+  cursor: pointer;
+}
+
+.voice button:focus-visible,
+.voice input:focus-visible {
+  outline: 2px solid var(--voice-blue);
+  outline-offset: 3px;
+}
+
+/* Close: top-left. */
+.voice__close {
+  grid-row: 1;
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+  padding: 0 1rem 0 0.75rem;
+  color: var(--voice-text);
+  background: color-mix(in srgb, var(--nc-white) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--nc-white) 16%, transparent);
+  border-radius: 999px;
+}
+
+.voice__close:hover {
+  background: color-mix(in srgb, var(--nc-white) 16%, transparent);
+}
+
+.voice__tools {
+  grid-row: 1;
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.voice__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--voice-muted);
+  font-size: 0.9rem;
+}
+
+.voice__dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: var(--voice-muted);
+}
+
+.voice[data-phase='listening'] .voice__dot {
+  background: var(--voice-blue);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--nc-voice-blue) 25%, transparent);
+}
+
+.voice__icon-button {
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  color: var(--voice-text);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--nc-white) 16%, transparent);
+  border-radius: 50%;
+}
+
+.voice__icon-button[aria-pressed='false'] {
+  color: var(--voice-muted);
+}
+
+/* The assistant's answer: first third, large white. */
+.voice__stage {
+  grid-row: 2;
+  align-self: start;
+  display: grid;
+  gap: 1.25rem;
+  width: min(100%, 52rem);
+  margin: clamp(2rem, 11vh, 7rem) auto 0;
+}
+
+.voice__assistant {
+  margin: 0;
+  font-size: clamp(1.75rem, 4.2vw, 3.1rem);
+  font-weight: 600;
+  line-height: 1.18;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+  animation: voice-rise 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.voice[data-phase='thinking'] .voice__assistant {
+  opacity: 0.55;
+}
+
+@keyframes voice-rise {
+  from {
+    opacity: 0;
+    transform: translateY(0.6rem);
+  }
+}
+
+.voice__applied {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.voice__applied li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: 100%;
+  padding: 0.3rem 0.7rem;
+  color: var(--voice-muted);
+  font-size: 0.85rem;
+  background: color-mix(in srgb, var(--nc-white) 7%, transparent);
+  border-radius: 999px;
+  overflow-wrap: anywhere;
+}
+
+.voice__applied svg {
+  flex: none;
+  color: var(--voice-blue);
+}
+
+.voice__error {
+  grid-row: 3;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  width: min(100%, 52rem);
+  margin: 0 auto 1rem;
+  padding: 0.75rem 1rem;
+  color: var(--voice-danger);
+  background: color-mix(in srgb, var(--nc-voice-alert) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--nc-voice-danger) 35%, transparent);
+  border-radius: 0.75rem;
+}
+
+.voice__error span:first-of-type {
+  flex: 1 1 16rem;
+}
+
+.voice__error-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.voice__error-actions button {
+  padding: 0.35rem 0.8rem;
+  color: var(--voice-text);
+  background: color-mix(in srgb, var(--nc-white) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--nc-white) 20%, transparent);
+  border-radius: 999px;
+}
+
+/* The person's words: lower area, blue; the orb: bottom-right. */
+.voice__foot {
+  grid-row: 4;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1.5rem;
+}
+
+.voice__speech {
+  display: grid;
+  gap: 0.75rem;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 44rem;
+}
+
+.voice__hint {
+  margin: 0;
+  color: var(--voice-muted);
+  font-size: 0.9rem;
+}
+
+.voice__transcript {
+  min-height: 2.6em;
+  margin: 0;
+  color: var(--voice-blue);
+  font-size: clamp(1.15rem, 2.2vw, 1.6rem);
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.voice__transcript.is-live {
+  opacity: 0.8;
+  font-style: italic;
+}
+
+.voice__typed {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.voice__typed input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 2.75rem;
+  padding: 0 1rem;
+  color: var(--voice-text);
+  font: inherit;
+  background: color-mix(in srgb, var(--nc-white) 7%, transparent);
+  border: 1px solid color-mix(in srgb, var(--nc-white) 18%, transparent);
+  border-radius: 999px;
+}
+
+.voice__typed input::placeholder {
+  color: var(--voice-muted);
+}
+
+.voice__typed button {
+  padding: 0 1.1rem;
+  color: var(--nc-voice-on-light);
+  font-weight: 600;
+  background: var(--voice-text);
+  border: 0;
+  border-radius: 999px;
+}
+
+.voice__typed button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.voice__orb {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 6.5rem;
+  height: 6.5rem;
+  padding: 0;
+  color: var(--nc-white);
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+}
+
+.voice__orb:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.voice__orb-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--nc-voice-blue) 55%, transparent), transparent 70%);
+  transform: scale(calc(0.72 + var(--level) * 0.9));
+  transition: transform 90ms linear;
+}
+
+.voice__orb-core {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 4.25rem;
+  height: 4.25rem;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, var(--nc-voice-glow), var(--voice-blue-deep) 72%);
+  box-shadow: 0 0 2.5rem color-mix(in srgb, var(--nc-voice-blue-deep) 55%, transparent);
+}
+
+.voice[data-phase='thinking'] .voice__orb-ring,
+.voice[data-phase='transcribing'] .voice__orb-ring,
+.voice[data-phase='speaking'] .voice__orb-ring {
+  animation: voice-pulse 1.4s ease-in-out infinite;
+}
+
+.voice[data-phase='idle'] .voice__orb-core {
+  filter: saturate(0.5) brightness(0.8);
+}
+
+@keyframes voice-pulse {
+  50% {
+    transform: scale(1.05);
+    opacity: 0.6;
+  }
+}
+
+@media (max-width: 40rem) {
+  .voice__close-text {
+    display: none;
+  }
+
+  .voice__close {
+    padding: 0;
+    width: 2.75rem;
+    justify-content: center;
+  }
+
+  .voice__foot {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+
+  .voice__orb {
+    align-self: flex-end;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice,
+  .voice__assistant,
+  .voice__orb-ring {
+    animation: none;
+    transition: none;
+  }
+}

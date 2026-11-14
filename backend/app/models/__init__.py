@@ -10,6 +10,18 @@ from app.models.contact_sequences import Cohort, ContactSequence
 from app.models.contact_tracking import ContactTracking, ContactTrackingStatusHistory
 from app.models.imports import ImportBatch, ImportRowMetadata
 from app.models.mcp import McpCall, McpToken
+from app.models.mission_categories import (
+    MissionCategory,
+    MissionCategorySkill,
+    MissionSkill,
+    MissionSkillLink,
+)
+from app.models.mission_sources import (
+    MissionCategorySource,
+    MissionContextRef,
+    MissionEvidenceCitation,
+    MissionSourceContribution,
+)
 from app.models.mission_telemetry import MissionAgentLog, MissionAgentSession
 from app.models.missions import (
     Mission,
@@ -53,8 +65,16 @@ __all__ = [
     "Mission",
     "MissionAgentLog",
     "MissionAgentSession",
+    "MissionCategory",
+    "MissionCategorySkill",
+    "MissionCategorySource",
+    "MissionContextRef",
+    "MissionEvidenceCitation",
     "MissionRun",
+    "MissionSkill",
+    "MissionSkillLink",
     "MissionSource",
+    "MissionSourceContribution",
     "MissionSourceLink",
     "MissionTarget",
     "OAuthAuthorization",

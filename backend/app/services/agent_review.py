@@ -37,7 +37,7 @@ from app.models.enums import (
 from app.models.prospects import Prospect, ProspectNote
 from app.models.taxonomies import Role
 from app.repositories.taxonomies import find_by_label
-from app.services import audit, companies, prospect_editor
+from app.services import audit, companies, mission_sources, prospect_editor
 from app.services.agent_payloads import site_place
 from app.services.companies import CompanyInput, EstablishmentInput, EstablishmentView, get_company
 from app.services.contact_channels import ChannelItem
@@ -551,6 +551,9 @@ def accept(
     task.failure_code = None
     task.failure_message = None
     session.flush()
+    # The accepted items are the successful contributions: their cited sources are credited once
+    # (idempotent; a visit or an unaccepted item never counts).
+    mission_sources.credit_accepted_result(session, result, task, sorted(chosen))
     audit.record_event(
         session,
         actor,
@@ -561,7 +564,21 @@ def accept(
         changes={"status": {"before": "pending_review", "after": "accepted"}},
         reason=note,
     )
+    _settle_run(session, task)
     return result
+
+
+def _settle_run(session: Session, task: AgentTask) -> None:
+    """An accepted result may fulfil its run's objective (and close a one-off mission) right
+    away instead of at the scheduler's next pass. Imported here: `missions` imports this layer."""
+    if task.run_id is None:
+        return
+    from app.models.missions import MissionRun
+    from app.services import missions
+
+    run = session.get(MissionRun, task.run_id)
+    if run is not None:
+        missions.refresh_run(session, run)
 
 
 def _apply_task(

@@ -166,9 +166,9 @@ in [`agent-missions.md`](agent-missions.md):
 
 | Tool | Intent |
 |---|---|
-| `viper_claim_task` | Claim the next task matching the token's scopes; returns the payload (subject, missing fields, sources, `output_schema`) |
+| `viper_claim_task` | Claim the next task matching the token's scopes; returns the payload (subject, missing fields, sources, `output_schema`, `output_contract`, `objective`) |
 | `viper_heartbeat_task` | Renew the lease |
-| `viper_submit_task_result` | Submit the result against the type's schema — stored, never applied |
+| `viper_submit_task_result` | Submit the result against the task's output contract — stored, never applied. Omit unchanged fields; one item unless the contract says `list`; `outcome: not_found` / `blocked` with `notes` and no data when there is nothing to propose (`agent-missions.md` §7.4) |
 | `viper_fail_task` / `viper_release_task` | Give the task back, with or without a failure code |
 | `viper_task_queue` | Count of available tasks, for cheap polling |
 
@@ -637,6 +637,51 @@ admins and the platform admin only. A `manager` is treated like a `member` here.
   so for that person they do not exist, and a member cannot probe which agent ids are live.
 - Creating a token (`POST /api/settings/mcp/agents`) is unchanged: it is bounded by the creator's
   role (§4.7).
+
+### 4.9 Agent identity numbering, identity cap and « leave work » (task `viper_mission_agent_configuration_v2`, Slice 03)
+
+Code: `backend/app/services/agent_identity.py`, `agent_lifecycle.py`, migration `0048`. Still no
+separate principal: the `mcp_tokens` row is the agent.
+
+- **Numbered label.** `mcp_tokens.instance_number` is the `#N` of the identity label
+  « ChatGPT lucie #2 » = provider (`ChatGPT`, `Claude`, `ChatX`, `Agent`) + owner (local part of
+  `owner_email`, omitted when none) + `#N`. It is the actor display of every claim, submission,
+  audit event and mission session (`mcp_tokens.actor_for`, so « Activity » tells concurrent
+  conversations apart). `label` stays the descriptive name the person gave; the read models
+  (`GET /api/settings/mcp/agents`, « Accès autorisés ») carry both (`label`, `display_label`,
+  `instance_number`) and `viper_whoami` adds `identity`, `instance_number`, `max_concurrent_tasks`.
+- **Allocation** (`agent_identity.allocate`, called by `mcp_tokens.mint`, hence by OAuth approval,
+  « Créer un jeton » and the CLI — the single allocator): the smallest positive number not held by
+  a **live** token of the same (owner, provider). Deterministic and auditable: a revoked token
+  keeps its number on its row (history) but frees it, so the next token reuses it. A transaction
+  advisory lock per owner serialises allocation; the partial unique index
+  `uq_mcp_tokens_live_instance (coalesce(owner_email,''), provider, instance_number) WHERE revoked_at
+  IS NULL` is the backstop. Migration `0048` numbers existing live tokens by creation order.
+- **Scheduled identities** stay live while idle (no idle expiry), so their number is never handed
+  to another conversation while the token exists. Limit: after its revocation a scheduled number is
+  reusable like any other.
+- **Per-owner safety cap**: at most `VIPER_MCP_MAX_AGENTS_PER_OWNER` (default **100**, 1…10000,
+  `Settings.mcp_max_agents_per_owner`) live tokens per owner; beyond it minting is refused
+  `409 agent_cap_reached` (`limit`, `held` in the details; OAuth approval and « Créer un jeton »
+  use `business_errors`, the CLI prints the message). This is **not** `max_concurrent`.
+- **`max_concurrent`** (default 3, `--max-concurrent`) is *task concurrency*: how many tasks one
+  token may hold claimed at once. A claim beyond it is refused « This agent already holds N claimed
+  tasks (task concurrency limit: …) ». It never limits the number of tokens.
+- **`viper_leave_work`** (`tasks.work`; optional `task_id`): « I am done / stopping ». Composes the
+  existing primitives, no new lifecycle: every claimed task of the caller goes back to `pending`
+  (`agent_missions.release_claimed`, same audit as `viper_release_task`, no claim id needed) and the
+  caller's active mission sessions end `agent_ended` (`mission_telemetry.end_own_active_sessions`).
+  With `task_id`, only the run of that task (its tasks held by the caller and its session).
+  Answers `{released_tasks, ended_sessions, scope: all|run}`; idempotent (zeros the second time);
+  unknown `task_id` is `not_found`. Fallback aggregate for the mission-level « leave » that Slice 07
+  may reuse as `agent_lifecycle.leave_work`. Slice 07 decision: the mission-level « leave » **is**
+  this call (`task_id` = the run), nothing more is needed; the claim payload's `lifecycle` and
+  `agent` blocks tell the agent so (`missions.md` §5).
+- **Independence of the two safety nets.** Never required: the 15-minute task lease
+  (`agent_missions.sweep_expired`) and the 3-hour session timeout
+  (`mission_telemetry.sweep_timed_out`, unchanged) touch disjoint data — a timed-out session never
+  releases or strands a claimed task, an expired lease never ends a session (heartbeat, claim,
+  submit, fail and release all `touch_session`, so a live task keeps its session alive).
 
 ## 5. Rollout
 

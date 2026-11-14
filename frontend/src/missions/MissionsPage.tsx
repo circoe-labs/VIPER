@@ -15,6 +15,7 @@ import { Menu } from '../ui/Menu'
 import { CreateMissionDialog } from './CreateMissionDialog'
 import { DeleteMissionDialog } from './DeleteMissionDialog'
 import { momentLabel } from './labels'
+import { VoiceAssistantEntry } from './voice/VoiceAssistantEntry'
 import { MissionCardTile, type OpenMenu } from './MissionCardTile'
 import { MissionsKpiBar } from './MissionsKpiBar'
 import { DEFAULT_FILTERS, filterMissions, isFiltered, type ListFilters, sortMissions } from './missionsListModel'
@@ -169,6 +170,7 @@ export function MissionsPage() {
       )}
       <CreateMissionDialog
         open={creating}
+        assistantSlot={(form, { submit }) => <VoiceAssistantEntry form={form} submit={submit} />}
         onClose={() => {
           setCreating(false)
         }}
