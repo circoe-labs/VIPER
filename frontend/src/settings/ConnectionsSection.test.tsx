@@ -36,7 +36,7 @@ describe('Paramètres › Connexions', () => {
     expect(list).toHaveTextContent('infomaniak.mail.create_draft')
     expect(list).toHaveTextContent('Brouillons')
     expect(card()).toHaveTextContent('2 méthodes autorisées')
-    expect(card()).not.toHaveTextContent('30 jours')
+    expect(card()).not.toHaveTextContent('Valable jusqu’au')
 
     const toolCalls = () => fetchMock.mock.calls.filter(([url]) => (url as string).endsWith('/settings/toolbox/tools')).length
     const before = toolCalls()
@@ -110,7 +110,7 @@ describe('Paramètres › Connexions', () => {
     })
     expect(toggle).toBeChecked()
     expect(dispatchCard()).toHaveTextContent(
-      'VIPER envoie chaque mail programmé à l’heure choisie (à 30 secondes près) via CIRCOE Toolbox.',
+      'à l’heure choisie (à 30 secondes près)',
     )
     expect(dispatchCard()).not.toHaveTextContent(/Fréquence de vérification|désactivé par défaut/i)
     expect(within(dispatchCard()).getByRole('textbox', { name: 'Délai maximal avant envoi (secondes)' })).not.toBeVisible()

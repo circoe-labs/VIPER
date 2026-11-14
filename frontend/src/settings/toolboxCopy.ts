@@ -119,7 +119,7 @@ export function dispatchBacklog(data: Integrations): string | null {
 }
 
 export const LIMITATIONS = [
-  'Expéditeur : la boîte Infomaniak par défaut du compte connecté. Le champ « De » de VIPER n’est pas transmis à la Toolbox.',
+  'Expéditeur : la boîte Infomaniak par défaut du compte connecté à la Toolbox. C’est elle, et elle seule, qui envoie : VIPER n’a pas d’autre adresse « De » à régler.',
   'La connexion dure 30 jours, sans renouvellement automatique : il faut la refaire à l’échéance.',
   'Une seule connexion pour tout VIPER, celle de la personne qui l’a établie.',
   '« Se déconnecter » efface l’accès dans VIPER seulement : la Toolbox ne propose pas de révocation, l’accès expire de lui-même.',

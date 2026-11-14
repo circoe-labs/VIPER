@@ -4,6 +4,7 @@ import { useMcpSettings } from '../api/mcpSettings'
 import { useToolboxStatus } from '../api/toolbox'
 import { StatusBadge } from '../ui/Badge'
 import { PageHeader } from '../ui/PageHeader'
+import { CalendlySection } from '../settings/CalendlyCard'
 import { ConnectionsSection } from '../settings/ConnectionsSection'
 import { McpSection } from '../settings/McpSection'
 import { MissionCreatorPromptSection, PromptSection } from '../settings/PromptSection'
@@ -13,6 +14,7 @@ import '../settings/settings.css'
 // `connections` is also the OAuth return page of the CIRCOE Toolbox (`/settings/connections` redirects here, query kept).
 const SECTIONS = {
   connections: { title: 'Connexions', Section: ConnectionsSection },
+  calendly: { title: 'Calendly', Section: CalendlySection },
   mcp: { title: 'MCP', Section: McpSection },
   prompt: { title: 'Prompt initial', Section: PromptSection },
   'mission-creator': { title: 'Assistant de mission', Section: MissionCreatorPromptSection },

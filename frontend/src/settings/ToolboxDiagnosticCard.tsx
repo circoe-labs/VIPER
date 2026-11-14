@@ -274,7 +274,7 @@ export function ToolboxDiagnosticCard() {
       id="toolbox-test"
       icon={TerminalIcon}
       title="Tester la Toolbox"
-      subtitle="Joue toutes les opérations mail sur une adresse de test et montre où ça casse."
+      subtitle="Joue toutes les opérations mail (brouillons, accents, modification, suppression, refus et, si coché, un envoi programmé réel : un brouillon est programmé, sa date est changée, puis un vrai mail part) sur une adresse de test et montre où ça casse."
       badge={verdict ? (verdict.ok ? { tone: 'success', label: 'Dernier test réussi' } : { tone: 'danger', label: 'Dernier test en échec' }) : undefined}
     >
       <form
@@ -291,7 +291,7 @@ export function ToolboxDiagnosticCard() {
           type="email"
           autoComplete="off"
           value={recipient}
-          hint="Tous les brouillons et l’envoi réel vont à cette seule adresse : une boîte à vous, jamais un prospect."
+          info="Tous les brouillons et l’envoi réel vont à cette seule adresse : une boîte à vous, jamais un prospect."
           onChange={(event) => {
             setRecipient(event.target.value)
           }}
@@ -299,7 +299,7 @@ export function ToolboxDiagnosticCard() {
         <Switch
           label="Envoyer pour de vrai"
           checked={sendReal}
-          hint="Un brouillon est programmé, sa date est changée, puis un vrai mail part à l’adresse de test."
+          hint="Un vrai mail part à l’adresse de test."
           onChange={(event) => {
             setSendReal(event.target.checked)
           }}
@@ -311,7 +311,7 @@ export function ToolboxDiagnosticCard() {
             min={DIAGNOSTIC_DELAY.min}
             max={DIAGNOSTIC_DELAY.max}
             value={delay}
-            hint={`Entre ${String(DIAGNOSTIC_DELAY.min)} et ${String(DIAGNOSTIC_DELAY.max)} s ; le test dure un peu plus.`}
+            info={`Entre ${String(DIAGNOSTIC_DELAY.min)} et ${String(DIAGNOSTIC_DELAY.max)} s ; le test dure un peu plus.`}
             error={delayValid ? undefined : 'Valeur hors limites.'}
             onChange={(event) => {
               setDelay(Number(event.target.value))

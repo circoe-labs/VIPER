@@ -1,0 +1,81 @@
+/* Config AI > Connexions / Calendly: the cards in a responsive grid that uses the whole panel width, equal height,
+   with the action row pinned to the bottom. Selectors are doubled on `.settings-connections` so they win over the
+   single-column rules of settings.css whatever the import order. */
+.settings-connections {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+  gap: var(--space-5);
+}
+
+.settings-connections > .settings-connection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+  max-width: none;
+}
+
+.settings-connections > .settings-connection--wide {
+  grid-column: 1 / -1;
+}
+
+.settings-connections .settings-form {
+  max-width: none;
+}
+
+.settings-connections .settings-connection__actions {
+  margin-top: auto;
+}
+
+@media (max-width: 56rem) {
+  .settings-connections {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* The title and its « i » sit on one line; the badge stays at the end of the header. */
+.settings-connections .settings-connection__heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.settings-connection__limits {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-4);
+}
+
+/* Calendly: the next meetings, one line each. */
+.settings-appointments {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.settings-appointments li {
+  display: grid;
+  grid-template-columns: minmax(9rem, 12rem) minmax(0, 1fr) minmax(0, 1fr);
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-top: var(--border-width) solid var(--color-border);
+}
+
+@media (max-width: 40rem) {
+  .settings-appointments li {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-1);
+  }
+}
+
+/* The key field keeps the card full width; Remplacer / Effacer sit under it. */
+.settings-connections .settings-secret {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.settings-connections .settings-secret__actions {
+  margin-top: 0;
+}

@@ -37,6 +37,7 @@ CAPABILITIES = {
     "viper_list_pending_reviews": "reviews.read",
     "viper_get_contact_overview": "contact.read",
     "viper_get_prospect_messages": "contact.read",
+    "viper_list_calendly_appointments": "contact.read",
 }
 
 

@@ -75,6 +75,7 @@ def test_initialize_and_tools_list(client: TestClient, db_session: Session) -> N
         "viper_list_pending_reviews",
         "viper_get_contact_overview",
         "viper_get_prospect_messages",
+        "viper_list_calendly_appointments",
         "viper_mission_options",
         "viper_create_mission",
         "viper_update_mission",

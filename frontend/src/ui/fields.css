@@ -190,3 +190,9 @@
   background: var(--color-accent-fg);
   transform: translateX(1rem);
 }
+
+.field__label-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
