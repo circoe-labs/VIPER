@@ -1,11 +1,15 @@
-// What the Contact page shows lives in the URL (`/contact?section=CONTACTES&prospect=…`), like Prospection's criteria.ts:
-// refresh, Back and deep links restore it. Defaults are omitted.
-import { CONTACT_SECTIONS, type ContactListCriteria, type ContactSection } from '../api/contact'
+// What the Contact page shows lives in the URL (`/contact?view=follow_ups&q=…&prospect=…`), like Prospection's criteria.ts:
+// refresh, Back and deep links restore it. Defaults are omitted. `view` names the commercial list (commercialModel.ts);
+// the former `section=CONTACTES` still opens the « contacted » list, so old bookmarks keep working.
+import { CONTACTED, type ContactListCriteria } from '../api/contact'
 import { TRACKING_STATUSES } from '../api/prospection'
+import { CONTACT_VIEWS, type ContactViewKey } from './commercialModel'
 
 export interface ContactView {
-  // The section a prospect was opened from: closing the workbench gives that section back, open.
-  section: ContactSection | null
+  // The commercial list shown (and given back when the workbench closes); null = the page default (`to_contact`).
+  view: ContactViewKey | null
+  // ISO week (`2026-W42`) of the « to contact » list; null = this week, overdue included.
+  week: string | null
   q: string
   status: string | null
   company: string | null
@@ -13,13 +17,15 @@ export interface ContactView {
   prospect: string | null
 }
 
-export const DEFAULT_VIEW: ContactView = { section: null, q: '', status: null, company: null, prospect: null }
+export const DEFAULT_VIEW: ContactView = { view: null, week: null, q: '', status: null, company: null, prospect: null }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 // Hand-edited or stale URLs never break the page: anything malformed falls back to its default.
 export function parseView(params: URLSearchParams): ContactView {
-  const section = params.get('section')?.toUpperCase() ?? null
+  const asked = params.get('view')
+  const legacy = params.get('section')?.toUpperCase() === CONTACTED ? 'contacted' : null
+  const week = params.get('week')
   const prospect = params.get('prospect')
   const company = params.get('company')
   const status = params.get('status')
@@ -28,7 +34,8 @@ export function parseView(params: URLSearchParams): ContactView {
     /^level:(contact_pending|contact_sent|r(?:[1-9]|1\d|20)_sent|finished)$/.test(status)
   )
   return {
-    section: CONTACT_SECTIONS.find((code) => code === section) ?? null,
+    view: CONTACT_VIEWS.find((key) => key === asked) ?? legacy,
+    week: week !== null && /^\d{4}-W\d{2}$/.test(week) ? week : null,
     q: params.get('q') ?? '',
     status: validStatus ? status : null,
     company: company === 'none' || (company !== null && UUID.test(company)) ? company : null,
@@ -46,9 +53,9 @@ export function serializeView(view: Partial<ContactView>): URLSearchParams {
   return params
 }
 
-// The list of one section under the search box.
-export function listCriteria(view: ContactView, section: ContactSection | null = view.section): ContactListCriteria {
-  return { section, q: view.q.trim(), status: view.status, company: view.company }
+// The filters shared by every list and by the overview, under the search box.
+export function listCriteria(view: ContactView): ContactListCriteria {
+  return { section: view.view === 'contacted' ? CONTACTED : null, q: view.q.trim(), status: view.status, company: view.company }
 }
 
 export function contactHref(view: Partial<ContactView> = {}): string {
