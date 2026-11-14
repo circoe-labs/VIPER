@@ -10,7 +10,7 @@ function table() {
   return screen.getByRole('table', { name: 'Liste des entreprises' })
 }
 
-describe('Companies page', () => {
+describe('Companies (Prospection entity=company)', () => {
   it('filters company types and reloads the category after editing the existing company file', async () => {
     stubCompaniesApi({ companies: [
       company('Petit atelier', { company_kind: 'sme' }),
@@ -18,16 +18,17 @@ describe('Companies page', () => {
       company('Mairie exemple', { company_kind: 'institutional' }),
       company('Sans classement'),
     ] })
-    renderApp('/prospection/companies')
+    renderApp('/prospection?entity=company')
     const categories = screen.getByRole('group', { name: 'Type d’entreprise' })
     await screen.findByRole('button', { name: 'Petit atelier' })
-    for (const [label, name] of [
+    const kinds: [string, string][] = [
       ['Institutionnelles', 'Mairie exemple'],
       ['PME', 'Petit atelier'],
       ['Grosses entreprises', 'Grand groupe'],
       ['À classer', 'Sans classement'],
-    ]) {
-      await userEvent.click(within(categories).getByRole('button', { name: label }))
+    ]
+    for (const [label, name] of kinds) {
+      await userEvent.click(within(categories).getByRole('button', { name: new RegExp(`^${label}`) }))
       await waitFor(() => {
         expect(within(table()).getAllByRole('row')).toHaveLength(2)
         expect(within(table()).getByRole('button', { name })).toBeInTheDocument()
@@ -37,21 +38,10 @@ describe('Companies page', () => {
     const drawer = await screen.findByRole('dialog', { name: 'Sans classement' })
     await userEvent.selectOptions(within(drawer).getByRole('combobox', { name: 'Type d’entreprise' }), 'sme')
     await userEvent.click(within(drawer).getByRole('button', { name: 'Enregistrer' }))
-    expect(await screen.findByText('Aucune entreprise dans cette catégorie.')).toBeInTheDocument()
+    expect(await screen.findByText('Aucune entreprise ne correspond à ces critères.')).toBeInTheDocument()
     await userEvent.keyboard('{Escape}')
-    await userEvent.click(within(categories).getByRole('button', { name: 'PME' }))
+    await userEvent.click(within(categories).getByRole('button', { name: /^PME/ }))
     expect(await within(await screen.findByRole('table', { name: 'Liste des entreprises' })).findByRole('button', { name: 'Sans classement' })).toBeInTheDocument()
-  })
-
-  it('is a secondary page of Prospection, reachable from its header', async () => {
-    stubCompaniesApi({ companies: [company('Transports Exemple')] })
-    renderApp('/prospection')
-
-    await userEvent.click(screen.getByRole('link', { name: 'Entreprises' }))
-
-    expect(screen.getByRole('heading', { level: 1, name: 'Entreprises' })).toBeInTheDocument()
-    const navigation = screen.getByRole('navigation', { name: 'Navigation principale' })
-    expect(within(navigation).getByRole('link', { name: 'Prospection' })).toHaveAttribute('aria-current', 'page')
   })
 
   it('lists the companies with their identifiers, primary city, segment and counts', async () => {
@@ -72,7 +62,7 @@ describe('Companies page', () => {
         }),
       ],
     })
-    renderApp('/prospection/companies')
+    renderApp('/prospection?entity=company')
 
     const row = await screen.findByRole('row', { name: /Transports Exemple/ })
     expect(within(row).getAllByRole('cell').map((cell) => cell.textContent)).toEqual([
@@ -90,7 +80,7 @@ describe('Companies page', () => {
 
   it('searches through the API and says when nothing matches', async () => {
     const api = stubCompaniesApi({ companies: [company('Transports Exemple'), company('Logistique Témoin')] })
-    renderApp('/prospection/companies')
+    renderApp('/prospection?entity=company')
     await screen.findByRole('button', { name: 'Logistique Témoin' })
 
     await userEvent.type(screen.getByRole('searchbox'), 'TEMOIN')
@@ -101,15 +91,15 @@ describe('Companies page', () => {
 
     await userEvent.clear(screen.getByRole('searchbox'))
     await userEvent.type(screen.getByRole('searchbox'), 'introuvable')
-    expect(await screen.findByText('Aucune entreprise ne correspond à « introuvable ».')).toBeInTheDocument()
+    expect(await screen.findByText('Aucune entreprise ne correspond à ces critères.')).toBeInTheDocument()
   })
 
   it('pages through long lists', async () => {
     const api = stubCompaniesApi({
       companies: Array.from({ length: 55 }, (_, index) => company(`Entreprise ${String(index + 1).padStart(2, '0')}`)),
     })
-    renderApp('/prospection/companies')
-    const pager = await screen.findByRole('navigation', { name: 'Pages de la liste' })
+    renderApp('/prospection?entity=company')
+    const pager = await screen.findByRole('navigation', { name: 'Pages des entreprises' })
     expect(pager).toHaveTextContent('1–50 sur 55')
     expect(within(pager).getByRole('button', { name: 'Précédentes' })).toBeDisabled()
 
@@ -124,7 +114,7 @@ describe('Companies page', () => {
 
   it('shows an empty state that creates the first company', async () => {
     stubCompaniesApi()
-    renderApp('/prospection/companies')
+    renderApp('/prospection?entity=company')
 
     expect(await screen.findByRole('heading', { level: 2, name: 'Aucune entreprise pour l’instant' })).toBeInTheDocument()
     const buttons = screen.getAllByRole('button', { name: 'Nouvelle entreprise' })
@@ -135,7 +125,7 @@ describe('Companies page', () => {
 
   it('refreshes the list after a save in the editor', async () => {
     stubCompaniesApi({ companies: [company('Transports Exemple')] })
-    renderApp('/prospection/companies')
+    renderApp('/prospection?entity=company')
     await userEvent.click(await screen.findByRole('button', { name: 'Transports Exemple' }))
     const name = await screen.findByRole('textbox', { name: /Nom de l’entreprise/ })
     await waitFor(() => {
@@ -162,7 +152,7 @@ describe('Companies page', () => {
         })
       })
     })
-    renderApp('/prospection/companies')
+    renderApp('/prospection?entity=company')
     await screen.findByRole('button', { name: 'Transports Exemple' })
     await userEvent.type(screen.getByRole('searchbox'), 'Exemple')
     await waitFor(() => {

@@ -3,5 +3,5 @@
 - [ ] 02 prospection-base-ux
 - [ ] 03 contact-commercial-ux
 - [ ] 04 home-pilotage-ux
-- [ ] 05 navigation-deeplinks (after 02+03+04)
+- [x] 05 navigation-deeplinks (impl done; contact-in-sidebar decision open, see LOG)
 - [ ] 06 integration-e2e (after all)

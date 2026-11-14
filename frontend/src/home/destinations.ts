@@ -1,10 +1,13 @@
-// The ONE place where a Home card learns where it leads. Slice 05 (navigation / deep-links) freezes the final query
-// params of Prospection and Contact and updates this module only; HomePage and the cockpit adapter never build a URL.
+// The ONE place where a Home card learns where it leads. HomePage and the cockpit adapter never build a URL.
 //
-// PROVISIONAL (removal condition: Slices 02/03 publish their final params, Slice 05 reconciles): `entity` (Prospection
-// selector prospect|company|warehouse) and Contact's `status=` values are agreed in the task architecture but not yet
-// consumed by the pages. `review` and `created_from` already exist in prospection/criteria.ts. /missions has no filter
-// params yet, so the missions cards lead to the page itself rather than to an invented filter.
+// FROZEN query params (Slice 05), each consumed by the destination page and URL-serialised by its criteria module:
+//  - Contact (`contact/criteria.ts`, `contact/commercialModel.ts`): `view=to_contact|follow_ups|overdue|contacted|responses|
+//    appointments|mail_errors`, optional `week=YYYY-Www`. NOT `status=` (that is a tracking-state filter of the page).
+//  - Prospection (`prospection/criteria.ts`): `entity=company|warehouse` (prospect is the default and is spelled out only
+//    for readability), `created_from` / `created_to` (prospects and companies only), `review=to_verify|…`,
+//    `warehouse_category`, `warehouse_to_contact`.
+// The Entrepôts list has no creation-date filter (GET /warehouses takes none), so « Nouveaux entrepôts » leads to the
+// warehouse list unfiltered rather than to a list that pretends to be filtered. /missions has no filter params yet.
 
 export type HomeCardId =
   | 'new_prospects'
@@ -19,7 +22,7 @@ export type HomeCardId =
   | 'reviews_pending'
 
 export interface DestinationContext {
-  // First day of the current week (ISO date) as reported by the dashboard.
+  // First day of the current week (ISO date) as reported by GET /api/metrics/weekly.
   weekStart: string | undefined
 }
 
@@ -31,10 +34,10 @@ function href(path: string, params: Record<string, string | undefined>): string 
 export const HOME_DESTINATIONS: Record<HomeCardId, (context: DestinationContext) => string> = {
   new_prospects: ({ weekStart }) => href('/prospection', { entity: 'prospect', created_from: weekStart }),
   new_companies: ({ weekStart }) => href('/prospection', { entity: 'company', created_from: weekStart }),
-  new_warehouses: ({ weekStart }) => href('/prospection', { entity: 'warehouse', created_from: weekStart }),
-  appointments: () => href('/contact', { status: 'appointment' }),
-  to_contact: () => href('/contact', { status: 'to_contact' }),
-  due: () => href('/contact', { status: 'due' }),
+  new_warehouses: () => href('/prospection', { entity: 'warehouse' }),
+  appointments: () => href('/contact', { view: 'appointments' }),
+  to_contact: () => href('/contact', { view: 'to_contact' }),
+  due: () => href('/contact', { view: 'follow_ups' }),
   to_verify: () => href('/prospection', { entity: 'prospect', review: 'to_verify' }),
   missions_active: () => '/missions',
   missions_done: () => '/missions',

@@ -8,7 +8,6 @@ import { ResetPasswordPage } from './auth/ResetPasswordPage'
 import { OAuthConsentPage } from './auth/OAuthConsentPage'
 import { RequireAdmin } from './auth/RequireAdmin'
 import { RequireAuth } from './auth/RequireAuth'
-import { CompaniesPage } from './companies/CompaniesPage'
 import { ConfigAiPage } from './config-ai/ConfigAiPage'
 import { ContactPage } from './contact/ContactPage'
 import { DatabasePage } from './database/DatabasePage'
@@ -47,6 +46,15 @@ function ValidatedProspectsRedirect() {
   params.set('validated_only', 'true')
   params.set('sort', 'company')
   params.set('list', '1')
+  return <Navigate to={`/prospection?${params.toString()}${location.hash}`} replace />
+}
+
+// The former Entreprises page is the `entity=company` view of Prospection; its own parameters (`created_from`, `q`…)
+// are the same names, so the query string travels as is.
+function CompaniesRedirect() {
+  const location = useLocation()
+  const params = new URLSearchParams(location.search)
+  params.set('entity', 'company')
   return <Navigate to={`/prospection?${params.toString()}${location.hash}`} replace />
 }
 
@@ -127,7 +135,7 @@ const PAGES: RouteObject[] = [
 // Secondary pages inside a section (the section's navigation item stays current).
 const SUBPAGES: RouteObject[] = [
   { path: '/prospection/opportunities', element: <OpportunitiesPage /> },
-  { path: '/prospection/companies', element: <CompaniesPage /> },
+  { path: '/prospection/companies', element: <CompaniesRedirect /> },
   { path: '/prospection/import', element: <ImportPage /> },
   { path: '/prospection/verification', element: <VerificationPage /> },
   { path: '/prospection/robin', element: <RobinPage /> },
@@ -149,7 +157,7 @@ export const routes: RouteObject[] = [
       ...PAGES,
       ...SUBPAGES,
       ...devRoutes,
-      { path: '/exploitation', element: <Navigate to="/contact" replace /> },
+      { path: '/exploitation', element: <LegacyRedirect to="/contact" /> },
       { path: '/agents/*', element: <Navigate to="/missions" replace /> },
       { path: '*', element: <Navigate to="/" replace /> },
     ],

@@ -257,19 +257,25 @@ the base and the contact activity. Styles: `frontend/src/home/home.css` (see the
 ## Cockpit de pilotage (Slice 04, prospection/contact/home rearchitecture)
 
 Home est un cockpit court : trois sections de cartes cliquables, aucun tableau. Chaque carte n'est produite que si sa
-source a répondu (jamais de zéro inventé) ; les sources existantes sont lues via `frontend/src/home/cockpit.ts`
-(`buildCockpit`), sans nouveau contrat API.
+source a répondu (jamais de zéro inventé) ; les sources sont lues via `frontend/src/home/cockpit.ts`
+(`buildCockpit`) : le read model `GET /api/metrics/weekly` ([`weekly-metrics.md`](weekly-metrics.md)), les compteurs
+Prospection et la liste des missions.
 
-| Carte | Source | Destination (`frontend/src/home/destinations.ts`) |
+| Carte | Source | Destination (`frontend/src/home/destinations.ts`, params gelés par la Slice 05) |
 |---|---|---|
-| Nouveaux prospects / entreprises / entrepôts (cette semaine) | `GET /api/home/dashboard` `weekly_activity.{prospects,companies,warehouses}` | `/prospection?entity=prospect\|company\|warehouse&created_from=<week_start>` |
-| Rendez-vous pris | `dashboard.appointments` | `/contact?status=appointment` |
-| À contacter | `GET /api/home` `counts.to_contact` | `/contact?status=to_contact` |
-| Relances dues (+ « dont N en retard ») | `counts.due`, `contact_week.overdue` | `/contact?status=due` |
+| Nouveaux prospects / entreprises (cette semaine) | `metrics.additions.{prospects,companies}` | `/prospection?entity=prospect\|company&created_from=<week_start>` (liste réellement filtrée sur `created_at`) |
+| Nouveaux entrepôts (cette semaine) | `metrics.additions.warehouses` (sites, pas leurs interlocuteurs) | `/prospection?entity=warehouse` : `GET /warehouses` n'a pas de filtre de date, la liste n'est pas filtrée |
+| Rendez-vous pris | `metrics.contact_stock.appointments` | `/contact?view=appointments` |
+| À contacter | `metrics.contact_stock.first_contact_to_send` (= la vue) | `/contact?view=to_contact` |
+| Relances dues (+ « dont N en retard ») | `contact_stock.follow_up_to_send`, `follow_up_overdue` | `/contact?view=follow_ups` |
 | À vérifier | `GET /api/prospection/counters` `reviews.to_verify.total` | `/prospection?entity=prospect&review=to_verify` |
 | Missions en cours / terminées | `GET /api/missions` (`status` active / done) | `/missions` |
 | Reviews en attente | somme de `results_pending` des missions | `/missions` |
 
-Les destinations sont **provisoires** : `entity` et les valeurs `status=` de Contact ne sont pas encore lues par les
-pages ; `/missions` n'a pas de filtre. Toute mise à jour passe par `destinations.ts` (Slice 05). Les anciens blocs
+Contact lit `view=to_contact|follow_ups|overdue|contacted|responses|appointments|mail_errors` (+ `week=YYYY-Www`),
+jamais `status=` ; Prospection lit `entity=company|warehouse`, `created_from`, `review`, `warehouse_category`,
+`warehouse_to_contact`. `/missions` n'a pas de filtre. Anciens chemins conservés : `/contacts-joignables`,
+`/prospection/companies` (redirige vers `/prospection?entity=company`, query conservée), `/exploitation` (vers
+`/contact`, query conservée), `/contact?section=CONTACTES`, `/prospection?segment=…`.
+Les anciens blocs
 (activité récente, progression du mois, campagne, semaine à contacter) sont retirés de Home.

@@ -3,20 +3,19 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { MissionCard } from '../api/missions'
-import { homeData, homeDashboard, prospectionCounters, SHELL_API } from '../test/homeApi'
+import { prospectionCounters, SHELL_API, weeklyMetrics } from '../test/homeApi'
 import { renderApp, stubApi } from '../test/render'
 
-const DASHBOARD = homeDashboard({
-  appointments: 6, week_start: '2026-10-26',
-  weekly_activity: { prospects: 28, companies: 12, warehouses: 145, contacts: 0, appointments: 0 },
+const METRICS = weeklyMetrics({
+  week_start: '2026-10-26',
+  additions: { prospects: 28, companies: 12, warehouses: 145 },
+  contact_stock: { ...weeklyMetrics().contact_stock, appointments: 6, first_contact_to_send: 41, follow_up_to_send: 9, follow_up_overdue: 3 },
 })
-const HOME = homeData({ counts: { ...homeData().counts, to_contact: 41, due: 9 }, contact_week: { week: '2026-W44', monday: '2026-10-26', to_send: 50, overdue: 3 } })
 const mission = (status: MissionCard['status'], results_pending: number) => ({ status, results_pending }) as MissionCard
 const MISSIONS = { items: [mission('active', 2), mission('active', 0), mission('done', 5)], total: 3 }
 const API = {
   ...SHELL_API,
-  'GET /api/home/dashboard': [200, DASHBOARD],
-  'GET /api/home': [200, HOME],
+  'GET /api/metrics/weekly': [200, METRICS],
   'GET /api/prospection/counters': [200, prospectionCounters(17)],
   'GET /api/missions': [200, MISSIONS],
 } as const
@@ -50,10 +49,11 @@ describe('Home cockpit', () => {
     const href = (name: RegExp) => main.getByRole('link', { name }).getAttribute('href')
     expect(href(/Nouveaux prospects/)).toBe('/prospection?entity=prospect&created_from=2026-10-26')
     expect(href(/Nouvelles entreprises/)).toBe('/prospection?entity=company&created_from=2026-10-26')
-    expect(href(/Nouveaux entrepôts/)).toBe('/prospection?entity=warehouse&created_from=2026-10-26')
-    expect(href(/Rendez-vous pris/)).toBe('/contact?status=appointment')
-    expect(href(/À contacter/)).toBe('/contact?status=to_contact')
-    expect(href(/Relances dues/)).toBe('/contact?status=due')
+    // No creation-date filter exists for warehouses: the card leads to the list, not to a fake filter.
+    expect(href(/Nouveaux entrepôts/)).toBe('/prospection?entity=warehouse')
+    expect(href(/Rendez-vous pris/)).toBe('/contact?view=appointments')
+    expect(href(/À contacter/)).toBe('/contact?view=to_contact')
+    expect(href(/Relances dues/)).toBe('/contact?view=follow_ups')
     expect(href(/À vérifier/)).toBe('/prospection?entity=prospect&review=to_verify')
     expect(href(/Reviews en attente/)).toBe('/missions')
     expect(screen.getByRole('link', { name: 'Importer Excel' })).toHaveAttribute('href', '/prospection/import')
@@ -69,7 +69,7 @@ describe('Home cockpit', () => {
 
   it('shows loading and no card rather than zero while unavailable', async () => {
     const pending = () => new Promise<Response>(() => undefined)
-    stubApi({ ...SHELL_API, 'GET /api/home/dashboard': pending, 'GET /api/home': pending, 'GET /api/prospection/counters': pending, 'GET /api/missions': pending })
+    stubApi({ ...SHELL_API, 'GET /api/metrics/weekly': pending, 'GET /api/prospection/counters': pending, 'GET /api/missions': pending })
     renderApp('/')
     expect(await screen.findByText('Chargement des statistiques…')).toBeInTheDocument()
     expect(within(screen.getByRole('main')).queryAllByRole('listitem')).toHaveLength(0)
