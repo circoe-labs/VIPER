@@ -55,6 +55,10 @@
   max-width: 48rem;
 }
 
+.dialog--modal.dialog--xl {
+  max-width: min(96vw, 84rem);
+}
+
 .dialog--drawer {
   height: 100%;
   border-width: 0 0 0 var(--border-width);

@@ -71,7 +71,7 @@ export function ReviewDialog({
     <Modal
       open={Boolean(resultId)}
       onClose={close}
-      size="lg"
+      size="xl"
       title={view ? TASK_TYPE_LABELS[view.task_type] : 'Résultat'}
       description={description}
       footer={

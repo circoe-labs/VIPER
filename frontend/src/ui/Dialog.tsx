@@ -33,7 +33,7 @@ interface DialogProps {
 // Open dialogs, the last opened on top (a dialog opened from inside another one opens after it).
 const openDialogs: HTMLElement[] = []
 
-export type ModalProps = DialogProps & { size?: 'sm' | 'md' | 'lg' }
+export type ModalProps = DialogProps & { size?: 'sm' | 'md' | 'lg' | 'xl' }
 export type DrawerProps = DialogProps & { size?: 'md' | 'lg' | 'xl' }
 
 // Centered dialog for short confirmations and focused forms.
