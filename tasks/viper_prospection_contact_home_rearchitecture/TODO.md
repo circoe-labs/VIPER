@@ -1,0 +1,7 @@
+- [x] 00 PM readiness: READY (no overlap with viper_mission_ui_redesign: missions only; weekly_activity + /prospection/counters already exist)
+- [ ] 01 metrics-read-model
+- [ ] 02 prospection-base-ux
+- [ ] 03 contact-commercial-ux
+- [ ] 04 home-pilotage-ux
+- [ ] 05 navigation-deeplinks (after 02+03+04)
+- [ ] 06 integration-e2e (after all)
