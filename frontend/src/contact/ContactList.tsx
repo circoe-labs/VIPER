@@ -17,6 +17,9 @@ interface ContactListProps {
   openHref: (id: string) => string
   today: string
   returnedFrom: string | null
+  // A planning list (to contact, follow-ups, overdue): the date column is the planned send, not the last one.
+  planning?: boolean
+  label?: string
 }
 
 function moveFocus(event: KeyboardEvent<HTMLUListElement>) {
@@ -31,13 +34,14 @@ function moveFocus(event: KeyboardEvent<HTMLUListElement>) {
 
 const DAY = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Paris' })
 
-function ContactLine({ row, href }: { row: ContactRow; href: string }) {
+function ContactLine({ row, href, planning }: { row: ContactRow; href: string; planning: boolean }) {
   const [expanded, setExpanded] = useState(false)
   const [menu, setMenu] = useState<Point | null>(null)
   const navigate = useNavigate()
   const name = personName(row) || 'Nom non renseigné'
   const initials = [row.first_name, row.last_name].map((part) => part?.trim()[0] ?? '').join('').toUpperCase() || '?'
   const lastEmail = row.last_email_sent_at
+  const planned = planning ? row.planned_contact_at : null
   const job = row.exact_job_title ?? row.role_label
   return (
     <li className="contacts-line">
@@ -57,8 +61,12 @@ function ContactLine({ row, href }: { row: ContactRow; href: string }) {
         </div>
         <span className="contacts-line__channel" title="E-mail enregistré"><MailIcon size={18} /><span className="visually-hidden">E-mail</span></span>
         <div className="contacts-line__last">
-          <span>Dernier e-mail envoyé</span>
-          {lastEmail ? <time dateTime={lastEmail}>{DAY.format(new Date(lastEmail))}</time> : <span>Date non renseignée</span>}
+          {planned && <>
+            <span>{row.next_step ? `${row.next_step === 'contact' ? 'Contact' : `Relance ${stepLabel(row.next_step)}`} prévu` : 'Envoi prévu'}</span>
+            <time dateTime={planned}>{DAY.format(new Date(planned))}</time>
+          </>}
+          {!planned && <span>Dernier e-mail envoyé</span>}
+          {lastEmail ? <time className={planned ? 'contacts-line__earlier' : undefined} dateTime={lastEmail}>{planned ? 'Dernier envoi : ' : ''}{DAY.format(new Date(lastEmail))}</time> : !planned && <span>Date non renseignée</span>}
         </div>
         <IconButton icon={MoreIcon} size="sm" label={`Actions de ${name}`} className="contacts-line__options" aria-haspopup="menu" onClick={(event) => {
           const box = event.currentTarget.getBoundingClientRect()
@@ -75,12 +83,12 @@ function ContactLine({ row, href }: { row: ContactRow; href: string }) {
   )
 }
 
-export function ContactList({ rows, openHref, returnedFrom }: ContactListProps) {
+export function ContactList({ rows, openHref, returnedFrom, planning = false, label = 'Prospects contactés' }: ContactListProps) {
   const ref = useRef<HTMLUListElement>(null)
   useEffect(() => {
     if (returnedFrom) ref.current?.querySelector<HTMLAnchorElement>(`[data-prospect="${CSS.escape(returnedFrom)}"]`)?.focus()
   }, [returnedFrom])
-  return <ul ref={ref} className="contacts-list" aria-label="Prospects contactés" onKeyDown={moveFocus}>
-    {rows.map((row) => <ContactLine key={row.id} row={row} href={openHref(row.id)} />)}
+  return <ul ref={ref} className="contacts-list" aria-label={label} onKeyDown={moveFocus}>
+    {rows.map((row) => <ContactLine key={row.id} row={row} href={openHref(row.id)} planning={planning} />)}
   </ul>
 }
