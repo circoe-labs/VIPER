@@ -655,36 +655,162 @@ tr[data-inactive] .settings-table__label {
   color: var(--color-text-muted);
 }
 
-.mcp-tools {
-  display: grid;
-  gap: var(--space-3);
+.mcp-tab {
+  padding-top: var(--space-5);
 }
 
-.mcp-tool {
+.mcp-grid {
   display: grid;
-  gap: var(--space-2);
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr));
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-.mcp-tool__head {
+.mcp-grid__item {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-3);
+  min-width: 0;
 }
 
-.mcp-tool__name {
-  font-size: var(--text-md);
-  font-weight: 700;
+.mcp-tool-card {
+  display: grid;
+  flex: 1;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto 1fr;
+  align-content: start;
+  gap: var(--space-2) var(--space-3);
+  min-height: 7.5rem;
+  padding: var(--space-4);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
+.mcp-tool-card:hover {
+  border-color: var(--color-accent);
+}
+
+.mcp-tool-card:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-focus);
+}
+
+.mcp-connect-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  gap: var(--space-4);
+}
+
+.mcp-connect-grid > .card {
+  align-content: start;
+}
+
+.mcp-connect__line {
+  margin: 0;
+}
+
+.mcp-tool__name,
 .mcp-tool__count {
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
+  align-self: baseline;
 }
 
 .mcp-tool__description {
+  grid-column: 1 / -1;
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.prompt-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 24rem), 1fr));
+  gap: var(--space-4);
   margin: 0;
-  max-width: 80ch;
+  padding: 0;
+  list-style: none;
+}
+
+.prompt-grid__item {
+  display: flex;
+  min-width: 0;
+}
+
+.prompt-card {
+  display: grid;
+  flex: 1;
+  grid-template-rows: auto 1fr auto;
+  gap: var(--space-3);
+  min-height: 13rem;
+  padding: var(--space-5);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.prompt-card:hover {
+  border-color: var(--color-accent);
+}
+
+.prompt-card:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-focus);
+}
+
+.prompt-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.prompt-card__icon {
+  display: inline-grid;
+  place-items: center;
+  width: var(--control-md);
+  height: var(--control-md);
+  border-radius: var(--radius-md);
+  background: var(--color-accent-soft);
+  color: var(--color-accent-fg);
+}
+
+.prompt-card__title {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.prompt-card__preview {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 5;
+}
+
+.prompt-card__cta {
+  color: var(--color-accent-fg);
+  font-weight: var(--weight-medium);
+}
+
+.prompt-dialog__body {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.prompt-dialog__lead {
+  margin: 0;
+  color: var(--color-text-muted);
 }
 
 .mcp-params {
@@ -768,11 +894,18 @@ tr[data-inactive] .settings-table__label {
 }
 
 .mcp-agent {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  flex-direction: column;
   justify-content: space-between;
   gap: var(--space-3);
+  padding: var(--space-4);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+
+.mcp-agent > .btn,
+.mcp-agent > .badge {
+  align-self: flex-start;
 }
 
 .mcp-agent__main {
@@ -858,4 +991,11 @@ tr[data-inactive] .settings-table__label {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   white-space: pre-wrap;
+}
+
+.prompt-dialog__icon {
+  display: inline-flex;
+  margin-right: var(--space-2);
+  vertical-align: middle;
+  color: var(--color-accent-fg);
 }

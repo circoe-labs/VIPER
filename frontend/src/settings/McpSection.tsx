@@ -14,8 +14,9 @@ import { Badge, StatusBadge } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
 import { Modal } from '../ui/Dialog'
+import { InfoTip } from '../ui/InfoTip'
+import { Tabs } from '../ui/Tabs'
 import { CreateAgentDialog, MODE_LABELS, PROVIDER_LABELS } from './McpAgentCreate'
-import { McpCallsCard } from './McpCallsCard'
 import './settings.css'
 
 function ParameterRow({ parameter }: { parameter: McpParameter }) {
@@ -36,28 +37,58 @@ function ParameterRow({ parameter }: { parameter: McpParameter }) {
   )
 }
 
-function ToolCard({ tool }: { tool: McpTool }) {
+// One tool = one same-size card (name, parameter count, three lines of description); a click opens its parameters.
+function ToolCard({ tool, onOpen }: { tool: McpTool; onOpen: () => void }) {
   return (
-    <Card>
-      <div className="mcp-tool">
-        <div className="mcp-tool__head">
-          <code className="mcp-tool__name">{tool.name}</code>
-          <span className="mcp-tool__count">
-            {tool.parameters.length === 0
-              ? 'aucun paramètre'
-              : `${String(tool.parameters.length)} paramètre${tool.parameters.length > 1 ? 's' : ''}`}
-          </span>
-        </div>
-        <p className="mcp-tool__description">{tool.description}</p>
-        {tool.parameters.length > 0 && (
+    <li className="mcp-grid__item">
+      <button type="button" className="mcp-tool-card" onClick={onOpen} aria-label={`Détail de ${tool.name}`}>
+        <code className="mcp-tool__name">{tool.name}</code>
+        <span className="mcp-tool__count">
+          {tool.parameters.length === 0
+            ? 'aucun paramètre'
+            : `${String(tool.parameters.length)} paramètre${tool.parameters.length > 1 ? 's' : ''}`}
+        </span>
+        <span className="mcp-tool__description">{tool.description}</span>
+      </button>
+    </li>
+  )
+}
+
+function ToolsPanel({ tools }: { tools: McpTool[] }) {
+  const [opened, setOpened] = useState<McpTool | null>(null)
+  return (
+    <>
+      <ul className="mcp-grid" aria-label="Outils MCP">
+        {tools.map((tool) => (
+          <ToolCard
+            key={tool.name}
+            tool={tool}
+            onOpen={() => {
+              setOpened(tool)
+            }}
+          />
+        ))}
+      </ul>
+      <Modal
+        open={opened !== null}
+        size="md"
+        title={opened?.name ?? ''}
+        description={opened?.description}
+        onClose={() => {
+          setOpened(null)
+        }}
+      >
+        {opened && opened.parameters.length > 0 ? (
           <ul className="mcp-params">
-            {tool.parameters.map((parameter) => (
+            {opened.parameters.map((parameter) => (
               <ParameterRow key={parameter.name} parameter={parameter} />
             ))}
           </ul>
+        ) : (
+          <p className="settings-muted">aucun paramètre</p>
         )}
-      </div>
-    </Card>
+      </Modal>
+    </>
   )
 }
 
@@ -65,25 +96,31 @@ function ToolCard({ tool }: { tool: McpTool }) {
 function ConnectCard({ endpoint }: { endpoint: string }) {
   const url = `${window.location.origin}${endpoint}`
   return (
-    <Card title="Connecter ChatGPT, Claude ou un autre client MCP">
-      <div className="mcp-connect">
+    <div className="mcp-connect-grid">
+      <Card title="Adresse du serveur">
         <p className="mcp-connect__url">
-          Adresse du serveur : <code>{url}</code>
+          <code>{url}</code>
         </p>
-        <ul className="mcp-connect__steps">
-          <li>
-            <strong>ChatGPT</strong> (mode développeur) et <strong>claude.ai</strong> (connecteur personnalisé) : collez
-            cette adresse et choisissez l’authentification <strong>OAuth</strong>. VIPER vous demande alors d’autoriser
-            l’accès.
-          </li>
-          <li>
-            <strong>Claude Code</strong> et les clients qui acceptent un en-tête : un jeton créé ci-dessous (« Créer un
-            jeton ») ou en ligne de commande (<code>python -m app.cli create-agent-token --label …</code>), envoyé en{' '}
-            <code>Authorization: Bearer …</code>.
-          </li>
-        </ul>
-      </div>
-    </Card>
+      </Card>
+      <Card title="ChatGPT et claude.ai">
+        <p className="mcp-connect__line">
+          Collez l’adresse, authentification <strong>OAuth</strong>.
+          <InfoTip label="Aide : ChatGPT et claude.ai">
+            ChatGPT (mode développeur) et claude.ai (connecteur personnalisé) : collez l’adresse du serveur et choisissez
+            l’authentification OAuth. VIPER vous demande alors d’autoriser l’accès.
+          </InfoTip>
+        </p>
+      </Card>
+      <Card title="Claude Code et autres clients">
+        <p className="mcp-connect__line">
+          Jeton d’accès en <code>Authorization: Bearer …</code>
+          <InfoTip label="Aide : jeton">
+            Pour les clients qui acceptent un en-tête : un jeton créé dans l’onglet « Accès autorisés » (« Créer un
+            jeton ») ou en ligne de commande (python -m app.cli create-agent-token --label …).
+          </InfoTip>
+        </p>
+      </Card>
+    </div>
   )
 }
 
@@ -124,9 +161,9 @@ function AgentsCard({ settings }: { settings: McpSettings }) {
       {agents.isError && <p className="settings-error">Les accès n’ont pas pu être chargés.</p>}
       {agents.data?.length === 0 && <p className="settings-muted">Aucun accès pour l’instant.</p>}
       {agents.data && agents.data.length > 0 && (
-        <ul className="mcp-agents">
+        <ul className="mcp-agents mcp-grid">
           {agents.data.map((agent) => (
-            <li key={agent.id} className="mcp-agent">
+            <li key={agent.id} className="mcp-agent mcp-grid__item">
               <div className="mcp-agent__main">
                 <span className="mcp-agent__label">{agent.display_label}</span>
                 <span className="mcp-agent__meta">
@@ -214,10 +251,13 @@ function AgentsCard({ settings }: { settings: McpSettings }) {
   )
 }
 
-// Paramètres > MCP: how to connect, who may connect, and what an agent can call (with which parameters). The tools
-// are the code (`app/api/mcp.py`).
+type McpTab = 'connect' | 'access' | 'tools'
+
+// Config AI › MCP, in three tabs: how to connect, who may connect, and what an agent can call (with which
+// parameters). The tools are the code (`app/api/mcp.py`). The calls history lives in « Historique des agents ».
 export function McpSection() {
   const settings = useMcpSettings()
+  const [tab, setTab] = useState<McpTab>('connect')
 
   if (settings.isLoading) return <p className="settings-muted">Chargement…</p>
   if (settings.isError || !settings.data) {
@@ -227,18 +267,28 @@ export function McpSection() {
   return (
     <div className="mcp">
       <p className="mcp-lead">
-        Les agents se connectent au serveur MCP de VIPER (protocole <code>{settings.data.protocol_version}</code>), par
-        OAuth ou avec un jeton d’accès. Aucun de ces outils n’écrit dans la base sans vous : une soumission devient une
-        proposition que vous validez dans Missions.
+        Serveur MCP de VIPER (protocole <code>{settings.data.protocol_version}</code>)
+        <InfoTip label="Aide : MCP">
+          Les agents se connectent au serveur MCP de VIPER par OAuth ou avec un jeton d’accès. Aucun de ces outils
+          n’écrit dans la base sans vous : une soumission devient une proposition que vous validez dans Missions.
+        </InfoTip>
       </p>
-      <ConnectCard endpoint={settings.data.endpoint} />
-      <AgentsCard settings={settings.data} />
-      <McpCallsCard />
-      <div className="mcp-tools">
-        {settings.data.tools.map((tool) => (
-          <ToolCard key={tool.name} tool={tool} />
-        ))}
-      </div>
+      <Tabs
+        label="Sections MCP"
+        selected={tab}
+        onSelect={setTab}
+        tabs={[
+          { id: 'connect', label: 'Connexion' },
+          { id: 'access', label: 'Accès autorisés' },
+          { id: 'tools', label: 'Outils', extra: <span className="settings-tabs__count">{settings.data.tools.length}</span> },
+        ]}
+      >
+        <div className="mcp-tab">
+          {tab === 'connect' && <ConnectCard endpoint={settings.data.endpoint} />}
+          {tab === 'access' && <AgentsCard settings={settings.data} />}
+          {tab === 'tools' && <ToolsPanel tools={settings.data.tools} />}
+        </div>
+      </Tabs>
     </div>
   )
 }

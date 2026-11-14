@@ -22,9 +22,10 @@
 }
 
 .adm-card {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: var(--space-3);
-  align-content: start;
+  min-width: 0;
   padding: var(--space-4);
   border: var(--border-width) solid var(--color-border);
   border-radius: var(--radius-lg);
@@ -44,7 +45,11 @@
 }
 
 .adm-card__text {
+  display: -webkit-box;
   margin: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
   color: var(--color-text-muted);
   font-size: var(--text-sm);
   overflow-wrap: anywhere;
@@ -52,6 +57,8 @@
 
 .adm-card__chips {
   display: flex;
+  margin-top: auto;
+  min-height: 1.75rem;
   flex-wrap: wrap;
   gap: var(--space-2);
   margin: 0;
@@ -63,7 +70,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
-  margin-top: auto;
+  margin-top: var(--space-1);
 }
 
 .adm-state {
@@ -171,56 +178,104 @@
   cursor: pointer;
 }
 
+/* Sources: one equal-size card per root source, filling the full width (sub-sources nest inside their card). */
 .adm-tree {
   display: grid;
-  gap: var(--space-2);
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 24rem), 1fr));
+  gap: var(--space-4);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.adm-tree__row {
+.adm-tree > li {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3);
+  flex-direction: column;
+  min-width: 0;
+  padding: var(--space-4);
   border: var(--border-width) solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   background: var(--color-surface);
 }
 
+.adm-tree > li > .adm-tree__row {
+  flex: 1;
+}
+
+.adm-tree__row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-areas:
+    'toggle main'
+    'badges badges'
+    'actions actions';
+  align-content: start;
+  gap: var(--space-3);
+}
+
+.adm-tree__row > .btn:first-child {
+  grid-area: toggle;
+}
+
 .adm-tree__main {
-  flex: 1 1 14rem;
+  grid-area: main;
+  grid-column: 1 / -1;
   min-width: 0;
+}
+
+.adm-tree__row > .btn:first-child + .adm-tree__main {
+  grid-column: 2;
+}
+
+.adm-tree__badges {
+  display: flex;
+  flex-wrap: wrap;
+  grid-area: badges;
+  gap: var(--space-2);
 }
 
 .adm-tree__name {
   margin: 0;
+  font-size: var(--text-lg);
   font-weight: var(--weight-semibold);
   overflow-wrap: anywhere;
 }
 
 .adm-tree__meta {
-  margin: 0;
+  display: -webkit-box;
+  min-height: calc(2 * 1.5em);
+  margin: var(--space-1) 0 0;
+  overflow: hidden;
   color: var(--color-text-muted);
   font-size: var(--text-sm);
   overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .adm-tree__children {
   display: grid;
-  gap: var(--space-2);
-  margin: var(--space-2) 0 0 var(--space-8);
-  padding: 0 0 0 var(--space-3);
-  border-left: var(--border-width) solid var(--color-border);
+  gap: var(--space-3);
+  margin: var(--space-3) 0 0;
+  padding: var(--space-3) 0 0;
+  border-top: var(--border-width) solid var(--color-border);
   list-style: none;
+}
+
+.adm-tree__children .adm-tree__row {
+  grid-template-areas:
+    'main'
+    'badges'
+    'actions';
+  grid-template-columns: 1fr;
 }
 
 .adm-tree__actions {
   display: flex;
   flex-wrap: wrap;
+  grid-area: actions;
   gap: var(--space-2);
+  align-self: end;
 }
 
 .adm-toolbar__hint {
@@ -233,6 +288,7 @@
 
 .adm-tiles {
   display: grid;
+  margin-top: auto;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-2);
 }

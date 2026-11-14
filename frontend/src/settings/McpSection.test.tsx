@@ -44,19 +44,23 @@ const SETTINGS: McpSettings = {
 }
 
 describe('McpSection', () => {
-  it('lists the exposed tools with their parameters and the endpoint', async () => {
+  it('shows the endpoint, then the tools as cards that open their parameters, without the calls history', async () => {
     stubApi({ ...SHELL_API, 'GET /api/settings/mcp': [200, SETTINGS], 'GET /api/settings/mcp/agents': [200, []] })
+    const user = userEvent.setup()
 
     renderApp('/config-ai/mcp')
 
-    expect(await screen.findByText('viper_claim_task')).toBeInTheDocument()
+    expect(await screen.findByText(`${window.location.origin}/mcp`)).toBeInTheDocument()
+    expect(screen.queryByText('Historique des appels')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('tab', { name: /Outils/ }))
     expect(screen.getByText('viper_task_queue')).toBeInTheDocument()
-    expect(screen.getByText(`${window.location.origin}/mcp`)).toBeInTheDocument()
-    // A parameter, its type, the enum inside the array, and the "no parameter" case.
-    expect(screen.getByText('task_types')).toBeInTheDocument()
-    expect(screen.getByText('liste de string')).toBeInTheDocument()
-    expect(screen.getByText(/update_company/)).toBeInTheDocument()
     expect(screen.getByText('aucun paramètre')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Détail de viper_claim_task' }))
+    // A parameter, its type and the enum inside the array.
+    const dialog = await screen.findByRole('dialog', { name: 'viper_claim_task' })
+    expect(within(dialog).getByText('task_types')).toBeInTheDocument()
+    expect(within(dialog).getByText('liste de string')).toBeInTheDocument()
+    expect(within(dialog).getByText(/update_company/)).toBeInTheDocument()
   })
 
   it('says when the tools cannot be loaded', async () => {
@@ -96,6 +100,7 @@ describe('McpSection', () => {
     const user = userEvent.setup()
 
     renderApp('/config-ai/mcp')
+    await user.click(await screen.findByRole('tab', { name: 'Accès autorisés' }))
     const access = await screen.findByRole('region', { name: 'Accès autorisés' })
     expect(await within(access).findByText('ChatGPT pilote.test #1')).toBeInTheDocument()
     expect(within(access).getByText(/ChatGPT \(OAuth\) · Connecteur OAuth · ChatGPT · Assistant \(agit pour vous\)/)).toBeInTheDocument()
@@ -132,6 +137,7 @@ describe('McpSection', () => {
     const user = userEvent.setup()
 
     renderApp('/config-ai/mcp')
+    await user.click(await screen.findByRole('tab', { name: 'Accès autorisés' }))
     const access = await screen.findByRole('region', { name: 'Accès autorisés' })
     await user.click(within(access).getByRole('button', { name: 'Créer un jeton' }))
     const dialog = await screen.findByRole('dialog')
@@ -162,6 +168,7 @@ describe('McpSection', () => {
     const user = userEvent.setup()
 
     renderApp('/config-ai/mcp')
+    await user.click(await screen.findByRole('tab', { name: 'Accès autorisés' }))
     const access = await screen.findByRole('region', { name: 'Accès autorisés' })
     await user.click(within(access).getByRole('button', { name: 'Créer un jeton' }))
     const dialog = await screen.findByRole('dialog')
@@ -182,6 +189,7 @@ describe('McpSection', () => {
     const user = userEvent.setup()
 
     renderApp('/config-ai/mcp')
+    await user.click(await screen.findByRole('tab', { name: 'Accès autorisés' }))
     const access = await screen.findByRole('region', { name: 'Accès autorisés' })
     await user.click(within(access).getByRole('button', { name: 'Créer un jeton' }))
     const dialog = await screen.findByRole('dialog')
@@ -200,7 +208,7 @@ describe('McpSection', () => {
     })
   })
 
-  it('shows who called which tool, filters by person and opens the detail', async () => {
+  it('keeps the calls history on the agents history page, not in MCP: shows who called which tool, filters by person and opens the detail', async () => {
     const calls: McpCall[] = [
       {
         id: 'c-2',
@@ -249,7 +257,7 @@ describe('McpSection', () => {
       },
     })
 
-    renderApp('/config-ai/mcp')
+    renderApp('/historique-agents')
 
     const table = await screen.findByRole('table', { name: 'Historique des appels MCP' })
     expect(within(table).getByText('paul@circoe.com')).toBeInTheDocument()

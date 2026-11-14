@@ -171,14 +171,15 @@ function SourceRow({
       <div className="adm-tree__main">
         <p className="adm-tree__name">{name}</p>
         <p className="adm-tree__meta">
-          {source.label ? `${source.url} · ` : ''}
-          {source.description ?? ''}
+          {[source.label ? source.url : '', source.description ?? ''].filter(Boolean).join(' · ')}
         </p>
       </div>
-      <Badge title="Résultats acceptés que cette source a appuyés (jamais de simples visites)">
-        {usesLabel(usesOf(source))}
-      </Badge>
-      {childCount > 0 && <Badge>{plural(childCount, 'sous-source')}</Badge>}
+      <div className="adm-tree__badges">
+        <Badge title="Résultats acceptés que cette source a appuyés (jamais de simples visites)">
+          {usesLabel(usesOf(source))}
+        </Badge>
+        {childCount > 0 && <Badge>{plural(childCount, 'sous-source')}</Badge>}
+      </div>
       <div className="adm-tree__actions">
         {onAddChild && (
           <Button size="sm" icon={PlusIcon} aria-label={`Ajouter une sous-source à ${name}`} onClick={onAddChild}>
@@ -188,9 +189,7 @@ function SourceRow({
         <Button size="sm" icon={PencilIcon} aria-label={`Modifier la source ${name}`} onClick={onEdit}>
           Modifier
         </Button>
-        <Button size="sm" variant="danger" icon={TrashIcon} aria-label={`Supprimer la source ${name}`} onClick={onDelete}>
-          Supprimer
-        </Button>
+        <Button size="sm" variant="danger" icon={TrashIcon} aria-label={`Supprimer la source ${name}`} title="Supprimer" onClick={onDelete} />
       </div>
     </div>
   )

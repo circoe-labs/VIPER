@@ -1,27 +1,30 @@
-import { useState } from 'react'
+import { type ComponentType, useState } from 'react'
 
 import { type Integrations, type IntegrationField, useIntegrations, useIntegrationsMutations } from '../api/integrations'
 import { useElapsed } from '../lib/useElapsed'
+import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
+import { Modal } from '../ui/Dialog'
 import { TextAreaField } from '../ui/fields'
-import { AlertIcon, SaveIcon, SparklesIcon, UndoIcon } from '../ui/icons'
-import { IntegrationCard } from './IntegrationCards'
+import { AlertIcon, MailIcon, SaveIcon, SparklesIcon, UndoIcon } from '../ui/icons'
+import { InfoTip } from '../ui/InfoTip'
 import { saveRefusal, sourceText } from './integrationsModel'
 import { type Feedback, FeedbackBanner } from './shared'
+import './settings.css'
 
-// Paramètres › Prompt initial: the brief the AI always receives before it drafts a Contact / R1 / R2 e-mail (what it is,
+// Config AI › Prompt initial: the brief the AI always receives before it drafts a Contact / R1 / R2 e-mail (what it is,
 // who it writes to, why). The mandatory rules (facts only, format, booking link) and the client card follow it and are
 // not editable. The text saved here replaces the built-in one; saving the built-in text unchanged (or « Rétablir »)
-// goes back to it.
+// goes back to it. Each prompt is one card of a grid; a click opens its editor in a dialog.
 export function PromptSection() {
-  return <PromptEditorSection copy={CONTACT_PROMPT} />
+  return <PromptGrid prompts={[CONTACT_PROMPT, MISSION_CREATOR_PROMPT]} />
 }
 
-// Paramètres › Assistant de mission: the behaviour prompt of the assistant that helps write a mission draft (voice or
-// text). Same editor, same reset-to-default rule; distinct from a category's general prompt, which instructs the worker
-// agent, and from skills.
+// Config AI › Assistant de mission: the behaviour prompt of the assistant that helps write a mission draft (voice or
+// text). Same card + editor, same reset-to-default rule; distinct from a category's general prompt, which instructs the
+// worker agent, and from skills.
 export function MissionCreatorPromptSection() {
-  return <PromptEditorSection copy={MISSION_CREATOR_PROMPT} />
+  return <PromptGrid prompts={[MISSION_CREATOR_PROMPT]} />
 }
 
 // What differs between the prompts that share this editor. `field` is the integrations setting that stores the text
@@ -30,6 +33,9 @@ interface PromptCopy {
   field: IntegrationField
   defaultOf: (data: Integrations) => string
   id: string
+  // Name of the card (what the AI does with this prompt).
+  card: string
+  icon: ComponentType<{ size?: number }>
   title: string
   subtitle: string
   sentence: string
@@ -41,6 +47,8 @@ const CONTACT_PROMPT: PromptCopy = {
   field: 'contact_initial_prompt',
   defaultOf: (data) => data.initial_prompt_default,
   id: 'settings-prompt-initial',
+  card: 'Écrire un mail',
+  icon: MailIcon,
   title: 'Tâche donnée à l’IA',
   subtitle: 'Donné à l’IA avant chaque rédaction d’un mail (Contact, R1, R2)',
   sentence:
@@ -53,6 +61,8 @@ const MISSION_CREATOR_PROMPT: PromptCopy = {
   field: 'mission_creator_prompt',
   defaultOf: (data) => data.mission_creator_prompt_default,
   id: 'settings-prompt-mission-creator',
+  card: 'Lancer l’assistant de création de mission',
+  icon: SparklesIcon,
   title: 'Assistant de création de mission',
   subtitle: 'Donné à l’assistant qui aide à rédiger une mission (saisie ou voix)',
   sentence:
@@ -61,8 +71,9 @@ const MISSION_CREATOR_PROMPT: PromptCopy = {
   saved: 'Comportement enregistré : il s’applique aux prochaines créations de mission.',
 }
 
-function PromptEditorSection({ copy }: { copy: PromptCopy }) {
+function PromptGrid({ prompts }: { prompts: PromptCopy[] }) {
   const integrations = useIntegrations()
+  const [openId, setOpenId] = useState<string | null>(null)
   if (integrations.isPending) return <p className="settings-state">Chargement…</p>
   if (integrations.isError) {
     return (
@@ -80,10 +91,53 @@ function PromptEditorSection({ copy }: { copy: PromptCopy }) {
       </div>
     )
   }
-  return <PromptCard data={integrations.data} copy={copy} />
+  const data = integrations.data
+  const opened = prompts.find((copy) => copy.id === openId)
+  return (
+    <>
+      <ul className="prompt-grid" aria-label="Prompts">
+        {prompts.map((copy) => {
+          const setting = data.fields[copy.field]
+          const text = typeof setting.value === 'string' ? setting.value : copy.defaultOf(data)
+          const custom = text.trim() !== copy.defaultOf(data).trim()
+          return (
+            <li key={copy.id} className="prompt-grid__item">
+              <button
+                type="button"
+                className="prompt-card"
+                aria-label={`Configurer : ${copy.card}`}
+                onClick={() => {
+                  setOpenId(copy.id)
+                }}
+              >
+                <span className="prompt-card__head">
+                  <span className="prompt-card__icon">
+                    <copy.icon size={20} />
+                  </span>
+                  <span className="prompt-card__title">{copy.card}</span>
+                  <Badge tone={custom ? 'accent' : 'neutral'}>{custom ? 'Personnalisé' : 'Par défaut'}</Badge>
+                </span>
+                <span className="prompt-card__preview">{text}</span>
+                <span className="prompt-card__cta">Configurer</span>
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+      {opened && (
+        <PromptDialog
+          data={data}
+          copy={opened}
+          onClose={() => {
+            setOpenId(null)
+          }}
+        />
+      )}
+    </>
+  )
 }
 
-function PromptCard({ data, copy }: { data: Integrations; copy: PromptCopy }) {
+function PromptDialog({ data, copy, onClose }: { data: Integrations; copy: PromptCopy; onClose: () => void }) {
   const { save } = useIntegrationsMutations()
   const setting = data.fields[copy.field]
   const defaultText = copy.defaultOf(data)
@@ -124,36 +178,19 @@ function PromptCard({ data, copy }: { data: Integrations; copy: PromptCopy }) {
   }
 
   return (
-    <div className="settings-connections">
-      <IntegrationCard
-        id={copy.id}
-        icon={SparklesIcon}
-        title={copy.title}
-        subtitle={copy.subtitle}
-      >
-        <p className="settings-connection__sentence">{copy.sentence}</p>
-        <div className="settings-form">
-          <TextAreaField
-            label={copy.label}
-            rows={12}
-            maxLength={8000}
-            value={draft}
-            disabled={startedAt !== null}
-            error={error ?? (blank ? 'Le prompt ne peut pas être vide : rétablissez le texte par défaut.' : undefined)}
-            hint={
-              <>
-                {sourceText(setting)}
-                {isDefault ? ' Texte par défaut de VIPER.' : ''}
-              </>
-            }
-            onChange={(event) => {
-              setEdit(event.target.value)
-              setError(undefined)
-            }}
-          />
-        </div>
-        <FeedbackBanner feedback={feedback} />
-        <div className="settings-connection__actions">
+    <Modal
+      open
+      size="lg"
+      title={copy.title}
+      titleIcon={
+        <span className="prompt-dialog__icon">
+          <copy.icon size={20} />
+        </span>
+      }
+      className="prompt-dialog"
+      onClose={onClose}
+      footer={
+        <>
           <Button
             icon={UndoIcon}
             disabled={startedAt !== null || isDefault}
@@ -173,8 +210,34 @@ function PromptCard({ data, copy }: { data: Integrations; copy: PromptCopy }) {
           >
             {startedAt !== null ? `Enregistrement… ${String(elapsed)} s` : 'Enregistrer'}
           </Button>
-        </div>
-      </IntegrationCard>
-    </div>
+        </>
+      }
+    >
+      <div className="prompt-dialog__body">
+        <p className="prompt-dialog__lead">
+          {copy.subtitle}
+          <InfoTip label={`Aide : ${copy.card}`}>{copy.sentence}</InfoTip>
+        </p>
+        <TextAreaField
+          label={copy.label}
+          rows={14}
+          maxLength={8000}
+          value={draft}
+          disabled={startedAt !== null}
+          error={error ?? (blank ? 'Le prompt ne peut pas être vide : rétablissez le texte par défaut.' : undefined)}
+          hint={
+            <>
+              {sourceText(setting)}
+              {isDefault ? ' Texte par défaut de VIPER.' : ''}
+            </>
+          }
+          onChange={(event) => {
+            setEdit(event.target.value)
+            setError(undefined)
+          }}
+        />
+        <FeedbackBanner feedback={feedback} />
+      </div>
+    </Modal>
   )
 }
