@@ -7,6 +7,7 @@ import { Modal } from '../ui/Dialog'
 import { EmptyState } from '../ui/EmptyState'
 import { TextAreaField, TextField } from '../ui/fields'
 import { BoltIcon, PencilIcon, PlusIcon, SaveIcon, TrashIcon } from '../ui/icons'
+import { InfoTip } from '../ui/InfoTip'
 import { ConfirmDelete, ErrorNote, plural, QueryState } from './adminShared'
 
 // Administration › Skills: reusable blocks of instructions. A skill grants no tool and no capability; categories list
@@ -18,9 +19,12 @@ export function SkillsAdmin() {
   return (
     <>
       <div className="adm-toolbar">
-        <p className="adm-card__text">
-          Un skill est un bloc de consignes réutilisable. Il ne donne accès à aucun outil : il dit seulement à l’agent
-          comment s’y prendre.
+        <p className="adm-toolbar__hint">
+          <span>Skills</span>
+          <InfoTip label="Aide : skills">
+            Un skill est un bloc de consignes réutilisable. Il ne donne accès à aucun outil : il dit seulement à l’agent
+            comment s’y prendre.
+          </InfoTip>
         </p>
         <Button
           variant="primary"

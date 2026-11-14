@@ -8,8 +8,15 @@ import { stubSettingsApi } from '../test/settingsApi'
 import { stubToolboxApi } from '../test/toolboxApi'
 
 const DEFAULT_TEXT = integrations().initial_prompt_default
-const panel = () => screen.getByRole('region', { name: 'Prompt initial' })
-const field = () => within(panel()).findByRole('textbox', { name: 'Prompt initial' })
+const panel = () => screen.getByRole('dialog', { name: 'Tâche donnée à l’IA' })
+const open = async () => {
+  if (screen.queryByRole('dialog')) return
+  await userEvent.click(await screen.findByRole('button', { name: 'Configurer : Écrire un mail' }))
+}
+const field = async () => {
+  await open()
+  return within(panel()).findByRole('textbox', { name: 'Prompt initial' })
+}
 
 function stub(options: Parameters<typeof stubIntegrationsApi>[0] = {}) {
   stubSettingsApi({})
@@ -62,8 +69,13 @@ describe('Paramètres › Prompt initial', () => {
 })
 
 describe('Paramètres › Assistant de mission', () => {
-  const missionPanel = () => screen.getByRole('region', { name: 'Assistant de mission' })
-  const missionField = () => within(missionPanel()).findByRole('textbox', { name: 'Comportement de l’assistant' })
+  const missionPanel = () => screen.getByRole('dialog', { name: 'Assistant de création de mission' })
+  const missionField = async () => {
+    if (!screen.queryByRole('dialog')) {
+      await userEvent.click(await screen.findByRole('button', { name: 'Configurer : Lancer l’assistant de création de mission' }))
+    }
+    return within(missionPanel()).findByRole('textbox', { name: 'Comportement de l’assistant' })
+  }
   const MISSION_DEFAULT = integrations().mission_creator_prompt_default
 
   it('shows the built-in behaviour and saves an edited one under mission_creator_prompt, then resets it', async () => {
