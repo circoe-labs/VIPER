@@ -21,7 +21,7 @@ it does not add Agenda rows to tracking rows and count the same appointment twic
 Different company IDs with the same name remain distinct; several prospects at one company
 never multiply the company total. No example figures are stored or shown as fallback data.
 
-The business week is Monday 00:00 inclusive through next Monday 00:00 exclusive, Europe/Paris,
+The shared, documented definition of « cette semaine » is in [weekly-metrics.md](weekly-metrics.md). The business week is Monday 00:00 inclusive through next Monday 00:00 exclusive, Europe/Paris,
 including DST changes. The two dates returned are the Monday and Sunday. The list APIs share
 calendar-day creation filters; their totals and counters use the same predicates. The destination
 shows a removable creation-period label. Modification dates never contribute to weekly additions.
@@ -253,3 +253,29 @@ the base and the contact activity. Styles: `frontend/src/home/home.css` (see the
 ## Évolution des ajouts sur l’accueil
 
 `GET /api/home/dashboard` fournit deux semaines calendaires, la semaine dernière et la semaine courante, du lundi au dimanche en heure de Paris. Chaque point `prospect_trend` contient `week` (date du lundi), `prospects` (fiches de prospection créées) et `warehouses` (nombre d’interlocuteurs figurant actuellement sur les fiches d’entrepôt créées cette semaine). Les deux séries restent distinctes. Les interlocuteurs n’ayant pas de date de création individuelle, un ajout ou une suppression ultérieure modifie le total attribué à la semaine de création de l’entrepôt : ce n’est pas un historique précis des modifications.
+
+## Cockpit de pilotage (Slice 04, prospection/contact/home rearchitecture)
+
+Home est un cockpit court : trois sections de cartes cliquables, aucun tableau. Chaque carte n'est produite que si sa
+source a répondu (jamais de zéro inventé) ; les sources sont lues via `frontend/src/home/cockpit.ts`
+(`buildCockpit`) : le read model `GET /api/metrics/weekly` ([`weekly-metrics.md`](weekly-metrics.md)), les compteurs
+Prospection et la liste des missions.
+
+| Carte | Source | Destination (`frontend/src/home/destinations.ts`, params gelés par la Slice 05) |
+|---|---|---|
+| Nouveaux prospects / entreprises (cette semaine) | `metrics.additions.{prospects,companies}` | `/prospection?entity=prospect\|company&created_from=<week_start>` (liste réellement filtrée sur `created_at`) |
+| Nouveaux entrepôts (cette semaine) | `metrics.additions.warehouses` (sites, pas leurs interlocuteurs) | `/prospection?entity=warehouse` : `GET /warehouses` n'a pas de filtre de date, la liste n'est pas filtrée |
+| Rendez-vous pris | `metrics.contact_stock.appointments` | `/contact?view=appointments` |
+| À contacter | `metrics.contact_stock.first_contact_to_send` (= la vue) | `/contact?view=to_contact` |
+| Relances dues (+ « dont N en retard ») | `contact_stock.follow_up_to_send`, `follow_up_overdue` | `/contact?view=follow_ups` |
+| À vérifier | `GET /api/prospection/counters` `reviews.to_verify.total` | `/prospection?entity=prospect&review=to_verify` |
+| Missions en cours / terminées | `GET /api/missions` (`status` active / done) | `/missions` |
+| Reviews en attente | somme de `results_pending` des missions | `/missions` |
+
+Contact lit `view=to_contact|follow_ups|overdue|contacted|responses|appointments|mail_errors` (+ `week=YYYY-Www`),
+jamais `status=` ; Prospection lit `entity=company|warehouse`, `created_from`, `review`, `warehouse_category`,
+`warehouse_to_contact`. `/missions` n'a pas de filtre. Anciens chemins conservés : `/contacts-joignables`,
+`/prospection/companies` (redirige vers `/prospection?entity=company`, query conservée), `/exploitation` (vers
+`/contact`, query conservée), `/contact?section=CONTACTES`, `/prospection?segment=…`.
+Les anciens blocs
+(activité récente, progression du mois, campagne, semaine à contacter) sont retirés de Home.

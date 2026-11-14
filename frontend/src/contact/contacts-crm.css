@@ -157,3 +157,24 @@
 .warehouse-contact-list__site ul { list-style: none; margin: 0; padding: 0; }
 .warehouse-contact-list__site li { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); padding: var(--space-2) 0; }
 .warehouse-contact-list__site li span { color: var(--color-text-muted); overflow-wrap: anywhere; }
+
+/* Commercial capsules: one figure + one label = one list (see ContactCapsules.tsx). */
+.contact-capsules { display: grid; gap: 8px; }
+.contact-capsules__list { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 10px; }
+.contact-capsule { height: 100%; display: grid; align-content: start; gap: 2px; padding: 12px 14px; border: 1px solid var(--nc-contacts-border); border-left-width: 3px; border-radius: 10px; background: var(--nc-contacts-panel); color: var(--nc-contacts-text); text-decoration: none; }
+.contact-capsule:hover { background: var(--nc-contacts-hover); }
+.contact-capsule:focus-visible { outline: 2px solid var(--nc-contacts-focus); outline-offset: 2px; }
+.contact-capsule[aria-current='page'] { background: var(--nc-contacts-selected); border-color: var(--nc-contacts-action); }
+.contact-capsule--info { border-left-color: var(--nc-contacts-info); }
+.contact-capsule--warning { border-left-color: var(--nc-contacts-warning); }
+.contact-capsule--danger { border-left-color: var(--nc-contacts-danger); }
+.contact-capsule--success { border-left-color: var(--nc-contacts-success); }
+.contact-capsule__label { font-size: 12px; color: var(--nc-contacts-muted); }
+.contact-capsule__count { font-size: 26px; font-weight: 600; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.contact-capsule__hint { font-size: 11px; color: var(--nc-contacts-muted); }
+.contact-capsules__state { margin: 0; font-size: 12px; color: var(--nc-contacts-muted); }
+.contact-capsules__retry { padding: 0; border: 0; background: none; color: var(--nc-contacts-focus); text-decoration: underline; cursor: pointer; font: inherit; }
+.contact-weeks { max-width: 320px; }
+.contacts-panel__heading { margin: 0; padding: 18px 20px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; font-size: 16px; font-weight: 600; }
+.contacts-panel__count { font-size: 13px; font-weight: 400; color: var(--nc-contacts-muted); }
+.contacts-line__earlier { color: var(--nc-contacts-muted); font-size: 11px; }

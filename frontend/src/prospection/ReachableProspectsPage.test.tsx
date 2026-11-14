@@ -21,10 +21,10 @@ describe('Separate Verification-validated workspace', () => {
     const uncertain = prospect('Bruno', 'Incertain', {}, ['never_verified'])
     stubProspectsApi({ rows: [validated, uncertain], alerts: [qualityAlert({ prospect_id: uncertain.id })] })
     renderApp('/contacts-joignables')
-    const chart = (await screen.findByRole('heading', { name: 'Validés et incertains' })).closest('article') as HTMLElement
-    await waitFor(() => expect(within(chart).getByText('Incertains').parentElement).toHaveTextContent('1'))
-    expect(within(chart).getByText('Validés').parentElement).toHaveTextContent('1')
-    expect(within(chart).getAllByText('50 %')).toHaveLength(2)
+    // Validation capsules replaced the chart: each state is a figure and the filter of its table.
+    const capsules = await screen.findByRole('group', { name: 'Validation des prospects' })
+    await waitFor(() => expect(within(capsules).getByRole('button', { name: /Incertains/ })).toHaveTextContent('1'))
+    expect(within(capsules).getByRole('button', { name: /Emploi validé/ })).toHaveTextContent('1')
   })
 
   it('keeps the original prospection page and all its records available', async () => {
@@ -32,7 +32,6 @@ describe('Separate Verification-validated workspace', () => {
     renderApp('/prospection')
     expect(screen.getByRole('heading', { level: 1, name: 'Prospection' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Prestations proposées' })).not.toBeInTheDocument()
-    await userEvent.click(await screen.findByRole('button', { name: 'Afficher la liste' }))
     const list = await screen.findByRole('list', { name: 'Prospects' })
     expect(within(list).getAllByRole('listitem')).toHaveLength(5)
   })
@@ -40,11 +39,8 @@ describe('Separate Verification-validated workspace', () => {
   it('uses the Verification box, including unverified e-mail and missing channels', async () => {
     stubProspectionApi({ prospects: people() })
     renderApp('/contacts-joignables')
-    expect(screen.getByRole('heading', { level: 1, name: 'Prospects validés' })).toBeInTheDocument()
-    const toggle = screen.getByRole('button', { name: 'Afficher la liste' })
-    expect(toggle).toHaveAttribute('aria-expanded', 'false')
-    expect(screen.queryByRole('table', { name: 'Prospects' })).not.toBeInTheDocument()
-    await userEvent.click(toggle)
+    // /contacts-joignables redirects to the Prospection view of validated jobs; the table is shown directly (no fold).
+    expect(await screen.findByRole('heading', { level: 2, name: /Prospects dont l’emploi est validé/ })).toBeInTheDocument()
     const table = await screen.findByRole('table', { name: 'Prospects' })
     await userEvent.click(screen.getByRole('button', { name: 'Afficher les contacts de Sans entreprise' }))
     expect(table.querySelectorAll('tr[data-prospect-id]')).toHaveLength(3)
@@ -55,15 +51,16 @@ describe('Separate Verification-validated workspace', () => {
     expect(within(table).getAllByText('Validé')).toHaveLength(3)
   })
 
-  it('preserves the reachable scope after searching and resetting', async () => {
+  it('searches within the validated scope, and « Réinitialiser » returns to the whole base', async () => {
     stubProspectionApi({ prospects: people() })
     renderApp('/contacts-joignables')
-    await userEvent.click(screen.getByRole('button', { name: 'Afficher la liste' }))
     await screen.findByRole('table', { name: 'Prospects' })
     await userEvent.type(screen.getByRole('searchbox', { name: /Rechercher : nom/ }), 'Bruno')
     await waitFor(() => { expect(screen.getByRole('table').querySelectorAll('tr[data-prospect-id]')).toHaveLength(1) })
     await userEvent.click(screen.getByRole('button', { name: 'Réinitialiser' }))
-    await waitFor(() => { expect(screen.getByRole('table').querySelectorAll('tr[data-prospect-id]')).toHaveLength(3) })
+    // Reset clears every criterion, the validated scope included (the « Tous » view: the former list, no table).
+    const list = await screen.findByRole('list', { name: 'Prospects' })
+    expect(within(list).getAllByRole('listitem')).toHaveLength(5)
   })
 })
 
@@ -80,7 +77,6 @@ describe('Company grouping', () => {
       prospect('David', 'Quatre', verified),
     ] })
     const { router } = renderApp('/contacts-joignables?sort=name')
-    await userEvent.click(screen.getByRole('button', { name: 'Afficher la liste' }))
     const table = await screen.findByRole('table', { name: 'Prospects' })
     const groups = within(table).getAllByRole('rowgroup', { name: 'Même nom' })
     expect(groups).toHaveLength(2)

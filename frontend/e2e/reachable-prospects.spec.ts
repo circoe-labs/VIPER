@@ -19,11 +19,10 @@ async function expandCompanies(page: import('@playwright/test').Page) {
   }
 }
 
+// The table is shown directly (no fold button since the Prospection rearchitecture); /contacts-joignables redirects to
+// /prospection?validated_only=true&sort=company&list=1.
 async function openValidatedList(page: import('@playwright/test').Page) {
-  const toggle = page.getByRole('button', { name: 'Afficher la liste' })
-  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
-  await expect(page.getByRole('table', { name: 'Prospects' })).toBeHidden()
-  await toggle.click()
+  await expect(page.getByRole('table', { name: 'Prospects' })).toBeVisible()
 }
 
 test.beforeEach(async ({ page }) => {
@@ -31,34 +30,16 @@ test.beforeEach(async ({ page }) => {
 })
 test.use({ viewport: { width: 1440, height: 1000 } })
 
-test('dashboard uses real totals and an accessible responsive table', async ({ page }) => {
+test('legacy path opens the validated prospects table directly, in an accessible responsive layout', async ({ page }) => {
   await useTheme(page, 'dark')
   await page.goto('/contacts-joignables')
-  await expect(page.getByRole('heading', { name: 'Prospects validés', exact: true })).toBeVisible()
+  await expect(page).toHaveURL(/\/prospection\?.*validated_only=true/)
   await openValidatedList(page)
-  await expect(page.getByRole('table', { name: 'Prospects' })).toBeVisible()
-  const response = await page.request.get('/api/prospection/dashboard?validated_only=true')
-  expect(response.ok()).toBe(true)
-  const data = (await response.json()) as { total: number; sends: Record<string, number> }
-  await expect(page.locator('.stat-total .stat-value')).toHaveText(
-    new Intl.NumberFormat('fr-FR').format(data.total),
-  )
-  await expect(page.getByRole('heading', { name: 'Suivi des envois' })).toHaveCount(0)
-  await expect(page.getByRole('heading', { name: 'Prestations propos\u00e9es' })).toHaveCount(0)
-  await expect(page.locator('.prospects-dashboard')).not.toContainText(/R3|R4|S37|S39/)
-  await page.screenshot({ path: `${SCREENSHOTS}/prospects-dashboard-dark.png`, fullPage: false })
+  await page.screenshot({ path: `${SCREENSHOTS}/prospects-validated-dark.png`, fullPage: false })
   await page.setViewportSize({ width: 1280, height: 800 })
-  await page.screenshot({ path: `${SCREENSHOTS}/prospects-dashboard-laptop.png`, fullPage: false })
-  const dimensions = await page.evaluate(() => ({
-    viewport: innerWidth, page: document.documentElement.scrollWidth,
-    panels: [...document.querySelectorAll('.prospects-dashboard > *, .prospects-list-filters > *')].map((node) => ({ className: node.className, right: node.getBoundingClientRect().right })),
-  }))
+  const dimensions = await page.evaluate(() => ({ viewport: innerWidth, page: document.documentElement.scrollWidth }))
   expect(dimensions.page, JSON.stringify(dimensions)).toBeLessThanOrEqual(dimensions.viewport)
-  await page.screenshot({ path: `${SCREENSHOTS}/prospects-dashboard-laptop.png`, fullPage: false })
-  await page.getByRole('button', { name: 'Masquer la liste' }).click()
-  await expect(page.getByRole('table', { name: 'Prospects' })).toBeHidden()
-  await page.getByRole('button', { name: 'Afficher la liste' }).click()
-  await expect(page.getByRole('table', { name: 'Prospects' })).toBeVisible()
+  await page.screenshot({ path: `${SCREENSHOTS}/prospects-validated-laptop.png`, fullPage: false })
 })
 
 test('several interests persist and appear on all company contacts', async ({

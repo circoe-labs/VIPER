@@ -1,5 +1,7 @@
 import type { HomeDashboard, HomeData } from '../api/home'
-import { SEGMENTS } from '../api/prospection'
+import type { MissionList } from '../api/missions'
+import type { WeeklyMetrics } from '../api/metrics'
+import { REVIEWS, SEGMENTS, type Counters } from '../api/prospection'
 import type { ApiReply } from './render'
 
 // Synthetic answers of GET /api/home (backend/app/api/routes/home.py) for component tests. The aggregates themselves
@@ -49,9 +51,37 @@ export function homeDashboard(overrides: Partial<HomeDashboard> = {}): HomeDashb
   }
 }
 
+export function weeklyMetrics(overrides: Partial<WeeklyMetrics> = {}): WeeklyMetrics {
+  return {
+    timezone: 'Europe/Paris', week: '2026-W44', week_start: '2026-10-26', week_end: '2026-11-01', today: '2026-10-30',
+    additions: { prospects: 0, companies: 0, warehouses: 0 },
+    contact_stock: {
+      to_contact: 0, to_send: 0, overdue: 0, first_contact_to_send: 0, follow_up_to_send: 0, follow_up_overdue: 0,
+      upcoming: 0, contacted: 0, responses: 0, appointments: 0, mail_error: 0,
+    },
+    contact_events: { first_contacts: 0, first_appointments: 0, responses: 0, mail_errors_opened: 0, status_entries: {} },
+    prospection_sub_status_deltas: null,
+    ...overrides,
+  }
+}
+
+export function prospectionCounters(toVerify = 0): Counters {
+  return {
+    counts: Object.fromEntries(SEGMENTS.map((segment) => [segment, 0])) as Counters['counts'],
+    reviews: Object.fromEntries(REVIEWS.map((review) => [review, { total: review === 'to_verify' ? toVerify : 0, week: 0 }])) as Counters['reviews'],
+    today: '2026-09-10',
+    stale_threshold_days: null,
+  }
+}
+
+export const NO_MISSIONS: MissionList = { items: [], total: 0 }
+
 // What any page of the signed-in shell may ask on load when it lands on Accueil: the health probe and Home.
 export const SHELL_API: Record<string, ApiReply> = {
   'GET /api/health': [200, { status: 'ok', database: 'ok' }],
   'GET /api/home': [200, homeData()],
   'GET /api/home/dashboard': [200, homeDashboard()],
+  'GET /api/metrics/weekly': [200, weeklyMetrics()],
+  'GET /api/prospection/counters': [200, prospectionCounters()],
+  'GET /api/missions': [200, NO_MISSIONS],
 }

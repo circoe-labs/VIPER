@@ -19,10 +19,33 @@ Every endpoint below requires a session; `PUT`/`POST` also the CSRF header (`X-C
 shared shape `{"detail": {"code": "...", "message": "...", ...}}`; a malformed request (unknown field, wrong type,
 missing `expected_revision`, naive `scheduled_at`, unknown step/counter) is FastAPI's 422 `{"detail": [...]}`.
 
+## Commercial views (`/contact?view=…`, Slice S3)
+
+The page opens on **capsules**, each one list; the URL holds the state (`view`, `week`, `q`, `status`, `company`,
+`prospect`), so Home and bookmarks deep-link. Defaults are omitted; no `view` = `to_contact`. The former
+`section=CONTACTES` still opens `contacted`.
+
+| `view=` | Capsule | List (`GET /contact/prospects`) | Figure |
+|---|---|---|---|
+| `to_contact` | À contacter | `category=to_send&rank=0` (+ `week=YYYY-Www`) | dashboard `to_send.groups[rank 0].count` |
+| `follow_ups` | Relances à faire | `category=to_send`, rows with `next_step != contact` (client-side) | `to_send.total - groups[0].count` |
+| `overdue` | En retard | `category=to_send`, rows planned before this week's Monday (client-side) | `to_send.overdue` |
+| `contacted` | Contactés | `category=contacted` (+ chart) | `categories[contacted]` |
+| `responses` | Réponses | `category=response_received` | `categories[response_received]` |
+| `appointments` | RDV pris | `category=appointment_obtained` | `categories[appointment_obtained]` |
+| `mail_errors` | Erreurs mail | `category=email_error` | `categories[email_error]` |
+
+`week` (only with `to_contact`) lists the people due in a coming ISO week. Not shown, because no contract backs
+them: quotes/opportunities and an « inactive » counter. A figure the dashboard does not carry renders « — ». The
+capsule figures come from `GET /contact/dashboard` (not narrowed by the search box); `to_send` is read through the local
+adapter `contact/commercialModel.ts` until the shared API type (Slice 01) declares it. The follow-ups and overdue
+lists narrow `to_send` client-side (the backend has no such category), so with a search or filter their size is the
+number of rows shown. The workbench's Previous/Next walks the active view.
+
 ## Contact page: contacted prospects
 
 The **Contacts** landing page keeps `/contact` and the existing shell/navigation routes. It shows a five-bar
-chart, search, status and company filters, then one initially collapsed category, **Prospects contactés**.
+chart, search, status and company filters, then the list of the active view (see above; **Prospects contactés** is `view=contacted`).
 Rows are compact, with on-demand inline details (real prospect coordinates and complete sequence history),
 the existing workbench, and links to the prospect editor. The Add contact button opens the existing creation
 flow at `/prospection?prospect=new`. Pagination remains 200 prospects per page.

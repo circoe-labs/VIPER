@@ -15,13 +15,28 @@ import {
 } from '../api/prospection'
 import { calendarDate } from '../lib/calendarDate'
 
+// The entity selector (Prospects / Entreprises / Entrepôts) drives the whole page: `?entity=company|warehouse`
+// (`prospect`, the default, is omitted). `q`, `page` and `company_kind` are shared across entities; the two
+// warehouse filters below only apply to `entity=warehouse`.
+export const ENTITIES = ['prospect', 'company', 'warehouse'] as const
+export type Entity = (typeof ENTITIES)[number]
+export const WAREHOUSE_CATEGORIES = ['sme', 'other', 'unclassified'] as const
+export type WarehouseCategory = (typeof WAREHOUSE_CATEGORIES)[number]
+
 export interface ProspectionView extends ProspectListCriteria {
+  entity: Entity
+  // `?warehouse_category=sme|other|unclassified` and `?warehouse_to_contact=true` (entity=warehouse).
+  warehouse_category: WarehouseCategory | null
+  warehouse_to_contact: boolean
   page: number
   // Open prospect (`?prospect=<id>`, or `new` for « Ajouter un prospect ») — the editor contract (prospectEditor.tsx).
   prospect: string | null
 }
 
 export const DEFAULT_VIEW: ProspectionView = {
+  entity: 'prospect',
+  warehouse_category: null,
+  warehouse_to_contact: false,
   validated_only: false,
   verification_box: null,
   created_from: null,
@@ -62,6 +77,9 @@ export function parseView(params: URLSearchParams): ProspectionView {
   const page = Number(params.get('page'))
   const prospect = params.get('prospect')
   return {
+    entity: oneOf<Entity>(ENTITIES, params.get('entity')) ?? 'prospect',
+    warehouse_category: oneOf<WarehouseCategory>(WAREHOUSE_CATEGORIES, params.get('warehouse_category')),
+    warehouse_to_contact: params.get('warehouse_to_contact') === 'true',
     validated_only: params.get('validated_only') === 'true',
     verification_box: oneOf(['validated', 'uncertain', 'todo', 'ignored'] as const, params.get('verification_box')),
     created_from: calendarDate(params.get('created_from')),
@@ -124,4 +142,16 @@ export function hasFilters(view: ProspectionView): boolean {
       (value) => value !== null,
     )
   )
+}
+
+// Switching entity starts that entity's view from scratch (another entity's criteria would not mean the same thing).
+export function entityHref(entity: Entity): string {
+  return prospectionHref({ entity })
+}
+
+// Criteria narrowing the Entreprises list (type, search, creation period) and the Entrepôts list (category, to contact, search).
+export function hasEntityFilters(view: ProspectionView): boolean {
+  if (view.entity === 'company') return view.company_kind !== null || view.q.trim() !== '' || !!view.created_from || !!view.created_to
+  if (view.entity === 'warehouse') return view.warehouse_category !== null || view.warehouse_to_contact || view.q.trim() !== ''
+  return hasFilters(view)
 }

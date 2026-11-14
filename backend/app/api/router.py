@@ -26,6 +26,7 @@ from app.api.routes import (
     imports,
     integrations,
     mcp_settings,
+    metrics,
     mission_assistant,
     mission_categories,
     mission_supervision,
@@ -62,6 +63,7 @@ api_router.include_router(explorer_writes.router)
 api_router.include_router(explorer_sql.router)
 api_router.include_router(exports.router)
 api_router.include_router(home.router)
+api_router.include_router(metrics.router)
 api_router.include_router(imports.router)
 api_router.include_router(prospection.router)
 api_router.include_router(prospects.router)

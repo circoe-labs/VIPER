@@ -77,6 +77,8 @@ export interface ContactDashboard {
     // The steps coming up for the sequences with nothing due this week: how many, and the earliest day (`first_on`).
     next_steps?: { step: string; label: string; count: number; first_on: string; last_on: string }[]
   }[]
+  // To send by the end of this week (overdue included) and by rank (0 = first contact); ContactDashboardOut.to_send.
+  to_send?: { total: number; overdue: number; groups: { rank: number; count: number; overdue: number }[] }
   // The planning's categories with their count (`appointment_obtained` is « RDV pris »).
   categories?: { category: string; count: number }[]
   // ISO weeks present in the planning, oldest first.

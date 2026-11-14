@@ -2,15 +2,16 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
+import type { ContactDashboard } from '../api/contact'
 import { contactDashboard, contactOverview, contactRow, message, sent, stubContactApi } from '../test/contactApi'
 import { renderApp } from '../test/render'
 
 const LIST = '/api/contact/prospects'
 
-async function openList() {
-  const toggle = await screen.findByRole('button', { name: /^Prospects contactés/ })
-  if (toggle.getAttribute('aria-expanded') === 'false') await userEvent.click(toggle)
-  return screen.findByRole('list', { name: 'Prospects contactés' })
+const CONTACTED = '/contact?view=contacted'
+
+async function openList(name = 'Prospects contactés') {
+  return screen.findByRole('list', { name })
 }
 
 function lastListParams(requests: ReturnType<typeof stubContactApi>['requests']): Record<string, string> {
@@ -27,6 +28,25 @@ const DASHBOARD = contactDashboard({
   ],
   categories: [{ category: 'contacted', count: 4 }],
 })
+
+// The planning the backend sends: `to_send` is not in the shared type yet (Slice 01), hence the cast.
+const PLANNING = {
+  ...contactDashboard({
+    ...DASHBOARD,
+    categories: [
+      { category: 'contacted', count: 4 },
+      { category: 'response_received', count: 2 },
+      { category: 'appointment_obtained', count: 1 },
+      { category: 'email_error', count: 6 },
+    ],
+    weeks: [
+      { week: '2026-W39', year: 2026, number: 39, count: 2 },
+      { week: '2026-W40', year: 2026, number: 40, count: 3 },
+      { week: '2026-W42', year: 2026, number: 42, count: 5 },
+    ],
+  }),
+  to_send: { total: 8, overdue: 4, groups: [{ rank: 0, count: 3, overdue: 1 }, { rank: 1, count: 5, overdue: 3 }] },
+} as ContactDashboard
 
 function rows() {
   return [
@@ -64,19 +84,18 @@ describe('Contact page', () => {
   it('shows the actual last email date independently of a later response', async () => {
     const row = contactRow('Jean', 'Exemple', { messages: { contact: 'sent' }, last_email_sent_at: '2026-09-14T10:00:00Z', last_contact_at: '2026-10-01T10:00:00Z' })
     stubContactApi({ rows: [row] })
-    renderApp('/contact')
+    renderApp(CONTACTED)
     const list = await openList()
     expect(within(list).getByText('Dernier e-mail envoyé')).toBeInTheDocument()
     expect(within(list).getByText('14 septembre 2026')).toBeInTheDocument()
     expect(within(list).queryByText('1 octobre 2026')).not.toBeInTheDocument()
   })
-  it('replaces Exploitation in the navigation, and the old path leads to it', async () => {
+  it('has no Exploitation item in the navigation, and the old path leads to Contact', async () => {
     stubContactApi({ dashboard: DASHBOARD })
     const { router } = renderApp('/exploitation')
     expect(await screen.findByRole('heading', { level: 1, name: 'Contacts' })).toBeInTheDocument()
     expect(router.state.location.pathname).toBe('/contact')
     const navigation = screen.getByRole('navigation', { name: 'Navigation principale' })
-    expect(within(navigation).getByRole('link', { name: 'Contacts' })).toHaveAttribute('aria-current', 'page')
     expect(within(navigation).queryByRole('link', { name: 'Exploitation' })).not.toBeInTheDocument()
   })
 
@@ -107,68 +126,114 @@ describe('Contact page', () => {
 
     stubContactApi({ dashboard: contactDashboard({ dispatch: { active: false, reason: 'disabled', scheduled_count: 0, overdue_count: 0 } }) })
     renderApp('/contact')
-    expect(await screen.findByRole('button', { name: /^Prospects contactés/ })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 2, name: /^Prospects à contacter/ })).toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
-  it('starts with one closed category of contacted prospects, without cohort codes or planning categories', async () => {
-    const people = rows()
-    people.push(contactRow('Pas', 'Contacté', { messages: { contact: 'scheduled' } }))
-    const api = stubContactApi({ dashboard: DASHBOARD, rows: people })
+  it('starts on the people to contact, behind capsules that each open one list', async () => {
+    const api = stubContactApi({ dashboard: PLANNING, rows: rows() })
     renderApp('/contact')
 
-    expect(screen.getByRole('button', { name: /^Prospects contactés/ })).toHaveAttribute('aria-expanded', 'false')
-    expect(screen.queryByRole('list', { name: 'Prospects contactés' })).not.toBeInTheDocument()
-    expect(sent(api.requests, 'GET', LIST)).toHaveLength(0)
-
-    const list = await openList()
-    expect(within(list).getAllByRole('listitem')).toHaveLength(4)
-    expect(within(list).queryByText('Pas Contacté')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^Prospects contactés/ })).toHaveAttribute('aria-expanded', 'true')
-    expect(screen.getByRole('button', { name: /^Prospects contactés/ })).toHaveTextContent('4 prospects')
-    expect(screen.queryByRole('button', { name: /^S\d/ })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /^RDV pris/ })).not.toBeInTheDocument()
-    expect(screen.queryByText('Suivi des envois programmés')).not.toBeInTheDocument()
-    expect(lastListParams(api.requests)).toEqual({ category: 'contacted', sort: 'company', limit: '200', offset: '0' })
+    expect(await screen.findByRole('heading', { level: 2, name: /^Prospects à contacter/ })).toBeInTheDocument()
+    await openList('Prospects à contacter')
+    expect(lastListParams(api.requests)).toEqual({ category: 'to_send', sort: 'due', limit: '200', offset: '0', rank: '0' })
     expect(sent(api.requests, 'GET', '/api/contact/scheduling')).toHaveLength(0)
+
+    const capsules = within(screen.getByRole('navigation', { name: 'Suivi commercial' }))
+    const expected: [string, string, string][] = [
+      ['À contacter', '3', 'to_contact'],
+      ['Relances à faire', '5', 'follow_ups'],
+      ['En retard', '4', 'overdue'],
+      ['Contactés', '4', 'contacted'],
+      ['Réponses', '2', 'responses'],
+      ['RDV pris', '1', 'appointments'],
+      ['Erreurs mail', '6', 'mail_errors'],
+    ]
+    for (const [label, count, view] of expected) {
+      const link = capsules.getByRole('link', { name: new RegExp(`^${label}\\s*${count}`) })
+      expect(link).toHaveAttribute('href', `/contact?view=${view}`)
+    }
+    expect(capsules.getByRole('link', { name: /^À contacter/ })).toHaveAttribute('aria-current', 'page')
+    expect(capsules.getByRole('link', { name: /^À contacter/ })).toHaveTextContent('dont 1 en retard')
   })
 
-  it('keeps contacted people together across cohorts and commercial states', async () => {
-    stubContactApi({ dashboard: DASHBOARD, rows: rows() })
+  it('never invents a figure the planning does not carry', async () => {
+    stubContactApi({ dashboard: contactDashboard({ ...DASHBOARD, categories: undefined }), rows: rows() })
     renderApp('/contact')
+    const capsules = within(await screen.findByRole('navigation', { name: 'Suivi commercial' }))
+    expect(capsules.getByRole('link', { name: /^À contacter/ })).toHaveTextContent('—')
+    expect(capsules.getByRole('link', { name: /^Réponses/ })).toHaveTextContent('—')
+    expect(capsules.queryByText(/devis|opportunit|inactif/i)).not.toBeInTheDocument()
+  })
+
+  it('opens the contacted list from its capsule, with the repartition chart', async () => {
+    const api = stubContactApi({ dashboard: PLANNING, rows: rows() })
+    const { router } = renderApp('/contact')
+    await userEvent.click(await screen.findByRole('link', { name: /^Contactés/ }))
     const list = await openList()
-    expect(within(list).getByText('Jean Exemple')).toBeInTheDocument()
-    expect(within(list).getByText('Marie Calme')).toBeInTheDocument()
-    expect(within(list).getByText('Luc Fictif')).toBeInTheDocument()
-    expect(within(list).getByText('Claire Démo').closest('li')).toHaveTextContent('Relance R1')
+    expect(router.state.location.search).toBe('?view=contacted')
+    expect(within(list).getAllByRole('listitem')).toHaveLength(4)
+    expect(screen.getByRole('heading', { level: 2, name: /^Prospects contactés/ })).toHaveTextContent('4 prospects')
+    expect(lastListParams(api.requests)).toEqual({ category: 'contacted', sort: 'company', limit: '200', offset: '0' })
+    expect(screen.getByRole('region', { name: 'Graphique des contacts' })).toBeVisible()
   })
 
-  it('can collapse and reopen the category', async () => {
-    stubContactApi({ dashboard: DASHBOARD, rows: rows() })
-    renderApp('/contact')
-    await openList()
-    const toggle = screen.getByRole('button', { name: /^Prospects contactés/ })
-    await userEvent.click(toggle)
-    expect(toggle).toHaveAttribute('aria-expanded', 'false')
-    expect(screen.queryByRole('list', { name: 'Prospects contactés' })).not.toBeInTheDocument()
-    await userEvent.click(toggle)
-    expect(await openList()).toBeInTheDocument()
+  it('lists the replies, the appointments and the mail errors from their own category', async () => {
+    const api = stubContactApi({ dashboard: PLANNING, rows: rows() })
+    const { router } = renderApp('/contact?view=appointments')
+    const list = await openList('Rendez-vous obtenus')
+    expect(within(list).getAllByRole('listitem')).toHaveLength(1)
+    expect(within(list).getByText('Luc Fictif')).toBeInTheDocument()
+    expect(lastListParams(api.requests)).toMatchObject({ category: 'appointment_obtained' })
+    await userEvent.click(screen.getByRole('link', { name: /^Réponses/ }))
+    await waitFor(() => { expect(lastListParams(api.requests)).toMatchObject({ category: 'response_received' }) })
+    await userEvent.click(screen.getByRole('link', { name: /^Erreurs mail/ }))
+    await waitFor(() => { expect(lastListParams(api.requests)).toMatchObject({ category: 'email_error' }) })
+    expect(router.state.location.search).toBe('?view=mail_errors')
+  })
+
+  it('lists the people to contact week by week, the week living in the URL', async () => {
+    const api = stubContactApi({ dashboard: PLANNING, rows: rows() })
+    const { router } = renderApp('/contact?view=to_contact')
+    const select = await screen.findByRole('combobox', { name: 'Semaine d’envoi' })
+    // Past weeks are overdue, not « upcoming »: only this week and the next ones are offered.
+    expect(within(select).getAllByRole('option').map((option) => option.getAttribute('value'))).toEqual(['', '2026-W40', '2026-W42'])
+    await userEvent.selectOptions(select, '2026-W42')
+    await waitFor(() => { expect(router.state.location.search).toBe('?view=to_contact&week=2026-W42') })
+    await waitFor(() => { expect(lastListParams(api.requests)).toMatchObject({ category: 'to_send', rank: '0', week: '2026-W42' }) })
+  })
+
+  it('narrows « to send » to the late sends and to the follow-ups, never beyond what the rows say', async () => {
+    const late = contactRow('Lena', 'Retard', { next_step: 'contact', planned_contact_at: '2026-09-20T08:00:00Z', messages: {} })
+    const week = contactRow('Wim', 'Semaine', { next_step: 'r1', planned_contact_at: '2026-09-30T08:00:00Z', messages: { contact: 'sent' } })
+    const first = contactRow('Fay', 'Premier', { next_step: 'contact', planned_contact_at: '2026-09-30T08:00:00Z', messages: {} })
+    stubContactApi({ dashboard: PLANNING, rows: [late, week, first] })
+    const { unmount } = renderApp('/contact?view=overdue')
+    const overdue = await openList('Envois en retard')
+    expect(within(overdue).getAllByRole('listitem')).toHaveLength(1)
+    expect(within(overdue).getByText('Lena Retard')).toBeInTheDocument()
+    expect(within(overdue).getByText('Contact prévu')).toBeInTheDocument()
+    unmount()
+
+    stubContactApi({ dashboard: PLANNING, rows: [late, week, first] })
+    renderApp('/contact?view=follow_ups')
+    const followUps = await openList('Relances à faire cette semaine')
+    expect(within(followUps).getAllByRole('listitem')).toHaveLength(1)
+    expect(within(followUps).getByText('Wim Semaine')).toBeInTheDocument()
   })
 
   it('explains when no prospect has been contacted yet', async () => {
     stubContactApi({ rows: [contactRow('Jean', 'Nouveau')] })
-    renderApp('/contact')
-    await userEvent.click(screen.getByRole('button', { name: /^Prospects contactés/ }))
+    renderApp(CONTACTED)
     expect(await screen.findByText('Aucun prospect contacté pour le moment.')).toBeInTheDocument()
   })
 
   it('searches contacted prospects and keeps the search in the URL', async () => {
     const api = stubContactApi({ dashboard: DASHBOARD, rows: rows() })
-    const { router } = renderApp('/contact')
+    const { router } = renderApp(CONTACTED)
     await openList()
-    await userEvent.click(screen.getByRole('button', { name: /^Prospects contactés/ }))
     await userEvent.type(screen.getByRole('searchbox'), 'alpha')
-    await waitFor(() => { expect(router.state.location.search).toBe('?q=alpha'); })
+    await waitFor(() => { expect(router.state.location.search).toBe('?view=contacted&q=alpha'); })
     const list = await openList()
     expect(within(list).getAllByRole('listitem')).toHaveLength(1)
     expect(within(list).getByText('Jean Exemple')).toBeInTheDocument()
@@ -177,22 +242,21 @@ describe('Contact page', () => {
 
   it('reports an empty search', async () => {
     stubContactApi({ rows: rows() })
-    renderApp('/contact?q=inexistant')
-    await userEvent.click(screen.getByRole('button', { name: /^Prospects contactés/ }))
-    expect(await screen.findByText('Aucun prospect contacté ne correspond à la recherche.')).toBeInTheDocument()
+    renderApp('/contact?view=contacted&q=inexistant')
+    expect(await screen.findByText('Aucun prospect ne correspond à la recherche.')).toBeInTheDocument()
   })
 
   it('paginates beyond the API page size and resets pagination when searching', async () => {
     const people = Array.from({ length: 201 }, (_, index) => contactRow('Jean', `Exemple ${String(index)}`, { messages: { contact: 'sent' } }))
     const api = stubContactApi({ rows: people })
-    const { router } = renderApp('/contact')
+    const { router } = renderApp(CONTACTED)
     const list = await openList()
     expect(within(list).getAllByRole('listitem')).toHaveLength(200)
     await userEvent.click(screen.getByRole('button', { name: 'Page suivante' }))
     await waitFor(() => { expect(within(list).getAllByRole('listitem')).toHaveLength(1); })
     expect(lastListParams(api.requests)).toMatchObject({ offset: '200' })
     await userEvent.type(screen.getByRole('searchbox'), 'Exemple 0')
-    await waitFor(() => { expect(router.state.location.search).toBe('?q=Exemple+0'); })
+    await waitFor(() => { expect(router.state.location.search).toBe('?view=contacted&q=Exemple+0'); })
     await waitFor(() => { expect(lastListParams(api.requests)).toMatchObject({ offset: '0', q: 'Exemple 0' }); })
     expect(screen.queryByRole('button', { name: 'Page suivante' })).not.toBeInTheDocument()
   })
@@ -200,16 +264,25 @@ describe('Contact page', () => {
   it('keeps old cohort links usable without showing a cohort category', async () => {
     stubContactApi({ rows: rows() })
     renderApp('/contact?section=S39')
-    expect(await openList()).toBeInTheDocument()
+    expect(await openList('Prospects à contacter')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^S39/ })).not.toBeInTheDocument()
+  })
+
+  it('keeps the former contacted-section bookmark opening the contacted list', async () => {
+    stubContactApi({ rows: rows() })
+    renderApp('/contact?section=CONTACTES')
+    expect(await openList('Prospects contactés')).toBeInTheDocument()
   })
 
   it('shows a counters failure with a retry button', async () => {
     stubContactApi({ dashboard: 'error' })
-    renderApp('/contact')
-    const alert = await screen.findByRole('alert')
-    expect(alert).toHaveTextContent('Graphique indisponible')
-    expect(within(alert).getByRole('button', { name: 'Réessayer' })).toBeInTheDocument()
+    renderApp(CONTACTED)
+    await waitFor(() => {
+      const text = screen.getAllByRole('alert').map((alert) => alert.textContent).join(' ')
+      expect(text).toContain('Compteurs indisponibles')
+      expect(text).toContain('Graphique indisponible')
+    })
+    expect(within(screen.getByRole('navigation', { name: 'Suivi commercial' })).getByRole('button', { name: 'Réessayer' })).toBeInTheDocument()
   })
 
   it('opens the workbench and walks the contacted prospects; Back returns to the list', async () => {
@@ -221,27 +294,26 @@ describe('Contact page', () => {
       details: [prospectDetail({ id: jean.id, first_name: 'Jean', last_name: 'Exemple', civility: 'mr' })],
       messages: { [jean.id]: { contact: message('contact', 'sent') } },
     })
-    const { router } = renderApp('/contact')
+    const { router } = renderApp(CONTACTED)
     const list = await openList()
     await userEvent.click(within(list).getByRole('link', { name: 'Jean Exemple' }))
     expect(await screen.findByRole('heading', { level: 2, name: /Jean Exemple/ })).toBeInTheDocument()
     expect(await screen.findByText('1 sur 2')).toBeInTheDocument()
-    expect(router.state.location.search).toBe(`?section=CONTACTES&prospect=${jean.id}`)
+    expect(router.state.location.search).toBe(`?view=contacted&prospect=${jean.id}`)
     await userEvent.click(screen.getByRole('button', { name: 'Suivant' }))
     await waitFor(() => { expect(router.state.location.search).toContain(`prospect=${claire.id}`); })
     expect(router.state.historyAction).toBe('REPLACE')
     await userEvent.click(screen.getByRole('button', { name: 'Retour à la liste' }))
     expect(await openList()).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^Prospects contactés/ })).toHaveAttribute('aria-expanded', 'true')
-    expect(router.state.location.search).toBe('')
+    expect(router.state.location.search).toBe('?view=contacted')
     expect(router.state.historyAction).toBe('POP')
   })
 
   it('hides old chart date markers while keeping category labels', async () => {
     const overview = contactOverview()
-    overview.bars[0]!.send_date = '2026-10-05'
+    overview.bars = overview.bars.map((bar, slot) => (slot === 0 ? { ...bar, send_date: '2026-10-05' } : bar))
     const api = stubContactApi({ rows: rows(), overview })
-    renderApp('/contact')
+    renderApp(CONTACTED)
     expect(await screen.findByRole('region', { name: 'Graphique des contacts' })).toBeVisible()
     expect(screen.queryByText('05/10/2026')).not.toBeInTheDocument()
     expect(screen.queryByText('Aucun repère')).not.toBeInTheDocument()
@@ -253,16 +325,16 @@ describe('Contact page', () => {
     const id = '0192aaaa-0000-7000-8000-000000000001'
     const people = rows().map((row, index) => ({ ...row, company_id: index === 0 ? id : null }))
     const api = stubContactApi({ rows: people })
-    const { router } = renderApp('/contact')
+    const { router } = renderApp(CONTACTED)
     await openList()
     await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Entreprise' }), id)
     await waitFor(() => {
       expect(lastListParams(api.requests)).toMatchObject({ company: id })
     })
     await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Statut' }), 'state:appointment_obtained')
-    expect(await screen.findByText('Aucun prospect contacté ne correspond à la recherche.')).toBeInTheDocument()
+    expect(await screen.findByText('Aucun prospect ne correspond à la recherche.')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Réinitialiser' }))
-    await waitFor(() => { expect(router.state.location.search).toBe('') })
+    await waitFor(() => { expect(router.state.location.search).toBe('?view=contacted') })
     expect(within(await openList()).getAllByRole('listitem')).toHaveLength(4)
   })
 
@@ -270,7 +342,7 @@ describe('Contact page', () => {
     const row = contactRow('Jean', 'Exemple', { messages: { contact: 'sent' } })
     const { prospectDetail } = await import('../test/prospectsApi')
     const api = stubContactApi({ rows: [row], details: [prospectDetail({ id: row.id, first_name: row.first_name, last_name: row.last_name })] })
-    renderApp('/contact')
+    renderApp(CONTACTED)
     await openList()
     expect(screen.queryByRole('region', { name: 'Fiche de Jean Exemple' })).not.toBeInTheDocument()
     expect(sent(api.prospects.requests, 'GET', `/api/prospects/${row.id}`)).toHaveLength(0)
