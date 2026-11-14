@@ -1,12 +1,13 @@
-import type { HomeData, HomeDashboard } from '../api/home'
+import type { WeeklyMetrics } from '../api/metrics'
 import type { MissionList } from '../api/missions'
 import type { Counters } from '../api/prospection'
 import { BuildingIcon, CalendarIcon, CheckCircleIcon, ClockIcon, MailIcon, SparklesIcon, UserPlusIcon, WarehouseIcon, type IconComponent } from '../ui/icons'
 import { HOME_DESTINATIONS, type HomeCardId } from './destinations'
 
-// Adapter: turns what existing reads already answer (Home dashboard, Home planning, Prospection counters, Missions
-// list) into the small cockpit. A card whose source is missing (loading, failed, absent) is simply not produced: never
-// a zero, never an estimate. No new backend contract; Slice 01 may later swap sources behind this function.
+// Adapter: turns the weekly read model (GET /api/metrics/weekly, doc/features/weekly-metrics.md), the Prospection
+// counters and the Missions list into the small cockpit. A card whose source is missing (loading, failed, absent) is
+// simply not produced: never a zero, never an estimate. Every Contact card counts what its destination list shows
+// (`first_contact_to_send` = view `to_contact`, `follow_up_to_send` = `follow_ups`, `appointments` = `appointments`).
 
 export interface CockpitCard {
   id: HomeCardId
@@ -26,24 +27,24 @@ export interface CockpitSection {
 }
 
 export interface CockpitSources {
-  dashboard: HomeDashboard | undefined
-  home: HomeData | undefined
+  metrics: WeeklyMetrics | undefined
   counters: Counters | undefined
   missions: MissionList | undefined
 }
 
-export function buildCockpit({ dashboard, home, counters, missions }: CockpitSources): CockpitSection[] {
-  const context = { weekStart: dashboard?.week_start }
+export function buildCockpit({ metrics, counters, missions }: CockpitSources): CockpitSection[] {
+  const context = { weekStart: metrics?.week_start }
   const card = (id: HomeCardId, rest: Omit<CockpitCard, 'id' | 'href'>): CockpitCard => ({ id, href: HOME_DESTINATIONS[id](context), ...rest })
-  const week = dashboard?.weekly_activity
+  const week = metrics?.additions
+  const stock = metrics?.contact_stock
   const items = missions?.items
 
   const contact: (CockpitCard | undefined)[] = [
-    dashboard && card('appointments', { label: 'Rendez-vous pris', count: dashboard.appointments, icon: CalendarIcon, tone: 'orange' }),
-    home && card('to_contact', { label: 'À contacter', count: home.counts.to_contact, icon: MailIcon, tone: 'green' }),
-    home && card('due', {
-      label: 'Relances dues', count: home.counts.due, icon: ClockIcon, tone: 'orange',
-      hint: home.contact_week.overdue > 0 ? `dont ${String(home.contact_week.overdue)} en retard` : undefined,
+    stock && card('appointments', { label: 'Rendez-vous pris', count: stock.appointments, icon: CalendarIcon, tone: 'orange' }),
+    stock && card('to_contact', { label: 'À contacter', count: stock.first_contact_to_send, icon: MailIcon, tone: 'green' }),
+    stock && card('due', {
+      label: 'Relances dues', count: stock.follow_up_to_send, icon: ClockIcon, tone: 'orange',
+      hint: stock.follow_up_overdue > 0 ? `dont ${String(stock.follow_up_overdue)} en retard` : undefined,
     }),
     counters && card('to_verify', { label: 'À vérifier', count: counters.reviews.to_verify.total, icon: CheckCircleIcon, tone: 'blue' }),
   ]

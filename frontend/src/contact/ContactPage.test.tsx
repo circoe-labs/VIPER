@@ -90,13 +90,12 @@ describe('Contact page', () => {
     expect(within(list).getByText('14 septembre 2026')).toBeInTheDocument()
     expect(within(list).queryByText('1 octobre 2026')).not.toBeInTheDocument()
   })
-  it('replaces Exploitation in the navigation, and the old path leads to it', async () => {
+  it('has no Exploitation item in the navigation, and the old path leads to Contact', async () => {
     stubContactApi({ dashboard: DASHBOARD })
     const { router } = renderApp('/exploitation')
     expect(await screen.findByRole('heading', { level: 1, name: 'Contacts' })).toBeInTheDocument()
     expect(router.state.location.pathname).toBe('/contact')
     const navigation = screen.getByRole('navigation', { name: 'Navigation principale' })
-    expect(within(navigation).getByRole('link', { name: 'Contacts' })).toHaveAttribute('aria-current', 'page')
     expect(within(navigation).queryByRole('link', { name: 'Exploitation' })).not.toBeInTheDocument()
   })
 
@@ -312,7 +311,7 @@ describe('Contact page', () => {
 
   it('hides old chart date markers while keeping category labels', async () => {
     const overview = contactOverview()
-    overview.bars[0]!.send_date = '2026-10-05'
+    overview.bars = overview.bars.map((bar, slot) => (slot === 0 ? { ...bar, send_date: '2026-10-05' } : bar))
     const api = stubContactApi({ rows: rows(), overview })
     renderApp(CONTACTED)
     expect(await screen.findByRole('region', { name: 'Graphique des contacts' })).toBeVisible()

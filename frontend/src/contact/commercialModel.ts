@@ -4,9 +4,8 @@
 // already serves (GET /contact/dashboard categories + to_send, GET /contact/prospects?category=…) answers the other
 // questions (to contact, follow-ups, replies, appointments, mail errors); this module only maps it, it counts nothing.
 //
-// The capsule figures come through `ContactSummarySource`, a local adapter shape: `categories`/`weeks` are in the shared
-// `ContactDashboard` type already; `to_send` is sent by the backend (ContactDashboardOut.to_send) but not yet typed
-// there. Slice 01 owns frontend/src/api/*: once it types `to_send`, `readSummarySource` is a plain pass-through. A figure the
+// The capsule figures come through `ContactSummarySource`, a local adapter shape: `categories`/`weeks`/`to_send` are in the shared
+// `ContactDashboard` type, so `readSummarySource` is a plain pass-through. A figure the
 // source does not carry is `null` and rendered « — », never a guess. Deliberately NOT shown: quotes/opportunities (no
 // contract) and « inactive » prospects (no counter; `activity_status` exists per row only).
 import type { ContactDashboard, ContactRow, ContactWeekOption } from '../api/contact'
@@ -106,8 +105,7 @@ export interface ContactSummarySource {
   to_send?: { total: number; overdue: number; groups: { rank: number; count: number; overdue: number }[] }
 }
 
-// `ContactDashboard` is structurally a `ContactSummarySource`. `to_send` is on the wire (backend ContactDashboardOut)
-// but absent from the shared type until Slice 01 adds it: it is read at runtime and `undefined` (« — ») if missing.
+// `ContactDashboard` (which types `to_send`, as the backend ContactDashboardOut sends it) is a `ContactSummarySource`.
 export function readSummarySource(data: ContactDashboard | undefined): ContactSummarySource | undefined {
   return data
 }

@@ -1,6 +1,6 @@
 import { Link } from 'react-router'
 
-import { useHome, useHomeDashboard } from '../api/home'
+import { useWeeklyMetrics } from '../api/metrics'
 import { useMissions } from '../api/missions'
 import { filtersOf, useProspectionCounters } from '../api/prospection'
 import { useCurrentUser } from '../auth/currentUser'
@@ -45,15 +45,14 @@ function greeting(name: string): string {
 }
 
 export function HomePage() {
-  const dashboard = useHomeDashboard()
-  const planning = useHome()
+  const metrics = useWeeklyMetrics()
   const counters = useProspectionCounters(FILTERS)
   const missions = useMissions()
   const user = useCurrentUser()
-  const sections = buildCockpit({ dashboard: dashboard.data, home: planning.data, counters: counters.data, missions: missions.data })
-  const loading = dashboard.isPending || planning.isPending || counters.isPending || missions.isPending
-  const failed = dashboard.isError || planning.isError || counters.isError || missions.isError
-  const refetch = () => { for (const query of [dashboard, planning, counters, missions]) if (query.isError) void query.refetch() }
+  const sections = buildCockpit({ metrics: metrics.data, counters: counters.data, missions: missions.data })
+  const loading = metrics.isPending || counters.isPending || missions.isPending
+  const failed = metrics.isError || counters.isError || missions.isError
+  const refetch = () => { for (const query of [metrics, counters, missions]) if (query.isError) void query.refetch() }
   return (
     <div className="home-dashboard">
       <header className="home-dashboard__header">
