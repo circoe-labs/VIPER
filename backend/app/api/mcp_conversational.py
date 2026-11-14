@@ -26,6 +26,7 @@ from app.api.routes import prospection as prospection_routes
 from app.api.routes import search as search_routes
 from app.models.enums import MissionStatus, MissionType
 from app.services import agent_review, contact_scheduling, missions
+from app.services import calendly as calendly_service
 from app.services import search as search_service
 from app.services.contact_dashboard import ContactFilters
 from app.services.errors import InvalidFieldError
@@ -110,6 +111,17 @@ def _days_arg(args: dict[str, Any], name: str) -> int | None:
         raise InvalidFieldError(name, "Expected a whole number of days.", "format")
     if not 1 <= value <= MAX_ADDED_WITHIN_DAYS:
         raise InvalidFieldError(name, f"Expected 1 to {MAX_ADDED_WITHIN_DAYS} days.", "range")
+    return value
+
+
+def _int_arg(args: dict[str, Any], name: str, *, default: int) -> int:
+    value = args.get(name)
+    if value is None:
+        return default
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise InvalidFieldError(name, "Expected a whole number of days.", "format")
+    if not 0 <= value <= MAX_ADDED_WITHIN_DAYS:
+        raise InvalidFieldError(name, f"Expected 0 to {MAX_ADDED_WITHIN_DAYS} days.", "range")
     return value
 
 
@@ -213,6 +225,29 @@ def _contact_overview(ctx: ReadContext, args: dict[str, Any]) -> dict[str, Any]:
 def _prospect_messages(ctx: ReadContext, args: dict[str, Any]) -> dict[str, Any]:
     prospect_id = _uuid_arg(args, "prospect_id")
     return _json(message_routes.messages_out(ctx.state, ctx.session, prospect_id))
+
+
+def _calendly_appointments(ctx: ReadContext, args: dict[str, Any]) -> dict[str, Any]:
+    """Meetings read live from Calendly with the token saved in Config AI > Calendly. A refusal is
+    an answer (`ok: false` + a stable `calendly_*` code), not a protocol error."""
+    token = ctx.state.settings.calendly_api_token
+    if token is None:
+        return {"ok": False, "code": "calendly_not_configured", "appointments": []}
+    back = _int_arg(args, "days_back", default=0)
+    ahead = _int_arg(args, "days_ahead", default=30)
+    client = calendly_service.CalendlyClient(
+        token.get_secret_value(), transport=getattr(ctx.state, "calendly_transport", None)
+    )
+    try:
+        items = calendly_service.list_appointments(
+            client,
+            days_back=back,
+            days_ahead=ahead,
+            include_canceled=args.get("include_canceled") is True,
+        )
+    except calendly_service.CalendlyError as error:
+        return {"ok": False, "code": error.code, "appointments": []}
+    return {"ok": True, "code": None, "appointments": items}
 
 
 # --- catalogue ---------------------------------------------------------------------------------
@@ -345,6 +380,26 @@ TOOLS: tuple[ReadTool, ...] = (
             "additionalProperties": False,
         },
         handler=_prospect_messages,
+    ),
+    ReadTool(
+        name="viper_list_calendly_appointments",
+        capability="contact.read",
+        description=(
+            "Meetings booked on Calendly, read live from Calendly (read-only): title, start and "
+            "end, status, host, location and who booked. Defaults to the next 30 days; widen with "
+            "`days_back` / `days_ahead`, add cancelled ones with `include_canceled`. Answers "
+            "`ok: false` with a `calendly_*` code when Calendly is not connected or refuses."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "days_back": {"type": "integer", "minimum": 0, "maximum": MAX_ADDED_WITHIN_DAYS},
+                "days_ahead": {"type": "integer", "minimum": 0, "maximum": MAX_ADDED_WITHIN_DAYS},
+                "include_canceled": {"type": "boolean"},
+            },
+            "additionalProperties": False,
+        },
+        handler=_calendly_appointments,
     ),
 )
 

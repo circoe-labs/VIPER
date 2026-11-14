@@ -201,6 +201,7 @@ them). No SQL in the handlers, no generic query tool, nothing writes.
 | `viper_list_pending_reviews` | `reviews.read` | `missions.pending_proposals` (`ProposalOut`) + `agent_review.get_review` digest; mission cards with `results_pending > 0` |
 | `viper_get_contact_overview` | `contact.read` | `routes/contact.dashboard_out` (`ContactDashboardOut`) + `contact_scheduling.overview` (`SchedulingOut`); optional `week` |
 | `viper_get_prospect_messages` | `contact.read` | `routes/contact_messages.messages_out` (`MessagesOut`) |
+| `viper_list_calendly_appointments` | `contact.read` | `calendly.list_appointments` (live Calendly `GET /scheduled_events`, same data as `GET /api/settings/integrations/calendly/events`); `days_back`, `days_ahead`, `include_canceled`; answers `{ok, code, appointments}` |
 
 - **« Nouveaux prospects sur N jours ».** `viper_get_prospection_metrics` with `added_within_days`
   (1–366) answers `added: {days, since, total, counts}`: every segment's size among people whose

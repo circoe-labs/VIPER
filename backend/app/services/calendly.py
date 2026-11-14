@@ -245,6 +245,52 @@ def sync_appointments(
     return SyncReport(created=created, updated=updated, cancelled=cancelled)
 
 
+def list_appointments(
+    client: CalendlyClient,
+    *,
+    days_back: int = 0,
+    days_ahead: int = 30,
+    include_canceled: bool = False,
+    now: Callable[[], datetime] = lambda: datetime.now(UTC),
+) -> list[dict[str, Any]]:
+    """Read-only view of the Calendly meetings starting in `[now - days_back, now + days_ahead]`,
+    straight from Calendly (nothing is written, the Agenda is not touched). For the agent / MCP
+    and the « Calendly » page: title, start/end, status, host, location and who booked."""
+    moment = now()
+    fetched = client.events_with_invitees(
+        moment - timedelta(days=days_back), moment + timedelta(days=days_ahead)
+    )
+    items: list[dict[str, Any]] = []
+    for event, invitees in fetched:
+        canceled = event.get("status") == "canceled"
+        if canceled and not include_canceled:
+            continue
+        memberships = event.get("event_memberships") or [{}]
+        host = memberships[0] if isinstance(memberships[0], dict) else {}
+        items.append(
+            {
+                "uri": _clip(event.get("uri"), 300),
+                "title": _clip(event.get("name"), 300) or "Rendez-vous",
+                "status": "canceled" if canceled else "active",
+                "starts_at": _clip(event.get("start_time"), 40),
+                "ends_at": _clip(event.get("end_time"), 40),
+                "location": _location(event),
+                "host_name": _clip(host.get("user_name"), 300),
+                "host_email": _clip(host.get("user_email"), 320),
+                "invitees": [
+                    {
+                        "name": _clip(item.get("name"), 300),
+                        "email": _clip(item.get("email"), 320),
+                        "status": _clip(item.get("status"), 20),
+                    }
+                    for item in invitees
+                    if isinstance(item, dict)
+                ],
+            }
+        )
+    return items
+
+
 def link_prospect(session: Session, row: Appointment, *, company_hint: str | None = None) -> None:
     """Ties a new appointment to the prospect who owns the invitee's address, to the company that
     prospect works for, and to the internal referent (the Calendly host first, else the prospect's

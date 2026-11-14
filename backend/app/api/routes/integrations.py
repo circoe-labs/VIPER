@@ -12,6 +12,11 @@ Session-protected like every feature route (CSRF on PUT/POST); a person only.
                                              the key is `openai_api_key` (write-only). Applied at
                                              once (no restart): the routes read the new settings,
                                              the Toolbox and the workers are reconfigured;
+- `GET  /settings/integrations/calendly/events` read-only list of the meetings Calendly itself holds
+                                             (`days_back`, `days_ahead`, `include_canceled`):
+                                             `{ok, code, events[]}`; also the MCP tool
+                                             `viper_list_calendly_appointments`;
+- `POST /settings/integrations/calendly/check` « Tester le jeton »: `GET /users/me`;
 - `POST /settings/integrations/openai/check` « Tester la clé »: one `GET /models/{model}` with the
                                              saved key (no token generated); answers the outcome.
 
@@ -26,7 +31,7 @@ import time
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
@@ -36,7 +41,7 @@ from app.core.actor import ActorContext, ActorType
 from app.core.config import Settings
 from app.services import audit
 from app.services.audit import AuditAction
-from app.services.calendly import CalendlyClient, CalendlyError
+from app.services.calendly import CalendlyClient, CalendlyError, list_appointments
 from app.services.contact_dispatch_state import DispatchReason, dispatch_state, sending_reason
 from app.services.contact_dispatch_worker import ContactDispatcher
 from app.services.errors import ActorNotAllowedError, MailGenerationError
@@ -392,6 +397,61 @@ def check_calendly(request: Request, actor: CurrentActor) -> CalendlyCheckOut:
     account = " · ".join(str(me[key]) for key in ("name", "email") if me.get(key)) or None
     logger.info("integrations.calendly_check_ok elapsed_ms=%s by=%s", elapsed, actor.id)
     return CalendlyCheckOut(ok=True, code=None, account=account, elapsed_ms=elapsed)
+
+
+class CalendlyInviteeOut(BaseModel):
+    name: str | None
+    email: str | None
+    status: str | None
+
+
+class CalendlyEventOut(BaseModel):
+    uri: str | None
+    title: str
+    status: str
+    starts_at: str | None
+    ends_at: str | None
+    location: str | None
+    host_name: str | None
+    host_email: str | None
+    invitees: list[CalendlyInviteeOut]
+
+
+class CalendlyEventsOut(BaseModel):
+    ok: bool
+    # A stable `calendly_*` code when Calendly could not be read (never the token).
+    code: str | None
+    events: list[CalendlyEventOut]
+
+
+@router.get("/calendly/events")
+def calendly_events(
+    request: Request,
+    actor: CurrentActor,
+    days_back: Annotated[int, Query(ge=0, le=366)] = 0,
+    days_ahead: Annotated[int, Query(ge=0, le=366)] = 30,
+    include_canceled: bool = False,
+) -> CalendlyEventsOut:
+    """Read-only: the meetings Calendly itself lists for the saved token (`GET /scheduled_events`),
+    the same read the MCP tool `viper_list_calendly_appointments` makes."""
+    settings: Settings = request.app.state.settings
+    token = settings.calendly_api_token
+    if token is None:
+        return CalendlyEventsOut(ok=False, code="calendly_not_configured", events=[])
+    client = CalendlyClient(
+        token.get_secret_value(), transport=getattr(request.app.state, "calendly_transport", None)
+    )
+    try:
+        items = list_appointments(
+            client, days_back=days_back, days_ahead=days_ahead, include_canceled=include_canceled
+        )
+    except CalendlyError as error:
+        logger.warning("integrations.calendly_events_failed code=%s", error.code)
+        return CalendlyEventsOut(ok=False, code=error.code, events=[])
+    logger.info("integrations.calendly_events_ok count=%s by=%s", len(items), actor.id)
+    return CalendlyEventsOut(
+        ok=True, code=None, events=[CalendlyEventOut.model_validate(item) for item in items]
+    )
 
 
 # --- « Tester la Toolbox » ------------------------------------------------------------------------
