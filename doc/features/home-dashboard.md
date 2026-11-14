@@ -21,7 +21,7 @@ it does not add Agenda rows to tracking rows and count the same appointment twic
 Different company IDs with the same name remain distinct; several prospects at one company
 never multiply the company total. No example figures are stored or shown as fallback data.
 
-The business week is Monday 00:00 inclusive through next Monday 00:00 exclusive, Europe/Paris,
+The shared, documented definition of « cette semaine » is in [weekly-metrics.md](weekly-metrics.md). The business week is Monday 00:00 inclusive through next Monday 00:00 exclusive, Europe/Paris,
 including DST changes. The two dates returned are the Monday and Sunday. The list APIs share
 calendar-day creation filters; their totals and counters use the same predicates. The destination
 shows a removable creation-period label. Modification dates never contribute to weekly additions.
