@@ -123,11 +123,14 @@ export interface SimilarCompany {
   reasons: SimilarityReason[]
 }
 
+// `?sort=` of GET /companies and GET /warehouses; `name` is the API default and is omitted from the request.
+export type ListSort = 'name' | 'created' | 'updated'
+
 export const COMPANY_PAGE_SIZE = 50
 
 export const companyKeys = {
   all: ['companies'] as const,
-  list: (search: string, offset: number, limit: number, kind: CompanyKindSelection = null, createdFrom: string | null = null, createdTo: string | null = null) => ['companies', 'list', search, offset, limit, kind, createdFrom, createdTo] as const,
+  list: (search: string, offset: number, limit: number, kind: CompanyKindSelection = null, createdFrom: string | null = null, createdTo: string | null = null, sort: ListSort = 'name') => ['companies', 'list', search, offset, limit, kind, createdFrom, createdTo, sort] as const,
   detail: (id: string) => ['companies', 'detail', id] as const,
   similar: (name: string, domain: string, exclude: string | null) => ['companies', 'similar', name, domain, exclude] as const,
 }
@@ -137,15 +140,16 @@ function companyPath(id: string): `/${string}` {
 }
 
 // `limit` up to 200 (the API's maximum), e.g. for a company picker.
-export function useCompanies(search: string, offset = 0, limit = COMPANY_PAGE_SIZE, kind: CompanyKindSelection = null, createdFrom: string | null = null, createdTo: string | null = null) {
+export function useCompanies(search: string, offset = 0, limit = COMPANY_PAGE_SIZE, kind: CompanyKindSelection = null, createdFrom: string | null = null, createdTo: string | null = null, sort: ListSort = 'name') {
   return useQuery({
-    queryKey: companyKeys.list(search, offset, limit, kind, createdFrom, createdTo),
+    queryKey: companyKeys.list(search, offset, limit, kind, createdFrom, createdTo, sort),
     queryFn: ({ signal }) => {
       const params = new URLSearchParams({ limit: String(limit), offset: String(offset) })
       if (search) params.set('q', search)
       if (kind) params.set('company_kind', kind)
       if (createdFrom) params.set('created_from', createdFrom)
       if (createdTo) params.set('created_to', createdTo)
+      if (sort !== 'name') params.set('sort', sort)
       return apiGet<CompanyPage>(`/companies?${params.toString()}`, signal)
     },
     placeholderData: keepPreviousData,

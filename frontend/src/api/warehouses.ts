@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import type { ListSort } from './companies'
 import { apiGet, apiRequest } from './client'
 import { refreshAfterWrite } from './refresh'
 
@@ -86,10 +87,10 @@ export function useWarehouseCounts() {
   })
 }
 
-export function useWarehouses(search: string, offset: number, toContact = false, category: 'sme' | 'other' | 'unclassified' | null = null) {
+export function useWarehouses(search: string, offset: number, toContact = false, category: 'sme' | 'other' | 'unclassified' | null = null, sort: ListSort = 'name') {
   return useQuery({
-    queryKey: ['warehouses', 'list', search, offset, toContact, category],
-    queryFn: ({ signal }) => apiGet<{ items: Warehouse[]; total: number }>(`/warehouses?${new URLSearchParams({ q: search, offset: String(offset), limit: '50', ...(toContact ? { to_contact: 'true' } : {}), ...(category ? { category } : {}) }).toString()}`, signal),
+    queryKey: ['warehouses', 'list', search, offset, toContact, category, sort],
+    queryFn: ({ signal }) => apiGet<{ items: Warehouse[]; total: number }>(`/warehouses?${new URLSearchParams({ q: search, offset: String(offset), limit: '50', ...(toContact ? { to_contact: 'true' } : {}), ...(category ? { category } : {}), ...(sort !== 'name' ? { sort } : {}) }).toString()}`, signal),
     placeholderData: (previous, previousQuery) => previousQuery?.queryKey[4] === toContact && previousQuery?.queryKey[5] === category ? previous : undefined,
   })
 }

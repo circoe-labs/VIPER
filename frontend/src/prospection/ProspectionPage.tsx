@@ -14,13 +14,13 @@ import { WarehousesPanel } from './WarehousesPanel'
 import './prospection.css'
 
 const SEARCH_LABELS = {
-  prospect: 'Rechercher : nom, entreprise, e-mail, téléphone',
-  company: 'Rechercher : nom, raison sociale, SIREN, SIRET, domaine',
-  warehouse: 'Rechercher un entrepôt, un propriétaire, un interlocuteur…',
+  prospect: 'Rechercher un prospect (nom, entreprise, e-mail, téléphone)',
+  company: 'Rechercher une entreprise (nom, raison sociale, SIREN, SIRET, domaine)',
+  warehouse: 'Rechercher un entrepôt (nom, propriétaire, interlocuteur)',
 }
 
 // Prospection: the state of the database. The entity selector (`?entity=`: Prospects by default, Entreprises,
-// Entrepôts) decides the content of the page: capsules (figure + filter) then the table, no folded section. Every
+// Entrepôts) decides the content of the page: KPI cards, one control row (search, sort, filters, chips), then the table. Every
 // criterion lives in the URL (criteria.ts). Opening a prospect follows the editor contract (prospectEditor.tsx).
 export function ProspectionPage() {
   const [params, setParams] = useSearchParams()
@@ -86,7 +86,7 @@ export function ProspectionPage() {
           </>
         }
       />
-      <EntityNav entity={view.entity} />
+      <EntityNav view={view} />
       {view.entity === 'company' ? <CompaniesPanel {...panel} /> : view.entity === 'warehouse' ? <WarehousesPanel {...panel} /> : <ProspectsPanel {...panel} />}
     </div>
   )

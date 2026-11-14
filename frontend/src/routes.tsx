@@ -26,7 +26,7 @@ import { SignupApprovalPage } from './auth/SignupApprovalPage'
 import { SignupPage } from './auth/SignupPage'
 import { AgentHistoryPage } from './settings/AgentHistoryPage'
 import { SettingsPage } from './settings/SettingsPage'
-import { WarehousesPage } from './warehouses/WarehousesPage'
+import { WarehouseDraftsPage } from './warehouses/WarehousesPage'
 
 // Component showcase for design review; `import.meta.env.DEV` is false in production builds, so the route and
 // its chunk are dropped from the bundle and never appear in the navigation.
@@ -66,13 +66,23 @@ function LegacyRedirect({ to }: { to: string }) {
   return <Navigate to={`${target}${location.search}${location.hash}`} replace />
 }
 
+// /warehouses (the former Entrepôts page) is the Entrepôts view of Prospection.
+function WarehousesRedirect() {
+  const location = useLocation()
+  const params = new URLSearchParams(location.search)
+  params.set('entity', 'warehouse')
+  return <Navigate to={`/prospection?${params.toString()}${location.hash}`} replace />
+}
+
 // One page per navigation section (shell/navigation.ts). Contact replaced Exploitation (Contact port P4): the old
 // path redirects, so bookmarks keep working.
 const PAGES: RouteObject[] = [
   { path: '/', element: <HomePage /> },
   { path: '/prospection', element: <ProspectionPage /> },
   { path: '/contacts-joignables', element: <ValidatedProspectsRedirect /> },
-  { path: '/warehouses', element: <WarehousesPage /> },
+  // Entrepôts is a view of Prospection (`entity=warehouse`); the old page path keeps working with its query and hash.
+  { path: '/warehouses', element: <WarehousesRedirect /> },
+  { path: '/prospection/warehouse-drafts', element: <WarehouseDraftsPage /> },
   { path: '/contact', element: <ContactPage /> },
   { path: '/missions', element: <MissionsPage /> },
   { path: '/missions/:missionId', element: <MissionDetailPage /> },

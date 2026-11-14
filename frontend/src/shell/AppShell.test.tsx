@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { SHELL_API } from '../test/homeApi'
 import { renderApp, stubApi, TEST_USER } from '../test/render'
 
-const LABELS = ['Accueil', 'Prospection', 'Contact', 'Entrepôts', 'Missions', 'Agenda', 'Organisation']
+const LABELS = ['Accueil', 'Prospection', 'Contact', 'Missions', 'Agenda', 'Organisation']
 // TEST_USER is an administrator: the Administration group follows the main and configuration ones.
 const ADMIN_LABELS = ['Catégories de mission', 'Skills', 'Sources', 'Base de données', 'Historique agents', 'Paramètres', 'Config AI']
 // The Database page lists its tables on load.

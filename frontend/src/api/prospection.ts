@@ -186,7 +186,7 @@ function filterParams(filters: ProspectFilters): URLSearchParams {
   return params
 }
 
-export function filtersOf(criteria: ProspectListCriteria): ProspectFilters {
+export function filtersOf(criteria: Omit<ProspectListCriteria, 'sort'>): ProspectFilters {
   const { q, role, activity, referent, tracking_status, cohort, company, import_batch, services, send_stage, company_kind, reachable, validated_only, verification_box, created_from, created_to } = criteria
   return { q, role, activity, referent, tracking_status, cohort, company, import_batch, services, send_stage, company_kind, reachable, validated_only, verification_box, created_from, created_to }
 }

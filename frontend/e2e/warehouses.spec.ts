@@ -11,7 +11,9 @@ test('warehouse directory: create, edit, import without duplicates and responsiv
   const tag = `Warehouse${uniqueSuffix()}`
   const name = `Entrepôt ${tag}`
   await page.goto('/warehouses')
-  await expect(page.getByRole('heading', { name: 'Entrepôts', exact: true })).toBeVisible()
+  // /warehouses redirects to the Entrepôts view of Prospection.
+  await expect(page).toHaveURL(/\/prospection\?entity=warehouse/)
+  await expect(page.getByRole('link', { name: /^Entrepôts/ })).toHaveAttribute('aria-current', 'page')
   await page.getByRole('button', { name: 'Ajouter un entrepôt', exact: true }).click()
   const form = page.getByRole('dialog', { name: 'Ajouter un entrepôt' })
   await form.getByRole('textbox', { name: 'Nom de l’entrepôt' }).fill(name)
@@ -60,14 +62,14 @@ test('warehouse directory: create, edit, import without duplicates and responsiv
   expect(records.items[0]?.owner_name).toBe('Propriétaire Test')
   await page.getByRole('searchbox').fill(tag)
   await expect(page.locator('.warehouse-card')).toHaveCount(1)
-  await page.getByRole('button', { name: 'Réinitialiser', exact: true }).click()
+  await page.getByRole('searchbox').fill('')
   await expect(page.locator('.warehouse-card')).toHaveCount(3)
 
   for (const theme of ['dark', 'light'] as const) {
     await useTheme(page, theme)
     for (const width of [1440, 1024, 390]) {
       await page.setViewportSize({ width, height: 1000 })
-      await page.goto('/warehouses')
+      await page.goto('/prospection?entity=warehouse')
       await expect(details).toHaveAttribute('aria-expanded', 'false')
       await details.click()
       await expect(page.getByRole('list', { name: `Interlocuteurs de ${name}` }).getByText(alternatives, { exact: true })).toBeVisible()

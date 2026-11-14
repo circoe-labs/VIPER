@@ -15,7 +15,6 @@ test('app shell boots with the French navigation and a connected API', async ({ 
     'Accueil',
     'Prospection',
     'Prospects validés',
-    'Entrepôts',
     'Contacts',
     'Agenda',
     'Base de données',

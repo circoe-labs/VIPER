@@ -13,7 +13,6 @@ import {
   SparklesIcon,
   TagIcon,
   UsersIcon,
-  WarehouseIcon,
 } from '../ui/icons'
 
 export type NavigationSectionId = 'main' | 'configuration' | 'admin'
@@ -46,7 +45,6 @@ export const NAVIGATION_SECTIONS: readonly NavigationSection[] = [
       { path: '/', label: 'Accueil', icon: HomeIcon },
       { path: '/prospection', label: 'Prospection', icon: UsersIcon },
       { path: '/contact', label: 'Contact', icon: MailIcon },
-      { path: '/warehouses', label: 'Entrepôts', icon: WarehouseIcon },
       { path: '/missions', label: 'Missions', icon: SparklesIcon },
       { path: '/agenda', label: 'Agenda', icon: CalendarIcon },
     ],

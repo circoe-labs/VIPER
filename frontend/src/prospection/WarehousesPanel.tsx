@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router'
 
+import type { ListSort } from '../api/companies'
 import { useWarehouseCounts, useWarehouses } from '../api/warehouses'
 import { Button } from '../ui/Button'
 import { EmptyState } from '../ui/EmptyState'
@@ -8,46 +9,40 @@ import { AlertIcon, ChevronLeftIcon, ChevronRightIcon, PlusIcon, SpinnerIcon, Up
 import { WarehouseEditor } from '../warehouses/WarehouseEditor'
 import { WarehouseImport } from '../warehouses/WarehouseImport'
 import { WarehouseRow } from '../warehouses/WarehousesPage'
-import { WAREHOUSE_CATEGORIES, type WarehouseCategory } from './criteria'
-import { type Capsule, EntityCapsules } from './EntityCapsules'
-import { type EntityPanelProps, weeklyFor } from './entityPanel'
-import { useWeeklyAdditions } from './weeklyAdditions'
+import { sortFor } from './criteria'
+import type { EntityPanelProps } from './entityPanel'
+import { activeFilters } from './filterChips'
+import { ProspectionControls } from './ProspectionFilters'
 
 const NUMBER = new Intl.NumberFormat('fr-FR')
 const PAGE_SIZE = 50 // fixed by `useWarehouses` (limit=50)
-const CATEGORY_LABELS: Record<WarehouseCategory, string> = { sme: 'PME/TPE', other: 'Autres', unclassified: 'À classer' }
 
-// Entrepôts: category capsules + « à contacter » (figure + filter), search, then the existing warehouse cards and
+// Entrepôts: control bar (search, sort, category / à contacter filters), then the existing warehouse cards and
 // editor/import dialogs. URL: `entity=warehouse`, `warehouse_category`, `warehouse_to_contact`, `q`, `page`.
-// Drafts stay on /warehouses (not part of the database overview).
+// Drafts have their own page: /prospection/warehouse-drafts (« Brouillons »).
 export function WarehousesPanel({ view, update, refine, search }: EntityPanelProps) {
   const counts = useWarehouseCounts()
-  const weekly = useWeeklyAdditions()
   const [editing, setEditing] = useState<string | null | undefined>(undefined)
   const [importing, setImporting] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const query = view.q.trim()
   const offset = (view.page - 1) * PAGE_SIZE
-  const warehouses = useWarehouses(query, offset, view.warehouse_to_contact, view.warehouse_category)
+  const warehouses = useWarehouses(query, offset, view.warehouse_to_contact, view.warehouse_category, sortFor(view) as ListSort)
   const page = warehouses.data
   const last = page ? Math.min(offset + page.items.length, page.total) : 0
-  const capsules: Capsule[] = [
-    { key: 'all', label: 'Tous', hint: 'Tous les sites du répertoire', count: counts.data?.warehouses, pressed: view.warehouse_category === null && !view.warehouse_to_contact, onSelect: () => { refine({ warehouse_category: null, warehouse_to_contact: false }) }, weekly: weeklyFor(weekly, 'warehouse') },
-    ...WAREHOUSE_CATEGORIES.map((category) => ({ key: category, label: CATEGORY_LABELS[category], hint: 'Catégorie de prospection', count: counts.data?.[category], pressed: view.warehouse_category === category, onSelect: () => { refine({ warehouse_category: view.warehouse_category === category ? null : category }) } })),
-    { key: 'to_contact', label: 'Interlocuteurs à contacter', hint: 'Interlocuteurs marqués « à contacter » ; la liste montre leurs entrepôts', count: counts.data?.to_contact, pressed: view.warehouse_to_contact, onSelect: () => { refine({ warehouse_to_contact: !view.warehouse_to_contact }) } },
-  ].map((capsule) => ({ ...capsule, failed: counts.isError }))
-  const filtered = view.warehouse_category !== null || view.warehouse_to_contact || query !== ''
+  const filtered = activeFilters(view).length > 0 || query !== ''
 
   return (
     <section aria-label="Entrepôts">
-      <EntityCapsules label="Catégorie d’entrepôt" capsules={capsules} />
+      <ProspectionControls view={view} onChange={refine} search={search} />
       <div className="entity-panel__toolbar">
-        {search}
         {page && <span className="entity-panel__count" aria-live="polite">{NUMBER.format(page.total)} entrepôt{page.total > 1 ? 's' : ''}</span>}
         {warehouses.isFetching && <SpinnerIcon size={16} className="btn__spinner" />}
-        <Link to="/warehouses" className="btn btn--ghost btn--md">Brouillons</Link>
+        <div className="entity-panel__actions">
+        <Link to="/prospection/warehouse-drafts" className="btn btn--ghost btn--md">Brouillons</Link>
         <Button icon={UploadIcon} onClick={() => { setImporting(true) }}>Importer Excel</Button>
         <Button variant="primary" icon={PlusIcon} onClick={() => { setEditing(null) }}>Ajouter un entrepôt</Button>
+        </div>
       </div>
       {counts.isError && <p role="alert" className="prospection__state prospection__state--error"><AlertIcon size={18} />Totaux indisponibles.<Button size="sm" onClick={() => void counts.refetch()}>Réessayer</Button></p>}
       {notice && <p className="warehouse-notice" role="status">{notice}</p>}

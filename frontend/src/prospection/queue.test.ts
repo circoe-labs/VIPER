@@ -5,7 +5,7 @@ import { prospect } from '../test/prospectionApi'
 import { DEFAULT_VIEW } from './criteria'
 import { createProspectQueue } from './queue'
 
-const CRITERIA: ProspectListCriteria = { ...DEFAULT_VIEW, segment: 'never_verified' }
+const CRITERIA: ProspectListCriteria = { ...DEFAULT_VIEW, segment: 'never_verified', sort: 'name' }
 const SIZE = 3
 
 // A list the tests change between reads, as saves do.

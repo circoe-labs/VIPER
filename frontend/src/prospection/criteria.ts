@@ -23,7 +23,19 @@ export type Entity = (typeof ENTITIES)[number]
 export const WAREHOUSE_CATEGORIES = ['sme', 'other', 'unclassified'] as const
 export type WarehouseCategory = (typeof WAREHOUSE_CATEGORIES)[number]
 
-export interface ProspectionView extends ProspectListCriteria {
+// `?sort=`: `name` (default), `created`, `updated` for every entity; prospects also keep the older orders of
+// GET /prospection/prospects (company, next_due, verification, file). The backend has no « created » order for
+// prospects, so there it reads as the default (see `sortFor`).
+export type ViewSort = ProspectSort | 'created'
+export const VIEW_SORTS: readonly ViewSort[] = [...PROSPECT_SORTS, 'created']
+export const ENTITY_SORTS: Record<Entity, readonly ViewSort[]> = {
+  prospect: PROSPECT_SORTS,
+  company: ['name', 'created', 'updated'],
+  warehouse: ['name', 'created', 'updated'],
+}
+
+export interface ProspectionView extends Omit<ProspectListCriteria, 'sort'> {
+  sort: ViewSort
   entity: Entity
   // `?warehouse_category=sme|other|unclassified` and `?warehouse_to_contact=true` (entity=warehouse).
   warehouse_category: WarehouseCategory | null
@@ -99,7 +111,7 @@ export function parseView(params: URLSearchParams): ProspectionView {
     company: id(params.get('company')),
     import_batch: id(params.get('import_batch')),
     // `planned_contact` (a link written before the sequences rework) reads as its successor.
-    sort: oneOf<ProspectSort>(PROSPECT_SORTS, params.get('sort') === 'planned_contact' ? 'next_due' : params.get('sort')) ?? 'name',
+    sort: oneOf<ViewSort>(VIEW_SORTS, params.get('sort') === 'planned_contact' ? 'next_due' : params.get('sort')) ?? 'name',
     page: Number.isInteger(page) && page > 0 ? page : 1,
     prospect: prospect === 'new' ? 'new' : id(prospect),
   }
@@ -144,9 +156,38 @@ export function hasFilters(view: ProspectionView): boolean {
   )
 }
 
-// Switching entity starts that entity's view from scratch (another entity's criteria would not mean the same thing).
-export function entityHref(entity: Entity): string {
-  return prospectionHref({ entity })
+// The sort the entity can honour: a value it does not know (« created » on prospects) falls back to the default.
+export function sortFor(view: Pick<ProspectionView, 'entity' | 'sort'>): ViewSort {
+  return ENTITY_SORTS[view.entity].includes(view.sort) ? view.sort : 'name'
+}
+
+// What a filter means is per entity: validated_only has no sense on Entreprises, the warehouse category none on
+// Prospects. `ENTITY_FILTER_KEYS` is the single list; q and sort are shared (sort only when the entity knows it).
+export const ENTITY_FILTER_KEYS: Record<Entity, readonly (keyof ProspectionView)[]> = {
+  prospect: ['validated_only', 'verification_box', 'review', 'segment', 'created_from', 'created_to', 'company_kind', 'role', 'activity', 'referent', 'tracking_status', 'cohort', 'company', 'import_batch', 'services', 'send_stage'],
+  company: ['company_kind', 'created_from', 'created_to'],
+  warehouse: ['warehouse_category', 'warehouse_to_contact'],
+}
+
+// The view after switching entity: the new entity starts from scratch except what both entities share (q, a known
+// sort, and the filters they have in common). Switching to the entity already shown changes nothing but the page.
+export function switchEntity(view: ProspectionView, entity: Entity): Partial<ProspectionView> {
+  if (entity === view.entity) return { ...view, page: 1, prospect: null }
+  const kept: Partial<ProspectionView> = { entity, q: view.q, sort: ENTITY_SORTS[entity].includes(view.sort) ? view.sort : 'name' }
+  const patch = kept as Record<string, unknown>
+  for (const key of ENTITY_FILTER_KEYS[entity]) if (ENTITY_FILTER_KEYS[view.entity].includes(key)) patch[key] = view[key]
+  return kept
+}
+
+export function entityHref(view: ProspectionView, entity: Entity): string {
+  return prospectionHref(switchEntity(view, entity))
+}
+
+// Filters currently narrowing the list of the entity shown (what « Aucun filtre » / « Tout effacer » talk about).
+export function clearedFilters(entity: Entity): Partial<ProspectionView> {
+  const patch: Record<string, unknown> = {}
+  for (const key of ENTITY_FILTER_KEYS[entity]) patch[key] = DEFAULT_VIEW[key]
+  return patch
 }
 
 // Criteria narrowing the Entreprises list (type, search, creation period) and the Entrepôts list (category, to contact, search).

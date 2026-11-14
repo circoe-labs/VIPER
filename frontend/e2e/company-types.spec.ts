@@ -19,7 +19,9 @@ test('company classification persists and separates all its contacts in Prospect
   }
   await page.goto('/prospection/companies')
   await page.getByRole('searchbox').fill(tag)
-  const categories = page.getByRole('group', { name: 'Type d’entreprise' })
+  // Company types are the quick filters of « Filtres » on the Entreprises view.
+  await page.getByText('Filtres', { exact: true }).click()
+  const categories = page.getByRole('group', { name: 'Filtres rapides' })
   await categories.getByRole('button', { name: 'À classer', exact: true }).click()
   await page.getByRole('button', { name: tag, exact: true }).click()
   const editor = page.getByRole('dialog', { name: tag, exact: true })
