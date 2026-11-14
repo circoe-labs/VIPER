@@ -69,41 +69,49 @@ function list() {
   return screen.getByRole('list', { name: 'Prospects' })
 }
 
-function panel(name: RegExp) {
-  return screen.getByRole('button', { name })
+// « Filtres » is a menu (details/summary): open it, then use its quick filters and fields.
+async function openFilters() {
+  await userEvent.click(screen.getByText('Filtres', { selector: 'summary' }))
+}
+
+function chips() {
+  return within(screen.getByRole('group', { name: 'Filtres appliqués' }))
 }
 
 describe('Prospection page', () => {
-  it('shows the entity selector with totals; each entity is a URL and Back returns to the previous one', async () => {
+  it('shows the entity selector as three KPI cards with totals; each entity is a URL and Back returns to the previous one', async () => {
     stubProspectionApi({ prospects: people(), warehouseContacts: 2 })
     const { router } = renderApp('/prospection')
     const nav = await screen.findByRole('navigation', { name: 'Type de fiche' })
     expect(within(nav).getByRole('link', { name: /^Prospects/ })).toHaveAttribute('aria-current', 'page')
     expect(within(nav).getByRole('link', { name: /^Entreprises/ })).toHaveAttribute('href', '/prospection?entity=company')
     expect(within(nav).getByRole('link', { name: /^Entrepôts/ })).toHaveAttribute('href', '/prospection?entity=warehouse')
-    await waitFor(() => { expect(within(nav).getByRole('link', { name: /^Prospects\s*3$/ })).toBeInTheDocument() })
+    await waitFor(() => { expect(within(nav).getByRole('link', { name: /^Prospects\s*3/ })).toBeInTheDocument() })
 
     await userEvent.click(within(nav).getByRole('link', { name: /^Entreprises/ }))
     expect(router.state.location.search).toBe('?entity=company')
-    expect(await screen.findByRole('group', { name: 'Type d’entreprise' })).toBeVisible()
+    expect(await screen.findByRole('searchbox', { name: /Rechercher une entreprise/ })).toBeVisible()
     expect(screen.queryByRole('list', { name: 'Prospects' })).not.toBeInTheDocument()
 
     await userEvent.click(within(nav).getByRole('link', { name: /^Entrepôts/ }))
     expect(router.state.location.search).toBe('?entity=warehouse')
-    expect(await screen.findByRole('group', { name: 'Catégorie d’entrepôt' })).toBeVisible()
-    await userEvent.click(screen.getByRole('button', { name: /^Interlocuteurs à contacter/ }))
+    expect(await screen.findByRole('searchbox', { name: /Rechercher un entrepôt/ })).toBeVisible()
+    await openFilters()
+    await userEvent.click(within(screen.getByRole('group', { name: 'Filtres rapides' })).getByRole('button', { name: 'À contacter' }))
     expect(router.state.location.search).toBe('?entity=warehouse&warehouse_to_contact=true')
 
     await act(async () => { await router.navigate(-2) })
     expect(await screen.findByRole('list', { name: 'Prospects' })).toBeVisible()
   })
-  it('says the weekly additions are unavailable instead of inventing them', async () => {
+
+  it('shows the weekly delta chip only when the source has the figure, « — » otherwise', async () => {
     stubProspectionApi({ prospects: people() })
     renderApp('/prospection')
-    const all = await screen.findByRole('button', { name: /^Tous/ })
-    await waitFor(() => { expect(within(all).getByText('ajouts de la semaine indisponibles')).toBeVisible() })
+    const nav = await screen.findByRole('navigation', { name: 'Type de fiche' })
+    await waitFor(() => { expect(within(nav).getByRole('link', { name: /^Prospects/ })).toHaveTextContent('—') })
     expect(screen.queryByText(/cette semaine/)).not.toBeInTheDocument()
   })
+
   it.each(['/prospection', '/prospection?list=1', '/prospection?review=to_verify'])('shows the table directly, with no section to unfold, at %s', async (url) => {
     stubProspectionApi({ prospects: people() })
     renderApp(url)
@@ -111,39 +119,18 @@ describe('Prospection page', () => {
     expect(screen.queryByRole('button', { name: 'Afficher la liste' })).not.toBeInTheDocument()
     expect(document.querySelector('details.prospection-exploration')).toBeNull()
   })
-  it('separates company types in the API and URL, keeps unclassified contacts, and resets pagination', async () => {
+  it('quick filters of Prospects restrict the list in the same layout; chips show, remove and clear them', async () => {
     const api = stubProspectionApi({ prospects: [
       prospect('Alice', 'PME', { company_kind: 'sme' }),
       prospect('Bob', 'Institution', { company_kind: 'institutional' }),
-      prospect('Carole', 'Groupe', { company_kind: 'large' }),
-      prospect('David', 'SansClassement', { company_kind: null }),
     ] })
-    const { router } = renderApp('/prospection?page=2')
-    const categories = screen.getByRole('group', { name: 'Type d’entreprise' })
-
-    for (const [label, kind, name] of [
-      ['Institutionnelles', 'institutional', 'Bob Institution'],
-      ['PME', 'sme', 'Alice PME'],
-      ['Grosses entreprises', 'large', 'Carole Groupe'],
-      ['À classer', 'unclassified', 'David SansClassement'],
-    ]) {
-      const button = within(categories).getByRole('button', { name: label })
-      await userEvent.click(button)
-      expect(button).toHaveAttribute('aria-pressed', 'true')
-      const params = new URLSearchParams(router.state.location.search)
-      expect(params.get('company_kind')).toBe(kind)
-      expect(params.has('page')).toBe(false)
-      await waitFor(() => {
-        expect(within(list()).getAllByRole('listitem')).toHaveLength(1)
-        expect(within(list()).getByRole('link', { name })).toBeInTheDocument()
-      })
-      expect(lastParams(api.requests, PROSPECTS).get('company_kind')).toBe(kind)
-    }
-    await userEvent.click(within(categories).getByRole('button', { name: 'Toutes' }))
-    await waitFor(() => {
-      expect(within(list()).getAllByRole('listitem')).toHaveLength(4)
-    })
+    const { router } = renderApp('/prospection?page=2&company_kind=sme')
+    expect(await screen.findByText('Type : PME')).toBeVisible()
+    await userEvent.click(screen.getByRole('button', { name: 'Retirer le filtre : Type : PME' }))
     expect(router.state.location.search).toBe('')
+    await waitFor(() => { expect(within(list()).getAllByRole('listitem')).toHaveLength(2) })
+    expect(chips().getByText('Aucun filtre')).toBeVisible()
+    expect(lastParams(api.requests, PROSPECTS).has('company_kind')).toBe(false)
   })
 
   it('offers the section’s entry points; Add opens the prospect editor on a new person', async () => {
@@ -165,7 +152,7 @@ describe('Prospection page', () => {
     expect(await screen.findByRole('dialog', { name: 'Nouveau prospect' })).toBeInTheDocument()
   })
 
-  it('counts employment validation independently of email checks and opens the matching list', async () => {
+  it('« Emploi validé » is a plain restriction of the prospects list: same layout, a removable chip, no other entity', async () => {
     const api = stubProspectionApi({
       prospects: [
         prospect('Vera', 'Verifiee', { employment_verified_at: '2026-09-01T10:00:00Z', review: 'verified', verification_state: 'verified', email_state: 'verified' }),
@@ -175,42 +162,64 @@ describe('Prospection page', () => {
       ],
     })
     const { router } = renderApp('/prospection')
-    await waitFor(() => {
-      expect(panel(/^Emploi validé\s*2$/)).toBeInTheDocument()
-    })
-    expect(panel(/^À vérifier\s*1$/)).toBeInTheDocument()
-    expect(panel(/^Mis de côté\s*1$/)).toBeInTheDocument()
+    await waitFor(() => { expect(within(list()).getAllByRole('listitem')).toHaveLength(4) })
+    expect(chips().getByText('Aucun filtre')).toBeVisible()
 
-    await userEvent.click(panel(/^Emploi validé/))
+    await openFilters()
+    const quick = within(screen.getByRole('group', { name: 'Filtres rapides' }))
+    expect(quick.getAllByRole('button').map((button) => button.textContent)).toEqual(['Emploi validé', 'Incertains', 'À vérifier', 'Mis de côté'])
+    await userEvent.click(quick.getByRole('button', { name: 'Emploi validé' }))
 
     expect(router.state.location.search).toBe('?validated_only=true')
-    // The validated view is the reachable-prospects table (grouped by company).
-    const table = await screen.findByRole('table', { name: 'Prospects' })
-    await waitFor(() => {
-      expect(within(table).getByText(/Vera/)).toBeInTheDocument()
-    })
-    expect(within(table).queryByText(/Alix/)).not.toBeInTheDocument()
-    expect(screen.getByRole('heading', { level: 2, name: /Prospects dont l’emploi est validé\s*2 prospects/ })).toBeInTheDocument()
+    // Same list layout (no reachable-prospects table), same entity.
+    await waitFor(() => { expect(within(list()).getAllByRole('listitem')).toHaveLength(2) })
+    expect(screen.queryByRole('table', { name: 'Prospects' })).not.toBeInTheDocument()
+    expect(within(list()).queryByText(/Alix/)).not.toBeInTheDocument()
+    expect(chips().getByText('Emploi validé')).toBeVisible()
     expect(lastParams(api.requests, PROSPECTS).get('validated_only')).toBe('true')
-    expect(screen.queryByText('Non validé')).not.toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Réinitialiser' }))
+    // Choosing another quick filter replaces it; « Tout effacer » removes every chip.
+    await userEvent.click(quick.getByRole('button', { name: 'Mis de côté' }))
+    expect(router.state.location.search).toBe('?review=ignored')
+    await userEvent.click(chips().getByRole('button', { name: 'Tout effacer' }))
     expect(router.state.location.search).toBe('')
+    expect(chips().getByText('Aucun filtre')).toBeVisible()
   })
 
-  it('still opens a segment linked from Home, and a panel replaces it', async () => {
+  it('drops the filters of the old entity on switch: validated_only does not survive on Entreprises, q does', async () => {
+    stubProspectionApi({ prospects: people() })
+    const { router } = renderApp('/prospection?validated_only=true&q=abc&sort=updated&created_from=2026-11-02')
+    const nav = await screen.findByRole('navigation', { name: 'Type de fiche' })
+    await userEvent.click(within(nav).getByRole('link', { name: /^Entreprises/ }))
+    const params = new URLSearchParams(router.state.location.search)
+    expect(Object.fromEntries(params)).toEqual({ entity: 'company', q: 'abc', sort: 'updated', created_from: '2026-11-02' })
+    expect(chips().queryByText('Emploi validé')).not.toBeInTheDocument()
+    await userEvent.click(within(nav).getByRole('link', { name: /^Entrepôts/ }))
+    expect(Object.fromEntries(new URLSearchParams(router.state.location.search))).toEqual({ entity: 'warehouse', q: 'abc', sort: 'updated' })
+  })
+
+  it('sorts through the sort param; companies and warehouses send it to their API', async () => {
+    const api = stubProspectionApi({ prospects: people() })
+    const { router } = renderApp('/prospection?entity=company')
+    await userEvent.selectOptions(await screen.findByRole('combobox', { name: 'Trier par' }), 'Date d’ajout')
+    expect(router.state.location.search).toBe('?entity=company&sort=created')
+    await waitFor(() => { expect(api.fetchMock.mock.calls.some(([url]) => String(url).startsWith('/api/companies?') && String(url).includes('sort=created'))).toBe(true) })
+  })
+
+  it('still opens a segment linked from Home, as a chip, and a quick filter replaces it', async () => {
     const api = stubProspectionApi({ prospects: people() })
     const { router } = renderApp('/prospection?segment=due')
 
-    expect(await screen.findByRole('heading', { level: 2, name: /Échus\s*1 prospect/ })).toBeInTheDocument()
+    expect(await chips().findByText('Échus')).toBeVisible()
     expect(lastParams(api.requests, PROSPECTS).get('segment')).toBe('due')
 
-    await userEvent.click(panel(/^À vérifier/))
+    await openFilters()
+    await userEvent.click(within(screen.getByRole('group', { name: 'Filtres rapides' })).getByRole('button', { name: 'À vérifier' }))
 
     expect(router.state.location.search).toBe('?verification_box=todo')
   })
 
-  it('searches: capsules and list follow the same criteria, kept in the URL', async () => {
+  it('searches: chips and list follow the same criteria, kept in the URL', async () => {
     const api = stubProspectionApi({ prospects: people() })
     const { router } = renderApp('/prospection?review=to_verify')
     await within(await screen.findByRole('list', { name: 'Prospects' })).findByRole('link', { name: 'Luc Fictif' })
@@ -223,12 +232,11 @@ describe('Prospection page', () => {
     await waitFor(() => { expect(lastParams(api.requests, PROSPECTS).get('q')).toBe('zzz') })
     expect(await screen.findByText('Aucun prospect ne correspond à ces critères.')).toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Réinitialiser' }))
-    expect(router.state.location.search).toBe('')
-    expect(screen.getByRole('searchbox')).toHaveValue('')
+    await userEvent.click(chips().getByRole('button', { name: 'Tout effacer' }))
+    expect(router.state.location.search).toBe('?q=zzz')
   })
 
-  it('restores panel, search, filters and page from the URL, and a filter change goes back to page 1', async () => {
+  it('restores search, filters and page from the URL, and a filter change goes back to page 1', async () => {
     const role = taxonomyValue('Responsable transport')
     const api = stubProspectionApi({ prospects: people(), roles: [role] })
     const { router } = renderApp(`/prospection?review=to_verify&q=luc&activity=unknown&role=${role.id}&page=2`)
@@ -239,8 +247,10 @@ describe('Prospection page', () => {
     const sent = lastParams(api.requests, PROSPECTS)
     expect(Object.fromEntries(sent)).toMatchObject({ review: 'to_verify', q: 'luc', activity: 'unknown', role: role.id })
     expect(screen.getByRole('searchbox')).toHaveValue('luc')
+    expect(await chips().findByText('Activité : Activité inconnue')).toBeVisible()
+    expect(await chips().findByText('Rôle : Responsable transport')).toBeVisible()
+    await openFilters()
     expect(screen.getByRole('combobox', { name: 'Activité' })).toHaveValue('unknown')
-    expect(screen.getByRole('heading', { name: /Prospects à vérifier/ })).toBeInTheDocument()
     await waitFor(() => {
       expect(screen.getByRole('combobox', { name: 'Rôle' })).toHaveValue(role.id)
     })
@@ -320,7 +330,8 @@ describe('Prospection page', () => {
   it('filters on the commercial state, « En séquence » covering people without any tracking', async () => {
     const api = stubProspectionApi({ prospects: people() })
     renderApp('/prospection?segment=all&q=')
-    await userEvent.click(await screen.findByRole('button', { name: /^Filtres/ }))
+    await screen.findByRole('list', { name: 'Prospects' })
+    await openFilters()
     const filter = screen.getByRole('combobox', { name: 'État commercial' })
     expect(within(filter).getAllByRole('option').map((option) => option.textContent)).toEqual([
       'Tous les états',
@@ -341,7 +352,8 @@ describe('Prospection page', () => {
     const s39 = cohort('S39', '2026-09-28')
     const api = stubProspectionApi({ prospects: people(), cohorts: [S0, s39] })
     renderApp('/prospection?segment=all&q=')
-    await userEvent.click(await screen.findByRole('button', { name: /^Filtres/ }))
+    await screen.findByRole('list', { name: 'Prospects' })
+    await openFilters()
     const filter = screen.getByRole('combobox', { name: 'Cohorte' })
     await waitFor(() => {
       expect(within(filter).getAllByRole('option').map((option) => option.textContent)).toEqual([

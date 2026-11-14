@@ -9,30 +9,26 @@ const ROW: Warehouse = { id: '00000000-0000-7000-a000-000000000001', version: '2
 const API = { ...SHELL_API, 'GET /api/warehouses/counts': [200, { warehouses: 1, contacts: 1, to_contact: 0 }] } as const
 
 describe('Warehouse directory', () => {
-  it('filters warehouses by prospecting category', async () => {
+  it('filters warehouses by prospecting category through the quick filters and chips', async () => {
     let category = ''
     stubApi({ ...API, 'GET /api/warehouses': (url) => { category = url.searchParams.get('category') ?? ''; return [200, { items: [ROW], total: 1 }] } })
-    renderApp('/warehouses')
-    expect(screen.queryByRole('button', { name: 'PME/TPE' })).not.toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Catégorie de prospection : Toutes' }))
-    await userEvent.click(screen.getByRole('button', { name: 'PME/TPE' }))
+    renderApp('/prospection?entity=warehouse')
+    await userEvent.click(screen.getByText('Filtres', { selector: 'summary' }))
+    const quick = within(screen.getByRole('group', { name: 'Filtres rapides' }))
+    await userEvent.click(quick.getByRole('button', { name: 'PME/TPE' }))
     await waitFor(() => expect(category).toBe('sme'))
-    await userEvent.click(screen.getByRole('button', { name: 'Autres' }))
+    await userEvent.click(quick.getByRole('button', { name: 'Autres' }))
     await waitFor(() => expect(category).toBe('other'))
-    await userEvent.click(screen.getByRole('button', { name: 'À classer' }))
+    await userEvent.click(quick.getByRole('button', { name: 'À classer' }))
     await waitFor(() => expect(category).toBe('unclassified'))
-    const toggle = screen.getByRole('button', { name: 'Catégorie de prospection : À classer' })
-    await userEvent.click(toggle)
-    expect(toggle).toHaveAttribute('aria-expanded', 'false')
-    expect(screen.queryByRole('button', { name: 'PME/TPE' })).not.toBeInTheDocument()
-    await userEvent.click(toggle)
-    expect(screen.getByRole('button', { name: 'À classer' })).toHaveAttribute('aria-pressed', 'true')
+    expect(quick.getByRole('button', { name: 'À classer' })).toHaveAttribute('aria-pressed', 'true')
+    await userEvent.click(screen.getByRole('button', { name: 'Retirer le filtre : Catégorie : À classer' }))
+    await waitFor(() => expect(category).toBe(''))
   })
   it('refreshes the recipient of an unedited open draft without losing later edits', async () => {
     const draft = { id: 'draft-1', phase: 2, prospecting_category: 'sme', warehouse_name: 'Site', contact_name: 'Anne Test', contact_role: null, source_email: 'anne@example.test', recipient: null, subject: 'Objet', body: '', review_note: 'À vérifier', revision: 1, validated_at: null, validated_by: null, send_state: null, scheduled_at: null }
     stubApi({ ...API, 'GET /api/warehouses': [200, { items: [ROW], total: 1 }], 'GET /api/warehouses/drafts': [200, [draft]], 'GET /api/warehouses/drafts/dispatch-status': [200, { active: false }] })
-    const { queryClient } = renderApp('/warehouses')
-    await userEvent.click(screen.getByRole('button', { name: 'Brouillons' }))
+    const { queryClient } = renderApp('/prospection/warehouse-drafts')
     await userEvent.click(await screen.findByRole('button', { name: 'Brouillons PME/TPE (1)' }))
     await userEvent.click(await screen.findByText('Anne Test'))
     const recipient = screen.getByLabelText('Destinataire')
@@ -47,8 +43,7 @@ describe('Warehouse directory', () => {
   it('separates drafts by warehouse category regardless of phase', async () => {
     const base = { warehouse_name: 'Entrepôt Exemple', contact_role: null, source_email: null, recipient: null, subject: 'Objet', body: '', review_note: 'À vérifier', revision: 1, validated_at: null, validated_by: null, send_state: null, scheduled_at: null }
     stubApi({ ...API, 'GET /api/warehouses': [200, { items: [ROW], total: 1 }], 'GET /api/warehouses/drafts': [200, [{ ...base, id: 'old', phase: 1, prospecting_category: 'sme', contact_name: 'Ancien Contact' }, { ...base, id: 'new', phase: 2, prospecting_category: 'other', contact_name: 'Nouveau Contact' }]], 'GET /api/warehouses/drafts/dispatch-status': [200, { active: false }] })
-    renderApp('/warehouses')
-    await userEvent.click(screen.getByRole('button', { name: 'Brouillons' }))
+    renderApp('/prospection/warehouse-drafts')
     await userEvent.click(await screen.findByRole('button', { name: 'Brouillons PME/TPE (1)' }))
     expect(await screen.findByText('Ancien Contact')).toBeVisible()
     expect(screen.queryByText('Nouveau Contact')).not.toBeInTheDocument()
@@ -60,8 +55,7 @@ describe('Warehouse directory', () => {
     const base = { prospecting_category: 'sme', warehouse_name: 'Entrepôt Exemple', contact_role: 'Responsable', source_email: 'a@example.test', recipient: 'a@example.test', subject: 'Objet', body: 'Bonjour', review_note: 'À vérifier', revision: 1, validated_at: null, validated_by: null, send_state: null, scheduled_at: null }
     const items = [{ ...base, id: 'one', contact_name: 'Anne Test' }, { ...base, id: 'two', contact_name: 'Bruno Test' }]
     stubApi({ ...API, 'GET /api/warehouses': [200, { items: [ROW], total: 1 }], 'GET /api/warehouses/drafts': [200, items], 'GET /api/warehouses/drafts/dispatch-status': [200, { active: true }] })
-    renderApp('/warehouses')
-    await userEvent.click(screen.getByRole('button', { name: 'Brouillons' }))
+    renderApp('/prospection/warehouse-drafts')
     await userEvent.click(await screen.findByRole('button', { name: 'Brouillons PME/TPE (2)' }))
     const anne = await screen.findByText('Anne Test')
     await userEvent.click(anne)
@@ -81,8 +75,7 @@ describe('Warehouse directory', () => {
     const base = { prospecting_category: 'sme', warehouse_name: 'Site', contact_role: null, source_email: 'a@example.test', recipient: 'a@example.test', subject: 'Objet', body: 'Bonjour', review_note: '', revision: 1, validated_at: null, validated_by: null, send_state: 'planned', scheduled_at: '2099-05-01T10:30:00Z' }
     const items = [{ ...base, id: 'one', contact_name: 'Anne Test' }, { ...base, id: 'sent', contact_name: 'Message envoyé', send_state: 'sent' }, { ...base, id: 'two', contact_name: 'Bruno Test' }]
     stubApi({ ...API, 'GET /api/warehouses': [200, { items: [ROW], total: 1 }], 'GET /api/warehouses/drafts': [200, items], 'GET /api/warehouses/drafts/dispatch-status': [200, { active: true }], 'POST /api/warehouses/drafts/one/validate': [200, { ...items[0], revision: 2, validated_at: '2026-11-12T10:00:00Z' }], 'POST /api/warehouses/drafts/two/validate': [500, {}] })
-    renderApp('/warehouses')
-    await userEvent.click(screen.getByRole('button', { name: 'Brouillons' }))
+    renderApp('/prospection/warehouse-drafts')
     await userEvent.click(await screen.findByRole('button', { name: 'Brouillons PME/TPE (3)' }))
     const anne = await screen.findByText('Anne Test')
     const firstCard = anne.closest('details')!
@@ -103,8 +96,7 @@ describe('Warehouse directory', () => {
     const draft = { id: 'draft-1', prospecting_category: 'sme', warehouse_name: 'Entrepôt Exemple', contact_name: 'Anne Test', contact_role: 'Responsable', source_email: 'a@example.test', recipient: 'a@example.test', subject: 'Prise de contact', body: 'Bonjour', review_note: 'À vérifier', revision: 1, validated_at: null, validated_by: null, send_state: null, scheduled_at: null }
     stubApi({ ...API, 'GET /api/warehouses': [200, { items: [ROW], total: 1 }], 'GET /api/warehouses/drafts': [200, [draft]], 'GET /api/warehouses/drafts/dispatch-status': [200, { active: true }], 'POST /api/warehouses/drafts/plan-batch': [200, { scheduled: 1 }] })
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
-    renderApp('/warehouses')
-    await userEvent.click(screen.getByRole('button', { name: 'Brouillons' }))
+    renderApp('/prospection/warehouse-drafts')
     await userEvent.click(await screen.findByRole('button', { name: 'Brouillons PME/TPE (1)' }))
     await userEvent.click(await screen.findByText('Anne Test'))
     expect(screen.queryByLabelText('Date et heure d’envoi')).not.toBeInTheDocument()
@@ -116,8 +108,7 @@ describe('Warehouse directory', () => {
   it('allows editing a scheduled draft without removing its schedule', async () => {
     const draft = { id: 'draft-1', phase: 2, prospecting_category: 'sme', warehouse_name: 'Site', contact_name: 'Anne Test', contact_role: null, source_email: 'a@example.test', recipient: 'a@example.test', subject: 'Objet', body: 'Bonjour', review_note: 'À vérifier', revision: 1, validated_at: '2026-11-12T10:00:00Z', validated_by: 'Lucie', human_validated: true, send_state: 'scheduled', scheduled_at: '2099-05-01T10:30:00Z' }
     stubApi({ ...API, 'GET /api/warehouses': [200, { items: [ROW], total: 1 }], 'GET /api/warehouses/drafts': [200, [draft]], 'GET /api/warehouses/drafts/dispatch-status': [200, { active: true }], 'PUT /api/warehouses/drafts/draft-1': [200, { ...draft, revision: 2, body: 'Bonjour modifié' }] })
-    renderApp('/warehouses')
-    await userEvent.click(screen.getByRole('button', { name: 'Brouillons' }))
+    renderApp('/prospection/warehouse-drafts')
     await userEvent.click(await screen.findByRole('button', { name: 'Brouillons PME/TPE (1)' }))
     const scheduledDate = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'long', timeStyle: 'short' }).format(new Date(draft.scheduled_at))
     expect(screen.getByText('1 message programmé').parentElement).toHaveTextContent(`pour le ${scheduledDate}`)
@@ -138,8 +129,7 @@ describe('Warehouse directory', () => {
     const base = { phase: 2, prospecting_category: 'sme', warehouse_name: 'Site', contact_role: null, source_email: 'a@example.test', recipient: 'a@example.test', subject: 'Objet', body: 'Bonjour', review_note: '', revision: 1, validated_at: '2026-11-12T10:00:00Z', validated_by: 'Lucie', send_state: 'scheduled', scheduled_at: '2099-05-01T10:30:00Z' }
     const items = [{ ...base, id: 'one', contact_name: 'Jenny', human_validated: true }, { ...base, id: 'two', contact_name: 'Autre prospect', human_validated: false }]
     stubApi({ ...API, 'GET /api/warehouses': [200, { items: [ROW], total: 1 }], 'GET /api/warehouses/drafts': [200, items], 'GET /api/warehouses/drafts/dispatch-status': [200, { active: true }] })
-    renderApp('/warehouses')
-    await userEvent.click(screen.getByRole('button', { name: 'Brouillons' }))
+    renderApp('/prospection/warehouse-drafts')
     await userEvent.click(await screen.findByRole('button', { name: 'Brouillons PME/TPE (2)' }))
     const reviewed = screen.getByText('Jenny').closest('details')!
     const pending = screen.getByText('Autre prospect').closest('details')!
@@ -159,8 +149,7 @@ describe('Warehouse directory', () => {
       { ...base, id: 'two', contact_name: 'Deuxième prospect', human_validated: false, scheduled_at: secondDate },
     ]
     stubApi({ ...API, 'GET /api/warehouses': [200, { items: [ROW], total: 1 }], 'GET /api/warehouses/drafts': [200, items], 'GET /api/warehouses/drafts/dispatch-status': [200, { active: true }], 'POST /api/warehouses/drafts/one/validate': [200, { ...items[1], revision: 2, human_validated: true }] })
-    renderApp('/warehouses')
-    await userEvent.click(screen.getByRole('button', { name: 'Brouillons' }))
+    renderApp('/prospection/warehouse-drafts')
     await userEvent.click(await screen.findByRole('button', { name: 'Brouillons Autres entreprises (4)' }))
     const date = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'long', timeStyle: 'short' }).format(new Date(secondDate))
     await userEvent.click(screen.getByRole('button', { name: `Voir les messages du ${date}` }))
@@ -177,8 +166,7 @@ describe('Warehouse directory', () => {
   })
   it('shows simulated drafts for human review in their own category', async () => {
     stubApi({ ...API, 'GET /api/warehouses': [200, { items: [ROW], total: 1 }], 'GET /api/warehouses/drafts': [200, [{ id: 'draft-1', prospecting_category: 'sme', warehouse_name: 'Entrepôt Exemple', contact_name: 'Anne Test', contact_role: 'Responsable', source_email: 'a@example.test ou b@example.test', recipient: null, subject: 'Prise de contact', body: 'Bonjour', review_note: 'Adresse à vérifier' }]] })
-    renderApp('/warehouses')
-    await userEvent.click(screen.getByRole('button', { name: 'Brouillons' }))
+    renderApp('/prospection/warehouse-drafts')
     await userEvent.click(await screen.findByRole('button', { name: 'Brouillons PME/TPE (1)' }))
     expect(await screen.findByRole('heading', { name: 'Brouillons à vérifier (1)' })).toBeVisible()
     await userEvent.click(screen.getByText('Anne Test'))
@@ -200,7 +188,7 @@ describe('Warehouse directory', () => {
       contact('Directeur', 'Directeur logistique'),
     ] }
     stubApi({ ...API, 'GET /api/warehouses': [200, { items: [warehouse], total: 1 }] })
-    renderApp('/warehouses')
+    renderApp('/prospection?entity=warehouse')
     await userEvent.click(await screen.findByRole('button', { name: 'Détails de Entrepôt Exemple' }))
     const list = screen.getByRole('list', { name: 'Interlocuteurs de Entrepôt Exemple' })
     expect(within(list).getAllByRole('listitem').map((item) => item.querySelector('strong')?.textContent)).toEqual([
@@ -208,14 +196,13 @@ describe('Warehouse directory', () => {
     ])
   })
 
-  it('has its own navigation, compact closed sites and real source contacts on demand', async () => {
+  it('lives in Prospection, with compact closed sites and real source contacts on demand', async () => {
     stubApi({ ...API, 'GET /api/warehouses': [200, { items: [ROW], total: 1 }], 'GET /api/warehouses/counts': [200, { warehouses: 51, contacts: 145, to_contact: 0 }] })
-    renderApp('/warehouses')
-    expect(screen.getByRole('heading', { level: 1, name: 'Entrepôts' })).toBeVisible()
-    const totals = screen.getByRole('region', { name: 'Totaux des entrepôts' })
-    expect(await within(totals).findByText('51')).toBeVisible()
-    expect(within(totals).getByText('145')).toBeVisible()
-    expect(within(screen.getByRole('navigation', { name: 'Navigation principale' })).getByRole('link', { name: 'Entrepôts' })).toHaveAttribute('aria-current', 'page')
+    renderApp('/prospection?entity=warehouse')
+    const cards = screen.getByRole('navigation', { name: 'Type de fiche' })
+    expect(within(cards).getByRole('link', { name: /^Entrepôts/ })).toHaveAttribute('aria-current', 'page')
+    await waitFor(() => expect(within(cards).getByRole('link', { name: /^Entrepôts\s*51/ })).toBeVisible())
+    expect(screen.queryByRole('link', { name: /^Entrepôts$/ })).not.toBeInTheDocument()
     const open = await screen.findByRole('button', { name: 'Détails de Entrepôt Exemple' })
     expect(open).toHaveAttribute('aria-expanded', 'false')
     expect(screen.queryByText('Anne Test')).not.toBeVisible()
@@ -234,7 +221,7 @@ describe('Warehouse directory', () => {
       'GET /api/warehouses': (url) => [200, { items: [url.searchParams.has('to_contact') ? selected : ROW], total: 1 }],
       [`PUT /api/warehouses/${ROW.id}`]: [200, selected],
     })
-    const { queryClient } = renderApp('/warehouses')
+    const { queryClient } = renderApp('/prospection?entity=warehouse')
     await userEvent.click(await screen.findByRole('button', { name: 'Détails de Entrepôt Exemple' }))
     let submitted: unknown
     const unsubscribe = queryClient.getMutationCache().subscribe((event) => {
@@ -246,7 +233,8 @@ describe('Warehouse directory', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Valider la sélection' }))
     await waitFor(() => { expect(submitted).toMatchObject({ id: ROW.id, version: ROW.version, data: { contacts: [{ full_name: 'Anne Test', to_contact: true }] } }) })
     unsubscribe()
-    await userEvent.click(screen.getByRole('button', { name: /À contacter \(/ }))
+    await userEvent.click(screen.getByText('Filtres', { selector: 'summary' }))
+    await userEvent.click(within(screen.getByRole('group', { name: 'Filtres rapides' })).getByRole('button', { name: 'À contacter' }))
     await userEvent.click(await screen.findByRole('button', { name: 'Détails de Entrepôt Exemple' }))
     expect(await screen.findByRole('checkbox', { name: 'À contacter prochainement' })).toBeChecked()
   })
@@ -256,7 +244,7 @@ describe('Warehouse directory', () => {
     const warehouse = { ...ROW, contacts: [...ROW.contacts, second] }
     const saved = { ...warehouse, contacts: warehouse.contacts.map((contact) => ({ ...contact, to_contact: true })) }
     stubApi({ ...API, 'GET /api/warehouses': [200, { items: [warehouse], total: 1 }], [`PUT /api/warehouses/${ROW.id}`]: [200, saved] })
-    const { queryClient } = renderApp('/warehouses')
+    const { queryClient } = renderApp('/prospection?entity=warehouse')
     await userEvent.click(await screen.findByRole('button', { name: 'Détails de Entrepôt Exemple' }))
     const list = screen.getByRole('list', { name: 'Interlocuteurs de Entrepôt Exemple' })
     await userEvent.click(within(within(list).getAllByRole('listitem')[1] as HTMLElement).getByRole('checkbox'))
@@ -275,7 +263,7 @@ describe('Warehouse directory', () => {
     let saved: unknown
     stubApi({ ...API, 'GET /api/warehouses': [200, { items: [], total: 0 }],
       'POST /api/warehouses': () => [201, ROW] })
-    const { queryClient } = renderApp('/warehouses')
+    const { queryClient } = renderApp('/prospection?entity=warehouse')
     expect(await screen.findByText('Votre répertoire d’entrepôts')).toBeVisible()
     await userEvent.click(screen.getByRole('button', { name: 'Ajouter le premier entrepôt' }))
     const form = within(screen.getByRole('dialog', { name: 'Ajouter un entrepôt' }))
@@ -295,7 +283,7 @@ describe('Warehouse directory', () => {
   it('preserves the read version and contacts when editing an existing site', async () => {
     stubApi({ ...API, 'GET /api/warehouses': [200, { items: [ROW], total: 1 }],
       [`GET /api/warehouses/${ROW.id}`]: [200, ROW], [`PUT /api/warehouses/${ROW.id}`]: [409, { detail: { code: 'conflict' } }] })
-    renderApp('/warehouses')
+    renderApp('/prospection?entity=warehouse')
     await userEvent.click(await screen.findByRole('button', { name: 'Modifier Entrepôt Exemple' }))
     const dialog = within(screen.getByRole('dialog', { name: 'Modifier l’entrepôt' }))
     expect(await dialog.findByRole('textbox', { name: 'Nom de l’entrepôt' })).toHaveValue(ROW.name)
@@ -307,8 +295,19 @@ describe('Warehouse directory', () => {
 
   it('reports a list failure rather than showing a false empty directory', async () => {
     stubApi({ ...API, 'GET /api/warehouses': [500, {}] })
-    renderApp('/warehouses')
+    renderApp('/prospection?entity=warehouse')
     expect(await screen.findByRole('alert')).toHaveTextContent('Impossible de charger les entrepôts.')
     expect(screen.queryByText('Votre répertoire d’entrepôts')).not.toBeInTheDocument()
+  })
+})
+
+describe('Former Entrepôts page', () => {
+  it('redirects /warehouses to the Entrepôts view of Prospection, keeping query and hash', async () => {
+    stubApi({ ...API, 'GET /api/warehouses': [200, { items: [ROW], total: 1 }] })
+    const { router } = renderApp('/warehouses?q=lyon#liste')
+    expect(await screen.findByRole('button', { name: 'Détails de Entrepôt Exemple' })).toBeVisible()
+    expect(router.state.location.pathname).toBe('/prospection')
+    expect(router.state.location.search).toBe('?q=lyon&entity=warehouse')
+    expect(router.state.location.hash).toBe('#liste')
   })
 })

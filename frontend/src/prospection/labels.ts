@@ -186,7 +186,8 @@ export const ACTIVITY_LABELS: Record<ActivityStatus, string> = {
   inactive: 'Inactif',
 }
 
-export const SORT_LABELS: Record<ProspectSort, string> = {
+export const SORT_LABELS: Record<ProspectSort | 'created', string> = {
+  created: 'Date d’ajout',
   name: 'Nom',
   company: 'Entreprise',
   next_due: 'Prochaine échéance la plus proche',

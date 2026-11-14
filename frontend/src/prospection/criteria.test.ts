@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { DEFAULT_VIEW, entityHref, hasEntityFilters, hasFilters, parseView, prospectionHref, serializeView } from './criteria'
+import { clearedFilters, DEFAULT_VIEW, entityHref, hasEntityFilters, hasFilters, parseView, prospectionHref, serializeView, sortFor, switchEntity } from './criteria'
 
 const ID = '0192f0aa-0000-7000-8000-000000000042'
 
@@ -76,13 +76,22 @@ describe('Prospection URL state', () => {
   })
 
   it('serializes the entity selector and its filters; prospect is the omitted default; garbage falls back', () => {
-    expect(entityHref('prospect')).toBe('/prospection')
-    expect(entityHref('company')).toBe('/prospection?entity=company')
+    expect(entityHref(DEFAULT_VIEW, 'prospect')).toBe('/prospection')
+    expect(entityHref(DEFAULT_VIEW, 'company')).toBe('/prospection?entity=company')
     const view = parseView(new URLSearchParams('entity=warehouse&warehouse_category=sme&warehouse_to_contact=true&q=x&page=2'))
     expect(view).toMatchObject({ entity: 'warehouse', warehouse_category: 'sme', warehouse_to_contact: true, q: 'x', page: 2 })
     expect(serializeView(view).toString()).toBe('entity=warehouse&warehouse_category=sme&warehouse_to_contact=true&q=x&page=2')
     expect(hasEntityFilters(view)).toBe(true)
     expect(hasEntityFilters({ ...DEFAULT_VIEW, entity: 'company' })).toBe(false)
     expect(parseView(new URLSearchParams('entity=nope&warehouse_category=nope'))).toMatchObject({ entity: 'prospect', warehouse_category: null })
+  })
+
+  it('switching entity keeps q and the shared filters only; sort created is kept for companies, not for prospects', () => {
+    const view = parseView(new URLSearchParams('validated_only=true&q=abc&created_from=2026-11-02&company_kind=sme&sort=created&role=none'))
+    expect(serializeView(switchEntity(view, 'company')).toString()).toBe('entity=company&created_from=2026-11-02&company_kind=sme&q=abc&sort=created')
+    expect(serializeView(switchEntity(view, 'warehouse')).toString()).toBe('entity=warehouse&q=abc&sort=created')
+    expect(sortFor(view)).toBe('name')
+    expect(sortFor({ entity: 'company', sort: 'created' })).toBe('created')
+    expect(serializeView(clearedFilters('prospect')).toString()).toBe('')
   })
 })

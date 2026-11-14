@@ -1,55 +1,35 @@
-import { COMPANY_PAGE_SIZE, type CompanyKindSelection, useCompanies, useCompanyCounts } from '../api/companies'
+import { COMPANY_PAGE_SIZE, type ListSort, useCompanies, useCompanyCounts } from '../api/companies'
 import { CompanyTable } from '../companies/CompanyTable'
 import { useCompanyEditor } from '../companies/CompanyEditorProvider'
 import { Button } from '../ui/Button'
-import { CreationPeriod } from '../ui/CreationPeriod'
 import { EmptyState } from '../ui/EmptyState'
 import { AlertIcon, BuildingIcon, ChevronLeftIcon, ChevronRightIcon, PlusIcon, SpinnerIcon } from '../ui/icons'
-import { type Capsule, EntityCapsules } from './EntityCapsules'
-import { type EntityPanelProps, weeklyFor } from './entityPanel'
-import { useWeeklyAdditions } from './weeklyAdditions'
+import { sortFor } from './criteria'
+import type { EntityPanelProps } from './entityPanel'
+import { activeFilters } from './filterChips'
+import { ProspectionControls } from './ProspectionFilters'
 
 const NUMBER = new Intl.NumberFormat('fr-FR')
-const KINDS: readonly { value: CompanyKindSelection; label: string; hint: string }[] = [
-  { value: null, label: 'Toutes', hint: 'Chaque entreprise apparaît une seule fois, y compris sans prospect associé' },
-  { value: 'institutional', label: 'Institutionnelles', hint: 'Entreprises de type institutionnel' },
-  { value: 'sme', label: 'PME', hint: 'Entreprises de type PME' },
-  { value: 'large', label: 'Grosses entreprises', hint: 'Entreprises de type grande entreprise' },
-  { value: 'unclassified', label: 'À classer', hint: 'Sans type : à renseigner dans la fiche entreprise' },
-]
-
-// Entreprises: type capsules (figure + filter), search, then the existing company table and editor. State lives in the
-// URL: `entity=company`, `company_kind`, `q`, `page`, `created_from`/`created_to`.
+// Entreprises: control bar (search, sort, type / creation filters), then the existing company table and editor. State lives in the
+// URL: `entity=company`, `company_kind`, `q`, `sort`, `page`, `created_from`/`created_to`.
 export function CompaniesPanel({ view, update, refine, search }: EntityPanelProps) {
   const openEditor = useCompanyEditor()
   const counts = useCompanyCounts()
-  const weekly = useWeeklyAdditions()
   const query = view.q.trim()
+  const sort = sortFor(view) as ListSort
   const offset = (view.page - 1) * COMPANY_PAGE_SIZE
-  const companies = useCompanies(query, offset, COMPANY_PAGE_SIZE, view.company_kind, view.created_from, view.created_to)
+  const companies = useCompanies(query, offset, COMPANY_PAGE_SIZE, view.company_kind, view.created_from, view.created_to, sort)
   const page = companies.data
   const last = page ? Math.min(offset + page.items.length, page.total) : 0
-  const capsules: Capsule[] = KINDS.map(({ value, label, hint }) => ({
-    key: value ?? 'all',
-    label,
-    hint,
-    count: counts.data?.[value ?? 'all'],
-    failed: counts.isError,
-    pressed: view.company_kind === value,
-    onSelect: () => { refine({ company_kind: value }) },
-    weekly: value === null ? weeklyFor(weekly, 'company') : undefined,
-  }))
-  const filtered = view.company_kind !== null || query !== ''
+  const filtered = activeFilters(view).length > 0 || query !== ''
 
   return (
     <section aria-label="Entreprises">
-      <EntityCapsules label="Type d’entreprise" capsules={capsules} />
-      <CreationPeriod start={view.created_from} end={view.created_to} onClear={() => { refine({ created_from: null, created_to: null }) }} />
+      <ProspectionControls view={view} onChange={refine} search={search} />
       <div className="entity-panel__toolbar">
-        {search}
         {page && <span className="entity-panel__count" aria-live="polite">{NUMBER.format(page.total)} {page.total > 1 ? 'entreprises' : 'entreprise'}</span>}
         {companies.isFetching && <SpinnerIcon size={16} className="btn__spinner" />}
-        <Button variant="primary" icon={PlusIcon} onClick={() => { openEditor('new') }}>Nouvelle entreprise</Button>
+        <div className="entity-panel__actions"><Button variant="primary" icon={PlusIcon} onClick={() => { openEditor('new') }}>Nouvelle entreprise</Button></div>
       </div>
       {counts.isError && <p role="alert" className="prospection__state prospection__state--error"><AlertIcon size={18} />Répartition indisponible.<Button size="sm" onClick={() => void counts.refetch()}>Réessayer</Button></p>}
       {companies.isPending && <p role="status" className="prospection__state"><SpinnerIcon size={18} className="btn__spinner" />Chargement des entreprises…</p>}

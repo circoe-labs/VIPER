@@ -1,14 +1,12 @@
 import { useState } from 'react'
-import { useWarehouseCounts, useWarehouseDrafts, useWarehouseWrites, useWarehouses, type Warehouse, type WarehouseContact } from '../api/warehouses'
-import { useDebouncedValue } from '../settings/shared'
+import { Link } from 'react-router'
+import { useWarehouseDrafts, useWarehouseWrites, type Warehouse, type WarehouseContact } from '../api/warehouses'
 import { Button } from '../ui/Button'
-import { EmptyState } from '../ui/EmptyState'
-import { BuildingIcon, ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, MapPinIcon, PlusIcon, UploadIcon, UsersIcon, WarehouseIcon } from '../ui/icons'
+import { ArrowLeftIcon, BuildingIcon, ChevronDownIcon, MapPinIcon, WarehouseIcon } from '../ui/icons'
 import { PageHeader } from '../ui/PageHeader'
-import { SearchField } from '../ui/SearchField'
-import { WarehouseEditor, warehouseError } from './WarehouseEditor'
-import { WarehouseImport } from './WarehouseImport'
+import { warehouseError } from './WarehouseEditor'
 import { WarehouseDrafts } from './WarehouseDrafts'
+import '../prospection/prospection.css'
 import './warehouses.css'
 
 // The source role is free text; keep the original order when no priority can be inferred.
@@ -96,63 +94,21 @@ export function WarehouseRow({ warehouse, onEdit, onlyToContact }: { warehouse: 
   </article>
 }
 
-export function WarehousesPage() {
-  const [search, setSearch] = useState('')
-  const [offset, setOffset] = useState(0)
-  const [editing, setEditing] = useState<string | null | undefined>(undefined)
-  const [importing, setImporting] = useState(false)
-  const [notice, setNotice] = useState<string | null>(null)
-  const [onlyToContact, setOnlyToContact] = useState(false)
-  const [filtersOpen, setFiltersOpen] = useState(false)
-  const [category, setCategory] = useState<'sme' | 'other' | 'unclassified' | null>(null)
-  const [showDrafts, setShowDrafts] = useState<'sme' | 'other' | 'unclassified' | null>(null)
-  const counts = useWarehouseCounts()
+type DraftCategory = 'sme' | 'other' | 'unclassified'
+
+// « Brouillons » of the Entrepôts view of Prospection (`/prospection/warehouse-drafts`): the list, the totals and the
+// category filters moved into the Prospection panel (prospection/WarehousesPanel.tsx); the drafts keep their own page.
+export function WarehouseDraftsPage() {
+  const [category, setCategory] = useState<DraftCategory>('sme')
   const drafts = useWarehouseDrafts()
-  const query = useWarehouses(useDebouncedValue(search.trim(), 250), offset, onlyToContact, category)
-  const page = query.data
   return <div className="warehouses-page">
-    <PageHeader mascot="build" title="Entrepôts" description="Les sites, leurs propriétaires et vos interlocuteurs."
-      actions={<><Button icon={UploadIcon} onClick={() => { setImporting(true) }}>Importer Excel</Button><Button variant="primary" icon={PlusIcon} onClick={() => { setEditing(null) }}>Ajouter un entrepôt</Button></>} />
-    <section className="warehouse-totals" aria-label="Totaux des entrepôts" aria-busy={counts.isPending}>
-      <div><WarehouseIcon size={20} /><span>Entrepôts</span><strong>{counts.data ? counts.data.warehouses.toLocaleString('fr-FR') : '—'}</strong></div>
-      <div><UsersIcon size={20} /><span>Interlocuteurs</span><strong>{counts.data ? counts.data.contacts.toLocaleString('fr-FR') : '—'}</strong></div>
-      {counts.isError && <p className="warehouse-error" role="alert">Totaux indisponibles. <Button size="sm" onClick={() => void counts.refetch()}>Réessayer</Button></p>}
-    </section>
-    <div className="warehouse-categories" aria-label="Catégorie des interlocuteurs">
-      <Button variant={!showDrafts && !onlyToContact ? 'primary' : 'secondary'} aria-pressed={!showDrafts && !onlyToContact} onClick={() => { setShowDrafts(null); setOnlyToContact(false); setOffset(0) }}>Tous les entrepôts</Button>
-      <Button variant={!showDrafts && onlyToContact ? 'primary' : 'secondary'} aria-pressed={!showDrafts && onlyToContact} onClick={() => { setShowDrafts(null); setOnlyToContact(true); setOffset(0) }}>À contacter{counts.data ? ` (${String(counts.data.to_contact)})` : ''}</Button>
-      <Button variant={showDrafts ? 'primary' : 'secondary'} aria-pressed={Boolean(showDrafts)} onClick={() => { setShowDrafts('sme') }}>Brouillons</Button>
-    </div>
-    {!showDrafts && <>
-    <div className="warehouse-filter-panel">
-      <button type="button" className="warehouse-filter-panel__toggle" aria-expanded={filtersOpen} aria-controls="warehouse-prospecting-filters" onClick={() => { setFiltersOpen(!filtersOpen) }}>
-        <ChevronDownIcon className={filtersOpen ? 'warehouse-card__chevron--open' : ''} size={18} />
-        Catégorie de prospection : {showDrafts ? `Brouillons ${showDrafts === 'sme' ? 'PME/TPE' : showDrafts === 'other' ? 'Autres' : 'À classer'}` : category === 'sme' ? 'PME/TPE' : category === 'other' ? 'Autres' : category === 'unclassified' ? 'À classer' : 'Toutes'}
-      </button>
-      <div id="warehouse-prospecting-filters" className="warehouse-categories" role="group" aria-label="Catégorie de prospection" hidden={!filtersOpen}>
-      {([ [null, 'Toutes', counts.data?.warehouses], ['sme', 'PME/TPE', counts.data?.sme], ['other', 'Autres', counts.data?.other], ['unclassified', 'À classer', counts.data?.unclassified] ] as const).map(([value, label, count]) => <Button key={value ?? 'all'} variant={category === value ? 'primary' : 'secondary'} aria-pressed={category === value} onClick={() => { setCategory(value); setOffset(0) }}>{label}{count !== undefined ? ` (${String(count)})` : ''}</Button>)}
-    </div>
-      </div>
-    </>}
-    {showDrafts && <div className="warehouse-categories" role="group" aria-label="Catégories de brouillons">
-      <Button aria-pressed={showDrafts === 'sme'} variant={showDrafts === 'sme' ? 'primary' : 'secondary'} onClick={() => setShowDrafts('sme')}>Brouillons PME/TPE ({drafts.data?.filter(d => d.prospecting_category === 'sme').length ?? 0})</Button>
-      <Button aria-pressed={showDrafts === 'other'} variant={showDrafts === 'other' ? 'primary' : 'secondary'} onClick={() => setShowDrafts('other')}>Brouillons Autres entreprises ({drafts.data?.filter(d => d.prospecting_category === 'other').length ?? 0})</Button>
+    <Link to="/prospection?entity=warehouse" className="prospection__back"><ArrowLeftIcon size={16} />Entrepôts</Link>
+    <PageHeader mascot="build" title="Brouillons d’entrepôts" description="Les messages préparés pour les interlocuteurs des entrepôts." />
+    <div className="warehouse-categories" role="group" aria-label="Catégories de brouillons">
+      <Button aria-pressed={category === 'sme'} variant={category === 'sme' ? 'primary' : 'secondary'} onClick={() => { setCategory('sme') }}>Brouillons PME/TPE ({drafts.data?.filter(d => d.prospecting_category === 'sme').length ?? 0})</Button>
+      <Button aria-pressed={category === 'other'} variant={category === 'other' ? 'primary' : 'secondary'} onClick={() => { setCategory('other') }}>Brouillons Autres entreprises ({drafts.data?.filter(d => d.prospecting_category === 'other').length ?? 0})</Button>
       {drafts.data?.some(d => !d.prospecting_category) && <p>Classez les entrepôts sans catégorie pour accéder à leurs brouillons.</p>}
-    </div>}
-    {showDrafts ? <WarehouseDrafts key={showDrafts} category={showDrafts} /> : <>
-    <div className="warehouse-toolbar">
-      <SearchField label="Rechercher un entrepôt, un propriétaire, un interlocuteur…" value={search} onChange={(value) => { setSearch(value); setOffset(0) }} />
-      <span className="warehouse-muted" aria-live="polite">{page ? `${String(page.total)} entrepôt${page.total > 1 ? 's' : ''}` : '—'}</span>
-      {search && <Button size="sm" variant="ghost" onClick={() => { setSearch(''); setOffset(0) }}>Réinitialiser</Button>}
     </div>
-    {notice && <p className="warehouse-notice" role="status">{notice}</p>}
-    {query.isPending && <p role="status" className="warehouse-muted">Chargement des entrepôts…</p>}
-    {query.isError && <p role="alert" className="warehouse-error">Impossible de charger les entrepôts. <Button onClick={() => void query.refetch()}>Réessayer</Button></p>}
-    {page?.total === 0 && !query.isError && (onlyToContact ? <p className="warehouse-muted">Aucun interlocuteur à contacter ne correspond à cette sélection.</p> : search || category ? <p className="warehouse-muted">Aucun entrepôt ne correspond à cette sélection.</p> : <EmptyState icon={WarehouseIcon} title="Votre répertoire d’entrepôts" description="Importez votre fichier Excel ou ajoutez votre premier site, puis renseignez ses propriétaires et interlocuteurs." action={<Button variant="primary" icon={PlusIcon} onClick={() => { setEditing(null) }}>Ajouter le premier entrepôt</Button>} />)}
-    <div className="warehouse-list">{page?.items.map((warehouse) => <WarehouseRow key={`${warehouse.id}-${String(onlyToContact)}`} warehouse={warehouse} onlyToContact={onlyToContact} onEdit={() => { setEditing(warehouse.id) }} />)}</div>
-    {page && page.total > 50 && <nav className="warehouse-pagination" aria-label="Pages des entrepôts"><span>{offset + 1}–{Math.min(offset + page.items.length, page.total)} sur {page.total}</span><Button icon={ChevronLeftIcon} disabled={offset === 0} onClick={() => { setOffset(offset - 50) }}>Précédents</Button><Button icon={ChevronRightIcon} disabled={offset + 50 >= page.total} onClick={() => { setOffset(offset + 50) }}>Suivants</Button></nav>}
-    </>}
-    {editing !== undefined && <WarehouseEditor id={editing} onClose={() => { setEditing(undefined) }} />}
-    {importing && <WarehouseImport onClose={() => { setImporting(false) }} onImported={(result) => { setImporting(false); setSearch(''); setOffset(0); setNotice(`${String(result.created)} entrepôt(s) ajouté(s), ${String(result.contacts)} interlocuteur(s) importé(s)${result.skipped ? ` · ${String(result.skipped)} entrepôt(s) déjà présent(s)` : ''}.`) }} />}
+    <WarehouseDrafts key={category} category={category} />
   </div>
 }
