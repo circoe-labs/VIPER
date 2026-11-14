@@ -3,16 +3,18 @@
 import uuid
 from collections.abc import Collection, Sequence
 from datetime import date
-from typing import Literal
+from typing import Any, Literal
 
 from sqlalchemy import ColumnElement, Row, SQLColumnExpression, and_, exists, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.creation_period import created_between
 from app.models import CommercialSegment, Company, Establishment, Prospect, Role
+from app.models.companies import company_activity_categories
 from app.models.enums import CompanyKind
 from app.models.taxonomies import ActivityCategory
-from app.repositories.taxonomies import label_key, matches_words
+from app.repositories.list_sort import EntitySort, entity_order_by
+from app.repositories.taxonomies import matches_words
 
 
 def get_company(session: Session, company_id: uuid.UUID) -> Company | None:
@@ -75,11 +77,35 @@ def company_prospects(
     return session.execute(statement).tuples().all()
 
 
+def _joined(column: SQLColumnExpression[str | None], *where: ColumnElement[bool]) -> Any:
+    # Correlated to the company only: the list also joins the segment in its outer query.
+    return select(func.string_agg(column, " ")).where(*where).correlate(Company).scalar_subquery()
+
+
 def _search_condition(search: str) -> ColumnElement[bool]:
-    """Every word in the names, e-mail domain or website (case/accents ignored); a query made of
-    digits (spaces allowed) also matches a SIREN or an establishment's SIRET containing them."""
+    """Every word in the names, e-mail domain, website, sector (segment and activity categories),
+    establishment cities or contact names (case/accents ignored); a query made of digits (spaces
+    allowed) also matches a SIREN or an establishment's SIRET containing them."""
     text = func.concat_ws(
-        " ", Company.display_name, Company.legal_name, Company.email_domain, Company.website_url
+        " ",
+        Company.display_name,
+        Company.legal_name,
+        Company.email_domain,
+        Company.website_url,
+        select(CommercialSegment.label)
+        .where(CommercialSegment.id == Company.commercial_segment_id)
+        .correlate(Company)
+        .scalar_subquery(),
+        _joined(
+            ActivityCategory.label,
+            ActivityCategory.id == company_activity_categories.c.activity_category_id,
+            company_activity_categories.c.company_id == Company.id,
+        ),
+        _joined(Establishment.city, Establishment.company_id == Company.id),
+        _joined(
+            func.concat_ws(" ", Prospect.first_name, Prospect.last_name),
+            Prospect.company_id == Company.id,
+        ),
     )
     condition: ColumnElement[bool] = and_(*matches_words(text, search))
     digits = "".join(search.split())
@@ -121,9 +147,11 @@ def list_companies(
     company_kind: CompanyKind | Literal["unclassified"] | None = None,
     created_from: date | None = None,
     created_to: date | None = None,
+    sort: EntitySort = EntitySort.NAME,
 ) -> tuple[Sequence[Row[tuple[Company, str | None, int, int, str | None]]], int]:
     """`(company, segment label, prospect count, establishment count, primary city)` rows ordered
-    by display name as compared (case/accents ignored), and the total number of matches."""
+    by `sort` (display name as compared, case/accents ignored, by default; ties by id), and the
+    total number of matches."""
     where = [_search_condition(search)] if search else []
     where.extend(created_between(Company.created_at, created_from, created_to))
     if company_kind == "unclassified":
@@ -143,7 +171,11 @@ def list_companies(
         )
         .outerjoin(CommercialSegment, CommercialSegment.id == Company.commercial_segment_id)
         .where(*where)
-        .order_by(label_key(Company.display_name), Company.id)
+        .order_by(
+            *entity_order_by(
+                sort, Company.display_name, Company.created_at, Company.updated_at, Company.id
+            )
+        )
         .limit(limit)
         .offset(offset)
     )

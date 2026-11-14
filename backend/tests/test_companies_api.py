@@ -1,6 +1,7 @@
 """Companies HTTP API (`/api/companies`, Task 07): protection, contract and business refusals."""
 
 import uuid
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -9,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.api.session_cookie import CSRF_HEADER
 from app.core.actor import ActorType
-from app.models import Establishment, User
+from app.models import Company, Establishment, User
 from tests.builders import (
     BAD_SIRET,
     SIREN,
@@ -287,6 +288,63 @@ def test_list_pages_are_bounded(client: TestClient) -> None:
         "items": [],
         "total": 0,
     }
+
+
+def test_list_search_covers_sector_city_and_contact_name(
+    client: TestClient, db_session: Session
+) -> None:
+    segment = settings_value(client, "commercial-segments", "Chimiquier Zorglub")
+    road = settings_value(client, "activity-categories", "Frigorifique Zorglub")
+    target = create(
+        client,
+        display_name="Cible Recherche",
+        commercial_segment_id=segment,
+        activity_category_ids=[road],
+        establishments=[{"name": "Siège", "city": "Quimperlé", "kind": "siège"}],
+    )
+    add_company(db_session, "Autre Recherche")
+    add_prospect(
+        db_session, db_session.get(Company, uuid.UUID(target["id"])), last_name="Bouchardon"
+    )
+
+    for term in ("chimiquier", "FRIGORIFIQUE zorglub", "quimperle", "bouchardon"):
+        found = client.get(COMPANIES, params={"q": term}).json()
+        assert [item["display_name"] for item in found["items"]] == ["Cible Recherche"], term
+        assert found["total"] == 1
+
+
+def test_list_sort_orders_by_name_created_or_updated(
+    client: TestClient, db_session: Session
+) -> None:
+    now = datetime.now(UTC)
+    day = timedelta(days=1)
+    add_company(db_session, "Bravo Tri", created_at=now - 3 * day, updated_at=now)
+    add_company(db_session, "Zulu Tri", created_at=now - 2 * day, updated_at=now - 3 * day)
+    add_company(db_session, "alpha Tri", created_at=now - day, updated_at=now - 2 * day)
+
+    def names(sort: str | None) -> list[str]:
+        params = {"q": "Tri", **({"sort": sort} if sort else {})}
+        items = client.get(COMPANIES, params=params).json()["items"]
+        return [item["display_name"] for item in items]
+
+    assert names(None) == ["alpha Tri", "Bravo Tri", "Zulu Tri"]
+    assert names("name") == names(None)
+    assert names("created") == ["alpha Tri", "Zulu Tri", "Bravo Tri"]
+    assert names("updated") == ["Bravo Tri", "alpha Tri", "Zulu Tri"]
+
+
+def test_list_sort_ties_are_broken_by_id(client: TestClient, db_session: Session) -> None:
+    stamp = datetime.now(UTC)
+    rows = [add_company(db_session, "Egal Tie", created_at=stamp, updated_at=stamp) for _ in "abc"]
+    expected = sorted(str(row.id) for row in rows)
+
+    for sort in ("name", "created", "updated"):
+        items = client.get(COMPANIES, params={"q": "Egal Tie", "sort": sort}).json()["items"]
+        assert [item["id"] for item in items] == expected, sort
+
+
+def test_list_sort_rejects_unknown_values(client: TestClient) -> None:
+    assert client.get(COMPANIES, params={"sort": "popularity"}).status_code == 422
 
 
 def test_company_kind_is_saved_changed_cleared_and_checked(client: TestClient) -> None:

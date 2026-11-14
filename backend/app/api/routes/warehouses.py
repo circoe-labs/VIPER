@@ -14,6 +14,7 @@ from app.api.dependencies import CurrentActor, SessionDep
 from app.api.errors import business_errors, refusal
 from app.core.actor import ActorType
 from app.models import Warehouse, WarehouseDraft
+from app.repositories.list_sort import EntitySort
 from app.services import audit, warehouse_import, warehouses
 from app.services.warehouses import WarehouseCounts, WarehouseInput, WarehouseOut, WarehousePage
 from app.services.warehouse_draft_text import apply_category
@@ -389,8 +390,10 @@ def list_warehouses(
     offset: Annotated[int, Query(ge=0)] = 0,
     to_contact: bool = False,
     category: Literal['sme', 'other', 'unclassified'] | None = None,
+    sort: EntitySort = EntitySort.NAME,
 ) -> WarehousePage:
-    return warehouses.list_warehouses(session, q, limit, offset, to_contact, category)
+    """`sort`: name (A-Z, default), created (newest first) or updated (newest first); ties by id."""
+    return warehouses.list_warehouses(session, q, limit, offset, to_contact, category, sort)
 
 
 @router.post("", status_code=201)

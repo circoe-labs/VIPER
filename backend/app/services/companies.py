@@ -39,6 +39,7 @@ from app.models.enums import ActivityStatus, Civility, CompanyKind, Contactabili
 from app.models.taxonomies import ActivityCategory
 from app.repositories import companies as repository
 from app.repositories import import_reference
+from app.repositories.list_sort import EntitySort
 from app.services import audit
 from app.services.errors import (
     DuplicateValueError,
@@ -526,15 +527,18 @@ def list_companies(
     company_kind: CompanyKind | Literal["unclassified"] | None = None,
     created_from: date | None = None,
     created_to: date | None = None,
+    sort: EntitySort = EntitySort.NAME,
 ) -> CompanyPage:
-    """Ordered by display name; `search` matches every word in the names, e-mail domain and
-    website (case/accents ignored), or digits in a SIREN/SIRET."""
+    """Ordered by `sort` (name by default); `search` matches every word in the names, e-mail
+    domain, website, sector, city and contact names (case/accents ignored), or digits in a
+    SIREN/SIRET."""
     rows, total = repository.list_companies(
         session,
         search=(search or "").strip() or None,
         company_kind=company_kind,
         created_from=created_from,
         created_to=created_to,
+        sort=sort,
         limit=max(1, min(limit, LIST_MAX_LIMIT)),
         offset=max(0, offset),
     )

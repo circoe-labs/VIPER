@@ -28,6 +28,7 @@ from app.models.enums import (
     SignalKind,
     SignalOrigin,
 )
+from app.repositories.list_sort import EntitySort
 from app.services import audit, companies, company_signals, history
 from app.services.companies import CompanyDetail, CompanyInput, EstablishmentInput
 from app.services.errors import InvalidFieldError, NotFoundError
@@ -236,9 +237,11 @@ def list_companies(
     company_kind: CompanyKind | Literal["unclassified"] | None = None,
     created_from: date | None = None,
     created_to: date | None = None,
+    sort: EntitySort = EntitySort.NAME,
 ) -> CompanyPageOut:
-    """Ordered by name; `q` matches every word of the names, e-mail domain and website (case and
-    accents ignored), or digits of a SIREN/SIRET."""
+    """`sort`: name (A-Z, default), created (newest first) or updated (newest first); ties by id.
+    `q` matches every word of the names, e-mail domain, website, sector, city and contact names
+    (case and accents ignored), or digits of a SIREN/SIRET."""
     with business_errors():
         if created_from is not None and created_to is not None and created_to < created_from:
             raise InvalidFieldError(
@@ -252,6 +255,7 @@ def list_companies(
             company_kind=company_kind,
             created_from=created_from,
             created_to=created_to,
+            sort=sort,
         )
     return CompanyPageOut.model_validate(page, from_attributes=True)
 

@@ -97,6 +97,7 @@ class ProspectSort(StrEnum):
     PLANNED_CONTACT = "planned_contact"
     VERIFICATION = "verification"  # never verified first, then oldest verification
     UPDATED = "updated"  # most recently changed first
+    CREATED = "created"  # date added, newest first
     # Row order of the last file the person came from (the verification space follows the Excel).
     FILE = "file"
 
@@ -341,6 +342,8 @@ def _order_by(sort: ProspectSort) -> list[SQLColumnExpression[Any]]:
             keys = [Prospect.employment_verified_at.asc().nulls_first(), *person]
         case ProspectSort.UPDATED:
             keys = [Prospect.updated_at.desc()]
+        case ProspectSort.CREATED:
+            keys = [Prospect.created_at.desc(), *person]
         case ProspectSort.FILE:
             # Only the last committed file counts: people it did not carry come last.
             latest_batch = (
