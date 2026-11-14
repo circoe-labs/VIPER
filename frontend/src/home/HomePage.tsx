@@ -7,33 +7,25 @@ import { useCurrentUser } from '../auth/currentUser'
 import { DEFAULT_VIEW } from '../prospection/criteria'
 import { Button } from '../ui/Button'
 import { AlertIcon, SpinnerIcon, UploadIcon, UsersIcon } from '../ui/icons'
+import { KpiCard } from '../ui/KpiCard'
 import { PageHeader } from '../ui/PageHeader'
 import { buildCockpit, type CockpitCard } from './cockpit'
 import { HOME_SHORTCUTS } from './destinations'
 import { HomeCharts } from './HomeCharts'
 import './home-dashboard.css'
 
-const NUMBER = new Intl.NumberFormat('fr-FR')
 // Home asks Prospection for its panel sizes unfiltered: the cockpit counts the whole base.
 const FILTERS = filtersOf(DEFAULT_VIEW)
 const TODAY = new Intl.DateTimeFormat('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
 
-// A KPI card: icon tile, label, figure; the whole card is the link to its filtered destination. A weekly addition
-// (`growth`) carries a « cette semaine » chip so it is never read as a total.
-function DashboardCard({ label, count, icon: Icon, tone, href, growth = false, hint }: CockpitCard) {
-  const formatted = NUMBER.format(count)
-  const accessible = `${growth ? '+ ' : ''}${formatted} ${label}${growth ? ' cette semaine' : ''}${hint ? ` ${hint}` : ''}`
+const TONES = { blue: 'info', purple: 'default', green: 'success', orange: 'warning', emerald: 'success' } as const
+
+// The shared KPI card (ui/KpiCard) like every other page; the whole card links to its filtered destination. A weekly
+// addition (`growth`) says « cette semaine » so it is never read as a total.
+function DashboardCard({ label, count, icon, tone, href, growth = false, hint }: CockpitCard) {
   return (
     <li>
-      <Link className={`home-stat home-stat--${tone}`} to={href} aria-label={accessible}>
-        <span className="home-stat__icon"><Icon size={22} /></span>
-        <span className="home-stat__label">{label}</span>
-        <span className="home-stat__figure">
-          <span className="home-stat__value">{growth ? '+ ' : ''}{formatted}</span>
-          {growth && <span className="home-stat__chip">cette semaine</span>}
-          {hint && <span className="home-stat__chip home-stat__chip--warn">{hint}</span>}
-        </span>
-      </Link>
+      <KpiCard label={label} icon={icon} value={count} tone={TONES[tone]} to={href} note={growth ? 'cette semaine' : hint} />
     </li>
   )
 }

@@ -57,13 +57,15 @@ describe('Home cockpit', () => {
     stubApi({ ...API })
     renderApp('/')
     const main = within(await screen.findByRole('main'))
-    await main.findByRole('link', { name: /145 Nouveaux entrepôts/ })
-    const names = main.getAllByRole('link').map((link) => link.getAttribute('aria-label')).filter(Boolean)
-    expect(names).toEqual(expect.arrayContaining([
-      '+ 28 Nouveaux prospects cette semaine', '+ 12 Nouvelles entreprises cette semaine', '+ 145 Nouveaux entrepôts cette semaine',
-      '6 Rendez-vous pris', '41 À contacter', '9 Relances dues dont 3 en retard', '17 À vérifier',
-      '2 Missions en cours', '1 Missions terminées', '7 Reviews en attente',
-    ]))
+    await main.findByRole('link', { name: /Nouveaux entrepôts/ })
+    const cards = main.getAllByRole('link').map((link) => link.textContent.replace(/\s+/g, ' ').trim())
+    const has = (label: string, value: string, note?: string) =>
+      cards.some((text) => text.includes(label) && text.includes(value) && (note === undefined || text.includes(note)))
+    expect([
+      has('Nouveaux prospects', '28', 'cette semaine'), has('Nouvelles entreprises', '12', 'cette semaine'), has('Nouveaux entrepôts', '145', 'cette semaine'),
+      has('Rendez-vous pris', '6'), has('À contacter', '41'), has('Relances dues', '9', 'dont 3 en retard'), has('À vérifier', '17'),
+      has('Missions en cours', '2'), has('Missions terminées', '1'), has('Reviews en attente', '7'),
+    ]).toEqual(Array(10).fill(true))
     // The only tables are the visually hidden data of the charts, one per chart (1 activity + 3 growth).
     expect(await main.findAllByRole('table')).toHaveLength(4)
   })
@@ -91,7 +93,7 @@ describe('Home cockpit', () => {
     stubApi({ ...SHELL_API })
     renderApp('/')
     expect(screen.getByText(/vendredi 30 octobre 2026/)).toBeInTheDocument()
-    expect(await screen.findByRole('link', { name: /0 Rendez-vous pris/ })).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: /Rendez-vous priss*0/ })).toBeInTheDocument()
   })
 
   it('shows loading and no card rather than zero while unavailable', async () => {
@@ -107,10 +109,10 @@ describe('Home cockpit', () => {
     stubApi({ ...API, 'GET /api/missions': () => failed ? [500, { detail: 'boom' }] : [200, MISSIONS] })
     renderApp('/')
     expect(await screen.findByRole('alert')).toHaveTextContent('Impossible de charger certaines statistiques de VIPER.')
-    expect(await screen.findByRole('link', { name: /17 À vérifier/ })).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: /À vérifiers*17/ })).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /Missions en cours/ })).not.toBeInTheDocument()
     failed = false
     await userEvent.click(screen.getByRole('button', { name: 'Réessayer' }))
-    expect(await screen.findByRole('link', { name: /2 Missions en cours/ })).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: /Missions en courss*2/ })).toBeInTheDocument()
   })
 })
