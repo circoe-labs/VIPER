@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import type { ProposalItem } from '../api/agents'
 import { StatusBadge } from '../ui/Badge'
 import { Table } from '../ui/Table'
+import { ResolutionBadges } from './ResolutionBadges'
 import { ConfidenceBadge } from './ReviewConfidence'
 import { shown } from './ReviewItems'
 import { formatSourceDate, isOldSource, safeHref, sourceHost } from './reviewFormat'
@@ -94,6 +95,7 @@ export function ReviewProposalTable({ items, selected, locked, onToggle, detail 
                   </td>
                   <td className={`rvt-after rvt-after--${item.status}`} data-label="Proposé">
                     {shown(item.after)}
+                    <ResolutionBadges resolutions={item.resolutions} />
                   </td>
                   <td data-label="Confiance">
                     <ConfidenceBadge value={item.confidence} compact />

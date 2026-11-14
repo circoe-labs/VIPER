@@ -2,6 +2,7 @@ import { Link, useParams } from 'react-router'
 
 import { type ProposalItem, useResult } from '../api/agents'
 import { useMission } from '../api/missions'
+import { ResolutionBadges } from '../agents/ResolutionBadges'
 import { ArrowLeftIcon, CheckCircleIcon } from '../ui/icons'
 import './missions.css'
 
@@ -24,24 +25,31 @@ function ResultCard({ resultId }: { resultId: string }) {
   const result = useResult(resultId).data
   if (!result) return <p className="missions-muted">Chargement…</p>
   const items = result.proposal.items
-  const rows: [string, string | null][] = [
-    ['Nom', result.prospect_name],
-    ['Fonction', valueOf(items, FIELD_MATCHERS.role)],
-    ['Mail', valueOf(items, FIELD_MATCHERS.email)],
-    ['LinkedIn', valueOf(items, FIELD_MATCHERS.linkedin)],
-    ['Société', result.company_name],
-    ['Ville', valueOf(items, FIELD_MATCHERS.city)],
-    ['IA', result.submitted_by_label],
+  const roleItem =
+    items.find((candidate) => FIELD_MATCHERS.role.test(candidate.field)) ??
+    items.find((candidate) => candidate.store?.role !== undefined && candidate.resolutions?.length)
+  const role = roleItem?.resolutions?.[0]?.resolved_value ?? valueOf(items, FIELD_MATCHERS.role)
+  const rows: [string, string | null, ProposalItem | undefined][] = [
+    ['Nom', result.prospect_name, undefined],
+    ['Rôle attribué', role, roleItem],
+    ['Mail', valueOf(items, FIELD_MATCHERS.email), undefined],
+    ['LinkedIn', valueOf(items, FIELD_MATCHERS.linkedin), undefined],
+    ['Société', result.company_name, undefined],
+    ['Ville', valueOf(items, FIELD_MATCHERS.city), undefined],
+    ['IA', result.submitted_by_label, undefined],
   ]
   const score = Math.round(result.proposal.confidence * 100)
   return (
     <article className="mission-result-card">
       <span className="mission-result-card__score">score{Number.isFinite(score) ? ` ${String(score)}` : ''}</span>
       <dl className="mission-result-card__rows">
-        {rows.map(([label, value]) => (
+        {rows.map(([label, value, item]) => (
           <div key={label} className="mission-result-card__row">
             <dt>{label}</dt>
-            <dd>{value ?? '—'}</dd>
+            <dd>
+              {value ?? '—'}
+              {item && <ResolutionBadges resolutions={item.resolutions} />}
+            </dd>
           </div>
         ))}
       </dl>

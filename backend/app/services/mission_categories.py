@@ -10,8 +10,8 @@ mission service (`app.services.missions`) uses `resolve_category`, `apply_inheri
   source library and its defaults live in `mission_sources`, Slice 02). A field is *overridden*
   only when `Mission.overridden_fields` says so; a category edit rewrites `Mission.prompt` for
   the missions that still inherit it, never for an overriding one.
-- A seeded (keyed) category is edited but never deleted; any other category is deleted only when
-  no mission references it (409 `in_use`). A skill deletion detaches it everywhere.
+- Any category may be deleted; one still used by missions answers 409 `in_use` unless the caller
+  confirms the cascade (each mission goes through `missions.delete`). A skill deletion detaches it everywhere.
 
 Operations flush; the caller owns the transaction. Changes are audited
 (`mission_category.*` / `mission_skill.*`, plus `mission.updated` for a propagated prompt).
@@ -49,7 +49,6 @@ from app.models.mission_categories import (
 from app.models.missions import Mission
 from app.services import audit, mission_sources
 from app.services.errors import (
-    BusinessRuleError,
     DuplicateValueError,
     ExistingValue,
     InUseError,
@@ -520,22 +519,30 @@ def update_category(
     return _category_row(session, category)
 
 
-def delete_category(session: Session, actor: ActorContext, category_id: uuid.UUID) -> None:
+def delete_category(
+    session: Session,
+    actor: ActorContext,
+    category_id: uuid.UUID,
+    *,
+    confirm_cascade: bool = False,
+) -> int:
+    """Delete a category (built-in or not). A used category needs `confirm_cascade`: each mission is
+    then removed through `missions.delete` (open tasks cancelled, pending results rejected, audit),
+    never a raw SQL cascade. Returns the number of missions deleted."""
+    from app.services import missions as mission_service  # missions imports this module
+
     category = _category(session, category_id, lock=True)
-    if category.key is not None:
-        raise BusinessRuleError(
-            "category_system",
-            409,
-            "A built-in category cannot be deleted: edit it instead.",
-        )
-    missions = session.scalar(
-        select(func.count()).select_from(Mission).where(Mission.category_id == category.id)
-    )
-    if missions:
-        raise InUseError({"missions": missions})
+    mission_ids = session.scalars(
+        select(Mission.id).where(Mission.category_id == category.id).order_by(Mission.id)
+    ).all()
+    if mission_ids and not confirm_cascade:
+        raise InUseError({"missions": len(mission_ids)})
+    for mission_id in mission_ids:
+        mission_service.delete(session, actor, mission_id)
     audit.annotate(session, actor, category)
     session.delete(category)
     session.flush()
+    return len(mission_ids)
 
 
 # --- inheritance --------------------------------------------------------------------------------

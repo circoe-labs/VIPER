@@ -119,47 +119,59 @@ export function MissionExecutionSection({ form }: { form: MissionFormApi }) {
         </div>
       )}
       <div className="mission-form__row">
-        <SelectField
-          label={recurring ? 'Objectif de chaque exécution' : 'Objectif'}
-          value={objective.kind}
-          hint={
-            recurring
-              ? 'Chaque exécution repart d’un objectif neuf ; la mission reste active jusqu’à la fin de la récurrence.'
-              : 'La mission se termine dès que son objectif est atteint.'
-          }
-          onChange={(event) => {
-            form.setObjective(
-              event.target.value === 'accepted_items'
-                ? { kind: 'accepted_items', count: objective.count ?? 1 }
-                : { kind: 'tasks_accepted', count: null },
-            )
-          }}
-        >
-          <option value="tasks_accepted">Toutes les tâches validées</option>
-          <option value="accepted_items">Un nombre d’éléments validés</option>
-        </SelectField>
-        {objective.kind === 'accepted_items' && (
-          <TextField
-            label="Éléments à valider"
-            type="number"
-            min={1}
-            max={Number(form.resultLimit) || undefined}
-            value={objective.count ?? ''}
-            hint="Compté à la validation par une personne ; au plus la limite par exécution."
+        <div className="mission-form__tipped">
+          <SelectField
+            label={recurring ? 'Objectif de chaque exécution' : 'Objectif'}
+            value={objective.kind}
             onChange={(event) => {
-              form.setObjective({ kind: 'accepted_items', count: event.target.value ? Number(event.target.value) : null })
+              form.setObjective(
+                event.target.value === 'accepted_items'
+                  ? { kind: 'accepted_items', count: objective.count ?? 1 }
+                  : { kind: 'tasks_accepted', count: null },
+              )
             }}
-          />
+          >
+            <option value="tasks_accepted">Toutes les tâches validées</option>
+            <option value="accepted_items">Un nombre d’éléments validés</option>
+          </SelectField>
+          <span className="mission-form__tip">
+            <InfoTip label="Aide : objectif">
+              {recurring
+                ? 'Chaque exécution repart d’un objectif neuf ; la mission reste active jusqu’à la fin de la récurrence.'
+                : 'La mission se termine dès que son objectif est atteint.'}
+            </InfoTip>
+          </span>
+        </div>
+        {objective.kind === 'accepted_items' && (
+          <div className="mission-form__tipped">
+            <TextField
+              label="Éléments à valider"
+              type="number"
+              min={1}
+              max={Number(form.resultLimit) || undefined}
+              value={objective.count ?? ''}
+              onChange={(event) => {
+                form.setObjective({ kind: 'accepted_items', count: event.target.value ? Number(event.target.value) : null })
+              }}
+            />
+            <span className="mission-form__tip">
+              <InfoTip label="Aide : éléments à valider">
+                Compté à la validation par une personne ; au plus la limite par exécution.
+              </InfoTip>
+            </span>
+          </div>
         )}
       </div>
-      <Checkbox
-        label="Plusieurs éléments par envoi de l’agent"
-        hint="Décoché : l’agent propose un seul élément à la fois."
-        checked={form.allowMultiple}
-        onChange={(event) => {
-          form.setAllowMultiple(event.target.checked)
-        }}
-      />
+      <div className="mission-form__check">
+        <Checkbox
+          label="Plusieurs éléments par envoi de l’agent"
+          checked={form.allowMultiple}
+          onChange={(event) => {
+            form.setAllowMultiple(event.target.checked)
+          }}
+        />
+        <InfoTip label="Aide : plusieurs éléments">Décoché, l’agent ne propose qu’un élément à la fois.</InfoTip>
+      </div>
     </section>
   )
 }

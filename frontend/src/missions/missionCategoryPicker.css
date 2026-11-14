@@ -3,18 +3,70 @@
   gap: var(--space-3);
 }
 
+.mcat__trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 3rem;
+  padding: 0 var(--space-3);
+  background: var(--color-field, var(--color-surface));
+  color: var(--color-text);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.mcat__trigger:hover {
+  background: var(--color-surface-hover);
+}
+
+.mcat__trigger:focus-visible,
+.mcat__tile:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-focus);
+}
+
+.mcat__value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mcat__tip {
+  display: inline-flex;
+  margin-left: var(--space-2);
+  vertical-align: middle;
+}
+
+.mcat__kind {
+  position: relative;
+}
+
+.mcat__tip--field {
+  position: absolute;
+  top: -2px;
+  right: 0;
+  margin: 0;
+}
+
+/* The picker floats over the form: a lighter scrim than a regular dialog. */
+.dialog-layer:has(.dialog--mcat) .dialog-backdrop {
+  background: color-mix(in srgb, black 38%, transparent);
+}
+
 .mcat__tiles {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
   gap: var(--space-2);
 }
 
 .mcat__tile {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  min-height: 3rem;
-  padding: var(--space-2) var(--space-3);
+  gap: var(--space-3);
+  min-height: 3.5rem;
+  padding: var(--space-3) var(--space-4);
   background: var(--color-surface);
   color: var(--color-text);
   cursor: pointer;
@@ -29,15 +81,22 @@
 .mcat__tile[aria-checked='true'] {
   background: var(--mui-soft, var(--color-accent-soft));
   box-shadow: inset 0 0 0 2px var(--mui-fg, var(--color-accent));
-  font-weight: var(--weight-semibold);
 }
 
-.mcat__tile:focus-visible {
-  outline: var(--focus-ring-width) solid var(--color-focus);
+.mcat__text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
 }
 
 .mcat__name {
+  font-weight: var(--weight-semibold);
   overflow-wrap: anywhere;
+}
+
+.mcat__desc {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
 }
 
 .mcat__help,

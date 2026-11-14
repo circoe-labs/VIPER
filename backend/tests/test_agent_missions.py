@@ -263,8 +263,9 @@ def test_submit_reports_what_it_could_not_normalise(session: Session) -> None:
     )
 
     refused = {item["field"]: item["reason"] for item in result.proposal["refused"]}
-    assert refused == {"siren": "checksum", "commercial_segment": "unknown"}
-    assert [item["field"] for item in result.proposal["items"]] == ["legal_name"]
+    # An unknown segment is no longer refused: it is proposed as a new value, created only when a person accepts.
+    assert refused == {"siren": "checksum"}
+    assert [item["field"] for item in result.proposal["items"]] == ["legal_name", "commercial_segment"]
 
 
 def test_an_invalid_schema_keeps_the_task_claimed(session: Session) -> None:

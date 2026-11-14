@@ -54,7 +54,7 @@ export function micErrorMessage(error: unknown): string {
     return 'Aucun micro détecté. Branchez-en un, ou écrivez votre demande.'
   }
   if (name === 'NotReadableError') return 'Le micro est utilisé par une autre application. Fermez-la, ou écrivez votre demande.'
-  if (name === 'network') return 'La reconnaissance vocale du navigateur est injoignable. Écrivez votre demande.'
+  if (name === 'network') return 'La reconnaissance vocale du navigateur est injoignable. Écrivez votre demande, ou réessayez.'
   return 'Le micro n’a pas pu démarrer. Écrivez votre demande ou réessayez.'
 }
 

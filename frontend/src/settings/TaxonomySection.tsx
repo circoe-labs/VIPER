@@ -10,6 +10,8 @@ import {
   useTaxonomyValues,
 } from '../api/settings'
 import { Button } from '../ui/Button'
+import { InfoTip } from '../ui/InfoTip'
+import { Modal } from '../ui/Dialog'
 import { EmptyState } from '../ui/EmptyState'
 import { TextField } from '../ui/fields'
 import { AlertIcon, BanIcon, CheckIcon, PencilIcon, PlusIcon, RefreshIcon, SlidersIcon, TrashIcon } from '../ui/icons'
@@ -28,7 +30,7 @@ import {
 export interface TaxonomySectionConfig {
   kind: TaxonomyKind
   title: string
-  description: string
+  description?: string
   // "Nouveau rôle", "Rechercher un rôle", "Aucun rôle pour l’instant"…
   addLabel: string
   placeholder: string
@@ -52,6 +54,7 @@ export function TaxonomySection({ config }: { config: TaxonomySectionConfig }) {
   const [feedback, setFeedback] = useState<Feedback | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<TaxonomyValue | null>(null)
+  const [adding, setAdding] = useState(false)
   const filtered = debouncedSearch.trim() !== '' || active !== 'all'
 
   function stopEditing(id: string) {
@@ -90,27 +93,45 @@ export function TaxonomySection({ config }: { config: TaxonomySectionConfig }) {
   return (
     <>
       <header className="settings-panel__header">
-        <div>
+        <div className="settings-panel__heading">
           <h2 className="settings-panel__title">{config.title}</h2>
-          <p className="settings-panel__description">{config.description}</p>
+          {config.description && <InfoTip label={`Aide : ${config.title}`}>{config.description}</InfoTip>}
         </div>
+        <Button
+          variant="primary"
+          size="sm"
+          icon={PlusIcon}
+          onClick={() => {
+            setAdding(true)
+          }}
+        >
+          Ajouter
+        </Button>
       </header>
 
-      <AddValueForm
-        config={config}
-        mutations={mutations}
-        onDone={(text) => {
-          setFeedback({ tone: 'success', text })
+      <Modal
+        open={adding}
+        size="sm"
+        title={config.addLabel}
+        onClose={() => {
+          setAdding(false)
         }}
-      />
+      >
+        <AddValueForm
+          config={config}
+          mutations={mutations}
+          onDone={(text) => {
+            setAdding(false)
+            setFeedback({ tone: 'success', text })
+          }}
+          onCancel={() => {
+            setAdding(false)
+          }}
+        />
+      </Modal>
 
       <FeedbackBanner feedback={feedback} />
 
-      {/* The values are only needed to look one up or fix it: the list stays folded until asked for. */}
-      <details className="settings-fold">
-        <summary className="settings-fold__summary">
-          Voir la liste{values.data ? ` (${String(values.data.length)})` : ''}
-        </summary>
       <ListToolbar
         searchLabel={config.searchLabel}
         search={search}
@@ -137,7 +158,7 @@ export function TaxonomySection({ config }: { config: TaxonomySectionConfig }) {
           <EmptyState
             icon={SlidersIcon}
             title={config.emptyTitle}
-            description="Ajoutez la première valeur ci-dessus. Les formulaires pourront aussi en créer à la volée."
+            description="Utilisez « Ajouter » pour créer la première valeur."
           />
         ))}
       {values.data && values.data.length > 0 && (
@@ -221,7 +242,6 @@ export function TaxonomySection({ config }: { config: TaxonomySectionConfig }) {
           </tbody>
         </Table>
       )}
-      </details>
 
       {deleting && (
         <DeleteDialog
@@ -255,9 +275,10 @@ interface AddValueFormProps {
   config: TaxonomySectionConfig
   mutations: Mutations
   onDone: (text: string) => void
+  onCancel: () => void
 }
 
-function AddValueForm({ config, mutations, onDone }: AddValueFormProps) {
+function AddValueForm({ config, mutations, onDone, onCancel }: AddValueFormProps) {
   const [label, setLabel] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [inactiveTwin, setInactiveTwin] = useState<{ id: string; label: string } | null>(null)
@@ -307,7 +328,7 @@ function AddValueForm({ config, mutations, onDone }: AddValueFormProps) {
         placeholder={config.placeholder}
         value={label}
         maxLength={255}
-        hint="Les doublons sont refusés sans tenir compte des majuscules, des accents ni des espaces."
+        autoFocus
         error={error}
         onChange={(event) => {
           setLabel(event.target.value)
@@ -316,6 +337,7 @@ function AddValueForm({ config, mutations, onDone }: AddValueFormProps) {
         }}
       />
       <div className="settings-add__actions">
+        <Button onClick={onCancel}>Annuler</Button>
         {inactiveTwin && (
           <Button
             icon={RefreshIcon}

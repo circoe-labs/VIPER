@@ -13,12 +13,12 @@ import { CategoryGlyph } from '../missions/CategoryGlyph'
 import { CATEGORY_ICONS, categoryAccent, DEFAULT_CATEGORY_COLOR } from '../missions/categoryVisual'
 import { SkillChecklist, SourceTreePicker } from '../missions/ConfigPickers'
 import { MISSION_TYPE_LABELS } from '../missions/labels'
-import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { Modal } from '../ui/Dialog'
 import { EmptyState } from '../ui/EmptyState'
 import { SelectField, TextAreaField, TextField } from '../ui/fields'
-import { LockIcon, PencilIcon, PlusIcon, SaveIcon, TagIcon, TrashIcon } from '../ui/icons'
+import { InfoTip } from '../ui/InfoTip'
+import { BoltIcon, LinkIcon, PencilIcon, PlusIcon, SaveIcon, TagIcon, TrashIcon } from '../ui/icons'
 import { ConfirmDelete, ErrorNote, plural, QueryState } from './adminShared'
 
 // Administration › Catégories: what a person picks when creating a mission. A category carries its icon and colour
@@ -31,9 +31,12 @@ export function CategoriesAdmin() {
   return (
     <>
       <div className="adm-toolbar">
-        <p className="adm-card__text">
-          Une catégorie regroupe des missions du même genre : consigne générale, skills et sources par défaut, icône et
-          couleur. Une mission suit ces valeurs tant qu’on ne les modifie pas.
+        <p className="adm-toolbar__hint">
+          <span>Catégories</span>
+          <InfoTip label="Aide : catégories de mission">
+            Une catégorie regroupe des missions du même genre : consigne générale, skills et sources par défaut, icône
+            et couleur. Une mission suit ces valeurs tant qu’on ne les modifie pas.
+          </InfoTip>
         </p>
         <Button
           variant="primary"
@@ -87,15 +90,6 @@ export function CategoriesAdmin() {
   )
 }
 
-// Why a category cannot be deleted, in words (the button is disabled; the same rule is enforced by the server).
-export function deletionBlock(category: Pick<MissionCategory, 'is_system' | 'missions_count'>): string | null {
-  if (category.is_system) return 'Catégorie intégrée : on la modifie, on ne la supprime pas.'
-  if (category.missions_count > 0) {
-    return `${plural(category.missions_count, 'mission utilise', 'missions utilisent')} cette catégorie : changez la leur d’abord.`
-  }
-  return null
-}
-
 function CategoryCard({
   category,
   onEdit,
@@ -105,7 +99,10 @@ function CategoryCard({
   onEdit: () => void
   onDelete: () => void
 }) {
-  const block = deletionBlock(category)
+  const [listing, setListing] = useState<'skills' | 'sources' | null>(null)
+  const close = () => {
+    setListing(null)
+  }
   return (
     <li className="adm-card">
       <div className="adm-card__head" style={categoryAccent(category.color)}>
@@ -115,26 +112,30 @@ function CategoryCard({
         <h2 className="adm-card__title">{category.name}</h2>
       </div>
       {category.description && <p className="adm-card__text">{category.description}</p>}
-      <ul className="adm-card__chips" aria-label="Réglages de la catégorie">
-        <li>
-          <Badge>{MISSION_TYPE_LABELS[category.mission_type]}</Badge>
-        </li>
-        {category.is_system && (
-          <li>
-            <Badge icon={LockIcon}>Intégrée</Badge>
-          </li>
-        )}
-        <li>
-          <Badge>{plural(category.missions_count, 'mission')}</Badge>
-        </li>
-        <li>
-          <Badge>{plural(category.skills.length, 'skill')} par défaut</Badge>
-        </li>
-        <li>
-          <Badge>{plural(category.sources.length, 'source')} par défaut</Badge>
-        </li>
-      </ul>
-      {block && <p className="adm-card__text">{block}</p>}
+      <div className="adm-tiles">
+        <button
+          type="button"
+          className="adm-tile"
+          onClick={() => {
+            setListing('skills')
+          }}
+        >
+          <BoltIcon size={16} />
+          <span className="adm-tile__label">Skills par défaut</span>
+          <span className="adm-tile__count">{category.skills.length}</span>
+        </button>
+        <button
+          type="button"
+          className="adm-tile"
+          onClick={() => {
+            setListing('sources')
+          }}
+        >
+          <LinkIcon size={16} />
+          <span className="adm-tile__label">Sources par défaut</span>
+          <span className="adm-tile__count">{category.sources.length}</span>
+        </button>
+      </div>
       <div className="adm-card__actions">
         <Button size="sm" icon={PencilIcon} aria-label={`Modifier la catégorie ${category.name}`} onClick={onEdit}>
           Modifier
@@ -143,15 +144,42 @@ function CategoryCard({
           size="sm"
           variant="danger"
           icon={TrashIcon}
-          disabled={block !== null}
           aria-label={`Supprimer la catégorie ${category.name}`}
-          title={block ?? undefined}
           onClick={onDelete}
         >
           Supprimer
         </Button>
       </div>
+      {listing && (
+        <Modal
+          open
+          size="sm"
+          title={`${listing === 'skills' ? 'Skills' : 'Sources'} par défaut · ${category.name}`}
+          onClose={close}
+          footer={<Button onClick={close}>Fermer</Button>}
+        >
+          {listing === 'skills' ? (
+            <DefaultList names={category.skills.map((skill) => ({ id: skill.id, text: skill.name }))} empty="Aucun skill par défaut." />
+          ) : (
+            <DefaultList
+              names={category.sources.map((source) => ({ id: source.id, text: source.label ?? source.url }))}
+              empty="Aucune source par défaut."
+            />
+          )}
+        </Modal>
+      )}
     </li>
+  )
+}
+
+function DefaultList({ names, empty }: { names: { id: string; text: string }[]; empty: string }) {
+  if (names.length === 0) return <p className="adm-card__text">{empty}</p>
+  return (
+    <ul className="adm-list">
+      {names.map((item) => (
+        <li key={item.id}>{item.text}</li>
+      ))}
+    </ul>
   )
 }
 
@@ -224,11 +252,6 @@ function CategoryEditor({ category, onClose }: { category: MissionCategory | nul
             label="Type d’exécution"
             value={type}
             disabled={category !== null}
-            hint={
-              category
-                ? 'Définitif : il décide de la façon dont VIPER exécute les missions de cette catégorie.'
-                : 'Choisi une fois pour toutes : il décide de la façon dont VIPER exécute les missions.'
-            }
             onChange={(event) => {
               setType(event.target.value as MissionType)
             }}
@@ -283,13 +306,19 @@ function CategoryEditor({ category, onClose }: { category: MissionCategory | nul
           />
           <code>{color}</code>
         </div>
+        <div className="adm-labelled">
+          <InfoTip label="Aide : type d’exécution et consigne">
+            Le type d’exécution est choisi une fois pour toutes : il décide de la façon dont VIPER exécute les
+            missions. La consigne générale est reprise par chaque mission de la catégorie tant qu’elle n’a pas la
+            sienne ; la modifier met à jour ces missions.
+          </InfoTip>
+        </div>
         <TextAreaField
           label="Consigne générale"
           required
           rows={6}
           maxLength={5000}
           value={prompt}
-          hint="Reprise par chaque mission de la catégorie tant qu’elle n’a pas sa propre consigne. Modifier ce texte met à jour ces missions."
           onChange={(event) => {
             setPrompt(event.target.value)
           }}
@@ -314,18 +343,26 @@ function CategoryEditor({ category, onClose }: { category: MissionCategory | nul
 
 function DeleteCategory({ category, onClose }: { category: MissionCategory; onClose: () => void }) {
   const remove = useDeleteCategory()
+  const used = category.missions_count
   return (
     <ConfirmDelete
       title="Supprimer cette catégorie ?"
-      confirmLabel="Supprimer la catégorie"
+      confirmLabel={used > 0 ? 'Supprimer avec ses missions' : 'Supprimer la catégorie'}
       pending={remove.isPending}
       error={remove.error}
       onClose={onClose}
       onConfirm={() => {
-        remove.mutate(category.id, { onSuccess: onClose })
+        remove.mutate({ id: category.id, confirmCascade: used > 0 }, { onSuccess: onClose })
       }}
     >
-      <p>« {category.name} » est supprimée. Aucune mission ne l’utilise ; les skills et sources restent dans leurs bibliothèques.</p>
+      {used > 0 ? (
+        <p>
+          Cette catégorie est utilisée par {plural(used, 'mission')}. La supprimer supprimera également{' '}
+          {used > 1 ? `ces ${String(used)} missions` : 'cette mission'} et annulera leurs tâches en cours. Confirmer ?
+        </p>
+      ) : (
+        <p>« {category.name} » est supprimée. Les skills et sources restent dans leurs bibliothèques.</p>
+      )}
     </ConfirmDelete>
   )
 }

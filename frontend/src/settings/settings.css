@@ -66,7 +66,7 @@
 
 .settings-panel__header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-6);
 }
@@ -84,25 +84,20 @@
 /* Add form: one field + actions, on a tinted strip. */
 .settings-add {
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
+  flex-direction: column;
   gap: var(--space-4);
-  padding: var(--space-5) var(--space-6);
-  border: var(--border-width) solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-canvas);
-}
-
-.settings-add .field {
-  flex: 1 1 22rem;
-  max-width: 36rem;
 }
 
 .settings-add__actions {
   display: flex;
+  justify-content: flex-end;
   gap: var(--space-3);
-  /* Aligns the buttons with the input (label line + gap). */
-  margin-top: calc(var(--text-sm) * var(--leading-normal) + var(--space-2));
+}
+
+.settings-panel__heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 .settings-toolbar {

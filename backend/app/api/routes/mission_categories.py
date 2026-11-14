@@ -4,7 +4,7 @@ Reads are open to any signed-in person (the mission form lists them); writes are
 (platform admin or « Organisation » admin, 403 `forbidden` otherwise). Skills are instruction text
 only. Refusals: 404 `not_found`, 422 `invalid` (`field`, `reason`: `immutable`, `format`…), 409
 `duplicate` (a category / skill with that name), 409 `in_use` (a category still used by missions),
-409 `category_system` (a built-in category cannot be deleted).
+`confirm_cascade=true` deletes the missions of a used category.
 
 Contract: `doc/architecture/missions.md` § « Catégories, skills et héritage ».
 """
@@ -216,11 +216,17 @@ def set_category_sources(
 
 @categories_router.delete("/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_category(
-    category_id: uuid.UUID, session: SessionDep, actor: CurrentActor, auth: AuthDep
+    category_id: uuid.UUID,
+    session: SessionDep,
+    actor: CurrentActor,
+    auth: AuthDep,
+    confirm_cascade: bool = False,
 ) -> None:
+    """Without `confirm_cascade=true`, a category used by missions answers 409 `in_use` with the
+    missions count; with it, those missions are deleted first (open tasks cancelled)."""
     with business_errors():
         require_admin(auth)
-        service.delete_category(session, actor, category_id)
+        service.delete_category(session, actor, category_id, confirm_cascade=confirm_cascade)
 
 
 # --- skills -------------------------------------------------------------------------------------

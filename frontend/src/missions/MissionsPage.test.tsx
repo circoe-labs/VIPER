@@ -108,7 +108,11 @@ describe('MissionsPage', () => {
     return { user, dialog: await screen.findByRole('dialog', { name: 'Créer mission' }) }
   }
 
-  const category = (dialog: HTMLElement, name: string) => within(dialog).getByRole('radio', { name })
+  // The type is chosen in a picker that opens over the form and closes on the choice.
+  async function pickCategory(user: ReturnType<typeof userEvent.setup>, dialog: HTMLElement, name: string) {
+    await user.click(await within(dialog).findByRole('button', { name: /^Type de mission/ }))
+    await user.click(await screen.findByRole('radio', { name }))
+  }
 
   function postedBody(fetchMock: ReturnType<typeof stubApi>) {
     const [, init] =
@@ -137,23 +141,23 @@ describe('MissionsPage', () => {
 
     await user.type(within(dialog).getByLabelText(/Consigne/), 'Trouve les commissaires au transport en Normandie')
 
-    expect(within(dialog).getByLabelText(/Nom/)).toHaveValue('Trouve les commissaires au transport en Normandie')
+    expect(within(dialog).getByLabelText(/Titre de la mission/)).toHaveValue('Trouve les commissaires au transport en Normandie')
     // « Enrichissement » by default: it works on linked records, none yet.
-    expect(await within(dialog).findByRole('radio', { name: 'Enrichissement', checked: true })).toBeInTheDocument()
+    expect(await within(dialog).findByRole('button', { name: 'Type de mission Enrichissement' })).toBeInTheDocument()
     expect(within(dialog).getByRole('status')).toHaveTextContent('Liez au moins une fiche')
     expect(within(dialog).getByRole('button', { name: 'Créer la mission' })).toBeDisabled()
 
     // A discovery starts from nothing: ready at once.
-    await user.click(category(dialog, 'Prospection'))
+    await pickCategory(user, dialog, 'Prospection')
     expect(within(dialog).getByRole('combobox', { name: 'Résultat attendu' })).toHaveDisplayValue('Découvrir des sociétés')
-    expect(within(dialog).getByRole('status')).toHaveTextContent('Prête à être lancée')
+    expect(within(dialog).queryByRole('status')).not.toBeInTheDocument()
     expect(within(dialog).getByRole('button', { name: 'Créer la mission' })).toBeEnabled()
   })
 
   it('follows the category until the person overrides: null prompt, skills and sources are sent to inherit', async () => {
     const { fetchMock, user, dialog } = await openCreateWith()
-    await user.type(within(dialog).getByLabelText(/^Nom/), 'Découverte Normandie')
-    await user.click(await within(dialog).findByRole('radio', { name: 'Prospection' }))
+    await user.type(within(dialog).getByLabelText(/^Titre de la mission/), 'Découverte Normandie')
+    await pickCategory(user, dialog, 'Prospection')
     // The category's general prompt is the placeholder of the empty consigne.
     expect(within(dialog).getByRole('textbox', { name: 'Consigne' })).toHaveAttribute('placeholder', 'Consigne générale : Prospection.')
 
@@ -172,7 +176,7 @@ describe('MissionsPage', () => {
 
   it('sends own values once overridden, and goes back to the category with the reset button', async () => {
     const { fetchMock, user, dialog } = await openCreateWith()
-    await user.click(await within(dialog).findByRole('radio', { name: 'Prospection' }))
+    await pickCategory(user, dialog, 'Prospection')
     await user.type(within(dialog).getByLabelText(/Consigne/), 'Cherche des transporteurs')
     await user.click(within(dialog).getByRole('button', { name: /Skills/ }))
     expect(within(dialog).getByText('Suit la catégorie « Prospection ».')).toBeInTheDocument()
@@ -195,7 +199,7 @@ describe('MissionsPage', () => {
     const saved = { id: 'source-9', url: 'https://www.example.com/annuaire', label: null, missions_count: 0 }
     const { fetchMock, user, dialog } = await openCreateWith({ 'POST /api/missions/sources': [201, saved] })
     await user.type(within(dialog).getByLabelText(/Consigne/), 'Trouve des transporteurs')
-    await user.click(await within(dialog).findByRole('radio', { name: 'Prospection' }))
+    await pickCategory(user, dialog, 'Prospection')
 
     await user.click(within(dialog).getByRole('button', { name: /Sources/ }))
     await user.click(within(dialog).getByRole('button', { name: 'Personnaliser les sources' }))
@@ -211,7 +215,7 @@ describe('MissionsPage', () => {
       'GET /api/missions/context-candidates': [200, [{ kind: 'company', id: COMPANY, label: 'Transports X', hint: 'Rouen' }]],
     })
     await user.type(within(dialog).getByLabelText(/Consigne/), 'Trouve des transporteurs')
-    await user.click(await within(dialog).findByRole('radio', { name: 'Prospection' }))
+    await pickCategory(user, dialog, 'Prospection')
     await user.click(within(dialog).getByRole('button', { name: /Sources/ }))
     await user.click(within(dialog).getByRole('button', { name: 'Ajouter du contexte' }))
     const picker = await screen.findByRole('dialog', { name: 'Ajouter du contexte VIPER' })
@@ -235,7 +239,7 @@ describe('MissionsPage', () => {
   it('blocks an objective above the per-run limit', async () => {
     const { user, dialog } = await openCreate()
     await user.type(within(dialog).getByLabelText(/Consigne/), 'Trouve des transporteurs')
-    await user.click(await within(dialog).findByRole('radio', { name: 'Prospection' }))
+    await pickCategory(user, dialog, 'Prospection')
     await user.selectOptions(within(dialog).getByRole('combobox', { name: 'Objectif' }), 'Un nombre d’éléments validés')
     await user.clear(within(dialog).getByLabelText('Éléments à valider'))
     await user.type(within(dialog).getByLabelText('Éléments à valider'), '50')
@@ -248,7 +252,7 @@ describe('MissionsPage', () => {
     const { user, dialog } = await openCreate()
     await user.type(within(dialog).getByLabelText(/Consigne/), 'Nouveaux entrepôts en Normandie')
 
-    await user.click(await within(dialog).findByRole('radio', { name: 'Signaux' }))
+    await pickCategory(user, dialog, 'Signaux')
 
     expect(within(dialog).getByRole('status')).toHaveTextContent('Liez au moins une société à surveiller')
     expect(within(dialog).getByRole('button', { name: 'Créer la mission' })).toBeDisabled()
@@ -334,7 +338,7 @@ describe('the mission menu (right-click on a card)', () => {
     await user.click(await screen.findByRole('button', { name: 'Actions de la mission Nouveaux entrepôts — Normandie' }))
     await user.click(within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Modifier…' }))
     const dialog = await screen.findByRole('dialog', { name: 'Modifier la mission' })
-    const name = within(dialog).getByRole('textbox', { name: 'Nom' })
+    const name = within(dialog).getByRole('textbox', { name: 'Titre de la mission' })
     expect(name).toHaveValue('Nouveaux entrepôts — Normandie')
     expect(within(dialog).getByRole('textbox', { name: 'Consigne' })).toHaveValue(
       'Complète ces fiches avec le site web et le domaine e-mail.',

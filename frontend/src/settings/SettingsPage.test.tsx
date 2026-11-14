@@ -26,7 +26,7 @@ const feedback = (section = 'Rôles') => within(screen.getByRole('region', { nam
 const row = (name: string) => screen.getByRole('row', { name: new RegExp(name) })
 
 describe('SettingsPage', () => {
-  it('shows the nine sections, the roles by default, with usage and status', async () => {
+  it('shows the five sections, the roles by default, with usage and status', async () => {
     seededApi()
     renderApp('/settings')
 
@@ -38,10 +38,6 @@ describe('SettingsPage', () => {
       'Segments commerciaux',
       'Référents internes',
       'Cohortes',
-      'Connexions',
-      'MCP',
-      'Prompt initial',
-      'Assistant de mission',
     ])
     expect(screen.getByRole('heading', { level: 2, name: 'Rôles' })).toBeInTheDocument()
 
@@ -71,12 +67,14 @@ describe('SettingsPage', () => {
     renderApp('/settings/roles')
     await rolesTable()
 
-    await userEvent.type(screen.getByRole('textbox', { name: 'Nouveau rôle' }), '  Responsable qualité ')
     await userEvent.click(screen.getByRole('button', { name: 'Ajouter' }))
+    const addDialog = screen.getByRole('dialog', { name: 'Nouveau rôle' })
+    await userEvent.type(within(addDialog).getByRole('textbox', { name: 'Nouveau rôle' }), '  Responsable qualité ')
+    await userEvent.click(within(addDialog).getByRole('button', { name: 'Ajouter' }))
 
     expect(await screen.findByRole('cell', { name: 'Responsable qualité' })).toBeInTheDocument()
     expect(feedback()).toHaveTextContent('« Responsable qualité » ajouté.')
-    expect(screen.getByRole('textbox', { name: 'Nouveau rôle' })).toHaveValue('')
+    expect(screen.queryByRole('dialog', { name: 'Nouveau rôle' })).not.toBeInTheDocument()
     expect(api.requests).toContainEqual(
       expect.objectContaining({ method: 'POST', path: '/api/settings/roles', body: { label: '  Responsable qualité ' } }),
     )
@@ -86,6 +84,7 @@ describe('SettingsPage', () => {
     const api = seededApi()
     renderApp('/settings/roles')
     await rolesTable()
+    await userEvent.click(screen.getByRole('button', { name: 'Ajouter' }))
     const field = screen.getByRole('textbox', { name: 'Nouveau rôle' })
 
     await userEvent.type(field, 'DIRIGEANT{Enter}')

@@ -17,7 +17,7 @@ export interface SourceRef {
 
 export interface MissionCategory {
   id: string
-  // Seeded categories carry their technical type here; they are edited, never deleted.
+  // Seeded categories carry their technical type here; historical identifier only: they are editable and deletable.
   key: string | null
   is_system: boolean
   name: string
@@ -120,7 +120,12 @@ export function useSaveCategory(id: string | null) {
 export function useDeleteCategory() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (id: string) => apiRequest<undefined>('DELETE', `/mission-categories/${encodeURIComponent(id)}`),
+    // `confirmCascade` also deletes the missions of a used category (their open tasks are cancelled).
+    mutationFn: ({ id, confirmCascade = false }: { id: string; confirmCascade?: boolean }) =>
+      apiRequest<undefined>(
+        'DELETE',
+        `/mission-categories/${encodeURIComponent(id)}${confirmCascade ? '?confirm_cascade=true' : ''}`,
+      ),
     onSuccess: () => refreshAfterWrite(queryClient, CONFIG_KEYS),
   })
 }

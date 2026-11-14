@@ -1,52 +1,48 @@
 import { NavLink } from 'react-router'
+import { useState } from 'react'
 
 import { useIsAdmin } from '../auth/RequireAdmin'
 import { BrandLogo } from '../brand/BrandLogo'
+import { readStorage, writeStorage } from '../lib/storage'
 import { IconButton } from '../ui/Button'
-import { PanelLeftIcon } from '../ui/icons'
-import { ApiStatus } from './ApiStatus'
-import { NAVIGATION_SECTIONS } from './navigation'
+import { ChevronDownIcon, PanelLeftIcon } from '../ui/icons'
+import { NAVIGATION_SECTIONS, type NavigationSectionId } from './navigation'
 
 const NAV_ID = 'primary-navigation'
+const GROUPS_STORAGE_KEY = 'viper.sidebar.groups'
 
 interface SidebarProps {
   collapsed: boolean
   onToggle: () => void
 }
 
+function readFoldedGroups(): NavigationSectionId[] {
+  try {
+    const parsed: unknown = JSON.parse(readStorage(GROUPS_STORAGE_KEY) ?? '[]')
+    return Array.isArray(parsed) ? (parsed as NavigationSectionId[]) : []
+  } catch {
+    return []
+  }
+}
+
 // Expanded: lockup + labels. Collapsed: mark + icons; labels stay in the accessible name and as tooltips.
-// Destinations are grouped (main / configuration / administration); each group is a named list so a screen reader
-// announces it, and the headings are drawn only when the sidebar is expanded (a divider takes their place).
+// The rail toggle sits next to the logo; each group can be folded on its own (kept in the browser). While the whole
+// rail is collapsed every group stays open, so each icon remains reachable.
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const admin = useIsAdmin()
+  const [folded, setFolded] = useState<NavigationSectionId[]>(readFoldedGroups)
   const sections = NAVIGATION_SECTIONS.filter((section) => !section.adminOnly || admin)
+
+  function toggleGroup(id: NavigationSectionId) {
+    const next = folded.includes(id) ? folded.filter((entry) => entry !== id) : [...folded, id]
+    writeStorage(GROUPS_STORAGE_KEY, JSON.stringify(next))
+    setFolded(next)
+  }
+
   return (
     <aside className="sidebar">
       <div className="sidebar__brand">
-        <BrandLogo variant={collapsed ? 'mark' : 'lockup'} height={collapsed ? '1.75rem' : '4.5rem'} />
-      </div>
-      <nav id={NAV_ID} className="sidebar__nav" aria-label="Navigation principale">
-        {sections.map((section) => (
-          <div key={section.id} className="sidebar__group" data-section={section.id}>
-            <p className={collapsed ? 'visually-hidden' : 'sidebar__group-title'} id={`nav-group-${section.id}`}>
-              {section.label}
-            </p>
-            <ul aria-labelledby={`nav-group-${section.id}`}>
-              {section.items.map(({ path, label, icon: Icon }) => (
-                <li key={path}>
-                  <NavLink to={path} end={path === '/'} className="nav-link" title={collapsed ? label : undefined}>
-                    <Icon />
-                    <span className={collapsed ? 'visually-hidden' : undefined}>{label}</span>
-                  </NavLink>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
-      </nav>
-      {!collapsed && <details className="sidebar__help"><summary>Aide</summary><p>Rechercher : Ctrl+K. Ouvrez une fiche pour modifier ses informations. Retrouvez les prospects validés dans Prospection.</p></details>}
-      <div className="sidebar__footer">
-        <ApiStatus compact={collapsed} />
+        <BrandLogo variant={collapsed ? 'mark' : 'lockup'} height={collapsed ? '1.75rem' : '3.25rem'} />
         <IconButton
           icon={PanelLeftIcon}
           label={collapsed ? 'Déplier la navigation' : 'Réduire la navigation'}
@@ -55,6 +51,44 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           onClick={onToggle}
         />
       </div>
+      <nav id={NAV_ID} className="sidebar__nav" aria-label="Navigation principale">
+        {sections.map((section) => {
+          const open = collapsed || !folded.includes(section.id)
+          const items = section.items.filter((item) => !item.adminOnly || admin)
+          return (
+            <div key={section.id} className="sidebar__group" data-section={section.id}>
+              {collapsed ? (
+                <p className="visually-hidden" id={`nav-group-${section.id}`}>
+                  {section.label}
+                </p>
+              ) : (
+                <button
+                  type="button"
+                  className="sidebar__group-toggle"
+                  aria-expanded={open}
+                  aria-controls={`nav-list-${section.id}`}
+                  onClick={() => {
+                    toggleGroup(section.id)
+                  }}
+                >
+                  <span id={`nav-group-${section.id}`}>{section.label}</span>
+                  <ChevronDownIcon size={16} />
+                </button>
+              )}
+              <ul id={`nav-list-${section.id}`} aria-labelledby={`nav-group-${section.id}`} hidden={!open}>
+                {items.map(({ path, label, icon: Icon }) => (
+                  <li key={path}>
+                    <NavLink to={path} end={path === '/'} className="nav-link" title={collapsed ? label : undefined}>
+                      <Icon />
+                      <span className={collapsed ? 'visually-hidden' : undefined}>{label}</span>
+                    </NavLink>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )
+        })}
+      </nav>
     </aside>
   )
 }

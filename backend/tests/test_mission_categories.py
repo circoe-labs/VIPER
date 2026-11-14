@@ -200,17 +200,81 @@ def test_the_technical_type_of_a_category_cannot_change(client: TestClient) -> N
     assert refused.json()["detail"]["reason"] == "immutable"
 
 
-def test_a_built_in_or_referenced_category_is_not_deleted(client: TestClient) -> None:
+def test_a_built_in_category_can_be_deleted_when_unused(client: TestClient) -> None:
     built_in = by_key(client)["signals"]
-    refused = client.delete(f"{CATEGORIES}/{built_in['id']}")
-    assert refused.status_code == 409 and refused.json()["detail"]["code"] == "category_system"
+    assert client.delete(f"{CATEGORIES}/{built_in['id']}").status_code == 204
+    assert "signals" not in by_key(client)
 
+
+def test_a_used_category_needs_the_cascade_confirmation(client: TestClient) -> None:
     category = new_category(client)
     new_mission(client, category_id=category["id"])
     in_use = client.delete(f"{CATEGORIES}/{category['id']}")
     assert in_use.status_code == 409
     assert in_use.json()["detail"]["code"] == "in_use"
     assert in_use.json()["detail"]["usage"] == {"missions": 1}
+    assert client.get(MISSIONS).status_code == 200  # nothing was removed
+    assert any(row["id"] == category["id"] for row in client.get(CATEGORIES).json())
+
+
+def test_the_cascade_deletes_missions_through_the_mission_service(
+    client: TestClient, db_session: Session
+) -> None:
+    from sqlalchemy import select
+
+    from app.models.agent_missions import AgentTask, AgentTaskResult
+    from app.models.enums import AgentResultStatus, AgentTaskStatus
+    from tests.test_mission_stop import claim, mission_with, submit
+    from tests.test_missions import mint
+
+    first = add_company(db_session, display_name="2SN")
+    second = add_company(db_session, display_name="Acme")
+    mission_id = mission_with(client, first, second)
+    category_id = client.get(f"{MISSIONS}/{mission_id}").json()["inheritance"]["category_id"]
+    token = mint(db_session)
+    result_id = body_of(submit(client, token, claim(client, token)))["result_id"]
+
+    unconfirmed = client.delete(f"{CATEGORIES}/{category_id}")
+    assert unconfirmed.status_code == 409
+    assert unconfirmed.json()["detail"]["usage"] == {"missions": 1}
+
+    confirmed = client.delete(f"{CATEGORIES}/{category_id}", params={"confirm_cascade": "true"})
+    assert confirmed.status_code == 204, confirmed.text
+    db_session.expire_all()
+    assert client.get(f"{MISSIONS}/{mission_id}").status_code == 404
+    assert {task.status for task in db_session.scalars(select(AgentTask))} == {
+        AgentTaskStatus.CANCELLED
+    }
+    result = db_session.get(AgentTaskResult, result_id)
+    assert result is not None and result.status is AgentResultStatus.REJECTED
+    assert db_session.get(MissionCategory, uuid.UUID(category_id)) is None
+
+
+def test_the_cascade_keeps_accepted_results(client: TestClient, db_session: Session) -> None:
+    from app.models.agent_missions import AgentTaskResult
+    from app.models.enums import AgentResultStatus
+    from tests.test_mission_stop import claim, mission_with, submit
+    from tests.test_missions import mint
+
+    company = add_company(db_session, display_name="2SN")
+    mission_id = mission_with(client, company)
+    category_id = client.get(f"{MISSIONS}/{mission_id}").json()["inheritance"]["category_id"]
+    token = mint(db_session)
+    result_id = body_of(submit(client, token, claim(client, token)))["result_id"]
+    accepted = client.post(f"/api/agents/results/{result_id}/accept", json={})
+    assert accepted.status_code == 200, accepted.text
+
+    deleted = client.delete(f"{CATEGORIES}/{category_id}", params={"confirm_cascade": "true"})
+    assert deleted.status_code == 204, deleted.text
+    db_session.expire_all()
+    result = db_session.get(AgentTaskResult, result_id)
+    assert result is not None and result.status is not AgentResultStatus.REJECTED
+
+
+def body_of(response: Any) -> dict[str, Any]:
+    from tests.test_mcp_tools import body
+
+    return body(response)
 
 
 def test_only_an_admin_writes_categories_and_skills(

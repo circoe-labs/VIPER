@@ -3,7 +3,6 @@ import { Link, Navigate, useLocation, useSearchParams } from 'react-router'
 
 import { ApiError } from '../api/client'
 import { BrandLogo } from '../brand/BrandLogo'
-import { mascotSource } from '../brand/mascots'
 import { AccentPicker } from '../theme/AccentPicker'
 import { ThemeSwitch } from '../theme/ThemeSwitch'
 import { Button } from '../ui/Button'
@@ -105,10 +104,8 @@ export function LoginPage() {
       </div>
       <main className="login-card">
         <BrandLogo variant="lockup" height="4.5rem" className="login-card__logo" />
-        <img className="login-card__mascot" src={mascotSource('hello')} alt="" />
         <div className="login-card__heading">
           <h1 className="login-card__title">Connexion</h1>
-          <p className="login-card__lead">Connectez-vous pour accéder à votre espace de prospection.</p>
         </div>
         {notice && (
           <p className="login-card__message login-card__message--info" role="status">

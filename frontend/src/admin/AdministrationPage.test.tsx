@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
@@ -40,18 +40,33 @@ function stub(extra: Record<string, ApiReply> = {}) {
 }
 
 describe('Administration › Catégories', () => {
-  it('lists the categories with their type, and explains why a built-in or used one cannot be deleted', async () => {
+  it('lists the categories as lean cards with default skills / sources tiles, all deletable', async () => {
     stub()
     renderApp('/administration/categories')
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Catégories de mission' })).toBeInTheDocument()
     const list = await screen.findByRole('list', { name: 'Catégories de mission' })
     expect(within(list).getAllByRole('heading', { level: 2 })).toHaveLength(7)
-    expect(within(list).getByRole('button', { name: 'Supprimer la catégorie Prospection' })).toBeDisabled()
-    expect(within(list).getAllByText(/Catégorie intégrée : on la modifie/).length).toBeGreaterThan(0)
-    expect(within(list).getByRole('button', { name: 'Supprimer la catégorie Salons' })).toBeDisabled()
-    expect(within(list).getByText(/3 missions utilisent cette catégorie/)).toBeInTheDocument()
-    expect(within(list).getByRole('button', { name: 'Supprimer la catégorie Veille concurrence' })).toBeEnabled()
+    for (const name of ['Prospection', 'Salons', 'Veille concurrence']) {
+      expect(within(list).getByRole('button', { name: `Supprimer la catégorie ${name}` })).toBeEnabled()
+    }
+    expect(within(list).queryByText('Intégrée')).not.toBeInTheDocument()
+    expect(within(list).queryByText(/Catégorie intégrée/)).not.toBeInTheDocument()
+    expect(within(list).getAllByRole('button', { name: /Skills par défaut/ }).length).toBe(7)
+  })
+
+  it('asks for an explicit cascade confirmation when a category is used by missions', async () => {
+    const fetchMock = stub({ 'DELETE /api/mission-categories/cat-used?confirm_cascade=true': [204, null] })
+    const user = userEvent.setup()
+    renderApp('/administration/categories')
+
+    await user.click(await screen.findByRole('button', { name: 'Supprimer la catégorie Salons' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Supprimer cette catégorie ?' })
+    expect(within(dialog).getByText(/utilisée par 3 missions.*annulera leurs tâches en cours/)).toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: 'Supprimer avec ses missions' }))
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([url, init]) => url.endsWith('/api/mission-categories/cat-used?confirm_cascade=true') && init?.method === 'DELETE')).toBe(true)
+    })
   })
 
   it('creates a category with its icon, colour, prompt, default skills and sources', async () => {

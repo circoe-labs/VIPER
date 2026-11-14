@@ -7,7 +7,7 @@ import { type SpeechMode, useSpeechInput } from './useSpeechInput'
 
 export const GREETING = 'Décrivez la mission que vous voulez créer.'
 
-export type VoicePhase = 'idle' | 'listening' | 'transcribing' | 'thinking' | 'speaking'
+export type VoicePhase = 'idle' | 'listening' | 'transcribing' | 'thinking'
 
 interface Options {
   form: MissionFormApi
@@ -19,11 +19,7 @@ interface Options {
   onLevel: (level: number) => void
 }
 
-function speechOutAvailable(): boolean {
-  return typeof window.speechSynthesis !== 'undefined' && typeof SpeechSynthesisUtterance !== 'undefined'
-}
-
-// The conversation: what the person says (spoken or typed) goes to the assistant with the form's current draft; the
+// Dictation, not a spoken conversation (nothing is ever read out): what the person says (spoken or typed) goes to the assistant with the form's current draft; the
 // actions it proposes are laid over the SAME form (`applyDraft`); a clear « crée / go » asks the form to save, which
 // still refuses an incomplete draft. Nothing here writes to the server except the assistant turn (which writes nothing).
 export function useVoiceConversation({ form, mode, submit, close, onLevel }: Options) {
@@ -31,19 +27,17 @@ export function useVoiceConversation({ form, mode, submit, close, onLevel }: Opt
   const [transcript, setTranscript] = useState('')
   const [applied, setApplied] = useState<string[]>([])
   const [thinking, setThinking] = useState(false)
-  const [speaking, setSpeaking] = useState(false)
   const [turnError, setTurnError] = useState<string | null>(null)
-  const [voiceOut, setVoiceOut] = useState(speechOutAvailable())
   const [finalizeAsked, setFinalizeAsked] = useState(false)
   const [failedText, setFailedText] = useState<string | null>(null)
 
-  const live = useRef({ form, submit, close, voiceOut })
+  const live = useRef({ form, submit, close })
   const history = useRef<ChatMessage[]>([])
   const busy = useRef(false)
   const controller = useRef<AbortController | null>(null)
   const mounted = useRef(true)
   useEffect(() => {
-    live.current = { form, submit, close, voiceOut }
+    live.current = { form, submit, close }
   })
 
   const speech = useSpeechInput({
@@ -55,41 +49,16 @@ export function useVoiceConversation({ form, mode, submit, close, onLevel }: Opt
   })
   const { start: startListening, stop: stopListening } = speech
 
-  const cancelSpeech = useCallback(() => {
-    if (speechOutAvailable()) window.speechSynthesis.cancel()
-    setSpeaking(false)
-  }, [])
-
-  // Says the sentence (when spoken answers are on), then opens the microphone for the answer.
-  const sayThenListen = useCallback(
-    (text: string) => {
-      const listen = () => {
-        if (mounted.current && mode !== 'none') void startListening()
-      }
-      if (!live.current.voiceOut || !speechOutAvailable()) {
-        listen()
-        return
-      }
-      const utterance = new SpeechSynthesisUtterance(text)
-      utterance.lang = 'fr-FR'
-      utterance.onend = () => {
-        setSpeaking(false)
-        listen()
-      }
-      utterance.onerror = utterance.onend
-      window.speechSynthesis.cancel()
-      setSpeaking(true)
-      window.speechSynthesis.speak(utterance)
-    },
-    [mode, startListening],
-  )
+  // Opens the microphone again (the greeting at opening, and after a refused « crée »).
+  const listen = useCallback(() => {
+    if (mounted.current && mode !== 'none') void startListening()
+  }, [mode, startListening])
 
   async function send(text: string) {
     const said = text.trim()
     if (!said || busy.current) return
     busy.current = true
     stopListening()
-    cancelSpeech()
     setTranscript(said)
     setApplied([])
     setTurnError(null)
@@ -107,7 +76,6 @@ export function useVoiceConversation({ form, mode, submit, close, onLevel }: Opt
       setApplied(result.actions.map((action) => action.summary))
       setAssistantText(result.reply)
       if (result.finalize) setFinalizeAsked(true)
-      else sayThenListen(result.reply)
     } catch (failure) {
       if (!mounted.current || (failure instanceof DOMException && failure.name === 'AbortError')) return
       setFailedText(said)
@@ -135,17 +103,16 @@ export function useVoiceConversation({ form, mode, submit, close, onLevel }: Opt
     const why = current.missing ?? (current.name.trim() === '' ? 'Il manque un nom.' : 'Il manque la consigne.')
     const text = `Je ne peux pas encore la créer. ${why}`
     history.current = [...history.current, { role: 'assistant', content: text }]
-    sayThenListen(text)
-  }, [finalizeAsked, form.canSave, sayThenListen])
+    listen()
+  }, [finalizeAsked, form.canSave, listen])
 
   useEffect(() => {
     mounted.current = true
-    sayThenListen(GREETING)
+    listen()
     const abort = controller
     return () => {
       mounted.current = false
       abort.current?.abort()
-      if (speechOutAvailable()) window.speechSynthesis.cancel()
     }
     // Once, when the overlay opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -153,13 +120,11 @@ export function useVoiceConversation({ form, mode, submit, close, onLevel }: Opt
 
   const phase: VoicePhase = thinking
     ? 'thinking'
-    : speaking
-      ? 'speaking'
-      : speech.state === 'transcribing'
-        ? 'transcribing'
-        : speech.state === 'listening'
-          ? 'listening'
-          : 'idle'
+    : speech.state === 'transcribing'
+      ? 'transcribing'
+      : speech.state === 'listening'
+        ? 'listening'
+        : 'idle'
 
   return {
     phase,
@@ -185,16 +150,9 @@ export function useVoiceConversation({ form, mode, submit, close, onLevel }: Opt
       setTurnError(null)
       speech.clearError()
     },
-    voiceOut,
-    canSpeak: speechOutAvailable(),
-    toggleVoiceOut: () => {
-      if (voiceOut) cancelSpeech()
-      setVoiceOut(!voiceOut)
-    },
-    // The orb: listen, or end the sentence now.
+    // The microphone: listen, or end the sentence now.
     toggleListening: () => {
       if (mode === 'none') return
-      cancelSpeech()
       if (speech.state === 'listening') speech.finish()
       else void startListening()
     },

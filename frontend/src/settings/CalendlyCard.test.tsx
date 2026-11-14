@@ -28,7 +28,7 @@ const card = async () => screen.findByRole('region', { name: 'Calendly' })
 describe('Calendly card', () => {
   it('saves the token, never shows it again, and can remove it', async () => {
     const api = stub()
-    renderApp('/settings/connections')
+    renderApp('/config-ai/connections')
 
     const region = within(await card())
     expect(region.getByText('Non relié')).toBeInTheDocument()
@@ -50,7 +50,7 @@ describe('Calendly card', () => {
 
   it('tests the saved token and says whose account it is', async () => {
     stub({ initial: SAVED })
-    renderApp('/settings/connections')
+    renderApp('/config-ai/connections')
 
     const region = within(await card())
     await userEvent.click(region.getByRole('button', { name: 'Tester le jeton' }))
@@ -60,7 +60,7 @@ describe('Calendly card', () => {
 
   it('says in French why a token is refused', async () => {
     stub({ initial: SAVED, calendlyCheck: { ok: false, code: 'calendly_unauthorized', account: null, elapsed_ms: 100 } })
-    renderApp('/settings/connections')
+    renderApp('/config-ai/connections')
 
     const region = within(await card())
     await userEvent.click(region.getByRole('button', { name: 'Tester le jeton' }))

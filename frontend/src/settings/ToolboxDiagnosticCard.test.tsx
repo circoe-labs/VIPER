@@ -53,7 +53,7 @@ describe('Paramètres › Connexions › Tester la Toolbox', () => {
   it('clears the shown result', async () => {
     stub({ diagnostic: run() })
     const user = userEvent.setup()
-    renderApp('/settings/connections')
+    renderApp('/config-ai/connections')
 
     await user.click(await within(await screen.findByRole('region', { name: 'Tester la Toolbox' })).findByRole('button', { name: 'Effacer le résultat' }))
 
@@ -64,7 +64,7 @@ describe('Paramètres › Connexions › Tester la Toolbox', () => {
   it('starts a run on the test address, remembering it, and shows the answer', async () => {
     const { diagnostic } = stub({ startedDiagnostic: run() })
     const user = userEvent.setup()
-    renderApp('/settings/connections')
+    renderApp('/config-ai/connections')
 
     const start = await within(await screen.findByRole('region', { name: 'Tester la Toolbox' })).findByRole('button', {
       name: 'Lancer le diagnostic',
@@ -83,7 +83,7 @@ describe('Paramètres › Connexions › Tester la Toolbox', () => {
   it('sends for real only when ticked, with the chosen delay', async () => {
     const { diagnostic } = stub({ startedDiagnostic: run({ send_real: true }) })
     const user = userEvent.setup()
-    renderApp('/settings/connections')
+    renderApp('/config-ai/connections')
 
     await user.type(await within(await screen.findByRole('region', { name: 'Tester la Toolbox' })).findByLabelText('Adresse de test'), 'moi@circoe.com')
     await user.click(within(card()).getByRole('switch', { name: 'Envoyer pour de vrai' }))
@@ -126,7 +126,7 @@ describe('Paramètres › Connexions › Tester la Toolbox', () => {
         },
       }),
     })
-    renderApp('/settings/connections')
+    renderApp('/config-ai/connections')
 
     expect(await within(await screen.findByRole('region', { name: 'Tester la Toolbox' })).findByText('Problème détecté')).toBeInTheDocument()
     expect(card()).toHaveTextContent('Premier problème : « Créer un brouillon simple » (toolbox_rejected)')
@@ -139,7 +139,7 @@ describe('Paramètres › Connexions › Tester la Toolbox', () => {
   it('says when a test is already running', async () => {
     stub({ diagnosticRefusal: 409 })
     const user = userEvent.setup()
-    renderApp('/settings/connections')
+    renderApp('/config-ai/connections')
 
     await user.type(await within(await screen.findByRole('region', { name: 'Tester la Toolbox' })).findByLabelText('Adresse de test'), 'test@circoe.com')
     await user.click(within(card()).getByRole('button', { name: 'Lancer le diagnostic' }))

@@ -3,11 +3,11 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
 import { SHELL_API } from '../test/homeApi'
-import { renderApp, stubApi, stubFetchJson, TEST_USER } from '../test/render'
+import { renderApp, stubApi, TEST_USER } from '../test/render'
 
-const LABELS = ['Accueil', 'Prospection', 'Entrepôts', 'Missions', 'Agenda', 'Base de données', 'Organisation', 'Historique agents', 'Paramètres']
+const LABELS = ['Accueil', 'Prospection', 'Entrepôts', 'Missions', 'Agenda', 'Organisation']
 // TEST_USER is an administrator: the Administration group follows the main and configuration ones.
-const ADMIN_LABELS = ['Catégories', 'Skills', 'Sources']
+const ADMIN_LABELS = ['Catégories de mission', 'Skills', 'Sources', 'Base de données', 'Historique agents', 'Paramètres', 'Config AI']
 // The Database page lists its tables on load.
 const DATABASE_API = { 'GET /api/health': [200, { status: 'ok', database: 'ok' }], 'GET /api/explorer/tables': [200, []] } as const
 
@@ -78,18 +78,27 @@ describe('AppShell', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Accueil' })).toBeInTheDocument()
   })
 
-  it('shows the API as connected when the health probe succeeds', async () => {
+  it('has no help block, API status or footer in the sidebar, and the rail toggle sits next to the logo', () => {
+    stubApi(SHELL_API)
+    const { container } = renderApp()
+
+    expect(screen.queryByText('Aide')).not.toBeInTheDocument()
+    expect(screen.queryByText(/^API :/)).not.toBeInTheDocument()
+    expect(container.querySelector('.sidebar__footer')).toBeNull()
+    expect(container.querySelector('.sidebar__brand')).toContainElement(
+      screen.getByRole('button', { name: 'Réduire la navigation' }),
+    )
+  })
+
+  it('folds each group on its own', async () => {
     stubApi(SHELL_API)
     renderApp()
 
-    expect(await screen.findByText('API : connectée')).toBeInTheDocument()
-  })
+    await userEvent.click(screen.getByRole('button', { name: 'Configuration' }))
 
-  it('shows the API as unavailable when the health probe fails', async () => {
-    stubFetchJson(503, { status: 'degraded', database: 'unavailable' })
-    renderApp()
-
-    expect(await screen.findByText('API : indisponible')).toBeInTheDocument()
+    expect(within(navigation()).queryByRole('link', { name: 'Organisation' })).not.toBeInTheDocument()
+    expect(within(navigation()).getByRole('link', { name: 'Accueil' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Configuration' })).toHaveAttribute('aria-expanded', 'false')
   })
 
   it('shows the lockup, then the mark once the sidebar is collapsed, and remembers it', async () => {

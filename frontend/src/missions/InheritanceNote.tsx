@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { UndoIcon } from '../ui/icons'
+import { InfoTip } from '../ui/InfoTip'
 import './missionCategoryPicker.css'
 
 // One line that says whether a field follows its category (« Hérité ») or is the mission's own (« Personnalisé »), with
@@ -25,7 +26,9 @@ export function InheritanceNote({
       {inherited ? (
         <>
           <Badge>Hérité</Badge>
-          {categoryName ? `Suit la catégorie « ${categoryName} ».` : 'Suit la catégorie.'}
+          <InfoTip label="Aide : hérité">
+            {categoryName ? `Suit la catégorie « ${categoryName} ».` : 'Suit la catégorie.'}
+          </InfoTip>
         </>
       ) : (
         <>

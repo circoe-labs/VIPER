@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
 import { useAssistantCapabilities } from '../../api/missionAssistant'
-import { Button } from '../../ui/Button'
+import { IconButton } from '../../ui/Button'
 import { MicIcon } from '../../ui/icons'
 import type { MissionFormApi } from '../useMissionForm'
 import { chooseSpeechMode } from './useSpeechInput'
@@ -14,8 +14,9 @@ interface VoiceAssistantEntryProps {
   submit: () => void
 }
 
-// The microphone entry point of « Créer mission » (the dialog's `assistantSlot`). Optional by construction: when the AI
-// is not configured the button says why and the form works exactly as before.
+// The dictation entry point of « Créer mission »: a round icon-only microphone in the dialog's footer (the dialog's
+// `assistantSlot`). Optional by construction: when the AI is not configured the button is disabled and its tooltip says
+// why; the form works exactly as before.
 export function VoiceAssistantEntry({ form, submit }: VoiceAssistantEntryProps) {
   const capabilities = useAssistantCapabilities()
   const [open, setOpen] = useState(false)
@@ -23,27 +24,31 @@ export function VoiceAssistantEntry({ form, submit }: VoiceAssistantEntryProps) 
 
   const unavailable = capabilities.isSuccess && !capabilities.data.assistant
   const reason = unavailable
-    ? 'L’assistant vocal demande la clé et le modèle IA du serveur (Paramètres › Connexions).'
+    ? 'La dictée demande la clé et le modèle IA du serveur (Administration › Config AI).'
     : capabilities.isError
-      ? 'L’assistant vocal est momentanément indisponible.'
+      ? 'La dictée est momentanément indisponible.'
       : null
 
   return (
-    <div className="voice-entry">
-      <Button
+    <>
+      <IconButton
         icon={MicIcon}
+        label="Dicter la mission"
         variant="secondary"
+        className="voice-entry__mic"
         disabled={!capabilities.isSuccess || unavailable}
         loading={capabilities.isPending}
+        aria-describedby={reason ? 'voice-entry-reason' : undefined}
+        title={reason ?? 'Dicter la mission'}
         onClick={() => {
           setOpen(true)
         }}
-      >
-        Créer à la voix
-      </Button>
-      <p className="voice-entry__hint">
-        {reason ?? 'Décrivez la mission à l’oral : l’assistant remplit ce formulaire, vous validez.'}
-      </p>
+      />
+      {reason && (
+        <span id="voice-entry-reason" className="visually-hidden">
+          {reason}
+        </span>
+      )}
       {open && capabilities.data && (
         <VoiceOverlay
           form={form}
@@ -54,6 +59,6 @@ export function VoiceAssistantEntry({ form, submit }: VoiceAssistantEntryProps) 
           }}
         />
       )}
-    </div>
+    </>
   )
 }

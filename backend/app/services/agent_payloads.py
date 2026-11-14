@@ -32,7 +32,7 @@ from app.models.enums import (
 from app.models.missions import Mission, MissionRun
 from app.models.prospects import Prospect, ProspectNote
 from app.models.taxonomies import ActivityCategory, CommercialSegment, Role
-from app.repositories.taxonomies import TaxonomyRow, find_by_label
+from app.repositories.taxonomies import TaxonomyRow
 from app.services import mission_context
 from app.services.companies import (
     CompanyDetail,
@@ -50,6 +50,7 @@ from app.services.mission_output import (
     output_contract,
     parse_objective,
 )
+from app.services.taxonomies import Resolution, Taxonomy, resolve_value
 
 # Bumped when a result shape changes (`agent-missions.md` §6.3). 2: `find_prospects` companies may
 # carry `establishments` and a `trigger` (ChatGPT handoff, Slice 04; both optional, so a result in
@@ -492,6 +493,8 @@ def _json_safe(value: Any) -> Any:
         return str(value)
     if isinstance(value, list):
         return [_json_safe(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
     return value
 
 
@@ -942,20 +945,30 @@ def _evidence_for(result: CompanyUpdateResult | EmployeeUpdateResult, field: str
 
 
 def _segment(session: Session, label: str) -> TaxonomyRow:
-    segment = find_by_label(session, CommercialSegment, label)
-    if segment is None:
+    """Existing segment for the agent's wording (exact or matched); unknown ones are refused."""
+    resolution = resolve_value(session, Taxonomy.COMMERCIAL_SEGMENT, label)
+    if resolution.row is None:
         raise InvalidFieldError("commercial_segment", "Unknown commercial segment.", "unknown")
-    return segment
+    return resolution.row
 
 
 def _categories(session: Session, labels: list[str]) -> list[TaxonomyRow]:
-    found = []
+    found: list[TaxonomyRow] = []
     for label in dict.fromkeys(labels):
-        category = find_by_label(session, ActivityCategory, label)
-        if category is None:
+        resolution = resolve_value(session, Taxonomy.ACTIVITY_CATEGORY, label)
+        if resolution.row is None:
             raise InvalidFieldError("activity_categories", "Unknown activity category.", "unknown")
-        found.append(category)
+        found.append(resolution.row)
     return found
+
+
+def _new_store(resolution: Resolution) -> dict[str, str]:
+    """What acceptance writes for a value that does not exist yet: created then, not now."""
+    return {"new_label": resolution.label}
+
+
+def _resolved_store(resolution: Resolution) -> Any:
+    return resolution.row.id if resolution.row is not None else _new_store(resolution)
 
 
 def _clean_company_field(
@@ -973,14 +986,32 @@ def _clean_company_field(
             domain = normalize_email_domain(value)
             return domain, domain
         case "commercial_segment":
-            segment = _segment(session, str(value))
-            return segment.id, segment.label
+            resolution = resolve_value(session, Taxonomy.COMMERCIAL_SEGMENT, str(value))
+            return _resolved_store(resolution), resolution.label
         case "activity_categories":
-            categories = _categories(session, [str(item) for item in value])
-            return [row.id for row in categories], [row.label for row in categories]
+            resolutions = [
+                resolve_value(session, Taxonomy.ACTIVITY_CATEGORY, str(item))
+                for item in dict.fromkeys(value)
+            ]
+            return (
+                [_resolved_store(item) for item in resolutions],
+                [item.label for item in resolutions],
+            )
         case _:
             cleaned = _clean_text(field, str(value))
             return cleaned, cleaned
+
+
+def _company_resolutions(session: Session, field: str, value: Any) -> list[dict[str, object]]:
+    """How each segment / category the agent wrote was understood (raw value kept)."""
+    if field == "commercial_segment":
+        return [resolve_value(session, Taxonomy.COMMERCIAL_SEGMENT, str(value)).as_dict()]
+    if field == "activity_categories":
+        return [
+            resolve_value(session, Taxonomy.ACTIVITY_CATEGORY, str(item)).as_dict()
+            for item in dict.fromkeys(value)
+        ]
+    return []
 
 
 def _current_company_value(company: CompanyDetail, field: str) -> tuple[Any, Any]:
@@ -1036,6 +1067,7 @@ def _company_proposal(
                 continue
             status = "add" if before_stored in (None, "") else "change"
         evidence_fields = _evidence_for(result, field)
+        resolutions = _company_resolutions(session, field, value)
         items.append(
             {
                 "key": field,
@@ -1044,8 +1076,10 @@ def _company_proposal(
                 "before": before_shown,
                 "after": shown,
                 "status": status,
-                # What acceptance writes, already normalised (a taxonomy id, not its label).
+                # What acceptance writes, already normalised (a taxonomy id, or `{new_label}` for a
+                # value created only when a person accepts).
                 "store": _json_safe(stored),
+                **({"resolutions": resolutions} if resolutions else {}),
                 **evidence_fields,
             }
         )
@@ -1095,6 +1129,7 @@ def _employee_proposal(
         shown: Any
         before_stored: Any
         before_shown: Any
+        resolutions: list[dict[str, object]] = []
         try:
             match field:
                 case "civility":
@@ -1114,11 +1149,10 @@ def _employee_proposal(
                         prospect.activity_status, prospect.activity_status.value
                     )
                 case "role":
-                    role = find_by_label(session, Role, str(value))
-                    if role is None:
-                        raise InvalidFieldError("role", "Unknown role.", "unknown")
-                    stored = role.id
-                    shown = role.label
+                    resolution = resolve_value(session, Taxonomy.ROLE, str(value))
+                    resolutions = [resolution.as_dict()]
+                    stored = _resolved_store(resolution)
+                    shown = resolution.label
                     before_stored = prospect.role_id
                     before_shown = current_role.label if current_role else None
                 case _:
@@ -1141,6 +1175,7 @@ def _employee_proposal(
                 "after": shown,
                 "status": "add" if before_stored in (None, "") else "change",
                 "store": _json_safe(stored),
+                **({"resolutions": resolutions} if resolutions else {}),
                 **evidence_fields,
             }
         )
@@ -1310,6 +1345,9 @@ def _find_employees_proposal(
         if email is not None:
             known_emails.add(email)
         title = person.exact_job_title or person.role
+        role_resolution = (
+            resolve_value(session, Taxonomy.ROLE, person.role) if person.role else None
+        )
         items.append(
             {
                 "key": f"person:{index}:{email or first.casefold() + '.' + last.casefold()}",
@@ -1324,6 +1362,16 @@ def _find_employees_proposal(
                     "last_name": last,
                     "exact_job_title": person.exact_job_title,
                     "role": person.role,
+                    "role_id": (
+                        str(role_resolution.row.id)
+                        if role_resolution is not None and role_resolution.row is not None
+                        else None
+                    ),
+                    "role_new_label": (
+                        role_resolution.label
+                        if role_resolution is not None and role_resolution.row is None
+                        else None
+                    ),
                     "email": email,
                     "phone": phone,
                     "activity_status": (
@@ -1332,6 +1380,7 @@ def _find_employees_proposal(
                     "source": sources[0].source,
                     "legal_basis": legal_basis,
                 },
+                **({"resolutions": [role_resolution.as_dict()]} if role_resolution else {}),
                 **evidence_item_fields(sources[0], sources[0].source, sources[0].quote),
             }
         )

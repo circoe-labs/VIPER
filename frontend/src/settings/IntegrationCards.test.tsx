@@ -30,7 +30,7 @@ const SAVED_KEY = integrations(
 describe('Rédaction IA (OpenAI)', () => {
   it('saves a key and a model typed here, then never shows the key again', async () => {
     const api = stub()
-    renderApp('/settings/connections')
+    renderApp('/config-ai/connections')
 
     expect(await within(await screen.findByRole('region', { name: 'Rédaction IA (OpenAI)' })).findByText('Non configurée')).toBeInTheDocument()
     const save = within(openai()).getByRole('button', { name: 'Enregistrer' })
@@ -52,7 +52,7 @@ describe('Rédaction IA (OpenAI)', () => {
 
   it('replaces the key, and clears it after a confirmation', async () => {
     const api = stub({ initial: SAVED_KEY })
-    renderApp('/settings/connections')
+    renderApp('/config-ai/connections')
 
     await userEvent.click(await within(await screen.findByRole('region', { name: 'Rédaction IA (OpenAI)' })).findByRole('button', { name: 'Remplacer' }))
     const input = within(openai()).getByLabelText('Clé d’API OpenAI')
@@ -76,7 +76,7 @@ describe('Rédaction IA (OpenAI)', () => {
 
   it('says where a value comes from and puts it back to the default', async () => {
     const api = stub({ initial: SAVED_KEY })
-    renderApp('/settings/connections')
+    renderApp('/config-ai/connections')
 
     const model = await within(await screen.findByRole('region', { name: 'Rédaction IA (OpenAI)' })).findByRole('textbox', { name: 'Modèle' })
     expect(model).toHaveValue('modele-test')
@@ -94,7 +94,7 @@ describe('Rédaction IA (OpenAI)', () => {
 
   it('puts a refused value’s message under its field', async () => {
     stub({ refuseField: 'openai_base_url' })
-    renderApp('/settings/connections')
+    renderApp('/config-ai/connections')
 
     const card = await screen.findByRole('region', { name: 'Rédaction IA (OpenAI)' })
     await userEvent.click(within(card).getByText('Paramètres avancés'))
@@ -110,7 +110,7 @@ describe('Rédaction IA (OpenAI)', () => {
 
   it('refuses a timeout that is not a number before sending anything', async () => {
     const api = stub()
-    renderApp('/settings/connections')
+    renderApp('/config-ai/connections')
 
     const card = await screen.findByRole('region', { name: 'Rédaction IA (OpenAI)' })
     await userEvent.click(within(card).getByText('Paramètres avancés'))
@@ -126,7 +126,7 @@ describe('Rédaction IA (OpenAI)', () => {
 
   it('says when the settings changed meanwhile', async () => {
     stub({ conflict: true })
-    renderApp('/settings/connections')
+    renderApp('/config-ai/connections')
 
     const card = await screen.findByRole('region', { name: 'Rédaction IA (OpenAI)' })
     await userEvent.type(within(card).getByRole('textbox', { name: 'Modèle' }), 'autre')
@@ -137,7 +137,7 @@ describe('Rédaction IA (OpenAI)', () => {
 
   it('tests the saved key and says the outcome', async () => {
     const api = stub({ initial: SAVED_KEY, check: { ok: false, code: 'ai_auth_failed', model: null, elapsed_ms: 300 } })
-    renderApp('/settings/connections')
+    renderApp('/config-ai/connections')
 
     const card = await screen.findByRole('region', { name: 'Rédaction IA (OpenAI)' })
     await userEvent.click(within(card).getByRole('button', { name: 'Tester la clé' }))
@@ -148,7 +148,7 @@ describe('Rédaction IA (OpenAI)', () => {
 
   it('tests only a saved configuration', async () => {
     stub()
-    renderApp('/settings/connections')
+    renderApp('/config-ai/connections')
 
     const card = await screen.findByRole('region', { name: 'Rédaction IA (OpenAI)' })
     expect(within(card).getByRole('button', { name: 'Tester la clé' })).toBeDisabled()
@@ -156,7 +156,7 @@ describe('Rédaction IA (OpenAI)', () => {
 
   it('reports a key accepted with its model', async () => {
     stub({ initial: SAVED_KEY })
-    renderApp('/settings/connections')
+    renderApp('/config-ai/connections')
 
     const card = await screen.findByRole('region', { name: 'Rédaction IA (OpenAI)' })
     await userEvent.click(within(card).getByRole('button', { name: 'Tester la clé' }))
@@ -168,7 +168,7 @@ describe('Rédaction IA (OpenAI)', () => {
 describe('« Modèle » lists the models of the OpenAI account', () => {
   it('offers the models the saved key can use and saves the one chosen', async () => {
     const api = stub({ initial: SAVED_KEY, models: { models: ['gpt-test-2', 'gpt-test-1'], code: null } })
-    renderApp('/settings/connections')
+    renderApp('/config-ai/connections')
 
     const select = await within(await screen.findByRole('region', { name: 'Rédaction IA (OpenAI)' })).findByRole('combobox', { name: 'Modèle' })
     const options = within(select).getAllByRole('option').map((option) => option.textContent)
@@ -184,7 +184,7 @@ describe('« Modèle » lists the models of the OpenAI account', () => {
 
   it('falls back to a typed identifier when the service gives no list, and says why', async () => {
     stub({ initial: SAVED_KEY, models: { models: [], code: 'ai_auth_failed' } })
-    renderApp('/settings/connections')
+    renderApp('/config-ai/connections')
 
     expect(await within(await screen.findByRole('region', { name: 'Rédaction IA (OpenAI)' })).findByText(/Liste des modèles indisponible : la clé a été refusée par OpenAI/)).toBeInTheDocument()
     expect(within(openai()).getByRole('textbox', { name: 'Modèle' })).toHaveValue('modele-test')
@@ -194,7 +194,7 @@ describe('« Modèle » lists the models of the OpenAI account', () => {
 describe('the key and its API address (S8 QA M1)', () => {
   it('warns that a new API address needs the key again, and opens the key when the server says so', async () => {
     const api = stub({ initial: SAVED_KEY, refuseField: 'openai_api_key', refuseReason: 'required_with_base_url' })
-    renderApp('/settings/connections')
+    renderApp('/config-ai/connections')
 
     const card = await screen.findByRole('region', { name: 'Rédaction IA (OpenAI)' })
     await userEvent.click(within(card).getByText('Paramètres avancés', { exact: true }))
@@ -217,7 +217,7 @@ describe('Expéditeur and Envoi programmé', () => {
     const api = stub({
       initial: integrations({ default_outbound_email: { value: 'ancien@exemple.example', source: 'ui', updated_by: 'Pilote Test' } }),
     })
-    renderApp('/settings/connections')
+    renderApp('/config-ai/connections')
 
     const card = await screen.findByRole('region', { name: 'Expéditeur' })
     await userEvent.clear(within(card).getByRole('textbox', { name: 'Adresse « De » par défaut' }))
@@ -229,7 +229,7 @@ describe('Expéditeur and Envoi programmé', () => {
 
   it('says a settings file the server cannot write, in French', async () => {
     stub({ storageUnavailable: true })
-    renderApp('/settings/connections')
+    renderApp('/config-ai/connections')
 
     const card = await screen.findByRole('region', { name: 'Expéditeur' })
     await userEvent.type(within(card).getByRole('textbox', { name: 'Adresse « De » par défaut' }), 'a@exemple.example')
@@ -240,7 +240,7 @@ describe('Expéditeur and Envoi programmé', () => {
 
   it('saves the default sender', async () => {
     const api = stub()
-    renderApp('/settings/connections')
+    renderApp('/config-ai/connections')
 
     const card = await screen.findByRole('region', { name: 'Expéditeur' })
     await userEvent.type(within(card).getByRole('textbox', { name: 'Adresse « De » par défaut' }), 'prospection@exemple.example')
@@ -252,7 +252,7 @@ describe('Expéditeur and Envoi programmé', () => {
 
   it('switches the scheduled sending off and on at once (S9)', async () => {
     const api = stub()
-    renderApp('/settings/connections')
+    renderApp('/config-ai/connections')
 
     const card = await screen.findByRole('region', { name: 'Envoi programmé' })
     const toggle = within(card).getByRole('switch', { name: 'Envoi automatique des mails programmés' })
@@ -271,7 +271,7 @@ describe('Expéditeur and Envoi programmé', () => {
 
   it('saves the delay (in seconds) of the advanced settings and an allowlist, and refuses an impossible delay (S9)', async () => {
     const api = stub()
-    renderApp('/settings/connections')
+    renderApp('/config-ai/connections')
 
     const card = await screen.findByRole('region', { name: 'Envoi programmé' })
     await userEvent.click(within(card).getByText('Paramètres avancés', { exact: true }))
@@ -300,7 +300,7 @@ describe('CIRCOE Toolbox › Paramètres avancés', () => {
     stubSettingsApi({})
     stubToolboxApi({ status: CONNECTED })
     const api = stubIntegrationsApi()
-    renderApp('/settings/connections')
+    renderApp('/config-ai/connections')
 
     const card = await screen.findByRole('region', { name: 'CIRCOE Toolbox' })
     await userEvent.click(within(card).getByText('Paramètres avancés', { exact: true }))
@@ -320,7 +320,7 @@ describe('CIRCOE Toolbox › Paramètres avancés', () => {
 
   it('shows the built-in server address and saves a typed one', async () => {
     const api = stub()
-    renderApp('/settings/connections')
+    renderApp('/config-ai/connections')
 
     const card = await screen.findByRole('region', { name: 'CIRCOE Toolbox' })
     await userEvent.click(within(card).getByText('Paramètres avancés'))

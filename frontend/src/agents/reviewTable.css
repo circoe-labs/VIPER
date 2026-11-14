@@ -133,3 +133,11 @@
     height: 1.5rem;
   }
 }
+
+.resolution-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-inline-start: var(--space-2);
+  vertical-align: middle;
+}

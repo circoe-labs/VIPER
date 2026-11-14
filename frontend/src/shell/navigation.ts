@@ -3,6 +3,7 @@ import {
   BuildingIcon,
   CalendarIcon,
   ClockIcon,
+  CpuIcon,
   DatabaseIcon,
   HomeIcon,
   type IconComponent,
@@ -20,6 +21,8 @@ export interface NavigationItem {
   path: string
   label: string
   icon: IconComponent
+  // Hidden from non-administrators (the route is guarded the same way).
+  adminOnly?: boolean
 }
 
 export interface NavigationSection {
@@ -31,7 +34,9 @@ export interface NavigationSection {
   items: readonly NavigationItem[]
 }
 
-// Product grouping of the sidebar: daily work, configuration of the workspace, administration of mission building blocks.
+// Product grouping of the sidebar: daily work, configuration of the workspace, administration of VIPER itself.
+// Categories / skills / sources are administered by organisation admins (the API checks every write), so they are
+// flagged per item; the whole Administration group is admin-only.
 export const NAVIGATION_SECTIONS: readonly NavigationSection[] = [
   {
     id: 'main',
@@ -42,7 +47,6 @@ export const NAVIGATION_SECTIONS: readonly NavigationSection[] = [
       { path: '/warehouses', label: 'Entrepôts', icon: WarehouseIcon },
       { path: '/missions', label: 'Missions', icon: SparklesIcon },
       { path: '/agenda', label: 'Agenda', icon: CalendarIcon },
-      { path: '/database', label: 'Base de données', icon: DatabaseIcon },
     ],
   },
   {
@@ -50,8 +54,9 @@ export const NAVIGATION_SECTIONS: readonly NavigationSection[] = [
     label: 'Configuration',
     items: [
       { path: '/organisation', label: 'Organisation', icon: BuildingIcon },
-      { path: '/historique-agents', label: 'Historique agents', icon: ClockIcon },
-      { path: '/settings', label: 'Paramètres', icon: SlidersIcon },
+      { path: '/configuration/categories', label: 'Catégories de mission', icon: TagIcon, adminOnly: true },
+      { path: '/configuration/skills', label: 'Skills', icon: BoltIcon, adminOnly: true },
+      { path: '/configuration/sources', label: 'Sources', icon: LinkIcon, adminOnly: true },
     ],
   },
   {
@@ -59,9 +64,10 @@ export const NAVIGATION_SECTIONS: readonly NavigationSection[] = [
     label: 'Administration',
     adminOnly: true,
     items: [
-      { path: '/administration/categories', label: 'Catégories', icon: TagIcon },
-      { path: '/administration/skills', label: 'Skills', icon: BoltIcon },
-      { path: '/administration/sources', label: 'Sources', icon: LinkIcon },
+      { path: '/database', label: 'Base de données', icon: DatabaseIcon },
+      { path: '/historique-agents', label: 'Historique agents', icon: ClockIcon },
+      { path: '/settings', label: 'Paramètres', icon: SlidersIcon },
+      { path: '/config-ai', label: 'Config AI', icon: CpuIcon },
     ],
   },
 ]

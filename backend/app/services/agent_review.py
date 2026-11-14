@@ -35,9 +35,8 @@ from app.models.enums import (
     SignalOrigin,
 )
 from app.models.prospects import Prospect, ProspectNote
-from app.models.taxonomies import Role
 from app.repositories.taxonomies import find_by_label
-from app.services import audit, companies, mission_sources, prospect_editor
+from app.services import audit, companies, mission_sources, prospect_editor, taxonomies
 from app.services.agent_payloads import site_place
 from app.services.companies import CompanyInput, EstablishmentInput, EstablishmentView, get_company
 from app.services.contact_channels import ChannelItem
@@ -50,6 +49,7 @@ from app.services.prospect_editor import (
     VerificationAction,
     aggregate_version,
 )
+from app.services.taxonomies import Taxonomy
 
 logger = logging.getLogger(__name__)
 
@@ -151,6 +151,20 @@ def _establishment(site: EstablishmentView) -> EstablishmentInput:
     )
 
 
+def _taxonomy_id(
+    session: Session, actor: ActorContext, taxonomy: Taxonomy, store: Any
+) -> uuid.UUID:
+    """The id behind an accepted item: an existing value, or the new one created now (human
+    validation is the only place a taxonomy value is born)."""
+    if isinstance(store, dict):
+        label = str(store["new_label"])
+        existing = find_by_label(session, taxonomies.MODELS[taxonomy], label)
+        if existing is not None:
+            return existing.id
+        return taxonomies.create_value(session, actor, taxonomy, label).id
+    return uuid.UUID(str(store))
+
+
 def _apply_company(
     session: Session, actor: ActorContext, task: AgentTask, items: Sequence[dict[str, Any]]
 ) -> dict[str, Any]:
@@ -167,12 +181,12 @@ def _apply_company(
         email_domain=values.get("email_domain", detail.email_domain),
         size_label=values.get("size_label", detail.size_label),
         commercial_segment_id=(
-            uuid.UUID(str(segment))
+            _taxonomy_id(session, actor, Taxonomy.COMMERCIAL_SEGMENT, segment)
             if segment is not None
             else (detail.commercial_segment.id if detail.commercial_segment else None)
         ),
         activity_category_ids=[
-            uuid.UUID(str(value))
+            _taxonomy_id(session, actor, Taxonomy.ACTIVITY_CATEGORY, value)
             for value in values.get(
                 "activity_categories",
                 [category.id for category in detail.activity_categories],
@@ -188,7 +202,9 @@ def _apply_company(
     return {"company_id": str(detail.id), "fields": sorted(values)}
 
 
-def _employee_form(prospect: Prospect, items: Sequence[dict[str, Any]]) -> ProspectForm:
+def _employee_form(
+    session: Session, actor: ActorContext, prospect: Prospect, items: Sequence[dict[str, Any]]
+) -> ProspectForm:
     """The whole editable state, current values plus the accepted items, as the editor expects."""
     values = {
         item["field"]: item["store"] for item in items if item["field"] not in ("emails", "phones")
@@ -236,7 +252,11 @@ def _employee_form(prospect: Prospect, items: Sequence[dict[str, Any]]) -> Prosp
         last_name=values.get("last_name", prospect.last_name),
         company_id=prospect.company_id,
         civility=(Civility(str(values["civility"])) if "civility" in values else prospect.civility),
-        role_id=uuid.UUID(str(values["role"])) if "role" in values else prospect.role_id,
+        role_id=(
+            _taxonomy_id(session, actor, Taxonomy.ROLE, values["role"])
+            if "role" in values
+            else prospect.role_id
+        ),
         exact_job_title=values.get("exact_job_title", prospect.exact_job_title),
         activity_status=(
             ActivityStatus(str(values["activity_status"]))
@@ -256,7 +276,7 @@ def _apply_employee(
     prospect = session.get(Prospect, task.prospect_id)
     if prospect is None:
         raise NotFoundError("Unknown prospect.")
-    form = _employee_form(prospect, items)
+    form = _employee_form(session, actor, prospect, items)
     prospect_editor.update_prospect(
         session,
         actor,
@@ -284,12 +304,17 @@ def _apply_find_employees(
         store = item["store"]
         role_id = None
         role_label = None
-        if store.get("role"):
-            role = find_by_label(session, Role, str(store["role"]))
-            if role is not None:
-                role_id = role.id
+        if store.get("role_id"):
+            role_id = uuid.UUID(str(store["role_id"]))
+        elif store.get("role_new_label"):
+            role_label = str(store["role_new_label"])
+        elif store.get("role"):
+            # Proposal stored before the matching service: exact label or a new role.
+            resolution = taxonomies.resolve_value(session, Taxonomy.ROLE, str(store["role"]))
+            if resolution.row is not None:
+                role_id = resolution.row.id
             else:
-                role_label = str(store["role"])
+                role_label = resolution.label
         emails = (
             [ChannelItem(value=str(store["email"]), is_primary=True, verified_now=True)]
             if store.get("email")

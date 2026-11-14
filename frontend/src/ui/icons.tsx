@@ -484,3 +484,11 @@ export const VolumeIcon = ({ muted = false, ...props }: IconProps & { muted?: bo
     {muted ? <path d="m16 9.5 5 5m0-5-5 5" /> : <path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11" />}
   </Svg>
 )
+
+export const CpuIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <rect x="6" y="6" width="12" height="12" rx="2" />
+    <rect x="9.5" y="9.5" width="5" height="5" rx="1" />
+    <path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3" />
+  </Svg>
+)

@@ -286,8 +286,7 @@ no longer hashed from the mission id once Slice 05 renders it); the detail adds 
 
 **Admin API.** Reads are open to any signed-in person; writes need the platform admin or an
 « Organisation » admin (403 `forbidden`). Errors: 404 `not_found`, 422 `invalid` (`field`, `reason`
-`format` / `immutable` / `category_mismatch` / `not_found`), 409 `duplicate`, 409 `in_use`, 409
-`category_system`. Changes are audited as `mission_category.*` / `mission_skill.*`.
+`format` / `immutable` / `category_mismatch` / `not_found`), 409 `duplicate`, 409 `in_use` (a used category: `DELETE …?confirm_cascade=true` deletes its missions through `missions.delete`; any category, built-in included, may be deleted). Changes are audited as `mission_category.*` / `mission_skill.*`.
 
 | Route | Purpose |
 |---|---|

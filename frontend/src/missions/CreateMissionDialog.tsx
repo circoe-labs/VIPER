@@ -7,6 +7,7 @@ import { Button } from '../ui/Button'
 import { Modal } from '../ui/Dialog'
 import { TextAreaField, TextField } from '../ui/fields'
 import { AlertIcon, ArrowRightIcon, BoltIcon, CheckCircleIcon, DatabaseIcon } from '../ui/icons'
+import { InfoTip } from '../ui/InfoTip'
 import { MissionCategoryPicker } from './MissionCategoryPicker'
 import { MissionExecutionSection } from './MissionExecutionSection'
 import { MissionSkillsPanel } from './MissionSkillsPanel'
@@ -23,15 +24,15 @@ interface MissionDialogProps {
   onSaved?: (detail: MissionDetail) => void
   // Pre-fills a new mission (initialised once, like `mission`).
   initialDraft?: MissionDraft
-  // Slice 06 seam: the voice / conversation entry point. Rendered at the top of the form with the form API
+  // Voice dictation entry point. Rendered at the bottom-left of the footer with the form API
   // (`applyDraft` lays a draft over the fields, `toInput` reads what would be saved) and the form's own `submit`
   // (ordinary validation + save). Nothing is rendered when absent.
   assistantSlot?: (form: MissionFormApi, actions: { submit: () => void }) => ReactNode
 }
 
-// « + Nouvelle mission » / « Modifier la mission »: name, category (icon + colour tiles that apply their defaults),
-// consigne, execution (one-off or recurring + objective), then two panels (« Skills », « Sources »). A live line says
-// whether the rule can run. State lives in `useMissionForm`; each section is its own component.
+// « + Nouvelle mission » / « Modifier la mission »: title, type (a compact field opening a picker that applies the
+// category's defaults), consigne, execution (one-off or recurring + objective), then two panels (« Skills »,
+// « Sources »). Explanations live in InfoTips; only what blocks saving is stated in the form. State lives in `useMissionForm`; each section is its own component.
 export function CreateMissionDialog({ open, onClose, mission, onSaved, initialDraft, assistantSlot }: MissionDialogProps) {
   const navigate = useNavigate()
   const create = useCreateMission()
@@ -72,6 +73,7 @@ export function CreateMissionDialog({ open, onClose, mission, onSaved, initialDr
       className="dialog--mission"
       footer={
         <div className="mission-form__footer">
+          <div className="mission-form__footer-start">{assistantSlot?.(form, { submit })}</div>
           <Button variant="secondary" onClick={onClose}>
             Annuler
           </Button>
@@ -88,33 +90,36 @@ export function CreateMissionDialog({ open, onClose, mission, onSaved, initialDr
       }
     >
       <div className="mission-form">
-        {assistantSlot?.(form, { submit })}
         <TextField
-          label="Nom"
+          label="Titre de la mission"
           value={form.name}
           onChange={(event) => {
             form.setName(event.target.value)
           }}
-          placeholder="Saisir un nom de mission"
+          placeholder="Ex. Veille salons logistiques"
           required
         />
         <MissionCategoryPicker form={form} />
-        <TextAreaField
-          label="Consigne"
-          value={form.promptOverride ?? ''}
-          rows={4}
-          onChange={(event) => {
-            form.setPrompt(event.target.value)
-          }}
-          placeholder={category?.general_prompt ?? 'Saisir la consigne'}
-          hint={
-            form.promptOverride === null
-              ? category
-                ? `Vide : la consigne générale de « ${category.name} » est utilisée (texte grisé).`
-                : undefined
-              : 'Consigne propre à cette mission ; videz le champ pour reprendre celle de la catégorie.'
-          }
-        />
+        <div className="mission-form__tipped">
+          <TextAreaField
+            label="Consigne"
+            value={form.promptOverride ?? ''}
+            rows={4}
+            onChange={(event) => {
+              form.setPrompt(event.target.value)
+            }}
+            placeholder={category?.general_prompt ?? 'Saisir la consigne'}
+          />
+          <span className="mission-form__tip">
+            <InfoTip label="Aide : consigne">
+              {form.promptOverride === null
+                ? category
+                  ? `Laissée vide, la consigne générale de « ${category.name} » s’applique (texte grisé).`
+                  : 'Laissée vide, la consigne générale de la catégorie s’applique.'
+                : 'Consigne propre à cette mission ; videz le champ pour reprendre celle de la catégorie.'}
+            </InfoTip>
+          </span>
+        </div>
 
         <MissionExecutionSection form={form} />
 
@@ -145,14 +150,12 @@ export function CreateMissionDialog({ open, onClose, mission, onSaved, initialDr
         {panel === 'skills' && <MissionSkillsPanel form={form} />}
         {panel === 'sources' && <MissionSourcesPanel form={form} />}
 
-        <p className={`mission-form__ready${form.ready ? ' is-ready' : ''}`} role="status">
-          {form.ready ? <CheckCircleIcon size={18} /> : <AlertIcon size={18} />}
-          {form.ready
-            ? form.recurring
-              ? 'Prête : elle s’exécutera à chaque échéance.'
-              : 'Prête à être lancée.'
-            : form.missing}
-        </p>
+        {!form.ready && form.missing && (
+          <p className="mission-form__ready" role="status">
+            <AlertIcon size={18} />
+            {form.missing}
+          </p>
+        )}
 
         {saving.isError && (
           <p className="missions-error" role="alert">

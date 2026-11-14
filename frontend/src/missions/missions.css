@@ -179,7 +179,17 @@
 
 .mission-form {
   display: grid;
-  gap: var(--space-5);
+  gap: var(--space-4);
+}
+
+/* Type + expected result side by side when both exist. */
+.mission-form .mcat {
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  align-items: start;
+}
+
+.mission-form .mcat__state {
+  grid-column: 1 / -1;
 }
 
 .mission-form__section {
@@ -312,7 +322,25 @@
 .mission-picker__footer {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+/* Microphone (dictation) at the bottom-left; Annuler / Créer stay on the right. */
+.mission-form__footer {
+  flex-wrap: nowrap;
+}
+
+.mission-form__footer-start {
+  display: flex;
+  align-items: center;
+  margin-right: auto;
+}
+
+.mission-form__check {
+  display: flex;
+  align-items: center;
   gap: var(--space-2);
 }
 
@@ -463,15 +491,15 @@
 .mission-form__panel-toggle {
   display: flex;
   align-items: center;
-  gap: var(--space-4);
-  min-height: 3.5rem;
-  padding: 0 var(--space-5);
+  gap: var(--space-3);
+  min-height: 3rem;
+  padding: 0 var(--space-4);
   border: 2px solid var(--color-accent);
   border-radius: var(--radius-lg);
   background: var(--color-field);
   color: var(--color-text);
   font: inherit;
-  font-size: var(--text-lg);
+  font-size: var(--text-md);
   font-weight: var(--weight-bold);
   cursor: pointer;
 }

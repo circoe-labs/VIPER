@@ -34,7 +34,7 @@ function calls(fetchMock: ReturnType<typeof stubApi>, method: string, path: stri
 }
 
 async function startVoice(user: ReturnType<typeof userEvent.setup>, dialog: HTMLElement) {
-  const button = await within(dialog).findByRole('button', { name: 'Créer à la voix' })
+  const button = await within(dialog).findByRole('button', { name: 'Dicter la mission' })
   await waitFor(() => {
     expect(button).toBeEnabled()
   })
@@ -47,7 +47,7 @@ describe('voice mission assistant', () => {
     const { dialog } = await openVoice({
       'GET /api/missions/assistant/capabilities': [200, { assistant: false, speech: false }],
     })
-    expect(await within(dialog).findByRole('button', { name: 'Créer à la voix' })).toBeDisabled()
+    expect(await within(dialog).findByRole('button', { name: 'Dicter la mission' })).toBeDisabled()
     expect(within(dialog).getByText(/clé et le modèle IA/)).toBeInTheDocument()
   })
 
@@ -81,8 +81,8 @@ describe('voice mission assistant', () => {
 
     await user.click(within(overlay).getByRole('button', { name: 'Fermer l’assistant vocal' }))
     expect(screen.queryByRole('dialog', { name: 'Assistant vocal de création de mission' })).not.toBeInTheDocument()
-    expect(within(dialog).getByRole('textbox', { name: /Nom/ })).toHaveValue('Veille Normandie')
-    expect(within(dialog).getByRole('radio', { name: /Signaux/ })).toBeChecked()
+    expect(within(dialog).getByRole('textbox', { name: /Titre de la mission/ })).toHaveValue('Veille Normandie')
+    expect(within(dialog).getByRole('button', { name: /^Type de mission Signaux/ })).toBeInTheDocument()
     expect(calls(fetchMock, 'POST', '/api/missions')).toHaveLength(0)
   })
 

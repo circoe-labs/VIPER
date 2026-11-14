@@ -14,6 +14,7 @@ import httpx2
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 from sqlalchemy.orm import Session
 
 from tests.builders import add_company
@@ -408,6 +409,26 @@ def test_transcribe_is_unavailable_without_a_service(client: TestClient) -> None
     )
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == "stt_not_configured"
+
+
+def test_transcribe_falls_back_to_the_openai_account_of_the_assistant(
+    app: FastAPI, client: TestClient
+) -> None:
+    seen: list[httpx2.Request] = []
+
+    def whisper(request: httpx2.Request) -> httpx2.Response:
+        seen.append(request)
+        return httpx2.Response(200, json={"text": "Bonjour"})
+
+    app.state.settings = app.state.settings.model_copy(update={"openai_api_key": SecretStr("sk-x")})
+    app.state.stt_transport = httpx2.MockTransport(whisper)
+    assert client.get(f"{ASSISTANT}/capabilities").json()["speech"] is True
+    response = client.post(
+        f"{ASSISTANT}/transcribe", files={"audio": ("a.webm", b"x", "audio/webm")}
+    )
+    assert response.json() == {"text": "Bonjour"}
+    assert str(seen[0].url) == "https://api.openai.com/v1/audio/transcriptions"
+    assert seen[0].headers["authorization"] == "Bearer sk-x"
 
 
 def test_transcribe_forwards_to_a_whisper_compatible_service(

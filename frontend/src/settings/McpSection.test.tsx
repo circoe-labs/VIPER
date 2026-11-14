@@ -47,7 +47,7 @@ describe('McpSection', () => {
   it('lists the exposed tools with their parameters and the endpoint', async () => {
     stubApi({ ...SHELL_API, 'GET /api/settings/mcp': [200, SETTINGS], 'GET /api/settings/mcp/agents': [200, []] })
 
-    renderApp('/settings/mcp')
+    renderApp('/config-ai/mcp')
 
     expect(await screen.findByText('viper_claim_task')).toBeInTheDocument()
     expect(screen.getByText('viper_task_queue')).toBeInTheDocument()
@@ -62,7 +62,7 @@ describe('McpSection', () => {
   it('says when the tools cannot be loaded', async () => {
     stubApi({ ...SHELL_API, 'GET /api/settings/mcp': [500, { detail: 'boom' }] })
 
-    renderApp('/settings/mcp')
+    renderApp('/config-ai/mcp')
 
     expect(await screen.findByText('Les outils MCP n’ont pas pu être chargés.')).toBeInTheDocument()
   })
@@ -95,7 +95,7 @@ describe('McpSection', () => {
     })
     const user = userEvent.setup()
 
-    renderApp('/settings/mcp')
+    renderApp('/config-ai/mcp')
     const access = await screen.findByRole('region', { name: 'Accès autorisés' })
     expect(await within(access).findByText('ChatGPT pilote.test #1')).toBeInTheDocument()
     expect(within(access).getByText(/ChatGPT \(OAuth\) · Connecteur OAuth · ChatGPT · Assistant \(agit pour vous\)/)).toBeInTheDocument()
@@ -131,7 +131,7 @@ describe('McpSection', () => {
     })
     const user = userEvent.setup()
 
-    renderApp('/settings/mcp')
+    renderApp('/config-ai/mcp')
     const access = await screen.findByRole('region', { name: 'Accès autorisés' })
     await user.click(within(access).getByRole('button', { name: 'Créer un jeton' }))
     const dialog = await screen.findByRole('dialog')
@@ -161,7 +161,7 @@ describe('McpSection', () => {
     })
     const user = userEvent.setup()
 
-    renderApp('/settings/mcp')
+    renderApp('/config-ai/mcp')
     const access = await screen.findByRole('region', { name: 'Accès autorisés' })
     await user.click(within(access).getByRole('button', { name: 'Créer un jeton' }))
     const dialog = await screen.findByRole('dialog')
@@ -181,7 +181,7 @@ describe('McpSection', () => {
     })
     const user = userEvent.setup()
 
-    renderApp('/settings/mcp')
+    renderApp('/config-ai/mcp')
     const access = await screen.findByRole('region', { name: 'Accès autorisés' })
     await user.click(within(access).getByRole('button', { name: 'Créer un jeton' }))
     const dialog = await screen.findByRole('dialog')
@@ -249,7 +249,7 @@ describe('McpSection', () => {
       },
     })
 
-    renderApp('/settings/mcp')
+    renderApp('/config-ai/mcp')
 
     const table = await screen.findByRole('table', { name: 'Historique des appels MCP' })
     expect(within(table).getByText('paul@circoe.com')).toBeInTheDocument()

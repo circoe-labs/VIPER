@@ -37,8 +37,19 @@ def _error(code: str, message: str, *, upstream_status: int | None = None) -> Ma
     return MailGenerationError(code, STT_STATUS[code], message, upstream_status=upstream_status)
 
 
+def _endpoint(settings: Settings) -> tuple[str, str | None] | None:
+    """(base URL, bearer key): the dedicated service, else the OpenAI account already configured
+    for the assistant (its transcription endpoint; model `stt_model`), else None."""
+    if settings.stt_base_url is not None:
+        key = settings.stt_api_key.get_secret_value() if settings.stt_api_key else None
+        return settings.stt_base_url, key
+    if settings.openai_api_key is not None:
+        return settings.openai_base_url, settings.openai_api_key.get_secret_value()
+    return None
+
+
 def available(settings: Settings) -> bool:
-    return settings.stt_base_url is not None
+    return _endpoint(settings) is not None
 
 
 def transcribe(
@@ -50,15 +61,17 @@ def transcribe(
     transport: httpx2.BaseTransport | None = None,
 ) -> str:
     """The text of one utterance ('' when nothing intelligible was said)."""
-    if settings.stt_base_url is None:
+    endpoint = _endpoint(settings)
+    if endpoint is None:
         raise _error("stt_not_configured", "No speech-to-text service is configured.")
     if not audio:
         raise _error("stt_invalid_audio", "The recording is empty.")
     if len(audio) > MAX_AUDIO_BYTES:
         raise _error("stt_invalid_audio", "The recording is too long.")
+    base_url, api_key = endpoint
     headers = {}
-    if settings.stt_api_key is not None:
-        headers["Authorization"] = f"Bearer {settings.stt_api_key.get_secret_value()}"
+    if api_key is not None:
+        headers["Authorization"] = f"Bearer {api_key}"
     # The recorder names its container in the content type (`audio/webm;codecs=opus`).
     extension = "ogg" if "ogg" in content_type else "mp4" if "mp4" in content_type else "webm"
     timeout_seconds = settings.stt_timeout_ms / 1000
@@ -66,7 +79,7 @@ def transcribe(
     try:
         with httpx2.Client(timeout=timeout, transport=transport) as client:
             response = client.post(
-                f"{settings.stt_base_url}/audio/transcriptions",
+                f"{base_url}/audio/transcriptions",
                 headers=headers,
                 data={
                     "model": settings.stt_model,

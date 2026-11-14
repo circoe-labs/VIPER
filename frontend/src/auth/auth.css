@@ -134,12 +134,6 @@
   margin-top: var(--space-4);
 }
 
-.login-card__mascot {
-  justify-self: center;
-  height: 6.5rem;
-  width: auto;
-}
-
 .login-page__theme {
   display: flex;
   align-items: center;

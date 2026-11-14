@@ -68,6 +68,17 @@ export interface ThreadList {
   total: number
 }
 
+// How VIPER understood a referential value the agent reported (roles, segments, activity categories). Nothing is
+// created while resolving: `new` values are added to the list only when the result is accepted.
+export interface ProposalResolution {
+  raw_value: string
+  kind: 'exact' | 'matched' | 'new'
+  resolved_id: string | null
+  resolved_value: string
+  confidence: number
+  reason: string
+}
+
 export interface ProposalItem {
   key: string
   field: string
@@ -86,6 +97,7 @@ export interface ProposalItem {
   // Signals carry their own fields (kind, subject, observed_on, score, relevance) here.
   store?: Record<string, unknown>
   action_operation?: string
+  resolutions?: ProposalResolution[]
 }
 
 export interface ProposalRefused {

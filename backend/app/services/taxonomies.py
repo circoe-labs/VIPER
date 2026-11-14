@@ -38,6 +38,7 @@ from app.services.errors import (
     translated_violations,
     violated_constraint,
 )
+from app.services.taxonomy_matching import Candidate, Match, ResolutionKind, match_label
 
 
 class Taxonomy(StrEnum):
@@ -97,6 +98,45 @@ def list_values(
         session, MODELS[taxonomy], search=(search or "").strip() or None, active=active
     )
     return [_value(row, usage) for row, usage in rows]
+
+
+@dataclass(frozen=True, slots=True)
+class Resolution:
+    """What VIPER makes of a raw value an agent reported; nothing is created by resolving."""
+
+    raw_value: str
+    kind: ResolutionKind
+    row: TaxonomyRow | None
+    # The label that will be written: the existing one, or the cleaned raw text for a new value.
+    label: str
+    confidence: float
+    reason: str
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "raw_value": self.raw_value,
+            "kind": self.kind.value,
+            "resolved_id": str(self.row.id) if self.row is not None else None,
+            "resolved_value": self.label,
+            "confidence": self.confidence,
+            "reason": self.reason,
+        }
+
+
+def resolve_value(session: Session, taxonomy: Taxonomy, raw: str) -> Resolution:
+    """Match `raw` against the existing values (exact, variants, close spelling); ambiguous => new.
+
+    Read-only: a `NEW` resolution is created only when a person accepts the result
+    (`agent_review`), through `create_value`.
+    """
+    raw = required_text("value", raw, LABEL_MAX_LENGTH)
+    listed = repository.list_values(session, MODELS[taxonomy], search=None, active=None)
+    rows = {row.id: row for row, _ in listed}
+    # Deactivated values stay candidates: reusing one beats a duplicate (create would refuse it).
+    candidates = [Candidate(row_id, row.label) for row_id, row in rows.items()]
+    match: Match = match_label(raw, candidates)
+    row = rows[match.candidate.id] if match.candidate is not None else None
+    return Resolution(raw, match.kind, row, row.label if row else raw, match.confidence, match.reason)
 
 
 def get_value(session: Session, taxonomy: Taxonomy, value_id: uuid.UUID) -> TaxonomyValue:

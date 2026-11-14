@@ -29,7 +29,7 @@ describe('Paramètres › Connexions', () => {
   it('flips the card to the allowed MCP methods and refreshes them', async () => {
     const { fetchMock } = stub({ status: CONNECTED })
     const user = userEvent.setup()
-    renderApp('/settings/connections')
+    renderApp('/config-ai/connections')
 
     await user.click(await within(panel()).findByRole('button', { name: 'Méthodes autorisées' }))
     const list = await within(card()).findByRole('list', { name: 'Méthodes MCP autorisées' })
@@ -52,17 +52,17 @@ describe('Paramètres › Connexions', () => {
   it('says why the methods cannot be read', async () => {
     stub({ status: CONNECTED, toolsRefusal: 'toolbox_unavailable' })
     const user = userEvent.setup()
-    renderApp('/settings/connections')
+    renderApp('/config-ai/connections')
 
     await user.click(await within(panel()).findByRole('button', { name: 'Méthodes autorisées' }))
     expect(await within(card()).findByRole('alert')).toHaveTextContent('la Toolbox ne répond pas')
   })
 
-  it('is the fifth section and offers to connect from a fresh install', async () => {
+  it('is the first Config AI section and offers to connect from a fresh install', async () => {
     stub({ status: toolboxStatus({ enabled: false, configured: false, state: 'disabled', toolbox_origin: null }) })
-    renderApp('/settings/connections')
+    renderApp('/config-ai/connections')
 
-    const sections = screen.getByRole('navigation', { name: 'Sections des paramètres' })
+    const sections = screen.getByRole('navigation', { name: 'Sections de la configuration AI' })
     expect(within(sections).getByRole('link', { name: /Connexions/ })).toHaveAttribute('aria-current', 'page')
     expect(await within(panel()).findByText('Désactivée')).toBeInTheDocument()
     expect(card()).toHaveTextContent('Connectez VIPER à CIRCOE Toolbox')
@@ -92,7 +92,7 @@ describe('Paramètres › Connexions', () => {
       },
       { initial: integrations({}, { dispatch: { running: true, active: true, reason: null, scheduled_count: 3, overdue_count: 0 } }) },
     )
-    renderApp('/settings/connections')
+    renderApp('/config-ai/connections')
 
     expect(await within(panel()).findByText('Actif')).toBeInTheDocument()
     expect(dispatchCard()).toHaveTextContent('Actif : chaque mail programmé part à l’heure choisie')
@@ -103,7 +103,7 @@ describe('Paramètres › Connexions', () => {
 
   it('is on by default: one switch, explained in plain words, the delay in the advanced settings (S9)', async () => {
     stub({ status: CONNECTED })
-    renderApp('/settings/connections')
+    renderApp('/config-ai/connections')
 
     const toggle = await within(await screen.findByRole('region', { name: 'Envoi programmé' })).findByRole('switch', {
       name: 'Envoi automatique des mails programmés',
@@ -127,7 +127,7 @@ describe('Paramètres › Connexions', () => {
         ),
       },
     )
-    renderApp('/settings/connections')
+    renderApp('/config-ai/connections')
 
     expect(await within(panel()).findByText('En attente')).toBeInTheDocument()
     expect(dispatchCard()).toHaveTextContent('En attente : CIRCOE Toolbox n’est pas connectée.')
@@ -146,7 +146,7 @@ describe('Paramètres › Connexions', () => {
         ),
       },
     )
-    renderApp('/settings/connections')
+    renderApp('/config-ai/connections')
 
     expect(await within(panel()).findByText('Désactivé : les dates d’envoi sont enregistrées', { exact: false })).toBeInTheDocument()
     expect(within(dispatchCard()).getByRole('switch', { name: 'Envoi automatique des mails programmés' })).not.toBeChecked()
@@ -155,7 +155,7 @@ describe('Paramètres › Connexions', () => {
 
   it('names a missing address in the page’s words and opens the advanced settings', async () => {
     stub({ status: toolboxStatus({ state: 'not_configured', configured: false, missing: ['VIPER_TOOLBOX_MCP_URL'] }) })
-    renderApp('/settings/connections')
+    renderApp('/config-ai/connections')
 
     expect(await within(await screen.findByRole('region', { name: 'CIRCOE Toolbox' })).findByText('Non configurée')).toBeInTheDocument()
     expect(card()).toHaveTextContent('Il manque l’adresse du serveur CIRCOE Toolbox')
@@ -165,7 +165,7 @@ describe('Paramètres › Connexions', () => {
 
   it('keeps the advanced settings open once the missing address is saved, so the outcome stays visible', async () => {
     const api = stub({ status: toolboxStatus({ state: 'not_configured', configured: false, missing: ['VIPER_TOOLBOX_MCP_URL'] }) })
-    renderApp('/settings/connections')
+    renderApp('/config-ai/connections')
 
     const server = await within(await screen.findByRole('region', { name: 'CIRCOE Toolbox' })).findByRole('textbox', {
       name: 'Adresse du serveur CIRCOE Toolbox',
@@ -183,7 +183,7 @@ describe('Paramètres › Connexions', () => {
 
   it('connects by sending this page’s address, then the browser to the Toolbox', async () => {
     const api = stub()
-    renderApp('/settings/connections')
+    renderApp('/config-ai/connections')
 
     await userEvent.click(await screen.findByRole('button', { name: 'Se connecter à CIRCOE Toolbox' }))
 
@@ -195,7 +195,7 @@ describe('Paramètres › Connexions', () => {
 
   it('says why the connection cannot start', async () => {
     stub({ connectRefusal: 'toolbox_unavailable' })
-    renderApp('/settings/connections')
+    renderApp('/config-ai/connections')
 
     await userEvent.click(await screen.findByRole('button', { name: 'Se connecter à CIRCOE Toolbox' }))
 
@@ -226,7 +226,7 @@ describe('Paramètres › Connexions', () => {
 
   it('disconnects after a confirmation: token forgotten, integration off', async () => {
     stub({ status: { ...CONNECTED, cleanups: { pending: 2, failing: 1 } } })
-    renderApp('/settings/connections')
+    renderApp('/config-ai/connections')
 
     expect(await screen.findByText(/2 brouillons obsolètes en attente/)).toHaveTextContent('dont 1 en échec')
     await userEvent.click(screen.getByRole('button', { name: 'Se déconnecter…' }))
@@ -242,15 +242,15 @@ describe('Paramètres › Connexions', () => {
 
   it('flags an expired connection on the tab', async () => {
     stub({ status: { ...CONNECTED, state: 'expired', connected: false } })
-    renderApp('/settings/roles')
+    renderApp('/config-ai/mcp')
 
-    const sections = screen.getByRole('navigation', { name: 'Sections des paramètres' })
+    const sections = screen.getByRole('navigation', { name: 'Sections de la configuration AI' })
     expect(await within(sections).findByText('À reconnecter')).toBeInTheDocument()
   })
 
   it('says where the settings live and that a file left unread was ignored', async () => {
     stub({}, { initial: integrations({}, { load_error: 'invalid', load_dropped: ['openai_timeout_ms'], updated_at: '2026-10-01T08:00:00+00:00', updated_by: 'Pilote Test' }) })
-    renderApp('/settings/connections')
+    renderApp('/config-ai/connections')
 
     expect(await within(panel()).findByText(/n’ont pas pu être relus au démarrage du serveur/)).toHaveTextContent('pour : délai d’attente.')
     expect(panel()).toHaveTextContent('runtime-settings.json')

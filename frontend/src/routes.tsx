@@ -1,4 +1,4 @@
-import { Navigate, useLocation, type RouteObject } from 'react-router'
+import { Navigate, useLocation, useParams, type RouteObject } from 'react-router'
 
 import { AdministrationPage } from './admin/AdministrationPage'
 import { AgendaPage } from './agenda/AgendaPage'
@@ -9,6 +9,7 @@ import { OAuthConsentPage } from './auth/OAuthConsentPage'
 import { RequireAdmin } from './auth/RequireAdmin'
 import { RequireAuth } from './auth/RequireAuth'
 import { CompaniesPage } from './companies/CompaniesPage'
+import { ConfigAiPage } from './config-ai/ConfigAiPage'
 import { ContactPage } from './contact/ContactPage'
 import { DatabasePage } from './database/DatabasePage'
 import { MissionDetailPage } from './missions/MissionDetailPage'
@@ -49,6 +50,14 @@ function ValidatedProspectsRedirect() {
   return <Navigate to={`/prospection?${params.toString()}${location.hash}`} replace />
 }
 
+// Moves an old path to its new home, keeping the query string and hash (OAuth return parameters).
+function LegacyRedirect({ to }: { to: string }) {
+  const location = useLocation()
+  const { section } = useParams()
+  const target = to === '/configuration' && section ? `${to}/${section}` : to
+  return <Navigate to={`${target}${location.search}${location.hash}`} replace />
+}
+
 // One page per navigation section (shell/navigation.ts). Contact replaced Exploitation (Contact port P4): the old
 // path redirects, so bookmarks keep working.
 const PAGES: RouteObject[] = [
@@ -63,20 +72,56 @@ const PAGES: RouteObject[] = [
   // « Autoriser … à accéder à VIPER ? »: where /oauth/authorize sends an MCP connector's person (ChatGPT, Claude…).
   { path: '/autoriser', element: <OAuthConsentPage /> },
   { path: '/agenda', element: <AgendaPage /> },
-  { path: '/database/:table?', element: <DatabasePage /> },
-  { path: '/organisation', element: <OrganizationPage /> },
-  { path: '/historique-agents', element: <AgentHistoryPage /> },
-  { path: '/inscriptions/:token', element: <SignupApprovalPage /> },
-  { path: '/settings/:section?', element: <SettingsPage /> },
-  // Administration group of the sidebar (categories, skills, source library): administrators only.
   {
-    path: '/administration/:section?',
+    path: '/database/:table?',
+    element: (
+      <RequireAdmin>
+        <DatabasePage />
+      </RequireAdmin>
+    ),
+  },
+  { path: '/organisation', element: <OrganizationPage /> },
+  {
+    path: '/historique-agents',
+    element: (
+      <RequireAdmin>
+        <AgentHistoryPage />
+      </RequireAdmin>
+    ),
+  },
+  { path: '/inscriptions/:token', element: <SignupApprovalPage /> },
+  // Administration group of the sidebar: administrators only (the API checks every write again).
+  {
+    path: '/settings/:section?',
+    element: (
+      <RequireAdmin>
+        <SettingsPage />
+      </RequireAdmin>
+    ),
+  },
+  {
+    path: '/config-ai/:section?',
+    element: (
+      <RequireAdmin>
+        <ConfigAiPage />
+      </RequireAdmin>
+    ),
+  },
+  // Configuration group (categories, skills, sources): administrators only, like their API writes.
+  {
+    path: '/configuration/:section?',
     element: (
       <RequireAdmin>
         <AdministrationPage />
       </RequireAdmin>
     ),
   },
+  // Former locations, kept for bookmarks and the Toolbox OAuth return (`?code=…` travels with the redirect).
+  { path: '/administration/:section?', element: <LegacyRedirect to="/configuration" /> },
+  { path: '/settings/connections', element: <LegacyRedirect to="/config-ai/connections" /> },
+  { path: '/settings/mcp', element: <LegacyRedirect to="/config-ai/mcp" /> },
+  { path: '/settings/prompt', element: <LegacyRedirect to="/config-ai/prompt" /> },
+  { path: '/settings/mission-creator', element: <LegacyRedirect to="/config-ai/mission-creator" /> },
 ]
 
 // Secondary pages inside a section (the section's navigation item stays current).

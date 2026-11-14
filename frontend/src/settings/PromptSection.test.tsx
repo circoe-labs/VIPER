@@ -20,7 +20,7 @@ function stub(options: Parameters<typeof stubIntegrationsApi>[0] = {}) {
 describe('Paramètres › Prompt initial', () => {
   it('shows the built-in brief while none is saved, with nothing to save or reset', async () => {
     stub()
-    renderApp('/settings/prompt')
+    renderApp('/config-ai/prompt')
 
     expect(await field()).toHaveValue(DEFAULT_TEXT)
     expect(within(panel()).getByRole('button', { name: 'Enregistrer' })).toBeDisabled()
@@ -30,7 +30,7 @@ describe('Paramètres › Prompt initial', () => {
   it('saves an edited brief, then goes back to the built-in one', async () => {
     const { puts } = stub()
     const user = userEvent.setup()
-    renderApp('/settings/prompt')
+    renderApp('/config-ai/prompt')
 
     const box = await field()
     await user.clear(box)
@@ -52,7 +52,7 @@ describe('Paramètres › Prompt initial', () => {
   it('refuses an empty brief', async () => {
     stub()
     const user = userEvent.setup()
-    renderApp('/settings/prompt')
+    renderApp('/config-ai/prompt')
 
     await user.clear(await field())
 
@@ -69,7 +69,7 @@ describe('Paramètres › Assistant de mission', () => {
   it('shows the built-in behaviour and saves an edited one under mission_creator_prompt, then resets it', async () => {
     const { puts } = stub()
     const user = userEvent.setup()
-    renderApp('/settings/mission-creator')
+    renderApp('/config-ai/mission-creator')
 
     const box = await missionField()
     expect(box).toHaveValue(MISSION_DEFAULT)

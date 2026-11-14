@@ -24,7 +24,7 @@ describe('UserMenu', () => {
       'POST /api/auth/login': [200, { user: TEST_USER, csrf_token: 'nouveau-jeton' }],
     })
     const { router, queryClient } = renderApp('/database')
-    await screen.findByText('API : connectée')
+    await screen.findByRole('button', { name: 'Se déconnecter' })
 
     await userEvent.click(screen.getByRole('button', { name: 'Se déconnecter' }))
 

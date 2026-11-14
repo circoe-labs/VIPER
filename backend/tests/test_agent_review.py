@@ -201,3 +201,63 @@ def test_the_review_reads_the_proposal(client: TestClient, db_session: Session) 
     assert body["company_name"] == "2SN"
     assert body["proposal"]["items"][0]["after"] == "2SN SAS"
     assert body["status"] == AgentResultStatus.PENDING_REVIEW.value
+
+
+def test_new_taxonomy_value_is_created_only_when_the_result_is_accepted(
+    client: TestClient, db_session: Session
+) -> None:
+    company = add_company(db_session, display_name="2SN")
+    add_prospect(db_session, company)
+    client.post("/api/settings/commercial-segments", json={"label": "Grands comptes"})
+    client.post("/api/agents/threads", json={"company_id": str(company.id)})
+    token = mint(db_session)
+    payload = call(client, token, "viper_claim_task", {"task_types": ["update_company"]})
+    result_id = call(
+        client,
+        token,
+        "viper_submit_task_result",
+        {
+            "task_id": payload["task_id"],
+            "claim_id": payload["claim_id"],
+            "result": {"commercial_segment": "Commissionnaire agréé", "confidence": 60},
+        },
+    )["result_id"]
+
+    def labels() -> list[str]:
+        return [row["label"] for row in client.get("/api/settings/commercial-segments").json()]
+
+    assert "Commissionnaire agréé" not in labels()
+    review = client.get(f"/api/agents/results/{result_id}").json()
+    resolution = review["proposal"]["items"][0]["resolutions"][0]
+    assert resolution["kind"] == "new"
+    assert resolution["raw_value"] == "Commissionnaire agréé"
+
+    assert client.post(f"/api/agents/results/{result_id}/accept", json={}).status_code == 200
+    assert "Commissionnaire agréé" in labels()
+
+
+def test_a_close_wording_is_matched_to_the_existing_value(
+    client: TestClient, db_session: Session
+) -> None:
+    company = add_company(db_session, display_name="2SN")
+    add_prospect(db_session, company)
+    client.post("/api/settings/commercial-segments", json={"label": "Grands comptes"})
+    client.post("/api/agents/threads", json={"company_id": str(company.id)})
+    token = mint(db_session)
+    payload = call(client, token, "viper_claim_task", {"task_types": ["update_company"]})
+    result_id = call(
+        client,
+        token,
+        "viper_submit_task_result",
+        {
+            "task_id": payload["task_id"],
+            "claim_id": payload["claim_id"],
+            "result": {"commercial_segment": "grand compte", "confidence": 60},
+        },
+    )["result_id"]
+
+    review = client.get(f"/api/agents/results/{result_id}").json()
+    item = review["proposal"]["items"][0]
+    assert item["after"] == "Grands comptes"
+    assert item["resolutions"][0]["kind"] == "matched"
+    assert item["resolutions"][0]["raw_value"] == "grand compte"

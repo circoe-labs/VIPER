@@ -1,11 +1,11 @@
-/* The voice mission assistant: an immersive, always-dark surface (it does not follow the light theme on purpose: a
+/* The voice dictation of a mission: an immersive, always-dark surface (it does not follow the light theme on purpose: a
    black blurred stage the voice fills). Own tokens, scoped to .voice. */
 .voice {
   --voice-bg: color-mix(in srgb, var(--nc-voice-ink) 84%, transparent);
   --voice-text: var(--nc-white);
   --voice-muted: color-mix(in srgb, var(--nc-white) 62%, transparent);
-  --voice-blue: var(--nc-voice-blue);
-  --voice-blue-deep: var(--nc-voice-blue-deep);
+  --voice-blue: var(--color-accent);
+  --voice-blue-deep: var(--color-accent);
   --voice-danger: var(--nc-voice-danger);
   --level: 0;
 
@@ -13,7 +13,7 @@
   inset: 0;
   z-index: calc(var(--z-overlay, 100) + 50);
   display: grid;
-  grid-template-rows: auto 1fr auto auto;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
   grid-template-columns: 1fr;
   padding: clamp(1rem, 3vw, 2.25rem);
   color: var(--voice-text);
@@ -85,32 +85,19 @@
 
 .voice[data-phase='listening'] .voice__dot {
   background: var(--voice-blue);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--nc-voice-blue) 25%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-accent) 25%, transparent);
 }
 
-.voice__icon-button {
-  display: grid;
-  place-items: center;
-  width: 2.5rem;
-  height: 2.5rem;
-  color: var(--voice-text);
-  background: transparent;
-  border: 1px solid color-mix(in srgb, var(--nc-white) 16%, transparent);
-  border-radius: 50%;
-}
-
-.voice__icon-button[aria-pressed='false'] {
-  color: var(--voice-muted);
-}
-
-/* The assistant's answer: first third, large white. */
+/* The prompt / what was understood: wide, centred horizontally and vertically (a little below the middle). */
 .voice__stage {
   grid-row: 2;
-  align-self: start;
+  align-self: center;
+  justify-items: center;
   display: grid;
-  gap: 1.25rem;
-  width: min(100%, 52rem);
-  margin: clamp(2rem, 11vh, 7rem) auto 0;
+  gap: 1.5rem;
+  width: min(100%, 64rem);
+  margin: clamp(1rem, 6vh, 4rem) auto 0;
+  text-align: center;
 }
 
 .voice__assistant {
@@ -138,6 +125,7 @@
 .voice__applied {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: 0.5rem;
   margin: 0;
   padding: 0;
@@ -194,35 +182,30 @@
   border-radius: 999px;
 }
 
-/* The person's words: lower area, blue; the orb: bottom-right. */
+/* The person's words, then one centred composer: microphone on the left, typed input beside it. */
 .voice__foot {
   grid-row: 4;
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 1.5rem;
-}
-
-.voice__speech {
   display: grid;
-  gap: 0.75rem;
-  flex: 1 1 auto;
-  min-width: 0;
-  max-width: 44rem;
+  justify-items: center;
+  gap: 0.9rem;
+  width: min(100%, 44rem);
+  margin: 0 auto;
 }
 
 .voice__hint {
   margin: 0;
   color: var(--voice-muted);
   font-size: 0.9rem;
+  text-align: center;
 }
 
 .voice__transcript {
   min-height: 2.6em;
   margin: 0;
   color: var(--voice-blue);
-  font-size: clamp(1.15rem, 2.2vw, 1.6rem);
+  font-size: clamp(1.1rem, 2vw, 1.5rem);
   line-height: 1.3;
+  text-align: center;
   overflow-wrap: anywhere;
 }
 
@@ -231,21 +214,33 @@
   font-style: italic;
 }
 
+.voice__composer {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  width: 100%;
+  padding: 0.5rem 0.6rem;
+  background: color-mix(in srgb, var(--nc-white) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--nc-white) 14%, transparent);
+  border-radius: 999px;
+}
+
 .voice__typed {
   display: flex;
+  flex: 1 1 auto;
   gap: 0.5rem;
+  min-width: 0;
 }
 
 .voice__typed input {
   flex: 1 1 auto;
   min-width: 0;
   min-height: 2.75rem;
-  padding: 0 1rem;
+  padding: 0 0.5rem;
   color: var(--voice-text);
   font: inherit;
-  background: color-mix(in srgb, var(--nc-white) 7%, transparent);
-  border: 1px solid color-mix(in srgb, var(--nc-white) 18%, transparent);
-  border-radius: 999px;
+  background: transparent;
+  border: 0;
 }
 
 .voice__typed input::placeholder {
@@ -266,59 +261,85 @@
   cursor: default;
 }
 
-.voice__orb {
+/* The microphone: a round button in the brand accent; two wave rings follow the input level (--level 0..1). */
+.voice__mic {
   position: relative;
   flex: none;
   display: grid;
   place-items: center;
-  width: 6.5rem;
-  height: 6.5rem;
+  width: 3.25rem;
+  height: 3.25rem;
   padding: 0;
-  color: var(--nc-white);
+  color: var(--color-on-accent);
   background: transparent;
   border: 0;
   border-radius: 50%;
 }
 
-.voice__orb:disabled {
+.voice__mic:disabled {
   cursor: default;
   opacity: 0.45;
 }
 
-.voice__orb-ring {
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  background: radial-gradient(circle, color-mix(in srgb, var(--nc-voice-blue) 55%, transparent), transparent 70%);
-  transform: scale(calc(0.72 + var(--level) * 0.9));
-  transition: transform 90ms linear;
-}
-
-.voice__orb-core {
+.voice__mic-core {
   position: relative;
   display: grid;
   place-items: center;
-  width: 4.25rem;
-  height: 4.25rem;
+  width: 100%;
+  height: 100%;
   border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, var(--nc-voice-glow), var(--voice-blue-deep) 72%);
-  box-shadow: 0 0 2.5rem color-mix(in srgb, var(--nc-voice-blue-deep) 55%, transparent);
+  background: var(--color-accent);
+  transition: background-color 120ms linear;
 }
 
-.voice[data-phase='thinking'] .voice__orb-ring,
-.voice[data-phase='transcribing'] .voice__orb-ring,
-.voice[data-phase='speaking'] .voice__orb-ring {
+.voice__wave {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid var(--color-accent);
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Listening: the rings breathe with the voice. */
+.voice[data-phase='listening'] .voice__wave--inner {
+  opacity: 0.55;
+  transform: scale(calc(1.05 + var(--level) * 0.55));
+  transition: transform 90ms linear;
+}
+
+.voice[data-phase='listening'] .voice__wave--outer {
+  opacity: calc(0.15 + var(--level) * 0.45);
+  transform: scale(calc(1.2 + var(--level) * 1.1));
+  transition: transform 90ms linear, opacity 90ms linear;
+}
+
+/* Transcribing / analysing: a slow pulse. */
+.voice[data-phase='thinking'] .voice__wave--inner,
+.voice[data-phase='transcribing'] .voice__wave--inner {
   animation: voice-pulse 1.4s ease-in-out infinite;
 }
 
-.voice[data-phase='idle'] .voice__orb-core {
-  filter: saturate(0.5) brightness(0.8);
+/* Idle: calm, desaturated. */
+.voice[data-phase='idle'] .voice__mic-core {
+  filter: saturate(0.55) brightness(0.85);
+}
+
+/* Error: the mic turns to the danger tone until the next attempt. */
+.voice[data-error][data-phase='idle'] .voice__mic-core {
+  background: var(--voice-danger);
+  filter: none;
 }
 
 @keyframes voice-pulse {
+  0%,
+  100% {
+    opacity: 0;
+    transform: scale(1);
+  }
   50% {
-    transform: scale(1.05);
     opacity: 0.6;
+    transform: scale(1.3);
   }
 }
 
@@ -333,21 +354,21 @@
     justify-content: center;
   }
 
-  .voice__foot {
-    flex-direction: column-reverse;
-    align-items: stretch;
-  }
-
-  .voice__orb {
-    align-self: flex-end;
+  .voice__composer {
+    border-radius: 1.5rem;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .voice,
   .voice__assistant,
-  .voice__orb-ring {
+  .voice__wave {
     animation: none;
     transition: none;
   }
+}
+
+/* Footer microphone of « Créer mission » (round, icon only). */
+.voice-entry__mic {
+  border-radius: 50%;
 }
