@@ -1,0 +1,62 @@
+/* Home charts: three cards under the KPI cards, full width. Colours are semantic tokens only, so dark and light follow. */
+
+.home-charts {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.home-chart { align-content: start; min-width: 0; }
+.home-chart--growth { grid-column: 1 / -1; }
+
+.chart-legend { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-5); margin: 0; padding: 0; list-style: none; color: var(--color-text-muted); font-size: var(--text-sm); }
+.chart-legend li { display: inline-flex; align-items: center; gap: var(--space-2); }
+.chart-legend strong { color: var(--color-text); font-variant-numeric: tabular-nums; }
+.chart-legend__swatch { width: 10px; height: 10px; border-radius: 3px; }
+
+.home-chart__empty, .home-chart__foot { margin: 0; color: var(--color-text-muted); font-size: var(--text-sm); }
+
+/* Week-by-week columns */
+.week-bars__plot { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-2); height: 240px; }
+.week-bars--compact .week-bars__plot { grid-template-columns: minmax(0, 1fr); height: 120px; }
+.week-bars__axis { display: flex; flex-direction: column; justify-content: space-between; padding-bottom: 22px; color: var(--color-text-muted); font-size: var(--text-xs); font-variant-numeric: tabular-nums; text-align: right; line-height: 1; }
+.week-bars__columns {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  background: linear-gradient(var(--color-border), var(--color-border)) 0 0 / 100% 1px no-repeat,
+    linear-gradient(var(--color-border), var(--color-border)) 0 calc((100% - 22px) / 2) / 100% 1px no-repeat;
+}
+.week-bars--compact .week-bars__columns { background: linear-gradient(var(--color-border), var(--color-border)) 0 calc(100% - 22px) / 100% 1px no-repeat; }
+.week-bars__column { display: grid; grid-template-rows: minmax(0, 1fr) 22px; min-width: 0; border-radius: var(--radius-sm); }
+.week-bars__column:hover { background: var(--color-surface-hover); }
+.week-bars__stack { display: flex; flex-direction: column-reverse; align-items: center; gap: 1px; padding: 0 12%; min-height: 0; border-bottom: 1px solid var(--color-border-strong); }
+.week-bars__segment { width: 100%; min-height: 3px; border-radius: 2px; }
+/* Small multiples are narrow: one week label out of two. */
+.week-bars--compact .week-bars__column:nth-child(even) .week-bars__label { visibility: hidden; }
+.week-bars__label { align-self: end; color: var(--color-text-muted); font-size: var(--text-xs); text-align: center; font-variant-numeric: tabular-nums; }
+
+/* Rings */
+.gauges { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
+.gauge { display: grid; justify-items: center; gap: var(--space-1); text-align: center; }
+.gauge__ring { grid-area: 1 / 1; width: 140px; height: 140px; }
+.gauge__track, .gauge__value { fill: none; stroke-width: 11; }
+.gauge__track { stroke: var(--color-border); }
+.gauge__value { stroke-linecap: round; }
+.gauge__figure { grid-area: 1 / 1; align-self: center; font-size: var(--text-xl); font-weight: var(--weight-bold); font-variant-numeric: tabular-nums; }
+.gauge__label { color: var(--color-text); font-size: var(--text-sm); font-weight: var(--weight-medium); }
+.gauge__detail { color: var(--color-text-muted); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
+
+/* Small multiples */
+.growth { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-6); }
+.growth__item { display: grid; gap: var(--space-3); min-width: 0; }
+.growth__item header { display: flex; align-items: baseline; gap: var(--space-2); }
+.growth__item h3 { margin: 0; font-size: var(--text-md); font-weight: var(--weight-semibold); }
+.growth__item strong { margin-left: auto; font-size: var(--text-xl); font-variant-numeric: tabular-nums; }
+.growth__item small { color: var(--color-text-muted); font-size: var(--text-xs); }
+
+@media (max-width: 1100px) {
+  .home-charts { grid-template-columns: minmax(0, 1fr); }
+  .growth { grid-template-columns: minmax(0, 1fr); }
+}

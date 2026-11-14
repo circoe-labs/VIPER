@@ -70,3 +70,39 @@ export const metricsKeys = { all: ['metrics'] as const, weekly: ['metrics', 'wee
 export function useWeeklyMetrics() {
   return useQuery({ queryKey: metricsKeys.weekly, queryFn: ({ signal }) => apiGet<WeeklyMetrics>('/metrics/weekly', signal) })
 }
+
+// GET /api/metrics/weekly-series?weeks=N (doc/features/weekly-metrics.md): the week-by-week history behind Home's
+// charts, oldest week first, the current business week last. A week without recorded event is a true 0.
+export interface WeekPoint {
+  week: string
+  week_start: string
+  week_end: string
+  additions: WeeklyAdditions
+  // Prospects first contacted / answered / first appointment recorded in the week (imports and migrations excluded).
+  first_contacts: number
+  responses: number
+  appointments: number
+}
+
+// Stock as of now (not a sum of the weeks): of the prospects really contacted, how many answered / hold an RDV.
+export interface ConversionTotals {
+  contacted: number
+  responded: number
+  with_appointment: number
+}
+
+export interface WeeklySeries {
+  timezone: string
+  today: string
+  weeks: WeekPoint[]
+  totals: ConversionTotals
+}
+
+export const SERIES_WEEKS = 12
+
+export function useWeeklySeries(weeks = SERIES_WEEKS) {
+  return useQuery({
+    queryKey: [...metricsKeys.all, 'weekly-series', weeks] as const,
+    queryFn: ({ signal }) => apiGet<WeeklySeries>(`/metrics/weekly-series?weeks=${String(weeks)}`, signal),
+  })
+}

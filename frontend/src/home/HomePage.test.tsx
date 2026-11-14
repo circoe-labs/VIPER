@@ -2,6 +2,7 @@ import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import type { WeeklySeries } from '../api/metrics'
 import type { MissionCard } from '../api/missions'
 import { prospectionCounters, SHELL_API, weeklyMetrics } from '../test/homeApi'
 import { renderApp, stubApi } from '../test/render'
@@ -13,9 +14,19 @@ const METRICS = weeklyMetrics({
 })
 const mission = (status: MissionCard['status'], results_pending: number) => ({ status, results_pending }) as MissionCard
 const MISSIONS = { items: [mission('active', 2), mission('active', 0), mission('done', 5)], total: 3 }
+const week = (index: number, first_contacts: number, responses: number, appointments: number) => ({
+  week: `2026-W${String(42 + index)}`, week_start: `2026-10-${String(12 + 7 * index)}`, week_end: `2026-10-${String(18 + 7 * index)}`,
+  additions: { prospects: index, companies: 1, warehouses: 0 }, first_contacts, responses, appointments,
+})
+const SERIES: WeeklySeries = {
+  timezone: 'Europe/Paris', today: '2026-10-30',
+  weeks: [week(0, 10, 2, 1), week(1, 20, 5, 2)],
+  totals: { contacted: 200, responded: 50, with_appointment: 8 },
+}
 const API = {
   ...SHELL_API,
   'GET /api/metrics/weekly': [200, METRICS],
+  'GET /api/metrics/weekly-series': [200, SERIES],
   'GET /api/prospection/counters': [200, prospectionCounters(17)],
   'GET /api/missions': [200, MISSIONS],
 } as const
@@ -27,7 +38,22 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers() })
 
 describe('Home cockpit', () => {
-  it('shows the data-backed cards of Prospection, Contact and Missions and no detail table', async () => {
+  it('draws the charts under the cards from the weekly series, with exact rates', async () => {
+    stubApi({ ...API })
+    renderApp('/')
+    const main = within(await screen.findByRole('main'))
+    const conversion = await main.findByRole('region', { name: 'Conversion des prospects contactés' })
+    expect(within(conversion).getByRole('group', { name: /Rendez-vous pris : 4\s?% \(8 sur 200\)/ })).toBeInTheDocument()
+    expect(within(conversion).getByRole('group', { name: /Réponses : 25\s?% \(50 sur 200\)/ })).toBeInTheDocument()
+    const activity = main.getByRole('region', { name: 'Activité de contact par semaine' })
+    expect(within(activity).getByRole('table', { name: 'Activité de contact par semaine' })).toBeInTheDocument()
+    expect(main.getByRole('region', { name: 'Croissance de la base par semaine' })).toBeInTheDocument()
+    const cards = main.getByRole('list', { name: 'Indicateurs' })
+    expect(cards.compareDocumentPosition(activity) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+
+  it('shows the data-backed cards of Prospection, Contact and Missions and no visible detail table', async () => {
     stubApi({ ...API })
     renderApp('/')
     const main = within(await screen.findByRole('main'))
@@ -38,7 +64,8 @@ describe('Home cockpit', () => {
       '6 Rendez-vous pris', '41 À contacter', '9 Relances dues dont 3 en retard', '17 À vérifier',
       '2 Missions en cours', '1 Missions terminées', '7 Reviews en attente',
     ]))
-    expect(main.queryByRole('table')).not.toBeInTheDocument()
+    // The only tables are the visually hidden data of the charts, one per chart (1 activity + 3 growth).
+    expect(await main.findAllByRole('table')).toHaveLength(4)
   })
 
   it('leads every card through the central descriptors', async () => {

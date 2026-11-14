@@ -13,7 +13,7 @@ from app.models import ContactTracking, Warehouse
 from app.models.contact_tracking import ContactTrackingStatusHistory
 from app.models.enums import ContactTrackingStatus, TrackingHistoryStatus
 from app.services.prospection.segments import SegmentContext
-from app.services.weekly_metrics import weekly_metrics
+from app.services.weekly_metrics import weekly_metrics, weekly_series
 from tests.builders import add_company, add_prospect, add_send, start_sequence
 
 MONDAY = date(2026, 10, 19)  # the week ending 25 October 2026 holds the autumn DST change
@@ -124,3 +124,66 @@ def test_stock_separates_first_contact_follow_up_and_overdue(db_session: Session
     split = (stock.first_contact_to_send, stock.follow_up_to_send, stock.follow_up_overdue)
     assert split == (1, 1, 1)
     assert stock.contacted == 1
+
+
+def test_series_rejects_out_of_range_weeks(client: TestClient) -> None:
+    assert client.get("/api/metrics/weekly-series?weeks=0").status_code == 422
+    assert client.get("/api/metrics/weekly-series?weeks=27").status_code == 422
+
+
+def test_series_empty_base_is_zero_week_by_week(client: TestClient) -> None:
+    body = client.get("/api/metrics/weekly-series?weeks=4").json()
+    assert len(body["weeks"]) == 4
+    assert body["weeks"][-1]["week_start"] <= body["today"]
+    assert all(
+        point["first_contacts"] == point["responses"] == point["appointments"] == 0
+        for point in body["weeks"]
+    )
+    assert body["totals"] == {"contacted": 0, "responded": 0, "with_appointment": 0}
+
+
+def test_series_buckets_events_by_week_and_matches_weekly(db_session: Session) -> None:
+    this_week, last_week = start_of_day(MONDAY), start_of_day(MONDAY - timedelta(days=7))
+    for index, at in enumerate(
+        (
+            this_week + timedelta(hours=1),
+            last_week + timedelta(hours=1),
+            last_week + timedelta(days=2),
+        )
+    ):
+        company = add_company(db_session, f"Co {index}", created_at=at)
+        person = add_prospect(db_session, company, created_at=at)
+        add_send(db_session, start_sequence(db_session, person), 0, at)
+    answered = add_prospect(db_session)
+    tracking = ContactTracking(
+        prospect_id=answered.id,
+        status=ContactTrackingStatus.APPOINTMENT_OBTAINED,
+        response_received_at=last_week + timedelta(days=1),
+    )
+    db_session.add(tracking)
+    db_session.flush()
+    for actor_type in (ActorType.HUMAN, ActorType.IMPORT):  # the import restates: not an event
+        db_session.add(
+            ContactTrackingStatusHistory(
+                contact_tracking_id=tracking.id,
+                from_status=None,
+                to_status=TrackingHistoryStatus.APPOINTMENT_OBTAINED,
+                changed_at=last_week + timedelta(days=3),
+                actor_type=actor_type,
+                actor_id=None,
+                actor_display="Test",
+            )
+        )
+    db_session.flush()
+    series = weekly_series(db_session, TODAY, 3)
+    starts = [point.week_start for point in series.weeks]
+    assert starts == [MONDAY - timedelta(days=14), MONDAY - timedelta(days=7), MONDAY]
+    older, previous, current = series.weeks
+    # The appointment history row also dates a first contact (CONTACT_ATTEMPT_CODES).
+    assert (older.first_contacts, previous.first_contacts, current.first_contacts) == (0, 3, 1)
+    assert (older.responses, previous.responses, current.responses) == (0, 1, 0)
+    assert (older.appointments, previous.appointments, current.appointments) == (0, 1, 0)
+    assert (previous.additions.prospects, previous.additions.companies) == (2, 2)
+    assert current.additions.prospects == 1
+    assert current.first_contacts == weekly_metrics(db_session, TODAY).contact_events.first_contacts
+    assert series.totals.contacted == 3

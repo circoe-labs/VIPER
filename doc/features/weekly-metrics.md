@@ -41,3 +41,17 @@ and Prospection's `SegmentContext.week_start` are the same week.
 - `status_entries` counts only history written since status history exists in VIPER; a response answered by import is
   not an event. `contact_events.responses` follows the current `response_received_at` (a cleared date drops out).
 - Quotes / opportunities: out of scope (no contractual state).
+
+## `GET /api/metrics/weekly-series?weeks=12` — week-by-week history (Home charts)
+
+`weeks` 1 to 26 (default 12). Returns `weeks[]` oldest first, the current business week last; each point has `week`,
+`week_start`, `week_end`, `additions {prospects, companies, warehouses}` (by `created_at`), `first_contacts`,
+`responses`, `appointments`, from the same rules as `/weekly` (`home.weekly_recorded_firsts_series` is the multi-week
+form of `weekly_recorded_firsts`: imports and migrations 0008/0012 restatements are not events; `responses` =
+`response_received_at` in the week). `totals` is a stock as of now, not a sum of the weeks: `contacted` (`contacted_sql`),
+`responded` (contacted with a `response_received_at`), `with_appointment` (contacted and `has_appointment()`).
+
+- Conversion rates shown by Home: `with_appointment / contacted` and `responded / contacted` (null when `contacted` = 0).
+- Limits: a week before any record is 0 because nothing was recorded, not because nothing happened; prospects contacted
+  or answered before VIPER recorded events (imports) are in `totals` but in no week. `first_contacts` counts a prospect
+  once, in the week of the first recorded contact (a first appointment history row also dates a first contact).
