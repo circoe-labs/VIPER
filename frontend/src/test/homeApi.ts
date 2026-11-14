@@ -1,5 +1,6 @@
 import type { HomeDashboard, HomeData } from '../api/home'
-import { SEGMENTS } from '../api/prospection'
+import type { MissionList } from '../api/missions'
+import { REVIEWS, SEGMENTS, type Counters } from '../api/prospection'
 import type { ApiReply } from './render'
 
 // Synthetic answers of GET /api/home (backend/app/api/routes/home.py) for component tests. The aggregates themselves
@@ -49,9 +50,22 @@ export function homeDashboard(overrides: Partial<HomeDashboard> = {}): HomeDashb
   }
 }
 
+export function prospectionCounters(toVerify = 0): Counters {
+  return {
+    counts: Object.fromEntries(SEGMENTS.map((segment) => [segment, 0])) as Counters['counts'],
+    reviews: Object.fromEntries(REVIEWS.map((review) => [review, { total: review === 'to_verify' ? toVerify : 0, week: 0 }])) as Counters['reviews'],
+    today: '2026-09-10',
+    stale_threshold_days: null,
+  }
+}
+
+export const NO_MISSIONS: MissionList = { items: [], total: 0 }
+
 // What any page of the signed-in shell may ask on load when it lands on Accueil: the health probe and Home.
 export const SHELL_API: Record<string, ApiReply> = {
   'GET /api/health': [200, { status: 'ok', database: 'ok' }],
   'GET /api/home': [200, homeData()],
   'GET /api/home/dashboard': [200, homeDashboard()],
+  'GET /api/prospection/counters': [200, prospectionCounters()],
+  'GET /api/missions': [200, NO_MISSIONS],
 }

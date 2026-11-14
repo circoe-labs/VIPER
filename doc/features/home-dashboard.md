@@ -253,3 +253,23 @@ the base and the contact activity. Styles: `frontend/src/home/home.css` (see the
 ## Évolution des ajouts sur l’accueil
 
 `GET /api/home/dashboard` fournit deux semaines calendaires, la semaine dernière et la semaine courante, du lundi au dimanche en heure de Paris. Chaque point `prospect_trend` contient `week` (date du lundi), `prospects` (fiches de prospection créées) et `warehouses` (nombre d’interlocuteurs figurant actuellement sur les fiches d’entrepôt créées cette semaine). Les deux séries restent distinctes. Les interlocuteurs n’ayant pas de date de création individuelle, un ajout ou une suppression ultérieure modifie le total attribué à la semaine de création de l’entrepôt : ce n’est pas un historique précis des modifications.
+
+## Cockpit de pilotage (Slice 04, prospection/contact/home rearchitecture)
+
+Home est un cockpit court : trois sections de cartes cliquables, aucun tableau. Chaque carte n'est produite que si sa
+source a répondu (jamais de zéro inventé) ; les sources existantes sont lues via `frontend/src/home/cockpit.ts`
+(`buildCockpit`), sans nouveau contrat API.
+
+| Carte | Source | Destination (`frontend/src/home/destinations.ts`) |
+|---|---|---|
+| Nouveaux prospects / entreprises / entrepôts (cette semaine) | `GET /api/home/dashboard` `weekly_activity.{prospects,companies,warehouses}` | `/prospection?entity=prospect\|company\|warehouse&created_from=<week_start>` |
+| Rendez-vous pris | `dashboard.appointments` | `/contact?status=appointment` |
+| À contacter | `GET /api/home` `counts.to_contact` | `/contact?status=to_contact` |
+| Relances dues (+ « dont N en retard ») | `counts.due`, `contact_week.overdue` | `/contact?status=due` |
+| À vérifier | `GET /api/prospection/counters` `reviews.to_verify.total` | `/prospection?entity=prospect&review=to_verify` |
+| Missions en cours / terminées | `GET /api/missions` (`status` active / done) | `/missions` |
+| Reviews en attente | somme de `results_pending` des missions | `/missions` |
+
+Les destinations sont **provisoires** : `entity` et les valeurs `status=` de Contact ne sont pas encore lues par les
+pages ; `/missions` n'a pas de filtre. Toute mise à jour passe par `destinations.ts` (Slice 05). Les anciens blocs
+(activité récente, progression du mois, campagne, semaine à contacter) sont retirés de Home.
