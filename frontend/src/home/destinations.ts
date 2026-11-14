@@ -32,8 +32,8 @@ function href(path: string, params: Record<string, string | undefined>): string 
 }
 
 export const HOME_DESTINATIONS: Record<HomeCardId, (context: DestinationContext) => string> = {
-  new_prospects: ({ weekStart }) => href('/prospection', { entity: 'prospect', created_from: weekStart }),
-  new_companies: ({ weekStart }) => href('/prospection', { entity: 'company', created_from: weekStart }),
+  new_prospects: () => href('/prospection', { entity: 'prospect' }),
+  new_companies: () => href('/prospection', { entity: 'company' }),
   new_warehouses: () => href('/prospection', { entity: 'warehouse' }),
   appointments: () => href('/contact', { view: 'appointments' }),
   to_contact: () => href('/contact', { view: 'to_contact' }),

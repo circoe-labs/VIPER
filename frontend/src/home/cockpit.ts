@@ -12,11 +12,13 @@ import { HOME_DESTINATIONS, type HomeCardId } from './destinations'
 export interface CockpitCard {
   id: HomeCardId
   label: string
-  count: number
+  // The overall figure (undefined while it loads). Never replaced by the weekly figure.
+  count: number | undefined
+  // « +N cette semaine » next to the overall figure, only when the source states it (null = unavailable).
+  weekly?: number | null
   icon: IconComponent
   tone: 'blue' | 'purple' | 'green' | 'orange' | 'emerald'
   href: string
-  growth?: boolean
   // Honest secondary line, only when the source states it (e.g. the overdue part of the due follow-ups).
   hint?: string
 }
@@ -30,9 +32,11 @@ export interface CockpitSources {
   metrics: WeeklyMetrics | undefined
   counters: Counters | undefined
   missions: MissionList | undefined
+  // Overall sizes of the base (same sources as the Prospection cards).
+  totals?: { prospects?: number; companies?: number; warehouses?: number }
 }
 
-export function buildCockpit({ metrics, counters, missions }: CockpitSources): CockpitSection[] {
+export function buildCockpit({ metrics, counters, missions, totals }: CockpitSources): CockpitSection[] {
   const context = { weekStart: metrics?.week_start }
   const card = (id: HomeCardId, rest: Omit<CockpitCard, 'id' | 'href'>): CockpitCard => ({ id, href: HOME_DESTINATIONS[id](context), ...rest })
   const week = metrics?.additions
@@ -40,22 +44,22 @@ export function buildCockpit({ metrics, counters, missions }: CockpitSources): C
   const items = missions?.items
 
   const contact: (CockpitCard | undefined)[] = [
-    stock && card('appointments', { label: 'Rendez-vous pris', count: stock.appointments, icon: CalendarIcon, tone: 'orange' }),
+    stock && card('appointments', { label: 'Rendez-vous pris', count: stock.appointments, weekly: metrics.contact_events.first_appointments, icon: CalendarIcon, tone: 'orange' }),
     stock && card('to_contact', { label: 'À contacter', count: stock.first_contact_to_send, icon: MailIcon, tone: 'green' }),
     stock && card('due', {
       label: 'Relances dues', count: stock.follow_up_to_send, icon: ClockIcon, tone: 'orange',
       hint: stock.follow_up_overdue > 0 ? `dont ${String(stock.follow_up_overdue)} en retard` : undefined,
     }),
-    counters && card('to_verify', { label: 'À vérifier', count: counters.reviews.to_verify.total, icon: CheckCircleIcon, tone: 'blue' }),
+    counters && card('to_verify', { label: 'À vérifier', count: counters.reviews.to_verify.total, weekly: counters.reviews.to_verify.week, icon: CheckCircleIcon, tone: 'blue' }),
   ]
 
   const sections: CockpitSection[] = [
     {
-      title: 'Cette semaine',
+      title: 'La base',
       cards: week ? [
-        card('new_prospects', { label: 'Nouveaux prospects', count: week.prospects, icon: UserPlusIcon, tone: 'blue', growth: true }),
-        card('new_companies', { label: 'Nouvelles entreprises', count: week.companies, icon: BuildingIcon, tone: 'purple', growth: true }),
-        card('new_warehouses', { label: 'Nouveaux entrepôts', count: week.warehouses, icon: WarehouseIcon, tone: 'emerald', growth: true }),
+        card('new_prospects', { label: 'Prospects', count: totals?.prospects, weekly: week.prospects, icon: UserPlusIcon, tone: 'blue' }),
+        card('new_companies', { label: 'Entreprises', count: totals?.companies, weekly: week.companies, icon: BuildingIcon, tone: 'purple' }),
+        card('new_warehouses', { label: 'Entrepôts', count: totals?.warehouses, weekly: week.warehouses, icon: WarehouseIcon, tone: 'emerald' }),
       ] : [],
     },
     { title: 'À traiter', cards: contact.filter((entry): entry is CockpitCard => entry !== undefined) },

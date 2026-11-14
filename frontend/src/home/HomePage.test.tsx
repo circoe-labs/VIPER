@@ -57,13 +57,13 @@ describe('Home cockpit', () => {
     stubApi({ ...API })
     renderApp('/')
     const main = within(await screen.findByRole('main'))
-    await main.findByRole('link', { name: /Nouveaux entrepôts/ })
+    await main.findByRole('link', { name: /Entrepôts/ })
     const cards = main.getAllByRole('link').map((link) => link.textContent.replace(/\s+/g, ' ').trim())
     const has = (label: string, value: string, note?: string) =>
       cards.some((text) => text.includes(label) && text.includes(value) && (note === undefined || text.includes(note)))
     expect([
-      has('Nouveaux prospects', '28', 'cette semaine'), has('Nouvelles entreprises', '12', 'cette semaine'), has('Nouveaux entrepôts', '145', 'cette semaine'),
-      has('Rendez-vous pris', '6'), has('À contacter', '41'), has('Relances dues', '9', 'dont 3 en retard'), has('À vérifier', '17'),
+      has('Prospects', '1 051', '+28 cette semaine'), has('Entreprises', '812', '+12 cette semaine'), has('Entrepôts', '36', '+145 cette semaine'),
+      has('Rendez-vous pris', '6', '+'), has('À contacter', '41'), has('Relances dues', '9', 'dont 3 en retard'), has('À vérifier', '17', '+'),
       has('Missions en cours', '2'), has('Missions terminées', '1'), has('Reviews en attente', '7'),
     ]).toEqual(Array(10).fill(true))
     // The only tables are the visually hidden data of the charts, one per chart (1 activity + 3 growth).
@@ -74,12 +74,11 @@ describe('Home cockpit', () => {
     stubApi({ ...API })
     renderApp('/')
     const main = within(await screen.findByRole('main'))
-    await main.findByRole('link', { name: /Nouveaux prospects/ })
+    await main.findByRole('link', { name: /Prospects/ })
     const href = (name: RegExp) => main.getByRole('link', { name }).getAttribute('href')
-    expect(href(/Nouveaux prospects/)).toBe('/prospection?entity=prospect&created_from=2026-10-26')
-    expect(href(/Nouvelles entreprises/)).toBe('/prospection?entity=company&created_from=2026-10-26')
-    // No creation-date filter exists for warehouses: the card leads to the list, not to a fake filter.
-    expect(href(/Nouveaux entrepôts/)).toBe('/prospection?entity=warehouse')
+    expect(href(/Prospects/)).toBe('/prospection?entity=prospect')
+    expect(href(/Entreprises/)).toBe('/prospection?entity=company')
+    expect(href(/Entrepôts/)).toBe('/prospection?entity=warehouse')
     expect(href(/Rendez-vous pris/)).toBe('/contact?view=appointments')
     expect(href(/À contacter/)).toBe('/contact?view=to_contact')
     expect(href(/Relances dues/)).toBe('/contact?view=follow_ups')

@@ -23,18 +23,12 @@ describe('Home descriptors are understood by their destination page', () => {
     }
   })
 
-  it('Prospection cards select the entity, the creation week and the review', () => {
-    const prospects = parseProspection(url('new_prospects').searchParams)
-    expect(prospects).toMatchObject({ entity: 'prospect', created_from: '2026-10-26' })
-    expect(parseProspection(url('new_companies').searchParams)).toMatchObject({ entity: 'company', created_from: '2026-10-26' })
+  it('Prospection cards select the entity and the review', () => {
+    expect(parseProspection(url('new_prospects').searchParams)).toMatchObject({ entity: 'prospect' })
+    expect(parseProspection(url('new_companies').searchParams)).toMatchObject({ entity: 'company' })
     expect(parseProspection(url('to_verify').searchParams)).toMatchObject({ entity: 'prospect', review: 'to_verify' })
-    // The warehouse list cannot be filtered by creation date: no fake `created_from`.
     expect(url('new_warehouses').search).toBe('?entity=warehouse')
     expect(parseProspection(url('new_warehouses').searchParams).entity).toBe('warehouse')
-  })
-
-  it('omits created_from when the week is unknown', () => {
-    expect(HOME_DESTINATIONS.new_prospects({ weekStart: undefined })).toBe('/prospection?entity=prospect')
   })
 })
 

@@ -84,5 +84,8 @@ export const SHELL_API: Record<string, ApiReply> = {
   'GET /api/metrics/weekly': [200, weeklyMetrics()],
   'GET /api/metrics/weekly-series': [200, { timezone: 'Europe/Paris', today: '2026-11-14', weeks: [], totals: { contacted: 0, responded: 0, with_appointment: 0 } }],
   'GET /api/prospection/counters': [200, prospectionCounters()],
+  'GET /api/prospection/overview': [200, { total: 1051, contacted: 0, deleted: 0, ignored: 0, employment_validated: 0, employment_pending: 0, uncertain: 0, todo: 0 }],
+  'GET /api/companies/counts': [200, { all: 812, institutional: 0, sme: 0, large: 0, unclassified: 812 }],
+  'GET /api/warehouses/counts': [200, { warehouses: 36, contacts: 0, to_contact: 0, sme: 0, other: 0, unclassified: 36 }],
   'GET /api/missions': [200, NO_MISSIONS],
 }

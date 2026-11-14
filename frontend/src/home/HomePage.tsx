@@ -2,7 +2,9 @@ import { Link } from 'react-router'
 
 import { useWeeklyMetrics, useWeeklySeries } from '../api/metrics'
 import { useMissions } from '../api/missions'
-import { filtersOf, useProspectionCounters } from '../api/prospection'
+import { useCompanyCounts } from '../api/companies'
+import { filtersOf, useProspectionCounters, useProspectionOverview } from '../api/prospection'
+import { useWarehouseCounts } from '../api/warehouses'
 import { useCurrentUser } from '../auth/currentUser'
 import { DEFAULT_VIEW } from '../prospection/criteria'
 import { Button } from '../ui/Button'
@@ -22,10 +24,10 @@ const TONES = { blue: 'info', purple: 'default', green: 'success', orange: 'warn
 
 // The shared KPI card (ui/KpiCard) like every other page; the whole card links to its filtered destination. A weekly
 // addition (`growth`) says « cette semaine » so it is never read as a total.
-function DashboardCard({ label, count, icon, tone, href, growth = false, hint }: CockpitCard) {
+function DashboardCard({ label, count, weekly, icon, tone, href, hint }: CockpitCard) {
   return (
     <li>
-      <KpiCard label={label} icon={icon} value={count} tone={TONES[tone]} to={href} note={growth ? 'cette semaine' : hint} />
+      <KpiCard label={label} icon={icon} value={count} tone={TONES[tone]} to={href} weekly={weekly} note={hint} />
     </li>
   )
 }
@@ -41,8 +43,14 @@ export function HomePage() {
   const metrics = useWeeklyMetrics()
   const counters = useProspectionCounters(FILTERS)
   const missions = useMissions()
+  const prospects = useProspectionOverview()
+  const companyCounts = useCompanyCounts()
+  const warehouseCounts = useWarehouseCounts()
   const user = useCurrentUser()
-  const sections = buildCockpit({ metrics: metrics.data, counters: counters.data, missions: missions.data })
+  const sections = buildCockpit({
+    metrics: metrics.data, counters: counters.data, missions: missions.data,
+    totals: { prospects: prospects.data?.total, companies: companyCounts.data?.all, warehouses: warehouseCounts.data?.warehouses },
+  })
   const loading = metrics.isPending || counters.isPending || missions.isPending
   const failed = metrics.isError || counters.isError || missions.isError
   const refetch = () => { for (const query of [metrics, counters, missions]) if (query.isError) void query.refetch() }
