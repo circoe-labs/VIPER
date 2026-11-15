@@ -11,6 +11,8 @@ import { buildSourceTree, sourceName, usesLabel, usesOf } from '../missions/sour
 import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { Modal } from '../ui/Dialog'
+import { Table } from '../ui/Table'
+import { useRowMenu } from '../ui/RowMenu'
 import { EmptyState } from '../ui/EmptyState'
 import { SelectField, TextAreaField, TextField } from '../ui/fields'
 import { ChevronDownIcon, ChevronRightIcon, LinkIcon, PencilIcon, PlusIcon, SaveIcon, TrashIcon } from '../ui/icons'
@@ -28,6 +30,14 @@ export function SourcesAdmin() {
   const [editing, setEditing] = useState<Editing | null>(null)
   const [deleting, setDeleting] = useState<MissionSource | null>(null)
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set())
+  const rowMenu = useRowMenu<MissionSource>(
+    (source) => `Actions de ${sourceName(source)}`,
+    (source) => [
+      { id: 'edit', label: 'Modifier', icon: PencilIcon, onSelect: () => { setEditing({ source, parentId: source.parent_id ?? null }) } },
+      ...(source.parent_id ? [] : [{ id: 'child', label: 'Ajouter une sous-source', icon: PlusIcon, onSelect: () => { setEditing({ source: null, parentId: source.id }) } }]),
+      { id: 'delete', label: 'Supprimer', icon: TrashIcon, danger: true, onSelect: () => { setDeleting(source) } },
+    ],
+  )
   const toggle = (id: string) => {
     setOpen((current) => {
       const next = new Set(current)
@@ -67,55 +77,41 @@ export function SourcesAdmin() {
             )
           }
           return (
-            <ul className="adm-tree" aria-label="Bibliothèque de sources">
-              {tree.map(({ source, children }) => {
-                const expanded = open.has(source.id) || (search.trim() !== '' && children.length > 0)
-                return (
-                  <li key={source.id}>
-                    <SourceRow
-                      source={source}
-                      childCount={children.length}
-                      expanded={expanded}
-                      onToggle={() => {
-                        toggle(source.id)
-                      }}
-                      onEdit={() => {
-                        setEditing({ source, parentId: source.parent_id ?? null })
-                      }}
-                      onDelete={() => {
-                        setDeleting(source)
-                      }}
-                      onAddChild={() => {
-                        setEditing({ source: null, parentId: source.id })
-                      }}
-                    />
-                    {expanded && children.length > 0 && (
-                      <ul className="adm-tree__children" aria-label={`Sous-sources de ${sourceName(source)}`}>
-                        {children.map((child) => (
-                          <li key={child.id}>
-                            <SourceRow
-                              source={child}
-                              childCount={0}
-                              expanded={false}
-                              onToggle={() => undefined}
-                              onEdit={() => {
-                                setEditing({ source: child, parentId: child.parent_id ?? null })
-                              }}
-                              onDelete={() => {
-                                setDeleting(child)
-                              }}
-                            />
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </li>
-                )
-              })}
-            </ul>
+            <div className="adm-sources">
+              <Table caption="Bibliothèque de sources">
+                <thead>
+                  <tr>
+                    <th scope="col">Source</th>
+                    <th scope="col">Description</th>
+                    <th scope="col">Utilisations réussies</th>
+                    <th scope="col" className="table__numeric">Sous-sources</th>
+                    <th scope="col" className="adm-sources__actions"><span className="visually-hidden">Actions</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tree.flatMap(({ source, children }) => {
+                    const expanded = open.has(source.id) || (search.trim() !== '' && children.length > 0)
+                    return [
+                      <SourceRow
+                        key={source.id}
+                        source={source}
+                        childCount={children.length}
+                        expanded={expanded}
+                        rowMenu={rowMenu}
+                        onToggle={() => {
+                          toggle(source.id)
+                        }}
+                      />,
+                      ...(expanded ? children.map((child) => <SourceRow key={child.id} source={child} childCount={0} expanded={false} rowMenu={rowMenu} child />) : []),
+                    ]
+                  })}
+                </tbody>
+              </Table>
+            </div>
           )
         }}
       </QueryState>
+      {rowMenu.menu}
       {editing && (
         <SourceEditor
           editing={editing}
@@ -141,57 +137,47 @@ function SourceRow({
   source,
   childCount,
   expanded,
+  rowMenu,
   onToggle,
-  onEdit,
-  onDelete,
-  onAddChild,
+  child = false,
 }: {
   source: MissionSource
   childCount: number
   expanded: boolean
-  onToggle: () => void
-  onEdit: () => void
-  onDelete: () => void
-  onAddChild?: () => void
+  rowMenu: ReturnType<typeof useRowMenu<MissionSource>>
+  onToggle?: () => void
+  child?: boolean
 }) {
   const name = sourceName(source)
   return (
-    <div className="adm-tree__row">
-      {onAddChild &&
-        (childCount > 0 ? (
-          <Button
-            size="sm"
-            variant="ghost"
-            aria-expanded={expanded}
-            aria-label={`${expanded ? 'Replier' : 'Déplier'} les sous-sources de ${name}`}
-            icon={expanded ? ChevronDownIcon : ChevronRightIcon}
-            onClick={onToggle}
-          />
-        ) : null)}
-      <div className="adm-tree__main">
-        <p className="adm-tree__name">{name}</p>
-        <p className="adm-tree__meta">
-          {[source.label ? source.url : '', source.description ?? ''].filter(Boolean).join(' · ')}
-        </p>
-      </div>
-      <div className="adm-tree__badges">
-        <Badge title="Résultats acceptés que cette source a appuyés (jamais de simples visites)">
-          {usesLabel(usesOf(source))}
-        </Badge>
-        {childCount > 0 && <Badge>{plural(childCount, 'sous-source')}</Badge>}
-      </div>
-      <div className="adm-tree__actions">
-        {onAddChild && (
-          <Button size="sm" icon={PlusIcon} aria-label={`Ajouter une sous-source à ${name}`} onClick={onAddChild}>
-            Sous-source
-          </Button>
-        )}
-        <Button size="sm" icon={PencilIcon} aria-label={`Modifier la source ${name}`} onClick={onEdit}>
-          Modifier
-        </Button>
-        <Button size="sm" variant="danger" icon={TrashIcon} aria-label={`Supprimer la source ${name}`} title="Supprimer" onClick={onDelete} />
-      </div>
-    </div>
+    <tr className={child ? 'adm-sources__child' : undefined} onContextMenu={rowMenu.onContextMenu(source)}>
+      <th scope="row">
+        <span className="adm-sources__name">
+          {childCount > 0 && onToggle ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-expanded={expanded}
+              aria-label={`${expanded ? 'Replier' : 'Déplier'} les sous-sources de ${name}`}
+              icon={expanded ? ChevronDownIcon : ChevronRightIcon}
+              onClick={onToggle}
+            />
+          ) : (
+            <span className="adm-sources__spacer" aria-hidden="true" />
+          )}
+          <span className="adm-sources__text">
+            <strong>{name}</strong>
+            {source.label && <span className="adm-sources__url">{source.url}</span>}
+          </span>
+        </span>
+      </th>
+      <td className="adm-sources__description">{source.description ?? '—'}</td>
+      <td>
+        <Badge title="Résultats acceptés que cette source a appuyés (jamais de simples visites)">{usesLabel(usesOf(source))}</Badge>
+      </td>
+      <td className="table__numeric">{childCount > 0 ? childCount : '—'}</td>
+      <td className="adm-sources__actions">{rowMenu.button(source)}</td>
+    </tr>
   )
 }
 

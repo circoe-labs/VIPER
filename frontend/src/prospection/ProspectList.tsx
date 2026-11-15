@@ -1,9 +1,10 @@
 import type { KeyboardEvent } from 'react'
-import { Link } from 'react-router'
+import { Link, useNavigate } from 'react-router'
 
 import type { ProspectRow } from '../api/prospection'
 import { StatusBadge } from '../ui/Badge'
-import { AlertIcon, BanIcon, BuildingIcon, CheckCircleIcon } from '../ui/icons'
+import { AlertIcon, BanIcon, BuildingIcon, CheckCircleIcon, CopyIcon, UsersIcon } from '../ui/icons'
+import { useRowMenu } from '../ui/RowMenu'
 import { CohortBadge, DueBadge, EmailErrorBadge, LevelBadge, StateBadge } from './ContactBadges'
 import {
   civilityLabel,
@@ -164,6 +165,20 @@ function Tracking({ row }: { row: ProspectRow }) {
 // The people list: one readable card per person — identity with its states, company and contacts, contact follow-up.
 // The name is the row's link — the whole card is clickable — and opens the prospect (prospectEditor.tsx).
 export function ProspectList({ rows, openHref }: ProspectListProps) {
+  const navigate = useNavigate()
+  const rowMenu = useRowMenu<ProspectRow>(
+    (row) => `Actions de ${personName(row)}`,
+    (row) => [
+      { id: 'open', label: 'Ouvrir la fiche', icon: UsersIcon, onSelect: () => { void navigate(openHref(row.id)) } },
+      {
+        id: 'copy-email',
+        label: 'Copier l’e-mail',
+        icon: CopyIcon,
+        disabled: !row.primary_email,
+        onSelect: () => { if (row.primary_email) void navigator.clipboard.writeText(row.primary_email) },
+      },
+    ],
+  )
   return (
     <>
       <ul className="prospect-list" aria-label="Prospects" onKeyDown={moveFocus}>
@@ -172,7 +187,7 @@ export function ProspectList({ rows, openHref }: ProspectListProps) {
           const blocked = row.contactability_status === 'do_not_contact'
           const title = [row.role_label, row.exact_job_title].filter(Boolean)
           return (
-            <li key={row.id} className={`prospect-row prospect-row--${row.review}${blocked ? ' prospect-row--blocked' : ''}`}>
+            <li key={row.id} className={`prospect-row prospect-row--${row.review}${blocked ? ' prospect-row--blocked' : ''}`} onContextMenu={rowMenu.onContextMenu(row)}>
               <div className="prospect-row__identity">
                 <span className="prospect-row__avatar" aria-hidden="true">
                   {initials(row)}
@@ -209,10 +224,12 @@ export function ProspectList({ rows, openHref }: ProspectListProps) {
               <div className="prospect-row__tracking">
                 <Tracking row={row} />
               </div>
+              <div className="row-actions row-actions--corner">{rowMenu.button(row)}</div>
             </li>
           )
         })}
       </ul>
+      {rowMenu.menu}
     </>
   )
 }

@@ -1,6 +1,11 @@
-import { COMPANY_KIND_LABELS, type CompanyListItem } from '../api/companies'
+import { useState } from 'react'
+
+import { COMPANY_KIND_LABELS, type CompanyListItem, useCompanyMutations } from '../api/companies'
+import { ConfirmDelete } from '../admin/adminShared'
 import { FILE_STATUS_LABELS, FILE_STATUS_TONES, missingText } from '../api/fileStatus'
 import { StatusBadge } from '../ui/Badge'
+import { PencilIcon, TrashIcon } from '../ui/icons'
+import { useRowMenu } from '../ui/RowMenu'
 import { Table } from '../ui/Table'
 import { useCompanyEditor } from './CompanyEditorProvider'
 import { formatSiren } from './companyForm'
@@ -17,6 +22,15 @@ export function companyInitials(name: string): string {
 // (domain, segment, then SIREN and city) fold away as the page narrows (companies.css), the page itself scrolls.
 export function CompanyTable({ items }: { items: CompanyListItem[] }) {
   const openEditor = useCompanyEditor()
+  const { remove } = useCompanyMutations()
+  const [deleting, setDeleting] = useState<CompanyListItem | null>(null)
+  const rowMenu = useRowMenu<CompanyListItem>(
+    (company) => `Actions de ${company.display_name}`,
+    (company) => [
+      { id: 'edit', label: 'Modifier', icon: PencilIcon, onSelect: () => { openEditor(company.id) } },
+      { id: 'delete', label: 'Supprimer', icon: TrashIcon, danger: true, onSelect: () => { setDeleting(company) } },
+    ],
+  )
   return <div className="companies-list">
     <Table caption="Liste des entreprises">
       <thead><tr>
@@ -27,8 +41,9 @@ export function CompanyTable({ items }: { items: CompanyListItem[] }) {
         <th scope="col" className="companies-col--segment">Segment</th>
         <th scope="col" className="table__numeric">Établissements</th>
         <th scope="col" className="table__numeric">Prospects</th>
+        <th scope="col" className="row-actions"><span className="visually-hidden">Actions</span></th>
       </tr></thead>
-      <tbody>{items.map((company) => <tr key={company.id}>
+      <tbody>{items.map((company) => <tr key={company.id} onContextMenu={rowMenu.onContextMenu(company)}>
         <td>
           <span className="company-cell">
             <span className="company-avatar" aria-hidden="true">{companyInitials(company.display_name)}</span>
@@ -48,7 +63,12 @@ export function CompanyTable({ items }: { items: CompanyListItem[] }) {
         <td className="companies-col--city">{company.city ?? '—'}</td>
         <td className="companies-col--segment">{company.commercial_segment_label ?? '—'}</td>
         <td className="table__numeric">{company.establishment_count}</td><td className="table__numeric">{company.prospect_count}</td>
+        <td className="row-actions">{rowMenu.button(company)}</td>
       </tr>)}</tbody>
     </Table>
+    {rowMenu.menu}
+    {deleting && <ConfirmDelete title="Supprimer cette entreprise ?" confirmLabel="Supprimer l’entreprise" pending={remove.isPending} error={remove.error} onClose={() => { remove.reset(); setDeleting(null) }} onConfirm={() => { remove.mutate(deleting.id, { onSuccess: () => { setDeleting(null) } }) }}>
+      <p>« {deleting.display_name} » est supprimée avec ses établissements. Impossible tant que des prospects lui sont rattachés.</p>
+    </ConfirmDelete>}
   </div>
 }

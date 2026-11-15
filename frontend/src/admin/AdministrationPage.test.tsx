@@ -151,15 +151,17 @@ describe('Administration › Sources', () => {
     const user = userEvent.setup()
     renderApp('/administration/sources')
 
-    const tree = await screen.findByRole('list', { name: 'Bibliothèque de sources' })
-    expect(within(tree).getByText('5 utilisations réussies')).toBeInTheDocument()
-    expect(within(tree).queryByText('Offres')).not.toBeInTheDocument()
+    const table = await screen.findByRole('table', { name: 'Bibliothèque de sources' })
+    expect(within(table).getByText('5 utilisations réussies')).toBeInTheDocument()
+    expect(within(table).queryByText('Offres')).not.toBeInTheDocument()
 
-    await user.click(within(tree).getByRole('button', { name: 'Déplier les sous-sources de LinkedIn' }))
-    const children = within(tree).getByRole('list', { name: 'Sous-sources de LinkedIn' })
-    expect(within(children).getByText('3 utilisations réussies')).toBeInTheDocument()
+    await user.click(within(table).getByRole('button', { name: 'Déplier les sous-sources de LinkedIn' }))
+    const child = within(table).getByRole('row', { name: /Offres/ })
+    expect(within(child).getByText('3 utilisations réussies')).toBeInTheDocument()
 
-    await user.click(within(tree).getByRole('button', { name: 'Ajouter une sous-source à LinkedIn' }))
+    // The « … » button of the row holds the actions.
+    await user.click(within(table).getByRole('button', { name: 'Actions de LinkedIn' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Ajouter une sous-source' }))
     const dialog = await screen.findByRole('dialog', { name: 'Nouvelle sous-source' })
     expect(within(dialog).getByRole('combobox', { name: 'Source parente' })).toHaveDisplayValue('LinkedIn')
     await user.type(within(dialog).getByLabelText(/^Adresse/), 'https://linkedin.com/company')
@@ -178,7 +180,9 @@ describe('Administration › Sources', () => {
     renderApp('/administration/sources')
 
     await user.click(await screen.findByRole('button', { name: 'Déplier les sous-sources de LinkedIn' }))
-    await user.click(await screen.findByRole('button', { name: 'Supprimer la source Offres' }))
+    // Same actions on a right click on the row.
+    await user.pointer({ keys: '[MouseRight]', target: await screen.findByRole('row', { name: /Offres/ }) })
+    await user.click(await screen.findByRole('menuitem', { name: 'Supprimer' }))
     const confirm = await screen.findByRole('dialog', { name: 'Supprimer cette source ?' })
     await user.click(within(confirm).getByRole('button', { name: 'Supprimer la source' }))
 

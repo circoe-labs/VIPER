@@ -141,3 +141,17 @@
     transform: translateY(-4px);
   }
 }
+
+/* « … » cell at the end of a table row or a list card (ui/RowMenu.tsx). */
+.row-actions {
+  width: 1%;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.row-actions--corner {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  width: auto;
+}

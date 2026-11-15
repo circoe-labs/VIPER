@@ -79,6 +79,7 @@ describe('Companies (Prospection entity=company)', () => {
       'Transporteur',
       '2',
       '3',
+      '',
     ])
     expect(screen.getByText('1 entreprise')).toBeInTheDocument()
   })

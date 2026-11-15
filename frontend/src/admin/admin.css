@@ -178,104 +178,43 @@
   cursor: pointer;
 }
 
-/* Sources: one equal-size card per root source, filling the full width (sub-sources nest inside their card). */
-.adm-tree {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 24rem), 1fr));
-  gap: var(--space-4);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.adm-tree > li {
+/* Sources: a table, one row per source; sub-sources are indented rows under their root. */
+.adm-sources__name {
   display: flex;
-  flex-direction: column;
-  min-width: 0;
-  padding: var(--space-4);
-  border: var(--border-width) solid var(--color-border);
-  border-radius: var(--radius-lg);
-  background: var(--color-surface);
-}
-
-.adm-tree > li > .adm-tree__row {
-  flex: 1;
-}
-
-.adm-tree__row {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  grid-template-areas:
-    'toggle main'
-    'badges badges'
-    'actions actions';
-  align-content: start;
-  gap: var(--space-3);
-}
-
-.adm-tree__row > .btn:first-child {
-  grid-area: toggle;
-}
-
-.adm-tree__main {
-  grid-area: main;
-  grid-column: 1 / -1;
-  min-width: 0;
-}
-
-.adm-tree__row > .btn:first-child + .adm-tree__main {
-  grid-column: 2;
-}
-
-.adm-tree__badges {
-  display: flex;
-  flex-wrap: wrap;
-  grid-area: badges;
+  align-items: center;
   gap: var(--space-2);
+  min-width: 0;
 }
 
-.adm-tree__name {
-  margin: 0;
-  font-size: var(--text-lg);
-  font-weight: var(--weight-semibold);
-  overflow-wrap: anywhere;
+.adm-sources__spacer {
+  flex: none;
+  width: 2rem;
 }
 
-.adm-tree__meta {
-  display: -webkit-box;
-  min-height: calc(2 * 1.5em);
-  margin: var(--space-1) 0 0;
-  overflow: hidden;
+.adm-sources__text {
+  display: grid;
+  min-width: 0;
+}
+
+.adm-sources__url,
+.adm-sources__description {
   color: var(--color-text-muted);
   font-size: var(--text-sm);
   overflow-wrap: anywhere;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
 }
 
-.adm-tree__children {
-  display: grid;
-  gap: var(--space-3);
-  margin: var(--space-3) 0 0;
-  padding: var(--space-3) 0 0;
-  border-top: var(--border-width) solid var(--color-border);
-  list-style: none;
+.adm-sources__child th {
+  padding-inline-start: var(--space-8);
 }
 
-.adm-tree__children .adm-tree__row {
-  grid-template-areas:
-    'main'
-    'badges'
-    'actions';
-  grid-template-columns: 1fr;
+.adm-sources__child {
+  background: var(--color-surface-hover);
 }
 
-.adm-tree__actions {
-  display: flex;
-  flex-wrap: wrap;
-  grid-area: actions;
-  gap: var(--space-2);
-  align-self: end;
+.adm-sources__actions {
+  width: 1%;
+  text-align: right;
+  white-space: nowrap;
 }
 
 .adm-toolbar__hint {

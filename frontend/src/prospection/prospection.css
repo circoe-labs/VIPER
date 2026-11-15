@@ -391,3 +391,5 @@
 .prospection__back:hover {
   color: var(--color-accent-fg);
 }
+
+.prospect-row__tracking { padding-inline-end: var(--space-8); }

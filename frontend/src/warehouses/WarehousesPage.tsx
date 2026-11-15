@@ -3,7 +3,8 @@ import { StatusBadge } from '../ui/Badge'
 import { useState } from 'react'
 import { useWarehouseDrafts, useWarehouseWrites, type Warehouse, type WarehouseContact } from '../api/warehouses'
 import { Button } from '../ui/Button'
-import { BuildingIcon, ChevronDownIcon, MapPinIcon, WarehouseIcon } from '../ui/icons'
+import { BuildingIcon, ChevronDownIcon, MapPinIcon, PencilIcon, WarehouseIcon } from '../ui/icons'
+import { useRowMenu } from '../ui/RowMenu'
 import { PageHeader } from '../ui/PageHeader'
 import { warehouseError } from './WarehouseEditor'
 import { WarehouseDrafts } from './WarehouseDrafts'
@@ -34,6 +35,13 @@ export function WarehouseRow({ warehouse, onEdit, onlyToContact }: { warehouse: 
   const [baseline, setBaseline] = useState(warehouse)
   const [selection, setSelection] = useState(() => warehouse.contacts.map((contact) => contact.to_contact ?? false))
   const { save } = useWarehouseWrites()
+  const rowMenu = useRowMenu<Warehouse>(
+    (site) => `Actions de ${site.name}`,
+    () => [
+      { id: 'edit', label: 'Modifier', icon: PencilIcon, onSelect: onEdit },
+      { id: 'details', label: open ? 'Masquer les détails' : 'Afficher les détails', icon: ChevronDownIcon, onSelect: () => { setOpen(!open) } },
+    ],
+  )
   const changed = baseline.contacts.some((contact, index) => (contact.to_contact ?? false) !== selection[index])
   if (!changed && warehouse.version !== baseline.version) {
     setBaseline(warehouse)
@@ -50,7 +58,7 @@ export function WarehouseRow({ warehouse, onEdit, onlyToContact }: { warehouse: 
       setSelection(saved.contacts.map((contact) => contact.to_contact ?? false))
     } catch (caught) { setError(warehouseError(caught)) }
   }
-  return <article className="warehouse-card">
+  return <article className="warehouse-card" onContextMenu={rowMenu.onContextMenu(warehouse)}>
     <div className="warehouse-card__header">
       <button className="warehouse-card__toggle" type="button" aria-label={`Détails de ${warehouse.name}`} aria-expanded={open} aria-controls={`warehouse-${warehouse.id}`} onClick={() => { setOpen(!open) }}>
         <ChevronDownIcon className={open ? 'warehouse-card__chevron--open' : ''} size={26} />
@@ -61,6 +69,7 @@ export function WarehouseRow({ warehouse, onEdit, onlyToContact }: { warehouse: 
           <span>{warehouse.contacts.length} interlocuteur{warehouse.contacts.length > 1 ? 's' : ''}{warehouse.city ? ` · ${warehouse.city}` : ''} · {warehouse.prospecting_category === 'sme' ? 'PME/TPE' : warehouse.prospecting_category === 'other' ? 'Autres' : 'À classer'}</span></span>
       </button>
       <Button size="sm" onClick={onEdit} aria-label={`Modifier ${warehouse.name}`}>Modifier</Button>
+      {rowMenu.button(warehouse)}
     </div>
     <div id={`warehouse-${warehouse.id}`} hidden={!open} className="warehouse-card__details">
       <section className="warehouse-owner" aria-label={`Propriétaire de ${warehouse.name}`}>
@@ -95,6 +104,7 @@ export function WarehouseRow({ warehouse, onEdit, onlyToContact }: { warehouse: 
       {warehouse.notes && <p className="warehouse-notes"><strong>Notes : </strong>{warehouse.notes}</p>}
       {warehouse.source_reference && <p className="warehouse-source">Source : {warehouse.source_reference}</p>}
     </div>
+    {rowMenu.menu}
   </article>
 }
 
