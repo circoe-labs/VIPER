@@ -68,6 +68,8 @@ function reply(status: number, body?: unknown): Promise<Response> {
 function listItem(row: Company): CompanyListItem {
   return {
     id: row.id,
+    status: 'incomplete',
+    missing: [],
     display_name: row.display_name,
     legal_name: row.legal_name,
     siren: row.siren,

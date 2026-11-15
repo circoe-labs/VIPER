@@ -28,7 +28,7 @@ export function WarehousesPanel({ view, update, refine, search }: EntityPanelPro
   const [notice, setNotice] = useState<string | null>(null)
   const query = view.q.trim()
   const offset = (view.page - 1) * PAGE_SIZE
-  const warehouses = useWarehouses(query, offset, view.warehouse_to_contact, view.warehouse_category, sortFor(view) as ListSort)
+  const warehouses = useWarehouses(query, offset, view.warehouse_to_contact, view.warehouse_category, sortFor(view) as ListSort, view.file_status)
   const page = warehouses.data
   const last = page ? Math.min(offset + page.items.length, page.total) : 0
   const filtered = activeFilters(view).length > 0 || query !== ''

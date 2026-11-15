@@ -15,6 +15,7 @@ from app.models.enums import CompanyKind
 from app.models.taxonomies import ActivityCategory
 from app.repositories.list_sort import EntitySort, entity_order_by
 from app.repositories.taxonomies import matches_words
+from app.services.file_status import FileStatus, company_missing, company_status_condition
 
 
 def get_company(session: Session, company_id: uuid.UUID) -> Company | None:
@@ -148,8 +149,10 @@ def list_companies(
     created_from: date | None = None,
     created_to: date | None = None,
     sort: EntitySort = EntitySort.NAME,
-) -> tuple[Sequence[Row[tuple[Company, str | None, int, int, str | None]]], int]:
-    """`(company, segment label, prospect count, establishment count, primary city)` rows ordered
+    status: FileStatus | None = None,
+) -> tuple[Sequence[Row[Any]], int]:
+    """`(company, segment label, prospect count, establishment count, primary city, missing to be
+    usable, missing to be verified)` rows ordered
     by `sort` (display name as compared, case/accents ignored, by default; ties by id), and the
     total number of matches."""
     where = [_search_condition(search)] if search else []
@@ -158,6 +161,9 @@ def list_companies(
         where.append(Company.company_kind.is_(None))
     elif company_kind is not None:
         where.append(Company.company_kind == company_kind)
+    if status is not None:
+        where.append(company_status_condition(status))
+    usable_missing, verified_missing = company_missing()
     establishment_count = (
         select(func.count()).where(Establishment.company_id == Company.id).scalar_subquery()
     )
@@ -168,6 +174,8 @@ def list_companies(
             prospect_count(Company.id),
             establishment_count,
             _primary_city(),
+            usable_missing,
+            verified_missing,
         )
         .outerjoin(CommercialSegment, CommercialSegment.id == Company.commercial_segment_id)
         .where(*where)

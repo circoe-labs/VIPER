@@ -10,7 +10,7 @@ import { ActiveChips, ControlBar, FilterMenu, SortSelect } from '../ui/ControlBa
 import { Combobox } from '../ui/Combobox'
 import { SelectField, Switch, TextField } from '../ui/fields'
 import { clearedFilters, ENTITY_SORTS, type ProspectionView, sortFor, type ViewSort } from './criteria'
-import { activeFilters, CONTACT_QUICK_FILTERS, type FilterNames, NO_NAMES, QUICK_FILTERS, type QuickFilter } from './filterChips'
+import { activeFilters, CONTACT_QUICK_FILTERS, FILE_STATUS_QUICK_FILTERS, type FilterNames, NO_NAMES, QUICK_FILTERS, type QuickFilter } from './filterChips'
 import { ACTIVITY_LABELS, formatDay, SORT_LABELS, TRACKING_LABELS } from './labels'
 
 interface ProspectionControlsProps {
@@ -103,6 +103,7 @@ function FiltersMenu({ view, onChange }: Pick<ProspectionControlsProps, 'view' |
       {(open) => (
         <>
           <QuickGroup title={titles[view.entity]} label="Filtres rapides" filters={quick} view={view} onChange={onChange} />
+          {view.entity !== 'prospect' && <QuickGroup title="Statut de la fiche" filters={FILE_STATUS_QUICK_FILTERS[view.entity]} view={view} onChange={onChange} />}
           {view.entity === 'prospect' && (
             <Switch
               label="Afficher les ignorés"

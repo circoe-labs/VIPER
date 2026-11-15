@@ -19,7 +19,7 @@ export function CompaniesPanel({ view, update, refine, search }: EntityPanelProp
   const query = view.q.trim()
   const sort = sortFor(view) as ListSort
   const offset = (view.page - 1) * COMPANY_PAGE_SIZE
-  const companies = useCompanies(query, offset, COMPANY_PAGE_SIZE, view.company_kind, view.created_from, view.created_to, sort)
+  const companies = useCompanies(query, offset, COMPANY_PAGE_SIZE, view.company_kind, view.created_from, view.created_to, sort, view.file_status)
   const page = companies.data
   const last = page ? Math.min(offset + page.items.length, page.total) : 0
   const filtered = activeFilters(view).length > 0 || query !== ''

@@ -5,7 +5,7 @@ import { SHELL_API } from '../test/homeApi'
 import { renderApp, stubApi } from '../test/render'
 import type { Warehouse } from '../api/warehouses'
 
-const ROW: Warehouse = { id: '00000000-0000-7000-a000-000000000001', version: '2026-11-03T10:00:00+00:00', name: 'Entrepôt Exemple', owner_name: 'Propriétaire Test', owner_role: 'Foncière', owner_email: null, owner_linkedin: null, address: null, city: 'Lyon', postal_code: null, siret: null, notes: null, source_reference: 'synthetic.xlsx · Sites', contacts: [{ full_name: 'Anne Test', role: 'Responsable', email: 'anne@exemple.test ou a.test@exemple.test', linkedin: 'https://www.linkedin.com/in/test-anne' }] }
+const ROW: Warehouse = { id: '00000000-0000-7000-a000-000000000001', version: '2026-11-03T10:00:00+00:00', name: 'Entrepôt Exemple', owner_name: 'Propriétaire Test', owner_role: 'Foncière', owner_email: null, owner_linkedin: null, address: null, city: 'Lyon', postal_code: null, siret: null, notes: null, source_reference: 'synthetic.xlsx · Sites', status: 'incomplete', missing: ['company'], company_id: null, company_name: null, building_name: null, contacts: [{ full_name: 'Anne Test', role: 'Responsable', email: 'anne@exemple.test ou a.test@exemple.test', linkedin: 'https://www.linkedin.com/in/test-anne' }] }
 const API = { ...SHELL_API, 'GET /api/warehouses/counts': [200, { warehouses: 1, contacts: 1, to_contact: 0 }] } as const
 
 describe('Warehouse directory', () => {

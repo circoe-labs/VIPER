@@ -1,6 +1,8 @@
 import { useState, type SyntheticEvent } from 'react'
 import { ApiError } from '../api/client'
+import { useCompanies, useCompany } from '../api/companies'
 import { useWarehouse, useWarehouseWrites, type Warehouse, type WarehouseInput } from '../api/warehouses'
+import { Combobox } from '../ui/Combobox'
 import { Button, IconButton } from '../ui/Button'
 import { Drawer } from '../ui/Dialog'
 import { TextAreaField, TextField } from '../ui/fields'
@@ -26,6 +28,28 @@ export function WarehouseEditor({ id, onClose }: { id: string | null; onClose: (
   </Drawer>
 }
 
+// Company (searchable) then one of its buildings: the warehouse is that building.
+function BuildingPicker({ value, initialCompanyId, initialCompanyName, onChange }: { value: string | null; initialCompanyId: string | null; initialCompanyName: string | null; onChange: (establishmentId: string | null) => void }) {
+  const [companyId, setCompanyId] = useState<string | null>(initialCompanyId)
+  const [search, setSearch] = useState('')
+  const companies = useCompanies(search, 0, 20)
+  const company = useCompany(companyId)
+  const options = [
+    ...(companies.data?.items ?? []).map((item) => ({ id: item.id, label: item.display_name })),
+    ...(initialCompanyId && initialCompanyName && !(companies.data?.items ?? []).some((item) => item.id === initialCompanyId) ? [{ id: initialCompanyId, label: initialCompanyName }] : []),
+  ]
+  const buildings = company.data?.establishments ?? []
+  return <>
+    <Combobox label="Société" options={options} value={companyId} placeholder="Rechercher une société" onQueryChange={setSearch} onChange={(next) => { setCompanyId(next); onChange(null) }} />
+    <label className="field"><span className="field__label">Bâtiment</span>
+      <select className="field__control" value={value ?? ''} disabled={!companyId} onChange={(event) => { onChange(event.target.value || null) }}>
+        <option value="">{companyId ? 'Choisir un bâtiment' : 'Choisissez d’abord une société'}</option>
+        {buildings.map((building) => <option key={building.id} value={building.id}>{[building.name, building.postal_code, building.city].filter(Boolean).join(' · ') || 'Bâtiment sans nom'}</option>)}
+      </select>
+    </label>
+  </>
+}
+
 function WarehouseForm({ warehouse, onClose }: { warehouse: Warehouse | undefined; onClose: () => void }) {
   const [draft, setDraft] = useState<WarehouseInput>(() => warehouse ? { ...warehouse, contacts: warehouse.contacts.map((contact) => ({ ...contact })) } : { ...EMPTY, contacts: [] })
   const [baseline] = useState(warehouse)
@@ -43,6 +67,11 @@ function WarehouseForm({ warehouse, onClose }: { warehouse: Warehouse | undefine
   }
   return <form className="warehouse-form" onSubmit={(event) => { void submit(event) }}>
     <fieldset disabled={save.isPending}>
+      <legend>Société et bâtiment</legend>
+      <p className="warehouse-muted">Un entrepôt est un bâtiment (établissement) d’une société. Il n’est exploitable que rattaché à une société exploitable.</p>
+      <BuildingPicker value={draft.establishment_id ?? null} initialCompanyId={warehouse?.company_id ?? null} initialCompanyName={warehouse?.company_name ?? null} onChange={(establishmentId) => { setDraft((current) => ({ ...current, establishment_id: establishmentId })) }} />
+    </fieldset>
+    <fieldset disabled={save.isPending}>
       <legend>Le site</legend>
       {text('name', 'Nom de l’entrepôt', true)}
       <label className="field"><span className="field__label">Catégorie de prospection</span><select className="field__control" value={draft.prospecting_category ?? ''} onChange={(event) => setDraft((current) => ({ ...current, prospecting_category: event.target.value === 'sme' ? 'sme' : event.target.value === 'other' ? 'other' : null }))}><option value="">À classer</option><option value="sme">PME/TPE</option><option value="other">Autres</option></select></label>
@@ -51,7 +80,7 @@ function WarehouseForm({ warehouse, onClose }: { warehouse: Warehouse | undefine
     </fieldset>
     <fieldset disabled={save.isPending}>
       <legend>Propriétaire immobilier ou foncier</legend>
-      {text('owner_name', 'Société rattachée (propriétaire)')}{text('owner_role', 'Fonction du propriétaire')}
+      {text('owner_name', 'Propriétaire (nom)')}{text('owner_role', 'Fonction du propriétaire')}
       {text('owner_email', 'E-mail du propriétaire')}{text('owner_linkedin', 'LinkedIn du propriétaire')}
     </fieldset>
     <fieldset disabled={save.isPending}>

@@ -1,6 +1,7 @@
 // The model of « Filtres » : every applied filter of the entity shown is one removable chip with a French label.
 // A chip is plain data (`clear` = the patch that removes it from the URL view); ENTITY_FILTER_KEYS (criteria.ts)
 // decides which filters belong to which entity, so a filter of another entity never shows up here.
+import { FILE_STATUS_HINTS, FILE_STATUS_LABELS, FILE_STATUSES } from '../api/fileStatus'
 import { NONE, REVIEWS } from '../api/prospection'
 import type { Entity, ProspectionView, WarehouseCategory } from './criteria'
 import { ACTIVITY_LABELS, formatDay, REVIEW_INFO, SEGMENT_INFO, TRACKING_LABELS } from './labels'
@@ -49,10 +50,12 @@ export function activeFilters(view: ProspectionView, names: FilterNames = NO_NAM
   if (entity === 'warehouse') {
     if (view.warehouse_category) add('warehouse_category', `Catégorie : ${WAREHOUSE_CATEGORY_LABELS[view.warehouse_category]}`, { warehouse_category: null })
     if (view.warehouse_to_contact) add('warehouse_to_contact', 'À contacter', { warehouse_to_contact: false })
+    if (view.file_status) add('file_status', `Statut : ${FILE_STATUS_LABELS[view.file_status]}`, { file_status: null })
     return chips
   }
   if (entity === 'company') {
     kind()
+    if (view.file_status) add('file_status', `Statut : ${FILE_STATUS_LABELS[view.file_status]}`, { file_status: null })
     chips.push(...createdChip(view))
     return chips
   }
@@ -125,4 +128,21 @@ export const QUICK_FILTERS: Record<Entity, readonly QuickFilter[]> = {
     { id: 'unclassified', label: 'À classer', hint: 'Catégorie de prospection', active: (v) => v.warehouse_category === 'unclassified', apply: { warehouse_category: 'unclassified' }, clear: CATEGORY_CLEAR },
     { id: 'to_contact', label: 'À contacter', hint: 'Interlocuteurs marqués « à contacter » ; la liste montre leurs entrepôts', active: (v) => v.warehouse_to_contact, apply: { warehouse_to_contact: true }, clear: { warehouse_to_contact: false } },
   ],
+}
+
+// « Statut de la fiche » of a company or a warehouse (verified / usable / incomplete), one click.
+export const FILE_STATUS_QUICK_FILTERS: Record<'company' | 'warehouse', readonly QuickFilter[]> = {
+  company: statusFilters('company'),
+  warehouse: statusFilters('warehouse'),
+}
+
+function statusFilters(entity: 'company' | 'warehouse'): readonly QuickFilter[] {
+  return FILE_STATUSES.map((status): QuickFilter => ({
+    id: `file_status_${status}`,
+    label: FILE_STATUS_LABELS[status],
+    hint: FILE_STATUS_HINTS[entity][status],
+    active: (v) => v.file_status === status,
+    apply: { file_status: status },
+    clear: { file_status: null },
+  }))
 }

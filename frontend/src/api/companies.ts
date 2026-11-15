@@ -1,3 +1,4 @@
+import type { FileStatus } from './fileStatus'
 import { keepPreviousData, type QueryKey, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiGet, apiRequest } from './client'
@@ -106,6 +107,9 @@ export interface CompanyListItem {
   establishment_count: number
   prospect_count: number
   updated_at: string
+  // Computed file status and what is missing for the next level (backend `file_status`).
+  status: FileStatus
+  missing: string[]
 }
 
 export interface CompanyPage {
@@ -130,7 +134,7 @@ export const COMPANY_PAGE_SIZE = 50
 
 export const companyKeys = {
   all: ['companies'] as const,
-  list: (search: string, offset: number, limit: number, kind: CompanyKindSelection = null, createdFrom: string | null = null, createdTo: string | null = null, sort: ListSort = 'name') => ['companies', 'list', search, offset, limit, kind, createdFrom, createdTo, sort] as const,
+  list: (search: string, offset: number, limit: number, kind: CompanyKindSelection = null, createdFrom: string | null = null, createdTo: string | null = null, sort: ListSort = 'name', status: FileStatus | null = null) => ['companies', 'list', search, offset, limit, kind, createdFrom, createdTo, sort, status] as const,
   detail: (id: string) => ['companies', 'detail', id] as const,
   similar: (name: string, domain: string, exclude: string | null) => ['companies', 'similar', name, domain, exclude] as const,
 }
@@ -140,9 +144,9 @@ function companyPath(id: string): `/${string}` {
 }
 
 // `limit` up to 200 (the API's maximum), e.g. for a company picker.
-export function useCompanies(search: string, offset = 0, limit = COMPANY_PAGE_SIZE, kind: CompanyKindSelection = null, createdFrom: string | null = null, createdTo: string | null = null, sort: ListSort = 'name') {
+export function useCompanies(search: string, offset = 0, limit = COMPANY_PAGE_SIZE, kind: CompanyKindSelection = null, createdFrom: string | null = null, createdTo: string | null = null, sort: ListSort = 'name', status: FileStatus | null = null) {
   return useQuery({
-    queryKey: companyKeys.list(search, offset, limit, kind, createdFrom, createdTo, sort),
+    queryKey: companyKeys.list(search, offset, limit, kind, createdFrom, createdTo, sort, status),
     queryFn: ({ signal }) => {
       const params = new URLSearchParams({ limit: String(limit), offset: String(offset) })
       if (search) params.set('q', search)
@@ -150,6 +154,7 @@ export function useCompanies(search: string, offset = 0, limit = COMPANY_PAGE_SI
       if (createdFrom) params.set('created_from', createdFrom)
       if (createdTo) params.set('created_to', createdTo)
       if (sort !== 'name') params.set('sort', sort)
+      if (status) params.set('status', status)
       return apiGet<CompanyPage>(`/companies?${params.toString()}`, signal)
     },
     placeholderData: keepPreviousData,

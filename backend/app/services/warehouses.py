@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 import uuid
+from collections.abc import Sequence
 from datetime import UTC
 from typing import Literal
 
@@ -13,12 +14,19 @@ from sqlalchemy.dialects.postgresql import JSONPATH
 from sqlalchemy.orm import Session
 
 from app.core.actor import ActorContext
-from app.models import Warehouse, WarehouseDraft
+from app.models import Company, Establishment, Warehouse, WarehouseDraft
 from app.repositories.list_sort import EntitySort, entity_order_by
 from app.repositories.taxonomies import matches_words
 from app.services import audit
 from app.services.companies import normalize_siret
-from app.services.errors import ConflictError, NotFoundError
+from app.services.errors import ConflictError, InvalidFieldError, NotFoundError
+from app.services.file_status import (
+    FileStatus,
+    missing_of,
+    status_of,
+    warehouse_missing,
+    warehouse_status_condition,
+)
 from app.services.warehouse_draft_text import apply_category, draft_subject, draft_text
 
 
@@ -43,6 +51,8 @@ class WarehouseInput(BaseModel):
     postal_code: str | None = Field(default=None, max_length=16)
     city: str | None = Field(default=None, max_length=255)
     siret: str | None = Field(default=None, max_length=32)
+    # The building of a company this warehouse is (the company follows from it).
+    establishment_id: uuid.UUID | None = None
     notes: str | None = Field(default=None, max_length=10000)
     contacts: list[WarehouseContact] = Field(default_factory=list, max_length=200)
 
@@ -51,6 +61,13 @@ class WarehouseOut(WarehouseInput):
     id: uuid.UUID
     version: str
     source_reference: str | None
+    # Computed (`app.services.file_status`): verified / usable / incomplete, and what is missing for
+    # the next level, plus the company and building the warehouse is linked to.
+    status: FileStatus = "incomplete"
+    missing: list[str] = Field(default_factory=list)
+    company_id: uuid.UUID | None = None
+    company_name: str | None = None
+    building_name: str | None = None
 
 
 class WarehousePage(BaseModel):
@@ -96,22 +113,57 @@ def count_warehouses(session: Session) -> WarehouseCounts:
 def version(row: Warehouse) -> str:
     values = {field: getattr(row, field) for field in WarehouseInput.model_fields}
     values["updated_at"] = row.updated_at.astimezone(UTC).isoformat()
-    return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()[:32]
+    return hashlib.sha256(json.dumps(values, sort_keys=True, default=str).encode()).hexdigest()[:32]
 
 
-def present(row: Warehouse) -> WarehouseOut:
-    return WarehouseOut(
-        **{key: getattr(row, key) for key in WarehouseInput.model_fields},
-        id=row.id,
-        version=version(row),
-        source_reference=row.source_reference,
-    )
+def present(session: Session, row: Warehouse) -> WarehouseOut:
+    return present_many(session, [row])[0]
+
+
+def present_many(session: Session, rows: Sequence[Warehouse]) -> list[WarehouseOut]:
+    """The rows with their computed status and company, in one query."""
+    usable, verified = warehouse_missing()
+    extras = {
+        found[0]: found
+        for found in session.execute(
+            select(
+                Warehouse.id,
+                usable,
+                verified,
+                Company.id,
+                Company.display_name,
+                func.coalesce(Establishment.name, Establishment.city),
+            )
+            .select_from(Warehouse)
+            .outerjoin(Establishment, Establishment.id == Warehouse.establishment_id)
+            .outerjoin(Company, Company.id == Establishment.company_id)
+            .where(Warehouse.id.in_([row.id for row in rows]))
+        ).all()
+    }
+    items = []
+    for row in rows:
+        _, usable_missing, verified_missing, company_id, company_name, building = extras[row.id]
+        items.append(
+            WarehouseOut(
+                **{key: getattr(row, key) for key in WarehouseInput.model_fields},
+                id=row.id,
+                version=version(row),
+                source_reference=row.source_reference,
+                status=status_of(usable_missing, verified_missing),
+                missing=missing_of(usable_missing, verified_missing),
+                company_id=company_id,
+                company_name=company_name,
+                building_name=building,
+            )
+        )
+    return items
 
 
 def list_warehouses(
     session: Session, search: str = "", limit: int = 50, offset: int = 0, to_contact: bool = False,
     category: Literal['sme', 'other', 'unclassified'] | None = None,
     sort: EntitySort = EntitySort.NAME,
+    status: FileStatus | None = None,
 ) -> WarehousePage:
     text = func.concat_ws(
         " ",
@@ -131,6 +183,8 @@ def list_warehouses(
         conditions.append(Warehouse.prospecting_category.is_(None))
     elif category is not None:
         conditions.append(Warehouse.prospecting_category == category)
+    if status is not None:
+        conditions.append(warehouse_status_condition(status))
     total = session.scalar(select(func.count()).select_from(Warehouse).where(*conditions)) or 0
     rows = session.scalars(
         select(Warehouse)
@@ -143,7 +197,7 @@ def list_warehouses(
         .limit(limit)
         .offset(offset)
     )
-    return WarehousePage(items=[present(row) for row in rows], total=total)
+    return WarehousePage(items=present_many(session, list(rows)), total=total)
 
 
 def get_warehouse(session: Session, warehouse_id: uuid.UUID, *, lock: bool = False) -> Warehouse:
@@ -169,6 +223,8 @@ def save_warehouse(
         raise ConflictError("The warehouse changed since it was opened.")
     previous_category = row.prospecting_category if warehouse_id else None
     values = data.model_dump()
+    if data.establishment_id is not None and session.get(Establishment, data.establishment_id) is None:
+        raise InvalidFieldError("establishment_id", "Unknown building.", "unknown")
     values["siret"] = normalize_siret(
         "siret", data.siret, current=row.siret if warehouse_id else None
     )
@@ -249,4 +305,4 @@ def save_warehouse(
                 entity_type="warehouse_draft", entity_id=draft.id,
             )
     session.refresh(row)
-    return present(row)
+    return present(session, row)

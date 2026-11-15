@@ -1,8 +1,9 @@
 """Warehouse sites and their source interlocutors, independent of verified prospect records."""
 
+import uuid
 from typing import Any
 
-from sqlalchemy import CheckConstraint, String, Text, text
+from sqlalchemy import CheckConstraint, ForeignKey, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -34,6 +35,10 @@ class Warehouse(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     notes: Mapped[str | None] = mapped_column(Text)
     contacts: Mapped[list[dict[str, Any]]] = mapped_column(
         JSONB, server_default=text("'[]'::jsonb"), nullable=False
+    )
+    # The building (establishment) of a company this warehouse is; the company follows from it.
+    establishment_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("establishments.id", ondelete="SET NULL"), index=True
     )
     source_reference: Mapped[str | None] = mapped_column(Text)
     source_key: Mapped[str | None] = mapped_column(String(64), unique=True)

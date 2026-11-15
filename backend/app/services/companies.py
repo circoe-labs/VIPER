@@ -25,7 +25,7 @@ Every mutation takes the server-side actor, annotates the audit event of each ro
 import re
 import uuid
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, fields, replace
+from dataclasses import dataclass, field, fields, replace
 from datetime import date, datetime
 from typing import Literal
 from urllib.parse import urlsplit, urlunsplit
@@ -51,6 +51,7 @@ from app.services.errors import (
     translated_violations,
     violated_constraint,
 )
+from app.services.file_status import FileStatus, missing_of, status_of
 from app.services.imports.dedup import COMPANY_SIMILARITY
 from app.services.imports.matching import company_key, similarity
 from app.services.imports.models import MatchReason
@@ -187,6 +188,10 @@ class CompanyListItem:
     establishment_count: int
     prospect_count: int
     updated_at: datetime
+    # Computed (`app.services.file_status`): verified / usable / incomplete and what is missing for
+    # the next level.
+    status: FileStatus = "incomplete"
+    missing: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -528,6 +533,7 @@ def list_companies(
     created_from: date | None = None,
     created_to: date | None = None,
     sort: EntitySort = EntitySort.NAME,
+    status: FileStatus | None = None,
 ) -> CompanyPage:
     """Ordered by `sort` (name by default); `search` matches every word in the names, e-mail
     domain, website, sector, city and contact names (case/accents ignored), or digits in a
@@ -539,6 +545,7 @@ def list_companies(
         created_from=created_from,
         created_to=created_to,
         sort=sort,
+        status=status,
         limit=max(1, min(limit, LIST_MAX_LIMIT)),
         offset=max(0, offset),
     )
@@ -555,8 +562,18 @@ def list_companies(
             establishment_count=establishments,
             prospect_count=prospects,
             updated_at=company.updated_at,
+            status=status_of(usable_missing, verified_missing),
+            missing=missing_of(usable_missing, verified_missing),
         )
-        for company, segment_label, prospects, establishments, city in rows
+        for (
+            company,
+            segment_label,
+            prospects,
+            establishments,
+            city,
+            usable_missing,
+            verified_missing,
+        ) in rows
     ]
     return CompanyPage(items=items, total=total)
 

@@ -1,5 +1,6 @@
 // What the Prospection list shows lives in the URL (`/prospection?segment=due&q=…&page=2`), so refresh, browser Back
 // and deep links (Home, Task 16) restore it. Parameter names are the API's; defaults are omitted.
+import { FILE_STATUSES, type FileStatus } from '../api/fileStatus'
 import {
   type ActivityStatus,
   NONE,
@@ -36,6 +37,8 @@ export const ENTITY_SORTS: Record<Entity, readonly ViewSort[]> = {
 export interface ProspectionView extends Omit<ProspectListCriteria, 'sort'> {
   sort: ViewSort
   entity: Entity
+  // `?file_status=verified|usable|incomplete`: the file status of a company or a warehouse.
+  file_status: FileStatus | null
   // `?warehouse_category=sme|other|unclassified` and `?warehouse_to_contact=true` (entity=warehouse).
   warehouse_category: WarehouseCategory | null
   warehouse_to_contact: boolean
@@ -49,6 +52,7 @@ export const DEFAULT_VIEW: ProspectionView = {
   warehouse_category: null,
   warehouse_to_contact: false,
   include_ignored: false,
+  file_status: null,
   validated_only: false,
   verification_box: null,
   created_from: null,
@@ -93,6 +97,7 @@ export function parseView(params: URLSearchParams): ProspectionView {
     warehouse_category: oneOf<WarehouseCategory>(WAREHOUSE_CATEGORIES, params.get('warehouse_category')),
     warehouse_to_contact: params.get('warehouse_to_contact') === 'true',
     include_ignored: params.get('include_ignored') === 'true',
+    file_status: oneOf<FileStatus>(FILE_STATUSES, params.get('file_status')),
     validated_only: params.get('validated_only') === 'true',
     verification_box: oneOf(['validated', 'uncertain', 'todo', 'ignored'] as const, params.get('verification_box')),
     created_from: calendarDate(params.get('created_from')),
@@ -166,8 +171,8 @@ export function sortFor(view: Pick<ProspectionView, 'entity' | 'sort'>): ViewSor
 // Prospects. `ENTITY_FILTER_KEYS` is the single list; q and sort are shared (sort only when the entity knows it).
 export const ENTITY_FILTER_KEYS: Record<Entity, readonly (keyof ProspectionView)[]> = {
   prospect: ['include_ignored', 'validated_only', 'verification_box', 'review', 'segment', 'created_from', 'created_to', 'company_kind', 'role', 'activity', 'referent', 'tracking_status', 'cohort', 'company', 'import_batch', 'services', 'send_stage'],
-  company: ['company_kind', 'created_from', 'created_to'],
-  warehouse: ['warehouse_category', 'warehouse_to_contact'],
+  company: ['company_kind', 'created_from', 'created_to', 'file_status'],
+  warehouse: ['warehouse_category', 'warehouse_to_contact', 'file_status'],
 }
 
 // The view after switching entity: the new entity starts from scratch except what both entities share (q, a known
@@ -193,7 +198,7 @@ export function clearedFilters(entity: Entity): Partial<ProspectionView> {
 
 // Criteria narrowing the Entreprises list (type, search, creation period) and the Entrepôts list (category, to contact, search).
 export function hasEntityFilters(view: ProspectionView): boolean {
-  if (view.entity === 'company') return view.company_kind !== null || view.q.trim() !== '' || !!view.created_from || !!view.created_to
-  if (view.entity === 'warehouse') return view.warehouse_category !== null || view.warehouse_to_contact || view.q.trim() !== ''
+  if (view.entity === 'company') return view.company_kind !== null || view.file_status !== null || view.q.trim() !== '' || !!view.created_from || !!view.created_to
+  if (view.entity === 'warehouse') return view.warehouse_category !== null || view.warehouse_to_contact || view.file_status !== null || view.q.trim() !== ''
   return hasFilters(view)
 }

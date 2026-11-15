@@ -16,8 +16,8 @@ from app.core.actor import ActorType
 from app.models import Warehouse, WarehouseDraft
 from app.repositories.list_sort import EntitySort
 from app.services import audit, warehouse_import, warehouses
-from app.services.warehouses import WarehouseCounts, WarehouseInput, WarehouseOut, WarehousePage
 from app.services.warehouse_draft_text import apply_category
+from app.services.warehouses import WarehouseCounts, WarehouseInput, WarehouseOut, WarehousePage
 
 router = APIRouter(prefix="/warehouses", tags=["warehouses"])
 
@@ -391,9 +391,11 @@ def list_warehouses(
     to_contact: bool = False,
     category: Literal['sme', 'other', 'unclassified'] | None = None,
     sort: EntitySort = EntitySort.NAME,
+    status: Literal['verified', 'usable', 'incomplete'] | None = None,
 ) -> WarehousePage:
-    """`sort`: name (A-Z, default), created (newest first) or updated (newest first); ties by id."""
-    return warehouses.list_warehouses(session, q, limit, offset, to_contact, category, sort)
+    """`sort`: name (A-Z, default), created (newest first) or updated (newest first); ties by id.
+    `status`: the file status (verified / usable / incomplete), computed from the record."""
+    return warehouses.list_warehouses(session, q, limit, offset, to_contact, category, sort, status)
 
 
 @router.post("", status_code=201)
@@ -442,7 +444,7 @@ def count_warehouses(session: SessionDep) -> WarehouseCounts:
 @router.get("/{warehouse_id}")
 def get_warehouse(warehouse_id: uuid.UUID, session: SessionDep) -> WarehouseOut:
     with business_errors():
-        return warehouses.present(warehouses.get_warehouse(session, warehouse_id))
+        return warehouses.present(session, warehouses.get_warehouse(session, warehouse_id))
 
 
 @router.put("/{warehouse_id}")

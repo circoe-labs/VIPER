@@ -1,3 +1,5 @@
+import { FILE_STATUS_LABELS, FILE_STATUS_TONES, missingText } from '../api/fileStatus'
+import { StatusBadge } from '../ui/Badge'
 import { useState } from 'react'
 import { useWarehouseDrafts, useWarehouseWrites, type Warehouse, type WarehouseContact } from '../api/warehouses'
 import { Button } from '../ui/Button'
@@ -54,7 +56,8 @@ export function WarehouseRow({ warehouse, onEdit, onlyToContact }: { warehouse: 
         <ChevronDownIcon className={open ? 'warehouse-card__chevron--open' : ''} size={26} />
         <span className="warehouse-card__icon"><WarehouseIcon size={22} /></span>
         <span className="warehouse-card__identity"><strong>{warehouse.name}</strong>
-          <span className={warehouse.owner_name ? 'warehouse-card__owner' : 'warehouse-card__owner warehouse-card__owner--missing'}><BuildingIcon size={14} />{warehouse.owner_name ? <><span className="warehouse-card__owner-label">Société rattachée</span> {warehouse.owner_name}</> : 'Société rattachée à renseigner'}</span>
+          <span><StatusBadge tone={FILE_STATUS_TONES[warehouse.status]}>{FILE_STATUS_LABELS[warehouse.status]}</StatusBadge>{warehouse.missing.length > 0 && <span className="warehouse-muted"> Manque : {missingText(warehouse.missing)}</span>}</span>
+          <span className={warehouse.company_name ? 'warehouse-card__owner' : 'warehouse-card__owner warehouse-card__owner--missing'}><BuildingIcon size={14} />{warehouse.company_name ? <><span className="warehouse-card__owner-label">Société</span> {warehouse.company_name}{warehouse.building_name ? ` · ${warehouse.building_name}` : ''}</> : 'Rattacher à un bâtiment d’une société'}</span>
           <span>{warehouse.contacts.length} interlocuteur{warehouse.contacts.length > 1 ? 's' : ''}{warehouse.city ? ` · ${warehouse.city}` : ''} · {warehouse.prospecting_category === 'sme' ? 'PME/TPE' : warehouse.prospecting_category === 'other' ? 'Autres' : 'À classer'}</span></span>
       </button>
       <Button size="sm" onClick={onEdit} aria-label={`Modifier ${warehouse.name}`}>Modifier</Button>

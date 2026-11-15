@@ -202,6 +202,9 @@ class CompanyListItemOut(BaseModel):
     establishment_count: int
     prospect_count: int
     updated_at: datetime
+    # verified / usable / incomplete (computed), and what is missing for the next level.
+    status: Literal["verified", "usable", "incomplete"]
+    missing: list[str]
 
 
 class CompanyPageOut(BaseModel):
@@ -238,6 +241,7 @@ def list_companies(
     created_from: date | None = None,
     created_to: date | None = None,
     sort: EntitySort = EntitySort.NAME,
+    status: Literal["verified", "usable", "incomplete"] | None = None,
 ) -> CompanyPageOut:
     """`sort`: name (A-Z, default), created (newest first) or updated (newest first); ties by id.
     `q` matches every word of the names, e-mail domain, website, sector, city and contact names
@@ -256,6 +260,7 @@ def list_companies(
             created_from=created_from,
             created_to=created_to,
             sort=sort,
+            status=status,
         )
     return CompanyPageOut.model_validate(page, from_attributes=True)
 

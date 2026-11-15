@@ -137,6 +137,8 @@ def test_company_lifecycle_is_attributed_to_the_signed_in_user(
         "establishment_count": 1,
         "prospect_count": 0,
         "updated_at": None,
+        "status": "incomplete",
+        "missing": ["channel", "identity", "kind", "person"],
     }
 
     assert client.delete(path).status_code == 204

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ListSort } from './companies'
 import { apiGet, apiRequest } from './client'
+import type { FileStatus } from './fileStatus'
 import { refreshAfterWrite } from './refresh'
 
 export interface WarehouseContact {
@@ -21,6 +22,8 @@ export interface WarehouseInput {
   postal_code: string | null
   city: string | null
   siret: string | null
+  // The building (establishment) of a company this warehouse is; the company follows from it.
+  establishment_id?: string | null
   notes: string | null
   contacts: WarehouseContact[]
 }
@@ -28,6 +31,12 @@ export interface Warehouse extends WarehouseInput {
   id: string
   version: string
   source_reference: string | null
+  // Computed file status, what is missing for the next level, and the linked company / building.
+  status: FileStatus
+  missing: string[]
+  company_id: string | null
+  company_name: string | null
+  building_name: string | null
 }
 export interface WarehousePreview {
   items: WarehouseInput[]
@@ -87,10 +96,10 @@ export function useWarehouseCounts() {
   })
 }
 
-export function useWarehouses(search: string, offset: number, toContact = false, category: 'sme' | 'other' | 'unclassified' | null = null, sort: ListSort = 'name') {
+export function useWarehouses(search: string, offset: number, toContact = false, category: 'sme' | 'other' | 'unclassified' | null = null, sort: ListSort = 'name', status: FileStatus | null = null) {
   return useQuery({
-    queryKey: ['warehouses', 'list', search, offset, toContact, category, sort],
-    queryFn: ({ signal }) => apiGet<{ items: Warehouse[]; total: number }>(`/warehouses?${new URLSearchParams({ q: search, offset: String(offset), limit: '50', ...(toContact ? { to_contact: 'true' } : {}), ...(category ? { category } : {}), ...(sort !== 'name' ? { sort } : {}) }).toString()}`, signal),
+    queryKey: ['warehouses', 'list', search, offset, toContact, category, sort, status],
+    queryFn: ({ signal }) => apiGet<{ items: Warehouse[]; total: number }>(`/warehouses?${new URLSearchParams({ q: search, offset: String(offset), limit: '50', ...(toContact ? { to_contact: 'true' } : {}), ...(category ? { category } : {}), ...(sort !== 'name' ? { sort } : {}), ...(status ? { status } : {}) }).toString()}`, signal),
     placeholderData: (previous, previousQuery) => previousQuery?.queryKey[4] === toContact && previousQuery?.queryKey[5] === category ? previous : undefined,
   })
 }

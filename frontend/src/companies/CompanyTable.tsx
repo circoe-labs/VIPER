@@ -1,4 +1,6 @@
 import { COMPANY_KIND_LABELS, type CompanyListItem } from '../api/companies'
+import { FILE_STATUS_LABELS, FILE_STATUS_TONES, missingText } from '../api/fileStatus'
+import { StatusBadge } from '../ui/Badge'
 import { Table } from '../ui/Table'
 import { useCompanyEditor } from './CompanyEditorProvider'
 import { formatSiren } from './companyForm'
@@ -18,7 +20,7 @@ export function CompanyTable({ items }: { items: CompanyListItem[] }) {
   return <div className="companies-list">
     <Table caption="Liste des entreprises">
       <thead><tr>
-        <th scope="col">Entreprise</th><th scope="col">Type</th>
+        <th scope="col">Entreprise</th><th scope="col">Statut</th><th scope="col">Type</th>
         <th scope="col" className="companies-col--siren">SIREN</th>
         <th scope="col" className="companies-col--domain">Domaine e-mail</th>
         <th scope="col" className="companies-col--city">Ville</th>
@@ -35,6 +37,10 @@ export function CompanyTable({ items }: { items: CompanyListItem[] }) {
               {company.legal_name && company.legal_name !== company.display_name && <span className="companies-table__legal">{company.legal_name}</span>}
             </span>
           </span>
+        </td>
+        <td>
+          <StatusBadge tone={FILE_STATUS_TONES[company.status]}>{FILE_STATUS_LABELS[company.status]}</StatusBadge>
+          {company.missing.length > 0 && <span className="companies-table__legal">Manque : {missingText(company.missing)}</span>}
         </td>
         <td>{company.company_kind ? COMPANY_KIND_LABELS[company.company_kind] : 'À classer'}</td>
         <td className="companies-table__id companies-col--siren">{company.siren ? formatSiren(company.siren) : '—'}</td>
