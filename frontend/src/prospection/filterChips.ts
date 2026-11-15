@@ -2,7 +2,7 @@
 // A chip is plain data (`clear` = the patch that removes it from the URL view); ENTITY_FILTER_KEYS (criteria.ts)
 // decides which filters belong to which entity, so a filter of another entity never shows up here.
 import { FILE_STATUS_HINTS, FILE_STATUS_LABELS, FILE_STATUSES } from '../api/fileStatus'
-import { NONE, REVIEWS } from '../api/prospection'
+import { NONE } from '../api/prospection'
 import type { Entity, ProspectionView, WarehouseCategory } from './criteria'
 import { ACTIVITY_LABELS, formatDay, REVIEW_INFO, SEGMENT_INFO, TRACKING_LABELS } from './labels'
 import { SERVICES } from './services'
@@ -62,7 +62,7 @@ export function activeFilters(view: ProspectionView, names: FilterNames = NO_NAM
   if (view.include_ignored) add('include_ignored', 'Ignorés inclus', { include_ignored: false })
   if (view.validated_only) add('validated_only', 'Emploi validé', { validated_only: false })
   if (view.verification_box) add('verification_box', BOX_LABELS[view.verification_box], { verification_box: null })
-  if (view.review) add('review', REVIEW_INFO[view.review].label, { review: null })
+  for (const status of view.review) add(`review-${status}`, REVIEW_INFO[status].label, { review: view.review.filter((item) => item !== status) })
   if (view.segment !== 'all') add('segment', SEGMENT_INFO[view.segment].label, { segment: 'all' })
   chips.push(...createdChip(view))
   kind()
@@ -89,7 +89,6 @@ export interface QuickFilter {
   clear: Partial<ProspectionView>
 }
 
-const NO_STATUS: Partial<ProspectionView> = { validated_only: false, verification_box: null, review: null, segment: 'all' }
 const KIND_CLEAR: Partial<ProspectionView> = { company_kind: null }
 const CATEGORY_CLEAR: Partial<ProspectionView> = { warehouse_category: null }
 
@@ -106,16 +105,8 @@ export const CONTACT_QUICK_FILTERS: readonly QuickFilter[] = (['response_receive
 }))
 
 export const QUICK_FILTERS: Record<Entity, readonly QuickFilter[]> = {
-  prospect: [
-    ...REVIEWS.map((review): QuickFilter => ({
-      id: review,
-      label: REVIEW_INFO[review].label,
-      hint: REVIEW_INFO[review].hint,
-      active: (v) => v.review === review && !v.validated_only && !v.verification_box,
-      apply: { ...NO_STATUS, review },
-      clear: NO_STATUS,
-    })),
-  ],
+  // The prospect status is a multi-select of its own (`ReviewFilter` in ProspectionFilters.tsx).
+  prospect: [],
   company: [
     { id: 'institutional', label: 'Institutionnelles', hint: 'Entreprises de type institutionnel', active: (v) => v.company_kind === 'institutional', apply: { company_kind: 'institutional' }, clear: KIND_CLEAR },
     { id: 'sme', label: 'PME', hint: 'Entreprises de type PME', active: (v) => v.company_kind === 'sme', apply: { company_kind: 'sme' }, clear: KIND_CLEAR },

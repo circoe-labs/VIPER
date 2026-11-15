@@ -231,6 +231,7 @@ const SETTING_LABELS: Record<string, string> = {
   contact_booking_url: 'lien de prise de rendez-vous',
   contact_initial_prompt: 'prompt initial',
   mission_creator_prompt: 'prompt de l’assistant de création de mission',
+  taxonomy_cleanup_prompt: 'prompt de nettoyage des listes',
   default_outbound_email: 'adresse « De » par défaut',
   toolbox_mail_enabled: 'activation de la Toolbox',
   toolbox_mcp_url: 'adresse du serveur CIRCOE Toolbox',

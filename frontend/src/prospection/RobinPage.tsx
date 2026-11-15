@@ -31,7 +31,7 @@ const CRITERIA: ProspectListCriteria = {
   company: null,
   import_batch: null,
   segment: 'all',
-  review: 'verified',
+  review: ['verified'],
   sort: 'company',
 }
 const PAGE_SIZE = 50

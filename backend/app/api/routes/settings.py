@@ -14,16 +14,17 @@ from datetime import date, datetime
 from enum import StrEnum
 from typing import Annotated, Self
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
-from app.api.dependencies import CurrentActor, SessionDep
+from app.api.dependencies import CurrentActor, SessionDep, SettingsDep
 from app.api.errors import business_errors
-from app.services import app_settings, cohorts, referents, taxonomies
+from app.services import app_settings, cohorts, referents, taxonomies, taxonomy_cleanup
 from app.services.cohorts import CohortView
 from app.services.contact_workflow import MAX_FOLLOW_UPS_LIMIT
 from app.services.referents import ReferentInput, ReferentValue
 from app.services.taxonomies import Taxonomy, TaxonomyValue
+from app.services.taxonomy_cleanup_prompt import taxonomy_cleanup_prompt
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -242,6 +243,71 @@ def set_referent_active(
 def delete_referent(referent_id: uuid.UUID, session: SessionDep, actor: CurrentActor) -> None:
     with business_errors():
         referents.delete_referent(session, actor, referent_id)
+
+
+class CleanupMemberOut(BaseModel):
+    id: uuid.UUID
+    label: str
+    usage_count: int
+
+
+class CleanupGroupOut(BaseModel):
+    # The proposed final label and the current values it replaces (one, or several to merge).
+    label: str
+    members: list[CleanupMemberOut]
+
+
+class CleanupProposalOut(BaseModel):
+    groups: list[CleanupGroupOut]
+    model: str
+
+
+class CleanupGroupIn(StrictModel):
+    label: Annotated[str, StringConstraints(max_length=taxonomies.LABEL_MAX_LENGTH)]
+    ids: list[uuid.UUID] = Field(max_length=500)
+
+
+class CleanupApplyIn(StrictModel):
+    groups: list[CleanupGroupIn] = Field(max_length=500)
+
+
+class CleanupAppliedOut(BaseModel):
+    renamed: int
+    merged: int
+    moved: int
+
+
+@router.post("/{taxonomy}/cleanup/proposal")
+def propose_taxonomy_cleanup(
+    taxonomy: TaxonomyPath, request: Request, session: SessionDep, settings: SettingsDep
+) -> CleanupProposalOut:
+    """Ask the AI for a cleaner list of this taxonomy's labels (homogenised, grouped). Nothing is
+    written: the person edits the groups, then sends them to `/cleanup/apply`."""
+    with business_errors():
+        proposal = taxonomy_cleanup.propose(
+            session,
+            settings,
+            TAXONOMIES[taxonomy],
+            prompt=taxonomy_cleanup_prompt(settings),
+            transport=request.app.state.openai_transport,
+        )
+    return CleanupProposalOut.model_validate(proposal, from_attributes=True)
+
+
+@router.post("/{taxonomy}/cleanup/apply")
+def apply_taxonomy_cleanup(
+    taxonomy: TaxonomyPath, body: CleanupApplyIn, session: SessionDep, actor: CurrentActor
+) -> CleanupAppliedOut:
+    """Apply the edited groups: each becomes one value (renamed, the others merged into it, their
+    prospects / companies moved over). All or nothing."""
+    with business_errors():
+        applied = taxonomy_cleanup.apply(
+            session,
+            actor,
+            TAXONOMIES[taxonomy],
+            [(group.label, group.ids) for group in body.groups],
+        )
+    return CleanupAppliedOut.model_validate(applied, from_attributes=True)
 
 
 @router.get("/{taxonomy}")

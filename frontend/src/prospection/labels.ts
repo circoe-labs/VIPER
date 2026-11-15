@@ -129,12 +129,15 @@ export const REVIEW_INFO: Record<Review, ReviewInfo> = {
 
 // The name of what a criteria set shows (list heading, editor position): the panel, else the segment.
 export function selectionLabel({ review, segment }: Pick<ProspectListCriteria, 'review' | 'segment'>): string {
-  return review ? REVIEW_INFO[review].heading : segment === 'all' ? 'Tous les prospects' : SEGMENT_INFO[segment].label
+  const [only] = review
+  if (only && review.length === 1) return REVIEW_INFO[only].heading
+  if (review.length > 1) return `Prospects ${review.map((status) => REVIEW_INFO[status].label.toLowerCase()).join(', ')}`
+  return segment === 'all' ? 'Tous les prospects' : SEGMENT_INFO[segment].label
 }
 
 // Short form of the same (« Vérifiés », « Tous »): the prospect editor's position line.
 export function selectionShortLabel({ review, segment }: Pick<ProspectListCriteria, 'review' | 'segment'>): string {
-  return review ? REVIEW_INFO[review].label : SEGMENT_INFO[segment].label
+  return review.length > 0 ? review.map((status) => REVIEW_INFO[status].label).join(' · ') : SEGMENT_INFO[segment].label
 }
 
 export const SEGMENT_GROUPS: { id: 'base' | 'verification' | 'contact'; title: string; segments: Segment[] }[] = [

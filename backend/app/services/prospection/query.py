@@ -7,6 +7,7 @@ counters are one aggregate statement (`count(*) FILTER (WHERE …)` per segment)
 """
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from enum import StrEnum
@@ -507,7 +508,7 @@ def list_prospects(
     context: SegmentContext,
     *,
     segment: Segment = Segment.ALL,
-    review: Review | None = None,
+    review: Sequence[Review] = (),
     sort: ProspectSort = ProspectSort.NAME,
     limit: int = 50,
     offset: int = 0,
@@ -516,8 +517,9 @@ def list_prospects(
     limit = max(1, min(limit, LIST_MAX_LIMIT))
     offset = max(0, offset)
     where = [*filter_conditions(filters), predicate(segment, context)]
-    if review is not None:
-        where.append(review_predicate(review, context))
+    if review:
+        # Several statuses = any of them; the ignored show when asked for (status or switch).
+        where.append(or_(*(review_predicate(item, context) for item in review)))
     elif not filters.include_ignored and segment is not Segment.DO_NOT_CONTACT:
         where.append(~set_aside())
     page = _page_statement(context).where(*where).order_by(*_order_by(sort))

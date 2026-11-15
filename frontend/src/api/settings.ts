@@ -152,6 +152,29 @@ function addToAllValues<T extends { id: string }>(
 
 // Every mutation goes through the audited API; lists (Settings and pickers) refresh afterwards. No optimistic update:
 // the server decides on duplicates and usage.
+export interface CleanupGroup {
+  // The proposed final label and the current values it replaces.
+  label: string
+  members: { id: string; label: string; usage_count: number }[]
+}
+
+// « Nettoyer »: the AI proposes groups (nothing written), the edited groups are then applied in one go — values merged,
+// their prospects / companies moved over — so everything that shows these labels is refreshed.
+export function useTaxonomyCleanup(kind: TaxonomyKind) {
+  const queryClient = useQueryClient()
+  return {
+    propose: useMutation({
+      mutationFn: () => apiRequest<{ groups: CleanupGroup[]; model: string }>('POST', `/settings/${kind}/cleanup/proposal`),
+    }),
+    apply: useMutation({
+      mutationFn: (groups: { label: string; ids: string[] }[]) =>
+        apiRequest<{ renamed: number; merged: number; moved: number }>('POST', `/settings/${kind}/cleanup/apply`, { body: { groups } }),
+      onSuccess: () =>
+        refreshAfterWrite(queryClient, [settingsKeys.list(kind), ['prospection'], ['companies'], ['prospects'], ['database']]),
+    }),
+  }
+}
+
 export function useTaxonomyMutations(kind: TaxonomyKind) {
   const queryClient = useQueryClient()
   const refresh = () => refreshAfterWrite(queryClient, [settingsKeys.list(kind)])

@@ -26,7 +26,7 @@ describe('Home descriptors are understood by their destination page', () => {
   it('Prospection cards select the entity and the review', () => {
     expect(parseProspection(url('new_prospects').searchParams)).toMatchObject({ entity: 'prospect' })
     expect(parseProspection(url('new_companies').searchParams)).toMatchObject({ entity: 'company' })
-    expect(parseProspection(url('incomplete').searchParams)).toMatchObject({ entity: 'prospect', review: 'incomplete' })
+    expect(parseProspection(url('incomplete').searchParams)).toMatchObject({ entity: 'prospect', review: ['incomplete'] })
     expect(url('new_warehouses').search).toBe('?entity=warehouse')
     expect(parseProspection(url('new_warehouses').searchParams).entity).toBe('warehouse')
   })

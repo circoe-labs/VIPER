@@ -14,9 +14,10 @@ import { InfoTip } from '../ui/InfoTip'
 import { Modal } from '../ui/Dialog'
 import { EmptyState } from '../ui/EmptyState'
 import { TextField } from '../ui/fields'
-import { AlertIcon, BanIcon, CheckIcon, PencilIcon, PlusIcon, RefreshIcon, SlidersIcon, TrashIcon } from '../ui/icons'
+import { AlertIcon, BanIcon, CheckIcon, PencilIcon, PlusIcon, RefreshIcon, SlidersIcon, SparklesIcon, TrashIcon } from '../ui/icons'
 import { Table } from '../ui/Table'
 import { settingsErrorMessage } from './messages'
+import { TaxonomyCleanup } from './TaxonomyCleanup'
 import {
   ActiveBadge,
   DeleteDialog,
@@ -55,6 +56,7 @@ export function TaxonomySection({ config }: { config: TaxonomySectionConfig }) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<TaxonomyValue | null>(null)
   const [adding, setAdding] = useState(false)
+  const [cleaning, setCleaning] = useState(false)
   const filtered = debouncedSearch.trim() !== '' || active !== 'all'
 
   function stopEditing(id: string) {
@@ -97,17 +99,43 @@ export function TaxonomySection({ config }: { config: TaxonomySectionConfig }) {
           <h2 className="settings-panel__title">{config.title}</h2>
           {config.description && <InfoTip label={`Aide : ${config.title}`}>{config.description}</InfoTip>}
         </div>
-        <Button
-          variant="primary"
-          size="sm"
-          icon={PlusIcon}
-          onClick={() => {
-            setAdding(true)
-          }}
-        >
-          Ajouter
-        </Button>
+        <div className="settings-panel__actions">
+          <Button
+            size="sm"
+            icon={SparklesIcon}
+            title="L’IA propose une liste plus propre (écriture homogène, doublons regroupés)"
+            onClick={() => {
+              setCleaning(true)
+            }}
+          >
+            Nettoyer
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            icon={PlusIcon}
+            onClick={() => {
+              setAdding(true)
+            }}
+          >
+            Ajouter
+          </Button>
+        </div>
       </header>
+
+      {cleaning && (
+        <TaxonomyCleanup
+          kind={config.kind}
+          noun={config.usageNoun === 'prospects' ? 'prospects' : 'sociétés'}
+          onClose={() => {
+            setCleaning(false)
+          }}
+          onDone={(text) => {
+            setCleaning(false)
+            setFeedback({ tone: 'success', text })
+          }}
+        />
+      )}
 
       <Modal
         open={adding}

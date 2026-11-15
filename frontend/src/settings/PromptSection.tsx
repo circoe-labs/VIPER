@@ -19,7 +19,7 @@ import './settings.css'
 // not editable. The text saved here replaces the built-in one; saving the built-in text unchanged (or « Rétablir »)
 // goes back to it. Each prompt is one card of a grid; a click opens its editor in a dialog.
 export function PromptSection() {
-  return <PromptGrid prompts={[CONTACT_PROMPT, MISSION_CREATOR_PROMPT]} />
+  return <PromptGrid prompts={[CONTACT_PROMPT, MISSION_CREATOR_PROMPT, TAXONOMY_CLEANUP_PROMPT]} />
 }
 
 // What differs between the prompts that share this editor. `field` is the integrations setting that stores the text
@@ -64,6 +64,20 @@ const MISSION_CREATOR_PROMPT: PromptCopy = {
     'Décrivez le comportement de l’assistant : comment il pose ses questions, ce qu’il propose et quand il demande une validation. Ce texte ne concerne que l’assistant de création ; la consigne des agents qui exécutent une mission se règle dans la catégorie (Administration › Catégories).',
   label: 'Comportement de l’assistant',
   saved: 'Comportement enregistré : il s’applique aux prochaines créations de mission.',
+}
+
+const TAXONOMY_CLEANUP_PROMPT: PromptCopy = {
+  field: 'taxonomy_cleanup_prompt',
+  defaultOf: (data) => data.taxonomy_cleanup_prompt_default,
+  id: 'settings-prompt-taxonomy-cleanup',
+  card: 'Nettoyer les listes (rôles, catégories…)',
+  icon: SparklesIcon,
+  title: 'Nettoyage des listes',
+  subtitle: 'Donné à l’IA du bouton « Nettoyer » des Paramètres (rôles, catégories d’activité, segments)',
+  sentence:
+    'Expliquez à l’IA comment nettoyer une liste de libellés : harmoniser l’écriture (majuscules, espaces, abréviations) et regrouper ce qui désigne la même chose. Elle propose une nouvelle liste, que vous modifiez avant de l’appliquer.',
+  label: 'Consigne de nettoyage',
+  saved: 'Consigne enregistrée : elle s’applique aux prochains nettoyages.',
 }
 
 function PromptGrid({ prompts }: { prompts: PromptCopy[] }) {

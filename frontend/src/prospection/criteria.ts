@@ -7,7 +7,6 @@ import {
   PROSPECT_SORTS,
   REVIEWS,
   type ProspectListCriteria,
-  type Review,
   type ProspectSort,
   SEGMENTS,
   type Segment,
@@ -61,7 +60,7 @@ export const DEFAULT_VIEW: ProspectionView = {
   send_stage: null,
   company_kind: null,
   segment: 'all',
-  review: null,
+  review: [],
   q: '',
   role: null,
   activity: null,
@@ -106,7 +105,7 @@ export function parseView(params: URLSearchParams): ProspectionView {
     send_stage: oneOf(['sent', 'r1', 'r2'] as const, params.get('send_stage')),
     company_kind: oneOf(['sme', 'large', 'institutional', 'unclassified'] as const, params.get('company_kind')),
     segment: oneOf<Segment>(SEGMENTS, params.get('segment')) ?? 'all',
-    review: oneOf<Review>(REVIEWS, params.get('review')),
+    review: REVIEWS.filter((status) => params.getAll('review').includes(status)),
     q: params.get('q') ?? '',
     role: id(params.get('role'), { allowNone: true }),
     activity: oneOf(ACTIVITIES, params.get('activity')) as ActivityStatus | null,
@@ -146,7 +145,7 @@ export function prospectionHref(view: Partial<ProspectionView> = {}): string {
 // Criteria other than the segment and the sort that narrow the list (shown as « Réinitialiser les filtres »).
 // A segment (Home's deep links) or a panel narrows the list; « Réinitialiser » clears them with the filters.
 export function hasSelection(view: ProspectionView): boolean {
-  return view.segment !== 'all' || view.review !== null
+  return view.segment !== 'all' || view.review.length > 0
 }
 
 export function hasFilters(view: ProspectionView): boolean {

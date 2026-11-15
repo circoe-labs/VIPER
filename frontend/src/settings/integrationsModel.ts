@@ -23,6 +23,7 @@ const KINDS: Record<Exclude<IntegrationField, 'toolbox_mail_enabled' | 'contact_
   contact_booking_url: 'text',
   contact_initial_prompt: 'text',
   mission_creator_prompt: 'text',
+  taxonomy_cleanup_prompt: 'text',
   toolbox_mcp_url: 'text',
   toolbox_oauth_redirect_uri: 'text',
   contact_dispatch_interval_ms: 'seconds',
@@ -64,6 +65,7 @@ export const FIELD_ERRORS: Record<FormField | 'openai_api_key', string> = {
   contact_booking_url: 'Adresse http(s) complète attendue, ou laissez vide pour ne proposer aucun lien.',
   contact_initial_prompt: 'Le prompt initial est limité à 8 000 caractères.',
   mission_creator_prompt: 'Le prompt de l’assistant de création est limité à 8 000 caractères.',
+  taxonomy_cleanup_prompt: 'Le prompt de nettoyage est limité à 8 000 caractères.',
   toolbox_mcp_url: 'Adresse https attendue (http seulement sur localhost).',
   toolbox_oauth_redirect_uri:
     'Adresse https attendue (http seulement sur localhost) : ouvrez VIPER en https ou sur localhost pour vous connecter.',

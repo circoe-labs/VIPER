@@ -2,16 +2,19 @@ import type { ReactNode } from 'react'
 
 import { useCompanies } from '../api/companies'
 import { useImportHistory } from '../api/imports'
-import { NONE, TRACKING_STATUSES } from '../api/prospection'
+import { NONE, type Review, REVIEWS, TRACKING_STATUSES } from '../api/prospection'
 import { type Cohort, referentName, useCohorts, useReferents, useTaxonomyValues } from '../api/settings'
 import { calendarDate } from '../lib/calendarDate'
 import { COMPANY_KIND_LABELS } from '../api/companies'
 import { ActiveChips, ControlBar, FilterMenu, SortSelect } from '../ui/ControlBar'
 import { Combobox } from '../ui/Combobox'
 import { SelectField, Switch, TextField } from '../ui/fields'
+import { CheckIcon } from '../ui/icons'
+import { Button } from '../ui/Button'
+import { businessToday } from '../lib/isoWeek'
 import { clearedFilters, ENTITY_SORTS, type ProspectionView, sortFor, type ViewSort } from './criteria'
 import { activeFilters, CONTACT_QUICK_FILTERS, FILE_STATUS_QUICK_FILTERS, type FilterNames, NO_NAMES, QUICK_FILTERS, type QuickFilter } from './filterChips'
-import { ACTIVITY_LABELS, formatDay, SORT_LABELS, TRACKING_LABELS } from './labels'
+import { ACTIVITY_LABELS, formatDay, REVIEW_INFO, SORT_LABELS, TRACKING_LABELS } from './labels'
 
 interface ProspectionControlsProps {
   view: ProspectionView
@@ -102,28 +105,71 @@ function FiltersMenu({ view, onChange }: Pick<ProspectionControlsProps, 'view' |
     <FilterMenu count={count}>
       {(open) => (
         <>
-          <QuickGroup title={titles[view.entity]} label="Filtres rapides" filters={quick} view={view} onChange={onChange} />
+          {view.entity === 'prospect'
+            ? <ReviewFilter view={view} onChange={onChange} />
+            : <QuickGroup title={titles[view.entity]} label="Filtres rapides" filters={quick} view={view} onChange={onChange} />}
           {view.entity !== 'prospect' && <QuickGroup title="Statut de la fiche" filters={FILE_STATUS_QUICK_FILTERS[view.entity]} view={view} onChange={onChange} />}
-          {view.entity === 'prospect' && (
-            <Switch
-              label="Afficher les ignorés"
-              hint="Personnes ayant décliné ou demandé à ne plus être contactées : masquées par défaut."
-              checked={view.include_ignored}
-              onChange={(event) => { onChange({ include_ignored: event.target.checked }) }}
-            />
-          )}
-          {view.entity === 'prospect' && <QuickGroup title="État de contact" filters={CONTACT_QUICK_FILTERS} view={view} onChange={onChange} />}
           {view.entity !== 'warehouse' && <CreationDates view={view} onChange={onChange} />}
-          {view.entity === 'prospect' && open && <ProspectFilterFields view={view} onChange={onChange} />}
+          {view.entity === 'prospect' && (
+            <>
+              <QuickGroup title="État de contact" filters={CONTACT_QUICK_FILTERS} view={view} onChange={onChange} />
+              <Switch
+                label="Afficher les ignorés"
+                hint="Personnes ayant décliné ou demandé à ne plus être contactées : masquées par défaut."
+                checked={view.include_ignored}
+                onChange={(event) => { onChange({ include_ignored: event.target.checked }) }}
+              />
+              {open && <ProspectFilterFields view={view} onChange={onChange} />}
+            </>
+          )}
         </>
       )}
     </FilterMenu>
   )
 }
 
+// « Statut du prospect »: several statuses can be chosen at once (the list shows any of them). Each status is a toggle
+// with a colour dot and a check mark when on; with none chosen every status but the ignored shows.
+const STATUS_TONES = { verified: 'success', usable: 'info', incomplete: 'warning', ignored: 'danger' } as const
+
+function ReviewFilter({ view, onChange }: Pick<ProspectionControlsProps, 'view' | 'onChange'>) {
+  const toggle = (status: Review) => {
+    onChange({ review: view.review.includes(status) ? view.review.filter((item) => item !== status) : REVIEWS.filter((item) => item === status || view.review.includes(item)) })
+  }
+  return (
+    <div className="filters-menu__group" role="group" aria-label="Statut du prospect">
+      <span className="filters-menu__title">Statut du prospect <span className="filters-menu__subtitle">(plusieurs choix possibles)</span></span>
+      <div className="status-filter">
+        {REVIEWS.map((status) => {
+          const on = view.review.includes(status)
+          return (
+            <button key={status} type="button" className="status-filter__option" data-tone={STATUS_TONES[status]} aria-pressed={on} title={REVIEW_INFO[status].hint} onClick={() => { toggle(status) }}>
+              <span className="status-filter__mark" aria-hidden="true">{on ? <CheckIcon size={12} /> : null}</span>
+              {REVIEW_INFO[status].label}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// Monday and Sunday (ISO dates) of the week of `today`.
+function currentWeek(today: string): { from: string; to: string } {
+  const day = new Date(`${today}T12:00:00Z`)
+  const monday = new Date(day.getTime() - ((day.getUTCDay() || 7) - 1) * 86_400_000)
+  const sunday = new Date(monday.getTime() + 6 * 86_400_000)
+  return { from: monday.toISOString().slice(0, 10), to: sunday.toISOString().slice(0, 10) }
+}
+
 function CreationDates({ view, onChange }: Pick<ProspectionControlsProps, 'view' | 'onChange'>) {
+  const week = currentWeek(businessToday())
+  const thisWeek = view.created_from === week.from && view.created_to === week.to
   return (
     <div className="filters-menu__fields" role="group" aria-label="Date d’ajout">
+      <Button size="sm" aria-pressed={thisWeek} variant={thisWeek ? 'primary' : 'secondary'} onClick={() => { onChange(thisWeek ? { created_from: null, created_to: null } : { created_from: week.from, created_to: week.to }) }}>
+        Cette semaine
+      </Button>
       <TextField label="Ajoutés depuis le" type="date" value={view.created_from ?? ''} onChange={(event) => { onChange({ created_from: calendarDate(event.target.value) }) }} />
       <TextField label="Ajoutés jusqu’au" type="date" value={view.created_to ?? ''} onChange={(event) => { onChange({ created_to: calendarDate(event.target.value) }) }} />
     </div>

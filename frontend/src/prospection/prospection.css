@@ -393,3 +393,64 @@
 }
 
 .prospect-row__tracking { padding-inline-end: var(--space-8); }
+
+/* « Statut du prospect »: multi-select toggles. */
+.filters-menu__subtitle {
+  color: var(--color-text-muted);
+  font-weight: var(--weight-regular);
+}
+
+.status-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.status-filter__option {
+  --tone: var(--color-neutral-fg);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-full);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.status-filter__option[data-tone='success'] { --tone: var(--color-success-fg); }
+.status-filter__option[data-tone='info'] { --tone: var(--color-info-fg); }
+.status-filter__option[data-tone='warning'] { --tone: var(--color-warning-fg); }
+.status-filter__option[data-tone='danger'] { --tone: var(--color-danger-fg); }
+
+.status-filter__mark {
+  display: inline-grid;
+  place-items: center;
+  width: 1rem;
+  height: 1rem;
+  border: 1.5px solid var(--tone);
+  border-radius: var(--radius-sm);
+  color: var(--color-surface);
+}
+
+.status-filter__option[aria-pressed='true'] {
+  border-color: var(--tone);
+  background: color-mix(in srgb, var(--tone) 12%, var(--color-surface));
+  font-weight: var(--weight-semibold);
+}
+
+.status-filter__option[aria-pressed='true'] .status-filter__mark {
+  background: var(--tone);
+}
+
+.status-filter__option:hover {
+  background: var(--color-surface-hover);
+}
+
+.status-filter__option:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-focus);
+  outline-offset: var(--focus-ring-offset);
+}

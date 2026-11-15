@@ -188,6 +188,9 @@ class Settings(BaseSettings):
     # The behaviour prompt of the mission-creator assistant (Paramètres > Prompt, mission-creator
     # slice S1); unset = `DEFAULT_MISSION_CREATOR_PROMPT`. Not a category's general prompt.
     mission_creator_prompt: Annotated[str, Field(max_length=8000)] | None = None
+    # The prompt of the « Nettoyer » button of Paramètres (taxonomy cleanup); unset =
+    # `DEFAULT_TAXONOMY_CLEANUP_PROMPT`.
+    taxonomy_cleanup_prompt: Annotated[str, Field(max_length=8000)] | None = None
     # Voice authoring of a mission (mission-creator slice S6): an OPTIONAL Whisper-compatible
     # speech-to-text service (`POST {stt_base_url}/audio/transcriptions`, e.g. a local
     # faster-whisper-server / whisper.cpp server, or any OpenAI-compatible endpoint). Unset = the
@@ -252,6 +255,7 @@ class Settings(BaseSettings):
         "contact_booking_url",
         "contact_initial_prompt",
         "mission_creator_prompt",
+        "taxonomy_cleanup_prompt",
         "stt_base_url",
         "stt_api_key",
         "toolbox_mcp_url",

@@ -38,7 +38,7 @@ export function todoCriteria(base: Partial<ProspectListCriteria> = {}): Prospect
     company: null,
     import_batch: null,
     segment: 'never_verified',
-    review: null,
+    review: [],
     sort: 'file',
     ...base,
   }

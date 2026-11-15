@@ -168,7 +168,7 @@ describe('Prospection page', () => {
     expect(chips().getByText('Aucun filtre')).toBeVisible()
 
     await openFilters()
-    const quick = within(screen.getByRole('group', { name: 'Filtres rapides' }))
+    const quick = within(screen.getByRole('group', { name: 'Statut du prospect' }))
     expect(quick.getAllByRole('button').map((button) => button.textContent)).toEqual(['Vérifié', 'Exploitable', 'Incomplet', 'Ignoré'])
     await userEvent.click(quick.getByRole('button', { name: 'Vérifié' }))
 
@@ -180,8 +180,11 @@ describe('Prospection page', () => {
     expect(chips().getByText('Vérifié')).toBeVisible()
     expect(lastParams(api.requests, PROSPECTS).get('review')).toBe('verified')
 
-    // Choosing another quick filter replaces it; « Tout effacer » removes every chip.
+    // Several statuses can be chosen at once (any of them); « Tout effacer » removes every chip.
     await userEvent.click(quick.getByRole('button', { name: 'Ignoré' }))
+    expect(router.state.location.search).toBe('?review=ignored&review=verified')
+    expect(lastParams(api.requests, PROSPECTS).getAll('review')).toEqual(['verified', 'ignored'])
+    await userEvent.click(quick.getByRole('button', { name: 'Vérifié' }))
     expect(router.state.location.search).toBe('?review=ignored')
     await userEvent.click(chips().getByRole('button', { name: 'Tout effacer' }))
     expect(router.state.location.search).toBe('')
@@ -216,9 +219,9 @@ describe('Prospection page', () => {
     expect(lastParams(api.requests, PROSPECTS).get('segment')).toBe('due')
 
     await openFilters()
-    await userEvent.click(within(screen.getByRole('group', { name: 'Filtres rapides' })).getByRole('button', { name: 'Incomplet' }))
+    await userEvent.click(within(screen.getByRole('group', { name: 'Statut du prospect' })).getByRole('button', { name: 'Incomplet' }))
 
-    expect(router.state.location.search).toBe('?review=incomplete')
+    expect(Object.fromEntries(new URLSearchParams(router.state.location.search))).toEqual({ segment: 'due', review: 'incomplete' })
   })
 
   it('searches: chips and list follow the same criteria, kept in the URL', async () => {

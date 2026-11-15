@@ -18,6 +18,7 @@ export type IntegrationField =
   | 'contact_booking_url'
   | 'contact_initial_prompt'
   | 'mission_creator_prompt'
+  | 'taxonomy_cleanup_prompt'
   | 'toolbox_mail_enabled'
   | 'toolbox_mcp_url'
   | 'toolbox_oauth_redirect_uri'
@@ -64,6 +65,8 @@ export interface Integrations {
   initial_prompt_default: string
   // The built-in behaviour prompt `mission_creator_prompt` (mission-creator assistant) falls back to.
   mission_creator_prompt_default: string
+  // The built-in prompt `taxonomy_cleanup_prompt` (the « Nettoyer » button of Paramètres) falls back to.
+  taxonomy_cleanup_prompt_default: string
   toolbox: { enabled: boolean; state: string; configured: boolean }
   // S9: `reason` why a scheduled message will not leave, and how many wait (`overdue_count`: their time has passed).
   dispatch: {

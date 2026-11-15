@@ -313,6 +313,8 @@ class SettingsChange(StrEnum):
     RENAMED = "renamed"
     DEACTIVATED = "deactivated"
     REACTIVATED = "reactivated"
+    # « Nettoyer »: several values merged into one, their references moved (one event per cleanup).
+    MERGED = "merged"
 
 
 TAXONOMY_ENTITY_TYPES = ("role", "commercial_segment", "activity_category")
@@ -331,6 +333,7 @@ ACTIONS = (
         for lifecycle in Lifecycle
     }
     | {settings_action(taxonomy, SettingsChange.RENAMED) for taxonomy in TAXONOMY_ENTITY_TYPES}
+    | {settings_action(taxonomy, SettingsChange.MERGED) for taxonomy in TAXONOMY_ENTITY_TYPES}
     | {
         settings_action(entity_type, change)
         for entity_type in SETTINGS_ENTITY_TYPES

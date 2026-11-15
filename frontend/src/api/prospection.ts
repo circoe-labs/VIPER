@@ -81,7 +81,8 @@ export interface ProspectFilters {
 
 export interface ProspectListCriteria extends ProspectFilters {
   segment: Segment
-  review: Review | null
+  // Statuses wanted (any of them); none = every status but the ignored.
+  review: Review[]
   sort: ProspectSort
 }
 
@@ -213,7 +214,7 @@ export function useProspectionOverview() {
 function pagePath(criteria: ProspectListCriteria, page: number): `/${string}` {
   const params = filterParams(criteria)
   params.set('segment', criteria.segment)
-  if (criteria.review) params.set('review', criteria.review)
+  for (const status of criteria.review) params.append('review', status)
   params.set('sort', criteria.sort)
   params.set('limit', String(PROSPECT_PAGE_SIZE))
   params.set('offset', String((page - 1) * PROSPECT_PAGE_SIZE))

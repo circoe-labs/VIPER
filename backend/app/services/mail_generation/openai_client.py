@@ -323,9 +323,8 @@ class OpenAIMailGenerator:
         )
 
     def generate(self, prompt: MailPrompt) -> GeneratedMail:
-        config = self._config
         request = {
-            "model": config.model,
+            "model": self._config.model,
             "instructions": prompt.instructions,
             "input": prompt.input,
             "store": False,
@@ -338,6 +337,45 @@ class OpenAIMailGenerator:
                 }
             },
         }
+        return self._mail(self._post(request), prompt)
+
+    def structured(
+        self, instructions: str, input_text: str, schema_name: str, schema: dict[str, Any]
+    ) -> tuple[dict[str, Any], str]:
+        """One strict-`json_schema` answer (any task, e.g. the taxonomy cleanup): the parsed
+        object and the answering model. Same retries and typed `ai_*` errors as the drafting."""
+        request = {
+            "model": self._config.model,
+            "instructions": instructions,
+            "input": input_text,
+            "store": False,
+            "text": {
+                "format": {
+                    "type": "json_schema",
+                    "name": schema_name,
+                    "schema": schema,
+                    "strict": True,
+                }
+            },
+        }
+        response = self._post(request)
+        try:
+            payload = response.json()
+            parsed = json.loads(extract_output_text(payload))
+        except ValueError:
+            raise _invalid("The AI service answer is unreadable: nothing was saved.") from None
+        if not isinstance(parsed, dict):
+            raise _invalid("The AI answer has the wrong shape: nothing was saved.")
+        answered = payload.get("model") if isinstance(payload, dict) else None
+        model = (
+            answered.strip()[:MODEL_MAX_LENGTH]
+            if isinstance(answered, str) and answered.strip()
+            else self._config.model
+        )
+        return parsed, model
+
+    def _post(self, request: dict[str, Any]) -> httpx2.Response:
+        config = self._config
         timeout = httpx2.Timeout(
             config.timeout_seconds, connect=min(CONNECT_TIMEOUT_SECONDS, config.timeout_seconds)
         )
@@ -378,7 +416,7 @@ class OpenAIMailGenerator:
                         attempt += 1
                         continue
                     raise self._status_error(response.status_code, code)
-                return self._mail(response, prompt)
+                return response
 
     def _retry(self, attempt: int, retry_after: str | None, cause: str) -> None:
         delay = _retry_delay(attempt, retry_after)
