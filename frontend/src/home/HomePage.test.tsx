@@ -14,14 +14,15 @@ const METRICS = weeklyMetrics({
 })
 const mission = (status: MissionCard['status'], results_pending: number) => ({ status, results_pending }) as MissionCard
 const MISSIONS = { items: [mission('active', 2), mission('active', 0), mission('done', 5)], total: 3 }
-const week = (index: number, first_contacts: number, responses: number, appointments: number) => ({
+const week = (index: number, first_contacts: number, follow_ups: number, appointments: number) => ({
   week: `2026-W${String(42 + index)}`, week_start: `2026-10-${String(12 + 7 * index)}`, week_end: `2026-10-${String(18 + 7 * index)}`,
-  additions: { prospects: index, companies: 1, warehouses: 0 }, first_contacts, responses, appointments,
+  additions: { prospects: index, companies: 1, warehouses: 0 }, base: { prospects: 100 + index, companies: 50, warehouses: 10 },
+  first_contacts, follow_ups, appointments, ignored: 1,
 })
 const SERIES: WeeklySeries = {
   timezone: 'Europe/Paris', today: '2026-10-30',
   weeks: [week(0, 10, 2, 1), week(1, 20, 5, 2)],
-  totals: { contacted: 200, responded: 50, with_appointment: 8 },
+  totals: { contacted: 200, with_appointment: 8, base_appointment: 8, base_ignored: 30, base_contacted: 162, base_not_contacted: 300 },
 }
 const API = {
   ...SHELL_API,
@@ -43,8 +44,8 @@ describe('Home cockpit', () => {
     renderApp('/')
     const main = within(await screen.findByRole('main'))
     const conversion = await main.findByRole('region', { name: 'Conversion des prospects contactés' })
-    expect(within(conversion).getByRole('group', { name: /Rendez-vous pris : 4\s?% \(8 sur 200\)/ })).toBeInTheDocument()
-    expect(within(conversion).getByRole('group', { name: /Ont répondu : 25\s?% \(50 sur 200\)/ })).toBeInTheDocument()
+    expect(within(conversion).getByRole('group', { name: /Rendez-vous \/ contacts : 4\s?% \(8 sur 200\)/ })).toBeInTheDocument()
+    expect(within(conversion).getByRole('img', { name: /Non contactés : 300/ })).toBeInTheDocument()
     const activity = main.getByRole('region', { name: 'Activité de contact par semaine' })
     expect(within(activity).getByRole('table', { name: 'Activité de contact par semaine' })).toBeInTheDocument()
     expect(main.getByRole('region', { name: 'Croissance de la base par semaine' })).toBeInTheDocument()

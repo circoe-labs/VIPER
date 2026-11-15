@@ -136,10 +136,14 @@ def test_series_empty_base_is_zero_week_by_week(client: TestClient) -> None:
     assert len(body["weeks"]) == 4
     assert body["weeks"][-1]["week_start"] <= body["today"]
     assert all(
-        point["first_contacts"] == point["responses"] == point["appointments"] == 0
+        point["first_contacts"] == point["follow_ups"] == point["appointments"] == 0
+        and point["ignored"] == 0
         for point in body["weeks"]
     )
-    assert body["totals"] == {"contacted": 0, "responded": 0, "with_appointment": 0}
+    assert body["totals"] == {
+        "contacted": 0, "with_appointment": 0, "base_appointment": 0, "base_ignored": 0,
+        "base_contacted": 0, "base_not_contacted": 0,
+    }
 
 
 def test_series_buckets_events_by_week_and_matches_weekly(db_session: Session) -> None:
@@ -181,9 +185,44 @@ def test_series_buckets_events_by_week_and_matches_weekly(db_session: Session) -
     older, previous, current = series.weeks
     # The appointment history row also dates a first contact (CONTACT_ATTEMPT_CODES).
     assert (older.first_contacts, previous.first_contacts, current.first_contacts) == (0, 3, 1)
-    assert (older.responses, previous.responses, current.responses) == (0, 1, 0)
+    assert (older.follow_ups, previous.follow_ups, current.follow_ups) == (0, 0, 0)
     assert (older.appointments, previous.appointments, current.appointments) == (0, 1, 0)
     assert (previous.additions.prospects, previous.additions.companies) == (2, 2)
+    assert (older.base.prospects, previous.base.prospects, current.base.prospects) == (0, 2, 3)
     assert current.additions.prospects == 1
     assert current.first_contacts == weekly_metrics(db_session, TODAY).contact_events.first_contacts
     assert series.totals.contacted == 3
+
+
+def test_series_follow_ups_declines_and_base_categories(db_session: Session) -> None:
+    week = start_of_day(MONDAY)
+    # Contacted this week, then followed up (R1) the same week.
+    followed = add_prospect(db_session)
+    sequence = start_sequence(db_session, followed)
+    add_send(db_session, sequence, 0, week + timedelta(hours=1))
+    add_send(db_session, sequence, 1, week + timedelta(days=2))
+    # Declined this week (recorded by a person).
+    declined = add_prospect(db_session)
+    tracking = ContactTracking(prospect_id=declined.id, status=ContactTrackingStatus.NOT_INTERESTED)
+    db_session.add(tracking)
+    db_session.flush()
+    db_session.add(
+        ContactTrackingStatusHistory(
+            contact_tracking_id=tracking.id,
+            from_status=None,
+            to_status=TrackingHistoryStatus.NOT_INTERESTED,
+            changed_at=week + timedelta(days=1),
+            actor_type=ActorType.HUMAN,
+            actor_id=None,
+            actor_display="Test",
+        )
+    )
+    add_prospect(db_session)  # never contacted
+    db_session.flush()
+
+    series = weekly_series(db_session, TODAY, 2)
+    current = series.weeks[-1]
+    assert (current.follow_ups, current.ignored) == (1, 1)
+    totals = series.totals
+    assert (totals.base_appointment, totals.base_ignored) == (0, 1)
+    assert (totals.base_contacted, totals.base_not_contacted) == (1, 1)

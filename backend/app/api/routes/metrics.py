@@ -67,15 +67,20 @@ class WeekPointOut(BaseModel):
     week_start: date
     week_end: date
     additions: WeeklyAdditionsOut
+    base: WeeklyAdditionsOut
     first_contacts: int
-    responses: int
+    follow_ups: int
     appointments: int
+    ignored: int
 
 
 class ConversionTotalsOut(BaseModel):
     contacted: int
-    responded: int
     with_appointment: int
+    base_appointment: int
+    base_ignored: int
+    base_contacted: int
+    base_not_contacted: int
 
 
 class WeeklySeriesOut(BaseModel):

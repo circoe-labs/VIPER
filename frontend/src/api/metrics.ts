@@ -78,17 +78,25 @@ export interface WeekPoint {
   week_start: string
   week_end: string
   additions: WeeklyAdditions
-  // Prospects first contacted / answered / first appointment recorded in the week (imports and migrations excluded).
+  // Rows existing at the end of the week: the real size of the base then.
+  base: WeeklyAdditions
+  // Prospects first contacted / followed up (rank >= 1) / first appointment / declined (not interested, ignored)
+  // recorded in the week (imports and migrations excluded).
   first_contacts: number
-  responses: number
+  follow_ups: number
   appointments: number
+  ignored: number
 }
 
-// Stock as of now (not a sum of the weeks): of the prospects really contacted, how many answered / hold an RDV.
+// Stock as of now (not a sum of the weeks): of the prospects really contacted, how many hold an RDV, and the exclusive
+// split of the whole base (appointment > ignored = declined or sequence finished unanswered > contacted > not contacted).
 export interface ConversionTotals {
   contacted: number
-  responded: number
   with_appointment: number
+  base_appointment: number
+  base_ignored: number
+  base_contacted: number
+  base_not_contacted: number
 }
 
 export interface WeeklySeries {

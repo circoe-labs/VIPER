@@ -45,13 +45,17 @@ and Prospection's `SegmentContext.week_start` are the same week.
 ## `GET /api/metrics/weekly-series?weeks=12` — week-by-week history (Home charts)
 
 `weeks` 1 to 26 (default 12). Returns `weeks[]` oldest first, the current business week last; each point has `week`,
-`week_start`, `week_end`, `additions {prospects, companies, warehouses}` (by `created_at`), `first_contacts`,
-`responses`, `appointments`, from the same rules as `/weekly` (`home.weekly_recorded_firsts_series` is the multi-week
-form of `weekly_recorded_firsts`: imports and migrations 0008/0012 restatements are not events; `responses` =
-`response_received_at` in the week). `totals` is a stock as of now, not a sum of the weeks: `contacted` (`contacted_sql`),
-`responded` (contacted with a `response_received_at`), `with_appointment` (contacted and `has_appointment()`).
+`week_start`, `week_end`, `additions {prospects, companies, warehouses}` (by `created_at`), `base {…}` (rows existing at
+the end of the week: `created_at` before the next Monday), `first_contacts` (people contacted), `follow_ups` (people who
+received a rank >= 1 message, recorded sends only), `appointments` and `ignored` (people whose status history gained
+« Non intéressé » or « Ignoré », restatements excluded). `home.weekly_recorded_firsts_series` is the multi-week form of
+`weekly_recorded_firsts`: imports and migrations 0008/0012 restatements are not events. `« Réponse reçue »` is not a
+Home figure. `totals` is a stock as of now, not a sum of the weeks: `contacted` (`contacted_sql`), `with_appointment`
+(contacted and `has_appointment()`), and an exclusive split of the whole base, first match wins: `base_appointment`
+(`has_appointment()`), `base_ignored` (« Non intéressé » / « Ignoré », or in sequence and finished unanswered),
+`base_contacted`, `base_not_contacted`.
 
-- Conversion rates shown by Home: `with_appointment / contacted` and `responded / contacted` (null when `contacted` = 0).
+- Conversion shown by Home: `with_appointment / contacted` (null when `contacted` = 0) and a pie of the four `base_*`.
 - Limits: a week before any record is 0 because nothing was recorded, not because nothing happened; prospects contacted
   or answered before VIPER recorded events (imports) are in `totals` but in no week. `first_contacts` counts a prospect
   once, in the week of the first recorded contact (a first appointment history row also dates a first contact).

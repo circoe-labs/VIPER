@@ -12,19 +12,20 @@ a stock count is never differenced. Definitions: doc/features/weekly-metrics.md.
 from dataclasses import dataclass
 from datetime import date, timedelta
 
-from sqlalchemy import false, func, select
+from sqlalchemy import and_, false, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.business_time import BusinessWeek
 from app.db.session import whole_base_plan
-from app.models import Company, ContactTracking, Prospect, Warehouse
+from app.models import Company, ContactMessage, ContactTracking, Prospect, Warehouse
 from app.models.contact_tracking import ContactTrackingStatusHistory as History
 from app.models.enums import (
-    ContactTrackingStatus as S,
-)
-from app.models.enums import (
+    ContactMessageStatus,
     QualityAlertType,
     TrackingHistoryStatus,
+)
+from app.models.enums import (
+    ContactTrackingStatus as S,
 )
 from app.models.quality_alerts import QualityAlert
 from app.services import home
@@ -38,6 +39,7 @@ from app.services.contact_dashboard import (
 from app.services.contact_sequences import (
     EFFECTIVE_ALERT_SOURCES,
     email_error_sql,
+    finished_sql,
     next_due_at_sql,
     next_rank_sql,
 )
@@ -194,18 +196,26 @@ class WeekPoint:
     week_start: date
     week_end: date  # Sunday, inclusive
     additions: WeeklyAdditions
-    first_contacts: int
-    responses: int
+    # Rows existing at the end of the week (created_at before the next Monday): the real base size.
+    base: WeeklyAdditions
+    first_contacts: int  # prospects contacted for the first time in the week
+    follow_ups: int  # prospects who received a follow-up (rank >= 1) in the week
     appointments: int  # prospects who obtained an appointment for the first time in the week
+    ignored: int  # prospects who declined (« Non intéressé » / « Ignoré ») in the week
 
 
 @dataclass(frozen=True, slots=True)
 class ConversionTotals:
-    """Stock as of now: of the prospects really contacted, how many answered / hold an RDV."""
+    """Stock as of now. `contacted` / `with_appointment` give the RDV rate; the four `base_*`
+    figures split every prospect of the base into exclusive categories (first match wins):
+    appointment, ignored (declined, or sequence finished unanswered), contacted, not contacted."""
 
     contacted: int
-    responded: int  # contacted with a `response_received_at`
     with_appointment: int  # contacted and `has_appointment()`
+    base_appointment: int
+    base_ignored: int
+    base_contacted: int
+    base_not_contacted: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -235,24 +245,61 @@ def weekly_series(session: Session, today: date, count: int = 12) -> WeeklySerie
             ).one()
             for key, model in models.items()
         }
+        sizes = {
+            key: session.execute(
+                select(*(func.count().filter(model.created_at < week.end) for week in weeks))
+            ).one()
+            for key, model in models.items()
+        }
         firsts = home.weekly_recorded_firsts_series(session, weeks)
-        answers = session.execute(
+        follow_ups = session.execute(
             select(*(
-                func.count().filter(
-                    ContactTracking.response_received_at >= week.start,
-                    ContactTracking.response_received_at < week.end,
+                func.count(func.distinct(ContactMessage.prospect_id)).filter(
+                    ContactMessage.sent_at >= week.start, ContactMessage.sent_at < week.end
                 )
                 for week in weeks
-            ))
+            )).where(
+                ContactMessage.status == ContactMessageStatus.SENT,
+                ContactMessage.rank >= 1,
+                ContactMessage.sent_source.in_(home.RECORDED_SEND_SOURCES),
+                ContactMessage.sent_at >= first.start,
+                ContactMessage.sent_at < last.end,
+            )
         ).one()
+        declined = session.execute(
+            select(*(
+                func.count(func.distinct(History.contact_tracking_id)).filter(
+                    History.changed_at >= week.start, History.changed_at < week.end
+                )
+                for week in weeks
+            )).where(
+                History.to_status.in_(
+                    (TrackingHistoryStatus.NOT_INTERESTED, TrackingHistoryStatus.IGNORED)
+                ),
+                History.changed_at >= first.start,
+                History.changed_at < last.end,
+                ~home.restated(),
+            )
+        ).one()
+        # Prospects without a tracking row make these predicates NULL: coalesce so `~` stays exact.
+        is_appointment = func.coalesce(has_appointment(), false())
+        is_ignored = func.coalesce(
+            or_(
+                ContactTracking.status.in_((S.NOT_INTERESTED, S.IGNORED)),
+                and_(in_sequence(), finished_sql()),
+            ),
+            false(),
+        )
+        is_contacted = func.coalesce(contacted_sql(), false())
         totals = session.execute(
             join_segment_sources(
                 select(
                     func.count().filter(contacted_sql()),
-                    func.count().filter(
-                        contacted_sql(), ContactTracking.response_received_at.is_not(None)
-                    ),
                     func.count().filter(contacted_sql(), has_appointment()),
+                    func.count().filter(is_appointment),
+                    func.count().filter(~is_appointment, is_ignored),
+                    func.count().filter(~is_appointment, ~is_ignored, is_contacted),
+                    func.count().filter(~is_appointment, ~is_ignored, ~is_contacted),
                 )
             )
         ).one()
@@ -262,9 +309,11 @@ def weekly_series(session: Session, today: date, count: int = 12) -> WeeklySerie
             week_start=week.monday,
             week_end=week.sunday,
             additions=WeeklyAdditions(**{key: int(added[key][index]) for key in models}),
+            base=WeeklyAdditions(**{key: int(sizes[key][index]) for key in models}),
             first_contacts=firsts[index][0],
-            responses=int(answers[index]),
+            follow_ups=int(follow_ups[index]),
             appointments=firsts[index][1],
+            ignored=int(declined[index]),
         )
         for index, week in enumerate(weeks)
     ]

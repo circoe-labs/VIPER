@@ -1,0 +1,15 @@
+/* Legend entries that toggle a curve */
+.chart-legend__toggle { display: inline-flex; align-items: center; gap: var(--space-2); padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.chart-legend__toggle:hover { background: var(--color-surface-hover); }
+.chart-legend__toggle:focus-visible { outline: var(--focus-ring-width) solid var(--color-focus); outline-offset: var(--focus-ring-offset); }
+.chart-legend__toggle.is-off { opacity: 0.5; text-decoration: line-through; }
+.chart-legend__toggle.is-off strong { text-decoration: none; }
+
+/* Pie of the base */
+.pie { display: grid; justify-items: center; gap: var(--space-3); min-width: 0; }
+.pie__chart { width: 100%; max-width: 200px; aspect-ratio: 1; height: auto; }
+.pie__slice { stroke: var(--color-surface); stroke-width: 1; }
+.pie__legend { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; font-size: var(--text-sm); color: var(--color-text-muted); }
+.pie__legend li { display: flex; align-items: center; gap: var(--space-2); }
+.pie__legend strong { margin-left: auto; color: var(--color-text); font-variant-numeric: tabular-nums; }
+.pie__legend small { min-width: 3.5rem; text-align: right; font-size: var(--text-xs); }

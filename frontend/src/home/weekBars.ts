@@ -31,3 +31,8 @@ const PERCENT = new Intl.NumberFormat('fr-FR', { style: 'percent', maximumFracti
 export function percent(value: number | undefined): string {
   return value === undefined ? '–' : PERCENT.format(value)
 }
+
+// `2026-10-19` -> `19 oct.` (the Monday that opens the week, read as a calendar day).
+export function weekStartLabel(point: Pick<WeekPoint, 'week_start'>): string {
+  return SHORT_DAY.format(new Date(`${point.week_start}T12:00:00`))
+}
