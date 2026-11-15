@@ -63,7 +63,9 @@ function Gauge({ label, value, part, whole, color }: { label: string; value: num
     <div className="gauge" role="group" aria-label={`${label} : ${percent(value)} (${NUMBER.format(part)} sur ${NUMBER.format(whole)})`}>
       <svg className="gauge__ring" viewBox="0 0 120 120" aria-hidden="true">
         <circle className="gauge__track" cx="60" cy="60" r={radius} />
-        <circle className="gauge__value" cx="60" cy="60" r={radius} stroke={color} strokeDasharray={`${String(filled)} ${String(circumference)}`} transform="rotate(-90 60 60)" />
+        <circle className="gauge__value" cx="60" cy="60" r={radius} stroke={color} strokeDasharray={`${String(filled)} ${String(circumference)}`} transform="rotate(-90 60 60)">
+          <title>{`${label} : ${NUMBER.format(part)} sur ${NUMBER.format(whole)} (${percent(value)})`}</title>
+        </circle>
       </svg>
       <span className="gauge__figure">{percent(value)}</span>
       <span className="gauge__label">{label}</span>

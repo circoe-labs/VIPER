@@ -147,6 +147,7 @@ export function StatsChart({
                       return value > 0 ? (
                         <span
                           key={s.key}
+                          title={`${s.label} · ${bucketLongLabel(point.bucket, bucket)} (UTC) : ${formatCount(value)}`}
                           className={`stats-tone--${s.tone}`}
                           style={{ flexGrow: value }}
                         />

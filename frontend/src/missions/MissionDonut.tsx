@@ -82,7 +82,9 @@ export function MissionDonut({ title, segments, unit, emptyText = 'Aucune donné
                 pathLength={100}
                 strokeDasharray={`${String(length)} ${String(100 - length)}`}
                 strokeDashoffset={-(segment.start + gap / 2)}
-              />
+              >
+                <title>{`${segment.label} : ${formatDonutCount(segment.value)} (${formatShare(segment.share)})`}</title>
+              </circle>
             )
           })}
         </g>

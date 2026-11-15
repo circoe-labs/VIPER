@@ -44,7 +44,7 @@ export function StackedBars({ caption, columns, series, compact = false }: Stack
               <div className="week-bars__stack">
                 {series.map((entry) => {
                   const value = entry.values[index] ?? 0
-                  return value > 0 ? <span key={entry.key} className="week-bars__segment" style={{ height: `${String((value / top) * 100)}%`, background: entry.color }} /> : null
+                  return value > 0 ? <span key={entry.key} className="week-bars__segment" title={`${entry.label} · ${column.label} (${column.title}) : ${NUMBER.format(value)}`} style={{ height: `${String((value / top) * 100)}%`, background: entry.color }} /> : null
                 })}
               </div>
               <span className="week-bars__label">{column.label}</span>
