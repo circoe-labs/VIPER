@@ -223,6 +223,17 @@ export function AgendaPage() {
               setAnchor(stepAnchor(anchor, view, -1))
             }}
           />
+          <h2 className="agenda-toolbar__title">
+            <CalendarIcon size={18} />
+            {periodTitle(anchor, view)}
+          </h2>
+          <IconButton
+            icon={ChevronRightIcon}
+            label={view === 'month' ? 'Mois suivant' : 'Semaine suivante'}
+            onClick={() => {
+              setAnchor(stepAnchor(anchor, view, 1))
+            }}
+          />
           <Button
             size="sm"
             onClick={() => {
@@ -231,17 +242,6 @@ export function AgendaPage() {
           >
             Aujourd’hui
           </Button>
-          <IconButton
-            icon={ChevronRightIcon}
-            label={view === 'month' ? 'Mois suivant' : 'Semaine suivante'}
-            onClick={() => {
-              setAnchor(stepAnchor(anchor, view, 1))
-            }}
-          />
-          <h2 className="agenda-toolbar__title">
-            <CalendarIcon size={18} />
-            {periodTitle(anchor, view)}
-          </h2>
         </div>
         <div className="agenda-toolbar__views" role="group" aria-label="Affichage">
           {(['month', 'week'] as const).map((choice) => (
