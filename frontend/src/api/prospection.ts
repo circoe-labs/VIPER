@@ -26,9 +26,10 @@ export const SEGMENTS = [
 ] as const
 export type Segment = (typeof SEGMENTS)[number]
 
-// The three panels of the page (backend `Review`): exclusive and exhaustive. Ignored first, then verified (employment
-// AND primary e-mail), then the rest is to verify.
-export const REVIEWS = ['verified', 'to_verify', 'ignored'] as const
+// « Statut du prospect » (backend `Review`), exclusive and exhaustive, computed from the record: ignored (declined or
+// do-not-contact) first, then verified (usable + well documented), usable (verified e-mail, name, company, role),
+// incomplete (anything else, not to be contacted).
+export const REVIEWS = ['verified', 'usable', 'incomplete', 'ignored'] as const
 export type Review = (typeof REVIEWS)[number]
 
 // The commercial states in display order (backend ContactTrackingStatus, sequences rework D7), each chosen by a person.
@@ -60,6 +61,8 @@ export interface ProspectFilters {
   created_from?: string | null
   created_to?: string | null
   reachable?: boolean
+  // The ignored (declined / do not contact) are hidden unless asked for.
+  include_ignored?: boolean
   validated_only?: boolean
   verification_box?: 'validated' | 'uncertain' | 'todo' | 'ignored' | null
   services?: string[]
@@ -176,6 +179,7 @@ function filterParams(filters: ProspectFilters): URLSearchParams {
   const params = new URLSearchParams()
   if (filters.reachable) params.set('reachable', 'true')
   if (filters.validated_only) params.set('validated_only', 'true')
+  if (filters.include_ignored) params.set('include_ignored', 'true')
   const q = filters.q.trim()
   if (q) params.set('q', q)
   for (const code of filters.services ?? []) params.append('services', code)
@@ -187,8 +191,8 @@ function filterParams(filters: ProspectFilters): URLSearchParams {
 }
 
 export function filtersOf(criteria: Omit<ProspectListCriteria, 'sort'>): ProspectFilters {
-  const { q, role, activity, referent, tracking_status, cohort, company, import_batch, services, send_stage, company_kind, reachable, validated_only, verification_box, created_from, created_to } = criteria
-  return { q, role, activity, referent, tracking_status, cohort, company, import_batch, services, send_stage, company_kind, reachable, validated_only, verification_box, created_from, created_to }
+  const { q, role, activity, referent, tracking_status, cohort, company, import_batch, services, send_stage, company_kind, reachable, include_ignored, validated_only, verification_box, created_from, created_to } = criteria
+  return { q, role, activity, referent, tracking_status, cohort, company, import_batch, services, send_stage, company_kind, reachable, include_ignored, validated_only, verification_box, created_from, created_to }
 }
 
 export function useProspectionCounters(filters: ProspectFilters) {

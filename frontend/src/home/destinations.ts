@@ -4,7 +4,7 @@
 //  - Contact (`contact/criteria.ts`, `contact/commercialModel.ts`): `view=to_contact|follow_ups|overdue|contacted|responses|
 //    appointments|mail_errors`, optional `week=YYYY-Www`. NOT `status=` (that is a tracking-state filter of the page).
 //  - Prospection (`prospection/criteria.ts`): `entity=company|warehouse` (prospect is the default and is spelled out only
-//    for readability), `created_from` / `created_to` (prospects and companies only), `review=to_verify|…`,
+//    for readability), `created_from` / `created_to` (prospects and companies only), `review=incomplete|…`,
 //    `warehouse_category`, `warehouse_to_contact`.
 // The Entrepôts list has no creation-date filter (GET /warehouses takes none), so « Nouveaux entrepôts » leads to the
 // warehouse list unfiltered rather than to a list that pretends to be filtered. /missions has no filter params yet.
@@ -16,7 +16,7 @@ export type HomeCardId =
   | 'appointments'
   | 'to_contact'
   | 'due'
-  | 'to_verify'
+  | 'incomplete'
   | 'missions_active'
   | 'missions_done'
   | 'reviews_pending'
@@ -38,7 +38,7 @@ export const HOME_DESTINATIONS: Record<HomeCardId, (context: DestinationContext)
   appointments: () => href('/contact', { view: 'appointments' }),
   to_contact: () => href('/contact', { view: 'to_contact' }),
   due: () => href('/contact', { view: 'follow_ups' }),
-  to_verify: () => href('/prospection', { entity: 'prospect', review: 'to_verify' }),
+  incomplete: () => href('/prospection', { entity: 'prospect', review: 'incomplete' }),
   missions_active: () => '/missions',
   missions_done: () => '/missions',
   reviews_pending: () => '/missions',

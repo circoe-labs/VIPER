@@ -200,7 +200,11 @@
   font-weight: var(--weight-semibold);
 }
 
-.prospect-row--to_verify {
+.prospect-row--usable {
+  --tone-fg: var(--color-info-fg);
+}
+
+.prospect-row--incomplete {
   --tone-fg: var(--color-warning-fg);
 }
 

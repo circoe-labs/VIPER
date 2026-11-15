@@ -64,7 +64,7 @@ describe('Home cockpit', () => {
       cards.some((text) => text.includes(label) && text.includes(value) && (note === undefined || text.includes(note)))
     expect([
       has('Prospects', '1 051', '+28 cette semaine'), has('Entreprises', '812', '+12 cette semaine'), has('Entrepôts', '36', '+145 cette semaine'),
-      has('Rendez-vous pris', '6', '+'), has('À contacter', '41'), has('Relances dues', '9', 'dont 3 en retard'), has('À vérifier', '17', '+'),
+      has('Rendez-vous pris', '6', '+'), has('À contacter', '41'), has('Relances dues', '9', 'dont 3 en retard'), has('Incomplets', '17', '+'),
       has('Missions en cours', '2'), has('Missions terminées', '1'), has('Reviews en attente', '7'),
     ]).toEqual(Array(10).fill(true))
     // The only tables are the visually hidden data of the charts, one per chart (activity + growth).
@@ -83,7 +83,7 @@ describe('Home cockpit', () => {
     expect(href(/Rendez-vous pris/)).toBe('/contact?view=appointments')
     expect(href(/À contacter/)).toBe('/contact?view=to_contact')
     expect(href(/Relances dues/)).toBe('/contact?view=follow_ups')
-    expect(href(/À vérifier/)).toBe('/prospection?entity=prospect&review=to_verify')
+    expect(href(/Incomplets/)).toBe('/prospection?entity=prospect&review=incomplete')
     expect(href(/Reviews en attente/)).toBe('/missions')
     expect(screen.getByRole('link', { name: 'Importer Excel' })).toHaveAttribute('href', '/prospection/import')
     expect(screen.getByRole('link', { name: 'Ouvrir la prospection' })).toHaveAttribute('href', '/prospection')
@@ -109,7 +109,7 @@ describe('Home cockpit', () => {
     stubApi({ ...API, 'GET /api/missions': () => failed ? [500, { detail: 'boom' }] : [200, MISSIONS] })
     renderApp('/')
     expect(await screen.findByRole('alert')).toHaveTextContent('Impossible de charger certaines statistiques de VIPER.')
-    expect(await screen.findByRole('link', { name: /À vérifiers*17/ })).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: /Incomplets\s*17/ })).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /Missions en cours/ })).not.toBeInTheDocument()
     failed = false
     await userEvent.click(screen.getByRole('button', { name: 'Réessayer' }))

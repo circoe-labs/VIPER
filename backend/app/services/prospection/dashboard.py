@@ -123,7 +123,7 @@ def overview(session: Session, settings: Settings, *, validated_only: bool = Fal
     return DashboardOut(
         total=row["total"],
         reviews=(
-            {"verified": row["total"], "to_verify": 0, "ignored": 0}
+            {"verified": row["total"], "usable": 0, "incomplete": 0, "ignored": 0}
             if validated_only
             else {r.value: row[r.value] for r in Review}
         ),

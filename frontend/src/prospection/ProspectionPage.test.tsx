@@ -112,7 +112,7 @@ describe('Prospection page', () => {
     expect(screen.queryByText(/cette semaine/)).not.toBeInTheDocument()
   })
 
-  it.each(['/prospection', '/prospection?list=1', '/prospection?review=to_verify'])('shows the table directly, with no section to unfold, at %s', async (url) => {
+  it.each(['/prospection', '/prospection?list=1', '/prospection?review=incomplete'])('shows the table directly, with no section to unfold, at %s', async (url) => {
     stubProspectionApi({ prospects: people() })
     renderApp(url)
     expect(await screen.findByRole('list', { name: 'Prospects' })).toBeVisible()
@@ -156,30 +156,32 @@ describe('Prospection page', () => {
     const api = stubProspectionApi({
       prospects: [
         prospect('Vera', 'Verifiee', { employment_verified_at: '2026-09-01T10:00:00Z', review: 'verified', verification_state: 'verified', email_state: 'verified' }),
-        prospect('Victor', 'Verifie', { employment_verified_at: '2026-09-01T10:00:00Z', review: 'to_verify', verification_state: 'verified', email_state: 'unverified' }),
+        prospect('Victor', 'Verifie', { employment_verified_at: '2026-09-01T10:00:00Z', review: 'incomplete', verification_state: 'verified', email_state: 'unverified' }),
         prospect('Alix', 'Averifier', {}, [], true),
         prospect('Igor', 'Ignore', { review: 'ignored', tracking_status: 'ignored' }),
       ],
     })
     const { router } = renderApp('/prospection')
-    await waitFor(() => { expect(within(list()).getAllByRole('listitem')).toHaveLength(4) })
+    // The ignored are hidden by default.
+    await waitFor(() => { expect(within(list()).getAllByRole('listitem')).toHaveLength(3) })
+    expect(within(list()).queryByText(/Igor/)).not.toBeInTheDocument()
     expect(chips().getByText('Aucun filtre')).toBeVisible()
 
     await openFilters()
     const quick = within(screen.getByRole('group', { name: 'Filtres rapides' }))
-    expect(quick.getAllByRole('button').map((button) => button.textContent)).toEqual(['Emploi validé', 'Incertains', 'À vérifier', 'Mis de côté'])
-    await userEvent.click(quick.getByRole('button', { name: 'Emploi validé' }))
+    expect(quick.getAllByRole('button').map((button) => button.textContent)).toEqual(['Vérifié', 'Exploitable', 'Incomplet', 'Ignoré'])
+    await userEvent.click(quick.getByRole('button', { name: 'Vérifié' }))
 
-    expect(router.state.location.search).toBe('?validated_only=true')
+    expect(router.state.location.search).toBe('?review=verified')
     // Same list layout (no reachable-prospects table), same entity.
-    await waitFor(() => { expect(within(list()).getAllByRole('listitem')).toHaveLength(2) })
+    await waitFor(() => { expect(within(list()).getAllByRole('listitem')).toHaveLength(1) })
     expect(screen.queryByRole('table', { name: 'Prospects' })).not.toBeInTheDocument()
     expect(within(list()).queryByText(/Alix/)).not.toBeInTheDocument()
-    expect(chips().getByText('Emploi validé')).toBeVisible()
-    expect(lastParams(api.requests, PROSPECTS).get('validated_only')).toBe('true')
+    expect(chips().getByText('Vérifié')).toBeVisible()
+    expect(lastParams(api.requests, PROSPECTS).get('review')).toBe('verified')
 
     // Choosing another quick filter replaces it; « Tout effacer » removes every chip.
-    await userEvent.click(quick.getByRole('button', { name: 'Mis de côté' }))
+    await userEvent.click(quick.getByRole('button', { name: 'Ignoré' }))
     expect(router.state.location.search).toBe('?review=ignored')
     await userEvent.click(chips().getByRole('button', { name: 'Tout effacer' }))
     expect(router.state.location.search).toBe('')
@@ -214,20 +216,20 @@ describe('Prospection page', () => {
     expect(lastParams(api.requests, PROSPECTS).get('segment')).toBe('due')
 
     await openFilters()
-    await userEvent.click(within(screen.getByRole('group', { name: 'Filtres rapides' })).getByRole('button', { name: 'À vérifier' }))
+    await userEvent.click(within(screen.getByRole('group', { name: 'Filtres rapides' })).getByRole('button', { name: 'Incomplet' }))
 
-    expect(router.state.location.search).toBe('?verification_box=todo')
+    expect(router.state.location.search).toBe('?review=incomplete')
   })
 
   it('searches: chips and list follow the same criteria, kept in the URL', async () => {
     const api = stubProspectionApi({ prospects: people() })
-    const { router } = renderApp('/prospection?review=to_verify')
+    const { router } = renderApp('/prospection?review=incomplete')
     await within(await screen.findByRole('list', { name: 'Prospects' })).findByRole('link', { name: 'Luc Fictif' })
 
     await userEvent.type(screen.getByRole('searchbox'), 'zzz')
 
     await waitFor(() => {
-      expect(router.state.location.search).toBe('?review=to_verify&q=zzz')
+      expect(router.state.location.search).toBe('?review=incomplete&q=zzz')
     })
     await waitFor(() => { expect(lastParams(api.requests, PROSPECTS).get('q')).toBe('zzz') })
     expect(await screen.findByText('Aucun prospect ne correspond à ces critères.')).toBeInTheDocument()
@@ -239,13 +241,13 @@ describe('Prospection page', () => {
   it('restores search, filters and page from the URL, and a filter change goes back to page 1', async () => {
     const role = taxonomyValue('Responsable transport')
     const api = stubProspectionApi({ prospects: people(), roles: [role] })
-    const { router } = renderApp(`/prospection?review=to_verify&q=luc&activity=unknown&role=${role.id}&page=2`)
+    const { router } = renderApp(`/prospection?review=incomplete&q=luc&activity=unknown&role=${role.id}&page=2`)
 
     await waitFor(() => {
       expect(lastParams(api.requests, PROSPECTS).get('offset')).toBe('50')
     })
     const sent = lastParams(api.requests, PROSPECTS)
-    expect(Object.fromEntries(sent)).toMatchObject({ review: 'to_verify', q: 'luc', activity: 'unknown', role: role.id })
+    expect(Object.fromEntries(sent)).toMatchObject({ review: 'incomplete', q: 'luc', activity: 'unknown', role: role.id })
     expect(screen.getByRole('searchbox')).toHaveValue('luc')
     expect(await chips().findByText('Activité : Activité inconnue')).toBeVisible()
     expect(await chips().findByText('Rôle : Responsable transport')).toBeVisible()
@@ -260,7 +262,7 @@ describe('Prospection page', () => {
     const params = new URLSearchParams(router.state.location.search)
     expect(params.get('activity')).toBe('active')
     expect(params.has('page')).toBe(false)
-    expect(params.get('review')).toBe('to_verify')
+    expect(params.get('review')).toBe('incomplete')
   })
 
   it('renders each person’s states with text and icons, never colour alone', async () => {
@@ -275,7 +277,7 @@ describe('Prospection page', () => {
     expect(jean).toHaveTextContent('Transports Exemple SARL')
     expect(jean).toHaveTextContent('+33 6 12 34 56 78')
     // One review line per person, with its reason; the address is plain text and its state a dot (read out too).
-    expect(within(jean).getByText('E-mail invalide')).toBeInTheDocument()
+    expect(within(jean).getByText(/e-mail invalide/)).toBeInTheDocument()
     expect(within(jean).getByText('jean@exemple.example')).toBeInTheDocument()
     expect(within(jean).getByText('Adresse invalide')).toBeInTheDocument()
     // « En séquence »: the cohort and the level, no state badge; due, so « Échu » with the step since when.
@@ -288,12 +290,12 @@ describe('Prospection page', () => {
 
     expect(within(claire).getByText('Ne pas contacter')).toBeInTheDocument()
     expect(claire).toHaveTextContent('Plus en poste')
-    expect(within(claire).getByText('Validation de l’emploi non enregistrée')).toBeInTheDocument()
+    expect(within(claire).getByText(/Manque : e-mail absent/)).toBeInTheDocument()
     expect(within(claire).getByText('Pas d’e-mail principal')).toBeInTheDocument()
     expect(claire).toHaveTextContent('Rôle non renseigné')
     expect(within(claire).getByText('Sans semaine de contact')).toBeInTheDocument()
 
-    expect(within(luc).getByText('Coordonnées à revérifier')).toBeInTheDocument()
+    expect(within(luc).getByText(/Manque : e-mail non vérifié/)).toBeInTheDocument()
     expect(within(luc).getByText('Adresse non vérifiée')).toBeInTheDocument()
     // The level reached by the real sends and the next step, not yet due.
     expect(within(luc).getByText('R1 envoyée')).toBeInTheDocument()

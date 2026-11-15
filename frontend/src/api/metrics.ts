@@ -6,7 +6,7 @@ import { apiGet } from './client'
 // and Home (slice S1). « Cette semaine » = Monday 00:00 inclusive to next Monday 00:00 exclusive, Europe/Paris.
 // Definitions: doc/features/weekly-metrics.md. Sub-status weekly deltas of Prospection segments are NOT computable:
 // `prospection_sub_status_deltas` is always null — render nothing, never difference two stock counts. The weekly
-// delta of the review boxes (to_verify / verified / ignored) is `reviews[x].week` of GET /prospection/counters.
+// delta of the review boxes (verified / usable / incomplete / ignored) is `reviews[x].week` of GET /prospection/counters.
 
 export interface WeeklyAdditions {
   // Records whose created_at falls in the week (modification dates never count).

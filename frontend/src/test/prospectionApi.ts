@@ -39,7 +39,7 @@ export function prospect(
     activity_status: 'unknown',
     employment_verified_at: null,
     verification_state: 'never_verified',
-    review: 'to_verify',
+    review: 'incomplete',
     primary_email: null,
     primary_email_status: null,
     email_state: 'missing',
@@ -119,6 +119,8 @@ export function stubProspectionApi(options: ProspectionStubOptions = {}) {
           const box = ignored ? 'ignored' : validated ? 'validated' : uncertain ? 'uncertain' : 'todo'
           return box === params.get('verification_box')
         })()) &&
+        (params.get('include_ignored') === 'true' || params.get('review') === 'ignored' || params.get('verification_box') === 'ignored' || row.review !== 'ignored') &&
+        (!params.get('review') || row.review === params.get('review')) &&
         (params.get('validated_only') !== 'true' || (row.employment_verified_at !== null && row.review !== 'ignored')) &&
         (params.get('reachable') !== 'true' || (
           row.contactability_status === 'contactable' && row.activity_status !== 'inactive' &&

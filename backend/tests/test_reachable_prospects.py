@@ -60,7 +60,8 @@ def test_reachable_keeps_explicit_exclusions(client: TestClient, db_session: Ses
     add_email(db_session, opposed, "opposed@example.test", is_primary=True)
     db_session.flush()
     assert client.get("/api/prospection/prospects?reachable=true").json()["total"] == 0
-    assert client.get("/api/prospection/prospects").json()["total"] == 5
+    assert client.get("/api/prospection/prospects").json()["total"] == 2  # ignored ones are hidden
+    assert client.get("/api/prospection/prospects?include_ignored=true").json()["total"] == 5
 
 
 def test_company_sort_keeps_namesake_companies_together_across_pages(
@@ -121,5 +122,5 @@ def test_validation_workspace_scope_does_not_require_verified_email(
     }
     dashboard = client.get("/api/prospection/dashboard?validated_only=true").json()
     assert dashboard["total"] == 3
-    assert dashboard["reviews"] == {"verified": 3, "ignored": 0, "to_verify": 0}
-    assert client.get("/api/prospection/prospects").json()["total"] == 5
+    assert dashboard["reviews"] == {"verified": 3, "usable": 0, "incomplete": 0, "ignored": 0}
+    assert client.get("/api/prospection/prospects").json()["total"] == 4  # the ignored one is hidden

@@ -48,6 +48,7 @@ export const DEFAULT_VIEW: ProspectionView = {
   entity: 'prospect',
   warehouse_category: null,
   warehouse_to_contact: false,
+  include_ignored: false,
   validated_only: false,
   verification_box: null,
   created_from: null,
@@ -91,6 +92,7 @@ export function parseView(params: URLSearchParams): ProspectionView {
     entity: oneOf<Entity>(ENTITIES, params.get('entity')) ?? 'prospect',
     warehouse_category: oneOf<WarehouseCategory>(WAREHOUSE_CATEGORIES, params.get('warehouse_category')),
     warehouse_to_contact: params.get('warehouse_to_contact') === 'true',
+    include_ignored: params.get('include_ignored') === 'true',
     validated_only: params.get('validated_only') === 'true',
     verification_box: oneOf(['validated', 'uncertain', 'todo', 'ignored'] as const, params.get('verification_box')),
     created_from: calendarDate(params.get('created_from')),
@@ -163,7 +165,7 @@ export function sortFor(view: Pick<ProspectionView, 'entity' | 'sort'>): ViewSor
 // What a filter means is per entity: validated_only has no sense on Entreprises, the warehouse category none on
 // Prospects. `ENTITY_FILTER_KEYS` is the single list; q and sort are shared (sort only when the entity knows it).
 export const ENTITY_FILTER_KEYS: Record<Entity, readonly (keyof ProspectionView)[]> = {
-  prospect: ['validated_only', 'verification_box', 'review', 'segment', 'created_from', 'created_to', 'company_kind', 'role', 'activity', 'referent', 'tracking_status', 'cohort', 'company', 'import_batch', 'services', 'send_stage'],
+  prospect: ['include_ignored', 'validated_only', 'verification_box', 'review', 'segment', 'created_from', 'created_to', 'company_kind', 'role', 'activity', 'referent', 'tracking_status', 'cohort', 'company', 'import_batch', 'services', 'send_stage'],
   company: ['company_kind', 'created_from', 'created_to'],
   warehouse: ['warehouse_category', 'warehouse_to_contact'],
 }

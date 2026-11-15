@@ -23,7 +23,7 @@
 
 .review__panels {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--space-4);
 }
 
@@ -50,10 +50,15 @@
     box-shadow var(--duration-fast) var(--ease-standard);
 }
 
-/* The code colour of the base: green verified, blue to verify, red ignored. */
-.review-panel--to_verify {
+/* The code colour of the base: green verified, blue usable, amber incomplete, red ignored. */
+.review-panel--usable {
   --tone-fg: var(--color-info-fg);
   --tone-soft: var(--color-info-soft);
+}
+
+.review-panel--incomplete {
+  --tone-fg: var(--color-warning-fg);
+  --tone-soft: var(--color-warning-soft);
 }
 
 .review-panel--ignored {

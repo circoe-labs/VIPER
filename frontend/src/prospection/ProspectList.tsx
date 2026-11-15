@@ -3,7 +3,7 @@ import { Link } from 'react-router'
 
 import type { ProspectRow } from '../api/prospection'
 import { StatusBadge } from '../ui/Badge'
-import { AlertIcon, BanIcon, BuildingIcon, CheckCircleIcon, ClockIcon } from '../ui/icons'
+import { AlertIcon, BanIcon, BuildingIcon, CheckCircleIcon } from '../ui/icons'
 import { CohortBadge, DueBadge, EmailErrorBadge, LevelBadge, StateBadge } from './ContactBadges'
 import {
   civilityLabel,
@@ -41,6 +41,18 @@ function moveFocus(event: KeyboardEvent<HTMLUListElement>) {
 
 // One line says where the file stands: the date when verified, the reason when it is still to do. The panel decides
 // the group (`row.review`, from the backend); the reason only explains it.
+// What an incomplete file lacks of the minimum to e-mail the person (verified e-mail, name, company, role).
+function reasonIncomplete(row: ProspectRow): string {
+  const missing: string[] = []
+  if (row.email_state !== 'verified') {
+    missing.push({ missing: 'e-mail absent', invalid: 'e-mail invalide', unverified: 'e-mail non vérifié', verified: '' }[row.email_state])
+  }
+  if (!row.first_name || !row.last_name) missing.push('nom')
+  if (!row.company_id) missing.push('société')
+  if (!row.role_label) missing.push('rôle')
+  return missing.length > 0 ? `Manque : ${missing.join(', ')}` : 'Fiche incomplète'
+}
+
 function reasonToVerify(row: ProspectRow): string {
   switch (row.verification_state) {
     case 'never_verified':
@@ -60,7 +72,7 @@ function ReviewLine({ row }: { row: ProspectRow }) {
   if (row.review !== 'ignored' && row.employment_verified_at) {
     return <div>
       <span className="review-line review-line--verified"><CheckCircleIcon size={16} /><span>Emploi validé <span className="prospect-row__muted">le {formatDay(row.employment_verified_at)}</span></span></span>
-      {row.review === 'to_verify' && <span className="prospect-row__muted">{reasonToVerify(row)}</span>}
+      {row.review === 'incomplete' && <span className="prospect-row__muted">{reasonIncomplete(row)}</span>}
     </div>
   }
   switch (row.review) {
@@ -83,16 +95,21 @@ function ReviewLine({ row }: { row: ProspectRow }) {
           Ignoré
         </span>
       )
-    case 'to_verify': {
-      const stale = row.verification_state === 'stale' || row.verification_state === 'channels_reset'
-      const Icon = stale ? ClockIcon : AlertIcon
+    case 'usable':
       return (
         <span className="review-line review-line--to-verify">
-          <Icon size={16} />
-          {reasonToVerify(row)}
+          <CheckCircleIcon size={16} />
+          Exploitable
+          {row.verification_state !== 'verified' && <span className="prospect-row__muted"> · {reasonToVerify(row)}</span>}
         </span>
       )
-    }
+    case 'incomplete':
+      return (
+        <span className="review-line review-line--to-verify">
+          <AlertIcon size={16} />
+          {reasonIncomplete(row)}
+        </span>
+      )
   }
 }
 

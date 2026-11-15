@@ -50,7 +50,7 @@ export function buildCockpit({ metrics, counters, missions, totals }: CockpitSou
       label: 'Relances dues', count: stock.follow_up_to_send, icon: ClockIcon, tone: 'orange',
       hint: stock.follow_up_overdue > 0 ? `dont ${String(stock.follow_up_overdue)} en retard` : undefined,
     }),
-    counters && card('to_verify', { label: 'À vérifier', count: counters.reviews.to_verify.total, weekly: counters.reviews.to_verify.week, icon: CheckCircleIcon, tone: 'blue' }),
+    counters && card('incomplete', { label: 'Incomplets', count: counters.reviews.incomplete.total, weekly: counters.reviews.incomplete.week, icon: CheckCircleIcon, tone: 'blue' }),
   ]
 
   const sections: CockpitSection[] = [

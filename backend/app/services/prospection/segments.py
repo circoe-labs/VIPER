@@ -77,12 +77,22 @@ class Segment(StrEnum):
 
 
 class Review(StrEnum):
-    """The three-way reading of a prospect's file, shown as the Prospection panels. Exclusive and
-    exhaustive: `ignored` (set aside) first, then `verified` (employment AND primary e-mail
-    verified, nothing lapsed), then everything else is `to_verify`. Independent of `Segment`."""
+    """The reading of a prospect's file (« Statut du prospect »), exclusive and exhaustive, computed
+    from the record and never typed in. In this order:
+
+    - `ignored`: set aside — declined (« Ignoré », « Non intéressé ») or asked not to be contacted
+      (the reason is kept in `contactability_status`, it is not a category of its own);
+    - `verified`: usable and well documented — employment verified and up to date, or an
+      appointment obtained (« Exploitable + »);
+    - `usable`: the minimum to send an e-mail — a verified primary e-mail, first and last name,
+      a company and a role. LinkedIn does not decide, it only adds credibility;
+    - `incomplete`: anything else. Not to be contacted.
+
+    Independent of `Segment`."""
 
     VERIFIED = "verified"
-    TO_VERIFY = "to_verify"
+    USABLE = "usable"
+    INCOMPLETE = "incomplete"
     IGNORED = "ignored"
 
 
@@ -301,24 +311,66 @@ def fully_verified(context: SegmentContext) -> ColumnElement[bool]:
     )
 
 
+def set_aside() -> ColumnElement[bool]:
+    """Ignored: declined or asked not to be contacted (never NULL)."""
+    return func.coalesce(
+        or_(
+            ContactTracking.status.in_((S.IGNORED, S.NOT_INTERESTED)),
+            Prospect.contactability_status == ContactabilityStatus.DO_NOT_CONTACT,
+        ),
+        false(),
+    )
+
+
+def minimum_to_email() -> ColumnElement[bool]:
+    """The minimum to send an e-mail to the person: a verified primary e-mail, first and last name,
+    a company and a role. Never NULL."""
+    return func.coalesce(
+        and_(
+            primary_email.verification_status == VerificationStatus.VERIFIED,
+            func.coalesce(func.trim(Prospect.first_name), "") != "",
+            func.coalesce(func.trim(Prospect.last_name), "") != "",
+            Prospect.company_id.is_not(None),
+            Prospect.role_id.is_not(None),
+        ),
+        false(),
+    )
+
+
 def review_predicate(review: Review, context: SegmentContext) -> ColumnElement[bool]:
     """Membership of `review` over the rows of `join_segment_sources` (never NULL)."""
-    is_ignored = func.coalesce(ignored(), false())
-    is_verified = and_(~is_ignored, func.coalesce(fully_verified(context), false()))
+    is_ignored = set_aside()
+    is_usable = and_(~is_ignored, minimum_to_email())
+    is_verified = and_(
+        is_usable,
+        func.coalesce(
+            or_(
+                and_(
+                    Prospect.employment_verified_at.is_not(None),
+                    ~stale(context),
+                    ~channels_reset(),
+                ),
+                has_appointment(),
+            ),
+            false(),
+        ),
+    )
     match review:
         case Review.IGNORED:
             return is_ignored
         case Review.VERIFIED:
             return is_verified
-        case Review.TO_VERIFY:
-            return and_(~is_ignored, ~is_verified)
+        case Review.USABLE:
+            return and_(is_usable, ~is_verified)
+        case Review.INCOMPLETE:
+            return and_(~is_ignored, ~is_usable)
 
 
 def review_state(context: SegmentContext) -> ColumnElement[str]:
     """The row's review, from the same predicates as the panels."""
     return case(
         *((review_predicate(review, context), review.value) for review in Review),
-        else_=Review.TO_VERIFY.value,
+        else_=Review.INCOMPLETE.value,
     )
 
 
@@ -332,7 +384,7 @@ def review_week_predicate(review: Review, context: SegmentContext) -> ColumnElem
                 func.greatest(Prospect.employment_verified_at, primary_email.last_verified_at)
                 >= week
             )
-        case Review.TO_VERIFY:
+        case Review.USABLE | Review.INCOMPLETE:
             arrived = Prospect.created_at >= week
         case Review.IGNORED:
             arrived = exists().where(
@@ -417,16 +469,21 @@ def predicate(segment: Segment, context: SegmentContext) -> ColumnElement[bool]:
             return email_error_sql()
 
 
-def _count(segment: Segment, context: SegmentContext) -> ColumnElement[int]:
-    if segment is Segment.ALL:
-        return func.count()
-    return func.count().filter(predicate(segment, context))
+def _count(
+    segment: Segment, context: SegmentContext, hide_ignored: bool = False
+) -> ColumnElement[int]:
+    # The « Ne pas contacter » segment is the one place the ignored are the point.
+    conditions = [] if segment is Segment.ALL else [predicate(segment, context)]
+    if hide_ignored and segment is not Segment.DO_NOT_CONTACT:
+        conditions.append(~set_aside())
+    return func.count().filter(*conditions) if conditions else func.count()
 
 
-def segment_counts(context: SegmentContext) -> list[Label[int]]:
+def segment_counts(context: SegmentContext, hide_ignored: bool = False) -> list[Label[int]]:
     """One `count(*) FILTER (WHERE …)` per segment, labelled with its key, for a single aggregate
-    query over `join_segment_sources`."""
-    return [_count(segment, context).label(segment.value) for segment in Segment]
+    query over `join_segment_sources`. `hide_ignored` leaves the ignored out of every segment but
+    « Ne pas contacter » (the list hides them by default)."""
+    return [_count(segment, context, hide_ignored).label(segment.value) for segment in Segment]
 
 
 def verification_state(context: SegmentContext) -> ColumnElement[str]:

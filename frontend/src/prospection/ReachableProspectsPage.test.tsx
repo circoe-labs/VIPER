@@ -7,7 +7,7 @@ import { renderApp } from '../test/render'
 function people() {
   return [
     prospect('Anne', 'Validee', { review: 'verified', employment_verified_at: '2026-10-29T09:00:00Z', primary_email: 'anne@example.test', email_state: 'verified' }),
-    prospect('Bruno', 'Joignable', { review: 'to_verify', employment_verified_at: '2026-10-29T09:00:00Z', primary_email: 'bruno@example.test', email_state: 'unverified' }),
+    prospect('Bruno', 'Joignable', { review: 'incomplete', employment_verified_at: '2026-10-29T09:00:00Z', primary_email: 'bruno@example.test', email_state: 'unverified' }),
     prospect('Claire', 'Telephone', { employment_verified_at: '2026-10-29T09:00:00Z' }),
     prospect('David', 'Ignore', { review: 'ignored', employment_verified_at: '2026-10-29T09:00:00Z' }),
     prospect('Edith', 'Incertaine', { primary_email: 'edith@example.test' }),
@@ -21,7 +21,7 @@ describe('Validated prospects: a plain filter of the Prospection list', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Prospection' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Prestations proposées' })).not.toBeInTheDocument()
     const list = await screen.findByRole('list', { name: 'Prospects' })
-    expect(within(list).getAllByRole('listitem')).toHaveLength(5)
+    expect(within(list).getAllByRole('listitem')).toHaveLength(4)
   })
 
   it('/contacts-joignables opens the prospects list restricted to validated jobs, in the same layout', async () => {

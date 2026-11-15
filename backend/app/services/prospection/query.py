@@ -76,6 +76,7 @@ from app.services.prospection.segments import (
     review_predicate,
     review_state,
     segment_counts,
+    set_aside,
     verification_state,
     verification_validated,
 )
@@ -119,6 +120,8 @@ class ProspectFilters:
     send_stage: str | None = None
     company_kind: str | None = None
     reachable: bool = False
+    # Internal callers (Home, exports) count everyone; the API hides the ignored unless asked.
+    include_ignored: bool = True
     validated_only: bool = False
     verification_box: Literal["validated", "uncertain", "todo", "ignored"] | None = None
     created_from: date | None = None
@@ -375,7 +378,10 @@ def count_segments(
 ) -> SegmentCounts:
     """Every segment's size under `filters`, in one aggregate query."""
     statement = join_segment_sources(
-        select(*segment_counts(context), *review_counts(context))
+        select(
+            *segment_counts(context, hide_ignored=not filters.include_ignored),
+            *review_counts(context),
+        )
     ).where(*filter_conditions(filters))
     with whole_base_plan(session):
         row = session.execute(statement).one()._mapping
@@ -512,6 +518,8 @@ def list_prospects(
     where = [*filter_conditions(filters), predicate(segment, context)]
     if review is not None:
         where.append(review_predicate(review, context))
+    elif not filters.include_ignored and segment is not Segment.DO_NOT_CONTACT:
+        where.append(~set_aside())
     page = _page_statement(context).where(*where).order_by(*_order_by(sort))
     count = join_segment_sources(select(func.count())).where(*where)
     with whole_base_plan(session):

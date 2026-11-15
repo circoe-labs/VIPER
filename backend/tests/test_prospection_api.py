@@ -77,7 +77,9 @@ def test_list_rows_carry_the_view_model(client: TestClient, db_session: Session)
         do_not_contact_at=datetime(2026, 1, 1, tzinfo=UTC),
     )
 
-    page = get(client, PROSPECTS, sort="company", limit=10)
+    # Declined / do-not-contact people are hidden by default, shown on request.
+    assert get(client, PROSPECTS, sort="company", limit=10)["total"] == 0
+    page = get(client, PROSPECTS, sort="company", limit=10, include_ignored="true")
 
     assert (page["total"], page["limit"], page["offset"]) == (1, 10, 0)
     (row,) = page["items"]
@@ -175,6 +177,7 @@ def test_reviews_partition_the_base_and_count_this_week(
     now = datetime.now(UTC)
     old = now - timedelta(days=60)
     company = add_company(db_session, "Revue Exemple SAS")
+    role = add_role(db_session)
 
     def person(
         name: str, *, employment: datetime | None, email: datetime | None, ignored: bool = False
@@ -184,6 +187,7 @@ def test_reviews_partition_the_base_and_count_this_week(
             company,
             first_name="Revue",
             last_name=name,
+            role_id=role.id,
             employment_verified_at=employment,
         )
         if email is not None:
@@ -203,21 +207,25 @@ def test_reviews_partition_the_base_and_count_this_week(
 
     person("Complete", employment=now, email=now)  # verified, completed this week
     person("Ancienne", employment=old, email=old)  # verified, long ago
-    person("SansEmail", employment=now, email=None)  # to verify: no verified e-mail
-    person("Jamais", employment=None, email=now)  # to verify: never verified
+    person("SansEmail", employment=now, email=None)  # incomplete: no verified e-mail
+    person("Jamais", employment=None, email=now)  # usable: the minimum to e-mail, not verified
     person("Ecartee", employment=now, email=now, ignored=True)  # ignored wins over verified
     db_session.flush()
 
-    counters = get(client, COUNTERS, q="Revue")
+    counters = get(client, COUNTERS, q="Revue", include_ignored="true")
     reviews = counters["reviews"]
 
-    assert reviews["verified"] == {"total": 2, "week": 1}
-    assert reviews["to_verify"]["total"] == 2
+    assert reviews["verified"] == {"total": 2, "week": 1}  # staleness is off in tests
+    assert reviews["usable"]["total"] == 1
+    assert reviews["incomplete"]["total"] == 1
     assert reviews["ignored"]["total"] == 1
     assert sum(r["total"] for r in reviews.values()) == counters["counts"]["all"]
     for key, review in reviews.items():
         page = get(client, PROSPECTS, review=key, q="Revue")
         assert page["total"] == review["total"], key
+    # By default the ignored are out of the segments and the list.
+    assert get(client, COUNTERS, q="Revue")["counts"]["all"] == 4
+    assert get(client, PROSPECTS, q="Revue")["total"] == 4
 
 
 def test_overview_counts_the_whole_base_and_the_deleted(
@@ -285,7 +293,9 @@ def test_verification_boxes_partition_the_base_and_match_filtered_lists(
         ("todo", todo),
         ("ignored", excluded),
     ]:
-        page = get(client, PROSPECTS, verification_box=box, q="Partition")
+        page = get(
+            client, PROSPECTS, verification_box=box, q="Partition", include_ignored="true"
+        )
         assert [row["id"] for row in page["items"]] == [str(person.id)]
 
 

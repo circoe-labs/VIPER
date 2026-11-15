@@ -98,24 +98,31 @@ export interface ReviewInfo {
 
 export const REVIEW_INFO: Record<Review, ReviewInfo> = {
   verified: {
-    label: 'Vérifiés',
+    label: 'Vérifié',
     heading: 'Prospects vérifiés',
-    caption: 'Emploi et e-mail principal à jour',
-    hint: 'Emploi vérifié et à jour, e-mail principal vérifié.',
-    weekHint: 'rendus complets depuis lundi',
+    caption: 'Fiche complète et qualifiée',
+    hint: 'Fiche exploitable et bien renseignée : emploi vérifié et à jour, ou rendez-vous pris. Une fiche valide, prête à l’emploi.',
+    weekHint: 'rendus vérifiés depuis lundi',
   },
-  to_verify: {
-    label: 'À vérifier',
-    heading: 'Prospects à vérifier',
-    caption: 'À contrôler avant tout contact',
-    hint: 'Emploi jamais vérifié ou ancien, coordonnées remises à vérifier, ou e-mail principal absent, invalide ou non vérifié.',
+  usable: {
+    label: 'Exploitable',
+    heading: 'Prospects exploitables',
+    caption: 'Le minimum pour envoyer un e-mail',
+    hint: 'E-mail principal vérifié, nom et prénom, société et rôle. La fiche peut être incomplète par ailleurs (LinkedIn, emploi à vérifier…), mais on a l’essentiel pour écrire à cette personne.',
+    weekHint: 'ajoutés à la base depuis lundi',
+  },
+  incomplete: {
+    label: 'Incomplet',
+    heading: 'Prospects incomplets',
+    caption: 'À ne pas contacter en l’état',
+    hint: 'Il manque une information essentielle (e-mail vérifié, nom, société ou rôle). Ce prospect ne doit pas être contacté tant que la fiche n’est pas complétée.',
     weekHint: 'ajoutés à la base depuis lundi',
   },
   ignored: {
-    label: 'Ignorés',
+    label: 'Ignoré',
     heading: 'Prospects ignorés',
-    caption: 'Mis de côté, hors vérification',
-    hint: 'État de suivi « Ignoré » : mis de côté, hors vérification.',
+    caption: 'A décliné ou ne veut plus être contacté',
+    hint: 'Personne ayant décliné (« Non intéressé », « Ignoré ») ou demandé à ne plus être contactée (le motif « Ne pas contacter » est conservé sur la fiche). Masqués par défaut.',
     weekHint: 'mis de côté depuis lundi',
   },
 }

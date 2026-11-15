@@ -119,4 +119,5 @@ def test_company_category_excludes_ignored_but_keeps_valid_and_uncertain(
     page = client.get("/api/prospection/prospects", params=params).json()
     assert {row["id"] for row in page["items"]} == {str(valid.id), str(uncertain.id)}
     assert client.get("/api/prospection/counters", params=params).json()["counts"]["all"] == 2
-    assert client.get("/api/prospection/prospects").json()["total"] == 3
+    assert client.get("/api/prospection/prospects").json()["total"] == 2  # ignored hidden
+    assert client.get("/api/prospection/prospects?include_ignored=true").json()["total"] == 3

@@ -1,7 +1,7 @@
 // The model of « Filtres » : every applied filter of the entity shown is one removable chip with a French label.
 // A chip is plain data (`clear` = the patch that removes it from the URL view); ENTITY_FILTER_KEYS (criteria.ts)
 // decides which filters belong to which entity, so a filter of another entity never shows up here.
-import { NONE } from '../api/prospection'
+import { NONE, REVIEWS } from '../api/prospection'
 import type { Entity, ProspectionView, WarehouseCategory } from './criteria'
 import { ACTIVITY_LABELS, formatDay, REVIEW_INFO, SEGMENT_INFO, TRACKING_LABELS } from './labels'
 import { SERVICES } from './services'
@@ -56,6 +56,7 @@ export function activeFilters(view: ProspectionView, names: FilterNames = NO_NAM
     chips.push(...createdChip(view))
     return chips
   }
+  if (view.include_ignored) add('include_ignored', 'Ignorés inclus', { include_ignored: false })
   if (view.validated_only) add('validated_only', 'Emploi validé', { validated_only: false })
   if (view.verification_box) add('verification_box', BOX_LABELS[view.verification_box], { verification_box: null })
   if (view.review) add('review', REVIEW_INFO[view.review].label, { review: null })
@@ -103,10 +104,14 @@ export const CONTACT_QUICK_FILTERS: readonly QuickFilter[] = (['response_receive
 
 export const QUICK_FILTERS: Record<Entity, readonly QuickFilter[]> = {
   prospect: [
-    { id: 'validated', label: 'Emploi validé', hint: 'Validation de l’emploi enregistrée, indépendamment du statut de l’e-mail', active: (v) => !!v.validated_only && !v.verification_box && !v.review, apply: { ...NO_STATUS, validated_only: true }, clear: NO_STATUS },
-    { id: 'uncertain', label: 'Incertains', hint: 'Fonction à vérifier', active: (v) => v.verification_box === 'uncertain', apply: { ...NO_STATUS, verification_box: 'uncertain' }, clear: NO_STATUS },
-    { id: 'todo', label: 'À vérifier', hint: 'Validation de l’emploi non enregistrée', active: (v) => v.verification_box === 'todo', apply: { ...NO_STATUS, verification_box: 'todo' }, clear: NO_STATUS },
-    { id: 'ignored', label: 'Mis de côté', hint: 'Prospects ignorés, conservés dans la base', active: (v) => v.review === 'ignored' && !v.validated_only && !v.verification_box, apply: { ...NO_STATUS, review: 'ignored' }, clear: NO_STATUS },
+    ...REVIEWS.map((review): QuickFilter => ({
+      id: review,
+      label: REVIEW_INFO[review].label,
+      hint: REVIEW_INFO[review].hint,
+      active: (v) => v.review === review && !v.validated_only && !v.verification_box,
+      apply: { ...NO_STATUS, review },
+      clear: NO_STATUS,
+    })),
   ],
   company: [
     { id: 'institutional', label: 'Institutionnelles', hint: 'Entreprises de type institutionnel', active: (v) => v.company_kind === 'institutional', apply: { company_kind: 'institutional' }, clear: KIND_CLEAR },

@@ -68,7 +68,7 @@ export function weeklyMetrics(overrides: Partial<WeeklyMetrics> = {}): WeeklyMet
 export function prospectionCounters(toVerify = 0): Counters {
   return {
     counts: Object.fromEntries(SEGMENTS.map((segment) => [segment, 0])) as Counters['counts'],
-    reviews: Object.fromEntries(REVIEWS.map((review) => [review, { total: review === 'to_verify' ? toVerify : 0, week: 0 }])) as Counters['reviews'],
+    reviews: Object.fromEntries(REVIEWS.map((review) => [review, { total: review === 'incomplete' ? toVerify : 0, week: 0 }])) as Counters['reviews'],
     today: '2026-09-10',
     stale_threshold_days: null,
   }

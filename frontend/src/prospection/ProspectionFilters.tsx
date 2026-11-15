@@ -8,7 +8,7 @@ import { calendarDate } from '../lib/calendarDate'
 import { COMPANY_KIND_LABELS } from '../api/companies'
 import { ActiveChips, ControlBar, FilterMenu, SortSelect } from '../ui/ControlBar'
 import { Combobox } from '../ui/Combobox'
-import { SelectField, TextField } from '../ui/fields'
+import { SelectField, Switch, TextField } from '../ui/fields'
 import { clearedFilters, ENTITY_SORTS, type ProspectionView, sortFor, type ViewSort } from './criteria'
 import { activeFilters, CONTACT_QUICK_FILTERS, type FilterNames, NO_NAMES, QUICK_FILTERS, type QuickFilter } from './filterChips'
 import { ACTIVITY_LABELS, formatDay, SORT_LABELS, TRACKING_LABELS } from './labels'
@@ -103,6 +103,14 @@ function FiltersMenu({ view, onChange }: Pick<ProspectionControlsProps, 'view' |
       {(open) => (
         <>
           <QuickGroup title={titles[view.entity]} label="Filtres rapides" filters={quick} view={view} onChange={onChange} />
+          {view.entity === 'prospect' && (
+            <Switch
+              label="Afficher les ignorés"
+              hint="Personnes ayant décliné ou demandé à ne plus être contactées : masquées par défaut."
+              checked={view.include_ignored}
+              onChange={(event) => { onChange({ include_ignored: event.target.checked }) }}
+            />
+          )}
           {view.entity === 'prospect' && <QuickGroup title="État de contact" filters={CONTACT_QUICK_FILTERS} view={view} onChange={onChange} />}
           {view.entity !== 'warehouse' && <CreationDates view={view} onChange={onChange} />}
           {view.entity === 'prospect' && open && <ProspectFilterFields view={view} onChange={onChange} />}

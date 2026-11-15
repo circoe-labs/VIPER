@@ -9,7 +9,8 @@ const PERCENT = new Intl.NumberFormat('fr-FR', { style: 'percent', maximumFracti
 
 const ICONS: Record<Review, IconComponent> = {
   verified: CheckCircleIcon,
-  to_verify: AlertIcon,
+  usable: CheckIcon,
+  incomplete: AlertIcon,
   ignored: BanIcon,
 }
 
@@ -20,7 +21,7 @@ interface ReviewPanelsProps {
   onSelect: (review: Review | null) => void
 }
 
-// The three readings of the base — verified, to verify, ignored — each with its size and what arrived since Monday
+// The four readings of the base — verified, usable, incomplete, ignored — each with its size and what arrived since Monday
 // (« 362 +14 »). A panel is a filter: it opens its people below, and its figures follow the search and filters.
 export function ReviewPanels({ counters, active, onSelect }: ReviewPanelsProps) {
   const reviews = counters?.reviews

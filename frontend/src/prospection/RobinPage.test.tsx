@@ -12,7 +12,7 @@ function setup() {
   const rows = [
     prospect('Anne', 'Premier', { id: anne.id, review: 'verified', company_name: 'Transports Exemple' }),
     prospect('Bruno', 'Second', { id: bruno.id, review: 'verified', company_name: 'Port Exemple' }),
-    prospect('Claire', 'Inconnue', { review: 'to_verify' }),
+    prospect('Claire', 'Inconnue', { review: 'incomplete' }),
   ]
   const notes = {
     [bruno.id]: [
