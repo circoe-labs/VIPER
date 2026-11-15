@@ -8,7 +8,7 @@ import { SourcesAdmin } from './SourcesAdmin'
 const SECTIONS = {
   categories: {
     title: 'Catégories de mission',
-    description: 'Ce que l’on choisit en créant une mission : icône, couleur, consigne, skills et sources par défaut.',
+    description: 'Ce que l’on choisit en créant une mission : icône, couleur, consigne, skills et sources.',
     Section: CategoriesAdmin,
   },
   skills: {

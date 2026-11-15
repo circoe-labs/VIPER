@@ -48,11 +48,11 @@ describe('Administration › Catégories', () => {
     const list = await screen.findByRole('list', { name: 'Catégories de mission' })
     expect(within(list).getAllByRole('heading', { level: 2 })).toHaveLength(7)
     for (const name of ['Prospection', 'Salons', 'Veille concurrence']) {
-      expect(within(list).getByRole('button', { name: `Supprimer la catégorie ${name}` })).toBeEnabled()
+      expect(within(list).getByRole('button', { name: `Actions de la catégorie ${name}` })).toBeEnabled()
     }
     expect(within(list).queryByText('Intégrée')).not.toBeInTheDocument()
     expect(within(list).queryByText(/Catégorie intégrée/)).not.toBeInTheDocument()
-    expect(within(list).getAllByRole('button', { name: /Skills par défaut/ }).length).toBe(7)
+    expect(within(list).getAllByRole('button', { name: /^Skills\s*\d/ }).length).toBe(7)
   })
 
   it('asks for an explicit cascade confirmation when a category is used by missions', async () => {
@@ -60,7 +60,8 @@ describe('Administration › Catégories', () => {
     const user = userEvent.setup()
     renderApp('/administration/categories')
 
-    await user.click(await screen.findByRole('button', { name: 'Supprimer la catégorie Salons' }))
+    await user.click(await screen.findByRole('button', { name: 'Actions de la catégorie Salons' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Supprimer' }))
     const dialog = await screen.findByRole('dialog', { name: 'Supprimer cette catégorie ?' })
     expect(within(dialog).getByText(/utilisée par 3 missions.*annulera leurs tâches en cours/)).toBeInTheDocument()
     await user.click(within(dialog).getByRole('button', { name: 'Supprimer avec ses missions' }))
@@ -103,7 +104,8 @@ describe('Administration › Catégories', () => {
     const user = userEvent.setup()
     renderApp('/administration/categories')
 
-    await user.click(await screen.findByRole('button', { name: 'Modifier la catégorie Prospection' }))
+    // A click on the card edits it.
+    await user.click(await screen.findByRole('heading', { level: 2, name: 'Prospection' }))
     const dialog = await screen.findByRole('dialog', { name: 'Modifier la catégorie' })
     expect(within(dialog).getByRole('combobox', { name: 'Type d’exécution' })).toBeDisabled()
     await user.click(within(dialog).getByRole('button', { name: 'Enregistrer' }))

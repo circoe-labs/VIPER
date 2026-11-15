@@ -18,6 +18,7 @@ import { Modal } from '../ui/Dialog'
 import { EmptyState } from '../ui/EmptyState'
 import { SelectField, TextAreaField, TextField } from '../ui/fields'
 import { InfoTip } from '../ui/InfoTip'
+import { useRowMenu } from '../ui/RowMenu'
 import { BoltIcon, LinkIcon, PencilIcon, PlusIcon, SaveIcon, TagIcon, TrashIcon } from '../ui/icons'
 import { ConfirmDelete, ErrorNote, plural, QueryState } from './adminShared'
 
@@ -34,7 +35,7 @@ export function CategoriesAdmin() {
         <p className="adm-toolbar__hint">
           <span>Catégories</span>
           <InfoTip label="Aide : catégories de mission">
-            Une catégorie regroupe des missions du même genre : consigne générale, skills et sources par défaut, icône
+            Une catégorie regroupe des missions du même genre : consigne générale, skills et sources, icône
             et couleur. Une mission suit ces valeurs tant qu’on ne les modifie pas.
           </InfoTip>
         </p>
@@ -103,8 +104,24 @@ function CategoryCard({
   const close = () => {
     setListing(null)
   }
+  const rowMenu = useRowMenu<MissionCategory>(
+    (row) => `Actions de la catégorie ${row.name}`,
+    () => [
+      { id: 'edit', label: 'Modifier', icon: PencilIcon, onSelect: onEdit },
+      { id: 'delete', label: 'Supprimer', icon: TrashIcon, danger: true, onSelect: onDelete },
+    ],
+  )
   return (
-    <li className="adm-card">
+    <li
+      className="adm-card adm-card--clickable"
+      onContextMenu={rowMenu.onContextMenu(category)}
+      onClick={(event) => {
+        // A click on the card itself edits it; the buttons inside (« … », skills, sources) keep their own action.
+        if (!(event.target as HTMLElement).closest('button, a')) onEdit()
+      }}
+    >
+      <div className="adm-card__menu">{rowMenu.button(category)}</div>
+      {rowMenu.menu}
       <div className="adm-card__head" style={categoryAccent(category.color)}>
         <span className="mui-icon-tile" aria-hidden="true">
           <CategoryGlyph iconKey={category.icon} size={20} />
@@ -121,7 +138,7 @@ function CategoryCard({
           }}
         >
           <BoltIcon size={16} />
-          <span className="adm-tile__label">Skills par défaut</span>
+          <span className="adm-tile__label">Skills</span>
           <span className="adm-tile__count">{category.skills.length}</span>
         </button>
         <button
@@ -132,38 +149,24 @@ function CategoryCard({
           }}
         >
           <LinkIcon size={16} />
-          <span className="adm-tile__label">Sources par défaut</span>
+          <span className="adm-tile__label">Sources</span>
           <span className="adm-tile__count">{category.sources.length}</span>
         </button>
-      </div>
-      <div className="adm-card__actions">
-        <Button size="sm" icon={PencilIcon} aria-label={`Modifier la catégorie ${category.name}`} onClick={onEdit}>
-          Modifier
-        </Button>
-        <Button
-          size="sm"
-          variant="danger"
-          icon={TrashIcon}
-          aria-label={`Supprimer la catégorie ${category.name}`}
-          onClick={onDelete}
-        >
-          Supprimer
-        </Button>
       </div>
       {listing && (
         <Modal
           open
           size="sm"
-          title={`${listing === 'skills' ? 'Skills' : 'Sources'} par défaut · ${category.name}`}
+          title={`${listing === 'skills' ? 'Skills' : 'Sources'} · ${category.name}`}
           onClose={close}
           footer={<Button onClick={close}>Fermer</Button>}
         >
           {listing === 'skills' ? (
-            <DefaultList names={category.skills.map((skill) => ({ id: skill.id, text: skill.name }))} empty="Aucun skill par défaut." />
+            <DefaultList names={category.skills.map((skill) => ({ id: skill.id, text: skill.name }))} empty="Aucun skill." />
           ) : (
             <DefaultList
               names={category.sources.map((source) => ({ id: source.id, text: source.label ?? source.url }))}
-              empty="Aucune source par défaut."
+              empty="Aucune source."
             />
           )}
         </Modal>
@@ -324,13 +327,13 @@ function CategoryEditor({ category, onClose }: { category: MissionCategory | nul
           }}
         />
         <fieldset>
-          <legend>Skills par défaut</legend>
+          <legend>Skills</legend>
           <QueryState query={skills} what="Skills">
             {(rows) => <SkillChecklist skills={rows} value={skillIds} onChange={setSkillIds} />}
           </QueryState>
         </fieldset>
         <fieldset>
-          <legend>Sources par défaut</legend>
+          <legend>Sources</legend>
           <QueryState query={sources} what="Sources">
             {(rows) => <SourceTreePicker sources={rows} value={sourceIds} onChange={setSourceIds} />}
           </QueryState>

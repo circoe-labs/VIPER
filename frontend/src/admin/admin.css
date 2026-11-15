@@ -271,3 +271,22 @@
   display: flex;
   justify-content: flex-end;
 }
+
+/* Mission category card: a click edits it, « … » (top right) and right click open the same actions. */
+.adm-card {
+  position: relative;
+}
+
+.adm-card--clickable {
+  cursor: pointer;
+}
+
+.adm-card--clickable:hover {
+  border-color: var(--color-border-strong);
+}
+
+.adm-card__menu {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+}
