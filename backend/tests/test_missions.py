@@ -258,10 +258,8 @@ def test_a_signals_mission_needs_a_company(client: TestClient, db_session: Sessi
         },
     )
 
-    # Refused at save time, next to the linked data, with the way out (Prospection → Sociétés).
-    assert created.status_code == 422
-    assert created.json()["detail"]["field"] == "targets"
-    assert created.json()["detail"]["reason"] == "empty"
+    # No linked record is required: the mission works from its consigne.
+    assert created.status_code == 201, created.text
     company = add_company(db_session, display_name="2SN")
     accepted = client.post(
         MISSIONS,
@@ -276,7 +274,7 @@ def test_a_signals_mission_needs_a_company(client: TestClient, db_session: Sessi
     assert accepted.status_code == 201, accepted.text
 
 
-def test_a_mission_without_targets_cannot_run(client: TestClient, db_session: Session) -> None:
+def test_a_mission_without_targets_can_run(client: TestClient, db_session: Session) -> None:
     response = client.post(
         MISSIONS,
         json={
@@ -288,10 +286,9 @@ def test_a_mission_without_targets_cannot_run(client: TestClient, db_session: Se
         },
     )
 
-    assert response.status_code == 422
-    assert response.json()["detail"]["field"] == "targets"
+    assert response.status_code == 201, response.text
     db_session.expire_all()
-    assert db_session.scalar(select(Mission)) is None
+    assert db_session.scalar(select(Mission)) is not None
 
 
 def test_target_search_returns_companies_and_prospects(
@@ -366,15 +363,14 @@ def test_the_scheduler_closes_an_exhausted_recurrence(
     assert missions.run_due(db_session, now=now + timedelta(hours=2)) == []
 
 
-def test_a_rule_that_could_never_run_is_refused_when_saved(client: TestClient) -> None:
-    """Signals with nothing to watch used to be saved, then silently paused by the scheduler."""
+def test_a_signals_rule_with_the_wrong_result_is_refused_when_saved(client: TestClient) -> None:
     created = client.post(
         MISSIONS,
         json={
             "name": "Veille",
             "type": "signals",
             "prompt": "Trouve les nouveaux entrepôts.",
-            "result_kind": "signals",
+            "result_kind": "companies",
             "is_recurring": True,
             "interval_count": 1,
             "interval_unit": "days",
@@ -382,27 +378,6 @@ def test_a_rule_that_could_never_run_is_refused_when_saved(client: TestClient) -
     )
 
     assert created.status_code == 422, created.text
-    assert "Prospection" in created.text
-
-
-def test_the_scheduler_records_a_failed_run_and_never_pauses(
-    client: TestClient, db_session: Session
-) -> None:
-    company = add_company(db_session, display_name="2SN")
-    mission = due_mission(client, db_session, company)
-    # The linked company is deleted after the mission was saved: nothing left to run on.
-    db_session.execute(sql_delete(MissionTarget).where(MissionTarget.mission_id == mission.id))
-    db_session.flush()
-    now = datetime.now(UTC)
-
-    assert missions.run_due(db_session, now=now) == []
-
-    db_session.refresh(mission)
-    assert mission.status is MissionStatus.ACTIVE
-    assert mission.next_run_at is not None and mission.next_run_at > now
-    run = db_session.scalars(select(MissionRun).where(MissionRun.mission_id == mission.id)).one()
-    assert run.status is MissionRunStatus.FAILED
-    assert run.note
 
 
 def test_a_recurring_mission_starting_now_is_open_to_agents_at_once(
@@ -724,7 +699,7 @@ def test_task_actions_form_one_review_without_writes_before_acceptance(
     assert db_session.get(Prospect, prospect.id).exact_job_title is None
 
 
-def test_a_discovery_with_a_contacts_expectation_is_refused(
+def test_a_discovery_with_a_contacts_expectation_is_accepted(
     client: TestClient, db_session: Session
 ) -> None:
     response = client.post(
@@ -738,8 +713,7 @@ def test_a_discovery_with_a_contacts_expectation_is_refused(
         },
     )
 
-    assert response.status_code == 422
-    assert response.json()["detail"]["field"] == "targets"
+    assert response.status_code == 201, response.text
 
 
 def test_a_signals_mission_stores_dated_sourced_signals(
@@ -846,7 +820,7 @@ def test_a_signals_mission_stores_dated_sourced_signals(
     assert all(row["source_url"] for row in listed)
 
 
-def test_a_signals_mission_without_companies_cannot_run(
+def test_a_signals_mission_without_companies_can_run(
     client: TestClient, db_session: Session
 ) -> None:
     response = client.post(
@@ -860,8 +834,7 @@ def test_a_signals_mission_without_companies_cannot_run(
         },
     )
 
-    assert response.status_code == 422
-    assert response.json()["detail"]["field"] == "targets"
+    assert response.status_code == 201, response.text
 
 
 def test_delete_a_mission_cancels_its_open_tasks(client: TestClient, db_session: Session) -> None:

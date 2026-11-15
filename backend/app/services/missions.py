@@ -1079,30 +1079,25 @@ def check_runnable(
             "Ce résultat attendu n’est pas encore pris en charge (signaux : phase 2).",
             "unsupported",
         )
-    discovery = not target_kinds
-    if mission_type is MissionType.SIGNALS:
+    # No linked record is needed: without targets the mission works from its consigne and context.
+    if not target_kinds:
+        if mission_type is MissionType.SIGNALS and result_kind is not MissionResultKind.SIGNALS:
+            raise InvalidFieldError(
+                "result_kind",
+                "Une mission de signaux attend le résultat « Signaux ».",
+                "unsupported",
+            )
+    elif mission_type is MissionType.SIGNALS:
         if result_kind is not MissionResultKind.SIGNALS:
             raise InvalidFieldError(
                 "result_kind",
                 "Une mission de signaux attend le résultat « Signaux ».",
                 "unsupported",
             )
-        if discovery or "company" not in target_kinds:
+        if "company" not in target_kinds:
             raise InvalidFieldError(
                 "targets",
-                "Une mission « Signaux » surveille des sociétés déjà en base : "
-                "liez-en au moins une. Pour découvrir de nouvelles sociétés, "
-                "choisissez « Prospection » → « Sociétés ».",
-                "empty",
-            )
-    elif discovery:
-        if (
-            mission_type is not MissionType.PROSPECTION
-            or result_kind is not MissionResultKind.COMPANIES
-        ):
-            raise InvalidFieldError(
-                "targets",
-                "Ajoutez des données liées : cette mission travaille sur des fiches existantes.",
+                "Une mission « Signaux » surveille des sociétés : liez-en au moins une.",
                 "empty",
             )
     elif mission_type is MissionType.PROSPECTION:

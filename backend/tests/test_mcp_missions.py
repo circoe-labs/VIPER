@@ -182,11 +182,6 @@ def test_creation_refusals_come_from_the_input_model_and_the_service(
         "invalid",
     )
     assert extra["field"] == "priority"
-    # A rule that could never produce a task: the service says why.
-    no_target = refused(
-        call(client, token, "viper_create_mission", {**enrichment(None), "targets": []}), "empty"
-    )
-    assert no_target["field"] == "targets"
     assert missions_count(db_session) == 0
 
 

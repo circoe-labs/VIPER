@@ -102,15 +102,10 @@ export function missingForRun(
   targets: Pick<TargetOption, 'kind'>[],
 ): string | null {
   const companies = targets.filter((target) => target.kind === 'company').length
-  if (type === 'signals') {
-    if (resultKind !== 'signals') return 'Une mission de signaux attend le résultat « Signaux ».'
-    if (companies === 0) return 'Liez au moins une société à surveiller.'
-    return null
-  }
-  if (targets.length === 0) {
-    if (type === 'prospection' && resultKind === 'companies') return null
-    return 'Liez au moins une fiche : cette mission travaille sur des sociétés ou des prospects existants.'
-  }
+  if (type === 'signals' && resultKind !== 'signals') return 'Une mission de signaux attend le résultat « Signaux ».'
+  // Linking a record is never required: without one the mission works from its consigne, skills, sources and context.
+  if (targets.length === 0) return null
+  if (type === 'signals') return companies === 0 ? 'Liez au moins une société à surveiller.' : null
   if (type === 'prospection') {
     if (resultKind !== 'prospects') {
       return 'La découverte part de zéro : retirez les données liées, ou choisissez « Trouver des contacts ».'

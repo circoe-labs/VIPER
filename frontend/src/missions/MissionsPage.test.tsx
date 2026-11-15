@@ -142,12 +142,11 @@ describe('MissionsPage', () => {
     await user.type(within(dialog).getByLabelText(/Consigne/), 'Trouve les commissaires au transport en Normandie')
 
     expect(within(dialog).getByLabelText(/Titre de la mission/)).toHaveValue('Trouve les commissaires au transport en Normandie')
-    // « Enrichissement » by default: it works on linked records, none yet.
+    // « Enrichissement » by default: no linked record is required, the mission is ready at once.
     expect(await within(dialog).findByRole('button', { name: 'Type de mission Enrichissement' })).toBeInTheDocument()
-    expect(within(dialog).getByRole('status')).toHaveTextContent('Liez au moins une fiche')
-    expect(within(dialog).getByRole('button', { name: 'Créer la mission' })).toBeDisabled()
+    expect(within(dialog).queryByRole('status')).not.toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'Créer la mission' })).toBeEnabled()
 
-    // A discovery starts from nothing: ready at once.
     await pickCategory(user, dialog, 'Prospection')
     expect(within(dialog).getByRole('combobox', { name: 'Résultat attendu' })).toHaveDisplayValue('Découvrir des sociétés')
     expect(within(dialog).queryByRole('status')).not.toBeInTheDocument()
@@ -248,14 +247,14 @@ describe('MissionsPage', () => {
     expect(within(dialog).getByRole('button', { name: 'Créer la mission' })).toBeDisabled()
   })
 
-  it('blocks a signals mission without a company to watch', async () => {
+  it('does not require a linked record for a signals mission', async () => {
     const { user, dialog } = await openCreate()
     await user.type(within(dialog).getByLabelText(/Consigne/), 'Nouveaux entrepôts en Normandie')
 
     await pickCategory(user, dialog, 'Signaux')
 
-    expect(within(dialog).getByRole('status')).toHaveTextContent('Liez au moins une société à surveiller')
-    expect(within(dialog).getByRole('button', { name: 'Créer la mission' })).toBeDisabled()
+    expect(within(dialog).queryByRole('status')).not.toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'Créer la mission' })).toBeEnabled()
   })
 
   it('shows an inline error and retries when the categories cannot be loaded', async () => {
