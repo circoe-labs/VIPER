@@ -239,7 +239,7 @@ export function useMissionForm(mission?: MissionDetail, initial?: MissionDraft) 
       prompt: promptOverride === null ? null : promptOverride.trim(),
       skill_ids: skillIds,
       source_ids: sourceIds,
-      targets: targets.map((target) => ({ kind: target.kind, id: target.id })),
+      targets: targets.flatMap((target) => (target.kind === 'warehouse' ? [] : [{ kind: target.kind, id: target.id }])),
       context_refs: contextRefs.map((ref) => ({ kind: ref.kind, id: ref.id, note: ref.note })),
       agent_id: agentId || null,
       is_recurring: recurring,

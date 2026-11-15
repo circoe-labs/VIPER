@@ -34,6 +34,7 @@ from app.models.mission_sources import CONTEXT_KINDS, MissionContextRef
 from app.models.missions import Mission
 from app.models.prospects import Prospect
 from app.models.taxonomies import CommercialSegment, Role
+from app.models.warehouses import Warehouse
 from app.services.errors import InvalidFieldError, NotFoundError
 
 MAX_CONTEXT_REFS = 50
@@ -42,6 +43,7 @@ VALUE_MAX_LENGTH = 300
 MAX_SITES = 5
 KIND_COMPANY = "company"
 KIND_PROSPECT = "prospect"
+KIND_WAREHOUSE = "warehouse"
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +76,10 @@ def _person_name(prospect: Prospect) -> str:
         " ".join(part for part in (prospect.first_name, prospect.last_name) if part)
         or "Prospect sans nom"
     )
+
+
+def warehouse_hint(warehouse: Warehouse) -> str | None:
+    return " ".join(part for part in (warehouse.postal_code, warehouse.city) if part) or None
 
 
 def _check_kind(kind: str) -> None:
@@ -116,6 +122,14 @@ def list_refs(session: Session, mission_id: uuid.UUID) -> list[ContextRefRow]:
             )
         )
     }
+    warehouses = {
+        warehouse.id: warehouse
+        for warehouse in session.scalars(
+            select(Warehouse).where(
+                Warehouse.id.in_([ref.warehouse_id for ref in refs if ref.warehouse_id is not None])
+            )
+        )
+    }
     company_names = {
         company.id: company.display_name
         for company in session.scalars(
@@ -141,6 +155,17 @@ def list_refs(session: Session, mission_id: uuid.UUID) -> list[ContextRefRow]:
                     prospect.id,
                     _person_name(prospect),
                     company_names.get(prospect.company_id) if prospect.company_id else None,
+                    ref.note,
+                )
+            )
+        elif ref.warehouse_id is not None and ref.warehouse_id in warehouses:
+            warehouse = warehouses[ref.warehouse_id]
+            rows.append(
+                ContextRefRow(
+                    KIND_WAREHOUSE,
+                    warehouse.id,
+                    warehouse.name,
+                    warehouse_hint(warehouse),
                     ref.note,
                 )
             )
@@ -172,6 +197,14 @@ def set_refs(
                     mission_id=mission.id, company_id=record_id, note=_clean_note(ref.note)
                 )
             )
+        elif kind == KIND_WAREHOUSE:
+            if session.get(Warehouse, record_id) is None:
+                raise NotFoundError("Unknown warehouse.")
+            session.add(
+                MissionContextRef(
+                    mission_id=mission.id, warehouse_id=record_id, note=_clean_note(ref.note)
+                )
+            )
         else:
             if session.get(Prospect, record_id) is None:
                 raise NotFoundError("Unknown prospect.")
@@ -188,8 +221,12 @@ def set_refs(
 def current_inputs(session: Session, mission_id: uuid.UUID) -> list[ContextRefInput]:
     return [
         ContextRefInput(
-            kind=KIND_COMPANY if ref.company_id is not None else KIND_PROSPECT,
-            id=ref.company_id or ref.prospect_id,  # type: ignore[arg-type]
+            kind=KIND_COMPANY
+            if ref.company_id is not None
+            else KIND_WAREHOUSE
+            if ref.warehouse_id is not None
+            else KIND_PROSPECT,
+            id=ref.company_id or ref.warehouse_id or ref.prospect_id,  # type: ignore[arg-type]
             note=ref.note,
         )
         for ref in session.scalars(
@@ -260,6 +297,20 @@ def _prospect_fields(session: Session, prospect: Prospect) -> dict[str, Any]:
     }
 
 
+def _warehouse_fields(warehouse: Warehouse) -> dict[str, Any]:
+    # Identity and location only: the owner's e-mail, LinkedIn and the contacts list are private.
+    return {
+        "prospecting_category": warehouse.prospecting_category,
+        "address": _clip(warehouse.address),
+        "postal_code": warehouse.postal_code,
+        "city": _clip(warehouse.city),
+        "siret": warehouse.siret,
+        "owner_name": _clip(warehouse.owner_name),
+        "owner_role": _clip(warehouse.owner_role),
+        "notes": _clip(warehouse.notes),
+    }
+
+
 def resolve(session: Session, mission_id: uuid.UUID) -> list[dict[str, Any]]:
     """The mission's context as the agent receives it: current, allowlisted, bounded, read-only.
 
@@ -277,7 +328,21 @@ def resolve(session: Session, mission_id: uuid.UUID) -> list[dict[str, Any]]:
     for ref in refs:
         company = session.get(Company, ref.company_id) if ref.company_id is not None else None
         prospect = session.get(Prospect, ref.prospect_id) if ref.prospect_id is not None else None
-        if company is not None:
+        warehouse = (
+            session.get(Warehouse, ref.warehouse_id) if ref.warehouse_id is not None else None
+        )
+        if warehouse is not None:
+            resolved.append(
+                {
+                    "kind": KIND_WAREHOUSE,
+                    "id": str(warehouse.id),
+                    "label": warehouse.name,
+                    "note": ref.note,
+                    "read_only": True,
+                    "fields": _warehouse_fields(warehouse),
+                }
+            )
+        elif company is not None:
             resolved.append(
                 {
                     "kind": KIND_COMPANY,

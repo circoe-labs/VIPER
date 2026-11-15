@@ -13,7 +13,7 @@ export interface AssistantCapabilities {
 }
 
 export interface DraftRecord {
-  kind: 'company' | 'prospect'
+  kind: 'company' | 'prospect' | 'warehouse'
   id: string
   label: string | null
   hint?: string | null

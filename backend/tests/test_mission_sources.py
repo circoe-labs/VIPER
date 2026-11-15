@@ -489,9 +489,14 @@ def test_context_links_are_added_removed_and_never_count_as_evidence(
     )
     assert missing.status_code == 404
     bad_kind = client.post(
-        f"{MISSIONS}/{mission_id}/context", json={"kind": "warehouse", "id": str(company.id)}
+        f"{MISSIONS}/{mission_id}/context", json={"kind": "invoice", "id": str(company.id)}
     )
     assert bad_kind.status_code == 422
+    # A warehouse sheet is a valid context record (read-only), unknown ones are 404.
+    unknown_warehouse = client.post(
+        f"{MISSIONS}/{mission_id}/context", json={"kind": "warehouse", "id": str(uuid.uuid4())}
+    )
+    assert unknown_warehouse.status_code == 404
 
     assert client.delete(f"{MISSIONS}/{mission_id}/context/company/{company.id}").status_code == 204
     assert client.delete(f"{MISSIONS}/{mission_id}/context/company/{company.id}").status_code == 404

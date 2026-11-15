@@ -53,9 +53,9 @@ class ObjectiveIn(StrictModel):
 
 
 class ContextRefIn(StrictModel):
-    """A VIPER record supplied as read-only context (never a target): `company` or `prospect`."""
+    """A VIPER record supplied as read-only context (never a target)."""
 
-    kind: Literal["company", "prospect"]
+    kind: Literal["company", "prospect", "warehouse"]
     id: uuid.UUID
     note: str | None = Field(default=None, max_length=500)
 
@@ -229,7 +229,7 @@ class CitationOut(BaseModel):
 class ContextRefOut(BaseModel):
     """A linked internal record. Read-only context: not a target, not evidence."""
 
-    kind: Literal["company", "prospect"]
+    kind: Literal["company", "prospect", "warehouse"]
     id: uuid.UUID
     label: str
     hint: str | None
@@ -239,7 +239,7 @@ class ContextRefOut(BaseModel):
 class ContextResolvedOut(BaseModel):
     """What the agent would receive for one context record (allowlisted fields only)."""
 
-    kind: Literal["company", "prospect"]
+    kind: Literal["company", "prospect", "warehouse"]
     id: uuid.UUID
     label: str
     note: str | None
@@ -489,7 +489,7 @@ def mission_targets(
 @router.get("/context-candidates")
 def mission_context_candidates(
     session: SessionDep,
-    kind: Annotated[Literal["company", "prospect"], Query()] = "company",
+    kind: Annotated[Literal["company", "prospect", "warehouse"], Query()] = "company",
     q: Annotated[str | None, Query(max_length=200)] = None,
     limit: Annotated[int, Query(ge=1, le=50)] = 20,
 ) -> list[TargetOut]:
@@ -669,7 +669,7 @@ def link_mission_context(
 )
 def unlink_mission_context(
     mission_id: uuid.UUID,
-    kind: Literal["company", "prospect"],
+    kind: Literal["company", "prospect", "warehouse"],
     record_id: uuid.UUID,
     session: SessionDep,
 ) -> None:

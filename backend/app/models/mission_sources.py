@@ -42,7 +42,7 @@ CITATION_URL_MAX_LENGTH = 2000
 CITATION_QUOTE_MAX_LENGTH = 1000
 # Internal record kinds a mission may read as context. Adding one = a new typed FK column here and
 # a serializer in `services.mission_context` (never a free table / SQL selector).
-CONTEXT_KINDS = ("company", "prospect")
+CONTEXT_KINDS = ("company", "prospect", "warehouse")
 
 
 class MissionCategorySource(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -133,7 +133,7 @@ class MissionContextRef(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     __tablename__ = "mission_context_refs"
     __table_args__ = (
-        CheckConstraint("num_nonnulls(company_id, prospect_id) = 1", name="exactly_one_record"),
+        CheckConstraint("num_nonnulls(company_id, prospect_id, warehouse_id) = 1", name="exactly_one_record"),
         Index(
             "uq_mission_context_refs_company",
             "mission_id",
@@ -148,6 +148,13 @@ class MissionContextRef(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             unique=True,
             postgresql_where=text("prospect_id IS NOT NULL"),
         ),
+        Index(
+            "uq_mission_context_refs_warehouse",
+            "mission_id",
+            "warehouse_id",
+            unique=True,
+            postgresql_where=text("warehouse_id IS NOT NULL"),
+        ),
     )
 
     mission_id: Mapped[uuid.UUID] = mapped_column(
@@ -159,6 +166,9 @@ class MissionContextRef(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     prospect_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("prospects.id", ondelete="CASCADE"), index=True
+    )
+    warehouse_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("warehouses.id", ondelete="CASCADE"), index=True
     )
     # Why this record matters to the mission, shown to the agent next to the record (bounded).
     note: Mapped[str | None] = mapped_column(Text)

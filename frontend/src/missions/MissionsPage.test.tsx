@@ -344,7 +344,7 @@ describe('the mission menu (right-click on a card)', () => {
       'Complète ces fiches avec le site web et le domaine e-mail.',
     )
     await user.click(within(dialog).getByRole('button', { name: /Sources/ }))
-    expect(within(dialog).getByText('Transports X')).toBeInTheDocument()
+    expect(within(dialog).queryByText('Données liées')).not.toBeInTheDocument()
     await user.clear(name)
     await user.type(name, 'Entrepôts — Normandie et Bretagne')
     await user.click(within(dialog).getByRole('button', { name: 'Enregistrer' }))

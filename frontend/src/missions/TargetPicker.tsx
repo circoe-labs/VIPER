@@ -25,10 +25,10 @@ export function TargetPicker({
   onAdd: (targets: TargetOption[]) => void
   mode?: 'target' | 'context'
 }) {
-  const [kind, setKind] = useState<'company' | 'prospect'>('company')
+  const [kind, setKind] = useState<'company' | 'prospect' | 'warehouse'>('company')
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<Record<string, TargetOption>>({})
-  const targetResults = useMissionTargets(kind, search, open && mode === 'target')
+  const targetResults = useMissionTargets(kind === 'warehouse' ? 'company' : kind, search, open && mode === 'target')
   const contextResults = useContextCandidates(kind, search, open && mode === 'context')
   const results = mode === 'context' ? contextResults : targetResults
 
@@ -55,7 +55,7 @@ export function TargetPicker({
       title={mode === 'context' ? 'Ajouter du contexte VIPER' : 'Ajouter des données'}
       description={
         mode === 'context'
-          ? 'Choisissez des fiches VIPER qui aident l’agent à comprendre le sujet. Elles sont lues en lecture seule : l’agent ne les traite pas et ne les modifie pas.'
+          ? 'Choisissez des sociétés, prospects ou entrepôts VIPER qui aident l’agent à comprendre le sujet. Elles sont lues en lecture seule : l’agent ne les traite pas et ne les modifie pas.'
           : 'Choisissez des sociétés ou des prospects déjà dans VIPER. La mission gardera leur référence, pas une copie.'
       }
       footer={
@@ -78,7 +78,7 @@ export function TargetPicker({
     >
       <div className="mission-picker">
         <div className="mission-picker__tabs" role="group" aria-label="Type de donnée">
-          {(['company', 'prospect'] as const).map((value) => (
+          {((mode === 'context' ? ['company', 'prospect', 'warehouse'] : ['company', 'prospect']) as ('company' | 'prospect' | 'warehouse')[]).map((value) => (
             <Button
               key={value}
               size="sm"
@@ -89,12 +89,12 @@ export function TargetPicker({
                 setSearch('')
               }}
             >
-              {value === 'company' ? 'Sociétés' : 'Prospects'}
+              {value === 'company' ? 'Sociétés' : value === 'warehouse' ? 'Entrepôts' : 'Prospects'}
             </Button>
           ))}
         </div>
         <SearchField
-          label={kind === 'company' ? 'Rechercher une société' : 'Rechercher un prospect'}
+          label={kind === 'company' ? 'Rechercher une société' : kind === 'warehouse' ? 'Rechercher un entrepôt' : 'Rechercher un prospect'}
           value={search}
           onChange={setSearch}
         />

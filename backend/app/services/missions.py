@@ -16,7 +16,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import delete as sql_delete
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.actor import ActorContext, ActorType
@@ -43,6 +43,7 @@ from app.models.missions import (
     MissionTarget,
 )
 from app.models.prospects import Prospect
+from app.models.warehouses import Warehouse
 from app.services import (
     agent_missions,
     agent_payloads,
@@ -1616,6 +1617,27 @@ def target_options(
                 "hint": (prospect.get("company") or {}).get("display_name"),
             }
             for prospect in prospect_page["prospects"]
+        ]
+    if kind == "warehouse":
+        # Warehouses are read-only context only (never a target).
+        query = select(Warehouse).order_by(Warehouse.name).limit(limit)
+        if search and search.strip():
+            pattern = f"%{search.strip()}%"
+            query = query.where(
+                or_(
+                    Warehouse.name.ilike(pattern),
+                    Warehouse.city.ilike(pattern),
+                    Warehouse.postal_code.ilike(pattern),
+                )
+            )
+        return [
+            {
+                "kind": "warehouse",
+                "id": str(warehouse.id),
+                "label": warehouse.name,
+                "hint": mission_context.warehouse_hint(warehouse),
+            }
+            for warehouse in session.scalars(query)
         ]
     raise InvalidFieldError("kind", "Unknown target kind.", "unknown")
 

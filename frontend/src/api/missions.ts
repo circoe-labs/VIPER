@@ -129,7 +129,7 @@ export interface MissionSource {
 
 // A VIPER record linked as read-only context (Slice 02). Not a target and not evidence.
 export interface MissionContextRef {
-  kind: 'company' | 'prospect'
+  kind: 'company' | 'prospect' | 'warehouse'
   id: string
   label: string
   hint: string | null
@@ -215,7 +215,7 @@ export interface AgentOption {
 }
 
 export interface TargetOption {
-  kind: 'company' | 'prospect'
+  kind: 'company' | 'prospect' | 'warehouse'
   id: string
   label: string
   hint: string | null
@@ -233,7 +233,7 @@ export interface MissionInput {
   // Slice 02: null = follow the category's default sources, a list (possibly empty) = override.
   source_ids: string[] | null
   // Read-only internal records supplied as context (omitted on edit = kept).
-  context_refs?: { kind: 'company' | 'prospect'; id: string; note?: string | null }[]
+  context_refs?: { kind: 'company' | 'prospect' | 'warehouse'; id: string; note?: string | null }[]
   agent_id: string | null
   is_recurring: boolean
   interval_count: number

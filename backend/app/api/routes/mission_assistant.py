@@ -46,7 +46,7 @@ class CapabilitiesOut(BaseModel):
 
 
 class RecordIn(StrictModel):
-    kind: Literal["company", "prospect"]
+    kind: Literal["company", "prospect", "warehouse"]
     id: str = Field(max_length=64)
     label: str | None = Field(default=None, max_length=300)
     hint: str | None = Field(default=None, max_length=300)

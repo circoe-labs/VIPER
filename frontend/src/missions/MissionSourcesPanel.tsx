@@ -5,7 +5,7 @@ import { type MissionSource, type TargetOption, useAddMissionSource, useMissionS
 import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { TextField } from '../ui/fields'
-import { BuildingIcon, CloseIcon, DatabaseIcon, LinkIcon, PencilIcon, PlusIcon, UsersIcon } from '../ui/icons'
+import { BuildingIcon, CloseIcon, DatabaseIcon, LinkIcon, PencilIcon, PlusIcon, UsersIcon, WarehouseIcon } from '../ui/icons'
 import { InfoTip } from '../ui/InfoTip'
 import { SourceTreePicker } from './ConfigPickers'
 import './configPickers.css'
@@ -33,10 +33,10 @@ function RecordList({
   return (
     <ul className="mission-targets" aria-label={label}>
       {records.map((record) => {
-        const KindIcon = record.kind === 'company' ? BuildingIcon : UsersIcon
+        const KindIcon = record.kind === 'company' ? BuildingIcon : record.kind === 'warehouse' ? WarehouseIcon : UsersIcon
         return (
           <li key={recordKey(record)} className="mission-target">
-            <span className="mission-target__icon" role="img" aria-label={record.kind === 'company' ? 'Société' : 'Prospect'}>
+            <span className="mission-target__icon" role="img" aria-label={record.kind === 'company' ? 'Société' : record.kind === 'warehouse' ? 'Entrepôt' : 'Prospect'}>
               <KindIcon size={14} />
             </span>
             <span className="mission-target__label">{record.label}</span>
@@ -66,7 +66,7 @@ export function MissionSourcesPanel({ form }: { form: MissionFormApi }) {
   const addSource = useAddMissionSource()
   const [url, setUrl] = useState('')
   const [label, setLabel] = useState('')
-  const [picking, setPicking] = useState<'target' | 'context' | null>(null)
+  const [picking, setPicking] = useState(false)
   const { category, sourceIds } = form
   const inherited = sourceIds === null
   const defaults: { id: string; url: string; label: string | null }[] = category?.sources ?? []
@@ -92,13 +92,8 @@ export function MissionSourcesPanel({ form }: { form: MissionFormApi }) {
   }
 
   const add = (added: TargetOption[]) => {
-    if (picking === 'context') {
-      const seen = new Set(form.contextRefs.map(recordKey))
-      form.setContextRefs([...form.contextRefs, ...added.filter((item) => !seen.has(recordKey(item))).map((item) => ({ ...item, note: null }))])
-    } else {
-      const seen = new Set(form.targets.map(recordKey))
-      form.setTargets([...form.targets, ...added.filter((item) => !seen.has(recordKey(item)))])
-    }
+    const seen = new Set(form.contextRefs.map(recordKey))
+    form.setContextRefs([...form.contextRefs, ...added.filter((item) => !seen.has(recordKey(item))).map((item) => ({ ...item, note: null }))])
   }
 
   const libraryRows: MissionSource[] = library.data ?? []
@@ -202,8 +197,8 @@ export function MissionSourcesPanel({ form }: { form: MissionFormApi }) {
           <DatabaseIcon size={18} /> Contexte VIPER{' '}
           <span className="mission-form__count">{form.contextRefs.length || ''}</span>
           <InfoTip label="Aide : contexte VIPER">
-            Des sociétés ou prospects déjà dans VIPER qui aident l’agent à comprendre le sujet. Il les lit, sans les
-            traiter ni les modifier : ce ne sont pas les données liées de la mission.
+            Des sociétés, prospects ou entrepôts déjà dans VIPER qui aident l’agent à comprendre le sujet. Il les lit,
+            sans les traiter ni les modifier.
           </InfoTip>
         </h3>
         <RecordList
@@ -220,7 +215,7 @@ export function MissionSourcesPanel({ form }: { form: MissionFormApi }) {
             size="sm"
             icon={PlusIcon}
             onClick={() => {
-              setPicking('context')
+              setPicking(true)
             }}
           >
             Ajouter du contexte
@@ -228,41 +223,11 @@ export function MissionSourcesPanel({ form }: { form: MissionFormApi }) {
         </div>
       </section>
 
-      <section className="mission-form__section">
-        <h3 className="mission-form__title">
-          <LinkIcon size={18} /> Données liées <span className="mission-form__count">{form.targets.length || ''}</span>
-          <InfoTip label="Aide : données liées">
-            Sociétés ou prospects déjà dans VIPER. La mission garde leur référence : l’agent relit la fiche à jour à chaque
-            exécution.
-          </InfoTip>
-        </h3>
-        <RecordList
-          records={form.targets}
-          noun="donnée liée"
-          label="Données liées"
-          onRemove={(record) => {
-            form.setTargets(form.targets.filter((item) => recordKey(item) !== recordKey(record)))
-          }}
-        />
-        <div>
-          <Button
-            variant="secondary"
-            size="sm"
-            icon={PlusIcon}
-            onClick={() => {
-              setPicking('target')
-            }}
-          >
-            Ajouter des données
-          </Button>
-        </div>
-      </section>
-
       <TargetPicker
-        open={picking !== null}
-        mode={picking === 'context' ? 'context' : 'target'}
+        open={picking}
+        mode="context"
         onClose={() => {
-          setPicking(null)
+          setPicking(false)
         }}
         onAdd={add}
       />

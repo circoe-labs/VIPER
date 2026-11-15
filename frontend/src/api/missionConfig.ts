@@ -203,7 +203,7 @@ export function useCreatorPrompt() {
 }
 
 // Internal VIPER records a mission may link as read-only context (never a target).
-export function useContextCandidates(kind: 'company' | 'prospect', search: string, enabled: boolean) {
+export function useContextCandidates(kind: 'company' | 'prospect' | 'warehouse', search: string, enabled: boolean) {
   return useQuery({
     queryKey: configKeys.contextCandidates(kind, search),
     queryFn: ({ signal }) =>
