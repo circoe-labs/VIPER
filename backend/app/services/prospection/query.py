@@ -116,6 +116,10 @@ class ProspectFilters:
     # The current cohort; `none`: no cohort (not validated).
     cohort: uuid.UUID | Literal["none"] | None = None
     company_id: uuid.UUID | None = None
+    # Any of these employers (MCP reads: « the people of A and B together »).
+    company_ids: tuple[uuid.UUID, ...] = ()
+    # People attached to no company at all.
+    without_company: bool = False
     import_batch_id: uuid.UUID | None = None
     services: tuple[str, ...] = ()
     send_stage: str | None = None
@@ -319,6 +323,10 @@ def filter_conditions(filters: ProspectFilters) -> list[ColumnElement[bool]]:
         conditions.append(ContactTracking.status == filters.tracking_status)
     if filters.company_id is not None:
         conditions.append(Prospect.company_id == filters.company_id)
+    if filters.company_ids:
+        conditions.append(Prospect.company_id.in_(filters.company_ids))
+    if filters.without_company:
+        conditions.append(Prospect.company_id.is_(None))
     if filters.import_batch_id is not None:
         conditions.append(
             exists().where(

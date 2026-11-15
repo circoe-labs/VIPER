@@ -319,10 +319,12 @@ def claim(
     *,
     types: Sequence[AgentTaskType],
     thread_id: uuid.UUID | None = None,
+    mission_id: uuid.UUID | None = None,
     lease: timedelta = DEFAULT_LEASE,
     now: datetime | None = None,
 ) -> ClaimedTask | None:
-    """Claim the next free task of an allowed type, or None when the queue is empty for it."""
+    """Claim the next free task of an allowed type (of one mission when `mission_id` is given),
+    or None when the queue is empty for it."""
     agent_id = _agent_id(actor)
     moment = _moment(now)
     # A task whose result schema does not exist yet would fail at submit: never hand it out.
@@ -337,6 +339,9 @@ def claim(
     ]
     if thread_id is not None:
         conditions.append(AgentTask.thread_id == thread_id)
+    if mission_id is not None:
+        runs = select(MissionRun.id).where(MissionRun.mission_id == mission_id)
+        conditions.append(AgentTask.run_id.in_(runs))
     # A mission may name its agent: another token never sees its tasks.
     try:
         token_id: uuid.UUID | None = uuid.UUID(agent_id)

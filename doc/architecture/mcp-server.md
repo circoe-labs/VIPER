@@ -1,6 +1,6 @@
 # VIPER as an MCP server — tool catalogue
 
-> **Status: implemented — 29 tools** (`app.api.mcp.TOOLS`, checked 2026-11-04 at the end of the
+> **Status: implemented — 41 tools** (`app.api.mcp.TOOLS`, checked 2026-11-04 at the end of the
 > ChatGPT handoff, `tasks/viper_chatgpt_conversational/FINAL_TOOLS.md`):
 >
 > - transport, OAuth, tokens, call history and agent capabilities (§4, `viper_whoami` §4.7),
@@ -10,6 +10,7 @@
 >   `viper_get_company`, `viper_list_prospects`, `viper_get_prospect`, `viper_update_company`,
 >   `viper_update_prospect`);
 > - the conversational reads of §3.9 (eight tools);
+> - the query tools of §3.13 (six tools: free filtering, the verification queue, duplicate check);
 > - the mission actions of §3.10 (six tools) and the mission card of §3.12 (`resources/*`);
 > - the contact draft tools of §3.11 (`viper_generate_contact_draft`,
 >   `viper_update_contact_draft`) — the « draft door » of §4.3;
@@ -414,6 +415,46 @@ Optional phase 3, only if the curated tools prove insufficient: **`viper_run_sql
 makes it safe on paper — but it returns arbitrary rows, is unbounded in shape, and duplicates the
 curated tools. Recommended only with a row cap, a statement timeout, and an explicit
 `read_only: true` argument echoed in the result.
+
+### 3.13 Query tools (shipped)
+
+An agent must read the base freely: filter, cross and page, not call one getter per question.
+Six read-only tools (`records.read`, `app.api.mcp_queries`; services `app.services.mcp_queries` and
+`app.services.mcp_duplicates`), all reusing the expressions of the screens, so an agent and a person
+see the same statuses.
+
+| Tool | What it answers |
+|---|---|
+| `viper_find_companies` | Companies by `search`, `status`, `missing`, `has` / `lacks`, `company_kind`, `segment`, `postal_codes`, `cities`, `min_prospects` / `max_prospects`, creation dates |
+| `viper_find_warehouses` | Warehouses by the same families, plus owner (`company_ids`, `company_names`, `without_company`), `category`, `to_contact` |
+| `viper_get_warehouse` | One warehouse with its company, contacts, `status` and what is `missing` |
+| `viper_find_prospects` | People by `search`, owner (`company_ids`, `company_names`, `without_company`), review `status`, `segment`, `reachable`, dates |
+| `viper_review_queue` | What is left to verify: counts per entity, or the list of one entity for a `state` |
+| `viper_check_duplicate` | « Does it exist? » for a company, a person or a warehouse |
+
+- **Combination**: every criterion is an AND; the lists inside a criterion (`company_ids`,
+  `company_names`, `postal_codes`, `cities`) are an OR — « the warehouses of A and B together that
+  have no postal code » is `company_names: [A, B]` + `lacks: ["postal_code"]`. `company_names` are
+  resolved server-side and echoed in `resolved_companies`; a name that matches nothing yields an empty
+  page, never « everything ».
+- **Status**: companies and warehouses use `app.services.file_status` (`verified`, `usable`,
+  `incomplete`), people use the `Review` of the Prospection page. `to_verify` is « not verified yet »
+  (usable or incomplete; for people, never the ignored). Each row carries `status` and `missing`
+  (the requirement codes that keep it from the next level); `missing` filters on those codes.
+- **`has` / `lacks`**: a field is filled / empty (`lacks: ["company"]` on a warehouse = no building).
+  An unknown field or code is refused with the allowed list.
+- **Duplicates**: names, cities and legal forms are folded (accents, case, punctuation, first/last
+  name order). Answer: `verdict` (`exists` ≥ 0.9, `probable` ≥ 0.7, `possible` ≥ 0.4, `none`) and the
+  closest `candidates`, each with its `reasons` and a field-by-field `comparison`. A person is never
+  matched on the name alone: a homonym at another company is `possible`, the same e-mail is `exists`;
+  a company with the same name but another SIREN is not `exists`.
+- Paging: `limit` ≤ 200 and `offset`; read `total`.
+
+`viper_mission_options` now also returns the library a mission is built from (`categories` with their
+default prompt, skills and sources; `skills`; `sources`, narrowed by `source_search`), and
+`viper_claim_task` accepts `mission_id` to claim a task of one mission only (« register to this
+mission »). The agent identity is unchanged (§4.9): allocated when the agent connects, read with
+`viper_whoami`, released by `viper_leave_work`. The usage skills for agents live in `plugin/viper`.
 
 ## 4. Transport, identity and audit
 

@@ -34,7 +34,14 @@ from fastapi.responses import JSONResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api import mcp_contact, mcp_conversational, mcp_missions, mcp_telemetry, mcp_ui
+from app.api import (
+    mcp_contact,
+    mcp_conversational,
+    mcp_missions,
+    mcp_queries,
+    mcp_telemetry,
+    mcp_ui,
+)
 from app.api.oauth import resource_metadata_url
 from app.core.actor import ActorContext, ActorType
 from app.db.session import unit_of_work
@@ -118,6 +125,14 @@ _CLAIM_SCHEMA: dict[str, Any] = {
             "description": "Restrict to these types; the token's scopes still apply.",
         },
         "thread_id": {"type": "string", "format": "uuid"},
+        "mission_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": (
+                "Only claim a task of this mission (get it from viper_list_missions): « register "
+                "to this mission ». Omit to take the next task of any mission."
+            ),
+        },
         "lease_seconds": {
             "type": "integer",
             "minimum": MIN_LEASE_SECONDS,
@@ -391,6 +406,7 @@ for _tool in TOOLS:
     if _tool["name"] in _READ_ONLY_TOOLS:
         _tool["annotations"] = mcp_conversational.READ_ONLY_ANNOTATIONS
 TOOLS.extend(tool.definition() for tool in mcp_conversational.TOOLS)
+TOOLS.extend(tool.definition() for tool in mcp_queries.TOOLS)
 TOOLS.extend(tool.definition() for tool in mcp_missions.TOOLS)
 TOOLS.extend(tool.definition() for tool in mcp_contact.TOOLS)
 TOOLS.extend(mcp_telemetry.TOOLS)
@@ -566,6 +582,7 @@ def _claim(
         actor,
         types=allowed,
         thread_id=_uuid(args, "thread_id") if thread_id else None,
+        mission_id=_uuid(args, "mission_id") if args.get("mission_id") else None,
         lease=_lease(args),
     )
     if claimed is None:
@@ -655,6 +672,11 @@ def _call_tool(
         require(record, read_tool.capability)
         context = mcp_conversational.ReadContext(session=session, state=state)
         return _payload(read_tool.handler(context, args))
+    query_tool = mcp_queries.BY_NAME.get(name)
+    if query_tool is not None:
+        require(record, query_tool.capability)
+        query_context = mcp_conversational.ReadContext(session=session, state=state)
+        return _payload(query_tool.handler(query_context, args))
     mission_tool = mcp_missions.BY_NAME.get(name)
     if mission_tool is not None:
         for capability in mission_tool.required(args):

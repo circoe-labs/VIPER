@@ -28,7 +28,7 @@ from app.core.actor import ActorContext
 from app.models.enums import MissionStatus
 from app.models.missions import Mission, MissionTarget
 from app.services import agent_capabilities as caps
-from app.services import missions
+from app.services import mission_categories, mission_sources, missions
 from app.services.errors import InvalidFieldError, NotFoundError
 
 # Advisory hints for the host (MCP `ToolAnnotations`); authorization stays server-side.
@@ -276,6 +276,55 @@ def _target_kind(args: dict[str, Any]) -> Literal["company", "prospect"] | None:
     raise InvalidFieldError("target_kind", "Expected one of: company, prospect.", "format")
 
 
+LIBRARY_SOURCES_MAX = 100
+
+
+def _library(ctx: MissionContext, args: dict[str, Any]) -> dict[str, Any]:
+    """The VIPER library a mission is built from: categories (with the skills and external
+    sources they bring by default), the skill catalogue and the external sources, so that a
+    creator can pick `category_id`, `skill_ids` and `source_ids` instead of guessing."""
+    search = args.get("source_search")
+    if search is not None and not isinstance(search, str):
+        raise InvalidFieldError("source_search", "Expected a string.", "format")
+    sources = mission_sources.list_sources(
+        ctx.session, q=search or None, parent_id=None, roots_only=False,
+        min_successful_uses=None, order="uses",
+    )  # fmt: skip
+    return {
+        "categories": [
+            {
+                "id": str(row.id),
+                "key": row.key,
+                "name": row.name,
+                "description": row.description,
+                "mission_type": row.mission_type.value,
+                "general_prompt": row.general_prompt,
+                "default_skills": [{"id": str(s.id), "name": s.name} for s in row.skills],
+                "default_sources": [
+                    {"id": str(src.id), "url": src.url, "label": src.label} for src in row.sources
+                ],
+            }
+            for row in mission_categories.list_categories(ctx.session)
+        ],
+        "skills": [
+            {"id": str(row.id), "name": row.name, "description": row.description}
+            for row in mission_categories.list_skills(ctx.session)
+        ],
+        "sources": [
+            {
+                "id": str(row.id),
+                "url": row.url,
+                "label": row.label,
+                "description": row.description,
+                "parent_id": str(row.parent_id) if row.parent_id else None,
+                "successful_uses": row.successful_uses,
+            }
+            for row in sources[:LIBRARY_SOURCES_MAX]
+        ],
+        "sources_total": len(sources),
+    }
+
+
 def _options(ctx: MissionContext, args: dict[str, Any]) -> dict[str, Any]:
     answer: dict[str, Any] = {
         "options": mission_routes.MissionOptionsOut.model_validate(missions.options()).model_dump(
@@ -286,6 +335,7 @@ def _options(ctx: MissionContext, args: dict[str, Any]) -> dict[str, Any]:
             for row in missions.agents(ctx.session)
         ],
     }
+    answer.update(_library(ctx, args))
     kind = _target_kind(args)
     if kind is not None:
         search = args.get("target_search")
@@ -312,15 +362,19 @@ TOOLS: tuple[MissionTool, ...] = (
         name="viper_mission_options",
         description=(
             "What a mission may be: its types and expected results (and which ones can run "
-            "today), recurrence units, end kinds, the result limit, and the agents that may be "
-            "assigned. Pass `target_kind` (and `target_search`) to find companies or people to "
-            "link as targets. Call it before viper_create_mission when unsure."
+            "today), recurrence units, end kinds, the result limit, the agents that may be "
+            "assigned, and the library to build one from: `categories` (each with its general "
+            "prompt and default skills / sources), `skills` and `sources` (ids for `skill_ids` / "
+            "`source_ids`; narrow the sources with `source_search`). Pass `target_kind` (and "
+            "`target_search`) to find companies or people to link as targets. Call it before "
+            "viper_create_mission when unsure."
         ),
         input_schema={
             "type": "object",
             "properties": {
                 "target_kind": {"type": "string", "enum": ["company", "prospect"]},
                 "target_search": {"type": "string", "maxLength": 200},
+                "source_search": {"type": "string", "maxLength": 200},
             },
             "additionalProperties": False,
         },

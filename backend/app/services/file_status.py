@@ -100,10 +100,10 @@ def _is_empty(array_expression: ColumnElement[list[str]]) -> ColumnElement[bool]
 
 def company_status_condition(status: FileStatus) -> ColumnElement[bool]:
     usable, verified = company_missing()
-    return _status_condition(status, usable, verified)
+    return status_condition(status, usable, verified)
 
 
-def _status_condition(
+def status_condition(
     status: FileStatus,
     usable: ColumnElement[list[str]],
     verified: ColumnElement[list[str]],
@@ -165,7 +165,7 @@ def warehouse_missing() -> tuple[ColumnElement[list[str]], ColumnElement[list[st
 
 def warehouse_status_condition(status: FileStatus) -> ColumnElement[bool]:
     usable, verified = warehouse_missing()
-    return _status_condition(status, usable, verified)
+    return status_condition(status, usable, verified)
 
 
 def status_of(usable_missing: list[str], verified_missing: list[str]) -> FileStatus:

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "viper": {
+      "type": "http",
+      "url": "https://viper.circoe.com/mcp"
+    }
+  }
+}
