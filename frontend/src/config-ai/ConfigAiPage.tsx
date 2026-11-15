@@ -7,7 +7,7 @@ import { PageHeader } from '../ui/PageHeader'
 import { CalendlySection } from '../settings/CalendlyCard'
 import { ConnectionsSection } from '../settings/ConnectionsSection'
 import { McpSection } from '../settings/McpSection'
-import { MissionCreatorPromptSection, PromptSection } from '../settings/PromptSection'
+import { PromptSection } from '../settings/PromptSection'
 import { STATE_BADGES } from '../settings/toolboxCopy'
 import '../settings/settings.css'
 
@@ -16,8 +16,7 @@ const SECTIONS = {
   connections: { title: 'Connexions', Section: ConnectionsSection },
   calendly: { title: 'Calendly', Section: CalendlySection },
   mcp: { title: 'MCP', Section: McpSection },
-  prompt: { title: 'Prompt initial', Section: PromptSection },
-  'mission-creator': { title: 'Assistant de mission', Section: MissionCreatorPromptSection },
+  prompt: { title: 'Prompt', Section: PromptSection },
 } as const
 
 type SectionId = keyof typeof SECTIONS
@@ -27,6 +26,8 @@ const ORDER = Object.keys(SECTIONS) as SectionId[]
 // Business lists stay in Paramètres. Administrators only (guarded in routes.tsx).
 export function ConfigAiPage() {
   const { section = 'connections' } = useParams()
+  // The mission assistant's prompt lives in « Prompt » (older links point to its former tab).
+  if (section === 'mission-creator') return <Navigate to="/config-ai/prompt" replace />
   if (!(section in SECTIONS)) return <Navigate to="/config-ai" replace />
   const current = section as SectionId
   const { title, Section } = SECTIONS[current]

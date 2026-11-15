@@ -139,7 +139,7 @@ const PAGES: RouteObject[] = [
   { path: '/settings/connections', element: <LegacyRedirect to="/config-ai/connections" /> },
   { path: '/settings/mcp', element: <LegacyRedirect to="/config-ai/mcp" /> },
   { path: '/settings/prompt', element: <LegacyRedirect to="/config-ai/prompt" /> },
-  { path: '/settings/mission-creator', element: <LegacyRedirect to="/config-ai/mission-creator" /> },
+  { path: '/settings/mission-creator', element: <LegacyRedirect to="/config-ai/prompt" /> },
 ]
 
 // Secondary pages inside a section (the section's navigation item stays current).

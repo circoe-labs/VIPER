@@ -12,19 +12,14 @@ import { saveRefusal, sourceText } from './integrationsModel'
 import { type Feedback, FeedbackBanner } from './shared'
 import './settings.css'
 
-// Config AI › Prompt initial: the brief the AI always receives before it drafts a Contact / R1 / R2 e-mail (what it is,
+// Config AI › Prompt: two cards, the mail brief and the mission assistant's behaviour (same editor, same
+// reset-to-default rule; the assistant's prompt is distinct from a category's general prompt, which instructs the
+// worker agent, and from skills). The mail brief: the brief the AI always receives before it drafts a Contact / R1 / R2 e-mail (what it is,
 // who it writes to, why). The mandatory rules (facts only, format, booking link) and the client card follow it and are
 // not editable. The text saved here replaces the built-in one; saving the built-in text unchanged (or « Rétablir »)
 // goes back to it. Each prompt is one card of a grid; a click opens its editor in a dialog.
 export function PromptSection() {
   return <PromptGrid prompts={[CONTACT_PROMPT, MISSION_CREATOR_PROMPT]} />
-}
-
-// Config AI › Assistant de mission: the behaviour prompt of the assistant that helps write a mission draft (voice or
-// text). Same card + editor, same reset-to-default rule; distinct from a category's general prompt, which instructs the
-// worker agent, and from skills.
-export function MissionCreatorPromptSection() {
-  return <PromptGrid prompts={[MISSION_CREATOR_PROMPT]} />
 }
 
 // What differs between the prompts that share this editor. `field` is the integrations setting that stores the text

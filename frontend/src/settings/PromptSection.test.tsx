@@ -68,7 +68,7 @@ describe('Paramètres › Prompt initial', () => {
   })
 })
 
-describe('Paramètres › Assistant de mission', () => {
+describe('Config AI › Prompt › assistant de mission', () => {
   const missionPanel = () => screen.getByRole('dialog', { name: 'Assistant de création de mission' })
   const missionField = async () => {
     if (!screen.queryByRole('dialog')) {
@@ -81,7 +81,7 @@ describe('Paramètres › Assistant de mission', () => {
   it('shows the built-in behaviour and saves an edited one under mission_creator_prompt, then resets it', async () => {
     const { puts } = stub()
     const user = userEvent.setup()
-    renderApp('/config-ai/mission-creator')
+    renderApp('/config-ai/prompt')
 
     const box = await missionField()
     expect(box).toHaveValue(MISSION_DEFAULT)
