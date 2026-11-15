@@ -4,7 +4,7 @@ import { Button } from '../ui/Button'
 import { MapPinIcon, PauseIcon, PencilIcon, PlayIcon, TrashIcon } from '../ui/icons'
 import { MISSION_TYPE_LABELS, recurrenceLabel } from './labels'
 import { MissionStatusChip } from './MissionStatusChip'
-import { MissionGlyph } from './CategoryGlyph'
+import { MissionMark } from './CategoryGlyph'
 import { categoryAccent } from './categoryVisual'
 import './missionUi.css'
 import './missionDetail.css'
@@ -29,9 +29,7 @@ export function MissionHeader({ mission, statusPending, onToggleStatus, onEdit, 
 
   return (
     <header className="mdet-header" data-hue={card.category ? undefined : 'neutral'} style={categoryAccent(card.category?.color)}>
-      <span className="mui-icon-tile mdet-header__tile" aria-hidden="true">
-        <MissionGlyph category={card.category} type={card.type} size={22} />
-      </span>
+      <MissionMark category={card.category} type={card.type} size={64} />
       <div className="mdet-header__text">
         <h1 className="mdet-header__title">{card.name}</h1>
         <ul className="mdet-header__chips" aria-label="Caractéristiques de la mission">

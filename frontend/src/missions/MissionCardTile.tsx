@@ -2,12 +2,12 @@ import type { MouseEvent } from 'react'
 import { Link } from 'react-router'
 
 import { type MissionCard, useSetMissionStatus } from '../api/missions'
-import { Badge, StatusBadge } from '../ui/Badge'
+import { StatusBadge } from '../ui/Badge'
 import { IconButton } from '../ui/Button'
 import { Switch } from '../ui/fields'
 import type { Point } from '../ui/floating'
 import { AlertIcon, CheckCircleIcon, ClockIcon, MoreIcon, TargetIcon, UsersIcon } from '../ui/icons'
-import { MissionGlyph } from './CategoryGlyph'
+import { MissionMark } from './CategoryGlyph'
 import { categoryAccent } from './categoryVisual'
 import { MissionStatusChip } from './MissionStatusChip'
 import { agentLabel, plural, progressPercent } from './missionsListModel'
@@ -73,15 +73,15 @@ export function MissionCardTile({ card, onMenu }: { card: MissionCard; onMenu: O
         }}
       >
         <div className="mlist-card__head">
-          <span className="mui-icon-tile" aria-hidden="true">
-            <MissionGlyph category={card.category} type={card.type} size={20} />
-          </span>
-          <h2 className="mlist-card__title" title={card.prompt}>
-            {card.name}
-          </h2>
+          <MissionMark category={card.category} type={card.type} size={56} />
+          <div className="mlist-card__id">
+            <p className="mlist-card__kind">{card.category?.name ?? MISSION_TYPE_LABELS[card.type]}</p>
+            <h2 className="mlist-card__title" title={card.prompt}>
+              {card.name}
+            </h2>
+          </div>
         </div>
         <div className="mlist-card__chips">
-          <Badge>{card.category?.name ?? MISSION_TYPE_LABELS[card.type]}</Badge>
           <MissionStatusChip status={card.status} />
           {card.results_pending > 0 && <StatusBadge tone="warning">{String(card.results_pending)} à relire</StatusBadge>}
         </div>
