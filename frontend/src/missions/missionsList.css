@@ -298,16 +298,17 @@
 }
 
 .mission-mark__art {
-  width: 70%;
-  height: 70%;
+  width: 80%;
+  height: 80%;
   object-fit: contain;
 }
 
 .mlist-card {
   --mui-edge: color-mix(in srgb, var(--mui-fg, var(--color-border-strong)) 70%, var(--color-border));
-  border-width: 2px;
+  border-width: 4px;
+  border-color: var(--mui-fg, var(--color-border-strong));
   /* A thick band in the category colour along the top: the first thing the eye reads. */
-  border-top: 6px solid var(--mui-fg, var(--color-border-strong));
+  border-top: 8px solid var(--mui-fg, var(--color-border-strong));
 }
 
 .mlist-card__head {
@@ -348,16 +349,19 @@
 
 .mlist-card .mission-mark {
   position: absolute;
-  top: -2.25rem;
-  left: -1rem;
+  top: -2rem;
+  left: -0.875rem;
   z-index: 1;
-  border-width: 3px;
-  box-shadow:
-    0 0 0 5px var(--color-surface),
-    0 6px 16px color-mix(in srgb, var(--mui-fg, var(--color-border-strong)) 30%, transparent);
+  border-width: 5px;
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--mui-fg, var(--color-border-strong)) 30%, transparent);
+}
+
+.mlist-card .mission-mark__art {
+  width: 86%;
+  height: 86%;
 }
 
 .mlist-card__head {
   min-height: 3.25rem;
-  padding-left: 4.75rem;
+  padding-left: 4.25rem;
 }

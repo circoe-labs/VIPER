@@ -73,7 +73,7 @@ export function MissionCardTile({ card, onMenu }: { card: MissionCard; onMenu: O
         }}
       >
         <div className="mlist-card__head">
-          <MissionMark category={card.category} type={card.type} size={88} />
+          <MissionMark category={card.category} type={card.type} size={76} />
           <div className="mlist-card__id">
             <p className="mlist-card__kind">{card.category?.name ?? MISSION_TYPE_LABELS[card.type]}</p>
             <h2 className="mlist-card__title" title={card.prompt}>
