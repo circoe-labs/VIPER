@@ -33,6 +33,22 @@ STT_STATUS = {
 }
 
 
+# Whisper "hears" these credits on silence or noise (its training data is full of subtitles): never a real utterance.
+_HALLUCINATIONS = (
+    "amara.org",
+    "sous-titres réalisés",
+    "sous-titrage",
+    "merci d'avoir regardé",
+    "merci d’avoir regardé",
+    "thanks for watching",
+)
+
+
+def _is_hallucination(text: str) -> bool:
+    lowered = text.lower()
+    return any(marker in lowered for marker in _HALLUCINATIONS)
+
+
 def _error(code: str, message: str, *, upstream_status: int | None = None) -> MailGenerationError:
     return MailGenerationError(code, STT_STATUS[code], message, upstream_status=upstream_status)
 
@@ -109,4 +125,5 @@ def transcribe(
     text = body.get("text") if isinstance(body, dict) else None
     if not isinstance(text, str):
         raise _error("stt_upstream_error", "The speech-to-text answer is unreadable.")
-    return text.strip()[:MAX_TRANSCRIPT_LENGTH]
+    text = text.strip()
+    return "" if _is_hallucination(text) else text[:MAX_TRANSCRIPT_LENGTH]

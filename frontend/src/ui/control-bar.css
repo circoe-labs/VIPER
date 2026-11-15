@@ -32,3 +32,5 @@
 
 @media (max-width: 90rem) { .control-bar__divider { display: none; } .control-bar__active { flex-basis: 100%; } }
 .control-bar__sort-value { color: var(--color-text-muted); font-weight: var(--weight-regular); }
+
+.filters-menu__week { grid-column: 1 / -1; display: flex; align-items: center; }

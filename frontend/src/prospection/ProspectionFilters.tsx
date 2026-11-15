@@ -167,9 +167,11 @@ function CreationDates({ view, onChange }: Pick<ProspectionControlsProps, 'view'
   const thisWeek = view.created_from === week.from && view.created_to === week.to
   return (
     <div className="filters-menu__fields" role="group" aria-label="Date d’ajout">
+      <div className="filters-menu__week">
       <Button size="sm" aria-pressed={thisWeek} variant={thisWeek ? 'primary' : 'secondary'} onClick={() => { onChange(thisWeek ? { created_from: null, created_to: null } : { created_from: week.from, created_to: week.to }) }}>
         Cette semaine
       </Button>
+      </div>
       <TextField label="Ajoutés depuis le" type="date" value={view.created_from ?? ''} onChange={(event) => { onChange({ created_from: calendarDate(event.target.value) }) }} />
       <TextField label="Ajoutés jusqu’au" type="date" value={view.created_to ?? ''} onChange={(event) => { onChange({ created_to: calendarDate(event.target.value) }) }} />
     </div>

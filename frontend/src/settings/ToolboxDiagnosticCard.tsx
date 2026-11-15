@@ -24,7 +24,7 @@ import {
   TerminalIcon,
   TrashIcon,
 } from '../ui/icons'
-import { IntegrationCard } from './IntegrationCards'
+import { InfoTip } from '../ui/InfoTip'
 
 const STORAGE_KEY = 'viper.toolbox-diagnostic-recipient'
 const ADDRESS = /^[^@\s,;<>]+@[^@\s,;<>]+\.[^@\s,;<>]+$/
@@ -270,13 +270,15 @@ export function ToolboxDiagnosticCard() {
   const verdict = latest.data?.verdict
 
   return (
-    <IntegrationCard
-      id="toolbox-test"
-      icon={TerminalIcon}
-      title="Tester la Toolbox"
-      subtitle="Joue toutes les opérations mail (brouillons, accents, modification, suppression, refus et, si coché, un envoi programmé réel : un brouillon est programmé, sa date est changée, puis un vrai mail part) sur une adresse de test et montre où ça casse."
-      badge={verdict ? (verdict.ok ? { tone: 'success', label: 'Dernier test réussi' } : { tone: 'danger', label: 'Dernier test en échec' }) : undefined}
-    >
+    <section className="toolbox-test" aria-labelledby="toolbox-test">
+      <header className="toolbox-test__header">
+        <TerminalIcon size={18} aria-hidden="true" />
+        <h4 id="toolbox-test" className="toolbox-test__title">
+          Tester la Toolbox
+        </h4>
+        <InfoTip label="Aide : Tester la Toolbox">Joue toutes les opérations mail (brouillons, accents, modification, suppression, refus et, si coché, un envoi programmé réel : un brouillon est programmé, sa date est changée, puis un vrai mail part) sur une adresse de test et montre où ça casse.</InfoTip>
+        {verdict && <StatusBadge tone={verdict.ok ? 'success' : 'danger'}>{verdict.ok ? 'Dernier test réussi' : 'Dernier test en échec'}</StatusBadge>}
+      </header>
       <form
         className="toolbox-test__form"
         onSubmit={(event) => {
@@ -348,6 +350,6 @@ export function ToolboxDiagnosticCard() {
           <ClockIcon size={14} /> Aucun test lancé depuis le démarrage du serveur.
         </p>
       )}
-    </IntegrationCard>
+    </section>
   )
 }

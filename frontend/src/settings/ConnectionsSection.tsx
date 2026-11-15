@@ -176,7 +176,6 @@ export function ConnectionsSection() {
             />
           )}
           <DispatchCard data={integrations.data} status={status.data} />
-          <ToolboxDiagnosticCard />
         </div>
       )}
 
@@ -410,6 +409,8 @@ function ToolboxCard({ status, integrations, redirecting, redirectingFor, busy, 
               : 'Se connecter à CIRCOE Toolbox'}
         </Button>
       </div>
+
+      {!showMethods && <ToolboxDiagnosticCard />}
     </IntegrationCard>
   )
 }
