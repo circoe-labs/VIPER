@@ -659,11 +659,29 @@ def _task_mission_id(session: Session, task: AgentTask) -> uuid.UUID | None:
     return session.scalar(select(MissionRun.mission_id).where(MissionRun.id == task.run_id))
 
 
+def _register_cited_site(
+    session: Session, actor: ActorContext, url: str, library: list[MissionSource]
+) -> MissionSource | None:
+    """Add the site root of a cited URL to the library; `library` is extended in place."""
+    parts = urlsplit(url)
+    domain, _ = split_url(url)
+    try:
+        row = add_source(session, actor, f"{parts.scheme}://{parts.netloc}", domain)
+    except InvalidFieldError:
+        logger.warning("cited site not added to the library: %s", domain)
+        return None
+    source = session.get(MissionSource, row.id)
+    if source is not None:
+        library.append(source)
+    return source
+
+
 def credit_accepted_result(
     session: Session,
     result: AgentTaskResult,
     task: AgentTask,
     accepted_keys: Sequence[str],
+    actor: ActorContext | None = None,
 ) -> CreditSummary:
     """Record the evidence of the accepted items of `result` and credit their sources.
 
@@ -672,6 +690,10 @@ def credit_accepted_result(
     never counts. For each accepted item, each distinct URL it cites is stored as a citation and
     resolved to its library source; each distinct resolved source is credited once for the
     (result, item). Re-running it, or rebuilding the result, stores nothing twice.
+
+    A cited site the library does not know yet is **added to it** (its site root, e.g.
+    `https://societe.com`) when `actor` is given: validating a result is what makes its sources
+    part of the Sources tab. The concrete URL stays stored as the citation.
     """
     proposal = result.proposal or {}
     if proposal.get("kind") == "actions":
@@ -692,6 +714,8 @@ def credit_accepted_result(
                 continue
             seen_urls.add(url)
             matched = _best_match(library, url)
+            if matched is None and actor is not None:
+                matched = _register_cited_site(session, actor, url, library)
             citation_rows.append(
                 {
                     "result_id": result.id,

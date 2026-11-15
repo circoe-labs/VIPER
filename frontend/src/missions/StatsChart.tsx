@@ -21,6 +21,8 @@ interface StatsChartProps {
   bucket: StatsBucket;
   // Inside a MissionPanel that already shows the title: keep the name for assistive tech only (h4 under the panel h3).
   hideTitle?: boolean;
+  // Table mode (switched from the panel header): the same figures as a table instead of the plot.
+  asTable?: boolean;
 }
 
 // Hand-rolled stacked column chart (no chart library in the repo; same approach as ContactChart). The plot is
@@ -34,6 +36,7 @@ export function StatsChart({
   points,
   bucket,
   hideTitle = false,
+  asTable = false,
 }: StatsChartProps) {
   const { step, maximum } = axisFor(points);
   const labelEvery = Math.max(1, Math.ceil(points.length / 10));
@@ -56,17 +59,57 @@ export function StatsChart({
           {title}
         </h3>
       )}
-      <ul className="stats-legend" aria-label="Légende">
-        {series.map((s) => (
-          <li key={s.key} className="stats-legend__item">
-            <span
-              className={`stats-swatch stats-tone--${s.tone}`}
-              aria-hidden="true"
-            />
-            {s.label}
-          </li>
-        ))}
-      </ul>
+      {!asTable && (
+        <ul className="stats-legend" aria-label="Légende">
+          {series.map((s) => (
+            <li key={s.key} className="stats-legend__item">
+              <span
+                className={`stats-swatch stats-tone--${s.tone}`}
+                aria-hidden="true"
+              />
+              {s.label}
+            </li>
+          ))}
+        </ul>
+      )}
+      {asTable ? (
+        <div className="stats-chart__data">
+        <Table caption={`${title} : données (UTC)`} density="compact">
+          <thead>
+            <tr>
+              <th scope="col">Période (UTC)</th>
+              {series.map((s) => (
+                <th scope="col" key={s.key} className="stats-num">
+                  {s.label}
+                </th>
+              ))}
+              {multi && (
+                <th scope="col" className="stats-num">
+                  Total
+                </th>
+              )}
+            </tr>
+          </thead>
+          <tbody>
+            {points.map((point) => (
+              <tr key={point.bucket}>
+                <th scope="row">{bucketLongLabel(point.bucket, bucket)}</th>
+                {series.map((s) => (
+                  <td key={s.key} className="stats-num">
+                    {formatCount(point.values[s.key] ?? 0)}
+                  </td>
+                ))}
+                {multi && (
+                  <td className="stats-num">
+                    {formatCount(pointTotal(point))}
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+        </div>
+      ) : (
       <div
         className="stats-chart__scroll"
         role="region"
@@ -125,43 +168,7 @@ export function StatsChart({
           </div>
         </div>
       </div>
-      <details className="stats-chart__data">
-        <summary>Voir les données en tableau</summary>
-        <Table caption={`${title} : données (UTC)`} density="compact">
-          <thead>
-            <tr>
-              <th scope="col">Période (UTC)</th>
-              {series.map((s) => (
-                <th scope="col" key={s.key} className="stats-num">
-                  {s.label}
-                </th>
-              ))}
-              {multi && (
-                <th scope="col" className="stats-num">
-                  Total
-                </th>
-              )}
-            </tr>
-          </thead>
-          <tbody>
-            {points.map((point) => (
-              <tr key={point.bucket}>
-                <th scope="row">{bucketLongLabel(point.bucket, bucket)}</th>
-                {series.map((s) => (
-                  <td key={s.key} className="stats-num">
-                    {formatCount(point.values[s.key] ?? 0)}
-                  </td>
-                ))}
-                {multi && (
-                  <td className="stats-num">
-                    {formatCount(pointTotal(point))}
-                  </td>
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </Table>
-      </details>
+      )}
     </Wrapper>
   );
 }

@@ -3,6 +3,7 @@ import { CheckCircleIcon, ColumnsIcon } from '../ui/icons'
 import { MissionDonut } from './MissionDonut'
 import { MissionKpiGrid, MissionKpiTile } from './MissionKpiTile'
 import { MissionPanel } from './MissionPanel'
+import { useTableToggle } from './TableToggle'
 import { formatCount, formatDuration, formatRate } from './statsModel'
 import { resultsDonut, tasksDonut } from './statsSelectors'
 import './statsPanels.css'
@@ -12,12 +13,14 @@ import './statsPanels.css'
 // avg_review_seconds (submission -> decision, i.e. REVIEW latency, not processing time).
 export function StatsResultsPanel({ stats }: { stats: MissionStatistics }) {
   const decided = stats.results_by_status.accepted + stats.results_by_status.rejected
+  const { asTable, button } = useTableToggle()
   return (
-    <MissionPanel title="Résultats par statut" icon={CheckCircleIcon} hue="success">
+    <MissionPanel title="Résultats par statut" icon={CheckCircleIcon} hue="success" actions={button}>
       <MissionDonut
         title="Résultats par statut"
         segments={resultsDonut(stats)}
         unit="résultats"
+        asTable={asTable}
         emptyText="Aucun résultat déposé pour l’instant."
       />
       <MissionKpiGrid label="Relecture des résultats">
@@ -44,12 +47,14 @@ export function StatsResultsPanel({ stats }: { stats: MissionStatistics }) {
 
 // « Tâches par statut »: whole-mission distribution of `tasks_by_status`.
 export function StatsTasksPanel({ stats }: { stats: MissionStatistics }) {
+  const { asTable, button } = useTableToggle()
   return (
-    <MissionPanel title="Tâches par statut" icon={ColumnsIcon} hue="indigo">
+    <MissionPanel title="Tâches par statut" icon={ColumnsIcon} hue="indigo" actions={button}>
       <MissionDonut
         title="Tâches par statut"
         segments={tasksDonut(stats)}
         unit="tâches"
+        asTable={asTable}
         emptyText="Aucune tâche pour l’instant."
       />
     </MissionPanel>

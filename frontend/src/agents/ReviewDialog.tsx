@@ -7,7 +7,8 @@ import { Button } from '../ui/Button'
 import { Modal } from '../ui/Dialog'
 import { ReviewDecision } from './ReviewDecision'
 import { ReviewProposalTable } from './ReviewProposalTable'
-import { DiscoveryDetails, SignalRow } from './ReviewItems'
+import { DiscoveryDetails, SignalRow, companyEvidence } from './ReviewItems'
+import { EntityLogo } from './EntityLogo'
 import { ReviewSummary } from './ReviewSummary'
 import { TASK_TYPE_LABELS, sinceLabel } from './labels'
 import { safeHref } from './reviewFormat'
@@ -63,7 +64,7 @@ export function ReviewDialog({
 
   const subject = view?.company_name ?? view?.prospect_name
   const description = view
-    ? [subject, view.submitted_by_label, sinceLabel(view.submitted_at)].filter(Boolean).join(' · ')
+    ? [TASK_TYPE_LABELS[view.task_type], view.submitted_by_label, sinceLabel(view.submitted_at)].filter(Boolean).join(' · ')
     : undefined
   const failureText = failure instanceof ApiError ? failure.message : 'La décision n’a pas pu être enregistrée.'
 
@@ -72,7 +73,8 @@ export function ReviewDialog({
       open={Boolean(resultId)}
       onClose={close}
       size="xl"
-      title={view ? TASK_TYPE_LABELS[view.task_type] : 'Résultat'}
+      title={view ? (subject ?? TASK_TYPE_LABELS[view.task_type]) : 'Résultat'}
+      titleIcon={view && subject ? <EntityLogo name={subject} domain={view.company_domain} /> : undefined}
       description={description}
       footer={
         view && !decided ? (
@@ -154,7 +156,7 @@ export function ReviewDialog({
               onToggle={toggle}
               detail={(item) =>
                 proposal.kind === 'find_prospects' || item.action_operation === 'add_company' ? (
-                  <DiscoveryDetails item={item} />
+                  <DiscoveryDetails item={item} evidence={companyEvidence(view.raw, item)} />
                 ) : null
               }
             />

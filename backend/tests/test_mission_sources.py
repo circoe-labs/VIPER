@@ -231,7 +231,7 @@ def test_crediting_twice_never_inflates_the_counters(
     assert len(db_session.scalars(select(MissionEvidenceCitation)).all()) == 1
 
 
-def test_only_accepted_items_and_only_library_sources_count(
+def test_only_accepted_items_count_and_unknown_sites_join_the_library(
     client: TestClient, db_session: Session
 ) -> None:
     add(client, "https://hunter.io", label="Hunter")
@@ -260,8 +260,11 @@ def test_only_accepted_items_and_only_library_sources_count(
     assert library["https://hunter.io"]["successful_uses"] == 0  # its item was not accepted
     assert library["https://registre.example"]["successful_uses"] == 1
     cited = {row.url: row.source_id for row in db_session.scalars(select(MissionEvidenceCitation))}
-    # The unknown site is kept as evidence without becoming a library entry.
-    assert cited["https://not-in-library.example/z"] is None
+    # An unknown cited site joins the library (its site root) when its item is accepted.
+    assert cited["https://not-in-library.example/z"] is not None
+    assert library["https://hunter.io"]["successful_uses"] == 0
+    added = uses(client)["https://not-in-library.example"]
+    assert added["successful_uses"] == 1 and added["label"] == "not-in-library.example"
     assert len(cited) == 2
 
 

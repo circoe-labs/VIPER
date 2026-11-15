@@ -405,7 +405,12 @@ describe("Statistiques tab", () => {
     const chart = screen
       .getByRole("region", { name: "Résultats déposés : graphique" })
       .closest("section") as HTMLElement;
-    await user.click(within(chart).getByText("Voir les données en tableau"));
+    const panel = chart;
+    await user.click(
+      within(panel).getByRole("button", {
+        name: "Afficher les données en tableau",
+      }),
+    );
     const table = screen.getByRole("table", {
       name: "Résultats déposés : données (UTC)",
     });

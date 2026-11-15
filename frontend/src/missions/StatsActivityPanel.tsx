@@ -6,6 +6,7 @@ import type { IconComponent } from '../ui/icons'
 import { MissionPanel } from './MissionPanel'
 import type { MissionHue } from './missionAccent'
 import { StatsChart } from './StatsChart'
+import { useTableToggle } from './TableToggle'
 import {
   bucketLongLabel,
   type ChartPoint,
@@ -37,10 +38,11 @@ interface ChartPanelProps {
 }
 
 function ChartPanel({ stats, title, icon, hue, id, series, points, children }: ChartPanelProps) {
+  const { asTable, button } = useTableToggle()
   return (
-    <MissionPanel title={title} icon={icon} hue={hue}>
+    <MissionPanel title={title} icon={icon} hue={hue} actions={button}>
       {children}
-      <StatsChart id={id} title={title} series={series} points={points} bucket={stats.bucket} hideTitle />
+      <StatsChart id={id} title={title} series={series} points={points} bucket={stats.bucket} hideTitle asTable={asTable} />
     </MissionPanel>
   )
 }

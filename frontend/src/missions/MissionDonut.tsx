@@ -9,6 +9,8 @@ interface MissionDonutProps {
   unit: string
   // Shown when every figure is 0: an explicit absence, never an empty ring.
   emptyText?: string
+  // Table mode (switched from the panel header): the same figures as a table instead of the ring.
+  asTable?: boolean
 }
 
 // Ring gap between two arcs, in pathLength units (out of 100).
@@ -18,7 +20,7 @@ const RADIUS = 40
 // Categorical donut with its own text alternative: ring (decorative, summarised by role="img"), a legend that
 // states label + figure + share (colour is never the only channel), and the same data as a table in a disclosure.
 // Only for a compact part-of-whole of mutually exclusive categories (CONTRACT.md §2.5).
-export function MissionDonut({ title, segments, unit, emptyText = 'Aucune donnée sur la période.' }: MissionDonutProps) {
+export function MissionDonut({ title, segments, unit, emptyText = 'Aucune donnée sur la période.', asTable = false }: MissionDonutProps) {
   const model = donutModel(segments)
   if (model.total === 0) {
     return (
@@ -31,6 +33,33 @@ export function MissionDonut({ title, segments, unit, emptyText = 'Aucune donné
   const gap = drawn.length > 1 ? GAP : 0
   return (
     <div className="mui-donut">
+      {asTable ? (
+        <div className="mui-donut__data">
+      <Table caption={`${title} : données`} density="compact">
+        <thead>
+          <tr>
+            <th scope="col">Catégorie</th>
+            <th scope="col" className="mui-num">
+              {unit}
+            </th>
+            <th scope="col" className="mui-num">
+              Part
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {model.segments.map((segment) => (
+            <tr key={segment.key}>
+              <th scope="row">{segment.label}</th>
+              <td className="mui-num">{formatDonutCount(segment.value)}</td>
+              <td className="mui-num">{formatShare(segment.share)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </Table>
+        </div>
+      ) : (
+        <>
       <svg
         className="mui-donut__ring"
         viewBox="0 0 100 100"
@@ -74,31 +103,8 @@ export function MissionDonut({ title, segments, unit, emptyText = 'Aucune donné
           </li>
         ))}
       </ul>
-      <details className="mui-donut__data">
-        <summary>Voir les données en tableau</summary>
-        <Table caption={`${title} : données`} density="compact">
-          <thead>
-            <tr>
-              <th scope="col">Catégorie</th>
-              <th scope="col" className="mui-num">
-                {unit}
-              </th>
-              <th scope="col" className="mui-num">
-                Part
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {model.segments.map((segment) => (
-              <tr key={segment.key}>
-                <th scope="row">{segment.label}</th>
-                <td className="mui-num">{formatDonutCount(segment.value)}</td>
-                <td className="mui-num">{formatShare(segment.share)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </Table>
-      </details>
+        </>
+      )}
     </div>
   )
 }

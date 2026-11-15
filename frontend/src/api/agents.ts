@@ -134,6 +134,7 @@ export interface ResultView {
   decided_by_display: string | null
   company_name: string | null
   prospect_name: string | null
+  company_domain: string | null
 }
 
 export const agentKeys = {

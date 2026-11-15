@@ -15,6 +15,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Any
+from urllib.parse import urlsplit
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -62,6 +63,8 @@ class Review:
     task: AgentTask
     company_name: str | None
     prospect_name: str | None
+    # Site of the company concerned (of the prospect's employer too), to show its logo.
+    company_domain: str | None = None
 
 
 def get_review(session: Session, result_id: uuid.UUID) -> Review:
@@ -71,19 +74,41 @@ def get_review(session: Session, result_id: uuid.UUID) -> Review:
     task = session.get(AgentTask, result.task_id)
     if task is None:
         raise NotFoundError("Unknown task.")
+    company_id = task.company_id
     company_name = (
-        session.scalar(select(Company.display_name).where(Company.id == task.company_id))
-        if task.company_id is not None
+        session.scalar(select(Company.display_name).where(Company.id == company_id))
+        if company_id is not None
         else None
     )
     prospect_name = None
     if task.prospect_id is not None:
         prospect = session.get(Prospect, task.prospect_id)
         if prospect is not None:
+            company_id = company_id or prospect.company_id
             prospect_name = (
                 " ".join(part for part in (prospect.first_name, prospect.last_name) if part) or None
             )
-    return Review(result=result, task=task, company_name=company_name, prospect_name=prospect_name)
+    company = session.get(Company, company_id) if company_id is not None else None
+    return Review(
+        result=result,
+        task=task,
+        company_name=company_name,
+        prospect_name=prospect_name,
+        company_domain=_company_domain(company),
+    )
+
+
+def _company_domain(company: Company | None) -> str | None:
+    """The host to fetch a logo from: the website's, else the e-mail domain."""
+    if company is None:
+        return None
+    if company.website_url:
+        host = urlsplit(
+            company.website_url if "//" in company.website_url else f"//{company.website_url}"
+        ).hostname
+        if host:
+            return host
+    return company.email_domain
 
 
 def _locked(session: Session, result_id: uuid.UUID) -> tuple[AgentTaskResult, AgentTask]:
@@ -578,7 +603,7 @@ def accept(
     session.flush()
     # The accepted items are the successful contributions: their cited sources are credited once
     # (idempotent; a visit or an unaccepted item never counts).
-    mission_sources.credit_accepted_result(session, result, task, sorted(chosen))
+    mission_sources.credit_accepted_result(session, result, task, sorted(chosen), actor)
     audit.record_event(
         session,
         actor,

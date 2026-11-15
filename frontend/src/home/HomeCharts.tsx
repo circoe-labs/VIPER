@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import type { ConversionTotals, WeeklySeries, WeekPoint } from '../api/metrics'
 import { Card } from '../ui/Card'
 import { InfoTip } from '../ui/InfoTip'
+import { LineChart } from './LineChart'
 import { StackedBars, type BarColumn, type BarSeries } from './StackedBars'
 import { percent, ratio, shortWeek, weekRange } from './weekBars'
 import './home-charts.css'
@@ -37,7 +38,7 @@ function ChartCard({ title, tip, children, className }: { title: string; tip: Re
 function ActivityChart({ weeks }: { weeks: WeekPoint[] }) {
   const series: BarSeries[] = [
     { key: 'contacts', label: 'Contacts envoyés', color: 'var(--color-info-fg)', values: weeks.map((week) => week.first_contacts) },
-    { key: 'responses', label: 'Réponses', color: 'var(--color-accent-fg)', values: weeks.map((week) => week.responses) },
+    { key: 'responses', label: 'Réponses reçues', color: 'var(--color-accent-fg)', values: weeks.map((week) => week.responses) },
     { key: 'appointments', label: 'Rendez-vous pris', color: 'var(--color-warning-fg)', values: weeks.map((week) => week.appointments) },
   ]
   const empty = series.every((entry) => sum(entry.values) === 0)
@@ -80,9 +81,8 @@ function ConversionChart({ totals }: { totals: ConversionTotals }) {
     >
       <div className="gauges">
         <Gauge label="Rendez-vous pris" value={ratio(totals.with_appointment, totals.contacted)} part={totals.with_appointment} whole={totals.contacted} color="var(--color-warning-fg)" />
-        <Gauge label="Réponses" value={ratio(totals.responded, totals.contacted)} part={totals.responded} whole={totals.contacted} color="var(--color-accent-fg)" />
+        <Gauge label="Ont répondu" value={ratio(totals.responded, totals.contacted)} part={totals.responded} whole={totals.contacted} color="var(--color-accent-fg)" />
       </div>
-      <p className="home-chart__foot">{NUMBER.format(totals.contacted)} prospects contactés</p>
     </ChartCard>
   )
 }
@@ -94,28 +94,15 @@ const GROWTH = [
 ] as const
 
 function GrowthChart({ weeks }: { weeks: WeekPoint[] }) {
-  const columns = columnsOf(weeks)
+  const series: BarSeries[] = GROWTH.map((entry) => ({ ...entry, values: weeks.map((week) => week.additions[entry.key]) }))
   return (
     <ChartCard
       className="home-chart--growth"
       title="Croissance de la base par semaine"
-      tip="Nombre de fiches créées chaque semaine (date de création, jamais de modification) : prospects, entreprises, entrepôts (sites, sans leurs contacts). Chaque graphique a sa propre échelle."
+      tip="Nombre de fiches créées chaque semaine (date de création, jamais de modification) : prospects, entreprises, entrepôts (sites, sans leurs contacts). Une courbe par type, sur la même échelle."
     >
-      <div className="growth">
-        {GROWTH.map((entry) => {
-          const values = weeks.map((week) => week.additions[entry.key])
-          return (
-            <section className="growth__item" key={entry.key} aria-label={entry.label}>
-              <header>
-                <h3>{entry.label}</h3>
-                <strong>{NUMBER.format(sum(values))}</strong>
-                <small>sur {NUMBER.format(weeks.length)} semaines</small>
-              </header>
-              <StackedBars compact caption={`${entry.label} créés par semaine`} columns={columns} series={[{ key: entry.key, label: entry.label, color: entry.color, values }]} />
-            </section>
-          )
-        })}
-      </div>
+      <Legend items={series.map((entry) => ({ key: entry.key, label: entry.label, color: entry.color, total: sum(entry.values) }))} />
+      <LineChart caption="Fiches créées par semaine" columns={columnsOf(weeks)} series={series} />
     </ChartCard>
   )
 }

@@ -37,10 +37,13 @@
 .week-bars--compact .week-bars__column:nth-child(even) .week-bars__label { visibility: hidden; }
 .week-bars__label { align-self: end; color: var(--color-text-muted); font-size: var(--text-xs); text-align: center; font-variant-numeric: tabular-nums; }
 
-/* Rings */
-.gauges { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
+/* Rings: fill the card (the card stretches to the activity chart's height) */
+.home-chart--conversion { grid-template-rows: minmax(0, 1fr); align-content: stretch; }
+.gauges { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); align-items: center; align-content: center; height: 100%; }
 .gauge { display: grid; justify-items: center; gap: var(--space-1); text-align: center; }
-.gauge__ring { grid-area: 1 / 1; width: 140px; height: 140px; }
+.gauge__ring { grid-area: 1 / 1; width: 100%; max-width: 200px; aspect-ratio: 1; height: auto; }
+.gauge__figure, .gauge__label, .gauge__detail { grid-column: 1; }
+.gauge__label, .gauge__detail { grid-row: auto; }
 .gauge__track, .gauge__value { fill: none; stroke-width: 11; }
 .gauge__track { stroke: var(--color-border); }
 .gauge__value { stroke-linecap: round; }
@@ -48,15 +51,17 @@
 .gauge__label { color: var(--color-text); font-size: var(--text-sm); font-weight: var(--weight-medium); }
 .gauge__detail { color: var(--color-text-muted); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
 
-/* Small multiples */
-.growth { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-6); }
-.growth__item { display: grid; gap: var(--space-3); min-width: 0; }
-.growth__item header { display: flex; align-items: baseline; gap: var(--space-2); }
-.growth__item h3 { margin: 0; font-size: var(--text-md); font-weight: var(--weight-semibold); }
-.growth__item strong { margin-left: auto; font-size: var(--text-xl); font-variant-numeric: tabular-nums; }
-.growth__item small { color: var(--color-text-muted); font-size: var(--text-xs); }
+/* Line chart (growth) */
+.line-chart__plot { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: 340px auto; column-gap: var(--space-2); }
+.line-chart__axis { display: flex; flex-direction: column; justify-content: space-between; color: var(--color-text-muted); font-size: var(--text-xs); font-variant-numeric: tabular-nums; text-align: right; line-height: 1; }
+.line-chart__area { position: relative; min-width: 0; }
+.line-chart__area svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.line-chart__grid { stroke: var(--color-border); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.line-chart__line { fill: none; stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.line-chart__hits { position: absolute; inset: 0; display: grid; }
+.line-chart__hit:hover { background: var(--color-surface-hover); opacity: 0.5; }
+.line-chart__labels { grid-column: 2; display: grid; padding-top: var(--space-2); color: var(--color-text-muted); font-size: var(--text-xs); font-variant-numeric: tabular-nums; text-align: center; }
 
 @media (max-width: 1100px) {
   .home-charts { grid-template-columns: minmax(0, 1fr); }
-  .growth { grid-template-columns: minmax(0, 1fr); }
 }

@@ -44,7 +44,7 @@ describe('Home cockpit', () => {
     const main = within(await screen.findByRole('main'))
     const conversion = await main.findByRole('region', { name: 'Conversion des prospects contactés' })
     expect(within(conversion).getByRole('group', { name: /Rendez-vous pris : 4\s?% \(8 sur 200\)/ })).toBeInTheDocument()
-    expect(within(conversion).getByRole('group', { name: /Réponses : 25\s?% \(50 sur 200\)/ })).toBeInTheDocument()
+    expect(within(conversion).getByRole('group', { name: /Ont répondu : 25\s?% \(50 sur 200\)/ })).toBeInTheDocument()
     const activity = main.getByRole('region', { name: 'Activité de contact par semaine' })
     expect(within(activity).getByRole('table', { name: 'Activité de contact par semaine' })).toBeInTheDocument()
     expect(main.getByRole('region', { name: 'Croissance de la base par semaine' })).toBeInTheDocument()
@@ -66,8 +66,8 @@ describe('Home cockpit', () => {
       has('Rendez-vous pris', '6', '+'), has('À contacter', '41'), has('Relances dues', '9', 'dont 3 en retard'), has('À vérifier', '17', '+'),
       has('Missions en cours', '2'), has('Missions terminées', '1'), has('Reviews en attente', '7'),
     ]).toEqual(Array(10).fill(true))
-    // The only tables are the visually hidden data of the charts, one per chart (1 activity + 3 growth).
-    expect(await main.findAllByRole('table')).toHaveLength(4)
+    // The only tables are the visually hidden data of the charts, one per chart (activity + growth).
+    expect(await main.findAllByRole('table')).toHaveLength(2)
   })
 
   it('leads every card through the central descriptors', async () => {

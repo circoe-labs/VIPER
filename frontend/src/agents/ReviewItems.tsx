@@ -1,7 +1,9 @@
 import type { ProposalItem } from '../api/agents'
 import { ReviewEvidence } from './ReviewEvidence'
 import { SIGNAL_KIND_LABELS } from './labels'
-import { safeHref, sourceLabel } from './reviewFormat'
+import { ConfidenceBadge } from './ReviewConfidence'
+import { formatSourceDate, safeHref, sourceLabel } from './reviewFormat'
+import { Table } from '../ui/Table'
 
 export function shown(value: unknown): string {
   if (value === null || value === undefined || value === '') return '—'
@@ -38,23 +40,83 @@ function SourceLink({ href }: { href: string }) {
 
 // A discovered company's sites and the dated event that brought it in (`find_prospects`). Results
 // submitted before these fields existed carry neither key and show nothing here.
-export function DiscoveryDetails({ item }: { item: ProposalItem }) {
+export interface RawEvidence {
+  field: string
+  source?: string | null
+  quote?: string | null
+  confidence?: number | null
+  source_published_at?: string | null
+  source_checked_at?: string | null
+}
+
+// The evidence the agent gave for one discovered company, read from the raw result (`companies[index].evidence`).
+export function companyEvidence(raw: Record<string, unknown>, item: ProposalItem): RawEvidence[] {
+  const index = /^company:(\d+):/.exec(item.key)?.[1]
+  const companies = raw.companies
+  if (index === undefined || !Array.isArray(companies)) return []
+  const company: unknown = companies[Number(index)]
+  const evidence = isRecord(company) ? company.evidence : null
+  return Array.isArray(evidence) ? evidence.filter(isRecord).map((entry) => entry as unknown as RawEvidence) : []
+}
+
+const COMPANY_FIELDS: [string, string][] = [
+  ['display_name', 'Nom'], ['legal_name', 'Raison sociale'], ['siren', 'SIREN'], ['website_url', 'Site web'],
+  ['email_domain', 'Domaine e-mail'], ['size_label', 'Effectif'],
+]
+
+// New company as a field table: one row per datum (value, source, confidence, dates), so the reviewer sees where each
+// piece comes from. A field without its own evidence falls back to the company's main source.
+function CompanyFieldTable({ item, evidence }: { item: ProposalItem; evidence: RawEvidence[] }) {
+  const store = item.store ?? {}
+  const rows = COMPANY_FIELDS.map(([key, label]) => ({ key, label, value: textOf(store, key) })).filter((row) => row.value)
+  const known = new Set(rows.map((row) => row.key))
+  const extra = evidence.filter((entry) => !known.has(entry.field))
+  const own = (key: string) => evidence.find((entry) => entry.field === key)
+  const fallback: RawEvidence = { field: '', source: item.source, quote: item.quote, confidence: item.confidence, source_published_at: item.source_published_at, source_checked_at: item.source_checked_at }
+  const line = (key: string, label: string, value: string, entry: RawEvidence | undefined) => {
+    const used = entry ?? fallback
+    const href = used.source ? safeHref(used.source) : null
+    return (
+      <tr key={key}>
+        <th scope="row" data-label="Champ">{label}</th>
+        <td data-label="Valeur">{value}</td>
+        <td data-label="Source">
+          {href ? <SourceLink href={href} /> : <span className="rvt-missing">aucune source</span>}
+          {entry === undefined && href && <small className="review-discovery__reason"> (source de la société)</small>}
+        </td>
+        <td data-label="Confiance"><ConfidenceBadge value={used.confidence} compact /></td>
+        <td data-label="Publiée">{used.source_published_at ? formatSourceDate(used.source_published_at) : <span className="rvt-missing">inconnue</span>}</td>
+        <td data-label="Vérifiée">{used.source_checked_at ? formatSourceDate(used.source_checked_at, true) : <span className="rvt-missing">non datée</span>}</td>
+      </tr>
+    )
+  }
+  if (rows.length === 0 && extra.length === 0) return null
+  return (
+    <div className="rvt review-discovery__fields">
+      <Table caption="Informations de la société" density="compact">
+        <thead>
+          <tr><th scope="col">Champ</th><th scope="col">Valeur</th><th scope="col">Source</th><th scope="col">Confiance</th><th scope="col">Publiée</th><th scope="col">Vérifiée</th></tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => line(row.key, row.label, row.value, own(row.key)))}
+          {extra.map((entry, index) => line(`extra-${String(index)}`, entry.field, entry.quote ?? '—', entry))}
+        </tbody>
+      </Table>
+    </div>
+  )
+}
+
+export function DiscoveryDetails({ item, evidence = [] }: { item: ProposalItem; evidence?: RawEvidence[] }) {
   const rawSites = item.store?.establishments
   const sites = Array.isArray(rawSites) ? rawSites.filter(isRecord) : []
   const trigger = isRecord(item.store?.trigger) ? item.store.trigger : null
-  const detailFields: [string, string][] = [
-    ['Raison sociale', 'legal_name'], ['SIREN', 'siren'], ['Site web', 'website_url'],
-    ['Domaine e-mail', 'email_domain'], ['Effectif', 'size_label'],
-  ]
-  const details = detailFields
-    .map(([label, key]): [string, string] => [label, textOf(item.store ?? {}, key)])
-    .filter(([, value]) => value)
-  if (sites.length === 0 && !trigger && details.length === 0) return null
+  const hasFields = COMPANY_FIELDS.some(([key]) => textOf(item.store ?? {}, key)) || evidence.length > 0
+  if (sites.length === 0 && !trigger && !hasFields) return null
   const kind = trigger ? textOf(trigger, 'kind') : ''
   const score = trigger?.score_delta
   return (
     <div className="review-discovery">
-      {details.length > 0 && <p>{details.map(([label, value]) => `${label} : ${value}`).join(' · ')}</p>}
+      <CompanyFieldTable item={item} evidence={evidence} />
       {sites.length > 0 && (
         <ul className="review-discovery__sites" aria-label="Établissements">
           {sites.map((site, index) => {

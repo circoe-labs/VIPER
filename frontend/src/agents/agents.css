@@ -436,3 +436,5 @@
 .review-discovery__reason {
   font-style: italic;
 }
+
+.review-discovery__fields { padding-left: 0; }

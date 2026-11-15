@@ -516,7 +516,7 @@ describe('Signal review', () => {
     await user.click(await screen.findByRole('button', { name: 'Relire' }))
 
     expect(await screen.findByText('Recrutement')).toBeInTheDocument()
-    expect(screen.getByText('2SN')).toBeInTheDocument()
+    expect(screen.getAllByText('2SN').length).toBeGreaterThan(0)
     expect(screen.getByText('2SN recrute son premier responsable commercial.')).toBeInTheDocument()
     expect(screen.getByText('2026-10-25')).toBeInTheDocument()
     expect(screen.getByText('+15')).toBeInTheDocument()

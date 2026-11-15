@@ -2,6 +2,7 @@ import type { MissionStatistics } from '../api/missions'
 import { UsersIcon } from '../ui/icons'
 import { Table } from '../ui/Table'
 import { MissionDonut } from './MissionDonut'
+import { useTableToggle } from './TableToggle'
 import { MissionPanel } from './MissionPanel'
 import { agentAcceptanceRate, formatCount, formatRate } from './statsModel'
 import { agentActivityDonut } from './statsSelectors'
@@ -10,12 +11,14 @@ import './statsPanels.css'
 // « Répartition de l'activité par agent »: part of the journal entries written by each agent (`agents[].logs`).
 // Unit is « entrées » (journal), never « appels »: the telemetry has no call counter (CONTRACT.md D3).
 export function AgentDonutPanel({ stats }: { stats: MissionStatistics }) {
+  const { asTable, button } = useTableToggle()
   return (
-    <MissionPanel title="Répartition de l’activité par agent" icon={UsersIcon} hue="green">
+    <MissionPanel title="Répartition de l’activité par agent" icon={UsersIcon} hue="green" actions={button}>
       <MissionDonut
         title="Répartition de l’activité par agent"
         segments={agentActivityDonut(stats)}
         unit="entrées"
+        asTable={asTable}
         emptyText="Aucun agent n’a encore écrit dans le journal de cette mission."
       />
     </MissionPanel>

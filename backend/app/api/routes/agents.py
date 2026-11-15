@@ -98,6 +98,7 @@ class ResultOut(BaseModel):
     decided_by_display: str | None
     company_name: str | None
     prospect_name: str | None
+    company_domain: str | None = None
 
 
 class AcceptIn(StrictModel):
@@ -208,6 +209,7 @@ def _result_out(review: agent_review.Review) -> ResultOut:
         decided_by_display=result.decided_by_display,
         company_name=review.company_name,
         prospect_name=review.prospect_name,
+        company_domain=review.company_domain,
     )
 
 
