@@ -723,20 +723,23 @@ def _mission_category_ref(mission: Mission) -> dict[str, str | None] | None:
 def mission_rule(mission: Mission) -> dict[str, Any]:
     """The rule a run works under: the payload's `mission` block. Kept on each run when it starts
     (`MissionRun.config`), so « Modifier la mission » only changes the next runs."""
+    objective = parse_objective(mission.objective)
+    # A goal above the per-run cap raises the cap: the person decides how many items they want.
+    result_limit = max(mission.result_limit, int(objective["count"] or 0))
     return {
         "id": str(mission.id),
         "name": mission.name,
         "type": mission.type.value,
         "prompt": mission.prompt,
         "result_kind": mission.result_kind.value,
-        "result_limit": mission.result_limit,
+        "result_limit": result_limit,
         "geography": mission.geography,
         "period_days": mission.period_days,
         "exclusions": mission.exclusions,
         # The output envelope and the goal this run works under (Slice 04). Snapshotted with the
         # rest: editing the mission changes only the next runs.
         "allow_multiple": mission.allow_multiple,
-        "objective": parse_objective(mission.objective),
+        "objective": objective,
         # Saved links the agent should read first (« Sources » on the mission form).
         "sources": _mission_source_refs(mission),
         # Where the instructions come from (Slice 07): the category the `prompt` above defaults

@@ -185,7 +185,7 @@ TOOLS: list[dict[str, Any]] = [
     _tool(
         "set_objective",
         "Objectif mesurable de chaque exécution : tasks_accepted (toutes les tâches validées) ou "
-        "accepted_items avec count éléments validés (au plus la limite par exécution).",
+        "accepted_items avec count éléments validés (1 à 500).",
         {
             "kind": {"type": "string", "enum": ["tasks_accepted", "accepted_items"]},
             "count": {"type": ["integer", "null"], "minimum": 1, "maximum": 500},

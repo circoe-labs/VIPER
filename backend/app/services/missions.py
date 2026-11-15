@@ -539,11 +539,7 @@ def _validate(data: MissionInput, now: datetime) -> None:
                 "Counting accepted items needs a discovery, prospection or signals mission.",
                 "unsupported",
             )
-        # `result_limit` caps what a run may propose: a goal above it could never be reached.
-        if objective["count"] > data.result_limit:
-            raise InvalidFieldError(
-                "objective.count", "Cannot exceed the per-run limit (result_limit).", "range"
-            )
+        # A goal above `result_limit` is allowed: the run's cap is raised to the goal (`mission_rule`).
     if data.is_recurring and data.interval_count < 1:
         raise InvalidFieldError("interval_count", "At least 1.", "range")
     # The end rule is checked for every mission, one-off included: the table's constraints

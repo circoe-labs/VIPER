@@ -172,10 +172,9 @@ export function useMissionForm(mission?: MissionDetail, initial?: MissionDraft) 
     (options.data?.types.find((item) => item.value === type)?.executable ?? true) &&
     (options.data?.result_kinds.find((item) => item.value === resultKind)?.executable ?? true)
 
-  const limit = Number(resultLimit)
   const objectiveMissing =
-    objective.kind === 'accepted_items' && (!objective.count || objective.count < 1 || objective.count > limit)
-      ? `Le nombre d’éléments à valider doit être compris entre 1 et la limite par exécution (${resultLimit}).`
+    objective.kind === 'accepted_items' && (!objective.count || objective.count < 1)
+      ? 'Indiquez le nombre d’éléments à valider (au moins 1).'
       : null
   const effectivePrompt = promptOverride ?? category?.general_prompt ?? ''
   const filled = name.trim() !== '' && effectivePrompt.trim() !== ''
@@ -250,7 +249,7 @@ export function useMissionForm(mission?: MissionDetail, initial?: MissionDraft) 
       ends_at: recurring && endKind === 'date' && endsAt ? new Date(endsAt).toISOString() : null,
       max_runs: recurring && endKind === 'after' ? Number(maxRuns) : null,
       result_kind: resultKind,
-      result_limit: limit,
+      result_limit: Number(resultLimit),
       allow_multiple: allowMultiple,
       objective: objective.kind === 'accepted_items' ? objective : { kind: 'tasks_accepted', count: null },
       geography: geography.trim() || null,

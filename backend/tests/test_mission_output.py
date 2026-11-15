@@ -268,7 +268,7 @@ def test_a_new_run_snapshots_the_objective_and_history_is_immutable(
     assert run.config["objective"]["count"] == 3
 
 
-def test_objective_count_cannot_exceed_the_result_limit(client: TestClient) -> None:
+def test_objective_count_above_the_result_limit_raises_the_run_cap(client: TestClient) -> None:
     body = {
         "name": "Découverte",
         "type": "prospection",
@@ -280,7 +280,8 @@ def test_objective_count_cannot_exceed_the_result_limit(client: TestClient) -> N
 
     response = client.post(MISSIONS, json=body)
 
-    assert response.status_code == 422, response.text
+    assert response.status_code == 201, response.text
+    assert response.json()["rule"]["objective"] == {"kind": "accepted_items", "count": 6}
     ok = client.post(MISSIONS, json={**body, "objective": {"kind": "accepted_items", "count": 5}})
     assert ok.status_code == 201, ok.text
     assert ok.json()["result_limit"] == 5

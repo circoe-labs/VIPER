@@ -148,7 +148,6 @@ export function MissionExecutionSection({ form }: { form: MissionFormApi }) {
               label="Éléments à valider"
               type="number"
               min={1}
-              max={Number(form.resultLimit) || undefined}
               value={objective.count ?? ''}
               onChange={(event) => {
                 form.setObjective({ kind: 'accepted_items', count: event.target.value ? Number(event.target.value) : null })
@@ -156,7 +155,7 @@ export function MissionExecutionSection({ form }: { form: MissionFormApi }) {
             />
             <span className="mission-form__tip">
               <InfoTip label="Aide : éléments à valider">
-                Compté à la validation par une personne ; au plus la limite par exécution.
+                Compté à la validation par une personne. Au-dessus de la limite par exécution, la limite est relevée d’autant.
               </InfoTip>
             </span>
           </div>

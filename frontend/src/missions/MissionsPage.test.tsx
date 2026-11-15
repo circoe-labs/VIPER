@@ -235,7 +235,7 @@ describe('MissionsPage', () => {
     })
   })
 
-  it('blocks an objective above the per-run limit', async () => {
+  it('allows an objective above the per-run limit', async () => {
     const { user, dialog } = await openCreate()
     await user.type(within(dialog).getByLabelText(/Consigne/), 'Trouve des transporteurs')
     await pickCategory(user, dialog, 'Prospection')
@@ -243,8 +243,8 @@ describe('MissionsPage', () => {
     await user.clear(within(dialog).getByLabelText('Éléments à valider'))
     await user.type(within(dialog).getByLabelText('Éléments à valider'), '50')
 
-    expect(within(dialog).getByRole('status')).toHaveTextContent('limite par exécution (20)')
-    expect(within(dialog).getByRole('button', { name: 'Créer la mission' })).toBeDisabled()
+    expect(within(dialog).queryByRole('status')).not.toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'Créer la mission' })).toBeEnabled()
   })
 
   it('does not require a linked record for a signals mission', async () => {
