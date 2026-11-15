@@ -334,3 +334,30 @@
   padding-top: var(--space-3);
   border-top: var(--border-width) dashed color-mix(in srgb, var(--mui-fg, var(--color-border)) 35%, var(--color-border));
 }
+
+/* The mark sits over the top-left corner of the card, half outside it. */
+.mlist-grid {
+  row-gap: var(--space-8, 2rem);
+  padding-top: var(--space-6);
+}
+
+.mlist-card {
+  position: relative;
+  overflow: visible;
+}
+
+.mlist-card .mission-mark {
+  position: absolute;
+  top: -2.25rem;
+  left: -1rem;
+  z-index: 1;
+  border-width: 3px;
+  box-shadow:
+    0 0 0 5px var(--color-surface),
+    0 6px 16px color-mix(in srgb, var(--mui-fg, var(--color-border-strong)) 30%, transparent);
+}
+
+.mlist-card__head {
+  min-height: 3.25rem;
+  padding-left: 4.75rem;
+}
