@@ -21,6 +21,8 @@ l'ancien « Connaît Robin / Ne connaît pas Robin » (une note de prospect, san
 `GET /person/{prospect|member}/{id}`, `POST`, `PATCH /{id}`, `DELETE /{id}`.
 Refus : une personne liée à elle-même, un couple déjà lié (422 `duplicate`), une personne inconnue (404).
 
+`GET /proximity/prospect/{id}` : score de proximité du prospect depuis les membres (voir `proximity-score.md`).
+
 ## Interface
 
 - **Fiche prospect, carte « Relations »** (onglet Profil) : la liste des liens (personne, nature, force

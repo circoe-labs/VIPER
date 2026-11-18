@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.dependencies import CurrentActor, SessionDep
 from app.api.errors import business_errors
-from app.services import person_links
+from app.services import person_links, person_proximity
 from app.services.person_links import LinkView, Person, PersonView
 
 router = APIRouter(prefix="/links", tags=["links"])
@@ -120,6 +120,74 @@ def get_graph(
             for company in graph.companies
         ],
         links=[link_out(link) for link in graph.links],
+    )
+
+
+class ProximityEdgeOut(BaseModel):
+    a: PersonOut
+    b: PersonOut
+    relation: str
+    score: int
+
+
+class ProximityPathOut(BaseModel):
+    member: PersonOut
+    hops: int
+    strength: int
+    people: list[PersonOut]
+    edges: list[ProximityEdgeOut]
+
+
+class ProximityMemberOut(BaseModel):
+    member: PersonOut
+    strength: int
+
+
+class ProximityOut(BaseModel):
+    prospect_id: uuid.UUID
+    score: int
+    state: Literal["reachable", "unreachable", "empty"]
+    path_count: int
+    members: list[ProximityMemberOut]
+    paths: list[ProximityPathOut]
+    formula_version: int
+    max_hops: int
+
+
+@router.get("/proximity/prospect/{prospect_id}")
+def prospect_proximity(prospect_id: uuid.UUID, session: SessionDep) -> ProximityOut:
+    """Proximity score 0-100 of a prospect from the members (doc/features/proximity-score.md)."""
+    with business_errors():
+        result = person_proximity.proximity_of_prospect(session, prospect_id)
+    return ProximityOut(
+        prospect_id=result.prospect_id,
+        score=result.score,
+        state=result.state,
+        path_count=result.path_count,
+        members=[
+            ProximityMemberOut(member=person_out(item.member), strength=item.strength)
+            for item in result.members
+        ],
+        paths=[
+            ProximityPathOut(
+                member=person_out(path.member),
+                hops=path.hops,
+                strength=path.strength,
+                people=[person_out(person) for person in path.people],
+                edges=[
+                    ProximityEdgeOut(
+                        a=person_out(edge.a),
+                        b=person_out(edge.b),
+                        relation=edge.relation,
+                        score=edge.score,
+                    )
+                    for edge in path.edges
+                ],
+            )
+            for path in result.paths
+        ],
+        formula_version=result.formula_version,
+        max_hops=result.max_hops,
     )
 
 

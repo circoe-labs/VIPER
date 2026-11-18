@@ -103,6 +103,11 @@ def _people(session: Session, people: set[Person]) -> dict[Person, PersonView]:
     return views
 
 
+def people_views(session: Session, people: set[Person]) -> dict[Person, PersonView]:
+    """Public seam of `_people` for the proximity service."""
+    return _people(session, people)
+
+
 def _require_exists(session: Session, person: Person) -> None:
     model = Prospect if person.kind == "prospect" else User
     if session.get(model, person.id) is None:
