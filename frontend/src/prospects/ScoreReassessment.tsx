@@ -282,7 +282,7 @@ function Text({ phase, score, state, seconds, failure, appliedBy, sending, noAge
             </span>
           </p>
           <p className="score-state__detail">
-            Sans réponse depuis <span className="score-state__timer">{formatElapsed(seconds)}</span> · score inchangé
+            Sans réponse depuis <span className="score-state__timer">{formatElapsed(seconds)}</span>
           </p>
         </>
       )

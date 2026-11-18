@@ -4,6 +4,7 @@ import type { ProspectScore } from '../api/prospects'
 import { Button } from '../ui/Button'
 import { Modal } from '../ui/Dialog'
 import { AlertIcon, InfoIcon } from '../ui/icons'
+import { InfoTip } from '../ui/InfoTip'
 import { ScoreRing } from '../ui/ScoreRing'
 import { EditorSection } from './EditorSection'
 import { ScoreReassessment } from './ScoreReassessment'
@@ -48,7 +49,14 @@ function ScoreSection({ score, outdated, onShowNote, prospectId, onScoreChanged 
   const [open, setOpen] = useState(false)
 
   return (
-    <EditorSection title="Score prospect">
+    <EditorSection
+      title="Score prospect"
+      actions={
+        <InfoTip label="Aide : Score prospect">
+          Intérêt commercial du prospect pour Circoe, d’après ses critères et les signaux validés. Les relations n’y entrent pas.
+        </InfoTip>
+      }
+    >
       {/* One body, always the same height: ring, level, detail link and every async state of « Réévaluer » replace
           each other here (ScoreReassessment.tsx); nothing is ever added around it. */}
       <ScoreReassessment

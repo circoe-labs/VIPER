@@ -26,11 +26,6 @@ export function ProspectIndicatorStrip({ score, completeness, proximity }: Indic
   return (
     <section className="indicator-strip" aria-label="Indicateurs de la fiche">
       <div className="indicator-cell" data-indicator="score">
-        <span className="indicator-cell__corner">
-          <InfoTip label="Aide : Score prospect">
-            Intérêt commercial du prospect pour Circoe, d’après ses critères et les signaux validés. Les relations n’y entrent pas.
-          </InfoTip>
-        </span>
         {score}
       </div>
       <IndicatorCell

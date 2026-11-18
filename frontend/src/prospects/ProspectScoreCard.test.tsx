@@ -104,6 +104,8 @@ describe('ProspectScoreCard - the detail', () => {
     show(score(60, 'yellow'))
 
     await userEvent.tab()
+    expect(screen.getByRole('button', { name: 'Aide : Score prospect' })).toHaveFocus()
+    await userEvent.tab()
     expect(detailButton()).toHaveFocus()
     await userEvent.keyboard(key)
     const dialog = screen.getByRole('dialog', { name: 'Détail du score' })

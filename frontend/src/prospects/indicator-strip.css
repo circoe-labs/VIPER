@@ -62,8 +62,24 @@
   background: transparent;
 }
 
+.prospect-editor-form .indicator-cell .prospect-editor__section {
+  grid-template-rows: auto minmax(0, 1fr);
+  align-content: stretch;
+}
+
+/* Same header as the sibling cards: title then its info tip, on one line, no stretched row. */
 .prospect-editor-form .indicator-cell .prospect-editor__section-head {
+  flex-wrap: nowrap;
+  justify-content: flex-start;
   min-height: 1.5rem;
+}
+
+.prospect-editor-form .indicator-cell .prospect-editor__section-tools {
+  margin-left: 0;
+}
+
+.indicator-cell .prospect-score {
+  align-self: center;
 }
 
 .indicator-cell .prospect-score {
@@ -76,14 +92,9 @@
   background: transparent;
 }
 
-.indicator-cell__corner {
-  position: absolute;
-  top: var(--space-4);
-  right: var(--space-4);
-}
-
 /* One ring size for the three cards, so the score card and its siblings read as one row. */
 .indicator-cell .score-ring,
+.indicator-cell .score-progress,
 .indicator-cell .prospect-score__placeholder,
 .indicator-cell__disc {
   width: 4rem;
@@ -222,6 +233,7 @@
   }
 
   .indicator-cell .score-ring,
+  .indicator-cell .score-progress,
   .indicator-cell .prospect-score__placeholder,
   .indicator-cell__disc {
     width: 3.5rem;
