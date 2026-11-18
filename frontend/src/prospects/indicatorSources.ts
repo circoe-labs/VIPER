@@ -1,9 +1,9 @@
 import type { Prospect } from '../api/prospects'
 import { useProspectProximity } from '../api/proximity'
 import { ApiError } from '../api/client'
-import { splitCriteria } from './completenessView'
+import { criteriaSentence, splitCriteria } from './completenessView'
 import type { CompletenessView, IndicatorState, ProximityView } from './indicators'
-import { describePath } from './proximityView'
+import { describeEnds, describePath } from './proximityView'
 
 // The one seam where the indicator slots get their data: the fiche state from the prospect's own read model
 // (`data_quality`, no extra request), the proximity score from its endpoint.
@@ -22,6 +22,7 @@ export function completenessIndicator(prospect: Prospect | null): IndicatorState
       description: [quality.state_description, quality.summary].filter(Boolean).join(' '),
       missing: todo.map((criterion) => criterion.label),
       strong: done.map((criterion) => criterion.label),
+      sentence: criteriaSentence(quality.criteria),
     },
   }
 }
@@ -54,6 +55,7 @@ export function useProximityIndicator(prospectId: string | null): IndicatorState
       total: data.score,
       pathCount: data.path_count,
       bestPath: best ? describePath(best) : null,
+      bestPathEnds: best ? describeEnds(best) : null,
       maxHops: data.max_hops,
     },
   }

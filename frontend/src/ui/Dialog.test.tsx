@@ -34,6 +34,33 @@ function ModalHarness({ onClose = vi.fn() }: { onClose?: () => void }) {
   )
 }
 
+describe('Modal sheet variant', () => {
+  it('is the floating record window: sheet classes, custom heading naming the dialog, Esc still closes', async () => {
+    const onClose = vi.fn()
+    render(
+      <Modal
+        open
+        sheet
+        size="xl"
+        title="Fallback"
+        onClose={onClose}
+        heading={(titleId) => <h2 id={titleId}>Pierre Fontaine</h2>}
+        headerActions={<Button>Mission</Button>}
+      >
+        <TextField label="Motif" />
+      </Modal>,
+    )
+    const dialog = screen.getByRole('dialog', { name: 'Pierre Fontaine' })
+    expect(dialog).toHaveClass('dialog--sheet')
+    expect(dialog.parentElement).toHaveClass('dialog-layer--sheet')
+    expect(screen.queryByText('Fallback')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Mission' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Fermer' })).toBeInTheDocument()
+    await userEvent.keyboard('{Escape}')
+    expect(onClose).toHaveBeenCalled()
+  })
+})
+
 describe('Modal', () => {
   it('renders nothing while closed', () => {
     render(<Modal open={false} onClose={vi.fn()} title="Confirmer">contenu</Modal>)

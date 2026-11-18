@@ -5,12 +5,12 @@ import { MemoryRouter } from 'react-router'
 import { describe, expect, it, vi } from 'vitest'
 
 import { prospectDetail } from '../test/prospectsApi'
-import { splitCriteria } from './completenessView'
+import { criteriaSentence, splitCriteria } from './completenessView'
 import { completenessIndicator } from './indicatorSources'
 import type { CompletenessView, ProximityView } from './indicators'
 import { ProspectIndicatorStrip } from './ProspectIndicatorStrip'
 import { prospectGraphHref } from './prospectGraphHref'
-import { proximityTone } from './proximityView'
+import { describeEnds, proximityTone } from './proximityView'
 
 const score = <div data-slot="prospect-score">score</div>
 
@@ -20,6 +20,7 @@ const USABLE: CompletenessView = {
   description: 'On peut joindre la personne, mais plusieurs informations manquent.',
   missing: ['Téléphone vérifié', 'Intitulé exact'],
   strong: ['E-mail actif'],
+  sentence: 'E-mail actif · téléphone vérifié manquant',
 }
 const REACHABLE: ProximityView = {
   prospectId: 'p-9',
@@ -27,6 +28,7 @@ const REACHABLE: ProximityView = {
   total: 64,
   pathCount: 2,
   bestPath: 'Robin (amis, 80) → Yamina',
+  bestPathEnds: 'Robin → Yamina',
   maxHops: 3,
 }
 
@@ -43,27 +45,36 @@ function render(ui: ReactElement) {
 }
 
 describe('ProspectIndicatorStrip', () => {
+  it('keeps the cards in one order: Score prospect, Score de proximité, État de la fiche', () => {
+    render(<ProspectIndicatorStrip score={score} completeness={{ status: 'ready', value: USABLE }} proximity={{ status: 'ready', value: REACHABLE }} />)
+    const strip = screen.getByRole('region', { name: 'Indicateurs de la fiche' })
+    const order = [...strip.children].map((card) => card.getAttribute('data-indicator'))
+    expect(order).toEqual(['score', 'proximity', 'fiche'])
+  })
+
   it('shows the semantic completeness state (no figure) and the proximity score when ready', () => {
     render(<ProspectIndicatorStrip score={score} completeness={{ status: 'ready', value: USABLE }} proximity={{ status: 'ready', value: REACHABLE }} />)
     const fiche = screen.getByRole('region', { name: 'État de la fiche' })
     expect(fiche).toHaveTextContent('Exploitable')
     expect(within(fiche).queryByText(/sur 100/)).toBeNull()
-    expect(within(fiche).getByRole('button', { name: 'Aide : fiche exploitable' })).toBeInTheDocument()
+    expect(fiche).toHaveTextContent('E-mail actif · téléphone vérifié manquant')
+    expect(within(fiche).getByRole('button', { name: 'Aide : État de la fiche' })).toBeInTheDocument()
     const proximity = screen.getByRole('region', {
       name: 'Score de proximité',
     })
     expect(proximity).toHaveTextContent('2 chemins')
     expect(proximity).toHaveTextContent('Accessible')
     expect(proximity).toHaveTextContent('proximité 64 sur 100')
-    expect(proximity).toHaveTextContent('Robin (amis, 80) → Yamina')
+    expect(proximity).toHaveTextContent('Robin → Yamina')
+    expect(proximity.querySelector('[title="Robin (amis, 80) → Yamina"]')).not.toBeNull()
     expect(screen.getByRole('button', { name: 'Aide : Score de proximité' })).toBeInTheDocument()
   })
 
-  it('offers « Graph » on the prospect when relations exist, and nothing when there is none', () => {
+  it('offers « Voir le graphe » on the prospect when relations exist, and nothing when there is none', () => {
     const { rerender } = render(
       <ProspectIndicatorStrip score={score} completeness={{ status: 'unavailable' }} proximity={{ status: 'ready', value: REACHABLE }} />,
     )
-    const link = within(screen.getByRole('region', { name: 'Score de proximité' })).getByRole('link', { name: 'Graph' })
+    const link = within(screen.getByRole('region', { name: 'Score de proximité' })).getByRole('link', { name: 'Voir le graphe' })
     expect(link).toHaveAttribute('href', prospectGraphHref('p-9'))
     rerender(
       <ProspectIndicatorStrip
@@ -77,11 +88,12 @@ describe('ProspectIndicatorStrip', () => {
             total: 0,
             pathCount: 0,
             bestPath: null,
+            bestPathEnds: null,
           },
         }}
       />,
     )
-    expect(screen.queryByRole('link', { name: 'Graph' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Voir le graphe' })).not.toBeInTheDocument()
   })
 
   it.each([
@@ -105,7 +117,7 @@ describe('ProspectIndicatorStrip', () => {
     expect(banner).toHaveAttribute('data-tone', tone)
     expect(banner?.querySelector('svg.score-ring')).toBeNull()
     expect(fiche).not.toHaveTextContent('à compléter')
-    expect(within(fiche).getByRole('button', { name: 'Aide : fiche mot' })).toHaveAccessibleDescription(/Téléphone vérifié · Intitulé exact/)
+    expect(within(fiche).getByRole('button', { name: 'Aide : État de la fiche' })).toHaveAccessibleDescription(/Téléphone vérifié · Intitulé exact/)
   })
 
   it('says why a proximity of 0 is 0 (empty, unreachable)', () => {
@@ -121,6 +133,7 @@ describe('ProspectIndicatorStrip', () => {
             total: 0,
             pathCount: 0,
             bestPath: null,
+            bestPathEnds: null,
           },
         }}
       />,
@@ -138,6 +151,7 @@ describe('ProspectIndicatorStrip', () => {
             total: 0,
             pathCount: 0,
             bestPath: null,
+            bestPathEnds: null,
           },
         }}
       />,
@@ -208,6 +222,7 @@ describe('completenessIndicator (prospect.data_quality)', () => {
         description: 'Joignable, mais incomplète. À compléter : téléphone.',
         missing: ['Téléphone vérifié'],
         strong: ['E-mail actif'],
+        sentence: 'ok · aucun',
       },
     })
   })
@@ -244,5 +259,28 @@ describe('completenessView / proximityView', () => {
     [67, 'success'],
   ] as const)('tones proximity %i as %s', (value, tone) => {
     expect(proximityTone(value)).toBe(tone)
+  })
+})
+
+describe('criteriaSentence / describeEnds', () => {
+  it('builds one sentence from the backend details: two acquired, then what lacks, three parts at most, no number', () => {
+    const criterion = (id: string, status: 'met' | 'partial' | 'missing', detail: string) => ({ id, label: id, status, detail })
+    expect(
+      criteriaSentence([
+        criterion('a', 'met', 'E-mail vérifié.'),
+        criterion('b', 'met', 'Fonction et entreprise renseignées'),
+        criterion('c', 'met', 'Ignoré : déjà deux'),
+        criterion('d', 'missing', 'Aucun téléphone actif'),
+        criterion('e', 'partial', 'Emploi jamais vérifié'),
+      ]),
+    ).toBe('E-mail vérifié · fonction et entreprise renseignées · aucun téléphone actif')
+    expect(criteriaSentence([])).toBe('')
+  })
+
+  it('keeps only the member and the prospect of a path', () => {
+    const person = (name: string) => ({ kind: 'member' as const, id: name, name, company_id: null, company_name: null })
+    const [robin, paul, anne] = [person('Robin'), person('Paul'), person('Anne')] as const
+    expect(describeEnds({ member: robin, hops: 2, strength: 50, people: [robin, paul, anne], edges: [] })).toBe('Robin → Anne')
+    expect(describeEnds({ member: robin, hops: 0, strength: 0, people: [], edges: [] })).toBeNull()
   })
 })

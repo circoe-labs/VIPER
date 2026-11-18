@@ -23,25 +23,34 @@ former explorer fallback is gone.
 
 ## Layout
 
-A drawer of 64 rem (`Drawer size="xl"`) with two tabs (`ui/Tabs`, decision D-UX1). The form, the draft and the footer are
-shared by both tabs. Profil (prospect-sheet redesign S1) is a stack of rows that use the whole width, one gap, equal
-columns and cards stretched to the same height (`ProfileLayout.tsx` / `profile-layout.css`: `ProfileRow` with 1, 2 or 3
-columns; one column below 1100 px). Explanations go in info tooltips (`ui/InfoTip`), not in paragraphs.
+A big **centered floating window** (UI2): `Modal sheet size="xl"` of `ui/Dialog` — the `sheet` variant adds a dimmed and slightly
+blurred backdrop, a 20 px radius, a soft large shadow, a fixed height (`min(100%, 58rem)`, it never resizes between tabs or states),
+margins on every side, and scrolls inside its body only (no horizontal scroll). The other dialogs and drawers are unchanged. A
+custom header replaces the title block (`heading` prop of the dialog, which must carry the dialog's accessible name): **avatar with
+initials, the full name large, « fonction · entreprise | e-mail principal »** (all following the form's draft), and on the right
+*Mission*, *Contacter*, a **« … » menu** (the same actions as the right-click menu: *Lier à…*, *Mission*, *Contacter*, *Réévaluer le
+score*, *Graph*, *Société*, built once by `useSheetMenu`) and the close button. The queue position (*Prospect 3 sur 45 · Jamais
+vérifiés*) is in the footer next to the arrows. The two tabs (`ui/Tabs`, decision D-UX1) sit right under the header; the form, the
+draft and the footer are shared by both tabs. Profil is a stack of rows that use the whole width, one gap, equal columns and cards
+stretched to the same height (`ProfileLayout.tsx` / `profile-layout.css`: `ProfileRow` with 1, 2 or 3 columns; the rows stack when the
+panel is narrower than 54 rem — a container query on the panel, `container: sheet`). All cards of both tabs share one language
+(`prospect-sheet.css`): radius 14 px, padding 20 px, gap 20 px, icon + title, *Modifier* buttons, label / value rows. Explanations go
+in info tooltips (`ui/InfoTip`), not in paragraphs. Footer: *Supprimer*, *Enregistrer*, *Enregistrer et fermer*, the arrows.
 
 | Tab | Row | Content |
 |---|---|---|
-| **Profil** | indicator strip (full width, 3 equal cells) | **Score prospect** (`ProspectScoreCard`, commercial fit only, ring + word + detail dialog; absent for a new person; **« Non évalué »** placeholder (dashed disc, no figure, no dialog) while `score.contributions` is empty, with the action reading **« Évaluer »** instead of « Réévaluer le score ») · **État de la fiche** (a right-aligned banner: the state word, an info tooltip carrying the backend's description and the « à compléter » criteria, and a big tone-coloured icon tile, one distinct icon per state — incomplete / usable / rich / very_rich; no ring; read from `prospect.data_quality`, never a 0-100 figure; *Écarté* under opposition) · **Score de proximité** (ring 0-100 + band word + path count + best path, from `GET /api/links/proximity/prospect/{id}`; explained *empty* / *unreachable* states; error with *Réessayer*; a **« Graph »** link opens the Prospection graph focused on the prospect, hidden when there is no relation — `prospectGraphHref(id)` in `prospectGraphHref.ts`, `?focus=prospect:<id>` read by `GraphPage`). `ProspectIndicatorStrip.tsx` + `indicator-strip.css`; the slots take an `IndicatorState` (`loading` / `unavailable` / `error` / `ready`, `indicators.ts`) from the one seam `indicatorSources.ts` (`useCompletenessIndicator(prospect)`, `useProximityIndicator(prospectId)`). The front computes no score. The score card also carries *Réévaluer le score* (`prospectId`, `onScoreChanged` re-reads the prospect). |
-| | two columns | **Résumé du profil** (`ProfileSummary`: full name, *rôle · entreprise*, main e-mail and phone, secondary status, *Copier les informations*; hidden for a new person) · **Coordonnées** (E-mails and Téléphones) |
-| | three columns | **Identité** (Civilité, Prénom, Nom) · **Emploi** (Entreprise *, Rôle, Intitulé exact, Activité, employment verification as a secondary line) · **Entreprise** (summary + *Ouvrir la fiche entreprise*) |
-| | one column | **Relations** (`ProspectLinksCard`) |
-| **Suivi** | top, full width | **Synthèse du suivi** (`TrackingOverview`, prospect-sheet redesign S6): read-only band — *État commercial* (+ *depuis le*), *Prochaine action* (next send and due date, *Échu*, or *Aucun envoi prévu* with the reason in an info tip), *Semaine* (+ first send), *Réponse*, *Rendez-vous*, *Référent*. It follows the form's live values. Hidden for a new person. |
+| **Profil** | KPI row (3 cards of one fixed height, 11 rem) | In this order: **Score prospect** (`ProspectScoreCard`, owned by the score module: commercial fit only, ring + word + detail dialog; absent for a new person; **« Non évalué »** placeholder while `score.contributions` is empty, with the action reading **« Évaluer »**; it fills the card the strip gives it) · **Score de proximité** (big ring 0-100 + band word *Proche / Accessible / Lointain* + *N chemins* + the best path's ends « Membre → Prospect » (the full path in its tooltip) + a **« Voir le graphe »** button, from `GET /api/links/proximity/prospect/{id}`; explained *empty* / *unreachable* states; error with *Réessayer*; the button is hidden when there is no relation — `prospectGraphHref(id)`, `?focus=prospect:<id>` read by `GraphPage`) · **État de la fiche** (the state word big, a small sober icon tile in the state's tone — one icon per state — and **one sentence built from the backend's real criteria** (`criteriaSentence`: what is acquired, then what lacks, e.g. *E-mail vérifié · fonction et entreprise renseignées · aucun téléphone actif*); no number, the « à compléter » list is in the info tip; *Écarté* under opposition). The three cards have the same padding, the same height whatever the state (loading, empty, error and ready replace the content in place), and stack in the same order when the panel is narrower than 52 rem. `ProspectIndicatorStrip.tsx` + `indicator-strip.css`; the slots take an `IndicatorState` (`loading` / `unavailable` / `error` / `ready`, `indicators.ts`) from the one seam `indicatorSources.ts`. The front computes no score. |
+| | two columns | **Résumé** (`ProfileSummary`, region « Résumé du profil »: a few lines of synthesis written by the pure `summarizeProspect` (`sheetSummary.ts`, tested) from real data — role at company, fiche state, e-mail verified?, proximity paths, score status; never the name, never an invented value; *Copier les informations*; hidden for a new person) · **Coordonnées** (read view: one row per e-mail and phone with its verification state — *Principal* only when there are several —, *Aucune adresse* / *Aucun numéro*; *Modifier* opens the existing E-mails / Téléphones inputs) |
+| | three columns | **Identité** (Civilité, Prénom, Nom) · **Emploi** (Rôle, Intitulé exact, Activité; the company is in the next card and edited from this one) · **Entreprise** (name with an icon button *Ouvrir la fiche entreprise*, legal facts, Ville, Domaine e-mail, Site web) |
+| | one column | **Relations N** (`ProspectLinksCard`): rows with initials avatar, name, relation chip, the **« Meilleur chemin »** chip + *N chemins* on the relation that opens the best path (from the proximity read model, no second graph), strength meter; *Lier à* (inline add, edit and delete per row) and **« Voir toutes les relations »** (opens the graph) |
+| **Suivi** | top, full width | **Synthèse du suivi** (`TrackingOverview`, prospect-sheet redesign S6; same card language as Profil): read-only band — *État commercial* (+ *depuis le*), *Prochaine action* (next send and due date, *Échu*, or *Aucun envoi prévu* with the reason in an info tip), *Semaine* (+ first send), *Réponse*, *Rendez-vous*, *Référent*. It follows the form's live values. Hidden for a new person. |
 | | row 1 | **Suivi de contact** (state form, with the *Ne pas contacter* banner) · **Séquence de contact** — equal cards |
 | | row 2 | **Notes** · **Alertes qualité** — equal cards |
 | | row 3 (secondary, muted) | **Provenance** (sources) · **Historique** (the latest saves, Task 19) |
 
 **Suivi composition** (`TrackingTab.tsx`, `tracking-tab.css`): `ProspectEditor` renders one `<TrackingTab>`; the tab composes the
 unchanged sections (`TrackingSection`, `SequenceSection`, `ProspectNotes`, `AlertsSection`, `ProvenanceSection`,
-`HistorySection`) as the shared `EditorSection` cards in a two-column grid that stacks when the tab is narrow and gives
+`HistorySection`) as the shared `EditorSection` cards in a two-column grid that stacks when the panel is narrower than 54 rem and gives
 the cards of a row the same height. Long notes and histories scroll inside their card. No state, action or save
 semantics changed; the former *Semaine / Relance / Référent / RDV* summary inside *Suivi de contact* moved to the band
 (the level stays in *Séquence de contact*).
@@ -49,8 +58,7 @@ semantics changed; the former *Semaine / Relance / Référent / RDV* summary ins
 The *Qualité de la fiche* numeric card (`DataQualityCard`) and the standalone `ProximityScoreCard` were removed at S7: the
 fiche is shown as a named state and the proximity as a score in the indicator strip, both live (`indicatorSources.ts`).
 
-The header gives the person's name and their place in the queue (*Prospect 3 sur 45 · Jamais vérifiés*). The footer is
-the dirty-state bar.
+The footer is the dirty-state bar (status, *Supprimer*, *Annuler les modifications*, *Enregistrer*, *Enregistrer et fermer*, queue position and arrows).
 
 **Employment verification** has no card of its own (D-UX3): it is the secondary line of **Emploi** — a state badge
 (*Valeurs importées, jamais vérifiées*, *Vérifié le …*, …) and its actions (*Vérifié aujourd'hui*, *Effacer la

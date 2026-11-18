@@ -4,8 +4,15 @@ import type { Prospect } from '../api/prospects'
 import { useTaxonomyValues } from '../api/settings'
 import { civilityLabel, stateLabel } from '../prospection/labels'
 import { StatusBadge } from '../ui/Badge'
-import { BanIcon, ClockIcon } from '../ui/icons'
+import { Button } from '../ui/Button'
+import { BanIcon, CopyIcon, FileTextIcon } from '../ui/icons'
+import { EditorSection } from './EditorSection'
+import type { CompletenessView, IndicatorState, ProximityView } from './indicators'
 import type { AliasDraft, ProspectDraft } from './prospectForm'
+import { proximityLabel } from './proximityView'
+import { BAND_LABELS } from './scoreView'
+import { summarizeProspect, type SummaryEmail } from './sheetSummary'
+import { aliasState } from './verification'
 import './profile-summary.css'
 
 export interface EmploymentLabels {
@@ -40,86 +47,93 @@ interface ProfileSummaryProps {
   draft: ProspectDraft
   prospect: Prospect | null
   labels: EmploymentLabels
+  // What the synthesis reads: the indicators the sheet already shows (never recomputed here).
+  completeness: IndicatorState<CompletenessView>
+  proximity: IndicatorState<ProximityView>
+  companyMoved: boolean
+  today: string
 }
 
-// The person at a glance (Profil tab): a read view derived from the editor's draft, never a second copy — a pending
-// edit shows here as soon as it is typed. Missing values say so instead of leaving a hole.
-export function ProfileSummary({ draft, prospect, labels }: ProfileSummaryProps) {
+// « Résumé » card (Profil tab): a short synthesis of the real data of the sheet — role at company, fiche state, e-mail
+// verification, proximity, score status — derived from the editor's draft and indicators, never a second copy: a pending
+// edit shows here as soon as it is typed. The person's name is in the header, not repeated here.
+export function ProfileSummary({ draft, prospect, labels, completeness, proximity, companyMoved, today }: ProfileSummaryProps) {
   const [copyStatus, setCopyStatus] = useState('')
   const name = [civilityLabel(draft.civility || null), draft.first_name.trim(), draft.last_name.trim()].filter(Boolean).join(' ')
   const email = mainAlias(draft.emails)
   const phone = mainAlias(draft.phones)
-  const job = [labels.role, labels.company].filter(Boolean).join(' · ')
   const tracking = stateLabel(draft.tracking.status || null)
   const blocked = prospect?.contactability_status === 'do_not_contact'
+  let emailStatus: SummaryEmail = 'none'
+  if (email.alias) {
+    const tone = aliasState(email.alias, { kind: 'emails', companyMoved, today, staleDays: prospect?.stale_threshold_days ?? null }).tone
+    emailStatus = tone === 'success' ? 'verified' : tone === 'danger' ? 'invalid' : 'unverified'
+  }
+  const lines = summarizeProspect({
+    role: labels.role,
+    company: labels.company,
+    ficheLabel: completeness.status === 'ready' ? completeness.value.label : null,
+    email: emailStatus,
+    proximity:
+      proximity.status === 'ready'
+        ? { state: proximity.value.state, pathCount: proximity.value.pathCount, label: proximityLabel(proximity.value.total) }
+        : null,
+    score: prospect ? { evaluated: prospect.score.contributions.length > 0, bandLabel: BAND_LABELS[prospect.score.band] } : null,
+  })
   return (
-    <section className="prospect-summary" aria-label="Résumé du profil">
-      <div className="prospect-summary__who">
-        <p className="prospect-summary__name">{name || 'Sans nom'}</p>
-        <p className="prospect-summary__job" title={job || undefined}>
-          {job || <span className="prospect-editor__muted">Entreprise et rôle non renseignés</span>}
-        </p>
-      </div>
-      <dl className="prospect-summary__channels">
-        <div>
-          <dt>E-mail</dt>
-          <dd>
-            {email.alias ? (
-              <>
-                <span className="prospect-summary__value">{email.alias.value.trim()}</span>
-                {email.others > 0 && <span className="prospect-editor__muted"> +{email.others}</span>}
-              </>
-            ) : (
-              <span className="prospect-editor__muted">Aucun e-mail</span>
-            )}
-          </dd>
-        </div>
-        <div>
-          <dt>Téléphone</dt>
-          <dd>
-            {phone.alias ? (
-              <>
-                <span className="prospect-summary__value">{phone.alias.value.trim()}</span>
-                {phone.others > 0 && <span className="prospect-editor__muted"> +{phone.others}</span>}
-              </>
-            ) : (
-              <span className="prospect-editor__muted">Aucun téléphone</span>
-            )}
-          </dd>
-        </div>
-      </dl>
-      <div className="prospect-summary__copy">
-        <button type="button" onClick={() => {
-          const lines = [
-            `Nom : ${name || 'Non renseigné'}`,
-            `Entreprise : ${labels.company || 'Non renseignée'}`,
-            `Rôle : ${labels.role || 'Non renseigné'}`,
-            `E-mail : ${email.alias?.value.trim() || 'Non renseigné'}`,
-            `Téléphone : ${phone.alias?.value.trim() || 'Non renseigné'}`,
-            ...(blocked ? ['Ne pas contacter'] : []),
-            ...(tracking ? [`Suivi : ${tracking}`] : []),
-          ]
-          void (navigator.clipboard ? navigator.clipboard.writeText(lines.join('\n')) : Promise.reject()).then(
-            () => { setCopyStatus('Fiche copiée') },
-            () => { setCopyStatus('Copie impossible : sélectionnez le texte pour le copier.') },
-          )
-        }}>Copier les informations</button>
-        <span role="status">{copyStatus}</span>
-      </div>
-      {(tracking || blocked) && (
-        <div className="prospect-summary__status">
-          {blocked && (
+    <EditorSection
+      title="Résumé"
+      label="Résumé du profil"
+      icon={FileTextIcon}
+      actions={
+        <Button
+          size="sm"
+          variant="ghost"
+          icon={CopyIcon}
+          onClick={() => {
+            const copy = [
+              `Nom : ${name || 'Non renseigné'}`,
+              `Entreprise : ${labels.company || 'Non renseignée'}`,
+              `Rôle : ${labels.role || 'Non renseigné'}`,
+              `E-mail : ${email.alias?.value.trim() || 'Non renseigné'}`,
+              `Téléphone : ${phone.alias?.value.trim() || 'Non renseigné'}`,
+              ...(blocked ? ['Ne pas contacter'] : []),
+              ...(tracking ? [`Suivi : ${tracking}`] : []),
+            ]
+            // A missing clipboard (insecure context) throws inside the chain: it is reported like a refused write.
+            void Promise.resolve()
+              .then(() => navigator.clipboard.writeText(copy.join('\n')))
+              .then(
+                () => {
+                  setCopyStatus('Fiche copiée')
+                },
+                () => {
+                  setCopyStatus('Copie impossible : sélectionnez le texte pour le copier.')
+                },
+              )
+          }}
+        >
+          Copier les informations
+        </Button>
+      }
+    >
+      <div className="prospect-summary">
+        {lines.map((line) => (
+          <p key={line} className="prospect-summary__line">
+            {line}
+          </p>
+        ))}
+        {blocked && (
+          <div className="prospect-summary__status">
             <StatusBadge tone="danger" icon={BanIcon}>
               Ne pas contacter
             </StatusBadge>
-          )}
-          {tracking && (
-            <StatusBadge tone="info" icon={ClockIcon}>
-              {tracking}
-            </StatusBadge>
-          )}
-        </div>
-      )}
-    </section>
+          </div>
+        )}
+        <span role="status" className="prospect-summary__copy-status">
+          {copyStatus}
+        </span>
+      </div>
+    </EditorSection>
   )
 }

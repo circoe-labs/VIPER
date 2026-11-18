@@ -498,3 +498,38 @@ export const CpuIcon = (props: IconProps) => (
     <path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3" />
   </Svg>
 )
+
+// Prospect sheet card titles (UI2)
+export const PhoneIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A15 15 0 0 1 3 6a2 2 0 0 1 2-2z" />
+  </Svg>
+)
+
+export const UserIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <circle cx="12" cy="8" r="4" />
+    <path d="M4.5 20.5c0-4 3.4-6.5 7.5-6.5s7.5 2.5 7.5 6.5" />
+  </Svg>
+)
+
+export const BriefcaseIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <rect x="3" y="7.5" width="18" height="12.5" rx="2" />
+    <path d="M9 7.5V6a1.5 1.5 0 0 1 1.5-1.5h3A1.5 1.5 0 0 1 15 6v1.5M3 13h18" />
+  </Svg>
+)
+
+export const FileTextIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M6 3h8l4 4v14H6z" />
+    <path d="M14 3v4h4M9 12h6M9 16h6" />
+  </Svg>
+)
+
+export const ExternalLinkIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M14 4h6v6M20 4l-9 9" />
+    <path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
+  </Svg>
+)

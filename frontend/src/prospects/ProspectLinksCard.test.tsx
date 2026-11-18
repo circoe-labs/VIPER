@@ -19,11 +19,12 @@ const LINKS: PersonLink[] = [
   { id: 'l2', a: paul, b: self, relation: 'amis', score: 40, note: null },
 ]
 
-function mount(links: PersonLink[], props: { addRequest?: number; onOpenGraph?: () => void } = {}) {
+function mount(links: PersonLink[], props: { addRequest?: number; onOpenGraph?: () => void } = {}, proximity?: unknown) {
   setCsrfToken('csrf')
   const fetchMock = stubApi({
     [`GET /api/links/person/prospect/${ID}`]: [200, links],
     'GET /api/links/relations': [200, ['frère', 'amis']],
+    ...(proximity ? { [`GET /api/links/proximity/prospect/${ID}`]: [200, proximity] as [number, unknown] } : {}),
     'GET /api/organizations/members': [200, []],
     'PATCH /api/links/l1': [200, { ...LINKS[0], relation: 'cousin', score: 60 }],
     'DELETE /api/links/l2': [500, { detail: 'boom' }],
@@ -99,11 +100,30 @@ describe('ProspectLinksCard', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Le lien n’a pas pu être supprimé.')
   })
 
-  it('« Graph » asks the sheet to open the graph', async () => {
+  it('« Voir toutes les relations » asks the sheet to open the graph', async () => {
     const user = userEvent.setup()
     const onOpenGraph = vi.fn()
     mount(LINKS, { onOpenGraph })
-    await user.click(await screen.findByRole('button', { name: 'Graph' }))
+    await user.click(await screen.findByRole('button', { name: 'Voir toutes les relations' }))
     expect(onOpenGraph).toHaveBeenCalledOnce()
+  })
+
+  it('marks the relation that opens the best path, with the path count of the proximity read model', async () => {
+    mount(LINKS, {}, {
+      prospect_id: ID,
+      score: 80,
+      state: 'reachable',
+      path_count: 4,
+      members: [],
+      paths: [{ member: robin, hops: 1, strength: 80, people: [robin, self], edges: [{ a: robin, b: self, relation: 'frère', score: 100 }] }],
+      formula_version: 1,
+      max_hops: 3,
+    })
+    const rows = within(await screen.findByRole('list', { name: 'Relations du prospect' })).getAllByRole('listitem')
+    await waitFor(() => {
+      expect(rows[0]).toHaveTextContent('Meilleur chemin')
+    })
+    expect(rows[0]).toHaveTextContent('4 chemins')
+    expect(rows[1]).not.toHaveTextContent('Meilleur chemin')
   })
 })

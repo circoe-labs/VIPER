@@ -68,9 +68,9 @@ test('verify, add a primary e-mail, plan the contact, then Save & Next through t
   await people(page).getByRole('link', { name: `Jean Arnaud${suffix}` }).click()
 
   const editor = page.getByRole('dialog', { name: `M. Jean Arnaud${suffix}` })
-  await expect(editor).toHaveAccessibleDescription('Prospect 1 sur 3 · Jamais vérifiés')
+  await expect(editor.locator('.prospect-editor__position')).toHaveText('Prospect 1 sur 3 · Jamais vérifiés')
   // The profile reads as a summary; the employment verification is a secondary line of the Emploi section.
-  await expect(region(editor, 'Résumé du profil')).toContainText(`jean@${tag.toLowerCase()}.example`)
+  await expect(region(editor, 'Coordonnées')).toContainText(`jean@${tag.toLowerCase()}.example`)
   await expect(editor.getByRole('textbox', { name: 'Prénom' })).toHaveCount(0)
   const verification = region(editor, 'Emploi').getByRole('group', { name: 'Vérification de l’emploi' })
   await expect(verification).toContainText('Valeurs importées, jamais vérifiées')
@@ -354,7 +354,7 @@ test('long name, company, role and address wrap inside the drawer on both tabs (
   await people(page).getByRole('link', { name: new RegExp(longName) }).click()
   await expect(page).toHaveURL(/prospect=/)
   const editor = page.getByRole('dialog').first()
-  await expect(region(editor, 'Résumé du profil')).toContainText(longName)
+  await expect(editor.locator('.sheet-head__name')).toContainText(longName)
   await expect(region(editor, 'Entreprise')).not.toContainText('Chargement')
 
   for (const [width, height] of VIEWPORTS) {
@@ -458,7 +458,7 @@ test('QA S6: Ctrl+S saves a section edited in place, notes with +, - and 0 impac
   await page.keyboard.press('Control+s')
   await expect(editor.getByRole('textbox', { name: 'Prénom' })).toHaveCount(0)
   await expect(editor.getByRole('button', { name: 'Enregistrer', exact: true })).toBeDisabled()
-  await expect(region(editor, 'Résumé du profil')).toContainText('Hugues')
+  await expect(editor.getByRole('heading', { name: /Hugues/ })).toBeVisible()
 
   // Notes: +, - and 0 impacts; only the figures change the total (50 + 20 - 5 + 0 = 65).
   await showTab(editor, 'Suivi')

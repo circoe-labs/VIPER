@@ -63,18 +63,23 @@ async function open(detail: Prospect, companies = [employer], roles = [role]) {
 const region = (name: string) => screen.getByRole('region', { name })
 
 describe('Prospect editor — Profil summary', () => {
-  it('reads a complete profile at a glance: name, role · company, e-mail, phone, tracking state', async () => {
+  it('reads a complete profile at a glance: header, role at company, e-mail, phone, no repeated name', async () => {
     await open(complete({ tracking: trackingDetail({ status: 'response_received' }) }))
 
-    const summary = region('Résumé du profil')
-    expect(summary).toHaveTextContent('M. Jean Exemple')
+    const header = screen.getByRole('dialog').querySelector('header') as HTMLElement
+    expect(within(header).getByRole('heading', { name: 'M. Jean Exemple' })).toBeInTheDocument()
     await waitFor(() => {
-      expect(summary).toHaveTextContent('Responsable transport · Transports Exemple SARL')
+      expect(header.querySelector('.sheet-head__job')).toHaveTextContent('Responsable transport · Transports Exemple SARL')
     })
-    expect(summary).toHaveTextContent('jean@exemple.example')
-    expect(summary).toHaveTextContent('+33 6 12 34 56 78')
-    expect(summary).toHaveTextContent('Réponse reçue')
+    expect(header.querySelector('.sheet-head__email')).toHaveTextContent('jean@exemple.example')
+    const summary = region('Résumé du profil')
+    await waitFor(() => {
+      expect(summary).toHaveTextContent('Responsable transport chez Transports Exemple SARL.')
+    })
+    expect(summary).not.toHaveTextContent('Jean Exemple')
     expect(summary).not.toHaveTextContent('Ne pas contacter')
+    expect(region('Coordonnées')).toHaveTextContent('jean@exemple.example')
+    expect(region('Coordonnées')).toHaveTextContent('+33 6 12 34 56 78')
     // Read view: no input anywhere in the Profil sections, every section offers « Modifier ».
     expect(screen.queryByRole('textbox')).toBeNull()
     for (const name of ['Identité', 'Coordonnées', 'Emploi']) {
@@ -95,26 +100,25 @@ describe('Prospect editor — Profil summary', () => {
   it('says so when the e-mail or the phone is missing', async () => {
     await open(complete({ emails: [], phones: [] }))
 
-    const summary = region('Résumé du profil')
-    expect(summary).toHaveTextContent('Aucun e-mail')
-    expect(summary).toHaveTextContent('Aucun téléphone')
-    expect(region('E-mails')).toHaveTextContent('Aucune adresse.')
-    expect(region('Téléphones')).toHaveTextContent('Aucun numéro.')
+    expect(region('Résumé du profil')).toHaveTextContent('aucun e-mail')
+    expect(region('E-mails')).toHaveTextContent('Aucune adresse')
+    expect(region('Téléphones')).toHaveTextContent('Aucun numéro')
   })
 
-  it('counts the other addresses and ignores inactive ones for the main one', async () => {
+  it('marks the primary address only when there are several, and ignores inactive ones for the main one', async () => {
     const former = { ...email, id: 'e0', address: 'ancien@exemple.example', is_primary: false, is_active: false }
     const second = { ...email, id: 'e2', address: 'second@exemple.example', is_primary: false }
     await open(complete({ emails: [former, email, second] }))
 
-    const summary = region('Résumé du profil')
-    expect(summary).toHaveTextContent('jean@exemple.example +1')
-    expect(summary).not.toHaveTextContent('ancien@exemple.example')
+    const header = screen.getByRole('dialog').querySelector('header') as HTMLElement
+    expect(header).toHaveTextContent('jean@exemple.example')
+    expect(header).not.toHaveTextContent('ancien@exemple.example')
     expect(region('E-mails')).toHaveTextContent('ancien@exemple.example')
     expect(region('E-mails')).toHaveTextContent('Ancienne adresse (inactive)')
+    expect(region('E-mails')).toHaveTextContent('Principal')
   })
 
-  it('keeps long names, roles and companies whole, wrapped by the style and readable in full', async () => {
+  it('keeps long names, roles and companies whole in the header, wrapped or cut by the style, readable in full', async () => {
     const longCompany = company(`Société de transports internationaux ${'et de logistique '.repeat(8)}SARL`)
     const longRole = taxonomyValue(`Directeur adjoint des opérations ${'transverses '.repeat(8)}`)
     await open(
@@ -130,16 +134,16 @@ describe('Prospect editor — Profil summary', () => {
       [longRole],
     )
 
-    const summary = region('Résumé du profil')
-    const job = summary.querySelector('.prospect-summary__job')
+    const header = screen.getByRole('dialog').querySelector('header') as HTMLElement
+    const job = header.querySelector('.sheet-head__job')
     await waitFor(() => {
       expect(job).toHaveTextContent(longCompany.display_name)
     })
     expect(job).toHaveTextContent(longRole.label.trim())
     // Nothing is cut in the text; the full reading is also the tooltip.
     expect(job?.getAttribute('title')).toContain(longCompany.display_name)
-    expect(summary).toHaveTextContent('de la Tour-Maubourg-Montmorency-Beaumont')
-    expect(summary).toHaveTextContent('prenom.nom.tres.long.')
+    expect(header.querySelector('.sheet-head__name')).toHaveTextContent('de la Tour-Maubourg-Montmorency-Beaumont')
+    expect(header.querySelector('.sheet-head__email')?.getAttribute('title')).toContain('prenom.nom.tres.long.')
   })
 
   it('has no employment-verification block, nor an Opposition box, and groups the contact details in one card', async () => {
@@ -168,7 +172,7 @@ describe('Prospect editor — Profil summary', () => {
     const fiche = within(strip).getByRole('region', { name: 'État de la fiche' })
     expect(fiche).toHaveTextContent('Incomplète')
     expect(within(fiche).queryByText(/sur 100/)).toBeNull()
-    expect(within(fiche).getByRole('button', { name: 'Aide : fiche incomplète' })).toBeInTheDocument()
+    expect(within(fiche).getByRole('button', { name: 'Aide : État de la fiche' })).toBeInTheDocument()
     const proximity = within(strip).getByRole('region', { name: 'Score de proximité' })
     await waitFor(() => {
       expect(proximity).toHaveTextContent('Aucune relation enregistrée')
@@ -208,7 +212,8 @@ describe('Prospect editor — Profil summary', () => {
       expect(proximity).toHaveTextContent('Proche')
     })
     expect(proximity).toHaveTextContent('proximité 72 sur 100')
-    expect(proximity).toHaveTextContent('Robin → Jean Import (amis, 80)')
+    expect(proximity).toHaveTextContent('Robin → Jean Import')
+    expect(proximity.querySelector('[title="Robin → Jean Import (amis, 80)"]')).not.toBeNull()
   })
 
   it('puts Mission and Contacter in the header, Contacter disabled with its reason under « Ne pas contacter »', async () => {
@@ -244,8 +249,8 @@ describe('Prospect editor — read, edit, save, read', () => {
     expect(region('Identité')).toContainElement(document.activeElement as HTMLElement)
     await userEvent.clear(first)
     await userEvent.type(first, 'Jeanne')
-    // The summary is the same draft: it follows the typing, and the footer says it is not saved.
-    expect(region('Résumé du profil')).toHaveTextContent('M. Jeanne Exemple')
+    // The header is the same draft: it follows the typing, and the footer says it is not saved.
+    expect(screen.getByRole('heading', { name: 'M. Jeanne Exemple' })).toBeInTheDocument()
     expect(screen.getByRole('status', { name: 'Enregistrement de la fiche' })).toHaveTextContent('Modifications non enregistrées')
 
     await userEvent.click(screen.getByRole('button', { name: 'Enregistrer' }))

@@ -10,6 +10,7 @@ import {
   usePersonLinks,
   useRelationLabels,
 } from '../api/links'
+import { useProspectProximity } from '../api/proximity'
 import { normalizeQuery, SEARCH_MIN_LENGTH, useSearch } from '../api/search'
 import { useReferents } from '../api/settings'
 import { hueIndex, initials } from '../prospection/graphLayout'
@@ -17,7 +18,7 @@ import { useDebouncedValue } from '../settings/shared'
 import { Button, IconButton } from '../ui/Button'
 import { Combobox, type ComboboxOption } from '../ui/Combobox'
 import { TextField } from '../ui/fields'
-import { CheckIcon, CloseIcon, PencilIcon, PlusIcon, TrashIcon, UsersIcon } from '../ui/icons'
+import { CheckIcon, CloseIcon, ExternalLinkIcon, PencilIcon, PlusIcon, TrashIcon, UsersIcon } from '../ui/icons'
 import { EditorSection } from './EditorSection'
 import './links.css'
 
@@ -25,7 +26,8 @@ interface LinksCardProps {
   prospectId: string
   // Bumped by the sheet (context menu « Lier à… ») to open the add form and focus its first field.
   addRequest?: number
-  // « Graph »: opens the Prospection graph on this prospect (the sheet asks before leaving with pending changes).
+  // « Voir toutes les relations »: opens the Prospection graph on this prospect (the sheet asks before leaving with
+  // pending changes).
   onOpenGraph?: () => void
 }
 
@@ -35,9 +37,15 @@ const ADD_FIELD = 'person-links-target'
 
 // « Relations » card (Profil tab, full-width row): who this person knows among the members of the organisation and
 // the other prospects, how (« frère », « amis »…) and how well (0 to 100). Dense rows; « Lier à » adds inline. The
-// same links feed the Prospection graph.
+// same links feed the Prospection graph and the proximity score: the relation that opens the best path is marked
+// « Meilleur chemin », with the path count the proximity read model gives (no second graph, nothing computed here).
 export function ProspectLinksCard({ prospectId, addRequest = 0, onOpenGraph }: LinksCardProps) {
   const links = usePersonLinks('prospect', prospectId)
+  const proximity = useProspectProximity(prospectId)
+  // The person next to the prospect on the best path: the relation the best path goes through.
+  const bestPath = proximity.data?.paths[0]
+  const bestKey = bestPath && bestPath.people.length > 1 ? bestPath.people[bestPath.people.length - 2] : undefined
+  const best = bestKey ? { kind: bestKey.kind, id: bestKey.id, pathCount: proximity.data?.path_count ?? 0 } : null
   const own: Own = { kind: 'prospect', id: prospectId }
   const [adding, setAdding] = useState(false)
   const seenRequest = useRef(addRequest)
@@ -63,14 +71,10 @@ export function ProspectLinksCard({ prospectId, addRequest = 0, onOpenGraph }: L
   return (
     <EditorSection
       title="Relations"
+      icon={UsersIcon}
       count={links.data?.length}
       actions={
         <>
-          {onOpenGraph && (
-            <Button size="sm" variant="ghost" icon={UsersIcon} title="Voir ce prospect dans le graphe de prospection" onClick={onOpenGraph}>
-              Graph
-            </Button>
-          )}
           <Button
             size="sm"
             variant={adding ? 'ghost' : 'secondary'}
@@ -82,6 +86,11 @@ export function ProspectLinksCard({ prospectId, addRequest = 0, onOpenGraph }: L
           >
             {adding ? 'Annuler' : 'Lier à'}
           </Button>
+          {onOpenGraph && (
+            <Button size="sm" icon={ExternalLinkIcon} title="Voir ce prospect dans le graphe de prospection" onClick={onOpenGraph}>
+              Voir toutes les relations
+            </Button>
+          )}
         </>
       }
     >
@@ -91,7 +100,7 @@ export function ProspectLinksCard({ prospectId, addRequest = 0, onOpenGraph }: L
         {links.data && links.data.length > 0 && (
           <ul className="person-links__list" aria-label="Relations du prospect">
             {links.data.map((link) => (
-              <LinkRow key={link.id} link={link} own={own} />
+              <LinkRow key={link.id} link={link} own={own} best={best} />
             ))}
           </ul>
         )}
@@ -131,11 +140,12 @@ function Meter({ score }: { score: number }) {
   )
 }
 
-function LinkRow({ link, own }: { link: PersonLink; own: Own }) {
+function LinkRow({ link, own, best }: { link: PersonLink; own: Own; best: { kind: PersonKind; id: string; pathCount: number } | null }) {
   const { update, remove } = useLinkMutations()
   const relations = useRelationLabels()
   const listId = useId()
   const other = otherSide(link, own)
+  const isBest = best !== null && best.kind === other.kind && best.id === other.id
   const [editing, setEditing] = useState(false)
   const [relation, setRelation] = useState(link.relation)
   const [score, setScore] = useState(link.score)
@@ -258,8 +268,16 @@ function LinkRow({ link, own }: { link: PersonLink; own: Own }) {
         {name}
         <span className="person-links__kind">{other.kind === 'member' ? 'Membre' : (other.company_name ?? 'Prospect')}</span>
       </span>
-      <span className="person-links__relation" title={link.relation}>
-        {link.relation}
+      <span className="person-links__tags">
+        {isBest && <span className="person-links__best">Meilleur chemin</span>}
+        <span className="person-links__relation" title={link.relation}>
+          {link.relation}
+        </span>
+        {isBest && (
+          <span className="person-links__paths" title="Chemins entre les membres de Circoe et ce prospect">
+            {best.pathCount} chemin{best.pathCount > 1 ? 's' : ''}
+          </span>
+        )}
       </span>
       <Meter score={link.score} />
       <span className="person-links__actions">

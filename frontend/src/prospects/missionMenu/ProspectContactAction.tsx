@@ -1,9 +1,9 @@
 import { type KeyboardEvent, type MouseEvent, type ReactNode, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 
-import { Button } from '../../ui/Button'
+import { Button, IconButton } from '../../ui/Button'
 import type { Point } from '../../ui/floating'
-import { BuildingIcon, CompassIcon, LinkIcon, MailIcon, TargetIcon, UsersIcon } from '../../ui/icons'
+import { BuildingIcon, CompassIcon, LinkIcon, MailIcon, MoreIcon, TargetIcon, UsersIcon } from '../../ui/icons'
 import { Menu, type MenuItem } from '../../ui/Menu'
 
 // « Contacter » reuses the Contact workbench deep link (`/contact?prospect=<id>`, contact/criteria.ts): no second flow.
@@ -150,5 +150,36 @@ export function ProspectContextMenuSurface({ prospectId, disabledReason, classNa
         />
       )}
     </div>
+  )
+}
+
+// The header's « … » button: the same actions as the right-click menu, one click away (the menu is never the only way).
+export function ProspectMoreMenu({ prospectId, disabledReason, actions }: { prospectId: string; disabledReason?: string | null; actions: SheetMenuActions }) {
+  const [position, setPosition] = useState<Point | null>(null)
+  const contact = useContactAction(prospectId)
+  return (
+    <>
+      <IconButton
+        icon={MoreIcon}
+        label="Autres actions du prospect"
+        aria-haspopup="menu"
+        aria-expanded={position !== null}
+        onClick={(event) => {
+          const box = event.currentTarget.getBoundingClientRect()
+          setPosition(position ? null : { x: box.right, y: box.bottom + 4 })
+        }}
+      />
+      {position && (
+        <Menu
+          label="Actions du prospect"
+          position={position}
+          alignRight
+          sections={menuItems(contact, disabledReason, actions).map((items) => ({ items }))}
+          onClose={() => {
+            setPosition(null)
+          }}
+        />
+      )}
+    </>
   )
 }

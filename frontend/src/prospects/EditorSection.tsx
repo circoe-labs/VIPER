@@ -2,7 +2,7 @@ import { type ReactNode, useEffect, useRef } from 'react'
 
 import { StatusBadge } from '../ui/Badge'
 import { Button } from '../ui/Button'
-import { CheckIcon, PencilIcon } from '../ui/icons'
+import { CheckIcon, type IconComponent, PencilIcon } from '../ui/icons'
 import type { StateLabel } from './verification'
 import './editor-section.css'
 
@@ -20,6 +20,10 @@ export interface SectionEdit {
 
 interface EditorSectionProps {
   title: string
+  // Region name when it differs from the visible title (« Résumé » → « Résumé du profil »).
+  label?: string
+  // Decorative glyph before the title (the sheet's cards).
+  icon?: IconComponent
   // Short state shown next to the title (e.g. « 1 à vérifier »), glyph + text.
   state?: StateLabel | null
   count?: number
@@ -27,6 +31,8 @@ interface EditorSectionProps {
   tone?: 'warning' | 'danger'
   // A sub-block of another section (a smaller heading, no card of its own).
   nested?: boolean
+  // Heading and tools hidden: the section reads as plain rows inside its parent card (Coordonnées, read view).
+  bare?: boolean
   edit?: SectionEdit
   // Buttons of the section's own (e.g. « + Lier à » of Relations), shown in the header beside the state.
   actions?: ReactNode
@@ -36,7 +42,7 @@ interface EditorSectionProps {
 const FIELD = 'input:not([type="hidden"]):not([disabled]), select:not([disabled]), textarea:not([disabled])'
 
 // One named region of the Prospect editor (also the panels of the Contact workbench).
-export function EditorSection({ title, state, count, tone, nested, edit, actions, children }: EditorSectionProps) {
+export function EditorSection({ title, label, icon: Icon, state, count, tone, nested, bare, edit, actions, children }: EditorSectionProps) {
   const Heading = nested ? 'h4' : 'h3'
   const sectionRef = useRef<HTMLElement>(null)
   const focusField = useRef(false)
@@ -54,10 +60,16 @@ export function EditorSection({ title, state, count, tone, nested, edit, actions
       ref={sectionRef}
       className={nested ? 'prospect-editor__subsection' : 'prospect-editor__section'}
       data-tone={tone}
-      aria-label={title}
+      data-bare={bare ? '' : undefined}
+      aria-label={label ?? title}
     >
       <div className="prospect-editor__section-head">
         <Heading className="prospect-editor__section-title">
+          {Icon && (
+            <span className="prospect-editor__section-icon" aria-hidden="true">
+              <Icon size={20} />
+            </span>
+          )}
           {title}
           {count !== undefined && <span className="prospect-editor__count">{count}</span>}
         </Heading>

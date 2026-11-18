@@ -1,34 +1,69 @@
-/* Indicator strip of the Profil tab (ProspectIndicatorStrip.tsx): three equal cells on one tinted band, hairline
-   dividers, one shared body size so the three read as a single aligned row. Tokens only. */
+/* KPI row of the Profil tab (ProspectIndicatorStrip.tsx): exactly three cards of one fixed height, same padding, same
+   title style. The height never depends on the state (loading, empty, error, ready replace the content in place).
+   The first card hosts ProspectScoreCard, which fills it (see `.indicator-cell > .prospect-score-slot`). Tokens only. */
 
 .indicator-strip {
+  --kpi-height: 11rem;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0;
+  gap: var(--space-4);
   min-width: 0;
-  border: var(--border-width) solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-accent-soft);
 }
 
 .indicator-cell {
   position: relative;
   display: grid;
-  align-content: start;
-  gap: var(--space-3);
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: var(--space-2);
+  box-sizing: border-box;
+  height: var(--kpi-height);
   min-width: 0;
-  padding: var(--space-4) var(--space-6);
+  padding: var(--space-3) var(--space-5) var(--space-4);
+  overflow: hidden;
+  border: var(--border-width) solid color-mix(in srgb, var(--color-accent) 22%, var(--color-border));
+  border-radius: var(--radius-lg);
+  background: var(--color-accent-soft);
 }
 
-.indicator-cell + .indicator-cell {
-  border-left: var(--border-width) solid var(--color-border);
+.indicator-cell__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 1.5rem;
 }
 
-/* The score card brings its own section and title: flatten it so it reads like its two siblings. */
-.indicator-cell .prospect-editor__section {
+.indicator-cell__title {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.indicator-cell__content {
+  display: grid;
+  align-items: center;
+  min-height: 0;
+}
+
+/* The score card (another module) brings its own section, title and actions: it keeps one cell of the grid and fills
+   it, flattened so it reads like its two siblings. */
+.indicator-cell[data-indicator='score'] {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.indicator-cell > .prospect-score-slot {
+  height: 100%;
+  min-height: 0;
+}
+
+.prospect-editor-form .indicator-cell .prospect-editor__section {
+  gap: var(--space-2);
+  height: 100%;
   padding: 0;
   border: 0;
   background: transparent;
+}
+
+.prospect-editor-form .indicator-cell .prospect-editor__section-head {
+  min-height: 1.5rem;
 }
 
 .indicator-cell .prospect-score {
@@ -44,7 +79,15 @@
 .indicator-cell__corner {
   position: absolute;
   top: var(--space-4);
-  right: var(--space-5);
+  right: var(--space-4);
+}
+
+/* One ring size for the three cards, so the score card and its siblings read as one row. */
+.indicator-cell .score-ring,
+.indicator-cell .prospect-score__placeholder,
+.indicator-cell__disc {
+  width: 4rem;
+  height: 4rem;
 }
 
 .indicator-cell__body {
@@ -52,7 +95,6 @@
   align-items: center;
   gap: var(--space-4);
   min-width: 0;
-  min-height: 5.5rem;
 }
 
 .indicator-cell__text {
@@ -63,14 +105,21 @@
 }
 
 .indicator-cell__strong {
-  font-size: var(--text-md);
-  font-weight: var(--weight-semibold);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+  line-height: 1.1;
+}
+
+.indicator-cell__strong[data-tone='success'] {
+  color: var(--color-success-fg);
+}
+
+.indicator-cell__strong[data-tone='warning'] {
+  color: var(--color-warning-fg);
 }
 
 .indicator-cell__muted {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
+  display: block;
   max-width: 100%;
   overflow: hidden;
   color: var(--color-text-muted);
@@ -79,43 +128,22 @@
   white-space: nowrap;
 }
 
-/* The best path is one line cut with an ellipsis (text-overflow needs a block, not the inline-flex of its siblings). */
-.indicator-cell__muted--path {
-  display: block;
-}
-
 .indicator-cell__muted--wrap {
   white-space: normal;
 }
 
-/* « État de la fiche »: right-aligned cell (title, tip, banner and empty text hug its right edge). */
-.indicator-cell[data-align='end'] {
-  text-align: right;
-}
-
-.indicator-cell[data-align='end'] .prospect-editor__section-head,
-.indicator-cell[data-align='end'] .indicator-cell__body,
-.indicator-cell[data-align='end'] .indicator-cell__empty {
-  justify-content: flex-end;
-}
-
-.indicator-cell[data-align='end'] .indicator-cell__text {
-  justify-items: end;
-}
-
 .indicator-cell__graph {
-  justify-self: start;
+  margin-top: var(--space-1);
 }
 
-/* The state banner: word, tip, then a big icon tile, all in the state's tone. */
+/* « État de la fiche »: a small sober tile, the state word, one sentence of real criteria. */
 .fiche-state {
   --fiche-fg: var(--color-text-muted);
   --fiche-bg: var(--color-surface);
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-3);
-  min-height: 5.5rem;
+  gap: var(--space-4);
+  min-width: 0;
 }
 
 .fiche-state[data-tone='warning'] {
@@ -137,7 +165,17 @@
   color: var(--fiche-fg);
   font-size: var(--text-xl);
   font-weight: var(--weight-bold);
-  text-align: right;
+  line-height: 1.1;
+}
+
+.fiche-state__sentence {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 
 .fiche-state__icon {
@@ -145,10 +183,9 @@
   flex: none;
   align-items: center;
   justify-content: center;
-  width: 5.5rem;
-  height: 5.5rem;
-  border: var(--border-width) solid var(--fiche-fg);
-  border-radius: var(--radius-lg);
+  width: 3rem;
+  height: 3rem;
+  border-radius: var(--radius-md);
   background: var(--fiche-bg);
   color: var(--fiche-fg);
 }
@@ -159,9 +196,7 @@
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
-  width: 5.5rem;
-  height: 5.5rem;
-  border: 9px solid var(--color-border-strong);
+  border: 7px solid var(--color-border-strong);
   border-radius: var(--radius-full);
   color: var(--color-text-muted);
   font-size: var(--text-lg);
@@ -171,49 +206,41 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  min-height: 5.5rem;
   margin: 0;
   color: var(--color-text-muted);
 }
 
 .indicator-cell__empty--error {
+  flex-wrap: wrap;
   color: var(--color-danger-fg);
 }
 
-/* Medium widths (the sheet at ~800 px): the three cells stay side by side, so the banner shrinks to fit its cell. */
-@media (max-width: 1100px) {
+/* Narrower sheet: the rings and discs shrink, the three cards stay side by side. */
+@container sheet (max-width: 64rem) {
   .indicator-cell {
     padding: var(--space-4);
   }
 
+  .indicator-cell .score-ring,
+  .indicator-cell .prospect-score__placeholder,
+  .indicator-cell__disc {
+    width: 3.5rem;
+    height: 3.5rem;
+  }
+
+  .indicator-cell__disc {
+    border-width: 6px;
+  }
+
+  .indicator-cell__body,
   .fiche-state {
-    gap: var(--space-2);
-  }
-
-  .fiche-state__label {
-    min-width: 0;
-    font-size: var(--text-lg);
-    overflow-wrap: anywhere;
-  }
-
-  .fiche-state__icon {
-    width: 4rem;
-    height: 4rem;
-  }
-
-  .fiche-state__icon svg {
-    width: 2rem;
-    height: 2rem;
+    gap: var(--space-3);
   }
 }
 
-@media (max-width: 720px) {
+/* Small sheet: the cards stack in the same order, each keeping the same height. */
+@container sheet (max-width: 52rem) {
   .indicator-strip {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .indicator-cell + .indicator-cell {
-    border-top: var(--border-width) solid var(--color-border);
-    border-left: 0;
   }
 }

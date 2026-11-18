@@ -38,3 +38,14 @@ export function splitCriteria(completeness: ProfileCompleteness) {
     done: completeness.criteria.filter((criterion) => criterion.status === 'met'),
   }
 }
+
+// The one sentence under the state word of the « État de la fiche » card, written from the backend's own criterion
+// details (« E-mail vérifié · Emploi jamais vérifié · Intitulé non renseigné »): what is acquired first (two at most),
+// then what is lacking (three parts in all). No number, no invented criterion; empty when the backend sent none.
+export function criteriaSentence(criteria: ProfileCompleteness['criteria']): string {
+  const clean = (text: string) => text.trim().replace(/\.$/, '')
+  const met = criteria.filter((criterion) => criterion.status === 'met').slice(0, 2)
+  const lacking = criteria.filter((criterion) => criterion.status !== 'met').slice(0, 3 - met.length)
+  const parts = [...met, ...lacking].map((criterion) => clean(criterion.detail || criterion.label)).filter(Boolean)
+  return parts.map((part, index) => (index === 0 ? part : part.charAt(0).toLowerCase() + part.slice(1))).join(' · ')
+}

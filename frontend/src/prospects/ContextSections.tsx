@@ -8,12 +8,12 @@ import { actorBadge } from '../history/format'
 import { HistoryTimeline } from '../history/HistoryTimeline'
 import { formatDay } from '../prospection/labels'
 import { Badge } from '../ui/Badge'
-import { Button } from '../ui/Button'
+import { Button, IconButton } from '../ui/Button'
 import { Modal } from '../ui/Dialog'
 import { TextAreaField, TextField } from '../ui/fields'
-import { AlertIcon, BuildingIcon } from '../ui/icons'
+import { AlertIcon, BuildingIcon, ExternalLinkIcon } from '../ui/icons'
 import { EditorSection } from './EditorSection'
-import type { SectionProps } from './EmploymentSections'
+import { Facts, type SectionProps } from './EmploymentSections'
 
 // The company as context (Company editor for any change: no company field is duplicated here).
 export function CompanySection({ companyId }: { companyId: string | null }) {
@@ -26,39 +26,33 @@ export function CompanySection({ companyId }: { companyId: string | null }) {
         data.legal_name && data.legal_name !== data.display_name ? data.legal_name : null,
         data.siren ? `SIREN ${data.siren.replace(/^(\d{3})(\d{3})(\d{3})$/, '$1 $2 $3')}` : null,
         data.commercial_segment?.label ?? null,
-        primary?.city ?? null,
       ].filter(Boolean)
     : []
   return (
-    <EditorSection title="Entreprise">
+    <EditorSection title="Entreprise" icon={BuildingIcon}>
       {!companyId && <p className="prospect-editor__muted">Aucune entreprise choisie pour l’instant.</p>}
       {companyId && !data && <p className="prospect-editor__muted">Chargement de l’entreprise…</p>}
       {data && (
         <div className="prospect-company">
           <p className="prospect-company__name">
-            <BuildingIcon size={18} />
-            {data.display_name}
-          </p>
-          {facts.length > 0 && <p className="prospect-editor__muted">{facts.join(' · ')}</p>}
-          <dl className="prospect-company__facts">
-            <dt>Domaine e-mail</dt>
-            <dd>{data.email_domain ?? <span className="prospect-editor__muted">non renseigné</span>}</dd>
-            <dt>Site web</dt>
-            <dd>{data.website_url ?? <span className="prospect-editor__muted">non renseigné</span>}</dd>
-            <dt>Prospects</dt>
-            <dd>{data.prospect_count}</dd>
-          </dl>
-          <div>
-            <Button
+            <span className="prospect-company__title">{data.display_name}</span>
+            <IconButton
+              icon={ExternalLinkIcon}
               size="sm"
-              icon={BuildingIcon}
+              label="Ouvrir la fiche entreprise"
               onClick={() => {
                 openCompanyEditor(data.id)
               }}
-            >
-              Ouvrir la fiche entreprise
-            </Button>
-          </div>
+            />
+          </p>
+          {facts.length > 0 && <p className="prospect-editor__muted prospect-company__legal">{facts.join(' · ')}</p>}
+          <Facts
+            facts={[
+              { label: 'Ville', value: primary?.city ?? null },
+              { label: 'Domaine e-mail', value: data.email_domain },
+              { label: 'Site web', value: data.website_url },
+            ]}
+          />
         </div>
       )}
     </EditorSection>

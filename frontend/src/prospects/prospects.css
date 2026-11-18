@@ -3,6 +3,7 @@
    Suivi — contact tracking and notes on the left, opposition, provenance and history on the right. */
 
 .prospect-editor {
+  container: sheet / inline-size;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: var(--space-6);
