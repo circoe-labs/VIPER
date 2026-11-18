@@ -5,6 +5,7 @@ import { contactKeys } from './contact'
 import { apiGet, apiRequest } from './client'
 import { type HistoryActor, historyKeys } from './history'
 import { homeKeys } from './home'
+import type { ProfileCompleteness, ProfileCompletenessCriterion } from './profileCompleteness'
 import { type ActivityStatus, type ChannelVerification, prospectionKeys, type TrackingStatus, type VerificationState } from './prospection'
 import { refreshAfterWrite } from './refresh'
 import { sequenceKeys } from './sequences'
@@ -137,18 +138,17 @@ export interface ProspectScore {
 }
 
 // « Qualité de la fiche » (app/services/prospect_data_quality.py): automatic, separate from the interest score above.
-export interface DataQualityCriterion {
-  id: string
-  label: string
+// Slice S2: the product contract is `ProfileCompleteness` (a state, see profileCompleteness.ts). `total`, `band`,
+// `points` and `max_points` are a deprecated compatibility adapter kept for the dashboard/older consumers: never
+// display them.
+export interface DataQualityCriterion extends ProfileCompletenessCriterion {
   points: number
   max_points: number
-  detail: string
 }
 
-export interface DataQualityScore {
+export interface DataQualityScore extends ProfileCompleteness {
   total: number
   band: ScoreBand
-  summary: string
   criteria: DataQualityCriterion[]
 }
 
