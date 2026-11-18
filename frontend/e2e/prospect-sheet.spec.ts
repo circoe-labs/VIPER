@@ -25,14 +25,14 @@ test('top of the sheet: fit score, fiche state in words, proximity score, header
   const editor = await openFirstProspect(page)
   const strip = editor.getByRole('region', { name: 'Indicateurs de la fiche' })
 
-  await expect(strip.getByRole('button', { name: /^Score prospect/ })).toBeVisible()
+  await expect(strip.getByRole('region', { name: 'Score prospect' }).or(strip.getByRole('button', { name: /^Score prospect/ })).first()).toBeVisible()
   const fiche = strip.getByRole('region', { name: 'État de la fiche' })
   await expect(fiche).toContainText(/Incomplète|Exploitable|Fournie|Très fournie|Écarté/)
   await expect(fiche).not.toContainText(/\d+\s*(\/|sur)\s*100/)
   // The proximity score is read from its own endpoint: a figure or an explained empty state, never a spinner for good.
   const proximity = strip.getByRole('region', { name: 'Score de proximité' })
   await expect(proximity).toContainText(/chemin|Aucune relation|Aucun membre/)
-  await expect(strip.getByRole('button', { name: 'Réévaluer le score', exact: true })).toBeVisible()
+  await expect(strip.getByRole('button', { name: 'Évaluer', exact: true })).toBeVisible()
 
   const header = editor.locator('header').first()
   await expect(header.getByRole('button', { name: 'Mission' })).toBeVisible()

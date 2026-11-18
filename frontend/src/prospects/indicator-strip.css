@@ -79,26 +79,78 @@
   white-space: nowrap;
 }
 
+/* The best path is one line cut with an ellipsis (text-overflow needs a block, not the inline-flex of its siblings). */
+.indicator-cell__muted--path {
+  display: block;
+}
+
 .indicator-cell__muted--wrap {
   white-space: normal;
 }
 
-.indicator-cell__state {
-  display: inline-flex;
+/* « État de la fiche »: right-aligned cell (title, tip, banner and empty text hug its right edge). */
+.indicator-cell[data-align='end'] {
+  text-align: right;
+}
+
+.indicator-cell[data-align='end'] .prospect-editor__section-head,
+.indicator-cell[data-align='end'] .indicator-cell__body,
+.indicator-cell[data-align='end'] .indicator-cell__empty {
+  justify-content: flex-end;
+}
+
+.indicator-cell[data-align='end'] .indicator-cell__text {
+  justify-items: end;
+}
+
+.indicator-cell__graph {
+  justify-self: start;
+}
+
+/* The state banner: word, tip, then a big icon tile, all in the state's tone. */
+.fiche-state {
+  --fiche-fg: var(--color-text-muted);
+  --fiche-bg: var(--color-surface);
+  display: flex;
   align-items: center;
-  gap: var(--space-2);
+  justify-content: flex-end;
+  gap: var(--space-3);
+  min-height: 5.5rem;
 }
 
-.indicator-cell__label[data-tone='success'] {
-  color: var(--color-success-fg);
+.fiche-state[data-tone='warning'] {
+  --fiche-fg: var(--color-warning-fg);
+  --fiche-bg: var(--color-warning-soft);
 }
 
-.indicator-cell__label[data-tone='warning'] {
-  color: var(--color-warning-fg);
+.fiche-state[data-tone='info'] {
+  --fiche-fg: var(--color-info-fg);
+  --fiche-bg: var(--color-info-soft);
 }
 
-.indicator-cell__label[data-tone='info'] {
-  color: var(--color-accent-fg);
+.fiche-state[data-tone='success'] {
+  --fiche-fg: var(--color-success-fg);
+  --fiche-bg: var(--color-success-soft);
+}
+
+.fiche-state__label {
+  color: var(--fiche-fg);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+  text-align: right;
+}
+
+.fiche-state__icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 5.5rem;
+  height: 5.5rem;
+  border: var(--border-width) solid var(--fiche-fg);
+  border-radius: var(--radius-lg);
+  background: var(--fiche-bg);
+  color: var(--fiche-fg);
 }
 
 .indicator-cell__disc {
@@ -115,21 +167,6 @@
   font-size: var(--text-lg);
 }
 
-.indicator-cell__disc[data-tone='success'] {
-  border-color: var(--color-success-fg);
-  color: var(--color-success-fg);
-}
-
-.indicator-cell__disc[data-tone='warning'] {
-  border-color: var(--color-warning-fg);
-  color: var(--color-warning-fg);
-}
-
-.indicator-cell__disc[data-tone='info'] {
-  border-color: var(--color-accent-fg);
-  color: var(--color-accent-fg);
-}
-
 .indicator-cell__empty {
   display: flex;
   align-items: center;
@@ -141,6 +178,33 @@
 
 .indicator-cell__empty--error {
   color: var(--color-danger-fg);
+}
+
+/* Medium widths (the sheet at ~800 px): the three cells stay side by side, so the banner shrinks to fit its cell. */
+@media (max-width: 1100px) {
+  .indicator-cell {
+    padding: var(--space-4);
+  }
+
+  .fiche-state {
+    gap: var(--space-2);
+  }
+
+  .fiche-state__label {
+    min-width: 0;
+    font-size: var(--text-lg);
+    overflow-wrap: anywhere;
+  }
+
+  .fiche-state__icon {
+    width: 4rem;
+    height: 4rem;
+  }
+
+  .fiche-state__icon svg {
+    width: 2rem;
+    height: 2rem;
+  }
 }
 
 @media (max-width: 720px) {

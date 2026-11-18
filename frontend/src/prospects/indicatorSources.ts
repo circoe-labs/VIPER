@@ -49,6 +49,7 @@ export function useProximityIndicator(prospectId: string | null): IndicatorState
   return {
     status: 'ready',
     value: {
+      prospectId: data.prospect_id,
       state: data.state,
       total: data.score,
       pathCount: data.path_count,

@@ -22,6 +22,8 @@ export const SLOW_AFTER_SECONDS = 10 * 60
 
 interface ScoreReassessmentProps {
   prospectId: string
+  // The prospect already has a score from signals: the action reads « Réévaluer le score »; otherwise « Évaluer ».
+  evaluated?: boolean
   // The score changed (a proposal was applied): the editor may refresh what it derives from it.
   onScoreChanged?: () => void
 }
@@ -30,7 +32,7 @@ interface ScoreReassessmentProps {
 // commercial fit. The agent only proposes; the person reads the proposal in the ordinary result review and applies it
 // (the only way the score moves). Every state is written: waiting (with a live counter and a cancel), proposal ready,
 // failure (with the real reason), nothing found, applied. A failure never touches the current score.
-export function ScoreReassessment({ prospectId, onScoreChanged }: ScoreReassessmentProps) {
+export function ScoreReassessment({ prospectId, evaluated = true, onScoreChanged }: ScoreReassessmentProps) {
   const queryClient = useQueryClient()
   const state = useScoreReassessment(prospectId)
   const { request, cancel } = useReassessmentCommands(prospectId)
@@ -61,9 +63,9 @@ export function ScoreReassessment({ prospectId, onScoreChanged }: ScoreReassessm
     <div className="score-reassessment">
       <div className="score-reassessment__bar">
         <Button size="sm" variant="secondary" icon={SparklesIcon} loading={request.isPending} disabled={busy} onClick={ask}>
-          Réévaluer le score
+          {evaluated ? 'Réévaluer le score' : 'Évaluer'}
         </Button>
-        <InfoTip label="Aide : réévaluer le score">
+        <InfoTip label={evaluated ? 'Aide : réévaluer le score' : 'Aide : évaluer le score'}>
           Un agent VIPER relit la fiche et l’entreprise et propose des ajustements sourcés du score (adéquation commerciale
           uniquement, sans le réseau de relations). Rien ne change tant que vous n’avez pas validé la proposition.
         </InfoTip>

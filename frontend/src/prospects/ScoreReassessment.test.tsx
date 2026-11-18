@@ -51,11 +51,11 @@ function stub(current: Reassessment, onPost: () => Response = () => json(201, st
   return calls
 }
 
-function show() {
+function show(evaluated = true) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   render(
     <QueryClientProvider client={queryClient}>
-      <ScoreReassessment prospectId={PROSPECT} />
+      <ScoreReassessment prospectId={PROSPECT} evaluated={evaluated} />
     </QueryClientProvider>,
   )
 }
@@ -67,6 +67,14 @@ afterEach(() => {
 const ask = () => screen.getByRole('button', { name: 'Réévaluer le score' })
 
 describe('ScoreReassessment', () => {
+  it('reads « Évaluer » while the prospect has no evaluation yet', () => {
+    stub(state())
+    show(false)
+
+    expect(screen.getByRole('button', { name: 'Évaluer' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Réévaluer le score' })).not.toBeInTheDocument()
+  })
+
   it('asks for a reassessment and shows the waiting state with a counter and a way out', async () => {
     const calls = stub(state())
     show()
@@ -169,7 +177,7 @@ describe('ProspectScoreCard - reassessment seam', () => {
         <ProspectScoreCard score={score} onShowNote={vi.fn()} />
       </QueryClientProvider>,
     )
-    expect(screen.queryByRole('button', { name: 'Réévaluer le score' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Évaluer' })).not.toBeInTheDocument()
 
     rerender(
       <QueryClientProvider client={queryClient}>
@@ -177,6 +185,6 @@ describe('ProspectScoreCard - reassessment seam', () => {
       </QueryClientProvider>,
     )
 
-    expect(await screen.findByRole('button', { name: 'Réévaluer le score' })).toBeEnabled()
+    expect(await screen.findByRole('button', { name: 'Évaluer' })).toBeEnabled()
   })
 })

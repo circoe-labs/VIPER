@@ -25,6 +25,8 @@ export interface CompletenessView {
 // Proximity read model, already explained by the backend: `bestPath` is its best path worded from the member to the
 // prospect (null when there is none), `state` says why a score of 0 is 0.
 export interface ProximityView {
+  // The prospect the score is about: the « Graph » button opens the relations graph on it (absent = no button).
+  prospectId?: string
   state: ProximityState
   total: number
   pathCount: number

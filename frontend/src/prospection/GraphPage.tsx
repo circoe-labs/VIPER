@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router'
+import { Link, useSearchParams } from 'react-router'
 
 import { type GraphFilters, type LinkGraph, otherSide, type PersonLink, useLinkGraph, useRelationLabels } from '../api/links'
 import { foldText } from '../lib/text'
@@ -11,6 +11,7 @@ import { PageHeader } from '../ui/PageHeader'
 import { SearchField } from '../ui/SearchField'
 import { Button, IconButton } from '../ui/Button'
 import { type GraphLayout, hueIndex, initials, layoutGraph, NODE_RADIUS, personKey } from './graphLayout'
+import { GRAPH_FOCUS_PARAM } from '../prospects/prospectGraphHref'
 import './graph.css'
 
 const EMPTY: LinkGraph = { members: [], companies: [], links: [] }
@@ -41,7 +42,9 @@ export function GraphPage() {
   const [company, setCompany] = useState('')
   const [showMembers, setShowMembers] = useState(true)
   const [showLabels, setShowLabels] = useState(false)
-  const [selected, setSelected] = useState<string | null>(null)
+  // `?focus=prospect:<id>` (prospectGraphHref): opens with that person selected.
+  const [searchParams] = useSearchParams()
+  const [selected, setSelected] = useState<string | null>(() => searchParams.get(GRAPH_FOCUS_PARAM))
 
   const data = graph.data ?? EMPTY
   const visible = useMemo<LinkGraph>(() => {

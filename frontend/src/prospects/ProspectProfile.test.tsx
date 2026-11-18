@@ -216,8 +216,8 @@ describe('Prospect editor — Profil summary', () => {
     const header = screen.getByRole('dialog').querySelector('header') as HTMLElement
     expect(within(header).getByRole('button', { name: 'Mission' })).toBeInTheDocument()
     expect(within(header).getByRole('button', { name: 'Contacter' })).toBeEnabled()
-    // The score card hands its prospect to « Réévaluer le score ».
-    expect(screen.getByRole('button', { name: 'Réévaluer le score' })).toBeInTheDocument()
+    // The score card hands its prospect to « Évaluer » (no signal yet).
+    expect(screen.getByRole('button', { name: 'Évaluer' })).toBeInTheDocument()
   })
 
   it('disables Contacter for a prospect marked « Ne pas contacter »', async () => {

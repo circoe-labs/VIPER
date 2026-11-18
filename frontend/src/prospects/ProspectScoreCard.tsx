@@ -17,7 +17,7 @@ interface ProspectScoreCardProps {
   outdated?: boolean
   // « Voir la note »: the editor shows the note on its tab.
   onShowNote: (noteId: string) => void
-  // The saved prospect: enables « Réévaluer le score » (agent proposal, applied only once the person validates it).
+  // The saved prospect: enables « Évaluer » / « Réévaluer le score » (agent proposal, applied only once the person validates it).
   // Absent = no reassessment affordance. Seam for ProspectEditor (S1): pass `prospect.id`.
   prospectId?: string | null
   // A proposal was applied: the score changed, the editor may re-read what depends on it.
@@ -30,9 +30,7 @@ interface ProspectScoreCardProps {
 export function ProspectScoreCard({ score, outdated = false, onShowNote, prospectId = null, onScoreChanged }: ProspectScoreCardProps) {
   return (
     <div className="prospect-score-slot" data-slot="prospect-score">
-      {score && (
-        <ScoreSection score={score} outdated={outdated} onShowNote={onShowNote} prospectId={prospectId} onScoreChanged={onScoreChanged} />
-      )}
+      {score && <ScoreSection score={score} outdated={outdated} onShowNote={onShowNote} prospectId={prospectId} onScoreChanged={onScoreChanged} />}
     </div>
   )
 }
@@ -60,36 +58,49 @@ function ScoreSection({ score, outdated, onShowNote, prospectId, onScoreChanged 
     setOpen(true)
   }
 
+  // No contribution = the backend's starting value, not an evaluation: say so instead of showing a figure.
+  const evaluated = score.contributions.length > 0
+
   return (
     <EditorSection title="Score prospect">
-      <button
-        type="button"
-        className="prospect-score"
-        data-band={score.band}
-        aria-label={`Score prospect : ${scoreName(score)}. Voir le détail`}
-        aria-describedby={summaryId}
-        aria-haspopup="dialog"
-        onClick={show}
-      >
-        <ScoreRing value={score.total} tone={BAND_TONES[score.band]} />
-        <span className="prospect-score__text">
-          <span className="prospect-score__band">{BAND_LABELS[score.band]}</span>
-          <span id={summaryId} className="prospect-score__summary" title={score.summary}>
-            {score.summary}
+      {!evaluated && (
+        <div className="prospect-score prospect-score--empty" data-slot="score-not-evaluated">
+          <span className="prospect-score__placeholder" aria-hidden="true">
+            –
           </span>
-          <span className="prospect-score__more">
-            Voir le détail
-            <ChevronRightIcon size={14} />
+          <span className="prospect-score__band prospect-score__band--muted">Non évalué</span>
+        </div>
+      )}
+      {evaluated && (
+        <button
+          type="button"
+          className="prospect-score"
+          data-band={score.band}
+          aria-label={`Score prospect : ${scoreName(score)}. Voir le détail`}
+          aria-describedby={summaryId}
+          aria-haspopup="dialog"
+          onClick={show}
+        >
+          <ScoreRing value={score.total} tone={BAND_TONES[score.band]} />
+          <span className="prospect-score__text">
+            <span className="prospect-score__band">{BAND_LABELS[score.band]}</span>
+            <span id={summaryId} className="prospect-score__summary" title={score.summary}>
+              {score.summary}
+            </span>
+            <span className="prospect-score__more">
+              Voir le détail
+              <ChevronRightIcon size={14} />
+            </span>
           </span>
-        </span>
-      </button>
+        </button>
+      )}
       {outdated && (
         <p className="prospect-score__outdated" role="status">
           <AlertIcon size={14} />
           Mise à jour impossible : ce score peut être périmé.
         </p>
       )}
-      {prospectId && <ScoreReassessment prospectId={prospectId} onScoreChanged={onScoreChanged} />}
+      {prospectId && <ScoreReassessment prospectId={prospectId} evaluated={evaluated} onScoreChanged={onScoreChanged} />}
       <ScoreDetail
         open={open}
         score={score}

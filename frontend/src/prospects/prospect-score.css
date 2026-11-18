@@ -183,3 +183,30 @@
   color: var(--color-text-muted);
   font-size: var(--text-xs);
 }
+
+/* Not evaluated yet: same footprint as the ring, nothing clickable (there is no detail to open). */
+.prospect-score--empty {
+  cursor: default;
+}
+
+.prospect-score--empty:hover {
+  background: transparent;
+}
+
+.prospect-score__placeholder {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 5.5rem;
+  height: 5.5rem;
+  border: 4px dashed var(--color-border-strong);
+  border-radius: var(--radius-full);
+  color: var(--color-text-muted);
+  font-size: var(--text-lg);
+}
+
+.prospect-score__band--muted {
+  color: var(--color-text-muted);
+}

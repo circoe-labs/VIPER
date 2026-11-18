@@ -10,8 +10,16 @@ import { renderProspectEditor } from '../test/renderProspectEditor'
 // The score card inside the Prospect editor: it follows the note writes, its detail leads to the notes, and Escape in
 // the detail closes only the detail.
 
-async function open(notes: Parameters<typeof noteDetail>[0][] = []) {
-  const detail = prospectDetail()
+// A prospect with a signal behind its score (the backend's `contributions` is non-empty) vs the starting value.
+const SIGNALLED = {
+  total: 60,
+  summary: 'Un signal.',
+  band: 'yellow' as const,
+  contributions: [{ id: 's1', delta: 10, reason: 'Signal', source_type: 'note', source_ref: null, created_at: '2026-09-10T08:00:00+00:00', origin: 'manual' as const }],
+}
+
+async function open(notes: Parameters<typeof noteDetail>[0][] = [], signalled = false) {
+  const detail = prospectDetail(signalled ? { score: SIGNALLED } : {})
   const api = stubProspectsApi({ details: [detail], notes: { [detail.id]: notes.map((fields) => noteDetail({ prospect_id: detail.id, ...fields })) } })
   const view = renderProspectEditor(detail.id)
   await editorReady()
@@ -21,11 +29,19 @@ async function open(notes: Parameters<typeof noteDetail>[0][] = []) {
 const card = () => screen.getByRole('button', { name: /^Score prospect/ })
 
 describe('Prospect editor - score card', () => {
-  it('shows the score of the prospect on the Profil tab', async () => {
+  it('shows the score of the prospect on the Profil tab once a signal backs it', async () => {
+    await open([], true)
+
+    expect(card()).toHaveAccessibleName('Score prospect : 60 sur 100, niveau moyen. Voir le détail')
+  })
+
+  it('says « Non évalué » (no fake figure) while nothing backs the score', async () => {
     await open()
 
-    expect(card()).toHaveAccessibleName('Score prospect : 50 sur 100, niveau moyen. Voir le détail')
-    expect(card()).toHaveTextContent('Aucun signal enregistré.')
+    const slot = screen.getByRole('region', { name: 'Score prospect' })
+    expect(slot).toHaveTextContent('Non évalué')
+    expect(screen.queryByRole('button', { name: /^Score prospect/ })).not.toBeInTheDocument()
+    expect(within(slot).getByRole('button', { name: 'Évaluer' })).toBeInTheDocument()
   })
 
   it('has no score card for a prospect that is not saved yet', async () => {
@@ -58,7 +74,7 @@ describe('Prospect editor - score card', () => {
 
   it('follows the removal of that note', async () => {
     const { api, detail } = await open([{ fact_text: 'Pas intéressé', score_delta: -20 }])
-    api.store.set(detail.id, { ...detail, score: { total: 30, summary: 'Un signal.', band: 'red', contributions: [] } })
+    api.store.set(detail.id, { ...detail, score: { total: 30, summary: 'Un signal.', band: 'red', contributions: [{ id: 'c1', delta: -20, reason: 'Pas intéressé', source_type: 'note', source_ref: null, created_at: '2026-09-10T08:00:00+00:00', origin: 'manual' }] } })
     await showTab('Suivi')
     await userEvent.click(screen.getByRole('button', { name: /^Actions : Pas intéressé/ }))
     await userEvent.click(screen.getByRole('menuitem', { name: 'Supprimer' }))
@@ -66,12 +82,12 @@ describe('Prospect editor - score card', () => {
 
     await showTab('Profil')
     await waitFor(() => {
-      expect(card()).toHaveAccessibleName('Score prospect : 50 sur 100, niveau moyen. Voir le détail')
+      expect(screen.getByRole('region', { name: 'Score prospect' })).toHaveTextContent('Non évalué')
     })
   })
 
   it('Escape closes the detail alone: the drawer stays, nothing asks to confirm', async () => {
-    await open()
+    await open([], true)
     await userEvent.click(card())
     await userEvent.keyboard('{Escape}')
 
@@ -83,7 +99,7 @@ describe('Prospect editor - score card', () => {
   })
 
   it('Escape in the detail does not ask to abandon pending changes; a second Escape does', async () => {
-    await open()
+    await open([], true)
     await editSection('Identité')
     await userEvent.type(screen.getByRole('textbox', { name: 'Nom' }), 'x')
     await userEvent.click(card())

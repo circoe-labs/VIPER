@@ -6,10 +6,19 @@ import type { ProspectScore, ScoreBand, ScoreContribution } from '../api/prospec
 import { ProspectScoreCard } from './ProspectScoreCard'
 
 function contribution(id: string, delta: number, fields: Partial<ScoreContribution> = {}): ScoreContribution {
-  return { id, delta, reason: `Raison ${id}`, source_type: 'note', source_ref: `note-${id}`, created_at: '2026-09-10T08:00:00+00:00', origin: 'manual', ...fields }
+  return {
+    id,
+    delta,
+    reason: `Raison ${id}`,
+    source_type: 'note',
+    source_ref: `note-${id}`,
+    created_at: '2026-09-10T08:00:00+00:00',
+    origin: 'manual',
+    ...fields,
+  }
 }
 
-function score(total: number, band: ScoreBand, contributions: ScoreContribution[] = [], summary = 'Un résumé.'): ProspectScore {
+function score(total: number, band: ScoreBand, contributions: ScoreContribution[] = [contribution('base', 5)], summary = 'Un résumé.'): ProspectScore {
   return { total, band, summary, contributions }
 }
 
@@ -45,7 +54,7 @@ describe('ProspectScoreCard - the card', () => {
 
   it('shows the summary next to the ring, whole as its tooltip when it is long', () => {
     const long = 'Contact très engagé. '.repeat(30).trim()
-    show(score(80, 'green', [], long))
+    show(score(80, 'green', undefined, long))
 
     const summary = card().querySelector('.prospect-score__summary')
     expect(summary).toHaveTextContent('Contact très engagé.')
@@ -107,15 +116,13 @@ describe('ProspectScoreCard - the detail', () => {
     }
   })
 
-  it('says that there is no signal when the breakdown is empty', async () => {
-    show(score(50, 'yellow'))
-    await userEvent.click(card())
+  it('says « Non évalué » instead of a figure when no signal backs the score, and offers « Évaluer »', () => {
+    render(<ProspectScoreCard score={score(50, 'yellow', [])} onShowNote={vi.fn()} />)
 
-    const dialog = screen.getByRole('dialog')
-    expect(within(dialog).getByText('Aucun signal enregistré : le score est à sa valeur de départ.')).toBeInTheDocument()
-    expect(within(dialog).queryByRole('list')).not.toBeInTheDocument()
-    expect(within(dialog).getByText('Un résumé.')).toBeInTheDocument()
-    expect(dialog).toHaveTextContent('50 sur 100 · niveau moyen')
+    const slot = screen.getByRole('region', { name: 'Score prospect' })
+    expect(slot).toHaveTextContent('Non évalué')
+    expect(slot).not.toHaveTextContent('50')
+    expect(screen.queryByRole('button', { name: /^Score prospect/ })).not.toBeInTheDocument()
   })
 
   it('lists positives from the largest, then negatives from the most damaging, with sign, reason and source', async () => {

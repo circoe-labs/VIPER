@@ -49,3 +49,5 @@ meilleur chemin), `proximityView.ts` (tons d'affichage : ≥67 Proche, ≥34 Acc
 carte autonome `ProximityScoreCard` a été supprimée (un seul contrat, une seule présentation).
 
 Tests : `backend/tests/test_person_proximity.py`, `frontend/src/prospects/ProspectIndicatorStrip.test.tsx`, `ProspectProfile.test.tsx`.
+
+**Graph.** `prospects/prospectGraphHref.ts` exports `prospectGraphHref(prospectId)` (`/prospection/graphe?focus=prospect:<id>`): the cellule « Score de proximité » shows a « Graph » link with it (absent when the state is `empty`), and the context menu can reuse it; `GraphPage` selects the focused node on load.
