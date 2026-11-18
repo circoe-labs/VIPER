@@ -1,0 +1,49 @@
+/* « Score de proximité » card (ProximityScoreCard.tsx). Colours come from tokens. */
+
+.proximity {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.proximity__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.proximity__text {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.proximity__band {
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+
+.proximity__summary,
+.proximity__path-meta,
+.proximity__state {
+  color: var(--color-text-muted);
+}
+
+.proximity__paths {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.proximity__path {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.proximity__path-text {
+  overflow-wrap: anywhere;
+}
