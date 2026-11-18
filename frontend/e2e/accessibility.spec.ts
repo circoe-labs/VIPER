@@ -29,7 +29,7 @@ const PAGES: { name: string; open: (page: Page) => Promise<void> }[] = [
     open: async (page) => {
       await page.goto('/')
       await expect(page.getByRole('heading', { level: 1, name: 'Accueil' })).toBeVisible()
-      await expect(page.getByRole('region', { name: 'Dernières modifications' })).toBeVisible()
+      await expect(page.getByRole('list', { name: 'Indicateurs' })).toBeVisible()
     },
   },
   {
@@ -62,7 +62,7 @@ const PAGES: { name: string; open: (page: Page) => Promise<void> }[] = [
       await page.goto('/prospection')
       await page.getByRole('list', { name: 'Prospects' }).getByRole('link').first().click()
       const editor = page.getByRole('dialog')
-      for (const name of ['Identité', 'E-mails', 'Téléphones', 'Emploi']) {
+      for (const name of ['Identité', 'Coordonnées', 'Emploi']) {
         await editor.getByRole('region', { name }).getByRole('button', { name: `Modifier : ${name}` }).click()
       }
       await expect(editor.getByRole('textbox', { name: 'Prénom' })).toBeVisible()
@@ -74,7 +74,7 @@ const PAGES: { name: string; open: (page: Page) => Promise<void> }[] = [
     name: 'entreprises et éditeur',
     open: async (page) => {
       await page.goto('/prospection/companies')
-      await page.getByRole('button', { name: 'Transports Exemple SARL' }).click()
+      await page.getByRole('button', { name: 'Transports Exemple SARL', exact: true }).click()
       await expect(page.getByRole('dialog').getByRole('region', { name: 'Prospects associés' })).toBeVisible()
     },
   },

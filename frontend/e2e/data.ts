@@ -173,6 +173,17 @@ export function isoWeekOf(day: Date): { year: number; week: number } {
 // A person of a new company of their own, planned for a first contact this week (neutral state, next-action week =
 // the current one, set through `PATCH …/tracking` like the Prospection planner): what the Contact page lists under
 // « Premier contact ». Names carry `tag` so a search finds only this test's rows.
+// One cohort for every Contact test (created by whichever test gets there first; the others read it back).
+async function sharedCohort(page: Page): Promise<{ id: string }> {
+  const code = 'S903'
+  const response = await page.request.post('/api/settings/cohorts', { data: { code, starts_on: '2026-09-28' }, headers: { 'X-CSRF-Token': await csrfToken(page) } })
+  if (response.ok()) return (await response.json()) as { id: string }
+  const listed = (await (await page.request.get('/api/settings/cohorts')).json()) as { id: string; code: string }[] | { cohorts: { id: string; code: string }[] }
+  const found = (Array.isArray(listed) ? listed : listed.cohorts).find((cohort) => cohort.code === code)
+  if (!found) throw new Error(`Cohort ${code} could not be created: ${await response.text()}`)
+  return found
+}
+
 export async function createContactProspect(
   page: Page,
   tag: string,
@@ -188,10 +199,9 @@ export async function createContactProspect(
     emails: [{ address: person.email, is_primary: true }],
     provenance: { legal_basis_or_collection_context: 'Données synthétiques de test E2E' },
   })
-  await patch(page, `/api/prospects/${created.id}/tracking`, {
-    version: created.version,
-    status: 'neutral',
-    next_action_week: isoWeekOf(new Date()),
-  })
+  // The next due date is derived from the cohort: a cohort of its own makes the prospect part of the Contact list.
+  const cohort = await sharedCohort(page)
+  const assigned = await page.request.put(`/api/prospects/${created.id}/cohort`, { data: { cohort_id: cohort.id }, headers: { 'X-CSRF-Token': await csrfToken(page) } })
+  if (!assigned.ok()) throw new Error(await assigned.text())
   return { id: created.id, company }
 }

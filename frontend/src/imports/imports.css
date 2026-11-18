@@ -497,7 +497,6 @@
 }
 
 .import-section__description {
-  max-width: 60rem;
   color: var(--color-text-muted);
   font-size: var(--text-sm);
 }

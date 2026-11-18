@@ -99,7 +99,6 @@
 }
 
 .settings-panel__description {
-  max-width: 44rem;
   margin-top: var(--space-2);
   color: var(--color-text-muted);
 }
@@ -326,7 +325,6 @@ tr[data-inactive] .settings-table__label {
 }
 
 .settings-connection__sentence {
-  max-width: 44rem;
 }
 
 .settings-connection__facts {

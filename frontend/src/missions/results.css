@@ -100,7 +100,6 @@
   line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  max-width: 80ch;
 }
 
 .result-card__summary--empty {

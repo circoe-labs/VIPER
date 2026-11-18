@@ -59,7 +59,6 @@
 
 .review-summary__report p {
   margin: 0;
-  max-width: 70ch;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
