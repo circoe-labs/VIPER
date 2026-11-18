@@ -46,6 +46,12 @@ Prospect is not directly linked to establishment in V1.
 
 Activity status and contactability are independent: an active employee can still be permanently blocked from prospecting.
 
+**Derived read model, not stored — fiche completeness state** (`app/services/prospect_data_quality.py`, slice S2 of
+`viper_prospect_sheet_missions_scoring_redesign`): `incomplete | usable | rich | very_rich` (« Incomplète / Exploitable /
+Fournie / Très fournie »), computed on read from the prospect, its e-mails and phones, deterministically (no LLM), with a
+per-criterion `met | partial | missing` breakdown. It is distinct from the commercial-fit `prospect_score`. The private
+0..100 point total it derives from is an implementation detail (see `doc/features/prospect-editor.md`).
+
 ## `roles`
 Administrable taxonomy: id, label, slug, active, timestamps. Seed values are suggestions, not immutable product truth.
 

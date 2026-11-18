@@ -1,10 +1,21 @@
-"""Data-quality score of a prospect (« Qualité de la fiche »): how reachable and how trustworthy the
-record is, computed on the backend from the record itself.
+"""Fiche completeness of a prospect (« Qualité de la fiche »): how reachable and how trustworthy the
+record is, computed on the backend from the record itself, deterministically (no LLM).
 
-It is independent of the interest score (`app.services.prospect_score`, manual, from notes): the
-two answer different questions and are displayed side by side. Each criterion is worth fixed
-points (the maximums add up to 100); a criterion is met in full, partly or not at all, and the
-breakdown says which, so the UI only displays it. Never stored, computed on read.
+PRODUCT VOCABULARY (slice S2): the user sees a named **state**, never a number --
+`incomplete` « Incomplète » < `usable` « Exploitable » < `rich` « Fournie » < `very_rich`
+« Très fournie » -- with a one-sentence explanation and a criterion breakdown (`met` / `partial` /
+`missing`). It is independent of the commercial-fit score (`app.services.prospect_score`):
+completeness says how much we know, not whether the prospect is worth pursuing.
+
+IMPLEMENTATION DETAIL: the state is derived from a private 0..100 point total (each criterion is
+worth fixed points, the maximums add up to 100). `total`, `band`, `points` and `max_points` stay on
+the wire only as a compatibility adapter (the prospects dashboard and older consumers still read
+them); they are NOT product vocabulary and the UI must not display them. Remove once S7 / the
+dashboard no longer need them. Never stored, computed on read.
+
+State rule: points thresholds (`DataQualityConfig.usable_from` / `rich_from` / `very_rich_from`),
+with one gate: a record with no active e-mail and no active phone cannot be reached, so it is
+`incomplete` whatever its points.
 
 | Criterion         | Max | Rule                                                 |
 |-------------------|----:|------------------------------------------------------|
@@ -25,6 +36,7 @@ An `invalid` e-mail never counts as verified; a prospect with durable opposition
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -36,6 +48,36 @@ from app.services.prospect_score import SCORE_MAX, SCORE_MIN, ScoreBand
 STALE_EMPLOYMENT_POINTS = 8
 
 
+class CompletenessState(StrEnum):
+    """Public vocabulary of the fiche completeness, from least to most provided."""
+
+    INCOMPLETE = "incomplete"
+    USABLE = "usable"
+    RICH = "rich"
+    VERY_RICH = "very_rich"
+
+
+class CriterionStatus(StrEnum):
+    MET = "met"
+    PARTIAL = "partial"
+    MISSING = "missing"
+
+
+# French label and meaning per state (the meaning feeds the UI tooltip).
+STATE_LABELS: dict[CompletenessState, str] = {
+    CompletenessState.INCOMPLETE: "Incomplète",
+    CompletenessState.USABLE: "Exploitable",
+    CompletenessState.RICH: "Fournie",
+    CompletenessState.VERY_RICH: "Très fournie",
+}
+STATE_DESCRIPTIONS: dict[CompletenessState, str] = {
+    CompletenessState.INCOMPLETE: "Trop peu d'informations, ou aucun moyen de joindre la personne.",
+    CompletenessState.USABLE: "On peut joindre la personne, mais plusieurs informations manquent.",
+    CompletenessState.RICH: "Coordonnées et profil bien renseignés, quelques points à vérifier.",
+    CompletenessState.VERY_RICH: "Coordonnées, profil et emploi renseignés et vérifiés.",
+}
+
+
 class DataQualityCriterion(BaseModel):
     """One line of the breakdown: `Téléphone vérifié — 0/5`."""
 
@@ -43,15 +85,25 @@ class DataQualityCriterion(BaseModel):
 
     id: str
     label: str
+    # Implementation detail (see module docstring): the UI shows `status`, not the points.
     points: int
     max_points: int
+    status: CriterionStatus
     # Short French explanation of what was found (« Aucun e-mail actif »).
     detail: str
 
 
 class DataQualityScore(BaseModel):
+    """Wire contract of the completeness (`ProfileCompleteness` on the frontend): `state`,
+    `state_label`, `state_description`, `summary`, `criteria`. `total` and `band` are the deprecated
+    numeric compatibility adapter."""
+
     model_config = ConfigDict(frozen=True)
 
+    state: CompletenessState
+    state_label: str
+    state_description: str
+    # Deprecated compatibility adapter (dashboard, older clients): never display.
     total: int = Field(ge=SCORE_MIN, le=SCORE_MAX)
     band: ScoreBand
     summary: str
@@ -62,6 +114,10 @@ class DataQualityScore(BaseModel):
 class DataQualityConfig:
     red_below: int = 50
     green_from: int = 80
+    # Completeness state thresholds on the private point total (incomplete below `usable_from`).
+    usable_from: int = 50
+    rich_from: int = 75
+    very_rich_from: int = 90
     # None = employment never counts as stale.
     stale_days: int | None = None
 
@@ -70,6 +126,9 @@ class DataQualityConfig:
         return cls(
             red_below=settings.prospect_data_score_red_below,
             green_from=settings.prospect_data_score_green_from,
+            usable_from=settings.prospect_completeness_usable_from,
+            rich_from=settings.prospect_completeness_rich_from,
+            very_rich_from=settings.prospect_completeness_very_rich_from,
             stale_days=settings.verification_stale_days,
         )
 
@@ -82,11 +141,22 @@ def band_of(total: int, config: DataQualityConfig) -> ScoreBand:
     return ScoreBand.GREEN
 
 
+def _status_of(points: int, max_points: int) -> CriterionStatus:
+    if points >= max_points:
+        return CriterionStatus.MET
+    return CriterionStatus.PARTIAL if points > 0 else CriterionStatus.MISSING
+
+
 def _criterion(
     id_: str, label: str, max_points: int, points: int, detail: str
 ) -> DataQualityCriterion:
     return DataQualityCriterion(
-        id=id_, label=label, points=points, max_points=max_points, detail=detail
+        id=id_,
+        label=label,
+        points=points,
+        max_points=max_points,
+        status=_status_of(points, max_points),
+        detail=detail,
     )
 
 
@@ -217,12 +287,32 @@ def summarize(criteria: Sequence[DataQualityCriterion]) -> str:
     return f"À compléter : {names}{more}."
 
 
+def state_of(
+    total: int, criteria: Sequence[DataQualityCriterion], config: DataQualityConfig
+) -> CompletenessState:
+    """Pure: the completeness state of a point total, gated on reachability."""
+    reachable = any(
+        item.points > 0 for item in criteria if item.id in ("email_active", "phone_active")
+    )
+    if not reachable or total < config.usable_from:
+        return CompletenessState.INCOMPLETE
+    if total < config.rich_from:
+        return CompletenessState.USABLE
+    if total < config.very_rich_from:
+        return CompletenessState.RICH
+    return CompletenessState.VERY_RICH
+
+
 def build_data_quality(
     criteria: Sequence[DataQualityCriterion], config: DataQualityConfig
 ) -> DataQualityScore:
     """Pure: the score of a list of criteria under a configuration."""
     total = max(SCORE_MIN, min(SCORE_MAX, sum(item.points for item in criteria)))
+    state = state_of(total, criteria, config)
     return DataQualityScore(
+        state=state,
+        state_label=STATE_LABELS[state],
+        state_description=STATE_DESCRIPTIONS[state],
         total=total,
         band=band_of(total, config),
         summary=summarize(criteria),

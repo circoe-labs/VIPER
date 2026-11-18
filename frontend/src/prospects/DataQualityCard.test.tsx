@@ -2,59 +2,81 @@ import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
-import type { DataQualityScore } from '../api/prospects'
+import type { ProfileCompleteness } from '../api/profileCompleteness'
 import { DataQualityCard } from './DataQualityCard'
 
-function quality(overrides: Partial<DataQualityScore> = {}): DataQualityScore {
+function completeness(overrides: Partial<ProfileCompleteness> = {}): ProfileCompleteness {
   return {
-    total: 65,
-    band: 'yellow',
+    state: 'usable',
+    state_label: 'Exploitable',
+    state_description: 'On peut joindre la personne, mais plusieurs informations manquent.',
     summary: 'À compléter : téléphone vérifié, emploi vérifié.',
     criteria: [
-      { id: 'email_active', label: 'E-mail actif', points: 20, max_points: 20, detail: 'Un e-mail actif' },
-      { id: 'phone_verified', label: 'Téléphone vérifié', points: 0, max_points: 5, detail: 'Aucun téléphone vérifié' },
+      { id: 'email_active', label: 'E-mail actif', status: 'met', detail: 'Un e-mail actif' },
+      { id: 'phone_verified', label: 'Téléphone vérifié', status: 'missing', detail: 'Aucun téléphone vérifié' },
+      { id: 'employment', label: 'Emploi vérifié', status: 'partial', detail: 'À revérifier' },
     ],
     ...overrides,
   }
 }
 
 describe('DataQualityCard', () => {
-  it('shows the figure, the band in words (not only colour) and the summary', () => {
-    render(<DataQualityCard quality={quality()} />)
+  it('shows the state in words, its meaning and the summary, and no number', () => {
+    const { container } = render(<DataQualityCard quality={completeness()} />)
 
     expect(screen.getByRole('heading', { name: 'Qualité de la fiche' })).toBeInTheDocument()
-    expect(screen.getByText('Correcte')).toBeInTheDocument()
-    expect(screen.getByText(/65 sur 100/)).toBeInTheDocument()
+    expect(screen.getByText('Exploitable')).toBeInTheDocument()
+    expect(screen.getByText('On peut joindre la personne, mais plusieurs informations manquent.')).toBeInTheDocument()
     expect(screen.getByText('À compléter : téléphone vérifié, emploi vérifié.')).toBeInTheDocument()
+    expect(container.textContent).not.toMatch(/\d+\s*(\/|sur)\s*\d+/)
+    expect(container.querySelector('svg[role="img"][aria-valuenow]')).toBeNull()
   })
 
-  it('uses the colour band sent by the backend', () => {
-    const { container, rerender } = render(<DataQualityCard quality={quality({ band: 'red', total: 10 })} />)
-    expect(container.querySelector('.data-quality')).toHaveAttribute('data-band', 'red')
-    expect(screen.getByText('Insuffisante')).toBeInTheDocument()
+  it.each([
+    ['incomplete', 'Incomplète', 1],
+    ['usable', 'Exploitable', 2],
+    ['rich', 'Fournie', 3],
+    ['very_rich', 'Très fournie', 4],
+  ] as const)('renders %s as « %s » with %i meter step(s)', (state, label, steps) => {
+    const { container } = render(<DataQualityCard quality={completeness({ state, state_label: label })} />)
 
-    rerender(<DataQualityCard quality={quality({ band: 'green', total: 95 })} />)
-    expect(container.querySelector('.data-quality')).toHaveAttribute('data-band', 'green')
-    expect(screen.getByText('Bonne')).toBeInTheDocument()
+    expect(screen.getByText(label)).toBeInTheDocument()
+    expect(container.querySelectorAll('.completeness__step[data-on="true"]')).toHaveLength(steps)
   })
 
-  it('lists every criterion with its points once opened', async () => {
+  it('still renders a state the frontend does not know, without a meter', () => {
+    const { container } = render(
+      <DataQualityCard quality={completeness({ state: 'galactic' as ProfileCompleteness['state'], state_label: 'Galactique' })} />,
+    )
+
+    expect(screen.getByText('Galactique')).toBeInTheDocument()
+    expect(container.querySelector('.completeness__meter')).toBeNull()
+  })
+
+  it('lists what is missing first, then what is acquired, with the status in words', async () => {
     const user = userEvent.setup()
-    render(<DataQualityCard quality={quality()} />)
+    render(<DataQualityCard quality={completeness()} />)
 
     await user.click(screen.getByText('Voir les critères'))
 
-    const list = screen.getByRole('list', { name: 'Critères de qualité de la fiche' })
-    const items = within(list).getAllByRole('listitem')
-    expect(items).toHaveLength(2)
-    expect(items[0]).toHaveTextContent('20/20')
-    expect(items[1]).toHaveTextContent('0/5')
-    expect(items[1]).toHaveTextContent('Aucun téléphone vérifié')
+    const todo = within(screen.getByRole('list', { name: 'Critères à compléter' })).getAllByRole('listitem')
+    expect(todo).toHaveLength(2)
+    expect(todo[0]).toHaveTextContent('Téléphone vérifié')
+    expect(todo[0]).toHaveTextContent('Manquant')
+    expect(todo[1]).toHaveTextContent('Partiel')
+    const done = within(screen.getByRole('list', { name: 'Critères acquis' })).getAllByRole('listitem')
+    expect(done).toHaveLength(1)
+    expect(done[0]).toHaveTextContent('Complet')
   })
 
-  it('says « Écarté » for a prospect under opposition and shows nothing without a score', () => {
-    const { container, rerender } = render(<DataQualityCard quality={null} discarded />)
+  it('says « Écarté » for a prospect under opposition', () => {
+    render(<DataQualityCard quality={null} discarded />)
     expect(screen.getByText(/Écarté/)).toBeInTheDocument()
+  })
+
+  it('says so when the completeness is unavailable, and shows nothing for an unsaved prospect', () => {
+    const { container, rerender } = render(<DataQualityCard quality={null} unavailable />)
+    expect(screen.getByRole('alert')).toHaveTextContent('Complétude indisponible')
 
     rerender(<DataQualityCard quality={null} />)
     expect(container).toBeEmptyDOMElement()

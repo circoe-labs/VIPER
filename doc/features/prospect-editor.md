@@ -316,22 +316,38 @@ ProspectScore { total: 0..100, summary: str, band: "red"|"yellow"|"green",
   1 défavorable), bilan +7. ». "Score absent" does not exist in the API: the view always has a score.
 - Contributions are ordered newest observed first (same order as the notes).
 
-**Qualité de la fiche** (second score, automatic, separate from the interest score above). `GET /prospects/{id}`
-also carries `data_quality: DataQualityScore | null`, computed on read by `app/services/prospect_data_quality.py`
-(never stored). It measures how reachable and trustworthy the record is, from 9 criteria whose maximums add up to 100:
-active e-mail 20, verified e-mail 20 (the primary one, else any active; `invalid` never counts), active phone 10,
-verified phone 5, employment verified 15 (8 when older than `VIPER_VERIFICATION_STALE_DAYS`), known activity 5,
-company 10, role 10, exact job title 5.
+**Qualité de la fiche = completeness state** (slice S2 of `viper_prospect_sheet_missions_scoring_redesign`; no longer a
+displayed score). `GET /prospects/{id}` carries `data_quality: DataQualityScore | null` (the field name is kept for
+compatibility), computed on read by `app/services/prospect_data_quality.py`, deterministic (no LLM), never stored. It
+says how reachable and trustworthy the record is, and is independent of the commercial-fit `score`.
+
+Product contract (`ProfileCompleteness`, `frontend/src/api/profileCompleteness.ts`):
 
 ```
-DataQualityScore { total: 0..100, band: "red"|"yellow"|"green", summary: str,
-                   criteria: [{ id, label, points, max_points, detail }] }
+{ state: "incomplete"|"usable"|"rich"|"very_rich",
+  state_label: "Incomplète"|"Exploitable"|"Fournie"|"Très fournie",
+  state_description: str,            // what the state means (tooltip)
+  summary: str,                      // « À compléter : … » or « Fiche complète et vérifiée. »
+  criteria: [{ id, label, status: "met"|"partial"|"missing", detail }] }
 ```
 
-`data_quality` is `null` for a prospect under durable opposition (`do_not_contact`): the card then says « Écarté ».
-Bands: `VIPER_PROSPECT_DATA_SCORE_RED_BELOW` (default **50**) and `VIPER_PROSPECT_DATA_SCORE_GREEN_FROM` (**80**), red-below
-lower than green-from; to be confirmed by the product. UI: `DataQualityCard.tsx`, under the interest score in the
-Profil tab; words *Insuffisante* / *Correcte* / *Bonne*, criteria in a *Voir les critères* disclosure.
+`data_quality` is `null` for a prospect under durable opposition (`do_not_contact`): the card says « Écarté ». The card
+shows the state badge, an info tooltip with its meaning, a decorative 4-step meter, the summary, and a *Voir les
+critères* disclosure split into « à compléter » and « acquis ». An unavailable value is stated (`unavailable` prop), not hidden.
+
+Implementation detail (not product vocabulary, never displayed): the state is derived from a private 0..100 point total
+over 9 criteria — active e-mail 20, verified e-mail 20 (primary one, else any active; `invalid` never counts), active
+phone 10, verified phone 5, employment verified 15 (8 when older than `VIPER_VERIFICATION_STALE_DAYS`), known activity 5,
+company 10, role 10, exact job title 5. Thresholds on that total: `VIPER_PROSPECT_COMPLETENESS_USABLE_FROM` (default **50**),
+`..._RICH_FROM` (**75**), `..._VERY_RICH_FROM` (**90**), strictly increasing; to be confirmed by the product. One gate: no
+active e-mail and no active phone = `incomplete` whatever the points. `status` is `met` at full points, `partial` for
+some, `missing` for none (the stale employment is `partial`).
+
+Deprecated compatibility adapter: the payload still carries `total`, `band` (`VIPER_PROSPECT_DATA_SCORE_RED_BELOW` **50** /
+`..._GREEN_FROM` **80**) and per-criterion `points`/`max_points`, because the prospects dashboard « Fiabilité » (SQL
+twin `quality_sql`) still uses the numeric total. Remove them with the dashboard dependency (follow-up, not done in S2).
+UI: `DataQualityCard.tsx` (prop `quality: ProfileCompleteness | null`, `discarded`, `unavailable`), `completenessView.ts`,
+`profile-completeness.css`, in the Profil tab; wiring into the S1 indicator strip is the S7 integration.
 
 **Configuration** (environment, `core/config.py`; the contract does not contain these numbers):
 `VIPER_PROSPECT_SCORE_BASE` (default **50**), `VIPER_PROSPECT_SCORE_RED_BELOW` (**40**) and

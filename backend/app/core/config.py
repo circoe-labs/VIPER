@@ -151,6 +151,11 @@ class Settings(BaseSettings):
     # rule as the interest score, with its own thresholds. Proposed defaults, to be confirmed.
     prospect_data_score_red_below: Annotated[int, Field(ge=1, le=100)] = 50
     prospect_data_score_green_from: Annotated[int, Field(ge=1, le=100)] = 80
+    # Fiche completeness states (slice S2): lower bounds, on the private point total, of
+    # "Exploitable", "Fournie", "Très fournie" (below the first: "Incomplète").
+    prospect_completeness_usable_from: Annotated[int, Field(ge=1, le=100)] = 50
+    prospect_completeness_rich_from: Annotated[int, Field(ge=1, le=100)] = 75
+    prospect_completeness_very_rich_from: Annotated[int, Field(ge=1, le=100)] = 90
 
     # AI mail drafting context (prospect-contact-ux S5): how many of the prospect's notes (newest
     # first) and how many score contributions (largest |delta| first) reach the prompt.
@@ -351,6 +356,14 @@ class Settings(BaseSettings):
             raise ValueError(
                 "VIPER_PROSPECT_DATA_SCORE_RED_BELOW must be lower than"
                 " VIPER_PROSPECT_DATA_SCORE_GREEN_FROM"
+            )
+        if not (
+            self.prospect_completeness_usable_from
+            < self.prospect_completeness_rich_from
+            < self.prospect_completeness_very_rich_from
+        ):
+            raise ValueError(
+                "VIPER_PROSPECT_COMPLETENESS_USABLE_FROM < RICH_FROM < VERY_RICH_FROM is required"
             )
         return self
 
