@@ -1,9 +1,9 @@
-import { type MouseEvent, useId, useState } from 'react'
+import { useState } from 'react'
 
 import type { ProspectScore } from '../api/prospects'
 import { Button } from '../ui/Button'
 import { Modal } from '../ui/Dialog'
-import { AlertIcon, ChevronRightIcon, InfoIcon } from '../ui/icons'
+import { AlertIcon, InfoIcon } from '../ui/icons'
 import { ScoreRing } from '../ui/ScoreRing'
 import { EditorSection } from './EditorSection'
 import { ScoreReassessment } from './ScoreReassessment'
@@ -24,19 +24,16 @@ interface ProspectScoreCardProps {
   onScoreChanged?: () => void
 }
 
-// « Score prospect » card (prospect-contact-ux S4), top of the Profil tab's right column. The whole summary is one
-// button that opens the detail in a modal dialog (focus trapped, Esc closes it alone, focus back on the card). The
-// slot div stays when there is no score, and then takes no room (profile-summary.css).
+// « Score prospect » card (prospect-contact-ux S4), first KPI of the Profil tab. One fixed-height body (ScoreReassessment) shows
+// the score, or whichever async state « Réévaluer le score » is in, in place; « Voir le détail » opens the detail in a modal dialog
+// (focus trapped, Esc closes it alone, focus back on the button). The slot div stays when there is no score, and then takes no
+// room (profile-summary.css).
 export function ProspectScoreCard({ score, outdated = false, onShowNote, prospectId = null, onScoreChanged }: ProspectScoreCardProps) {
   return (
     <div className="prospect-score-slot" data-slot="prospect-score">
       {score && <ScoreSection score={score} outdated={outdated} onShowNote={onShowNote} prospectId={prospectId} onScoreChanged={onScoreChanged} />}
     </div>
   )
-}
-
-function scoreName(score: ProspectScore): string {
-  return `${String(score.total)} sur 100, niveau ${BAND_LABELS[score.band].toLowerCase()}`
 }
 
 interface ScoreSectionProps {
@@ -49,58 +46,25 @@ interface ScoreSectionProps {
 
 function ScoreSection({ score, outdated, onShowNote, prospectId, onScoreChanged }: ScoreSectionProps) {
   const [open, setOpen] = useState(false)
-  const summaryId = useId()
-
-  // Opened by a click: the card takes the focus itself (Safari does not focus a clicked button), so that the dialog
-  // gives it back there.
-  function show(event: MouseEvent<HTMLButtonElement>) {
-    event.currentTarget.focus()
-    setOpen(true)
-  }
-
-  // No contribution = the backend's starting value, not an evaluation: say so instead of showing a figure.
-  const evaluated = score.contributions.length > 0
 
   return (
     <EditorSection title="Score prospect">
-      {!evaluated && (
-        <div className="prospect-score prospect-score--empty" data-slot="score-not-evaluated">
-          <span className="prospect-score__placeholder" aria-hidden="true">
-            –
-          </span>
-          <span className="prospect-score__band prospect-score__band--muted">Non évalué</span>
-        </div>
-      )}
-      {evaluated && (
-        <button
-          type="button"
-          className="prospect-score"
-          data-band={score.band}
-          aria-label={`Score prospect : ${scoreName(score)}. Voir le détail`}
-          aria-describedby={summaryId}
-          aria-haspopup="dialog"
-          onClick={show}
-        >
-          <ScoreRing value={score.total} tone={BAND_TONES[score.band]} />
-          <span className="prospect-score__text">
-            <span className="prospect-score__band">{BAND_LABELS[score.band]}</span>
-            <span id={summaryId} className="prospect-score__summary" title={score.summary}>
-              {score.summary}
-            </span>
-            <span className="prospect-score__more">
-              Voir le détail
-              <ChevronRightIcon size={14} />
-            </span>
-          </span>
-        </button>
-      )}
+      {/* One body, always the same height: ring, level, detail link and every async state of « Réévaluer » replace
+          each other here (ScoreReassessment.tsx); nothing is ever added around it. */}
+      <ScoreReassessment
+        prospectId={prospectId}
+        score={score}
+        onScoreChanged={onScoreChanged}
+        onOpenDetail={() => {
+          setOpen(true)
+        }}
+      />
       {outdated && (
         <p className="prospect-score__outdated" role="status">
           <AlertIcon size={14} />
           Mise à jour impossible : ce score peut être périmé.
         </p>
       )}
-      {prospectId && <ScoreReassessment prospectId={prospectId} evaluated={evaluated} onScoreChanged={onScoreChanged} />}
       <ScoreDetail
         open={open}
         score={score}

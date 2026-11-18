@@ -45,6 +45,8 @@ export interface Reassessment {
   proposal: ReassessmentProposal | null
   decided_by: string | null
   decided_at: string | null
+  // Live agents able to take the task (while queued/running): 0 = nobody is connected to pick it up.
+  agents_available: number
 }
 
 // The statuses where an agent still has to answer: the card polls while one of them holds.

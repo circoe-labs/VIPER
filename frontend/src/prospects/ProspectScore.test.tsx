@@ -26,13 +26,14 @@ async function open(notes: Parameters<typeof noteDetail>[0][] = [], signalled = 
   return { api, detail, ...view }
 }
 
-const card = () => screen.getByRole('button', { name: /^Score prospect/ })
+const card = () => screen.getByRole('group', { name: /^Score prospect/ })
+const detail = () => screen.getByRole('button', { name: /Voir le détail/ })
 
 describe('Prospect editor - score card', () => {
   it('shows the score of the prospect on the Profil tab once a signal backs it', async () => {
     await open([], true)
 
-    expect(card()).toHaveAccessibleName('Score prospect : 60 sur 100, niveau moyen. Voir le détail')
+    expect(card()).toHaveAccessibleName('Score prospect : 60 sur 100, niveau moyen')
   })
 
   it('says « Non évalué » (no fake figure) while nothing backs the score', async () => {
@@ -40,7 +41,7 @@ describe('Prospect editor - score card', () => {
 
     const slot = screen.getByRole('region', { name: 'Score prospect' })
     expect(slot).toHaveTextContent('Non évalué')
-    expect(screen.queryByRole('button', { name: /^Score prospect/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Voir le détail/ })).not.toBeInTheDocument()
     expect(within(slot).getByRole('button', { name: 'Évaluer' })).toBeInTheDocument()
   })
 
@@ -64,9 +65,9 @@ describe('Prospect editor - score card', () => {
 
     await showTab('Profil')
     await waitFor(() => {
-      expect(card()).toHaveAccessibleName('Score prospect : 75 sur 100, niveau élevé. Voir le détail')
+      expect(card()).toHaveAccessibleName('Score prospect : 75 sur 100, niveau élevé')
     })
-    await userEvent.click(card())
+    await userEvent.click(detail())
     const dialog = screen.getByRole('dialog', { name: 'Détail du score' })
     expect(within(dialog).getByRole('img', { name: '+25 points' })).toBeInTheDocument()
     expect(within(dialog).getByText('Demande une démo')).toBeInTheDocument()
@@ -88,21 +89,21 @@ describe('Prospect editor - score card', () => {
 
   it('Escape closes the detail alone: the drawer stays, nothing asks to confirm', async () => {
     await open([], true)
-    await userEvent.click(card())
+    await userEvent.click(detail())
     await userEvent.keyboard('{Escape}')
 
     expect(screen.queryByRole('dialog', { name: 'Détail du score' })).not.toBeInTheDocument()
     expect(screen.getByRole('dialog')).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Identité' })).toBeInTheDocument()
     expect(screen.getAllByRole('dialog')).toHaveLength(1)
-    expect(card()).toHaveFocus()
+    expect(detail()).toHaveFocus()
   })
 
   it('Escape in the detail does not ask to abandon pending changes; a second Escape does', async () => {
     await open([], true)
     await editSection('Identité')
     await userEvent.type(screen.getByRole('textbox', { name: 'Nom' }), 'x')
-    await userEvent.click(card())
+    await userEvent.click(detail())
     await userEvent.keyboard('{Escape}')
 
     expect(screen.queryByRole('dialog', { name: 'Abandonner les modifications ?' })).not.toBeInTheDocument()
@@ -123,7 +124,7 @@ describe('Prospect editor - score card', () => {
       expect(card()).toHaveAccessibleName(/60 sur 100/)
     })
 
-    await userEvent.click(card())
+    await userEvent.click(detail())
     await userEvent.click(screen.getByRole('button', { name: 'Voir la note' }))
 
     expect(screen.getByRole('tab', { name: /^Suivi/ })).toHaveAttribute('aria-selected', 'true')
