@@ -28,13 +28,15 @@ interface EditorSectionProps {
   // A sub-block of another section (a smaller heading, no card of its own).
   nested?: boolean
   edit?: SectionEdit
+  // Buttons of the section's own (e.g. « + Lier à » of Relations), shown in the header beside the state.
+  actions?: ReactNode
   children: ReactNode
 }
 
 const FIELD = 'input:not([type="hidden"]):not([disabled]), select:not([disabled]), textarea:not([disabled])'
 
 // One named region of the Prospect editor (also the panels of the Contact workbench).
-export function EditorSection({ title, state, count, tone, nested, edit, children }: EditorSectionProps) {
+export function EditorSection({ title, state, count, tone, nested, edit, actions, children }: EditorSectionProps) {
   const Heading = nested ? 'h4' : 'h3'
   const sectionRef = useRef<HTMLElement>(null)
   const focusField = useRef(false)
@@ -65,6 +67,7 @@ export function EditorSection({ title, state, count, tone, nested, edit, childre
               {state.text}
             </StatusBadge>
           )}
+          {actions}
           {edit && !edit.locked && (editing ? edit.canDone !== false : true) && (
             <Button
               size="sm"

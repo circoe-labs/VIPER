@@ -39,13 +39,17 @@ interface Props {
   // Called once a mission is created (it is never started automatically).
   onCreated?: (mission: MissionDetail) => void
   className?: string
+  // Bumped by the sheet (context menu « Mission ») to open the popover as if the button had been pressed.
+  openRequest?: number
 }
 
 // « Mission » button of the prospect header + its compact popover: 2x2 shortcuts (arrow keys move, Enter chooses,
 // Esc closes) and « Autre » (typed or dictated request). Creating a mission only saves it; the success line links
 // to its detail page.
-export function ProspectMissionMenu({ prospect, onCreated, className }: Props) {
+export function ProspectMissionMenu({ prospect, onCreated, className, openRequest = 0 }: Props) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
+  const button = useRef<HTMLButtonElement>(null)
+  const seenRequest = useRef(openRequest)
   const [mode, setMode] = useState<'menu' | 'other'>('menu')
   // The created mission's id (null until then); `reassessed` = it is the S4 reassessment, not a generic mission.
   const [created, setCreated] = useState<{ id: string | null; reassessed: boolean } | null>(null)
@@ -53,6 +57,18 @@ export function ProspectMissionMenu({ prospect, onCreated, className }: Props) {
   const categories = useMissionCategories()
   const create = useCreateMission()
   const reassess = useReassessmentCommands(prospect.id).request
+
+  useEffect(() => {
+    if (openRequest === seenRequest.current) return
+    seenRequest.current = openRequest
+    // After the context menu has closed and given the focus back.
+    const frame = requestAnimationFrame(() => {
+      setAnchor(button.current)
+    })
+    return () => {
+      cancelAnimationFrame(frame)
+    }
+  }, [openRequest])
 
   const close = () => {
     setAnchor(null)
@@ -104,6 +120,7 @@ export function ProspectMissionMenu({ prospect, onCreated, className }: Props) {
   return (
     <>
       <Button
+        ref={button}
         variant="secondary"
         icon={TargetIcon}
         className={className}

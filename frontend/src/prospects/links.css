@@ -1,17 +1,20 @@
-/* « Relations » card (ProspectLinksCard.tsx): the links of one person, and the form that adds one. */
+/* « Relations » card (ProspectLinksCard.tsx): dense rows (avatar, person, relation, strength meter), actions on hover. */
 
 .person-links {
   display: grid;
-  gap: var(--space-4);
+  gap: var(--space-3);
 }
 
 .person-links__empty {
+  margin: 0;
   color: var(--color-text-muted);
   font-size: var(--text-sm);
 }
 
+/* Full-width row: as many compact rows per line as fit. */
 .person-links__list {
   display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(27rem, 1fr));
   gap: var(--space-2);
   margin: 0;
   padding: 0;
@@ -20,70 +23,80 @@
 
 .person-links__item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: auto minmax(0, 1fr) 6.5rem auto auto;
   align-items: center;
-  gap: var(--space-2) var(--space-3);
-  padding: var(--space-3);
+  gap: var(--space-2);
+  min-height: 2.75rem;
+  padding: var(--space-1) var(--space-2);
   border: var(--border-width) solid var(--color-border);
   border-radius: var(--radius-sm);
   background: var(--color-surface-raised);
 }
 
+.person-links__item:hover,
+.person-links__item:focus-within {
+  border-color: var(--color-border-strong);
+}
+
+.person-links__avatar {
+  display: grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: var(--radius-full);
+  color: var(--color-on-warning);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold, 700);
+}
+
 .person-links__who {
   display: grid;
   min-width: 0;
+  line-height: 1.25;
 }
 
 .person-links__who a,
 .person-links__who strong {
   overflow: hidden;
+  font-size: var(--text-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .person-links__kind {
+  overflow: hidden;
   color: var(--color-text-muted);
   font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .person-links__relation {
+  max-width: 100%;
+  justify-self: start;
+  overflow: hidden;
   padding: 0 var(--space-2);
   border-radius: var(--radius-sm);
   background: var(--color-accent-soft);
   color: var(--color-accent-fg);
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
   font-weight: var(--weight-medium);
-  line-height: 1.5rem;
+  line-height: 1.4rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.person-links__score {
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: 5rem minmax(0, 1fr) 4rem;
+.person-links__meter {
+  display: inline-flex;
   align-items: center;
-  gap: var(--space-3);
-  font-size: var(--text-sm);
+  gap: var(--space-2);
 }
 
-.person-links__score output {
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-}
-
-.person-links__score--new {
-  grid-template-columns: auto minmax(0, 1fr) 4rem;
-}
-
-.person-links__score input[type='range'] {
-  width: 100%;
-  accent-color: var(--color-accent);
-}
-
-/* The strength as a bar next to the slider: width and colour grow with the score. */
 .person-links__bar {
   display: block;
-  height: 0.5rem;
-  border-radius: var(--radius-sm);
+  width: 3.5rem;
+  height: 0.375rem;
+  border-radius: var(--radius-full);
   background: var(--color-border);
   overflow: hidden;
 }
@@ -92,12 +105,118 @@
   display: block;
   height: 100%;
   background: var(--color-accent);
-  transition: width var(--duration-base) var(--ease-out);
 }
 
+.person-links__number {
+  min-width: 1.5rem;
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* Edit / delete: shown on hover or focus (always on touch screens), without moving the row. */
+.person-links__actions {
+  display: inline-flex;
+  gap: var(--space-1);
+  opacity: 0;
+  transition: opacity var(--duration-base) var(--ease-out);
+}
+
+.person-links__item:hover .person-links__actions,
+.person-links__item:focus-within .person-links__actions,
+.person-links__actions[data-open] {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .person-links__actions {
+    opacity: 1;
+  }
+}
+
+.person-links__error {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--color-danger);
+  font-size: var(--text-sm);
+}
+
+/* Editing a row: relation + strength take the room of the chip and the meter. */
+.person-links__item--editing {
+  grid-template-columns: auto minmax(8rem, 12rem) minmax(0, 1fr) auto;
+  padding: var(--space-2);
+}
+
+.person-links__edit {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(8rem, 12rem);
+  align-items: end;
+  gap: var(--space-3);
+}
+
+.person-links__slider {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 2rem;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 2.25rem;
+  font-size: var(--text-sm);
+}
+
+.person-links__slider input[type='range'] {
+  width: 100%;
+  accent-color: var(--color-accent);
+}
+
+.person-links__slider output {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* Inline add: one line when the width allows it. */
 .person-links__add {
   display: grid;
+  grid-template-columns: minmax(12rem, 1.4fr) minmax(10rem, 1fr) minmax(11rem, 0.8fr) auto;
+  align-items: end;
   gap: var(--space-3);
-  padding-top: var(--space-3);
-  border-top: var(--border-width) solid var(--color-border);
+  padding: var(--space-3);
+  border: var(--border-width) dashed var(--color-border-strong);
+  border-radius: var(--radius-sm);
+}
+
+@media (max-width: 1100px) {
+  .person-links__add {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .person-links__item--editing {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .person-links__edit {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+
+@media (max-width: 640px) {
+  .person-links__add {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .person-links__item {
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+  }
+
+  /* The relation moves under the person. */
+  .person-links__relation {
+    grid-column: 2 / 4;
+    grid-row: 2;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .person-links__actions {
+    transition: none;
+  }
 }

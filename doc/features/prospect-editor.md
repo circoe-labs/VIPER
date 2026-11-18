@@ -492,6 +492,13 @@ to the created mission; « Complète cette fiche », « Cherche ses relations »
 
 - `<ProspectMissionMenu prospect={{ id, firstName, lastName, roleLabel?, companyId?, companyName? }} onCreated? />` goes in the
   header action slot; it creates prospect-targeted missions (see doc/architecture/missions.md §7g).
-- `<ProspectContactButton prospectId disabledReason? />` is the explicit « Contacter » action; `<ProspectContextMenuSurface prospectId
-  disabledReason?>` wraps the sheet and offers the same action on right click (links, buttons and fields keep the browser menu).
-  Both open the existing Contact deep link `/contact?prospect=<id>`; the right click is never the only path.
+- `<ProspectContactButton prospectId disabledReason? />` is the explicit « Contacter » action. `<ProspectSheetMenu>` (wraps the
+  sheet, wires `<ProspectContextMenuSurface actions>`) offers on right click, the context-menu key or Shift+F10 (arrows, Home/End,
+  Enter, Esc; icons; links, buttons and fields keep the browser menu for the mouse): *Lier à…* (opens the Relations add form and
+  focuses it), *Mission* (opens the header popover), *Contacter* (`/contact?prospect=<id>`), *Réévaluer le score* (S4 command, outcome
+  announced under the sheet), *Graph* (`prospectGraphHref`: `/prospection/graphe?prospect=<id>`, selected in the graph; asks before
+  leaving with pending changes), *Société* (Company editor, disabled without a company). Each has a visible button: header (Mission,
+  Contacter), Relations card (*Lier à*, *Graph*), Score card (*Réévaluer le score*), Entreprise card (*Ouvrir la fiche entreprise*).
+- **Relations card**: dense rows in an auto-fill grid (initials avatar on the graph's hue, name + company/*Membre*, relation chip,
+  strength meter + number); edit (relation + strength) and delete appear on hover/focus; *Lier à* toggles an inline add row; the empty
+  state is one line; every failure (save, delete) shows an alert on the row.

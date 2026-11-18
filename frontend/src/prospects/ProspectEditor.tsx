@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react'
+import { useNavigate } from 'react-router'
 
 import { useCompany } from '../api/companies'
 import { type Prospect, useProspect, useProspectMutations } from '../api/prospects'
@@ -39,8 +40,10 @@ import { useCompletenessIndicator, useProximityIndicator } from './indicatorSour
 import { ProfileRow } from './ProfileLayout'
 import { ProspectIndicatorStrip } from './ProspectIndicatorStrip'
 import { ProspectLinksCard } from './ProspectLinksCard'
-import { ProspectContactButton, ProspectContextMenuSurface } from './missionMenu/ProspectContactAction'
+import { prospectGraphHref } from './prospectGraphHref'
+import { ProspectContactButton } from './missionMenu/ProspectContactAction'
 import { ProspectMissionMenu } from './missionMenu/ProspectMissionMenu'
+import { ProspectSheetMenu } from './missionMenu/ProspectSheetMenu'
 import { ProspectScoreCard } from './ProspectScoreCard'
 import { TrackingTab } from './TrackingTab'
 import './prospects.css'
@@ -99,6 +102,7 @@ function newForms(defaults: NewProspectDefaults = {}): Forms {
 // atomic save; « Enregistrer et suivant » follows the list's queue. Ctrl+S saves, Ctrl+Entrée saves and moves on,
 // Échap closes (asking first when changes are pending).
 export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProps) {
+  const navigate = useNavigate()
   const loaded = useProspect(target === 'new' ? null : target)
   const [forms, setForms] = useState<Forms | null>(() => (target === 'new' ? newForms() : null))
   const [shownTarget, setShownTarget] = useState(target)
@@ -112,6 +116,9 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
   const [tab, setTab] = useState<EditorTab>('profile')
   // « Voir la note » of the score detail: the note the Suivi tab must show and focus (ProspectNotes clears it once done).
   const [noteToShow, setNoteToShow] = useState<string | null>(null)
+  // Context-menu requests (« Lier à… », « Mission »): a counter each, read by the Relations card / the Mission button.
+  const [linkRequest, setLinkRequest] = useState(0)
+  const [missionRequest, setMissionRequest] = useState(0)
 
   // Another person (Save & Next, Back/Forward): drop the previous one's form and messages — unless the form already
   // shows it (a prospect just created here).
@@ -438,7 +445,13 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
           </ProfileRow>
           {prospect && (
             <ProfileRow columns="one">
-              <ProspectLinksCard prospectId={prospect.id} />
+              <ProspectLinksCard
+                prospectId={prospect.id}
+                addRequest={linkRequest}
+                onOpenGraph={() => {
+                  guarded(() => void navigate(prospectGraphHref(prospect.id)), 'Ouvrir le graphe sans enregistrer')
+                }}
+              />
             </ProfileRow>
           )}
         </div>
@@ -475,6 +488,7 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
         prospect && (
           <>
             <ProspectMissionMenu
+              openRequest={missionRequest}
               prospect={{
                 id: prospect.id,
                 firstName: prospect.first_name,
@@ -547,10 +561,23 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
       {forms === null || draft === undefined ? (
         <LoadState failed={loaded.isError} notFound={isNotFound(loaded.error)} onRetry={() => void loaded.refetch()} />
       ) : prospect ? (
-        // Right click on the sheet offers « Contacter » (the header button is the keyboard path).
-        <ProspectContextMenuSurface prospectId={prospect.id} disabledReason={doNotContactReason}>
+        // Right click (or Shift+F10) on the sheet offers its actions; each one also has a visible button (header,
+        // Relations, Score, Entreprise cards).
+        <ProspectSheetMenu
+          prospectId={prospect.id}
+          companyId={prospect.company?.id ?? null}
+          disabledReason={doNotContactReason}
+          guard={guarded}
+          onLink={() => {
+            setTab('profile')
+            setLinkRequest((count) => count + 1)
+          }}
+          onMission={() => {
+            setMissionRequest((count) => count + 1)
+          }}
+        >
           {sheetForm}
-        </ProspectContextMenuSurface>
+        </ProspectSheetMenu>
       ) : (
         sheetForm
       )}
