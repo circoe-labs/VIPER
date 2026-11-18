@@ -14,6 +14,7 @@ Tu **es** l'agent. VIPER ne lance aucun agent à ta place et tu ne « crées » 
 ## 2. Choisir et prendre une tâche
 
 - Voir ce qui attend : `viper_task_queue` (comptes par type) et `viper_list_missions` (`status: active`).
+- Les tâches `reassess_score` (« Réévaluer le score » d'une fiche) attendent dans cette même file : une personne qui attend sur la fiche n'est servie que si un agent tourne. Si `viper_task_queue` n'en montre jamais alors que la fiche en attend une, ton jeton n'a pas ce scope (`task_types` de `viper_whoami`) : dis-le à l'utilisateur.
 - Prendre la suivante : `viper_claim_task`. Pour travailler **une mission précise** (« inscris-toi à cette mission ») : `viper_claim_task` avec `mission_id`.
 - Rien à prendre : la réponse le dit et indique pourquoi (mission en pause, aucune exécution lancée). Dis-le à l'utilisateur ; ne fabrique pas de travail.
 - La tâche ouvre automatiquement ta **session de travail** dans VIPER. Garde `task_id` et `claim_id` : ils accompagnent tous les appels suivants.

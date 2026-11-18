@@ -1,5 +1,7 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type { ReactElement } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { ProspectScore, ScoreBand, ScoreContribution } from '../api/prospects'
@@ -24,11 +26,18 @@ function score(total: number, band: ScoreBand, contributions: ScoreContribution[
 
 function show(value: ProspectScore | null, extra: { outdated?: boolean; onShowNote?: (id: string) => void } = {}) {
   const onShowNote = extra.onShowNote ?? vi.fn()
-  render(<ProspectScoreCard score={value} outdated={extra.outdated} onShowNote={onShowNote} />)
+  renderCard(<ProspectScoreCard score={value} outdated={extra.outdated} onShowNote={onShowNote} />)
   return { onShowNote }
 }
 
-const card = () => screen.getByRole('button', { name: /^Score prospect/ })
+function renderCard(node: ReactElement) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(<QueryClientProvider client={queryClient}>{node}</QueryClientProvider>)
+}
+
+// The card body (a named group) and its « Voir le détail » button.
+const card = () => screen.getByRole('group', { name: /^Score prospect/ })
+const detailButton = () => screen.getByRole('button', { name: /Voir le détail/ })
 
 describe('ProspectScoreCard - the card', () => {
   it.each<[number, ScoreBand, string]>([
@@ -40,7 +49,7 @@ describe('ProspectScoreCard - the card', () => {
   ])('shows %i with the band %s as the word %s, in the name and the text', (total, band, word) => {
     show(score(total, band))
 
-    expect(card()).toHaveAccessibleName(`Score prospect : ${String(total)} sur 100, niveau ${word.toLowerCase()}. Voir le détail`)
+    expect(card()).toHaveAccessibleName(`Score prospect : ${String(total)} sur 100, niveau ${word.toLowerCase()}`)
     expect(within(card()).getByText(word)).toBeInTheDocument()
     expect(card()).toHaveTextContent(String(total))
     expect(card()).toHaveAttribute('data-band', band)
@@ -56,10 +65,9 @@ describe('ProspectScoreCard - the card', () => {
     const long = 'Contact très engagé. '.repeat(30).trim()
     show(score(80, 'green', undefined, long))
 
-    const summary = card().querySelector('.prospect-score__summary')
+    const summary = card().querySelector('.score-state__detail')
     expect(summary).toHaveTextContent('Contact très engagé.')
     expect(summary).toHaveAttribute('title', long)
-    expect(card()).toHaveAccessibleDescription(long)
   })
 
   it('shows nothing, and takes no room, when there is no score', () => {
@@ -73,7 +81,7 @@ describe('ProspectScoreCard - the card', () => {
   it('warns when the last refresh failed', () => {
     show(score(50, 'yellow'), { outdated: true })
 
-    expect(screen.getByRole('status')).toHaveTextContent('Mise à jour impossible : ce score peut être périmé.')
+    expect(screen.getByText('Mise à jour impossible : ce score peut être périmé.').closest('p')).toHaveAttribute('role', 'status')
   })
 })
 
@@ -82,32 +90,32 @@ describe('ProspectScoreCard - the detail', () => {
     show(score(60, 'yellow', [contribution('a', 5)]))
 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-    await userEvent.click(card())
+    await userEvent.click(detailButton())
     const dialog = screen.getByRole('dialog', { name: 'Détail du score' })
     expect(dialog).toHaveAttribute('aria-modal', 'true')
     expect(dialog).toHaveFocus()
 
     await userEvent.keyboard('{Escape}')
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-    expect(card()).toHaveFocus()
+    expect(detailButton()).toHaveFocus()
   })
 
   it.each([['{Enter}'], [' ']])('opens from the keyboard (%j) and closes with the button', async (key) => {
     show(score(60, 'yellow'))
 
     await userEvent.tab()
-    expect(card()).toHaveFocus()
+    expect(detailButton()).toHaveFocus()
     await userEvent.keyboard(key)
     const dialog = screen.getByRole('dialog', { name: 'Détail du score' })
 
     await userEvent.click(within(dialog).getByRole('button', { name: 'Fermer' }))
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-    expect(card()).toHaveFocus()
+    expect(detailButton()).toHaveFocus()
   })
 
   it('traps the focus inside the dialog', async () => {
     show(score(60, 'yellow', [contribution('a', 5)]))
-    await userEvent.click(card())
+    await userEvent.click(detailButton())
     const dialog = screen.getByRole('dialog')
 
     for (let step = 0; step < 4; step++) {
@@ -117,12 +125,12 @@ describe('ProspectScoreCard - the detail', () => {
   })
 
   it('says « Non évalué » instead of a figure when no signal backs the score, and offers « Évaluer »', () => {
-    render(<ProspectScoreCard score={score(50, 'yellow', [])} onShowNote={vi.fn()} />)
+    renderCard(<ProspectScoreCard score={score(50, 'yellow', [])} onShowNote={vi.fn()} />)
 
     const slot = screen.getByRole('region', { name: 'Score prospect' })
     expect(slot).toHaveTextContent('Non évalué')
     expect(slot).not.toHaveTextContent('50')
-    expect(screen.queryByRole('button', { name: /^Score prospect/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Voir le détail/ })).not.toBeInTheDocument()
   })
 
   it('lists positives from the largest, then negatives from the most damaging, with sign, reason and source', async () => {
@@ -134,7 +142,7 @@ describe('ProspectScoreCard - the detail', () => {
         contribution('gros-plus', 25, { source_type: null, source_ref: null }),
       ]),
     )
-    await userEvent.click(card())
+    await userEvent.click(detailButton())
 
     const items = within(screen.getByRole('list', { name: 'Contributions au score' })).getAllByRole('listitem')
     expect(items.map((item) => item.querySelector('.prospect-score-detail__reason')?.textContent)).toEqual([
@@ -152,14 +160,14 @@ describe('ProspectScoreCard - the detail', () => {
   it('keeps a very long reason whole, in its row', async () => {
     const reason = `${'Longue raison sans fin '.repeat(40)}${'x'.repeat(80)}`
     show(score(60, 'yellow', [contribution('a', 10, { reason })]))
-    await userEvent.click(card())
+    await userEvent.click(detailButton())
 
     expect(screen.getByText(reason)).toHaveClass('prospect-score-detail__reason')
   })
 
   it('offers Voir la note only for a note source, closes the detail and gives the note id', async () => {
     const { onShowNote } = show(score(60, 'yellow', [contribution('a', 10), contribution('b', 5, { source_type: 'rule', source_ref: 'r1' })]))
-    await userEvent.click(card())
+    await userEvent.click(detailButton())
 
     expect(screen.getAllByRole('button', { name: 'Voir la note' })).toHaveLength(1)
     await userEvent.click(screen.getByRole('button', { name: 'Voir la note' }))

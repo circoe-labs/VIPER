@@ -1,92 +1,318 @@
-/* « Réévaluer le score » under the Score prospect card (ScoreReassessment.tsx). Colours come from tokens; every state is
-   also written, never colour alone. */
+/* In-card states of « Réévaluer le score » (ScoreReassessment.tsx). Every state replaces the body of the « Score prospect »
+   card in place at the height set by prospect-score.css (.prospect-score): nothing here may add a block. Colours come from
+   tokens; every state is also written, never colour alone. Motion is light and stops under prefers-reduced-motion. */
 
-.score-reassessment {
+.score-state__text {
   display: grid;
-  gap: var(--space-2);
-  margin-top: var(--space-2);
+  flex: 1;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  align-content: center;
+  gap: var(--space-1);
+  min-width: 0;
+  block-size: 100%;
 }
 
-.score-reassessment__bar {
+.score-state__title,
+.score-state__detail {
+  margin: 0;
+  min-width: 0;
+}
+
+.score-state__title {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  align-self: end;
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  line-height: 1.4;
 }
 
-.score-reassessment__state {
-  display: grid;
-  gap: var(--space-2);
+.score-state__title[data-tone='band'] {
+  color: var(--score-band-color, var(--color-text));
 }
 
-.score-reassessment__state:empty {
-  display: none;
-}
-
-.score-reassessment__line {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-2);
-  margin: 0;
+.score-state__title[data-tone='muted'] {
   color: var(--color-text-muted);
-  font-size: var(--text-sm);
-  overflow-wrap: anywhere;
 }
 
-.score-reassessment__line svg {
-  flex: none;
-  margin-top: 2px;
-}
-
-.score-reassessment__line[data-tone='danger'] {
+.score-state__title[data-tone='danger'] {
   color: var(--color-danger-fg);
 }
 
-.score-reassessment__line[data-tone='warning'] {
-  color: var(--color-warning-fg);
-}
-
-.score-reassessment__line[data-tone='success'] {
+.score-state__title[data-tone='success'] {
   color: var(--color-success-fg);
 }
 
-.score-reassessment__line[data-tone='info'] {
+.score-state__title svg {
+  flex: none;
+}
+
+/* One line, ellipsis: the full text is the tooltip (or the detail dialog). */
+.score-state__detail {
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.score-state__timer {
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.score-state__delta {
+  font-variant-numeric: tabular-nums;
+}
+
+.score-state__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--control-sm);
+}
+
+/* « Annuler »: discreet, a text link. */
+.score-state__link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.score-state__link:hover:not(:disabled) {
   color: var(--color-text);
 }
 
-.score-reassessment__timer {
-  font-variant-numeric: tabular-nums;
-  color: var(--color-text-muted);
+.score-state__link:disabled {
+  cursor: progress;
+  opacity: 0.6;
 }
 
-.score-reassessment__wait,
-.score-reassessment__proposal {
-  display: grid;
-  gap: var(--space-2);
-  padding: var(--space-3);
-  border: var(--border-width) solid var(--color-border);
-  border-radius: var(--radius-md);
+.score-state__link:focus-visible {
+  border-radius: var(--radius-sm);
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
 }
 
-.score-reassessment__headline {
-  display: flex;
-  flex-wrap: wrap;
+.score-state[data-band='red'] {
+  --score-band-color: var(--color-danger-fg);
+}
+
+.score-state[data-band='yellow'] {
+  --score-band-color: var(--color-warning-fg);
+}
+
+.score-state[data-band='green'] {
+  --score-band-color: var(--color-success-fg);
+}
+
+/* State badge (« Évaluation en cours », « En attente d'un agent »). */
+.score-badge {
+  display: inline-flex;
   align-items: center;
-  gap: var(--space-2);
-  margin: 0;
+  gap: var(--space-1);
+  max-width: 100%;
+  padding: 2px var(--space-2);
+  overflow: hidden;
+  border-radius: var(--radius-full);
+  background: var(--color-neutral-soft);
+  color: var(--color-neutral-fg);
   font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.score-reassessment__rationale {
-  margin: 0;
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
-  overflow-wrap: anywhere;
+.score-badge[data-tone='info'] {
+  background: var(--color-info-soft);
+  color: var(--color-info-fg);
 }
 
-.score-reassessment__actions {
-  display: flex;
-  flex-wrap: wrap;
+.score-badge[data-tone='success'] {
+  background: var(--color-success-soft);
+  color: var(--color-success-fg);
+}
+
+.score-badge[data-tone='warning'] {
+  background: var(--color-warning-soft);
+  color: var(--color-warning-fg);
+}
+
+.score-badge svg {
+  flex: none;
+}
+
+.score-badge__dot {
+  flex: none;
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: var(--radius-full);
+  background: currentcolor;
+}
+
+/* --- ring: arc eases to the new value after an applied proposal ------------------------------------------------------ */
+
+.score-state__ring {
+  display: inline-flex;
+  flex: none;
+}
+
+.score-state__ring .score-ring__arc {
+  transition: stroke-dasharray 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* --- ring in progress: dashed segments + three dots, same footprint as ScoreRing ------------------------------------- */
+
+.score-progress {
+  position: relative;
+  display: inline-flex;
+  flex: none;
   align-items: center;
-  gap: var(--space-2);
-  margin: 0;
+  justify-content: center;
+  width: 5.5rem;
+  height: 5.5rem;
+  color: var(--color-success-fg);
+}
+
+.score-progress[data-mode='wait'] {
+  color: var(--color-info-fg);
+}
+
+.score-progress[data-paused] {
+  color: var(--color-warning-fg);
+}
+
+.score-progress__svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.score-progress__track,
+.score-progress__dashes {
+  fill: none;
+}
+
+.score-progress__track {
+  stroke: var(--color-border);
+  stroke-width: 2;
+}
+
+/* 19 segments on a circle of pathLength 100: (3.4 + 1.863) x 19 = 100. */
+.score-progress__dashes {
+  stroke: currentcolor;
+  stroke-dasharray: 3.4 1.863;
+  stroke-width: 8;
+  transform-origin: 50% 50%;
+}
+
+.score-progress__dots {
+  position: relative;
+  display: inline-flex;
+  gap: 0.3rem;
+}
+
+.score-progress__dots i {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: var(--radius-full);
+  background: currentcolor;
+  opacity: 0.6;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Working: the segments turn slowly. Only queued: they breathe, nothing turns. Stalled: still. */
+  .score-progress[data-mode='run']:not([data-paused]) .score-progress__dashes {
+    animation: score-progress-turn 16s linear infinite;
+  }
+
+  .score-progress[data-mode='wait']:not([data-paused]) .score-progress__dashes {
+    animation: score-progress-breathe 2.8s ease-in-out infinite;
+  }
+
+  .score-progress:not([data-paused]) .score-progress__dots i {
+    animation: score-progress-dot 1.4s ease-in-out infinite;
+  }
+
+  .score-progress:not([data-paused]) .score-progress__dots i:nth-child(2) {
+    animation-delay: 0.2s;
+  }
+
+  .score-progress:not([data-paused]) .score-progress__dots i:nth-child(3) {
+    animation-delay: 0.4s;
+  }
+
+  /* Applied: one short settle on the new value. */
+  .score-state__ring[data-just-applied] {
+    animation: score-state-settle 0.7s cubic-bezier(0.22, 1, 0.36, 1) 1;
+  }
+
+  .score-state__text {
+    animation: score-state-in 0.25s ease-out both;
+  }
+}
+
+@keyframes score-progress-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes score-progress-breathe {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes score-progress-dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+
+  40% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+@keyframes score-state-settle {
+  0% {
+    transform: scale(0.94);
+  }
+
+  60% {
+    transform: scale(1.03);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes score-state-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
 }
