@@ -52,7 +52,13 @@ const PAGES: { name: string; open: (page: Page) => Promise<void> }[] = [
     open: async (page) => {
       await page.goto('/prospection')
       await page.getByRole('list', { name: 'Prospects' }).getByRole('link').first().click()
-      await page.getByRole('dialog').getByRole('button', { name: /^Score prospect/ }).click()
+      // The synthetic prospects carry no score yet: evaluate one (fake AI), then open the detail of its assessment.
+      const sheet = page.getByRole('dialog')
+      const evaluate = sheet.getByRole('button', { name: 'Évaluer', exact: true })
+      const detail = sheet.getByRole('button', { name: /Voir le détail/ })
+      await expect(evaluate.or(detail)).toBeVisible()
+      if (await evaluate.isVisible()) await evaluate.click()
+      await detail.click({ timeout: 20_000 })
       await expect(page.getByRole('dialog', { name: 'Détail du score' })).toBeVisible()
     },
   },

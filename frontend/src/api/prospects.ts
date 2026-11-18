@@ -130,11 +130,30 @@ export interface ScoreContribution {
   origin: 'manual' | 'agent'
 }
 
+// One criterion of an AI assessment (« Évaluer le score »): a signed impact in points and the evidence taken from the sheet.
+export interface ScoreCriterion {
+  label: string
+  delta: number
+  evidence: string
+}
+
+// The latest AI assessment and its provenance; when present, `ProspectScore.total` is its score and `summary` its rationale.
+export interface ScoreAssessment {
+  id: string
+  rationale: string
+  criteria: ScoreCriterion[]
+  model: string
+  prompt_version: string
+  created_at: string
+  actor_display: string
+}
+
 export interface ProspectScore {
   total: number
   summary: string
   band: ScoreBand
   contributions: ScoreContribution[]
+  assessment?: ScoreAssessment | null
 }
 
 // « Qualité de la fiche » (app/services/prospect_data_quality.py): automatic, separate from the interest score above.

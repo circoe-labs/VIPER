@@ -1,4 +1,4 @@
-/* In-card states of « Réévaluer le score » (ScoreReassessment.tsx). Every state replaces the body of the « Score prospect »
+/* In-card states of « Évaluer le score » (ScoreEvaluation.tsx). Every state replaces the body of the « Score prospect »
    card in place at the height set by prospect-score.css (.prospect-score): nothing here may add a block. Colours come from
    tokens; every state is also written, never colour alone. Motion is light and stops under prefers-reduced-motion. */
 
@@ -114,7 +114,7 @@
   --score-band-color: var(--color-success-fg);
 }
 
-/* State badge (« Évaluation en cours », « En attente d'un agent »). */
+/* State badge (« Évaluation en cours »). */
 .score-badge {
   display: inline-flex;
   align-items: center;
@@ -159,15 +159,17 @@
   background: currentcolor;
 }
 
-/* --- ring: arc eases to the new value after an applied proposal ------------------------------------------------------ */
+/* --- ring: arc eases to the new value after an evaluation */
 
 .score-state__ring {
   display: inline-flex;
   flex: none;
 }
 
-.score-state__ring .score-ring__arc {
-  transition: stroke-dasharray 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+@media (prefers-reduced-motion: no-preference) {
+  .score-state__ring .score-ring__arc {
+    transition: stroke-dasharray 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+  }
 }
 
 /* --- ring in progress: dashed segments + three dots, same footprint as ScoreRing ------------------------------------- */
@@ -181,14 +183,6 @@
   width: 5.5rem;
   height: 5.5rem;
   color: var(--color-success-fg);
-}
-
-.score-progress[data-mode='wait'] {
-  color: var(--color-info-fg);
-}
-
-.score-progress[data-paused] {
-  color: var(--color-warning-fg);
 }
 
 .score-progress__svg {
@@ -231,29 +225,25 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  /* Working: the segments turn slowly. Only queued: they breathe, nothing turns. Stalled: still. */
-  .score-progress[data-mode='run']:not([data-paused]) .score-progress__dashes {
-    animation: score-progress-turn 16s linear infinite;
+  /* Working: the segments turn, the dots hop. */
+  .score-progress .score-progress__dashes {
+    animation: score-progress-turn 9s linear infinite;
   }
 
-  .score-progress[data-mode='wait']:not([data-paused]) .score-progress__dashes {
-    animation: score-progress-breathe 2.8s ease-in-out infinite;
-  }
-
-  .score-progress:not([data-paused]) .score-progress__dots i {
+  .score-progress .score-progress__dots i {
     animation: score-progress-dot 1.4s ease-in-out infinite;
   }
 
-  .score-progress:not([data-paused]) .score-progress__dots i:nth-child(2) {
+  .score-progress .score-progress__dots i:nth-child(2) {
     animation-delay: 0.2s;
   }
 
-  .score-progress:not([data-paused]) .score-progress__dots i:nth-child(3) {
+  .score-progress .score-progress__dots i:nth-child(3) {
     animation-delay: 0.4s;
   }
 
-  /* Applied: one short settle on the new value. */
-  .score-state__ring[data-just-applied] {
+  /* Evaluated: one short settle on the new value. */
+  .score-state__ring[data-just-updated] {
     animation: score-state-settle 0.7s cubic-bezier(0.22, 1, 0.36, 1) 1;
   }
 
@@ -265,17 +255,6 @@
 @keyframes score-progress-turn {
   to {
     transform: rotate(360deg);
-  }
-}
-
-@keyframes score-progress-breathe {
-  0%,
-  100% {
-    opacity: 0.35;
-  }
-
-  50% {
-    opacity: 1;
   }
 }
 

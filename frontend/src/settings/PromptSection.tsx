@@ -24,7 +24,7 @@ export function PromptSection() {
 
 // What differs between the prompts that share this editor. `field` is the integrations setting that stores the text
 // (`null` = back to the built-in one, `defaultOf` reads that built-in text from the integrations answer).
-interface PromptCopy {
+export interface PromptCopy {
   field: IntegrationField
   defaultOf: (data: Integrations) => string
   id: string
@@ -80,7 +80,7 @@ const TAXONOMY_CLEANUP_PROMPT: PromptCopy = {
   saved: 'Consigne enregistrée : elle s’applique aux prochains nettoyages.',
 }
 
-function PromptGrid({ prompts }: { prompts: PromptCopy[] }) {
+export function PromptGrid({ prompts }: { prompts: PromptCopy[] }) {
   const integrations = useIntegrations()
   const [openId, setOpenId] = useState<string | null>(null)
   if (integrations.isPending) return <p className="settings-state">Chargement…</p>

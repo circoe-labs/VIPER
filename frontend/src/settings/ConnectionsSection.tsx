@@ -231,6 +231,8 @@ const SETTING_LABELS: Record<string, string> = {
   contact_initial_prompt: 'prompt initial',
   mission_creator_prompt: 'prompt de l’assistant de création de mission',
   taxonomy_cleanup_prompt: 'prompt de nettoyage des listes',
+  prospect_scoring_prompt: 'prompt du score prospect',
+  circoe_target: 'cible Circoe',
   default_outbound_email: 'adresse « De » par défaut',
   toolbox_mail_enabled: 'activation de la Toolbox',
   toolbox_mcp_url: 'adresse du serveur CIRCOE Toolbox',

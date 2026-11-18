@@ -339,12 +339,34 @@ ProspectScore { total: 0..100, summary: str, band: "red"|"yellow"|"green",
   1 défavorable), bilan +7. ». "Score absent" does not exist in the API: the view always has a score.
 - Contributions are ordered newest observed first (same order as the notes).
 - **Meaning (S4): commercial fit only.** Allowed inputs: the prospect's scored notes (manual, or `origin=agent` from
-  an accepted reassessment, shown with `origin = "agent"`) and its company's valid scored signals (capped).
+  a legacy accepted agent reassessment, shown with `origin = "agent"`) and its company's valid scored signals
+  (capped), then **the latest AI assessment** (below).
   Forbidden: relationship graph / proximity, fiche completeness, Contact state (`ALLOWED_INPUTS` /
   `FORBIDDEN_INPUTS`, guard test `test_prospect_score_inputs.py`).
-- **Réévaluer le score** (card button): a one-off prospect mission whose agent proposes contributions; the person
-  applies or refuses them in the card, only an applied proposal moves the score
-  (`doc/architecture/missions.md` §1c).
+- **Évaluer / Réévaluer le score** (card button, 2026-11-18: the user switched scoring to a **direct LLM call**; the
+  external-agent mission flow hung 15 minutes in production because no agent consumes the queue):
+  `POST /api/prospects/{id}/score/evaluate` runs `prospect_scoring.score_prospect` synchronously (seconds) and answers
+  the new `ProspectScore`. The backend gives the model the prospect sheet (identity, role, employment, e-mails and phones
+  with their verification, company data and signals, notes, tracking state, sources) plus the Circoe target, never the
+  graph / proximity nor the Contact state, and asks a strict JSON `{score 0-100, rationale, criteria[{label, delta,
+  evidence}]}` (same OpenAI client, key, model, timeouts and typed `ai_*` errors as the Contact drafting). The answer is
+  validated (wrong type, missing or extra key: refused; out-of-range score and deltas: clamped). Each success stores one
+  immutable `prospect_score_assessments` row (migration 0058: score, rationale, criteria, model that answered, prompt
+  hash, actor, duration). **The displayed score is the latest assessment's score**; with none, the note-based formula
+  above is the fallback. `ProspectScore.assessment` (`rationale`, `criteria`, `model`, `prompt_version` = first 8
+  characters of the instructions' SHA-256, `created_at`, `actor_display`) says where the figure comes from; the notes'
+  `contributions` stay listed. A failure (not configured -> message pointing to Config AI, timeout, refusal, malformed
+  answer, provider error) writes nothing and leaves the current score untouched.
+- **Card states** (`ScoreEvaluation.tsx`, in place at the card's fixed 88 px body, no layout shift, light motion that
+  stops under `prefers-reduced-motion`): idle, *Non évalué*, in progress (animated ring, « Évaluation en cours »,
+  live seconds counter, abandoned after 2 minutes), success (the ring eases to the new value, « Score mis à jour » and
+  the one-line rationale for 8 s; « Voir le détail » shows the criteria, the model, the prompt version, who and when),
+  failure (« Échec · score inchangé », one line with the real reason, « Réessayer »). The progress is shared by every
+  entry point (card, Mission menu, « … » / right-click menu) through one mutation key per prospect.
+- **Config AI › Scoring prospect** edits the system prompt (`prospect_scoring_prompt`, default shipped, « Rétablir ») and
+  the Circoe target (`circoe_target`, default shipped); the key and the model are those of Connexions. « Tester sur un
+  prospect » (`POST /api/settings/integrations/scoring/test`) runs the saved texts on the most recently updated prospect
+  and stores nothing. The answer format and the « fit only » rule are fixed by the code (`FIXED_RULES`).
 
 **Qualité de la fiche = completeness state** (slice S2 of `viper_prospect_sheet_missions_scoring_redesign`; no longer a
 displayed score). `GET /prospects/{id}` carries `data_quality: DataQualityScore | null` (the field name is kept for
@@ -494,16 +516,15 @@ that changes nothing writes nothing.
 Mounted in `ProspectEditor` through the new `Dialog` `headerActions` slot (left of the close button), only for a saved prospect:
 *Mission* (`ProspectMissionMenu`, role label from the employment labels) and *Contacter* (`ProspectContactButton`, disabled with
 « Ne pas contacter : <raison> » as tooltip under opposition). The whole sheet sits in `ProspectContextMenuSurface`.
-« Réanalyse son score » is not a generic mission: the menu calls S4's `POST /api/prospects/{id}/score/reassessment`
-(same prospect target, `reassess_score` task, proposal reviewed under *Score prospect* before the score moves) and links
-to the created mission; « Complète cette fiche », « Cherche ses relations » and « Autre » use the S5 mission factory.
+« Réanalyse son score » is not a mission: the menu calls `POST /api/prospects/{id}/score/evaluate` (direct AI call, the
+popover follows the evaluation and the card shows the same progress); « Complète cette fiche », « Cherche ses relations » and « Autre » use the S5 mission factory.
 
 - `<ProspectMissionMenu prospect={{ id, firstName, lastName, roleLabel?, companyId?, companyName? }} onCreated? />` goes in the
   header action slot; it creates prospect-targeted missions (see doc/architecture/missions.md §7g).
 - `<ProspectContactButton prospectId disabledReason? />` is the explicit « Contacter » action. `<ProspectSheetMenu>` (wraps the
   sheet, wires `<ProspectContextMenuSurface actions>`) offers on right click, the context-menu key or Shift+F10 (arrows, Home/End,
   Enter, Esc; icons; links, buttons and fields keep the browser menu for the mouse): *Lier à…* (opens the Relations add form and
-  focuses it), *Mission* (opens the header popover), *Contacter* (`/contact?prospect=<id>`), *Réévaluer le score* (S4 command, outcome
+  focuses it), *Mission* (opens the header popover), *Contacter* (`/contact?prospect=<id>`), *Réévaluer le score* (the evaluation, outcome
   announced under the sheet), *Graph* (`prospectGraphHref`: `/prospection/graphe?prospect=<id>`, selected in the graph; asks before
   leaving with pending changes), *Société* (Company editor, disabled without a company). Each has a visible button: header (Mission,
   Contacter), Relations card (*Lier à*, *Graph*), Score card (*Réévaluer le score*), Entreprise card (*Ouvrir la fiche entreprise*).

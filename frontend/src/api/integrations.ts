@@ -19,6 +19,8 @@ export type IntegrationField =
   | 'contact_initial_prompt'
   | 'mission_creator_prompt'
   | 'taxonomy_cleanup_prompt'
+  | 'prospect_scoring_prompt'
+  | 'circoe_target'
   | 'toolbox_mail_enabled'
   | 'toolbox_mcp_url'
   | 'toolbox_oauth_redirect_uri'
@@ -67,6 +69,9 @@ export interface Integrations {
   mission_creator_prompt_default: string
   // The built-in prompt `taxonomy_cleanup_prompt` (the « Nettoyer » button of Paramètres) falls back to.
   taxonomy_cleanup_prompt_default: string
+  // The built-in system prompt and Circoe target of « Évaluer le score » (Config AI › Scoring prospect).
+  prospect_scoring_prompt_default: string
+  circoe_target_default: string
   toolbox: { enabled: boolean; state: string; configured: boolean }
   // S9: `reason` why a scheduled message will not leave, and how many wait (`overdue_count`: their time has passed).
   dispatch: {

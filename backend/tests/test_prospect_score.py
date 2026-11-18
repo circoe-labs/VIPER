@@ -122,7 +122,8 @@ def test_source_ref_is_optional_and_the_contract_round_trips() -> None:
 
     assert dumped["contributions"][0]["source_ref"] is None
     assert dumped["contributions"][0]["source_type"] is None
-    assert set(dumped) == {"total", "summary", "band", "contributions"}
+    assert set(dumped) == {"total", "summary", "band", "contributions", "assessment"}
+    assert dumped["assessment"] is None
     assert ProspectScore.model_validate(dumped) == score
 
 

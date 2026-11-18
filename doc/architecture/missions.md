@@ -47,40 +47,26 @@ the same claim / submit / review process.
   `cancelled`: it is never put back in the queue for another agent.
 - The Dépôt never appears in `idle_summary` (it is not a queue).
 
-## 1c. Score reassessment: a one-off prospect mission (S4)
+## 1c. Score reassessment: retired, the score is now a direct AI call (2026-11-18)
 
-« Réévaluer le score » (score card) asks an agent to reassess the **commercial fit** of one prospect, through
-the ordinary Missions process, never a direct LLM call:
+**Decision.** « Évaluer / Réévaluer le score » used to create a one-off mission (`reassess_score` task) that an external
+MCP agent had to claim, a person then reviewing its proposal. VIPER launches no agent and has no server-side executor,
+so with nobody polling the queue a request hung for 15 minutes in production. The user therefore switched scoring to a
+**direct LLM call**: `POST /api/prospects/{id}/score/evaluate` (`app.services.prospect_scoring`, same OpenAI client
+and configuration as the Contact drafting). Scoring no longer goes through the Missions process. Contract and storage:
+`doc/features/prospect-editor.md` (Score prospect), `prospect_score_assessments` (migration 0058).
 
-- `score_reassessment_requests.request_reassessment` calls `missions.create` for a one-off mission (type `other`,
-  canonical « other » category, one `prospect_id` target, `missions.task_type = reassess_score`, migration 0056).
-  `run_mission` honours `task_type` for prospect targets and creates one `reassess_score` task
-  (`prospect_id` set, company optional). A second request while one is open returns the open one. The Mission
-  menu (S5) reuses this command for its « Réanalyse son score » preset (wired at S7: the tile calls `POST /api/prospects/{id}/score/reassessment`, not `POST /missions`).
-- The agent claims it (`viper_claim_task`, `task_types: ["reassess_score"]`): the payload carries the prospect,
-  its company, `criteria` (meaning, allowed and forbidden inputs, `weights: null`) and `current_score`; **no**
-  contact channel, no relationship graph. It answers with `viper_submit_task_result`
-  (`score_reassessment.ScoreReassessmentResult`): `contributions[]` (`delta` -50..50, `reason`, `criterion?`,
-  public `source`, `quote?`, `observed_on`, `confidence?`), `rationale` (required), `suggested_total?`,
-  `confidence`. `not_found` / `blocked` follow the usual outcome rules.
-- The proposal (`kind = "score_reassessment"`) lists one item per contribution plus `current_total`,
-  `projected_total` (recomputed by VIPER), `rationale`; refused items (bad URL, future date, source already
-  stored) are listed with a reason. **Nothing changes the score until a person accepts** through
-  `POST /api/agents/results/{id}/accept` (all or chosen items): each accepted item becomes a `prospect_notes` row
-  (`origin=agent`, `kind=other`, `score_delta`, `source_url`, `task_result_id`, valid 180 days), the rows the score
-  already reads, and `applied.score_notes` lists them. Rejection, agent failure, cancellation or `not_found` leave
-  the score as it was.
-- API: `GET|POST|DELETE /api/prospects/{id}/score/reassessment` (state: `idle`, `queued`, `running`, `proposal`,
-  `applied`, `nothing_found`, `rejected`, `failed`, `cancelled`).
-- **Who executes it.** VIPER launches no agent and has no server-side executor: external MCP clients (a
-  worker, claude.ai, Claude Code running the `viper-run-mission` skill) poll the queue. A `queued` task with nobody
-  polling waits forever, so the state carries `agents_available` (live tokens, used in the last 10 min, whose
-  scopes include `reassess_score`); the card says « En attente d'un agent » and, past a deadline, « Aucun agent n'a
-  pris la demande ». A token with an **explicit** scope list must contain `reassess_score` (migration 0057 backfills
-  tokens that listed all five older types; narrower tokens are deliberate and untouched).
-- Missing product input: there is no weighted criteria matrix; the formula is unchanged and the deltas are the
-  agent's, reviewed by a person. Repeated reassessments add contributions (each expires after 180 days): the
-  agent sees the current contributions and is told to correct, not repeat.
+**What was removed.** `score_reassessment_requests` (the mission-creating command and the state read model), the route
+`GET|POST|DELETE /api/prospects/{id}/score/reassessment`, the card's queued / proposal / « Aucun agent connecté »
+states, the Mission menu's call to it, and their tests. The « Réanalyse son score » preset and the « Réévaluer le
+score » action now call the new endpoint.
+
+**What stays, and why.** `reassess_score` stays a valid `agent_task_type` and `missions.task_type` value (migrations
+0056 / 0057 untouched: removing it would need a risky data migration), and `score_reassessment.py` (claim payload,
+proposal, apply as scored notes) stays as a **legacy contract** so a task created earlier can still be claimed and
+reviewed (`tests/test_score_reassessment_legacy.py`). Nothing creates such a task any more. Removal condition: no
+`reassess_score` task left open in production (cancel the leftover « Réévaluer le score — … » missions from the
+Missions page), then drop the contract, its hooks in `agent_payloads` / `agent_review` and that test.
 
 ## 2. The mission record
 
@@ -582,7 +568,7 @@ maps preset -> canonical `MissionInput` posted to `POST /missions` (server valid
   role, company and the objective are also written in the consigne (category general prompt + `Objectif` + `Contexte`);
 - category resolved at runtime by seeded key (`enrichment` for « Complète », `other` for score and relations), `skill_ids` /
   `source_ids` follow the category, `run_now: false`: **nothing starts automatically**; the success line links to `/missions/:id`;
-- « Réanalyse son score » is **not** built by the factory (S7): the tile calls S4's `POST /api/prospects/{id}/score/reassessment`
-  (one-off `reassess_score` mission bound to the same `prospect_id`, started at once, proposal reviewed under « Score prospect »);
+- « Réanalyse son score » is **not** built by the factory and is not a mission (§1c): the tile calls
+  `POST /api/prospects/{id}/score/evaluate` (direct AI call, seconds); the popover shows the progress then the outcome;
 - « Autre »: textarea + microphone through `useSpeechInput` (`chooseSpeechMode`, §7f). Refused / absent mic or STT failure is shown
   inline (`role="alert"`) and typing keeps working; a live seconds counter shows listening / transcription.

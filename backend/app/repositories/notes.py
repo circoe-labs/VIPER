@@ -38,6 +38,19 @@ def notes_of(session: Session, prospect_ids: Sequence[uuid.UUID]) -> Sequence[Pr
     return session.scalars(statement).all()
 
 
+def company_notes(session: Session, company_id: uuid.UUID) -> Sequence[ProspectNote]:
+    """The company's notes and signals: most recently observed first."""
+    statement = (
+        select(ProspectNote)
+        .where(ProspectNote.company_id == company_id)
+        .order_by(
+            ProspectNote.observed_on.desc().nulls_last(),
+            ProspectNote.created_at.desc(),
+            ProspectNote.id.desc(),
+        )
+    )
+    return session.scalars(statement).all()
+
 
 def scored_notes(
     session: Session, prospect_id: uuid.UUID, *, on: date | None = None

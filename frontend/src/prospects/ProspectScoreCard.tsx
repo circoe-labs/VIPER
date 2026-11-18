@@ -7,8 +7,8 @@ import { AlertIcon, InfoIcon } from '../ui/icons'
 import { InfoTip } from '../ui/InfoTip'
 import { ScoreRing } from '../ui/ScoreRing'
 import { EditorSection } from './EditorSection'
-import { ScoreReassessment } from './ScoreReassessment'
-import { BAND_LABELS, BAND_TONES, contributionSource, signedDelta, sortContributions } from './scoreView'
+import { ScoreEvaluation } from './ScoreEvaluation'
+import { assessmentProvenance, BAND_LABELS, BAND_TONES, contributionSource, signedDelta, sortContributions, sortCriteria } from './scoreView'
 import './prospect-score.css'
 
 interface ProspectScoreCardProps {
@@ -18,21 +18,19 @@ interface ProspectScoreCardProps {
   outdated?: boolean
   // « Voir la note »: the editor shows the note on its tab.
   onShowNote: (noteId: string) => void
-  // The saved prospect: enables « Évaluer » / « Réévaluer le score » (agent proposal, applied only once the person validates it).
-  // Absent = no reassessment affordance. Seam for ProspectEditor (S1): pass `prospect.id`.
+  // The saved prospect: enables « Évaluer » / « Réévaluer le score » (the AI scores the sheet directly, in seconds).
+  // Absent = no evaluation affordance. Seam for ProspectEditor (S1): pass `prospect.id`.
   prospectId?: string | null
-  // A proposal was applied: the score changed, the editor may re-read what depends on it.
-  onScoreChanged?: () => void
 }
 
-// « Score prospect » card (prospect-contact-ux S4), first KPI of the Profil tab. One fixed-height body (ScoreReassessment) shows
-// the score, or whichever async state « Réévaluer le score » is in, in place; « Voir le détail » opens the detail in a modal dialog
+// « Score prospect » card (prospect-contact-ux S4), first KPI of the Profil tab. One fixed-height body (ScoreEvaluation) shows
+// the score, or whichever async state « Évaluer le score » is in, in place; « Voir le détail » opens the detail in a modal dialog
 // (focus trapped, Esc closes it alone, focus back on the button). The slot div stays when there is no score, and then takes no
 // room (profile-summary.css).
-export function ProspectScoreCard({ score, outdated = false, onShowNote, prospectId = null, onScoreChanged }: ProspectScoreCardProps) {
+export function ProspectScoreCard({ score, outdated = false, onShowNote, prospectId = null }: ProspectScoreCardProps) {
   return (
     <div className="prospect-score-slot" data-slot="prospect-score">
-      {score && <ScoreSection score={score} outdated={outdated} onShowNote={onShowNote} prospectId={prospectId} onScoreChanged={onScoreChanged} />}
+      {score && <ScoreSection score={score} outdated={outdated} onShowNote={onShowNote} prospectId={prospectId} />}
     </div>
   )
 }
@@ -42,10 +40,9 @@ interface ScoreSectionProps {
   outdated: boolean
   onShowNote: (noteId: string) => void
   prospectId: string | null
-  onScoreChanged?: () => void
 }
 
-function ScoreSection({ score, outdated, onShowNote, prospectId, onScoreChanged }: ScoreSectionProps) {
+function ScoreSection({ score, outdated, onShowNote, prospectId }: ScoreSectionProps) {
   const [open, setOpen] = useState(false)
 
   return (
@@ -57,12 +54,11 @@ function ScoreSection({ score, outdated, onShowNote, prospectId, onScoreChanged 
         </InfoTip>
       }
     >
-      {/* One body, always the same height: ring, level, detail link and every async state of « Réévaluer » replace
-          each other here (ScoreReassessment.tsx); nothing is ever added around it. */}
-      <ScoreReassessment
+      {/* One body, always the same height: ring, level, detail link and every async state of « Évaluer » replace
+          each other here (ScoreEvaluation.tsx); nothing is ever added around it. */}
+      <ScoreEvaluation
         prospectId={prospectId}
         score={score}
-        onScoreChanged={onScoreChanged}
         onOpenDetail={() => {
           setOpen(true)
         }}
@@ -95,10 +91,11 @@ interface ScoreDetailProps {
   onShowNote: (noteId: string) => void
 }
 
-// The detail: the total, the summary, then the contributions (sorted by scoreView.sortContributions) with their signed
-// delta, reason and source.
+// The detail: the total and the rationale; with an AI assessment its criteria (signed impact, label, evidence) and where it
+// comes from (model, prompt version, who, when); then the notes that carry points (sorted by scoreView.sortContributions).
 function ScoreDetail({ open, score, onClose, onShowNote }: ScoreDetailProps) {
   const contributions = sortContributions(score.contributions)
+  const assessment = score.assessment ?? null
   return (
     <Modal open={open} size="lg" title="Détail du score" onClose={onClose}>
       <div className="prospect-score-detail">
@@ -111,11 +108,42 @@ function ScoreDetail({ open, score, onClose, onShowNote }: ScoreDetailProps) {
             <p className="prospect-score-detail__summary">{score.summary}</p>
           </div>
         </div>
-        <h3 className="prospect-score-detail__title">Contributions</h3>
+        {assessment && (
+          <>
+            <h3 className="prospect-score-detail__title">Critères de l’évaluation</h3>
+            {assessment.criteria.length === 0 ? (
+              <p className="prospect-score-detail__empty">
+                <InfoIcon size={16} />
+                L’IA n’a détaillé aucun critère.
+              </p>
+            ) : (
+              <ul className="prospect-score-detail__list" aria-label="Critères de l’évaluation">
+                {sortCriteria(assessment.criteria).map((criterion) => (
+                  <li key={`${criterion.label}-${criterion.evidence}`} className="prospect-score-detail__item">
+                    <span
+                      className="prospect-score-detail__delta"
+                      data-sign={Math.sign(criterion.delta)}
+                      role="img"
+                      aria-label={`${signedDelta(criterion.delta)} points`}
+                    >
+                      {signedDelta(criterion.delta)}
+                    </span>
+                    <div className="prospect-score-detail__body">
+                      <p className="prospect-score-detail__reason">{criterion.label}</p>
+                      <p className="prospect-score-detail__source">{criterion.evidence}</p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="prospect-editor__muted prospect-score-detail__provenance">{assessmentProvenance(assessment)}</p>
+          </>
+        )}
+        <h3 className="prospect-score-detail__title">{assessment ? 'Notes avec points (hors évaluation de l’IA)' : 'Contributions'}</h3>
         {contributions.length === 0 ? (
           <p className="prospect-score-detail__empty">
             <InfoIcon size={16} />
-            Aucun signal enregistré : le score est à sa valeur de départ.
+            {assessment ? 'Aucune note ne porte de points.' : 'Aucun signal enregistré : le score est à sa valeur de départ.'}
           </p>
         ) : (
           <>

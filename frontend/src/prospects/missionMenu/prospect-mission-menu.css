@@ -137,3 +137,18 @@
     transition: none;
   }
 }
+
+/* « Fermer » after an evaluation is a button, styled like the mission link. */
+button.pmm__link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+}
+
+.pmm__eval:focus {
+  outline: none;
+}

@@ -34,6 +34,7 @@ from app.models.oauth import OAuthAuthorization, OAuthClient, OAuthToken
 from app.models.organizations import Organization
 from app.models.person_links import PersonLink
 from app.models.prospects import Email, Phone, Prospect, ProspectNote, ProspectSource
+from app.models.score_assessments import ProspectScoreAssessment
 from app.models.quality_alerts import QualityAlert
 from app.models.taxonomies import ActivityCategory, CommercialSegment, Role
 from app.models.users import User, UserSession
@@ -85,6 +86,7 @@ __all__ = [
     "Prospect",
     "PersonLink",
     "ProspectNote",
+    "ProspectScoreAssessment",
     "ProspectSource",
     "QualityAlert",
     "Role",

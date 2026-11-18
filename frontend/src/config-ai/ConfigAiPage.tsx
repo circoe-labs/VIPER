@@ -8,6 +8,7 @@ import { CalendlySection } from '../settings/CalendlyCard'
 import { ConnectionsSection } from '../settings/ConnectionsSection'
 import { McpSection } from '../settings/McpSection'
 import { PromptSection } from '../settings/PromptSection'
+import { ScoringSection } from './ScoringSection'
 import { STATE_BADGES } from '../settings/toolboxCopy'
 import '../settings/settings.css'
 
@@ -17,6 +18,7 @@ const SECTIONS = {
   calendly: { title: 'Calendly', Section: CalendlySection },
   mcp: { title: 'MCP', Section: McpSection },
   prompt: { title: 'Prompt', Section: PromptSection },
+  scoring: { title: 'Scoring prospect', Section: ScoringSection },
 } as const
 
 type SectionId = keyof typeof SECTIONS

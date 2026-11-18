@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useCompany } from '../api/companies'
-import type { Prospect } from '../api/prospects'
+import type { Prospect, ProspectScore } from '../api/prospects'
 import { useTaxonomyValues } from '../api/settings'
 import { civilityLabel, stateLabel } from '../prospection/labels'
 import { StatusBadge } from '../ui/Badge'
@@ -11,6 +11,7 @@ import type { CompletenessView, IndicatorState, ProximityView } from './indicato
 import type { AliasDraft, ProspectDraft } from './prospectForm'
 import { proximityLabel } from './proximityView'
 import { BAND_LABELS } from './scoreView'
+import { isEvaluated } from './ScoreEvaluation'
 import { summarizeProspect, type SummaryEmail } from './sheetSummary'
 import { aliasState } from './verification'
 import './profile-summary.css'
@@ -44,6 +45,8 @@ export function mainAlias(aliases: AliasDraft[]): { alias: AliasDraft | null; ot
 }
 
 interface ProfileSummaryProps {
+  // The score as the Score prospect card shows it (an evaluation may have changed it since the prospect was loaded).
+  score: ProspectScore | null
   draft: ProspectDraft
   prospect: Prospect | null
   labels: EmploymentLabels
@@ -57,7 +60,7 @@ interface ProfileSummaryProps {
 // « Résumé » card (Profil tab): a short synthesis of the real data of the sheet — role at company, fiche state, e-mail
 // verification, proximity, score status — derived from the editor's draft and indicators, never a second copy: a pending
 // edit shows here as soon as it is typed. The person's name is in the header, not repeated here.
-export function ProfileSummary({ draft, prospect, labels, completeness, proximity, companyMoved, today }: ProfileSummaryProps) {
+export function ProfileSummary({ draft, prospect, score, labels, completeness, proximity, companyMoved, today }: ProfileSummaryProps) {
   const [copyStatus, setCopyStatus] = useState('')
   const name = [civilityLabel(draft.civility || null), draft.first_name.trim(), draft.last_name.trim()].filter(Boolean).join(' ')
   const email = mainAlias(draft.emails)
@@ -78,7 +81,7 @@ export function ProfileSummary({ draft, prospect, labels, completeness, proximit
       proximity.status === 'ready'
         ? { state: proximity.value.state, pathCount: proximity.value.pathCount, label: proximityLabel(proximity.value.total) }
         : null,
-    score: prospect ? { evaluated: prospect.score.contributions.length > 0, bandLabel: BAND_LABELS[prospect.score.band] } : null,
+    score: score ? { evaluated: isEvaluated(score), bandLabel: BAND_LABELS[score.band] } : null,
   })
   return (
     <EditorSection

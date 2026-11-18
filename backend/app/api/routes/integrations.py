@@ -53,6 +53,10 @@ from app.services.mail_generation.openai_client import (
 )
 from app.services.mail_generation.prompt import DEFAULT_INITIAL_PROMPT
 from app.services.mission_creator_prompt import DEFAULT_MISSION_CREATOR_PROMPT
+from app.services.prospect_scoring_prompt import (
+    DEFAULT_CIRCOE_TARGET,
+    DEFAULT_PROSPECT_SCORING_PROMPT,
+)
 from app.services.taxonomy_cleanup_prompt import DEFAULT_TAXONOMY_CLEANUP_PROMPT
 from app.services.runtime_settings import (
     EDITABLE_FIELDS,
@@ -132,6 +136,9 @@ class IntegrationsOut(BaseModel):
     mission_creator_prompt_default: str
     # The built-in prompt `taxonomy_cleanup_prompt` (the « Nettoyer » button) falls back to.
     taxonomy_cleanup_prompt_default: str
+    # The built-in system prompt and Circoe target of « Évaluer le score » (Scoring prospect tab).
+    prospect_scoring_prompt_default: str
+    circoe_target_default: str
     toolbox: ToolboxSummaryOut
     dispatch: DispatchSummaryOut
 
@@ -153,6 +160,8 @@ class IntegrationsIn(BaseModel):
     contact_initial_prompt: Annotated[str, Field(max_length=8000)] | None = None
     mission_creator_prompt: Annotated[str, Field(max_length=8000)] | None = None
     taxonomy_cleanup_prompt: Annotated[str, Field(max_length=8000)] | None = None
+    prospect_scoring_prompt: Annotated[str, Field(max_length=8000)] | None = None
+    circoe_target: Annotated[str, Field(max_length=8000)] | None = None
     default_outbound_email: Text | None = None
     toolbox_mail_enabled: bool | None = None
     toolbox_mcp_url: Text | None = None
@@ -226,6 +235,8 @@ def integrations_out(request: Request, session: Session) -> IntegrationsOut:
         initial_prompt_default=DEFAULT_INITIAL_PROMPT,
         mission_creator_prompt_default=DEFAULT_MISSION_CREATOR_PROMPT,
         taxonomy_cleanup_prompt_default=DEFAULT_TAXONOMY_CLEANUP_PROMPT,
+        prospect_scoring_prompt_default=DEFAULT_PROSPECT_SCORING_PROMPT,
+        circoe_target_default=DEFAULT_CIRCOE_TARGET,
         toolbox=ToolboxSummaryOut(
             enabled=status.enabled, state=status.state, configured=integration.configured
         ),
