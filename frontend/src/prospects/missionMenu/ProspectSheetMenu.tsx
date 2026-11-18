@@ -1,8 +1,7 @@
 import { type ReactNode, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 
-import { ApiError } from '../../api/client'
-import { useReassessmentCommands } from '../../api/scoreReassessment'
+import { evaluationFailure, useEvaluateScore } from '../../api/scoreEvaluation'
 import { useCompanyEditor } from '../../companies/CompanyEditorProvider'
 import { prospectGraphHref } from '../prospectGraphHref'
 import { ProspectContextMenuSurface, type SheetMenuActions } from './ProspectContactAction'
@@ -33,13 +32,13 @@ export interface SheetMenu {
 
 const FEEDBACK_MS = 8000
 
-// The sheet's actions wired to the real operations (reassessment command, graph route, Company editor) — one instance
+// The sheet's actions wired to the real operations (score evaluation, graph route, Company editor) — one instance
 // per sheet, read by the right-click menu (ProspectSheetMenu) and the header's « … » menu. It also says what happened:
-// asking an agent is not instant, so the outcome (running / refused) is announced on screen.
+// the AI takes a few seconds, so the outcome (running / done / refused) is announced on screen.
 export function useSheetMenu({ prospectId, companyId, onLink, onMission, guard }: ActionsParams): SheetMenu {
   const navigate = useNavigate()
   const openCompany = useCompanyEditor()
-  const { request } = useReassessmentCommands(prospectId)
+  const evaluate = useEvaluateScore(prospectId)
   const [feedback, setFeedback] = useState<{ tone: 'info' | 'danger'; text: string } | null>(null)
 
   useEffect(() => {
@@ -56,23 +55,17 @@ export function useSheetMenu({ prospectId, companyId, onLink, onMission, guard }
     link: onLink,
     mission: onMission,
     reassess: {
-      busy: request.isPending,
+      busy: evaluate.isPending,
       run: () => {
-        setFeedback({ tone: 'info', text: 'Réévaluation demandée…' })
-        request.mutate(
-          {},
-          {
-            onSuccess: () => {
-              setFeedback({ tone: 'info', text: 'Réévaluation demandée : suivez-la sous « Score prospect ».' })
-            },
-            onError: (failure) => {
-              setFeedback({
-                tone: 'danger',
-                text: failure instanceof ApiError ? failure.message : 'La réévaluation n’a pas pu être demandée. Réessayez.',
-              })
-            },
+        setFeedback({ tone: 'info', text: 'Évaluation du score en cours…' })
+        evaluate.start(undefined, {
+          onSuccess: (score) => {
+            setFeedback({ tone: 'info', text: `Score mis à jour : ${String(score.total)} sur 100.` })
           },
-        )
+          onError: (failure) => {
+            setFeedback({ tone: 'danger', text: `Évaluation échouée, score inchangé : ${evaluationFailure(failure)}` })
+          },
+        })
       },
     },
     graph: () => {

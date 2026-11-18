@@ -1,14 +1,15 @@
 import AxeBuilder from '@axe-core/playwright'
-import { expect, type Page, test } from '@playwright/test'
+import { expect, type Locator, type Page, test } from '@playwright/test'
 
 import { createCompany, post, uniqueSuffix } from './data'
+import { E2E_OPENAI_PORT } from './env'
 import { SCREENSHOTS, useTheme } from './helpers'
 import { signIn } from './session'
 
 // The redesigned prospect sheet end to end (prospect-sheet redesign S7, UI2): a centered floating window, the three KPI
 // cards in one order and one height (score prospect, score de proximité, état de la fiche), the header's Mission,
-// Contacter and « … » actions, the reassessment entry point, and a look at Profil and Suivi at 1440, 1280 and 800 px. Reads the synthetic dataset
-// only; the one write is the mission it creates, bound to the first prospect.
+// Contacter and « … » actions, the score evaluation (direct AI call, 2026-11-18: no agent mission), and a look at Profil and Suivi at 1440, 1280 and 800 px. Reads the synthetic dataset
+// only; the writes are the mission it creates (bound to the first prospect) and its own run-unique prospects.
 
 test.beforeEach(async ({ page }) => {
   await signIn(page)
@@ -33,7 +34,8 @@ test('top of the sheet: fit score, fiche state in words, proximity score, header
   // The proximity score is read from its own endpoint: a figure or an explained empty state, never a spinner for good.
   const proximity = strip.getByRole('region', { name: 'Score de proximité' })
   await expect(proximity).toContainText(/chemin|Aucune relation|Aucun membre/)
-  await expect(strip.getByRole('button', { name: 'Évaluer', exact: true })).toBeVisible()
+  // Not evaluated yet, or already evaluated by an earlier spec of the run (the accessibility spec evaluates one).
+  await expect(strip.getByRole('button', { name: /^(Évaluer|Réévaluer le score)$/ })).toBeVisible()
 
   const header = editor.locator('header').first()
   await expect(header.getByRole('button', { name: 'Mission' })).toBeVisible()
@@ -119,11 +121,12 @@ test('Profil and Suivi stay readable at 1440 and 800 px, with no serious accessi
 })
 
 // A prospect of this test's own (run-unique, synthetic), opened in the sheet.
-async function ownProspect(page: Page, first: string, companyId: string, tag: string) {
+async function ownProspect(page: Page, first: string, companyId: string, tag: string, extra: Record<string, unknown> = {}) {
   return post<{ id: string }>(page, '/api/prospects', {
     first_name: first,
     last_name: `Sheet${tag}`,
     company_id: companyId,
+    ...extra,
     provenance: { legal_basis_or_collection_context: 'Données synthétiques de test E2E' },
   })
 }
@@ -216,4 +219,160 @@ test('light theme: Profil and Suivi at 1440, 1280 and 800 px, no horizontal scro
     })
     expect(overflow).toBeLessThanOrEqual(1)
   }
+})
+
+// --- « Évaluer le score »: the AI scores the sheet directly (fake OpenAI, e2e/fake-openai.ts) ------------------------------
+
+const FAKE_OPENAI = `http://127.0.0.1:${String(E2E_OPENAI_PORT)}`
+
+interface FakeRequest {
+  instructions?: string
+  input?: string
+  text?: { format?: { name?: string } }
+}
+
+async function scoringRequests(page: Page) {
+  const all = (await (await page.request.get(`${FAKE_OPENAI}/requests`)).json()) as FakeRequest[]
+  return all.filter((request) => request.text?.format?.name === 'prospect_score')
+}
+
+// The three KPI cards keep one height whatever the score card is doing.
+async function cardHeights(editor: Locator) {
+  const cards = editor.getByRole('region', { name: 'Indicateurs de la fiche' }).locator(':scope > *')
+  return cards.evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().height)))
+}
+
+test('score card: Non évalué, in progress with a counter, success with the new figure, detail with the criteria, at one height', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await useTheme(page, 'light')
+  const tag = uniqueSuffix()
+  const company = await createCompany(page, { display_name: `Evaluation ${tag}` })
+  const prospect = await ownProspect(page, 'Jeanne', company.id, tag, { exact_job_title: 'Directrice générale' })
+  const editor = await openOwn(page, prospect.id)
+  const card = editor.getByRole('region', { name: 'Score prospect' })
+  const body = card.locator('.score-state')
+
+  await expect(body).toHaveAttribute('data-phase', 'unevaluated')
+  await expect(card).toContainText('Non évalué')
+  const resting = await cardHeights(editor)
+  expect(new Set(resting).size).toBe(1)
+  await page.screenshot({ path: `${SCREENSHOTS}/score-eval-1-unevaluated.png`, animations: 'disabled' })
+
+  await card.getByRole('button', { name: 'Évaluer', exact: true }).click()
+  await expect(body).toHaveAttribute('data-phase', 'running')
+  await expect(card).toContainText('Évaluation en cours')
+  await expect(card.locator('.score-state__timer')).toContainText(/\d+ s/)
+  expect(await cardHeights(editor)).toEqual(resting)
+  await page.screenshot({ path: `${SCREENSHOTS}/score-eval-2-running.png` })
+
+  await expect(body).toHaveAttribute('data-phase', 'success', { timeout: 15_000 })
+  await expect(card).toContainText('Score mis à jour')
+  await expect(card.locator('.score-ring__value')).toHaveText('85')
+  await expect(card.locator('.score-state__detail')).toContainText('Décideur')
+  expect(await cardHeights(editor)).toEqual(resting)
+  await page.screenshot({ path: `${SCREENSHOTS}/score-eval-3-success.png` })
+
+  // The score is stored: the prospect now answers it, with its provenance.
+  const stored = (await (await page.request.get(`/api/prospects/${prospect.id}`)).json()) as {
+    score: { total: number; assessment: { model: string; prompt_version: string } | null }
+  }
+  expect(stored.score.total).toBe(85)
+  expect(stored.score.assessment?.model).toBe('fake-e2e-model-snapshot')
+  await expect(body).toHaveAttribute('data-phase', 'idle', { timeout: 15_000 })
+  await card.getByRole('button', { name: /Voir le détail/ }).click()
+  const dialog = page.getByRole('dialog', { name: 'Détail du score' })
+  await expect(dialog.getByRole('list', { name: 'Critères de l’évaluation' })).toContainText('Poste décisionnaire')
+  await expect(dialog).toContainText('fake-e2e-model-snapshot')
+  await page.screenshot({ path: `${SCREENSHOTS}/score-eval-4-detail.png`, animations: 'disabled' })
+  await page.keyboard.press('Escape')
+
+  // What reached the model: the whole sheet and the Circoe target; neither the relationships nor the Contact state.
+  const sent = (await scoringRequests(page)).at(-1)
+  expect(sent?.instructions).toContain('Cible de Circoe')
+  expect(sent?.input).toContain(`Sheet${tag}`)
+  expect(sent?.input).toContain('Directrice générale')
+  expect(sent?.input?.toLowerCase()).not.toMatch(/proximit|séquence|relance/)
+
+  // « Réévaluer » asks again: the same states, in the same place.
+  await card.getByRole('button', { name: 'Réévaluer le score' }).click()
+  await expect(body).toHaveAttribute('data-phase', 'running')
+  await expect(body).toHaveAttribute('data-phase', 'success', { timeout: 15_000 })
+})
+
+test('score card failure: a malformed AI answer is one line with the reason, the score is unchanged, Réessayer is offered', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await useTheme(page, 'light')
+  const tag = uniqueSuffix()
+  const company = await createCompany(page, { display_name: `Echec ${tag}` })
+  const prospect = await ownProspect(page, 'Paul', company.id, tag)
+  // The fake answers text that is not the schema when the sheet carries this marker (a note of the prospect).
+  await post(page, `/api/prospects/${prospect.id}/notes`, { fact_text: 'FAKE_SCORE_MALFORMED : réponse IA illisible' })
+  const editor = await openOwn(page, prospect.id)
+  const card = editor.getByRole('region', { name: 'Score prospect' })
+  const body = card.locator('.score-state')
+  const before = (await (await page.request.get(`/api/prospects/${prospect.id}`)).json()) as { score: unknown }
+
+  await card.getByRole('button', { name: 'Évaluer', exact: true }).click()
+
+  await expect(body).toHaveAttribute('data-phase', 'failed', { timeout: 15_000 })
+  await expect(card).toContainText('Échec · score inchangé')
+  await expect(card.locator('.score-state__detail')).toContainText('inutilisable')
+  await expect(card.getByRole('button', { name: 'Réessayer' })).toBeEnabled()
+  await page.screenshot({ path: `${SCREENSHOTS}/score-eval-5-failure.png`, animations: 'disabled' })
+  const after = (await (await page.request.get(`/api/prospects/${prospect.id}`)).json()) as { score: unknown }
+  expect(after.score).toEqual(before.score)
+})
+
+test('Mission menu « Réanalyse son score » and the « … » menu call the evaluation, never a mission', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  const tag = uniqueSuffix()
+  const company = await createCompany(page, { display_name: `Menu ${tag}` })
+  const prospect = await ownProspect(page, 'Karim', company.id, tag, { exact_job_title: 'Responsable achats' })
+  const editor = await openOwn(page, prospect.id)
+  const card = editor.getByRole('region', { name: 'Score prospect' })
+  const posts: string[] = []
+  page.on('request', (request) => {
+    if (request.method() === 'POST') posts.push(new URL(request.url()).pathname)
+  })
+
+  await editor.locator('header').first().getByRole('button', { name: 'Mission' }).click()
+  const menu = page.getByRole('dialog', { name: 'Mission pour ce prospect' })
+  await menu.getByRole('button', { name: /Réanalyse son score/ }).click()
+  await expect(menu).toContainText('Évaluation en cours')
+  await expect(menu).toContainText('Score mis à jour', { timeout: 15_000 })
+  await expect(card.locator('.score-ring__value')).toHaveText('50')
+  await page.keyboard.press('Escape')
+
+  await editor.getByRole('button', { name: 'Autres actions du prospect' }).click()
+  await page.getByRole('menuitem', { name: 'Réévaluer le score' }).click()
+  await expect(card.locator('.score-state')).toHaveAttribute('data-phase', 'running')
+  await expect(card.locator('.score-state')).toHaveAttribute('data-phase', 'success', { timeout: 15_000 })
+
+  expect(posts.filter((path) => path === `/api/prospects/${prospect.id}/score/evaluate`)).toHaveLength(2)
+  expect(posts).not.toContain('/api/missions')
+  expect(posts.some((path) => path.includes('/score/reassessment'))).toBe(false)
+})
+
+test('Config AI › Scoring prospect: own tab, the two texts, the test on a prospect', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await useTheme(page, 'light')
+  await page.goto('/config-ai/prompt')
+  await page.getByRole('navigation', { name: 'Sections de la configuration AI' }).getByRole('link', { name: /Scoring prospect/ }).click()
+  await expect(page).toHaveURL(/\/config-ai\/scoring/)
+  await expect(page.getByRole('button', { name: 'Configurer : Évaluer un prospect' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Configurer : Cible de Circoe' })).toBeVisible()
+  await page.screenshot({ path: `${SCREENSHOTS}/config-ai-scoring-1-tab.png`, animations: 'disabled' })
+
+  await page.getByRole('button', { name: 'Configurer : Cible de Circoe' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Cible de Circoe' })
+  await expect(dialog.getByRole('textbox', { name: 'Cible de Circoe' })).toContainText('Circoe accompagne les entreprises')
+  await page.screenshot({ path: `${SCREENSHOTS}/config-ai-scoring-2-target.png`, animations: 'disabled' })
+  await page.keyboard.press('Escape')
+
+  await page.getByRole('button', { name: 'Tester sur un prospect' }).click()
+  await expect(page.getByRole('button', { name: /Évaluation… \d+ s/ })).toBeVisible()
+  const result = page.locator('.scoring-test__result')
+  await expect(result).toContainText('sur 100', { timeout: 15_000 })
+  await expect(result).toContainText('fake-e2e-model-snapshot')
+  await page.screenshot({ path: `${SCREENSHOTS}/config-ai-scoring-3-test.png`, animations: 'disabled' })
 })

@@ -146,6 +146,8 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
   const saving = mutations.create.isPending || mutations.update.isPending || moving
 
   const prospect = forms?.prospect ?? null
+  // The score as it stands now: the query's (an evaluation writes the new score there), else the loaded prospect's.
+  const liveScore = prospect ? (loaded.data?.id === prospect.id ? loaded.data.score : prospect.score) : null
   const isNew = forms !== null && prospect === null
   // For a prospect the server has not described yet, today in Circoe's business time zone.
   const today = prospect?.today ?? businessToday()
@@ -408,10 +410,9 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
             <ProspectIndicatorStrip
               score={
                 <ProspectScoreCard
-                  score={loaded.data?.id === prospect.id ? loaded.data.score : prospect.score}
+                  score={liveScore}
                   outdated={loaded.isRefetchError}
                   prospectId={prospect.id}
-                  onScoreChanged={() => void syncFromServer()}
                   onShowNote={(noteId) => {
                     setTab('tracking')
                     setNoteToShow(noteId)
@@ -427,6 +428,7 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
               <ProfileSummary
                 draft={draft}
                 prospect={prospect}
+                score={liveScore}
                 labels={labels}
                 completeness={completeness}
                 proximity={proximity}

@@ -1,201 +1,118 @@
-import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 
-import { ReviewDialog } from '../agents/ReviewDialog'
-import { ApiError } from '../api/client'
 import type { ProspectScore } from '../api/prospects'
-import {
-  type Reassessment,
-  reassessmentKeys,
-  refreshScore,
-  useReassessmentCommands,
-  useScoreReassessment,
-  WAITING_STATUSES,
-} from '../api/scoreReassessment'
+import { evaluationFailure, useEvaluateScore, useEvaluationState } from '../api/scoreEvaluation'
+import { useElapsed } from '../lib/useElapsed'
 import { Button } from '../ui/Button'
 import { AlertIcon, CheckCircleIcon, ChevronRightIcon, SparklesIcon } from '../ui/icons'
 import { ScoreRing } from '../ui/ScoreRing'
 import { BAND_LABELS, BAND_TONES } from './scoreView'
-import './score-reassessment.css'
+import './score-evaluation.css'
 
-// VIPER launches no agent: external MCP agents poll the queue. A request nobody picks up must therefore not wait
-// silently for ever: past these deadlines the card says how long it waited and what that probably means.
-export const QUEUE_TIMEOUT_SECONDS = 3 * 60
-export const RUN_TIMEOUT_SECONDS = 10 * 60
-// How long « Score mis à jour » stays after a proposal was applied.
-const APPLIED_VISIBLE_MS = 6000
+// How long « Score mis à jour » stays after an evaluation, before the card goes back to its resting state.
+export const SUCCESS_VISIBLE_MS = 8000
 
-type Phase = 'idle' | 'unevaluated' | 'waiting' | 'running' | 'stalled' | 'proposal' | 'failed' | 'applied'
+type Phase = 'idle' | 'unevaluated' | 'running' | 'success' | 'failed'
+type Outcome = 'success' | 'error' | null
 
-interface ScoreReassessmentProps {
-  // Null = the prospect is not saved yet: the card only shows its score, without any reassessment action.
+interface ScoreEvaluationProps {
+  // Null = the prospect is not saved yet: the card only shows its score, without any evaluation action.
   prospectId: string | null
   score: ProspectScore
   // « Voir le détail » opens the detail dialog (owned by ProspectScoreCard).
   onOpenDetail: () => void
-  // The score changed (a proposal was applied): the editor may refresh what it derives from it.
-  onScoreChanged?: () => void
 }
 
-// Body of the « Score prospect » card. Every state of « Réévaluer le score » (S4) REPLACES this body in place, at the
-// same height (prospect-score.css gives it a fixed block size): idle, not evaluated, waiting for an agent, analysis
-// in progress, proposal ready, failure, applied. Nothing is ever added below or around it, so the layout never moves.
-// The agent only proposes; the person reads the proposal in the ordinary result review and applies it, the only way
-// the score moves. A failure, a timeout or a cancellation never touches the current score.
-export function ScoreReassessment({ prospectId, score, onOpenDetail, onScoreChanged }: ScoreReassessmentProps) {
-  const queryClient = useQueryClient()
-  const state = useScoreReassessment(prospectId)
-  const { request, cancel } = useReassessmentCommands(prospectId ?? '')
-  const [reviewing, setReviewing] = useState<string | null>(null)
-  const [appliedBy, setAppliedBy] = useState<string | null | undefined>(undefined)
+// An evaluated score: an AI assessment, or notes that carry points.
+export function isEvaluated(score: ProspectScore): boolean {
+  return Boolean(score.assessment) || score.contributions.length > 0
+}
 
-  const current = state.data
-  const waiting = current !== undefined && WAITING_STATUSES.includes(current.status)
-  const seconds = useElapsedSeconds(waiting ? current.requested_at : null)
-  const evaluated = score.contributions.length > 0
-  const commandFailure = request.error ?? cancel.error
+// Body of the « Score prospect » card. « Évaluer / Réévaluer le score » asks the AI directly (seconds, no agent): its states
+// REPLACE this body in place, at the same height (prospect-score.css gives it a fixed block size): idle, not evaluated,
+// in progress (animated ring and a live counter), success (the ring eases to the new value), failure (one line, « Réessayer »).
+// Nothing is ever added below or around it, so the layout never moves. A failure never touches the current score.
+export function ScoreEvaluation({ prospectId, score, onOpenDetail }: ScoreEvaluationProps) {
+  const evaluation = useEvaluationState(prospectId)
+  const evaluate = useEvaluateScore(prospectId ?? '')
+  const running = evaluation.status === 'pending'
+  const seconds = useElapsed(running ? evaluation.startedAt : null)
+  const evaluated = isEvaluated(score)
 
+  // What this card watched finish (a request started elsewhere, e.g. the Mission menu, counts too). Derived while rendering:
+  // the status changes, so does the outcome; an old result found on mount is not announced again.
+  // Keyed by the request's send time, so a result that lands without a render in `pending` is not missed.
+  const [handled, setHandled] = useState(evaluation.startedAt)
+  const [outcome, setOutcome] = useState<Outcome>(null)
+  if (evaluation.status === 'pending') {
+    if (outcome !== null) setOutcome(null)
+  } else if (evaluation.startedAt !== handled && (evaluation.status === 'success' || evaluation.status === 'error')) {
+    setHandled(evaluation.startedAt)
+    setOutcome(evaluation.status)
+  }
   useEffect(() => {
-    if (appliedBy === undefined) return undefined
+    if (outcome !== 'success') return undefined
     const timer = setTimeout(() => {
-      setAppliedBy(undefined)
-    }, APPLIED_VISIBLE_MS)
+      setOutcome(null)
+    }, SUCCESS_VISIBLE_MS)
     return () => {
       clearTimeout(timer)
     }
-  }, [appliedBy])
+  }, [outcome])
+
+  const phase: Phase = running ? 'running' : outcome === 'error' ? 'failed' : outcome === 'success' ? 'success' : evaluated ? 'idle' : 'unevaluated'
+  const failure = evaluationFailure(evaluation.error)
 
   function ask() {
-    setAppliedBy(undefined)
-    cancel.reset()
-    request.mutate({})
+    setOutcome(null)
+    evaluate.start(score)
   }
-
-  async function reviewClosed() {
-    setReviewing(null)
-    await refreshScore(queryClient, prospectId ?? '')
-    const next = queryClient.getQueryData<Reassessment>(reassessmentKeys.detail(prospectId ?? ''))
-    if (next?.status === 'applied') {
-      setAppliedBy(next.decided_by)
-      onScoreChanged?.()
-    }
-  }
-
-  const phase = phaseOf({ current, commandFailed: Boolean(commandFailure), sending: request.isPending, evaluated, appliedNow: appliedBy !== undefined, seconds })
-  const failure = failureText(commandFailure, current)
 
   return (
     <div className="prospect-score score-state" data-phase={phase} data-band={score.band} role="group" aria-label={groupName(score, evaluated, phase)}>
-      <Visual phase={phase} score={score} evaluated={evaluated} />
+      <Visual phase={phase} score={score} evaluated={evaluated} from={evaluation.previous?.total ?? score.total} />
       <div className="score-state__text">
-        <Text
-          phase={phase}
-          score={score}
-          state={current}
-          seconds={seconds}
-          failure={failure}
-          appliedBy={appliedBy}
-          sending={request.isPending}
-          noAgent={current?.agents_available === 0}
-        />
-        <Actions
-          phase={phase}
-          state={current}
-          evaluated={evaluated}
-          canAsk={prospectId !== null}
-          cancelling={cancel.isPending}
-          asking={request.isPending}
-          onAsk={ask}
-          onCancel={() => {
-            cancel.mutate()
-          }}
-          onOpenDetail={onOpenDetail}
-          onReview={setReviewing}
-        />
+        <Text phase={phase} score={score} seconds={seconds} failure={failure} />
+        <Actions phase={phase} evaluated={evaluated} canAsk={prospectId !== null} onAsk={ask} onOpenDetail={onOpenDetail} />
       </div>
       <p className="visually-hidden" role="status" aria-live="polite">
-        {announcement(phase, current)}
+        {announcement(phase, score, failure)}
       </p>
-      {prospectId && (
-        <ReviewDialog
-          key={reviewing ?? 'closed'}
-          resultId={reviewing}
-          onClose={() => {
-            void reviewClosed()
-          }}
-        />
-      )}
     </div>
   )
 }
 
-interface PhaseInput {
-  current: Reassessment | undefined
-  commandFailed: boolean
-  sending: boolean
-  evaluated: boolean
-  appliedNow: boolean
-  seconds: number
-}
-
-function phaseOf({ current, commandFailed, sending, evaluated, appliedNow, seconds }: PhaseInput): Phase {
-  if (sending) return 'waiting'
-  if (commandFailed) return 'failed'
-  if (appliedNow) return 'applied'
-  switch (current?.status) {
-    case 'queued':
-      return seconds >= QUEUE_TIMEOUT_SECONDS ? 'stalled' : 'waiting'
-    case 'running':
-      return seconds >= RUN_TIMEOUT_SECONDS ? 'stalled' : 'running'
-    case 'proposal':
-      return 'proposal'
-    case 'failed':
-      return 'failed'
-    default:
-      return evaluated ? 'idle' : 'unevaluated'
-  }
-}
-
 function groupName(score: ProspectScore, evaluated: boolean, phase: Phase): string {
-  if (phase === 'waiting' || phase === 'running') return 'Score prospect : évaluation en cours'
+  if (phase === 'running') return 'Score prospect : évaluation en cours'
   if (!evaluated) return 'Score prospect : non évalué'
   return `Score prospect : ${String(score.total)} sur 100, niveau ${BAND_LABELS[score.band].toLowerCase()}`
 }
 
-function announcement(phase: Phase, state: Reassessment | undefined): string {
+function announcement(phase: Phase, score: ProspectScore, failure: string): string {
   switch (phase) {
-    case 'waiting':
-      return 'Demande envoyée. En attente d’un agent.'
     case 'running':
-      return 'Évaluation en cours : un agent analyse la fiche.'
-    case 'stalled':
-      return 'Aucune réponse de l’agent pour le moment. Le score actuel reste valable.'
-    case 'proposal':
-      return state?.proposal
-        ? `Proposition prête : score ${String(state.proposal.current_total)} vers ${String(state.proposal.projected_total)}.`
-        : 'Proposition prête à relire.'
+      return 'Évaluation en cours : l’IA analyse la fiche.'
+    case 'success':
+      return `Score mis à jour : ${String(score.total)} sur 100. ${score.summary}`
     case 'failed':
-      return 'L’évaluation a échoué. Le score actuel reste valable.'
-    case 'applied':
-      return 'Proposition appliquée : le score a été mis à jour.'
+      return `L’évaluation a échoué. ${failure} Le score actuel reste valable.`
     default:
       return ''
   }
 }
 
-function failureText(commandFailure: Error | null, state: Reassessment | undefined): string {
-  if (commandFailure) {
-    return commandFailure instanceof ApiError ? commandFailure.message : 'La demande n’a pas pu être envoyée.'
-  }
-  return state?.failure_message ?? 'L’agent n’a pas pu réévaluer le score.'
-}
-
 // --- left: the ring ----------------------------------------------------------------------------------------------
 
-function Visual({ phase, score, evaluated }: { phase: Phase; score: ProspectScore; evaluated: boolean }) {
-  if (phase === 'waiting' || phase === 'running' || phase === 'stalled') {
-    return <ProgressRing mode={phase === 'running' ? 'run' : 'wait'} paused={phase === 'stalled'} />
-  }
+interface VisualProps {
+  phase: Phase
+  score: ProspectScore
+  evaluated: boolean
+  // The score before the request: the ring eases from it to the new one.
+  from: number
+}
+
+function Visual({ phase, score, evaluated, from }: VisualProps) {
+  if (phase === 'running') return <ProgressRing />
   if (!evaluated) {
     return (
       <span className="prospect-score__placeholder" aria-hidden="true">
@@ -203,18 +120,38 @@ function Visual({ phase, score, evaluated }: { phase: Phase; score: ProspectScor
       </span>
     )
   }
+  if (phase === 'success') return <EasedRing from={from} score={score} />
   return (
-    <span className="score-state__ring" data-just-applied={phase === 'applied' || undefined}>
+    <span className="score-state__ring">
       <ScoreRing value={score.total} tone={BAND_TONES[score.band]} />
     </span>
   )
 }
 
-// Same footprint as ScoreRing. Dashed segments turn slowly while an agent works, and only breathe while the task still
-// waits for one; three dots sit inside. Both are decorative (the state is written next to it).
-function ProgressRing({ mode, paused }: { mode: 'wait' | 'run'; paused: boolean }) {
+// The arc starts at the previous value and, one frame later, moves to the new one (the CSS transition does the easing;
+// it stops under prefers-reduced-motion).
+function EasedRing({ from, score }: { from: number; score: ProspectScore }) {
+  const [shown, setShown] = useState(Math.max(1, from))
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      setShown(score.total)
+    })
+    return () => {
+      cancelAnimationFrame(frame)
+    }
+  }, [score.total])
   return (
-    <span className="score-progress" data-mode={mode} data-paused={paused || undefined} aria-hidden="true">
+    <span className="score-state__ring" data-just-updated>
+      <ScoreRing value={shown} tone={BAND_TONES[score.band]} />
+    </span>
+  )
+}
+
+// Same footprint as ScoreRing. Dashed segments turn slowly while the AI works; three dots sit inside. Both are decorative
+// (the state is written next to it, with its counter).
+function ProgressRing() {
+  return (
+    <span className="score-progress" aria-hidden="true">
       <svg className="score-progress__svg" viewBox="0 0 100 100" focusable="false">
         <circle className="score-progress__track" cx="50" cy="50" r="44" />
         <circle className="score-progress__dashes" cx="50" cy="50" r="44" pathLength={100} />
@@ -233,31 +170,12 @@ function ProgressRing({ mode, paused }: { mode: 'wait' | 'run'; paused: boolean 
 interface TextProps {
   phase: Phase
   score: ProspectScore
-  state: Reassessment | undefined
   seconds: number
   failure: string
-  appliedBy: string | null | undefined
-  sending: boolean
-  noAgent: boolean
 }
 
-function Text({ phase, score, state, seconds, failure, appliedBy, sending, noAgent }: TextProps) {
+function Text({ phase, score, seconds, failure }: TextProps) {
   switch (phase) {
-    case 'waiting':
-      return (
-        <>
-          <p className="score-state__title">
-            <span className="score-badge" data-tone="info">
-              <i className="score-badge__dot" />
-              {noAgent && !sending ? 'Aucun agent connecté' : 'En attente d’un agent'}
-            </span>
-          </p>
-          <p className="score-state__detail">
-            {sending ? 'Envoi de la demande…' : 'Demande en file'} ·{' '}
-            <span className="score-state__timer">{formatElapsed(seconds)}</span>
-          </p>
-        </>
-      )
     case 'running':
       return (
         <>
@@ -267,64 +185,33 @@ function Text({ phase, score, state, seconds, failure, appliedBy, sending, noAge
               Évaluation en cours
             </span>
           </p>
-          <p className="score-state__detail" title={state?.agent_label ?? undefined}>
-            Analyse par l’agent… · <span className="score-state__timer">{formatElapsed(seconds)}</span>
+          <p className="score-state__detail" title="L’IA répond en quelques secondes ; la demande est abandonnée au bout de 2 minutes.">
+            L’IA analyse la fiche… · <span className="score-state__timer">{formatElapsed(seconds)}</span>
           </p>
         </>
       )
-    case 'stalled':
-      return (
-        <>
-          <p className="score-state__title">
-            <span className="score-badge" data-tone="warning">
-              <AlertIcon size={13} />
-              {state?.status === 'running' ? 'L’agent tarde' : 'Aucun agent n’a répondu'}
-            </span>
-          </p>
-          <p className="score-state__detail">
-            Sans réponse depuis <span className="score-state__timer">{formatElapsed(seconds)}</span>
-          </p>
-        </>
-      )
-    case 'proposal': {
-      const proposal = state?.proposal
-      return (
-        <>
-          <p className="score-state__title">
-            {proposal ? (
-              <>
-                Proposition <span className="score-state__delta">{proposal.current_total} → <strong>{proposal.projected_total}</strong></span>
-              </>
-            ) : (
-              'Proposition à relire'
-            )}
-          </p>
-          <p className="score-state__detail" title={proposal?.rationale ?? undefined}>
-            {proposal?.rationale ?? 'Le score ne change qu’une fois la proposition validée.'}
-          </p>
-        </>
-      )
-    }
-    case 'failed':
-      return (
-        <>
-          <p className="score-state__title" data-tone="danger">
-            <AlertIcon size={14} />
-            Évaluation échouée
-          </p>
-          <p className="score-state__detail" title={failure}>
-            {failure} Score inchangé.
-          </p>
-        </>
-      )
-    case 'applied':
+    case 'success':
       return (
         <>
           <p className="score-state__title" data-tone="success">
             <CheckCircleIcon size={14} />
             Score mis à jour
           </p>
-          <p className="score-state__detail">Proposition appliquée{appliedBy ? ` par ${appliedBy}` : ''}.</p>
+          <p className="score-state__detail" title={score.summary}>
+            {score.summary}
+          </p>
+        </>
+      )
+    case 'failed':
+      return (
+        <>
+          <p className="score-state__title" data-tone="danger">
+            <AlertIcon size={14} />
+            Échec · score inchangé
+          </p>
+          <p className="score-state__detail" title={failure}>
+            {failure}
+          </p>
         </>
       )
     case 'unevaluated':
@@ -333,7 +220,7 @@ function Text({ phase, score, state, seconds, failure, appliedBy, sending, noAge
           <p className="score-state__title" data-tone="muted">
             Non évalué
           </p>
-          <p className="score-state__detail">{idleNote(state) ?? 'Aucun signal pour l’instant.'}</p>
+          <p className="score-state__detail">Aucune évaluation pour l’instant.</p>
         </>
       )
     default:
@@ -343,82 +230,41 @@ function Text({ phase, score, state, seconds, failure, appliedBy, sending, noAge
             {BAND_LABELS[score.band]}
           </p>
           <p className="score-state__detail" title={score.summary}>
-            {idleNote(state) ?? score.summary}
+            {score.summary}
           </p>
         </>
       )
   }
 }
 
-// What the last closed attempt left to say, replacing the summary line for the time being (never a new block).
-function idleNote(state: Reassessment | undefined): string | null {
-  switch (state?.status) {
-    case 'rejected':
-      return 'Proposition refusée : score inchangé.'
-    case 'nothing_found':
-      return 'L’agent n’a rien trouvé qui change le score.'
-    default:
-      return null
-  }
-}
-
 interface ActionsProps {
   phase: Phase
-  state: Reassessment | undefined
   evaluated: boolean
   canAsk: boolean
-  cancelling: boolean
-  asking: boolean
   onAsk: () => void
-  onCancel: () => void
   onOpenDetail: () => void
-  onReview: (resultId: string) => void
 }
 
-function Actions({ phase, state, evaluated, canAsk, cancelling, asking, onAsk, onCancel, onOpenDetail, onReview }: ActionsProps) {
-  const cancelLink = (
-    <button type="button" className="score-state__link" disabled={cancelling || asking} onClick={onCancel} aria-label="Annuler la demande d’évaluation">
-      Annuler
+function Actions({ phase, evaluated, canAsk, onAsk, onOpenDetail }: ActionsProps) {
+  const detail = (
+    <button type="button" className="prospect-score__more" aria-haspopup="dialog" onClick={onOpenDetail}>
+      Voir le détail
+      <ChevronRightIcon size={14} />
     </button>
   )
   switch (phase) {
-    case 'waiting':
     case 'running':
-    case 'stalled':
-      return <div className="score-state__actions">{cancelLink}</div>
-    case 'proposal':
-      return (
-        <div className="score-state__actions">
-          <Button
-            size="sm"
-            variant="primary"
-            disabled={!state?.result_id}
-            onClick={() => {
-              if (state?.result_id) onReview(state.result_id)
-            }}
-          >
-            Relire et appliquer
-          </Button>
-          {cancelLink}
-        </div>
-      )
+      return <div className="score-state__actions" />
     case 'failed':
       return (
         <div className="score-state__actions">
-          <Button size="sm" variant="secondary" icon={SparklesIcon} loading={asking} disabled={!canAsk} onClick={onAsk}>
+          <Button size="sm" variant="secondary" icon={SparklesIcon} disabled={!canAsk} onClick={onAsk}>
             Réessayer
           </Button>
         </div>
       )
-    case 'applied':
-      return (
-        <div className="score-state__actions">
-          <button type="button" className="prospect-score__more" onClick={onOpenDetail}>
-            Voir le détail
-            <ChevronRightIcon size={14} />
-          </button>
-        </div>
-      )
+    case 'success':
+      return <div className="score-state__actions">{detail}</div>
     case 'unevaluated':
       return (
         <div className="score-state__actions">
@@ -432,17 +278,14 @@ function Actions({ phase, state, evaluated, canAsk, cancelling, asking, onAsk, o
     default:
       return (
         <div className="score-state__actions">
-          <button type="button" className="prospect-score__more" aria-haspopup="dialog" onClick={onOpenDetail}>
-            Voir le détail
-            <ChevronRightIcon size={14} />
-          </button>
+          {detail}
           {canAsk && (
             <Button
               size="sm"
               variant="ghost"
               icon={SparklesIcon}
               aria-label="Réévaluer le score"
-              title="Un agent relit la fiche et propose des ajustements sourcés (adéquation commerciale uniquement). Rien ne change avant votre validation."
+              title="L’IA relit la fiche et recalcule le score (adéquation commerciale uniquement)."
               onClick={onAsk}
             >
               {evaluated ? 'Réévaluer' : 'Évaluer'}
@@ -451,23 +294,6 @@ function Actions({ phase, state, evaluated, canAsk, cancelling, asking, onAsk, o
         </div>
       )
   }
-}
-
-function useElapsedSeconds(since: string | null): number {
-  const [mounted] = useState(() => Date.now())
-  const [now, setNow] = useState(mounted)
-  const active = since !== null
-  useEffect(() => {
-    if (!active) return undefined
-    const timer = setInterval(() => {
-      setNow(Date.now())
-    }, 1000)
-    return () => {
-      clearInterval(timer)
-    }
-  }, [active])
-  const start = since ? new Date(since).getTime() : mounted
-  return Math.max(0, Math.floor((now - start) / 1000))
 }
 
 export function formatElapsed(seconds: number): string {

@@ -26,6 +26,8 @@ const DEFAULTS: Record<IntegrationField, SettingValue> = {
   contact_initial_prompt: null,
   mission_creator_prompt: null,
   taxonomy_cleanup_prompt: null,
+  prospect_scoring_prompt: null,
+  circoe_target: null,
   toolbox_mail_enabled: false,
   toolbox_mcp_url: 'https://toolbox.exemple.example/mcp',
   toolbox_oauth_redirect_uri: null,
@@ -62,6 +64,8 @@ export function integrations(
     initial_prompt_default: 'Tu es l’assistant de prospection de Circoe (texte par défaut de test).',
     mission_creator_prompt_default: 'Tu es l’assistant de création de missions (texte par défaut de test).',
     taxonomy_cleanup_prompt_default: 'Tu nettoies des listes de libellés (texte par défaut de test).',
+    prospect_scoring_prompt_default: 'Tu évalues un prospect (texte par défaut de test).',
+    circoe_target_default: 'Cible Circoe par défaut (test).',
     toolbox: { enabled: false, state: 'disabled', configured: false },
     dispatch: { running: false, active: false, reason: 'toolbox_disabled', scheduled_count: 0, overdue_count: 0 },
     ...extra,
@@ -82,6 +86,8 @@ interface IntegrationsStubOptions {
   check?: KeyCheck
   // The answer of `GET …/openai/models` (default: no list, so « Modèle » stays a text field).
   models?: OpenAIModels
+  // The answer of « Tester sur un prospect » (Config AI › Scoring prospect): `[status, body]`.
+  scoringTest?: readonly [number, unknown]
   // The answer of « Tester le jeton » (Calendly).
   calendlyCheck?: CalendlyCheck
   // The answer of `GET …/calendly/events` (default: no meeting).
@@ -102,6 +108,7 @@ export function stubIntegrationsApi(options: IntegrationsStubOptions = {}) {
   const state = { data: options.initial ?? integrations() }
   const puts: Record<string, unknown>[] = []
   const checks: number[] = []
+  const scoringTests: number[] = []
   const diagnostic = { latest: options.diagnostic ?? null, starts: [] as Record<string, unknown>[] }
   const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = new URL(input instanceof Request ? input.url : String(input), 'http://localhost')
@@ -111,6 +118,11 @@ export function stubIntegrationsApi(options: IntegrationsStubOptions = {}) {
     if (method === 'POST' && url.pathname === '/api/settings/integrations/openai/check') {
       checks.push(Date.now())
       return json(200, options.check ?? { ok: true, code: null, model: 'modele-test', elapsed_ms: 420 })
+    }
+    if (method === 'POST' && url.pathname === '/api/settings/integrations/scoring/test') {
+      scoringTests.push(Date.now())
+      const [status, body] = options.scoringTest ?? [200, { prospect_id: 'p1', prospect_name: 'Jeanne Vatinel', score: 82, rationale: 'Forte adéquation.', criteria: [{ label: 'Poste décisionnaire', delta: 25, evidence: 'Directeur général' }], model: 'modele-test', prompt_version: 'a1b2c3d4', duration_ms: 2400 }]
+      return json(status, body)
     }
     if (method === 'GET' && url.pathname === '/api/settings/integrations/openai/models') {
       return json(200, options.models ?? { models: [], code: 'ai_upstream_error' })
@@ -186,5 +198,5 @@ export function stubIntegrationsApi(options: IntegrationsStubOptions = {}) {
     return json(404, { detail: 'Not Found' })
   })
   vi.stubGlobal('fetch', fetchMock)
-  return { fetchMock, state, puts, checks, diagnostic }
+  return { fetchMock, state, puts, checks, diagnostic, scoringTests }
 }

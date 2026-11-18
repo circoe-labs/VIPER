@@ -4,6 +4,10 @@
 // - `POST /v1/responses` answers a completed response whose output text is the JSON `{subject, body}` a strict
 //   structured output would give, built only from the prompt's own lines (the company name, the booking link and the
 //   « consigne » when present), so a spec can check what reached the model;
+// - a request whose structured output is named `prospect_score` (« Évaluer le score ») answers `{score, rationale,
+//   criteria[]}` computed from the prospect sheet JSON in the input (decision-maker title, company known, notes), after a
+//   short delay (`FAKE_SCORE_DELAY_MS`, default 1500) so the in-progress state is observable; `FAKE_SCORE_MALFORMED` in
+//   the input answers text that is not the schema;
 // - an input holding `FAKE_AI_FAIL` answers 503 (the backend retries, then says `ai_upstream_error`);
 // - `GET /requests` returns the bodies received so far (a spec checks that no e-mail address was sent);
 // - `GET /health` is the readiness probe. Synthetic values only; the key is checked for presence, never printed.
@@ -55,6 +59,30 @@ function draft(input: string) {
   return { subject: `Agents IA pour ${company}`, body: paragraphs.join('\n\n') }
 }
 
+const SCORE_DELAY_MS = Number(process.env.FAKE_SCORE_DELAY_MS ?? 1500)
+const DECISION_MAKER = /direct(?:eur|rice)|dirigeant|g[ée]rant|pr[ée]sident|\bp?dg\b/i
+
+// The scoring answer, from the sheet JSON the backend sends (the line after « Fiche du prospect (JSON) : »).
+function scoring(input: string) {
+  const sheet = JSON.parse(input.slice(input.indexOf('\n') + 1)) as {
+    poste?: { role?: string; intitule_exact?: string }
+    societe?: { nom?: string }
+    notes?: unknown[]
+  }
+  const title = `${sheet.poste?.intitule_exact ?? ''} ${sheet.poste?.role ?? ''}`.trim()
+  const decision = DECISION_MAKER.test(title)
+  const criteria = [
+    { label: decision ? 'Poste décisionnaire' : 'Poste sans pouvoir de décision', delta: decision ? 25 : -10, evidence: title || 'non renseigné' },
+    { label: 'Entreprise identifiée', delta: sheet.societe?.nom ? 10 : -5, evidence: sheet.societe?.nom ?? 'non renseigné' },
+    { label: 'Signaux et notes', delta: sheet.notes?.length ? 5 : 0, evidence: `${String(sheet.notes?.length ?? 0)} note(s)` },
+  ]
+  const score = Math.max(0, Math.min(100, 50 + criteria.reduce((sum, item) => sum + item.delta, 0)))
+  const rationale = decision
+    ? `Décideur (${title}) dans une entreprise identifiée : bonne adéquation avec la cible de Circoe.`
+    : `Poste sans pouvoir de décision net (${title || 'non renseigné'}) : adéquation moyenne avec la cible de Circoe.`
+  return { score, rationale, criteria }
+}
+
 async function answer(request: IncomingMessage): Promise<[number, unknown]> {
   if (request.method === 'GET' && request.url === '/health') return [200, { ok: true }]
   if (request.method === 'GET' && request.url === '/requests') return [200, received]
@@ -79,7 +107,10 @@ async function answer(request: IncomingMessage): Promise<[number, unknown]> {
   received.push(body)
   const input = typeof body.input === 'string' ? body.input : ''
   if (input.includes('FAKE_AI_FAIL')) return [503, { error: { type: 'server_error', code: null } }]
-  const text = JSON.stringify(draft(input))
+  const format = (body.text as { format?: { name?: string } } | undefined)?.format
+  if (format?.name === 'prospect_score') await new Promise((resolve) => setTimeout(resolve, SCORE_DELAY_MS))
+  const malformed = format?.name === 'prospect_score' && input.includes('FAKE_SCORE_MALFORMED')
+  const text = malformed ? 'pas du JSON' : JSON.stringify(format?.name === 'prospect_score' ? scoring(input) : draft(input))
   return [
     200,
     {

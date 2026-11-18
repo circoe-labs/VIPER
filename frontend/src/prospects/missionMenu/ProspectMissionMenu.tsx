@@ -5,7 +5,7 @@ import { ApiError } from '../../api/client'
 import { useAssistantCapabilities } from '../../api/missionAssistant'
 import { useMissionCategories } from '../../api/missionConfig'
 import { type MissionDetail, useCreateMission } from '../../api/missions'
-import { useReassessmentCommands } from '../../api/scoreReassessment'
+import { type EvaluationState, evaluationFailure, useEvaluateScore, useEvaluationState } from '../../api/scoreEvaluation'
 import { chooseSpeechMode, type SpeechMode, useSpeechInput } from '../../missions/voice/useSpeechInput'
 import { Button } from '../../ui/Button'
 import { TextAreaField } from '../../ui/fields'
@@ -16,6 +16,7 @@ import {
   MicIcon,
   MoreIcon,
   PencilIcon,
+  SparklesIcon,
   type IconComponent,
   TargetIcon,
   UsersIcon,
@@ -51,12 +52,15 @@ export function ProspectMissionMenu({ prospect, onCreated, className, openReques
   const button = useRef<HTMLButtonElement>(null)
   const seenRequest = useRef(openRequest)
   const [mode, setMode] = useState<'menu' | 'other'>('menu')
-  // The created mission's id (null until then); `reassessed` = it is the S4 reassessment, not a generic mission.
-  const [created, setCreated] = useState<{ id: string | null; reassessed: boolean } | null>(null)
+  // The created mission's id (null until then).
+  const [created, setCreated] = useState<{ id: string } | null>(null)
+  // « Réanalyse son score » was chosen: the popover follows the evaluation (it is not a mission).
+  const [evaluating, setEvaluating] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
   const categories = useMissionCategories()
   const create = useCreateMission()
-  const reassess = useReassessmentCommands(prospect.id).request
+  const evaluate = useEvaluateScore(prospect.id)
+  const evaluation = useEvaluationState(prospect.id)
 
   useEffect(() => {
     if (openRequest === seenRequest.current) return
@@ -75,20 +79,15 @@ export function ProspectMissionMenu({ prospect, onCreated, className, openReques
     setMode('menu')
     setCreated(null)
     create.reset()
-    reassess.reset()
+    setEvaluating(false)
   }
 
-  // « Réanalyse son score »: S4's command (agent proposal reviewed under « Score prospect »), not a second mission shape.
+  // « Réanalyse son score »: the AI scores the sheet directly (POST /prospects/{id}/score/evaluate, seconds); the card
+  // « Score prospect » shows the same progress. Not a mission.
   const reassessScore = () => {
     setLocalError(null)
-    reassess.mutate(
-      {},
-      {
-        onSuccess: (state) => {
-          setCreated({ id: state.mission_id, reassessed: true })
-        },
-      },
-    )
+    setEvaluating(true)
+    evaluate.start()
   }
 
   const submit = (preset: MissionPreset, request = '') => {
@@ -101,21 +100,21 @@ export function ProspectMissionMenu({ prospect, onCreated, className, openReques
     setLocalError(null)
     create.mutate(built.input, {
       onSuccess: (mission) => {
-        setCreated({ id: mission.card.id, reassessed: false })
+        setCreated({ id: mission.card.id })
         onCreated?.(mission)
       },
     })
   }
   const error =
     localError ??
-    (create.isError || reassess.isError
-      ? (create.error ?? reassess.error) instanceof ApiError
-        ? (create.error ?? reassess.error)?.message
+    (create.isError
+      ? create.error instanceof ApiError
+        ? create.error.message
         : 'La mission n’a pas pu être créée. Réessayez.'
       : categories.isError
         ? 'Les catégories de mission sont indisponibles. Réessayez dans un instant.'
         : null)
-  const busy = create.isPending || reassess.isPending
+  const busy = create.isPending || evaluate.isPending
 
   return (
     <>
@@ -136,21 +135,17 @@ export function ProspectMissionMenu({ prospect, onCreated, className, openReques
       {anchor && (
         <Popover anchor={anchor} label="Mission pour ce prospect" onClose={close} alignRight>
           <div className="pmm">
-            {created ? (
+            {evaluating ? (
+              <EvaluationProgress state={evaluation} onClose={close} />
+            ) : created ? (
               <div className="pmm__done" role="status">
                 <CheckCircleIcon size={20} />
                 <div>
-                  <strong>{created.reassessed ? 'Réévaluation demandée' : 'Mission créée'}</strong>
-                  <p>
-                    {created.reassessed
-                      ? 'Un agent propose un score : suivez-la sous « Score prospect ».'
-                      : 'Elle n’est pas lancée : lancez-la depuis sa page.'}
-                  </p>
-                  {created.id && (
-                    <Link className="pmm__link" to={`/missions/${created.id}`} onClick={close}>
-                      Ouvrir la mission
-                    </Link>
-                  )}
+                  <strong>Mission créée</strong>
+                  <p>Elle n’est pas lancée : lancez-la depuis sa page.</p>
+                  <Link className="pmm__link" to={`/missions/${created.id}`} onClick={close}>
+                    Ouvrir la mission
+                  </Link>
                 </div>
               </div>
             ) : mode === 'menu' ? (
@@ -166,12 +161,12 @@ export function ProspectMissionMenu({ prospect, onCreated, className, openReques
                 onSubmit={(text) => { submit('other', text) }}
               />
             )}
-            {error && !created && (
+            {error && !created && !evaluating && (
               <p className="pmm__error" role="alert">
                 {error}
               </p>
             )}
-            {busy && (
+            {create.isPending && (
               <p className="pmm__busy" role="status">
                 Création de la mission…
               </p>
@@ -345,4 +340,38 @@ function useElapsed(running: boolean): number {
     }
   }, [running])
   return running ? seconds : 0
+}
+
+// « Réanalyse son score »: what the popover says while the AI works, then the outcome (the card says it too). The tile that
+// was pressed is gone, so the block takes the focus: Esc then closes the popover only (the Popover listens on its content),
+// never the sheet behind it.
+function EvaluationProgress({ state, onClose }: { state: EvaluationState; onClose: () => void }) {
+  const elapsed = useElapsed(state.status === 'pending')
+  const holder = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    holder.current?.focus()
+  }, [])
+  const done = state.status === 'success'
+  return (
+    <div ref={holder} className="pmm__eval" tabIndex={-1}>
+      {state.status === 'error' ? (
+        <p className="pmm__error" role="alert">
+          {evaluationFailure(state.error)} Score inchangé.
+        </p>
+      ) : (
+        <div className="pmm__done" role="status">
+          {done ? <CheckCircleIcon size={20} /> : <SparklesIcon size={20} />}
+          <div>
+            <strong>{done ? 'Score mis à jour' : 'Évaluation en cours…'}</strong>
+            <p>{done ? 'Le détail est sous « Score prospect ».' : `L’IA analyse la fiche · ${String(elapsed)} s`}</p>
+            {done && (
+              <button type="button" className="pmm__link" onClick={onClose}>
+                Fermer
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }

@@ -1,8 +1,8 @@
 /* « Score prospect » card and its detail dialog (ProspectScoreCard.tsx). Colours come from tokens; the band is also
    written (label) and the delta is signed text. */
 
-/* The card body (ScoreReassessment.tsx): ring on the left, three lines on the right (title, detail, actions). Fixed block
-   size = the ring's: every async state of « Réévaluer » replaces its content in place, the card never grows. */
+/* The card body (ScoreEvaluation.tsx): ring on the left, three lines on the right (title, detail, actions). Fixed block
+   size = the ring's: every async state of « Évaluer » replaces its content in place, the card never grows. */
 .prospect-score {
   display: flex;
   align-items: center;

@@ -75,38 +75,36 @@ describe('buildProspectMission', () => {
 })
 
 describe('ProspectMissionMenu', () => {
-  it('« Réanalyse son score » asks the S4 reassessment (same prospect), not a generic mission', async () => {
+  it('« Réanalyse son score » calls the direct score evaluation (same prospect), not a mission', async () => {
     const user = userEvent.setup()
     const fetchMock = stubApi({
       ...API,
-      [`POST /api/prospects/${PROSPECT.id}/score/reassessment`]: [
-        200,
-        {
-          status: 'queued',
-          task_id: 't1',
-          mission_id: MISSION,
-          run_id: null,
-          result_id: null,
-          requested_at: null,
-          agent_label: null,
-          failure_code: null,
-          failure_message: null,
-          proposal: null,
-          decided_by: null,
-          decided_at: null,
-        },
-      ],
+      [`POST /api/prospects/${PROSPECT.id}/score/evaluate`]: [200, { total: 82, summary: 'Forte adéquation.', band: 'green', contributions: [], assessment: null }],
     })
     mount(<ProspectMissionMenu prospect={PROSPECT} />)
 
     await user.click(screen.getByRole('button', { name: 'Mission' }))
     await user.click(screen.getByRole('button', { name: /Réanalyse son score/ }))
 
-    expect(await screen.findByText('Réévaluation demandée')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Ouvrir la mission' })).toHaveAttribute('href', `/missions/${MISSION}`)
+    expect(await screen.findByText('Score mis à jour')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Ouvrir la mission' })).not.toBeInTheDocument()
     const calls = fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')
     expect(calls).toHaveLength(1)
-    expect(String(calls[0]?.[0])).toContain(`/prospects/${PROSPECT.id}/score/reassessment`)
+    expect(String(calls[0]?.[0])).toContain(`/prospects/${PROSPECT.id}/score/evaluate`)
+  })
+
+  it('« Réanalyse son score » says why it failed and that the score is unchanged', async () => {
+    const user = userEvent.setup()
+    stubApi({
+      ...API,
+      [`POST /api/prospects/${PROSPECT.id}/score/evaluate`]: [503, { detail: { code: 'ai_not_configured', message: 'x' } }],
+    })
+    mount(<ProspectMissionMenu prospect={PROSPECT} />)
+
+    await user.click(screen.getByRole('button', { name: 'Mission' }))
+    await user.click(screen.getByRole('button', { name: /Réanalyse son score/ }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Config AI.*Score inchangé/)
   })
 
   it('opens a 2x2 menu, moves with arrows and creates a prospect-targeted mission', async () => {
