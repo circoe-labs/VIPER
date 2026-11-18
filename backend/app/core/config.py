@@ -196,6 +196,10 @@ class Settings(BaseSettings):
     # The prompt of the « Nettoyer » button of Paramètres (taxonomy cleanup); unset =
     # `DEFAULT_TAXONOMY_CLEANUP_PROMPT`.
     taxonomy_cleanup_prompt: Annotated[str, Field(max_length=8000)] | None = None
+    # The system prompt and the target of Circoe of « Évaluer le score » (Config AI > Scoring
+    # prospect, `app.services.prospect_scoring_prompt`); unset = the built-in defaults.
+    prospect_scoring_prompt: Annotated[str, Field(max_length=8000)] | None = None
+    circoe_target: Annotated[str, Field(max_length=8000)] | None = None
     # Voice authoring of a mission (mission-creator slice S6): an OPTIONAL Whisper-compatible
     # speech-to-text service (`POST {stt_base_url}/audio/transcriptions`, e.g. a local
     # faster-whisper-server / whisper.cpp server, or any OpenAI-compatible endpoint). Unset = the
@@ -261,6 +265,8 @@ class Settings(BaseSettings):
         "contact_initial_prompt",
         "mission_creator_prompt",
         "taxonomy_cleanup_prompt",
+        "prospect_scoring_prompt",
+        "circoe_target",
         "stt_base_url",
         "stt_api_key",
         "toolbox_mcp_url",

@@ -1,4 +1,13 @@
-"""Score reassessment contract: what an agent returns when asked « Réévaluer le score » (S4).
+"""LEGACY (retired 2026-11-18): the agent contract of the former « Réévaluer le score » (S4).
+
+« Évaluer / Réévaluer le score » now calls the LLM directly (`prospect_scoring.py`): nothing creates
+a `reassess_score` task any more (the request service, the route and the UI state were removed;
+`reassess_score` stays a valid task type in the database and the enums, migrations 0056/0057
+untouched). This contract stays only so a task created earlier can still be claimed and reviewed
+(`tests/test_score_reassessment_legacy.py`). Removal condition: no `reassess_score` task left open
+in production — then drop this module, its hooks in `agent_payloads` / `agent_review` and the test.
+
+Score reassessment contract: what an agent returns when asked « Réévaluer le score » (S4).
 
 The Prospect Score is **commercial fit only** (`prospect_score.py`, ALLOWED / FORBIDDEN inputs).
 A reassessment is a `reassess_score` mission task bound to one prospect (`AgentTask.prospect_id`).

@@ -28,10 +28,14 @@ client / à quel point il rentre dans les critères ». Inputs, audited on 2026-
   `tests/test_prospect_score_inputs.py` fails if this module imports one or if a link changes the
   score. Proximity is its own read model.
 
-Reassessment: « Réévaluer le score » asks an agent through a one-off mission (`reassess_score`
-task); only an accepted proposal writes new scored notes (`score_reassessment.apply`), so the
-formula above is unchanged and every change is audited. Product weights per criterion do not exist
-yet: the agent's deltas are reviewed by a person (reported as missing input, not invented).
+**AI assessment (2026-11-18, user decision)**: « Évaluer / Réévaluer le score » calls the LLM
+directly (`prospect_scoring.py`, no external-agent mission). Each successful call is one immutable
+`prospect_score_assessments` row. The displayed score is the **latest assessment's score**; with
+none, the note-based formula above applies unchanged (the fallback). The notes' contributions stay
+listed as they are (`contributions`); the assessment adds `assessment` (rationale, criteria, model,
+prompt version, who, when). The assessment reads the same sheet as the person (never the graph, the
+proximity or the contact state), and this module reads only its row. The earlier agent flow
+(`score_reassessment.py`, `reassess_score` tasks) is retired for this action.
 """
 
 import uuid
@@ -49,6 +53,7 @@ from app.models.enums import SignalOrigin
 from app.models.prospects import ProspectNote
 from app.repositories import notes as repository
 from app.repositories import prospects as prospect_repository
+from app.repositories import score_assessments as assessment_repository
 
 SCORE_MIN = 0
 SCORE_MAX = 100
@@ -65,7 +70,11 @@ ContributionOrigin = Literal["manual", "agent"]
 
 # The score's whole input set, by the module that reads it. A new input must be added here, in the
 # docstring above and in the guard test; the forbidden ones may never be.
-ALLOWED_INPUTS = ("app.repositories.notes", "app.repositories.prospects")
+ALLOWED_INPUTS = (
+    "app.repositories.notes",
+    "app.repositories.prospects",
+    "app.repositories.score_assessments",
+)
 FORBIDDEN_INPUTS = (
     "app.services.person_links",
     "app.services.prospect_data_quality",
@@ -93,9 +102,35 @@ class ScoreContribution(BaseModel):
     origin: ContributionOrigin = "manual"
 
 
+class AssessmentCriterion(BaseModel):
+    """One criterion of an AI assessment: `+10 — Directeur général (poste décisionnaire)`."""
+
+    model_config = ConfigDict(frozen=True)
+
+    label: str
+    delta: int
+    evidence: str
+
+
+class AssessmentInfo(BaseModel):
+    """The latest AI assessment and its provenance: what makes the displayed total traceable."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    rationale: str
+    criteria: list[AssessmentCriterion]
+    model: str
+    # The first characters of the SHA-256 of the instructions sent (`prospect_scoring_prompt`).
+    prompt_version: str
+    created_at: datetime
+    actor_display: str
+
+
 class ProspectScore(BaseModel):
     """What a consumer displays: total, colour band, one-line summary and the breakdown. An empty
-    `contributions` is a valid breakdown (the total is then the base)."""
+    `contributions` is a valid breakdown (the total is then the base). `assessment` is set when
+    the total is the latest AI assessment's score (then `summary` is its rationale)."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -103,6 +138,7 @@ class ProspectScore(BaseModel):
     summary: str
     band: ScoreBand
     contributions: list[ScoreContribution] = Field(default_factory=list)
+    assessment: AssessmentInfo | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,4 +261,24 @@ def get_score(session: Session, prospect_id: uuid.UUID, config: ScoreConfig) -> 
                 )
             )
         contributions.extend(company)
-    return build_score(contributions, config)
+    score = build_score(contributions, config)
+    latest = assessment_repository.latest(session, prospect_id)
+    if latest is None:
+        return score
+    total = clamp(latest.score)
+    return score.model_copy(
+        update={
+            "total": total,
+            "band": band_of(total, config),
+            "summary": latest.rationale,
+            "assessment": AssessmentInfo(
+                id=str(latest.id),
+                rationale=latest.rationale,
+                criteria=[AssessmentCriterion.model_validate(item) for item in latest.criteria],
+                model=latest.model,
+                prompt_version=latest.prompt_hash[:8],
+                created_at=latest.created_at,
+                actor_display=latest.actor_display,
+            ),
+        }
+    )
