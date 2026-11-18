@@ -31,8 +31,17 @@ below 1100 px). The form, the draft and the footer are shared by both tabs.
 | **Profil** | top, full width | **Résumé du profil**: full name, *rôle · entreprise* (two lines at most, the full text in the tooltip), main e-mail and phone (*+N* when there are others, *Aucun e-mail* / *Aucun téléphone* when missing), and the secondary status — the Contact state and *Ne pas contacter*. Hidden for a new person. |
 | | left | **Identité** (Civilité, Prénom, Nom) · **E-mails** · **Téléphones** — identity and contact details together |
 | | right | the **Score prospect** card (`ProspectScoreCard`, S4; no room while the prospect is not saved) · **Emploi** (Entreprise *, Rôle, Intitulé exact, Activité, and on a secondary line the employment verification) · **Entreprise** (summary + *Ouvrir la fiche entreprise*) |
-| **Suivi** | left | **Suivi de contact** · **Notes** |
-| | right | **Opposition** · **Provenance** (sources) · **Historique** (the latest saves, Task 19) |
+| **Suivi** | top, full width | **Synthèse du suivi** (`TrackingOverview`, prospect-sheet redesign S6): read-only band — *État commercial* (+ *depuis le*), *Prochaine action* (next send and due date, *Échu*, or *Aucun envoi prévu* with the reason in an info tip), *Semaine* (+ first send), *Réponse*, *Rendez-vous*, *Référent*. It follows the form's live values. Hidden for a new person. |
+| | row 1 | **Suivi de contact** (state form, with the *Ne pas contacter* banner) · **Séquence de contact** — equal cards |
+| | row 2 | **Notes** · **Alertes qualité** — equal cards |
+| | row 3 (secondary, muted) | **Provenance** (sources) · **Historique** (the latest saves, Task 19) |
+
+**Suivi composition** (`TrackingTab.tsx`, `tracking-tab.css`): `ProspectEditor` renders one `<TrackingTab>`; the tab composes the
+unchanged sections (`TrackingSection`, `SequenceSection`, `ProspectNotes`, `AlertsSection`, `ProvenanceSection`,
+`HistorySection`) as the shared `EditorSection` cards in a two-column grid that stacks when the tab is narrow and gives
+the cards of a row the same height. Long notes and histories scroll inside their card. No state, action or save
+semantics changed; the former *Semaine / Relance / Référent / RDV* summary inside *Suivi de contact* moved to the band
+(the level stays in *Séquence de contact*).
 
 The header gives the person's name and their place in the queue (*Prospect 3 sur 45 · Jamais vérifiés*). The footer is
 the dirty-state bar.
