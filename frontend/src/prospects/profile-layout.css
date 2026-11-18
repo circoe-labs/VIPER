@@ -1,0 +1,43 @@
+/* Rows of the Profil tab (ProfileLayout.tsx): same gap everywhere, equal columns, cards stretched to the row height. */
+
+.profile-row {
+  display: grid;
+  gap: var(--space-5);
+  align-items: stretch;
+  min-width: 0;
+}
+
+.profile-row[data-columns='one'] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.profile-row[data-columns='two'] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.profile-row[data-columns='three'] {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/* A card of a row fills its cell and keeps its content at the top. */
+.profile-row > * {
+  align-content: start;
+  min-width: 0;
+}
+
+/* A single card in a two-column row (new prospect: no summary) spans the row. */
+.profile-row[data-columns='two'] > :only-child {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 1100px) {
+  .profile-row[data-columns='two'],
+  .profile-row[data-columns='three'] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Inputs of a card in a narrow cell stack in one column. */
+.profile-row[data-columns="three"] .prospect-editor__grid {
+  grid-template-columns: minmax(0, 1fr);
+}

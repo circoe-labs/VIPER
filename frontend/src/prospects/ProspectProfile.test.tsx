@@ -148,24 +148,29 @@ describe('Prospect editor — Profil summary', () => {
     expect(screen.queryByRole('group', { name: 'Vérification de l’emploi' })).toBeNull()
     expect(screen.queryByRole('region', { name: 'Vérification de l’emploi' })).toBeNull()
     expect(screen.queryByRole('region', { name: 'Opposition' })).toBeNull()
-    // E-mails and phones live in « Coordonnées », at the level of Identité and Emploi.
-    const top = region('Identité').parentElement
-    expect(top).toBe(region('Emploi').parentElement)
-    expect(top).toBe(region('Coordonnées').parentElement)
+    // E-mails and phones live in « Coordonnées », beside the summary; Identité, Emploi and Entreprise share one row.
+    expect(region('Coordonnées').parentElement).toBe(region('Résumé du profil').parentElement)
+    const details = region('Identité').parentElement
+    expect(details).toBe(region('Emploi').parentElement)
+    expect(details).toBe(region('Entreprise').parentElement)
     expect(within(region('Coordonnées')).getByRole('region', { name: 'E-mails' })).toBeInTheDocument()
     expect(within(region('Coordonnées')).getByRole('region', { name: 'Téléphones' })).toBeInTheDocument()
   })
 
-  it('holds the score card below the identity row, beside the company', async () => {
+  it('opens with the indicator strip: score card, then the S2 and S3 slots, above the summary', async () => {
     await open(complete())
 
+    const strip = region('Indicateurs de la fiche')
     const slot = document.querySelector('[data-slot="prospect-score"]')
-    expect(slot).not.toBeNull()
-    expect(slot?.closest('.prospect-editor__side')).not.toBeNull()
+    expect(strip.contains(slot)).toBe(true)
     expect(within(slot as HTMLElement).getByRole('region', { name: 'Score prospect' })).toBeInTheDocument()
-    // The data-quality card follows the interest score, then the company.
-    expect(slot?.nextElementSibling).toBe(region('Qualité de la fiche'))
-    expect(region('Qualité de la fiche').nextElementSibling).toBe(region('Entreprise'))
+    // Slots not delivered yet say so: no figure is invented on the client, and no 0-100 « qualité » card remains.
+    expect(within(strip).getByRole('region', { name: 'État de la fiche' })).toHaveTextContent('Pas encore évalué')
+    expect(within(strip).getByRole('region', { name: 'Score de proximité' })).toHaveTextContent('Pas encore calculé')
+    expect(screen.queryByRole('region', { name: 'Qualité de la fiche' })).toBeNull()
+    expect(strip.compareDocumentPosition(region('Résumé du profil')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // Relations close the tab as a wide card.
+    expect(region('Relations')).toBeInTheDocument()
   })
 })
 

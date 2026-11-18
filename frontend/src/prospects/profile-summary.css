@@ -3,11 +3,11 @@
 
 .prospect-summary {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-3) var(--space-6);
   align-items: start;
   min-width: 0;
-  padding: var(--space-4) var(--space-6);
+  padding: var(--space-5) var(--space-6);
   border: var(--border-width) solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-surface);

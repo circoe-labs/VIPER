@@ -1,0 +1,133 @@
+/* Indicator strip of the Profil tab (ProspectIndicatorStrip.tsx): three equal cells on one tinted band, hairline
+   dividers, one shared body size so the three read as a single aligned row. Tokens only. */
+
+.indicator-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  min-width: 0;
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-accent-soft);
+}
+
+.indicator-cell {
+  position: relative;
+  display: grid;
+  align-content: start;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-4) var(--space-6);
+}
+
+.indicator-cell + .indicator-cell {
+  border-left: var(--border-width) solid var(--color-border);
+}
+
+/* The score card brings its own section and title: flatten it so it reads like its two siblings. */
+.indicator-cell .prospect-editor__section {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.indicator-cell .prospect-score {
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+}
+
+.indicator-cell .prospect-score:hover {
+  background: transparent;
+}
+
+.indicator-cell__corner {
+  position: absolute;
+  top: var(--space-4);
+  right: var(--space-5);
+}
+
+.indicator-cell__body {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+  min-height: 5.5rem;
+}
+
+.indicator-cell__text {
+  display: grid;
+  gap: var(--space-1);
+  justify-items: start;
+  min-width: 0;
+}
+
+.indicator-cell__strong {
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+
+.indicator-cell__muted {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.indicator-cell__disc {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 5.5rem;
+  height: 5.5rem;
+  border: 9px solid var(--color-border-strong);
+  border-radius: var(--radius-full);
+  color: var(--color-text-muted);
+  font-size: var(--text-lg);
+}
+
+.indicator-cell__disc[data-tone='success'] {
+  border-color: var(--color-success-fg);
+  color: var(--color-success-fg);
+}
+
+.indicator-cell__disc[data-tone='warning'] {
+  border-color: var(--color-warning-fg);
+  color: var(--color-warning-fg);
+}
+
+.indicator-cell__disc[data-tone='info'] {
+  border-color: var(--color-accent-fg);
+  color: var(--color-accent-fg);
+}
+
+.indicator-cell__empty {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 5.5rem;
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.indicator-cell__empty--error {
+  color: var(--color-danger-fg);
+}
+
+@media (max-width: 1100px) {
+  .indicator-strip {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .indicator-cell + .indicator-cell {
+    border-top: var(--border-width) solid var(--color-border);
+    border-left: 0;
+  }
+}

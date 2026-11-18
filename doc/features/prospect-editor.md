@@ -23,16 +23,22 @@ former explorer fallback is gone.
 
 ## Layout
 
-A drawer of 64 rem (`Drawer size="xl"`) with two tabs (`ui/Tabs`, decision D-UX1), each in two columns (one column
-below 1100 px). The form, the draft and the footer are shared by both tabs.
+A drawer of 64 rem (`Drawer size="xl"`) with two tabs (`ui/Tabs`, decision D-UX1). The form, the draft and the footer are
+shared by both tabs. Profil (prospect-sheet redesign S1) is a stack of rows that use the whole width, one gap, equal
+columns and cards stretched to the same height (`ProfileLayout.tsx` / `profile-layout.css`: `ProfileRow` with 1, 2 or 3
+columns; one column below 1100 px). Explanations go in info tooltips (`ui/InfoTip`), not in paragraphs.
 
-| Tab | Column | Content |
+| Tab | Row | Content |
 |---|---|---|
-| **Profil** | top, full width | **Résumé du profil**: full name, *rôle · entreprise* (two lines at most, the full text in the tooltip), main e-mail and phone (*+N* when there are others, *Aucun e-mail* / *Aucun téléphone* when missing), and the secondary status — the Contact state and *Ne pas contacter*. Hidden for a new person. |
-| | left | **Identité** (Civilité, Prénom, Nom) · **E-mails** · **Téléphones** — identity and contact details together |
-| | right | the **Score prospect** card (`ProspectScoreCard`, S4; no room while the prospect is not saved) · **Emploi** (Entreprise *, Rôle, Intitulé exact, Activité, and on a secondary line the employment verification) · **Entreprise** (summary + *Ouvrir la fiche entreprise*) |
+| **Profil** | indicator strip (full width, 3 equal cells) | **Score prospect** (`ProspectScoreCard`, commercial fit only, ring + word + detail dialog; absent for a new person) · **État de la fiche** (slot for the completeness *state*, S2, never a 0-100 figure) · **Score de proximité** (slot, S3, 0-100 from the person-link graph). `ProspectIndicatorStrip.tsx` + `indicator-strip.css`; the slots take an `IndicatorState` (`loading` / `unavailable` / `error` / `ready`, `indicators.ts`) from the one seam `indicatorSources.ts`, which says *unavailable* until S2 / S3 land. The front computes no score. |
+| | two columns | **Résumé du profil** (`ProfileSummary`: full name, *rôle · entreprise*, main e-mail and phone, secondary status, *Copier les informations*; hidden for a new person) · **Coordonnées** (E-mails and Téléphones) |
+| | three columns | **Identité** (Civilité, Prénom, Nom) · **Emploi** (Entreprise *, Rôle, Intitulé exact, Activité, employment verification as a secondary line) · **Entreprise** (summary + *Ouvrir la fiche entreprise*) |
+| | one column | **Relations** (`ProspectLinksCard`) |
 | **Suivi** | left | **Suivi de contact** · **Notes** |
 | | right | **Opposition** · **Provenance** (sources) · **Historique** (the latest saves, Task 19) |
+
+The *Qualité de la fiche* numeric card (`DataQualityCard`) is no longer placed in Profil: the fiche is shown as a named
+state in the indicator strip (S2 supplies it). The component stays in the tree until S2 replaces it.
 
 The header gives the person's name and their place in the queue (*Prospect 3 sur 45 · Jamais vérifiés*). The footer is
 the dirty-state bar.
@@ -386,7 +392,7 @@ that changes nothing writes nothing.
 | Services | `backend/app/services/prospect_notes.py` (notes CRUD), `backend/app/services/prospect_score.py` (score contract and rules), `backend/app/services/prospect_editor.py` (view model, `create_prospect`, `update_prospect`, `set_contactability`, `delete_prospect`, `aggregate_version`), `backend/app/services/contact_channels.py` (alias normalization and full-list save), existing domain operations in `prospects.py`, `contact_tracking.py`, `provenance.py`, `taxonomies.py` |
 | Repositories | `backend/app/repositories/notes.py`, `backend/app/repositories/prospects.py` (`lock_prospect`, `version_rows`, `sources_with_batches`, `count_import_rows`), `companies.company_summary`; `prospection.query.prospect_verification_state` |
 | Router | `backend/app/api/routes/prospects.py` |
-| Frontend | `frontend/src/prospects/` (`ProspectEditor`, `EmploymentSections`, `AliasList`, `TrackingSection`, `WeekPlanner` (+ `week-planner.css`), `OppositionSection`, `ProspectNotes` (+ `prospect-notes.css`, `noteForm.ts`), `ContextSections`, `pickers`, `EditorSection` (read/edit switch), `ProfileSummary` (summary + `useEmploymentLabels`, `profile-summary.css`), `ProspectScoreCard` (+ `scoreView.ts`, `prospect-score.css`), `ui/ScoreRing`, `profileEditing.ts` (field → tab / section, per-tab dirty), `prospectForm.ts`, `verification.ts`, `messages.ts`, `prospects.css`), API hooks `frontend/src/api/prospects.ts` and `frontend/src/api/prospectNotes.ts`; history: `frontend/src/history/` (`HistoryTimeline`, `format.ts`), `frontend/src/api/history.ts`, backend `app/services/history.py` |
+| Frontend | `frontend/src/prospects/` (`ProspectEditor`, `EmploymentSections`, `AliasList`, `TrackingSection`, `WeekPlanner` (+ `week-planner.css`), `OppositionSection`, `ProspectNotes` (+ `prospect-notes.css`, `noteForm.ts`), `ContextSections`, `pickers`, `EditorSection` (read/edit switch), `ProfileSummary` (summary + `useEmploymentLabels`, `profile-summary.css`), `ProfileLayout` (rows, `profile-layout.css`), `ProspectIndicatorStrip` (+ `indicators.ts`, `indicatorSources.ts`, `indicator-strip.css`), `ProspectScoreCard` (+ `scoreView.ts`, `prospect-score.css`), `ui/ScoreRing`, `profileEditing.ts` (field → tab / section, per-tab dirty), `prospectForm.ts`, `verification.ts`, `messages.ts`, `prospects.css`), API hooks `frontend/src/api/prospects.ts` and `frontend/src/api/prospectNotes.ts`; history: `frontend/src/history/` (`HistoryTimeline`, `format.ts`), `frontend/src/api/history.ts`, backend `app/services/history.py` |
 
 ## Tests
 
