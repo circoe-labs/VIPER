@@ -157,20 +157,80 @@ describe('Prospect editor — Profil summary', () => {
     expect(within(region('Coordonnées')).getByRole('region', { name: 'Téléphones' })).toBeInTheDocument()
   })
 
-  it('opens with the indicator strip: score card, then the S2 and S3 slots, above the summary', async () => {
+  it('opens with the indicator strip: score card, then the live fiche state and proximity, above the summary', async () => {
     await open(complete())
 
     const strip = region('Indicateurs de la fiche')
     const slot = document.querySelector('[data-slot="prospect-score"]')
     expect(strip.contains(slot)).toBe(true)
     expect(within(slot as HTMLElement).getByRole('region', { name: 'Score prospect' })).toBeInTheDocument()
-    // Slots not delivered yet say so: no figure is invented on the client, and no 0-100 « qualité » card remains.
-    expect(within(strip).getByRole('region', { name: 'État de la fiche' })).toHaveTextContent('Pas encore évalué')
-    expect(within(strip).getByRole('region', { name: 'Score de proximité' })).toHaveTextContent('Pas encore calculé')
+    // The fiche state comes from prospect.data_quality (a word, never a figure); the proximity score from its endpoint.
+    const fiche = within(strip).getByRole('region', { name: 'État de la fiche' })
+    expect(fiche).toHaveTextContent('Incomplète')
+    expect(within(fiche).queryByText(/sur 100/)).toBeNull()
+    expect(within(fiche).getByRole('button', { name: 'Aide : fiche incomplète' })).toBeInTheDocument()
+    const proximity = within(strip).getByRole('region', { name: 'Score de proximité' })
+    await waitFor(() => {
+      expect(proximity).toHaveTextContent('Aucune relation enregistrée')
+    })
     expect(screen.queryByRole('region', { name: 'Qualité de la fiche' })).toBeNull()
     expect(strip.compareDocumentPosition(region('Résumé du profil')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     // Relations close the tab as a wide card.
     expect(region('Relations')).toBeInTheDocument()
+  })
+
+  it('shows the reachable proximity score with its best path', async () => {
+    const member = { kind: 'member' as const, id: 'm1', name: 'Robin', company_id: null, company_name: null }
+    const target = { kind: 'prospect' as const, id: 'p1', name: 'Jean Import', company_id: null, company_name: null }
+    const detail = complete()
+    stubProspectsApi({
+      details: [detail],
+      companies: [employer],
+      roles: [role],
+      proximity: {
+        prospect_id: detail.id,
+        score: 72,
+        state: 'reachable',
+        path_count: 1,
+        members: [{ member, strength: 72 }],
+        paths: [
+          { member, hops: 1, strength: 72, people: [member, target], edges: [{ a: member, b: target, relation: 'amis', score: 80 }] },
+        ],
+        formula_version: 1,
+        max_hops: 3,
+      },
+    })
+    renderProspectEditor(detail.id)
+    await editorReady()
+
+    const proximity = region('Score de proximité')
+    await waitFor(() => {
+      expect(proximity).toHaveTextContent('Proche')
+    })
+    expect(proximity).toHaveTextContent('proximité 72 sur 100')
+    expect(proximity).toHaveTextContent('Robin → Jean Import (amis, 80)')
+  })
+
+  it('puts Mission and Contacter in the header, Contacter disabled with its reason under « Ne pas contacter »', async () => {
+    await open(complete())
+    const header = screen.getByRole('dialog').querySelector('header') as HTMLElement
+    expect(within(header).getByRole('button', { name: 'Mission' })).toBeInTheDocument()
+    expect(within(header).getByRole('button', { name: 'Contacter' })).toBeEnabled()
+    // The score card hands its prospect to « Réévaluer le score ».
+    expect(screen.getByRole('button', { name: 'Réévaluer le score' })).toBeInTheDocument()
+  })
+
+  it('disables Contacter for a prospect marked « Ne pas contacter »', async () => {
+    await open(complete({ contactability_status: 'do_not_contact', do_not_contact_reason: 'Demande du prospect' }))
+    const contact = screen.getByRole('button', { name: 'Contacter' })
+    expect(contact).toBeDisabled()
+    expect(contact).toHaveAttribute('title', 'Ne pas contacter : Demande du prospect')
+  })
+
+  it('offers « Contacter » on right click of the sheet', async () => {
+    await open(complete())
+    await userEvent.pointer({ keys: '[MouseRight]', target: region('Résumé du profil') })
+    expect(await screen.findByRole('menuitem', { name: 'Contacter' })).toBeInTheDocument()
   })
 })
 

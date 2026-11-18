@@ -1,16 +1,12 @@
 import type { ReactNode } from 'react'
 
-import { StatusBadge } from '../ui/Badge'
+import { Button } from '../ui/Button'
 import { AlertIcon, ShieldCheckIcon, SpinnerIcon } from '../ui/icons'
 import { InfoTip } from '../ui/InfoTip'
 import { ScoreRing } from '../ui/ScoreRing'
-import {
-  COMPLETENESS_LABELS,
-  COMPLETENESS_TONES,
-  type CompletenessView,
-  type IndicatorState,
-  type ProximityView,
-} from './indicators'
+import { completenessTone } from './completenessView'
+import type { CompletenessView, IndicatorState, ProximityView } from './indicators'
+import { proximityLabel, proximityTone } from './proximityView'
 import './indicator-strip.css'
 
 interface IndicatorStripProps {
@@ -75,35 +71,53 @@ function IndicatorCell<T>({ title, tip, state, unavailable, children }: CellProp
           Chargement…
         </p>
       )}
-      {state.status === 'unavailable' && (
-        <div className="indicator-cell__body">
-          <span className="indicator-cell__disc" aria-hidden="true">
-            –
-          </span>
-          <span className="indicator-cell__text">
-            <span className="indicator-cell__muted">{unavailable}</span>
-          </span>
-        </div>
-      )}
+      {state.status === 'unavailable' && <EmptyBody text={state.reason ?? unavailable} />}
       {state.status === 'error' && (
-        <p className="indicator-cell__empty indicator-cell__empty--error" role="alert">
+        <div className="indicator-cell__empty indicator-cell__empty--error" role="alert">
           <AlertIcon size={16} />
-          {state.message}
-        </p>
+          <span>{state.message}</span>
+          {state.onRetry && (
+            <Button size="sm" onClick={state.onRetry}>
+              Réessayer
+            </Button>
+          )}
+        </div>
       )}
     </section>
   )
 }
 
-function CompletenessBody({ value }: { value: CompletenessView }) {
-  const todo = value.missing.length
+// No figure to show (not evaluated, no relation): a muted disc with the reason in words.
+function EmptyBody({ text }: { text: string }) {
   return (
     <div className="indicator-cell__body">
-      <span className="indicator-cell__disc" data-tone={COMPLETENESS_TONES[value.level]} aria-hidden="true">
+      <span className="indicator-cell__disc" aria-hidden="true">
+        –
+      </span>
+      <span className="indicator-cell__text">
+        <span className="indicator-cell__muted indicator-cell__muted--wrap">{text}</span>
+      </span>
+    </div>
+  )
+}
+
+function CompletenessBody({ value }: { value: CompletenessView }) {
+  const todo = value.missing.length
+  const tone = completenessTone(value.state)
+  return (
+    <div className="indicator-cell__body">
+      <span className="indicator-cell__disc" data-tone={tone} aria-hidden="true">
         <ShieldCheckIcon size={30} />
       </span>
       <span className="indicator-cell__text">
-        <StatusBadge tone={COMPLETENESS_TONES[value.level]}>{COMPLETENESS_LABELS[value.level]}</StatusBadge>
+        <span className="indicator-cell__state">
+          <span className="indicator-cell__strong indicator-cell__label" data-tone={tone}>
+            {value.label}
+          </span>
+          <InfoTip label={`Aide : fiche ${value.label.toLowerCase()}`} size={14}>
+            {value.description}
+          </InfoTip>
+        </span>
         <span className="indicator-cell__muted">
           {todo === 0 ? 'Rien à compléter' : `${String(todo)} à compléter`}
           {todo > 0 && (
@@ -118,13 +132,20 @@ function CompletenessBody({ value }: { value: CompletenessView }) {
 }
 
 function ProximityBody({ value }: { value: ProximityView }) {
+  if (value.state === 'empty') return <EmptyBody text="Aucune relation enregistrée : proximité inconnue." />
+  if (value.state === 'unreachable') {
+    return <EmptyBody text={`Aucun membre Circoe relié à ce prospect (au plus ${String(value.maxHops)} liens).`} />
+  }
   return (
     <div className="indicator-cell__body">
-      <ScoreRing value={value.total} tone="neutral" />
+      <ScoreRing value={value.total} tone={proximityTone(value.total)} />
       <span className="indicator-cell__text">
         <span className="indicator-cell__strong">
-          {value.pathCount === 0 ? 'Aucun chemin' : `${String(value.pathCount)} chemin${value.pathCount > 1 ? 's' : ''}`}
+          {proximityLabel(value.total)}
           <span className="visually-hidden"> : proximité {value.total} sur 100</span>
+        </span>
+        <span className="indicator-cell__muted">
+          {value.pathCount} chemin{value.pathCount > 1 ? 's' : ''}
         </span>
         {value.bestPath && (
           <span className="indicator-cell__muted" title={value.bestPath}>

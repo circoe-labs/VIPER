@@ -42,8 +42,10 @@ async function showTab(editor: Locator, name: 'Profil' | 'Suivi') {
 }
 
 // Opens a Profil section as inputs (nothing to do when it already is: an invalid one opens that way).
+// E-mails and Téléphones are nested in the one « Coordonnées » section, which carries their « Modifier ».
 async function editSection(editor: Locator, name: string) {
-  const edit = region(editor, name).getByRole('button', { name: `Modifier : ${name}` })
+  const owner = name === 'E-mails' || name === 'Téléphones' ? 'Coordonnées' : name
+  const edit = region(editor, owner).getByRole('button', { name: `Modifier : ${owner}` })
   if (await edit.isVisible()) await edit.click()
 }
 

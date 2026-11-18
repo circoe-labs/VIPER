@@ -57,12 +57,12 @@ afterEach(() => {
 
 describe('buildProspectMission', () => {
   it('targets the prospect and carries company + identity context', () => {
-    const result = buildProspectMission('reassess', PROSPECT, CATEGORIES)
+    const result = buildProspectMission('relations', PROSPECT, CATEGORIES)
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.input.targets).toEqual([{ kind: 'prospect', id: PROSPECT.id }])
     expect(result.input.context_refs).toEqual([{ kind: 'company', id: PROSPECT.companyId, note: 'TCSI - Le Havre' }])
-    expect(result.input.prompt).toContain('Reassess prospect fit score')
+    expect(result.input.prompt).toContain('Cherche les relations de Yamina Abdennour')
     expect(result.input.prompt).toContain('Yamina Abdennour')
     expect(result.input.run_now).toBe(false)
   })
@@ -75,6 +75,40 @@ describe('buildProspectMission', () => {
 })
 
 describe('ProspectMissionMenu', () => {
+  it('« Réanalyse son score » asks the S4 reassessment (same prospect), not a generic mission', async () => {
+    const user = userEvent.setup()
+    const fetchMock = stubApi({
+      ...API,
+      [`POST /api/prospects/${PROSPECT.id}/score/reassessment`]: [
+        200,
+        {
+          status: 'queued',
+          task_id: 't1',
+          mission_id: MISSION,
+          run_id: null,
+          result_id: null,
+          requested_at: null,
+          agent_label: null,
+          failure_code: null,
+          failure_message: null,
+          proposal: null,
+          decided_by: null,
+          decided_at: null,
+        },
+      ],
+    })
+    mount(<ProspectMissionMenu prospect={PROSPECT} />)
+
+    await user.click(screen.getByRole('button', { name: 'Mission' }))
+    await user.click(screen.getByRole('button', { name: /Réanalyse son score/ }))
+
+    expect(await screen.findByText('Réévaluation demandée')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Ouvrir la mission' })).toHaveAttribute('href', `/missions/${MISSION}`)
+    const calls = fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')
+    expect(calls).toHaveLength(1)
+    expect(String(calls[0]?.[0])).toContain(`/prospects/${PROSPECT.id}/score/reassessment`)
+  })
+
   it('opens a 2x2 menu, moves with arrows and creates a prospect-targeted mission', async () => {
     const user = userEvent.setup()
     const fetchMock = stubApi({

@@ -94,7 +94,10 @@
 
 .prospect-editor__pair {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(6.5rem, 1fr);
+  /* A date and a time control each need their own width: the pair takes a full row of its grid. */
+  grid-column: 1 / -1;
+  max-width: 30rem;
+  grid-template-columns: minmax(9.5rem, 1.4fr) minmax(7.5rem, 1fr);
   gap: var(--space-3);
   align-items: start;
 }
@@ -536,23 +539,6 @@
   background: var(--color-surface);
   font-family: inherit;
   font-size: var(--text-xs);
-}
-
-.prospect-editor__tracking-summary {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-2) var(--space-4);
-  margin: 0;
-}
-
-.prospect-editor__tracking-summary dt {
-  font-size: var(--font-size-sm, 0.8125rem);
-  color: var(--color-text-muted);
-}
-
-.prospect-editor__tracking-summary dd {
-  margin: 0;
-  font-weight: 600;
 }
 
 /* The inactive tab's mark: fields to correct, or unsaved changes. */

@@ -43,9 +43,9 @@ visible à la lecture suivante ; côté client la clé de requête est sous `['l
 
 ## Front
 
-`frontend/src/api/proximity.ts` (types + `useProspectProximity`), `ProximityScoreCard.tsx` (carte autonome :
-chargement, erreur avec « Réessayer », vide, inatteignable, score + meilleurs chemins), `proximityView.ts`
-(tons d'affichage : ≥67 Proche, ≥34 Accessible, sinon Lointain). La slice S1 place la carte dans la bande
-d'indicateurs de la fiche ; S3 ne touche pas `ProspectEditor.tsx`.
+`frontend/src/api/proximity.ts` (types + `useProspectProximity`), `useProximityIndicator` (`prospects/indicatorSources.ts`) qui alimente la cellule « Score de proximité » de la bande
+d'indicateurs (`ProspectIndicatorStrip` : chargement, erreur avec « Réessayer », vide, inatteignable, score + bande +
+meilleur chemin), `proximityView.ts` (tons d'affichage : ≥67 Proche, ≥34 Accessible, sinon Lointain). Branché à S7 ; la
+carte autonome `ProximityScoreCard` a été supprimée (un seul contrat, une seule présentation).
 
-Tests : `backend/tests/test_person_proximity.py`, `frontend/src/prospects/ProximityScoreCard.test.tsx`.
+Tests : `backend/tests/test_person_proximity.py`, `frontend/src/prospects/ProspectIndicatorStrip.test.tsx`, `ProspectProfile.test.tsx`.

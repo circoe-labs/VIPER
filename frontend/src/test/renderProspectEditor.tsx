@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render } from '@testing-library/react'
 import { useState } from 'react'
+import { MemoryRouter } from 'react-router'
 import { vi } from 'vitest'
 
 import { setCsrfToken } from '../api/client'
@@ -71,7 +72,9 @@ export function renderProspectEditor(target: string, queue: ProspectQueue = fake
     <QueryClientProvider client={queryClient}>
       <CurrentUserContext value={TEST_USER}>
         <CompanyEditorProvider>
-          <Harness />
+          <MemoryRouter>
+            <Harness />
+          </MemoryRouter>
         </CompanyEditorProvider>
       </CurrentUserContext>
     </QueryClientProvider>,

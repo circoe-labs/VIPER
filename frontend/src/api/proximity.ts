@@ -46,9 +46,11 @@ export interface Proximity {
 // Under the ['links'] prefix: every link create/edit/delete (useLinkMutations) refreshes this read as well.
 export const proximityKey = (prospectId: string) => [...linkKeys.all, 'proximity', 'prospect', prospectId] as const
 
-export function useProspectProximity(prospectId: string) {
+// `null` = no saved prospect yet (the new-prospect form): nothing is requested.
+export function useProspectProximity(prospectId: string | null) {
   return useQuery({
-    queryKey: proximityKey(prospectId),
-    queryFn: ({ signal }) => apiGet<Proximity>(`/links/proximity/prospect/${encodeURIComponent(prospectId)}`, signal),
+    queryKey: proximityKey(prospectId ?? ''),
+    queryFn: ({ signal }) => apiGet<Proximity>(`/links/proximity/prospect/${encodeURIComponent(prospectId ?? '')}`, signal),
+    enabled: prospectId !== null,
   })
 }

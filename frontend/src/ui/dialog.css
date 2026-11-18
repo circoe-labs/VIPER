@@ -86,6 +86,15 @@
   border-bottom: var(--border-width) solid var(--color-border);
 }
 
+.dialog__header-actions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
 .dialog__heading {
   display: grid;
   gap: var(--space-1);

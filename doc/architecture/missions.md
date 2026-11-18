@@ -56,7 +56,7 @@ the ordinary Missions process, never a direct LLM call:
   canonical « other » category, one `prospect_id` target, `missions.task_type = reassess_score`, migration 0056).
   `run_mission` honours `task_type` for prospect targets and creates one `reassess_score` task
   (`prospect_id` set, company optional). A second request while one is open returns the open one. The Mission
-  menu (S5) reuses this command for its « Réanalyse son score » preset.
+  menu (S5) reuses this command for its « Réanalyse son score » preset (wired at S7: the tile calls `POST /api/prospects/{id}/score/reassessment`, not `POST /missions`).
 - The agent claims it (`viper_claim_task`, `task_types: ["reassess_score"]`): the payload carries the prospect,
   its company, `criteria` (meaning, allowed and forbidden inputs, `weights: null`) and `current_score`; **no**
   contact channel, no relationship graph. It answers with `viper_submit_task_result`
@@ -576,6 +576,7 @@ maps preset -> canonical `MissionInput` posted to `POST /missions` (server valid
   role, company and the objective are also written in the consigne (category general prompt + `Objectif` + `Contexte`);
 - category resolved at runtime by seeded key (`enrichment` for « Complète », `other` for score and relations), `skill_ids` /
   `source_ids` follow the category, `run_now: false`: **nothing starts automatically**; the success line links to `/missions/:id`;
-- « Réanalyse son score » emits the explicit `Reassess prospect fit score` objective until S4's reassessment command exists;
+- « Réanalyse son score » is **not** built by the factory (S7): the tile calls S4's `POST /api/prospects/{id}/score/reassessment`
+  (one-off `reassess_score` mission bound to the same `prospect_id`, started at once, proposal reviewed under « Score prospect »);
 - « Autre »: textarea + microphone through `useSpeechInput` (`chooseSpeechMode`, §7f). Refused / absent mic or STT failure is shown
   inline (`role="alert"`) and typing keeps working; a live seconds counter shows listening / transcription.

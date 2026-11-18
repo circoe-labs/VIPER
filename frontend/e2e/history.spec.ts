@@ -71,7 +71,7 @@ test('an editor save reads back in the prospect history and on Home', async ({ p
 
   // One save: a new primary e-mail, another company, a contact state.
   await editor.getByRole('tab', { name: /^Profil/ }).click()
-  await region(editor, 'E-mails').getByRole('button', { name: 'Modifier : E-mails' }).click()
+  await region(editor, 'Coordonnées').getByRole('button', { name: 'Modifier : Coordonnées' }).click()
   await region(editor, 'Emploi').getByRole('button', { name: 'Modifier : Emploi' }).click()
   const emails = region(editor, 'E-mails')
   await emails.getByRole('button', { name: 'Ajouter un e-mail' }).click()

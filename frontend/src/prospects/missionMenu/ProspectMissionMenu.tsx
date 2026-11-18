@@ -5,6 +5,7 @@ import { ApiError } from '../../api/client'
 import { useAssistantCapabilities } from '../../api/missionAssistant'
 import { useMissionCategories } from '../../api/missionConfig'
 import { type MissionDetail, useCreateMission } from '../../api/missions'
+import { useReassessmentCommands } from '../../api/scoreReassessment'
 import { chooseSpeechMode, type SpeechMode, useSpeechInput } from '../../missions/voice/useSpeechInput'
 import { Button } from '../../ui/Button'
 import { TextAreaField } from '../../ui/fields'
@@ -20,10 +21,12 @@ import {
   UsersIcon,
 } from '../../ui/icons'
 import { Popover } from '../../ui/Popover'
-import { buildProspectMission, type MissionPreset, type MissionProspect, PRESETS } from './prospectMissionFactory'
+import { buildProspectMission, type MissionPreset, type MissionProspect, PRESETS, REASSESS_TILE } from './prospectMissionFactory'
 import './prospect-mission-menu.css'
 
-const PRESET_ICONS: Record<MissionPreset, IconComponent> = {
+type TileId = MissionPreset | typeof REASSESS_TILE.id
+
+const PRESET_ICONS: Record<TileId, IconComponent> = {
   complete: PencilIcon,
   reassess: CompassIcon,
   relations: UsersIcon,
@@ -44,16 +47,32 @@ interface Props {
 export function ProspectMissionMenu({ prospect, onCreated, className }: Props) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const [mode, setMode] = useState<'menu' | 'other'>('menu')
-  const [created, setCreated] = useState<MissionDetail | null>(null)
+  // The created mission's id (null until then); `reassessed` = it is the S4 reassessment, not a generic mission.
+  const [created, setCreated] = useState<{ id: string | null; reassessed: boolean } | null>(null)
   const [localError, setLocalError] = useState<string | null>(null)
   const categories = useMissionCategories()
   const create = useCreateMission()
+  const reassess = useReassessmentCommands(prospect.id).request
 
   const close = () => {
     setAnchor(null)
     setMode('menu')
     setCreated(null)
     create.reset()
+    reassess.reset()
+  }
+
+  // « Réanalyse son score »: S4's command (agent proposal reviewed under « Score prospect »), not a second mission shape.
+  const reassessScore = () => {
+    setLocalError(null)
+    reassess.mutate(
+      {},
+      {
+        onSuccess: (state) => {
+          setCreated({ id: state.mission_id, reassessed: true })
+        },
+      },
+    )
   }
 
   const submit = (preset: MissionPreset, request = '') => {
@@ -66,21 +85,21 @@ export function ProspectMissionMenu({ prospect, onCreated, className }: Props) {
     setLocalError(null)
     create.mutate(built.input, {
       onSuccess: (mission) => {
-        setCreated(mission)
+        setCreated({ id: mission.card.id, reassessed: false })
         onCreated?.(mission)
       },
     })
   }
   const error =
     localError ??
-    (create.isError
-      ? create.error instanceof ApiError
-        ? create.error.message
+    (create.isError || reassess.isError
+      ? (create.error ?? reassess.error) instanceof ApiError
+        ? (create.error ?? reassess.error)?.message
         : 'La mission n’a pas pu être créée. Réessayez.'
       : categories.isError
         ? 'Les catégories de mission sont indisponibles. Réessayez dans un instant.'
         : null)
-  const busy = create.isPending
+  const busy = create.isPending || reassess.isPending
 
   return (
     <>
@@ -104,15 +123,21 @@ export function ProspectMissionMenu({ prospect, onCreated, className }: Props) {
               <div className="pmm__done" role="status">
                 <CheckCircleIcon size={20} />
                 <div>
-                  <strong>Mission créée</strong>
-                  <p>Elle n’est pas lancée : lancez-la depuis sa page.</p>
-                  <Link className="pmm__link" to={`/missions/${created.card.id}`} onClick={close}>
-                    Ouvrir la mission
-                  </Link>
+                  <strong>{created.reassessed ? 'Réévaluation demandée' : 'Mission créée'}</strong>
+                  <p>
+                    {created.reassessed
+                      ? 'Un agent propose un score : suivez-la sous « Score prospect ».'
+                      : 'Elle n’est pas lancée : lancez-la depuis sa page.'}
+                  </p>
+                  {created.id && (
+                    <Link className="pmm__link" to={`/missions/${created.id}`} onClick={close}>
+                      Ouvrir la mission
+                    </Link>
+                  )}
                 </div>
               </div>
             ) : mode === 'menu' ? (
-              <PresetGrid disabled={busy || categories.isPending} onPreset={submit} onOther={() => { setMode('other') }} />
+              <PresetGrid disabled={busy || categories.isPending} onPreset={submit} onReassess={reassessScore} onOther={() => { setMode('other') }} />
             ) : (
               <OtherRequest
                 busy={busy}
@@ -144,16 +169,19 @@ export function ProspectMissionMenu({ prospect, onCreated, className }: Props) {
 function PresetGrid({
   disabled,
   onPreset,
+  onReassess,
   onOther,
 }: {
   disabled: boolean
   onPreset: (preset: MissionPreset) => void
+  onReassess: () => void
   onOther: () => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
-  const choices = [
-    ...PRESETS.map((spec) => ({ id: spec.id, label: spec.label, hint: spec.hint })),
-    { id: 'other' as const, label: 'Autre', hint: 'Votre demande, écrite ou dictée' },
+  const spec = (id: Exclude<MissionPreset, 'other'>) => PRESETS.find((item) => item.id === id)
+  const choices: { id: TileId; label: string; hint: string }[] = [
+    ...[spec('complete'), REASSESS_TILE, spec('relations')].flatMap((tile) => (tile ? [tile] : [])),
+    { id: 'other', label: 'Autre', hint: 'Votre demande, écrite ou dictée' },
   ]
 
   // 2x2 grid: arrows move by cell, Home/End jump.
@@ -181,6 +209,7 @@ function PresetGrid({
             disabled={disabled && choice.id !== 'other'}
             onClick={() => {
               if (choice.id === 'other') onOther()
+              else if (choice.id === 'reassess') onReassess()
               else onPreset(choice.id)
             }}
           >

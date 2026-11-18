@@ -39,6 +39,8 @@ import { useCompletenessIndicator, useProximityIndicator } from './indicatorSour
 import { ProfileRow } from './ProfileLayout'
 import { ProspectIndicatorStrip } from './ProspectIndicatorStrip'
 import { ProspectLinksCard } from './ProspectLinksCard'
+import { ProspectContactButton, ProspectContextMenuSurface } from './missionMenu/ProspectContactAction'
+import { ProspectMissionMenu } from './missionMenu/ProspectMissionMenu'
 import { ProspectScoreCard } from './ProspectScoreCard'
 import { TrackingTab } from './TrackingTab'
 import './prospects.css'
@@ -141,9 +143,10 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
   const draft = forms?.draft
   const companyMoved = forms !== null && prospect !== null && forms.draft.company_id !== forms.baseline.company_id
   const company = useCompany(draft?.company_id ?? null)
-  // S2 / S3 slots of the indicator strip (unavailable until their read models land: indicatorSources seam).
-  const completeness = useCompletenessIndicator()
-  const proximity = useProximityIndicator()
+  // Slots of the indicator strip (indicatorSources seam): the fiche state from the prospect's read model, the proximity
+  // score from its endpoint.
+  const completeness = useCompletenessIndicator(prospect)
+  const proximity = useProximityIndicator(prospect?.id ?? null)
   const labels = useEmploymentLabels(draft, prospect)
   const dirty = forms !== null && isDirty(forms.draft, forms.baseline, isNew)
   const errors = forms ? validate(forms.draft, { isNew, today }) : {}
@@ -337,12 +340,127 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
     onNavigate(null)
   }
   const name = prospect ? [civilityLabel(prospect.civility), personName(prospect)].filter(Boolean).join(' ') : ''
+  const doNotContactReason =
+    prospect?.contactability_status === 'do_not_contact'
+      ? `Ne pas contacter${prospect.do_not_contact_reason ? ` : ${prospect.do_not_contact_reason}` : ''}`
+      : null
   const position = prospect ? queue.position(prospect.id) : null
   const description = isNew
     ? 'Saisie manuelle : la provenance est enregistrée avec la fiche.'
     : position
       ? `Prospect ${String(position)} sur ${String(queue.total)} · ${selectionShortLabel(queue.criteria)}`
       : 'Chaque enregistrement est tracé dans l’historique.'
+
+  const sheetForm =
+    forms !== null && draft !== undefined ? (
+    <form
+      id={formId}
+      ref={formRef}
+      className="prospect-editor-form"
+      noValidate
+      onSubmit={(event) => {
+        event.preventDefault()
+        void saveOnly()
+      }}
+    >
+      <Tabs
+        label="Sections de la fiche"
+        selected={tab}
+        onSelect={setTab}
+        tabs={[
+          { id: 'profile', label: 'Profil', extra: <TabMark tab="profile" selected={tab} dirty={tabDirty} invalid={tabInvalid} /> },
+          { id: 'tracking', label: 'Suivi', extra: <TabMark tab="tracking" selected={tab} dirty={tabDirty} invalid={tabInvalid} /> },
+        ]}
+      >
+        {/* Both panels stay mounted (hidden when inactive): typed notes, the open sections and every field survive a tab change. */}
+        <div className="prospect-editor" hidden={tab !== 'profile'}>
+          {prospect !== null && (
+            <ProspectIndicatorStrip
+              score={
+                <ProspectScoreCard
+                  score={loaded.data?.id === prospect.id ? loaded.data.score : prospect.score}
+                  outdated={loaded.isRefetchError}
+                  prospectId={prospect.id}
+                  onScoreChanged={() => void syncFromServer()}
+                  onShowNote={(noteId) => {
+                    setTab('tracking')
+                    setNoteToShow(noteId)
+                  }}
+                />
+              }
+              completeness={completeness}
+              proximity={proximity}
+            />
+          )}
+          <ProfileRow columns="two">
+            {prospect !== null && <ProfileSummary draft={draft} prospect={prospect} labels={labels} />}
+            <EditorSection title="Coordonnées" edit={sectionEdit('emails', 'phones')}>
+              {(['emails', 'phones'] as const).map((kind) => (
+                <AliasList
+                  key={kind}
+                  nested
+                  kind={kind}
+                  aliases={draft[kind]}
+                  onChange={(aliases) => {
+                    change({ [kind]: aliases })
+                  }}
+                  errors={shown}
+                  fieldId={fieldId}
+                  companyMoved={companyMoved}
+                  companyDomain={company.data?.email_domain ?? null}
+                  today={today}
+                  staleDays={prospect?.stale_threshold_days ?? null}
+                  edit={sectionEdit('emails', 'phones')}
+                />
+              ))}
+            </EditorSection>
+          </ProfileRow>
+          <ProfileRow columns="three">
+            <IdentitySection
+              draft={draft}
+              errors={shown}
+              fieldId={fieldId}
+              onChange={change}
+              firstFieldRef={firstFieldRef}
+              edit={sectionEdit('identity')}
+            />
+            <EmploymentSection
+              draft={draft}
+              errors={shown}
+              fieldId={fieldId}
+              onChange={change}
+              prospect={prospect}
+              companyMoved={companyMoved}
+              labels={labels}
+              edit={sectionEdit('employment')}
+            />
+            <CompanySection companyId={draft.company_id} />
+          </ProfileRow>
+          {prospect && (
+            <ProfileRow columns="one">
+              <ProspectLinksCard prospectId={prospect.id} />
+            </ProfileRow>
+          )}
+        </div>
+        <div className="prospect-editor" hidden={tab !== 'tracking'}>
+          <TrackingTab
+            draft={draft}
+            errors={shown}
+            fieldId={fieldId}
+            onChange={change}
+            prospect={prospect}
+            dirty={dirty}
+            today={today}
+            noteToShow={noteToShow}
+            onNoteShown={() => {
+              setNoteToShow(null)
+            }}
+            onChanged={() => void syncFromServer()}
+          />
+        </div>
+      </Tabs>
+    </form>
+    ) : null
 
   return (
     <Drawer
@@ -353,6 +471,23 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
       onClose={() => {
         guarded(close, 'Fermer sans enregistrer')
       }}
+      headerActions={
+        prospect && (
+          <>
+            <ProspectMissionMenu
+              prospect={{
+                id: prospect.id,
+                firstName: prospect.first_name,
+                lastName: prospect.last_name,
+                roleLabel: labels.role,
+                companyId: prospect.company?.id ?? null,
+                companyName: prospect.company?.display_name ?? null,
+              }}
+            />
+            <ProspectContactButton prospectId={prospect.id} disabledReason={doNotContactReason} />
+          </>
+        )
+      }
       footer={
         forms && (
           <div className="prospect-editor__bar">
@@ -411,112 +546,13 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
     >
       {forms === null || draft === undefined ? (
         <LoadState failed={loaded.isError} notFound={isNotFound(loaded.error)} onRetry={() => void loaded.refetch()} />
+      ) : prospect ? (
+        // Right click on the sheet offers « Contacter » (the header button is the keyboard path).
+        <ProspectContextMenuSurface prospectId={prospect.id} disabledReason={doNotContactReason}>
+          {sheetForm}
+        </ProspectContextMenuSurface>
       ) : (
-        <form
-          id={formId}
-          ref={formRef}
-          className="prospect-editor-form"
-          noValidate
-          onSubmit={(event) => {
-            event.preventDefault()
-            void saveOnly()
-          }}
-        >
-          <Tabs
-            label="Sections de la fiche"
-            selected={tab}
-            onSelect={setTab}
-            tabs={[
-              { id: 'profile', label: 'Profil', extra: <TabMark tab="profile" selected={tab} dirty={tabDirty} invalid={tabInvalid} /> },
-              { id: 'tracking', label: 'Suivi', extra: <TabMark tab="tracking" selected={tab} dirty={tabDirty} invalid={tabInvalid} /> },
-            ]}
-          >
-            {/* Both panels stay mounted (hidden when inactive): typed notes, the open sections and every field survive a tab change. */}
-            <div className="prospect-editor" hidden={tab !== 'profile'}>
-              {prospect !== null && (
-                <ProspectIndicatorStrip
-                  score={
-                    <ProspectScoreCard
-                      score={loaded.data?.id === prospect.id ? loaded.data.score : prospect.score}
-                      outdated={loaded.isRefetchError}
-                      onShowNote={(noteId) => {
-                        setTab('tracking')
-                        setNoteToShow(noteId)
-                      }}
-                    />
-                  }
-                  completeness={completeness}
-                  proximity={proximity}
-                />
-              )}
-              <ProfileRow columns="two">
-                {prospect !== null && <ProfileSummary draft={draft} prospect={prospect} labels={labels} />}
-                <EditorSection title="Coordonnées" edit={sectionEdit('emails', 'phones')}>
-                  {(['emails', 'phones'] as const).map((kind) => (
-                    <AliasList
-                      key={kind}
-                      nested
-                      kind={kind}
-                      aliases={draft[kind]}
-                      onChange={(aliases) => {
-                        change({ [kind]: aliases })
-                      }}
-                      errors={shown}
-                      fieldId={fieldId}
-                      companyMoved={companyMoved}
-                      companyDomain={company.data?.email_domain ?? null}
-                      today={today}
-                      staleDays={prospect?.stale_threshold_days ?? null}
-                      edit={sectionEdit('emails', 'phones')}
-                    />
-                  ))}
-                </EditorSection>
-              </ProfileRow>
-              <ProfileRow columns="three">
-                <IdentitySection
-                  draft={draft}
-                  errors={shown}
-                  fieldId={fieldId}
-                  onChange={change}
-                  firstFieldRef={firstFieldRef}
-                  edit={sectionEdit('identity')}
-                />
-                <EmploymentSection
-                  draft={draft}
-                  errors={shown}
-                  fieldId={fieldId}
-                  onChange={change}
-                  prospect={prospect}
-                  companyMoved={companyMoved}
-                  labels={labels}
-                  edit={sectionEdit('employment')}
-                />
-                <CompanySection companyId={draft.company_id} />
-              </ProfileRow>
-              {prospect && (
-                <ProfileRow columns="one">
-                  <ProspectLinksCard prospectId={prospect.id} />
-                </ProfileRow>
-              )}
-            </div>
-            <div className="prospect-editor" hidden={tab !== 'tracking'}>
-              <TrackingTab
-                draft={draft}
-                errors={shown}
-                fieldId={fieldId}
-                onChange={change}
-                prospect={prospect}
-                dirty={dirty}
-                today={today}
-                noteToShow={noteToShow}
-                onNoteShown={() => {
-                  setNoteToShow(null)
-                }}
-                onChanged={() => void syncFromServer()}
-              />
-            </div>
-          </Tabs>
-        </form>
+        sheetForm
       )}
       {deleting && prospect && (
         <DeleteProspectDialog

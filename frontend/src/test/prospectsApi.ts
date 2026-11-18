@@ -4,6 +4,7 @@ import type { Company } from '../api/companies'
 import type { HistoryEntry } from '../api/history'
 import type { NoteInput, ProspectNote } from '../api/prospectNotes'
 import type { ContactProgress, Prospect, ProspectCreateInput, ProspectInput, Tracking, TrackingPatch } from '../api/prospects'
+import type { Proximity } from '../api/proximity'
 import type { Place, ProspectSequences, QualityAlert, Sequence } from '../api/sequences'
 import type { Cohort, Referent, TaxonomyValue } from '../api/settings'
 import { stubCompaniesApi } from './companiesApi'
@@ -224,6 +225,8 @@ interface ProspectsStubOptions {
   alerts?: QualityAlert[]
   // Notes per prospect id (none by default).
   notes?: Record<string, ProspectNote[]>
+  // Answer of GET /links/proximity/prospect/{id} (default: no relation recorded).
+  proximity?: Proximity
 }
 
 export function stubProspectsApi(options: ProspectsStubOptions = {}) {
@@ -550,6 +553,10 @@ export function stubProspectsApi(options: ProspectsStubOptions = {}) {
       const body: unknown = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined
       requests.push({ method, path: url.pathname, search: url.search, body })
       return handleAlerts(method, url, body)
+    }
+    if (url.pathname.startsWith('/api/links/proximity/prospect/')) {
+      const id = decodeURIComponent(url.pathname.split('/').at(-1) ?? '')
+      return reply(200, options.proximity ?? { prospect_id: id, score: 0, state: 'empty', path_count: 0, members: [], paths: [], formula_version: 1, max_hops: 3 })
     }
     if (url.pathname.startsWith('/api/companies')) return companies.fetchMock(input, init)
     return prospection.fetchMock(input, init)

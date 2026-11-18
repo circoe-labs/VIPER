@@ -23,3 +23,6 @@ Branch: `task/viper_prospect_sheet_missions_scoring_redesign` from `main` (dde61
 ### Dispatch set
 01, 02, 03, 04, 05, 06 in parallel in isolated worktrees; 07 after all six.
 Testing doctrine kept: no full suites before S7.
+
+## S7 — Integration (2026-11-18, host CLARICE)
+Wired: strip slots (completeness from `data_quality`, proximity from its endpoint), `ProspectScoreCard` `prospectId` + `onScoreChanged`, header `Mission` / `Contacter`, `ProspectContextMenuSurface`, reassess preset -> S4 command. Removed: `COMPLETENESS_FIXTURE`, `PROXIMITY_FIXTURE`, stub hooks, `DataQualityCard`, `ProximityScoreCard`, their CSS, `.prospect-editor__tracking-summary`. Fixed visible defects found on screenshots: Suivi appointment date/time overlap, indicator strip stacking at 800 px. New E2E `frontend/e2e/prospect-sheet.spec.ts`. Test campaign results: see the S7 final report.

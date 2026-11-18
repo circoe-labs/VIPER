@@ -30,7 +30,7 @@ columns; one column below 1100 px). Explanations go in info tooltips (`ui/InfoTi
 
 | Tab | Row | Content |
 |---|---|---|
-| **Profil** | indicator strip (full width, 3 equal cells) | **Score prospect** (`ProspectScoreCard`, commercial fit only, ring + word + detail dialog; absent for a new person) · **État de la fiche** (slot for the completeness *state*, S2, never a 0-100 figure) · **Score de proximité** (slot, S3, 0-100 from the person-link graph). `ProspectIndicatorStrip.tsx` + `indicator-strip.css`; the slots take an `IndicatorState` (`loading` / `unavailable` / `error` / `ready`, `indicators.ts`) from the one seam `indicatorSources.ts`, which says *unavailable* until S2 / S3 land. The front computes no score. |
+| **Profil** | indicator strip (full width, 3 equal cells) | **Score prospect** (`ProspectScoreCard`, commercial fit only, ring + word + detail dialog; absent for a new person) · **État de la fiche** (the completeness *state* word, coloured by tone, with an info tooltip carrying the backend's description and the « à compléter » criteria; read from `prospect.data_quality`, never a 0-100 figure; *Écarté* under opposition) · **Score de proximité** (ring 0-100 + band word + path count + best path, from `GET /api/links/proximity/prospect/{id}`; explained *empty* / *unreachable* states; error with *Réessayer*). `ProspectIndicatorStrip.tsx` + `indicator-strip.css`; the slots take an `IndicatorState` (`loading` / `unavailable` / `error` / `ready`, `indicators.ts`) from the one seam `indicatorSources.ts` (`useCompletenessIndicator(prospect)`, `useProximityIndicator(prospectId)`). The front computes no score. The score card also carries *Réévaluer le score* (`prospectId`, `onScoreChanged` re-reads the prospect). |
 | | two columns | **Résumé du profil** (`ProfileSummary`: full name, *rôle · entreprise*, main e-mail and phone, secondary status, *Copier les informations*; hidden for a new person) · **Coordonnées** (E-mails and Téléphones) |
 | | three columns | **Identité** (Civilité, Prénom, Nom) · **Emploi** (Entreprise *, Rôle, Intitulé exact, Activité, employment verification as a secondary line) · **Entreprise** (summary + *Ouvrir la fiche entreprise*) |
 | | one column | **Relations** (`ProspectLinksCard`) |
@@ -46,8 +46,8 @@ the cards of a row the same height. Long notes and histories scroll inside their
 semantics changed; the former *Semaine / Relance / Référent / RDV* summary inside *Suivi de contact* moved to the band
 (the level stays in *Séquence de contact*).
 
-The *Qualité de la fiche* numeric card (`DataQualityCard`) is no longer placed in Profil: the fiche is shown as a named
-state in the indicator strip (S2 supplies it). The component stays in the tree until S2 replaces it.
+The *Qualité de la fiche* numeric card (`DataQualityCard`) and the standalone `ProximityScoreCard` were removed at S7: the
+fiche is shown as a named state and the proximity as a score in the indicator strip, both live (`indicatorSources.ts`).
 
 The header gives the person's name and their place in the queue (*Prospect 3 sur 45 · Jamais vérifiés*). The footer is
 the dirty-state bar.
@@ -368,8 +368,8 @@ some, `missing` for none (the stale employment is `partial`).
 Deprecated compatibility adapter: the payload still carries `total`, `band` (`VIPER_PROSPECT_DATA_SCORE_RED_BELOW` **50** /
 `..._GREEN_FROM` **80**) and per-criterion `points`/`max_points`, because the prospects dashboard « Fiabilité » (SQL
 twin `quality_sql`) still uses the numeric total. Remove them with the dashboard dependency (follow-up, not done in S2).
-UI: `DataQualityCard.tsx` (prop `quality: ProfileCompleteness | null`, `discarded`, `unavailable`), `completenessView.ts`,
-`profile-completeness.css`, in the Profil tab; wiring into the S1 indicator strip is the S7 integration.
+UI: `completenessView.ts` (tones, criterion split) feeding the *État de la fiche* cell of the indicator strip (S7 wiring; the
+former `DataQualityCard` and its CSS are gone).
 
 **Configuration** (environment, `core/config.py`; the contract does not contain these numbers):
 `VIPER_PROSPECT_SCORE_BASE` (default **50**), `VIPER_PROSPECT_SCORE_RED_BELOW` (**40**) and
@@ -481,7 +481,14 @@ that changes nothing writes nothing.
   summary and edit mode, at 1440 and 1280 px. `accessibility.spec.ts` scans the editor on Profil and on Suivi with every
   section in edit mode.
 
-## Mission menu and Contacter (S5 components, mounted by the header)
+## Mission menu and Contacter (S5 components, mounted by the header at S7)
+
+Mounted in `ProspectEditor` through the new `Dialog` `headerActions` slot (left of the close button), only for a saved prospect:
+*Mission* (`ProspectMissionMenu`, role label from the employment labels) and *Contacter* (`ProspectContactButton`, disabled with
+« Ne pas contacter : <raison> » as tooltip under opposition). The whole sheet sits in `ProspectContextMenuSurface`.
+« Réanalyse son score » is not a generic mission: the menu calls S4's `POST /api/prospects/{id}/score/reassessment`
+(same prospect target, `reassess_score` task, proposal reviewed under *Score prospect* before the score moves) and links
+to the created mission; « Complète cette fiche », « Cherche ses relations » and « Autre » use the S5 mission factory.
 
 - `<ProspectMissionMenu prospect={{ id, firstName, lastName, roleLabel?, companyId?, companyName? }} onCreated? />` goes in the
   header action slot; it creates prospect-targeted missions (see doc/architecture/missions.md §7g).

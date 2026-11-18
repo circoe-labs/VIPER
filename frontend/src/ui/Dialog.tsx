@@ -25,6 +25,8 @@ interface DialogProps {
   className?: string
   description?: ReactNode
   footer?: ReactNode
+  // Actions shown in the header, before the close button (a record's Mission / Contacter menu).
+  headerActions?: ReactNode
   // Element focused on open (e.g. the first field of an editor); defaults to the dialog itself.
   initialFocusRef?: RefObject<HTMLElement | null>
   children: ReactNode
@@ -55,6 +57,7 @@ function OpenDialog({
   className,
   description,
   footer,
+  headerActions,
   initialFocusRef,
   children,
 }: Omit<DialogProps, 'open'> & { kind: 'modal' | 'drawer'; size: string }) {
@@ -154,7 +157,10 @@ function OpenDialog({
               </p>
             )}
           </div>
-          <IconButton icon={CloseIcon} label="Fermer" onClick={onClose} />
+          <div className="dialog__header-actions">
+            {headerActions}
+            <IconButton icon={CloseIcon} label="Fermer" onClick={onClose} />
+          </div>
         </header>
         <div className="dialog__body">{children}</div>
         {footer && <footer className="dialog__footer">{footer}</footer>}

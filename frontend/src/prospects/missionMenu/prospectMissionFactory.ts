@@ -8,7 +8,10 @@ import { kindsForType } from '../../missions/useMissionForm'
 // real `targets[]` entry (`kind: 'prospect'`), never only free text; the company rides along as a read-only
 // `context_refs[]` record. Nothing runs automatically (`run_now: false`).
 
-export type MissionPreset = 'complete' | 'reassess' | 'relations' | 'other'
+// « Réanalyse son score » is not a generic mission: the menu hands it to S4's reassessment command
+// (POST /prospects/{id}/score/reassessment: same prospect target, REASSESS_SCORE task, proposal reviewed before the
+// score moves). It therefore has no entry here, only a tile in the menu (REASSESS_TILE).
+export type MissionPreset = 'complete' | 'relations' | 'other'
 
 export interface MissionProspect {
   id: string
@@ -41,16 +44,6 @@ export const PRESETS: readonly PresetSpec[] = [
       `Complète la fiche de ${who} : e-mail et téléphone professionnels, intitulé exact du poste, entreprise et rattachement, en citant tes sources. Ne remplis que ce que tu peux vérifier.`,
   },
   {
-    id: 'reassess',
-    label: 'Réanalyse son score',
-    hint: 'Pertinence commerciale',
-    categoryKey: 'other',
-    name: (who) => `Réévaluer le score de ${who}`,
-    // Fallback until S4's reassessment command lands: an explicit objective a later task consumes.
-    objective: (who) =>
-      `Reassess prospect fit score: réévalue le score prospect de ${who} (adéquation commerciale aux critères cibles de Circoe uniquement, sans tenir compte du graphe de relations). Rends un score proposé avec une justification explicable : critères, éléments de preuve et sources.`,
-  },
-  {
     id: 'relations',
     label: 'Cherche ses relations',
     hint: 'Liens avec l’équipe Circoe',
@@ -60,6 +53,9 @@ export const PRESETS: readonly PresetSpec[] = [
       `Cherche les relations de ${who} : personnes en commun, anciens collègues, écoles, événements, publications, avec l’équipe Circoe ou d’autres prospects. Pour chaque lien, donne la source et un niveau de confiance.`,
   },
 ]
+
+// Locked French wording of the menu tile that starts S4's reassessment (shown second, between the two missions).
+export const REASSESS_TILE = { id: 'reassess', label: 'Réanalyse son score', hint: 'Pertinence commerciale' } as const
 
 export function prospectDisplayName(prospect: MissionProspect): string {
   return [prospect.firstName, prospect.lastName].filter(Boolean).join(' ').trim() || 'ce prospect'
