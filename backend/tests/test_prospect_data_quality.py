@@ -9,6 +9,8 @@ from app.core.config import Settings
 from app.models.enums import ActivityStatus, OriginType, PhoneType, VerificationStatus
 from app.models.prospects import Email, Phone, Prospect
 from app.services.prospect_data_quality import (
+    CompletenessState,
+    CriterionStatus,
     DataQualityConfig,
     band_of,
     data_quality_of,
@@ -168,4 +170,89 @@ def test_thresholds_come_from_settings_and_must_be_ordered() -> None:
     with pytest.raises(ValueError, match="DATA_SCORE_RED_BELOW"):
         Settings(
             _env_file=None, prospect_data_score_red_below=80, prospect_data_score_green_from=80
+        )
+
+
+# --- Completeness state (slice S2): the public vocabulary derived from the private points. ---
+
+
+def state_of_record(**overrides: object) -> CompletenessState:
+    return data_quality_of(prospect(**overrides), NOW, CONFIG).state
+
+
+def test_a_complete_record_is_very_rich_with_french_label_and_meaning() -> None:
+    score = data_quality_of(prospect(), NOW, CONFIG)
+
+    assert score.state is CompletenessState.VERY_RICH
+    assert score.state_label == "Très fournie"
+    assert score.state_description
+    assert {item.status for item in score.criteria} == {CriterionStatus.MET}
+
+
+def test_an_empty_record_is_incomplete() -> None:
+    bare = prospect(
+        company_id=None,
+        role_id=None,
+        exact_job_title=None,
+        activity_status=ActivityStatus.UNKNOWN,
+        employment_verified_at=None,
+        emails=[],
+        phones=[],
+    )
+
+    score = data_quality_of(bare, NOW, CONFIG)
+
+    assert (score.state, score.state_label) == (CompletenessState.INCOMPLETE, "Incomplète")
+    assert {item.status for item in score.criteria} == {CriterionStatus.MISSING}
+
+
+def test_a_stale_employment_is_partial_and_the_state_follows_the_thresholds() -> None:
+    old = data_quality_of(prospect(employment_verified_at=NOW - timedelta(days=400)), NOW, CONFIG)
+
+    assert next(i for i in old.criteria if i.id == "employment").status is CriterionStatus.PARTIAL
+    # 100 - 7 = 93 points >= 90 -> still very rich; unverified e-mail + phone (-25) -> 75 = rich.
+    assert old.state is CompletenessState.VERY_RICH
+    assert (
+        state_of_record(
+            emails=[email(VerificationStatus.UNVERIFIED)],
+            phones=[phone(VerificationStatus.UNVERIFIED)],
+        )
+        is CompletenessState.RICH
+    )
+
+
+def test_usable_between_the_first_two_thresholds() -> None:
+    # No company/role/title/activity (-30) and unverified e-mail (-20): 50 points = usable.
+    assert (
+        state_of_record(
+            company_id=None,
+            role_id=None,
+            exact_job_title=None,
+            activity_status=ActivityStatus.UNKNOWN,
+            emails=[email(VerificationStatus.UNVERIFIED)],
+        )
+        is CompletenessState.USABLE
+    )
+
+
+def test_an_unreachable_record_is_incomplete_whatever_its_points() -> None:
+    assert state_of_record(emails=[], phones=[]) is CompletenessState.INCOMPLETE
+
+
+def test_completeness_thresholds_come_from_settings_and_must_be_ordered() -> None:
+    config = DataQualityConfig.from_settings(
+        Settings(
+            _env_file=None,
+            prospect_completeness_usable_from=20,
+            prospect_completeness_rich_from=40,
+            prospect_completeness_very_rich_from=60,
+        )
+    )
+    assert (config.usable_from, config.rich_from, config.very_rich_from) == (20, 40, 60)
+
+    with pytest.raises(ValueError, match="COMPLETENESS"):
+        Settings(
+            _env_file=None,
+            prospect_completeness_usable_from=60,
+            prospect_completeness_rich_from=40,
         )
