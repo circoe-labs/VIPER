@@ -50,11 +50,17 @@ function byDateDesc(left: string | null, right: string | null): number {
   return new Date(right).getTime() - new Date(left).getTime()
 }
 
-export function sortMissions(items: MissionCard[], sort: SortKey): MissionCard[] {
+function sortedBy(items: MissionCard[], sort: SortKey): MissionCard[] {
   const copy = [...items]
   if (sort === 'name') return copy.sort((a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' }))
   if (sort === 'created') return copy.sort((a, b) => byDateDesc(a.created_at, b.created_at))
   return copy.sort((a, b) => byDateDesc(a.last_run_at, b.last_run_at) || byDateDesc(a.created_at, b.created_at))
+}
+
+// The permanent « Dépôt » mission is pinned first, whatever the sort.
+export function sortMissions(items: MissionCard[], sort: SortKey): MissionCard[] {
+  const sorted = sortedBy(items, sort)
+  return [...sorted.filter((card) => card.is_deposit), ...sorted.filter((card) => !card.is_deposit)]
 }
 
 export interface MissionCounters {

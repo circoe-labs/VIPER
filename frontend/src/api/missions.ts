@@ -60,6 +60,8 @@ export interface MissionCard {
   // Optional in the type so older fixtures compile; the API always sends it (null only for a legacy row).
   category?: MissionCategoryRef | null
   status: MissionStatus
+  // The permanent « Dépôt » mission: where agents drop spontaneous work. Never edited, paused, run or deleted.
+  is_deposit: boolean
   agent_label: string | null
   prompt: string
   is_recurring: boolean

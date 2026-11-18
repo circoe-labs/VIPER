@@ -147,6 +147,8 @@ class MissionCard:
     # written outside the service.
     category: CategoryRef | None
     status: MissionStatus
+    # The special « Dépôt » mission: the page shows it apart and offers no edit, pause or delete.
+    is_deposit: bool
     agent_label: str | None
     prompt: str
     is_recurring: bool
@@ -399,6 +401,7 @@ def _card(session: Session, mission: Mission) -> MissionCard:
         type=mission.type,
         category=mission_categories.category_ref(category) if category is not None else None,
         status=mission.status,
+        is_deposit=mission.is_deposit,
         agent_label=mission.agent_label,
         prompt=mission.prompt,
         is_recurring=mission.is_recurring,
@@ -746,6 +749,8 @@ def update(
     mission = session.scalar(select(Mission).where(Mission.id == mission_id).with_for_update())
     if mission is None:
         raise NotFoundError("Unknown mission.")
+    if mission.is_deposit:
+        raise ConflictError(DEPOSIT_LOCKED)
     if mission.status in (MissionStatus.DONE, MissionStatus.CANCELLED):
         raise ConflictError("This mission is closed.")
     name = _text("name", data.name, 200)
@@ -936,7 +941,7 @@ def _settle_objective(
     one-off mission (a recurring one stays scheduled; its end rule is the scheduler's).
     Not fulfilled: say so on the run and leave the mission open: never « done » by default."""
     mission = session.get(Mission, run.mission_id)
-    if mission is None:
+    if mission is None or mission.is_deposit:
         return
     state = mission_output.progress(session, tasks, _run_objective(session, run))
     if state.met:
@@ -1031,7 +1036,11 @@ def idle_summary(session: Session, *, limit: int = 10) -> list[dict[str, Any]]:
     """
     open_missions = session.scalars(
         select(Mission)
-        .where(Mission.status.in_((MissionStatus.ACTIVE, MissionStatus.PAUSED)))
+        # The Dépôt is never a queue: it has nothing to claim, so it never explains an empty one.
+        .where(
+            Mission.status.in_((MissionStatus.ACTIVE, MissionStatus.PAUSED)),
+            Mission.is_deposit.is_(False),
+        )
         .order_by(Mission.next_run_at.asc().nulls_last())
         .limit(limit)
     ).all()
@@ -1055,6 +1064,112 @@ def idle_summary(session: Session, *, limit: int = 10) -> list[dict[str, Any]]:
             }
         )
     return summary
+
+
+DEPOSIT_NAME = "Dépôt"
+DEPOSIT_PROMPT = (
+    "Mission permanente : les agents y déposent les données qu’une personne leur a demandées "
+    "directement, hors de toute mission (par exemple « ajoute ce contact »). Chaque dépôt est "
+    "relu avant d’entrer dans la base."
+)
+DEPOSIT_LOCKED = "The Dépôt mission is permanent: it cannot be edited, paused, run or deleted."
+# What a deposit may ask for, with the subject each type needs (`agent_tasks.subject_per_type`).
+DEPOSIT_SUBJECTS: dict[AgentTaskType, str | None] = {
+    AgentTaskType.FIND_PROSPECTS: None,
+    AgentTaskType.FIND_EMPLOYEES: "company_id",
+    AgentTaskType.UPDATE_COMPANY: "company_id",
+    AgentTaskType.UPDATE_EMPLOYEE: "prospect_id",
+    AgentTaskType.SURVEIL_SIGNALS: "company_id",
+}
+
+
+def ensure_deposit(session: Session) -> Mission:
+    """The one « Dépôt » mission (created by migration 0055; recreated here if missing)."""
+    mission = session.scalar(select(Mission).where(Mission.is_deposit))
+    if mission is None:
+        mission = Mission(
+            name=DEPOSIT_NAME,
+            type=MissionType.OTHER,
+            prompt=DEPOSIT_PROMPT,
+            status=MissionStatus.ACTIVE,
+            is_deposit=True,
+            result_kind=MissionResultKind.ENRICHMENT,
+            result_limit=50,
+            allow_multiple=True,
+            created_by_type=ActorType.SYSTEM,
+            created_by_display="VIPER",
+        )
+        session.add(mission)
+        session.flush()
+    return mission
+
+
+def open_deposit(
+    session: Session,
+    actor: ActorContext,
+    task_type: AgentTaskType,
+    *,
+    company_id: uuid.UUID | None = None,
+    prospect_id: uuid.UUID | None = None,
+    now: datetime | None = None,
+) -> AgentTask:
+    """An agent opens a spontaneous job: a run of the « Dépôt » mission holding one pending task.
+
+    The caller then claims it (`agent_missions.claim_specific`) and goes through the usual
+    claim / submit / review, so the drop is checked and reviewed like any mission result."""
+    if task_type not in DEPOSIT_SUBJECTS:
+        raise InvalidFieldError("task_type", "This task type cannot be dropped.", "unsupported")
+    needs = DEPOSIT_SUBJECTS[task_type]
+    if needs == "prospect_id":
+        if prospect_id is None:
+            raise InvalidFieldError("prospect_id", "This task type needs a prospect.", "missing")
+        prospect = session.get(Prospect, prospect_id)
+        if prospect is None:
+            raise NotFoundError("Unknown prospect.")
+        if prospect.company_id is None:
+            raise InvalidFieldError(
+                "prospect_id", "This prospect has no company: add it first.", "missing"
+            )
+        company_id = prospect.company_id
+    elif needs == "company_id":
+        if company_id is None:
+            raise InvalidFieldError("company_id", "This task type needs a company.", "missing")
+        if session.get(Company, company_id) is None:
+            raise NotFoundError("Unknown company.")
+        prospect_id = None
+    else:
+        company_id = prospect_id = None
+    moment = _now(now)
+    mission = session.scalar(select(Mission).where(Mission.is_deposit).with_for_update())
+    if mission is None:
+        mission = ensure_deposit(session)
+    run = MissionRun(
+        mission_id=mission.id,
+        status=MissionRunStatus.RUNNING,
+        trigger=MissionRunTrigger.MANUAL,
+        scheduled_at=moment,
+        started_at=moment,
+        config=agent_payloads.mission_rule(mission),
+        tasks_total=1,
+    )
+    session.add(run)
+    session.flush()
+    task = _task(
+        session, actor, mission, run, task_type, company_id=company_id, prospect_id=prospect_id
+    )
+    mission.last_run_at = moment
+    session.flush()
+    audit.record_event(
+        session,
+        actor,
+        audit.AuditAction.MISSION_RUN_STARTED,
+        entity_type="mission_run",
+        entity_id=run.id,
+        subject=("mission", mission.id),
+        changes={"tasks": {"after": 1}},
+        reason="deposit",
+    )
+    return task
 
 
 def check_runnable(
@@ -1124,6 +1239,8 @@ def run_mission(
     mission = session.scalar(select(Mission).where(Mission.id == mission_id).with_for_update())
     if mission is None:
         raise NotFoundError("Unknown mission.")
+    if mission.is_deposit:
+        raise ConflictError(DEPOSIT_LOCKED)
     if mission.status is not MissionStatus.ACTIVE:
         raise ConflictError("This mission is not active.")
     targets = _target_rows(session, mission.id)
@@ -1369,6 +1486,8 @@ def set_status(
     mission = session.scalar(select(Mission).where(Mission.id == mission_id).with_for_update())
     if mission is None:
         raise NotFoundError("Unknown mission.")
+    if mission.is_deposit:
+        raise ConflictError(DEPOSIT_LOCKED)
     if mission.status in (MissionStatus.DONE, MissionStatus.CANCELLED):
         raise ConflictError("This mission is closed.")
     previous = mission.status
@@ -1516,6 +1635,8 @@ def delete(session: Session, actor: ActorContext, mission_id: uuid.UUID) -> None
     mission = session.scalar(select(Mission).where(Mission.id == mission_id).with_for_update())
     if mission is None:
         raise NotFoundError("Unknown mission.")
+    if mission.is_deposit:
+        raise ConflictError(DEPOSIT_LOCKED)
     cancelled = _cancel_open_tasks(session, actor, mission, "mission_deleted", _now(None))
     audit.record_event(
         session,

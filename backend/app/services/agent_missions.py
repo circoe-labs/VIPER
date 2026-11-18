@@ -147,6 +147,20 @@ def offered() -> ColumnElement[bool]:
     return or_(AgentTask.run_id.is_(None), AgentTask.run_id.not_in(paused_runs))
 
 
+def is_deposit_task(session: Session, task: AgentTask) -> bool:
+    """Whether the task is a spontaneous job of the permanent « Dépôt » mission."""
+    if task.run_id is None:
+        return False
+    return (
+        session.scalar(
+            select(Mission.id)
+            .join(MissionRun, MissionRun.mission_id == Mission.id)
+            .where(MissionRun.id == task.run_id, Mission.is_deposit)
+        )
+        is not None
+    )
+
+
 def clear_claim(task: AgentTask) -> None:
     task.claim_id = None
     task.claimed_by_id = None
@@ -380,10 +394,19 @@ def claim(
     )
     # Part of the claim's transaction: a claimed mission task always has an active session.
     mission_telemetry.touch_session(session, actor, task, moment)
-    payload = build_payload(session, task, lease_expires_at=task.lease_expires_at, now=moment)
+    return claimed_task(session, actor, task, lease, moment)
+
+
+def claimed_task(
+    session: Session, actor: ActorContext, task: AgentTask, lease: timedelta, moment: datetime
+) -> ClaimedTask:
+    """What a freshly claimed task hands the agent: its payload, with the identity VIPER sees."""
+    payload = build_payload(
+        session, task, lease_expires_at=task.lease_expires_at or moment + lease, now=moment
+    )
     # Who VIPER sees (the numbered identity of the token), as it appears in logs and the Activity
     # page: never what the model says it is (`viper_whoami` gives the full picture).
-    payload["agent"] = {"identity": actor.display, "agent_id": agent_id}
+    payload["agent"] = {"identity": actor.display, "agent_id": _agent_id(actor)}
     if task.staged_actions:
         payload["staged_actions"] = task.staged_actions
     return ClaimedTask(task=task, payload=payload, lease_seconds=int(lease.total_seconds()))
@@ -574,8 +597,11 @@ def fail(
     task = _claimed(session, actor, task_id, claim_id, now)
     task.failure_code = code[:64]
     task.failure_message = message
+    # Asked before the claim is cleared: the query would flush a half-changed task.
+    deposit = is_deposit_task(session, task)
     clear_claim(task)
-    task.status = AgentTaskStatus.PENDING
+    # A spontaneous « Dépôt » job has nobody waiting for it: a failure ends it, it is not requeued.
+    task.status = AgentTaskStatus.FAILED if deposit else AgentTaskStatus.PENDING
     session.flush()
     _event(
         session,
@@ -607,8 +633,10 @@ def release_claimed(session: Session, actor: ActorContext, task: AgentTask) -> N
     """Put a task the actor holds back in the queue (no claim check: the caller has verified the
     holder, `release` by claim id, `agent_lifecycle.leave_work` by `claimed_by_id`). Audited; does
     not touch the agent's mission session."""
+    deposit = is_deposit_task(session, task)
     clear_claim(task)
-    task.status = AgentTaskStatus.PENDING
+    # Handed back, a « Dépôt » job is dropped: nobody else is waiting to take it.
+    task.status = AgentTaskStatus.CANCELLED if deposit else AgentTaskStatus.PENDING
     session.flush()
     _event(
         session,

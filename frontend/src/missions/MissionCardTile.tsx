@@ -6,7 +6,7 @@ import { StatusBadge } from '../ui/Badge'
 import { IconButton } from '../ui/Button'
 import { Switch } from '../ui/fields'
 import type { Point } from '../ui/floating'
-import { AlertIcon, CheckCircleIcon, ClockIcon, MoreIcon, TargetIcon, UsersIcon } from '../ui/icons'
+import { AlertIcon, CheckCircleIcon, ClockIcon, LockIcon, MoreIcon, TargetIcon, UsersIcon } from '../ui/icons'
 import { MissionMark } from './CategoryGlyph'
 import { categoryAccent } from './categoryVisual'
 import { MissionStatusChip } from './MissionStatusChip'
@@ -54,9 +54,60 @@ function Progress({ card }: { card: MissionCard }) {
   )
 }
 
+// The permanent « Dépôt » mission: always open to the agents, no switch and no menu (it cannot be edited, paused or
+// deleted). Its « executions » are the drops an agent made on a person's direct request.
+function DepositCardTile({ card }: { card: MissionCard }) {
+  const last = momentLabel(card.last_run_at)
+  return (
+    <div className="mlist-item">
+      <Link
+        to={`/missions/${card.id}`}
+        className="mlist-card mlist-card--deposit mui-accent"
+        data-hue={card.category ? undefined : 'neutral'}
+        style={categoryAccent(card.category?.color)}
+      >
+        <div className="mlist-card__head">
+          <MissionMark category={card.category} type={card.type} size={76} />
+          <div className="mlist-card__id">
+            <p className="mlist-card__kind">Mission permanente</p>
+            <h2 className="mlist-card__title">{card.name}</h2>
+          </div>
+        </div>
+        <div className="mlist-card__chips">
+          <StatusBadge tone="neutral" icon={LockIcon}>
+            Permanente
+          </StatusBadge>
+          {card.results_pending > 0 && <StatusBadge tone="warning">{String(card.results_pending)} à relire</StatusBadge>}
+        </div>
+        <p className="mlist-deposit__about">Les données qu’un agent dépose sur demande directe, hors de toute mission.</p>
+        <ul className="mlist-card__facts">
+          <li className="mlist-fact">
+            <TargetIcon size={16} />
+            {plural(card.runs_count, 'dépôt')}
+          </li>
+          <li className="mlist-fact">
+            <CheckCircleIcon size={16} />
+            {String(card.results_pending)} à valider
+          </li>
+        </ul>
+        <div className="mlist-card__foot">
+          <p className="mlist-card__run">
+            <ClockIcon size={16} />
+            <span>{last ? `Dernier dépôt : ${last}` : 'Aucun dépôt pour l’instant'}</span>
+          </p>
+          <p className="mlist-card__plan">
+            <span>Toujours ouverte aux agents</span>
+          </p>
+        </div>
+      </Link>
+    </div>
+  )
+}
+
 // One mission as a card: identity (icon, title, type, status), progress, the three facts, last run. The whole card is
 // a link; the switch and the « … » button sit beside it (never inside the <a>) so the nesting stays valid.
 export function MissionCardTile({ card, onMenu }: { card: MissionCard; onMenu: OpenMenu }) {
+  if (card.is_deposit) return <DepositCardTile card={card} />
   const last = momentLabel(card.last_run_at)
   const next = momentLabel(card.next_run_at)
   const failed = card.last_run_status === 'failed'

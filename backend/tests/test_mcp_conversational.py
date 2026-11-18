@@ -173,7 +173,7 @@ def test_missions_list_and_detail(client: TestClient, db_session: Session) -> No
     detail = body(call(client, token, "viper_get_mission", {"mission_id": created["card"]["id"]}))
 
     assert listed == rest(client, "/missions")
-    assert listed["total"] == 2
+    assert listed["total"] == 3  # + the permanent Dépôt
     assert enrichment["total"] == 1
     assert enrichment["items"][0]["name"] == "Compléter les fiches"
     assert detail == rest(client, f"/missions/{created['card']['id']}")

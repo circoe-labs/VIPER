@@ -97,8 +97,9 @@ def test_create_a_mission_and_list_its_card(client: TestClient, db_session: Sess
     assert detail["card"]["targets_count"] == 1
     assert detail["targets"][0]["label"] == "2SN"
     listed = client.get(MISSIONS).json()
-    assert listed["total"] == 1
-    assert listed["items"][0]["targets_count"] == 1
+    assert listed["total"] == 2  # + the permanent Dépôt
+    created_card = next(item for item in listed["items"] if not item["is_deposit"])
+    assert created_card["targets_count"] == 1
     # Active from its creation: the first run and its task are open to the agents right away.
     assert listed["items"][0]["runs_count"] == 1
 
@@ -224,7 +225,7 @@ def test_accepting_the_result_writes_the_company(client: TestClient, db_session:
     saved = db_session.get(Company, company.id)
     assert saved is not None
     assert saved.legal_name == "2SN SAS"
-    mission = db_session.scalar(select(Mission))
+    mission = db_session.scalar(select(Mission).where(Mission.is_deposit.is_(False)))
     assert mission is not None
     detail = client.get(f"{MISSIONS}/{mission.id}").json()
     assert detail["card"]["tasks_done"] == 1
@@ -849,7 +850,7 @@ def test_delete_a_mission_cancels_its_open_tasks(client: TestClient, db_session:
 
     assert response.status_code == 204, response.text
     assert client.get(f"{MISSIONS}/{mission_id}").status_code == 404
-    assert client.get(MISSIONS).json()["total"] == 0
+    assert client.get(MISSIONS).json()["total"] == 1  # the Dépôt stays
     db_session.expire_all()
     # The task stays, cancelled and detached from the deleted run; the company is untouched.
     task = db_session.scalars(select(AgentTask)).one()
@@ -978,7 +979,7 @@ def test_a_one_off_mission_with_an_end_date_and_no_date_is_a_422(
     assert response.status_code == 422, response.text
     detail = response.json()["detail"]
     assert (detail["field"], detail["reason"]) == ("ends_at", "missing")
-    assert db_session.scalars(select(Mission)).first() is None
+    assert db_session.scalars(select(Mission).where(Mission.is_deposit.is_(False))).first() is None
 
 
 def test_edit_refuses_a_closed_or_unknown_mission(client: TestClient, db_session: Session) -> None:

@@ -143,6 +143,7 @@ class MissionCardOut(BaseModel):
     type: MissionType
     category: CategoryRefOut | None
     status: MissionStatus
+    is_deposit: bool = False
     agent_label: str | None
     prompt: str
     is_recurring: bool

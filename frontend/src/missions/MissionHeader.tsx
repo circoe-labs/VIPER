@@ -1,7 +1,7 @@
 import type { MissionDetail } from '../api/missions'
 import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
-import { MapPinIcon, PauseIcon, PencilIcon, PlayIcon, TrashIcon } from '../ui/icons'
+import { LockIcon, MapPinIcon, PauseIcon, PencilIcon, PlayIcon, TrashIcon } from '../ui/icons'
 import { MISSION_TYPE_LABELS, recurrenceLabel } from './labels'
 import { MissionStatusChip } from './MissionStatusChip'
 import { MissionMark } from './CategoryGlyph'
@@ -26,6 +26,7 @@ export function MissionHeader({ mission, statusPending, onToggleStatus, onEdit, 
   const open = card.status === 'active'
   const closed = card.status === 'done' || card.status === 'cancelled'
   const place = rule.geography?.trim() ?? ''
+  const deposit = card.is_deposit
 
   return (
     <header className="mdet-header" data-hue={card.category ? undefined : 'neutral'} style={categoryAccent(card.category?.color)}>
@@ -36,12 +37,22 @@ export function MissionHeader({ mission, statusPending, onToggleStatus, onEdit, 
           <li>
             <MissionStatusChip status={card.status} />
           </li>
-          <li>
-            <Badge>{card.category?.name ?? MISSION_TYPE_LABELS[card.type]}</Badge>
-          </li>
-          <li>
-            <Badge>{recurrenceLabel(card)}</Badge>
-          </li>
+          {deposit ? (
+            <li>
+              <Badge icon={LockIcon} title="Cette mission est permanente : elle ne se modifie ni ne se supprime.">
+                Permanente
+              </Badge>
+            </li>
+          ) : (
+            <>
+              <li>
+                <Badge>{card.category?.name ?? MISSION_TYPE_LABELS[card.type]}</Badge>
+              </li>
+              <li>
+                <Badge>{recurrenceLabel(card)}</Badge>
+              </li>
+            </>
+          )}
           {place && (
             <li>
               <Badge icon={MapPinIcon}>{place}</Badge>
@@ -52,17 +63,18 @@ export function MissionHeader({ mission, statusPending, onToggleStatus, onEdit, 
           </li>
         </ul>
       </div>
-      <div className="mdet-header__actions">
-        {!closed && (
-          <Button
-            variant={open ? 'secondary' : 'primary'}
-            icon={open ? PauseIcon : PlayIcon}
-            loading={statusPending}
-            title={open ? 'Les agents ne reçoivent plus ses tâches.' : 'Ses tâches redeviennent accessibles aux agents.'}
-            onClick={onToggleStatus}
-          >
-            {open ? 'Désactiver' : 'Activer'}
-          </Button>
+      {!deposit && (
+        <div className="mdet-header__actions">
+          {!closed && (
+            <Button
+              variant={open ? 'secondary' : 'primary'}
+              icon={open ? PauseIcon : PlayIcon}
+              loading={statusPending}
+              title={open ? 'Les agents ne reçoivent plus ses tâches.' : 'Ses tâches redeviennent accessibles aux agents.'}
+              onClick={onToggleStatus}
+            >
+              {open ? 'Désactiver' : 'Activer'}
+            </Button>
         )}
         <Button
           variant="secondary"
@@ -77,6 +89,7 @@ export function MissionHeader({ mission, statusPending, onToggleStatus, onEdit, 
           Supprimer
         </Button>
       </div>
+      )}
     </header>
   )
 }

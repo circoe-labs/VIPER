@@ -69,7 +69,11 @@ def refused(answer: dict[str, Any], code: str) -> dict[str, Any]:
 
 
 def missions_count(session: Session) -> int:
-    return session.scalar(select(func.count()).select_from(Mission)) or 0
+    # The permanent Dépôt is not a mission anyone created.
+    return (
+        session.scalar(select(func.count()).select_from(Mission).where(Mission.is_deposit.is_(False)))
+        or 0
+    )
 
 
 # --- catalogue -----------------------------------------------------------------------------------

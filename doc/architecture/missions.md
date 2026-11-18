@@ -29,6 +29,24 @@ Mission (persistent rule)
 `agent_threads` remains only for the legacy company review and the tool-mode `viper_update_*`
 proposals; a mission task carries `run_id` and no `thread_id`.
 
+## 1b. The « Dépôt » mission
+
+One special mission, `missions.is_deposit` (migration `0055`, a unique partial index allows only one), is
+shown first on the page with a « Permanente » mark. It is for **spontaneous work**: a person asks an agent
+directly (« ajoute ce contact via le plugin VIPER »), which is not a mission but must still go through
+the same claim / submit / review process.
+
+- It is **permanent**: always `active`, and `update`, `set_status`, `run_mission` and `delete` refuse it
+  (409). It has no target, no recurrence and the scheduler never runs it; settling a run never closes it.
+- An agent calls `viper_open_deposit(task_type, company_id? | prospect_id?)` (`missions.open_deposit`):
+  one **run** of the Dépôt holding one task is created, and the task is claimed by the caller in the
+  same call (`agent_missions.claim_specific`). The reply is a claim payload; submit / fail / release
+  are the usual tools. Allowed types and their subject: `missions.DEPOSIT_SUBJECTS`.
+- The token's scopes and its concurrent-claims limit apply as for `viper_claim_task`.
+- Nobody waits for a spontaneous job, so `viper_fail_task` ends it `failed` and `viper_release_task`
+  `cancelled`: it is never put back in the queue for another agent.
+- The Dépôt never appears in `idle_summary` (it is not a queue).
+
 ## 2. The mission record
 
 | Field | Notes |

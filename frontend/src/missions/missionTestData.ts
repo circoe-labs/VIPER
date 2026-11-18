@@ -45,6 +45,7 @@ export function card(overrides: Partial<MissionCard> = {}): MissionCard {
     tasks_total: 1,
     tasks_done: 0,
     results_pending: 1,
+    is_deposit: false,
     created_at: '2026-10-30T07:00:00+00:00',
     ...overrides,
   }

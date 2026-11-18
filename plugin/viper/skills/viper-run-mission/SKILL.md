@@ -20,6 +20,15 @@ Tu **es** l'agent. VIPER ne lance aucun agent à ta place et tu ne « crées » 
 
 La réponse contient tout : le sujet, la règle de la mission (`mission` : consignes, catégorie, skills, sources), le contexte interne en lecture seule, le contrat de sortie (`output_contract`, schéma du résultat) et `objective`.
 
+### Travail spontané : le « Dépôt »
+
+Une personne te demande directement, hors de toute mission, d'ajouter ou de compléter une donnée (« ajoute ce contact », « complète cette société ») : ce n'est pas une mission, mais le travail passe par le **même processus**. `viper_open_deposit` ouvre une tâche dans la mission permanente **Dépôt** (visible dans VIPER > Missions) et te la confie en un seul appel : tu reçois la même réponse que `viper_claim_task` (sujet, contrat de sortie, `task_id`, `claim_id`).
+
+- `task_type` : `find_prospects` (une nouvelle société, sans sujet), `find_employees` (de nouvelles personnes d'une société : `company_id`), `update_company` (`company_id`), `update_employee` (`prospect_id`), `surveil_signals` (`company_id`).
+- Ajouter une personne dont la société n'existe pas encore : dépose d'abord `find_prospects` pour la société, puis `find_employees` pour la personne.
+- Vérifie les doublons avant (`viper_check_duplicate`, `viper_find_*`) : si la fiche existe, dépose `update_company` / `update_employee` plutôt qu'un doublon.
+- Ensuite, étapes 3 à 5 inchangées : travailler, `viper_submit_task_result` (une personne relit), `viper_fail_task` (le dépôt est clos en échec, rien n'est remis en file) ou `viper_release_task` (le dépôt est abandonné).
+
 ## 3. Travailler
 
 - Suis les consignes et les skills de la mission, ouvre les sources indiquées.

@@ -31,6 +31,37 @@ describe('MissionsPage', () => {
     expect(within(link).getByRole('progressbar', { name: 'Progression : 0 % des tâches validées' })).toBeInTheDocument()
   })
 
+  it('pins the permanent Dépôt first, with no switch and no menu', async () => {
+    const deposit = card({
+      id: 'deposit',
+      name: 'Dépôt',
+      is_deposit: true,
+      category: null,
+      agent_label: null,
+      runs_count: 2,
+      tasks_total: 2,
+      results_pending: 1,
+    })
+    stubApi({
+      ...SHELL_API,
+      ...COMMON,
+      'GET /api/missions': [200, { items: [card(), deposit], total: 2 }],
+    })
+
+    renderApp('/missions')
+
+    const link = await screen.findByRole('link', { name: /Dépôt/ })
+    expect(within(link).getByText('Permanente')).toBeInTheDocument()
+    expect(within(link).getByText('2 dépôts')).toBeInTheDocument()
+    expect(screen.queryByRole('switch', { name: 'Mission Dépôt active' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Actions de la mission Dépôt' })).not.toBeInTheDocument()
+    // The ordinary mission keeps both.
+    expect(screen.getByRole('button', { name: /Actions de la mission Nouveaux entrepôts/ })).toBeInTheDocument()
+    // Pinned first, whatever the sort.
+    const titles = screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent)
+    expect(titles.indexOf('Dépôt')).toBeLessThan(titles.indexOf('Nouveaux entrepôts — Normandie'))
+  })
+
   it('counts the whole list in the header tiles, whatever the filters', async () => {
     const other = card({ id: 'other', name: 'Veille', type: 'signals', status: 'paused', agent_label: null, tasks_total: 0, results_pending: 0 })
     const done = card({ id: 'done', name: 'Close', status: 'done' })

@@ -299,7 +299,7 @@ def test_leave_work_hands_back_the_run_and_ends_the_session_without_stranding_an
         "ended_sessions": 0,
         "scope": "all",
     }
-    mission = db_session.scalars(select(Mission)).one()
+    mission = db_session.scalars(select(Mission).where(Mission.is_deposit.is_(False))).one()
     assert mission.status.value == "active"
 
 

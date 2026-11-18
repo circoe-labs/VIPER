@@ -167,6 +167,7 @@ in [`agent-missions.md`](agent-missions.md):
 
 | Tool | Intent |
 |---|---|
+| `viper_open_deposit` | Spontaneous work (« ajoute ce contact »): opens a task in the permanent « Dépôt » mission and claims it in one call (`task_type`, `company_id` / `prospect_id` per type); same reply as `viper_claim_task`, then submit / fail / release as usual. See `missions.md` §1b |
 | `viper_claim_task` | Claim the next task matching the token's scopes; returns the payload (subject, missing fields, sources, `output_schema`, `output_contract`, `objective`) |
 | `viper_heartbeat_task` | Renew the lease |
 | `viper_submit_task_result` | Submit the result against the task's output contract — stored, never applied. Omit unchanged fields; one item unless the contract says `list`; `outcome: not_found` / `blocked` with `notes` and no data when there is nothing to propose (`agent-missions.md` §7.4) |

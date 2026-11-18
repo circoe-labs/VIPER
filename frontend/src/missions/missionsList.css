@@ -365,3 +365,14 @@
   min-height: 3.25rem;
   padding-left: 4.25rem;
 }
+
+/* The permanent « Dépôt » mission: dashed edge, so it reads as a fixture of the page rather than a rule to manage. */
+.mlist-card--deposit {
+  border-style: dashed;
+}
+
+.mlist-deposit__about {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}

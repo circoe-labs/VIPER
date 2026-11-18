@@ -211,7 +211,7 @@ def test_draft_tools_return_validated_actions_and_apply_nothing(
     # Every call was acknowledged to the model.
     assert outputs(model.requests[1]) == [{"ok": True}] * 5
     # No mission exists: the assistant wrote nothing.
-    assert client.get(MISSIONS).json()["total"] == 0
+    assert client.get(MISSIONS).json()["total"] == 1  # only the Dépôt
 
 
 def test_invalid_calls_are_refused_to_the_model_and_never_returned(
@@ -280,7 +280,7 @@ def test_the_creation_flag_is_honoured_when_clearly_requested(
     enable(app, client, lambda _: [call("request_creation", {})], lambda _: say("Je la crée."))
     body = turn(client, "Go, crée-la", blank_draft(name="Veille", missing=None)).json()
     assert body["finalize"] is True and body["actions"] == []
-    assert client.get(MISSIONS).json()["total"] == 0
+    assert client.get(MISSIONS).json()["total"] == 1  # only the Dépôt
 
 
 def test_source_library_search_then_attach(app: FastAPI, client: TestClient) -> None:
@@ -378,7 +378,7 @@ def test_trace_transcript_to_draft_actions_to_validated_create(
     assert second["finalize"] is True
 
     # The form's own save: the ordinary validated create. No mission existed until now.
-    assert client.get(MISSIONS).json()["total"] == 0
+    assert client.get(MISSIONS).json()["total"] == 1  # only the Dépôt
     created = client.post(
         MISSIONS,
         json={
@@ -397,7 +397,7 @@ def test_trace_transcript_to_draft_actions_to_validated_create(
     )
     assert created.status_code in (200, 201), created.text
     assert created.json()["card"]["name"] == "Veille Durand"
-    assert client.get(MISSIONS).json()["total"] == 1
+    assert client.get(MISSIONS).json()["total"] == 2  # + the Dépôt
 
 
 # --- speech to text ------------------------------------------------------------------------------

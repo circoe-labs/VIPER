@@ -26,7 +26,7 @@ import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Body, Request
@@ -181,6 +181,35 @@ TOOLS: list[dict[str, Any]] = [
             "`notes` when you submit."
         ),
         "inputSchema": _CLAIM_SCHEMA,
+    },
+    {
+        "name": "viper_open_deposit",
+        "description": (
+            "Drop work nobody asked for as a mission: a person tells you directly « ajoute ce "
+            "contact », « complète cette société ». It opens a task in the permanent « Dépôt » "
+            "mission and claims it for you in one call, and returns the same payload as "
+            "viper_claim_task (subject, output schema, `claim_id`). Then work, log, and hand the "
+            "job back through the usual process: viper_submit_task_result (a person reviews it), "
+            "viper_fail_task or viper_release_task. task_type: find_prospects (a new company, no "
+            "subject), find_employees (new people of a company: company_id), update_company "
+            "(company_id), update_employee (prospect_id), surveil_signals (company_id). To add a "
+            "person whose company is not in VIPER yet, drop find_prospects for the company first."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task_type": {"type": "string", "enum": TASK_TYPE_VALUES},
+                "company_id": {"type": "string", "format": "uuid"},
+                "prospect_id": {"type": "string", "format": "uuid"},
+                "lease_seconds": {
+                    "type": "integer",
+                    "minimum": MIN_LEASE_SECONDS,
+                    "maximum": MAX_LEASE_SECONDS,
+                },
+            },
+            "required": ["task_type"],
+            "additionalProperties": False,
+        },
     },
     {
         "name": "viper_heartbeat_task",
@@ -553,16 +582,8 @@ def _stored(stored: Any) -> dict[str, Any]:
     }
 
 
-def _claim(
-    session: Session, actor: ActorContext, record: McpToken, args: dict[str, Any]
-) -> dict[str, Any]:
-    allowed = mcp_tokens.task_types(record)
-    requested = args.get("task_types")
-    if isinstance(requested, list):
-        wanted = {str(value) for value in requested}
-        allowed = [task for task in allowed if task.value in wanted]
-    if not allowed:
-        raise InvalidFieldError("task_types", "No allowed task type.", "empty")
+def _check_capacity(session: Session, actor: ActorContext, record: McpToken) -> None:
+    """Refuse a claim beyond the agent's concurrent-claims limit."""
     # Expired leases must not count against the agent's concurrent-claims limit.
     agent_missions.sweep_expired(session)
     live = session.scalar(
@@ -576,6 +597,45 @@ def _claim(
             f"This agent already holds {live} claimed tasks (task concurrency limit: "
             f"{record.max_concurrent} at once): submit, release or leave_work first."
         )
+
+
+def _open_deposit(
+    session: Session, actor: ActorContext, record: McpToken, args: dict[str, Any]
+) -> dict[str, Any]:
+    """`viper_open_deposit`: spontaneous work (« ajoute ce contact »), dropped in the permanent
+    « Dépôt » mission. The task is opened and claimed in one call; the agent then submits, fails or
+    releases it exactly like a mission task, and a person reviews the result."""
+    try:
+        task_type = AgentTaskType(str(args.get("task_type")))
+    except ValueError as error:
+        raise InvalidFieldError("task_type", "Unknown task type.", "enum") from error
+    _require_scope(record, task_type)
+    _check_capacity(session, actor, record)
+    lease = _lease(args)
+    task = missions.open_deposit(
+        session,
+        actor,
+        task_type,
+        company_id=_uuid(args, "company_id") if args.get("company_id") else None,
+        prospect_id=_uuid(args, "prospect_id") if args.get("prospect_id") else None,
+    )
+    moment = datetime.now(UTC)
+    agent_missions.claim_specific(session, actor, task.id, lease=lease, now=moment)
+    claimed = agent_missions.claimed_task(session, actor, task, lease, moment)
+    return {**claimed.payload, "claim_id": str(claimed.claim_id)}
+
+
+def _claim(
+    session: Session, actor: ActorContext, record: McpToken, args: dict[str, Any]
+) -> dict[str, Any]:
+    allowed = mcp_tokens.task_types(record)
+    requested = args.get("task_types")
+    if isinstance(requested, list):
+        wanted = {str(value) for value in requested}
+        allowed = [task for task in allowed if task.value in wanted]
+    if not allowed:
+        raise InvalidFieldError("task_types", "No allowed task type.", "empty")
+    _check_capacity(session, actor, record)
     thread_id = args.get("thread_id")
     claimed = agent_missions.claim(
         session,
@@ -695,6 +755,9 @@ def _call_tool(
         case "viper_claim_task":
             require(record, "tasks.work")
             return _payload(_claim(session, actor, record, args))
+        case "viper_open_deposit":
+            require(record, "tasks.work")
+            return _payload(_open_deposit(session, actor, record, args))
         case "viper_task_queue":
             require(record, "tasks.work")
             counts = agent_missions.queue_counts(session, mcp_tokens.task_types(record))

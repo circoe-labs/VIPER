@@ -83,11 +83,21 @@ class Mission(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, Base)
         CheckConstraint("end_kind <> 'after' OR max_runs IS NOT NULL", name="end_runs_required"),
         Index("ix_missions_status", "status"),
         Index("ix_missions_next_run_at", "next_run_at"),
+        # At most one « Dépôt » mission (`services.missions.ensure_deposit`).
+        Index(
+            "uq_missions_deposit",
+            "is_deposit",
+            unique=True,
+            postgresql_where=text("is_deposit"),
+        ),
     )
 
     name: Mapped[str] = mapped_column(String(NAME_MAX_LENGTH))
     type: Mapped[MissionType] = mapped_column(text_enum(MissionType, "type"))
     prompt: Mapped[str] = mapped_column(Text)
+    # The special « Dépôt » mission: always active, never edited, paused, run or deleted. Agents
+    # drop spontaneous work in it (`viper_open_deposit`): each drop is a run of one task.
+    is_deposit: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
     status: Mapped[MissionStatus] = mapped_column(
         text_enum(MissionStatus, "status"), server_default=MissionStatus.ACTIVE.value
     )
