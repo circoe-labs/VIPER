@@ -1,0 +1,9 @@
+{
+  "project": "VIPER",
+  "repository": "circoe-labs/VIPER",
+  "slug": "viper_prospect_sheet_missions_scoring_redesign",
+  "title": "Refonte fiche prospect, missions contextuelles et scoring",
+  "status": "to-do",
+  "initial_ready_set": ["01", "02", "03", "04", "05", "06"],
+  "final_convergence_slice": "07"
+}
