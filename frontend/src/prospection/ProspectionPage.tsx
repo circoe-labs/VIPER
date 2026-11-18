@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router'
 
 import { ExportWorkbookButton } from '../exports/ExportWorkbookButton'
 import { useDebouncedValue } from '../settings/shared'
-import { CheckCircleIcon, ChevronDownIcon, UploadIcon, UsersIcon } from '../ui/icons'
+import { ChevronDownIcon, UploadIcon, UsersIcon } from '../ui/icons'
 import { PageHeader } from '../ui/PageHeader'
 import { SearchField } from '../ui/SearchField'
 import { CompaniesPanel } from './CompaniesPanel'
@@ -61,10 +61,6 @@ export function ProspectionPage() {
         description="L’état de la base : prospects, entreprises, entrepôts."
         actions={
           <>
-            <Link to="/prospection/verification" className="btn btn--primary btn--md">
-              <CheckCircleIcon size={18} />
-              Vérifier les fiches
-            </Link>
             <details className="prospection-actions" onToggle={(event) => { setActionsOpen(event.currentTarget.open) }} onKeyDown={(event) => { if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus() } }}>
               <summary className="btn btn--secondary btn--md">Autres actions <ChevronDownIcon size={18} /></summary>
               <div className="prospection-actions__menu" hidden={!actionsOpen}>

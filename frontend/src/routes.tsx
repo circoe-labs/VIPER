@@ -20,7 +20,6 @@ import { OpportunitiesPage } from './opportunities/OpportunitiesPage'
 import { ImportPage } from './imports/ImportPage'
 import { ProspectionPage } from './prospection/ProspectionPage'
 import { RobinPage } from './prospection/RobinPage'
-import { VerificationPage } from './prospection/VerificationPage'
 import { AppShell } from './shell/AppShell'
 import { SignupApprovalPage } from './auth/SignupApprovalPage'
 import { SignupPage } from './auth/SignupPage'
@@ -140,7 +139,6 @@ const SUBPAGES: RouteObject[] = [
   { path: '/prospection/opportunities', element: <OpportunitiesPage /> },
   { path: '/prospection/companies', element: <CompaniesRedirect /> },
   { path: '/prospection/import', element: <ImportPage /> },
-  { path: '/prospection/verification', element: <VerificationPage /> },
   { path: '/prospection/robin', element: <RobinPage /> },
 ]
 
