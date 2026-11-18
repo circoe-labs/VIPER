@@ -9,7 +9,6 @@ import {
   type IconComponent,
   LinkIcon,
   MailIcon,
-  SlidersIcon,
   SparklesIcon,
   TagIcon,
   UsersIcon,
@@ -66,7 +65,6 @@ export const NAVIGATION_SECTIONS: readonly NavigationSection[] = [
     items: [
       { path: '/database', label: 'Base de données', icon: DatabaseIcon },
       { path: '/historique-agents', label: 'Historique agents', icon: ClockIcon },
-      { path: '/settings', label: 'Paramètres', icon: SlidersIcon },
       { path: '/config-ai', label: 'Config AI', icon: CpuIcon },
     ],
   },

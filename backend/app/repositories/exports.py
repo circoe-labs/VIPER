@@ -15,7 +15,8 @@ from app.models.companies import Company
 from app.models.contact_tracking import ContactTracking
 from app.models.imports import ImportBatch, ImportRowMetadata
 from app.models.prospects import Prospect, ProspectSource
-from app.models.taxonomies import CommercialSegment, InternalReferent, Role
+from app.models.taxonomies import CommercialSegment, Role
+from app.models.users import User
 
 
 def prospects(session: Session) -> Sequence[Prospect]:
@@ -44,8 +45,8 @@ def segments(session: Session) -> Sequence[CommercialSegment]:
     return session.scalars(select(CommercialSegment)).all()
 
 
-def referents(session: Session) -> Sequence[InternalReferent]:
-    return session.scalars(select(InternalReferent)).all()
+def referents(session: Session) -> Sequence[User]:
+    return session.scalars(select(User)).all()
 
 
 def sources(session: Session) -> Sequence[ProspectSource]:

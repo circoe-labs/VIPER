@@ -34,7 +34,7 @@ from app.models.oauth import OAuthAuthorization, OAuthClient, OAuthToken
 from app.models.organizations import Organization
 from app.models.prospects import Email, Phone, Prospect, ProspectNote, ProspectSource
 from app.models.quality_alerts import QualityAlert
-from app.models.taxonomies import ActivityCategory, CommercialSegment, InternalReferent, Role
+from app.models.taxonomies import ActivityCategory, CommercialSegment, Role
 from app.models.users import User, UserSession
 from app.models.warehouse_drafts import WarehouseDraft
 from app.models.warehouses import Warehouse
@@ -59,7 +59,6 @@ __all__ = [
     "Establishment",
     "ImportBatch",
     "ImportRowMetadata",
-    "InternalReferent",
     "McpCall",
     "McpToken",
     "Mission",

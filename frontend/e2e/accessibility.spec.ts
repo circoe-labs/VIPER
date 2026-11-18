@@ -114,9 +114,9 @@ const PAGES: { name: string; open: (page: Page) => Promise<void> }[] = [
     },
   },
   {
-    name: 'paramètres',
+    name: 'organisation',
     open: async (page) => {
-      await page.goto('/settings')
+      await page.goto('/organisation/roles')
       await expect(page.getByRole('table').first()).toBeVisible()
     },
   },

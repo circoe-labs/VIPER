@@ -5,10 +5,10 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.models import ActivityCategory, CommercialSegment, InternalReferent, Role
+from app.models import ActivityCategory, CommercialSegment, Role
 from app.models.enums import VerificationStatus
 from app.services import prospects
-from tests.builders import OPERATOR, add_company, add_email, add_phone, add_prospect
+from tests.builders import OPERATOR, add_company, add_email, add_phone, add_prospect, referent_user
 
 FILENAME = "base_synthetique.xlsx"
 SHEET = "Base client "
@@ -26,8 +26,8 @@ def seed(session: Session) -> dict[str, uuid.UUID]:
         ),
         "storage": ActivityCategory(label="Entreposage et stockage", slug="entreposage-stockage"),
         "carrier": CommercialSegment(label="Transporteur", slug="transporteur"),
-        "claire": InternalReferent(first_name="Claire", last_name="Référente"),
-        "paul": InternalReferent(first_name="Paul", last_name="Démo"),
+        "claire": referent_user("Claire", "Référente"),
+        "paul": referent_user("Paul", "Démo"),
     }
     session.add_all(rows.values())
     session.flush()

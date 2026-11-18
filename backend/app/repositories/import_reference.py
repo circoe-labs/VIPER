@@ -4,14 +4,14 @@ import uuid
 from collections.abc import Sequence
 from datetime import date
 
-from sqlalchemy import Row, select
+from sqlalchemy import Row, func, select
 from sqlalchemy.orm import Session
 
 from app.models.companies import Company
 from app.models.contact_sequences import Cohort
 from app.models.enums import ContactabilityStatus
 from app.models.prospects import Email, Prospect
-from app.models.taxonomies import InternalReferent
+from app.models.users import User
 from app.repositories.taxonomies import TaxonomyModel
 
 
@@ -28,12 +28,18 @@ def referent_rows(
 ) -> Sequence[Row[tuple[uuid.UUID, str, str, str | None, bool]]]:
     return session.execute(
         select(
-            InternalReferent.id,
-            InternalReferent.first_name,
-            InternalReferent.last_name,
-            InternalReferent.email,
-            InternalReferent.active,
-        ).order_by(InternalReferent.last_name, InternalReferent.first_name, InternalReferent.id)
+            User.id,
+            func.split_part(User.display_name, " ", 1),
+            func.coalesce(
+                func.nullif(
+                    func.btrim(func.substr(User.display_name, func.strpos(User.display_name, " ") + 1)),
+                    "",
+                ),
+                User.display_name,
+            ),
+            User.email,
+            User.is_active,
+        ).order_by(User.display_name, User.id)
     ).all()
 
 

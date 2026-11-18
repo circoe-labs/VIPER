@@ -18,6 +18,8 @@ export function appointment(overrides: Partial<Appointment> = {}): Appointment {
     host_email: 'l.jerier@circoe.com',
     starts_at: '2026-10-26T14:30:00+01:00',
     ends_at: '2026-10-26T15:00:00+01:00',
+    booked_at: null,
+    answers: [],
     location: 'https://meet.example/abc',
     status: 'scheduled',
     reschedule_count: 0,
@@ -43,7 +45,7 @@ export function stubAgendaApi({ items = [], today = [], tomorrow = [], extra = {
     ...SHELL_API,
     'GET /api/agenda/appointments': [200, { items }],
     'GET /api/agenda/reminders': [200, { today, tomorrow }],
-    'GET /api/settings/referents': [200, []],
+    'GET /api/organizations/members': [200, []],
   }
   for (const found of known) {
     replies[`PATCH /api/agenda/appointments/${found.id}`] = () => [200, found]

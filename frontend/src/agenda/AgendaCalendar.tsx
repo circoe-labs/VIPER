@@ -31,12 +31,13 @@ function Chip({
   onMenu,
 }: Pick<CalendarProps, 'onOpen' | 'onMenu'> & { appointment: Appointment }) {
   const label = `${timeOf(appointment.starts_at)} ${who(appointment)}`
+  const member = appointment.referent?.label
   return (
     <li className={`agenda-chip agenda-chip--${appointment.source} agenda-chip--${appointment.status}`}>
       <button
         type="button"
         className="agenda-chip__main"
-        title={label}
+        title={member ? `${label} — avec ${member}` : label}
         aria-label={`Rendez-vous ${label}`}
         onClick={() => {
           onOpen(appointment)
@@ -48,6 +49,7 @@ function Chip({
       >
         <span className="agenda-chip__time">{timeOf(appointment.starts_at)}</span>
         <span className="agenda-chip__who">{who(appointment)}</span>
+        {member && <span className="agenda-chip__member">{member}</span>}
       </button>
       <IconButton
         size="sm"

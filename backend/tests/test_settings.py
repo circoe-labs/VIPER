@@ -1,22 +1,19 @@
-"""Settings services: taxonomies and internal referents (Task 06)."""
+"""Settings services: taxonomies (Task 06)."""
 
 import uuid
 
 import pytest
-from sqlalchemy import func, inspect, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.actor import ActorType
 from app.models import (
     ActivityCategory,
     CommercialSegment,
-    ContactTracking,
-    InternalReferent,
     Role,
-    User,
 )
 from app.repositories import taxonomies as taxonomy_repository
-from app.services import referents, taxonomies
+from app.services import taxonomies
 from app.services.errors import (
     DuplicateValueError,
     ExistingValue,
@@ -24,7 +21,6 @@ from app.services.errors import (
     InvalidFieldError,
     NotFoundError,
 )
-from app.services.referents import ReferentInput
 from app.services.taxonomies import Taxonomy
 from tests.builders import OPERATOR, add_company, add_prospect, add_role, audit_events
 
@@ -303,127 +299,3 @@ def test_search_matches_every_word_ignoring_case_and_accents(db_session: Session
     assert labels("exploit resp") == ["Responsable d'exploitation"]
     assert labels("100%") == []
     assert len(labels("  ")) == 3
-
-
-# --- referents --------------------------------------------------------------------------------
-
-
-def create_referent(
-    session: Session, first: str = "Camille", last: str = "Exemple", email: str | None = None
-) -> referents.ReferentValue:
-    return referents.create_referent(session, OPERATOR, ReferentInput(first, last, email))
-
-
-def test_referent_is_created_normalized_and_audited(db_session: Session) -> None:
-    value = create_referent(
-        db_session, " Jean-Marc ", "De  La Test", " Jean-Marc.Test@Example.COM "
-    )
-
-    assert (value.first_name, value.last_name, value.email, value.active) == (
-        "Jean-Marc",
-        "De La Test",
-        "jean-marc.test@example.com",
-        True,
-    )
-    [event] = audit_events(db_session)
-    assert (event.action, event.entity_type, event.actor_id) == (
-        "internal_referent.created",
-        "internal_referent",
-        OPERATOR.id,
-    )
-
-
-@pytest.mark.parametrize("email", ["sans-arobase", "a@b", "deux@@example.com", "x y@example.com"])
-def test_referent_email_is_optional_but_must_look_like_an_address(
-    db_session: Session, email: str
-) -> None:
-    assert create_referent(db_session, email="").email is None
-
-    with pytest.raises(InvalidFieldError) as refused:
-        create_referent(db_session, "Autre", "Personne", email)
-
-    assert refused.value.field == "email"
-
-
-def test_referent_names_and_emails_are_unique(db_session: Session) -> None:
-    original = create_referent(db_session, "Hélène", "Démo", "helene.demo@example.com")
-
-    with pytest.raises(DuplicateValueError) as same_name:
-        create_referent(db_session, "helene", "DEMO")
-    with pytest.raises(DuplicateValueError) as same_email:
-        create_referent(db_session, "Autre", "Personne", "HELENE.DEMO@example.com")
-
-    existing = ExistingValue(original.id, "Hélène Démo", True)
-    assert (same_name.value.field, same_name.value.existing) == ("name", existing)
-    assert (same_email.value.field, same_email.value.existing) == ("email", existing)
-
-
-def test_referent_edit_is_audited_and_keeps_trackings(db_session: Session) -> None:
-    value = create_referent(db_session, "Paul", "Essai")
-    prospect = add_prospect(db_session)
-    db_session.add(ContactTracking(prospect_id=prospect.id, referent_id=value.id))
-    db_session.flush()
-
-    edited = referents.update_referent(
-        db_session, OPERATOR, value.id, ReferentInput("Paul", "Essai-Modèle", "paul@example.com")
-    )
-    inactive = referents.set_referent_active(db_session, OPERATOR, value.id, False)
-
-    assert (edited.id, edited.last_name, edited.usage_count, inactive.active) == (
-        value.id,
-        "Essai-Modèle",
-        1,
-        False,
-    )
-    tracking = db_session.execute(select(ContactTracking)).scalar_one()
-    assert tracking.referent_id == value.id
-    updated, deactivated = audit_events(db_session, entity_type="internal_referent")[1:]
-    assert updated.action == "internal_referent.updated"
-    assert updated.changes == {
-        "last_name": {"before": "Essai", "after": "Essai-Modèle"},
-        "email": {"before": None, "after": "paul@example.com"},
-    }
-    assert deactivated.action == "internal_referent.deactivated"
-
-
-def test_referent_in_use_cannot_be_deleted_but_an_unused_one_can(db_session: Session) -> None:
-    used = create_referent(db_session, "Luc", "Fictif")
-    unused = create_referent(db_session, "Emma", "Modèle")
-    prospect = add_prospect(db_session)
-    db_session.add(ContactTracking(prospect_id=prospect.id, referent_id=used.id))
-    db_session.flush()
-
-    with pytest.raises(InUseError) as refused:
-        referents.delete_referent(db_session, OPERATOR, used.id)
-    referents.delete_referent(db_session, OPERATOR, unused.id)
-
-    assert refused.value.usage == {"contact_trackings": 1}
-    assert db_session.get(InternalReferent, unused.id) is None
-    assert audit_events(db_session)[-1].action == "internal_referent.deleted"
-
-
-def test_referent_search_covers_names_and_email(db_session: Session) -> None:
-    create_referent(db_session, "Claire", "Référente", "claire.ref@example.com")
-    create_referent(db_session, "Hugo", "Test")
-
-    def names(search: str) -> list[str]:
-        return [value.first_name for value in referents.list_referents(db_session, search=search)]
-
-    assert names("referente claire") == ["Claire"]
-    assert names("claire.ref@") == ["Claire"]
-    assert names("") == ["Claire", "Hugo"]
-
-
-def test_referents_are_not_login_accounts(db_session: Session, pilot_user: User) -> None:
-    users_before = db_session.execute(select(func.count()).select_from(User)).scalar_one()
-
-    referent = create_referent(db_session, "Pilote", "Test", pilot_user.email)
-
-    assert db_session.execute(select(func.count()).select_from(User)).scalar_one() == users_before
-    assert referent.email == pilot_user.email
-    referent_table = inspect(InternalReferent).local_table
-    # Owned by an organisation, never tied to a login account.
-    assert {fk.column.table.name for fk in referent_table.foreign_keys} == {"organizations"}
-    assert all(
-        fk.column.table is not referent_table for fk in inspect(User).local_table.foreign_keys
-    )

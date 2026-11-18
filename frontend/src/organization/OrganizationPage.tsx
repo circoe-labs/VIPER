@@ -1,4 +1,5 @@
 import { type MouseEvent, type ReactNode, useRef, useState } from 'react'
+import { Link, Navigate, useParams } from 'react-router'
 
 import { ApiError } from '../api/client'
 import {
@@ -17,7 +18,10 @@ import {
   useUpdateMember,
   useUpdateOrganization,
 } from '../api/organizations'
+import { useTaxonomyValues } from '../api/settings'
+import { useIsAdmin } from '../auth/RequireAdmin'
 import { useCurrentUser } from '../auth/currentUser'
+import { TaxonomySection } from '../settings/TaxonomySection'
 import { StatusBadge } from '../ui/Badge'
 import { Button, IconButton } from '../ui/Button'
 import { Card } from '../ui/Card'
@@ -44,6 +48,8 @@ import { InfoTip } from '../ui/InfoTip'
 import { Menu, type MenuItem, type MenuSection } from '../ui/Menu'
 import { PageHeader } from '../ui/PageHeader'
 import { Table } from '../ui/Table'
+import { TAXONOMY_SECTIONS } from './taxonomySections'
+import '../settings/settings.css'
 import './organization.css'
 
 export const ROLE_LABELS: Record<OrganizationRole, string> = {
@@ -162,9 +168,63 @@ function SectionHeader({ icon: Icon, title, actions }: { icon: IconComponent; ti
   )
 }
 
-// « Organisation »: the members and their roles. What a person sees and may do follows their role (the server says
-// which actions it allows); the platform admin also creates organisations and switches between them.
+const MEMBERS_PATH = 'membres'
+
+// « Organisation »: the members and their roles, then (administrators only) the lists the records are filled from:
+// prospect roles, activity categories, commercial segments. What a person sees and may do follows their role (the
+// server says which actions it allows); the platform admin also creates organisations and switches between them.
 export function OrganizationPage() {
+  const { section = MEMBERS_PATH } = useParams()
+  const isAdmin = useIsAdmin()
+  const taxonomy = TAXONOMY_SECTIONS.find((config) => config.kind === section)
+  if (section !== MEMBERS_PATH && !(taxonomy && isAdmin)) return <Navigate to="/organisation" replace />
+  return (
+    <div className="organization-page">
+      <OrganizationHeader section={section} showLists={isAdmin} />
+      {taxonomy ? (
+        <section className="settings-panel" aria-label={taxonomy.title}>
+          <TaxonomySection key={taxonomy.kind} config={taxonomy} />
+        </section>
+      ) : (
+        <MembersTab />
+      )}
+    </div>
+  )
+}
+
+function OrganizationHeader({ section, showLists }: { section: string; showLists: boolean }) {
+  return (
+    <>
+      <PageHeader title="Organisation" />
+      {showLists && (
+        <nav className="settings-tabs" aria-label="Sections de l’organisation">
+          <TabLink path={MEMBERS_PATH} title="Membres" current={section === MEMBERS_PATH} />
+          {TAXONOMY_SECTIONS.map((config) => (
+            <TabLink key={config.kind} path={config.kind} title={config.title} current={section === config.kind}>
+              <TaxonomyCount kind={config.kind} />
+            </TabLink>
+          ))}
+        </nav>
+      )}
+    </>
+  )
+}
+
+function TabLink({ path, title, current, children }: { path: string; title: string; current: boolean; children?: ReactNode }) {
+  return (
+    <Link to={path === MEMBERS_PATH ? '/organisation' : `/organisation/${path}`} className="settings-tabs__link" aria-current={current ? 'page' : undefined}>
+      <span>{title}</span>
+      {children}
+    </Link>
+  )
+}
+
+function TaxonomyCount({ kind }: { kind: (typeof TAXONOMY_SECTIONS)[number]['kind'] }) {
+  const total = useTaxonomyValues(kind).data?.length
+  return total === undefined ? null : <span className="settings-tabs__count">{total}</span>
+}
+
+function MembersTab() {
   const me = useCurrentUser()
   const list = useOrganizations()
   const [selected, setSelected] = useState<string | null>(null)
@@ -250,23 +310,20 @@ export function OrganizationPage() {
   }
 
   return (
-    <div className="organization-page">
-      <PageHeader
-        title="Organisation"
-        actions={
-          list.data?.can_create && (
-            <Button
-              variant="primary"
-              icon={PlusIcon}
-              onClick={() => {
-                setCreating(true)
-              }}
-            >
-              Nouvelle organisation
-            </Button>
-          )
-        }
-      />
+    <>
+      {list.data?.can_create && (
+        <div className="organization-toolbar">
+          <Button
+            variant="primary"
+            icon={PlusIcon}
+            onClick={() => {
+              setCreating(true)
+            }}
+          >
+            Nouvelle organisation
+          </Button>
+        </div>
+      )}
       {list.data && list.data.organizations.length > 1 && (
         <nav className="organization-switcher" aria-label="Organisations">
           {list.data.organizations.map((organization) => (
@@ -340,7 +397,7 @@ export function OrganizationPage() {
           onSaved={setSelected}
         />
       )}
-    </div>
+    </>
   )
 }
 

@@ -157,6 +157,6 @@ describe('Agenda page', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Synchroniser avec Calendly' }))
 
     expect(await screen.findByText(/Calendly n’est pas encore relié à VIPER/)).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Ouvrir les connexions' })).toHaveAttribute('href', '/settings/connections')
+    expect(screen.getByRole('link', { name: 'Ouvrir les connexions' })).toHaveAttribute('href', '/config-ai/connections')
   })
 })

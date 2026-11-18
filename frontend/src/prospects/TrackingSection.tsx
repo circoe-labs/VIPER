@@ -140,7 +140,7 @@ export function TrackingSection({ draft, errors, fieldId, onChange, prospect }: 
       <div className="prospect-editor__referent" data-emphasis={appointment && !tracking.referent_id ? '' : undefined}>
         <ReferentSelect
           label="Référent Circoe"
-          placeholder="Choisir ou créer un référent"
+          placeholder="Choisir un membre de l’organisation"
           hint={
             appointment
               ? tracking.referent_id

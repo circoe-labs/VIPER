@@ -27,7 +27,7 @@ from app.models.enums import (
     ProspectSourceType,
     VerificationStatus,
 )
-from app.models.taxonomies import InternalReferent
+from app.models.users import User
 from app.services.contact_workflow import ALERT_TYPE_LABELS, STATE_LABELS
 from app.services.exports.projection import (
     CompanyRecord,
@@ -110,8 +110,8 @@ def yes_no(flag: bool) -> str:
     return "Oui" if flag else "Non"
 
 
-def full_name(referent: InternalReferent | None) -> str | None:
-    return f"{referent.first_name} {referent.last_name}" if referent else None
+def full_name(referent: User | None) -> str | None:
+    return referent.display_name if referent else None
 
 
 def joined(parts: Iterable[str | None], separator: str = ", ") -> str | None:

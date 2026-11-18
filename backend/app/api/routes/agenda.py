@@ -47,6 +47,11 @@ class ReferentRef(BaseModel):
     label: str
 
 
+class AnswerOut(BaseModel):
+    question: str
+    answer: str
+
+
 class LastMailOut(BaseModel):
     step_label: str
     subject: str
@@ -65,6 +70,9 @@ class AppointmentOut(BaseModel):
     host_email: str | None
     starts_at: datetime
     ends_at: datetime
+    # When the invitee booked, and what they answered on the booking form (the subject).
+    booked_at: datetime | None
+    answers: list[AnswerOut]
     location: str | None
     status: AppointmentStatus
     reschedule_count: int
@@ -134,6 +142,8 @@ def appointments_out(
             host_email=row.host_email,
             starts_at=row.starts_at,
             ends_at=row.ends_at,
+            booked_at=row.booked_at,
+            answers=[AnswerOut(**item) for item in row.invitee_answers or []],
             location=row.location,
             status=row.status,
             reschedule_count=row.reschedule_count,

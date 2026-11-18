@@ -30,7 +30,7 @@ class ContactTracking(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         server_default=ContactTrackingStatus.NEUTRAL.value,
     )
     referent_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("internal_referents.id", ondelete="RESTRICT"), index=True
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
     )
     response_received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     appointment_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

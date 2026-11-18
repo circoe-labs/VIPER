@@ -42,13 +42,9 @@ export function referent(first_name: string, last_name: string, fields: Partial<
   sequence += 1
   return {
     id: `00000000-0000-7000-9000-${String(sequence).padStart(12, '0')}`,
-    first_name,
-    last_name,
-    email: null,
+    display_name: `${first_name} ${last_name}`,
+    email: `${foldText(`${first_name}.${last_name}`).replace(/[^a-z0-9]+/g, '.')}@circoe.test`,
     active: true,
-    usage_count: 0,
-    created_at: STAMP,
-    updated_at: STAMP,
     ...fields,
   }
 }
@@ -86,8 +82,7 @@ function refused(status: number, detail: Record<string, unknown>): Promise<Respo
   return reply(status, { detail: { message: 'Refused.', ...detail } })
 }
 
-const nameOf = (value: TaxonomyValue | Referent) =>
-  'label' in value ? value.label : `${value.first_name} ${value.last_name}`
+const nameOf = (value: TaxonomyValue) => value.label
 
 export function stubSettingsApi(initial: Partial<Store> = {}, contactInitial: Partial<ContactStore> = {}) {
   const contact: ContactStore = { cohorts: [S0], max_follow_ups: 4, ...structuredClone(contactInitial) }
@@ -102,7 +97,7 @@ export function stubSettingsApi(initial: Partial<Store> = {}, contactInitial: Pa
   // Set to make the next list call fail (error state).
   const failures = new Set<string>()
 
-  function duplicate(existing: TaxonomyValue | Referent, field = 'label') {
+  function duplicate(existing: TaxonomyValue, field = 'label') {
     return reply(409, {
       detail: {
         code: 'duplicate',
@@ -153,10 +148,16 @@ export function stubSettingsApi(initial: Partial<Store> = {}, contactInitial: Pa
   function handle(method: string, url: URL, body: unknown): Promise<Response> {
     if (url.pathname === '/api/health') return reply(200, { status: 'ok', database: 'ok' })
     if (/^\/api\/settings\/(cohorts|contact)(\/|$)/.test(url.pathname)) return handleContact(method, url, body)
+    if (url.pathname === '/api/organizations/members') {
+      if (failures.delete('referents')) return reply(500, { detail: 'boom' })
+      return reply(200, store.referents)
+    }
     const match = /^\/api\/settings\/([a-z-]+)(?:\/([^/]+))?$/.exec(url.pathname)
-    const resource = match?.[1] as keyof Store | undefined
-    if (!match || !resource || !(resource in store)) return reply(404, { detail: 'Not Found' })
-    const values: (TaxonomyValue | Referent)[] = store[resource]
+    const resource = match?.[1] as TaxonomyKind | undefined
+    if (!match || !resource || !(resource in store) || (resource as string) === 'referents') {
+      return reply(404, { detail: 'Not Found' })
+    }
+    const values: TaxonomyValue[] = store[resource]
     const id = match[2]
     const target = values.find((value) => value.id === id)
     const payload = (body ?? {}) as Record<string, unknown>
@@ -165,8 +166,7 @@ export function stubSettingsApi(initial: Partial<Store> = {}, contactInitial: Pa
       if (failures.delete(resource)) return reply(500, { detail: 'boom' })
       const q = url.searchParams.get('q') ?? ''
       const active = url.searchParams.get('active')
-      const searchable = (value: TaxonomyValue | Referent) =>
-        'label' in value ? value.label : `${nameOf(value)} ${value.email ?? ''}`
+      const searchable = (value: TaxonomyValue) => value.label
       return reply(
         200,
         values.filter(
@@ -176,23 +176,7 @@ export function stubSettingsApi(initial: Partial<Store> = {}, contactInitial: Pa
     }
     if (id && !target) return reply(404, { detail: { code: 'not_found', message: 'Not found.' } })
 
-    if (resource === 'referents') {
-      if (method === 'POST' || method === 'PUT') {
-        const input = payload as { first_name: string; last_name: string; email: string | null }
-        const twin = store.referents.find(
-          (value) => value.id !== id && foldText(nameOf(value)) === foldText(`${input.first_name} ${input.last_name}`),
-        )
-        if (twin) return duplicate(twin, 'name')
-        const email = input.email?.toLowerCase() ?? null
-        if (method === 'POST') {
-          const created = referent(input.first_name.trim(), input.last_name.trim(), { email })
-          store.referents.push(created)
-          return reply(201, created)
-        }
-        Object.assign(target as Referent, { ...input, email })
-        return reply(200, target)
-      }
-    } else if (method === 'POST') {
+    if (method === 'POST') {
       const label = String(payload.label).trim().replace(/\s+/g, ' ')
       const twin = store[resource].find((value) => foldText(value.label) === foldText(label))
       if (twin) return duplicate(twin)
@@ -207,12 +191,12 @@ export function stubSettingsApi(initial: Partial<Store> = {}, contactInitial: Pa
       return reply(200, target)
     }
     if (method === 'PATCH') {
-      Object.assign(target as TaxonomyValue | Referent, { active: payload.active })
+      Object.assign(target as TaxonomyValue, { active: payload.active })
       return reply(200, target)
     }
     if (method === 'DELETE' && target) {
       if (target.usage_count > 0) {
-        const noun = resource === 'roles' ? 'prospects' : resource === 'referents' ? 'contact_trackings' : 'companies'
+        const noun = resource === 'roles' ? 'prospects' : 'companies'
         return reply(409, { detail: { code: 'in_use', message: 'Still referenced.', usage: { [noun]: target.usage_count } } })
       }
       values.splice(values.indexOf(target), 1)

@@ -1,6 +1,6 @@
 import { expect, type Page, test } from '@playwright/test'
 
-import { createCompany, createReferent, uniqueSuffix } from './data'
+import { createCompany, post, uniqueSuffix } from './data'
 import { openDatabase, SCREENSHOTS, useTheme } from './helpers'
 import { signIn } from './session'
 
@@ -36,36 +36,36 @@ async function editCell(page: Page, table: string, current: string, column: stri
 }
 
 test('an edit stays pending until saved, and Cancel restores the original value', async ({ page }) => {
-  await openDatabase(page, 'internal_referents')
-  await editCell(page, 'internal_referents', 'Alex', 'first_name', 'Alexis')
+  await openDatabase(page, 'roles')
+  await editCell(page, 'roles', 'Dirigeant', 'label', 'Dirigeant modifié')
 
   await expect(pendingBar(page)).toContainText('1 modification en attente')
-  const edited = grid(page, 'internal_referents').locator('td[data-dirty]')
-  await expect(edited).toContainText('Alexis')
+  const edited = grid(page, 'roles').locator('td[data-dirty]')
+  await expect(edited).toContainText('Dirigeant modifié')
 
   await pendingBar(page).getByRole('button', { name: 'Annuler' }).click()
   await expect(pendingBar(page)).toBeHidden()
-  await expect(grid(page, 'internal_referents').getByRole('gridcell', { name: 'Alex', exact: true })).toBeVisible()
-  await expect(grid(page, 'internal_referents').locator('td[data-dirty]')).toHaveCount(0)
+  await expect(grid(page, 'roles').getByRole('gridcell', { name: 'Dirigeant', exact: true })).toBeVisible()
+  await expect(grid(page, 'roles').locator('td[data-dirty]')).toHaveCount(0)
 })
 
 test('a saved edit is persisted and recorded in the audit log', async ({ page }) => {
   const suffix = uniqueSuffix()
   const lastName = `Témoin E2E ${suffix}`
   const edited = `Témoin modifié E2E ${suffix}`
-  await createReferent(page, { first_name: 'Dominique', last_name: lastName, email: null })
+  await post(page, '/api/settings/roles', { label: lastName })
   // Filtered on the suffix, so the row stays in view once renamed.
-  await openFiltered(page, 'internal_referents', 'last_name', 'contains', suffix)
-  await editCell(page, 'internal_referents', lastName, 'last_name', edited)
+  await openFiltered(page, 'roles', 'label', 'contains', suffix)
+  await editCell(page, 'roles', lastName, 'label', edited)
   await pendingBar(page).getByRole('button', { name: 'Enregistrer' }).click()
   await expect(pendingBar(page)).toBeHidden()
 
   await page.reload()
-  await expect(grid(page, 'internal_referents').getByRole('gridcell', { name: edited, exact: true })).toBeVisible()
+  await expect(grid(page, 'roles').getByRole('gridcell', { name: edited, exact: true })).toBeVisible()
 
   const updates = encodeURIComponent(
     JSON.stringify([
-      { column: 'action', operator: 'eq', value: 'internal_referent.updated' },
+      { column: 'action', operator: 'eq', value: 'role.updated' },
       { column: 'changes', operator: 'contains', value: edited },
     ]),
   )
@@ -79,20 +79,20 @@ test('a saved edit is persisted and recorded in the audit log', async ({ page })
 })
 
 test('leaving the table with pending changes asks first', async ({ page }) => {
-  await openDatabase(page, 'internal_referents')
-  await editCell(page, 'internal_referents', 'Alex', 'first_name', 'Alexandre')
+  await openDatabase(page, 'roles')
+  await editCell(page, 'roles', 'Dirigeant', 'label', 'Dirigeant modifié')
   const rail = page.getByRole('navigation', { name: 'Tables' })
 
-  await rail.getByRole('link', { name: /^roles/ }).click()
+  await rail.getByRole('link', { name: /^commercial_segments/ }).click()
   const warning = page.getByRole('dialog', { name: 'Modifications non enregistrées' })
-  await expect(warning).toContainText('1 modification en attente sur internal_referents')
-  await warning.getByRole('button', { name: 'Rester sur internal_referents' }).click()
-  await expect(page).toHaveURL(/\/database\/internal_referents$/)
+  await expect(warning).toContainText('1 modification en attente sur roles')
+  await warning.getByRole('button', { name: 'Rester sur roles' }).click()
+  await expect(page).toHaveURL(/\/database\/roles$/)
   await expect(pendingBar(page)).toBeVisible()
 
-  await rail.getByRole('link', { name: /^roles/ }).click()
+  await rail.getByRole('link', { name: /^commercial_segments/ }).click()
   await page.getByRole('button', { name: 'Quitter sans enregistrer' }).click()
-  await expect(grid(page, 'roles')).toBeVisible()
+  await expect(grid(page, 'commercial_segments')).toBeVisible()
   await expect(pendingBar(page)).toBeHidden()
 })
 
@@ -171,24 +171,21 @@ test('a company row opens in the Company editor and the grid shows the saved val
 for (const theme of ['dark', 'light'] as const) {
   test(`editing screenshots (${theme})`, async ({ page }) => {
     await useTheme(page, theme)
-    await openDatabase(page, 'internal_referents')
-    const referents = grid(page, 'internal_referents')
+    await openDatabase(page, 'roles')
+    const roles = grid(page, 'roles')
 
-    // A refused save: the invalid e-mail is flagged on its cell, nothing is saved.
-    await referents.locator('tbody tr').nth(1).locator('td[data-kind="text"]').nth(2).dblclick()
-    const email = page.getByRole('textbox', { name: 'Nouvelle valeur de email' })
-    await email.fill('Pas-Valide')
-    await email.press('Enter')
+    // A refused save: the invalid key is flagged on its cell, nothing is saved.
+    await editCell(page, 'roles', 'dirigeant', 'slug', 'Pas Valide')
     await pendingBar(page).getByRole('button', { name: 'Enregistrer' }).click()
     await expect(pendingBar(page)).toContainText('Enregistrement refusé : 1 erreur')
-    await expect(referents.locator('td[data-invalid]')).toContainText('Adresse e-mail invalide')
+    await expect(roles.locator('td[data-invalid]')).toBeVisible()
     await page.screenshot({ path: `${SCREENSHOTS}/database-edit-refused-${theme}.png`, animations: 'disabled' })
 
     // Pending edits: a modified cell, a new row, and an open editor.
     await pendingBar(page).getByRole('button', { name: 'Annuler' }).click()
-    await editCell(page, 'internal_referents', 'Alex', 'first_name', 'Alexis')
+    await editCell(page, 'roles', 'Dirigeant', 'label', 'Dirigeant modifié')
     await page.getByRole('button', { name: 'Ajouter une ligne' }).click()
-    await page.getByRole('textbox', { name: 'Nouvelle valeur de first_name' }).fill('Nora')
+    await page.getByRole('textbox', { name: 'Nouvelle valeur de label' }).fill('Nouveau rôle')
     await expect(pendingBar(page)).toContainText('2 modifications en attente')
     await page.screenshot({ path: `${SCREENSHOTS}/database-edit-pending-${theme}.png`, animations: 'disabled' })
     await page.keyboard.press('Escape')

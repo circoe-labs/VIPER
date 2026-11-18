@@ -66,8 +66,15 @@ export function createCompany(page: Page, company: CompanySeed): Promise<{ id: s
   return post(page, '/api/companies', company)
 }
 
-export function createReferent(page: Page, referent: { first_name: string; last_name: string; email: string | null }) {
-  return post<{ id: string }>(page, '/api/settings/referents', referent)
+// A referent is a member of the organisation: added to the signed-in person's organisation (deactivated by nobody).
+export async function createReferent(page: Page, referent: { first_name: string; last_name: string; email: string | null }) {
+  const organizations = (await (await page.request.get('/api/organizations')).json()) as { organizations: { id: string }[] }
+  const slug = `${referent.first_name}.${referent.last_name}`.normalize('NFD').replace(/[^a-zA-Z0-9]+/g, '.').toLowerCase()
+  return post<{ id: string }>(page, `/api/organizations/${organizations.organizations[0]?.id ?? ''}/members`, {
+    email: referent.email ?? `${slug}@example.com`,
+    display_name: `${referent.first_name} ${referent.last_name}`,
+    role: 'member',
+  })
 }
 
 // A person of `companyName` (a company the test imported) still to contact on a past day: « Échu ». The import cannot

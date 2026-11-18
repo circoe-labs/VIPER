@@ -21,7 +21,6 @@ from app.models import (
     Establishment,
     ImportBatch,
     ImportRowMetadata,
-    InternalReferent,
     Phone,
     Prospect,
     ProspectSource,
@@ -39,6 +38,7 @@ from app.models.enums import (
 )
 from app.seed import seed_taxonomies
 from app.services.contact_tracking import ContactTrackingInput, save_contact_tracking
+from tests.builders import referent_user
 
 # Local actor (not tests.builders): the E2E setup loads this module without pytest installed.
 OPERATOR = ActorContext(type=ActorType.HUMAN, display="Opératrice Test", id="test-user")
@@ -74,10 +74,10 @@ def seed_explorer_dataset(session: Session) -> ExplorerDataset:
     roles = list(session.scalars(select(Role).order_by(Role.slug)))
     segments = list(session.scalars(select(CommercialSegment).order_by(CommercialSegment.slug)))
     referents = [
-        InternalReferent(
-            first_name="Camille", last_name="Référente", email="camille.ref@example.com"
+        referent_user(
+            "Camille", "Référente", email="camille.ref@example.com"
         ),
-        InternalReferent(first_name="Alex", last_name="Exemple", email=None),
+        referent_user("Alex", "Exemple", email=None),
     ]
     session.add_all(referents)
 

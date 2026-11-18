@@ -1,9 +1,9 @@
-# Settings — taxonomies and internal referents (Task 06)
+# Organisation › lists — taxonomies (Task 06)
 
-The **Paramètres** page (`/settings`) administers the four lists that record editors pick from: **Rôles** (a
+The **Organisation** page, sub-tabs `/organisation/roles`, `/organisation/activity-categories` and `/organisation/commercial-segments` (administrators of the organisation only; the former Paramètres page is gone and `/settings/<tab>` redirects there), administers the lists that record editors pick from: **Rôles** (a
 prospect's role), **Catégories d'activité** (a company's activities, several per company), **Segments commerciaux**
-(a company's single segment) and **Référents internes** (Circoe people named on contact tracking). Taxonomies are
-data, not code: the user extends them from Settings or directly from a form's picker, with the same rules and the same
+(a company's single segment). The internal referents are the organisation's **members** (Organisation › Membres). Taxonomies are
+data, not code: the user extends them from Organisation or directly from a form's picker, with the same rules and the same
 audit trail.
 
 Decisions: I-32 … I-36 in the decision log. Uniqueness mechanism: [ADR-0009](../adr/0009-settings-value-uniqueness.md).
@@ -18,7 +18,7 @@ Decisions: I-32 … I-36 in the decision log. Uniqueness mechanism: [ADR-0009](.
 | **Stored text** | Labels and names are stored trimmed with inner whitespace collapsed; referent e-mails lowercase. |
 | **Deactivation** | `active = false` hides a value from pickers; every record that already uses it keeps it (and a picker still shows it, marked *Inactif*, while it is selected). Reversible (*Réactiver*). |
 | **Deletion** | Only when nothing references the value. Otherwise the API refuses with the usage counts (how many prospects use a role, companies use a segment/category, contact trackings name a referent) and the UI proposes deactivation. The database's `ON DELETE RESTRICT` backs this up, even for a reference added meanwhile. |
-| **Referents** | First name + last name required, e-mail optional (`x@domain.tld`, stored lowercase). Full names are unique ignoring case/accents/spacing (homonyms would be indistinguishable in a picker); e-mails are unique. Referents are **business records, not login accounts**: no link to `users` in either direction. |
+| **Referents** | A dossier's or meeting's referent is a **member of the organisation** (`contact_tracking.referent_id`, `appointments.referent_id` → `users.id`, ON DELETE SET NULL). The former `internal_referents` table was dropped by migration `0053`: each referent was matched to a member by e-mail, else by name; the others became deactivated members (same id). Members are managed in Organisation. |
 | **Audit** | Every mutation is attributed to the signed-in user (server-side actor) and audited: `role.created`, `role.renamed`, `role.deactivated`, `role.reactivated`, `role.deleted` (same for `activity_category`, `commercial_segment`); `internal_referent.created/updated/deactivated/reactivated/deleted`. Inline creation from a picker produces the same `*.created` event. |
 
 ## API — `/api/settings` (session + CSRF, `api_router`)
@@ -29,11 +29,7 @@ Decisions: I-32 … I-36 in the decision log. Uniqueness mechanism: [ADR-0009](.
 | `POST /settings/{taxonomy}` | `{label}` | 201 value |
 | `PATCH /settings/{taxonomy}/{id}` | `{label?, active?}` (at least one) | value — rename and/or deactivate/reactivate |
 | `DELETE /settings/{taxonomy}/{id}` | — | 204 |
-| `GET /settings/referents` | `q` (names and e-mail), `active` | `[{id, first_name, last_name, email, active, usage_count, …}]` ordered by last, first name |
-| `POST /settings/referents` | `{first_name, last_name, email?}` | 201 referent |
-| `PUT /settings/referents/{id}` | `{first_name, last_name, email?}` | referent (identity replaced) |
-| `PATCH /settings/referents/{id}` | `{active}` | referent |
-| `DELETE /settings/referents/{id}` | — | 204 |
+| `GET /organizations/members` | — | `[{id, display_name, email, active}]` — the viewer's organisation members, for the « Référent » pickers (referents are the members; no separate table) |
 
 | `GET /settings/cohorts` | — | `[{id, code, starts_on, out_of_campaign, needs_review, current_count, sequence_count}]`, S0 first then by date |
 | `POST /settings/cohorts` | `{code, starts_on}` (`S37`, « s 37 »… normalized to `S<n>`; the real date, required except S0) | 201 cohort |

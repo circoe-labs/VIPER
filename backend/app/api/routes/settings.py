@@ -1,7 +1,7 @@
-"""Settings API (`/api/settings`): taxonomies and internal referents (Task 06), cohorts and the
+"""Settings API (`/api/settings`): taxonomies (Task 06), cohorts and the
 Contact parameters (sequences rework D2, D5).
 
-`/settings/referents` for the Circoe referents, `/settings/cohorts` for the cohorts `Sxx` (code and
+`/settings/cohorts` for the cohorts `Sxx` (code and
 real start date entered by a person; `S0` fixed, out of campaign), `/settings/contact` for
 « max relances », `/settings/{taxonomy}` for `roles`, `activity-categories` and
 `commercial-segments`. Business refusals answer with a stable `code` the
@@ -19,10 +19,9 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_vali
 
 from app.api.dependencies import CurrentActor, SessionDep, SettingsDep
 from app.api.errors import business_errors
-from app.services import app_settings, cohorts, referents, taxonomies, taxonomy_cleanup
+from app.services import app_settings, cohorts, taxonomies, taxonomy_cleanup
 from app.services.cohorts import CohortView
 from app.services.contact_workflow import MAX_FOLLOW_UPS_LIMIT
-from app.services.referents import ReferentInput, ReferentValue
 from app.services.taxonomies import Taxonomy, TaxonomyValue
 from app.services.taxonomy_cleanup_prompt import taxonomy_cleanup_prompt
 
@@ -44,8 +43,6 @@ TAXONOMIES = {
 Search = Annotated[str | None, Query(alias="q", max_length=200)]
 ActiveFilter = Annotated[bool | None, Query(description="Only active (true) or inactive (false).")]
 Label = Annotated[str, StringConstraints(max_length=taxonomies.LABEL_MAX_LENGTH)]
-Name = Annotated[str, StringConstraints(max_length=referents.NAME_MAX_LENGTH)]
-Email = Annotated[str, StringConstraints(max_length=referents.EMAIL_MAX_LENGTH)]
 
 
 class TaxonomyValueOut(BaseModel):
@@ -75,33 +72,12 @@ class TaxonomyValueUpdate(BaseModel):
         return self
 
 
-class ReferentOut(BaseModel):
-    id: uuid.UUID
-    first_name: str
-    last_name: str
-    email: str | None
-    active: bool
-    usage_count: int
-    created_at: datetime
-    updated_at: datetime
-
-
-class ReferentIn(BaseModel):
-    first_name: Name
-    last_name: Name
-    email: Email | None = None
-
-
 class ActiveUpdate(BaseModel):
     active: bool
 
 
 def taxonomy_out(value: TaxonomyValue) -> TaxonomyValueOut:
     return TaxonomyValueOut.model_validate(value, from_attributes=True)
-
-
-def referent_out(value: ReferentValue) -> ReferentOut:
-    return ReferentOut.model_validate(value, from_attributes=True)
 
 
 class StrictModel(BaseModel):
@@ -155,7 +131,7 @@ def cohort_out(view: CohortView) -> CohortOut:
     return CohortOut.model_validate(view, from_attributes=True)
 
 
-# Fixed paths come first: `/settings/referents`, `/settings/cohorts` and `/settings/contact` must
+# Fixed paths come first: `/settings/cohorts` and `/settings/contact` must
 # not be read as a taxonomy path.
 
 
@@ -200,49 +176,6 @@ def update_contact_settings(
     with business_errors():
         value = app_settings.set_max_follow_ups(session, actor, body.max_follow_ups)
     return ContactSettingsOut(max_follow_ups=value)
-
-
-@router.get("/referents")
-def list_referents(
-    session: SessionDep, q: Search = None, active: ActiveFilter = None
-) -> list[ReferentOut]:
-    values = referents.list_referents(session, search=q, active=active)
-    return [referent_out(value) for value in values]
-
-
-@router.post("/referents", status_code=status.HTTP_201_CREATED)
-def create_referent(body: ReferentIn, session: SessionDep, actor: CurrentActor) -> ReferentOut:
-    with business_errors():
-        value = referents.create_referent(session, actor, ReferentInput(**body.model_dump()))
-    return referent_out(value)
-
-
-@router.put("/referents/{referent_id}")
-def update_referent(
-    referent_id: uuid.UUID, body: ReferentIn, session: SessionDep, actor: CurrentActor
-) -> ReferentOut:
-    """Replace the referent's name and e-mail."""
-    with business_errors():
-        value = referents.update_referent(
-            session, actor, referent_id, ReferentInput(**body.model_dump())
-        )
-    return referent_out(value)
-
-
-@router.patch("/referents/{referent_id}")
-def set_referent_active(
-    referent_id: uuid.UUID, body: ActiveUpdate, session: SessionDep, actor: CurrentActor
-) -> ReferentOut:
-    """Deactivate or reactivate."""
-    with business_errors():
-        value = referents.set_referent_active(session, actor, referent_id, body.active)
-    return referent_out(value)
-
-
-@router.delete("/referents/{referent_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_referent(referent_id: uuid.UUID, session: SessionDep, actor: CurrentActor) -> None:
-    with business_errors():
-        referents.delete_referent(session, actor, referent_id)
 
 
 class CleanupMemberOut(BaseModel):

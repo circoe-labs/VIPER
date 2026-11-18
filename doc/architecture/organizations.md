@@ -7,7 +7,7 @@
   `circoe.com`.
 - **Propriété des données** : les tables racines portent `organization_id`, qui vaut CIRCOE par défaut dans la
   base elle-même (`OrganizationOwnedMixin`). Ces tables sont `companies`, `prospects`, `missions`,
-  `import_batches`, `contact_sequences`, `cohorts`, `appointments`, `agent_threads`, `internal_referents` et
+  `import_batches`, `contact_sequences`, `cohorts`, `appointments`, `agent_threads` et
   `mcp_tokens`. Les lignes enfants appartiennent au propriétaire de leur parent. La migration 0023 a attribué
   toutes les données existantes à CIRCOE. Dans l'explorateur, la colonne est masquée (`OWNER_COLUMN`).
 - `users` :

@@ -1,14 +1,15 @@
 """Agenda: the meetings booked by prospects (synced from Calendly, or added by hand).
 
 One row per Calendly event (`calendly_event_uri`, unique); a manual meeting has none. The host
-(Calendly user) and the internal referent in charge are kept apart: the host is who the calendar
-belongs to, the referent is who VIPER says takes the meeting over.
+(Calendly user) and the member in charge (`referent_id`, a user of the organisation) are kept
+apart: the host owns the Calendly calendar, the member is who VIPER says takes the meeting over.
 """
 
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, SmallInteger, String, Text
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, SmallInteger, String, Text, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -33,7 +34,7 @@ class Appointment(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, B
         ForeignKey("prospects.id", ondelete="SET NULL"), index=True
     )
     referent_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("internal_referents.id", ondelete="SET NULL"), index=True
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
     )
     title: Mapped[str] = mapped_column(String(300))
     invitee_name: Mapped[str] = mapped_column(String(300))
@@ -41,6 +42,12 @@ class Appointment(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, B
     company_name: Mapped[str | None] = mapped_column(String(300))
     host_name: Mapped[str | None] = mapped_column(String(300))
     host_email: Mapped[str | None] = mapped_column(String(320))
+    # When the invitee booked (Calendly's `created_at` of the invitee); NULL for a manual meeting.
+    booked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # What the invitee answered on the booking form, [{question, answer}]: the subject of the meeting.
+    invitee_answers: Mapped[list[dict[str, str]]] = mapped_column(
+        JSONB, server_default=text("'[]'::jsonb")
+    )
     starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     # The video-call or place, as Calendly gives it.

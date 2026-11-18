@@ -35,7 +35,7 @@ from sqlalchemy.orm import Session
 
 from app.core.actor import ActorContext, ActorType
 from app.core.business_time import BUSINESS_TIMEZONE, business_day, business_moment, start_of_day
-from app.models import ContactTracking, Email, Phone, Prospect, Role
+from app.models import ContactTracking, Email, Phone, Prospect, Role, User
 from app.models.enums import (
     ActivityStatus,
     Civility,
@@ -48,7 +48,6 @@ from app.models.enums import (
 )
 from app.repositories import companies as company_repository
 from app.repositories import prospects as repository
-from app.repositories import referents as referent_repository
 from app.repositories import taxonomies as taxonomy_repository
 from app.services import audit, contact_channels, prospects, provenance, taxonomies
 from app.services.contact_channels import EMAILS, PHONES, ChannelItem
@@ -385,11 +384,7 @@ def _role_ref(session: Session, role_id: uuid.UUID | None) -> ValueRef | None:
 def _tracking_view(session: Session, tracking: ContactTracking | None) -> TrackingView | None:
     if tracking is None:
         return None
-    referent = (
-        referent_repository.get_referent(session, tracking.referent_id)
-        if tracking.referent_id
-        else None
-    )
+    referent = session.get(User, tracking.referent_id) if tracking.referent_id else None
     appointment = _local_parts(tracking.appointment_at) if tracking.appointment_at else None
     since = state_reached_at(tracking.status_history)
     return TrackingView(
@@ -400,7 +395,7 @@ def _tracking_view(session: Session, tracking: ContactTracking | None) -> Tracki
         appointment_on=appointment[0] if appointment else None,
         appointment_time=appointment[1] if appointment else None,
         referent=(
-            ValueRef(referent.id, f"{referent.first_name} {referent.last_name}", referent.active)
+            ValueRef(referent.id, referent.display_name, referent.is_active)
             if referent
             else None
         ),
@@ -545,7 +540,7 @@ def _cleaned(session: Session, form: ProspectForm) -> ProspectForm:
     tracking = form.tracking
     if tracking is not None:
         referent = tracking.referent_id
-        if referent is not None and referent_repository.get_referent(session, referent) is None:
+        if referent is not None and session.get(User, referent) is None:
             raise InvalidFieldError("tracking.referent_id", "Unknown referent.", "unknown")
         if tracking.appointment_time is not None and tracking.appointment_on is None:
             raise InvalidFieldError(

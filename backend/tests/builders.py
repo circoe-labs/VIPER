@@ -1,5 +1,7 @@
 """Synthetic entity builders and assertion helpers. Every value here is obviously fake."""
 
+import re
+import unicodedata
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import date, datetime
@@ -219,3 +221,17 @@ def add_user(
     session.add(user)
     session.flush()
     return user
+
+
+def referent_user(
+    first_name: str, last_name: str, email: str | None = None, *, active: bool = True
+) -> User:
+    """A member to name as the referent of a dossier or a meeting (not added to a session)."""
+    ascii_name = unicodedata.normalize("NFKD", f"{first_name}.{last_name}").encode("ascii", "ignore")
+    slug = re.sub(r"[^a-z0-9]+", ".", ascii_name.decode().lower()).strip(".")
+    return User(
+        email=email or f"{slug}@referents.test",
+        display_name=f"{first_name} {last_name}",
+        role=OrganizationRole.MEMBER,
+        is_active=active,
+    )

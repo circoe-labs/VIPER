@@ -3,19 +3,18 @@
 from sqlalchemy import event
 from sqlalchemy.orm import Session
 
-from app.models import InternalReferent
 from app.models.enums import ContactabilityStatus
 from app.seed import seed_taxonomies
 from app.services.imports.preview import ImportFile, build_preview
 from app.services.imports.reference_loader import load_reference_data
 from app.services.prospects import mark_do_not_contact
-from tests.builders import OPERATOR, add_company, add_email, add_prospect
+from tests.builders import OPERATOR, add_company, add_email, add_prospect, referent_user
 from tests.fixtures.synthetic.legacy_workbook import legacy_xlsx
 
 
 def test_snapshot_holds_taxonomies_referents_companies_and_prospects(db_session: Session) -> None:
     seed_taxonomies(db_session)
-    referent = InternalReferent(first_name="Claire", last_name="Référente", active=False)
+    referent = referent_user("Claire", "Référente", active=False)
     db_session.add(referent)
     company = add_company(db_session, "Logistique Démo SAS", email_domain="logistique-demo.example")
     prospect = add_prospect(db_session, company, first_name="Bruno", last_name="Bloqué")

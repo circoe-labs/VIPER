@@ -25,7 +25,6 @@ import { AppShell } from './shell/AppShell'
 import { SignupApprovalPage } from './auth/SignupApprovalPage'
 import { SignupPage } from './auth/SignupPage'
 import { AgentHistoryPage } from './settings/AgentHistoryPage'
-import { SettingsPage } from './settings/SettingsPage'
 import { WarehouseDraftsPage } from './warehouses/WarehousesPage'
 
 // Component showcase for design review; `import.meta.env.DEV` is false in production builds, so the route and
@@ -62,7 +61,7 @@ function CompaniesRedirect() {
 function LegacyRedirect({ to }: { to: string }) {
   const location = useLocation()
   const { section } = useParams()
-  const target = to === '/configuration' && section ? `${to}/${section}` : to
+  const target = (to === '/configuration' || to === '/organisation') && section ? `${to}/${section}` : to
   return <Navigate to={`${target}${location.search}${location.hash}`} replace />
 }
 
@@ -98,7 +97,7 @@ const PAGES: RouteObject[] = [
       </RequireAdmin>
     ),
   },
-  { path: '/organisation', element: <OrganizationPage /> },
+  { path: '/organisation/:section?', element: <OrganizationPage /> },
   {
     path: '/historique-agents',
     element: (
@@ -109,14 +108,6 @@ const PAGES: RouteObject[] = [
   },
   { path: '/inscriptions/:token', element: <SignupApprovalPage /> },
   // Administration group of the sidebar: administrators only (the API checks every write again).
-  {
-    path: '/settings/:section?',
-    element: (
-      <RequireAdmin>
-        <SettingsPage />
-      </RequireAdmin>
-    ),
-  },
   {
     path: '/config-ai/:section?',
     element: (
@@ -136,6 +127,8 @@ const PAGES: RouteObject[] = [
   },
   // Former locations, kept for bookmarks and the Toolbox OAuth return (`?code=…` travels with the redirect).
   { path: '/administration/:section?', element: <LegacyRedirect to="/configuration" /> },
+  // Paramètres is gone: its lists are sub-tabs of Organisation (administrators), the referents are the members.
+  { path: '/settings/:section?', element: <LegacyRedirect to="/organisation" /> },
   { path: '/settings/connections', element: <LegacyRedirect to="/config-ai/connections" /> },
   { path: '/settings/mcp', element: <LegacyRedirect to="/config-ai/mcp" /> },
   { path: '/settings/prompt', element: <LegacyRedirect to="/config-ai/prompt" /> },

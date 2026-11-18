@@ -175,7 +175,6 @@ EXPOSED_TABLES: Mapping[str, TablePolicy] = {
     "import_row_metadata": TablePolicy(
         writes=read_only("Trace d’import en écriture unique, hors journal d’audit.")
     ),
-    "internal_referents": TablePolicy(writes=ALL_WRITES, label_columns=("first_name", "last_name")),
     "phones": TablePolicy(
         columns={"prospect_id": PARENT_FIXED}, writes=ALL_WRITES, label_columns=("number",)
     ),

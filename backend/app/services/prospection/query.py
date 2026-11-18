@@ -36,12 +36,12 @@ from app.models import (
     Company,
     ContactTracking,
     Email,
-    InternalReferent,
     Phone,
     Prospect,
     ProspectSource,
     QualityAlert,
     Role,
+    User,
 )
 from app.models.enums import (
     ActivityStatus,
@@ -469,7 +469,7 @@ def count_added_since(
 
 
 def _page_statement(context: SegmentContext) -> Select[Any]:
-    referent_name = func.concat_ws(" ", InternalReferent.first_name, InternalReferent.last_name)
+    referent_name = User.display_name
     return (
         join_segment_sources(
             select(
@@ -495,7 +495,7 @@ def _page_statement(context: SegmentContext) -> Select[Any]:
             )
         )
         .outerjoin(Role, Role.id == Prospect.role_id)
-        .outerjoin(InternalReferent, InternalReferent.id == ContactTracking.referent_id)
+        .outerjoin(User, User.id == ContactTracking.referent_id)
         .outerjoin(
             primary_phone,
             and_(primary_phone.prospect_id == Prospect.id, primary_phone.is_primary),

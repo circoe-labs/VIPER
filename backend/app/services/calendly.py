@@ -23,7 +23,7 @@ import httpx2
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Appointment, Company, ContactTracking, Email, InternalReferent, Prospect
+from app.models import Appointment, Company, ContactTracking, Email, Prospect, User
 from app.models.enums import AppointmentSource, AppointmentStatus
 
 logger = logging.getLogger(__name__)
@@ -177,6 +177,18 @@ def _company_answer(invitee: dict[str, Any]) -> str | None:
     return None
 
 
+def _answers(invitee: dict[str, Any]) -> list[dict[str, str]]:
+    """The booking form answers, `[{question, answer}]`: what the meeting is about."""
+    answers: list[dict[str, str]] = []
+    for item in invitee.get("questions_and_answers") or []:
+        if not isinstance(item, dict):
+            continue
+        question, answer = _clip(item.get("question"), 300), _clip(item.get("answer"), 2000)
+        if question and answer:
+            answers.append({"question": question, "answer": answer})
+    return answers
+
+
 def _clip(value: Any, limit: int) -> str | None:
     return str(value).strip()[:limit] or None if value else None
 
@@ -222,6 +234,8 @@ def sync_appointments(
             "host_name": _clip(host.get("user_name"), 300),
             "host_email": _clip(host.get("user_email"), 320),
             "location": _location(event),
+            "booked_at": _moment(invitee.get("created_at")),
+            "invitee_answers": _answers(invitee),
         }
         if row is None:
             row = Appointment(
@@ -314,11 +328,13 @@ def link_prospect(session: Session, row: Appointment, *, company_hint: str | Non
                 row.referent_id = tracking.referent_id if tracking is not None else None
     if row.company_name is None:
         row.company_name = company_hint
-    if row.host_email:
-        host = session.scalar(
-            select(InternalReferent).where(
-                InternalReferent.email == row.host_email.lower(), InternalReferent.active
-            )
-        )
-        if host is not None:
-            row.referent_id = host.id
+    assign_host_member(session, row)
+
+
+def assign_host_member(session: Session, row: Appointment) -> None:
+    """The Calendly host is a member of the organisation (same e-mail): the meeting is theirs."""
+    if not row.host_email:
+        return
+    host = session.scalar(select(User).where(User.email == row.host_email.lower(), User.is_active))
+    if host is not None:
+        row.referent_id = host.id

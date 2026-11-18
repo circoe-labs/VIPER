@@ -295,12 +295,11 @@ function ReferentItem({
         }}
       >
         <option value="ignore">Ignorer (valeur d’origine conservée)</option>
-        <option value="existing">Associer à un référent interne</option>
+        <option value="existing">Associer à un membre de l’organisation</option>
       </Choice>
       {mode === 'existing' && (
         <ReferentSelect
-          label="Référent interne"
-          allowCreate={false}
+          label="Membre de l’organisation"
           value={decision.action === 'existing' ? decision.referent_id : null}
           onChange={(id) => {
             onChange(id ? { action: 'existing', referent_id: id } : { action: 'ignore' })

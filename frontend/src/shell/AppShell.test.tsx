@@ -7,7 +7,7 @@ import { renderApp, stubApi, TEST_USER } from '../test/render'
 
 const LABELS = ['Accueil', 'Prospection', 'Contact', 'Missions', 'Agenda', 'Organisation']
 // TEST_USER is an administrator: the Administration group follows the main and configuration ones.
-const ADMIN_LABELS = ['Catégories de mission', 'Skills', 'Sources', 'Base de données', 'Historique agents', 'Paramètres', 'Config AI']
+const ADMIN_LABELS = ['Catégories de mission', 'Skills', 'Sources', 'Base de données', 'Historique agents', 'Config AI']
 // The Database page lists its tables on load.
 const DATABASE_API = { 'GET /api/health': [200, { status: 'ok', database: 'ok' }], 'GET /api/explorer/tables': [200, []] } as const
 
@@ -66,9 +66,9 @@ describe('AppShell', () => {
     stubApi(SHELL_API)
     renderApp()
 
-    await userEvent.click(within(navigation()).getByRole('link', { name: 'Paramètres' }))
+    await userEvent.click(within(navigation()).getByRole('link', { name: 'Organisation' }))
 
-    expect(screen.getByRole('heading', { level: 1, name: 'Paramètres' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'Organisation' })).toBeInTheDocument()
   })
 
   it('redirects unknown paths to Accueil', () => {

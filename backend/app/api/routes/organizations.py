@@ -114,6 +114,25 @@ def list_organizations(auth: AuthDep, session: SessionDep) -> OrganizationsOut:
     )
 
 
+class MemberOption(BaseModel):
+    """A member as the record pickers show it (the referent of a dossier or a meeting)."""
+
+    id: uuid.UUID
+    display_name: str
+    email: str
+    active: bool
+
+
+@router.get("/members")
+def list_member_options(auth: AuthDep, session: SessionDep) -> list[MemberOption]:
+    """The viewer's organisation members, active first, for the « Référent » pickers."""
+    members = organizations.list_members(session, auth.user, auth.user.organization_id)
+    return [
+        MemberOption(id=m.id, display_name=m.display_name, email=m.email, active=m.is_active)
+        for m in members
+    ]
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_organization(
     body: OrganizationInput, auth: AuthDep, session: SessionDep, actor: CurrentActor

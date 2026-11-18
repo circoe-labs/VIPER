@@ -28,7 +28,8 @@ from app.models.contact_tracking import ContactTracking
 from app.models.enums import QualityAlertType
 from app.models.imports import ImportBatch, ImportRowMetadata
 from app.models.prospects import Email, Phone, Prospect, ProspectSource
-from app.models.taxonomies import ActivityCategory, CommercialSegment, InternalReferent, Role
+from app.models.taxonomies import ActivityCategory, CommercialSegment, Role
+from app.models.users import User
 from app.repositories import exports as repository
 from app.services.contact_sequences import (
     finished_sql,
@@ -86,7 +87,7 @@ class ProspectRecord:
     company: CompanyRecord | None
     role: Role | None
     tracking: ContactTracking | None
-    referent: InternalReferent | None
+    referent: User | None
     emails: tuple[Email, ...]  # primary first, then active ones, then by address
     phones: tuple[Phone, ...]  # primary first, then active ones, then by number
     sources: tuple[ProspectSource, ...]  # oldest first
@@ -256,7 +257,7 @@ def _prospect(
     prospect: Prospect,
     companies: dict[uuid.UUID, CompanyRecord],
     roles: dict[uuid.UUID, Role],
-    referents: dict[uuid.UUID, InternalReferent],
+    referents: dict[uuid.UUID, User],
     sources: list[ProspectSource],
     contact: ContactProgressRecord,
     open_alerts: tuple[QualityAlertType, ...] = (),

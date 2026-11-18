@@ -4,7 +4,7 @@ import { foldText } from '../lib/text'
 import { ApiError, apiGet, apiRequest } from './client'
 import { refreshAfterWrite } from './refresh'
 
-// Mirrors backend/app/api/routes/settings.py: administrable taxonomies and Circoe internal referents (Task 06), the
+// Mirrors backend/app/api/routes/settings.py: administrable taxonomies (Task 06), the
 // cohorts `Sxx` and « max relances » (sequences rework D2, D5).
 
 export type TaxonomyKind = 'roles' | 'activity-categories' | 'commercial-segments'
@@ -21,17 +21,13 @@ export interface TaxonomyValue {
   updated_at: string
 }
 
-// A Circoe person named on contact tracking — not a login account.
+// A member of the organisation, as the « Référent » pickers show it (`GET /organizations/members`): the referent of a
+// dossier or a meeting is always a member.
 export interface Referent {
   id: string
-  first_name: string
-  last_name: string
-  email: string | null
+  display_name: string
+  email: string
   active: boolean
-  // Contact trackings naming the referent.
-  usage_count: number
-  created_at: string
-  updated_at: string
 }
 
 // A prospecting session `Sxx` and its real start date (never an ISO week); `S0`: validated, out of campaign, fixed.
@@ -53,12 +49,6 @@ export interface ContactSettings {
 }
 
 export const MAX_FOLLOW_UPS_LIMIT = 20
-
-export interface ReferentInput {
-  first_name: string
-  last_name: string
-  email: string | null
-}
 
 export type ActiveFilter = 'all' | 'active' | 'inactive'
 
@@ -105,11 +95,12 @@ export const settingsKeys = {
   all: ['settings'] as const,
   cohorts: ['settings', 'cohorts'] as const,
   contact: ['settings', 'contact'] as const,
-  list: (resource: TaxonomyKind | 'referents') => ['settings', resource] as const,
-  filtered: (resource: TaxonomyKind | 'referents', filters: ListFilters) => ['settings', resource, filters] as const,
+  list: (resource: TaxonomyKind) => ['settings', resource] as const,
+  filtered: (resource: TaxonomyKind, filters: ListFilters) => ['settings', resource, filters] as const,
+  referents: ['organizations', 'members'] as const,
 }
 
-function listPath(resource: TaxonomyKind | 'referents', { search, active }: ListFilters): `/${string}` {
+function listPath(resource: TaxonomyKind, { search, active }: ListFilters): `/${string}` {
   const params = new URLSearchParams()
   if (search.trim()) params.set('q', search.trim())
   if (active !== 'all') params.set('active', String(active === 'active'))
@@ -126,18 +117,17 @@ export function useTaxonomyValues(kind: TaxonomyKind, filters: ListFilters = ALL
   })
 }
 
-export function useReferents(filters: ListFilters = ALL_VALUES) {
+export function useReferents() {
   return useQuery({
-    queryKey: settingsKeys.filtered('referents', filters),
-    queryFn: ({ signal }) => apiGet<Referent[]>(listPath('referents', filters), signal),
-    placeholderData: keepPreviousData,
+    queryKey: settingsKeys.referents,
+    queryFn: ({ signal }) => apiGet<Referent[]>('/organizations/members', signal),
   })
 }
 
 // A value created inline must be selectable at once: add it to the cached unfiltered list before the refetch.
 function addToAllValues<T extends { id: string }>(
   queryClient: QueryClient,
-  resource: TaxonomyKind | 'referents',
+  resource: TaxonomyKind,
   created: T,
   sortKey: (value: T) => string,
 ) {
@@ -205,37 +195,8 @@ export function useTaxonomyMutations(kind: TaxonomyKind) {
   }
 }
 
-export function referentName(referent: Pick<Referent, 'first_name' | 'last_name'>): string {
-  return `${referent.first_name} ${referent.last_name}`
-}
-
-export function useReferentMutations() {
-  const queryClient = useQueryClient()
-  const refresh = () => refreshAfterWrite(queryClient, [settingsKeys.list('referents')])
-  const referentPath = (id: string): `/${string}` => `/settings/referents/${encodeURIComponent(id)}`
-  return {
-    create: useMutation({
-      mutationFn: (input: ReferentInput) => apiRequest<Referent>('POST', '/settings/referents', { body: input }),
-      onSuccess: (created) => {
-        addToAllValues(queryClient, 'referents', created, (value) => `${value.last_name} ${value.first_name}`)
-      },
-      onSettled: refresh,
-    }),
-    update: useMutation({
-      mutationFn: ({ id, input }: { id: string; input: ReferentInput }) =>
-        apiRequest<Referent>('PUT', referentPath(id), { body: input }),
-      onSuccess: refresh,
-    }),
-    setActive: useMutation({
-      mutationFn: ({ id, active }: { id: string; active: boolean }) =>
-        apiRequest<Referent>('PATCH', referentPath(id), { body: { active } }),
-      onSuccess: refresh,
-    }),
-    remove: useMutation({
-      mutationFn: (id: string) => apiRequest<undefined>('DELETE', referentPath(id)),
-      onSuccess: refresh,
-    }),
-  }
+export function referentName(referent: Pick<Referent, 'display_name'>): string {
+  return referent.display_name
 }
 
 // S0 first, then by start date and code (backend order).

@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from app.core.actor import ActorContext
 from app.core.business_time import business_day, start_of_day
 from app.core.contact_steps import step_label
-from app.models import Appointment, Company, ContactMessage, InternalReferent, Prospect
+from app.models import Appointment, Company, ContactMessage, Prospect, User
 from app.models.enums import AppointmentSource, AppointmentStatus, ContactMessageStatus
 from app.services.errors import InvalidFieldError, NotFoundError
 from app.services.prospects import get_prospect
@@ -137,8 +137,8 @@ def _check_links(
 ) -> None:
     if prospect_id is not None:
         get_prospect(session, prospect_id)
-    if referent_id is not None and session.get(InternalReferent, referent_id) is None:
-        raise NotFoundError(f"Referent {referent_id} not found.")
+    if referent_id is not None and session.get(User, referent_id) is None:
+        raise NotFoundError(f"Member {referent_id} not found.")
 
 
 def create_appointment(
@@ -225,10 +225,8 @@ def referent_labels(session: Session, referent_ids: set[uuid.UUID]) -> dict[uuid
     if not referent_ids:
         return {}
     return {
-        referent.id: f"{referent.first_name} {referent.last_name}"
-        for referent in session.scalars(
-            select(InternalReferent).where(InternalReferent.id.in_(referent_ids))
-        )
+        member.id: member.display_name
+        for member in session.scalars(select(User).where(User.id.in_(referent_ids)))
     }
 
 

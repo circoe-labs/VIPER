@@ -8,13 +8,12 @@ from sqlalchemy.orm import Session
 
 from app.api.session_cookie import CSRF_HEADER
 from app.core.actor import ActorType
-from app.models import ContactTracking, User
-from tests.builders import add_prospect, audit_events
+from app.models import User
+from tests.builders import add_prospect, audit_events, referent_user
 
 ROLES = "/api/settings/roles"
 CATEGORIES = "/api/settings/activity-categories"
 SEGMENTS = "/api/settings/commercial-segments"
-REFERENTS = "/api/settings/referents"
 
 
 def create(client: TestClient, path: str, label: str) -> dict[str, object]:
@@ -31,8 +30,7 @@ def create(client: TestClient, path: str, label: str) -> dict[str, object]:
         ("POST", ROLES),
         ("PATCH", f"{ROLES}/{uuid.uuid4()}"),
         ("DELETE", f"{CATEGORIES}/{uuid.uuid4()}"),
-        ("GET", REFERENTS),
-        ("PUT", f"{REFERENTS}/{uuid.uuid4()}"),
+        ("GET", "/api/organizations/members"),
     ],
 )
 def test_settings_need_a_session(anonymous_client: TestClient, method: str, path: str) -> None:
@@ -44,7 +42,6 @@ def test_writes_need_the_csrf_token(client: TestClient) -> None:
 
     assert client.get(ROLES).status_code == 200
     assert client.post(ROLES, json={"label": "Sans jeton"}).status_code == 403
-    assert client.post(REFERENTS, json={"first_name": "A", "last_name": "B"}).status_code == 403
     client.headers[CSRF_HEADER] = "forged"
     assert client.post(ROLES, json={"label": "Jeton forgé"}).status_code == 403
 
@@ -120,8 +117,6 @@ def test_deleting_a_value_in_use_answers_409_with_the_usage(
     [
         ("POST", CATEGORIES, {"label": "   "}, 422, "invalid"),
         ("PATCH", f"{CATEGORIES}/{uuid.uuid4()}", {"label": "Nouveau"}, 404, "not_found"),
-        ("DELETE", f"{REFERENTS}/{uuid.uuid4()}", None, 404, "not_found"),
-        ("POST", REFERENTS, {"first_name": "A", "last_name": "B", "email": "non"}, 422, "invalid"),
     ],
 )
 def test_business_refusals_carry_a_stable_code(
@@ -146,37 +141,14 @@ def test_malformed_requests_are_rejected_by_validation(client: TestClient) -> No
     assert client.get("/api/settings/unknown-taxonomy").status_code == 422
 
 
-def test_referent_lifecycle_through_the_api(client: TestClient, db_session: Session) -> None:
-    response = client.post(
-        REFERENTS, json={"first_name": "Camille", "last_name": "Exemple", "email": None}
-    )
-    assert response.status_code == 201
-    referent = response.json()
-    path = f"{REFERENTS}/{referent['id']}"
-
-    edited = client.put(
-        path,
-        json={"first_name": "Camille", "last_name": "Exemple", "email": "Camille@Example.com"},
-    ).json()
-    prospect = add_prospect(db_session)
-    db_session.add(ContactTracking(prospect_id=prospect.id, referent_id=uuid.UUID(referent["id"])))
+def test_member_options_list_the_organisation_members(client: TestClient, db_session: Session) -> None:
+    db_session.add(referent_user("Camille", "Exemple"))
+    db_session.add(referent_user("Ancien", "Membre", active=False))
     db_session.flush()
-    deactivated = client.patch(path, json={"active": False}).json()
-    in_use = client.delete(path)
-    duplicate = client.post(REFERENTS, json={"first_name": "camille", "last_name": "EXEMPLE"})
 
-    assert edited["email"] == "camille@example.com"
-    assert (deactivated["active"], deactivated["usage_count"]) == (False, 1)
-    assert (in_use.status_code, in_use.json()["detail"]["usage"]) == (409, {"contact_trackings": 1})
-    assert duplicate.status_code == 409
-    assert duplicate.json()["detail"]["existing"]["label"] == "Camille Exemple"
-    assert [value["id"] for value in client.get(REFERENTS, params={"q": "exemple"}).json()] == [
-        referent["id"]
-    ]
-    assert [
-        event.action for event in audit_events(db_session, entity_type="internal_referent")
-    ] == [
-        "internal_referent.created",
-        "internal_referent.updated",
-        "internal_referent.deactivated",
-    ]
+    options = client.get("/api/organizations/members").json()
+
+    by_name = {option["display_name"]: option for option in options}
+    assert by_name["Camille Exemple"]["active"] is True
+    assert by_name["Ancien Membre"]["active"] is False
+    assert client.get("/api/settings/referents").status_code in (404, 405, 422)

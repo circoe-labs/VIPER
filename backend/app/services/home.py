@@ -27,9 +27,9 @@ from app.models import (
     ContactSequence,
     ContactTracking,
     ImportBatch,
-    InternalReferent,
     Phone,
     Prospect,
+    User,
     Warehouse,
 )
 from app.models.contact_tracking import ContactTrackingStatusHistory
@@ -463,7 +463,7 @@ def contact_week(session: Session, today: date) -> ContactWeek:
 def _action_group(
     session: Session, condition: ColumnElement[bool], at: Any, *, nulls_last: bool = False
 ) -> ActionGroup:
-    referent = func.concat_ws(" ", InternalReferent.first_name, InternalReferent.last_name)
+    referent = User.display_name
     order = at.asc().nulls_last() if nulls_last else at.asc()
     rows = session.execute(
         join_segment_sources(
@@ -478,7 +478,7 @@ def _action_group(
                 func.count().over(),
             )
         )
-        .outerjoin(InternalReferent, InternalReferent.id == ContactTracking.referent_id)
+        .outerjoin(User, User.id == ContactTracking.referent_id)
         .where(condition)
         .order_by(order, Prospect.id)
         .limit(ACTION_LIMIT)

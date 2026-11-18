@@ -1,4 +1,5 @@
-"""Administrable taxonomies and Circoe internal referents (Settings, Task 06).
+"""Administrable taxonomies: roles, activity categories, commercial segments (managed by the
+organisation's administrators, Task 06).
 
 Rows are never deleted while referenced (FKs use RESTRICT); deactivate with `active = false`.
 Uniqueness compares values through the SQL function `label_key` (trimmed, whitespace collapsed,
@@ -11,8 +12,7 @@ from sqlalchemy import CheckConstraint, Index, String, text, true
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
-from app.models.common import EMAIL_FORMAT, TimestampMixin, UUIDPrimaryKeyMixin
-from app.models.organizations import OrganizationOwnedMixin
+from app.models.common import TimestampMixin, UUIDPrimaryKeyMixin
 
 SLUG_FORMAT = "slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$'"
 
@@ -45,27 +45,3 @@ class CommercialSegment(TaxonomyMixin, Base):
 class ActivityCategory(TaxonomyMixin, Base):
     __tablename__ = "activity_categories"
     __table_args__ = taxonomy_table_args(__tablename__)
-
-
-class InternalReferent(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, Base):
-    """A Circoe person who takes over a meeting/dossier. Not an application login account."""
-
-    __tablename__ = "internal_referents"
-    __table_args__ = (
-        CheckConstraint(
-            "btrim(first_name) <> '' AND btrim(last_name) <> ''", name="name_not_blank"
-        ),
-        CheckConstraint(EMAIL_FORMAT, name="email_format"),
-        # Homonyms would be indistinguishable in the referent selectors.
-        Index(
-            "uq_internal_referents_name_key",
-            text("label_key(first_name)"),
-            text("label_key(last_name)"),
-            unique=True,
-        ),
-    )
-
-    first_name: Mapped[str] = mapped_column(String(100))
-    last_name: Mapped[str] = mapped_column(String(100))
-    email: Mapped[str | None] = mapped_column(String(320), unique=True)
-    active: Mapped[bool] = mapped_column(server_default=true())

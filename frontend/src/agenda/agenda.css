@@ -452,3 +452,12 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* The member of the organisation taking the meeting, under the invitee. */
+.agenda-chip__member {
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

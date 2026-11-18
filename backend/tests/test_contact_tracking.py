@@ -11,7 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.actor import ActorContext, ActorType
-from app.models import ContactTracking, ContactTrackingStatusHistory, InternalReferent
+from app.models import ContactTracking, ContactTrackingStatusHistory
 from app.models.enums import ContactabilityStatus, ContactTrackingStatus
 from app.services import contact_tracking as contact_tracking_service
 from app.services import prospects as prospect_service
@@ -22,7 +22,7 @@ from app.services.contact_tracking import (
     save_contact_tracking,
 )
 from app.services.errors import ActorNotAllowedError, TrackingRuleError
-from tests.builders import OPERATOR, add_prospect, audit_events
+from tests.builders import OPERATOR, add_prospect, audit_events, referent_user
 
 S = ContactTrackingStatus
 
@@ -41,7 +41,7 @@ def history(session: Session, tracking: ContactTracking) -> list[tuple[str | Non
 
 def test_tracking_lifecycle_keeps_one_row_and_records_transitions(db_session: Session) -> None:
     prospect = add_prospect(db_session)
-    referent = InternalReferent(first_name="Claire", last_name="Référente")
+    referent = referent_user("Claire", "Référente")
     db_session.add(referent)
     db_session.flush()
 

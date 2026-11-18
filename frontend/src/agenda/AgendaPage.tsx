@@ -168,7 +168,7 @@ export function AgendaPage() {
           <p className={syncResult.ok ? 'agenda-muted' : 'agenda-error'}>
             {syncMessage(syncResult)}{' '}
             {!syncResult.ok && (syncResult.code === 'calendly_not_configured' || syncResult.code === 'calendly_unauthorized') && (
-              <Link to="/settings/connections">Ouvrir les connexions</Link>
+              <Link to="/config-ai/connections">Ouvrir les connexions</Link>
             )}
           </p>
         )}

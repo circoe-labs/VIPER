@@ -28,6 +28,12 @@ export default function globalSetup() {
   const password = randomBytes(24).toString('base64url')
   const createUser = ['--email', E2E_USER.email, '--display-name', E2E_USER.displayName, '--password-stdin']
   run(['-m', 'app.cli', 'create-user', ...createUser], `${password}\n`)
+  // The pilot administers the organisation (lists, database…): the CLI creates a plain member.
+  run([
+    '-c',
+    `import os; from sqlalchemy import create_engine, text; e = create_engine(os.environ['VIPER_DATABASE_URL'])
+with e.begin() as c: c.execute(text("UPDATE users SET role = 'admin' WHERE email = :m"), {'m': '${E2E_USER.email}'})`,
+  ])
   process.env[PASSWORD_ENV] = password
   // Every run starts with the CIRCOE Toolbox not connected (the backend reads this file on each request).
   rmSync(E2E_TOOLBOX_STORE, { force: true })

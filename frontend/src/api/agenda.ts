@@ -26,13 +26,16 @@ export interface Appointment {
   host_email: string | null
   starts_at: string
   ends_at: string
+  // When the invitee booked (Calendly), and what they answered on the booking form: the subject of the meeting.
+  booked_at: string | null
+  answers: { question: string; answer: string }[]
   location: string | null
   status: AppointmentStatus
   // Times the person moved the appointment.
   reschedule_count: number
   notes: string | null
   prospect: { id: string; name: string } | null
-  // The Circoe person assigned to the appointment.
+  // The member of the organisation in charge of the appointment (the Calendly host when it is a member).
   referent: { id: string; label: string } | null
   // The last mail really sent to the prospect, said in the reminder.
   last_mail: AppointmentMail | null

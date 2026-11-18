@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 
 import { setCsrfToken } from '../api/client'
 import { referent, stubSettingsApi, taxonomyValue } from '../test/settingsApi'
-import { ReferentSelect, splitFullName, TaxonomyMultiSelect, TaxonomySelect } from './selectors'
+import { ReferentSelect, TaxonomyMultiSelect, TaxonomySelect } from './selectors'
 
 function renderWithQueries(ui: ReactNode) {
   setCsrfToken('csrf-token-de-test')
@@ -90,35 +90,17 @@ describe('Settings pickers', () => {
     expect(screen.getByRole('button', { name: 'Retirer « Messagerie »' })).toBeInTheDocument()
   })
 
-  it('creates a referent from "Prénom Nom" and asks for both names', async () => {
-    const api = stubSettingsApi({ referents: [referent('Camille', 'Exemple', { email: 'camille@example.com' })] })
+  it('lists the members of the organisation as referents, with their e-mail', async () => {
+    stubSettingsApi({ referents: [referent('Camille', 'Exemple', { email: 'camille@example.com' })] })
     function Referent() {
       const [id, setId] = useState<string | null>(null)
       return <ReferentSelect label="Référent" value={id} onChange={setId} />
     }
     renderWithQueries(<Referent />)
-    const input = screen.getByRole('combobox', { name: 'Référent' })
 
-    await userEvent.click(input)
+    await userEvent.click(screen.getByRole('combobox', { name: 'Référent' }))
+
     expect(await screen.findByRole('option', { name: 'Camille Exemplecamille@example.com' })).toBeInTheDocument()
-    await userEvent.type(input, 'Marie')
-    expect(screen.getByText('Saisissez le prénom puis le nom pour créer un référent.')).toBeInTheDocument()
-    await userEvent.type(input, ' De La Test{Enter}')
-
-    await waitFor(() => {
-      expect(input).toHaveValue('Marie De La Test')
-    })
-    expect(api.requests).toContainEqual(
-      expect.objectContaining({
-        method: 'POST',
-        path: '/api/settings/referents',
-        body: { first_name: 'Marie', last_name: 'De La Test', email: null },
-      }),
-    )
-  })
-
-  it('splits a full name on its first space', () => {
-    expect(splitFullName('  Jean-Marc   De La Test ')).toEqual({ first_name: 'Jean-Marc', last_name: 'De La Test' })
-    expect(splitFullName('Marie')).toBeNull()
+    expect(screen.queryByText(/Créer le référent/)).not.toBeInTheDocument()
   })
 })

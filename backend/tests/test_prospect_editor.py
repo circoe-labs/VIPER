@@ -14,7 +14,6 @@ from app.core.business_time import business_moment, start_of_day
 from app.models import (
     ContactTrackingStatusHistory,
     Email,
-    InternalReferent,
     Prospect,
     ProspectSource,
     Role,
@@ -64,6 +63,7 @@ from tests.builders import (
     add_role,
     add_send,
     audit_events,
+    referent_user,
     start_sequence,
 )
 
@@ -142,7 +142,7 @@ def test_creation_records_the_person_their_aliases_tracking_and_manual_provenanc
     db_session: Session,
 ) -> None:
     company = add_company(db_session)
-    referent = InternalReferent(first_name="Claire", last_name="Référente")
+    referent = referent_user("Claire", "Référente")
     db_session.add(referent)
     db_session.flush()
     data = ProspectForm(
@@ -636,7 +636,7 @@ def test_after_a_company_change_only_an_explicit_action_verifies_again(db_sessio
 
 def test_tracking_records_dates_in_business_time_referent_and_history(db_session: Session) -> None:
     prospect = add_prospect(db_session, add_company(db_session))
-    referent = InternalReferent(first_name="Claire", last_name="Référente")
+    referent = referent_user("Claire", "Référente")
     db_session.add(referent)
     db_session.flush()
 

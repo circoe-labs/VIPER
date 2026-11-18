@@ -20,7 +20,6 @@ from app.models import (
     ContactSequence,
     ContactTracking,
     ImportBatch,
-    InternalReferent,
     Prospect,
     ProspectSource,
 )
@@ -57,6 +56,7 @@ from tests.builders import (
     add_prospect,
     add_role,
     add_send,
+    referent_user,
     statements,
 )
 
@@ -401,7 +401,7 @@ def test_row_states_are_explicit(db_session: Session, cases: dict[str, Prospect]
 def test_row_view_model_resolves_labels_and_week(db_session: Session) -> None:
     company = add_company(db_session, "Logistique Témoin SAS")
     role = add_role(db_session, "responsable-transport-test", "Responsable transport test")
-    referent = InternalReferent(first_name="Camille", last_name="Référente")
+    referent = referent_user("Camille", "Référente")
     db_session.add(referent)
     prospect = add_prospect(
         db_session,
@@ -527,7 +527,7 @@ def test_filters_combine(db_session: Session) -> None:
     s = db_session
     transports, logistique = add_company(s), add_company(s, "Logistique Démo SAS")
     role = add_role(s)
-    referent = InternalReferent(first_name="Alex", last_name="Exemple")
+    referent = referent_user("Alex", "Exemple")
     s.add(referent)
     batch = ImportBatch(filename="base.xlsx", actor_type=ActorType.HUMAN, actor_display="Test")
     s.add(batch)

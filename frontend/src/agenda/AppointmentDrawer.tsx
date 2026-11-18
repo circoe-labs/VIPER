@@ -67,7 +67,17 @@ export function AppointmentDrawer({ appointment, referents, busy, error, actions
               <span className="agenda-muted">Aucune fiche rattachée</span>
             )}
           </Row>
-          <Row label="Reçu par (Calendly)">{appointment.host_name ?? '—'}</Row>
+          {appointment.booked_at && (
+            <Row label="Pris le">
+              {dayFull(dayKey(appointment.booked_at))} à {timeOf(appointment.booked_at)}
+            </Row>
+          )}
+          <Row label="Agenda Calendly de">{appointment.host_name ?? '—'}</Row>
+          {appointment.answers.map((item) => (
+            <Row key={item.question} label={item.question}>
+              {item.answer}
+            </Row>
+          ))}
           <Row label="Lieu">
             {appointment.location ? (
               isLink ? (
@@ -84,7 +94,7 @@ export function AppointmentDrawer({ appointment, referents, busy, error, actions
         </dl>
 
         <SelectField
-          label="Référent assigné"
+          label="Membre en charge"
           value={appointment.referent?.id ?? ''}
           disabled={busy}
           onChange={(event) => {

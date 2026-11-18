@@ -33,8 +33,8 @@ describe('RequireAuth', () => {
       'GET /api/protected': [401, { detail: 'Not authenticated.' }],
       'POST /api/auth/login': [200, { user: TEST_USER, csrf_token: 'nouveau-jeton' }],
     })
-    const { router } = renderApp('/settings')
-    expect(screen.getByRole('heading', { level: 1, name: 'Paramètres' })).toBeInTheDocument()
+    const { router } = renderApp('/organisation')
+    expect(screen.getByRole('heading', { level: 1, name: 'Organisation' })).toBeInTheDocument()
 
     await act(() => apiGet('/protected').catch(() => undefined))
 
@@ -45,8 +45,8 @@ describe('RequireAuth', () => {
     await userEvent.type(screen.getByLabelText('Mot de passe'), 'mot-de-passe-de-test')
     await userEvent.click(screen.getByRole('button', { name: 'Se connecter' }))
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Paramètres' })).toBeInTheDocument()
-    expect(router.state.location.pathname).toBe('/settings')
+    expect(await screen.findByRole('heading', { level: 1, name: 'Organisation' })).toBeInTheDocument()
+    expect(router.state.location.pathname).toBe('/organisation')
   })
 
   it('offers a retry when the server cannot be reached', async () => {

@@ -1,7 +1,7 @@
 """Login accounts and their server-side sessions (Task 04, ADR-0004).
 
-A `User` is someone who signs in to VIPER. It is unrelated to `InternalReferent` (a Circoe person
-named on a dossier): neither table references the other.
+A `User` is someone who signs in to VIPER. A member is also what a dossier or a meeting names as its referent
+(`contact_tracking.referent_id`, `appointments.referent_id`).
 
 Each account belongs to one organisation with a role (admin, manager, member: what it may do in
 « Organisation »). One account at most is the platform admin (`is_superadmin`): it creates the

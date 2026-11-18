@@ -11,9 +11,9 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.core.business_time import business_day
-from app.models import Appointment, ContactMessage, InternalReferent
+from app.models import Appointment, ContactMessage
 from app.models.enums import ContactMessageStatus, SendSource
-from tests.builders import add_email, add_prospect
+from tests.builders import add_email, add_prospect, referent_user
 from tests.test_runtime_settings import URL as INTEGRATIONS_URL
 from tests.test_runtime_settings import ok, put
 
@@ -73,6 +73,7 @@ class FakeCalendly:
                 "status": "canceled" if canceled else "active",
                 "rescheduled": rescheduled,
                 "old_invitee": f"{uri}/invitees/OLD" if old_invitee else None,
+                "created_at": iso(start - timedelta(days=2)),
                 "questions_and_answers": answers or [],
             }
         ]
@@ -170,7 +171,7 @@ def test_sync_brings_the_meeting_with_its_prospect_company_and_referent(
     company = add_company(db_session, display_name="Carrières du Havre")
     prospect = add_prospect(db_session, company, first_name="Jeanne", last_name="Marin")
     add_email(db_session, prospect, "jeanne@carrieres.test")
-    referent = InternalReferent(first_name="Hugo", last_name="Hôte", email="hote@circoe.test")
+    referent = referent_user("Hugo", "Hôte", email="hote@circoe.test")
     db_session.add(referent)
     db_session.commit()
     configured.add("E1", tomorrow_at(9), email="Jeanne@Carrieres.test", name="Jeanne Marin")
@@ -206,6 +207,26 @@ def test_an_unknown_invitee_keeps_what_calendly_gave(
     [item] = window(client)
     assert (item["prospect"], item["referent"]) == (None, None)
     assert item["company_name"] == "Port de Rouen"
+
+
+def test_sync_keeps_when_and_why_the_meeting_was_booked(
+    client: TestClient, configured: FakeCalendly
+) -> None:
+    start = tomorrow_at(10)
+    configured.add(
+        "E4",
+        start,
+        email="inconnu@ailleurs.test",
+        answers=[{"question": "Quel est le sujet ?", "answer": "Audit de nos flux d'entrepôt"}],
+    )
+    ok(client.post("/api/agenda/sync"))
+
+    [item] = window(client)
+
+    assert datetime.fromisoformat(item["booked_at"]) == start - timedelta(days=2)
+    assert item["answers"] == [
+        {"question": "Quel est le sujet ?", "answer": "Audit de nos flux d'entrepôt"}
+    ]
 
 
 def test_follow_up_is_never_overwritten_by_the_next_sync(

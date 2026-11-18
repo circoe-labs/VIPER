@@ -4,8 +4,8 @@ import { uniqueSuffix } from './data'
 import { pickFirst, SCREENSHOTS, useTheme } from './helpers'
 import { signIn } from './session'
 
-// Settings (Task 06) against the real backend. The E2E database holds the seeded suggestions and the synthetic
-// dataset (roles/segments in use, two referents), read-only here; every value a test creates is its own: invented,
+// Organisation › lists (Task 06) against the real backend. The E2E database holds the seeded suggestions and the synthetic
+// dataset (roles/segments in use), read-only here; every value a test creates is its own: invented,
 // "E2E" and a run-unique suffix in its label (data.ts), which is also what the pickers are searched for.
 
 test.use({ viewport: { width: 1440, height: 900 } })
@@ -30,7 +30,7 @@ test('a role is added, renamed and deactivated, and the pickers follow', async (
   const renamed = `Responsable qualité et sécurité E2E ${suffix}`
   const query = `qualite securite ${suffix}`
 
-  await page.goto('/settings')
+  await page.goto('/organisation/roles')
   const roles = panel(page, 'Rôles')
   await expect(roles.getByRole('table', { name: 'Liste des rôles' })).toBeVisible()
   await expect(roles.getByRole('row', { name: /Dirigeant/ })).toContainText(/\d+ prospects?/)
@@ -62,7 +62,7 @@ test('a role is added, renamed and deactivated, and the pickers follow', async (
   await picker.press('Enter')
   await expect(picker).toHaveValue(renamed)
 
-  await page.goto('/settings/roles')
+  await page.goto('/organisation/roles')
   await roles.getByRole('button', { name: `Désactiver « ${renamed} »` }).click()
   await expect(roles.getByRole('row', { name: new RegExp(renamed) })).toContainText('Inactif')
 
@@ -76,7 +76,7 @@ test('a role is added, renamed and deactivated, and the pickers follow', async (
 
 test('a value in use cannot be deleted; an unused one can', async ({ page }) => {
   const segment = `Segment éphémère E2E ${uniqueSuffix()}`
-  await page.goto('/settings/commercial-segments')
+  await page.goto('/organisation/commercial-segments')
   const segments = panel(page, 'Segments commerciaux')
 
   await segments.getByRole('button', { name: 'Supprimer « Transporteur »' }).click()
@@ -99,44 +99,28 @@ test('a picker creates a missing value inline, through the same audited API', as
   await page.getByRole('option', { name: `Créer « ${segment} »` }).click()
   await expect(picker).toHaveValue(segment)
 
-  await page.goto('/settings/commercial-segments')
+  await page.goto('/organisation/commercial-segments')
   await expect(panel(page, 'Segments commerciaux').getByRole('cell', { name: segment, exact: true })).toBeVisible()
 })
 
-test('an internal referent is added and offered by the referent picker', async ({ page }) => {
-  const suffix = uniqueSuffix()
-  const lastName = `Démo E2E ${suffix}`
-  await page.goto('/settings/referents')
-  const referents = panel(page, 'Référents internes')
-  await expect(referents.getByRole('table', { name: 'Liste des référents internes' })).toBeVisible()
-
-  await referents.getByRole('button', { name: 'Ajouter un référent' }).click()
-  const dialog = page.getByRole('dialog', { name: 'Ajouter un référent' })
-  await dialog.getByRole('textbox', { name: 'Prénom' }).fill('Hélène')
-  await dialog.getByRole('textbox', { name: 'Nom', exact: true }).fill(lastName)
-  await dialog.getByRole('textbox', { name: 'Adresse e-mail' }).fill(`Helene.Demo.E2E.${suffix}@Example.com`)
-  await dialog.getByRole('textbox', { name: 'Adresse e-mail' }).press('Enter')
-  await expect(dialog).toHaveCount(0)
-  await expect(referents.getByRole('row', { name: new RegExp(`Hélène ${lastName}`) })).toContainText(
-    `helene.demo.e2e.${suffix}@example.com`,
-  )
-
+test('the referent picker offers the members of the organisation', async ({ page }) => {
   await openPickers(page)
   const picker = page.getByRole('combobox', { name: 'Référent' })
-  await picker.fill(`demo e2e ${suffix}`)
-  await expect(page.getByRole('option', { name: `Hélène ${lastName}` })).toBeVisible()
+  await picker.click()
+  await expect(page.getByRole('option', { name: /Pilote E2E/ })).toBeVisible()
+  await expect(page.getByText(/Créer le référent/)).toHaveCount(0)
 })
 
 for (const theme of ['dark', 'light'] as const) {
   test(`settings page screenshot (${theme})`, async ({ page }) => {
     await useTheme(page, theme)
-    await page.goto('/settings/roles')
+    await page.goto('/organisation/roles')
     await expect(panel(page, 'Rôles').getByRole('table', { name: 'Liste des rôles' })).toBeVisible()
     await page.screenshot({ path: `${SCREENSHOTS}/settings-roles-${theme}.png` })
 
-    await page.goto('/settings/referents')
-    await expect(page.getByRole('table', { name: 'Liste des référents internes' })).toBeVisible()
-    await page.screenshot({ path: `${SCREENSHOTS}/settings-referents-${theme}.png` })
+    await page.goto('/organisation')
+    await expect(page.getByRole('table', { name: 'Membres de l’organisation' })).toBeVisible()
+    await page.screenshot({ path: `${SCREENSHOTS}/organisation-members-${theme}.png` })
 
     await openPickers(page)
     await pickFirst(page, 'Rôle', 'dirigeant', 'Dirigeant')
@@ -152,8 +136,8 @@ for (const theme of ['dark', 'light'] as const) {
 
 test('the settings page has no horizontal overflow at 1280 px', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 })
-  await page.goto('/settings/referents')
-  await expect(page.getByRole('table', { name: 'Liste des référents internes' })).toBeVisible()
+  await page.goto('/organisation/roles')
+  await expect(page.getByRole('table', { name: 'Liste des rôles' })).toBeVisible()
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
   expect(overflow).toBe(0)
 })

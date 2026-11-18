@@ -5,7 +5,6 @@ import {
   type Referent,
   type TaxonomyKind,
   type TaxonomyValue,
-  useReferentMutations,
   useReferents,
   useTaxonomyMutations,
   useTaxonomyValues,
@@ -33,7 +32,7 @@ function taxonomyOption(value: TaxonomyValue): ComboboxOption {
 }
 
 function referentOption(referent: Referent): ComboboxOption {
-  return { id: referent.id, label: referentName(referent), hint: referent.email ?? undefined, inactive: !referent.active }
+  return { id: referent.id, label: referentName(referent), hint: referent.email, inactive: !referent.active }
 }
 
 function status(query: { isPending: boolean; isError: boolean }): 'ready' | 'loading' | 'error' {
@@ -81,39 +80,13 @@ export function TaxonomyMultiSelect({ kind, allowCreate = true, ...props }: Taxo
   return <Combobox multiple {...props} {...useTaxonomyPicker(kind, allowCreate)} />
 }
 
-// "Marie Durand" → first name "Marie", last name "Durand"; "Jean-Marc De La Test" → "Jean-Marc" / "De La Test".
-export function splitFullName(text: string): { first_name: string; last_name: string } | null {
-  const [first, ...rest] = text.trim().split(/\s+/)
-  return first && rest.length > 0 ? { first_name: first, last_name: rest.join(' ') } : null
-}
-
 export type ReferentSelectProps = PickerProps & {
   value: string | null
   onChange: (id: string | null) => void
 }
 
-// A Circoe internal referent (never a login account). Inline creation takes "Prénom Nom"; the e-mail can be added in
-// Paramètres afterwards.
-export function ReferentSelect({ allowCreate = true, ...props }: ReferentSelectProps) {
+// The referent is a member of the organisation: nobody is created from a picker (members are added in Organisation).
+export function ReferentSelect(props: ReferentSelectProps) {
   const referents = useReferents()
-  const { create } = useReferentMutations()
-  const creation: ComboboxCreate | undefined = allowCreate
-    ? {
-        label: (text) => `Créer le référent « ${text} »`,
-        refuse: (text) => (splitFullName(text) ? null : 'Saisissez le prénom puis le nom pour créer un référent.'),
-        run: async (text) => {
-          const name = splitFullName(text)
-          if (!name) throw new Error('Saisissez le prénom puis le nom pour créer un référent.')
-          return referentOption(await explained(create.mutateAsync({ ...name, email: null })))
-        },
-      }
-    : undefined
-  return (
-    <Combobox
-      {...props}
-      options={(referents.data ?? []).map(referentOption)}
-      status={status(referents)}
-      create={creation}
-    />
-  )
+  return <Combobox {...props} options={(referents.data ?? []).map(referentOption)} status={status(referents)} />
 }

@@ -238,7 +238,7 @@ export function CreateDialog({
             ))}
           </SelectField>
         </div>
-        <SelectField label="Référent" value={form.referent} onChange={(event) => { set({ referent: event.target.value }) }}>
+        <SelectField label="Membre en charge" value={form.referent} onChange={(event) => { set({ referent: event.target.value }) }}>
           <option value="">Non assigné</option>
           {referents.map((referent) => (
             <option key={referent.id} value={referent.id}>

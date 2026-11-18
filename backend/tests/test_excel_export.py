@@ -22,7 +22,6 @@ from app.models import (
     Establishment,
     ImportBatch,
     ImportRowMetadata,
-    InternalReferent,
     Phone,
     Prospect,
     ProspectSource,
@@ -361,9 +360,7 @@ def test_an_import_edited_by_hand_is_exported_with_the_edits_and_clean_semantics
     )
     assert marc_row["ID entreprise"] == str(ids["demo"])
     # Referent split: only internal referents, never a legacy marker, note or e-mail.
-    referents = {
-        f"{r.first_name} {r.last_name}" for r in db_session.scalars(select(InternalReferent))
-    }
+    referents = {member.display_name for member in db_session.scalars(select(User))}
     assert {row["Référent"] for row in people} == {"Claire Référente", "Paul Démo", None}
     assert {row["Référent"] for row in people} - {None} <= referents
     assert row_of(people, nina)["Référent"] == "Paul Démo"

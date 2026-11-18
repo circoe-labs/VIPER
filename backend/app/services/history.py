@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core import audit_policy
@@ -33,8 +33,8 @@ from app.models import (
     Cohort,
     CommercialSegment,
     Company,
-    InternalReferent,
     Role,
+    User,
 )
 from app.models.audit import AuditLogEntry
 from app.models.enums import (
@@ -926,8 +926,8 @@ REFERENCE_LABELS: dict[str, tuple[Any, Any]] = {
     "segment": (CommercialSegment.id, CommercialSegment.label),
     "category": (ActivityCategory.id, ActivityCategory.label),
     "referent": (
-        InternalReferent.id,
-        func.concat_ws(" ", InternalReferent.first_name, InternalReferent.last_name),
+        User.id,
+        User.display_name,
     ),
     "cohort": (Cohort.id, Cohort.code),
 }

@@ -15,12 +15,12 @@ from app.models import (
     Establishment,
     ImportBatch,
     ImportRowMetadata,
-    InternalReferent,
     Phone,
     Prospect,
     ProspectNote,
     ProspectSource,
     Role,
+    User,
 )
 from app.models.enums import (
     ContactabilityStatus,
@@ -35,6 +35,7 @@ from tests.builders import (
     add_phone,
     add_prospect,
     add_role,
+    referent_user,
     rejected,
 )
 
@@ -162,25 +163,6 @@ def test_taxonomy_slug_and_folded_label_are_unique(db_session: Session) -> None:
         add_role(db_session, "Dirigeant Bis", "Dirigeant bis")
 
 
-def test_referent_full_names_and_emails_are_unique(db_session: Session) -> None:
-    db_session.add(InternalReferent(first_name="Hélène", last_name="Démo", email="h@example.com"))
-    db_session.flush()
-
-    with rejected(db_session, "uq_internal_referents_name_key"):
-        db_session.add(InternalReferent(first_name="helene", last_name="DEMO"))
-    with rejected(db_session, "uq_internal_referents_email"):
-        db_session.add(
-            InternalReferent(first_name="Autre", last_name="Personne", email="h@example.com")
-        )
-    db_session.add_all(
-        [
-            InternalReferent(first_name="Hélène", last_name="Autre"),
-            InternalReferent(first_name="Sans", last_name="Adresse"),
-        ]
-    )
-    db_session.flush()
-
-
 def test_referenced_taxonomy_rows_cannot_be_deleted_but_can_be_deactivated(
     db_session: Session,
 ) -> None:
@@ -200,16 +182,18 @@ def test_referenced_taxonomy_rows_cannot_be_deleted_but_can_be_deactivated(
     assert prospect.role_id == role.id
 
 
-def test_referent_in_use_cannot_be_deleted(db_session: Session) -> None:
-    referent = InternalReferent(first_name="Claire", last_name="Référente")
+def test_deleting_a_member_clears_the_referent_of_their_dossiers(db_session: Session) -> None:
+    referent = referent_user("Claire", "Référente")
     prospect = add_prospect(db_session)
     db_session.add(referent)
     db_session.flush()
-    db_session.add(ContactTracking(prospect_id=prospect.id, referent_id=referent.id))
+    tracking = ContactTracking(prospect_id=prospect.id, referent_id=referent.id)
+    db_session.add(tracking)
     db_session.flush()
 
-    with rejected(db_session, "fk_contact_tracking_referent_id_internal_referents"):
-        db_session.execute(delete(InternalReferent).where(InternalReferent.id == referent.id))
+    db_session.execute(delete(User).where(User.id == referent.id))
+    db_session.expire_all()
+    assert tracking.referent_id is None
 
 
 # --- prospects & contact channels -------------------------------------------------------------
