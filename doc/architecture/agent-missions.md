@@ -100,7 +100,7 @@ Constraints:
 |---|---|---|
 | `id` | uuid | |
 | `thread_id` | FK `agent_threads` `CASCADE`, indexed | |
-| `type` | enum `agent_task_type` | `update_company`, `update_employee`, `find_employees`, `surveil_signals`, `find_prospects`, `reassess_score` (S4) |
+| `type` | enum `agent_task_type` | `update_company`, `update_employee`, `find_employees`, `surveil_signals`, `find_prospects`, `reassess_score` (S4, legacy since 2026-11-18: nothing creates it, see `missions.md` §1c) |
 | `company_id` | FK `companies` `CASCADE`, indexed, null | payload + dedup target |
 | `prospect_id` | FK `prospects` `CASCADE`, indexed, null | `update_employee` only |
 | `status` | enum | `pending`, `claimed`, `submitted`, `accepted`, `failed`, `cancelled` |

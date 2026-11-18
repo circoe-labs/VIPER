@@ -26,6 +26,18 @@ Through the Toolbox (MCP server over HTTP, OAuth 2.1) a validated Contact/R1/R2 
 Decision: C-20 in the decision log. Tests and E2E use local fakes only — no real call to OpenAI, the Toolbox or
 Infomaniak was ever made (Contact port P6).
 
+## Scoring prospect (`/config-ai/scoring`)
+
+A dedicated Config AI tab holds what the AI is told when it scores a prospect (« Évaluer le score »,
+`doc/features/prospect-editor.md`). Two editable texts use the same editor and the same reset-to-default rule as the prompts
+(≤ 8 000 characters, same private file, revision and audit event): `prospect_scoring_prompt` (the system prompt, built-in
+`DEFAULT_PROSPECT_SCORING_PROMPT`) and `circoe_target` (who Circoe wants as a client, built-in `DEFAULT_CIRCOE_TARGET`);
+`GET /settings/integrations` returns both defaults. The OpenAI key and model are those of Connexions (no second field).
+The answer format and the « fit only » rule are fixed by the code. The **prompt version** stored with every assessment is the
+SHA-256 of the exact instructions sent (system prompt, target, fixed rules), so any edit gives a new version.
+« Tester sur un prospect » runs the saved texts on the most recently updated prospect and shows score, rationale, criteria,
+model, prompt version and duration without storing anything. An unset key says « Config AI › Connexions ».
+
 ## Prompt initial (`/settings/prompt`)
 
 A separate tab of Paramètres holds the **initial prompt**: the task brief the AI receives **before anything else** when it
