@@ -35,14 +35,18 @@ test('a role is added, renamed and deactivated, and the pickers follow', async (
   await expect(roles.getByRole('table', { name: 'Liste des rôles' })).toBeVisible()
   await expect(roles.getByRole('row', { name: /Dirigeant/ })).toContainText(/\d+ prospects?/)
 
-  await roles.getByRole('textbox', { name: 'Nouveau rôle' }).fill(role)
   await roles.getByRole('button', { name: 'Ajouter' }).click()
+  const addDialog = page.getByRole('dialog', { name: 'Nouveau rôle' })
+  await addDialog.getByRole('textbox', { name: 'Nouveau rôle' }).fill(role)
+  await addDialog.getByRole('button', { name: 'Ajouter' }).click()
   await expect(roles.getByRole('cell', { name: role, exact: true })).toBeVisible()
   await expect(roles.getByRole('status')).toHaveText(`« ${role} » ajouté.`)
 
-  await roles.getByRole('textbox', { name: 'Nouveau rôle' }).fill(`RESPONSABLE QUALITE e2e ${suffix}`)
   await roles.getByRole('button', { name: 'Ajouter' }).click()
-  await expect(roles.getByText(`« ${role} » existe déjà.`)).toBeVisible()
+  await addDialog.getByRole('textbox', { name: 'Nouveau rôle' }).fill(`RESPONSABLE QUALITE e2e ${suffix}`)
+  await addDialog.getByRole('button', { name: 'Ajouter' }).click()
+  await expect(addDialog.getByText(`« ${role} » existe déjà.`)).toBeVisible()
+  await addDialog.getByRole('button', { name: 'Annuler' }).click()
 
   await roles.getByRole('button', { name: `Renommer « ${role} »` }).click()
   const rename = roles.getByRole('textbox', { name: `Nouveau libellé pour « ${role} »` })
@@ -84,8 +88,9 @@ test('a value in use cannot be deleted; an unused one can', async ({ page }) => 
   await expect(refusal).toContainText(/« Transporteur » est utilisé par \d+ entreprises?/)
   await refusal.getByRole('button', { name: 'Annuler' }).click()
 
-  await segments.getByRole('textbox', { name: 'Nouveau segment' }).fill(segment)
-  await segments.getByRole('textbox', { name: 'Nouveau segment' }).press('Enter')
+  await segments.getByRole('button', { name: 'Ajouter' }).click()
+  await page.getByRole('dialog', { name: 'Nouveau segment' }).getByRole('textbox', { name: 'Nouveau segment' }).fill(segment)
+  await page.getByRole('dialog', { name: 'Nouveau segment' }).getByRole('textbox', { name: 'Nouveau segment' }).press('Enter')
   await segments.getByRole('button', { name: `Supprimer « ${segment} »` }).click()
   await page.getByRole('dialog', { name: `Supprimer « ${segment} » ?` }).getByRole('button', { name: 'Supprimer' }).click()
   await expect(segments.getByRole('cell', { name: segment, exact: true })).toHaveCount(0)
