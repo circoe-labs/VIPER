@@ -177,25 +177,44 @@ export function OrganizationPage() {
   const { section = MEMBERS_PATH } = useParams()
   const isAdmin = useIsAdmin()
   const taxonomy = TAXONOMY_SECTIONS.find((config) => config.kind === section)
+  const list = useOrganizations()
+  const [creating, setCreating] = useState(false)
   if (section !== MEMBERS_PATH && !(taxonomy && isAdmin)) return <Navigate to="/organisation" replace />
+  const canCreate = section === MEMBERS_PATH && list.data?.can_create === true
   return (
     <div className="organization-page">
-      <OrganizationHeader section={section} showLists={isAdmin} />
+      <OrganizationHeader
+        section={section}
+        showLists={isAdmin}
+        actions={
+          canCreate && (
+            <Button
+              variant="primary"
+              icon={PlusIcon}
+              onClick={() => {
+                setCreating(true)
+              }}
+            >
+              Nouvelle organisation
+            </Button>
+          )
+        }
+      />
       {taxonomy ? (
         <section className="settings-panel" aria-label={taxonomy.title}>
           <TaxonomySection key={taxonomy.kind} config={taxonomy} />
         </section>
       ) : (
-        <MembersTab />
+        <MembersTab creating={creating} onCloseCreate={() => { setCreating(false) }} />
       )}
     </div>
   )
 }
 
-function OrganizationHeader({ section, showLists }: { section: string; showLists: boolean }) {
+function OrganizationHeader({ section, showLists, actions }: { section: string; showLists: boolean; actions?: ReactNode }) {
   return (
     <>
-      <PageHeader title="Organisation" />
+      <PageHeader title="Organisation" actions={actions || undefined} />
       {showLists && (
         <nav className="settings-tabs" aria-label="Sections de l’organisation">
           <TabLink path={MEMBERS_PATH} title="Membres" current={section === MEMBERS_PATH} />
@@ -224,11 +243,10 @@ function TaxonomyCount({ kind }: { kind: (typeof TAXONOMY_SECTIONS)[number]['kin
   return total === undefined ? null : <span className="settings-tabs__count">{total}</span>
 }
 
-function MembersTab() {
+function MembersTab({ creating, onCloseCreate }: { creating: boolean; onCloseCreate: () => void }) {
   const me = useCurrentUser()
   const list = useOrganizations()
   const [selected, setSelected] = useState<string | null>(null)
-  const [creating, setCreating] = useState(false)
   const [editing, setEditing] = useState<OrganizationSummary | null>(null)
   const [menu, setMenu] = useState<{ organization: OrganizationSummary; position: Point } | null>(null)
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null)
@@ -311,19 +329,6 @@ function MembersTab() {
 
   return (
     <>
-      {list.data?.can_create && (
-        <div className="organization-toolbar">
-          <Button
-            variant="primary"
-            icon={PlusIcon}
-            onClick={() => {
-              setCreating(true)
-            }}
-          >
-            Nouvelle organisation
-          </Button>
-        </div>
-      )}
       {list.data && list.data.organizations.length > 1 && (
         <nav className="organization-switcher" aria-label="Organisations">
           {list.data.organizations.map((organization) => (
@@ -391,9 +396,7 @@ function MembersTab() {
       />
       {creating && (
         <OrganizationDialog
-          onClose={() => {
-            setCreating(false)
-          }}
+          onClose={onCloseCreate}
           onSaved={setSelected}
         />
       )}

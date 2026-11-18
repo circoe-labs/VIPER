@@ -223,8 +223,3 @@
   color: var(--color-success-fg, var(--color-text));
 }
 
-.organization-toolbar {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: var(--space-4);
-}
