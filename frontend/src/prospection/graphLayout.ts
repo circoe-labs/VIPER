@@ -62,7 +62,7 @@ function simulate(bodies: Body[], edges: Map<string, number>): void {
   for (let step = 0; step < 320; step += 1) {
     const cooling = 1 - step / 340
     for (const [pair, weight] of edges) {
-      const [first, second] = pair.split('|')
+      const [first = '', second = ''] = pair.split('|')
       const a = bodies[index.get(first) ?? -1]
       const b = bodies[index.get(second) ?? -1]
       if (!a || !b) continue

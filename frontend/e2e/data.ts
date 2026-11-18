@@ -156,12 +156,6 @@ export async function importProspects(
   }
 }
 
-async function patch<T>(page: Page, path: string, data: object): Promise<T> {
-  const response = await page.request.patch(path, { data, headers: { 'X-CSRF-Token': await csrfToken(page) } })
-  expect(response.ok(), await response.text()).toBe(true)
-  return (await response.json()) as T
-}
-
 // ISO 8601 week (and its year) of a local day.
 export function isoWeekOf(day: Date): { year: number; week: number } {
   const date = new Date(Date.UTC(day.getFullYear(), day.getMonth(), day.getDate()))
