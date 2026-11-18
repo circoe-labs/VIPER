@@ -211,6 +211,8 @@ class AgentTaskType(StrEnum):
     FIND_EMPLOYEES = "find_employees"
     SURVEIL_SIGNALS = "surveil_signals"
     FIND_PROSPECTS = "find_prospects"
+    # Commercial-fit score reassessment of one prospect (S4, `score_reassessment.py`).
+    REASSESS_SCORE = "reassess_score"
 
 
 class AgentTaskStatus(StrEnum):

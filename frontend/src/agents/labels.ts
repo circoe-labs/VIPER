@@ -10,6 +10,7 @@ export const TASK_TYPE_LABELS: Record<TaskType, string> = {
   find_employees: 'Trouver de nouveaux contacts',
   surveil_signals: 'Surveiller les signaux',
   find_prospects: 'Trouver de nouveaux prospects',
+  reassess_score: 'Réévaluer le score prospect',
 }
 
 export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {

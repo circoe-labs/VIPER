@@ -37,7 +37,14 @@ from app.models.enums import (
 )
 from app.models.prospects import Prospect, ProspectNote
 from app.repositories.taxonomies import find_by_label
-from app.services import audit, companies, mission_sources, prospect_editor, taxonomies
+from app.services import (
+    audit,
+    companies,
+    mission_sources,
+    prospect_editor,
+    score_reassessment,
+    taxonomies,
+)
 from app.services.agent_payloads import site_place
 from app.services.companies import CompanyInput, EstablishmentInput, EstablishmentView, get_company
 from app.services.contact_channels import ChannelItem
@@ -649,6 +656,8 @@ def _apply_task(
             applied = _apply_find_prospects(session, actor, selected, result_id)
         case AgentTaskType.SURVEIL_SIGNALS:
             applied = _apply_signals(session, actor, task, selected, result_id)
+        case AgentTaskType.REASSESS_SCORE:
+            applied = score_reassessment.apply(session, actor, task, selected, result_id)
         case _:
             raise InvalidFieldError("task", "No apply path for this task type.", "unsupported")
     return applied

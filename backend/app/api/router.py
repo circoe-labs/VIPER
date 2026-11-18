@@ -36,6 +36,7 @@ from app.api.routes import (
     organizations,
     prospection,
     prospects,
+    score_reassessment,
     search,
     sequences,
     settings,
@@ -69,6 +70,7 @@ api_router.include_router(imports.router)
 api_router.include_router(links.router)
 api_router.include_router(prospection.router)
 api_router.include_router(prospects.router)
+api_router.include_router(score_reassessment.router)
 api_router.include_router(search.router)
 # Before `settings`: its `/settings/{taxonomy}` would otherwise capture `/settings/toolbox`,
 # `/settings/integrations` and `/settings/mcp`.

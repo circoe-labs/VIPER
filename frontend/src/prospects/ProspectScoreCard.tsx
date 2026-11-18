@@ -6,6 +6,7 @@ import { Modal } from '../ui/Dialog'
 import { AlertIcon, ChevronRightIcon, InfoIcon } from '../ui/icons'
 import { ScoreRing } from '../ui/ScoreRing'
 import { EditorSection } from './EditorSection'
+import { ScoreReassessment } from './ScoreReassessment'
 import { BAND_LABELS, BAND_TONES, contributionSource, signedDelta, sortContributions } from './scoreView'
 import './prospect-score.css'
 
@@ -16,15 +17,22 @@ interface ProspectScoreCardProps {
   outdated?: boolean
   // « Voir la note »: the editor shows the note on its tab.
   onShowNote: (noteId: string) => void
+  // The saved prospect: enables « Réévaluer le score » (agent proposal, applied only once the person validates it).
+  // Absent = no reassessment affordance. Seam for ProspectEditor (S1): pass `prospect.id`.
+  prospectId?: string | null
+  // A proposal was applied: the score changed, the editor may re-read what depends on it.
+  onScoreChanged?: () => void
 }
 
 // « Score prospect » card (prospect-contact-ux S4), top of the Profil tab's right column. The whole summary is one
 // button that opens the detail in a modal dialog (focus trapped, Esc closes it alone, focus back on the card). The
 // slot div stays when there is no score, and then takes no room (profile-summary.css).
-export function ProspectScoreCard({ score, outdated = false, onShowNote }: ProspectScoreCardProps) {
+export function ProspectScoreCard({ score, outdated = false, onShowNote, prospectId = null, onScoreChanged }: ProspectScoreCardProps) {
   return (
     <div className="prospect-score-slot" data-slot="prospect-score">
-      {score && <ScoreSection score={score} outdated={outdated} onShowNote={onShowNote} />}
+      {score && (
+        <ScoreSection score={score} outdated={outdated} onShowNote={onShowNote} prospectId={prospectId} onScoreChanged={onScoreChanged} />
+      )}
     </div>
   )
 }
@@ -33,7 +41,15 @@ function scoreName(score: ProspectScore): string {
   return `${String(score.total)} sur 100, niveau ${BAND_LABELS[score.band].toLowerCase()}`
 }
 
-function ScoreSection({ score, outdated, onShowNote }: { score: ProspectScore; outdated: boolean; onShowNote: (noteId: string) => void }) {
+interface ScoreSectionProps {
+  score: ProspectScore
+  outdated: boolean
+  onShowNote: (noteId: string) => void
+  prospectId: string | null
+  onScoreChanged?: () => void
+}
+
+function ScoreSection({ score, outdated, onShowNote, prospectId, onScoreChanged }: ScoreSectionProps) {
   const [open, setOpen] = useState(false)
   const summaryId = useId()
 
@@ -73,6 +89,7 @@ function ScoreSection({ score, outdated, onShowNote }: { score: ProspectScore; o
           Mise à jour impossible : ce score peut être périmé.
         </p>
       )}
+      {prospectId && <ScoreReassessment prospectId={prospectId} onScoreChanged={onScoreChanged} />}
       <ScoreDetail
         open={open}
         score={score}

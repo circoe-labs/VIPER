@@ -35,6 +35,7 @@ from app.core.actor import ActorType
 from app.db.base import Base
 from app.models.common import TimestampMixin, UUIDPrimaryKeyMixin, text_enum
 from app.models.enums import (
+    AgentTaskType,
     MissionEndKind,
     MissionResultKind,
     MissionRunStatus,
@@ -98,6 +99,9 @@ class Mission(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, Base)
     # The special « Dépôt » mission: always active, never edited, paused, run or deleted. Agents
     # drop spontaneous work in it (`viper_open_deposit`): each drop is a run of one task.
     is_deposit: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+    # The task every run of this mission creates for its prospect targets, when it is not the one
+    # its `type` implies (a score reassessment, S4); NULL = derived from `type`.
+    task_type: Mapped[AgentTaskType | None] = mapped_column(text_enum(AgentTaskType, "task_type"))
     status: Mapped[MissionStatus] = mapped_column(
         text_enum(MissionStatus, "status"), server_default=MissionStatus.ACTIVE.value
     )

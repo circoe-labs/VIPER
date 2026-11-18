@@ -114,7 +114,8 @@ class AgentTask(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             f"type IN {_TASK_TYPES_WITH_COMPANY}"
             " AND company_id IS NOT NULL AND prospect_id IS NULL"
             ") OR (type = 'update_employee' AND prospect_id IS NOT NULL AND company_id IS NOT NULL"
-            ") OR (type = 'find_prospects' AND company_id IS NULL AND prospect_id IS NULL)",
+            ") OR (type = 'find_prospects' AND company_id IS NULL AND prospect_id IS NULL"
+            ") OR (type = 'reassess_score' AND prospect_id IS NOT NULL)",
             name="subject_per_type",
         ),
         # A claim exists exactly while the task is claimed.

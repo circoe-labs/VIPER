@@ -36,6 +36,7 @@ Une personne te demande directement, hors de toute mission, d'ajouter ou de comp
 - Le bail de la tâche expire : `viper_heartbeat_task` régulièrement sur les tâches longues.
 - **Avant de proposer une société, un prospect ou un entrepôt**, vérifie qu'il n'existe pas : `viper_check_duplicate`. Verdict `exists` : mets à jour l'existant (`viper_update_company` / `viper_update_prospect`), pas de doublon. Verdict `possible` : compare le champ `comparison` avant de décider (deux personnes peuvent porter le même nom).
 - Pour lire la base, voir `viper-ask-data` (`viper_find_*`, `viper_get_*`).
+- Tâche `reassess_score` (« Réévaluer le score » d'une fiche) : le score prospect mesure **uniquement l'adéquation commerciale** (critères cibles de la personne et de son entreprise). N'utilise jamais le réseau de relations ni la proximité. Résultat : `contributions` (delta -50..50, raison, source publique, citation, date), `rationale` obligatoire, `confidence`. Ne répète pas les contributions de `current_score` ; une personne applique ou refuse ta proposition, le score ne change qu'à son acceptation.
 
 ## 4. Rendre le résultat
 

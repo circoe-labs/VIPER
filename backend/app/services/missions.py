@@ -136,6 +136,9 @@ class MissionInput:
     # `sources`) keep
     # their value and their inherited/overridden state.
     unchanged_fields: frozenset[str] = frozenset()
+    # Forces the task each run creates for its prospect targets (a score reassessment, S4):
+    # None = the one the mission `type` implies. Used by system-built one-off missions only.
+    task_type: AgentTaskType | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -591,6 +594,19 @@ def _create_targets(session: Session, mission: Mission, targets: tuple[TargetInp
     session.flush()
 
 
+FORCED_TASK_TYPES = frozenset({AgentTaskType.REASSESS_SCORE})
+
+
+def _check_forced_task(task_type: AgentTaskType | None, targets: tuple[TargetInput, ...]) -> None:
+    """A forced task type needs exactly one prospect target (what it addresses)."""
+    if task_type is None:
+        return
+    if task_type not in FORCED_TASK_TYPES:
+        raise InvalidFieldError("task_type", "This task type cannot be forced.", "unsupported")
+    if len(targets) != 1 or targets[0].prospect_id is None or targets[0].company_id is not None:
+        raise InvalidFieldError("targets", "Liez exactement un prospect.", "invalid")
+
+
 def create(
     session: Session,
     actor: ActorContext,
@@ -606,6 +622,7 @@ def create(
     )
     _validate(data, moment)
     check_runnable(mission_type, data.result_kind, _target_kinds(data.targets))
+    _check_forced_task(data.task_type, data.targets)
     token: McpToken | None = None
     if data.agent_id is not None:
         token = session.get(McpToken, data.agent_id)
@@ -620,6 +637,7 @@ def create(
         name=name,
         type=mission_type,
         category_id=category.id if category is not None else None,
+        task_type=data.task_type,
         overridden_fields=[],
         # Replaced by `apply_inheritance` below (the category's or the person's text).
         prompt="-",
@@ -1270,6 +1288,22 @@ def run_mission(
             prospect_id=None,
         )
         created = 1
+    elif mission.task_type is AgentTaskType.REASSESS_SCORE:
+        for target in targets:
+            prospect = session.get(Prospect, target.id) if target.kind == "prospect" else None
+            if prospect is None:
+                skipped.append(target.label)
+                continue
+            _task(
+                session,
+                actor,
+                mission,
+                run,
+                AgentTaskType.REASSESS_SCORE,
+                company_id=prospect.company_id,
+                prospect_id=prospect.id,
+            )
+            created += 1
     elif mission.type is MissionType.SIGNALS:
         company_ids = [target.id for target in targets if target.kind == "company"]
         for company_id in company_ids:

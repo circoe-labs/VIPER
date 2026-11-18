@@ -15,6 +15,23 @@ in `ScoreConfig` (from `Settings`, so the base and the band thresholds are confi
 A future automated signal adds another `origin` without changing the contract. The score is
 computed on read and never persisted (decision D-UX2). Rules and wording:
 doc/features/prospect-editor.md.
+
+**Meaning (S4, product decision): commercial fit only** — « à quel point on aimerait l'avoir comme
+client / à quel point il rentre dans les critères ». Inputs, audited on 2026-11:
+
+- ALLOWED (`ALLOWED_INPUTS`): the prospect's scored notes (manual, or `origin=agent` written by an
+  accepted reassessment, `score_reassessment.py`) and its company's valid scored signals (capped
+  subtotal).
+- FORBIDDEN (`FORBIDDEN_INPUTS`): the relationship graph and anything derived from it (the
+  `Proximité` score, `person_links`), the fiche completeness state (`prospect_data_quality`), and
+  the Contact state (sequence, sends, replies). None of them is read here today; the guard test
+  `tests/test_prospect_score_inputs.py` fails if this module imports one or if a link changes the
+  score. Proximity is its own read model.
+
+Reassessment: « Réévaluer le score » asks an agent through a one-off mission (`reassess_score`
+task); only an accepted proposal writes new scored notes (`score_reassessment.apply`), so the
+formula above is unchanged and every change is audited. Product weights per criterion do not exist
+yet: the agent's deltas are reviewed by a person (reported as missing input, not invented).
 """
 
 import uuid
@@ -28,6 +45,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
+from app.models.enums import SignalOrigin
 from app.models.prospects import ProspectNote
 from app.repositories import notes as repository
 from app.repositories import prospects as prospect_repository
@@ -44,6 +62,17 @@ class ScoreBand(StrEnum):
 
 
 ContributionOrigin = Literal["manual", "agent"]
+
+# The score's whole input set, by the module that reads it. A new input must be added here, in the
+# docstring above and in the guard test; the forbidden ones may never be.
+ALLOWED_INPUTS = ("app.repositories.notes", "app.repositories.prospects")
+FORBIDDEN_INPUTS = (
+    "app.services.person_links",
+    "app.services.prospect_data_quality",
+    "app.services.contact_workflow",
+    "app.models.person_links",
+    "app.repositories.person_links",
+)
 
 # Company-level signals are capped as a subtotal so an account fact cannot drown the person.
 COMPANY_SIGNAL_CAP = 30
@@ -136,7 +165,7 @@ def contribution_of(note: ProspectNote) -> ScoreContribution | None:
         source_type=NOTE_SOURCE_TYPE,
         source_ref=str(note.id),
         created_at=note.created_at,
-        origin="manual",
+        origin="agent" if note.origin is SignalOrigin.AGENT else "manual",
     )
 
 
@@ -181,9 +210,7 @@ def get_score(session: Session, prospect_id: uuid.UUID, config: ScoreConfig) -> 
     if prospect is not None and prospect.company_id is not None:
         company = [
             item
-            for note in repository.scored_company_signals(
-                session, prospect.company_id, on=today
-            )
+            for note in repository.scored_company_signals(session, prospect.company_id, on=today)
             if (item := company_contribution_of(note)) is not None
         ]
         subtotal = sum(item.delta for item in company)
