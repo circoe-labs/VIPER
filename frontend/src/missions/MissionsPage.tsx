@@ -2,10 +2,7 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
 
 import { type MissionCard, useMission, useMissionProposals, useMissions } from '../api/missions'
-import { TASK_TYPE_LABELS } from '../agents/labels'
-import { ReviewDialog } from '../agents/ReviewDialog'
 import { Button } from '../ui/Button'
-import { Card } from '../ui/Card'
 import { EmptyState } from '../ui/EmptyState'
 import { PageHeader } from '../ui/PageHeader'
 import type { Point } from '../ui/floating'
@@ -14,7 +11,6 @@ import { InfoTip } from '../ui/InfoTip'
 import { Menu } from '../ui/Menu'
 import { CreateMissionDialog } from './CreateMissionDialog'
 import { DeleteMissionDialog } from './DeleteMissionDialog'
-import { momentLabel } from './labels'
 import { VoiceAssistantEntry } from './voice/VoiceAssistantEntry'
 import { MissionCardTile, type OpenMenu } from './MissionCardTile'
 import { MissionsKpiBar } from './MissionsKpiBar'
@@ -43,7 +39,6 @@ export function MissionsPage() {
   // One unfiltered query: the counters read all of it, the cards read the filtered and sorted view of it.
   const missions = useMissions()
   const proposals = useMissionProposals()
-  const [reviewId, setReviewId] = useState<string | null>(null)
   const [menu, setMenu] = useState<{ card: MissionCard; position: Point; alignRight: boolean } | null>(null)
   const [editId, setEditId] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<MissionCard | null>(null)
@@ -85,31 +80,6 @@ export function MissionsPage() {
         items={missions.isError ? null : all}
         proposals={proposals.isError ? null : proposals.data?.length}
       />
-      {(proposals.data?.length ?? 0) > 0 && (
-        <Card title={`Propositions à relire (${String(proposals.data?.length ?? 0)})`}>
-          <ul className="mission-proposals">
-            {(proposals.data ?? []).map((proposal) => (
-              <li key={proposal.result_id} className="mission-proposal">
-                <span className="mission-proposal__subject">
-                  {proposal.subject_label ?? TASK_TYPE_LABELS[proposal.task_type]}
-                </span>
-                <span className="mission-proposal__meta">
-                  {proposal.submitted_by_label} · {momentLabel(proposal.submitted_at)}
-                </span>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => {
-                    setReviewId(proposal.result_id)
-                  }}
-                >
-                  Relire
-                </Button>
-              </li>
-            ))}
-          </ul>
-        </Card>
-      )}
       {(all?.length ?? 0) > 0 && <MissionsToolbar filters={filters} onChange={setFilters} />}
       {missions.isLoading && (
         <section aria-busy="true" aria-label="Chargement des missions">
@@ -244,13 +214,6 @@ export function MissionsPage() {
           }}
         />
       )}
-      <ReviewDialog
-        key={reviewId ?? 'closed'}
-        resultId={reviewId}
-        onClose={() => {
-          setReviewId(null)
-        }}
-      />
     </div>
   )
 }
