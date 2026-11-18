@@ -18,7 +18,7 @@ The command is a reusable seam: the Mission menu (S5) calls `request_reassessmen
 import logging
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 from sqlalchemy import select
@@ -34,9 +34,10 @@ from app.models.enums import (
     MissionStatus,
     MissionType,
 )
+from app.models.mcp import McpToken
 from app.models.missions import PROMPT_MAX_LENGTH, MissionRun
 from app.models.prospects import Prospect
-from app.services import missions
+from app.services import mcp_tokens, missions
 from app.services.errors import NotFoundError
 from app.services.score_reassessment import PROPOSAL_KIND
 
@@ -56,6 +57,9 @@ ReassessmentStatus = Literal[
 
 OPEN_STATUSES = (AgentTaskStatus.PENDING, AgentTaskStatus.CLAIMED, AgentTaskStatus.SUBMITTED)
 EXTRA_NOTE_MAX_LENGTH = 1000
+# VIPER launches no agent: external MCP clients poll the queue. An agent that called `/mcp` this
+# recently counts as « connected », so the card can say « en attente d'un agent » truthfully.
+AGENT_RECENT = timedelta(minutes=10)
 
 PROMPT = (
     "Réévalue le score prospect de la personne ciblée : à quel point elle (et son entreprise) "
@@ -83,6 +87,18 @@ class ReassessmentState:
     proposal: dict[str, Any] | None = None
     decided_by: str | None = None
     decided_at: datetime | None = None
+    # How many live agents (token used in the last 10 min) may claim a `reassess_score` task.
+    # 0 while `queued` = nobody can pick it up: a person must start an agent.
+    agents_available: int = 0
+
+
+def agents_available(session: Session, *, now: datetime | None = None) -> int:
+    """Live MCP agents whose scopes let them claim a `reassess_score` task."""
+    since = (now or datetime.now(UTC)) - AGENT_RECENT
+    tokens = session.scalars(
+        select(McpToken).where(McpToken.revoked_at.is_(None), McpToken.last_used_at >= since)
+    ).all()
+    return sum(AgentTaskType.REASSESS_SCORE in mcp_tokens.task_types(token) for token in tokens)
 
 
 def _latest_task(session: Session, prospect_id: uuid.UUID) -> AgentTask | None:
@@ -152,6 +168,7 @@ def state(session: Session, prospect_id: uuid.UUID) -> ReassessmentState:
         proposal=proposal,
         decided_by=result.decided_by_display if result is not None else None,
         decided_at=result.decided_at if result is not None else None,
+        agents_available=agents_available(session) if status in ("queued", "running") else 0,
     )
 
 

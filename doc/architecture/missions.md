@@ -72,6 +72,12 @@ the ordinary Missions process, never a direct LLM call:
   the score as it was.
 - API: `GET|POST|DELETE /api/prospects/{id}/score/reassessment` (state: `idle`, `queued`, `running`, `proposal`,
   `applied`, `nothing_found`, `rejected`, `failed`, `cancelled`).
+- **Who executes it.** VIPER launches no agent and has no server-side executor: external MCP clients (a
+  worker, claude.ai, Claude Code running the `viper-run-mission` skill) poll the queue. A `queued` task with nobody
+  polling waits forever, so the state carries `agents_available` (live tokens, used in the last 10 min, whose
+  scopes include `reassess_score`); the card says « En attente d'un agent » and, past a deadline, « Aucun agent n'a
+  pris la demande ». A token with an **explicit** scope list must contain `reassess_score` (migration 0057 backfills
+  tokens that listed all five older types; narrower tokens are deliberate and untouched).
 - Missing product input: there is no weighted criteria matrix; the formula is unchanged and the deltas are the
   agent's, reviewed by a person. Repeated reassessments add contributions (each expires after 180 days): the
   agent sees the current contributions and is told to correct, not repeat.

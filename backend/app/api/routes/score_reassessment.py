@@ -43,6 +43,7 @@ class ReassessmentOut(BaseModel):
     proposal: dict[str, Any] | None
     decided_by: str | None
     decided_at: datetime | None
+    agents_available: int
 
 
 def reassessment_out(state: ReassessmentState) -> ReassessmentOut:
@@ -59,6 +60,7 @@ def reassessment_out(state: ReassessmentState) -> ReassessmentOut:
         proposal=state.proposal,
         decided_by=state.decided_by,
         decided_at=state.decided_at,
+        agents_available=state.agents_available,
     )
 
 
