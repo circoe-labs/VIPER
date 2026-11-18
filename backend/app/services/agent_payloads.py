@@ -33,7 +33,7 @@ from app.models.missions import Mission, MissionRun
 from app.models.prospects import Prospect, ProspectNote
 from app.models.taxonomies import ActivityCategory, CommercialSegment, Role
 from app.repositories.taxonomies import TaxonomyRow
-from app.services import mission_context
+from app.services import mission_context, score_reassessment
 from app.services.companies import (
     CompanyDetail,
     get_company,
@@ -50,6 +50,8 @@ from app.services.mission_output import (
     output_contract,
     parse_objective,
 )
+from app.services.score_reassessment import INSTRUCTION as REASSESS_SCORE_INSTRUCTION
+from app.services.score_reassessment import ScoreReassessmentResult
 from app.services.taxonomies import Resolution, Taxonomy, resolve_value
 
 # Bumped when a result shape changes (`agent-missions.md` §6.3). 2: `find_prospects` companies may
@@ -378,9 +380,11 @@ TASK_LABELS: dict[AgentTaskType, str] = {
     AgentTaskType.FIND_EMPLOYEES: "Trouver de nouveaux contacts",
     AgentTaskType.SURVEIL_SIGNALS: "Surveiller les signaux",
     AgentTaskType.FIND_PROSPECTS: "Trouver de nouveaux prospects",
+    AgentTaskType.REASSESS_SCORE: "Réévaluer le score prospect",
 }
 
 INSTRUCTIONS: dict[AgentTaskType, str] = {
+    AgentTaskType.REASSESS_SCORE: REASSESS_SCORE_INSTRUCTION,
     AgentTaskType.UPDATE_COMPANY: (
         "Complete this company's missing public information. Cite a public source for every "
         "value; omit a field you cannot source rather than guessing."
@@ -472,6 +476,7 @@ RESULT_MODELS: dict[AgentTaskType, type[BaseModel]] = {
     AgentTaskType.FIND_EMPLOYEES: FindEmployeesResult,
     AgentTaskType.FIND_PROSPECTS: FindProspectsResult,
     AgentTaskType.SURVEIL_SIGNALS: SurveilSignalsResult,
+    AgentTaskType.REASSESS_SCORE: ScoreReassessmentResult,
 }
 
 # The types whose claim payload VIPER can build today (a mission may queue them).
@@ -482,6 +487,7 @@ MISSION_TYPES = frozenset(
         AgentTaskType.FIND_EMPLOYEES,
         AgentTaskType.FIND_PROSPECTS,
         AgentTaskType.SURVEIL_SIGNALS,
+        AgentTaskType.REASSESS_SCORE,
     }
 )
 # The legacy « Analyse » thread only queues the company type; its employee flow is the missions'.
@@ -877,6 +883,27 @@ def build_payload(
                 f'site:linkedin.com/company "{company.display_name}"',
                 f'"{company.display_name}" organigramme',
             ]
+        case AgentTaskType.REASSESS_SCORE:
+            if task.prospect_id is None:
+                raise InvalidFieldError("task", "This task has no prospect.", "missing_subject")
+            prospect = session.get(Prospect, task.prospect_id)
+            if prospect is None:
+                raise InvalidFieldError("task", "This task has no prospect.", "missing_subject")
+            payload["subject"] = {"prospect_id": str(prospect.id)}
+            # Commercial-fit inputs only: no contact channels, no relationship graph.
+            user_data = _employee_payload_data(session, prospect)
+            for private in ("emails", "phones", "do_not_contact"):
+                user_data.pop(private, None)
+            payload["user_data"] = user_data
+            if prospect.company_id is not None:
+                company = get_company(session, prospect.company_id)
+                payload["subject"]["company_id"] = str(company.id)
+                payload["company_data"] = _company_payload_data(company)
+                payload["known_signals"] = _known_signals(session, company.id)
+                payload["sources"] = _sources(company)
+            payload.update(score_reassessment.payload_extras(session, task))
+            name = " ".join(part for part in (prospect.first_name, prospect.last_name) if part)
+            payload["search_hints"] = [f'"{name}"', f'site:linkedin.com/in "{name}"']
         case AgentTaskType.FIND_PROSPECTS:
             # Discovery: the brief lives in the mission block; there is no subject record.
             payload["missing_fields"] = ["companies"]
@@ -1937,5 +1964,7 @@ def build_proposal(session: Session, task: AgentTask, raw: dict[str, Any]) -> di
             if task.company_id is None:
                 raise InvalidFieldError("task", "This task has no company.", "missing_subject")
             return _signals_proposal(session, task, raw, task.company_id)
+        case AgentTaskType.REASSESS_SCORE:
+            return score_reassessment.build_proposal(session, task, raw)
         case _:
             raise InvalidFieldError("task", "This task type has no proposal yet.", "unsupported")

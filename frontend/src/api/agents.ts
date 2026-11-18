@@ -18,6 +18,7 @@ export const TASK_TYPES = [
   'find_employees',
   'surveil_signals',
   'find_prospects',
+  'reassess_score',
 ] as const
 export type TaskType = (typeof TASK_TYPES)[number]
 

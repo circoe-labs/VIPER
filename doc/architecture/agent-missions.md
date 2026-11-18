@@ -100,7 +100,7 @@ Constraints:
 |---|---|---|
 | `id` | uuid | |
 | `thread_id` | FK `agent_threads` `CASCADE`, indexed | |
-| `type` | enum `agent_task_type` | `update_company`, `update_employee`, `find_employees`, `surveil_signals`, `find_prospects` |
+| `type` | enum `agent_task_type` | `update_company`, `update_employee`, `find_employees`, `surveil_signals`, `find_prospects`, `reassess_score` (S4) |
 | `company_id` | FK `companies` `CASCADE`, indexed, null | payload + dedup target |
 | `prospect_id` | FK `prospects` `CASCADE`, indexed, null | `update_employee` only |
 | `status` | enum | `pending`, `claimed`, `submitted`, `accepted`, `failed`, `cancelled` |
@@ -124,7 +124,8 @@ Constraints:
   claimed;
 - a subject per type:
   `update_company`/`find_employees`/`surveil_signals` → `company_id NOT NULL AND prospect_id IS NULL`;
-  `update_employee` → `prospect_id NOT NULL`; `find_prospects` → both null.
+  `update_employee` → `prospect_id NOT NULL`; `find_prospects` → both null; `reassess_score` →
+  `prospect_id NOT NULL` (company optional).
 
 ### 4.3 `agent_task_results`
 

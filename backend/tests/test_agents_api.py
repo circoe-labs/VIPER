@@ -109,6 +109,7 @@ def test_the_settings_page_lists_the_mcp_tools(client: TestClient) -> None:
         "find_employees",
         "surveil_signals",
         "find_prospects",
+        "reassess_score",
     ]
 
 

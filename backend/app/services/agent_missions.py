@@ -78,6 +78,7 @@ TASK_PRIORITIES = {
     AgentTaskType.FIND_EMPLOYEES: 40,
     AgentTaskType.SURVEIL_SIGNALS: 30,
     AgentTaskType.FIND_PROSPECTS: 20,
+    AgentTaskType.REASSESS_SCORE: 55,
 }
 
 

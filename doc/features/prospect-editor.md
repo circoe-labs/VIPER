@@ -315,6 +315,13 @@ ProspectScore { total: 0..100, summary: str, band: "red"|"yellow"|"green",
   Otherwise the summary is a short factual sentence generated from the lines, e.g. « 3 signaux (2 favorables,
   1 défavorable), bilan +7. ». "Score absent" does not exist in the API: the view always has a score.
 - Contributions are ordered newest observed first (same order as the notes).
+- **Meaning (S4): commercial fit only.** Allowed inputs: the prospect's scored notes (manual, or `origin=agent` from
+  an accepted reassessment, shown with `origin = "agent"`) and its company's valid scored signals (capped).
+  Forbidden: relationship graph / proximity, fiche completeness, Contact state (`ALLOWED_INPUTS` /
+  `FORBIDDEN_INPUTS`, guard test `test_prospect_score_inputs.py`).
+- **Réévaluer le score** (card button): a one-off prospect mission whose agent proposes contributions; the person
+  applies or refuses them in the card, only an applied proposal moves the score
+  (`doc/architecture/missions.md` §1c).
 
 **Qualité de la fiche = completeness state** (slice S2 of `viper_prospect_sheet_missions_scoring_redesign`; no longer a
 displayed score). `GET /prospects/{id}` carries `data_quality: DataQualityScore | null` (the field name is kept for
