@@ -36,6 +36,7 @@ test('a relation is added from the sheet and the graph groups the people by comp
   await page.goto(`/prospection?prospect=${anne.id}`)
   const card = page.getByRole('dialog').getByRole('region', { name: 'Relations' })
   await expect(card.getByText('Aucune relation enregistrée pour l’instant.')).toBeVisible()
+  await card.getByRole('button', { name: 'Lier à', exact: true }).click()
   await card.getByRole('combobox', { name: 'Lié à' }).click()
   await page.getByRole('option', { name: new RegExp(member.display_name) }).click()
   await card.getByLabel('Nature du lien').fill(relation)

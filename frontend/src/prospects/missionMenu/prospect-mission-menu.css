@@ -111,6 +111,27 @@
   color: var(--color-accent);
 }
 
+/* Outcome of a context-menu action (ProspectSheetMenu): sticks to the bottom of the scrolling sheet. */
+.sheet-menu-feedback {
+  position: sticky;
+  bottom: var(--space-3);
+  z-index: 2;
+  width: fit-content;
+  max-width: 100%;
+  margin: var(--space-3) auto 0;
+  padding: var(--space-2) var(--space-4);
+  border: var(--border-width) solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-overlay);
+  font-size: var(--text-sm);
+}
+
+.sheet-menu-feedback[data-tone='danger'] {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .pmm__tile {
     transition: none;

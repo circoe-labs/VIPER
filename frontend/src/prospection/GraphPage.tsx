@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router'
+import { Link, useSearchParams } from 'react-router'
 
 import { type GraphFilters, type LinkGraph, otherSide, type PersonLink, useLinkGraph, useRelationLabels } from '../api/links'
 import { foldText } from '../lib/text'
@@ -41,7 +41,12 @@ export function GraphPage() {
   const [company, setCompany] = useState('')
   const [showMembers, setShowMembers] = useState(true)
   const [showLabels, setShowLabels] = useState(false)
-  const [selected, setSelected] = useState<string | null>(null)
+  // `?prospect=<id>` (the prospect sheet's « Graph » action) opens the graph with that prospect selected.
+  const [params] = useSearchParams()
+  const [selected, setSelected] = useState<string | null>(() => {
+    const id = params.get('prospect')
+    return id ? personKey({ kind: 'prospect', id }) : null
+  })
 
   const data = graph.data ?? EMPTY
   const visible = useMemo<LinkGraph>(() => {

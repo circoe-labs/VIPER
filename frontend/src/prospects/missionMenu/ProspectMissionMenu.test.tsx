@@ -225,6 +225,61 @@ describe('Contact actions', () => {
     expect(router.state.location.search).toBe(`?prospect=${PROSPECT.id}`)
   })
 
+  it('offers the full action list with icons, and each entry runs its action', async () => {
+    const user = userEvent.setup()
+    const actions = {
+      link: vi.fn(),
+      mission: vi.fn(),
+      reassess: { run: vi.fn() },
+      graph: vi.fn(),
+      company: { open: vi.fn() },
+    }
+    mount(
+      <ProspectContextMenuSurface prospectId={PROSPECT.id} actions={actions}>
+        <p>Fiche</p>
+      </ProspectContextMenuSurface>,
+    )
+    await user.pointer({ keys: '[MouseRight]', target: screen.getByText('Fiche') })
+    const names = (await screen.findAllByRole('menuitem')).map((item) => item.textContent)
+    expect(names).toEqual(['Lier à…', 'Mission', 'Contacter', 'Réévaluer le score', 'Graph', 'Société'])
+    for (const item of screen.getAllByRole('menuitem')) expect(item.querySelector('svg')).not.toBeNull()
+    await user.click(screen.getByRole('menuitem', { name: 'Lier à…' }))
+    expect(actions.link).toHaveBeenCalledOnce()
+    await user.pointer({ keys: '[MouseRight]', target: screen.getByText('Fiche') })
+    await user.click(await screen.findByRole('menuitem', { name: 'Société' }))
+    expect(actions.company.open).toHaveBeenCalledOnce()
+    await user.pointer({ keys: '[MouseRight]', target: screen.getByText('Fiche') })
+    await user.click(await screen.findByRole('menuitem', { name: 'Réévaluer le score' }))
+    expect(actions.reassess.run).toHaveBeenCalledOnce()
+  })
+
+  it('opens from the keyboard (Shift+F10), moves with the arrows and closes with Esc', async () => {
+    const user = userEvent.setup()
+    mount(
+      <ProspectContextMenuSurface prospectId={PROSPECT.id} actions={{ mission: vi.fn(), graph: vi.fn() }}>
+        <input aria-label="Champ" />
+      </ProspectContextMenuSurface>,
+    )
+    await user.click(screen.getByLabelText('Champ'))
+    await user.keyboard('{Shift>}{F10}{/Shift}')
+    expect(await screen.findByRole('menuitem', { name: 'Mission' })).toHaveFocus()
+    await user.keyboard('{ArrowDown}')
+    expect(screen.getByRole('menuitem', { name: 'Contacter' })).toHaveFocus()
+    await user.keyboard('{Escape}')
+    await waitFor(() => { expect(screen.queryByRole('menu')).toBeNull() })
+  })
+
+  it('keeps a disabled entry visible with its reason', async () => {
+    const user = userEvent.setup()
+    mount(
+      <ProspectContextMenuSurface prospectId={PROSPECT.id} actions={{ company: { open: vi.fn(), disabledReason: 'Aucune entreprise.' } }}>
+        <p>Fiche</p>
+      </ProspectContextMenuSurface>,
+    )
+    await user.pointer({ keys: '[MouseRight]', target: screen.getByText('Fiche') })
+    expect(await screen.findByRole('menuitem', { name: 'Société' })).toBeDisabled()
+  })
+
   it('the explicit button does the same from the keyboard', async () => {
     const user = userEvent.setup()
     const router = mount(<ProspectContactButton prospectId={PROSPECT.id} />)
