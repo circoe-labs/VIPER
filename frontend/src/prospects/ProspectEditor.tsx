@@ -9,9 +9,8 @@ import { Button, IconButton } from '../ui/Button'
 import { Drawer, Modal } from '../ui/Dialog'
 import { AlertIcon, CheckCircleIcon, ChevronLeftIcon, ChevronRightIcon, InfoIcon, RefreshIcon, TrashIcon } from '../ui/icons'
 import { Tabs } from '../ui/Tabs'
-import { AlertsSection } from './AlertsSection'
 import { AliasList } from './AliasList'
-import { CompanySection, DeleteProspectDialog, HistorySection, ProvenanceSection } from './ContextSections'
+import { CompanySection, DeleteProspectDialog } from './ContextSections'
 import { EditorSection, type SectionEdit } from './EditorSection'
 import { EmploymentSection, IdentitySection } from './EmploymentSections'
 import { type ProspectRefusal, prospectRefusal } from './messages'
@@ -36,14 +35,12 @@ import {
   toInput,
   validate,
 } from './prospectForm'
-import { ProspectNotes } from './ProspectNotes'
 import { useCompletenessIndicator, useProximityIndicator } from './indicatorSources'
 import { ProfileRow } from './ProfileLayout'
 import { ProspectIndicatorStrip } from './ProspectIndicatorStrip'
 import { ProspectLinksCard } from './ProspectLinksCard'
 import { ProspectScoreCard } from './ProspectScoreCard'
-import { SequenceSection } from './SequenceSection'
-import { TrackingSection } from './TrackingSection'
+import { TrackingTab } from './TrackingTab'
 import './prospects.css'
 
 interface Forms {
@@ -503,24 +500,20 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
               )}
             </div>
             <div className="prospect-editor" hidden={tab !== 'tracking'}>
-              <div className="prospect-editor__main">
-                <TrackingSection draft={draft} errors={shown} fieldId={fieldId} onChange={change} prospect={prospect} />
-                {prospect && <SequenceSection prospect={prospect} pendingChanges={dirty} onChanged={() => void syncFromServer()} />}
-                {/* Notes are saved by their own API, outside this form (never dirty, never part of the version). */}
-                <ProspectNotes
-                  prospectId={prospect?.id ?? null}
-                  today={today}
-                  showNoteId={noteToShow}
-                  onNoteShown={() => {
-                    setNoteToShow(null)
-                  }}
-                />
-              </div>
-              <div className="prospect-editor__side">
-                {prospect && <AlertsSection prospectId={prospect.id} onChanged={() => void syncFromServer()} />}
-                <ProvenanceSection draft={draft} errors={shown} fieldId={fieldId} onChange={change} prospect={prospect} />
-                {prospect && <HistorySection prospectId={prospect.id} />}
-              </div>
+              <TrackingTab
+                draft={draft}
+                errors={shown}
+                fieldId={fieldId}
+                onChange={change}
+                prospect={prospect}
+                dirty={dirty}
+                today={today}
+                noteToShow={noteToShow}
+                onNoteShown={() => {
+                  setNoteToShow(null)
+                }}
+                onChanged={() => void syncFromServer()}
+              />
             </div>
           </Tabs>
         </form>

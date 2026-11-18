@@ -34,8 +34,17 @@ columns; one column below 1100 px). Explanations go in info tooltips (`ui/InfoTi
 | | two columns | **Résumé du profil** (`ProfileSummary`: full name, *rôle · entreprise*, main e-mail and phone, secondary status, *Copier les informations*; hidden for a new person) · **Coordonnées** (E-mails and Téléphones) |
 | | three columns | **Identité** (Civilité, Prénom, Nom) · **Emploi** (Entreprise *, Rôle, Intitulé exact, Activité, employment verification as a secondary line) · **Entreprise** (summary + *Ouvrir la fiche entreprise*) |
 | | one column | **Relations** (`ProspectLinksCard`) |
-| **Suivi** | left | **Suivi de contact** · **Notes** |
-| | right | **Opposition** · **Provenance** (sources) · **Historique** (the latest saves, Task 19) |
+| **Suivi** | top, full width | **Synthèse du suivi** (`TrackingOverview`, prospect-sheet redesign S6): read-only band — *État commercial* (+ *depuis le*), *Prochaine action* (next send and due date, *Échu*, or *Aucun envoi prévu* with the reason in an info tip), *Semaine* (+ first send), *Réponse*, *Rendez-vous*, *Référent*. It follows the form's live values. Hidden for a new person. |
+| | row 1 | **Suivi de contact** (state form, with the *Ne pas contacter* banner) · **Séquence de contact** — equal cards |
+| | row 2 | **Notes** · **Alertes qualité** — equal cards |
+| | row 3 (secondary, muted) | **Provenance** (sources) · **Historique** (the latest saves, Task 19) |
+
+**Suivi composition** (`TrackingTab.tsx`, `tracking-tab.css`): `ProspectEditor` renders one `<TrackingTab>`; the tab composes the
+unchanged sections (`TrackingSection`, `SequenceSection`, `ProspectNotes`, `AlertsSection`, `ProvenanceSection`,
+`HistorySection`) as the shared `EditorSection` cards in a two-column grid that stacks when the tab is narrow and gives
+the cards of a row the same height. Long notes and histories scroll inside their card. No state, action or save
+semantics changed; the former *Semaine / Relance / Référent / RDV* summary inside *Suivi de contact* moved to the band
+(the level stays in *Séquence de contact*).
 
 The *Qualité de la fiche* numeric card (`DataQualityCard`) is no longer placed in Profil: the fiche is shown as a named
 state in the indicator strip (S2 supplies it). The component stays in the tree until S2 replaces it.
