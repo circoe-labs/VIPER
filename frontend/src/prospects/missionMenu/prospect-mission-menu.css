@@ -1,0 +1,118 @@
+/* ProspectMissionMenu: compact popover content. Tokens only (ui/popover.css supplies the surface). */
+.pmm {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.pmm__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.pmm__tile {
+  display: grid;
+  gap: var(--space-1);
+  align-content: start;
+  min-height: 5.5rem;
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard);
+}
+
+.pmm__tile:hover:not(:disabled),
+.pmm__tile:focus-visible {
+  outline: none;
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+  color: var(--color-accent-fg);
+}
+
+.pmm__tile:focus-visible {
+  box-shadow: 0 0 0 2px var(--color-accent);
+}
+
+.pmm__tile:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.pmm__tile-icon {
+  color: var(--color-accent);
+}
+
+.pmm__tile-label {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.pmm__tile-hint {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.pmm__other {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.pmm__row,
+.pmm__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.pmm__actions {
+  justify-content: space-between;
+}
+
+.pmm__status,
+.pmm__hint,
+.pmm__busy {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.pmm__error {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-danger);
+}
+
+.pmm__done {
+  display: flex;
+  gap: var(--space-3);
+  color: var(--color-success-fg);
+}
+
+.pmm__done p {
+  margin: var(--space-1) 0 var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.pmm__done strong {
+  color: var(--color-text);
+}
+
+.pmm__link {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--color-accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pmm__tile {
+    transition: none;
+  }
+}

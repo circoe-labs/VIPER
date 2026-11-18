@@ -564,3 +564,18 @@ Microphone refused / absent / busy, no speech heard, STT or model failures are s
 **Layout.** Black blurred stage: close top-left, the assistant's answer in large white type in the upper third
 (`aria-live`), the person's words in blue lower down (live partial in italic), the level-driven orb bottom-right
 (tap = start / « j'ai fini »), applied edits as chips under the answer.
+
+## 7g. Prospect-scoped missions (prospect sheet « Mission » menu)
+
+Standalone components in `frontend/src/prospects/missionMenu/` (handoff `viper_prospect_sheet_missions_scoring_redesign`, S5).
+`ProspectMissionMenu` is a « Mission » button + compact popover (no full-screen overlay): 2x2 shortcuts « Complète cette
+fiche », « Réanalyse son score », « Cherche ses relations », « Autre » (arrow keys / Enter / Esc). `prospectMissionFactory.ts`
+maps preset -> canonical `MissionInput` posted to `POST /missions` (server validation stays authoritative):
+
+- the prospect is a real `targets: [{ kind: 'prospect', id }]` entry; the company is a read-only `context_refs` record; identity,
+  role, company and the objective are also written in the consigne (category general prompt + `Objectif` + `Contexte`);
+- category resolved at runtime by seeded key (`enrichment` for « Complète », `other` for score and relations), `skill_ids` /
+  `source_ids` follow the category, `run_now: false`: **nothing starts automatically**; the success line links to `/missions/:id`;
+- « Réanalyse son score » emits the explicit `Reassess prospect fit score` objective until S4's reassessment command exists;
+- « Autre »: textarea + microphone through `useSpeechInput` (`chooseSpeechMode`, §7f). Refused / absent mic or STT failure is shown
+  inline (`role="alert"`) and typing keeps working; a live seconds counter shows listening / transcription.

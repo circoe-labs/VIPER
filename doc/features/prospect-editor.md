@@ -465,3 +465,11 @@ that changes nothing writes nothing.
   body scrolls horizontally, and a dedicated test imports a very long name, company, role and address and checks both tabs,
   summary and edit mode, at 1440 and 1280 px. `accessibility.spec.ts` scans the editor on Profil and on Suivi with every
   section in edit mode.
+
+## Mission menu and Contacter (S5 components, mounted by the header)
+
+- `<ProspectMissionMenu prospect={{ id, firstName, lastName, roleLabel?, companyId?, companyName? }} onCreated? />` goes in the
+  header action slot; it creates prospect-targeted missions (see doc/architecture/missions.md §7g).
+- `<ProspectContactButton prospectId disabledReason? />` is the explicit « Contacter » action; `<ProspectContextMenuSurface prospectId
+  disabledReason?>` wraps the sheet and offers the same action on right click (links, buttons and fields keep the browser menu).
+  Both open the existing Contact deep link `/contact?prospect=<id>`; the right click is never the only path.
