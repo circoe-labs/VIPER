@@ -14,6 +14,7 @@
 }
 
 .tabs__tab {
+  position: relative;
   display: inline-flex;
   flex: none;
   align-items: center;
@@ -21,7 +22,6 @@
   margin-bottom: -1px;
   padding: var(--space-3) var(--space-4);
   border: 0;
-  border-bottom: 2px solid transparent;
   background: none;
   color: var(--color-text-muted);
   font-weight: var(--weight-medium);
@@ -32,13 +32,37 @@
     border-color var(--duration-fast) var(--ease-standard);
 }
 
+/* The marker is a bar that grows from the left: a shape, so selection never rests on colour alone. */
+.tabs__tab::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: var(--color-border-strong);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition:
+    transform var(--duration-base) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-standard);
+}
+
 .tabs__tab:hover {
   color: var(--color-text);
 }
 
+.tabs__tab:hover::after {
+  transform: scaleX(1);
+}
+
 .tabs__tab[aria-selected='true'] {
-  border-bottom-color: var(--color-accent);
   color: var(--color-text);
+}
+
+.tabs__tab[aria-selected='true']::after {
+  background: var(--color-accent);
+  transform: scaleX(1);
 }
 
 .tabs__tab:focus-visible {

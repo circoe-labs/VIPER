@@ -9,6 +9,7 @@ import { createRoot } from 'react-dom/client'
 import { createBrowserRouter, RouterProvider } from 'react-router'
 
 import { routes } from './routes'
+import './theme/motion.css'
 import { applyAccent, readStoredAccent } from './theme/accent'
 import { ThemeProvider } from './theme/ThemeProvider'
 

@@ -180,7 +180,13 @@
   /* Motion — restrained; zeroed under prefers-reduced-motion */
   --duration-fast: 120ms;
   --duration-base: 200ms;
+  --duration-slow: 320ms;
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* Hover halos: a soft ring in the accent (or the danger colour), never a hard outline. */
+  --halo: 0 0 0 3px color-mix(in srgb, var(--color-accent) 16%, transparent);
+  --halo-danger: 0 0 0 3px color-mix(in srgb, var(--color-danger) 22%, transparent);
 
   /* Verification page: one fixed hue per cohort (same in both themes), and the « Copier » button */
   --cohort-0: #4f8ef7;
@@ -204,6 +210,7 @@
   :root {
     --duration-fast: 0ms;
     --duration-base: 0ms;
+    --duration-slow: 0ms;
   }
 }
 

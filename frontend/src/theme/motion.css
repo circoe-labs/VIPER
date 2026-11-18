@@ -1,0 +1,282 @@
+/* Motion layer: discreet hover feedback and transitions, so that what can be interacted with is felt before it is
+   clicked. Imported last (main.tsx) so that it refines the component styles. Every duration comes from a token, which
+   is zeroed under prefers-reduced-motion: the interface then simply stops moving. */
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+::selection {
+  background: var(--color-accent-soft);
+  color: var(--color-text);
+}
+
+/* Anything clickable eases between its states, even when its own stylesheet says nothing (specificity 0). */
+:where(a, button, summary, label, input, select, textarea, [role='button'], [role='tab'], [role='option'], [role='menuitem']) {
+  transition-property: color, background-color, border-color, box-shadow, transform, opacity, filter;
+  transition-duration: var(--duration-base);
+  transition-timing-function: var(--ease-standard);
+}
+
+a:not([class]):hover {
+  filter: brightness(1.18);
+}
+
+/* --- Pages and views ------------------------------------------------------------------------------------------ */
+
+@keyframes motion-page-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes motion-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes motion-view-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* One routed page (remounted when the section changes). */
+.page-enter {
+  animation: motion-page-in var(--duration-slow) var(--ease-out) both;
+}
+
+/* A sub-tab or a section of a page. */
+.view-enter {
+  animation: motion-view-in var(--duration-base) var(--ease-out) both;
+}
+
+/* Table rows appear one after the other (the first ten), without moving the layout. */
+.table tbody tr {
+  animation: motion-fade-in var(--duration-base) var(--ease-out) both;
+}
+.table tbody tr:nth-child(2) { animation-delay: 25ms; }
+.table tbody tr:nth-child(3) { animation-delay: 50ms; }
+.table tbody tr:nth-child(4) { animation-delay: 75ms; }
+.table tbody tr:nth-child(5) { animation-delay: 100ms; }
+.table tbody tr:nth-child(6) { animation-delay: 125ms; }
+.table tbody tr:nth-child(7) { animation-delay: 150ms; }
+.table tbody tr:nth-child(8) { animation-delay: 175ms; }
+.table tbody tr:nth-child(9) { animation-delay: 200ms; }
+.table tbody tr:nth-child(n + 10) { animation-delay: 225ms; }
+
+/* --- Buttons ---------------------------------------------------------------------------------------------------- */
+
+.btn {
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-base) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-out);
+}
+
+.btn:hover:not(:disabled):not([aria-disabled='true']):not([aria-busy='true']) {
+  transform: translateY(-1px);
+}
+
+.btn:active:not(:disabled):not([aria-disabled='true']) {
+  transform: translateY(0) scale(0.97);
+  transition-duration: 60ms;
+}
+
+.btn--secondary:hover:not(:disabled):not([aria-disabled='true']) {
+  background: var(--color-surface-hover);
+  box-shadow: var(--halo);
+}
+
+.btn--ghost:hover:not(:disabled):not([aria-disabled='true']) {
+  box-shadow: var(--halo);
+}
+
+.btn--danger:hover:not(:disabled):not([aria-disabled='true']) {
+  box-shadow: var(--halo-danger);
+}
+
+.btn svg {
+  transition: transform var(--duration-base) var(--ease-spring);
+}
+
+.btn:hover:not(:disabled):not([aria-disabled='true']) svg {
+  transform: scale(1.12);
+}
+
+/* --- Navigation ------------------------------------------------------------------------------------------------- */
+
+.nav-link {
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard),
+    transform var(--duration-base) var(--ease-out);
+}
+
+.nav-link:hover:not([aria-current='page']) {
+  transform: translateX(3px);
+}
+
+.app-shell[data-sidebar='collapsed'] .nav-link:hover:not([aria-current='page']) {
+  transform: scale(1.06);
+}
+
+.nav-link svg {
+  transition: transform var(--duration-base) var(--ease-spring);
+}
+
+.nav-link:hover svg {
+  transform: scale(1.14);
+}
+
+.page-header__mascot {
+  transition: transform var(--duration-slow) var(--ease-spring);
+}
+
+.page-header__mascot:hover {
+  transform: rotate(-5deg) scale(1.06);
+}
+
+/* --- Cards and tiles you can click -------------------------------------------------------------------------------- */
+
+:is(
+  .adm-card--clickable,
+  .adm-tile,
+  .kpi-card--action,
+  .mcat__tile,
+  .mcp-tool-card,
+  .prompt-card,
+  .result-card,
+  .sched-tile,
+  .service-choice,
+  .import-stat,
+  button.import-kpi,
+  .organization-switcher__item,
+  .agents-dialog__choice,
+  .mission-picker__row
+) {
+  transition:
+    background-color var(--duration-base) var(--ease-standard),
+    border-color var(--duration-base) var(--ease-standard),
+    box-shadow var(--duration-base) var(--ease-standard),
+    transform var(--duration-base) var(--ease-out);
+}
+
+:is(
+  .adm-card--clickable,
+  .adm-tile,
+  .kpi-card--action,
+  .mcat__tile,
+  .mcp-tool-card,
+  .prompt-card,
+  .result-card,
+  .sched-tile,
+  .service-choice,
+  .import-stat,
+  button.import-kpi,
+  .organization-switcher__item,
+  .agents-dialog__choice,
+  .mission-picker__row
+):hover:not(:disabled):not([aria-disabled='true']) {
+  border-color: var(--color-accent-fg);
+  box-shadow: var(--halo), var(--shadow-card);
+  transform: translateY(-2px);
+}
+
+:is(
+  .adm-card--clickable,
+  .adm-tile,
+  .kpi-card--action,
+  .mcat__tile,
+  .mcp-tool-card,
+  .prompt-card,
+  .result-card,
+  .sched-tile,
+  .service-choice,
+  .import-stat,
+  button.import-kpi,
+  .organization-switcher__item,
+  .agents-dialog__choice,
+  .mission-picker__row
+):active:not(:disabled) {
+  transform: translateY(0) scale(0.99);
+  transition-duration: 60ms;
+}
+
+/* --- Chips, options and small controls ---------------------------------------------------------------------------- */
+
+:is(
+  .activity-chip,
+  .import-chip,
+  .results-status__chip,
+  .status-filter__option,
+  .segmented__option,
+  .prospect-segmented__option,
+  .filters-menu__option,
+  .page-number,
+  .mission-form__segment,
+  .import-status,
+  .combobox__option,
+  .global-search__option,
+  .control-chip__remove,
+  .combobox__chip-remove,
+  .mission-target__remove,
+  .global-search__clear,
+  .accent-picker__swatch
+):hover:not(:disabled):not([aria-disabled='true']) {
+  filter: brightness(1.16);
+}
+
+.accent-picker__swatch:hover,
+.control-chip__remove:hover,
+.combobox__chip-remove:hover {
+  transform: scale(1.12);
+}
+
+/* Summaries that fold and unfold a section. */
+:is(.settings-fold__summary, .sequence-fold__summary, .settings-advanced__summary, .prospects-tools summary, .filters-menu > summary, .prospection-actions > summary):hover {
+  filter: brightness(1.14);
+}
+
+/* --- Fields ------------------------------------------------------------------------------------------------------- */
+
+.field__control:focus-visible {
+  box-shadow: 0 0 0 1px var(--color-focus), var(--halo);
+}
+
+.toggle__input:active:not(:disabled) {
+  transform: scale(0.88);
+}
+
+.toggle__input:hover:not(:disabled) {
+  border-color: var(--color-accent-fg);
+  box-shadow: var(--halo);
+}
+
+/* --- Tables ------------------------------------------------------------------------------------------------------- */
+
+.table tbody tr td {
+  transition: background-color var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.table tbody tr:hover td:first-child {
+  box-shadow: inset 3px 0 0 var(--color-accent);
+}

@@ -201,11 +201,13 @@ export function OrganizationPage() {
         }
       />
       {taxonomy ? (
-        <section className="settings-panel" aria-label={taxonomy.title}>
+        <section key={taxonomy.kind} className="settings-panel view-enter" aria-label={taxonomy.title}>
           <TaxonomySection key={taxonomy.kind} config={taxonomy} />
         </section>
       ) : (
-        <MembersTab creating={creating} onCloseCreate={() => { setCreating(false) }} />
+        <div key="members" className="view-enter">
+          <MembersTab creating={creating} onCloseCreate={() => { setCreating(false) }} />
+        </div>
       )}
     </div>
   )

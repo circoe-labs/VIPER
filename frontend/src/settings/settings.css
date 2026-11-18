@@ -8,13 +8,13 @@
 }
 
 .settings-tabs__link {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
   min-height: var(--control-md);
   margin-bottom: calc(-1 * var(--border-width));
   padding: var(--space-2) var(--space-4);
-  border-bottom: 2px solid transparent;
   color: var(--color-text-muted);
   font-weight: var(--weight-medium);
   text-decoration: none;
@@ -23,14 +23,37 @@
     color var(--duration-fast) var(--ease-standard);
 }
 
+/* The marker grows from the left (a shape, not colour alone). */
+.settings-tabs__link::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: var(--color-border-strong);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition:
+    transform var(--duration-base) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-standard);
+}
+
 .settings-tabs__link:hover {
-  border-bottom-color: var(--color-border-strong);
   color: var(--color-text);
 }
 
+.settings-tabs__link:hover::after {
+  transform: scaleX(1);
+}
+
 .settings-tabs__link[aria-current='page'] {
-  border-bottom-color: var(--color-accent-fg);
   color: var(--color-accent-fg);
+}
+
+.settings-tabs__link[aria-current='page']::after {
+  background: var(--color-accent-fg);
+  transform: scaleX(1);
 }
 
 .settings-tabs__count {

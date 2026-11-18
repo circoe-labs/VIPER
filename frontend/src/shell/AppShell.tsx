@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Outlet } from 'react-router'
+import { Outlet, useLocation } from 'react-router'
 
 import { CompanyEditorProvider } from '../companies/CompanyEditorProvider'
 import { readStorage, writeStorage } from '../lib/storage'
@@ -13,6 +13,8 @@ import './shell.css'
 const SIDEBAR_STORAGE_KEY = 'viper.sidebar'
 
 export function AppShell() {
+  // The page animates in when the section changes (not on every sub-route or query change).
+  const section = useLocation().pathname.split('/')[1] ?? ''
   const [collapsed, setCollapsed] = useState(() => readStorage(SIDEBAR_STORAGE_KEY) === 'collapsed')
 
   function toggleSidebar() {
@@ -40,7 +42,9 @@ export function AppShell() {
             </div>
           </header>
           <main id="main-content" className="app-shell__main" tabIndex={-1}>
-            <Outlet />
+            <div key={section} className="page-enter">
+              <Outlet />
+            </div>
           </main>
         </div>
       </div>
