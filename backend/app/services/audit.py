@@ -251,6 +251,8 @@ AUDITED_ENTITIES: dict[type[Any], AuditedEntity] = {
 }
 ENTITY_ORDER = {model: position for position, model in enumerate(AUDITED_ENTITIES)}
 NOT_AUDITED_TABLES = {
+    "person_links": "relational links keep their author and dates; a link is a note about a "
+    "relationship, not a record of the base",
     "users": "login accounts hold secrets; auth.* events are recorded instead",
     "user_sessions": "session tokens; auth.login/auth.logout are recorded instead",
     "import_row_metadata": "write-once import trace; legacy values stay out of the log (I-29)",

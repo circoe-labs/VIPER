@@ -32,6 +32,7 @@ from app.models.missions import (
 )
 from app.models.oauth import OAuthAuthorization, OAuthClient, OAuthToken
 from app.models.organizations import Organization
+from app.models.person_links import PersonLink
 from app.models.prospects import Email, Phone, Prospect, ProspectNote, ProspectSource
 from app.models.quality_alerts import QualityAlert
 from app.models.taxonomies import ActivityCategory, CommercialSegment, Role
@@ -82,6 +83,7 @@ __all__ = [
     "Organization",
     "Phone",
     "Prospect",
+    "PersonLink",
     "ProspectNote",
     "ProspectSource",
     "QualityAlert",

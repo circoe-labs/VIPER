@@ -248,9 +248,3 @@
   color: var(--color-warning-fg);
 }
 
-/* « Robin » card (ProspectRobinCard.tsx): the two answers side by side. */
-.prospect-robin {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}

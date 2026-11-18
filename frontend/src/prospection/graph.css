@@ -1,0 +1,241 @@
+/* « Graphe de prospection » (GraphPage.tsx): a whiteboard of connections. */
+
+.graph-page {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.graph-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  align-items: end;
+  gap: var(--space-3) var(--space-4);
+  padding: var(--space-4);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.graph-filters__score {
+  display: grid;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+}
+
+.graph-filters__score input {
+  accent-color: var(--color-accent);
+}
+
+.graph-filters__switches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+  grid-column: 1 / -1;
+}
+
+.graph-board {
+  position: relative;
+  display: grid;
+}
+
+.graph-canvas {
+  position: relative;
+  height: clamp(26rem, 64vh, 52rem);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  /* The whiteboard: a quiet dotted grid. */
+  background:
+    radial-gradient(circle, var(--color-border) 1px, transparent 1.5px) 0 0 / 24px 24px,
+    var(--color-surface);
+  overflow: hidden;
+}
+
+.graph-canvas svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.graph-canvas svg:active {
+  cursor: grabbing;
+}
+
+.graph-canvas__controls {
+  position: absolute;
+  right: var(--space-3);
+  bottom: var(--space-3);
+  display: flex;
+  gap: var(--space-2);
+}
+
+.graph-blob circle {
+  fill: color-mix(in srgb, var(--color-accent) 6%, transparent);
+  stroke: var(--color-border-strong);
+  stroke-dasharray: 6 6;
+  stroke-width: 1.5;
+}
+
+.graph-blob--member circle {
+  fill: var(--color-info-soft);
+  stroke: var(--color-info-fg);
+  stroke-dasharray: none;
+}
+
+.graph-blob text {
+  fill: var(--color-text);
+  font-size: 15px;
+  font-weight: var(--weight-semibold);
+}
+
+.graph-edge line {
+  transition: opacity var(--duration-base) var(--ease-standard), stroke-width var(--duration-base) var(--ease-standard);
+}
+
+.graph-edge--dim {
+  opacity: 0.12;
+}
+
+.graph-edge__label {
+  fill: var(--color-text);
+  font-size: 11px;
+  paint-order: stroke;
+  stroke: var(--color-surface);
+  stroke-width: 4px;
+}
+
+.graph-node {
+  cursor: pointer;
+  outline: none;
+  transition: opacity var(--duration-base) var(--ease-standard);
+}
+
+.graph-node circle {
+  stroke: var(--color-surface);
+  stroke-width: 3;
+  transition: r var(--duration-fast) var(--ease-out), filter var(--duration-fast) var(--ease-standard);
+}
+
+.graph-node:hover circle,
+.graph-node:focus-visible circle {
+  r: 26px;
+  filter: drop-shadow(0 0 8px var(--color-accent));
+}
+
+.graph-node.is-selected circle,
+.graph-node.is-match circle {
+  stroke: var(--color-accent-fg);
+  stroke-width: 4;
+}
+
+.graph-node.is-dim {
+  opacity: 0.18;
+}
+
+.graph-node--member circle {
+  stroke: var(--color-info-fg);
+}
+
+.graph-node__initials {
+  fill: var(--color-on-warning);
+  font-size: 13px;
+  font-weight: var(--weight-bold, 700);
+  pointer-events: none;
+}
+
+.graph-node__name {
+  fill: var(--color-text);
+  font-size: 11px;
+  pointer-events: none;
+  paint-order: stroke;
+  stroke: var(--color-surface);
+  stroke-width: 3px;
+}
+
+.graph-legend {
+  position: absolute;
+  left: var(--space-3);
+  bottom: var(--space-3);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.graph-details {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  display: grid;
+  align-content: start;
+  gap: var(--space-3);
+  width: min(20rem, calc(100% - 2 * var(--space-3)));
+  max-height: calc(100% - 2 * var(--space-3));
+  padding: var(--space-4);
+  overflow-y: auto;
+  border: var(--border-width) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-overlay);
+  animation: motion-view-in var(--duration-base) var(--ease-out) both;
+}
+
+.graph-details header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.graph-details h2 {
+  font-size: var(--text-lg);
+}
+
+.graph-details p {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.graph-details ul {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.graph-details li button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-width) solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.graph-details li button:hover {
+  border-color: var(--color-accent-fg);
+  background: var(--color-surface-hover);
+}
+
+.graph-details__relation {
+  color: var(--color-accent-fg);
+  font-size: var(--text-sm);
+}
+
+.graph-details__score {
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-sm);
+}

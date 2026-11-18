@@ -1,0 +1,103 @@
+/* « Relations » card (ProspectLinksCard.tsx): the links of one person, and the form that adds one. */
+
+.person-links {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.person-links__empty {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.person-links__list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.person-links__item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+}
+
+.person-links__who {
+  display: grid;
+  min-width: 0;
+}
+
+.person-links__who a,
+.person-links__who strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.person-links__kind {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.person-links__relation {
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-accent-soft);
+  color: var(--color-accent-fg);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  line-height: 1.5rem;
+}
+
+.person-links__score {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 5rem minmax(0, 1fr) 4rem;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.person-links__score output {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.person-links__score--new {
+  grid-template-columns: auto minmax(0, 1fr) 4rem;
+}
+
+.person-links__score input[type='range'] {
+  width: 100%;
+  accent-color: var(--color-accent);
+}
+
+/* The strength as a bar next to the slider: width and colour grow with the score. */
+.person-links__bar {
+  display: block;
+  height: 0.5rem;
+  border-radius: var(--radius-sm);
+  background: var(--color-border);
+  overflow: hidden;
+}
+
+.person-links__bar > span {
+  display: block;
+  height: 100%;
+  background: var(--color-accent);
+  transition: width var(--duration-base) var(--ease-out);
+}
+
+.person-links__add {
+  display: grid;
+  gap: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: var(--border-width) solid var(--color-border);
+}

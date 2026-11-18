@@ -61,8 +61,8 @@ Expansion state is kept per company while using the list; hiding a group never c
 - Statistics describe the Verification-validated base, independently of additional list filters. The list title and pagination
   describe the filtered subset. Existing segment deep links continue to work.
 - Category uses the existing `company_kind` rule and editor. Missing historical classifications
-  appear as “À renseigner”; no classification is fabricated. Robin knowledge remains accessible
-  through the existing “Qui connaît Robin ?” workflow under “Outils de la base”.
+  appear as “À renseigner”; no classification is fabricated. Who knows whom is now recorded as scored
+  relations between people (doc/features/person-links.md), shown in the Prospection graph.
 
 ## Company service interests
 

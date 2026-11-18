@@ -38,7 +38,7 @@ import {
 } from './prospectForm'
 import { ProspectNotes } from './ProspectNotes'
 import { DataQualityCard } from './DataQualityCard'
-import { ProspectRobinCard } from './ProspectRobinCard'
+import { ProspectLinksCard } from './ProspectLinksCard'
 import { ProspectScoreCard } from './ProspectScoreCard'
 import { SequenceSection } from './SequenceSection'
 import { TrackingSection } from './TrackingSection'
@@ -477,7 +477,7 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
                 </EditorSection>
               </div>
               <div className="prospect-editor__side">
-                {prospect && <ProspectRobinCard prospectId={prospect.id} />}
+                {prospect && <ProspectLinksCard prospectId={prospect.id} />}
                 <ProspectScoreCard
                   score={prospect ? (loaded.data?.id === prospect.id ? loaded.data.score : prospect.score) : null}
                   outdated={loaded.isRefetchError}

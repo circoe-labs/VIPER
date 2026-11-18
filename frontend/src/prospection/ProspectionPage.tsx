@@ -64,9 +64,9 @@ export function ProspectionPage() {
             <details className="prospection-actions" onToggle={(event) => { setActionsOpen(event.currentTarget.open) }} onKeyDown={(event) => { if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus() } }}>
               <summary className="btn btn--secondary btn--md">Autres actions <ChevronDownIcon size={18} /></summary>
               <div className="prospection-actions__menu" hidden={!actionsOpen}>
-                <Link to="/prospection/robin" className="btn btn--ghost btn--md">
+                <Link to="/prospection/graphe" className="btn btn--ghost btn--md">
                   <UsersIcon size={18} />
-                  Qui connaît Robin ?
+                  Graphe de prospection
                 </Link>
                 <Link to="/prospection/import" className="btn btn--ghost btn--md">
                   <UploadIcon size={18} />

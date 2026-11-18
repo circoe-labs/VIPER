@@ -19,7 +19,7 @@ import { OrganizationPage } from './organization/OrganizationPage'
 import { OpportunitiesPage } from './opportunities/OpportunitiesPage'
 import { ImportPage } from './imports/ImportPage'
 import { ProspectionPage } from './prospection/ProspectionPage'
-import { RobinPage } from './prospection/RobinPage'
+import { GraphPage } from './prospection/GraphPage'
 import { AppShell } from './shell/AppShell'
 import { SignupApprovalPage } from './auth/SignupApprovalPage'
 import { SignupPage } from './auth/SignupPage'
@@ -139,7 +139,7 @@ const SUBPAGES: RouteObject[] = [
   { path: '/prospection/opportunities', element: <OpportunitiesPage /> },
   { path: '/prospection/companies', element: <CompaniesRedirect /> },
   { path: '/prospection/import', element: <ImportPage /> },
-  { path: '/prospection/robin', element: <RobinPage /> },
+  { path: '/prospection/graphe', element: <GraphPage /> },
 ]
 
 // Everything but /login requires a session (RequireAuth); the API enforces the same rule server-side.
