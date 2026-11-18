@@ -125,6 +125,69 @@
   border-top: var(--border-width) solid var(--color-border);
 }
 
+/* Sheet: the big floating record window (Prospect sheet). Dimmed and slightly blurred backdrop, large radius, soft
+   shadow, fixed height (the window never resizes between tabs or states), scroll inside the body only. */
+.dialog-layer--sheet {
+  padding: var(--space-6);
+}
+
+.dialog-layer--sheet .dialog-backdrop {
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+
+.dialog--sheet {
+  width: min(100%, 80rem);
+  height: min(100%, 58rem);
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 32px 96px color-mix(in srgb, var(--nc-void) 38%, transparent);
+}
+
+.dialog--sheet .dialog__header {
+  align-items: center;
+  padding: var(--space-6) var(--space-8) var(--space-4);
+  border-bottom: 0;
+}
+
+.dialog__heading--custom {
+  flex: 1;
+  min-width: 0;
+  padding-top: 0;
+}
+
+.dialog--sheet .dialog__body {
+  padding: 0 var(--space-8) var(--space-6);
+  scrollbar-gutter: stable;
+}
+
+.dialog--sheet .dialog__footer {
+  align-items: center;
+  padding: var(--space-4) var(--space-8);
+}
+
+@media (max-width: 720px) {
+  .dialog-layer--sheet {
+    padding: var(--space-2);
+  }
+
+  .dialog--sheet {
+    border-radius: var(--radius-lg);
+  }
+
+  .dialog--sheet .dialog__header {
+    padding: var(--space-4) var(--space-4) var(--space-3);
+  }
+
+  .dialog--sheet .dialog__body {
+    padding: 0 var(--space-4) var(--space-4);
+  }
+
+  .dialog--sheet .dialog__footer {
+    padding: var(--space-3) var(--space-4);
+  }
+}
+
 @keyframes dialog-fade {
   from {
     opacity: 0;

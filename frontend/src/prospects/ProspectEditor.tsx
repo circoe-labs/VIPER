@@ -4,11 +4,12 @@ import { useNavigate } from 'react-router'
 import { useCompany } from '../api/companies'
 import { type Prospect, useProspect, useProspectMutations } from '../api/prospects'
 import { businessToday } from '../lib/isoWeek'
+import { initials } from '../prospection/graphLayout'
 import { civilityLabel, personName, selectionShortLabel } from '../prospection/labels'
 import type { ProspectEditorProps } from '../prospection/prospectEditor'
 import { Button, IconButton } from '../ui/Button'
-import { Drawer, Modal } from '../ui/Dialog'
-import { AlertIcon, CheckCircleIcon, ChevronLeftIcon, ChevronRightIcon, InfoIcon, RefreshIcon, TrashIcon } from '../ui/icons'
+import { Modal } from '../ui/Dialog'
+import { AlertIcon, CheckCircleIcon, ChevronLeftIcon, ChevronRightIcon, InfoIcon, PhoneIcon, RefreshIcon, TrashIcon, UserPlusIcon } from '../ui/icons'
 import { Tabs } from '../ui/Tabs'
 import { AliasList } from './AliasList'
 import { CompanySection, DeleteProspectDialog } from './ContextSections'
@@ -24,7 +25,7 @@ import {
   tabOfField,
   tabsWithErrors,
 } from './profileEditing'
-import { ProfileSummary, useEmploymentLabels } from './ProfileSummary'
+import { mainAlias, ProfileSummary, useEmploymentLabels } from './ProfileSummary'
 import {
   draftFromProspect,
   emptyDraft,
@@ -41,12 +42,13 @@ import { ProfileRow } from './ProfileLayout'
 import { ProspectIndicatorStrip } from './ProspectIndicatorStrip'
 import { ProspectLinksCard } from './ProspectLinksCard'
 import { prospectGraphHref } from './prospectGraphHref'
-import { ProspectContactButton } from './missionMenu/ProspectContactAction'
+import { ProspectContactButton, ProspectMoreMenu } from './missionMenu/ProspectContactAction'
 import { ProspectMissionMenu } from './missionMenu/ProspectMissionMenu'
-import { ProspectSheetMenu } from './missionMenu/ProspectSheetMenu'
+import { ProspectSheetMenu, useSheetMenu } from './missionMenu/ProspectSheetMenu'
 import { ProspectScoreCard } from './ProspectScoreCard'
 import { TrackingTab } from './TrackingTab'
 import './prospects.css'
+import './prospect-sheet.css'
 
 interface Forms {
   // The prospect id, or 'new'.
@@ -155,6 +157,19 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
   const completeness = useCompletenessIndicator(prospect)
   const proximity = useProximityIndicator(prospect?.id ?? null)
   const labels = useEmploymentLabels(draft, prospect)
+  // The sheet's actions, shared by the right-click menu and the header's « … » menu.
+  const sheetMenu = useSheetMenu({
+    prospectId: prospect?.id ?? '',
+    companyId: prospect?.company?.id ?? null,
+    guard: guarded,
+    onLink: () => {
+      setTab('profile')
+      setLinkRequest((count) => count + 1)
+    },
+    onMission: () => {
+      setMissionRequest((count) => count + 1)
+    },
+  })
   const dirty = forms !== null && isDirty(forms.draft, forms.baseline, isNew)
   const errors = forms ? validate(forms.draft, { isNew, today }) : {}
   const shown = submitted ? { ...errors } : {}
@@ -262,6 +277,12 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
     if (creating) onNavigate(saved.id)
   }
 
+  // « Enregistrer et fermer »: save, then close the sheet (a refused save keeps it open with its message).
+  async function saveAndClose() {
+    const saved = await save()
+    if (saved) onNavigate(null)
+  }
+
   // « Enregistrer et suivant »: save when needed, then the next person of the list's queue (the saved one may have left
   // the segment: the queue reads the list again). A new prospect is followed by a fresh form for the same company.
   async function saveAndNext() {
@@ -346,17 +367,19 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
   const close = () => {
     onNavigate(null)
   }
-  const name = prospect ? [civilityLabel(prospect.civility), personName(prospect)].filter(Boolean).join(' ') : ''
+  // The header follows the form (what is typed), like the cards: the saved name until there is a draft.
+  const name = draft
+    ? [civilityLabel(draft.civility || null), draft.first_name.trim(), draft.last_name.trim()].filter(Boolean).join(' ')
+    : prospect
+      ? [civilityLabel(prospect.civility), personName(prospect)].filter(Boolean).join(' ')
+      : ''
   const doNotContactReason =
     prospect?.contactability_status === 'do_not_contact'
       ? `Ne pas contacter${prospect.do_not_contact_reason ? ` : ${prospect.do_not_contact_reason}` : ''}`
       : null
   const position = prospect ? queue.position(prospect.id) : null
-  const description = isNew
-    ? 'Saisie manuelle : la provenance est enregistrée avec la fiche.'
-    : position
-      ? `Prospect ${String(position)} sur ${String(queue.total)} · ${selectionShortLabel(queue.criteria)}`
-      : 'Chaque enregistrement est tracé dans l’historique.'
+  const queueText = position ? `Prospect ${String(position)} sur ${String(queue.total)} · ${selectionShortLabel(queue.criteria)}` : null
+  const title = isNew ? 'Nouveau prospect' : name || 'Prospect'
 
   const sheetForm =
     forms !== null && draft !== undefined ? (
@@ -400,8 +423,18 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
             />
           )}
           <ProfileRow columns="two">
-            {prospect !== null && <ProfileSummary draft={draft} prospect={prospect} labels={labels} />}
-            <EditorSection title="Coordonnées" edit={sectionEdit('emails', 'phones')}>
+            {prospect !== null && (
+              <ProfileSummary
+                draft={draft}
+                prospect={prospect}
+                labels={labels}
+                completeness={completeness}
+                proximity={proximity}
+                companyMoved={companyMoved}
+                today={today}
+              />
+            )}
+            <EditorSection title="Coordonnées" icon={PhoneIcon} edit={sectionEdit('emails', 'phones')}>
               {(['emails', 'phones'] as const).map((kind) => (
                 <AliasList
                   key={kind}
@@ -475,15 +508,48 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
     </form>
     ) : null
 
+  const mainEmail = draft ? mainAlias(draft.emails).alias?.value.trim() : undefined
+  const job = [labels.role ?? draft?.exact_job_title.trim(), labels.company].filter(Boolean).join(' · ')
+  const personInitials = initials([draft?.first_name, draft?.last_name].filter(Boolean).join(' ').trim())
+
   return (
-    <Drawer
+    <Modal
       open
+      sheet
       size="xl"
-      title={isNew ? 'Nouveau prospect' : name || 'Prospect'}
-      description={forms ? description : undefined}
+      title={title}
       onClose={() => {
         guarded(close, 'Fermer sans enregistrer')
       }}
+      heading={(titleId) => (
+        <div className="sheet-head">
+          <span className="sheet-head__avatar" aria-hidden="true">
+            {isNew || !personInitials ? <UserPlusIcon size={26} /> : personInitials}
+          </span>
+          <div className="sheet-head__text">
+            <h2 id={titleId} className="sheet-head__name" title={title}>
+              {title}
+            </h2>
+            {isNew ? (
+              <p className="sheet-head__meta">Saisie manuelle : la provenance est enregistrée avec la fiche.</p>
+            ) : forms ? (
+              <p className="sheet-head__meta">
+                <span className="sheet-head__job" title={job || undefined}>
+                  {job || <span className="prospect-editor__muted">Entreprise et rôle non renseignés</span>}
+                </span>
+                {mainEmail && (
+                  <>
+                    <span className="sheet-head__sep" aria-hidden="true" />
+                    <span className="sheet-head__email" title={mainEmail}>
+                      {mainEmail}
+                    </span>
+                  </>
+                )}
+              </p>
+            ) : null}
+          </div>
+        </div>
+      )}
       headerActions={
         prospect && (
           <>
@@ -499,6 +565,7 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
               }}
             />
             <ProspectContactButton prospectId={prospect.id} disabledReason={doNotContactReason} />
+            <ProspectMoreMenu prospectId={prospect.id} disabledReason={doNotContactReason} actions={sheetMenu.actions} />
           </>
         )
       }
@@ -534,8 +601,17 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
             <Button type="submit" form={formId} variant="primary" loading={mutations.update.isPending || mutations.create.isPending} disabled={!dirty}>
               Enregistrer
             </Button>
+            <Button
+              disabled={!dirty || saving}
+              onClick={() => {
+                void saveAndClose()
+              }}
+            >
+              Enregistrer et fermer
+            </Button>
             {prospect && (
               <div className="prospect-editor__arrows" role="group" aria-label="Parcourir les prospects">
+                {queueText && <span className="prospect-editor__position">{queueText}</span>}
                 <IconButton
                   icon={ChevronLeftIcon}
                   label="Prospect précédent"
@@ -563,19 +639,7 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
       ) : prospect ? (
         // Right click (or Shift+F10) on the sheet offers its actions; each one also has a visible button (header,
         // Relations, Score, Entreprise cards).
-        <ProspectSheetMenu
-          prospectId={prospect.id}
-          companyId={prospect.company?.id ?? null}
-          disabledReason={doNotContactReason}
-          guard={guarded}
-          onLink={() => {
-            setTab('profile')
-            setLinkRequest((count) => count + 1)
-          }}
-          onMission={() => {
-            setMissionRequest((count) => count + 1)
-          }}
-        >
+        <ProspectSheetMenu prospectId={prospect.id} disabledReason={doNotContactReason} menu={sheetMenu}>
           {sheetForm}
         </ProspectSheetMenu>
       ) : (
@@ -621,7 +685,7 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
           <p>Les modifications de cette fiche ne sont pas enregistrées : elles seront perdues.</p>
         </Modal>
       )}
-    </Drawer>
+    </Modal>
   )
 }
 

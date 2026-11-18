@@ -1,74 +1,35 @@
-/* Profil tab: the person at a glance (name, role · company, main e-mail and phone, status) above the sections. Every
-   value wraps — long names, companies and addresses never widen the drawer. */
+/* « Résumé » card of the Profil tab: a few lines of synthesis. Every value wraps — long names, companies and
+   addresses never widen the sheet. */
 
 .prospect-summary {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: var(--space-3) var(--space-6);
-  align-items: start;
-  min-width: 0;
-  padding: var(--space-5) var(--space-6);
-  border: var(--border-width) solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
-}
-
-.prospect-summary__who {
-  display: grid;
-  gap: var(--space-1);
-  min-width: 0;
-}
-
-.prospect-summary__name {
-  font-size: var(--text-lg);
-  font-weight: var(--weight-semibold);
-  overflow-wrap: anywhere;
-}
-
-.prospect-summary__job {
-  color: var(--color-text-muted);
-  overflow-wrap: anywhere;
-}
-
-.prospect-summary__channels {
-  display: grid;
-  gap: var(--space-1);
-  min-width: 0;
-  margin: 0;
-}
-
-.prospect-summary__channels > div {
-  display: grid;
-  grid-template-columns: 5rem minmax(0, 1fr);
   gap: var(--space-2);
-}
-
-.prospect-summary__channels dt {
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
-}
-
-.prospect-summary__channels dd {
+  align-content: start;
   min-width: 0;
+}
+
+.prospect-summary__line {
   margin: 0;
+  font-size: var(--text-md);
+  line-height: 1.55;
   overflow-wrap: anywhere;
+  user-select: text;
 }
 
 .prospect-summary__status {
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
   gap: var(--space-2);
 }
 
-@media (max-width: 1100px) {
-  .prospect-summary {
-    grid-template-columns: minmax(0, 1fr);
-  }
+/* The copy confirmation takes no room until there is something to say. */
+.prospect-summary__copy-status {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
 
-  .prospect-summary__status {
-    justify-content: flex-start;
-  }
+.prospect-summary__copy-status:empty {
+  display: none;
 }
 
 /* Reserved for the score card (ProspectScoreCard): no room while empty. */
@@ -76,7 +37,6 @@
   display: none;
 }
 
-.prospect-summary__name, .prospect-summary__job, .prospect-summary__value { user-select: text; }
-
-.prospect-summary__copy { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); font-size: var(--text-sm); }
-.prospect-summary__copy button { color: var(--color-accent-fg); background: transparent; border: 0; padding: 0; font: inherit; font-weight: var(--weight-semibold); cursor: pointer; text-decoration: underline; }
+.prospect-score-slot {
+  user-select: text;
+}

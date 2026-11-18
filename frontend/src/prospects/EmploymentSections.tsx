@@ -4,7 +4,7 @@ import type { ActivityStatus } from '../api/prospection'
 import type { Civility, Prospect } from '../api/prospects'
 import { civilityLabel } from '../prospection/labels'
 import { SelectField, TextField } from '../ui/fields'
-import { AlertIcon } from '../ui/icons'
+import { AlertIcon, BriefcaseIcon, UserIcon } from '../ui/icons'
 import { EditorSection, type SectionEdit } from './EditorSection'
 import { CompanyPicker, RolePicker } from './pickers'
 import type { EmploymentLabels } from './ProfileSummary'
@@ -43,7 +43,7 @@ interface IdentityProps extends SectionProps {
 // Civility, first and last name: facts until edited, inputs while editing (same draft either way).
 export function IdentitySection({ draft, errors, fieldId, onChange, firstFieldRef, edit }: IdentityProps) {
   return (
-    <EditorSection title="Identité" edit={edit}>
+    <EditorSection title="Identité" icon={UserIcon} edit={edit}>
       {edit.editing ? (
         <div className="prospect-editor__identity">
           <SelectField
@@ -115,7 +115,7 @@ export function EmploymentSection({ draft, errors, fieldId, onChange, prospect, 
     imported && !filled ? { hint: empty } : { warning: filled ? warning : undefined }
   const activity = ACTIVITIES.find((candidate) => candidate.value === draft.activity_status)?.label ?? null
   return (
-    <EditorSection title="Emploi" tone={companyMoved || imported ? 'warning' : undefined} edit={edit}>
+    <EditorSection title="Emploi" icon={BriefcaseIcon} tone={companyMoved || imported ? 'warning' : undefined} edit={edit}>
       {companyMoved && (
         <div className="prospect-editor__banner" role="note">
           <AlertIcon size={18} />
@@ -184,7 +184,6 @@ export function EmploymentSection({ draft, errors, fieldId, onChange, prospect, 
       ) : (
         <Facts
           facts={[
-            { label: 'Entreprise', value: labels.company },
             { label: 'Rôle', value: labels.role },
             { label: 'Intitulé exact', value: draft.exact_job_title.trim() || null },
             { label: 'Activité', value: activity },

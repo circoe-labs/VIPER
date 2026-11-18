@@ -5,9 +5,9 @@ import { createCompany, post, uniqueSuffix } from './data'
 import { SCREENSHOTS, useTheme } from './helpers'
 import { signIn } from './session'
 
-// The redesigned prospect sheet end to end (prospect-sheet redesign S7): the three indicators at the top (commercial
-// fit score, fiche state as a word, separate proximity score), the header's Mission menu and Contacter action, the
-// reassessment entry point, and a look at Profil and Suivi at a wide and a narrow width. Reads the synthetic dataset
+// The redesigned prospect sheet end to end (prospect-sheet redesign S7, UI2): a centered floating window, the three KPI
+// cards in one order and one height (score prospect, score de proximité, état de la fiche), the header's Mission,
+// Contacter and « … » actions, the reassessment entry point, and a look at Profil and Suivi at 1440, 1280 and 800 px. Reads the synthetic dataset
 // only; the one write is the mission it creates, bound to the first prospect.
 
 test.beforeEach(async ({ page }) => {
@@ -38,6 +38,38 @@ test('top of the sheet: fit score, fiche state in words, proximity score, header
   const header = editor.locator('header').first()
   await expect(header.getByRole('button', { name: 'Mission' })).toBeVisible()
   await expect(header.getByRole('button', { name: 'Contacter' })).toBeVisible()
+  await expect(header.getByRole('button', { name: 'Autres actions du prospect' })).toBeVisible()
+})
+
+test('centered floating window; exactly three equal KPI cards in order; the « … » menu holds the sheet actions', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  const editor = await openFirstProspect(page)
+  const box = await editor.boundingBox()
+  if (!box) throw new Error('no dialog box')
+  // Centered with margins on every side (not a side drawer), and the page stays dimmed behind it.
+  expect(box.x).toBeGreaterThan(40)
+  expect(1440 - (box.x + box.width)).toBeGreaterThan(40)
+  expect(Math.abs(box.x - (1440 - (box.x + box.width)))).toBeLessThan(3)
+  expect(box.y).toBeGreaterThan(8)
+
+  const cards = editor.getByRole('region', { name: 'Indicateurs de la fiche' }).locator(':scope > *')
+  await expect(cards).toHaveCount(3)
+  const boxes = await cards.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect()))
+  expect(new Set(boxes.map((b) => Math.round(b.height))).size).toBe(1)
+  expect(boxes[0]?.height).toBeLessThanOrEqual(190)
+  expect(boxes.map((b) => b.left)).toEqual([...boxes.map((b) => b.left)].sort((a, b) => a - b))
+  await expect(editor.getByRole('region', { name: 'Score de proximité' })).toBeVisible()
+  await expect(editor.getByRole('region', { name: 'État de la fiche' })).toBeVisible()
+
+  await editor.getByRole('button', { name: 'Autres actions du prospect' }).click()
+  const menu = page.getByRole('menu', { name: 'Actions du prospect' })
+  await expect(menu.getByRole('menuitem')).toHaveText(['Lier à…', 'Mission', 'Contacter', 'Réévaluer le score', 'Graph', 'Société'])
+  await page.keyboard.press('Escape')
+  await expect(menu).toBeHidden()
+  // Esc closed the menu only: the sheet is still there; a second Esc closes it.
+  await expect(editor).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(editor).toBeHidden()
 })
 
 test('Mission menu: presets, dictation fallback, a prospect-bound mission is created', async ({ page }) => {
@@ -67,7 +99,7 @@ test('Contacter opens the Contact workbench on this prospect', async ({ page }) 
 })
 
 test('Profil and Suivi stay readable at 1440 and 800 px, with no serious accessibility violation', async ({ page }) => {
-  for (const width of [1440, 800]) {
+  for (const width of [1440, 1280, 800]) {
     await page.setViewportSize({ width, height: 1000 })
     const editor = await openFirstProspect(page)
     await expect(editor.getByRole('region', { name: 'Score de proximité' })).toContainText(/chemin|Aucune relation|Aucun membre/)
@@ -136,7 +168,7 @@ test('context menu lists the sheet actions; « Lier à… » opens the add form 
 
   await editor.getByRole('region', { name: 'Résumé du profil' }).click({ button: 'right', position: { x: 8, y: 8 } })
   await menu.getByRole('menuitem', { name: 'Graph' }).click()
-  await expect(page).toHaveURL(/\/prospection\/graphe\?prospect=/)
+  await expect(page).toHaveURL(/\/prospection\/graphe\?focus=prospect/)
 })
 
 test('Relations card with several links, at 1440 and 800 px', async ({ page }) => {
@@ -168,13 +200,20 @@ test('Relations card with several links, at 1440 and 800 px', async ({ page }) =
   }
 })
 
-test('light theme: Profil and Suivi at 1440 px', async ({ page }) => {
+test('light theme: Profil and Suivi at 1440, 1280 and 800 px, no horizontal scroll', async ({ page }) => {
   await useTheme(page, 'light')
-  await page.setViewportSize({ width: 1440, height: 1000 })
-  const editor = await openFirstProspect(page)
-  await expect(editor.getByRole('region', { name: 'Score de proximité' })).toContainText(/chemin|Aucune relation|Aucun membre/)
-  await page.screenshot({ path: `${SCREENSHOTS}/prospect-sheet-profile-light-1440.png`, animations: 'disabled' })
-  await editor.getByRole('tab', { name: /^Suivi/ }).click()
-  await expect(editor.getByRole('region', { name: 'Historique' })).toBeVisible()
-  await page.screenshot({ path: `${SCREENSHOTS}/prospect-sheet-tracking-light-1440.png`, animations: 'disabled' })
+  for (const width of [1440, 1280, 800]) {
+    await page.setViewportSize({ width, height: 1000 })
+    const editor = await openFirstProspect(page)
+    await expect(editor.getByRole('region', { name: 'Score de proximité' })).toContainText(/chemin|Aucune relation|Aucun membre/)
+    await page.screenshot({ path: `${SCREENSHOTS}/prospect-sheet-profile-light-${String(width)}.png`, animations: 'disabled' })
+    await editor.getByRole('tab', { name: /^Suivi/ }).click()
+    await expect(editor.getByRole('region', { name: 'Historique' })).toBeVisible()
+    await page.screenshot({ path: `${SCREENSHOTS}/prospect-sheet-tracking-light-${String(width)}.png`, animations: 'disabled' })
+    const overflow = await editor.evaluate((node) => {
+      const body = node.querySelector<HTMLElement>('.dialog__body')
+      return body ? body.scrollWidth - body.clientWidth : 0
+    })
+    expect(overflow).toBeLessThanOrEqual(1)
+  }
 })

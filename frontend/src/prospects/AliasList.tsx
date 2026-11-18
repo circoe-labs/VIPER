@@ -28,6 +28,7 @@ const COPY = {
     label: 'Adresse e-mail',
     add: 'Ajouter un e-mail',
     empty: 'Aucune adresse. Ajoutez l’adresse professionnelle ; la première devient principale.',
+    none: 'Aucune adresse',
   },
   phones: {
     title: 'Téléphones',
@@ -36,6 +37,7 @@ const COPY = {
     label: 'Numéro',
     add: 'Ajouter un téléphone',
     empty: 'Aucun numéro. La première ligne ajoutée devient principale.',
+    none: 'Aucun numéro',
   },
 } as const
 
@@ -73,6 +75,8 @@ export function AliasList({ kind, aliases, onChange, errors, fieldId, companyMov
   const [menu, setMenu] = useState<{ index: number; at: Point } | null>(null)
   const menuAlias = menu ? aliases[menu.index] : undefined
   const context = { kind, companyMoved, today, staleDays }
+  const shown = aliases.filter((alias) => alias.value.trim())
+  const several = shown.filter((alias) => alias.is_active).length > 1
   const toVerify = aliases.filter(
     (alias) => alias.is_active && alias.value.trim() && aliasState(alias, context).tone === 'warning',
   ).length
@@ -116,30 +120,47 @@ export function AliasList({ kind, aliases, onChange, errors, fieldId, companyMov
   return (
     <EditorSection
       nested={nested}
+      bare={nested && !edit.editing}
       title={copy.title}
       count={aliases.filter((alias) => alias.stored || alias.value.trim()).length}
       state={sectionState}
       edit={nested ? undefined : edit}
     >
-      {aliases.length === 0 && <p className="prospect-editor__muted">{copy.empty}</p>}
+      {aliases.length === 0 && edit.editing && <p className="prospect-editor__muted">{copy.empty}</p>}
       {!edit.editing && (
-        <ul className="prospect-alias-summary">
-          {aliases
-            .filter((alias) => alias.value.trim())
-            .map((alias) => {
-              const state = aliasState(alias, context)
-              return (
-                <li key={alias.key} className="prospect-alias-summary__item" data-inactive={alias.is_active ? undefined : ''}>
-                  <span className="prospect-alias-summary__value">{alias.value.trim()}</span>
-                  {kind === 'phones' && <span className="prospect-editor__muted">{PHONE_TYPES[alias.type]}</span>}
-                  {alias.is_primary && alias.is_active && <Badge tone="accent">Principal</Badge>}
-                  <StatusBadge tone={state.tone} icon={state.icon}>
-                    {state.text}
-                  </StatusBadge>
-                </li>
-              )
-            })}
-        </ul>
+        <div className="coords">
+          {shown.length === 0 && (
+            <div className="coords__row">
+              <span className="coords__label">{copy.one}</span>
+              <span className="prospect-editor__muted coords__none">{copy.none}</span>
+            </div>
+          )}
+          {shown.map((alias) => {
+            const state = aliasState(alias, context)
+            return (
+              <div key={alias.key} className="coords__row" data-inactive={alias.is_active ? undefined : ''}>
+                <span className="coords__label">{copy.one}</span>
+                <span className="coords__value">
+                  {alias.value.trim()}
+                  {kind === 'phones' && <span className="prospect-editor__muted"> · {PHONE_TYPES[alias.type]}</span>}
+                </span>
+                <span className="coords__badges">
+                  {several && alias.is_primary && alias.is_active && <Badge tone="accent">Principal</Badge>}
+                  {state.tone === 'success' ? (
+                    <span className="coords__verified">
+                      <CheckCircleIcon size={14} />
+                      {state.text}
+                    </span>
+                  ) : (
+                    <StatusBadge tone={state.tone} icon={state.icon}>
+                      {state.text}
+                    </StatusBadge>
+                  )}
+                </span>
+              </div>
+            )
+          })}
+        </div>
       )}
       {edit.editing && (<>
       <div className="prospect-aliases">

@@ -68,15 +68,21 @@ describe('Prospect editor', () => {
     await open(imported())
 
     const dialog = screen.getByRole('dialog', { name: 'M. Jean Import' })
-    expect(dialog).toHaveAccessibleDescription('Prospect 1 sur 1 · Jamais vérifiés')
+    // The header carries the person (name, role · company | main e-mail); the queue position sits in the footer.
+    expect(within(dialog).getByRole('heading', { name: 'M. Jean Import' })).toBeInTheDocument()
+    expect(dialog.querySelector('.sheet-head__meta')).toHaveTextContent('jean@exemple.example')
+    expect(dialog.querySelector('.prospect-editor__position')).toHaveTextContent('Prospect 1 sur 1 · Jamais vérifiés')
     expect(screen.getByRole('tab', { name: 'Profil', selected: true })).toBeInTheDocument()
     const summary = region('Résumé du profil')
-    expect(summary).toHaveTextContent('M. Jean Import')
-    expect(summary).toHaveTextContent('jean@exemple.example')
-    expect(summary).toHaveTextContent('Aucun téléphone')
+    // The synthesis never repeats the name: role at company, fiche, e-mail, proximity, score status.
+    expect(summary).not.toHaveTextContent('Jean Import')
+    expect(region('Coordonnées')).toHaveTextContent('jean@exemple.example')
+    expect(region('Coordonnées')).toHaveTextContent('Aucun numéro')
     await waitFor(() => {
-      expect(summary).toHaveTextContent('Responsable transport · Transports Exemple SARL')
+      expect(summary).toHaveTextContent('Responsable transport chez Transports Exemple SARL.')
     })
+    expect(summary).toHaveTextContent('e-mail non vérifié')
+    expect(summary).toHaveTextContent('Score prospect non évalué.')
     // Read view: facts, no input yet (the imported person is valid).
     expect(screen.queryByRole('textbox', { name: 'Prénom' })).toBeNull()
     expect(region('Identité')).toHaveTextContent('Import')
@@ -169,7 +175,8 @@ describe('Prospect editor', () => {
     expect(await screen.findByText('Prospect enregistré.')).toBeInTheDocument()
     // Back to the summary once saved: no input left, the new values read in place.
     expect(screen.queryByRole('textbox', { name: 'Prénom' })).toBeNull()
-    expect(region('Résumé du profil')).toHaveTextContent('M. Jeanne Import')
+    expect(screen.getByRole('heading', { name: 'M. Jeanne Import' })).toBeInTheDocument()
+    expect(region('Identité')).toHaveTextContent('Jeanne')
     const body = lastBody(api.requests, 'PUT') as ProspectInput & { version: string }
     expect(body).toMatchObject({ version: 'v1', first_name: 'Jeanne', employment_verification: { action: 'keep', day: null } })
     expect(body.emails[0]).toMatchObject({ id: 'e1', verified_now: true, verification_status: 'verified' })
@@ -219,7 +226,7 @@ describe('Prospect editor', () => {
     expect(await screen.findByText(/Ce prospect a été modifié ailleurs/)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Recharger la fiche' }))
     await waitFor(() => {
-      expect(region('Résumé du profil')).toHaveTextContent('M. Jean Import')
+      expect(screen.getByRole('heading', { name: 'M. Jean Import' })).toBeInTheDocument()
     })
   })
 })

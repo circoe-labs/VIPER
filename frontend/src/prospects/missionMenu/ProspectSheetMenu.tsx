@@ -8,23 +8,35 @@ import { prospectGraphHref } from '../prospectGraphHref'
 import { ProspectContextMenuSurface, type SheetMenuActions } from './ProspectContactAction'
 import './prospect-mission-menu.css'
 
-interface Props {
+interface ActionsParams {
   prospectId: string
   companyId: string | null
-  disabledReason?: string | null
   // « Lier à… » / « Mission »: the sheet opens the Relations add flow / the Mission popover.
   onLink: () => void
   onMission: () => void
   // Leaving the sheet (graph): the editor asks first when changes are pending.
   guard: (go: () => void, label: string) => void
+}
+
+interface Props {
+  prospectId: string
+  disabledReason?: string | null
+  // From `useSheetMenu`: the one set of actions shared by the right-click menu and the header's « … » menu.
+  menu: SheetMenu
   children: ReactNode
+}
+
+export interface SheetMenu {
+  actions: SheetMenuActions
+  feedback: { tone: 'info' | 'danger'; text: string } | null
 }
 
 const FEEDBACK_MS = 8000
 
-// Wires the sheet's context menu to the real actions (reassessment command, graph route, Company editor) and says
-// what happened: asking an agent is not instant, so the outcome (running / refused) is announced on screen.
-export function ProspectSheetMenu({ prospectId, companyId, disabledReason, onLink, onMission, guard, children }: Props) {
+// The sheet's actions wired to the real operations (reassessment command, graph route, Company editor) — one instance
+// per sheet, read by the right-click menu (ProspectSheetMenu) and the header's « … » menu. It also says what happened:
+// asking an agent is not instant, so the outcome (running / refused) is announced on screen.
+export function useSheetMenu({ prospectId, companyId, onLink, onMission, guard }: ActionsParams): SheetMenu {
   const navigate = useNavigate()
   const openCompany = useCompanyEditor()
   const { request } = useReassessmentCommands(prospectId)
@@ -74,6 +86,12 @@ export function ProspectSheetMenu({ prospectId, companyId, disabledReason, onLin
     },
   }
 
+  return { actions, feedback }
+}
+
+// Wraps the sheet: right click, the context-menu key or Shift+F10 offer the sheet's actions.
+export function ProspectSheetMenu({ prospectId, disabledReason, menu, children }: Props) {
+  const { actions, feedback } = menu
   return (
     <ProspectContextMenuSurface prospectId={prospectId} disabledReason={disabledReason} actions={actions}>
       {children}

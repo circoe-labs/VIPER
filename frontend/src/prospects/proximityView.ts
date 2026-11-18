@@ -27,3 +27,10 @@ export function describePath(path: ProximityPath): string {
     })
     .join(' → ')
 }
+
+// « Robin → Paul »: the member and the prospect only, the rest of the path stays in the tooltip and the graph.
+export function describeEnds(path: ProximityPath): string | null {
+  const first = path.people[0]
+  const last = path.people.at(-1)
+  return first && last ? `${first.name} → ${last.name}` : null
+}

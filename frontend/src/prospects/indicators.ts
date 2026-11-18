@@ -20,6 +20,8 @@ export interface CompletenessView {
   description: string
   missing: string[]
   strong: string[]
+  // One sentence built from the backend's criterion details, shown under the state word (no number).
+  sentence: string
 }
 
 // Proximity read model, already explained by the backend: `bestPath` is its best path worded from the member to the
@@ -31,5 +33,7 @@ export interface ProximityView {
   total: number
   pathCount: number
   bestPath: string | null
+  // « Membre → Prospect »: the two ends of the best path (null when there is none).
+  bestPathEnds: string | null
   maxHops: number
 }

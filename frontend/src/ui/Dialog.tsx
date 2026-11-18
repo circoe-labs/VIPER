@@ -27,6 +27,9 @@ interface DialogProps {
   footer?: ReactNode
   // Actions shown in the header, before the close button (a record's Mission / Contacter menu).
   headerActions?: ReactNode
+  // Replaces the title block of the header with a custom one (an avatar and a subtitle…). It must render the element
+  // that carries `titleId` (the dialog's accessible name); `title` then only serves as a fallback.
+  heading?: (titleId: string) => ReactNode
   // Element focused on open (e.g. the first field of an editor); defaults to the dialog itself.
   initialFocusRef?: RefObject<HTMLElement | null>
   children: ReactNode
@@ -35,12 +38,13 @@ interface DialogProps {
 // Open dialogs, the last opened on top (a dialog opened from inside another one opens after it).
 const openDialogs: HTMLElement[] = []
 
-export type ModalProps = DialogProps & { size?: 'sm' | 'md' | 'lg' | 'xl' }
+// `sheet`: the big floating record window (blurred backdrop, large radius, fixed height) — the Prospect sheet.
+export type ModalProps = DialogProps & { size?: 'sm' | 'md' | 'lg' | 'xl'; sheet?: boolean }
 export type DrawerProps = DialogProps & { size?: 'md' | 'lg' | 'xl' }
 
 // Centered dialog for short confirmations and focused forms.
-export function Modal({ open, size = 'md', ...props }: ModalProps) {
-  return open ? <OpenDialog kind="modal" size={size} {...props} /> : null
+export function Modal({ open, size = 'md', sheet = false, ...props }: ModalProps) {
+  return open ? <OpenDialog kind="modal" size={size} sheet={sheet} {...props} /> : null
 }
 
 // Right-hand panel for editors that must keep the underlying list/queue in context (Prospect, Company editors).
@@ -58,9 +62,11 @@ function OpenDialog({
   description,
   footer,
   headerActions,
+  heading,
   initialFocusRef,
   children,
-}: Omit<DialogProps, 'open'> & { kind: 'modal' | 'drawer'; size: string }) {
+  sheet = false,
+}: Omit<DialogProps, 'open'> & { kind: 'modal' | 'drawer'; size: string; sheet?: boolean }) {
   const dialogRef = useRef<HTMLDivElement>(null)
   const titleId = useId()
   const descriptionId = useId()
@@ -133,7 +139,7 @@ function OpenDialog({
   }
 
   return createPortal(
-    <div className={`dialog-layer dialog-layer--${kind}`}>
+    <div className={`dialog-layer dialog-layer--${kind}${sheet ? ' dialog-layer--sheet' : ''}`}>
       <div className="dialog-backdrop" onClick={onClose} />
       <div
         ref={dialogRef}
@@ -142,21 +148,25 @@ function OpenDialog({
         aria-labelledby={titleId}
         aria-describedby={description ? descriptionId : undefined}
         tabIndex={-1}
-        className={`dialog dialog--${kind} dialog--${size}${className ? ` ${className}` : ''}`}
+        className={`dialog dialog--${kind} dialog--${size}${sheet ? ' dialog--sheet' : ''}${className ? ` ${className}` : ''}`}
         onKeyDown={handleKeyDown}
       >
         <header className="dialog__header">
-          <div className="dialog__heading">
-            <h2 id={titleId} className="dialog__title">
-              {titleIcon && <span className="dialog__title-icon" aria-hidden="true">{titleIcon}</span>}
-              {title}
-            </h2>
-            {description && (
-              <p id={descriptionId} className="dialog__description">
-                {description}
-              </p>
-            )}
-          </div>
+          {heading ? (
+            <div className="dialog__heading dialog__heading--custom">{heading(titleId)}</div>
+          ) : (
+            <div className="dialog__heading">
+              <h2 id={titleId} className="dialog__title">
+                {titleIcon && <span className="dialog__title-icon" aria-hidden="true">{titleIcon}</span>}
+                {title}
+              </h2>
+              {description && (
+                <p id={descriptionId} className="dialog__description">
+                  {description}
+                </p>
+              )}
+            </div>
+          )}
           <div className="dialog__header-actions">
             {headerActions}
             <IconButton icon={CloseIcon} label="Fermer" onClick={onClose} />

@@ -1,0 +1,301 @@
+/* Prospect sheet finish (UI2): the header of the floating window and one card language for the Profil and Suivi tabs
+   (same radius, padding, title style, label / value rows). Scoped to the sheet's form so the Contact workbench keeps
+   its own sections. Tokens only. */
+
+/* --- header: avatar, name, « fonction · entreprise | e-mail » --- */
+
+.sheet-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.sheet-head__avatar {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 4rem;
+  height: 4rem;
+  border-radius: var(--radius-full);
+  background: var(--color-accent-soft);
+  color: var(--color-accent-fg);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+}
+
+.sheet-head__text {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.sheet-head__name {
+  overflow: hidden;
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-tight);
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sheet-head__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-md);
+}
+
+.sheet-head__job,
+.sheet-head__email {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sheet-head__job {
+  flex: 0 1 auto;
+}
+
+.sheet-head__email {
+  flex: 0 1 auto;
+}
+
+.sheet-head__sep {
+  flex: none;
+  width: 1px;
+  height: 1rem;
+  background: var(--color-border-strong);
+}
+
+/* --- cards of both tabs --- */
+
+.prospect-editor-form .prospect-editor__section {
+  gap: var(--space-4);
+  padding: var(--space-5);
+  border-radius: var(--radius-lg);
+}
+
+.prospect-editor-form .prospect-editor__section-head {
+  flex-wrap: nowrap;
+  min-height: 2rem;
+}
+
+.prospect-editor-form .prospect-editor__section-title {
+  min-width: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.prospect-editor__section-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--color-accent-fg);
+}
+
+.prospect-editor-form .prospect-editor__section-tools {
+  flex: none;
+  flex-wrap: nowrap;
+}
+
+/* Rows of the Profil tab and the grids of Suivi share one gap. */
+.prospect-editor {
+  gap: var(--space-5);
+}
+
+/* --- label / value rows (Identité, Emploi, Entreprise) --- */
+
+.prospect-facts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-3);
+}
+
+.prospect-facts__item {
+  grid-template-columns: minmax(5rem, 8rem) minmax(0, 1fr);
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.prospect-facts dd {
+  font-weight: var(--weight-medium);
+}
+
+.prospect-facts dd .prospect-editor__muted {
+  font-style: italic;
+  font-weight: var(--weight-regular);
+}
+
+/* --- Entreprise --- */
+
+.prospect-company {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.prospect-company__name {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.prospect-company__title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.prospect-company__legal {
+  margin: 0;
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+/* --- Coordonnées (read view): one row per address or number --- */
+
+.coords {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.coords + .coords {
+  padding-top: var(--space-3);
+  border-top: var(--border-width) solid var(--color-border);
+}
+
+.coords__row {
+  display: grid;
+  grid-template-columns: 5rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.coords__label {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.coords__value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: var(--weight-medium);
+}
+
+.coords__none {
+  grid-column: 2 / -1;
+  font-style: italic;
+}
+
+.coords__badges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.coords__verified {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-success-fg);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.coords__row[data-inactive] .coords__value {
+  color: var(--color-text-muted);
+  text-decoration: line-through;
+}
+
+/* --- footer --- */
+
+.prospect-editor__arrows {
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.prospect-editor__position {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+/* Header buttons stay compact next to the close button. */
+.dialog--sheet .dialog__header-actions {
+  flex-wrap: nowrap;
+  gap: var(--space-2);
+}
+
+@media (max-width: 900px) {
+  .sheet-head__meta {
+    flex-wrap: wrap;
+    gap: 0 var(--space-3);
+  }
+
+  .sheet-head__sep {
+    display: none;
+  }
+
+  .prospect-editor__keys {
+    display: none;
+  }
+
+  .prospect-editor__bar-status {
+    flex-basis: 8rem;
+    min-width: 0;
+  }
+
+  .sheet-head__avatar {
+    width: 3rem;
+    height: 3rem;
+    font-size: var(--text-lg);
+  }
+
+  .sheet-head__name {
+    font-size: var(--text-xl);
+  }
+
+  .prospect-editor__position {
+    display: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .dialog--sheet .dialog__header,
+  .dialog--sheet .dialog__header-actions {
+    flex-wrap: wrap;
+  }
+
+  .coords__row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-1);
+  }
+
+  .coords__none {
+    grid-column: 1;
+  }
+
+  .coords__badges {
+    justify-content: flex-start;
+  }
+}
+
+/* A nested section shown bare (Coordonnées read view): no heading, the rows speak for themselves. */
+.prospect-editor__subsection[data-bare] > .prospect-editor__section-head {
+  display: none;
+}
+
+.prospect-editor__subsection[data-bare] + .prospect-editor__subsection[data-bare] {
+  padding-top: var(--space-3);
+}
