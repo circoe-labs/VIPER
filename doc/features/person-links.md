@@ -45,3 +45,12 @@ l'organisation ») : aucune mission ni séquence ne la cible. Un prospect déjà
 « Poté » = Robin Poté) est rattaché, pas dupliqué. Création à l'ajout d'un membre, à la première connexion
 Infomaniak, à l'approbation d'une inscription, et rattrapage de l'existant au démarrage de l'API
 (`services/member_prospects.py`). Limité à CIRCOE tant que les données ne sont pas isolées par organisation.
+
+## Graphe : interactions
+
+Plein écran, sans en-tête : barre flottante (« Retour à la base », recherche, filtres en panneau repliable). Société =
+rectangle de sa couleur (teinte stable par nom). Clic gauche : sélectionner (Maj/Ctrl : ajouter ; glisser sur le fond :
+cadre de sélection) et déplacer les entités sélectionnées (déplacer un rectangle emmène ses personnes ; positions
+non persistées, réinitialisées quand les filtres changent). Clic droit : Voir la fiche (prospect : tiroir fiche ;
+société : éditeur société), Voir le prospect, Isoler (la société / le prospect / la sélection et leurs contacts ;
+« Tout afficher » annule), Tout voir. Molette : zoom ; molette cliquée ou Espace : naviguer ; Échap : désélectionner.

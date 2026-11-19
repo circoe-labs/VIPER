@@ -1,19 +1,59 @@
 /* « Graphe de prospection » (GraphPage.tsx): a whiteboard of connections. */
 
 .graph-page {
-  display: grid;
-  gap: var(--space-4);
+  position: relative;
+  /* The board takes the whole page: its height fills the window under the header. */
+  height: calc(100dvh - 7rem);
+  min-height: 28rem;
+}
+
+/* Floating tools over the board: back to the base, a quiet search, the filters. */
+.graph-bar {
+  position: absolute;
+  z-index: 3;
+  top: var(--space-3);
+  left: var(--space-3);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-surface) 88%, transparent);
+  backdrop-filter: blur(6px);
+  box-shadow: var(--shadow-overlay);
+}
+
+.graph-bar__back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.graph-bar__search {
+  width: 15rem;
 }
 
 .graph-filters {
+  position: absolute;
+  z-index: 3;
+  top: calc(var(--space-3) + 3rem);
+  left: var(--space-3);
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
-  align-items: end;
-  gap: var(--space-3) var(--space-4);
+  gap: var(--space-3);
+  width: min(20rem, calc(100% - 2 * var(--space-3)));
   padding: var(--space-4);
-  border: var(--border-width) solid var(--color-border);
+  border: var(--border-width) solid var(--color-border-strong);
   border-radius: var(--radius-md);
-  background: var(--color-surface);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-overlay);
+  animation: motion-view-in var(--duration-base) var(--ease-out) both;
+}
+
+.graph-page__notice {
+  position: absolute;
+  inset: 5rem var(--space-3) auto;
+  z-index: 2;
 }
 
 .graph-filters__score {
@@ -27,20 +67,18 @@
 }
 
 .graph-filters__switches {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2) var(--space-5);
-  grid-column: 1 / -1;
+  display: grid;
+  gap: var(--space-2);
 }
 
 .graph-board {
-  position: relative;
-  display: grid;
+  position: absolute;
+  inset: 0;
 }
 
 .graph-canvas {
-  position: relative;
-  height: clamp(26rem, 64vh, 52rem);
+  position: absolute;
+  inset: 0;
   border: var(--border-width) solid var(--color-border);
   border-radius: var(--radius-md);
   /* The whiteboard: a quiet dotted grid. */
@@ -54,13 +92,20 @@
   display: block;
   width: 100%;
   height: 100%;
-  cursor: grab;
+  cursor: default;
   touch-action: none;
   user-select: none;
 }
 
-.graph-canvas svg:active {
-  cursor: grabbing;
+.graph-canvas svg.is-panning {
+  cursor: grab;
+}
+
+.graph-marquee {
+  fill: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  stroke: var(--color-accent);
+  stroke-dasharray: 4 3;
+  pointer-events: none;
 }
 
 .graph-canvas__controls {
@@ -71,23 +116,32 @@
   gap: var(--space-2);
 }
 
-.graph-blob circle {
-  fill: color-mix(in srgb, var(--color-accent) 6%, transparent);
-  stroke: var(--color-border-strong);
-  stroke-dasharray: 6 6;
-  stroke-width: 1.5;
+.graph-blob {
+  cursor: move;
 }
 
-.graph-blob--member circle {
-  fill: var(--color-info-soft);
-  stroke: var(--color-info-fg);
-  stroke-dasharray: none;
+.graph-blob rect {
+  fill: color-mix(in srgb, var(--company-hue) 16%, transparent);
+  stroke: var(--company-hue);
+  stroke-width: 2;
+  transition: fill var(--duration-fast) var(--ease-standard), stroke-width var(--duration-fast) var(--ease-standard);
+}
+
+.graph-blob:hover rect {
+  fill: color-mix(in srgb, var(--company-hue) 24%, transparent);
+}
+
+.graph-blob.is-selected rect {
+  stroke: var(--color-accent-fg);
+  stroke-width: 4;
+  stroke-dasharray: 8 5;
 }
 
 .graph-blob text {
   fill: var(--color-text);
   font-size: 15px;
   font-weight: var(--weight-semibold);
+  pointer-events: none;
 }
 
 .graph-edge line {
@@ -107,7 +161,7 @@
 }
 
 .graph-node {
-  cursor: pointer;
+  cursor: grab;
   outline: none;
   transition: opacity var(--duration-base) var(--ease-standard);
 }
@@ -154,7 +208,24 @@
   stroke-width: 3px;
 }
 
+.graph-legend__hint {
+  margin-left: var(--space-3);
+  padding-left: var(--space-3);
+  border-left: var(--border-width) solid var(--color-border);
+}
+
+.graph-canvas__count {
+  align-self: center;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-accent-soft);
+  color: var(--color-accent-fg);
+  font-size: var(--text-xs);
+}
+
 .graph-legend {
+  flex-wrap: wrap;
+  max-width: calc(100% - 24rem);
   position: absolute;
   left: var(--space-3);
   bottom: var(--space-3);
