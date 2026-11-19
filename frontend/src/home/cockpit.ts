@@ -33,14 +33,14 @@ export function buildCockpit({ metrics, missions, totals }: CockpitSources): Coc
   const week = metrics?.additions
   const items = missions?.items
 
-  // Fixed order = fixed grid: appointments, the base (3), missions (2). A card whose source is missing is left out.
+  // Fixed order = fixed grid: the base (3), appointments, missions (2). A card whose source is missing is left out.
   return [
-    metrics && card('appointments', { label: 'Rendez-vous pris', count: metrics.contact_stock.appointments, weekly: metrics.contact_events.first_appointments, icon: CalendarIcon, tone: 'orange' }),
     ...(week ? [
       card('new_prospects', { label: 'Prospects', count: totals?.prospects, weekly: week.prospects, icon: UserPlusIcon, tone: 'blue' }),
       card('new_companies', { label: 'Entreprises', count: totals?.companies, weekly: week.companies, icon: BuildingIcon, tone: 'purple' }),
       card('new_warehouses', { label: 'Entrepôts', count: totals?.warehouses, weekly: week.warehouses, icon: WarehouseIcon, tone: 'emerald' }),
     ] : []),
+    metrics && card('appointments', { label: 'Rendez-vous pris', count: metrics.contact_stock.appointments, weekly: metrics.contact_events.first_appointments, icon: CalendarIcon, tone: 'orange' }),
     ...(items ? [
       card('missions_active', { label: 'Missions en cours', count: items.filter((mission) => mission.status === 'active').length, icon: SparklesIcon, tone: 'purple' }),
       card('reviews_pending', { label: 'Résultats à vérifier', count: items.reduce((sum, mission) => sum + mission.results_pending, 0), icon: CheckCircleIcon, tone: 'orange' }),

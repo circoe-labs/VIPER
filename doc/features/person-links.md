@@ -36,3 +36,12 @@ Refus : une personne liée à elle-même, un couple déjà lié (422 `duplicate`
   étiquettes des liens, autres prospects des sociétés concernées.
 - Les avatars sont les initiales sur une teinte stable : la base ne contient pas de photo de prospect. Une
   photo pourra remplacer les initiales quand elle existera.
+
+## Membres = prospects (migration 0060)
+
+Chaque membre de l'organisation a aussi une fiche prospect (`prospects.member_user_id`), dans la société qui *est*
+l'organisation (`companies.represents_organization_id`, CIRCOE), au statut `do_not_contact` (motif « Membre de
+l'organisation ») : aucune mission ni séquence ne la cible. Un prospect déjà présent (même adresse, ou même nom :
+« Poté » = Robin Poté) est rattaché, pas dupliqué. Création à l'ajout d'un membre, à la première connexion
+Infomaniak, à l'approbation d'une inscription, et rattrapage de l'existant au démarrage de l'API
+(`services/member_prospects.py`). Limité à CIRCOE tant que les données ne sont pas isolées par organisation.

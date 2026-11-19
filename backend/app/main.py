@@ -14,6 +14,7 @@ from app.api.security_headers import SecurityHeadersMiddleware
 from app.api.worker_wake import WakeCleanupWorkerMiddleware
 from app.core.config import Settings, get_settings
 from app.db.session import create_db_engine, create_session_factory
+from app.services import member_prospects
 from app.services.explorer.sql_console import create_reader_engine
 from app.services.integration_runtime import IntegrationRuntime
 from app.services.login_throttle import LoginThrottle
@@ -36,6 +37,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # tests may replace `app.state.toolbox` before startup.
         integrations: IntegrationRuntime = app.state.integrations
         integrations.start()
+        # Members of the organisation are prospects too (never contacted): catch up the accounts.
+        member_prospects.sync_members(app.state.session_factory)
         scheduler: MissionScheduler | None = app.state.mission_scheduler
         if scheduler is not None:
             scheduler.start()

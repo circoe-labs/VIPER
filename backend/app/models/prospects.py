@@ -89,6 +89,11 @@ class Prospect(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, Base
     )
     do_not_contact_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     do_not_contact_reason: Mapped[str | None] = mapped_column(Text)
+    # The member (login account) this fiche is: members are also in the prospect base, as
+    # do_not_contact, so the relations graph and proximity see them (`services/member_prospects.py`).
+    member_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), unique=True
+    )
 
     emails: Mapped[list[Email]] = relationship(
         back_populates="prospect", cascade="all, delete-orphan", passive_deletes=True

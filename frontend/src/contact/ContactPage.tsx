@@ -113,6 +113,7 @@ export function ContactPage() {
     <div className="contact contact--crm">
       <PageHeader
         mascot="contact"
+        back={{ to: '/', label: 'Accueil' }}
         title="Contacts"
         description="Qui contacter, qui relancer, qui a répondu."
         actions={<Link className="btn btn--primary btn--md" to="/prospection?prospect=new"><PlusIcon size={18} /> Ajouter un contact</Link>}

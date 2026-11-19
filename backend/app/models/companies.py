@@ -80,6 +80,10 @@ class Company(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, Base)
     project_type: Mapped[str | None] = mapped_column(Text)
     circoe_references: Mapped[str | None] = mapped_column(Text)
     client_approach: Mapped[str | None] = mapped_column(Text)
+    # Set on the company that IS an organisation using VIPER (CIRCOE): its members' fiches live there.
+    represents_organization_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("organizations.id", ondelete="SET NULL"), unique=True
+    )
 
     # No reverse relationships from taxonomies/prospects: ORM must never null or delete a
     # RESTRICT-protected reference on their behalf.

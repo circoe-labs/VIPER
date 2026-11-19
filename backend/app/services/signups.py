@@ -24,7 +24,7 @@ from app.core.security import hash_password
 from app.models.organizations import Organization, OrganizationRole
 from app.models.users import User
 from app.repositories import users as user_repository
-from app.services import audit
+from app.services import audit, member_prospects
 from app.services.auth import (
     EMAIL_PATTERN,
     USER_ENTITY,
@@ -150,6 +150,7 @@ def approve(session: Session, viewer: User, token: str) -> User:
         entity_id=user.id,
         reason="sign-up approved",
     )
+    member_prospects.ensure_member_prospect(session, actor_for(viewer), user)
     return user
 
 

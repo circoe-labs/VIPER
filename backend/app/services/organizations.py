@@ -32,7 +32,7 @@ from app.models.organizations import (
 )
 from app.models.users import User
 from app.repositories import users as user_repository
-from app.services import audit
+from app.services import audit, member_prospects
 from app.services.auth import EMAIL_PATTERN, normalize_email
 from app.services.errors import (
     ConflictError,
@@ -133,6 +133,7 @@ def sign_in_identity(session: Session, settings: Settings, identity: Identity) -
             entity_id=user.id,
             reason="first Infomaniak sign-in",
         )
+        member_prospects.ensure_member_prospect(session, INFOMANIAK_ACTOR, user)
     _grant_platform_admin(session, settings, user)
     check_can_sign_in(user, settings)
     session.flush()
@@ -367,6 +368,7 @@ def add_member(
         subject=(ORGANIZATION_ENTITY, organization_id),
         changes={"role": {"after": role.value}},
     )
+    member_prospects.ensure_member_prospect(session, actor, user)
     return user
 
 

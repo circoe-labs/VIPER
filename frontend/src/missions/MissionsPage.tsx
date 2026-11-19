@@ -66,6 +66,7 @@ export function MissionsPage() {
   return (
     <div className="missions">
       <PageHeader mascot="mission"
+        back={{ to: '/', label: 'Accueil' }}
         title="Missions"
         description={
           <span className="missions-detail__meta">
