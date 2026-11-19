@@ -185,6 +185,14 @@ class Settings(BaseSettings):
     # logged or returned. `calendly_sync_interval_ms` 0 = no worker (the button still syncs).
     calendly_api_token: SecretStr | None = None
     calendly_sync_interval_ms: Annotated[int, Field(ge=0, le=86_400_000)] = 600_000
+    # HumanGPT (« Humanizer », Config AI): an optional quality check of a mail before it can be
+    # validated (`POST {base}/detect`). The key is never logged or returned; the gate applies only
+    # when `humanizer_enabled` and a key is saved. `humanizer_min_score`: the minimal human score
+    # (0-100, higher = more human) a message needs. The base URL is environment-only (tests).
+    humanizer_api_key: SecretStr | None = None
+    humanizer_enabled: bool = False
+    humanizer_min_score: Annotated[int, Field(ge=0, le=100)] = 70
+    humanizer_base_url: str = "https://api.humangpt.io/v1"
     # The booking link the AI may copy into a mail; unset = no link at all.
     contact_booking_url: Annotated[str, Field(max_length=2000)] | None = None
     # The task brief always given to the model before it drafts (Paramètres > Prompt initial);
@@ -259,6 +267,7 @@ class Settings(BaseSettings):
     @field_validator(
         "openai_api_key",
         "openai_model",
+        "humanizer_api_key",
         "infomaniak_client_id",
         "infomaniak_client_secret",
         "contact_booking_url",

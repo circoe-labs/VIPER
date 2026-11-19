@@ -111,6 +111,14 @@ export function messageRefusal(error: unknown): MessageRefusal {
       return plain('Ce message n’existe plus : l’affichage est actualisé.', true)
     case 'not_found':
       return plain('Ce prospect n’existe plus : il a peut-être été supprimé entre-temps.')
+    case 'humanizer_score_too_low':
+      return plain(
+        'Le score « humain » du message est sous le minimum requis : retouchez le texte (ou régénérez-le), enregistrez puis revalidez. Le minimum se règle dans « Paramètres avancés ».',
+      )
+    case 'humanizer_unavailable':
+      return plain(
+        'Le contrôle « humain » (HumanGPT) est injoignable : réessayez, ou désactivez-le dans « Paramètres avancés ». Rien n’a été validé.',
+      )
     case 'human_actor_required':
       return plain('Seule une personne connectée peut préparer, valider ou programmer un message.')
     default:

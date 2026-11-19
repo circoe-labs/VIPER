@@ -60,15 +60,23 @@ describe('AI drafting: the button', () => {
 })
 
 describe('AI drafting: the request', () => {
-  it('sends the revision once the step exists, the trimmed and bounded instruction, and `replace` over a saved text', () => {
-    expect(generationPayload(null, '  ')).toEqual({})
-    expect(generationPayload(message('contact', 'draft', { revision: 3 }), ' Plus court ')).toEqual({
+  it('sends the revision once the step exists, the trimmed and bounded instruction, the tone and sender, and `replace` over a saved text', () => {
+    const none = { tone: null, sender: null } as const
+    const options = { options: { tone: null, sender: null } }
+    expect(generationPayload(null, { text: '  ', ...none })).toEqual(options)
+    expect(generationPayload(message('contact', 'draft', { revision: 3 }), { text: ' Plus court ', ...none })).toEqual({
       expected_revision: 3,
       instruction: 'Plus court',
       replace: true,
+      ...options,
     })
-    expect(generationPayload(message('r1', 'draft', { subject: '', body_text: '' }), '')).toEqual({ expected_revision: 1 })
-    expect(generationPayload(null, 'x'.repeat(1200)).instruction).toHaveLength(INSTRUCTION_MAX_LENGTH)
+    expect(generationPayload(message('r1', 'draft', { subject: '', body_text: '' }), { text: '', ...none })).toEqual({
+      expected_revision: 1,
+      ...options,
+    })
+    expect(generationPayload(null, { text: 'x'.repeat(1200), ...none }).instruction).toHaveLength(INSTRUCTION_MAX_LENGTH)
+    expect(generationPayload(null, { text: '', tone: 0, sender: 'person' })).toEqual({ options: { tone: 0, sender: 'person' } })
+    expect(generationPayload(null, { text: '', tone: 5, sender: 'ai' }).options).toEqual({ tone: 5, sender: 'ai' })
   })
 
   it('asks first only when a saved text, unsaved edits or a validation would be lost', () => {

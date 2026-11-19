@@ -237,6 +237,7 @@ export interface MessageSequence {
     from_email: string | null
     to: string[]
     generation_available: boolean
+    humanizer?: HumanizerDefaults
     toolbox_connected: boolean
     toolbox_state: ToolboxState
     // S7: a scheduled message really leaves (the dispatcher runs on the server and the Toolbox is connected).
@@ -271,6 +272,22 @@ export interface GenerateRequest {
   expected_revision?: number
   instruction?: string
   replace?: boolean
+  // Tone 0 (strictly professional) … 5 (friendly) and sender (« as the AI » / « as a person »); null = automatic.
+  options?: { tone: number | null; sender: 'ai' | 'person' | null }
+}
+
+// The humanizer (HumanGPT score check a message must reach before it is validated): global server settings.
+export interface HumanizerDefaults {
+  enabled: boolean
+  configured: boolean
+  min_score: number
+}
+
+export interface HumanizerCheck {
+  human_score: number
+  verdict: string
+  passed: boolean
+  min_score: number
 }
 
 export interface GenerationResult extends MessageResult {
@@ -607,6 +624,14 @@ export function useMessageMutations(prospectId: string) {
       onSuccess: saved,
     }),
   }
+}
+
+// « Vérifier maintenant »: the HumanGPT score of a text (nothing is saved).
+export function useHumanizerCheck() {
+  return useMutation({
+    mutationFn: (text: string) =>
+      apiRequest<HumanizerCheck>('POST', '/contact/humanizer-check', { body: { text }, signal: AbortSignal.timeout(60_000) }),
+  })
 }
 
 // « Programmer une série »: one send moment for the validated mails of a step, for every prospect of the chosen

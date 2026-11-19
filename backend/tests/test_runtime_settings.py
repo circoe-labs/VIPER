@@ -205,6 +205,8 @@ def test_the_api_reports_values_sources_and_fallbacks(client: TestClient) -> Non
         "contact_dispatch_enabled",
         "contact_dispatch_interval_ms",
         "infomaniak_send_allowlist",
+        "humanizer_enabled",
+        "humanizer_min_score",
     }
 
     assert body["initial_prompt_default"].startswith("Tu es l’assistant de prospection de Circoe")

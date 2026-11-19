@@ -162,6 +162,7 @@ def _generate_draft(ctx: DraftContext, args: dict[str, Any]) -> dict[str, Any]:
             expected_revision=body.expected_revision,
             instruction=body.instruction,
             replace=body.replace,
+            options=message_routes.generation_options(body.options),
         ),
         booking_url=settings.contact_booking_url,
         score_config=ScoreConfig.from_settings(settings),
@@ -241,6 +242,34 @@ TOOLS: tuple[DraftTool, ...] = (
                 **_TARGET,
                 "instruction": {"type": "string", "maxLength": MAX_INSTRUCTION_LENGTH},
                 "replace": {"type": "boolean"},
+                "options": {
+                    "type": "object",
+                    "description": (
+                        "Optional style of the mail; omit a field (or pass null) for automatic, "
+                        "chosen from the prospect's proximity."
+                    ),
+                    "properties": {
+                        "tone": {
+                            "type": ["integer", "null"],
+                            "minimum": 0,
+                            "maximum": 5,
+                            "description": (
+                                "0 = strictly professional (vouvoiement, impersonal) ... "
+                                "5 = friendly (like a message to a colleague or a friend); "
+                                "3 and above use tutoiement."
+                            ),
+                        },
+                        "sender": {
+                            "type": ["string", "null"],
+                            "enum": ["ai", "person", None],
+                            "description": (
+                                "`ai`: written as the member's AI assistant; `person`: written "
+                                "directly as the member."
+                            ),
+                        },
+                    },
+                    "additionalProperties": False,
+                },
             },
             "required": ["prospect_id", "step"],
             "additionalProperties": False,

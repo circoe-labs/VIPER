@@ -15,20 +15,32 @@ interface PopoverProps {
   onClose: () => void
   // Align the popover's right edge with the anchor's (anchors near the right side of the screen).
   alignRight?: boolean
+  // Open above the anchor instead of under it (anchors in a bar at the bottom of the screen).
+  above?: boolean
+  // Extra class on the popover box (a wider or narrower one).
+  className?: string
   children: ReactNode
 }
 
 // Small non-modal dialog anchored under a control (column filter editor, column chooser). Focus moves to its first
 // field on open; Tab is not trapped, the page stays usable.
-export function Popover({ anchor, label, onClose, alignRight = false, children }: PopoverProps) {
+export function Popover({ anchor, label, onClose, alignRight = false, above = false, className, children }: PopoverProps) {
   const ref = useRef<HTMLDivElement>(null)
   const rect = anchor.getBoundingClientRect()
-  const { x, y } = useViewportClamp(ref, { x: alignRight ? rect.right : rect.left, y: rect.bottom + GAP }, alignRight)
+  const { x, y } = useViewportClamp(
+    ref,
+    { x: alignRight ? rect.right : rect.left, y: above ? rect.top - GAP : rect.bottom + GAP },
+    alignRight,
+    above,
+  )
   useRestoreFocus()
   useOutsidePress(ref, onClose, anchor)
 
   useEffect(() => {
-    const first = ref.current?.querySelector<HTMLElement>('input, select, textarea, button:not(:disabled)')
+    // The first field (not the « i » of its label), else the first button.
+    const first =
+      ref.current?.querySelector<HTMLElement>('input:not(:disabled), select:not(:disabled), textarea:not(:disabled)') ??
+      ref.current?.querySelector<HTMLElement>('button:not(:disabled)')
     ;(first ?? ref.current)?.focus()
   }, [])
 
@@ -45,7 +57,7 @@ export function Popover({ anchor, label, onClose, alignRight = false, children }
       role="dialog"
       aria-label={label}
       tabIndex={-1}
-      className="popover"
+      className={className ? `popover ${className}` : 'popover'}
       style={{ left: x, top: y }}
       onKeyDown={handleKeyDown}
     >

@@ -9,7 +9,14 @@ export interface Point {
 
 // Places a fixed-position element at `point`, shifted back inside the viewport once its size is known — and again
 // whenever that size changes (content loaded after opening, e.g. the quick week planner).
-export function useViewportClamp(ref: RefObject<HTMLElement | null>, point: Point, alignRight = false) {
+// `alignBottom`: `point.y` is the element's bottom edge (a floating element opening upwards from a control near the
+// bottom of the screen).
+export function useViewportClamp(
+  ref: RefObject<HTMLElement | null>,
+  point: Point,
+  alignRight = false,
+  alignBottom = false,
+) {
   const [position, setPosition] = useState<Point>(point)
 
   useLayoutEffect(() => {
@@ -18,9 +25,10 @@ export function useViewportClamp(ref: RefObject<HTMLElement | null>, point: Poin
     function clamp(target: HTMLElement) {
       const { width, height } = target.getBoundingClientRect()
       const left = alignRight ? point.x - width : point.x
+      const top = alignBottom ? point.y - height : point.y
       setPosition({
         x: Math.max(VIEWPORT_MARGIN, Math.min(left, window.innerWidth - width - VIEWPORT_MARGIN)),
-        y: Math.max(VIEWPORT_MARGIN, Math.min(point.y, window.innerHeight - height - VIEWPORT_MARGIN)),
+        y: Math.max(VIEWPORT_MARGIN, Math.min(top, window.innerHeight - height - VIEWPORT_MARGIN)),
       })
     }
     clamp(element)
@@ -33,7 +41,7 @@ export function useViewportClamp(ref: RefObject<HTMLElement | null>, point: Poin
     return () => {
       observer.disconnect()
     }
-  }, [ref, point.x, point.y, alignRight])
+  }, [ref, point.x, point.y, alignRight, alignBottom])
 
   return position
 }

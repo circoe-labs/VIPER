@@ -485,17 +485,17 @@ reference `src/server/contactMailGenerationService.ts`, `openaiMailGenerator.ts`
 
 | Module | Role |
 |---|---|
-| `app/services/mail_generation/prompt.py` | the versioned prompt (`PROMPT_VERSION = "contact-mail-fr-2026-10-v4"`, v1 = the reference's text, v2 adds the notes and score context, v3 omits an empty score and points score lines to their fact, v4 (2026-10-07) asks for the Circoe structure with a 30-minute proposal, a double self-check of every fact, and no link, closing or signature from the model — the adapter appends the fixed block `mail_block`: the DIHNAMO paragraph and its goal, « Vous pouvez choisir directement votre créneau ici : <booking link> », « Au plaisir d'échanger avec vous, », « L'équipe CIRCOE », then the sender's text signature (name, role, phones, e-mail, site, address; text only: the Toolbox `create_draft` takes no HTML, image or attachment, so the photo of the mail-client signature is not carried); the output is refused when the greeting is not the card's « Bonjour Madame Nom, », the 30-minute proposal is missing, the model wrote the block or a link, or a number appears that the card does not hold; the purpose sentence depends on the rank, sequences rework S3), pure: `build_instructions` (initial prompt + rules), `render_client_card` (the client card) |
+| `app/services/mail_generation/prompt.py` | the versioned prompt (`PROMPT_VERSION = "contact-mail-fr-2026-11-v5"`, v5 (2026-11-19) adds the whole client sheet, the proximity section and the tone / sender options (see *Tone, sender and proximity* below), v1 = the reference's text, v2 adds the notes and score context, v3 omits an empty score and points score lines to their fact, v4 (2026-10-07) asks for the Circoe structure with a 30-minute proposal, a double self-check of every fact, and no link, closing or signature from the model — the adapter appends the fixed block `mail_block`: the DIHNAMO paragraph and its goal, « Vous pouvez choisir directement votre créneau ici : <booking link> », « Au plaisir d'échanger avec vous, », « L'équipe CIRCOE », then the sender's text signature (name, role, phones, e-mail, site, address; text only: the Toolbox `create_draft` takes no HTML, image or attachment, so the photo of the mail-client signature is not carried); the output is refused when the greeting is not the card's « Bonjour Madame Nom, », the 30-minute proposal is missing, the model wrote the block or a link, or a number appears that the card does not hold; the purpose sentence depends on the rank, sequences rework S3), pure: `build_instructions` (initial prompt + rules), `render_client_card` (the client card) |
 | `app/services/mail_generation/openai_client.py` | the OpenAI adapter (`MailGenerator` port, `OpenAIMailGenerator`), output checks, typed errors |
 | `app/services/contact_mail_generation.py` | `prepare` (refusals + prompt, before any AI call), `draft` (the call, logged) |
 | `app/services/contact_messages.py` | `require_generation_target`, `save_generated` (the write, rules checked again) |
 | `app/api/routes/contact_messages.py` | the route; `get_mail_generator` (dependency, overridden by tests) |
 
 **Body** (`GenerateIn`, unknown fields refused — no status, no model): `expected_revision` (omitted/null: the step has
-no message yet; else the revision read), `instruction` (the person's « consigne », ≤ 1 000 characters), `replace`
+no message yet; else the revision read), `instruction` (the person's « consigne », ≤ 1 000 characters), `options` (`{"tone": 0..5 | null, "sender": "ai" | "person" | null}`, `null` or omitted = automatic; same shape in the MCP tool `viper_generate_contact_draft`; 422 outside the range or with another key), `replace`
 (`true` confirms that a saved subject/body is replaced — required when the step has a non-empty text, else 409
 `replace_confirmation_required`). **Answer** `GenerationResult` = `MessageResult` + `"generation": {"model": "<the
-model that answered>", "prompt_version": "contact-mail-fr-2026-10-v4"}`; 201 when the step's message is created.
+model that answered>", "prompt_version": "contact-mail-fr-2026-11-v5"}`; 201 when the step's message is created.
 
 **Flow.** (1) Before any AI call: a person, the prospect exists, the sequence is open, the step is not sent,
 cancelled, being sent (`dispatch_in_progress`) nor **scheduled** (409 `invalid_transition`: unschedule first — never a
@@ -529,8 +529,8 @@ whose note is beyond the cap keeps its text; **v3: a score with no contribution 
 total not being a verified signal); on a regeneration the step's current subject and
 body; the « consigne »; `store: false`; and
 `text.format` = strict `json_schema` `contact_mail` `{subject, body}`. **Structured contact fields are never sent**:
-the e-mail addresses (recipients included), phone numbers, postal addresses, SIREN/SIRET, the tracking state and
-history (the follow-up of the sending, the state history), the audit history, the sender, any other prospect. The fact
+the e-mail addresses (recipients included), phone numbers, postal addresses, SIREN/SIRET, the tracking
+history (since v5 only the non-neutral state label is sent; the follow-up of the sending, the state history), the audit history, the sender, any other prospect. The fact
 notes and the score are the only internal data that enter (v2): they are context to choose a personalisation angle,
 not instructions. **Rules in `instructions` (v2)**: cite a note's fact only when it is provided, as written, never
 enriched; the notes are internal and possibly sensitive, so no private fact (family, spouse, health, opinions, personal
@@ -569,6 +569,64 @@ Plus the message codes (`not_found`, `message_not_found`, `message_exists`, `rev
 failure writes nothing (no message, no audit event). Logs (`mail_generation.started|succeeded|failed|retry`) carry the
 prospect id, step, code, upstream HTTP status and error type, model and duration — never the key, the prompt, the
 answer or an address.
+
+### Tone, sender and proximity (prompt v5, 2026-11-19)
+
+**The client card is the whole sheet except contact details.** On top of v4's lines it now gives, each only when
+filled: the prospect's *Statut d'activité* (Actif / Inactif; unknown is left out), *Emploi vérifié le*, *État
+commercial* (the tracking state when it is not « En séquence »), and the company's *Type d'entreprise* (PME / Grande
+entreprise / Institutionnel), *Services proposés* and *Localisation* (city and country of the main establishment,
+never the street address). Still never sent: e-mail addresses, phone numbers, postal addresses, SIREN/SIRET, the
+tracking history, the audit history, the names of the intermediaries of a proximity path. (There is no LinkedIn field
+on the sheet: a LinkedIn source typed in a note reaches the model with the notes.)
+
+**Proximity** (`person_proximity`, 0-100, see [`proximity-score.md`](proximity-score.md)) is read live and given as its
+own section of the `input`, « Proximité avec le prospect (contexte interne ; à ne jamais mentionner au destinataire) »:
+score and the threshold, state (joignable / aucun membre joignable / aucun lien connu), closest member (first and last
+name of the member at the start of the best path) with the strength of that path, number of links and their relations
+(no intermediary named), number of paths, then the decision taken and the tone kept. The score is **never** quoted in
+the mail. `build_instructions` carries the rule: from **60** the mail is written in the name of that member and the tone
+adapts; below 60, unreachable or without link, no member is named and the mail stays formal.
+
+**Options** (`prompt.GenerationOptions`, resolved by `prompt.resolve_style`; an explicit value always wins):
+
+| Option | Values | Effect |
+|---|---|---|
+| `tone` | `null` = automatic: close (≥ 60 and a member) → **2** from 60, **4** from 80; otherwise **0** | 0 strictly professional (vouvoiement, polite, impersonal), 1 professional and direct, 2 professional and cordial, **3 and above: tutoiement** (3 relaxed and courteous, 4 friendly and light, 5 « message to a colleague or a friend ») |
+| `sender` | `null` = automatic: `ai` when close, else Circoe speaks (« nous ») | `ai`: written as the member's AI assistant (« Bonjour, je suis l'assistant de Robin, je vous contacte… »); `person`: written directly as the member (« Bonjour Pierre, comment vas-tu ? J'ai une nouvelle proposition pour toi… ») |
+
+A member is named only when the proximity is ≥ 60 (whatever the options): with `sender: "ai"` and no member the AI
+introduces itself as « l'assistant de Circoe », with `person` and no member it writes as « un membre de l'équipe
+Circoe », never inventing a name. The tone also drives what the adapter checks and appends: with vouvoiement the first
+line must be « Bonjour Monsieur/Madame Nom, » (civility and last name of the card, « Bonjour, » when one is missing),
+with tutoiement **« Bonjour Prénom, »** (`expected_greeting(..., familiar=True)`, `MailPrompt.greeting`/`.familiar`); the
+fixed closing block (`mail_block(familiar=True)`) uses « Tu peux choisir directement ton créneau ici : » and « Au plaisir
+d'échanger avec toi, » instead of the « vous » lines (the DIHNAMO paragraph is impersonal). The default initial prompt's
+Vatinel example is in vouvoiement: the tone rule tells the model to adapt it. The signature block stays « L'équipe
+CIRCOE » + the sender's signature, also in `person` mode.
+
+### Humanizer (HumanGPT quality gate, 2026-11-19)
+
+Optional, **off by default**, set in Config AI (« Connexions »: key, switch, minimum — see
+[`settings-connections.md`](settings-connections.md)). With the switch on **and** a key saved, **« Valider » checks the
+current body with HumanGPT** (`POST https://api.humangpt.io/v1/detect`, `language: "fr"`, ≤ 8 000 words, Bearer key,
+`app/services/humanizer.py`). The API returns the probability the text is AI (`score`, 0-1); VIPER's **human score** is
+`round((1 − score) × 100)` (0-100, higher = more human) and passes when `≥ humanizer_min_score` (default 70).
+
+| Endpoint | Body | Answer |
+|---|---|---|
+| `POST …/messages/{step}/validate` | `{"expected_revision": n}` | unchanged when the gate is off or passes; else **422 `humanizer_score_too_low`** (« Score d'humanité insuffisant : 60/100 pour un minimum requis de 70/100… », extra `human_score`, `min_score`, `verdict`), or **503 `humanizer_unavailable`** (extra `reason`: `humanizer_not_configured`, `_auth_failed`, `_quota_exceeded`, `_rate_limited`, `_timeout`, `_upstream_error`, `_invalid_output`, `_text_invalid`). The message stays a draft. |
+| `POST /api/contact/humanizer-check` | `{"text": "…"}` or `{"prospect_id": "…", "step": "contact"}` | `{"human_score": 82, "verdict": "human" \| "ai" \| "mixed", "passed": true, "min_score": 70}`; works with the switch off as soon as a key is saved; 422 `invalid` (no text), 503 `humanizer_unavailable` |
+| `GET …/messages` | | `defaults.humanizer = {"enabled": bool, "configured": bool, "min_score": int}` |
+
+Rules: the call is **never silent** — a failure refuses with `humanizer_unavailable` so a person can switch the feature
+off; the check runs **outside any database transaction** (the request's transaction is committed first, then the
+validation runs in its own unit of work, which checks the revision again: a text edited meanwhile is never validated
+unchecked); a missing, stale, non-draft or empty message is left to `validate`'s own refusals (no HumanGPT call). Only
+429 and 5xx are retried (twice, `retry_after_seconds` honoured, ≤ 10 s); a detection waits up to 120 s. Neither the key
+nor the text is logged. `schedule` needs a validated message, so it inherits the gate; **the bulk
+`POST /api/contact/schedule-cohorts`, which validates drafts itself, does not call HumanGPT** (accepted limitation).
+No HumanGPT rewrite (`/humanize`) is used.
 
 ## CIRCOE Toolbox (S6) — Infomaniak drafts of validated messages
 

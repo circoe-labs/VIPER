@@ -60,6 +60,29 @@ async function confirmDialog(title: RegExp, button: string) {
   await userEvent.click(within(dialog).getByRole('button', { name: button }))
 }
 
+// The recipients sit behind one line of the toolbar: it opens them (De, À, Cc, Cci) in a popover.
+async function recipients() {
+  const button = await screen.findByRole('button', { name: /^Destinataires/ })
+  if (button.getAttribute('aria-expanded') !== 'true') await userEvent.click(button)
+}
+
+// The status, the notices and the warnings are icons of the toolbar: the icon's name is the sentence.
+function icon(name: string | RegExp) {
+  return screen.getByRole('button', { name })
+}
+
+// An icon of the toolbar opens its detail in a popover.
+async function openIcon(name: string | RegExp) {
+  await userEvent.click(await screen.findByRole('button', { name }))
+  return screen.findByRole('dialog')
+}
+
+// The rarely used actions (cancel, delete) sit behind the « … » button of the action row.
+async function moreActions() {
+  await userEvent.click(await screen.findByRole('button', { name: 'Plus d’actions' }))
+  return screen.findByRole('menu', { name: 'Plus d’actions' })
+}
+
 function announced() {
   return screen.getAllByRole('status').map((status) => status.textContent).join(' ')
 }
@@ -87,6 +110,7 @@ describe('Contact workbench', () => {
     const { api } = open(detail)
     expect(await screen.findByRole('tab', { name: /^Contact/ })).toHaveAttribute('aria-selected', 'true')
     expect(tab('Contact')).toHaveTextContent('Vide')
+    await recipients()
     expect(field('De')).toHaveValue('prospection@exemple.example')
     expect(field('À')).toHaveValue('claire@exemple.example')
     expect(screen.queryByRole('button', { name: 'Valider…' })).not.toBeInTheDocument()
@@ -162,13 +186,14 @@ describe('Contact workbench', () => {
     await waitFor(() => {
       expect(tab('Contact')).toHaveTextContent('Validé')
     })
-    // « Valider… » is gone: the focus lands on the status sentence, which reads the new status.
+    // « Valider… » is gone: the focus lands on the status icon, which reads the new status.
     await waitFor(() => {
-      expect(screen.getByText(/prêt à être programmé/)).toHaveFocus()
+      expect(icon(/prêt à être programmé/)).toHaveFocus()
     })
 
-    // No default time: « Programmer… » without a date and time says what is missing.
+    // No default time: « Programmer… » opens the send moment; without a date and time it says what is missing.
     await userEvent.click(screen.getByRole('button', { name: 'Programmer…' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Programmer l’envoi…' }))
     expect(screen.getByRole('alert')).toHaveTextContent('Choisissez la date et l’heure d’envoi.')
     const tomorrow = new Date(Date.now() + 86_400_000)
     const day = `${String(tomorrow.getFullYear())}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`
@@ -177,9 +202,10 @@ describe('Contact workbench', () => {
     // The typed moment survives a tab switch.
     await userEvent.click(tab('R1'))
     await userEvent.click(tab('Contact'))
+    await userEvent.click(screen.getByRole('button', { name: 'Programmer…' }))
     expect(screen.getByLabelText('Date d’envoi')).toHaveValue(day)
     expect(screen.getByLabelText('Heure')).toHaveValue('09:30')
-    await userEvent.click(screen.getByRole('button', { name: 'Programmer…' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Programmer l’envoi…' }))
     // Automatic sending inactive (S9): scheduling stays possible, « quand même ».
     await confirmDialog(/Programmer le message Contact/, 'Programmer quand même')
     await waitFor(() => {
@@ -202,6 +228,8 @@ describe('Contact workbench', () => {
     const { api } = open(detail, { contact: message('contact', 'draft', { prospect_id: detail.id }) })
     // Without a date: the plain « Valider… ».
     expect(await screen.findByRole('button', { name: 'Valider…' })).toBeInTheDocument()
+    // The send moment is optional on a draft: the calendar icon opens it.
+    await userEvent.click(screen.getByRole('button', { name: 'Programmer l’envoi (facultatif)' }))
     const tomorrow = new Date(Date.now() + 86_400_000)
     const day = `${String(tomorrow.getFullYear())}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`
     await userEvent.type(screen.getByLabelText('Date d’envoi'), day)
@@ -226,7 +254,8 @@ describe('Contact workbench', () => {
   it('deletes a draft after a confirmation, but offers no deletion once it is validated', async () => {
     const detail = person()
     const { api } = open(detail, { contact: message('contact', 'draft', { prospect_id: detail.id }) })
-    await userEvent.click(await screen.findByRole('button', { name: 'Supprimer le brouillon…' }))
+    await moreActions()
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Supprimer le brouillon…' }))
     const dialog = await screen.findByRole('dialog', { name: /Supprimer le brouillon Contact/ })
     expect(dialog).toHaveTextContent('rien ne part')
     await userEvent.click(within(dialog).getByRole('button', { name: 'Supprimer le brouillon' }))
@@ -234,7 +263,7 @@ describe('Contact workbench', () => {
       expect(sent(api.requests, 'POST', `/api/prospects/${detail.id}/messages/contact/delete`)).toHaveLength(1)
     })
     await waitFor(() => {
-      expect(screen.queryByRole('button', { name: 'Supprimer le brouillon…' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Plus d’actions' })).not.toBeInTheDocument()
     })
     expect(announced()).toContain('Brouillon Contact supprimé')
   })
@@ -242,8 +271,9 @@ describe('Contact workbench', () => {
   it('does not offer to delete a validated message, only to cancel it', async () => {
     const detail = person()
     open(detail, { contact: message('contact', 'validated', { prospect_id: detail.id }) })
-    expect(await screen.findByRole('button', { name: 'Annuler le message…' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Supprimer le brouillon…' })).not.toBeInTheDocument()
+    await moreActions()
+    expect(await screen.findByRole('menuitem', { name: 'Annuler le message…' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Supprimer le brouillon…' })).not.toBeInTheDocument()
   })
 
   it('saves an edited draft and validates it in one confirmed click', async () => {
@@ -266,7 +296,7 @@ describe('Contact workbench', () => {
     const detail = person()
     const { api } = open(detail, { contact: message('contact', 'scheduled', { prospect_id: detail.id }) })
     await userEvent.type(await screen.findByRole('textbox', { name: 'Objet' }), ' modifié')
-    expect(screen.getByRole('note')).toHaveTextContent('l’enregistrer retire la programmation')
+    expect(icon(/l’enregistrer retire la programmation/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Déprogrammer' })).toBeDisabled()
     await userEvent.click(screen.getByRole('button', { name: 'Enregistrer' }))
     await waitFor(() => {
@@ -284,6 +314,7 @@ describe('Contact workbench', () => {
       r1: message('r1', 'validated', { prospect_id: detail.id }),
     })
     await userEvent.click(await screen.findByRole('tab', { name: /^R1/ }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Programmer…' }))
     expect(screen.getByText('Le message Contact est « Validé » : vérifiez que R1 ne partira pas avant lui.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Programmer…' })).toBeEnabled()
   })
@@ -291,13 +322,14 @@ describe('Contact workbench', () => {
   it('cancels after a confirmation and reopens as a draft', async () => {
     const detail = person()
     open(detail, { contact: message('contact', 'validated', { prospect_id: detail.id }) })
-    await userEvent.click(await screen.findByRole('button', { name: 'Annuler le message…' }))
+    await moreActions()
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Annuler le message…' }))
     await confirmDialog(/Annuler le message Contact/, 'Annuler le message')
     await waitFor(() => {
       expect(tab('Contact')).toHaveTextContent('Annulé')
     })
     await waitFor(() => {
-      expect(screen.getByText(/^Annulé le/)).toHaveFocus()
+      expect(icon(/^Annulé le/)).toHaveFocus()
     })
     expect(field('Objet')).toHaveAttribute('readonly')
     await userEvent.click(screen.getByRole('button', { name: 'Rouvrir' }))
@@ -310,9 +342,12 @@ describe('Contact workbench', () => {
   it('keeps a sent message read-only, with no action', async () => {
     const detail = person()
     open(detail, { contact: message('contact', 'sent', { prospect_id: detail.id }) })
-    expect(await screen.findByText('Message envoyé : il reste consultable mais ne peut plus être modifié.')).toBeInTheDocument()
+    expect(
+      await screen.findByRole('button', { name: 'Message envoyé : il reste consultable mais ne peut plus être modifié.' }),
+    ).toBeInTheDocument()
+    await recipients()
     for (const name of ['De', 'À', 'Objet', 'Corps']) expect(field(name)).toHaveAttribute('readonly')
-    for (const name of ['Enregistrer', 'Valider…', 'Annuler le message…', 'Rouvrir']) {
+    for (const name of ['Enregistrer', 'Valider…', 'Plus d’actions', 'Rouvrir']) {
       expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
     }
   })
@@ -320,7 +355,7 @@ describe('Contact workbench', () => {
   it('locks the editor of a closed sequence and of an opposition, and says why', async () => {
     const closed = person({ tracking: trackingDetail({ status: 'appointment_obtained' }) })
     open(closed, { contact: message('contact', 'scheduled', { prospect_id: closed.id }) })
-    expect(await screen.findByText(/Séquence close par l’état « RDV pris »/)).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /Séquence close par l’état « RDV pris »/ })).toBeInTheDocument()
     expect(field('Objet')).toHaveAttribute('readonly')
     expect(screen.getByRole('button', { name: 'Déprogrammer' })).toBeEnabled()
     expect(screen.queryByRole('button', { name: 'Enregistrer' })).not.toBeInTheDocument()
@@ -329,7 +364,7 @@ describe('Contact workbench', () => {
   it('locks the editor of a person in opposition', async () => {
     const blocked = person({ contactability_status: 'do_not_contact', do_not_contact_reason: 'Demande écrite' })
     open(blocked)
-    expect(await screen.findByText(/Prospect en opposition/)).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /Prospect en opposition/ })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Créer le brouillon' })).not.toBeInTheDocument()
     expect(screen.getByRole('complementary', { name: 'Fiche du prospect' })).toHaveTextContent('Ne pas contacter')
   })
@@ -444,12 +479,13 @@ describe('Contact workbench', () => {
     it('says the real sender, then that the validation created the Infomaniak draft', async () => {
       const detail = person()
       open(detail, { contact: message('contact', 'draft', { prospect_id: detail.id }) }, connected)
+      await recipients()
       expect(await screen.findByText(/boîte Infomaniak par défaut du compte connecté/)).toBeInTheDocument()
 
       await userEvent.click(await screen.findByRole('button', { name: 'Valider…' }))
       await confirmDialog(/Valider le message Contact/, 'Valider le message')
 
-      expect(await screen.findByText('Brouillon créé dans Infomaniak.')).toBeInTheDocument()
+      expect(await screen.findByRole('button', { name: 'Brouillon créé dans Infomaniak.' })).toBeInTheDocument()
       expect(screen.getAllByText(/validé et brouillon créé dans Infomaniak/).length).toBeGreaterThan(0)
     })
 
@@ -463,14 +499,14 @@ describe('Contact workbench', () => {
       await userEvent.click(await screen.findByRole('button', { name: 'Valider…' }))
       await confirmDialog(/Valider le message Contact/, 'Valider le message')
 
-      expect(await screen.findByText('Brouillon Infomaniak non créé : la Toolbox ne répond pas.')).toBeInTheDocument()
+      const draft = await openIcon('Brouillon Infomaniak non créé : la Toolbox ne répond pas.')
       // The outcome, in the live region: validated, but the draft is missing.
       expect(screen.getAllByText(/validé, mais le brouillon Infomaniak n’a pas été créé : la Toolbox ne répond pas/).length).toBeGreaterThan(0)
       // The validation stands.
       expect(tab('Contact')).toHaveTextContent('Validé')
-      await userEvent.click(screen.getByRole('button', { name: 'Réessayer' }))
+      await userEvent.click(within(draft).getByRole('button', { name: 'Réessayer' }))
 
-      expect(await screen.findByText('Brouillon créé dans Infomaniak.')).toBeInTheDocument()
+      expect(await screen.findByRole('button', { name: 'Brouillon créé dans Infomaniak.' })).toBeInTheDocument()
       expect(sent(api.requests, 'POST', `/api/prospects/${detail.id}/messages/contact/remote-draft`)).toHaveLength(1)
     })
 
@@ -481,15 +517,16 @@ describe('Contact workbench', () => {
         { contact: message('contact', 'validated', { prospect_id: detail.id }) },
         { defaults: { ...connected.defaults, toolbox_connected: false, toolbox_state: 'expired' as const } },
       )
-      expect(await screen.findByText('Brouillon Infomaniak non créé : Toolbox à reconnecter.')).toBeInTheDocument()
-      expect(screen.queryByRole('button', { name: 'Réessayer' })).not.toBeInTheDocument()
+      const draft = await openIcon('Brouillon Infomaniak non créé : Toolbox à reconnecter.')
+      expect(within(draft).queryByRole('button', { name: 'Réessayer' })).not.toBeInTheDocument()
     })
 
     it('says nothing about Infomaniak while the Toolbox is off', async () => {
       const detail = person()
       open(detail, { contact: message('contact', 'validated', { prospect_id: detail.id }) })
-      expect(await screen.findByText(/prêt à être programmé/)).toBeInTheDocument()
+      expect(await screen.findByRole('button', { name: /prêt à être programmé/ })).toBeInTheDocument()
       expect(screen.queryByText(/Infomaniak/)).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /Infomaniak/ })).not.toBeInTheDocument()
     })
   })
   describe('scheduled sending (S7)', () => {
@@ -510,9 +547,11 @@ describe('Contact workbench', () => {
     async function scheduleTomorrow() {
       const tomorrow = new Date(Date.now() + 86_400_000)
       const day = `${String(tomorrow.getFullYear())}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`
+      // « Programmer… » opens the send moment (once): date and time, then the confirm button of the popover.
+      if (!screen.queryByLabelText('Date d’envoi')) await userEvent.click(await screen.findByRole('button', { name: 'Programmer…' }))
       await userEvent.type(await screen.findByLabelText('Date d’envoi'), day)
       await userEvent.type(screen.getByLabelText('Heure'), '09:30')
-      await userEvent.click(screen.getByRole('button', { name: 'Programmer…' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Programmer l’envoi…' }))
       return screen.findByRole('dialog', { name: /Programmer le message Contact/ })
     }
 
@@ -523,13 +562,16 @@ describe('Contact workbench', () => {
       expect(dialog).toHaveTextContent('Le mail partira automatiquement à cette date depuis la boîte Infomaniak connectée')
       expect(dialog).toHaveTextContent('S’il ne peut pas partir dans les 6 heures qui suivent')
       await userEvent.click(within(dialog).getByRole('button', { name: 'Programmer l’envoi' }))
-      expect(await screen.findByText(/^Programmé : le mail partira automatiquement le .* déprogrammable jusqu’à l’envoi\.$/)).toBeInTheDocument()
+      expect(
+        await screen.findByRole('button', { name: /^Programmé : le mail partira automatiquement le .* déprogrammable jusqu’à l’envoi\.$/ }),
+      ).toBeInTheDocument()
     })
 
     it('says plainly that nothing leaves while automatic sending is off, with the link that fixes it (S9)', async () => {
       const detail = person()
       open(detail, { contact: message('contact', 'validated', { prospect_id: detail.id }) })
-      // Before « Programmer… »: the warning and its link under the date and time.
+      // Before confirming: the warning and its link under the date and time, in the send moment's popover.
+      await userEvent.click(await screen.findByRole('button', { name: 'Programmer…' }))
       const schedule = await screen.findByRole('group', { name: 'Programmer l’envoi' })
       expect(await within(schedule).findByText(/Envoi automatique inactif : CIRCOE Toolbox n’est pas connectée/)).toBeInTheDocument()
       expect(within(schedule).getByRole('link', { name: 'Connecter CIRCOE Toolbox' })).toHaveAttribute('href', '/settings/connections')
@@ -537,15 +579,15 @@ describe('Contact workbench', () => {
       expect(dialog).toHaveTextContent('Envoi automatique inactif : CIRCOE Toolbox n’est pas connectée')
       expect(within(dialog).getByRole('link', { name: 'Connecter CIRCOE Toolbox' })).toHaveAttribute('href', '/settings/connections')
       await userEvent.click(within(dialog).getByRole('button', { name: 'Programmer quand même' }))
-      expect(await screen.findByText('Ne partira pas : Toolbox non connectée')).toBeInTheDocument()
-      expect(screen.getByText(/^Programmé pour le /)).toBeInTheDocument()
+      expect(await screen.findByRole('button', { name: 'Ne partira pas : Toolbox non connectée' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /^Programmé pour le / })).toBeInTheDocument()
     })
 
     it('warns that a scheduled message will not leave when the person switched sending off (S9)', async () => {
       const detail = person()
       const past = new Date(Date.now() - 3_600_000).toISOString()
       open(detail, { contact: message('contact', 'scheduled', { prospect_id: detail.id, scheduled_at: past }) }, { defaults: { ...active.defaults, automatic_sending_active: false, dispatch_reason: 'disabled' } })
-      expect(await screen.findByText('Ne partira pas : envoi automatique désactivé')).toBeInTheDocument()
+      await openIcon('Ne partira pas : envoi automatique désactivé')
       expect(screen.getByText(/L’heure prévue est passée : s’il ne peut pas partir dans les 6 heures/)).toBeInTheDocument()
       expect(screen.getByRole('link', { name: 'Activer l’envoi automatique' })).toHaveAttribute('href', '/settings/connections')
     })
@@ -553,10 +595,10 @@ describe('Contact workbench', () => {
     it('explains an overdue message went back to Validé and offers to schedule it again (S9)', async () => {
       const detail = person()
       open(detail, { contact: message('contact', 'validated', { prospect_id: detail.id, last_error_code: 'dispatch_overdue' }) }, active)
-      expect(await screen.findByText(/^Pas envoyé : l’heure prévue était dépassée de plus de 6 heures/)).toBeInTheDocument()
+      await openIcon(/^Pas envoyé : l’heure prévue était dépassée de plus de 6 heures/)
       expect(screen.getByText(/VIPER n’envoie jamais un mail en retard/)).toBeInTheDocument()
-      expect(screen.getByRole('group', { name: 'Programmer l’envoi' })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: 'Programmer…' })).toBeInTheDocument()
+      await userEvent.click(screen.getByRole('button', { name: 'Programmer…' }))
+      expect(await screen.findByRole('group', { name: 'Programmer l’envoi' })).toBeInTheDocument()
     })
 
     it('locks a message being sent', async () => {
@@ -578,7 +620,8 @@ describe('Contact workbench', () => {
         has_remote_draft: true,
       })
       const { api } = open(detail, { contact: unconfirmed, r1: message('r1', 'scheduled', { prospect_id: detail.id, dispatch_claimed_at: new Date().toISOString(), last_error_code: 'send_reconcile_inconclusive' }) }, active)
-      expect(await screen.findByText(/^Envoi non confirmé : la Toolbox n’a pas donné de réponse sûre/)).toBeInTheDocument()
+      await openIcon('Envoi non confirmé : à trancher')
+      expect(screen.getByText(/^Envoi non confirmé : la Toolbox n’a pas donné de réponse sûre/)).toBeInTheDocument()
 
       await userEvent.click(screen.getByRole('button', { name: 'Remettre en Validé…' }))
       const dialog = await screen.findByRole('dialog', { name: /Remettre le message Contact en Validé/ })
@@ -588,7 +631,7 @@ describe('Contact workbench', () => {
       await waitFor(() => {
         expect(tab('Contact')).toHaveTextContent('Validé')
       })
-      expect(screen.getByText(/^Remis en Validé par une personne après un envoi non confirmé/)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /^Remis en Validé par une personne après un envoi non confirmé/ })).toBeInTheDocument()
       expect(sent(api.requests, 'POST', `/api/prospects/${detail.id}/messages/contact/release`)).toHaveLength(1)
 
       await userEvent.click(tab('R1'))
@@ -597,7 +640,9 @@ describe('Contact workbench', () => {
       await waitFor(() => {
         expect(tab('R1')).toHaveTextContent('Envoyé')
       })
-      expect(screen.getByText('Envoi confirmé par une personne après vérification dans la boîte Infomaniak.')).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: 'Envoi confirmé par une personne après vérification dans la boîte Infomaniak.' }),
+      ).toBeInTheDocument()
     })
 
     it('waits for the claim’s delay before « Remettre en Validé », and hides the draft line meanwhile', async () => {
@@ -616,15 +661,16 @@ describe('Contact workbench', () => {
       )
       expect(await screen.findByRole('button', { name: 'Remettre en Validé…' })).toBeDisabled()
       expect(screen.getByRole('button', { name: 'Marquer envoyé…' })).toBeEnabled()
+      await openIcon('Envoi non confirmé : à trancher')
       expect(screen.getByText(/^« Remettre en Validé » possible à partir de /)).toBeInTheDocument()
-      expect(screen.queryByText('Brouillon créé dans Infomaniak.')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Brouillon créé dans Infomaniak.' })).not.toBeInTheDocument()
     })
 
     it('says a deduced send', async () => {
       const detail = person()
       open(detail, { contact: message('contact', 'sent', { prospect_id: detail.id, last_error_code: 'send_reconciled_draft_absent' }) }, active)
-      expect(await screen.findByText(/^Envoi déduit : la Toolbox n’a pas confirmé l’envoi/)).toBeInTheDocument()
-      expect(screen.getByText(/^Envoyé le /)).toBeInTheDocument()
+      expect(await screen.findByRole('button', { name: /^Envoi déduit : la Toolbox n’a pas confirmé l’envoi/ })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /^Envoyé le / })).toBeInTheDocument()
     })
   })
 })

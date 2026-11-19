@@ -16,12 +16,17 @@ test.beforeEach(async ({ page }) => {
   await signIn(page)
 })
 
-function card(page: Page, label: string) {
-  return page.getByRole('region', { name: 'Compteurs' }).getByRole('button', { name: new RegExp(`^${label}`) })
-}
-
 function mailTab(page: Page, step: string) {
   return page.getByRole('tablist', { name: 'Étapes de la séquence' }).getByRole('tab', { name: new RegExp(`^${step}`) })
+}
+
+// « Paramètres avancés » of the AI drafting: the extra instructions, typed in the dialog, which is then closed.
+async function setInstruction(page: Page, text: string) {
+  await page.getByRole('button', { name: 'Paramètres avancés' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Paramètres avancés' })
+  await dialog.getByRole('textbox', { name: 'Consignes supplémentaires' }).fill(text)
+  await dialog.getByRole('button', { name: 'OK' }).click()
+  await expect(dialog).toBeHidden()
 }
 
 function pad(value: number) {
@@ -77,62 +82,57 @@ test('operator flow: draft, validate, schedule, unschedule, edit back to draft, 
   const suffix = uniqueSuffix()
   const tag = `CE2E${suffix}`
   const email = `lina.${suffix}@contact-e2e.example`
-  await createContactProspect(page, tag, { civility: 'ms', first_name: 'Lina', last_name: `Contact${suffix}`, email })
+  const { id } = await createContactProspect(page, tag, { civility: 'ms', first_name: 'Lina', last_name: `Contact${suffix}`, email })
 
-  await page.goto(`/contact?q=${tag}`)
-  await expect(card(page, 'Premier contact').locator('.counter-card__count')).toHaveText('1')
-  await expect(card(page, 'À traiter cette semaine').locator('.counter-card__count')).toHaveText('1')
-  await expect(card(page, 'RDV pris').locator('.counter-card__count')).toHaveText('0')
-  // « Cette semaine » is the default: the planned person is listed.
+  // The list (a view of the Contact page) holds the planned person; the workbench opens on her.
+  await page.goto(`/contact?view=to_contact&q=${tag}`)
   const list = page.getByRole('list', { name: 'Prospects à contacter' })
   await expect(list.getByRole('listitem')).toHaveCount(1)
-
-  await card(page, 'Premier contact').click()
-  await expect(card(page, 'Premier contact')).toHaveAttribute('aria-pressed', 'true')
-  await expect(page).toHaveURL(/counter=first_contact/)
-  await expect(page.getByRole('combobox', { name: 'Semaine' })).toHaveValue('all')
-  await expect(list.getByRole('listitem').first()).toContainText('Premier contact')
   await list.getByRole('link', { name: `Lina Contact${suffix}` }).click()
+  await expect(page).toHaveURL(new RegExp(`prospect=${id}`))
 
   // The workbench: the sheet on the left (its heading focused), the mail sequence on the right, Contact tab first.
   await expect(page.getByRole('heading', { level: 2, name: `Mme Lina Contact${suffix}` })).toBeFocused()
   await expect(page.getByRole('complementary', { name: 'Fiche du prospect' })).toContainText(email)
   await expect(mailTab(page, 'Contact')).toHaveAttribute('aria-selected', 'true')
-  await expect(mailTab(page, 'Contact')).toContainText('Vide')
+  // The step to send next is drafted on arrival by the AI (the fake OpenAI): the person rewrites it by hand.
+  await expect(page.getByRole('textbox', { name: 'Objet' })).toHaveValue(/^Agents IA pour /)
+  // The recipients sit behind one line of the toolbar: it opens De, À, Cc, Cci in a popover.
+  await page.getByRole('button', { name: /^Destinataires/ }).click()
   const from = page.getByRole('textbox', { name: 'De' })
   if ((await from.inputValue()) === '') await from.fill('prospection@exemple.example')
   await expect(page.getByRole('textbox', { name: 'À', exact: true })).toHaveValue(email)
+  await page.keyboard.press('Escape')
   await page.getByRole('textbox', { name: 'Objet' }).fill('Transport de vos marchandises (test)')
   await page.getByRole('textbox', { name: 'Corps' }).fill('Bonjour,\n\nCeci est un message synthétique de test.\n\nCordialement')
-  await page.getByRole('button', { name: 'Créer le brouillon' }).click()
+  await page.getByRole('button', { name: 'Enregistrer', exact: true }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Message Contact enregistré.' })).toHaveCount(1)
   await expect(mailTab(page, 'Contact')).toContainText('Brouillon')
-  await expect(page.getByRole('status').filter({ hasText: 'Brouillon Contact créé.' })).toHaveCount(1)
 
   await captureBoth(page, 'contact-draft', [1440, 1280])
 
   await page.getByRole('button', { name: 'Valider…' }).click()
   await confirm(page, /Valider le message Contact/, 'Valider le message')
   await expect(mailTab(page, 'Contact')).toContainText('Validé')
-  await expect(page.getByText(/prêt à être programmé/)).toBeFocused()
+  await expect(page.getByRole('button', { name: /prêt à être programmé/ })).toBeFocused()
 
   // Schedule: no default time — date and time are typed.
+  await page.getByRole('button', { name: 'Programmer…', exact: true }).click()
   await page.getByLabel('Date d’envoi').fill(tomorrow())
   await page.getByLabel('Heure').fill('09:30')
-  await page.setViewportSize({ width: 1440, height: 1250 })
   await page.screenshot({ path: `${SCREENSHOTS}/contact-validated-dark-1440.png`, animations: 'disabled' })
-  await page.setViewportSize({ width: 1440, height: 900 })
-  await page.getByRole('button', { name: 'Programmer…' }).click()
+  await page.getByRole('button', { name: 'Programmer l’envoi…' }).click()
   // Automatic sending inactive in this project (S9): « Programmer quand même » (« Programmer l’envoi » once it is active).
   await confirm(page, /Programmer le message Contact/, /^Programmer (l’envoi|quand même)$/)
   await expect(mailTab(page, 'Contact')).toContainText('Programmé')
-  await expect(page.getByText(/Programmé pour le/)).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Programmé pour le/ })).toBeVisible()
 
   await page.getByRole('button', { name: 'Déprogrammer' }).click()
   await expect(mailTab(page, 'Contact')).toContainText('Validé')
 
   // An edit of a validated message says it goes back to draft, and does.
   await page.getByRole('textbox', { name: 'Objet' }).fill('Transport de vos marchandises (test, v2)')
-  await expect(page.getByRole('note')).toContainText('l’enregistrer le repasse en Brouillon')
+  await expect(page.getByRole('button', { name: /l’enregistrer le repasse en Brouillon/ })).toBeVisible()
   await page.getByRole('button', { name: 'Enregistrer', exact: true }).click()
   await expect(page.getByRole('status').filter({ hasText: 'Message Contact enregistré et repassé en Brouillon : à revalider.' })).toHaveCount(1)
   await expect(mailTab(page, 'Contact')).toContainText('Brouillon')
@@ -143,15 +143,14 @@ test('operator flow: draft, validate, schedule, unschedule, edit back to draft, 
   await confirm(page, /Passer à « Réponse reçue »/, 'Confirmer « Réponse reçue »')
   await expect(page.getByRole('status').filter({ hasText: 'Suivi enregistré. 1 message non envoyé annulé.' })).toHaveCount(1)
   await expect(mailTab(page, 'Contact')).toContainText('Annulé')
-  await expect(page.getByText(/Séquence close par l’état « Réponse reçue »/)).toBeVisible()
+  await expect(page.getByRole('button', { name: /Séquence close par l’état « Réponse reçue »/ })).toBeVisible()
   await expect(page.getByRole('textbox', { name: 'Objet' })).toHaveAttribute('readonly', '')
 
   await captureBoth(page, 'contact-locked', [1440])
 
-  // Back to the list: the person left « Premier contact » (the state moved, nothing to prepare any more).
+  // Back to the list: the workbench closes.
   await page.getByRole('button', { name: 'Retour à la liste' }).click()
-  await expect(card(page, 'Premier contact').locator('.counter-card__count')).toHaveText('0')
-  await expect(page.getByText('Aucun prospect ne correspond à ces critères.')).toBeVisible()
+  await expect(page.getByRole('tablist', { name: 'Étapes de la séquence' })).toBeHidden()
   // « Retour à la liste » went back to the list's entry: going forward reopens the workbench, not Back.
   await page.goForward()
   await expect(page.getByRole('tablist', { name: 'Étapes de la séquence' })).toBeVisible()
@@ -209,19 +208,23 @@ test('AI drafting: generate with a « consigne », regenerate after validation, 
   const { id, company } = await createContactProspect(page, tag, { civility: 'ms', first_name: 'Inès', last_name: `Redac${suffix}`, email })
   await page.goto(`/contact?q=${tag}&prospect=${id}`)
 
-  const generate = page.getByRole('button', { name: 'Générer avec l’IA' })
+  // The step to send next is drafted on arrival; the person then regenerates it with an instruction (confirmed first).
+  await expect(page.getByRole('textbox', { name: 'Objet' })).toHaveValue(`Agents IA pour ${company}`)
+  const generate = page.getByRole('button', { name: 'Régénérer avec l’IA' })
   await expect(generate).toBeEnabled()
-  await page.getByRole('button', { name: 'Consigne' }).click()
-  await page.getByRole('textbox', { name: 'Consigne pour l’IA (facultatif)' }).fill('Plus court')
+  await setInstruction(page, 'Plus court')
   await generate.click()
+  await page.getByRole('dialog', { name: 'Régénérer le message Contact ?' }).getByRole('button', { name: 'Remplacer par la proposition' }).click()
 
   await expect(page.getByRole('textbox', { name: 'Objet' })).toHaveValue(`Agents IA pour ${company}`)
   const body = page.getByRole('textbox', { name: 'Corps' })
   await expect(body).toHaveValue(new RegExp(`^Bonjour Madame Redac${suffix},`))
   await expect(body).toHaveValue(/\(Consigne appliquée : Plus court\)/)
   await expect(body).toHaveValue(new RegExp(E2E_BOOKING_URL.replaceAll('.', '\\.')))
-  await expect(page.getByText('Rédigé par l’IA — à relire avant de valider.')).toBeVisible()
-  await expect(page.getByText(/Modèle fake-e2e-model-snapshot · prompt contact-mail-fr-2026-10-v4/)).toBeVisible()
+  // « Rédigé par l'IA » is an icon; its detail (model and prompt version) opens on click.
+  await page.getByRole('button', { name: 'Rédigé par l’IA — à relire avant de valider.' }).click()
+  await expect(page.getByText(/Modèle fake-e2e-model-snapshot · prompt contact-mail-fr-/)).toBeVisible()
+  await page.keyboard.press('Escape')
   await expect(mailTab(page, 'Contact')).toContainText('Brouillon')
 
   // What reached the model: the step and the facts, never the e-mail address.
@@ -230,18 +233,19 @@ test('AI drafting: generate with a « consigne », regenerate after validation, 
     store: boolean
   }[]
   const mine = received.filter((request) => request.input.includes(`Redac${suffix}`))
-  expect(mine).toHaveLength(1)
-  expect(mine[0]?.input).toContain('Étape : Contact')
-  expect(mine[0]?.input).toContain('Fiche client')
-  expect(mine[0]?.input).not.toContain(email)
-  expect(mine[0]?.store).toBe(false)
+  expect(mine).toHaveLength(2)
+  const last = mine.at(-1)
+  expect(last?.input).toContain('Étape : Contact')
+  expect(last?.input).toContain('Fiche client')
+  expect(last?.input).not.toContain(email)
+  expect(last?.store).toBe(false)
 
   // Design review, both themes: the generated draft, then the « consigne » open (tall enough for the action bar); no
   // horizontal overflow down to 1280 px.
   for (const theme of ['dark', 'light'] as const) {
     await useTheme(page, theme)
     await page.reload()
-    await expect(page.getByText('Rédigé par l’IA — à relire avant de valider.')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Rédigé par l’IA — à relire avant de valider.' })).toBeVisible()
     for (const width of [1440, 1280]) {
       await page.setViewportSize({ width, height: 1500 })
       await page.screenshot({ path: `${SCREENSHOTS}/contact-ai-draft-${theme}-${String(width)}.png`, animations: 'disabled' })
@@ -249,14 +253,15 @@ test('AI drafting: generate with a « consigne », regenerate after validation, 
       expect(overflow, `no horizontal overflow at ${String(width)} px`).toBe(0)
     }
     await page.setViewportSize({ width: 1440, height: 1500 })
-    await page.getByRole('button', { name: 'Consigne' }).click()
-    await page.getByRole('textbox', { name: 'Consigne pour l’IA (facultatif)' }).fill('Insister sur la logistique')
+    await page.getByRole('button', { name: 'Paramètres avancés' }).click()
+    await page.getByRole('textbox', { name: 'Consignes supplémentaires' }).fill('Insister sur la logistique')
     await page.screenshot({ path: `${SCREENSHOTS}/contact-ai-consigne-${theme}-1440.png`, animations: 'disabled' })
+    await page.getByRole('dialog', { name: 'Paramètres avancés' }).getByRole('button', { name: 'OK' }).click()
   }
   await useTheme(page, 'dark')
   await page.reload()
   await page.setViewportSize({ width: 1440, height: 900 })
-  await expect(page.getByText('Rédigé par l’IA — à relire avant de valider.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Rédigé par l’IA — à relire avant de valider.' })).toBeVisible()
 
   // Validate, then regenerate: confirmed first, back to Brouillon.
   await page.getByRole('button', { name: 'Valider…' }).click()
@@ -271,8 +276,7 @@ test('AI drafting: generate with a « consigne », regenerate after validation, 
 
   // A failing AI (the fake answers 503 to this « consigne »): said on screen, the saved text stays.
   const saved = await body.inputValue()
-  await page.getByRole('button', { name: 'Consigne' }).click()
-  await page.getByRole('textbox', { name: 'Consigne pour l’IA (facultatif)' }).fill('FAKE_AI_FAIL')
+  await setInstruction(page, 'FAKE_AI_FAIL')
   await page.getByRole('button', { name: 'Régénérer avec l’IA' }).click()
   await page.getByRole('dialog', { name: 'Régénérer le message Contact ?' }).getByRole('button', { name: 'Remplacer par la proposition' }).click()
   await expect(page.getByRole('alert')).toContainText('Le service d’IA a échoué ou est injoignable. Rien n’a été modifié')

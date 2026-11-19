@@ -18,7 +18,13 @@ Session-protected like every feature route (CSRF on PUT/POST); a person only.
                                              `viper_list_calendly_appointments`;
 - `POST /settings/integrations/calendly/check` « Tester le jeton »: `GET /users/me`;
 - `POST /settings/integrations/openai/check` « Tester la clé »: one `GET /models/{model}` with the
-                                             saved key (no token generated); answers the outcome.
+                                             saved key (no token generated); answers the outcome;
+- `POST /settings/integrations/humanizer/check` « Tester la clé » HumanGPT: `GET /v1/usage` with
+                                             the saved key (nothing consumed): `{ok, code,
+                                             elapsed_ms}`. The key is `humanizer_api_key`
+                                             (write-only, `humanizer_api_key` secret in the GET),
+                                             next to `humanizer_enabled` and `humanizer_min_score`
+                                             (0-100) in `fields`; `humanizer_available` = a key.
 
 Refusals: 422 `invalid` with the `field` (the startup rules of `Settings`), 409 `conflict` (the
 settings changed since `version` was read), 403 `human_actor_required`. A save is audited
@@ -39,7 +45,7 @@ from app.api.dependencies import CurrentActor, SessionDep
 from app.api.errors import business_errors
 from app.core.actor import ActorContext, ActorType
 from app.core.config import Settings
-from app.services import audit
+from app.services import audit, humanizer
 from app.services.audit import AuditAction
 from app.services.calendly import CalendlyClient, CalendlyError, list_appointments
 from app.services.contact_dispatch_state import DispatchReason, dispatch_state, sending_reason
@@ -57,7 +63,6 @@ from app.services.prospect_scoring_prompt import (
     DEFAULT_CIRCOE_TARGET,
     DEFAULT_PROSPECT_SCORING_PROMPT,
 )
-from app.services.taxonomy_cleanup_prompt import DEFAULT_TAXONOMY_CLEANUP_PROMPT
 from app.services.runtime_settings import (
     EDITABLE_FIELDS,
     SECRET_FIELDS,
@@ -65,6 +70,7 @@ from app.services.runtime_settings import (
     SECRET_REPLACED,
     RuntimeSettings,
 )
+from app.services.taxonomy_cleanup_prompt import DEFAULT_TAXONOMY_CLEANUP_PROMPT
 from app.services.toolbox.diagnostics import (
     DEFAULT_DELAY_SECONDS,
     MAX_DELAY_SECONDS,
@@ -129,6 +135,9 @@ class IntegrationsOut(BaseModel):
     fields: dict[str, FieldOut]
     openai_api_key: SecretOut
     calendly_api_token: SecretOut
+    # HumanGPT (« Humanizer »): the write-only key's metadata, and whether a key is saved.
+    humanizer_api_key: SecretOut
+    humanizer_available: bool
     generation_available: bool
     # The built-in prompt `contact_initial_prompt` falls back to (« Rétablir le texte par défaut »).
     initial_prompt_default: str
@@ -153,6 +162,9 @@ class IntegrationsIn(BaseModel):
     openai_api_key: Annotated[str, Field(max_length=500)] | None = None
     # A Calendly personal access token is a JWT of ~900+ characters: 500 refused real tokens (422).
     calendly_api_token: Annotated[str, Field(max_length=4000)] | None = None
+    humanizer_api_key: Annotated[str, Field(max_length=500)] | None = None
+    humanizer_enabled: bool | None = None
+    humanizer_min_score: Annotated[int, Field(ge=0, le=100)] | None = None
     openai_model: Text | None = None
     openai_base_url: Text | None = None
     openai_timeout_ms: int | None = None
@@ -205,6 +217,7 @@ def integrations_out(request: Request, session: Session) -> IntegrationsOut:
         )
     key = runtime.secret_meta("openai_api_key")
     calendly = runtime.secret_meta("calendly_api_token")
+    humanizer_key = runtime.secret_meta("humanizer_api_key")
     integration: ToolboxIntegration = request.app.state.toolbox
     status = integration.status()
     dispatcher: ContactDispatcher | None = request.app.state.contact_dispatcher
@@ -232,6 +245,14 @@ def integrations_out(request: Request, session: Session) -> IntegrationsOut:
             updated_at=calendly.updated_at,
             updated_by=calendly.updated_by,
         ),
+        humanizer_api_key=SecretOut(
+            set=humanizer_key.set,
+            last4=humanizer_key.last4,
+            source=humanizer_key.source,
+            updated_at=humanizer_key.updated_at,
+            updated_by=humanizer_key.updated_by,
+        ),
+        humanizer_available=humanizer.configured(effective),
         generation_available=effective.generation_available,
         initial_prompt_default=DEFAULT_INITIAL_PROMPT,
         mission_creator_prompt_default=DEFAULT_MISSION_CREATOR_PROMPT,
@@ -348,6 +369,38 @@ def check_openai(request: Request, actor: CurrentActor) -> CheckOut:
     elapsed = round((time.monotonic() - started) * 1000)
     logger.info("integrations.openai_check_ok elapsed_ms=%s by=%s", elapsed, actor.id)
     return CheckOut(ok=True, code=None, model=model, elapsed_ms=elapsed)
+
+
+class HumanizerCheckOut(BaseModel):
+    ok: bool
+    # The `humanizer_*` code of a failed check (`humanizer_not_configured`, `humanizer_auth_failed`,
+    # `humanizer_quota_exceeded`, `humanizer_rate_limited`, `humanizer_timeout`,
+    # `humanizer_upstream_error`…).
+    code: str | None
+    elapsed_ms: int
+
+
+@router.post("/humanizer/check")
+def check_humanizer(request: Request, actor: CurrentActor) -> HumanizerCheckOut:
+    """« Tester la clé » of HumanGPT: the saved key, not what the form holds."""
+    settings: Settings = request.app.state.settings
+    started = time.monotonic()
+    try:
+        humanizer.HumanizerClient.from_settings(
+            settings, request.app.state.humanizer_transport
+        ).check_key()
+    except humanizer.HumanizerError as error:
+        elapsed = round((time.monotonic() - started) * 1000)
+        logger.warning(
+            "integrations.humanizer_check_failed code=%s upstream_status=%s upstream_code=%s",
+            error.code,
+            error.upstream_status,
+            error.upstream_code,
+        )
+        return HumanizerCheckOut(ok=False, code=error.code, elapsed_ms=elapsed)
+    elapsed = round((time.monotonic() - started) * 1000)
+    logger.info("integrations.humanizer_check_ok elapsed_ms=%s by=%s", elapsed, actor.id)
+    return HumanizerCheckOut(ok=True, code=None, elapsed_ms=elapsed)
 
 
 class ModelsOut(BaseModel):

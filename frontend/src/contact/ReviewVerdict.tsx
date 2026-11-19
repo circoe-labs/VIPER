@@ -19,11 +19,13 @@ export function ReviewVerdictControl({ verdict, reviewedBy, disabled, loading, o
   }
   return (
     <div className="contact-mail__review" role="group" aria-label="Avis sur le texte">
-      <span className="contact-mail__review-label">Texte du mail :</span>
+      <span className="visually-hidden">Texte du mail :</span>
       <Button
         size="sm"
         icon={CheckIcon}
+        title={verdict === 'correct' && reviewedBy ? `Texte relu et jugé correct par ${reviewedBy}` : 'Texte du mail : correct'}
         variant={verdict === 'correct' ? 'primary' : 'secondary'}
+        aria-label="Correct"
         aria-pressed={verdict === 'correct'}
         loading={loading === 'correct'}
         disabled={disabled}
@@ -31,12 +33,14 @@ export function ReviewVerdictControl({ verdict, reviewedBy, disabled, loading, o
           choose('correct')
         }}
       >
-        Correct
+        <span className="mail-bar__label">Correct</span>
       </Button>
       <Button
         size="sm"
         icon={CloseIcon}
+        title={verdict === 'to_revise' && reviewedBy ? `Texte à revoir, selon ${reviewedBy}` : 'Texte du mail : à revoir'}
         variant={verdict === 'to_revise' ? 'primary' : 'secondary'}
+        aria-label="À revoir"
         aria-pressed={verdict === 'to_revise'}
         loading={loading === 'to_revise'}
         disabled={disabled}
@@ -44,9 +48,9 @@ export function ReviewVerdictControl({ verdict, reviewedBy, disabled, loading, o
           choose('to_revise')
         }}
       >
-        À revoir
+        <span className="mail-bar__label">À revoir</span>
       </Button>
-      {verdict && reviewedBy && <span className="contact-mail__review-by">relu par {reviewedBy}</span>}
+      {verdict && reviewedBy && <span className="visually-hidden">relu par {reviewedBy}</span>}
     </div>
   )
 }

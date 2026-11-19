@@ -14,8 +14,8 @@ import { formatDateTime } from '../contact/labels'
 
 type Kind = 'text' | 'seconds' | 'integer'
 
-// The switches (`toolbox_mail_enabled`, `contact_dispatch_enabled`) are saved as they are toggled: not form fields.
-const KINDS: Record<Exclude<IntegrationField, 'toolbox_mail_enabled' | 'contact_dispatch_enabled'>, Kind> = {
+// The switches (`toolbox_mail_enabled`, `contact_dispatch_enabled`, `humanizer_enabled`) are saved as they are toggled: not form fields.
+const KINDS: Record<Exclude<IntegrationField, 'toolbox_mail_enabled' | 'contact_dispatch_enabled' | 'humanizer_enabled'>, Kind> = {
   openai_model: 'text',
   openai_base_url: 'text',
   openai_timeout_ms: 'seconds',
@@ -30,6 +30,7 @@ const KINDS: Record<Exclude<IntegrationField, 'toolbox_mail_enabled' | 'contact_
   toolbox_oauth_redirect_uri: 'text',
   contact_dispatch_interval_ms: 'seconds',
   infomaniak_send_allowlist: 'text',
+  humanizer_min_score: 'integer',
 }
 
 export type FormField = keyof typeof KINDS
@@ -75,6 +76,7 @@ export const FIELD_ERRORS: Record<FormField | 'openai_api_key', string> = {
     'Adresse https attendue (http seulement sur localhost) : ouvrez VIPER en https ou sur localhost pour vous connecter.',
   contact_dispatch_interval_ms: 'Indiquez un délai entre 1 et 3 600 secondes.',
   infomaniak_send_allowlist: 'Adresses e-mail ou règles « @domaine » séparées par des virgules.',
+  humanizer_min_score: 'Indiquez un nombre entier de 0 à 100.',
 }
 
 // The « Délai maximal avant envoi » (S9): the dispatcher's period, 1 s to 1 h (0 is the switch's « off »).

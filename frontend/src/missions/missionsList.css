@@ -72,8 +72,6 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  /* Room for the switch and the « … » button, which sit over the top-right corner. */
-  padding-right: 6.5rem;
 }
 
 .mlist-card .mui-icon-tile {
@@ -91,7 +89,8 @@
   line-height: var(--leading-tight);
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  /* The whole width of the card: two lines at most, then an ellipsis. */
+  -webkit-line-clamp: 2;
   overflow-wrap: anywhere;
 }
 
@@ -324,6 +323,9 @@
 
 .mlist-card__kind {
   margin: 0;
+  /* The switch and the « … » button sit over the top-right corner, on this line: the title below uses the full width. */
+  min-height: 1.75rem;
+  padding-right: 6.5rem;
   color: var(--mui-fg, var(--color-text-muted));
   font-size: var(--text-xs);
   font-weight: var(--weight-semibold);

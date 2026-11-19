@@ -77,6 +77,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # The Agenda's Calendly sync worker (started with a token) and its test seam.
     app.state.calendly_worker = None
     app.state.calendly_transport = None
+    # Test seam of the HumanGPT quality check (an `httpx2.MockTransport`); None = the network.
+    app.state.humanizer_transport = None
 
     app.add_middleware(WakeCleanupWorkerMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)

@@ -454,7 +454,7 @@ class OpenAIMailGenerator:
         # added after its text.
         subject, body = validate_output(extract_output_text(payload), booking_url=None)
         check_content(subject, body, prompt)
-        body = f"{body}\n\n{mail_block(self._booking_url)}"
+        body = f"{body}\n\n{mail_block(self._booking_url, familiar=prompt.familiar)}"
         if len(body) > BODY_MAX_LENGTH:
             raise _invalid("The AI body is empty, too long or holds control characters.")
         answered = payload.get("model") if isinstance(payload, dict) else None

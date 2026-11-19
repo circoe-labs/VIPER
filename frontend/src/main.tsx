@@ -11,9 +11,11 @@ import { createBrowserRouter, RouterProvider } from 'react-router'
 import { routes } from './routes'
 import './theme/motion.css'
 import { applyAccent, readStoredAccent } from './theme/accent'
+import { installScrollActivity } from './theme/scrollActivity'
 import { ThemeProvider } from './theme/ThemeProvider'
 
 applyAccent(readStoredAccent())
+installScrollActivity()
 
 const router = createBrowserRouter(routes)
 const queryClient = new QueryClient()

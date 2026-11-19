@@ -2,24 +2,10 @@ import { type ReactNode, useEffect, useRef, useState } from 'react'
 
 import type { Message, MessageSequence, MessageStatus, MessageStep, ReviewVerdict, useMessageMutations } from '../api/contact'
 import { Button } from '../ui/Button'
-import { TextAreaField, TextField } from '../ui/fields'
-import {
-  AlertIcon,
-  CalendarIcon,
-  CheckCircleIcon,
-  CheckIcon,
-  CloseIcon,
-  InfoIcon,
-  LockIcon,
-  MailIcon,
-  RefreshIcon,
-  SaveIcon,
-  SpinnerIcon,
-  TrashIcon,
-  UndoIcon,
-} from '../ui/icons'
+import { AlertIcon, CheckCircleIcon, InfoIcon, LockIcon, MailIcon, MinusCircleIcon, RefreshIcon } from '../ui/icons'
 import { toolboxErrorLabel } from '../settings/toolboxCopy'
-import { AiButtons, AiPanel, GeneratedNote } from './AiDraft'
+import { AdvancedSettings } from './AdvancedSettings'
+import { AiProgress, generatedSignal } from './AiDraft'
 import {
   type AiInstruction,
   aiAvailability,
@@ -31,11 +17,12 @@ import {
   hasText,
 } from './aiDraftModel'
 import { type Confirmation, ConfirmDialog } from './ConfirmDialog'
-import { inactiveSentence } from './dispatchCopy'
+import { inactiveSentence, reasonCopy } from './dispatchCopy'
 import { DispatchWarning } from './DispatchWarning'
-import { formatDateTime, stepLabel } from './labels'
+import { formatDateTime, MESSAGE_BADGES, stepLabel } from './labels'
+import { MailActionBar } from './MailActionBar'
+import { MailSignals, type Signal, type SignalTone } from './MailSignals'
 import {
-  ADDRESS_MAX_LENGTH,
   BODY_MAX_LENGTH,
   contentOf,
   type DispatchState,
@@ -43,20 +30,22 @@ import {
   inactiveScheduleText,
   isDirty,
   latenessLabel,
-  localDay,
   localErrors,
   localZoneLabel,
   type MailActions,
   type MailForm,
   orderWarning,
-  RECIPIENTS_MAX_LENGTH,
   remoteDraftLine,
   scheduleToIso,
   statusLine,
 } from './mailModel'
 import { Notice } from './Notice'
+import { RecipientsButton } from './RecipientsPopover'
 import { ReviewVerdictControl } from './ReviewVerdict'
+import { SchedulePopover } from './SchedulePopover'
 import { type MailField, type MessageRefusal, messageRefusal } from './messages'
+
+import './mail-editor.css'
 
 type Mutations = ReturnType<typeof useMessageMutations>
 
@@ -68,8 +57,8 @@ export function forgetAutoDrafts() {
 }
 
 interface MailEditorProps {
-  // Shown right above the action bar (the workbench's « Suivant »).
-  aboveActions?: ReactNode
+  // The workbench's « Précédent » / « Suivant », on the action bar's row.
+  navigation?: ReactNode
   step: MessageStep
   sequence: MessageSequence
   message: Message | null
@@ -100,11 +89,15 @@ export interface SendMoment {
   time: string
 }
 
-const FIELD_LABELS: Record<MailField, string> = { from: 'De', to: 'À', cc: 'Cc', bcc: 'Cci', subject: 'Objet', body: 'Corps' }
+const SIGNAL_TONES = { success: 'ok', warning: 'warning', danger: 'danger', info: 'info', neutral: 'muted' } as const satisfies Record<
+  string,
+  SignalTone
+>
 
-// One step's message, laid out like a mailbox's compose window (De, À, Cc, Cci, Objet, Corps), with the actions of its
-// status: create / save (never validates), validate…, date + time then schedule…, unschedule, cancel…, reopen. A sent
-// message is read-only; a closed sequence locks the editor with its reason.
+// One step's message: a slim toolbar (the recipients on one line, the status and every notice as icons with their detail
+// in a popover), the subject, the body on all the height left, and one action row (create / save — never validates —,
+// validate…, schedule…, unschedule, reopen; cancel and delete behind « … »). A sent message is read-only; a closed
+// sequence locks the editor with its reason.
 export function MailEditor({
   step,
   sequence,
@@ -121,7 +114,7 @@ export function MailEditor({
   onWhen,
   instruction,
   onInstruction,
-  aboveActions,
+  navigation,
 }: MailEditorProps) {
   const [refusal, setRefusal] = useState<MessageRefusal | null>(null)
   // The outcome of the last action, kept while the message stays in the status that action left it in (a state
@@ -135,16 +128,19 @@ export function MailEditor({
   const { date, time } = when
   // A confirmed action removes its own button (« Valider… » once validated…): the focus goes to the status sentence,
   // which reads the new status, once the confirmation has closed.
-  const statusRef = useRef<HTMLParagraphElement>(null)
+  const toolbarRef = useRef<HTMLDivElement>(null)
   const focusStatus = useRef(false)
   // Bumped when an outcome without a confirmation (an AI draft) should take the focus too.
   const [focusTick, setFocusTick] = useState(0)
   useEffect(() => {
     if (pending !== null || !focusStatus.current) return
     focusStatus.current = false
-    statusRef.current?.focus()
+    toolbarRef.current?.querySelector<HTMLElement>('[data-signal="status"]')?.focus()
   }, [pending, focusTick])
-  const [scheduleError, setScheduleError] = useState<string | null>(null)
+  const [scheduleProblem, setScheduleProblem] = useState<string | null>(null)
+  // The one popover open (recipients, send moment, an icon's detail), and the control that opens the send moment's.
+  const [openId, setOpenId] = useState<string | null>(null)
+  const [scheduleAnchor, setScheduleAnchor] = useState<HTMLElement | null>(null)
   // « Remettre en Validé » opens at `releaseFrom`: a timer re-renders the editor then.
   const [openedAt, setOpenedAt] = useState<number | null>(null)
   useEffect(() => {
@@ -202,10 +198,16 @@ export function MailEditor({
     setRefusal(null)
   }
 
-  function failed(caught: unknown) {
-    const view = messageRefusal(caught)
+  // A new refusal says itself at once, where it applies: on the recipients, the send moment, or as the error icon.
+  function refuse(view: MessageRefusal) {
     setRefusal(view)
+    const recipients = (['from', 'to', 'cc', 'bcc'] as const).some((field) => view.fields[field])
+    setOpenId(recipients ? 'recipients' : view.fields.schedule !== undefined && scheduleAnchor ? 'schedule' : 'refusal')
     if (view.reload) onReload()
+  }
+
+  function failed(caught: unknown) {
+    refuse(messageRefusal(caught))
   }
 
   async function saveForm() {
@@ -219,6 +221,7 @@ export function MailEditor({
         await generate()
       } else {
         setNeedText(true)
+        setOpenId('need-text')
       }
       return
     }
@@ -331,7 +334,7 @@ export function MailEditor({
     try {
       const result = await mutations.generate.mutateAsync({
         step,
-        request: generationPayload(message, instruction.text),
+        request: generationPayload(message, instruction),
         deadline: GENERATION_DEADLINE_MS,
       })
       onForm(undefined)
@@ -340,9 +343,7 @@ export function MailEditor({
       focusStatus.current = true
       setFocusTick((tick) => tick + 1)
     } catch (caught) {
-      const view = generationRefusal(caught)
-      setRefusal(view)
-      if (view.reload) onReload()
+      refuse(generationRefusal(caught))
     } finally {
       setPending(null)
     }
@@ -538,18 +539,21 @@ export function MailEditor({
   }
 
   function requestSchedule() {
-    setScheduleError(null)
+    setScheduleProblem(null)
     if (!parsed.ok) {
-      setScheduleError(parsed.error)
+      setScheduleProblem(parsed.error)
       return
     }
+    setOpenId(null)
     setPending('schedule')
   }
 
   function requestValidateAndSchedule() {
-    setScheduleError(null)
+    setScheduleProblem(null)
     if (!parsed.ok) {
-      setScheduleError(parsed.error)
+      setScheduleProblem(parsed.error)
+      // The moment is typed in the send-moment popover: it opens on the problem.
+      if (scheduleAnchor) setOpenId('schedule')
       return
     }
     setPending('validate-schedule')
@@ -577,6 +581,9 @@ export function MailEditor({
   // Under a send in progress or unconfirmed, the draft line would only distract (« créé » reads as reassuring).
   const remote = dispatchNow === 'none' ? remoteDraftLine(message, sequence.defaults.toolbox_state) : null
   const releaseLocked = releaseFrom !== null && openedAt !== releaseFrom
+  const releaseLockedText = releaseLocked
+    ? `« Remettre en Validé » possible à partir de ${formatDateTime(new Date(releaseFrom).toISOString())} : la Toolbox peut encore être en train de l’envoyer.`
+    : null
   const dispatch = dispatchLine(message, sequence.defaults, dispatchNow)
   const retrying = mutations.act.isPending && mutations.act.variables.action === 'remote-draft'
   const errorOf = (field: MailField) => refusal?.fields[field] ?? local[field]
@@ -584,91 +591,60 @@ export function MailEditor({
   const hasLocalErrors = Object.keys(local).length > 0
   const waitSave = dirty ? 'Enregistrez d’abord les modifications.' : undefined
 
-  return (
-    <div className="contact-mail">
-      <p ref={statusRef} tabIndex={-1} className="contact-mail__status">
-        {statusLine(
-          message,
-          sequence.sequence.closed || sequence.sequence.do_not_contact,
-          // Once the dispatcher holds it, « partira » is no longer the news: the dispatch line says what happens.
-          sequence.defaults.automatic_sending_active && dispatchNow === 'none',
-        )}
-      </p>
 
-      {message?.status === 'scheduled' && !sequence.defaults.automatic_sending_active && dispatchNow === 'none' && (
+  // --- what the editor has to say, as icons -------------------------------------------------------------------------
+  const closed = sequence.sequence.closed || sequence.sequence.do_not_contact
+  const automatic = sequence.defaults.automatic_sending_active
+  const statusText = statusLine(message, closed, automatic && dispatchNow === 'none')
+  const badge = status ? MESSAGE_BADGES[status] : null
+  const signals: Signal[] = [
+    {
+      id: 'status',
+      tone: badge ? SIGNAL_TONES[badge.tone] : 'muted',
+      icon: badge?.icon ?? MinusCircleIcon,
+      label: statusText,
+      detail: <p>{statusText}</p>,
+    },
+  ]
+  if (message?.status === 'scheduled' && !automatic && dispatchNow === 'none') {
+    signals.push({
+      id: 'wont-send',
+      tone: 'warning',
+      icon: AlertIcon,
+      label: reasonCopy(sequence.defaults.dispatch_reason).badge,
+      detail: (
         <DispatchWarning reason={sequence.defaults.dispatch_reason} badge>
           {inactiveScheduleText(message, sequence.defaults, new Date().getTime())}
         </DispatchWarning>
-      )}
-
-      {dispatch && actions.settle ? (
-        <div className="contact-mail__banner contact-mail__settle" role="note">
-          <AlertIcon size={16} />
-          <div className="contact-mail__settle-body">
-            <p>{dispatch.text}</p>
-            <div className="contact-mail__settle-actions">
-              <Button
-                size="sm"
-                variant="primary"
-                icon={CheckCircleIcon}
-                disabled={busy}
-                onClick={() => {
-                  setPending('mark-sent')
-                }}
-              >
-                Marquer envoyé…
-              </Button>
-              <Button
-                size="sm"
-                icon={UndoIcon}
-                disabled={busy || releaseLocked}
-                onClick={() => {
-                  setPending('release')
-                }}
-              >
-                Remettre en Validé…
-              </Button>
-            </div>
-            {releaseLocked && (
-              <p className="contact-mail__hint">
-                « Remettre en Validé » possible à partir de {formatDateTime(new Date(releaseFrom).toISOString())} : la
-                Toolbox peut encore être en train de l’envoyer.
-              </p>
-            )}
-          </div>
-        </div>
-      ) : (
-        dispatch && (
-          <p
-            className={`contact-mail__remote contact-mail__remote--${dispatch.tone === 'progress' ? 'muted' : dispatch.tone}`}
-            role={dispatch.tone === 'progress' ? 'status' : undefined}
-          >
-            {dispatch.tone === 'progress' ? (
-              <SpinnerIcon size={16} className="btn__spinner" />
-            ) : dispatch.tone === 'warning' ? (
-              <AlertIcon size={16} />
-            ) : (
-              <InfoIcon size={16} />
-            )}
-            <span>{dispatch.text}</span>
-          </p>
-        )
-      )}
-
-      {remote && (
-        <p className={`contact-mail__remote contact-mail__remote--${remote.tone}`}>
-          {remote.tone === 'ok' ? (
-            <CheckCircleIcon size={16} />
-          ) : remote.tone === 'warning' ? (
-            <AlertIcon size={16} />
-          ) : (
-            <MailIcon size={16} />
-          )}
-          <span>{remote.text}</span>
+      ),
+    })
+  }
+  if (dispatch) {
+    signals.push({
+      id: actions.settle ? 'settle' : 'dispatch',
+      tone: dispatch.tone === 'progress' ? 'progress' : dispatch.tone === 'ok' ? 'ok' : dispatch.tone === 'warning' ? 'warning' : 'info',
+      icon: dispatch.tone === 'warning' ? AlertIcon : InfoIcon,
+      label: actions.settle ? 'Envoi non confirmé : à trancher' : dispatch.text,
+      detail: (
+        <>
+          <p>{dispatch.text}</p>
+          {actions.settle && releaseLockedText && <p className="mail-popover__meta">{releaseLockedText}</p>}
+        </>
+      ),
+    })
+  }
+  if (remote) {
+    signals.push({
+      id: 'remote',
+      tone: remote.tone,
+      icon: remote.tone === 'ok' ? CheckCircleIcon : remote.tone === 'warning' ? AlertIcon : MailIcon,
+      label: remote.text,
+      detail: (
+        <>
+          <p>{remote.text}</p>
           {remote.retry && (
             <Button
               size="sm"
-              variant="ghost"
               icon={RefreshIcon}
               loading={retrying}
               disabled={busy}
@@ -677,349 +653,254 @@ export function MailEditor({
               {retrying ? 'Création dans Infomaniak…' : 'Réessayer'}
             </Button>
           )}
-        </p>
-      )}
-
-      {actions.lock && (
-        <p className="contact-mail__lock">
-          <LockIcon size={16} />
-          {actions.lock}
-        </p>
-      )}
-
-      <GeneratedNote message={message} textEdited={textEdited} />
-
-      {dirty && (status === 'validated' || status === 'scheduled') && (
-        <p className="contact-mail__banner" role="note">
-          <AlertIcon size={16} />
-          {status === 'scheduled'
-            ? 'Ce message est programmé : l’enregistrer retire la programmation et le repasse en Brouillon. Il faudra le revalider puis le reprogrammer.'
-            : 'Ce message est validé : l’enregistrer le repasse en Brouillon. Il faudra le revalider.'}
-        </p>
-      )}
-
-      <div className="contact-mail__fields">
-        <TextField
-          id={fieldId('from')}
-          label={FIELD_LABELS.from}
-          type="email"
-          maxLength={ADDRESS_MAX_LENGTH}
-          value={form.from}
-          readOnly={readOnly}
-          placeholder={actions.editable ? 'prospection@exemple.fr' : undefined}
-          error={errorOf('from')}
-          onChange={(event) => {
-            edit({ from: event.target.value })
-          }}
-        />
-        {toolboxConnected && actions.editable && (
-          <p className="contact-mail__hint contact-mail__from-note">
-            <InfoIcon size={14} />
-            Envoi réel depuis la boîte Infomaniak par défaut du compte connecté à la Toolbox : ce champ n’est pas
-            transmis.
-          </p>
-        )}
-        <TextField
-          id={fieldId('to')}
-          label={FIELD_LABELS.to}
-          value={form.to}
-          maxLength={RECIPIENTS_MAX_LENGTH}
-          readOnly={readOnly}
-          error={errorOf('to')}
-          onChange={(event) => {
-            edit({ to: event.target.value })
-          }}
-        />
-        <div className="contact-mail__pair">
-          <TextField
-            id={fieldId('cc')}
-            label={FIELD_LABELS.cc}
-            value={form.cc}
-            maxLength={RECIPIENTS_MAX_LENGTH}
-            readOnly={readOnly}
-            error={errorOf('cc')}
-            onChange={(event) => {
-              edit({ cc: event.target.value })
-            }}
-          />
-          <TextField
-            id={fieldId('bcc')}
-            label={FIELD_LABELS.bcc}
-            value={form.bcc}
-            maxLength={RECIPIENTS_MAX_LENGTH}
-            readOnly={readOnly}
-            error={errorOf('bcc')}
-            onChange={(event) => {
-              edit({ bcc: event.target.value })
-            }}
-          />
-        </div>
-        {actions.editable && (
-          <p className="contact-mail__hint">Plusieurs adresses dans un champ : séparez-les par une virgule.</p>
-        )}
-        <TextField
-          id={fieldId('subject')}
-          label={FIELD_LABELS.subject}
-          value={form.subject}
-          readOnly={readOnly}
-          maxLength={998}
-          error={errorOf('subject')}
-          onChange={(event) => {
-            edit({ subject: event.target.value })
-          }}
-        />
-        <TextAreaField
-          id={fieldId('body')}
-          label={FIELD_LABELS.body}
-          className="contact-mail__body"
-          value={form.body}
-          maxLength={BODY_MAX_LENGTH}
-          readOnly={readOnly}
-          rows={14}
-          error={errorOf('body')}
-          onChange={(event) => {
-            edit({ body: event.target.value })
-          }}
-        />
-      </div>
-
-      {(actions.schedule || actions.validate) && (
-        <fieldset className="contact-mail__schedule" disabled={busy}>
-          <legend className="contact-mail__legend">
-            {actions.validate ? 'Programmer l’envoi (facultatif)' : 'Programmer l’envoi'}
-          </legend>
-          <div className="contact-mail__when">
-            <TextField
-              id={fieldId('date')}
-              label="Date d’envoi"
-              type="date"
-              min={localDay(new Date())}
-              value={date}
-              onChange={(event) => {
-                onWhen({ date: event.target.value, time })
-                setScheduleError(null)
-              }}
-            />
-            <TextField
-              id={fieldId('time')}
-              label="Heure"
-              type="time"
-              value={time}
-              onChange={(event) => {
-                onWhen({ date, time: event.target.value })
-                setScheduleError(null)
-              }}
-            />
-          </div>
-          <p className="contact-mail__hint">
-            Heure locale ({localZoneLabel(zoneAt)}). Aucune heure n’est proposée par défaut.
-            {actions.validate && ' Renseignées, elles permettent de valider et programmer en une seule fois.'}
-          </p>
-          {(scheduleError ?? refusal?.fields.schedule) && (
-            <p className="field__error" role="alert">
-              <AlertIcon size={16} />
-              {scheduleError ?? refusal?.fields.schedule}
-            </p>
-          )}
-          {!sequence.defaults.automatic_sending_active && (
-            <DispatchWarning reason={sequence.defaults.dispatch_reason}>
-              {inactiveSentence(sequence.defaults.dispatch_reason)} Vous pouvez programmer quand même.
-            </DispatchWarning>
-          )}
-          {warning && (
-            <p className="field__warning">
-              <AlertIcon size={16} />
-              {warning}
-            </p>
-          )}
-        </fieldset>
-      )}
-
-      {refusal && (
-        <div className="contact-panel__error" role="alert">
-          <AlertIcon size={16} />
-          <span>{refusal.message}</span>
+        </>
+      ),
+    })
+  }
+  if (actions.lock) {
+    signals.push({ id: 'lock', tone: 'muted', icon: LockIcon, label: actions.lock, detail: <p>{actions.lock}</p> })
+  }
+  const generated = generatedSignal(message, textEdited)
+  if (generated) signals.push(generated)
+  if (dirty && (status === 'validated' || status === 'scheduled')) {
+    const text =
+      status === 'scheduled'
+        ? 'Ce message est programmé : l’enregistrer retire la programmation et le repasse en Brouillon. Il faudra le revalider puis le reprogrammer.'
+        : 'Ce message est validé : l’enregistrer le repasse en Brouillon. Il faudra le revalider.'
+    signals.push({ id: 'dirty', tone: 'warning', icon: AlertIcon, label: text, detail: <p>{text}</p> })
+  }
+  if (ai.note) signals.push({ id: 'ai-note', tone: 'info', icon: InfoIcon, label: ai.note, detail: <p>{ai.note}</p> })
+  if (removed && !message) signals.push({ id: 'removed', tone: 'info', icon: InfoIcon, label: removed, detail: <p>{removed}</p> })
+  const shownNotice = notice && notice.status === status ? notice : null
+  if (shownNotice) {
+    signals.push({
+      id: 'notice',
+      tone: shownNotice.warning ? 'warning' : 'ok',
+      icon: shownNotice.warning ? AlertIcon : CheckCircleIcon,
+      label: shownNotice.text,
+      detail: <p>{shownNotice.text}</p>,
+    })
+  }
+  if (needText) {
+    const text = 'Écrivez l’objet et le texte du message avant de créer le brouillon : la rédaction par l’IA n’est pas disponible.'
+    signals.push({ id: 'need-text', tone: 'warning', icon: AlertIcon, label: text, detail: <p>{text}</p>, alert: true })
+  }
+  if (refusal) {
+    signals.push({
+      id: 'refusal',
+      tone: 'danger',
+      icon: AlertIcon,
+      label: refusal.message,
+      alert: true,
+      detail: (
+        <>
+          <p>{refusal.message}</p>
           {refusal.conflict && dirty && (
             <Button
               size="sm"
               onClick={() => {
                 onForm(undefined)
                 setRefusal(null)
+                setOpenId(null)
               }}
             >
               Voir la version enregistrée
             </Button>
           )}
-        </div>
-      )}
+        </>
+      ),
+    })
+  }
+
+  const scheduleError = scheduleProblem ?? refusal?.fields.schedule
+  const advancedCustom = instruction.text.trim() !== '' || instruction.tone !== null || instruction.sender !== null
+
+  return (
+    <div className="contact-mail">
+      <div ref={toolbarRef} className="mail-toolbar">
+        <RecipientsButton
+          form={form}
+          fieldId={fieldId}
+          editable={actions.editable}
+          readOnly={readOnly}
+          fromInfo={
+            toolboxConnected && actions.editable
+              ? 'Envoi réel depuis la boîte Infomaniak par défaut du compte connecté à la Toolbox : ce champ n’est pas transmis.'
+              : null
+          }
+          errorOf={errorOf}
+          open={openId === 'recipients'}
+          onOpenChange={(open) => {
+            setOpenId(open ? 'recipients' : null)
+          }}
+          onEdit={edit}
+        />
+        <AiProgress stepLabel={label} startedAt={generatingHere ? mutations.generate.submittedAt : null} />
+        <MailSignals signals={signals} openId={openId} onOpen={setOpenId} />
+        {message && message.status !== 'sent' && message.status !== 'cancelled' && (
+          <ReviewVerdictControl
+            verdict={message.review_verdict}
+            reviewedBy={message.reviewed_by}
+            disabled={busy || dirty}
+            loading={mutations.review.isPending ? (mutations.review.variables.verdict ?? null) : null}
+            onChoose={(verdict) => {
+              void review(verdict)
+            }}
+          />
+        )}
+      </div>
       {removed && !message && (
-        <p className="contact-mail__hint" role="status">
+        <p className="visually-hidden" role="status">
           {removed}
         </p>
       )}
-      <Notice
-        text={notice && notice.status === status ? notice.text : null}
-        tone={notice?.warning ? 'warning' : 'success'}
+      {dispatch?.tone === 'progress' && (
+        <p className="visually-hidden" role="status">
+          {dispatch.text}
+        </p>
+      )}
+      <Notice text={shownNotice?.text ?? null} tone={shownNotice?.warning ? 'warning' : 'success'} quiet />
+
+      <div className="mail-subject">
+        <label className="mail-subject__label" htmlFor={fieldId('subject')}>
+          Objet
+        </label>
+        <input
+          id={fieldId('subject')}
+          className="field__control mail-subject__input"
+          value={form.subject}
+          readOnly={readOnly}
+          maxLength={998}
+          aria-invalid={errorOf('subject') ? true : undefined}
+          aria-describedby={errorOf('subject') ? `${fieldId('subject')}-error` : undefined}
+          onChange={(event) => {
+            edit({ subject: event.target.value })
+          }}
+        />
+      </div>
+      {errorOf('subject') && (
+        <p id={`${fieldId('subject')}-error`} className="field__error">
+          <AlertIcon size={16} />
+          {errorOf('subject')}
+        </p>
+      )}
+      <div className="mail-body">
+        <label className="visually-hidden" htmlFor={fieldId('body')}>
+          Corps
+        </label>
+        <textarea
+          id={fieldId('body')}
+          className="field__control field__control--multiline mail-body__text"
+          value={form.body}
+          maxLength={BODY_MAX_LENGTH}
+          readOnly={readOnly}
+          aria-invalid={errorOf('body') ? true : undefined}
+          aria-describedby={errorOf('body') ? `${fieldId('body')}-error` : undefined}
+          placeholder={actions.editable ? 'Le message…' : undefined}
+          onChange={(event) => {
+            edit({ body: event.target.value })
+          }}
+        />
+        {errorOf('body') && (
+          <p id={`${fieldId('body')}-error`} className="field__error">
+            <AlertIcon size={16} />
+            {errorOf('body')}
+          </p>
+        )}
+      </div>
+
+      <MailActionBar
+        ai={ai}
+        generating={generatingHere}
+        onGenerate={requestGenerate}
+        advancedOpen={instruction.open}
+        advancedCustom={advancedCustom}
+        onAdvanced={() => {
+          onInstruction({ ...instruction, open: !instruction.open })
+        }}
+        actions={actions}
+        status={status}
+        removeLabel={message?.status === 'draft' ? 'Supprimer le brouillon' : 'Supprimer le message'}
+        dirty={dirty}
+        busy={busy}
+        saving={mutations.save.isPending}
+        hasLocalErrors={hasLocalErrors}
+        waitSave={waitSave}
+        withDate={withDate}
+        scheduleOpen={openId === 'schedule'}
+        unscheduling={mutations.act.isPending && mutations.act.variables.action === 'unschedule'}
+        reopening={mutations.act.isPending && mutations.act.variables.action === 'reopen'}
+        releaseLocked={releaseLockedText}
+        onDiscard={() => {
+          onForm(undefined)
+          setRefusal(null)
+        }}
+        onSave={() => void saveForm()}
+        onSaveValidate={() => {
+          setPending('save-validate')
+        }}
+        onValidate={() => {
+          if (withDate) requestValidateAndSchedule()
+          else setPending('validate')
+        }}
+        onToggleSchedule={(anchor) => {
+          setScheduleAnchor(anchor)
+          setOpenId(openId === 'schedule' ? null : 'schedule')
+        }}
+        onUnschedule={() => void act('unschedule')}
+        onReopen={() => void act('reopen')}
+        onCancel={() => {
+          setPending('cancel')
+        }}
+        onRemove={() => {
+          setPending('delete')
+        }}
+        onMarkSent={() => {
+          setPending('mark-sent')
+        }}
+        onRelease={() => {
+          setPending('release')
+        }}
+        navigation={navigation}
       />
 
-      {message && message.status !== 'sent' && message.status !== 'cancelled' && (
-        <ReviewVerdictControl
-          verdict={message.review_verdict}
-          reviewedBy={message.reviewed_by}
-          disabled={busy || dirty}
-          loading={mutations.review.isPending ? (mutations.review.variables.verdict ?? null) : null}
-          onChoose={(verdict) => {
-            void review(verdict)
+      {openId === 'schedule' && scheduleAnchor && (actions.schedule || actions.validate) && (
+        <SchedulePopover
+          anchor={scheduleAnchor}
+          fieldId={fieldId}
+          date={date}
+          time={time}
+          onChange={(next) => {
+            onWhen(next)
+            setScheduleProblem(null)
+          }}
+          zone={localZoneLabel(zoneAt)}
+          busy={busy}
+          error={scheduleError}
+          automatic={automatic}
+          dispatchReason={sequence.defaults.dispatch_reason}
+          warning={warning}
+          confirm={actions.schedule ? { label: 'Programmer l’envoi…', onClick: requestSchedule } : null}
+          optional={actions.validate}
+          onClose={() => {
+            setOpenId(null)
           }}
         />
       )}
 
-      <AiPanel
-        stepLabel={label}
-        availability={ai}
-        startedAt={generatingHere ? mutations.generate.submittedAt : null}
-        instructionOpen={instruction.open}
-        instructionId={fieldId('ai')}
-        instruction={instruction.text}
-        onInstruction={(text) => {
-          onInstruction({ ...instruction, text })
+      <AdvancedSettings
+        open={instruction.open}
+        onClose={() => {
+          onInstruction({ ...instruction, open: false })
         }}
+        stepLabel={label}
+        idPrefix={fieldId('ai')}
+        instruction={instruction}
+        onInstruction={onInstruction}
+        running={generatingHere}
+        body={form.body}
+        humanizer={sequence.defaults.humanizer}
       />
-
-      {needText && (
-        <p className="field__warning" role="alert">
-          <AlertIcon size={16} />
-          Écrivez l’objet et le texte du message avant de créer le brouillon : la rédaction par l’IA n’est pas disponible.
-        </p>
-      )}
-      <div className="contact-mail__dock">
-      {aboveActions}
-      {(ai.show || Object.entries(actions).some(([name, value]) => name !== 'settle' && value === true)) && (
-        <div className="contact-mail__actions">
-          <div className="contact-mail__assist">
-            <AiButtons
-              availability={ai}
-              running={generatingHere}
-              instructionOpen={instruction.open}
-              instructionId={fieldId('ai')}
-              onToggleInstruction={() => {
-                onInstruction({ ...instruction, open: !instruction.open })
-              }}
-              onGenerate={requestGenerate}
-            />
-          </div>
-          <div className="contact-mail__buttons">
-            {actions.cancel && (
-              <Button
-                variant="ghost"
-                icon={CloseIcon}
-                disabled={busy}
-                onClick={() => {
-                  setPending('cancel')
-                }}
-              >
-                Annuler le message…
-              </Button>
-            )}
-            {message && actions.remove && (
-              <Button
-                variant="ghost"
-                icon={TrashIcon}
-                disabled={busy}
-                onClick={() => {
-                  setPending('delete')
-                }}
-              >
-                {message.status === 'draft' ? 'Supprimer le brouillon…' : 'Supprimer le message…'}
-              </Button>
-            )}
-            {dirty && (
-              <Button
-                variant="ghost"
-                icon={UndoIcon}
-                disabled={busy}
-                onClick={() => {
-                  onForm(undefined)
-                  setRefusal(null)
-                }}
-              >
-                Abandonner les modifications
-              </Button>
-            )}
-            {actions.save && (
-              <Button
-                variant={dirty || actions.save === 'create' ? 'primary' : 'secondary'}
-                icon={SaveIcon}
-                loading={mutations.save.isPending}
-                disabled={(actions.save === 'save' && !dirty) || hasLocalErrors}
-                onClick={() => void saveForm()}
-              >
-                {actions.save === 'create' ? 'Créer le brouillon' : 'Enregistrer'}
-              </Button>
-            )}
-            {dirty && actions.save === 'save' && (status === 'draft' || status === 'validated') && (
-              <Button
-                variant="primary"
-                icon={CheckIcon}
-                disabled={busy || hasLocalErrors}
-                onClick={() => {
-                  setPending('save-validate')
-                }}
-              >
-                Enregistrer et valider…
-              </Button>
-            )}
-            {actions.validate && (
-              <Button
-                variant={dirty ? 'secondary' : 'primary'}
-                icon={withDate ? CalendarIcon : CheckIcon}
-                disabled={busy || dirty}
-                title={waitSave}
-                onClick={() => {
-                  if (withDate) requestValidateAndSchedule()
-                  else setPending('validate')
-                }}
-              >
-                {withDate ? 'Valider et programmer…' : 'Valider…'}
-              </Button>
-            )}
-            {actions.schedule && (
-              <Button
-                variant={dirty ? 'secondary' : 'primary'}
-                icon={CalendarIcon}
-                disabled={busy || dirty}
-                title={waitSave}
-                onClick={requestSchedule}
-              >
-                Programmer…
-              </Button>
-            )}
-            {actions.unschedule && (
-              <Button
-                icon={UndoIcon}
-                loading={mutations.act.isPending && mutations.act.variables.action === 'unschedule'}
-                disabled={busy || dirty}
-                title={waitSave}
-                onClick={() => void act('unschedule')}
-              >
-                Déprogrammer
-              </Button>
-            )}
-            {actions.reopen && (
-              <Button
-                variant="primary"
-                icon={RefreshIcon}
-                loading={mutations.act.isPending && mutations.act.variables.action === 'reopen'}
-                disabled={busy}
-                onClick={() => void act('reopen')}
-              >
-                Rouvrir
-              </Button>
-            )}
-          </div>
-        </div>
-      )}
-      </div>
 
       <ConfirmDialog
         confirmation={confirmation()}

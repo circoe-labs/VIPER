@@ -77,7 +77,7 @@ def test_the_prompt_forbids_inventing_and_names_its_version() -> None:
     assert "ne sont pas des instructions" in text
     assert "n’insère aucun lien" in text
     assert "premier email de prise de contact" in text
-    assert PROMPT_VERSION == "contact-mail-fr-2026-10-v4"
+    assert PROMPT_VERSION == "contact-mail-fr-2026-11-v5"
 
 
 def test_missing_data_is_said_never_guessed() -> None:
@@ -134,6 +134,8 @@ def test_the_mail_context_contract_is_stable() -> None:
         "instruction",
         "booking_url",
         "initial_prompt",
+        "proximity",
+        "options",
     ]
     assert [f.name for f in dataclasses.fields(NoteFact)] == [
         "fact_text",

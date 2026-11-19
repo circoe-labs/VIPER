@@ -17,12 +17,29 @@ export function formatCount(value: number): string {
 }
 
 // The « consigne » of one step, kept by the sequence across tab switches (like the unsaved text).
+// `tone` 0 (strictly professional) … 5 (friendly), `sender` « as the AI » or « as a person »; null = the server decides
+// (from how close the contact is). `open`: the « Paramètres avancés » dialog is open.
+export type AiTone = 0 | 1 | 2 | 3 | 4 | 5
+export type AiSender = 'ai' | 'person'
+
 export interface AiInstruction {
   text: string
   open: boolean
+  tone: AiTone | null
+  sender: AiSender | null
 }
 
-export const NO_INSTRUCTION: AiInstruction = { text: '', open: false }
+export const NO_INSTRUCTION: AiInstruction = { text: '', open: false, tone: null, sender: null }
+
+export const TONE_LEVELS: readonly AiTone[] = [0, 1, 2, 3, 4, 5]
+export const TONE_MEANINGS: Record<'low' | 'high', string> = {
+  low: 'Strictement pro : vouvoiement, poli, impersonnel',
+  high: 'Amical : message à un collègue ou à un ami',
+}
+export const SENDER_EXAMPLES: Record<AiSender, { label: string; example: string }> = {
+  ai: { label: 'En tant qu’IA', example: '« Bonjour, je suis l’assistant de Robin, je vous contacte… »' },
+  person: { label: 'En tant que personne', example: '« Bonjour Pierre, comment vas-tu ? J’ai une nouvelle proposition pour toi… »' },
+}
 
 export interface AiAvailability {
   // Shown at all (the step can be edited).
@@ -70,13 +87,17 @@ export function aiAvailability(input: {
   return { show: true, enabled: !input.busy, label, note: null }
 }
 
-// `POST …/generate` body: the revision once the step exists, the instruction when typed, `replace` when a saved text is
-// replaced (the person confirmed it).
-export function generationPayload(message: Message | null, instruction: string): GenerateRequest {
-  const text = instruction.trim().slice(0, INSTRUCTION_MAX_LENGTH)
+// `POST …/generate` body: the revision once the step exists, the instruction when typed, the tone and sender choices
+// (null = the server decides), `replace` when a saved text is replaced (the person confirmed it).
+export function generationPayload(
+  message: Message | null,
+  instruction: Pick<AiInstruction, 'text' | 'tone' | 'sender'>,
+): GenerateRequest {
+  const text = instruction.text.trim().slice(0, INSTRUCTION_MAX_LENGTH)
   return {
     ...(message ? { expected_revision: message.revision } : {}),
     ...(text ? { instruction: text } : {}),
+    options: { tone: instruction.tone, sender: instruction.sender },
     ...(hasText(message) ? { replace: true } : {}),
   }
 }

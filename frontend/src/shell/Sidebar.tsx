@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router'
+import { Link, NavLink } from 'react-router'
 import { useState } from 'react'
 
 import { useIsAdmin } from '../auth/RequireAdmin'
@@ -42,7 +42,9 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   return (
     <aside className="sidebar">
       <div className="sidebar__brand">
-        <BrandLogo variant={collapsed ? 'mark' : 'lockup'} height={collapsed ? '1.75rem' : '3.25rem'} />
+        <Link to="/" className="sidebar__home" aria-label="VIPER, retour à l’accueil" title="Accueil">
+          <BrandLogo variant={collapsed ? 'mark' : 'lockup'} height={collapsed ? '1.75rem' : '3.25rem'} />
+        </Link>
         <IconButton
           icon={PanelLeftIcon}
           label={collapsed ? 'Déplier la navigation' : 'Réduire la navigation'}

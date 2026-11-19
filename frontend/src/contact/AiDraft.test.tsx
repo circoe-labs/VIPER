@@ -1,16 +1,17 @@
-import { act, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { Message, MessageStep } from '../api/contact'
 import type { Prospect } from '../api/prospects'
 import { contactDashboard, message, sent, stubContactApi } from '../test/contactApi'
+import { stubIntegrationsApi } from '../test/integrationsApi'
 import { prospectDetail, trackingDetail } from '../test/prospectsApi'
 import { renderApp } from '../test/render'
 
-// « Générer avec l'IA » in the Contact workbench against the Contact fake (S5): the button in the action bar's left
-// slot, the « consigne », the confirmation before replacing a text, the running state, the result as a Brouillon and
-// every failure said on screen.
+// « Générer avec l'IA » in the Contact workbench against the Contact fake (S5): the button in the action row, the
+// « Paramètres avancés » dialog (instructions, tone, sender), the confirmation before replacing a text, the running
+// state, the result as a Brouillon and every failure said on screen.
 
 function person(): Prospect {
   return prospectDetail({
@@ -58,8 +59,8 @@ describe('AI drafting in the mail editor', () => {
     const { api, id } = open()
     const button = await screen.findByRole('button', { name: 'Générer avec l’IA' })
     expect(button).toHaveClass('btn--secondary')
-    // In the action bar's left slot, beside the step's own actions.
-    expect(button.closest('.contact-mail__assist')).not.toBeNull()
+    // In the one action row, beside the step's own actions.
+    expect(button.closest('.mail-bar')).not.toBeNull()
 
     await userEvent.click(button)
 
@@ -67,18 +68,20 @@ describe('AI drafting in the mail editor', () => {
       expect(screen.getByRole('textbox', { name: 'Objet' })).toHaveValue('Objet IA 1')
     })
     expect(screen.getByRole('textbox', { name: 'Corps' })).toHaveValue('Bonjour,\n\nCorps IA 1.')
-    expect(screen.getByText('Rédigé par l’IA — à relire avant de valider.')).toBeInTheDocument()
-    expect(screen.getByText('Modèle fake-model · prompt contact-mail-fr-2026-09-v1')).toBeInTheDocument()
     expect(announced()).toContain('Brouillon Contact rédigé par l’IA : relisez-le, corrigez-le si besoin, puis validez-le.')
-    // The button that started it was disabled meanwhile: the draft's status sentence has the focus.
+    // The button that started it was disabled meanwhile: the draft's status icon has the focus.
     await waitFor(() => {
-      expect(screen.getByText('Brouillon : à relire puis valider. Il ne peut pas partir tel quel.')).toHaveFocus()
+      expect(screen.getByRole('button', { name: 'Brouillon : à relire puis valider. Il ne peut pas partir tel quel.' })).toHaveFocus()
     })
+    // The mention is an icon; its detail (model and prompt version) opens on click.
+    await userEvent.click(screen.getByRole('button', { name: 'Rédigé par l’IA — à relire avant de valider.' }))
+    expect(screen.getByText('Modèle fake-model · prompt contact-mail-fr-2026-09-v1')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Régénérer avec l’IA' })).toBeEnabled()
     // Still to validate by hand.
     expect(screen.getByRole('button', { name: 'Valider…' })).toBeEnabled()
     const [request] = sent(api.requests, 'POST', `/api/prospects/${id}/messages/contact/generate`)
-    expect(request?.body).toEqual({})
+    // Tone and sender left on Auto: null, the server decides.
+    expect(request?.body).toEqual({ options: { tone: null, sender: null } })
   })
 
   it('« Créer le brouillon » with nothing written has the AI write it and creates the draft with its text', async () => {
@@ -130,11 +133,16 @@ describe('AI drafting in the mail editor', () => {
     expect(paths).toEqual([`/api/prospects/${id}/messages/r1/generate`])
   })
 
-  it('sends the « consigne » and asks before replacing a validated text, which goes back to Brouillon', async () => {
+  it('sends the instructions, tone and sender of « Paramètres avancés » and asks before replacing a validated text', async () => {
     const { api, id } = open({ contact: message('contact', 'validated', { revision: 2 }) })
-    await userEvent.click(await screen.findByRole('button', { name: 'Consigne' }))
-    expect(screen.getByRole('button', { name: 'Consigne' })).toHaveAttribute('aria-expanded', 'true')
-    await userEvent.type(screen.getByRole('textbox', { name: 'Consigne pour l’IA (facultatif)' }), 'Plus court')
+    await userEvent.click(await screen.findByRole('button', { name: 'Paramètres avancés' }))
+    const settings = await screen.findByRole('dialog', { name: 'Paramètres avancés' })
+    await userEvent.type(within(settings).getByRole('textbox', { name: 'Consignes supplémentaires' }), 'Plus court')
+    // Tone 0 … 5 and Auto; the sender as the AI or as a person, or Auto.
+    expect(within(settings).getAllByRole('radio', { name: 'Auto', checked: true })).toHaveLength(2)
+    await userEvent.click(within(settings).getByRole('radio', { name: '2' }))
+    await userEvent.click(within(settings).getByRole('radio', { name: 'En tant que personne' }))
+    await userEvent.click(within(settings).getByRole('button', { name: 'OK' }))
 
     await userEvent.click(screen.getByRole('button', { name: 'Régénérer avec l’IA' }))
     const dialog = await screen.findByRole('dialog', { name: 'Régénérer le message Contact ?' })
@@ -150,6 +158,7 @@ describe('AI drafting in the mail editor', () => {
     expect(sent(api.requests, 'POST', `/api/prospects/${id}/messages/contact/generate`)[0]?.body).toEqual({
       expected_revision: 2,
       instruction: 'Plus court',
+      options: { tone: 2, sender: 'person' },
       replace: true,
     })
     expect(announced()).toContain('Il est repassé en Brouillon : à revalider.')
@@ -191,7 +200,7 @@ describe('AI drafting in the mail editor', () => {
       expect(announced()).toContain('L’IA rédige le message Contact…')
     })
     const running = actions().querySelector<HTMLElement>('.contact-ai__progress')
-    expect(running).toHaveTextContent('L’IA rédige le message Contact…')
+    expect(running).toHaveTextContent('L’IA rédige…')
     await waitFor(() => {
       expect(running).toHaveFocus()
     })
@@ -201,37 +210,49 @@ describe('AI drafting in the mail editor', () => {
       vi.advanceTimersByTime(3000)
     })
     expect(actions().querySelector('.contact-ai__elapsed')?.textContent).toMatch(/^[3-4] s$/)
-    expect(screen.getByText(/Rien n’est modifié avant son arrivée/)).toBeInTheDocument()
+    expect(running).toHaveAttribute('title', expect.stringMatching(/Rien n’est modifié avant son arrivée/))
   })
 
-  it('keeps each step’s « consigne » across tab switches and says why the other tabs wait', async () => {
+  it('keeps each step’s instructions and tone across tab switches and says why the other tabs wait', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     open({}, { generation: 'hang' })
     const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) })
-    await user.click(await screen.findByRole('button', { name: 'Consigne' }))
-    await user.type(screen.getByRole('textbox', { name: 'Consigne pour l’IA (facultatif)' }), 'Plus court')
+    await user.click(await screen.findByRole('button', { name: 'Paramètres avancés' }))
+    const settings = await screen.findByRole('dialog', { name: 'Paramètres avancés' })
+    await user.type(within(settings).getByRole('textbox', { name: 'Consignes supplémentaires' }), 'Plus court')
+    await user.click(within(settings).getByRole('radio', { name: '4' }))
+    await user.click(within(settings).getByRole('button', { name: 'OK' }))
     const tablist = screen.getByRole('tablist', { name: 'Étapes de la séquence' })
     await user.click(within(tablist).getByRole('tab', { name: /^R1/ }))
-    expect(screen.queryByRole('textbox', { name: 'Consigne pour l’IA (facultatif)' })).toBeNull()
+    // R1 has its own settings: still the defaults.
+    await user.click(screen.getByRole('button', { name: 'Paramètres avancés' }))
+    expect(within(await screen.findByRole('dialog', { name: 'Paramètres avancés' })).getByRole('textbox', { name: 'Consignes supplémentaires' })).toHaveValue('')
+    await user.click(screen.getByRole('button', { name: 'OK' }))
     await user.click(within(tablist).getByRole('tab', { name: /^Contact/ }))
-    expect(screen.getByRole('textbox', { name: 'Consigne pour l’IA (facultatif)' })).toHaveValue('Plus court')
+    await user.click(screen.getByRole('button', { name: 'Paramètres avancés' }))
+    const again = await screen.findByRole('dialog', { name: 'Paramètres avancés' })
+    expect(within(again).getByRole('textbox', { name: 'Consignes supplémentaires' })).toHaveValue('Plus court')
+    expect(within(again).getByRole('radio', { name: '4' })).toBeChecked()
+    await user.click(within(again).getByRole('button', { name: 'OK' }))
 
     await user.click(screen.getByRole('button', { name: 'Générer avec l’IA' }))
     await user.click(within(tablist).getByRole('tab', { name: /^R1/ }))
     expect(screen.getByRole('button', { name: 'Générer avec l’IA' })).toBeDisabled()
-    expect(screen.getByText('L’IA rédige déjà le message Contact : attendez qu’elle ait fini pour générer celui-ci.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'L’IA rédige déjà le message Contact : attendez qu’elle ait fini pour générer celui-ci.' })).toBeInTheDocument()
   })
 
   it('a rewrite of an AI text says the mention will go once saved', async () => {
     open({
       contact: message('contact', 'draft', { generation_model: 'fake-model', generation_prompt_version: 'contact-mail-fr-2026-09-v1' }),
     })
-    expect(await screen.findByText('Rédigé par l’IA — à relire avant de valider.')).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Rédigé par l’IA — à relire avant de valider.' })).toBeInTheDocument()
     await userEvent.type(screen.getByRole('textbox', { name: 'Objet' }), ' (relu)')
-    expect(screen.getByText('Rédigé par l’IA, modifié par vous : la mention disparaîtra à l’enregistrement.')).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Rédigé par l’IA, modifié par vous : la mention disparaîtra à l’enregistrement.' }),
+    ).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Enregistrer' }))
     await waitFor(() => {
-      expect(screen.queryByText(/Rédigé par l’IA/)).toBeNull()
+      expect(screen.queryByRole('button', { name: /Rédigé par l’IA/ })).toBeNull()
     })
   })
 
@@ -251,15 +272,91 @@ describe('AI drafting in the mail editor', () => {
   it('is disabled with its reason when the server has no AI configured', async () => {
     open({}, {}, false)
     expect(await screen.findByRole('button', { name: 'Générer avec l’IA' })).toBeDisabled()
-    expect(screen.getByText(/La rédaction par l’IA n’est pas configurée \(clé et modèle OpenAI/)).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Consigne' })).toBeNull()
+    expect(screen.getByRole('button', { name: /La rédaction par l’IA n’est pas configurée \(clé et modèle OpenAI/ })).toBeInTheDocument()
   })
 
   it('is disabled on a scheduled message and absent on a sent one', async () => {
     open({ contact: message('contact', 'scheduled'), r1: message('r1', 'sent') })
     expect(await screen.findByRole('button', { name: 'Régénérer avec l’IA' })).toBeDisabled()
-    expect(screen.getByText('Message programmé : déprogrammez-le avant de le régénérer.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Message programmé : déprogrammez-le avant de le régénérer.' })).toBeInTheDocument()
     await userEvent.click(within(screen.getByRole('tablist', { name: 'Étapes de la séquence' })).getByRole('tab', { name: /^R1/ }))
     expect(screen.queryByRole('button', { name: /avec l’IA/ })).toBeNull()
+  })
+})
+
+describe('the humanizer in « Paramètres avancés »', () => {
+  function openWithHumanizer(
+    humanizer: { enabled: boolean; configured: boolean; min_score: number },
+    extra: Parameters<typeof stubContactApi>[0] = {},
+  ) {
+    const detail = person()
+    const api = stubContactApi({
+      dashboard: contactDashboard(),
+      details: [detail],
+      messages: { [detail.id]: { contact: message('contact', 'draft') } },
+      defaults: {
+        from_email: 'prospection@exemple.example',
+        to: ['claire@exemple.example'],
+        generation_available: true,
+        humanizer,
+        toolbox_connected: false,
+        toolbox_state: 'disabled' as const,
+        automatic_sending_active: false,
+        dispatch_reason: 'toolbox_disabled' as const,
+        dispatch_max_lateness_minutes: 360,
+        dispatch_claim_ttl_seconds: 600,
+      },
+      ...extra,
+    })
+    const settings = stubIntegrationsApi()
+    renderApp(`/contact?prospect=${detail.id}`)
+    return { api, settings }
+  }
+
+  async function advanced() {
+    await userEvent.click(await screen.findByRole('button', { name: 'Paramètres avancés' }))
+    return within(await screen.findByRole('dialog', { name: 'Paramètres avancés' }))
+  }
+
+  it('switches the check off, saves the minimal score as the server’s global setting', async () => {
+    const { settings } = openWithHumanizer({ enabled: true, configured: true, min_score: 70 })
+    const dialog = await advanced()
+    const toggle = await waitFor(() => {
+      const found = dialog.getByRole('switch', { name: 'Contrôler le score avant l’envoi' })
+      expect(found).toBeEnabled()
+      return found
+    })
+    expect(toggle).toBeChecked()
+    await userEvent.click(toggle)
+    await waitFor(() => {
+      expect(settings.puts.at(-1)).toEqual({ version: 0, humanizer_enabled: false })
+    })
+
+    const slider = dialog.getByRole('slider', { name: 'Score minimal' })
+    expect(slider).toHaveValue('70')
+    fireEvent.change(slider, { target: { value: '85' } })
+    fireEvent.blur(slider)
+    await waitFor(() => {
+      expect(settings.puts.at(-1)).toEqual({ version: 1, humanizer_min_score: 85 })
+    })
+  })
+
+  it('« Vérifier maintenant » scores the text on screen and says when it is below the minimum', async () => {
+    const { api } = openWithHumanizer(
+      { enabled: true, configured: true, min_score: 70 },
+      { humanizerCheck: { human_score: 42, verdict: 'ai', passed: false, min_score: 70 } },
+    )
+    const dialog = await advanced()
+    await userEvent.click(dialog.getByRole('button', { name: 'Vérifier maintenant' }))
+    expect(await dialog.findByText('sous le minimum (70)')).toBeInTheDocument()
+    expect(dialog.getByRole('status')).toHaveTextContent('42/100')
+    expect(sent(api.requests, 'POST', '/api/contact/humanizer-check')[0]?.body).toEqual({ text: 'Corps contact' })
+  })
+
+  it('says when no HumanGPT key is saved, with the link to add it', async () => {
+    openWithHumanizer({ enabled: false, configured: false, min_score: 70 })
+    const dialog = await advanced()
+    expect(dialog.getByRole('link', { name: 'Ajouter la clé' })).toHaveAttribute('href', '/config-ai/humanizer')
+    expect(dialog.getByRole('button', { name: 'Vérifier maintenant' })).toBeDisabled()
   })
 })

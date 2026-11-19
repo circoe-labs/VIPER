@@ -18,6 +18,11 @@ a real send (the dispatcher, S7, marks its own).
 - `PUT  …/messages/{step}`           create (no `expected_revision`, 201) or edit the content (200);
 - `POST …/messages/{step}/validate|schedule|unschedule|cancel|reopen` with `expected_revision`;
 - `POST …/messages/{step}/generate`   the AI draft of the step (S5): always a draft, to review;
+                                     body `{expected_revision?, instruction?, replace?, options?:
+                                     {tone: 0..5 | null, sender: "ai" | "person" | null}}`;
+- `POST /contact/humanizer-check`     HumanGPT quality check of a text or of a saved step; and the
+                                     gate of `validate` (422 `humanizer_score_too_low`, 503
+                                     `humanizer_unavailable`) when the Humanizer is enabled;
 - `POST …/messages/{step}/remote-draft` creates again the Infomaniak draft of a validated message
                                      whose creation failed (S6, « Réessayer »);
 - `POST …/messages/{step}/mark-sent|release` a person settles a send the dispatcher could not
@@ -54,7 +59,7 @@ from app.models.enums import (
     ContactTrackingStatus,
     SendSource,
 )
-from app.services import audit
+from app.services import audit, humanizer
 from app.services import contact_dispatch as dispatch
 from app.services import contact_mail_generation as generation
 from app.services import contact_messages as service
@@ -65,7 +70,9 @@ from app.services.contact_messages import (
     GeneratedContent,
     MessageEdit,
     MessageResult,
+    require_author,
 )
+from app.services.errors import InvalidFieldError
 from app.services.mail_generation.openai_client import (
     GeneratedMail,
     MailGenerator,
@@ -74,7 +81,13 @@ from app.services.mail_generation.openai_client import (
     missing_settings,
     not_configured,
 )
-from app.services.mail_generation.prompt import MAX_INSTRUCTION_LENGTH, PROMPT_VERSION
+from app.services.mail_generation.prompt import (
+    MAX_INSTRUCTION_LENGTH,
+    PROMPT_VERSION,
+    TONE_MAX,
+    TONE_MIN,
+    GenerationOptions,
+)
 from app.services.prospect_score import ScoreConfig
 from app.services.toolbox.integration import ToolboxIntegration
 
@@ -201,6 +214,14 @@ class SequenceOut(BaseModel):
     level: str | None
 
 
+class HumanizerOut(BaseModel):
+    # The quality gate of « Valider » (Config AI > Humanizer): `enabled` and `configured` (a key is
+    # saved) both true = a validation is refused below `min_score` (0-100, higher = more human).
+    enabled: bool
+    configured: bool
+    min_score: int
+
+
 class DefaultsOut(BaseModel):
     from_email: str | None
     to: list[str]
@@ -222,6 +243,7 @@ class DefaultsOut(BaseModel):
     dispatch_max_lateness_minutes: int
     # After this long, a claimed send nobody finished counts as unconfirmed (a person may settle).
     dispatch_claim_ttl_seconds: int
+    humanizer: HumanizerOut
 
 
 class StepOut(BaseModel):
@@ -237,6 +259,16 @@ class MessagesOut(BaseModel):
     steps: list[StepOut]
 
 
+class GenerationOptionsIn(StrictModel):
+    """How the mail speaks (all optional: `null` = automatic from the prospect's proximity)."""
+
+    # 0 = strictly professional (vous, polite, impersonal) ... 5 = friendly (a message one could
+    # send to a colleague or a friend); 3 and above say « tu ».
+    tone: Annotated[int, Field(ge=TONE_MIN, le=TONE_MAX)] | None = None
+    # `ai`: written as the member's AI assistant; `person`: written directly as the member.
+    sender: Literal["ai", "person"] | None = None
+
+
 class GenerateIn(StrictModel):
     # Omitted/null: the step has no message yet. Else the revision the client read.
     expected_revision: Revision | None = None
@@ -244,6 +276,8 @@ class GenerateIn(StrictModel):
     instruction: Annotated[str, StringConstraints(max_length=MAX_INSTRUCTION_LENGTH)] | None = None
     # Confirms that the saved subject/body are replaced (required when the step has a text).
     replace: bool = False
+    # Tone and sender of this version; omitted = automatic.
+    options: GenerationOptionsIn = Field(default_factory=GenerationOptionsIn)
 
 
 class GenerationOut(BaseModel):
@@ -275,6 +309,10 @@ class RemoteDraftResultOut(MessageResultOut):
 
 class GenerationResultOut(MessageResultOut):
     generation: GenerationOut
+
+
+def generation_options(options: GenerationOptionsIn) -> GenerationOptions:
+    return GenerationOptions(tone=options.tone, sender=options.sender)
 
 
 def get_mail_generator(request: Request, settings: SettingsDep) -> MailGenerator | None:
@@ -396,6 +434,11 @@ def messages_out(state: Any, session: Session, prospect_id: uuid.UUID) -> Messag
             dispatch_reason=reason,
             dispatch_max_lateness_minutes=settings.contact_dispatch_max_lateness_ms // 60_000,
             dispatch_claim_ttl_seconds=int(settings.contact_dispatch_claim_ttl.total_seconds()),
+            humanizer=HumanizerOut(
+                enabled=settings.humanizer_enabled,
+                configured=humanizer.configured(settings),
+                min_score=settings.humanizer_min_score,
+            ),
         ),
         steps=[
             StepOut(
@@ -516,6 +559,40 @@ def _with_remote_draft(
     )
 
 
+def _humanizer_gate(
+    request: Request,
+    session: Session,
+    prospect_id: uuid.UUID,
+    rank: int,
+    expected_revision: int,
+) -> bool:
+    """The quality gate of « Valider »: when enabled and configured, the body of the revision the
+    person validates is checked by HumanGPT. A missing, stale, non-draft or empty message is left
+    to `service.validate`, which refuses it with its own code. The request's transaction ends
+    before the call (it can last minutes); `service.validate` then re-checks the revision, so a
+    text edited meanwhile is never validated unchecked. True when the check ran (and the request's
+    session was committed: it must not be used any more)."""
+    settings: Settings = request.app.state.settings
+    if not humanizer.active(settings):
+        return False
+    with business_errors():
+        message = service.get_message(session, prospect_id, rank)
+        text = (
+            message.body_text
+            if message is not None
+            and message.revision == expected_revision
+            and message.status is ContactMessageStatus.DRAFT
+            and message.body_text.strip()
+            else None
+        )
+    if text is None:
+        return False
+    session.commit()
+    with business_errors():
+        humanizer.ensure_human_enough(settings, text, request.app.state.humanizer_transport)
+    return True
+
+
 @router.post("/{step}/validate")
 def validate(
     prospect_id: uuid.UUID,
@@ -525,7 +602,21 @@ def validate(
     session: SessionDep,
     actor: CurrentActor,
 ) -> RemoteDraftResultOut:
-    """Human validation; then the Infomaniak draft when the Toolbox is connected (S6)."""
+    """Human validation; then the Infomaniak draft when the Toolbox is connected (S6). With the
+    Humanizer on (Config AI), the current body is checked by HumanGPT first, outside any
+    transaction: 422 `humanizer_score_too_low` or 503 `humanizer_unavailable`, nothing changes."""
+    audit_binding = audit.binding(session)
+    if _humanizer_gate(request, session, prospect_id, rank_of(step), body.expected_revision):
+        # The request's transaction ended before the HumanGPT call: validate in a new one, which
+        # checks every rule again (revision included). `session` is not used after the gate.
+        session_factory: sessionmaker[Session] = request.app.state.session_factory
+        with unit_of_work(session_factory) as write:
+            audit.bind(write, actor, audit_binding[1] if audit_binding else None)
+            with business_errors():
+                result = service.validate(
+                    write, actor, prospect_id, rank_of(step), body.expected_revision
+                )
+            return _with_remote_draft(request, write, actor, result)
     with business_errors():
         result = service.validate(
             session, actor, prospect_id, rank_of(step), body.expected_revision
@@ -731,6 +822,7 @@ def generate(
                 expected_revision=body.expected_revision,
                 instruction=body.instruction,
                 replace=body.replace,
+                options=generation_options(body.options),
             ),
             booking_url=settings.contact_booking_url,
             score_config=ScoreConfig.from_settings(settings),
@@ -809,6 +901,54 @@ class ScheduleCohortsOut(BaseModel):
     missing: int
     # Infomaniak drafts that could not be created (the messages are scheduled anyway).
     remote_draft_failures: int
+
+
+class HumanizerCheckIn(StrictModel):
+    """Either the `text` to check, or a saved step (`prospect_id` and `step`)."""
+
+    text: Annotated[str, StringConstraints(max_length=BODY_MAX_LENGTH)] | None = None
+    prospect_id: uuid.UUID | None = None
+    step: StepPath | None = None
+
+
+class HumanizerCheckOut(BaseModel):
+    # 0-100, higher = more human (`round((1 - AI probability) * 100)`).
+    human_score: int
+    # HumanGPT's verdict: `human` | `ai` | `mixed`.
+    verdict: str
+    # `human_score >= min_score`.
+    passed: bool
+    min_score: int
+
+
+@cohorts_router.post("/humanizer-check")
+def humanizer_check(
+    body: HumanizerCheckIn, request: Request, session: SessionDep, actor: CurrentActor
+) -> HumanizerCheckOut:
+    """HumanGPT's quality check of a text (the editor's current body) or of a saved step's body,
+    whether or not the gate is enabled (a key must be saved: 503 `humanizer_unavailable`, reason
+    `humanizer_not_configured`). Never holds a transaction during the call."""
+    settings: Settings = request.app.state.settings
+    with business_errors():
+        require_author(actor)
+        if body.text is not None:
+            text = body.text
+        elif body.prospect_id is not None and body.step is not None:
+            message = service.get_message(session, body.prospect_id, rank_of(body.step))
+            text = message.body_text if message else ""
+        else:
+            raise InvalidFieldError("text", "Give a `text`, or a `prospect_id` and a `step`.")
+        if not text.strip():
+            raise InvalidFieldError("text", "There is no text to check.")
+    session.commit()
+    with business_errors():
+        check = humanizer.check_or_refuse(settings, text, request.app.state.humanizer_transport)
+    return HumanizerCheckOut(
+        human_score=check.human_score,
+        verdict=check.verdict,
+        passed=check.passed,
+        min_score=check.min_score,
+    )
 
 
 @cohorts_router.post("/schedule-cohorts")

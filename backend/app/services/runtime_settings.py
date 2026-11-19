@@ -67,6 +67,7 @@ DISPATCH_FIELDS = (
     "infomaniak_send_allowlist",
 )
 CALENDLY_FIELDS = ("calendly_api_token",)
+HUMANIZER_FIELDS = ("humanizer_api_key", "humanizer_enabled", "humanizer_min_score")
 EDITABLE_FIELDS = (
     OPENAI_FIELDS
     + PROMPT_FIELDS
@@ -74,8 +75,9 @@ EDITABLE_FIELDS = (
     + TOOLBOX_FIELDS
     + DISPATCH_FIELDS
     + CALENDLY_FIELDS
+    + HUMANIZER_FIELDS
 )
-SECRET_FIELDS = frozenset({"openai_api_key", "calendly_api_token"})
+SECRET_FIELDS = frozenset({"openai_api_key", "calendly_api_token", "humanizer_api_key"})
 # Shown to the person, never a value: the string the audit event keeps for a changed secret.
 SECRET_REPLACED = "replaced"
 SECRET_REMOVED = "removed"

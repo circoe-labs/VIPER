@@ -47,6 +47,8 @@ interface MenuProps {
   position: Point
   // Open leftwards from `position` (menus attached to a trigger's right edge).
   alignRight?: boolean
+  // `position` is the menu's bottom edge: it opens upwards (triggers in a bar at the bottom of the screen).
+  above?: boolean
   sections: MenuSection[]
   // Esc, Tab, outside press, and after an item is chosen. Focus returns to what had it before.
   onClose: () => void
@@ -160,9 +162,9 @@ function SubmenuList({
 
 // Context / action menu (WAI-ARIA menu pattern): arrow keys, Home/End, Enter/Space, Esc; rendered in a portal.
 // An item with a `submenu` follows the nested-menu pattern (aria-haspopup, aria-expanded, ArrowRight / ArrowLeft).
-export function Menu({ label, position, alignRight = false, sections, onClose }: MenuProps) {
+export function Menu({ label, position, alignRight = false, above = false, sections, onClose }: MenuProps) {
   const ref = useRef<HTMLDivElement>(null)
-  const { x, y } = useViewportClamp(ref, position, alignRight)
+  const { x, y } = useViewportClamp(ref, position, alignRight, above)
   const [open, setOpen] = useState<OpenSubmenu | null>(null)
   const timer = useRef<number | undefined>(undefined)
   useRestoreFocus()

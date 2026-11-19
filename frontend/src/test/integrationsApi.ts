@@ -4,6 +4,7 @@ import type { Diagnostic } from '../api/toolboxDiagnostic'
 import type {
   CalendlyCheck,
   CalendlyEvents,
+  HumanizerKeyCheck,
   IntegrationField,
   Integrations,
   IntegrationSetting,
@@ -34,6 +35,8 @@ const DEFAULTS: Record<IntegrationField, SettingValue> = {
   contact_dispatch_enabled: true,
   contact_dispatch_interval_ms: 30_000,
   infomaniak_send_allowlist: null,
+  humanizer_enabled: false,
+  humanizer_min_score: 70,
 }
 
 const NO_KEY: SecretSetting = { set: false, last4: null, source: null, updated_at: null, updated_by: null }
@@ -60,6 +63,8 @@ export function integrations(
     fields: all,
     openai_api_key: NO_KEY,
     calendly_api_token: NO_KEY,
+    humanizer_api_key: NO_KEY,
+    humanizer_available: false,
     generation_available: false,
     initial_prompt_default: 'Tu es l’assistant de prospection de Circoe (texte par défaut de test).',
     mission_creator_prompt_default: 'Tu es l’assistant de création de missions (texte par défaut de test).',
@@ -88,6 +93,8 @@ interface IntegrationsStubOptions {
   models?: OpenAIModels
   // The answer of « Tester sur un prospect » (Config AI › Scoring prospect): `[status, body]`.
   scoringTest?: readonly [number, unknown]
+  // The answer of « Tester » of the Humanizer key.
+  humanizerCheck?: HumanizerKeyCheck
   // The answer of « Tester le jeton » (Calendly).
   calendlyCheck?: CalendlyCheck
   // The answer of `GET …/calendly/events` (default: no meeting).
@@ -130,6 +137,10 @@ export function stubIntegrationsApi(options: IntegrationsStubOptions = {}) {
     if (method === 'GET' && url.pathname === '/api/settings/integrations/calendly/events') {
       return json(200, options.calendlyEvents ?? { ok: true, code: null, events: [] })
     }
+    if (method === 'POST' && url.pathname === '/api/settings/integrations/humanizer/check') {
+      checks.push(Date.now())
+      return json(200, options.humanizerCheck ?? { ok: true, code: null, elapsed_ms: 310 })
+    }
     if (method === 'POST' && url.pathname === '/api/settings/integrations/calendly/check') {
       return json(
         200,
@@ -154,6 +165,14 @@ export function stubIntegrationsApi(options: IntegrationsStubOptions = {}) {
             value === null
               ? NO_KEY
               : { set: true, last4: (value as string).slice(-4), source: 'ui', updated_at: STAMP, updated_by: 'Pilote Test' }
+          continue
+        }
+        if (name === 'humanizer_api_key') {
+          next.humanizer_api_key =
+            value === null
+              ? NO_KEY
+              : { set: true, last4: (value as string).slice(-4), source: 'ui', updated_at: STAMP, updated_by: 'Pilote Test' }
+          next.humanizer_available = next.humanizer_api_key.set
           continue
         }
         if (name === 'calendly_api_token') {

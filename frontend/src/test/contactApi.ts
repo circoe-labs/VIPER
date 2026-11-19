@@ -143,6 +143,8 @@ interface ContactStubOptions {
   defaults?: MessageSequence['defaults']
   // The answer of `POST …/generate` (S5): a fake AI draft by default, else a refusal, or a request that never ends.
   generation?: { status: number; code: string } | 'hang'
+  // The answer of `POST /api/contact/humanizer-check` (« Vérifier maintenant »): a score, or a refusal.
+  humanizerCheck?: { human_score: number; verdict: string; passed: boolean; min_score: number } | { status: number; code: string }
   // With `defaults.toolbox_connected` (S6): the Infomaniak draft at validation is created, or fails with this code.
   remoteDraftFailure?: string
 }
@@ -406,6 +408,11 @@ export function stubContactApi(options: ContactStubOptions = {}) {
         statuses: TRACKING_STATUSES.map((state) => ({ value: `state:${state}`, label: TRACKING_LABELS[state] })),
         dispatch: options.dashboard ? options.dashboard.dispatch : contactDashboard().dispatch,
       })
+    }
+    if (method === 'POST' && url.pathname === '/api/contact/humanizer-check') {
+      requests.push({ method, path: url.pathname, search: url.search, body })
+      const answer = options.humanizerCheck ?? { human_score: 85, verdict: 'human', passed: true, min_score: 70 }
+      return 'status' in answer ? refusal(answer.status, answer.code) : json(200, answer)
     }
     const chartDate = /^\/api\/contact\/chart-dates\/([0-4])$/.exec(url.pathname)
     if (method === 'PUT' && chartDate?.[1]) {

@@ -46,6 +46,14 @@ function mailTab(page: Page, step: string) {
   return page.getByRole('tablist', { name: 'Étapes de la séquence' }).getByRole('tab', { name: new RegExp(`^${step}`) })
 }
 
+// The send moment sits behind « Programmer… » (a popover): opens it, types the moment, then « Programmer l’envoi… ».
+async function openSchedule(page: Page, day: string, time: string) {
+  await page.getByRole('button', { name: 'Programmer…', exact: true }).click()
+  await page.getByLabel('Date d’envoi').fill(day)
+  await page.getByLabel('Heure').fill(time)
+  await page.getByRole('button', { name: 'Programmer l’envoi…' }).click()
+}
+
 async function confirm(page: Page, title: RegExp, button: string) {
   const dialog = page.getByRole('dialog', { name: title })
   await expect(dialog).toBeVisible()
@@ -158,19 +166,17 @@ test('the operator scenario: import, plan, draft with the AI, validate, schedule
   await expect(page.getByRole('status').filter({ hasText: 'Message Contact enregistré.' })).toHaveCount(1)
   await page.getByRole('button', { name: 'Valider…' }).click()
   await confirm(page, /Valider le message Contact/, 'Valider le message')
-  await expect(page.getByText('Brouillon créé dans Infomaniak.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Brouillon créé dans Infomaniak.' })).toBeVisible()
   const contactDraft = await draftIdOf(page, reviewed)
 
   // 6. Schedule at the next minute: the confirmation promises an automatic send (the server really sends).
   const at = nextMinute()
-  await page.getByLabel('Date d’envoi').fill(dayOf(at))
-  await page.getByLabel('Heure').fill(timeOf(at))
-  await page.getByRole('button', { name: 'Programmer…' }).click()
+  await openSchedule(page, dayOf(at), timeOf(at))
   const scheduling = page.getByRole('dialog', { name: /Programmer le message Contact/ })
   await expect(scheduling).toContainText('Le mail partira automatiquement à cette date')
   await expect(scheduling).toContainText('S’il ne peut pas partir dans les 6 heures qui suivent')
   await scheduling.getByRole('button', { name: 'Programmer l’envoi' }).click()
-  await expect(page.getByText(/^Programmé : le mail partira automatiquement le /)).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Programmé : le mail partira automatiquement le / })).toBeVisible()
   expect((await fakeDrafts(page)).sent).not.toContain(contactDraft)
 
   // 7. The API's dispatcher sends it at the chosen minute; the page shows it without a reload.
@@ -178,8 +184,8 @@ test('the operator scenario: import, plan, draft with the AI, validate, schedule
   // Said by the persistent live region, whatever the editor shows.
   await expect(page.getByRole('status').filter({ hasText: 'Message Contact envoyé.' })).toHaveCount(1)
   expect((await fakeDrafts(page)).sent.filter((id) => id === contactDraft)).toHaveLength(1)
-  await expect(page.getByText(/^Envoyé le /)).toBeVisible()
-  await expect(page.getByText('Message envoyé : il reste consultable mais ne peut plus être modifié.')).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Envoyé le / })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Message envoyé : il reste consultable mais ne peut plus être modifié.' })).toBeVisible()
   await expect(subject).toHaveAttribute('readonly', '')
   // Sending changed no state: still no state badge, the person decides.
   await expect(page.getByRole('combobox', { name: 'État' })).toHaveValue('neutral')
@@ -205,11 +211,9 @@ test('the operator scenario: import, plan, draft with the AI, validate, schedule
   await expect(mailTab(page, 'R1')).toContainText('Brouillon')
   await page.getByRole('button', { name: 'Valider…' }).click()
   await confirm(page, /Valider le message R1/, 'Valider le message')
-  await expect(page.getByText('Brouillon créé dans Infomaniak.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Brouillon créé dans Infomaniak.' })).toBeVisible()
   const r1Draft = await draftIdOf(page, r1Subject)
-  await page.getByLabel('Date d’envoi').fill(dayOf(new Date(Date.now() + 86_400_000)))
-  await page.getByLabel('Heure').fill('09:30')
-  await page.getByRole('button', { name: 'Programmer…' }).click()
+  await openSchedule(page, dayOf(new Date(Date.now() + 86_400_000)), '09:30')
   await confirm(page, /Programmer le message R1/, 'Programmer l’envoi')
   await expect(mailTab(page, 'R1')).toContainText('Programmé')
 
@@ -256,7 +260,7 @@ test('a send whose outcome is unknown is never resent and a person settles it', 
   await page.getByRole('button', { name: 'Créer le brouillon' }).click()
   await page.getByRole('button', { name: 'Valider…' }).click()
   await confirm(page, /Valider le message Contact/, 'Valider le message')
-  await expect(page.getByText('Brouillon créé dans Infomaniak.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Brouillon créé dans Infomaniak.' })).toBeVisible()
   const draft = await draftIdOf(page, subject)
 
   // The Toolbox sends, then answers 502 (the outcome is unknown to VIPER), and its draft list is unreadable.
@@ -268,11 +272,14 @@ test('a send whose outcome is unknown is never resent and a person settles it', 
       scheduled_at: new Date(Date.now() + 4000).toISOString(),
     })
     await page.reload()
-    await expect(page.getByText(/^Envoi non confirmé : la Toolbox n’a pas donné de réponse sûre/)).toBeVisible({ timeout: 60_000 })
+    await expect(page.getByRole('button', { name: 'Envoi non confirmé : à trancher' })).toBeVisible({ timeout: 60_000 })
+    await page.getByRole('button', { name: 'Envoi non confirmé : à trancher' }).click()
+    await expect(page.getByRole('dialog').getByText(/^Envoi non confirmé : la Toolbox n’a pas donné de réponse sûre/)).toBeVisible()
+    await page.keyboard.press('Escape')
     await expect(page.getByRole('button', { name: 'Déprogrammer' })).toHaveCount(0)
     // Right after an unknown outcome the Toolbox may still be sending: only « Marquer envoyé » is open.
     await expect(page.getByRole('button', { name: 'Remettre en Validé…' })).toBeDisabled()
-    await expect(page.getByText('Brouillon créé dans Infomaniak.')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Brouillon créé dans Infomaniak.' })).toHaveCount(0)
     await capture(page, 'contact-unconfirmed', async () => {
       await expect(page.getByRole('button', { name: 'Marquer envoyé…' })).toBeVisible()
     })
@@ -292,7 +299,7 @@ test('a send whose outcome is unknown is never resent and a person settles it', 
   await page.setViewportSize({ width: 1440, height: 900 })
   await dialog.getByRole('button', { name: 'Marquer envoyé' }).click()
   await expect(mailTab(page, 'Contact')).toContainText('Envoyé')
-  await expect(page.getByText('Envoi confirmé par une personne après vérification dans la boîte Infomaniak.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Envoi confirmé par une personne après vérification dans la boîte Infomaniak.' })).toBeVisible()
   expect((await fakeDrafts(page)).sent.filter((sent) => sent === draft)).toHaveLength(1)
 })
 
@@ -328,30 +335,33 @@ test('switched off, every screen says a scheduled message will not leave, and it
     await page.getByRole('button', { name: 'Créer le brouillon' }).click()
     await page.getByRole('button', { name: 'Valider…' }).click()
     await confirm(page, /Valider le message Contact/, 'Valider le message')
-    await expect(page.getByText('Brouillon créé dans Infomaniak.')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Brouillon créé dans Infomaniak.' })).toBeVisible()
     const draft = await draftIdOf(page, subject)
 
-    // Before scheduling: the warning and the link that fixes it, under the date and time and in the confirmation.
+    // Before scheduling: the warning and the link that fixes it, in the send moment's popover and in the confirmation.
+    await page.getByRole('button', { name: 'Programmer…', exact: true }).click()
     const schedule = page.getByRole('group', { name: 'Programmer l’envoi' })
     await expect(schedule).toContainText('Envoi automatique inactif : l’envoi automatique des mails programmés est désactivé')
     await expect(schedule.getByRole('link', { name: 'Activer l’envoi automatique' })).toHaveAttribute('href', '/settings/connections')
     const at = nextMinute()
     await page.getByLabel('Date d’envoi').fill(dayOf(at))
     await page.getByLabel('Heure').fill(timeOf(at))
-    await page.getByRole('button', { name: 'Programmer…' }).click()
+    await page.getByRole('button', { name: 'Programmer l’envoi…' }).click()
     const scheduling = page.getByRole('dialog', { name: /Programmer le message Contact/ })
     await expect(scheduling.getByRole('link', { name: 'Activer l’envoi automatique' })).toBeVisible()
     await scheduling.getByRole('button', { name: 'Programmer quand même' }).click()
-    await expect(page.getByText('Ne partira pas : envoi automatique désactivé')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Ne partira pas : envoi automatique désactivé' })).toBeVisible()
 
     // Its time passes, the server runs (a pass would come every second): nothing leaves.
     await page.waitForTimeout(Math.max(0, at.getTime() - Date.now()) + 4000)
     expect((await fakeDrafts(page)).sent).not.toContain(draft)
     await page.reload()
     await expect(mailTab(page, 'Contact')).toContainText('Programmé')
+    await page.getByRole('button', { name: 'Ne partira pas : envoi automatique désactivé' }).click()
     await expect(page.getByText(/L’heure prévue est passée : s’il ne peut pas partir dans les 6 heures/)).toBeVisible()
+    await page.keyboard.press('Escape')
     await capture(page, 's9-contact-warning-line', async () => {
-      await expect(page.getByText('Ne partira pas : envoi automatique désactivé')).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Ne partira pas : envoi automatique désactivé' })).toBeVisible()
     })
 
     // The Contact page warns at the top, with the link to the switch.

@@ -21,7 +21,7 @@ import logging
 import time
 import uuid
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from http import HTTPStatus
 from typing import Self
 
@@ -36,12 +36,19 @@ from app.models import (
     CommercialSegment,
     Company,
     ContactMessage,
+    Establishment,
     Prospect,
     ProspectNote,
     Role,
     company_activity_categories,
 )
-from app.models.enums import Civility, ContactMessageStatus
+from app.models.enums import (
+    ActivityStatus,
+    Civility,
+    CompanyKind,
+    ContactMessageStatus,
+    ContactTrackingStatus,
+)
 from app.repositories import notes as notes_repository
 from app.services.contact_messages import (
     get_message,
@@ -51,7 +58,7 @@ from app.services.contact_messages import (
     sequence_context,
 )
 from app.services.contact_sequences import current_sequence
-from app.services.contact_workflow import MESSAGE_STATUS_LABELS
+from app.services.contact_workflow import MESSAGE_STATUS_LABELS, STATE_LABELS
 from app.services.errors import ContactMessageError, MailGenerationError
 from app.services.history import NOTE_SOURCE_TYPES
 from app.services.mail_generation.openai_client import (
@@ -62,15 +69,18 @@ from app.services.mail_generation.openai_client import (
 from app.services.mail_generation.prompt import (
     CompanyFacts,
     CurrentVersion,
+    GenerationOptions,
     MailContext,
     MailPrompt,
     NoteFact,
     PreviousMessage,
     ProspectFacts,
+    ProximityFacts,
     ScoreContributionFact,
     ScoreFacts,
     build_prompt,
 )
+from app.services.person_proximity import Proximity, proximity_of_prospect
 from app.services.prospect_score import (
     NOTE_SOURCE_TYPE,
     ProspectScore,
@@ -83,6 +93,13 @@ logger = logging.getLogger(__name__)
 # As written in a salutation's data (« Mme Martin »), like the export and the history.
 CIVILITY_LABELS = {Civility.MR: "M.", Civility.MS: "Mme"}
 
+
+ACTIVITY_LABELS = {ActivityStatus.ACTIVE: "Actif", ActivityStatus.INACTIVE: "Inactif"}
+COMPANY_KIND_LABELS = {
+    CompanyKind.SME: "PME",
+    CompanyKind.LARGE: "Grande entreprise",
+    CompanyKind.INSTITUTIONAL: "Institutionnel",
+}
 
 # A note's fact is bounded for the prompt (the column allows 1000 characters).
 MAX_CONTEXT_TEXT_LENGTH = 300
@@ -145,6 +162,23 @@ class GenerationRequest:
     instruction: str | None = None
     # The person confirmed that the saved subject/body are replaced.
     replace: bool = False
+    # Tone (0-5) and sender (`ai` | `person`) chosen for this version; automatic by default.
+    options: GenerationOptions = field(default_factory=GenerationOptions)
+
+
+def _proximity_facts(proximity: Proximity) -> ProximityFacts:
+    """What the prompt keeps of the proximity: score, state, the closest member and the best
+    path's size and relations (no intermediary's name)."""
+    best = proximity.paths[0] if proximity.paths else None
+    return ProximityFacts(
+        score=proximity.score,
+        state=proximity.state,
+        best_member=best.member.name if best else None,
+        best_strength=best.strength if best else None,
+        hops=best.hops if best else None,
+        relations=tuple(edge.relation for edge in best.edges) if best else (),
+        path_count=proximity.path_count,
+    )
 
 
 def _has_text(message: ContactMessage | None) -> bool:
@@ -162,11 +196,14 @@ def load_context(
     score_config: ScoreConfig | None = None,
     limits: ContextLimits | None = None,
     initial_prompt: str | None = None,
+    options: GenerationOptions | None = None,
+    commercial_state: ContactTrackingStatus | None = None,
 ) -> MailContext:
-    """The prompt's data: the minimal facts, never an address, a phone, a SIREN or the tracking
-    state; the earlier steps' recorded messages (cancelled or empty ones excluded); the prospect's
-    fact notes (newest first, capped) and its score, read from `prospect_score` (never computed
-    twice)."""
+    """The prompt's data: the whole client sheet except contact details (never an e-mail address, a
+    phone, a postal address, a SIREN/SIRET or the tracking history; the commercial state when not
+    neutral); the earlier steps' recorded messages (cancelled or empty ones excluded); the
+    prospect's fact notes (newest first, capped), its score, read from `prospect_score` (never
+    computed twice), and its proximity to the members (`person_proximity`, computed live)."""
     limits = limits or ContextLimits()
     row = session.execute(
         select(
@@ -185,6 +222,10 @@ def load_context(
             Company.project_type,
             Company.circoe_references,
             Company.client_approach,
+            Prospect.activity_status,
+            Prospect.employment_verified_at,
+            Company.company_kind,
+            Company.proposed_services,
         )
         .outerjoin(Role, Role.id == Prospect.role_id)
         .outerjoin(Company, Company.id == Prospect.company_id)
@@ -206,6 +247,16 @@ def load_context(
         )
         if company_id is not None
         else []
+    )
+    establishment = (
+        session.execute(
+            select(Establishment.city, Establishment.country)
+            .where(Establishment.company_id == company_id)
+            .order_by(Establishment.is_primary.desc(), Establishment.created_at)
+            .limit(1)
+        ).one_or_none()
+        if company_id is not None
+        else None
     )
     # The current sequence's messages only: a former sequence's mails belong to another cohort.
     sequence = current_sequence(session, prospect_id)
@@ -241,6 +292,13 @@ def load_context(
             last_name=last,
             job_title=title,
             role=role,
+            activity_status=ACTIVITY_LABELS.get(row[15]),
+            employment_verified_on=row[16].date() if row[16] else None,
+            commercial_state=(
+                STATE_LABELS[commercial_state]
+                if commercial_state not in (None, ContactTrackingStatus.NEUTRAL)
+                else None
+            ),
         ),
         company=CompanyFacts(
             name=name,
@@ -253,6 +311,10 @@ def load_context(
             project_type=row[12],
             circoe_references=row[13],
             client_approach=row[14],
+            kind_label=COMPANY_KIND_LABELS.get(row[17]),
+            proposed_services=tuple(row[18] or ()),
+            city=establishment[0] if establishment else None,
+            country=establishment[1] if establishment else None,
         ),
         previous_messages=tuple(previous),
         notes=tuple(
@@ -273,6 +335,8 @@ def load_context(
         instruction=instruction,
         booking_url=booking_url,
         initial_prompt=initial_prompt,
+        proximity=_proximity_facts(proximity_of_prospect(session, prospect_id)),
+        options=options or GenerationOptions(),
     )
 
 
@@ -315,6 +379,8 @@ def prepare(
             score_config=score_config,
             limits=limits,
             initial_prompt=initial_prompt,
+            options=request.options,
+            commercial_state=context.state,
         )
     )
 

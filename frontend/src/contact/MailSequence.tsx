@@ -27,14 +27,14 @@ function messageOf(sequence: MessageSequence, step: MessageStep) {
 interface MailSequenceProps {
   prospectId: string
   onDirtyChange: (dirty: boolean) => void
-  // Shown right above the editor's action bar.
-  aboveActions?: ReactNode
+  // The workbench's « Précédent » / « Suivant », on the editor's action row.
+  navigation?: ReactNode
 }
 
 // The mail sequence of the workbench (decisions 20-24): three tabs Contact / R1 / R2, each with its message's status,
 // and the editor of the selected step. Unsaved text is kept per step, so switching tabs loses nothing (a dot marks a
 // tab with unsaved changes, and the typed send moment is kept too); leaving the prospect with unsaved text asks first (Workbench.tsx).
-export function MailSequence({ prospectId, onDirtyChange, aboveActions }: MailSequenceProps) {
+export function MailSequence({ prospectId, onDirtyChange, navigation }: MailSequenceProps) {
   const query = useMessageSequence(prospectId)
   const mutations = useMessageMutations(prospectId)
   const [selected, setSelected] = useState<MessageStep | null>(null)
@@ -175,7 +175,7 @@ export function MailSequence({ prospectId, onDirtyChange, aboveActions }: MailSe
           onForm={(form) => {
             setDrafts((current) => ({ ...current, [step]: form }))
           }}
-          aboveActions={aboveActions}
+          navigation={navigation}
           instruction={instructions[step] ?? NO_INSTRUCTION}
           onInstruction={(instruction) => {
             setInstructions((current) => ({ ...current, [step]: instruction }))

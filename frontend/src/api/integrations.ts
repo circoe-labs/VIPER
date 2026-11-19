@@ -27,6 +27,8 @@ export type IntegrationField =
   | 'contact_dispatch_enabled'
   | 'contact_dispatch_interval_ms'
   | 'infomaniak_send_allowlist'
+  | 'humanizer_enabled'
+  | 'humanizer_min_score'
 
 export type SettingValue = string | number | boolean | null
 
@@ -62,6 +64,10 @@ export interface Integrations {
   openai_api_key: SecretSetting
   // The Calendly personal access token of the Agenda sync: write-only, like the OpenAI key.
   calendly_api_token: SecretSetting
+  // The HumanGPT token of the « Humanizer » (Config AI): write-only too.
+  humanizer_api_key: SecretSetting
+  // A HumanGPT key is saved (the check can run).
+  humanizer_available: boolean
   generation_available: boolean
   // The built-in prompt `contact_initial_prompt` falls back to.
   initial_prompt_default: string
@@ -88,12 +94,20 @@ export interface Integrations {
 export type IntegrationsChanges = Partial<Record<IntegrationField, SettingValue>> & {
   openai_api_key?: string | null
   calendly_api_token?: string | null
+  humanizer_api_key?: string | null
 }
 
 export interface KeyCheck {
   ok: boolean
   code: string | null
   model: string | null
+  elapsed_ms: number
+}
+
+// « Tester » of the Humanizer key: one tiny HumanGPT call.
+export interface HumanizerKeyCheck {
+  ok: boolean
+  code: string | null
   elapsed_ms: number
 }
 
@@ -200,6 +214,12 @@ export function useIntegrationsMutations() {
     checkCalendly: useMutation({
       mutationFn: () =>
         apiRequest<CalendlyCheck>('POST', '/settings/integrations/calendly/check', {
+          signal: AbortSignal.timeout(KEY_CHECK_DEADLINE_MS),
+        }),
+    }),
+    checkHumanizer: useMutation({
+      mutationFn: () =>
+        apiRequest<HumanizerKeyCheck>('POST', '/settings/integrations/humanizer/check', {
           signal: AbortSignal.timeout(KEY_CHECK_DEADLINE_MS),
         }),
     }),

@@ -133,7 +133,7 @@ test('an OpenAI key typed in the browser drafts at once, without a restart', asy
 
   await page.goto(`/contact?prospect=${id}`)
   await page.getByRole('button', { name: 'Générer avec l’IA' }).click()
-  await expect(page.getByText(/La clé OpenAI a été refusée/)).toBeVisible()
+  await expect(page.getByRole('alert').getByText(/La clé OpenAI a été refusée/)).toBeVisible()
 
   // 2. Another key, a model and the API address typed here: accepted, and the next drafting uses them.
   await page.goto('/settings/connections')
@@ -156,7 +156,7 @@ test('an OpenAI key typed in the browser drafts at once, without a restart', asy
 
   await page.goto(`/contact?prospect=${id}`)
   await page.getByRole('button', { name: 'Générer avec l’IA' }).click()
-  await expect(page.getByText('Rédigé par l’IA — à relire avant de valider.')).toBeVisible()
+  await page.getByRole('button', { name: 'Rédigé par l’IA — à relire avant de valider.' }).click()
   await expect(page.getByText(/Modèle modele-navigateur-snapshot/)).toBeVisible()
   const keys = await fakeKeys(page)
   expect(keys.drafted.at(-1)).toBe('4242')

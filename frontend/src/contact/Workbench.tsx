@@ -4,7 +4,7 @@ import { useBlocker, useLocation, useNavigate } from 'react-router'
 import { ApiError } from '../api/client'
 import { useProspect } from '../api/prospects'
 import { SequenceSection } from '../prospects/SequenceSection'
-import { Button } from '../ui/Button'
+import { Button, IconButton } from '../ui/Button'
 import { Modal } from '../ui/Dialog'
 import { AlertIcon, ArrowLeftIcon, ChevronLeftIcon, ChevronRightIcon, SpinnerIcon } from '../ui/icons'
 import { FROM_LIST, openedFromList } from './criteria'
@@ -80,30 +80,28 @@ export function Workbench({ prospectId, listHref, openHref, neighbours }: Workbe
     void navigate(openHref(id), { replace: true, state: fromList ? FROM_LIST : null })
   }
 
-  // « Précédent » / « Suivant » sit right above the mail's action bar, so moving on never means scrolling back up.
+  // « Précédent » / « Suivant » end the mail's action row, so moving on never means scrolling back up.
   const walkNav = neighbours ? (
     <nav className="contact-bench__foot" aria-label="Parcours de la liste, bas de page">
-      <Button
+      <IconButton
         size="sm"
         icon={ChevronLeftIcon}
+        label="Précédent"
         disabled={!neighbours.previous}
         onClick={() => {
           if (neighbours.previous) walk(neighbours.previous)
         }}
-      >
-        Précédent
-      </Button>
-      <Button
+      />
+      <IconButton
         size="sm"
-        variant="primary"
+        variant="secondary"
         icon={ChevronRightIcon}
+        label="Suivant"
         disabled={!neighbours.next}
         onClick={() => {
           if (neighbours.next) walk(neighbours.next)
         }}
-      >
-        Suivant
-      </Button>
+      />
     </nav>
   ) : null
 
@@ -159,7 +157,7 @@ export function Workbench({ prospectId, listHref, openHref, neighbours }: Workbe
           )}
         </aside>
         <div className="contact-bench__mail">
-          <MailSequence key={prospectId} prospectId={prospectId} onDirtyChange={onMailDirty} aboveActions={walkNav} />
+          <MailSequence key={prospectId} prospectId={prospectId} onDirtyChange={onMailDirty} navigation={walkNav} />
         </div>
       </div>
 

@@ -189,7 +189,7 @@ sequence. Contract and state machine: [`../features/contact.md`](../features/con
   `reason` `edited`/`cancelled`/`replaced`/`deleted` (the last from the `BEFORE DELETE` trigger of migration `0011`), `attempts`, `next_attempt_at`, `last_attempt_at`, `last_error_code`,
   `completed_at` + `outcome` `deleted`/`already_absent`); not audited, read-only in the explorer.
 - AI drafting (S5): `generation_model` (the model OpenAI named), `generation_prompt_version`
-  (`contact-mail-fr-2026-10-v4`), `generated_at` — set by `contact_messages.save_generated` only;
+  (`contact-mail-fr-2026-11-v5`), `generated_at` — set by `contact_messages.save_generated` only;
 - dispatch (S7, written by `app.services.contact_dispatch` only — no migration was needed): `dispatch_claim_id uuid`
   (the claim of one send attempt; kept on a sent row), `dispatch_claimed_at` (the claim's age drives the
   reconciliation), `dispatch_attempts int DEFAULT 0` (attempts of the current schedule, reset by a new schedule or an

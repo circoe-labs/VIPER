@@ -316,7 +316,7 @@ a person reviews, validates and schedules in VIPER. Code: `backend/app/api/mcp_c
 | `viper_update_contact_draft` | `contact.draft` | `contact_messages.save_message` (`MessageResultOut`) | same, `openWorldHint: false` |
 
 - **Arguments.** `prospect_id`, `step` (`contact`, `r1`…), `expected_revision` (omitted only to
-  create the step's message). Generate: `instruction`, `replace`. Update: `subject`, `body_text`,
+  create the step's message). Generate: `instruction`, `replace`, `options` (`{tone 0..5|null, sender ai|person|null}`). Update: `subject`, `body_text`,
   `from_email`, `to`, `cc`, `bcc` (omitted fields keep their value). The other arguments are parsed
   by the REST body models (`GenerateIn`, `MessageContentIn`, `extra="forbid"`): a `status`,
   `scheduled_at`, `validated_revision` or `sent_at` is refused (`invalid`, with its `field`).

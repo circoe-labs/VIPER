@@ -100,3 +100,54 @@ svg {
 p {
   text-wrap: pretty;
 }
+
+/* Scrollbars, Apple style: hidden by default, a slim rounded thumb (no arrows, no track) that appears only while the
+   pointer is over a scrollable area or while it scrolls (`data-scroll-hover` / `data-scrolling`, set by theme/scrollActivity.ts: Chromium does not restyle a scrollbar
+   on its host's :hover).
+   Chromium/Safari use the ::-webkit-scrollbar rules; Firefox the standard properties (only applied where the
+   ::-webkit-scrollbar rules do not exist, because Chromium would then ignore them). */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+  background: transparent;
+}
+
+*::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-color: transparent;
+  background-clip: padding-box;
+}
+
+*[data-scroll-hover]::-webkit-scrollbar-thumb,
+*[data-scrolling]::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--color-text-muted) 45%, transparent);
+}
+
+*::-webkit-scrollbar-thumb:hover,
+*::-webkit-scrollbar-thumb:active {
+  background-color: color-mix(in srgb, var(--color-text-muted) 75%, transparent);
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+  }
+
+  *[data-scroll-hover],
+  *[data-scrolling] {
+    scrollbar-color: color-mix(in srgb, var(--color-text-muted) 45%, transparent) transparent;
+  }
+}

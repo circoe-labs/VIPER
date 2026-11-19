@@ -13,6 +13,13 @@ restart:
   selectable, marked « absent de la liste ». No key yet, or a list the service refuses: the field falls back to a
   typed identifier with the reason. The key can therefore be saved before its model; drafting stays off until both
   are set.
+- **Humanizer (HumanGPT)** (2026-11-19, Config AI) — API key (write-only, same private file and masking as the OpenAI key,
+  `hgpt_…`), switch *Contrôler le message avant validation* (`humanizer_enabled`, off by default) and the minimal human
+  score `humanizer_min_score` (0-100, default 70). `GET /api/settings/integrations` returns `humanizer_api_key`
+  (`{set, last4, source, …}`), `humanizer_available` (a key is saved) and the two values in `fields`; `PUT` takes
+  `humanizer_api_key`, `humanizer_enabled`, `humanizer_min_score`; `POST /api/settings/integrations/humanizer/check`
+  (« Tester la clé », `GET /v1/usage`, nothing consumed) answers `{ok, code, elapsed_ms}` with a `humanizer_*` code
+  on failure. The gate itself: [`contact.md`](contact.md) § Humanizer.
 - **Expéditeur** — the « De » pre-filled in new messages (indicative: the Toolbox sends from the account's default
   mailbox).
 - **CIRCOE Toolbox** (S6) — **« Se connecter à CIRCOE Toolbox »** works out of the box (built-in server address, the
