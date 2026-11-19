@@ -151,7 +151,8 @@ class IntegrationsIn(BaseModel):
 
     version: int
     openai_api_key: Annotated[str, Field(max_length=500)] | None = None
-    calendly_api_token: Annotated[str, Field(max_length=500)] | None = None
+    # A Calendly personal access token is a JWT of ~900+ characters: 500 refused real tokens (422).
+    calendly_api_token: Annotated[str, Field(max_length=4000)] | None = None
     openai_model: Text | None = None
     openai_base_url: Text | None = None
     openai_timeout_ms: int | None = None
