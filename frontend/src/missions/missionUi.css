@@ -105,60 +105,6 @@
   margin-left: auto;
 }
 
-/* --- KPI tiles ---------------------------------------------------------------------------------------------------- */
-.mui-kpis {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
-  gap: var(--space-3);
-  margin: 0;
-}
-
-.mui-kpi {
-  display: grid;
-  align-content: space-between;
-  gap: var(--space-2);
-  min-width: 0;
-  padding: var(--space-4);
-  border: var(--border-width) solid color-mix(in srgb, var(--mui-fg) 38%, var(--color-border));
-  border-radius: var(--radius-lg);
-  background: linear-gradient(155deg, var(--mui-soft), var(--color-surface) 90%);
-  box-shadow: var(--shadow-card);
-}
-
-.mui-kpi__label {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-medium);
-  line-height: var(--leading-tight);
-}
-
-.mui-kpi__icon {
-  display: inline-grid;
-  flex: none;
-  place-items: center;
-  color: var(--mui-fg);
-}
-
-.mui-kpi__value {
-  margin: 0;
-  color: var(--color-text);
-  font-size: var(--text-2xl);
-  font-variant-numeric: tabular-nums;
-  font-weight: var(--weight-bold);
-  letter-spacing: var(--tracking-tight);
-  line-height: 1.2;
-}
-
-.mui-kpi__hint {
-  margin: 0;
-  color: var(--color-text-muted);
-  font-size: var(--text-xs);
-  line-height: var(--leading-normal);
-}
-
 /* --- Donut ---------------------------------------------------------------------------------------------------------- */
 .mui-donut {
   display: grid;

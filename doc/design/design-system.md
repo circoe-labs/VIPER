@@ -29,7 +29,7 @@ Styling approach and rationale: [ADR-0003](../adr/0003-styling-and-theming.md).
 | Prospection page: counter cards, toolbar, people cards (Task 14) | `src/prospection/*` (`prospection.css`) — see *Prospection people list* below |
 | Home dashboard (Task 16) | `src/home/*` (`home.css`) — see *Home dashboard* below |
 | Contact page: counters, toolbar, list, workbench (Contact port S4) | `src/contact/*` (`contact.css`) — see *Contact page* below |
-| Mission UI primitives (KPI tile, accent panel, status chip, donut with table alternative) | `src/missions/missionUi.css`, `MissionKpiTile.tsx`, `MissionPanel.tsx`, `MissionStatusChip.tsx`, `MissionDonut.tsx`, `missionAccent.ts` — contract, hues and chart rules in [`tasks/viper_mission_ui_redesign/01-ui-contract/CONTRACT.md`](../../tasks/viper_mission_ui_redesign/01-ui-contract/CONTRACT.md); tokens `--color-violet-*`, `--color-indigo-*`, `--color-teal-soft` (decorative Mission accents, never a status) |
+| Mission UI primitives (accent panel, status chip, donut with table alternative) | `src/missions/missionUi.css`, `MissionPanel.tsx`, `MissionStatusChip.tsx`, `MissionDonut.tsx`, `missionAccent.ts` — contract, hues and chart rules in [`tasks/viper_mission_ui_redesign/01-ui-contract/CONTRACT.md`](../../tasks/viper_mission_ui_redesign/01-ui-contract/CONTRACT.md); tokens `--color-violet-*`, `--color-indigo-*`, `--color-teal-soft` (decorative Mission accents, never a status) |
 | Global search (Task 17) | `src/shell/GlobalSearch.tsx`, `src/shell/global-search.css` — see *App shell* below |
 | Font | `@fontsource-variable/inter` (self-hosted Inter Variable, imported in `src/main.tsx`; no CDN) |
 
@@ -376,3 +376,12 @@ The Neon Command palette and dark-first character stay; the pass changes **how m
 - **Counters** (`CounterCard` `tone`): `attention` (amber figure, something to fix) and `go` (green, something to do); untoned counters stay neutral. The pressed counter keeps the signal glow and a check mark.
 - **Badges in three weights** (`ui/badge.css`): quiet (success / info / neutral / plain warning = glyph + text, no box), notice (danger = tinted pill), strong (`StatusBadge strong`: solid pill, reserved for *Échu*, *Réponse reçue*, *RDV pris*, *Ne pas contacter*). Every badge keeps its glyph and text — never colour alone.
 - Do-not-contact rows use a danger tint instead of a thick left border.
+
+## Counter card & chart card sizing (symmetry rule)
+
+One size, every case. Symmetry is the base of the UI: a page never mixes card sizes.
+
+- **Counter card** (`ui/KpiCard`, `kpi-card.css`): fixed `height: var(--kpi-card-height)` (8 rem) — never `min-height`. The width is the grid cell's. Inside: icon tile, name (2 lines max, ellipsis, full name in `title`), figure, and a chip line (`--kpi-sub-height`) that is **always rendered** (empty when there is no weekly delta / note), so a card with a delta and one without are identical. Value may be a number or a ready string (« 75 % »). Every page uses it (Home, Prospection, Contact, Missions list and statistics); there is no other tile component.
+- **Rows of counters** (`KpiGrid`, `columns`): equal columns, then 2 columns (<= 70 rem), then 1 (<= 30 rem). Choose `columns` so the count divides evenly (3, 4, 6, or 2 for a pair): no ragged last row. Home: 6 across, 3x2 below 1650 px, 2x3 below 760 px, 1x6 below 480 px.
+- **Chart card** (`home-charts.css`): a 2-column grid of equal cards with a fixed row height (`--chart-card-height`, 24 rem); legend and plot flex inside. Rows are always full (no full-width or double-width card among half-width ones). A chart whose source failed is left out rather than replaced by a different size.
+- **No counter for what a chart can show**: pipeline (À traiter) is horizontal bars, statuses are a pie; both lead to their list and carry exact values in the tooltip and accessible name.

@@ -1,8 +1,12 @@
 import { type ReactNode, useState } from 'react'
 
-import type { ConversionTotals, WeeklySeries, WeekPoint } from '../api/metrics'
+import type { ConversionTotals, WeeklyMetrics, WeeklySeries, WeekPoint } from '../api/metrics'
+import { MISSION_STATUSES, type MissionCard } from '../api/missions'
+import { MISSION_STATUS_LABELS } from '../missions/labels'
 import { Card } from '../ui/Card'
 import { InfoTip } from '../ui/InfoTip'
+import { HOME_DESTINATIONS } from './destinations'
+import { HorizontalBars } from './HorizontalBars'
 import { LineChart } from './LineChart'
 import { StackedBars, type BarColumn, type BarSeries } from './StackedBars'
 import { PieChart } from './PieChart'
@@ -105,10 +109,23 @@ function ConversionChart({ totals }: { totals: ConversionTotals }) {
     <ChartCard
       className="home-chart--conversion"
       title="Conversion des prospects contactés"
-      tip="À gauche : part des personnes contactées qui ont pris rendez-vous. À droite : toutes les personnes de la base, classées une seule fois — rendez-vous pris, ignorées (ont décliné, ou sont allées jusqu’à la dernière relance sans répondre), contactées, non contactées. Photo de la base aujourd’hui, pas une somme des semaines."
+      tip="Part des personnes contactées qui ont pris rendez-vous (rendez-vous obtenus / personnes contactées)."
     >
       <div className="gauges">
         <Gauge label="Rendez-vous / contacts" value={ratio(totals.with_appointment, totals.contacted)} part={totals.with_appointment} whole={totals.contacted} color="var(--color-warning-fg)" />
+      </div>
+    </ChartCard>
+  )
+}
+
+function BaseChart({ totals }: { totals: ConversionTotals }) {
+  return (
+    <ChartCard
+      className="home-chart--base"
+      title="Répartition de la base"
+      tip="Toutes les personnes de la base, classées une seule fois : rendez-vous pris, ignorées (ont décliné, ou sont allées jusqu’à la dernière relance sans répondre), contactées, non contactées. Photo de la base aujourd’hui, pas une somme des semaines."
+    >
+      <div className="gauges gauges--single">
         <PieChart
           caption="Répartition de la base"
           slices={[
@@ -117,6 +134,48 @@ function ConversionChart({ totals }: { totals: ConversionTotals }) {
             { key: 'not_contacted', label: 'Non contactés', value: totals.base_not_contacted, color: 'var(--color-neutral-fg)' },
             { key: 'ignored', label: 'Ignorés', value: totals.base_ignored, color: 'var(--color-danger-fg)' },
           ]}
+        />
+      </div>
+    </ChartCard>
+  )
+}
+
+// What is left to do in the contact pipeline: the figures of the former counters, as one bar chart (each bar leads to
+// its list). Needs the weekly metrics (contact stock); « Incomplets » comes from the Prospection counters.
+function PipelineChart({ metrics, incomplete }: { metrics: WeeklyMetrics; incomplete: number | undefined }) {
+  const stock = metrics.contact_stock
+  const context = { weekStart: metrics.week_start }
+  const onTime = Math.max(0, stock.follow_up_to_send - stock.follow_up_overdue)
+  const rows = [
+    { key: 'to_contact', label: 'À contacter', parts: [{ label: 'À contacter', value: stock.first_contact_to_send, color: 'var(--color-info-fg)' }], href: HOME_DESTINATIONS.to_contact(context) },
+    {
+      key: 'due', label: 'Relances dues', href: HOME_DESTINATIONS.due(context),
+      parts: [{ label: 'Dans les temps', value: onTime, color: 'var(--color-warning-fg)' }, { label: 'En retard', value: stock.follow_up_overdue, color: 'var(--color-danger-fg)' }],
+    },
+    ...(incomplete === undefined ? [] : [{ key: 'incomplete', label: 'Fiches incomplètes', parts: [{ label: 'Incomplètes', value: incomplete, color: 'var(--color-violet-fg)' }], href: HOME_DESTINATIONS.incomplete(context) }]),
+  ]
+  return (
+    <ChartCard
+      className="home-chart--pipeline"
+      title="À traiter"
+      tip="Ce qui attend une action aujourd’hui : premiers contacts à envoyer, relances dues (dont celles en retard) et fiches prospects incomplètes. Cliquez une barre pour ouvrir la liste."
+    >
+      <HorizontalBars caption="À traiter" rows={rows} />
+    </ChartCard>
+  )
+}
+
+function MissionsChart({ missions }: { missions: MissionCard[] }) {
+  const colors = { active: 'var(--color-info-fg)', paused: 'var(--color-warning-fg)', done: 'var(--color-success-fg)', cancelled: 'var(--color-neutral-fg)' } as const
+  return (
+    <ChartCard className="home-chart--missions" title="Missions par statut" tip="Toutes les missions, classées une seule fois selon leur statut. Cliquez un statut pour ouvrir les missions.">
+      <div className="gauges gauges--single">
+        <PieChart
+          caption="Missions par statut"
+          slices={MISSION_STATUSES.map((status) => ({
+            key: status, label: MISSION_STATUS_LABELS[status], value: missions.filter((mission) => mission.status === status).length,
+            color: colors[status], href: HOME_DESTINATIONS.missions_active({ weekStart: undefined }),
+          }))}
         />
       </div>
     </ChartCard>
@@ -156,12 +215,23 @@ function GrowthChart({ weeks }: { weeks: WeekPoint[] }) {
   )
 }
 
-export function HomeCharts({ series }: { series: WeeklySeries }) {
+interface HomeChartsProps {
+  series: WeeklySeries
+  metrics: WeeklyMetrics | undefined
+  incomplete: number | undefined
+  missions: MissionCard[] | undefined
+}
+
+// A strict two-column grid of equal cards (one fixed height, home-charts.css); a chart whose source failed is left out.
+export function HomeCharts({ series, metrics, incomplete, missions }: HomeChartsProps) {
   return (
     <div className="home-charts">
       <ActivityChart weeks={series.weeks} />
-      <ConversionChart totals={series.totals} />
       <GrowthChart weeks={series.weeks} />
+      <ConversionChart totals={series.totals} />
+      <BaseChart totals={series.totals} />
+      {metrics && <PipelineChart metrics={metrics} incomplete={incomplete} />}
+      {missions && <MissionsChart missions={missions} />}
     </div>
   )
 }

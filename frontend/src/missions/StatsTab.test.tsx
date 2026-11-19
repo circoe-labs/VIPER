@@ -187,14 +187,14 @@ function lastQuery(fetchMock: ReturnType<typeof stubApi>): URLSearchParams {
 
 // First card of that name (« À relire » is both a result and a task label).
 function kpi(label: string): HTMLElement {
-  return screen.getAllByText(label, { selector: "dt" })[0]
+  return screen.getAllByText(label, { selector: ".kpi-card__name, dt" })[0]
     ?.parentElement as HTMLElement;
 }
 
 describe("Statistiques tab", () => {
   it("renders the KPI cards from the API", async () => {
     renderTab([200, stats()]);
-    await screen.findByText("Taux d’acceptation", { selector: "dt" });
+    await screen.findByText("Taux d’acceptation", { selector: ".kpi-card__name" });
 
     expect(
       within(kpi("Taux d’acceptation")).getByText("75 %"),
@@ -247,7 +247,7 @@ describe("Statistiques tab", () => {
       200,
       stats({ acceptance_rate: null, avg_review_seconds: null }),
     ]);
-    await screen.findByText("Taux d’acceptation", { selector: "dt" });
+    await screen.findByText("Taux d’acceptation", { selector: ".kpi-card__name" });
     expect(
       within(kpi("Taux d’acceptation")).getByText("—"),
     ).toBeInTheDocument();
@@ -281,7 +281,7 @@ describe("Statistiques tab", () => {
   it("asks for day buckets over 30 days first, then the toggles change the query", async () => {
     const user = userEvent.setup();
     const fetchMock = renderTab([200, stats()]);
-    await screen.findByText("Taux d’acceptation", { selector: "dt" });
+    await screen.findByText("Taux d’acceptation", { selector: ".kpi-card__name" });
     expect(Object.fromEntries(lastQuery(fetchMock))).toEqual({
       bucket: "day",
       days: "30",
@@ -325,11 +325,11 @@ describe("Statistiques tab", () => {
     renderTab((url) =>
       url.searchParams.get("days") === "90" ? pending : [200, stats()],
     );
-    await screen.findByText("Taux d’acceptation", { selector: "dt" });
+    await screen.findByText("Taux d’acceptation", { selector: ".kpi-card__name" });
 
     await user.click(screen.getByRole("button", { name: "90 jours" }));
     expect(await screen.findByText("Mise à jour des chiffres…")).toBeVisible();
-    expect(screen.getByText("Taux d’acceptation", { selector: "dt" })).toBeVisible();
+    expect(screen.getByText("Taux d’acceptation", { selector: ".kpi-card__name" })).toBeVisible();
     expect(screen.queryByText("Chargement des statistiques…")).toBeNull();
 
     release(
@@ -357,7 +357,7 @@ describe("Statistiques tab", () => {
     fail = false;
     await user.click(screen.getByRole("button", { name: "Réessayer" }));
     expect(
-      await screen.findByText("Taux d’acceptation", { selector: "dt" }),
+      await screen.findByText("Taux d’acceptation", { selector: ".kpi-card__name" }),
     ).toBeInTheDocument();
   });
 
@@ -373,7 +373,7 @@ describe("Statistiques tab", () => {
   it("gives every chart a text summary and a data table, zero buckets included", async () => {
     const user = userEvent.setup();
     renderTab([200, stats()]);
-    await screen.findByText("Taux d’acceptation", { selector: "dt" });
+    await screen.findByText("Taux d’acceptation", { selector: ".kpi-card__name" });
 
     // 3 time charts + 3 donuts, each one a named image with its figures in words
     expect(screen.getAllByRole("img")).toHaveLength(6);

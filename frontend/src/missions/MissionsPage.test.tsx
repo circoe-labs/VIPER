@@ -107,8 +107,8 @@ describe('MissionsPage', () => {
     renderApp('/missions')
 
     await screen.findByText('Veille')
-    // The tile of « Toutes les missions »: a <dt> label and its figure.
-    const total = () => document.querySelector('.mui-kpi')
+    // The card of « Toutes les missions »: the first shared KpiCard.
+    const total = () => document.querySelector('.kpi-card')
     const counters = total()
     expect(counters).toHaveTextContent('3')
     expect(screen.getByText('Automatique')).toBeInTheDocument()
@@ -147,7 +147,7 @@ describe('MissionsPage', () => {
 
     await screen.findByText('Veille')
     const tile = await screen.findByText('En attente de relecture')
-    expect(tile.closest('.mui-kpi')).toHaveTextContent('5')
+    expect(tile.closest('.kpi-card')).toHaveTextContent('5')
   })
 
   it('says why the list is missing and retries', async () => {

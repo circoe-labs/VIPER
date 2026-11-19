@@ -16,7 +16,7 @@ import { HOME_SHORTCUTS } from './destinations'
 import { HomeCharts } from './HomeCharts'
 import './home-dashboard.css'
 
-// Home asks Prospection for its panel sizes unfiltered: the cockpit counts the whole base.
+// Home asks Prospection for its panel sizes unfiltered: the pipeline chart counts the whole base.
 const FILTERS = filtersOf(DEFAULT_VIEW)
 const TODAY = new Intl.DateTimeFormat('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
 
@@ -24,10 +24,10 @@ const TONES = { blue: 'info', purple: 'default', green: 'success', orange: 'warn
 
 // The shared KPI card (ui/KpiCard) like every other page; the whole card links to its filtered destination. A weekly
 // addition (`growth`) says « cette semaine » so it is never read as a total.
-function DashboardCard({ label, count, weekly, icon, tone, href, hint }: CockpitCard) {
+function DashboardCard({ label, count, weekly, icon, tone, href }: CockpitCard) {
   return (
     <li>
-      <KpiCard label={label} icon={icon} value={count} tone={TONES[tone]} to={href} weekly={weekly} note={hint} />
+      <KpiCard label={label} icon={icon} value={count} tone={TONES[tone]} to={href} weekly={weekly} />
     </li>
   )
 }
@@ -47,15 +47,14 @@ export function HomePage() {
   const companyCounts = useCompanyCounts()
   const warehouseCounts = useWarehouseCounts()
   const user = useCurrentUser()
-  const sections = buildCockpit({
-    metrics: metrics.data, counters: counters.data, missions: missions.data,
+  const cards = buildCockpit({
+    metrics: metrics.data, missions: missions.data,
     totals: { prospects: prospects.data?.total, companies: companyCounts.data?.all, warehouses: warehouseCounts.data?.warehouses },
   })
   const loading = metrics.isPending || counters.isPending || missions.isPending
   const failed = metrics.isError || counters.isError || missions.isError
   const refetch = () => { for (const query of [metrics, counters, missions]) if (query.isError) void query.refetch() }
   const series = useWeeklySeries()
-  const cards = sections.flatMap((section) => section.cards)
   return (
     <div className="home-dashboard">
       <PageHeader
@@ -72,7 +71,7 @@ export function HomePage() {
       {loading && <p className="home-dashboard__state" role="status"><SpinnerIcon size={18} className="btn__spinner" /> Chargement des statistiques…</p>}
       {failed && <div className="home-dashboard__state home-dashboard__state--error" role="alert"><AlertIcon size={18} /> Impossible de charger certaines statistiques de VIPER. <Button size="sm" onClick={refetch}>Réessayer</Button></div>}
       {cards.length > 0 && <ul className="home-dashboard__cards" aria-label="Indicateurs">{cards.map((card) => <DashboardCard key={card.id} {...card} />)}</ul>}
-      {series.data && <HomeCharts series={series.data} />}
+      {series.data && <HomeCharts series={series.data} metrics={metrics.data} incomplete={counters.data?.reviews.incomplete.total} missions={missions.data?.items} />}
       {series.isPending && <p className="home-dashboard__state" role="status"><SpinnerIcon size={18} className="btn__spinner" /> Chargement des graphiques…</p>}
       {series.isError && <div className="home-dashboard__state home-dashboard__state--error" role="alert"><AlertIcon size={18} /> Impossible de charger les graphiques. <Button size="sm" onClick={() => void series.refetch()}>Réessayer</Button></div>}
     </div>

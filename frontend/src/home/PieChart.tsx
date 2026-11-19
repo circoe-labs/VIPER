@@ -1,3 +1,5 @@
+import { Link } from 'react-router'
+
 const NUMBER = new Intl.NumberFormat('fr-FR')
 const PERCENT = new Intl.NumberFormat('fr-FR', { style: 'percent', maximumFractionDigits: 1 })
 
@@ -7,6 +9,8 @@ export interface PieSlice {
   value: number
   // A CSS colour (a theme token).
   color: string
+  // Makes the legend entry a link to where the slice is worked on.
+  href?: string
 }
 
 const point = (angle: number): string => `${(50 + 48 * Math.sin(angle)).toFixed(3)} ${(50 - 48 * Math.cos(angle)).toFixed(3)}`
@@ -38,14 +42,21 @@ export function PieChart({ caption, slices }: { caption: string; slices: PieSlic
         })}
       </svg>
       <ul className="pie__legend" aria-label={`${caption} : légende`}>
-        {slices.map((slice) => (
-          <li key={slice.key}>
-            <span className="chart-legend__swatch" style={{ background: slice.color }} aria-hidden="true" />
-            {slice.label}
-            <strong>{NUMBER.format(slice.value)}</strong>
-            <small>{total > 0 ? PERCENT.format(slice.value / total) : '–'}</small>
-          </li>
-        ))}
+        {slices.map((slice) => {
+          const row = (
+            <>
+              <span className="chart-legend__swatch" style={{ background: slice.color }} aria-hidden="true" />
+              {slice.label}
+              <strong>{NUMBER.format(slice.value)}</strong>
+              <small>{total > 0 ? PERCENT.format(slice.value / total) : '–'}</small>
+            </>
+          )
+          return (
+            <li key={slice.key}>
+              {slice.href ? <Link className="pie__link" to={slice.href} title={`${slice.label} : ${NUMBER.format(slice.value)}`} aria-label={`${slice.label} : ${NUMBER.format(slice.value)}`}>{row}</Link> : row}
+            </li>
+          )
+        })}
       </ul>
     </div>
   )

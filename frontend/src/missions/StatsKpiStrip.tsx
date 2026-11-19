@@ -2,7 +2,7 @@ import type { UseQueryResult } from '@tanstack/react-query'
 
 import type { MissionOverview } from '../api/missions'
 import { CheckCircleIcon, ClockIcon, ColumnsIcon, UsersIcon } from '../ui/icons'
-import { MissionKpiGrid, MissionKpiTile } from './MissionKpiTile'
+import { KpiCard, KpiGrid } from '../ui/KpiCard'
 import { progressOf } from './statsSelectors'
 
 interface StatsKpiStripProps {
@@ -22,23 +22,23 @@ export function StatsKpiStrip({ overview }: StatsKpiStripProps) {
   }
   const why = unavailable ? 'Indisponible : tâches non chargées.' : undefined
   return (
-    <MissionKpiGrid label="Indicateurs d’exécution de la mission">
-      <MissionKpiTile
+    <KpiGrid label="Indicateurs d’exécution de la mission" columns={2}>
+      <KpiCard
         label="Agents actifs"
         icon={UsersIcon}
-        hue="blue"
+        tone="info"
         value={pick(data?.active_agents)}
         hint={data ? 'Avec une session active maintenant.' : why}
       />
-      <MissionKpiTile
+      <KpiCard
         label="Tâches traitées"
         icon={CheckCircleIcon}
-        hue="green"
+        tone="success"
         value={pick(progress?.finished)}
         hint={data ? 'Validées, en échec ou annulées.' : why}
       />
-      <MissionKpiTile label="Tâches restantes" icon={ClockIcon} hue="amber" value={pick(progress?.remaining)} hint={why} />
-      <MissionKpiTile label="Tâches totales" icon={ColumnsIcon} hue="indigo" value={pick(progress?.total)} hint={why} />
-    </MissionKpiGrid>
+      <KpiCard label="Tâches restantes" icon={ClockIcon} tone="warning" value={pick(progress?.remaining)} hint={why} />
+      <KpiCard label="Tâches totales" icon={ColumnsIcon} value={pick(progress?.total)} hint={why} />
+    </KpiGrid>
   )
 }

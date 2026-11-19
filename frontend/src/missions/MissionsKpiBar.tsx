@@ -1,6 +1,6 @@
 import type { MissionCard } from '../api/missions'
 import { CheckCircleIcon, ClockIcon, PlayIcon, TableIcon } from '../ui/icons'
-import { MissionKpiGrid, MissionKpiTile } from './MissionKpiTile'
+import { KpiCard, KpiGrid } from '../ui/KpiCard'
 import { missionCounters, reviewQueueTotal } from './missionsListModel'
 
 interface MissionsKpiBarProps {
@@ -24,11 +24,11 @@ export function MissionsKpiBar({ items, proposals }: MissionsKpiBarProps) {
   const missing = items === null ? null : undefined
   const toReview = reviewQueue(items, proposals)
   return (
-    <MissionKpiGrid label="Indicateurs des missions">
-      <MissionKpiTile label="Toutes les missions" value={counters ? counters.total : missing} icon={TableIcon} hue="green" />
-      <MissionKpiTile label="Actives" value={counters ? counters.active : missing} icon={PlayIcon} hue="blue" />
-      <MissionKpiTile label="En attente de relecture" value={toReview} icon={ClockIcon} hue="amber" />
-      <MissionKpiTile label="Terminées" value={counters ? counters.done : missing} icon={CheckCircleIcon} hue="purple" />
-    </MissionKpiGrid>
+    <KpiGrid label="Indicateurs des missions" columns={4}>
+      <KpiCard label="Toutes les missions" value={counters ? counters.total : missing} icon={TableIcon} />
+      <KpiCard label="Actives" value={counters ? counters.active : missing} icon={PlayIcon} tone="info" />
+      <KpiCard label="En attente de relecture" value={toReview} icon={ClockIcon} tone="warning" />
+      <KpiCard label="Terminées" value={counters ? counters.done : missing} icon={CheckCircleIcon} tone="success" />
+    </KpiGrid>
   )
 }

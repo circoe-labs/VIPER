@@ -59,3 +59,5 @@ Home figure. `totals` is a stock as of now, not a sum of the weeks: `contacted` 
 - Limits: a week before any record is 0 because nothing was recorded, not because nothing happened; prospects contacted
   or answered before VIPER recorded events (imports) are in `totals` but in no week. `first_contacts` counts a prospect
   once, in the week of the first recorded contact (a first appointment history row also dates a first contact).
+
+Home usage: `contact_stock.first_contact_to_send`, `follow_up_to_send` and `follow_up_overdue` feed the « À traiter » bar chart (not counter cards any more); `contact_stock.appointments` stays the « Rendez-vous pris » counter. No endpoint change was needed.

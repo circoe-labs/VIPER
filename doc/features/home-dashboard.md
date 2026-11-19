@@ -272,12 +272,18 @@ Prospection et la liste des missions.
 | Nouveaux prospects / entreprises (cette semaine) | `metrics.additions.{prospects,companies}` | `/prospection?entity=prospect\|company&created_from=<week_start>` (liste réellement filtrée sur `created_at`) |
 | Nouveaux entrepôts (cette semaine) | `metrics.additions.warehouses` (sites, pas leurs interlocuteurs) | `/prospection?entity=warehouse` : `GET /warehouses` n'a pas de filtre de date, la liste n'est pas filtrée |
 | Rendez-vous pris | `metrics.contact_stock.appointments` | `/contact?view=appointments` |
-| À contacter | `metrics.contact_stock.first_contact_to_send` (= la vue) | `/contact?view=to_contact` |
-| Relances dues (+ « dont N en retard ») | `contact_stock.follow_up_to_send`, `follow_up_overdue` | `/contact?view=follow_ups` |
+| *(graphique « À traiter », plus une carte)* À contacter | `metrics.contact_stock.first_contact_to_send` (= la vue) | `/contact?view=to_contact` |
+| *(graphique « À traiter »)* Relances dues (+ « dont N en retard ») | `contact_stock.follow_up_to_send`, `follow_up_overdue` | `/contact?view=follow_ups` |
+| *(graphique « À traiter »)* Fiches incomplètes | `counters.reviews.incomplete.total` | `/prospection?entity=prospect&review=incomplete` |
 | À vérifier | `GET /api/prospection/counters` `reviews.to_verify.total` | `/prospection?entity=prospect&review=to_verify` |
-| Missions en cours / terminées | `GET /api/missions` (`status` active / done) | `/missions` |
-| Reviews en attente | somme de `results_pending` des missions | `/missions` |
+| Missions en cours | `GET /api/missions` (`status` active) | `/missions` |
+| Résultats à vérifier | somme de `results_pending` des missions | `/missions` |
+| *(graphique « Missions par statut »)* | `GET /api/missions`, un seul statut par mission | `/missions` |
 
+Mise en page (Accueil) : **6 compteurs** (Rendez-vous pris, Prospects, Entreprises, Entrepôts, Missions en cours,
+Résultats à vérifier), puis **6 graphiques** en grille de 2 colonnes égales (Activité, Croissance, Conversion,
+Répartition de la base, À traiter, Missions par statut). Les anciens compteurs À contacter, Relances dues, Incomplets
+et Missions terminées ne sont plus des cartes : leurs chiffres exacts sont dans les graphiques ci-dessus.
 Contact lit `view=to_contact|follow_ups|overdue|contacted|responses|appointments|mail_errors` (+ `week=YYYY-Www`),
 jamais `status=` ; Prospection lit `entity=company|warehouse`, `created_from`, `review`, `warehouse_category`,
 `warehouse_to_contact`. `/missions` n'a pas de filtre. Anciens chemins conservés : `/contacts-joignables`,

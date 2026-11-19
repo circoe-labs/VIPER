@@ -1,7 +1,7 @@
 import type { MissionStatistics } from '../api/missions'
-import { CheckCircleIcon, ColumnsIcon } from '../ui/icons'
+import { CheckCircleIcon, ClockIcon, ColumnsIcon } from '../ui/icons'
 import { MissionDonut } from './MissionDonut'
-import { MissionKpiGrid, MissionKpiTile } from './MissionKpiTile'
+import { KpiCard, KpiGrid } from '../ui/KpiCard'
 import { MissionPanel } from './MissionPanel'
 import { useTableToggle } from './TableToggle'
 import { formatCount, formatDuration, formatRate } from './statsModel'
@@ -23,24 +23,26 @@ export function StatsResultsPanel({ stats }: { stats: MissionStatistics }) {
         asTable={asTable}
         emptyText="Aucun résultat déposé pour l’instant."
       />
-      <MissionKpiGrid label="Relecture des résultats">
-        <MissionKpiTile
+      <KpiGrid label="Relecture des résultats" columns={2}>
+        <KpiCard
           label="Taux d’acceptation"
+          icon={CheckCircleIcon}
           value={stats.acceptance_rate === null ? null : formatRate(stats.acceptance_rate)}
           hint={
             stats.acceptance_rate === null
               ? 'Aucun résultat décidé pour l’instant.'
               : `Sur ${formatCount(decided)} résultat(s) acceptés ou refusés.`
           }
-          hue="success"
+          tone="success"
         />
-        <MissionKpiTile
+        <KpiCard
           label="Délai moyen de relecture"
+          icon={ClockIcon}
           value={stats.avg_review_seconds === null ? null : formatDuration(stats.avg_review_seconds)}
           hint={stats.avg_review_seconds === null ? 'Aucun résultat décidé pour l’instant.' : 'Du dépôt à la décision.'}
-          hue="amber"
+          tone="warning"
         />
-      </MissionKpiGrid>
+      </KpiGrid>
     </MissionPanel>
   )
 }

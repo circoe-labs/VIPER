@@ -13,3 +13,21 @@
 .pie__legend li { display: flex; align-items: center; gap: var(--space-2); }
 .pie__legend strong { margin-left: auto; color: var(--color-text); font-variant-numeric: tabular-nums; }
 .pie__legend small { min-width: 3.5rem; text-align: right; font-size: var(--text-xs); }
+.pie { align-content: center; }
+.pie__chart { max-width: 180px; }
+.pie__legend { width: min(100%, 22rem); }
+.pie__link { display: flex; align-items: center; gap: var(--space-2); flex: 1; padding: 2px var(--space-2); margin: 0 calc(-1 * var(--space-2)); border-radius: var(--radius-md); color: inherit; text-decoration: none; }
+.pie__link:hover { background: var(--color-surface-hover); }
+.pie__link:focus-visible { outline: var(--focus-ring-width) solid var(--color-focus); outline-offset: var(--focus-ring-offset); }
+
+/* Horizontal bars (À traiter): one scale, each row a link; the detail line is always reserved so rows have equal height. */
+.hbars { display: grid; align-content: center; gap: var(--space-4); margin: 0; padding: 0; list-style: none; }
+.hbars__row { display: grid; grid-template-columns: 9.5rem minmax(0, 1fr) 3.5rem; grid-template-areas: 'label track value' '. detail detail'; align-items: center; gap: var(--space-1) var(--space-3); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); color: var(--color-text); text-decoration: none; }
+.hbars__row:hover { background: var(--color-surface-hover); }
+.hbars__row:focus-visible { outline: var(--focus-ring-width) solid var(--color-focus); outline-offset: var(--focus-ring-offset); }
+.hbars__label { grid-area: label; font-size: var(--text-sm); font-weight: var(--weight-medium); }
+.hbars__track { grid-area: track; display: block; height: 1.25rem; border-radius: var(--radius-sm); background: var(--color-surface-hover); }
+.hbars__bar { display: flex; height: 100%; gap: 1px; min-width: 2px; border-radius: var(--radius-sm); overflow: hidden; }
+.hbars__part { display: block; min-width: 2px; }
+.hbars__value { grid-area: value; text-align: right; font-size: var(--text-lg); font-variant-numeric: tabular-nums; }
+.hbars__detail { grid-area: detail; min-height: 1.1em; color: var(--color-text-muted); font-size: var(--text-xs); }

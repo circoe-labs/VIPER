@@ -20,7 +20,7 @@ import { CohortBadge, DueBadge, EmailErrorBadge, LevelBadge, StateBadge } from '
 import { CounterCard, CounterGroup } from '../ui/CounterCards'
 import { Tabs } from '../ui/Tabs'
 import { MissionDonut } from '../missions/MissionDonut'
-import { MissionKpiGrid, MissionKpiTile } from '../missions/MissionKpiTile'
+import { KpiCard, KpiGrid } from '../ui/KpiCard'
 import { MISSION_ACCENTS } from '../missions/missionAccent'
 import { MissionPanel } from '../missions/MissionPanel'
 import { MissionStatusChip } from '../missions/MissionStatusChip'
@@ -135,13 +135,13 @@ export function Showcase() {
 
         <Card title="Missions : tuiles, panneaux, anneau">
           <div className="showcase__stack">
-            <MissionKpiGrid label="Indicateurs d’exemple">
-              {MISSION_ACCENTS.map((hue, index) => (
-                <MissionKpiTile key={hue} hue={hue} icon={icons.SparklesIcon} label={`Indicateur ${hue}`} value={(index + 1) * 12} />
+            <KpiGrid label="Indicateurs d’exemple" columns={3}>
+              {MISSION_ACCENTS.slice(0, 3).map((hue, index) => (
+                <KpiCard key={hue} icon={icons.SparklesIcon} label={`Indicateur ${hue}`} value={(index + 1) * 12} />
               ))}
-              <MissionKpiTile label="Chargement" value={undefined} />
-              <MissionKpiTile label="Indisponible" value={null} />
-            </MissionKpiGrid>
+              <KpiCard icon={icons.SparklesIcon} label="Chargement" value={undefined} />
+              <KpiCard icon={icons.SparklesIcon} label="Indisponible" value={null} />
+            </KpiGrid>
             <div className="showcase__row">
               <MissionStatusChip status="active" />
               <MissionStatusChip status="paused" />

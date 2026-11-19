@@ -9,6 +9,8 @@ const NUMBER = new Intl.NumberFormat('fr-FR')
 
 export type KpiTone = 'default' | 'info' | 'warning' | 'danger' | 'success'
 
+// SIZE RULE: every KpiCard has the same height (--kpi-card-height, kpi-card.css) and its grid cell sets the width; the
+// name (2 lines max), the figure and the chip line live inside that box and never resize it.
 // The ONE counter card of the app (Prospection entities, Contact lists, CounterCards, Home): an icon tile on the left,
 // the name and the big figure beside it, an optional chip next to the figure. Props:
 //  - label    name of the counter
@@ -23,7 +25,7 @@ export type KpiTone = 'default' | 'info' | 'warning' | 'danger' | 'success'
 export interface KpiCardProps {
   label: string
   icon: IconComponent
-  value: number | null | undefined
+  value: number | string | null | undefined
   weekly?: number | null
   note?: ReactNode
   hint?: ReactNode
@@ -34,8 +36,8 @@ export interface KpiCardProps {
   className?: string
 }
 
-export function formatKpi(value: number | null | undefined): string {
-  return value === undefined ? '…' : value === null ? '—' : NUMBER.format(value)
+export function formatKpi(value: number | string | null | undefined): string {
+  return value === undefined ? '…' : value === null ? '—' : typeof value === 'string' ? value : NUMBER.format(value)
 }
 
 export function KpiCard({ label, icon: Icon, value, weekly, note, hint, active = false, tone = 'default', to, onSelect, className }: KpiCardProps) {
@@ -43,12 +45,14 @@ export function KpiCard({ label, icon: Icon, value, weekly, note, hint, active =
   const body = (
     <>
       <span className="kpi-card__icon" aria-hidden="true"><Icon size={26} /></span>
-      <span className="kpi-card__name">{label}</span>
-      <span className="kpi-card__figure">
-        <strong className="kpi-card__value">
-          {formatKpi(value)}
-          {value === null && <span className="visually-hidden"> indisponible</span>}
-        </strong>
+      <span className="kpi-card__name" title={label}>{label}</span>
+      <strong className="kpi-card__value">
+        {formatKpi(value)}
+        {value === null && <span className="visually-hidden"> indisponible</span>}
+      </strong>
+      {/* The chip line is ALWAYS rendered (empty when there is nothing to say): it reserves its height, so a card with
+          a weekly figure and one without are exactly the same size. */}
+      <span className="kpi-card__sub">
         {weekly !== undefined && (
           <span className={weekly === null ? 'kpi-card__chip kpi-card__chip--unknown' : 'kpi-card__chip'} title={weekly === null ? 'Ajouts de la semaine indisponibles' : undefined}>
             {weekly === null ? '—' : `+${NUMBER.format(weekly)} cette semaine`}
@@ -74,7 +78,7 @@ export function KpiCard({ label, icon: Icon, value, weekly, note, hint, active =
   )
 }
 
-// A responsive row of KpiCards: `columns` caps how many sit side by side on a wide screen; narrower containers wrap.
+// A row of equal KpiCards: `columns` sets how many sit side by side; narrower screens drop to 2 then 1 column (equal cells).
 export function KpiGrid({ columns = 3, label, children }: { columns?: number; label: string; children: ReactNode }) {
   return (
     <section className="kpi-grid" aria-label={label} style={{ '--kpi-columns': columns } as CSSProperties}>

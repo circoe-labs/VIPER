@@ -45,7 +45,8 @@ describe('Home cockpit', () => {
     const main = within(await screen.findByRole('main'))
     const conversion = await main.findByRole('region', { name: 'Conversion des prospects contactés' })
     expect(within(conversion).getByRole('group', { name: /Rendez-vous \/ contacts : 4\s?% \(8 sur 200\)/ })).toBeInTheDocument()
-    expect(within(conversion).getByRole('img', { name: /Non contactés : 300/ })).toBeInTheDocument()
+    const base = main.getByRole('region', { name: 'Répartition de la base' })
+    expect(within(base).getByRole('img', { name: /Non contactés : 300/ })).toBeInTheDocument()
     const activity = main.getByRole('region', { name: 'Activité de contact par semaine' })
     expect(within(activity).getByRole('table', { name: 'Activité de contact par semaine' })).toBeInTheDocument()
     expect(main.getByRole('region', { name: 'Croissance de la base par semaine' })).toBeInTheDocument()
@@ -59,14 +60,23 @@ describe('Home cockpit', () => {
     renderApp('/')
     const main = within(await screen.findByRole('main'))
     await main.findByRole('link', { name: /Entrepôts/ })
-    const cards = main.getAllByRole('link').map((link) => link.textContent.replace(/\s+/g, ' ').trim())
+    const list = within(main.getByRole('list', { name: 'Indicateurs' }))
+    const cards = list.getAllByRole('link').map((link) => link.textContent.replace(/\s+/g, ' ').trim())
     const has = (label: string, value: string, note?: string) =>
       cards.some((text) => text.includes(label) && text.includes(value) && (note === undefined || text.includes(note)))
     expect([
       has('Prospects', '1 051', '+28 cette semaine'), has('Entreprises', '812', '+12 cette semaine'), has('Entrepôts', '36', '+145 cette semaine'),
-      has('Rendez-vous pris', '6', '+'), has('À contacter', '41'), has('Relances dues', '9', 'dont 3 en retard'), has('Incomplets', '17', '+'),
-      has('Missions en cours', '2'), has('Missions terminées', '1'), has('Reviews en attente', '7'),
-    ]).toEqual(Array(10).fill(true))
+      has('Rendez-vous pris', '6', '+'), has('Missions en cours', '2'), has('Résultats à vérifier', '7'),
+    ]).toEqual(Array(6).fill(true))
+    // The removed counters are charts now: no card, same figures in the « À traiter » bars.
+    for (const gone of [/^À contacter/, /^Relances dues/, /^Incomplets/, /^Missions terminées/, /Reviews en attente/]) expect(list.queryByRole('link', { name: gone })).toBeNull()
+    expect(list.getAllByRole('listitem')).toHaveLength(6)
+    const pipeline = within(main.getByRole('region', { name: 'À traiter' }))
+    expect(pipeline.getByRole('link', { name: /À contacter : 41/ })).toBeInTheDocument()
+    expect(pipeline.getByRole('link', { name: /Relances dues : 9 \(Dans les temps : 6, En retard : 3\)/ })).toBeInTheDocument()
+    expect(pipeline.getByRole('link', { name: /Fiches incomplètes : 17/ })).toBeInTheDocument()
+    const missions = within(main.getByRole('region', { name: 'Missions par statut' }))
+    expect(missions.getByRole('img', { name: /Active : 2, Inactive : 0, Terminée : 1, Annulée : 0/ })).toBeInTheDocument()
     // The only tables are the visually hidden data of the charts, one per chart (activity + growth).
     expect(await main.findAllByRole('table')).toHaveLength(2)
   })
@@ -81,10 +91,13 @@ describe('Home cockpit', () => {
     expect(href(/Entreprises/)).toBe('/prospection?entity=company')
     expect(href(/Entrepôts/)).toBe('/prospection?entity=warehouse')
     expect(href(/Rendez-vous pris/)).toBe('/contact?view=appointments')
-    expect(href(/À contacter/)).toBe('/contact?view=to_contact')
-    expect(href(/Relances dues/)).toBe('/contact?view=follow_ups')
-    expect(href(/Incomplets/)).toBe('/prospection?entity=prospect&review=incomplete')
-    expect(href(/Reviews en attente/)).toBe('/missions')
+    expect(href(/Résultats à vérifier/)).toBe('/missions')
+    expect(href(/Missions en cours/)).toBe('/missions')
+    // The charts lead where the removed cards led.
+    expect(href(/À contacter : 41/)).toBe('/contact?view=to_contact')
+    expect(href(/Relances dues : 9/)).toBe('/contact?view=follow_ups')
+    expect(href(/Fiches incomplètes : 17/)).toBe('/prospection?entity=prospect&review=incomplete')
+    expect(href(/Terminée : 1/)).toBe('/missions')
     expect(screen.getByRole('link', { name: 'Importer Excel' })).toHaveAttribute('href', '/prospection/import')
     expect(screen.getByRole('link', { name: 'Ouvrir la prospection' })).toHaveAttribute('href', '/prospection')
   })
@@ -109,7 +122,7 @@ describe('Home cockpit', () => {
     stubApi({ ...API, 'GET /api/missions': () => failed ? [500, { detail: 'boom' }] : [200, MISSIONS] })
     renderApp('/')
     expect(await screen.findByRole('alert')).toHaveTextContent('Impossible de charger certaines statistiques de VIPER.')
-    expect(await screen.findByRole('link', { name: /Incomplets\s*17/ })).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: /Rendez-vous pris/ })).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /Missions en cours/ })).not.toBeInTheDocument()
     failed = false
     await userEvent.click(screen.getByRole('button', { name: 'Réessayer' }))
