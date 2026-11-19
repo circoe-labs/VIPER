@@ -53,9 +53,11 @@ export function Workbench({ prospectId, listHref, openHref, neighbours }: Workbe
     setDirtyTracking(value)
   }, [])
 
+  // A mail never blocks: what is typed is saved by itself when the step or the prospect is left (MailEditor.tsx); only
+  // the follow-up state, saved by hand, asks first. A reload or a closed tab still warns about a mail not yet saved.
   const blocker = useBlocker(
     ({ currentLocation, nextLocation }) =>
-      dirty &&
+      dirtyTracking &&
       (currentLocation.pathname !== nextLocation.pathname ||
         prospectOf(currentLocation.search) !== prospectOf(nextLocation.search)),
   )

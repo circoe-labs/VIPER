@@ -34,13 +34,14 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     Integer,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
     Uuid,
     text,
 )
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.contact_steps import step_code
@@ -255,3 +256,87 @@ class ContactMessageRemoteDraftCleanup(UUIDPrimaryKeyMixin, TimestampMixin, Base
     last_error_code: Mapped[str | None] = mapped_column(String(64))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     outcome: Mapped[str | None] = mapped_column(String(32))
+
+
+VERSION_SOURCES = ("ai", "manual", "restore")
+RATING_MAX = 10
+
+
+class ContactMessageVersion(UUIDPrimaryKeyMixin, Base):
+    """One kept state of a step's text (`contact_message_versions`): every AI generation, every
+    manual edit (consecutive autosaves of one editing session are merged into one row) and every
+    restoration is a version, so a bad generation can be cancelled and two texts compared. A
+    version is never deleted by the application, validated or not: a draft deleted by a person
+    keeps its versions (`message_id` becomes NULL); only deleting the prospect removes them.
+
+    The *saved* facet (« Sauvegarder ») turns a version into a keeper, a « mail sauvegardé »:
+    a human rating 0-10 (0 = never again, 10 = keep this style) and an optional comment, with the
+    generation `config` (tone, sender, instruction, model, prompt version, humanizer score). The
+    content columns never change once written, except the merge of consecutive manual autosaves
+    (an unsaved manual version only); the saved facet is set once.
+
+    Not audited as rows (a history written by the message service, see `NOT_AUDITED_TABLES`).
+    """
+
+    __tablename__ = "contact_message_versions"
+    __table_args__ = (
+        CheckConstraint("source IN ('ai', 'manual', 'restore')", name="source"),
+        CheckConstraint(
+            f"rating IS NULL OR rating BETWEEN 0 AND {RATING_MAX}", name="rating_range"
+        ),
+        CheckConstraint(
+            "(saved_at IS NULL) = (rating IS NULL) AND (saved_at IS NULL) = "
+            "(saved_by_display IS NULL)",
+            name="saved_complete",
+        ),
+        ForeignKeyConstraint(
+            ["prospect_id", "sequence_id"],
+            ["contact_sequences.prospect_id", "contact_sequences.id"],
+            ondelete="CASCADE",
+            name="fk_contact_message_versions_sequence",
+        ),
+        Index(
+            "ix_contact_message_versions_step", "prospect_id", "sequence_id", "rank", "created_at"
+        ),
+        Index("ix_contact_message_versions_message_id", "message_id"),
+        Index(
+            "ix_contact_message_versions_saved",
+            "prospect_id",
+            "saved_at",
+            postgresql_where=text("saved_at IS NOT NULL"),
+        ),
+    )
+
+    prospect_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    sequence_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    rank: Mapped[int] = mapped_column(Integer)
+    message_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("contact_messages.id", ondelete="SET NULL")
+    )
+    # The message revision this state became.
+    revision: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()"), sort_order=1
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+    source: Mapped[str] = mapped_column(String(16))
+    from_email: Mapped[str | None] = mapped_column(String(EMAIL_MAX_LENGTH))
+    to_recipients: Mapped[list[str]] = _recipients()
+    subject: Mapped[str] = mapped_column(String(SUBJECT_MAX_LENGTH), server_default="")
+    body_text: Mapped[str] = mapped_column(Text, server_default="")
+    # `{tone, sender, instruction, model, prompt_version, humanizer_score, restored_from}`: only
+    # the known keys; a manual version carries none of the generation ones.
+    config: Mapped[dict[str, object]] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    actor_type: Mapped[str] = mapped_column(String(16))
+    actor_display: Mapped[str] = mapped_column(String(255))
+    # The saved facet (« Sauvegarder »).
+    saved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    saved_by_display: Mapped[str | None] = mapped_column(String(255))
+    rating: Mapped[int | None] = mapped_column(SmallInteger)
+    comment: Mapped[str | None] = mapped_column(Text)
+
+    @property
+    def step(self) -> str:
+        return step_code(self.rank)

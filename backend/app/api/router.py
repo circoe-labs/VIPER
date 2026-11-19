@@ -15,6 +15,7 @@ from app.api.routes import (
     auth,
     companies,
     contact,
+    contact_message_versions,
     contact_messages,
     database_reset,
     explorer,
@@ -57,6 +58,8 @@ api_router.include_router(audit.router)
 api_router.include_router(companies.router)
 api_router.include_router(warehouses.router)
 api_router.include_router(contact.router)
+# `saved` is read before the `{step}` routes of the messages router.
+api_router.include_router(contact_message_versions.router)
 api_router.include_router(contact_messages.router)
 api_router.include_router(contact_messages.cohorts_router)
 api_router.include_router(database_reset.router)

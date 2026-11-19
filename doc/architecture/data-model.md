@@ -206,6 +206,20 @@ scheduled/sent; `last_error_code` ⇔ `last_error_at`; trigger `reject_sent_chan
 (`WHERE status = 'scheduled'`), unique `uq_contact_messages_remote_draft` and `uq_contact_messages_dispatch_claim_id`.
 No separate event table: the audit log records each transition (`contact_message.*`, subject = prospect).
 
+## `contact_message_versions`
+
+The kept texts of a step and the saved mails (migration `0059`, `app/services/contact_message_versions.py`): one row per AI
+generation, manual state (consecutive autosaves of one person within 10 minutes share a row) and restoration. Columns:
+`prospect_id` + `sequence_id` (composite FK to `contact_sequences`, `ON DELETE CASCADE`), `rank`, `message_id`
+(`ON DELETE SET NULL`: a deleted draft keeps its versions), `revision`, `created_at`, `updated_at`, `source`
+(`ai` | `manual` | `restore`, CHECK), `from_email`, `to_recipients`, `subject`, `body_text`, `config jsonb`
+(`tone`, `sender`, `instruction`, `model`, `prompt_version`, `humanizer_score`, `restored_from`), `actor_type`, `actor_display`,
+and the **saved facet** `saved_at`, `saved_by_display`, `rating smallint` (CHECK 0-10), `comment` — all three of
+`saved_at` / `saved_by_display` / `rating` or none (`saved_complete`). Indexes: `(prospect_id, sequence_id, rank, created_at)`,
+`message_id`, partial `(prospect_id, saved_at) WHERE saved_at IS NOT NULL`; trigger `set_updated_at`. Never deleted by the
+application (only with the prospect); not audited as rows (listed in `NOT_AUDITED_TABLES`: the message's own events record the
+change); read-only in the explorer. Content and comment are personal text: never in a log line.
+
 ## `prospect_sources`
 Minimal provenance required by the functional spec:
 - `id`, `prospect_id`

@@ -107,18 +107,16 @@ export interface AiConfirmation {
   lines: string[]
 }
 
-// Asked before anything would be lost: a saved text, unsaved edits, a validation. Null: generate at once.
-export function generationConfirmation(step: MessageStep, message: Message | null, dirty: boolean): AiConfirmation | null {
-  const saved = hasText(message)
-  const validated = message?.status === 'validated'
-  if (!saved && !dirty && !validated) return null
+// Asked only before a validation would be lost (the message goes back to Brouillon): a saved or typed text is never
+// lost by a generation, it stays in the step's « Versions » (what is typed is saved first). Null: generate at once.
+export function generationConfirmation(step: MessageStep, message: Message | null): AiConfirmation | null {
+  if (message?.status !== 'validated') return null
   const label = stepLabel(step)
   return {
-    title: `${saved ? 'Régénérer' : 'Générer'} le message ${label} ?`,
+    title: `${hasText(message) ? 'Régénérer' : 'Générer'} le message ${label} ?`,
     lines: [
-      ...(saved ? ['L’objet et le corps enregistrés seront remplacés par la proposition de l’IA.'] : []),
-      ...(dirty ? ['Vos modifications non enregistrées seront perdues.'] : []),
-      ...(validated ? ['Le message repassera en Brouillon : il faudra le relire puis le revalider.'] : []),
+      'Le message repassera en Brouillon : il faudra le relire puis le revalider.',
+      'Le texte actuel reste dans les versions : vous pourrez y revenir.',
       'La proposition reste un Brouillon à relire : rien n’est validé ni envoyé.',
     ],
   }

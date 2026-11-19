@@ -84,24 +84,12 @@ describe('AI drafting in the mail editor', () => {
     expect(request?.body).toEqual({ options: { tone: null, sender: null } })
   })
 
-  it('« Créer le brouillon » with nothing written has the AI write it and creates the draft with its text', async () => {
-    const { api, id } = open()
-    await userEvent.click(await screen.findByRole('button', { name: 'Créer le brouillon' }))
-
-    await waitFor(() => {
-      expect(screen.getByRole('textbox', { name: 'Objet' })).toHaveValue('Objet IA 1')
-    })
-    expect(screen.getByRole('textbox', { name: 'Corps' })).toHaveValue('Bonjour,\n\nCorps IA 1.')
-    expect(api.requests.some((request) => request.method === 'POST' && request.path === `/api/prospects/${id}/messages/contact/generate`)).toBe(true)
+  it('has no « Enregistrer » nor « Créer le brouillon »: an empty step only offers « Générer »', async () => {
+    const { api } = open()
+    expect(await screen.findByRole('button', { name: 'Générer avec l’IA' })).toBeEnabled()
+    expect(screen.queryByRole('button', { name: 'Créer le brouillon' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Enregistrer' })).toBeNull()
     expect(api.requests.some((request) => request.method === 'PUT')).toBe(false)
-  })
-
-  it('« Créer le brouillon » with nothing written and no AI creates nothing and says what to do', async () => {
-    const { api } = open({}, {}, false)
-    await userEvent.click(await screen.findByRole('button', { name: 'Créer le brouillon' }))
-
-    expect(await screen.findByText(/Écrivez l’objet et le texte du message/)).toBeInTheDocument()
-    expect(api.requests.some((request) => request.method === 'PUT' || request.path.endsWith('/generate'))).toBe(false)
   })
 
   it('on the step to send next, the draft is already there on arrival: written by the AI, no button to press', async () => {
@@ -146,8 +134,8 @@ describe('AI drafting in the mail editor', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Régénérer avec l’IA' }))
     const dialog = await screen.findByRole('dialog', { name: 'Régénérer le message Contact ?' })
-    expect(dialog).toHaveTextContent('L’objet et le corps enregistrés seront remplacés')
     expect(dialog).toHaveTextContent('Le message repassera en Brouillon')
+    expect(dialog).toHaveTextContent('Le texte actuel reste dans les versions')
     // « Retour » first: Enter never replaces by accident.
     expect(within(dialog).getByRole('button', { name: 'Retour' })).toHaveFocus()
     await userEvent.click(within(dialog).getByRole('button', { name: 'Remplacer par la proposition' }))
@@ -167,8 +155,18 @@ describe('AI drafting in the mail editor', () => {
     )
   })
 
-  it('« Retour » keeps the text and sends nothing', async () => {
+  it('regenerates a draft at once (its text stays in the versions): no confirmation', async () => {
     const { api, id } = open({ contact: message('contact', 'draft') })
+    await userEvent.click(await screen.findByRole('button', { name: 'Régénérer avec l’IA' }))
+    await waitFor(() => {
+      expect(screen.getByRole('textbox', { name: 'Objet' })).toHaveValue('Objet IA 1')
+    })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(sent(api.requests, 'POST', `/api/prospects/${id}/messages/contact/generate`)).toHaveLength(1)
+  })
+
+  it('« Retour » keeps the text and sends nothing', async () => {
+    const { api, id } = open({ contact: message('contact', 'validated') })
     await userEvent.click(await screen.findByRole('button', { name: 'Régénérer avec l’IA' }))
     const dialog = await screen.findByRole('dialog', { name: 'Régénérer le message Contact ?' })
     await userEvent.click(within(dialog).getByRole('button', { name: 'Retour' }))
@@ -176,15 +174,18 @@ describe('AI drafting in the mail editor', () => {
     expect(sent(api.requests, 'POST', `/api/prospects/${id}/messages/contact/generate`)).toHaveLength(0)
   })
 
-  it('unsaved edits of an empty step are asked about, then replaced', async () => {
-    open()
+  it('saves what is typed first, then generates over it: nothing typed is lost', async () => {
+    const { api, id } = open()
     await userEvent.type(await screen.findByRole('textbox', { name: 'Objet' }), 'Mon objet')
     await userEvent.click(screen.getByRole('button', { name: 'Générer avec l’IA' }))
-    const dialog = await screen.findByRole('dialog', { name: 'Générer le message Contact ?' })
-    expect(dialog).toHaveTextContent('Vos modifications non enregistrées seront perdues.')
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Générer avec l’IA' }))
     await waitFor(() => {
       expect(screen.getByRole('textbox', { name: 'Objet' })).toHaveValue('Objet IA 1')
+    })
+    const [put] = sent(api.requests, 'PUT', `/api/prospects/${id}/messages/contact`)
+    expect(put?.body).toMatchObject({ subject: 'Mon objet' })
+    expect(sent(api.requests, 'POST', `/api/prospects/${id}/messages/contact/generate`)[0]?.body).toMatchObject({
+      expected_revision: 1,
+      replace: true,
     })
   })
 
@@ -250,7 +251,8 @@ describe('AI drafting in the mail editor', () => {
     expect(
       screen.getByRole('button', { name: 'Rédigé par l’IA, modifié par vous : la mention disparaîtra à l’enregistrement.' }),
     ).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Enregistrer' }))
+    // Leaving the field saves the draft by itself.
+    await userEvent.tab()
     await waitFor(() => {
       expect(screen.queryByRole('button', { name: /Rédigé par l’IA/ })).toBeNull()
     })

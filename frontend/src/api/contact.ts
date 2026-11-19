@@ -315,6 +315,8 @@ export const contactKeys = {
   dashboard: (q: string) => ['contact', 'dashboard', q] as const,
   page: (criteria: ContactListCriteria, page: number) => ['contact', 'page', criteria, page] as const,
   messages: (prospectId: string) => ['contact', 'messages', prospectId] as const,
+  versions: (prospectId: string, step: MessageStep) => ['contact', 'versions', prospectId, step] as const,
+  saved: (prospectId: string) => ['contact', 'saved', prospectId] as const,
 }
 
 // What the sequences-rework API answers for a row (backend/app/api/routes/contact.py); `toRow` turns it into the shape
@@ -565,6 +567,8 @@ export function useMessageMutations(prospectId: string) {
       ['contact', 'page'],
       ['contact', 'dashboard'],
       ['contact', 'scheduling'],
+      // Every text a write leaves is a kept version.
+      ['contact', 'versions', prospectId],
       historyKeys.subject('prospects', prospectId),
     ])
   }
@@ -608,13 +612,24 @@ export function useMessageMutations(prospectId: string) {
         }),
       onSuccess: saved,
     }),
-    // « Relu »: the verdict on the text; null takes it back. Nothing else about the message changes.
-    review: useMutation({
-      mutationFn: ({ step, revision, verdict }: { step: MessageStep; revision: number; verdict: ReviewVerdict | null }) =>
-        apiRequest<MessageResult>('POST', path(step, 'review'), {
-          body: { expected_revision: revision, verdict },
+    // « Versions »: a kept version's text becomes the current draft (itself recorded as a version).
+    restore: useMutation({
+      mutationFn: ({ step, versionId, revision }: { step: MessageStep; versionId: string; revision: number }) =>
+        apiRequest<MessageResult>('POST', path(step, `versions/${versionId}/restore`), {
+          body: { expected_revision: revision },
         }),
       onSuccess: saved,
+    }),
+    // « Sauvegarder »: the current text, with its generation config, a rating 0-10 and a comment, kept as a saved mail.
+    keep: useMutation({
+      mutationFn: ({ step, note }: { step: MessageStep; note: SavedMailNote }) =>
+        apiRequest<MessageVersion>('POST', path(step, 'saved'), { body: note }),
+      onSuccess: () =>
+        refreshAfterWrite(queryClient, [
+          contactKeys.saved(prospectId),
+          ['contact', 'versions', prospectId],
+          historyKeys.subject('prospects', prospectId),
+        ]),
     }),
     schedule: useMutation({
       mutationFn: ({ step, revision, at }: { step: MessageStep; revision: number; at: string }) =>
@@ -624,6 +639,62 @@ export function useMessageMutations(prospectId: string) {
       onSuccess: saved,
     }),
   }
+}
+
+// One kept state of a step's text: an AI generation, a manual state or a restoration. The saved facet (`saved_at`…)
+// makes it a « mail sauvegardé » with its human note.
+export interface MessageVersion {
+  id: string
+  step: MessageStep
+  step_label: string
+  revision: number
+  created_at: string
+  updated_at: string
+  source: 'ai' | 'manual' | 'restore'
+  from_email: string | null
+  to: string[]
+  subject: string
+  body_text: string
+  // tone 0..5, sender `ai` / `person`, instruction, model, prompt_version, humanizer_score, restored_from.
+  config: {
+    tone?: number
+    sender?: 'ai' | 'person'
+    instruction?: string
+    model?: string
+    prompt_version?: string
+    humanizer_score?: number
+    restored_from?: string
+  }
+  actor: string
+  saved_at: string | null
+  saved_by: string | null
+  // 0 = « ne fais plus jamais ça » … 10 = « super, garde ce style ».
+  rating: number | null
+  comment: string | null
+}
+
+export interface SavedMailNote {
+  rating: number
+  comment: string | null
+  humanizer_score?: number
+}
+
+export function useMessageVersions(prospectId: string, step: MessageStep, enabled = true) {
+  return useQuery({
+    queryKey: contactKeys.versions(prospectId, step),
+    queryFn: ({ signal }) => apiGet<{ versions: MessageVersion[] }>(`${messagesPath(prospectId)}/${step}/versions`, signal),
+    enabled,
+    refetchOnWindowFocus: false,
+  })
+}
+
+// The prospect's saved mails, newest first (the « Suivi de contact » list).
+export function useSavedMails(prospectId: string) {
+  return useQuery({
+    queryKey: contactKeys.saved(prospectId),
+    queryFn: ({ signal }) => apiGet<{ saved: MessageVersion[] }>(`${messagesPath(prospectId)}/saved`, signal),
+    refetchOnWindowFocus: false,
+  })
 }
 
 // « Vérifier maintenant »: the HumanGPT score of a text (nothing is saved).

@@ -166,8 +166,9 @@ test('the operator scenario: import, plan, draft with the AI, validate, schedule
   await expect(subject).toHaveValue(/^Agents IA pour /)
   const reviewed = `${await subject.inputValue()} (relu)`
   await subject.fill(reviewed)
-  await page.getByRole('button', { name: 'Enregistrer', exact: true }).click()
-  await expect(page.getByRole('status').filter({ hasText: 'Message Contact enregistré.' })).toHaveCount(1)
+  // Leaving the field saves the draft (it also saves itself 1.5 s after the last key): no « Enregistrer » button.
+  await page.getByRole('textbox', { name: 'Corps' }).focus()
+  await expect(page.getByRole('button', { name: /^Enregistré à / })).toBeVisible()
   await page.getByRole('button', { name: 'Valider…' }).click()
   await confirm(page, /Valider le message Contact/, 'Valider le message')
   await expect(page.getByRole('button', { name: 'Brouillon créé dans Infomaniak.' })).toBeVisible()
@@ -211,7 +212,8 @@ test('the operator scenario: import, plan, draft with the AI, validate, schedule
   const r1Subject = `Relance ${tag}`
   await page.getByRole('textbox', { name: 'Objet' }).fill(r1Subject)
   await page.getByRole('textbox', { name: 'Corps' }).fill('Bonjour,\n\nJe me permets de revenir vers vous (message synthétique).\n\nCordialement')
-  await page.getByRole('button', { name: 'Créer le brouillon' }).click()
+  // Leaving the field saves the draft (it also saves itself 1.5 s after the last key): no « Enregistrer » button.
+  await page.getByRole('textbox', { name: 'Objet' }).focus()
   await expect(mailTab(page, 'R1')).toContainText('Brouillon')
   await page.getByRole('button', { name: 'Valider…' }).click()
   await confirm(page, /Valider le message R1/, 'Valider le message')
@@ -261,7 +263,7 @@ test('a send whose outcome is unknown is never resent and a person settles it', 
   const subject = `Incertain ${tag}`
   await page.getByRole('textbox', { name: 'Objet' }).fill(subject)
   await page.getByRole('textbox', { name: 'Corps' }).fill('Bonjour,\n\nMessage synthétique de test.\n\nCordialement')
-  await page.getByRole('button', { name: 'Créer le brouillon' }).click()
+  // « Valider » saves what is typed first.
   await page.getByRole('button', { name: 'Valider…' }).click()
   await confirm(page, /Valider le message Contact/, 'Valider le message')
   await expect(page.getByRole('button', { name: 'Brouillon créé dans Infomaniak.' })).toBeVisible()
@@ -337,7 +339,7 @@ test('switched off, every screen says a scheduled message will not leave, and it
     const subject = `Arrêt ${tag}`
     await page.getByRole('textbox', { name: 'Objet' }).fill(subject)
     await page.getByRole('textbox', { name: 'Corps' }).fill('Bonjour,\n\nMessage synthétique de test.\n\nCordialement')
-    await page.getByRole('button', { name: 'Créer le brouillon' }).click()
+    // « Valider » saves what is typed first.
     await page.getByRole('button', { name: 'Valider…' }).click()
     await confirm(page, /Valider le message Contact/, 'Valider le message')
     await expect(page.getByRole('button', { name: 'Brouillon créé dans Infomaniak.' })).toBeVisible()

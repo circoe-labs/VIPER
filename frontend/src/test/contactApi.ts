@@ -10,6 +10,7 @@ import type {
   MessageSequence,
   MessageStatus,
   MessageStep,
+  MessageVersion,
   Scheduling,
 } from '../api/contact'
 import type { Prospect } from '../api/prospects'
@@ -147,6 +148,31 @@ interface ContactStubOptions {
   humanizerCheck?: { human_score: number; verdict: string; passed: boolean; min_score: number } | { status: number; code: string }
   // With `defaults.toolbox_connected` (S6): the Infomaniak draft at validation is created, or fails with this code.
   remoteDraftFailure?: string
+  // Versions already kept per `<prospect id>:<step>` (newest first), and the prospect's saved mails.
+  versions?: Record<string, MessageVersion[]>
+}
+
+export function version(step: MessageStep, source: MessageVersion['source'], fields: Partial<MessageVersion> = {}): MessageVersion {
+  return {
+    id: `version-${step}-${source}-${fields.subject ?? ''}`,
+    step,
+    step_label: step === 'contact' ? 'Contact' : step.toUpperCase(),
+    revision: 1,
+    created_at: STAMP,
+    updated_at: STAMP,
+    source,
+    from_email: 'prospection@exemple.example',
+    to: ['jean@exemple.example'],
+    subject: `Objet ${step}`,
+    body_text: `Corps ${step}`,
+    config: {},
+    actor: 'Pilote Test',
+    saved_at: null,
+    saved_by: null,
+    rating: null,
+    comment: null,
+    ...fields,
+  }
 }
 
 function json(status: number, body?: unknown): Promise<Response> {
@@ -166,6 +192,14 @@ export function stubContactApi(options: ContactStubOptions = {}) {
     Object.entries(options.messages ?? {}).map(([id, steps]) => [id, structuredClone(steps)]),
   )
   const requests: RecordedRequest[] = []
+  // The versions kept per `<prospect id>:<step>` (newest first): every text a write leaves, as the server does.
+  const versions = new Map<string, MessageVersion[]>(Object.entries(options.versions ?? {}).map(([key, list]) => [key, [...list]]))
+  function keepVersion(id: string, step: MessageStep, saved: Message, source: MessageVersion['source'], extra: Partial<MessageVersion> = {}) {
+    const key = `${id}:${step}`
+    const list = versions.get(key) ?? []
+    const config = saved.generation_model ? { model: saved.generation_model, prompt_version: saved.generation_prompt_version ?? undefined } : {}
+    versions.set(key, [version(step, source, { id: `v${String(list.length + 1)}-${key}`, revision: saved.revision, subject: saved.subject, body_text: saved.body_text, config, ...extra }), ...list])
+  }
   // Replaces the answer of the next message write (a refusal the fake would not produce).
   const next: { reply: [number, unknown] | null } = { reply: null }
   const defaults = options.defaults ?? { from_email: 'prospection@exemple.example', to: ['jean@exemple.example'], generation_available: false, toolbox_connected: false, toolbox_state: 'disabled' as const, automatic_sending_active: false, dispatch_reason: 'toolbox_disabled' as const, dispatch_max_lateness_minutes: 360, dispatch_claim_ttl_seconds: 600 }
@@ -193,6 +227,8 @@ export function stubContactApi(options: ContactStubOptions = {}) {
   }
 
   function write(id: string, step: MessageStep, updated: Message, created = false, changed = true, unvalidated = false) {
+    const before = store.get(id)?.[step]
+    if (changed && (created || before?.subject !== updated.subject || before.body_text !== updated.body_text)) keepVersion(id, step, updated, 'manual')
     store.set(id, { ...store.get(id), [step]: updated })
     return json(created ? 201 : 200, { message: updated, created, changed, unvalidated })
   }
@@ -256,7 +292,6 @@ export function stubContactApi(options: ContactStubOptions = {}) {
     switch (action) {
       case 'validate': {
         const missing = [
-          !current.from_email && 'from_email',
           current.to.length === 0 && 'to',
           !current.subject && 'subject',
           !current.body_text && 'body_text',
@@ -354,6 +389,7 @@ export function stubContactApi(options: ContactStubOptions = {}) {
       scheduled_at: null,
     }
     store.set(id, { ...store.get(id), [step]: draft })
+    keepVersion(id, step, draft, 'ai', { config: { model: 'fake-model', prompt_version: 'contact-mail-fr-2026-09-v1', ...(request.options?.tone === null || request.options?.tone === undefined ? {} : { tone: request.options.tone }) } })
     return json(current ? 200 : 201, {
       message: draft,
       created: !current,
@@ -437,6 +473,34 @@ export function stubContactApi(options: ContactStubOptions = {}) {
       const offset = Number(url.searchParams.get('offset') ?? 0)
       return json(200, { items: all.slice(offset, offset + limit), total: all.length, limit, offset })
     }
+    // « Versions » and saved mails (« Sauvegarder »).
+    const kept = /^\/api\/prospects\/([^/]+)\/messages\/(?:saved|(contact|r1|r2)\/(versions|saved|versions\/([^/]+)\/restore))$/.exec(url.pathname)
+    if (kept?.[1]) {
+      requests.push({ method, path: url.pathname, search: url.search, body })
+      const id = kept[1]
+      const step = kept[2]
+      if (!step) {
+        const all = [...versions.entries()].filter(([key]) => key.startsWith(`${id}:`)).flatMap(([, list]) => list)
+        return json(200, { saved: all.filter((item) => item.saved_at) })
+      }
+      const list = versions.get(`${id}:${step}`) ?? []
+      if (method === 'GET') return json(200, { versions: list })
+      const current = store.get(id)?.[step]
+      if (!current) return refusal(404, 'message_not_found')
+      if (kept[3] === 'saved') {
+        const note = body as { rating: number; comment: string | null }
+        keepVersion(id, step, current, current.generation_model ? 'ai' : 'manual', { saved_at: STAMP, saved_by: 'Pilote Test', rating: note.rating, comment: note.comment })
+        return json(200, versions.get(`${id}:${step}`)?.[0])
+      }
+      const target = list.find((item) => item.id === kept[4])
+      if (!target) return refusal(404, 'version_not_found')
+      if ((body as { expected_revision: number }).expected_revision !== current.revision) return refusal(409, 'revision_conflict')
+      const restored = { ...current, subject: target.subject, body_text: target.body_text, status: 'draft' as const, revision: current.revision + 1, validated_revision: null, validated_at: null, validated_by: null, scheduled_at: null }
+      const changed = target.subject !== current.subject || target.body_text !== current.body_text
+      if (changed) keepVersion(id, step, restored, 'restore', { config: { ...target.config, restored_from: target.id } })
+      store.set(id, { ...store.get(id), [step]: changed ? restored : current })
+      return json(200, { message: changed ? restored : current, created: false, changed, unvalidated: changed && current.status !== 'draft' })
+    }
     const found = /^\/api\/prospects\/([^/]+)\/messages(?:\/(contact|r1|r2))?(?:\/([\w-]+))?$/.exec(url.pathname)
     if (found?.[1]) {
       requests.push({ method, path: url.pathname, search: url.search, body })
@@ -445,7 +509,7 @@ export function stubContactApi(options: ContactStubOptions = {}) {
     return prospectsFetch(input, init)
   })
   vi.stubGlobal('fetch', fetchMock)
-  return { store, requests, next, prospects }
+  return { store, requests, next, prospects, versions }
 }
 
 function fromContent(content: MessageContent): Partial<Message> {

@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { Message, MessageStep } from '../api/contact'
 import type { Prospect } from '../api/prospects'
-import { contactDashboard, message, sent, stubContactApi } from '../test/contactApi'
+import { contactDashboard, message, sent, stubContactApi, version } from '../test/contactApi'
 import { prospectDetail, trackingDetail } from '../test/prospectsApi'
 import { renderApp } from '../test/render'
 
@@ -105,7 +105,7 @@ describe('Contact workbench', () => {
     expect(within(sheet).queryByRole('textbox')).not.toBeInTheDocument()
   })
 
-  it('starts an empty step from the defaults and creates the draft on save (never validated)', async () => {
+  it('starts an empty step from the defaults and creates the draft by itself (never validated)', async () => {
     const detail = person()
     const { api } = open(detail)
     expect(await screen.findByRole('tab', { name: /^Contact/ })).toHaveAttribute('aria-selected', 'true')
@@ -114,64 +114,66 @@ describe('Contact workbench', () => {
     expect(field('De')).toHaveValue('prospection@exemple.example')
     expect(field('À')).toHaveValue('claire@exemple.example')
     expect(screen.queryByRole('button', { name: 'Valider…' })).not.toBeInTheDocument()
+    // No « Enregistrer » nor « Créer le brouillon »: the draft takes what is typed.
+    expect(screen.queryByRole('button', { name: 'Enregistrer' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Créer le brouillon' })).not.toBeInTheDocument()
 
     await userEvent.type(field('Objet'), 'Bonjour')
-    await userEvent.type(field('Corps'), 'Un message de test.')
-    await userEvent.click(screen.getByRole('button', { name: 'Créer le brouillon' }))
-
+    // Leaving the field saves at once (else the draft saves itself 1.5 s after the last key): the draft is created.
+    await userEvent.tab()
     await waitFor(() => {
       expect(tab('Contact')).toHaveTextContent('Brouillon')
     })
-    expect(announced()).toContain('Brouillon Contact créé.')
-    const [put] = sent(api.requests, 'PUT', `/api/prospects/${detail.id}/messages/contact`)
-    expect(put?.body).toEqual({
+    await waitFor(() => {
+      expect(announced()).toContain('Brouillon Contact créé.')
+    })
+    const [created] = sent(api.requests, 'PUT', `/api/prospects/${detail.id}/messages/contact`)
+    expect(created?.body).toEqual({
       from_email: 'prospection@exemple.example',
       subject: 'Bonjour',
-      body_text: 'Un message de test.',
+      body_text: '',
       to: ['claire@exemple.example'],
       cc: [],
       bcc: [],
     })
+
+    await userEvent.type(field('Corps'), 'Un message de test.')
+    await userEvent.tab()
+    await waitFor(() => {
+      expect(sent(api.requests, 'PUT', `/api/prospects/${detail.id}/messages/contact`)).toHaveLength(2)
+    })
+    expect(sent(api.requests, 'PUT', `/api/prospects/${detail.id}/messages/contact`)[1]?.body).toMatchObject({
+      expected_revision: 1,
+      body_text: 'Un message de test.',
+    })
     expect(sent(api.requests, 'POST', `/api/prospects/${detail.id}/messages/contact/validate`)).toHaveLength(0)
   })
 
-  it('gives a quick verdict on the text of a scheduled message, and takes it back', async () => {
+  it('saves what is typed by itself after a pause, and says so with a discreet icon', async () => {
     const detail = person()
-    const { api } = open(detail, { contact: message('contact', 'scheduled', { prospect_id: detail.id }) })
-    const group = await screen.findByRole('group', { name: 'Avis sur le texte' })
-    const correct = within(group).getByRole('button', { name: 'Correct' })
-    const toRevise = within(group).getByRole('button', { name: 'À revoir' })
-    expect(correct).toHaveAttribute('aria-pressed', 'false')
-
-    await userEvent.click(correct)
-    await waitFor(() => {
-      expect(within(group).getByRole('button', { name: 'Correct' })).toHaveAttribute('aria-pressed', 'true')
-    })
-    expect(group).toHaveTextContent('relu par Pilote Test')
-    const posted = sent(api.requests, 'POST', `/api/prospects/${detail.id}/messages/contact/review`)
-    expect(posted.at(-1)?.body).toEqual({ expected_revision: 1, verdict: 'correct' })
-    // Nothing else moved: still scheduled.
-    expect(tab('Contact')).toHaveTextContent('Programmé')
-
-    await userEvent.click(toRevise)
-    await waitFor(() => {
-      expect(within(group).getByRole('button', { name: 'À revoir' })).toHaveAttribute('aria-pressed', 'true')
-    })
-    await userEvent.click(within(group).getByRole('button', { name: 'À revoir' }))
-    await waitFor(() => {
-      expect(within(group).getByRole('button', { name: 'À revoir' })).toHaveAttribute('aria-pressed', 'false')
-    })
-    expect(sent(api.requests, 'POST', `/api/prospects/${detail.id}/messages/contact/review`).at(-1)?.body).toEqual({
-      expected_revision: 1,
-      verdict: null,
-    })
+    const { api } = open(detail, { contact: message('contact', 'draft', { prospect_id: detail.id }) })
+    await userEvent.type(await screen.findByRole('textbox', { name: 'Objet' }), ' modifié')
+    expect(icon(/Modifications en cours d’enregistrement automatique/)).toBeInTheDocument()
+    expect(sent(api.requests, 'PUT', `/api/prospects/${detail.id}/messages/contact`)).toHaveLength(0)
+    await waitFor(
+      () => {
+        expect(icon(/^Enregistré à /)).toBeInTheDocument()
+      },
+      { timeout: 4000 },
+    )
+    const [put] = sent(api.requests, 'PUT', `/api/prospects/${detail.id}/messages/contact`)
+    expect(put?.body).toMatchObject({ expected_revision: 1, subject: 'Objet contact modifié' })
+    expect(field('Objet')).toHaveValue('Objet contact modifié')
   })
 
-  it('offers no verdict on a sent message', async () => {
+  it('offers no review verdict any more (no « Correct » / « À revoir », no « Enregistrer »)', async () => {
     const detail = person()
-    open(detail, { contact: message('contact', 'sent', { prospect_id: detail.id }) })
+    open(detail, { contact: message('contact', 'scheduled', { prospect_id: detail.id }) })
     await screen.findByRole('tab', { name: /Contact/ })
     expect(screen.queryByRole('group', { name: 'Avis sur le texte' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Correct' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'À revoir' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Enregistrer' })).not.toBeInTheDocument()
   })
 
   it('validates after a confirmation, then schedules a typed date and time after another', async () => {
@@ -276,35 +278,45 @@ describe('Contact workbench', () => {
     expect(screen.queryByRole('menuitem', { name: 'Supprimer le brouillon…' })).not.toBeInTheDocument()
   })
 
-  it('saves an edited draft and validates it in one confirmed click', async () => {
+  it('« Valider » takes the typed text with it: saved, then validated, after one confirmation', async () => {
     const detail = person()
     const { api } = open(detail, { contact: message('contact', 'draft', { prospect_id: detail.id }) })
     await userEvent.type(await screen.findByRole('textbox', { name: 'Objet' }), ' modifié')
-    await userEvent.click(screen.getByRole('button', { name: 'Enregistrer et valider…' }))
-    const dialog = await screen.findByRole('dialog', { name: /Enregistrer et valider le message Contact/ })
+    expect(screen.queryByRole('button', { name: 'Enregistrer et valider…' })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Valider…' }))
+    const dialog = await screen.findByRole('dialog', { name: /Valider le message Contact/ })
     expect(dialog).toHaveTextContent('Rien n’est envoyé maintenant')
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Enregistrer et valider' }))
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Valider le message' }))
     await waitFor(() => {
       expect(tab('Contact')).toHaveTextContent('Validé')
     })
     const [put] = sent(api.requests, 'PUT', `/api/prospects/${detail.id}/messages/contact`)
     expect(put?.body).toMatchObject({ subject: 'Objet contact modifié' })
-    expect(sent(api.requests, 'POST', `/api/prospects/${detail.id}/messages/contact/validate`)).toHaveLength(1)
+    const [validate] = sent(api.requests, 'POST', `/api/prospects/${detail.id}/messages/contact/validate`)
+    expect(validate?.body).toEqual({ expected_revision: 2 })
   })
 
-  it('says an edit of a scheduled message goes back to draft, and it does', async () => {
+  it('asks once before the first edit of a validated or scheduled message, and only then saves it as a draft', async () => {
     const detail = person()
     const { api } = open(detail, { contact: message('contact', 'scheduled', { prospect_id: detail.id }) })
-    await userEvent.type(await screen.findByRole('textbox', { name: 'Objet' }), ' modifié')
-    expect(icon(/l’enregistrer retire la programmation/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Déprogrammer' })).toBeDisabled()
-    await userEvent.click(screen.getByRole('button', { name: 'Enregistrer' }))
+    await userEvent.type(await screen.findByRole('textbox', { name: 'Objet' }), 'X')
+    const dialog = await screen.findByRole('dialog', { name: 'Modifier le message Contact ?' })
+    expect(dialog).toHaveTextContent('retire la programmation')
+    // Cancelled: the text is untouched and nothing is sent.
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Retour' }))
+    expect(field('Objet')).toHaveValue('Objet contact')
+    expect(sent(api.requests, 'PUT', `/api/prospects/${detail.id}/messages/contact`)).toHaveLength(0)
+
+    await userEvent.type(field('Objet'), 'Y')
+    await confirmDialog(/Modifier le message Contact/, 'Modifier le message')
+    expect(field('Objet')).toHaveValue('Objet contactY')
+    await userEvent.tab()
     await waitFor(() => {
       expect(tab('Contact')).toHaveTextContent('Brouillon')
     })
     expect(announced()).toContain('repassé en Brouillon : à revalider')
     const [put] = sent(api.requests, 'PUT', `/api/prospects/${detail.id}/messages/contact`)
-    expect(put?.body).toMatchObject({ expected_revision: 1, subject: 'Objet contact modifié' })
+    expect(put?.body).toMatchObject({ expected_revision: 1, subject: 'Objet contactY' })
   })
 
   it('warns, without blocking, when R1 is scheduled before Contact has left', async () => {
@@ -386,7 +398,7 @@ describe('Contact workbench', () => {
     await userEvent.type(await screen.findByRole('textbox', { name: 'Objet' }), ' (local)')
     api.next.reply = [409, { code: 'revision_conflict', message: 'stale' }]
     const reads = sent(api.requests, 'GET', `/api/prospects/${detail.id}/messages`).length
-    await userEvent.click(screen.getByRole('button', { name: 'Enregistrer' }))
+    await userEvent.tab()
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent('l’enregistrer remplacera la version enregistrée')
     expect(field('Objet')).toHaveValue('Objet contact (local)')
@@ -398,28 +410,21 @@ describe('Contact workbench', () => {
     expect(field('Objet')).toHaveValue('Objet contact')
   })
 
-  it('keeps unsaved text across tabs (marked) and asks before leaving the prospect', async () => {
+  it('keeps what is typed when the tab is left: the draft saves itself, nothing is lost', async () => {
     const detail = person()
-    const { router } = open(detail)
-    await userEvent.type(await screen.findByRole('textbox', { name: 'Objet' }), 'Non enregistré')
+    const { api, router } = open(detail)
+    await userEvent.type(await screen.findByRole('textbox', { name: 'Objet' }), 'Non perdu')
     await userEvent.click(tab('R1'))
-    expect(tab('Contact')).toHaveTextContent('(modifications non enregistrées)')
+    await waitFor(() => {
+      expect(tab('Contact')).toHaveTextContent('Brouillon')
+    })
     await userEvent.click(tab('Contact'))
-    expect(field('Objet')).toHaveValue('Non enregistré')
+    expect(field('Objet')).toHaveValue('Non perdu')
+    expect(sent(api.requests, 'PUT', `/api/prospects/${detail.id}/messages/contact`)).toHaveLength(1)
 
+    // A mail never blocks leaving the prospect either.
+    await userEvent.type(field('Objet'), ' encore')
     await userEvent.click(screen.getByRole('button', { name: 'Retour à la liste' }))
-    const guard = await screen.findByRole('dialog', { name: 'Modifications non enregistrées' })
-    expect(guard).toHaveTextContent('Un message a des modifications non enregistrées.')
-    await userEvent.click(within(guard).getByRole('button', { name: 'Rester sur ce prospect' }))
-    expect(router.state.location.search).toContain(detail.id)
-    expect(field('Objet')).toHaveValue('Non enregistré')
-
-    await userEvent.click(screen.getByRole('button', { name: 'Retour à la liste' }))
-    await userEvent.click(
-      within(await screen.findByRole('dialog', { name: 'Modifications non enregistrées' })).getByRole('button', {
-        name: 'Quitter sans enregistrer',
-      }),
-    )
     await waitFor(() => {
       expect(router.state.location.search).toBe('')
     })
@@ -672,5 +677,128 @@ describe('Contact workbench', () => {
       expect(await screen.findByRole('button', { name: /^Envoi déduit : la Toolbox n’a pas confirmé l’envoi/ })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: /^Envoyé le / })).toBeInTheDocument()
     })
+  })
+})
+
+describe('Versions, saved mails, the fiche overlay and the default sender', () => {
+  const kept = (id: string, step: MessageStep = 'contact') => `${id}:${step}`
+
+  it('lists the kept versions with their count, compares one with the text shown and restores it', async () => {
+    const detail = person()
+    const older = version('contact', 'ai', { id: 'v-old', subject: 'Objet IA ancien', body_text: 'Bonjour,\nAncien corps.\nMerci', config: { tone: 2, sender: 'ai', model: 'fake-model' } })
+    const current = version('contact', 'manual', { id: 'v-now', subject: 'Objet contact', body_text: 'Bonjour,\nCorps contact\nMerci' })
+    const { api } = open(
+      detail,
+      { contact: message('contact', 'draft', { prospect_id: detail.id, subject: 'Objet contact', body_text: 'Bonjour,\nCorps contact\nMerci' }) },
+      { versions: { [kept(detail.id)]: [current, older] } },
+    )
+    await userEvent.click(await screen.findByRole('button', { name: 'Versions du message : 2' }))
+    const popover = await screen.findByRole('dialog', { name: 'Versions du message Contact' })
+    expect(within(popover).getAllByRole('listitem')).toHaveLength(2)
+    expect(popover).toHaveTextContent('Objet IA ancien')
+    expect(popover).toHaveTextContent('Ton 2 · expéditeur IA · fake-model')
+    // The text shown now is the current version.
+    expect(within(popover).getByText('Actuelle')).toBeInTheDocument()
+
+    // The current version cannot be compared with itself; the older one can.
+    await userEvent.click(within(popover).getAllByRole('button', { name: 'Comparer avec le texte actuel' })[1] as HTMLElement)
+    const compare = await screen.findByRole('dialog', { name: 'Comparer les versions · Contact' })
+    expect(compare).toHaveTextContent('Ancien corps.')
+    expect(compare).toHaveTextContent('Corps contact')
+    await userEvent.click(within(compare).getByRole('button', { name: 'Restaurer cette version' }))
+
+    await waitFor(() => {
+      expect(field('Objet')).toHaveValue('Objet IA ancien')
+    })
+    const [posted] = sent(api.requests, 'POST', `/api/prospects/${detail.id}/messages/contact/versions/v-old/restore`)
+    expect(posted?.body).toEqual({ expected_revision: 1 })
+    await waitFor(() => {
+      expect(announced()).toContain('le texte précédent reste dans les versions')
+    })
+  })
+
+  it('goes back to a version with one click on a draft, and asks first on a validated message', async () => {
+    const detail = person()
+    const older = version('contact', 'ai', { id: 'v-old', subject: 'Objet IA ancien' })
+    const { api } = open(
+      detail,
+      { contact: message('contact', 'validated', { prospect_id: detail.id }) },
+      { versions: { [kept(detail.id)]: [version('contact', 'manual', { id: 'v-now' }), older] } },
+    )
+    await userEvent.click(await screen.findByRole('button', { name: 'Versions du message : 2' }))
+    await userEvent.click(within(await screen.findByRole('dialog', { name: 'Versions du message Contact' })).getByTitle(/Revenir à cette version/))
+    const dialog = await screen.findByRole('dialog', { name: 'Revenir à cette version ?' })
+    expect(dialog).toHaveTextContent('Le message est validé : il repassera en Brouillon')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Revenir à cette version' }))
+    await waitFor(() => {
+      expect(tab('Contact')).toHaveTextContent('Brouillon')
+    })
+    expect(sent(api.requests, 'POST', `/api/prospects/${detail.id}/messages/contact/versions/v-old/restore`)).toHaveLength(1)
+  })
+
+  it('keeps a mail with a 0-10 note and a comment, and lists it in « Suivi de contact »', async () => {
+    const detail = person()
+    const { api } = open(detail, { contact: message('contact', 'draft', { prospect_id: detail.id, generation_model: 'fake-model' }) })
+    await userEvent.click(await screen.findByRole('button', { name: 'Sauvegarder' }))
+    const popover = await screen.findByRole('dialog', { name: 'Sauvegarder le message Contact' })
+    // The ends of the scale are named; nothing is saved without a note.
+    const scale = within(popover).getByRole('radiogroup', { name: 'Note de 0 à 10' })
+    expect(within(scale).getAllByRole('radio')).toHaveLength(11)
+    expect(within(scale).getByRole('radio', { name: '0' })).toHaveAttribute('title', 'Vraiment de la merde, ne fais plus jamais ça')
+    expect(within(scale).getByRole('radio', { name: '10' })).toHaveAttribute('title', 'Super, garde ce style')
+    const confirm = within(popover).getByRole('button', { name: 'Sauvegarder' })
+    expect(confirm).toBeDisabled()
+    await userEvent.click(within(scale).getByRole('radio', { name: '8' }))
+    await userEvent.type(within(popover).getByRole('textbox', { name: /Commentaire/ }), 'Bon ton')
+    await userEvent.click(confirm)
+
+    await waitFor(() => {
+      expect(sent(api.requests, 'POST', `/api/prospects/${detail.id}/messages/contact/saved`)).toHaveLength(1)
+    })
+    expect(sent(api.requests, 'POST', `/api/prospects/${detail.id}/messages/contact/saved`)[0]?.body).toEqual({ rating: 8, comment: 'Bon ton' })
+    expect(announced()).toContain('sauvegardé avec la note 8/10')
+
+    const entry = await screen.findByTitle('Bon ton')
+    expect(entry).toHaveTextContent('Contact')
+    expect(entry).toHaveTextContent('Objet contact')
+    expect(entry).toHaveAttribute('title', 'Bon ton')
+    await userEvent.click(entry)
+    const full = await screen.findByRole('dialog', { name: 'Mail sauvegardé · Contact' })
+    expect(full).toHaveTextContent('Bon ton')
+    expect(full).toHaveTextContent('Corps contact')
+    expect(full).toHaveTextContent('fake-model')
+  })
+
+  it('opens the whole fiche over the page from the avatar or the name, and Esc closes it', async () => {
+    const detail = person()
+    open(detail)
+    const name = within(await screen.findByRole('heading', { level: 2 })).getByRole('button')
+    expect(name).toHaveAttribute('title', 'Voir la fiche')
+    expect(name).toHaveTextContent('Claire')
+    expect(screen.getByRole('button', { name: /Voir la fiche de Claire Démo/ })).toHaveAttribute('title', 'Voir la fiche')
+    await userEvent.click(name)
+    const fiche = await screen.findByRole('dialog', { name: /Claire Démo/ })
+    expect(fiche).toBeInTheDocument()
+    // The workbench stays behind it.
+    expect(screen.getByRole('tablist', { name: 'Étapes de la séquence' })).toBeInTheDocument()
+    await userEvent.keyboard('{Escape}')
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: /Claire Démo/ })).not.toBeInTheDocument()
+    })
+  })
+
+  it('shows the default sender on a message created without one, and validates without asking for it', async () => {
+    const detail = person()
+    const { api } = open(detail, { contact: message('contact', 'draft', { prospect_id: detail.id, from_email: null }) })
+    await screen.findByRole('tab', { name: /^Contact/ })
+    await recipients()
+    expect(field('De')).toHaveValue('prospection@exemple.example')
+    await userEvent.keyboard('{Escape}')
+    await userEvent.click(screen.getByRole('button', { name: 'Valider…' }))
+    await confirmDialog(/Valider le message Contact/, 'Valider le message')
+    await waitFor(() => {
+      expect(tab('Contact')).toHaveTextContent('Validé')
+    })
+    expect(sent(api.requests, 'PUT', `/api/prospects/${detail.id}/messages/contact`)).toHaveLength(0)
   })
 })

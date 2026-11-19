@@ -869,6 +869,11 @@ def _save_generated(
                     body_text=mail.body,
                     model=mail.model,
                     prompt_version=PROMPT_VERSION,
+                    config={
+                        "tone": body.options.tone,
+                        "sender": body.options.sender,
+                        "instruction": (body.instruction or "").strip() or None,
+                    },
                 ),
                 body.expected_revision,
                 default_from=settings.default_outbound_email,

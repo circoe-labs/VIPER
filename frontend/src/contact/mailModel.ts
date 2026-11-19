@@ -43,7 +43,8 @@ export function parseRecipients(value: string): string[] {
 export function formOf(message: Message | null, defaults: MessageSequence['defaults']): MailForm {
   if (!message) return { from: defaults.from_email ?? '', to: defaults.to.join(', '), cc: '', bcc: '', subject: '', body: '' }
   return {
-    from: message.from_email ?? '',
+    // A message created without a sender shows the default one (the Toolbox account's mailbox): never an empty field.
+    from: message.from_email ?? defaults.from_email ?? '',
     to: message.to.join(', '),
     cc: message.cc.join(', '),
     bcc: message.bcc.join(', '),

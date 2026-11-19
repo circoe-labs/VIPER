@@ -5,7 +5,11 @@ from app.models.agent_missions import AgentTask, AgentTaskResult, AgentThread
 from app.models.app_settings import AppSetting
 from app.models.audit import AuditLogEntry
 from app.models.companies import Company, Establishment, company_activity_categories
-from app.models.contact_messages import ContactMessage, ContactMessageRemoteDraftCleanup
+from app.models.contact_messages import (
+    ContactMessage,
+    ContactMessageRemoteDraftCleanup,
+    ContactMessageVersion,
+)
 from app.models.contact_sequences import Cohort, ContactSequence
 from app.models.contact_tracking import ContactTracking, ContactTrackingStatusHistory
 from app.models.imports import ImportBatch, ImportRowMetadata
@@ -54,6 +58,7 @@ __all__ = [
     "Company",
     "ContactMessage",
     "ContactMessageRemoteDraftCleanup",
+    "ContactMessageVersion",
     "ContactSequence",
     "ContactTracking",
     "ContactTrackingStatusHistory",

@@ -1099,3 +1099,184 @@
     gap: var(--space-1);
   }
 }
+
+/* --- the person's avatar and name open their whole sheet over the page -------------------------------------------- */
+
+.contact-sheet__avatar {
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.contact-sheet__avatar:hover {
+  background: var(--color-accent-soft);
+  box-shadow: 0 0 0 2px var(--color-accent-fg);
+}
+
+.contact-sheet__avatar:focus-visible,
+.contact-sheet__name-button:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.contact-sheet__name-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.contact-sheet__name-button:hover {
+  text-decoration: underline;
+  text-decoration-color: var(--color-accent-fg);
+  text-underline-offset: 0.2em;
+}
+
+/* --- the saved mails in « Suivi de contact » ---------------------------------------------------------------------- */
+
+.saved-mails {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  margin-top: var(--space-3);
+}
+
+.saved-mails__list li {
+  min-width: 0;
+}
+
+.saved-mails__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.saved-mails__count {
+  font-family: var(--font-mono);
+}
+
+.saved-mails__list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.saved-mail {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-width: 0;
+  padding: var(--space-1) var(--space-2);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.saved-mail:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-hover);
+}
+
+.saved-mail:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-focus);
+  outline-offset: 1px;
+}
+
+.saved-mail__date,
+.saved-mail__step {
+  flex: none;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.saved-mail__step {
+  font-weight: var(--weight-semibold);
+}
+
+.saved-mail__rating {
+  flex: none;
+}
+
+.saved-mail__subject {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.saved-dialog {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.saved-dialog__note {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.saved-dialog__by,
+.saved-dialog__config {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.saved-dialog__comment {
+  margin: 0;
+  font-style: italic;
+}
+
+.saved-dialog__headers {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+}
+
+.saved-dialog__headers div {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.saved-dialog__headers dt {
+  flex: none;
+  min-width: 3rem;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.saved-dialog__headers dd {
+  margin: 0;
+  font-weight: var(--weight-semibold);
+}
+
+.saved-dialog__body {
+  margin: 0;
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  white-space: pre-wrap;
+}

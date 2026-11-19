@@ -332,7 +332,8 @@ draft|validated|scheduled --cancel--> cancelled --reopen--> draft (revision+1)
   `generation_prompt_version` and `generated_at` (the text is now the person's); a recipients-only edit keeps them. The
   audit event of that edit keeps the provenance (the fields' before values).
 - **Validation** (H-23) confirms the current revision (`validated_revision = revision`), by a person, one message at a
-  time; it needs `from_email`, at least one `to`, a subject and a body (else 422 `message_incomplete` + `fields`).
+  time; it needs at least one `to`, a subject and a body (else 422 `message_incomplete` + `fields`). The sender is never
+  asked for: `from_email` defaults to the account's mailbox (see « Default sender » below).
 - **Schedule** (H-25): from `validated` only, an explicit ISO 8601 moment **with offset**, strictly in the future and
   at most one year ahead; no default time, unrelated to the next-action week (H-14). **Unschedule** keeps the validation.
 - **Sent** is immutable (H-21: service + database trigger). **« Marquer comme envoyé »**
@@ -408,7 +409,7 @@ carries the level of the current sequence (as `GET …/sequences` `place`): `sen
 (null when finished or without cohort), `finished`, `level_label` (« Contact », « R2 », « Relance terminée » — the step
 to send), `level` (the planning's key, e.g. `contact_sent`).
 
-`defaults.from_email` = `VIPER_DEFAULT_OUTBOUND_EMAIL` (null when unset), `defaults.to` = the primary e-mail,
+`defaults.from_email` = `VIPER_DEFAULT_OUTBOUND_EMAIL`, **`l.jerier@circoe.com` by default** (null only when it is explicitly emptied; see « Default sender »), `defaults.to` = the primary e-mail,
 `defaults.generation_available` = the AI drafting is configured (`VIPER_OPENAI_API_KEY` and `VIPER_OPENAI_MODEL`),
 `defaults.toolbox_connected` = the CIRCOE Toolbox is enabled, configured and connected (S6), `defaults.toolbox_state`
 = its state (`disabled`, `not_configured`, `disconnected`, `connected`, `expired`), `defaults.automatic_sending_active`
@@ -454,14 +455,21 @@ could not be created; S7: the `send_*` / `dispatch_*` codes of [§ Scheduled sen
 | 409 | `rank_beyond_max` | create, edit, validate, schedule, reopen or AI-draft a rank above « max relances » | `max_follow_ups` |
 | 409 | `rank_not_next` | `mark-sent` with an unsent `rank` that is not the next one | `next_rank`, `next_step` |
 | 409 | `agent_draft_only` | an agent (MCP draft door) saves or AI-drafts a validated, scheduled or cancelled message | `status` |
-| 422 | `message_incomplete` | validate without from/to/subject/body | `fields`: `from_email`, `to`, `subject`, `body_text` |
+| 422 | `message_incomplete` | validate without to/subject/body (the sender is never required) | `fields`: `to`, `subject`, `body_text` |
+| 404 | `version_not_found` | restore of a version that is not one of the step's | |
+| 409 | `message_empty` | « Sauvegarder » on a step without text | |
+| 422 | `invalid_rating` | « Sauvegarder » with a rating outside 0-10 | |
 | 422 | `invalid` | bad address (`field`: `from_email`, `to.1`, `cc.0`…; `reason` `format`/`too_many`/`control_character`), control character in `subject` (`reason: control_character`), send moment in the past (`field: scheduled_at`, `reason: not_future`) or more than a year ahead (`reason: too_far`) | `field`, `reason` |
 | 403 | `human_actor_required` | not a person, or a person without an id | |
 | 503 / 409 | `toolbox_not_configured` / `toolbox_not_connected`, `toolbox_auth_expired` | `…/remote-draft` without a usable Toolbox (S6) | |
 
 ## Avis sur le texte — `POST …/messages/{step}/review`
 
-Un petit bouton **« Correct » / « À revoir »** (groupe « Avis sur le texte » de l'éditeur de mail) permet à une personne de
+> **Plus affiché (2026-11-19).** L'éditeur de mail n'a plus le groupe « Correct » / « À revoir » : il faisait doublon avec
+> « Valider » et « Sauvegarder » (note 0-10). La route, les colonnes et l'audit restent (rien n'est supprimé) ; seule l'interface
+> ne les montre plus.
+
+Un petit bouton **« Correct » / « À revoir »** (anciennement dans l'éditeur de mail) permettait à une personne de
 dire si le texte du mail, notamment celui écrit par l'IA, est correct. Corps : `{ expected_revision, verdict }` avec
 `verdict` = `correct`, `to_revise` ou `null` (reprendre son avis). Rien d'autre ne change : ni le statut, ni la validation,
 ni la programmation, ni la `revision`.
@@ -1004,16 +1012,17 @@ after a confirmed action (the action's button is gone); a status sentence (*Vali
 
 | Status | Actions (one primary) |
 |---|---|
-| none | *Créer le brouillon* (`PUT` without revision) |
-| draft | *Enregistrer* (never validates) · *Valider…* (confirmation) · *Annuler le message…* |
-| validated | *Programmer l'envoi*: date **and** time fields (browser time, no default, the chosen day's UTC offset shown; kept per step across tab switches) → *Programmer…* (confirmation) · *Enregistrer* · *Annuler le message…* |
-| scheduled | *Déprogrammer* (keeps the validation) · *Enregistrer* · *Annuler le message…* |
+| none | typing creates the draft by itself (`PUT` without revision, once a subject or a body is typed); *Générer avec l'IA* |
+| draft | *Valider…* (confirmation; saves what is typed first) · *Sauvegarder* · *Versions* · *Annuler le message…* |
+| validated | *Programmer l'envoi*: date **and** time fields (browser time, no default, the chosen day's UTC offset shown; kept per step across tab switches) → *Programmer…* (confirmation) · *Sauvegarder* · *Versions* · *Annuler le message…* |
+| scheduled | *Déprogrammer* (keeps the validation) · *Sauvegarder* · *Versions* · *Annuler le message…* |
 | scheduled, taken by the dispatcher (S7) | read-only, no action while it is being sent; *Marquer envoyé…* · *Remettre en Validé…* (confirmations) once unconfirmed |
 | sent | read-only, no action (*Message envoyé : il reste consultable…*) |
 | cancelled | read-only; *Rouvrir* (back to draft) while the sequence is open |
 
-Pending edits disable *Valider…* / *Programmer…* / *Déprogrammer* (they act on the saved version) and offer
-*Abandonner les modifications*; editing a validated or scheduled message shows first that saving puts it back to
+Pending edits disable *Programmer…* / *Déprogrammer* for the instant the autosave takes (they act on the saved version);
+*Valider…* saves what is typed first. (The former *Enregistrer*, *Enregistrer et valider…*, *Abandonner les modifications*
+and *Correct* / *À revoir* buttons are gone — see « Versions, autosave and saved mails ».) Editing a validated or scheduled message shows first that saving puts it back to
 *Brouillon* (to validate and schedule again). A closed sequence (*Réponse reçue*, *RDV pris*, *Ignoré*) or an
 opposition locks the editor with its reason; a scheduled message can still be unscheduled or cancelled. Scheduling R1
 (R2) while Contact (R1) has not left shows a non-blocking reminder (also in the confirmation). Refusals use
@@ -1159,3 +1168,79 @@ Sequences rework, still to do:
   du 12/10 » for a cohort not started, dated from the nearest earlier cohort when the base does not know it) and a
   colour — green « À jour » (nothing due), orange « À faire cette semaine » (`to_send`), red « En retard » (`overdue`).
   On a row, « À préparer » shows only when the step is due.
+
+## Versions, autosave and saved mails (2026-11-19)
+
+### Versions — `contact_message_versions`
+
+Every **AI generation**, every **manual state** and every **restoration** of a step's text is kept as a *version* of the step
+(`app/services/contact_message_versions.py`, written in the transaction that changes the message):
+
+- an identical state is not recorded twice; **consecutive manual saves of one person** (autosaves, within 10 minutes, on an
+  unsaved manual version) update that one row, so a typing session is **one** version; the text of a **validated** message is never
+  merged away (editing it starts a new version);
+- before an AI generation replaces a text no version holds (written before the table existed), that text is kept first;
+- a version records the text (subject, body), `from_email` / `to`, the revision it became, its `source` (`ai` | `manual` |
+  `restore`), the actor and the generation `config` (`tone`, `sender`, `instruction`, `model`, `prompt_version`,
+  `humanizer_score`, `restored_from`);
+- **never deleted** by the application — not by a validation, a send or the deletion of the draft (`message_id` becomes NULL); only the
+  deletion of the prospect removes them;
+- `GET …/messages/{step}/versions` → `{versions: […]}` newest first; `POST …/messages/{step}/versions/{id}/restore`
+  `{expected_revision}` → the usual `MessageResult`: the version's subject and body become the **current draft** (a validated
+  message goes back to draft, `unvalidated: true`; a sent or cancelled one is refused) and the restored text is itself recorded
+  (`restore`): restoring never loses anything. The UI confirms first for a validated or scheduled message.
+
+UI (`MailVersions.tsx`): in the action row, a **history icon with the count** (« Versions du message : n ») opens a popover (time,
+source IA / Manuel / Restauré, tone · sender · model, « Actuelle »); a click restores; the columns icon opens **« Comparer »**,
+a dialog with the chosen version (left) and the text shown now (right), changed lines highlighted (`textDiff.ts`, a line LCS),
+and « Restaurer cette version ».
+
+### Autosave (no « Enregistrer »)
+
+What is typed goes into the **current draft** by itself: 1.5 s after the last key, at once when a field loses focus, and when the
+step tab or the prospect is left (and before « Valider », « Générer », « Sauvegarder », a restoration). It uses the same
+`PUT …/messages/{step}` with `expected_revision`, so the revision and conflict rules are unchanged (a conflict says so and offers
+« Voir la version enregistrée »); a typed-meanwhile text stays in the form and is saved next. The toolbar's status icon says
+*Enregistrement du brouillon…* / *Modifications en cours d'enregistrement automatique* / *Enregistré à hh:mm*. An empty step is
+not created until something is typed. A mail no longer blocks leaving the prospect (only the follow-up state does); a reload or
+a closed tab still warns about a mail not yet saved.
+
+**Validated or scheduled messages** (decided: the safest option): the first edit opens a confirmation (« Modifier le message ? —
+il repasse en Brouillon, il faudra le revalider »); cancelled, the typed text is dropped and nothing is sent; confirmed, the edit
+is applied and autosaved, and the backend puts the message back to Draft as before (`unvalidated: true`, the validation and the
+Infomaniak draft are dropped exactly as for a manual save). Nothing is silently unvalidated.
+
+« Valider… » (and « Valider et programmer… ») saves what is typed, then validates **that** revision; « Enregistrer et valider »
+no longer exists. Regenerating a draft no longer asks (the previous text stays in the versions); only a **validated** message
+asks, since it loses its validation.
+
+### « Sauvegarder » — saved mails
+
+`POST …/messages/{step}/saved` `{rating 0-10, comment?, humanizer_score?}` keeps the step's **current text** as a *mail
+sauvegardé* — the *saved facet* of a version (`saved_at`, `saved_by_display`, `rating`, `comment`; SQL: rating 0-10, the facet is
+complete or absent): it is set on the latest version when it holds this very text and is not saved yet, else on a new version of
+the text. The version carries the config it was generated with (tone, sender, instruction, model, prompt version, humanizer score
+when known). 0 = « vraiment de la merde, ne fais plus jamais ça », 10 = « super, garde ce style ». `GET …/messages/saved` lists the
+prospect's saved mails (every sequence), newest first, with the same shape as a version. Human actor only; session + CSRF like
+every Contact route. Not exposed through MCP (no capability defined for it).
+
+UI: the action row's **Sauvegarder** opens a popover (0-10 scale, ends named on hover, a comment, « Sauvegarder »). The left
+column's **« Suivi de contact »** block lists them under **« Mails sauvegardés »** (`SavedMails.tsx`): date, step, the rating
+chip (red 0-3, amber 4-6, green 7-10), the subject on one line, the comment on hover; a click opens the whole mail, its config
+and note.
+
+### Default sender (« De »)
+
+The sender is the same for everybody: **`l.jerier@circoe.com`** (`DEFAULT_SENDER_EMAIL`, the default of
+`VIPER_DEFAULT_OUTBOUND_EMAIL`). The CIRCOE Toolbox does not expose its mailbox address (its `create_draft` takes no `from`: the
+draft and the real send always use the connected account's default Infomaniak mailbox), so the address VIPER shows and stores
+comes from that setting, never typed by the person: every creation path (`PUT`, the AI draft, the MCP draft door) takes it
+through `message_defaults`, `from_email` is **not required** to validate (no « De required » refusal), and a message created
+without one shows the default in the editor (`formOf`). The recipients popover still lets a person write another address;
+emptying the setting leaves the field blank but never blocks anything (the real send uses the Toolbox mailbox anyway).
+
+### The person's sheet over the page
+
+The avatar and the name of the workbench's left card are buttons (« Voir la fiche »): they open the whole prospect sheet
+(`ProspectEditor`, the same as Prospection) in its drawer **over** the workbench (`ProspectOverlay.tsx`, a queue of one);
+Esc, the close button or a click outside closes it (it asks first when the sheet has unsaved edits).

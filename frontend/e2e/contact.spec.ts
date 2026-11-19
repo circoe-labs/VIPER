@@ -105,9 +105,10 @@ test('operator flow: draft, validate, schedule, unschedule, edit back to draft, 
   await page.keyboard.press('Escape')
   await page.getByRole('textbox', { name: 'Objet' }).fill('Transport de vos marchandises (test)')
   await page.getByRole('textbox', { name: 'Corps' }).fill('Bonjour,\n\nCeci est un message synthétique de test.\n\nCordialement')
-  await page.getByRole('button', { name: 'Enregistrer', exact: true }).click()
-  await expect(page.getByRole('status').filter({ hasText: 'Message Contact enregistré.' })).toHaveCount(1)
+  // Leaving the field saves the draft (it also saves itself 1.5 s after the last key): no « Enregistrer » button.
+  await page.getByRole('textbox', { name: 'Objet' }).focus()
   await expect(mailTab(page, 'Contact')).toContainText('Brouillon')
+  await expect(page.getByRole('button', { name: /^Enregistré à / })).toBeVisible()
 
   await captureBoth(page, 'contact-draft', [1440, 1280])
 
@@ -131,11 +132,23 @@ test('operator flow: draft, validate, schedule, unschedule, edit back to draft, 
   await expect(mailTab(page, 'Contact')).toContainText('Validé')
 
   // An edit of a validated message says it goes back to draft, and does.
+  // The first edit asks (it puts the message back to Brouillon), then the draft saves itself.
   await page.getByRole('textbox', { name: 'Objet' }).fill('Transport de vos marchandises (test, v2)')
-  await expect(page.getByRole('button', { name: /l’enregistrer le repasse en Brouillon/ })).toBeVisible()
-  await page.getByRole('button', { name: 'Enregistrer', exact: true }).click()
-  await expect(page.getByRole('status').filter({ hasText: 'Message Contact enregistré et repassé en Brouillon : à revalider.' })).toHaveCount(1)
+  await confirm(page, /Modifier le message Contact/, 'Modifier le message')
+  await page.getByRole('textbox', { name: 'Corps' }).focus()
   await expect(mailTab(page, 'Contact')).toContainText('Brouillon')
+  await expect(page.getByRole('textbox', { name: 'Objet' })).toHaveValue('Transport de vos marchandises (test, v2)')
+
+  // The versions kept so far (the text as typed, then as edited) and a saved mail with its note.
+  await page.getByRole('button', { name: /^Versions du message/ }).click()
+  await expect(page.getByRole('dialog', { name: 'Versions du message Contact' }).getByRole('listitem').first()).toBeVisible()
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: 'Sauvegarder', exact: true }).click()
+  const keep = page.getByRole('dialog', { name: 'Sauvegarder le message Contact' })
+  await keep.getByRole('radio', { name: '9' }).click()
+  await keep.getByRole('textbox', { name: /Commentaire/ }).fill('Bon exemple (test)')
+  await keep.getByRole('button', { name: 'Sauvegarder' }).click()
+  await expect(page.getByTitle('Bon exemple (test)')).toBeVisible()
 
   // A sequence-closing state, chosen by hand and confirmed, cancels the unsent message and locks the editor.
   await page.getByRole('combobox', { name: 'État' }).selectOption('response_received')

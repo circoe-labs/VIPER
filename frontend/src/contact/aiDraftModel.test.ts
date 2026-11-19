@@ -79,17 +79,13 @@ describe('AI drafting: the request', () => {
     expect(generationPayload(null, { text: '', tone: 5, sender: 'ai' }).options).toEqual({ tone: 5, sender: 'ai' })
   })
 
-  it('asks first only when a saved text, unsaved edits or a validation would be lost', () => {
-    expect(generationConfirmation('contact', null, false)).toBeNull()
-    expect(generationConfirmation('contact', message('contact', 'draft', { subject: '', body_text: '' }), false)).toBeNull()
-    const all = generationConfirmation('r1', message('r1', 'validated'), true)
-    expect(all?.title).toBe('Régénérer le message R1 ?')
-    expect(all?.lines.join(' ')).toMatch(
-      /seront remplacés.*modifications non enregistrées.*repassera en Brouillon.*reste un Brouillon/,
-    )
-    const unsaved = generationConfirmation('contact', null, true)
-    expect(unsaved?.title).toBe('Générer le message Contact ?')
-    expect(unsaved?.lines[0]).toMatch(/modifications non enregistrées/)
+  it('asks first only when a validation would be lost: a text is always kept in the versions', () => {
+    expect(generationConfirmation('contact', null)).toBeNull()
+    expect(generationConfirmation('contact', null)).toBeNull()
+    expect(generationConfirmation('contact', message('contact', 'draft'))).toBeNull()
+    const validated = generationConfirmation('r1', message('r1', 'validated'))
+    expect(validated?.title).toBe('Régénérer le message R1 ?')
+    expect(validated?.lines.join(' ')).toMatch(/repassera en Brouillon.*reste dans les versions.*reste un Brouillon/)
   })
 })
 

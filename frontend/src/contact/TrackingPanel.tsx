@@ -12,6 +12,7 @@ import { SelectField } from '../ui/fields'
 import { AlertIcon, BanIcon } from '../ui/icons'
 import { type Confirmation, ConfirmDialog } from './ConfirmDialog'
 import { Notice } from './Notice'
+import { SavedMails } from './SavedMails'
 import '../prospects/prospects.css'
 
 // States that take the sequence out of the automatic actions (their unsent messages are cancelled). « Défaillant » is
@@ -205,6 +206,7 @@ export function TrackingPanel({ prospect, onDirtyChange }: TrackingPanelProps) {
           </Button>
         </div>
       )}
+      <SavedMails prospectId={prospect.id} />
       <ConfirmDialog
         confirmation={confirming}
         busy={save.isPending}

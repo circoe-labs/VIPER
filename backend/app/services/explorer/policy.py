@@ -149,6 +149,10 @@ EXPOSED_TABLES: Mapping[str, TablePolicy] = {
     "contact_message_remote_draft_cleanups": TablePolicy(
         writes=read_only("File technique de suppression des brouillons Infomaniak.")
     ),
+    # Kept texts and saved mails: a history written by the message service, never edited by hand.
+    "contact_message_versions": TablePolicy(
+        writes=read_only("Versions et mails sauvegardés : écrits depuis la page Contact.")
+    ),
     "contact_sequences": TablePolicy(
         writes=read_only("Séquences : changez la cohorte depuis la fiche prospect.")
     ),

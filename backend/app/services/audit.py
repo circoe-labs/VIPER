@@ -261,6 +261,8 @@ NOT_AUDITED_TABLES = {
     "audit_log": "the audit log itself",
     "contact_message_remote_draft_cleanups": "technical queue of remote draft ids to delete; the "
     "message's own events record why",
+    "contact_message_versions": "history of a step's texts and saved mails, written by the message "
+    "service in the transaction of the audited message change",
     # Agent missions (doc/architecture/agent-missions.md §9): the service writes the explicit
     # `agent_thread.*`, `agent_task.*` and `agent_task_result.*` events, because a thread's subject
     # is a company *or* a brief and a result carries a whole JSON payload that the generic capture

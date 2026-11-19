@@ -290,7 +290,8 @@ def test_validation_needs_a_complete_message(db_session: Session) -> None:
         service.validate(db_session, OPERATOR, prospect.id, STEP, message.revision)
 
     assert code_of(refused) == "message_incomplete"
-    assert refused.value.details == {"fields": ["from_email", "to", "subject", "body_text"]}
+    # The sender is never asked for: it defaults to the account's mailbox.
+    assert refused.value.details == {"fields": ["to", "subject", "body_text"]}
 
 
 def test_addresses_are_normalized_and_an_invalid_one_is_refused(db_session: Session) -> None:

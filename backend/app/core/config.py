@@ -23,6 +23,8 @@ OPENAI_OFFICIAL_BASE_URL = "https://api.openai.com/v1"
 # The CIRCOE Toolbox MCP server (the OAuth resource it announces): « Se connecter à CIRCOE
 # Toolbox » works out of the box (S8). Tests and E2E always point elsewhere (a local fake).
 CIRCOE_TOOLBOX_MCP_URL = "https://circoetoolbox-server-production.up.railway.app/mcp"
+# The sender every Contact message shows by default (the CIRCOE Toolbox account's mailbox).
+DEFAULT_SENDER_EMAIL = "l.jerier@circoe.com"
 
 
 def _http_url(value: str) -> str:
@@ -162,11 +164,14 @@ class Settings(BaseSettings):
     contact_mail_max_notes: Annotated[int, Field(ge=1, le=100)] = 20
     contact_mail_max_score_contributions: Annotated[int, Field(ge=1, le=20)] = 5
 
-    # Contact messages (S3): the sender pre-filled in a new message (`From`). Unset: the person
-    # types it; a message cannot be validated without one. Never hard-coded (handoff Task 12).
+    # Contact messages (S3): the sender shown in `From`, always the same by default. The CIRCOE
+    # Toolbox does not expose its mailbox address (its `create_draft` has no `from`: the draft and
+    # the real send use the connected account's default Infomaniak mailbox), so this value is the
+    # one the editor shows and a new message gets: overridable per message, or here
+    # (`VIPER_DEFAULT_OUTBOUND_EMAIL`). Empty: not required, never blocking.
     default_outbound_email: (
         Annotated[str, Field(max_length=320, pattern=r"^[^@\s]+@[^@\s]+$")] | None
-    ) = None
+    ) = DEFAULT_SENDER_EMAIL
 
     # AI drafting of Contact messages (S5, handoff Task 14). Key and model are both needed; unset,
     # « Générer avec l'IA » answers 503 `ai_not_configured` and nothing changes. No model id is

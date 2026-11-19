@@ -533,3 +533,17 @@ export const ExternalLinkIcon = (props: IconProps) => (
     <path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
   </Svg>
 )
+
+// Versions of a text: a clock with a return arrow.
+export const HistoryIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1L3.5 8.5" />
+    <path d="M3.5 4v4.5H8M12 7.5V12l3 2" />
+  </Svg>
+)
+
+export const BookmarkIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M6.5 3.5h11v17L12 16.5l-5.5 4z" />
+  </Svg>
+)

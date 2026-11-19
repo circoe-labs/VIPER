@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
 
 import type { ChannelVerification } from '../api/prospection'
@@ -9,6 +9,7 @@ import { civilityLabel, formatPhone, personName, TO_VERIFY } from '../prospectio
 import { EditorSection } from '../prospects/EditorSection'
 import { Badge, StatusBadge, type StatusTone } from '../ui/Badge'
 import { BanIcon, BuildingIcon, ExpandIcon } from '../ui/icons'
+import { ProspectOverlay } from './ProspectOverlay'
 import '../prospects/prospects.css'
 
 const VERIFICATION: Record<ChannelVerification, { tone: StatusTone; label: string }> = {
@@ -32,6 +33,8 @@ function initials(prospect: Prospect): string {
 // `compact` (the workbench's single card) leaves the cohort, level and state to the sequence block below: said once.
 export function ProspectSheet({ prospect, compact = false }: { prospect: Prospect; compact?: boolean }) {
   const headingRef = useRef<HTMLHeadingElement>(null)
+  // The person's whole sheet, over this page (the avatar and the name open it).
+  const [overlay, setOverlay] = useState(false)
   useEffect(() => {
     headingRef.current?.focus()
   }, [])
@@ -46,13 +49,30 @@ export function ProspectSheet({ prospect, compact = false }: { prospect: Prospec
     <>
       <section className="prospect-editor__section contact-sheet" aria-labelledby="contact-sheet-name" data-tone={blocked ? 'danger' : undefined}>
         <div className="contact-sheet__identity">
-          <span className="contact-row__avatar" aria-hidden="true">
+          <button
+            type="button"
+            className="contact-row__avatar contact-sheet__avatar"
+            title="Voir la fiche"
+            aria-label={`Voir la fiche de ${personName(prospect) || 'ce prospect'}`}
+            onClick={() => {
+              setOverlay(true)
+            }}
+          >
             {initials(prospect)}
-          </span>
+          </button>
           <div className="contact-sheet__who">
             <h2 ref={headingRef} id="contact-sheet-name" className="contact-sheet__name" tabIndex={-1}>
-              {civility && <span className="contact-row__muted">{civility} </span>}
-              {personName(prospect) || 'Nom non renseigné'}
+              <button
+                type="button"
+                className="contact-sheet__name-button"
+                title="Voir la fiche"
+                onClick={() => {
+                  setOverlay(true)
+                }}
+              >
+                {civility && <span className="contact-row__muted">{civility} </span>}
+                {personName(prospect) || 'Nom non renseigné'}
+              </button>
             </h2>
             <p className="contact-row__muted">
               {[...title, prospect.exact_job_title ? null : `Fonction : ${TO_VERIFY}`].filter(Boolean).join(' · ')}
@@ -129,6 +149,14 @@ export function ProspectSheet({ prospect, compact = false }: { prospect: Prospec
           </ul>
         )}
       </EditorSection>
+      {overlay && (
+        <ProspectOverlay
+          prospectId={prospect.id}
+          onClose={() => {
+            setOverlay(false)
+          }}
+        />
+      )}
     </>
   )
 }

@@ -79,7 +79,7 @@ caller owns the transaction.
 import logging
 import re
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
@@ -99,6 +99,7 @@ from app.models.enums import (
     SendSource,
 )
 from app.services import app_settings, audit, contact_sequences
+from app.services import contact_message_versions as versions
 from app.services.audit import AuditAction
 from app.services.contact_channels import normalize_email_address
 from app.services.contact_message_cancellation import (
@@ -490,8 +491,7 @@ def _current_content(message: ContactMessage) -> dict[str, object]:
 
 def _missing_for_validation(message: ContactMessage) -> list[str]:
     missing = []
-    if not message.from_email:
-        missing.append("from_email")
+    # `from_email` is not required: the sender is the account's default (Toolbox mailbox).
     if not message.to_recipients:
         missing.append("to")
     if not message.subject.strip():
@@ -544,6 +544,8 @@ def _create(
     context: SequenceContext,
     rank: int,
     content: dict[str, object],
+    version_source: str = "manual",
+    version_config: Mapping[str, object] | None = None,
 ) -> MessageResult:
     assert context.sequence_id is not None  # `_require_open` ran before
     message = ContactMessage(
@@ -561,6 +563,7 @@ def _create(
     with translated_violations(session, duplicate):
         session.add(message)
     session.refresh(message)
+    versions.record(session, actor, message, version_source, version_config, merge=True)
     _log("created", message, actor)
     return MessageResult(message, created=True)
 
@@ -582,6 +585,8 @@ def save_message(
     *,
     default_from: str | None = None,
     allow_agent: bool = False,
+    version_source: str = "manual",
+    version_config: Mapping[str, object] | None = None,
 ) -> MessageResult:
     """Create the rank's message (no `expected_revision`: defaults completed by `edit`, status
     `draft`) or edit its content (with the current `expected_revision`). `allow_agent`: the MCP
@@ -605,7 +610,9 @@ def save_message(
             "cc_recipients": [],
             "bcc_recipients": [],
         }
-        return _create(session, actor, context, rank, _content(edit, base))
+        return _create(
+            session, actor, context, rank, _content(edit, base), version_source, version_config
+        )
     _require_not_sent(message)
     require_agent_draft(actor, message)
     if edit.expected_revision is None:
@@ -637,6 +644,16 @@ def save_message(
     message.status = M.DRAFT
     _clear_validation(session, message)
     session.flush()
+    # Every text kept as a version (consecutive manual saves of one person are one version, but
+    # the text of a validated message always stays as it was validated).
+    versions.record(
+        session,
+        actor,
+        message,
+        version_source,
+        version_config,
+        merge=version_source == "manual" and not unvalidated,
+    )
     _log("unvalidated" if unvalidated else "edited", message, actor)
     return MessageResult(message, unvalidated=unvalidated)
 
@@ -649,6 +666,16 @@ class GeneratedContent:
     body_text: str
     model: str
     prompt_version: str
+    # What the person asked for (tone, sender, instruction…), kept with the version.
+    config: Mapping[str, object] | None = None
+
+
+def _generation_config(content: GeneratedContent) -> dict[str, object]:
+    return {
+        **(content.config or {}),
+        "model": content.model,
+        "prompt_version": content.prompt_version,
+    }
 
 
 def require_generation_target(
@@ -735,9 +762,12 @@ def save_generated(
         with translated_violations(session, duplicate):
             session.add(message)
         session.refresh(message)
+        versions.record(session, actor, message, "ai", _generation_config(content))
         _log("generated", message, actor)
         return MessageResult(message, created=True)
     unvalidated = message.status in VALIDATED
+    # The text about to be replaced stays reachable: « Versions » can bring it back.
+    versions.ensure_current(session, actor, message)
     audit.annotate(session, actor, message, AuditAction.CONTACT_MESSAGE_GENERATED)
     for name, value in generation.items():
         setattr(message, name, value)
@@ -745,8 +775,40 @@ def save_generated(
     message.status = M.DRAFT
     _clear_validation(session, message)
     session.flush()
+    versions.record(session, actor, message, "ai", _generation_config(content))
     _log("generated", message, actor)
     return MessageResult(message, unvalidated=unvalidated)
+
+
+def restore_version(
+    session: Session,
+    actor: ActorContext,
+    prospect_id: uuid.UUID,
+    rank: int,
+    version_id: uuid.UUID,
+    expected_revision: int,
+) -> MessageResult:
+    """Bring a kept version's subject and body back as the step's current draft. The restored
+    text is itself recorded (`restore`), so nothing is ever lost; the usual edit rules apply (a
+    validated message goes back to draft, a sent or cancelled one is refused)."""
+    require_author(actor)
+    context = sequence_context(session, prospect_id)
+    message = _required(session, context, rank)
+    version = versions.get_version(session, message, version_id)
+    config = {**version.config, "restored_from": str(version.id)}
+    return save_message(
+        session,
+        actor,
+        prospect_id,
+        rank,
+        MessageEdit(
+            expected_revision=expected_revision,
+            subject=version.subject,
+            body_text=version.body_text,
+        ),
+        version_source="restore",
+        version_config=config,
+    )
 
 
 def _transition_target(
