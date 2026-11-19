@@ -53,6 +53,13 @@ export interface MissionInheritance {
   category_sources?: { id: string; url: string; label: string | null }[]
 }
 
+// An agent working on the mission right now (active session), with the person it acts for.
+export interface LiveAgentRef {
+  agent_id: string
+  agent_label: string
+  owner_name: string | null
+}
+
 export interface MissionCard {
   id: string
   name: string
@@ -77,6 +84,8 @@ export interface MissionCard {
   tasks_done: number
   results_pending: number
   created_at: string
+  // Only the list fills it; absent in older fixtures.
+  live_agents?: LiveAgentRef[]
 }
 
 export interface MissionTaskRow {
@@ -265,11 +274,13 @@ export const missionKeys = {
   sources: ['missions', 'sources'] as const,
 }
 
-export function useMissions(status?: MissionStatus) {
+// `liveMs`: poll interval for the live part of the cards (paused by react-query while the tab is hidden).
+export function useMissions(status?: MissionStatus, liveMs?: number) {
   return useQuery({
     queryKey: missionKeys.list(status),
     queryFn: ({ signal }) =>
       apiGet<MissionList>(`/missions${status ? `?status=${status}` : ''}`, signal),
+    refetchInterval: liveMs,
     refetchOnWindowFocus: false,
   })
 }

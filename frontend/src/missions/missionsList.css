@@ -63,9 +63,58 @@
   border-color: var(--mui-fg);
 }
 
-.mlist-card:focus-visible {
+.mlist-card:has(.mlist-card__link:focus-visible) {
   outline: var(--focus-ring-width) solid var(--color-focus);
   outline-offset: var(--focus-ring-offset);
+}
+
+/* The title link is stretched over the whole card; what must stay clickable on its own sits above it. */
+.mlist-card__link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.mlist-card__link:focus-visible {
+  outline: none;
+}
+
+.mlist-card__link::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+.mlist-above {
+  position: relative;
+  z-index: 1;
+}
+
+/* « N à valider » / « N à relire »: a link to the mission's Résultats tab. */
+.mlist-pending {
+  color: inherit;
+  text-decoration: none;
+  border-radius: var(--radius-sm);
+}
+
+.mlist-fact .mlist-pending {
+  text-decoration: underline;
+  text-decoration-color: var(--color-border-strong);
+  text-underline-offset: 3px;
+}
+
+.mlist-pending:hover {
+  text-decoration: underline;
+  text-decoration-color: var(--mui-fg);
+}
+
+.mlist-pending:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.mlist-card .mission-mark {
+  pointer-events: none;
 }
 
 .mlist-card__head {
@@ -192,22 +241,18 @@
   margin-top: auto;
 }
 
-.mlist-card__run,
-.mlist-card__plan {
-  margin: 0;
-  font-size: var(--text-sm);
-}
-
 .mlist-card__run {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  color: var(--color-text);
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  cursor: default;
 }
 
 .mlist-card__run svg {
   flex: none;
-  color: var(--color-text-muted);
 }
 
 .mlist-card__run.is-failed,
@@ -215,12 +260,54 @@
   color: var(--color-danger-fg);
 }
 
-.mlist-card__plan {
+.mlist-tip {
+  display: grid;
+  gap: var(--space-1);
+}
+
+/* --- Agents working now: a chip per active agent, the person's avatar with a pulsing blue ring ----------------------- */
+.mlist-live {
   display: flex;
   flex-wrap: wrap;
-  gap: 0 var(--space-3);
-  color: var(--color-text-muted);
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mlist-live > li {
+  position: relative;
+  z-index: 1;
+}
+
+.mlist-live__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 11rem;
+  padding: 0.125rem var(--space-2) 0.125rem 0.125rem;
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-full);
+  background: var(--color-surface);
+  color: var(--color-text);
   font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+}
+
+.mlist-live__chip--more {
+  padding: 0.125rem var(--space-2);
+  color: var(--color-text-muted);
+}
+
+.mlist-live__chip:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-focus);
+  outline-offset: 1px;
+}
+
+.mlist-live__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* --- Switch + « … » over the top-right corner (outside the link) ------------------------------------------------ */
@@ -228,6 +315,7 @@
   position: absolute;
   top: var(--space-3);
   right: var(--space-3);
+  z-index: 2;
   display: flex;
   align-items: center;
   gap: var(--space-1);

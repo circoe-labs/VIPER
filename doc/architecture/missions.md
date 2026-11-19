@@ -242,7 +242,7 @@ review shows it as such.
 
 | Route | Purpose |
 |---|---|
-| `GET /api/missions` | cards: name, type, status, agent, recurrence, targets, last/next run, pending results |
+| `GET /api/missions` | cards: name, type, status, agent, recurrence, targets, last/next run, pending results, and `live_agents[]` (`{agent_id, agent_label, owner_name}`): the agents with an `active` session on the mission now (`mission_supervision.live_sessions`, the same definition as the overview), most recently seen first, owner = the OAuth approver else the account of the token's `owner_email` (null when unknown; the user model has no picture, the UI draws the initials). Filled for the whole page in a fixed number of statements (no N+1); the detail's card answers `[]`. The list refreshes every 15 s while the tab is visible |
 | `POST /api/missions` | (also `allow_multiple`, `objective{kind,count}`, §4b) create: active, its first run and tasks created at once unless it starts later (`run_now` is kept for the MCP tool) |
 | `GET /api/missions/{id}` | detail: targets, runs, tasks, consigne, expected result |
 | `PATCH /api/missions/{id}` | « Désactiver » / « Activer » (the switch on the card, the button on the page; `paused` / `active`) / close. Activating a mission that never ran creates its first run. Pause hides the mission's pending tasks from the agents' queue and claims (a claimed task may finish); resume offers them again. Cancel, in the same transaction, sets every open task (pending, claimed, submitted) to `cancelled` (`agent_task.cancelled`, reason `mission_cancelled`), rejects a result still waiting for review, and sets every `scheduled` / `running` run to `cancelled`; a worker still holding a task is refused with `task_cancelled` |

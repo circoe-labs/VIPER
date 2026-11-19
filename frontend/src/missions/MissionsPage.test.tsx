@@ -19,16 +19,48 @@ describe('MissionsPage', () => {
 
     expect(screen.getByRole('heading', { level: 1, name: 'Missions' })).toBeInTheDocument()
     expect(await screen.findByText('Nouveaux entrepôts — Normandie')).toBeInTheDocument()
-    const link = screen.getByRole('link', { name: /Nouveaux entrepôts/ })
-    expect(link).toHaveAttribute('href', `/missions/${MISSION}`)
+    const title = screen.getByRole('link', { name: /Nouveaux entrepôts/ })
+    expect(title).toHaveAttribute('href', `/missions/${MISSION}`)
+    const link = screen.getByRole('article')
     expect(within(link).getByText('Enrichissement')).toBeInTheDocument()
     expect(within(link).getByText('Agent claude-01')).toBeInTheDocument()
     expect(within(link).getByText('Toutes les 24 heures')).toBeInTheDocument()
+    // « à relire » and « à valider » are one link each, straight to the mission's Résultats tab (not nested in the title link).
+    const toReview = within(link).getAllByRole('link', { name: /1 à valider : ouvrir les résultats/ })
+    expect(toReview).toHaveLength(2)
+    for (const anchor of toReview) expect(anchor).toHaveAttribute('href', `/missions/${MISSION}?tab=results`)
     expect(within(link).getByText('1 à relire')).toBeInTheDocument()
     expect(within(link).getByText('1 à valider')).toBeInTheDocument()
+    expect(title).not.toContainElement(toReview[0] ?? null)
     expect(within(link).getByText('1 tâche')).toBeInTheDocument()
     // 0 of 1 task accepted: a real 0 %, with a labelled bar.
     expect(within(link).getByRole('progressbar', { name: 'Progression : 0 % des tâches validées' })).toBeInTheDocument()
+  })
+
+  it('lists the agents working now with their person, three at most, and nothing when none is active', async () => {
+    const agents = ['ChatGPT', 'Claude', 'Gemini', 'Mistral', 'Grok'].map((label, index) => ({
+      agent_id: `a${String(index)}`,
+      agent_label: label,
+      owner_name: index === 0 ? 'Etienne Debazelaire' : null,
+    }))
+    stubApi({
+      ...SHELL_API,
+      ...COMMON,
+      'GET /api/missions': [
+        200,
+        { items: [card({ live_agents: agents }), card({ id: 'idle', name: 'Mission calme', live_agents: [] })], total: 2 },
+      ],
+    })
+
+    renderApp('/missions')
+
+    const busy = (await screen.findAllByRole('article'))[0] as HTMLElement
+    const live = within(busy).getByRole('list', { name: 'Agents au travail' })
+    expect(within(live).getByText('ED')).toBeInTheDocument()
+    expect(within(live).getByText('ChatGPT')).toBeInTheDocument()
+    expect(within(live).queryByText('Mistral')).not.toBeInTheDocument()
+    expect(within(live).getByText('+2')).toBeInTheDocument()
+    expect(screen.getAllByRole('list', { name: 'Agents au travail' })).toHaveLength(1)
   })
 
   it('pins the permanent Dépôt first, with no switch and no menu', async () => {
@@ -50,7 +82,8 @@ describe('MissionsPage', () => {
 
     renderApp('/missions')
 
-    const link = await screen.findByRole('link', { name: /Dépôt/ })
+    await screen.findByRole('link', { name: 'Dépôt' })
+    const link = screen.getAllByRole('article')[0] as HTMLElement
     expect(within(link).getByText('Permanente')).toBeInTheDocument()
     expect(within(link).getByText('2 dépôts')).toBeInTheDocument()
     expect(screen.queryByRole('switch', { name: 'Mission Dépôt active' })).not.toBeInTheDocument()

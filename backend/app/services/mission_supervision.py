@@ -29,8 +29,10 @@ from app.models.enums import (
     MissionRunStatus,
     MissionStatus,
 )
+from app.models.mcp import McpToken
 from app.models.mission_telemetry import MissionAgentLog, MissionAgentSession
 from app.models.missions import Mission, MissionRun
+from app.models.oauth import OAuthAuthorization
 from app.models.prospects import Prospect
 from app.models.users import User
 from app.services.errors import InvalidFieldError, NotFoundError
@@ -152,6 +154,92 @@ def _results_scope(mission_id: uuid.UUID) -> Select[Any]:
     )
 
 
+def live_sessions(mission_ids: Sequence[uuid.UUID]) -> Select[tuple[MissionAgentSession]]:
+    """The one definition of « an agent is working now »: an `active` session (the timeout sweep
+    closes the idle ones). Shared by the overview and the missions list."""
+    return (
+        select(MissionAgentSession)
+        .where(
+            MissionAgentSession.mission_id.in_(mission_ids),
+            MissionAgentSession.status == MissionAgentSessionStatus.ACTIVE,
+        )
+        .order_by(MissionAgentSession.last_seen_at.desc(), MissionAgentSession.id.desc())
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class LiveAgentRef:
+    """An agent working on a mission card, with the person it acts for (None when unknown)."""
+
+    agent_id: str
+    agent_label: str
+    owner_name: str | None
+
+
+def _owners_by_agent(session: Session, agent_ids: set[str]) -> dict[str, str]:
+    """`agent_id` (token id) -> display name of the person the agent acts for: the OAuth approver
+    (latest approval), else the account of `owner_email`. Three statements for any number of
+    agents."""
+    token_ids: dict[str, uuid.UUID] = {}
+    for agent_id in agent_ids:
+        try:
+            token_ids[agent_id] = uuid.UUID(agent_id)
+        except ValueError:
+            continue
+    if not token_ids:
+        return {}
+    emails = {
+        token_id: email.lower()
+        for token_id, email in session.execute(
+            select(McpToken.id, McpToken.owner_email).where(
+                McpToken.id.in_(token_ids.values()), McpToken.owner_email.is_not(None)
+            )
+        )
+        if email
+    }
+    approvals: dict[uuid.UUID, uuid.UUID] = {}
+    for token_id, user_id in session.execute(
+        select(OAuthAuthorization.mcp_token_id, OAuthAuthorization.user_id)
+        .where(OAuthAuthorization.mcp_token_id.in_(token_ids.values()))
+        .order_by(OAuthAuthorization.created_at.asc())
+    ):
+        approvals[token_id] = user_id  # the latest one wins
+    users = session.execute(
+        select(User.id, func.lower(User.email), User.display_name).where(
+            User.id.in_(set(approvals.values()))
+            | (func.lower(User.email).in_(set(emails.values())))
+        )
+    ).all()
+    by_id = {row[0]: row[2] for row in users}
+    by_email = {row[1]: row[2] for row in users}
+    owners: dict[str, str] = {}
+    for agent_id, token_id in token_ids.items():
+        name = by_id.get(approvals[token_id]) if token_id in approvals else None
+        if name is None and token_id not in approvals:
+            name = by_email.get(emails.get(token_id, ""))
+        if name is not None:
+            owners[agent_id] = name
+    return owners
+
+
+def live_agents_by_mission(
+    session: Session, mission_ids: Sequence[uuid.UUID]
+) -> dict[uuid.UUID, tuple[LiveAgentRef, ...]]:
+    """Distinct agents currently working on each of the missions of a list page, most recently
+    seen first: a fixed number of statements, whatever the page size."""
+    if not mission_ids:
+        return {}
+    rows = session.scalars(live_sessions(mission_ids)).all()
+    owners = _owners_by_agent(session, {row.agent_id for row in rows})
+    found: dict[uuid.UUID, dict[str, LiveAgentRef]] = defaultdict(dict)
+    for row in rows:
+        found[row.mission_id].setdefault(
+            row.agent_id,
+            LiveAgentRef(row.agent_id, row.agent_label, owners.get(row.agent_id)),
+        )
+    return {mission_id: tuple(agents.values()) for mission_id, agents in found.items()}
+
+
 def overview(session: Session, mission: Mission) -> Overview:
     """Compact live state in a handful of statements; never loads tasks, logs or results."""
     run = session.scalar(
@@ -160,14 +248,7 @@ def overview(session: Session, mission: Mission) -> Overview:
         .order_by(MissionRun.scheduled_at.desc(), MissionRun.id.desc())
         .limit(1)
     )
-    live_rows = session.scalars(
-        select(MissionAgentSession)
-        .where(
-            MissionAgentSession.mission_id == mission.id,
-            MissionAgentSession.status == MissionAgentSessionStatus.ACTIVE,
-        )
-        .order_by(MissionAgentSession.last_seen_at.desc(), MissionAgentSession.id.desc())
-    ).all()
+    live_rows = session.scalars(live_sessions([mission.id])).all()
     last_session_seen = session.scalar(
         select(func.max(MissionAgentSession.last_seen_at)).where(
             MissionAgentSession.mission_id == mission.id

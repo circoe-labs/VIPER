@@ -33,11 +33,14 @@ function EditMission({ id, onClose }: { id: string; onClose: () => void }) {
   return <CreateMissionDialog open mission={mission.data} onClose={onClose} />
 }
 
+// Refresh of the agents working on each card; the polling pauses by itself while the browser tab is hidden.
+const LIST_POLL_MS = 15_000
+
 export function MissionsPage() {
   const [filters, setFilters] = useState<ListFilters>(DEFAULT_FILTERS)
   const [creating, setCreating] = useState(false)
   // One unfiltered query: the counters read all of it, the cards read the filtered and sorted view of it.
-  const missions = useMissions()
+  const missions = useMissions(undefined, LIST_POLL_MS)
   const proposals = useMissionProposals()
   const [menu, setMenu] = useState<{ card: MissionCard; position: Point; alignRight: boolean } | null>(null)
   const [editId, setEditId] = useState<string | null>(null)

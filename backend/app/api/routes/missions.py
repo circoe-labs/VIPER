@@ -137,6 +137,14 @@ class InheritanceOut(BaseModel):
     category_sources: list[SourceRefOut] = Field(default_factory=list)
 
 
+class LiveAgentRefOut(BaseModel):
+    """An agent working on the mission now, with the person it acts for (null when unknown)."""
+
+    agent_id: str
+    agent_label: str
+    owner_name: str | None
+
+
 class MissionCardOut(BaseModel):
     id: uuid.UUID
     name: str
@@ -159,6 +167,8 @@ class MissionCardOut(BaseModel):
     tasks_done: int
     results_pending: int
     created_at: datetime
+    # Only the list fills it (agents with an active session); the detail answers [].
+    live_agents: list[LiveAgentRefOut] = Field(default_factory=list)
 
 
 class MissionListOut(BaseModel):
@@ -640,9 +650,7 @@ def _mission_or_404(session: SessionDep, mission_id: uuid.UUID) -> Mission:
 
 
 @router.get("/{mission_id}/context")
-def mission_context_preview(
-    mission_id: uuid.UUID, session: SessionDep
-) -> list[ContextResolvedOut]:
+def mission_context_preview(mission_id: uuid.UUID, session: SessionDep) -> list[ContextResolvedOut]:
     """The context the agent would receive now: each linked record through its allowlist
     (read-only; targets are not part of it)."""
     with business_errors():
@@ -665,9 +673,7 @@ def link_mission_context(
     return [ContextRefOut.model_validate(row, from_attributes=True) for row in rows]
 
 
-@router.delete(
-    "/{mission_id}/context/{kind}/{record_id}", status_code=status.HTTP_204_NO_CONTENT
-)
+@router.delete("/{mission_id}/context/{kind}/{record_id}", status_code=status.HTTP_204_NO_CONTENT)
 def unlink_mission_context(
     mission_id: uuid.UUID,
     kind: Literal["company", "prospect", "warehouse"],

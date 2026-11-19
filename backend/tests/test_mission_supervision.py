@@ -571,3 +571,40 @@ def test_the_scheduler_pass_settles_a_finished_run_and_ends_its_sessions(
 
     scheduler = mission_scheduler.MissionScheduler(session_factory)
     assert scheduler.run_once() == []
+
+
+# --- live agents on the missions list ------------------------------------------------------------
+
+
+def test_the_list_carries_the_active_agents_with_their_person_in_a_fixed_number_of_queries(
+    client: TestClient, db_session: Session, mission: Mission, seeded: dict[str, Any]
+) -> None:
+    from app.models.mcp import McpToken
+    from tests.builders import add_user
+
+    add_user(db_session, "lucie@circoe.com", display_name="Lucie Martin")
+    token = McpToken(label="ChatGPT", token_hash="e" * 64, owner_email="Lucie@Circoe.com")
+    db_session.add(token)
+    db_session.flush()
+    chatgpt = ActorContext(type=ActorType.AGENT, id=str(token.id), display="ChatGPT")
+    mission_telemetry.touch_session(db_session, chatgpt, seeded["tasks"][2], T0)
+    idle = add_mission(db_session, name="Sans agent")
+
+    statements: list[str] = []
+    engine = db_session.get_bind()
+
+    def count(_c: Any, _cur: Any, statement: str, *_a: Any) -> None:
+        statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", count)
+    try:
+        items = client.get("/api/missions").json()["items"]
+    finally:
+        event.remove(engine, "before_cursor_execute", count)
+    by_id = {item["id"]: item for item in items}
+    live = {agent["agent_label"]: agent for agent in by_id[str(mission.id)]["live_agents"]}
+    assert live["ChatGPT"]["owner_name"] == "Lucie Martin"
+    assert live["Agent A"]["owner_name"] is None  # not a token: nobody to show
+    assert by_id[str(idle.id)]["live_agents"] == []
+    # The three live-agent statements do not grow with the number of missions.
+    assert len([s for s in statements if "mission_agent_sessions" in s]) == 1

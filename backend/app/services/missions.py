@@ -11,7 +11,7 @@ Contract: `doc/architecture/missions.md`.
 
 import calendar
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -58,6 +58,7 @@ from app.services import (
 )
 from app.services.errors import ConflictError, DomainError, InvalidFieldError, NotFoundError
 from app.services.mission_categories import CategoryRef, MissionInheritance, SkillRef
+from app.services.mission_supervision import LiveAgentRef, live_agents_by_mission
 
 # Types whose execution maps to the result schemas that exist today. Discovery and signals need
 # their `find_*` / `surveil_signals` schemas (agent-missions.md §5, phase 2): the modal says so.
@@ -167,6 +168,8 @@ class MissionCard:
     tasks_done: int
     results_pending: int
     created_at: datetime
+    # Agents working on it right now (filled by `list_cards` only, in one batched query).
+    live_agents: tuple[LiveAgentRef, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -430,7 +433,11 @@ def list_cards(session: Session, *, status: MissionStatus | None = None) -> list
     missions = session.scalars(
         statement.order_by(Mission.status.asc(), Mission.created_at.desc())
     ).all()
-    return [_card(session, mission) for mission in missions]
+    live = live_agents_by_mission(session, [mission.id for mission in missions])
+    return [
+        replace(_card(session, mission), live_agents=live.get(mission.id, ()))
+        for mission in missions
+    ]
 
 
 def detail(session: Session, mission_id: uuid.UUID) -> MissionDetail:
