@@ -1,0 +1,206 @@
+/* Config AI > Connexions: a responsive grid of IDENTICAL tiles (one fixed height), and the large edit dialog whose
+   footer holds every action (secondary icons on the left, the primary button on the right). */
+
+.conn-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr));
+  gap: var(--space-4);
+}
+
+.conn-tile {
+  position: relative;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  height: 9.5rem;
+  padding: var(--space-4);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-canvas);
+  transition: border-color var(--duration-fast) var(--ease-standard);
+}
+
+.conn-tile:hover,
+.conn-tile:focus-within {
+  border-color: var(--color-border-strong);
+}
+
+/* The whole tile (but its foot) is the « open » target. */
+.conn-tile__open {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.conn-tile__open::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-md);
+}
+
+.conn-tile__open:focus-visible {
+  outline: none;
+}
+
+.conn-tile__open:focus-visible::after {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.conn-tile__logo {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 3rem;
+  height: 3rem;
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.conn-tile__text {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-1);
+}
+
+.conn-tile__title {
+  overflow: hidden;
+  font-size: var(--text-md, 1rem);
+  font-weight: var(--weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conn-tile__summary {
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conn-tile__foot {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+/* --- The edit dialog --------------------------------------------------------------------------------------- */
+
+.dialog.dialog--modal.conn-dialog {
+  max-width: 60rem;
+  height: min(40rem, 100%);
+}
+
+.conn-dialog .dialog__body {
+  padding-top: var(--space-5);
+}
+
+/* The logo sits on the title line, with a gap. */
+.conn-dialog .dialog__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.conn-dialog .dialog__title-icon {
+  display: grid;
+  place-items: center;
+}
+
+.conn-tabs {
+  gap: var(--space-5);
+}
+
+.conn-pane {
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+}
+
+.conn-pane[hidden] {
+  display: none;
+}
+
+.conn-pane .settings-form,
+.conn-pane .settings-connection__facts {
+  max-width: 44rem;
+}
+
+.conn-footer {
+  display: flex;
+  flex: 1;
+}
+
+.conn-footer:empty {
+  display: none;
+}
+
+.conn-actions {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.conn-actions__secondary,
+.conn-actions__primary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.conn-actions__primary {
+  margin-left: auto;
+}
+
+/* The Calendly meetings, one line each. */
+.settings-appointments {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.settings-appointments li {
+  display: grid;
+  grid-template-columns: minmax(9rem, 12rem) minmax(0, 1fr) minmax(0, 1fr);
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-top: var(--border-width) solid var(--color-border);
+}
+
+@media (max-width: 40rem) {
+  .settings-appointments li {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-1);
+  }
+}
+
+.conn-tabs .tabs__panel {
+  display: grid;
+  gap: var(--space-4);
+  padding-top: var(--space-4);
+}
+
+/* The Toolbox diagnostic opens its tab: no separator line above it. */
+.conn-pane .toolbox-test {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}

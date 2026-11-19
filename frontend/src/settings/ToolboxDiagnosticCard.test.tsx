@@ -3,12 +3,14 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
 import type { Diagnostic, DiagnosticStep } from '../api/toolboxDiagnostic'
+import { openConnection } from '../test/connectionsUi'
 import { stubIntegrationsApi } from '../test/integrationsApi'
 import { renderApp } from '../test/render'
 import { stubSettingsApi } from '../test/settingsApi'
 import { stubToolboxApi } from '../test/toolboxApi'
 
-const card = () => within(screen.getByRole('region', { name: 'Connexions' })).getByRole('region', { name: 'Tester la Toolbox' })
+const dialog = () => within(screen.getByRole('dialog', { name: 'CIRCOE Toolbox' }))
+const card = () => dialog().getByRole('region', { name: 'Tester la Toolbox' })
 
 function step(key: string, overrides: Partial<DiagnosticStep> = {}): DiagnosticStep {
   return {
@@ -49,13 +51,13 @@ function stub(options: Parameters<typeof stubIntegrationsApi>[0] = {}) {
   return stubIntegrationsApi(options)
 }
 
-describe('Paramètres › Connexions › Tester la Toolbox', () => {
+describe('Config AI › Connexions › CIRCOE Toolbox › Diagnostic', () => {
   it('clears the shown result', async () => {
     stub({ diagnostic: run() })
     const user = userEvent.setup()
     renderApp('/config-ai/connections')
 
-    await user.click(await within(await screen.findByRole('region', { name: 'Tester la Toolbox' })).findByRole('button', { name: 'Effacer le résultat' }))
+    await user.click(await (await openConnection('CIRCOE Toolbox', 'Diagnostic')).findByRole('button', { name: 'Effacer le résultat' }))
 
     expect(await within(card()).findByText(/Aucun test lancé/)).toBeInTheDocument()
     expect(within(card()).queryByText('Tout fonctionne')).not.toBeInTheDocument()
@@ -66,7 +68,7 @@ describe('Paramètres › Connexions › Tester la Toolbox', () => {
     const user = userEvent.setup()
     renderApp('/config-ai/connections')
 
-    const start = await within(await screen.findByRole('region', { name: 'Tester la Toolbox' })).findByRole('button', {
+    const start = await (await openConnection('CIRCOE Toolbox', 'Diagnostic')).findByRole('button', {
       name: 'Lancer le diagnostic',
     })
     expect(start).toBeDisabled()
@@ -85,12 +87,12 @@ describe('Paramètres › Connexions › Tester la Toolbox', () => {
     const user = userEvent.setup()
     renderApp('/config-ai/connections')
 
-    await user.type(await within(await screen.findByRole('region', { name: 'Tester la Toolbox' })).findByLabelText('Adresse de test'), 'moi@circoe.com')
+    await user.type(await (await openConnection('CIRCOE Toolbox', 'Diagnostic')).findByLabelText('Adresse de test'), 'moi@circoe.com')
     await user.click(within(card()).getByRole('switch', { name: 'Envoyer pour de vrai' }))
     const delay = within(card()).getByLabelText('Envoi programmé dans (secondes)')
     await user.clear(delay)
     await user.type(delay, '90')
-    await user.click(within(card()).getByRole('button', { name: 'Lancer le diagnostic' }))
+    await user.click(dialog().getByRole('button', { name: 'Lancer le diagnostic' }))
 
     await waitFor(() => {
       expect(diagnostic.starts).toEqual([{ recipient: 'moi@circoe.com', send_real: true, delay_seconds: 90 }])
@@ -128,7 +130,7 @@ describe('Paramètres › Connexions › Tester la Toolbox', () => {
     })
     renderApp('/config-ai/connections')
 
-    expect(await within(await screen.findByRole('region', { name: 'Tester la Toolbox' })).findByText('Problème détecté')).toBeInTheDocument()
+    expect(await (await openConnection('CIRCOE Toolbox', 'Diagnostic')).findByText('Problème détecté')).toBeInTheDocument()
     expect(card()).toHaveTextContent('Premier problème : « Créer un brouillon simple » (toolbox_rejected)')
     expect(card()).toHaveTextContent('Piste : Le texte exact de la Toolbox est dans l’échange brut.')
     expect(card()).toHaveTextContent('infomaniak.mail.create_draft')
@@ -141,9 +143,36 @@ describe('Paramètres › Connexions › Tester la Toolbox', () => {
     const user = userEvent.setup()
     renderApp('/config-ai/connections')
 
-    await user.type(await within(await screen.findByRole('region', { name: 'Tester la Toolbox' })).findByLabelText('Adresse de test'), 'test@circoe.com')
-    await user.click(within(card()).getByRole('button', { name: 'Lancer le diagnostic' }))
+    await user.type(await (await openConnection('CIRCOE Toolbox', 'Diagnostic')).findByLabelText('Adresse de test'), 'test@circoe.com')
+    await user.click(dialog().getByRole('button', { name: 'Lancer le diagnostic' }))
 
     expect(await within(card()).findByRole('alert')).toHaveTextContent('un test est déjà en cours')
+  })
+
+  it('leads a « fix » button to the tab of the dialog that fixes the problem', async () => {
+    stub({
+      diagnostic: run({
+        steps: [
+          step('create', {
+            status: 'failed',
+            error: { code: 'toolbox_not_connected', message: 'Pas connectée.', retryable: false, outcome_unknown: false, upstream_status: null, hint: null },
+          }),
+        ],
+        verdict: {
+          ok: false,
+          counts: { failed: 1 },
+          problems: ['create'],
+          first_problem: { step: 'create', title: 'Étape create', code: 'toolbox_not_connected', hint: null },
+        },
+      }),
+    })
+    const user = userEvent.setup()
+    renderApp('/config-ai/connections')
+
+    const toolbox = await openConnection('CIRCOE Toolbox', 'Diagnostic')
+    await user.click((await toolbox.findAllByRole('button', { name: 'Connecter la Toolbox' }))[0] as HTMLElement)
+
+    expect(toolbox.getByRole('tab', { name: 'Connexion' })).toHaveAttribute('aria-selected', 'true')
+    expect(toolbox.getByRole('button', { name: 'Se connecter à CIRCOE Toolbox' })).toBeVisible()
   })
 })

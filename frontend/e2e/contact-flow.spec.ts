@@ -105,9 +105,10 @@ test.afterAll(async ({ browser }) => {
   await blockRealToolbox(page.context())
   await page.request.post(`${FAKE}/mode`, { data: {} })
   await signIn(page)
-  await page.goto('/settings/connections')
-  await expect(page.getByRole('region', { name: 'CIRCOE Toolbox' })).toBeVisible()
-  const forget = page.getByRole('button', { name: 'Se déconnecter…' })
+  await page.goto('/settings/connections?open=toolbox')
+  const toolboxDialog = page.getByRole('dialog', { name: 'CIRCOE Toolbox' })
+  await expect(toolboxDialog).toBeVisible()
+  const forget = toolboxDialog.getByRole('button', { name: 'Se déconnecter…' })
   if (await forget.isVisible()) {
     await forget.click()
     await confirm(page, /Se déconnecter de CIRCOE Toolbox/, 'Se déconnecter')
@@ -139,16 +140,19 @@ test('the operator scenario: import, plan, draft with the AI, validate, schedule
   await expect(popover).toBeHidden()
   await expect(row).toContainText(week)
 
-  // 3. Paramètres › Connexions: connect the Toolbox; the scheduled sending becomes active.
-  await page.goto('/settings/connections')
+  // 3. Config AI › Connexions: connect the Toolbox (its dialog reopens on the return); the scheduled sending becomes active.
+  await page.goto('/settings/connections?open=toolbox')
   await page.getByRole('button', { name: 'Se connecter à CIRCOE Toolbox' }).click()
   await expect(page.getByRole('status').filter({ hasText: /CIRCOE Toolbox connectée jusqu’au/ })).toHaveCount(1)
-  const dispatch = page.getByRole('region', { name: 'Envoi programmé' })
+  const dispatch = page.getByRole('dialog', { name: 'CIRCOE Toolbox' })
+  await dispatch.getByRole('tab', { name: 'Envoi programmé' }).click()
   // S9: nothing chosen in « Envoi programmé »: the sending is on by default once the Toolbox is connected.
   await expect(dispatch.getByRole('switch', { name: 'Envoi automatique des mails programmés' })).toBeChecked()
-  await expect(dispatch).toContainText('Actif')
+  await expect(dispatch.getByText('Actif', { exact: true })).toBeVisible()
   await capture(page, 'settings-connections-dispatch', async () => {
-    await expect(page.getByRole('region', { name: 'Envoi programmé' })).toContainText('Actif')
+    const reopened = page.getByRole('dialog', { name: 'CIRCOE Toolbox' })
+    await reopened.getByRole('tab', { name: 'Envoi programmé' }).click()
+    await expect(reopened.getByText('Actif', { exact: true })).toBeVisible()
   })
 
   // 4. Contact: the planned person is in this week's list.
@@ -246,8 +250,8 @@ test('a send whose outcome is unknown is never resent and a person settles it', 
     last_name: `Incertain${suffix}`,
     email: `hugo.${suffix}@flux-e2e.example`,
   })
-  await page.goto(`/settings/connections`)
-  const toolbox = page.getByRole('region', { name: 'CIRCOE Toolbox' })
+  await page.goto('/settings/connections?open=toolbox')
+  const toolbox = page.getByRole('dialog', { name: 'CIRCOE Toolbox' })
   if (!(await toolbox.textContent())?.includes('Valable jusqu’au')) {
     await page.getByRole('button', { name: 'Se connecter à CIRCOE Toolbox' }).click()
     await expect(page.getByRole('status').filter({ hasText: /CIRCOE Toolbox connectée jusqu’au/ })).toHaveCount(1)
@@ -314,13 +318,14 @@ test('switched off, every screen says a scheduled message will not leave, and it
     last_name: `Arret${suffix}`,
     email: `ines.${suffix}@flux-e2e.example`,
   })
-  await page.goto('/settings/connections')
-  const toolbox = page.getByRole('region', { name: 'CIRCOE Toolbox' })
+  await page.goto('/settings/connections?open=toolbox')
+  const toolbox = page.getByRole('dialog', { name: 'CIRCOE Toolbox' })
   if (!(await toolbox.textContent())?.includes('Valable jusqu’au')) {
     await page.getByRole('button', { name: 'Se connecter à CIRCOE Toolbox' }).click()
     await expect(page.getByRole('status').filter({ hasText: /CIRCOE Toolbox connectée jusqu’au/ })).toHaveCount(1)
   }
-  const dispatch = page.getByRole('region', { name: 'Envoi programmé' })
+  const dispatch = toolbox
+  await dispatch.getByRole('tab', { name: 'Envoi programmé' }).click()
   const toggle = dispatch.getByRole('switch', { name: 'Envoi automatique des mails programmés' })
   await expect(toggle).toBeChecked()
   await toggle.click()
@@ -382,8 +387,10 @@ test('switched off, every screen says a scheduled message will not leave, and it
     await expect(mailTab(page, 'Contact')).toContainText('Validé')
     expect((await fakeDrafts(page)).sent).not.toContain(draft)
   } finally {
-    await page.goto('/settings/connections')
-    const back = page.getByRole('region', { name: 'Envoi programmé' }).getByRole('switch', { name: 'Envoi automatique des mails programmés' })
+    await page.goto('/settings/connections?open=toolbox')
+    const sending = page.getByRole('dialog', { name: 'CIRCOE Toolbox' })
+    await sending.getByRole('tab', { name: 'Envoi programmé' }).click()
+    const back = sending.getByRole('switch', { name: 'Envoi automatique des mails programmés' })
     if (!(await back.isChecked())) await back.click()
     await expect(back).toBeChecked()
   }

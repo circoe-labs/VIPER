@@ -25,6 +25,7 @@ import {
   TrashIcon,
 } from '../ui/icons'
 import { InfoTip } from '../ui/InfoTip'
+import { PaneActions, useConnectionNav } from '../config-ai/connections/connection'
 
 const STORAGE_KEY = 'viper.toolbox-diagnostic-recipient'
 const ADDRESS = /^[^@\s,;<>]+@[^@\s,;<>]+\.[^@\s,;<>]+$/
@@ -55,27 +56,25 @@ function rememberRecipient(value: string) {
   }
 }
 
-// Where an error is fixed on this page: the card (by its heading id) and what the button says. The connection codes
-// lead to the CIRCOE Toolbox card (« Connecter » / « Reconnecter »), a refused recipient to the Envoi programmé card.
+// Where an error is fixed: the tab of the Toolbox dialog and what the button says. The connection codes lead to the
+// « Connexion » tab (« Connecter » / « Reconnecter »), a refused recipient to the « Envoi programmé » tab.
 const FIX: Record<string, { target: string; label: string }> = {
-  toolbox_not_configured: { target: 'settings-connection-toolbox', label: 'Configurer la Toolbox' },
-  toolbox_not_connected: { target: 'settings-connection-toolbox', label: 'Connecter la Toolbox' },
-  toolbox_auth_expired: { target: 'settings-connection-toolbox', label: 'Reconnecter la Toolbox' },
-  toolbox_connection_interrupted: { target: 'settings-connection-toolbox', label: 'Reconnecter la Toolbox' },
-  toolbox_outbound_blocked: { target: 'settings-connection-dispatch', label: 'Voir les adresses autorisées' },
+  toolbox_not_configured: { target: 'connection', label: 'Configurer la Toolbox' },
+  toolbox_not_connected: { target: 'connection', label: 'Connecter la Toolbox' },
+  toolbox_auth_expired: { target: 'connection', label: 'Reconnecter la Toolbox' },
+  toolbox_connection_interrupted: { target: 'connection', label: 'Reconnecter la Toolbox' },
+  toolbox_outbound_blocked: { target: 'dispatch', label: 'Voir les adresses autorisées' },
 }
 
 function FixLink({ code }: { code: string }) {
+  const goTo = useConnectionNav()
   const fix = FIX[code]
   if (!fix) return null
   return (
     <Button
       size="sm"
       onClick={() => {
-        const card = document.getElementById(fix.target)
-        card?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-        card?.closest('section')?.classList.add('settings-connection--pointed')
-        window.setTimeout(() => card?.closest('section')?.classList.remove('settings-connection--pointed'), 2500)
+        goTo(fix.target)
       }}
     >
       {fix.label}
@@ -269,13 +268,17 @@ export function ToolboxDiagnosticCard() {
   const recipientValid = ADDRESS.test(recipient.trim())
   const verdict = latest.data?.verdict
 
+  function launch() {
+    if (running || !recipientValid || !delayValid) return
+    rememberRecipient(recipient.trim())
+    start.mutate({ recipient: recipient.trim(), send_real: sendReal, delay_seconds: delay })
+  }
+
   return (
-    <section className="toolbox-test" aria-labelledby="toolbox-test">
+    <section className="toolbox-test" aria-label="Tester la Toolbox">
       <header className="toolbox-test__header">
         <TerminalIcon size={18} aria-hidden="true" />
-        <h4 id="toolbox-test" className="toolbox-test__title">
-          Tester la Toolbox
-        </h4>
+        <span className="toolbox-test__title">Tester la Toolbox</span>
         <InfoTip label="Aide : Tester la Toolbox">Joue toutes les opérations mail (brouillons, accents, modification, suppression, refus et, si coché, un envoi programmé réel : un brouillon est programmé, sa date est changée, puis un vrai mail part) sur une adresse de test et montre où ça casse.</InfoTip>
         {verdict && <StatusBadge tone={verdict.ok ? 'success' : 'danger'}>{verdict.ok ? 'Dernier test réussi' : 'Dernier test en échec'}</StatusBadge>}
       </header>
@@ -283,9 +286,7 @@ export function ToolboxDiagnosticCard() {
         className="toolbox-test__form"
         onSubmit={(event) => {
           event.preventDefault()
-          if (running || !recipientValid || !delayValid) return
-          rememberRecipient(recipient.trim())
-          start.mutate({ recipient: recipient.trim(), send_real: sendReal, delay_seconds: delay })
+          launch()
         }}
       >
         <TextField
@@ -326,17 +327,17 @@ export function ToolboxDiagnosticCard() {
             Impossible de lancer le test : {startFailure(start.error)}
           </p>
         )}
-        <div className="settings-connection__actions">
+        <PaneActions>
           <Button
-            type="submit"
             variant="primary"
             icon={sendReal ? MailIcon : CheckCircleIcon}
             loading={running}
             disabled={!recipientValid || !delayValid}
+            onClick={launch}
           >
             {running ? 'Test en cours…' : 'Lancer le diagnostic'}
           </Button>
-        </div>
+        </PaneActions>
       </form>
       {latest.isError && (
         <p className="settings-connection__error" role="alert">

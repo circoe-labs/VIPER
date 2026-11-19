@@ -7,6 +7,8 @@
 
 :root {
   /* Neon Command core palette (doc/design/design-system.md) */
+  /* Third-party brand mark of a connection tile (Config AI), kept here with every raw value. */
+  --brand-calendly: #006BFF;
   --nc-void: #0A0B0D;
   /* Voice mission assistant stage (missions/voice/voice.css): always dark, own constants */
   --nc-voice-ink: #030509;

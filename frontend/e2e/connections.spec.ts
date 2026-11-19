@@ -8,9 +8,10 @@ import { E2E_OPENAI_PORT, E2E_TOOLBOX_PORT } from './env'
 import { blockRealToolbox, REAL_TOOLBOX_HOST, SCREENSHOTS, useTheme } from './helpers'
 import { signIn } from './session'
 
-// Paramètres › Connexions (Contact port S8): everything typed in the browser and applied at once, without a restart —
+// Config AI › Connexions (Contact port S8): everything typed in the browser and applied at once, without a restart —
 // the OpenAI key (write-only), the model and the API address, then « Se connecter à CIRCOE Toolbox » with its advanced
-// address — against the local fakes only (Contact port P6: never OpenAI, never the real Toolbox). These settings are
+// address — each connection is a tile of the grid whose settings live in its dialog (`?open=<id>`, sub-tabs), against
+// the local fakes only (Contact port P6: never OpenAI, never the real Toolbox). These settings are
 // the whole server's: this project runs last and alone, and puts every value back to its environment default.
 
 test.describe.configure({ mode: 'serial' })
@@ -47,8 +48,20 @@ async function fakeKeys(page: Page): Promise<{ drafted: string[]; checked: strin
   return (await (await page.request.get(`${FAKE_OPENAI}/keys`)).json()) as { drafted: string[]; checked: string[] }
 }
 
+// The edit dialog of a connection (opened through its `?open=` deep link), and its tile in the grid.
 function card(page: Page, name: string) {
-  return page.getByRole('region', { name: 'Connexions' }).getByRole('region', { name })
+  return page.getByRole('dialog', { name })
+}
+
+function tile(page: Page, name: string) {
+  return page.getByRole('article', { name })
+}
+
+async function openCard(page: Page, id: string, name: string) {
+  await page.goto(`/settings/connections?open=${id}`)
+  const dialog = card(page, name)
+  await expect(dialog).toBeVisible()
+  return dialog
 }
 
 async function confirm(page: Page, title: RegExp, button: string) {
@@ -59,16 +72,20 @@ async function confirm(page: Page, title: RegExp, button: string) {
 }
 
 async function replaceKey(page: Page, key: string) {
-  const openai = card(page, 'Rédaction IA (OpenAI)')
+  const openai = card(page, 'OpenAI')
+  await openai.getByRole('tab', { name: 'Connexion' }).click()
   await openai.getByRole('button', { name: 'Remplacer' }).click()
-  await openai.getByLabel('Clé d’API OpenAI').fill(key)
+  await openai.getByRole('textbox', { name: 'Clé d’API OpenAI', exact: true }).fill(key)
 }
 
-async function capture(page: Page, name: string) {
+// The grid and one open dialog, in both themes.
+async function capture(page: Page, name: string, id: string, title: string) {
   for (const theme of ['dark', 'light'] as const) {
     await useTheme(page, theme)
-    await page.reload()
-    await expect(card(page, 'CIRCOE Toolbox')).toBeVisible()
+    await page.goto('/settings/connections')
+    await expect(tile(page, 'CIRCOE Toolbox')).toBeVisible()
+    await page.screenshot({ path: `${SCREENSHOTS}/connections-grid-${theme}-1440.png`, animations: 'disabled' })
+    await openCard(page, id, title)
     const file = `connections-${name}-${theme}-1440.png`
     await page.screenshot({ path: `${SCREENSHOTS}/${file}`, fullPage: true, animations: 'disabled' })
     if (REVIEW_DIR) {
@@ -100,7 +117,7 @@ test.afterAll(async ({ browser }) => {
   const page = await browser.newPage()
   await blockRealToolbox(page.context())
   await signIn(page)
-  await page.goto('/settings/connections')
+  await page.goto('/settings/connections?open=toolbox')
   const disconnect = page.getByRole('button', { name: 'Se déconnecter…' })
   if (await disconnect.isVisible()) {
     await disconnect.click()
@@ -121,13 +138,12 @@ test('an OpenAI key typed in the browser drafts at once, without a restart', asy
   })
 
   // 1. A key the service refuses: « Tester la clé » says so, and so does the drafting — the saved key is the one used.
-  await page.goto('/settings/connections')
-  const openai = card(page, 'Rédaction IA (OpenAI)')
+  const openai = await openCard(page, 'openai', 'OpenAI')
   await expect(openai).toContainText('Clé fournie par la configuration du serveur.')
   await replaceKey(page, REFUSED_KEY)
   await openai.getByRole('button', { name: 'Enregistrer' }).click()
   await expect(openai.getByText(/Clé et réglages OpenAI enregistrés/)).toBeVisible()
-  await expect(openai.getByLabel('Clé d’API OpenAI')).toHaveAttribute('placeholder', '•••• 0001 (enregistrée)')
+  await expect(openai.getByRole('textbox', { name: 'Clé d’API OpenAI', exact: true })).toHaveAttribute('placeholder', '•••• 0001 (enregistrée)')
   await openai.getByRole('button', { name: 'Tester la clé' }).click()
   await expect(openai.getByText('Test échoué : la clé a été refusée par OpenAI.')).toBeVisible()
 
@@ -136,14 +152,15 @@ test('an OpenAI key typed in the browser drafts at once, without a restart', asy
   await expect(page.getByRole('alert').getByText(/La clé OpenAI a été refusée/)).toBeVisible()
 
   // 2. Another key, a model and the API address typed here: accepted, and the next drafting uses them.
-  await page.goto('/settings/connections')
+  await openCard(page, 'openai', 'OpenAI')
   await replaceKey(page, BROWSER_KEY)
   await openai.getByRole('textbox', { name: 'Modèle' }).fill('modele-navigateur')
-  await openai.getByText('Paramètres avancés', { exact: true }).click()
+  await openai.getByRole('tab', { name: 'Avancé' }).click()
   await openai.getByRole('textbox', { name: 'Adresse de l’API' }).fill(`${FAKE_OPENAI}/v1`)
   await openai.getByRole('button', { name: 'Enregistrer' }).click()
   await expect(openai.getByText(/Clé et réglages OpenAI enregistrés/)).toBeVisible()
-  await expect(openai.getByRole('textbox', { name: 'Modèle' })).toHaveAccessibleDescription(/Défini ici par Pilote E2E/)
+  await openai.getByRole('tab', { name: 'Connexion' }).click()
+  await expect(openai.getByRole('button', { name: 'Aide : Modèle' })).toHaveAccessibleDescription(/Défini ici par Pilote E2E/)
   await openai.getByRole('button', { name: 'Tester la clé' }).click()
   await expect(openai.getByText(/Clé acceptée : le modèle « modele-navigateur » est disponible/)).toBeVisible()
 
@@ -152,7 +169,7 @@ test('an OpenAI key typed in the browser drafts at once, without a restart', asy
   expect(JSON.stringify(body)).not.toContain(BROWSER_KEY)
   expect(body.openai_api_key).toMatchObject({ set: true, last4: '4242', source: 'ui' })
   expect(await page.content()).not.toContain(BROWSER_KEY)
-  await capture(page, 'openai')
+  await capture(page, 'openai', 'openai', 'OpenAI')
 
   await page.goto(`/contact?prospect=${id}`)
   await page.getByRole('button', { name: 'Générer avec l’IA' }).click()
@@ -165,55 +182,60 @@ test('an OpenAI key typed in the browser drafts at once, without a restart', asy
 
 test('« Se connecter à CIRCOE Toolbox » from the settings, with the advanced address typed here', async ({ page }) => {
   // Start without any server address (the E2E server's own points at the fake): the page says what is missing.
-  await page.goto('/settings/connections')
-  const toolbox = card(page, 'CIRCOE Toolbox')
+  const toolbox = await openCard(page, 'toolbox', 'CIRCOE Toolbox')
   await expect(toolbox.getByRole('button', { name: 'Se connecter à CIRCOE Toolbox' })).toBeVisible()
 
   // The server address, typed in « Paramètres avancés »: a refused one is said under the field; then the local fake
   // (written with a final slash, so it differs from the E2E server's own value and is saved here) — never the real
   // Toolbox.
-  await toolbox.getByText('Paramètres avancés', { exact: true }).click()
+  await toolbox.getByRole('tab', { name: 'Avancé' }).click()
   const server = toolbox.getByRole('textbox', { name: 'Adresse du serveur CIRCOE Toolbox' })
   await expect(server).not.toHaveValue(new RegExp(REAL_TOOLBOX_HOST))
   await server.fill('http://toolbox.exemple.example/mcp')
-  await toolbox.getByRole('button', { name: 'Enregistrer les paramètres avancés' }).click()
+  await toolbox.getByRole('button', { name: 'Enregistrer' }).click()
   await expect(toolbox.getByText('Adresse https attendue (http seulement sur localhost).')).toBeVisible()
   await expect(server).toHaveAttribute('aria-invalid', 'true')
   await toolbox.screenshot({ path: `${SCREENSHOTS}/connections-toolbox-refused-dark-1440.png`, animations: 'disabled' })
   if (REVIEW_DIR) await toolbox.screenshot({ path: path.join(REVIEW_DIR, 'connections-toolbox-refused-dark-1440.png'), animations: 'disabled' })
   await server.fill(`${FAKE_TOOLBOX}/mcp/`)
-  await toolbox.getByRole('button', { name: 'Enregistrer les paramètres avancés' }).click()
+  await toolbox.getByRole('button', { name: 'Enregistrer' }).click()
   await expect(toolbox.getByText('Paramètres de la Toolbox enregistrés.')).toBeVisible()
   const saved = await integrations(page)
   expect(saved.fields.toolbox_mcp_url).toMatchObject({ value: `${FAKE_TOOLBOX}/mcp/`, source: 'ui' })
 
-  // The scheduled sending (S9): on by default, one switch; its delay is in « Paramètres avancés ».
-  const dispatch = card(page, 'Envoi programmé')
+  // The scheduled sending (S9): on by default, one switch, in the same dialog; its delay is a field of the tab.
+  const dispatch = toolbox
+  await toolbox.getByRole('tab', { name: 'Envoi programmé' }).click()
   await expect(dispatch.getByRole('switch', { name: 'Envoi automatique des mails programmés' })).toBeChecked()
   await expect(dispatch).not.toContainText('Fréquence de vérification')
-  await dispatch.getByText('Paramètres avancés', { exact: true }).click()
   await dispatch.getByRole('textbox', { name: 'Délai maximal avant envoi (secondes)' }).fill('10')
   await dispatch.getByRole('button', { name: 'Enregistrer' }).click()
   await expect(dispatch.getByText(/Envoi programmé enregistré/)).toBeVisible()
 
   // One click: the browser goes to the (fake) Toolbox, which comes back to this page at once.
   const authorize = page.waitForRequest((request) => request.url().includes('/authorize'))
+  await toolbox.getByRole('tab', { name: 'Connexion' }).click()
   await toolbox.getByRole('button', { name: 'Se connecter à CIRCOE Toolbox' }).click()
   const visited = new URL((await authorize).url())
   expect(visited.origin).toBe(FAKE_TOOLBOX)
   expect(visited.hostname).not.toBe(REAL_TOOLBOX_HOST)
   expect(visited.searchParams.get('redirect_uri')).toMatch(/\/settings\/connections$/)
   await expect(page.getByRole('status').filter({ hasText: /CIRCOE Toolbox connectée jusqu’au/ })).toHaveCount(1)
-  await expect(toolbox).toContainText('Connectée')
-  await expect(dispatch).toContainText('Actif')
-  await expect(dispatch).toContainText('VIPER envoie chaque mail programmé à l’heure choisie (à 10 secondes près) via CIRCOE Toolbox.')
-  await capture(page, 'toolbox-connected')
+  // The return reopens the Toolbox dialog (`?open=toolbox`); the tile says the state.
+  await expect(toolbox).toBeVisible()
+  await expect(tile(page, 'CIRCOE Toolbox')).toContainText('Connectée')
+  await toolbox.getByRole('tab', { name: 'Envoi programmé' }).click()
+  await expect(dispatch.getByText('Actif', { exact: true })).toBeVisible()
+  await expect(dispatch).toContainText('à l’heure choisie (à 10 secondes près)')
+  await capture(page, 'toolbox-connected', 'toolbox', 'CIRCOE Toolbox')
 
   // « Se déconnecter… »: token forgotten, integration off, the scheduled sending stopped.
+  await toolbox.getByRole('tab', { name: 'Connexion' }).click()
   await toolbox.getByRole('button', { name: 'Se déconnecter…' }).click()
   await confirm(page, /Se déconnecter de CIRCOE Toolbox/, 'Se déconnecter')
   await expect(page.getByRole('status').filter({ hasText: /Déconnecté de CIRCOE Toolbox/ })).toHaveCount(1)
-  await expect(toolbox).toContainText('Désactivée')
-  await expect(dispatch).toContainText('En attente')
-  await capture(page, 'toolbox-disabled')
+  await expect(tile(page, 'CIRCOE Toolbox')).toContainText('Désactivée')
+  await toolbox.getByRole('tab', { name: 'Envoi programmé' }).click()
+  await expect(dispatch.getByText('En attente', { exact: true })).toBeVisible()
+  await capture(page, 'toolbox-disabled', 'toolbox', 'CIRCOE Toolbox')
 })

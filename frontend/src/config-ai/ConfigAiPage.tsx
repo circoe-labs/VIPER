@@ -4,24 +4,24 @@ import { useMcpSettings } from '../api/mcpSettings'
 import { useToolboxStatus } from '../api/toolbox'
 import { StatusBadge } from '../ui/Badge'
 import { PageHeader } from '../ui/PageHeader'
-import { CalendlySection } from '../settings/CalendlyCard'
-import { ConnectionsSection } from '../settings/ConnectionsSection'
 import { McpSection } from '../settings/McpSection'
 import { PromptSection } from '../settings/PromptSection'
-import { HumanizerSection } from './HumanizerSection'
+import { ConnectionsSection } from './ConnectionsSection'
 import { ScoringSection } from './ScoringSection'
 import { STATE_BADGES } from '../settings/toolboxCopy'
 import '../settings/settings.css'
 
-// `connections` is also the OAuth return page of the CIRCOE Toolbox (`/settings/connections` redirects here, query kept).
+// `connections` (the default tab) is also the OAuth return page of the CIRCOE Toolbox (`/settings/connections`
+// redirects here, query kept). Only real separate concerns stay tabs: MCP, Prompt, Scoring prospect.
 const SECTIONS = {
   connections: { title: 'Connexions', Section: ConnectionsSection },
-  calendly: { title: 'Calendly', Section: CalendlySection },
   mcp: { title: 'MCP', Section: McpSection },
   prompt: { title: 'Prompt', Section: PromptSection },
   scoring: { title: 'Scoring prospect', Section: ScoringSection },
-  humanizer: { title: 'Humanizer', Section: HumanizerSection },
 } as const
+
+// Former tabs now folded into a connection of the grid.
+const FORMER_TABS = { calendly: 'calendly', humanizer: 'humangpt' } as const
 
 type SectionId = keyof typeof SECTIONS
 const ORDER = Object.keys(SECTIONS) as SectionId[]
@@ -32,6 +32,8 @@ export function ConfigAiPage() {
   const { section = 'connections' } = useParams()
   // The mission assistant's prompt lives in « Prompt » (older links point to its former tab).
   if (section === 'mission-creator') return <Navigate to="/config-ai/prompt" replace />
+  // Calendly and HumanGPT are connections like the others: their former tabs open their dialog in the grid.
+  if (section in FORMER_TABS) return <Navigate to={`/config-ai/connections?open=${FORMER_TABS[section as keyof typeof FORMER_TABS]}`} replace />
   if (!(section in SECTIONS)) return <Navigate to="/config-ai" replace />
   const current = section as SectionId
   const { title, Section } = SECTIONS[current]

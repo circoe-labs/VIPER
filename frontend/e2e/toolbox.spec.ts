@@ -30,8 +30,9 @@ async function fakeMode(page: Page, mode: { toolErrorText?: string }) {
   expect((await page.request.post(`${FAKE}/mode`, { data: mode })).ok()).toBe(true)
 }
 
+// The Toolbox is a tile of Config AI › Connexions; its settings live in its dialog (`?open=toolbox`).
 function toolboxCard(page: Page) {
-  return page.getByRole('region', { name: 'CIRCOE Toolbox' })
+  return page.getByRole('dialog', { name: 'CIRCOE Toolbox' })
 }
 
 function mailTab(page: Page, step: string) {
@@ -79,7 +80,7 @@ test.beforeEach(async ({ page, context }) => {
 })
 
 test('connect through the Toolbox, then the state and the limits are said', async ({ page }) => {
-  await page.goto('/settings/connections')
+  await page.goto('/settings/connections?open=toolbox')
   await expect(toolboxCard(page)).toContainText('Non connectée')
   await expect(toolboxCard(page)).toContainText('boîte Infomaniak par défaut du compte connecté')
   await captureSettings(page, 'disconnected')
@@ -88,10 +89,11 @@ test('connect through the Toolbox, then the state and the limits are said', asyn
 
   // The fake Toolbox accepts at once and sends the browser back to this page, which finishes the connection.
   await expect(page.getByRole('status').filter({ hasText: /CIRCOE Toolbox connectée jusqu’au/ })).toHaveCount(1)
-  await expect(page).toHaveURL(/\/settings\/connections$/)
+  await expect(page).toHaveURL(/\/config-ai\/connections\?open=toolbox$/)
   await expect(toolboxCard(page)).toContainText('Connectée')
   await expect(toolboxCard(page)).toContainText('Pilote E2E')
-  await expect(toolboxCard(page)).toContainText(FAKE)
+  await toolboxCard(page).getByRole('tab', { name: 'Avancé' }).click()
+  await expect(toolboxCard(page).getByRole('textbox', { name: 'Adresse du serveur CIRCOE Toolbox' })).toHaveValue(new RegExp(`^${FAKE}`))
   await captureSettings(page, 'connected')
 })
 
@@ -150,7 +152,7 @@ test('validating creates the Infomaniak draft; cancelling deletes it; a failure 
 })
 
 test('disconnecting, after a confirmation: the token is forgotten and the integration turned off', async ({ page }) => {
-  await page.goto('/settings/connections')
+  await page.goto('/settings/connections?open=toolbox')
   await expect(toolboxCard(page)).toContainText('Connectée')
   await page.getByRole('button', { name: 'Se déconnecter…' }).click()
   await confirm(page, /Se déconnecter de CIRCOE Toolbox/, 'Se déconnecter')
@@ -196,7 +198,7 @@ test('design: the disabled, not configured and expired cards', async ({ page }) 
     current = status
     for (const theme of ['dark', 'light'] as const) {
       await useTheme(page, theme)
-      await page.goto('/settings/connections')
+      await page.goto('/settings/connections?open=toolbox')
       await expect(toolboxCard(page)).toBeVisible()
       await page.screenshot({ path: `${SCREENSHOTS}/settings-connections-${name}-${theme}-1440.png`, animations: 'disabled' })
     }

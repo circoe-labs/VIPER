@@ -1,11 +1,38 @@
-# Settings — Connexions: integrations set in the browser (Contact port S6, S7, S8, S9)
+# Config AI — Connexions: integrations set in the browser (Contact port S6, S7, S8, S9)
 
-**Paramètres › Connexions** (`/settings/connections`) is where VIPER is connected to the outside, **entirely from the
-UI** (S8, Human requests of 2026-10-01: « configurer mes API KEY directement dans le navigateur », then « me connecter
-à CIRCOE Toolbox depuis la configuration VIPER »). Four cards, each saving its own fields, applied at once without a
-restart:
+**Config AI › Connexions** (`/config-ai/connections`, the default tab; `/settings/connections` redirects here, query
+kept) is where VIPER is connected to the outside, **entirely from the UI** (S8, Human requests of 2026-10-01:
+« configurer mes API KEY directement dans le navigateur », then « me connecter à CIRCOE Toolbox depuis la configuration
+VIPER »). Applied at once, without a restart.
 
-- **Rédaction IA (OpenAI)** — API key (write-only), model (no default), booking link; *Paramètres avancés*: API
+**Layout (2026-11-19, Human: « une taille de carte systématique, le clic ouvre le mode édition »).** The tab is a
+responsive grid of **identical tiles** (one fixed height) — official logo, title, *which* model/account is used, a status
+badge and a quick-test icon button; nothing else. A click opens the connection's **edit dialog**: large, centred, on a
+dimmed backdrop (shared `Modal`: Esc, click outside, focus trap), with **sub-tabs** when the service has several
+concerns and ONE footer for every action — secondary actions as icon buttons with a tooltip on the left (test, clear,
+refresh, disconnect), the primary button (*Enregistrer*, *Se connecter…*) alone on the right. All of one feature lives in
+ONE connection (never one box per setting). The dialog is deep-linkable: `?open=<id>` (`openai`, `toolbox`, `calendly`,
+`humangpt`); the former tabs `/config-ai/calendly` and `/config-ai/humanizer` redirect to it. The Toolbox OAuth return
+(`/settings/connections?code=…&state=…`) posts its query once, removes it, and lands on `?open=toolbox` — the Toolbox
+dialog open, with the outcome. Edits survive a sub-tab change (every pane stays mounted, hidden).
+
+| Tile | Sub-tabs |
+| --- | --- |
+| **OpenAI** | *Connexion*: API key (write-only), model; *Avancé*: API address, timeout, retries. Footer: *Tester la clé*, *Effacer…*. |
+| **CIRCOE Toolbox** | *Connexion* (state, who/when/until, last failure, **Se connecter / Reconnecter**, *Actualiser*, *Se déconnecter…*), *Envoi programmé*, *Méthodes* (only when connected; read live on demand), *Diagnostic* (« Tester la Toolbox »), *Avancé* (server and return addresses; opens first when an address is missing). |
+| **Calendly** | *Connexion* (personal token, write-only, *Tester*, *Retirer*), *Lien de rendez-vous* (`contact_booking_url`), *Rendez-vous à venir* (30 days, read live, read only). |
+| **HumanGPT** | one pane: switch, key (write-only), minimal score; footer *Tester*, *Créer la clé*, *Effacer*. |
+
+**Adding a connection = adding a descriptor, not a page** (`frontend/src/config-ai/connections/connection.tsx`): `id`,
+`title`, `Logo`, `summary` (which account/model), `badge`, optional `quickTest`, `tabs`, and a `body` made of
+`<Pane id>` blocks whose actions go through `<PaneActions>` (portalled into the dialog footer). One hook per connection
+(`openai.tsx`, `toolbox.tsx`, `calendly.tsx`, `humanizer.tsx`) builds its descriptor; the list is the registry in
+`config-ai/ConnectionsSection.tsx`. Logos: `config-ai/logos.tsx` (simple-icons CC0 paths for OpenAI and Calendly; the
+CIRCOE Toolbox and HumanGPT raster icons in `src/assets/integrations/`).
+
+Details of each connection's behaviour:
+
+- **OpenAI** — API key (write-only), model (no default); *Avancé*: API
   address, timeout, retries. *Tester la clé* checks the saved key and model. **Modèle** is a list read live from the
   account (`GET /api/settings/integrations/openai/models` → the service's `GET /models` with the saved key and API
   address, text models only, newest first; the whole list for a compatible service whose ids follow no OpenAI
@@ -13,20 +40,25 @@ restart:
   selectable, marked « absent de la liste ». No key yet, or a list the service refuses: the field falls back to a
   typed identifier with the reason. The key can therefore be saved before its model; drafting stays off until both
   are set.
-- **Humanizer (HumanGPT)** (2026-11-19, Config AI) — API key (write-only, same private file and masking as the OpenAI key,
+- **HumanGPT** (2026-11-19; formerly the Humanizer tab) — API key (write-only, same private file and masking as the OpenAI key,
   `hgpt_…`), switch *Contrôler le message avant validation* (`humanizer_enabled`, off by default) and the minimal human
   score `humanizer_min_score` (0-100, default 70). `GET /api/settings/integrations` returns `humanizer_api_key`
   (`{set, last4, source, …}`), `humanizer_available` (a key is saved) and the two values in `fields`; `PUT` takes
   `humanizer_api_key`, `humanizer_enabled`, `humanizer_min_score`; `POST /api/settings/integrations/humanizer/check`
   (« Tester la clé », `GET /v1/usage`, nothing consumed) answers `{ok, code, elapsed_ms}` with a `humanizer_*` code
   on failure. The gate itself: [`contact.md`](contact.md) § Humanizer.
-- **Expéditeur** — the « De » pre-filled in new messages (indicative: the Toolbox sends from the account's default
-  mailbox).
+- **Calendly** — personal access token `calendly_api_token` (write-only, same private file and masking as the other
+  secrets); `POST /api/settings/integrations/calendly/check` (*Tester*) answers `{ok, code, account}`;
+  `GET /api/settings/integrations/calendly/events` reads the next 30 days live (read only, the list the agent's tool
+  answers); the booking link the AI copies into mails (`contact_booking_url`) is its *Lien de rendez-vous* tab. It is a
+  connection like the others: if the service changes, only its descriptor does.
+- **No « Expéditeur » card** — the Toolbox sends from the connected account's default mailbox.
 - **CIRCOE Toolbox** (S6) — **« Se connecter à CIRCOE Toolbox »** works out of the box (built-in server address, the
-  page's own return address); *Paramètres avancés*: server address, return address; *Se déconnecter…*.
-- **Envoi programmé** (S7, S9) — one switch *Envoi automatique des mails programmés*, **on by default**; allowlist of
-  recipients; the dispatcher's state and the scheduled messages that will not leave; *Paramètres avancés*: *Délai
-  maximal avant envoi* (the dispatcher's period, 30 s by default).
+  page's own return address); *Avancé*: server address (changing it while connected asks for a confirmation and
+  disconnects), return address; *Se déconnecter…*.
+- **Envoi programmé** (S7, S9; the Toolbox's *Envoi programmé* tab) — one switch *Envoi automatique des mails
+  programmés*, **on by default**; allowlist of recipients; *Délai maximal avant envoi* (the dispatcher's period, 30 s by
+  default); the dispatcher's state and the scheduled messages that will not leave.
 
 Through the Toolbox (MCP server over HTTP, OAuth 2.1) a validated Contact/R1/R2 message becomes a draft in the linked
 **Infomaniak** mailbox and an invalidated or cancelled one loses it: [`contact.md`](contact.md) § CIRCOE Toolbox.
@@ -267,7 +299,7 @@ and, when there are some, *Envois non confirmés* (« à trancher dans Contact �
 
 ## Tester la Toolbox (`app/services/toolbox/diagnostics.py`)
 
-Card *Tester la Toolbox* on Paramètres › Connexions: a test address, an optional *Envoyer pour de vrai*, one button.
+Tab *Diagnostic* of the CIRCOE Toolbox connection (Config AI › Connexions): a test address, an optional *Envoyer pour de vrai*, one button.
 It plays every mail operation VIPER relies on against that single address and shows, per step, what was expected,
 the context (tool, address, subject, lengths, draft ids), what was observed, the `toolbox_*` code with a hint, the
 duration, and the **raw HTTP / JSON-RPC exchange including the Toolbox's own error text** (normal calls never keep
@@ -295,7 +327,7 @@ as JSON for the developer.
 ## Connecting for real (operator)
 
 1. Open VIPER over HTTPS (or on localhost): the return address must pass the https/loopback rule.
-2. Paramètres › Connexions › *Se connecter à CIRCOE Toolbox* (the built-in server address is
+2. Config AI › Connexions › CIRCOE Toolbox › *Se connecter à CIRCOE Toolbox* (the built-in server address is
    `https://circoetoolbox-server-production.up.railway.app/mcp`, handoff docs/07; change it only in *Paramètres
    avancés*); sign in at Infomaniak and paste a personal API token with the Mail scope **of the mailbox that must
    send** (the sender is that account's default mailbox).

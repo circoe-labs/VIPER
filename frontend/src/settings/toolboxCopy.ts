@@ -77,7 +77,7 @@ export function stateSentence(status: ToolboxStatus): string {
       return 'Connectez VIPER à CIRCOE Toolbox pour que chaque message validé crée un brouillon dans votre boîte Infomaniak. Sans connexion, les messages restent dans VIPER.'
     case 'not_configured': {
       const missing = status.missing.map((name) => MISSING_LABELS[name] ?? name).join(' et ')
-      return `Il manque ${missing || 'un réglage'} (Paramètres avancés ci-dessous) : rien n’est créé dans Infomaniak.`
+      return `Il manque ${missing || 'un réglage'} (onglet Avancé) : rien n’est créé dans Infomaniak.`
     }
     case 'disconnected':
       return 'Connectez la Toolbox pour que chaque message validé crée un brouillon dans la boîte Infomaniak liée. Sans connexion, les messages restent dans VIPER.'
