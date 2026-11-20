@@ -70,10 +70,16 @@ function reasonToVerify(row: ProspectRow): string {
 }
 
 function ReviewLine({ row }: { row: ProspectRow }) {
+  // An incomplete file reads as incomplete first, even when its employment was validated once.
+  if (row.review === 'incomplete' && row.employment_verified_at) {
+    return <div>
+      <span className="review-line review-line--to-verify"><AlertIcon size={16} />{reasonIncomplete(row)}</span>
+      <span className="prospect-row__muted">Emploi validé le {formatDay(row.employment_verified_at)}</span>
+    </div>
+  }
   if (row.review !== 'ignored' && row.employment_verified_at) {
     return <div>
       <span className="review-line review-line--verified"><CheckCircleIcon size={16} /><span>Emploi validé <span className="prospect-row__muted">le {formatDay(row.employment_verified_at)}</span></span></span>
-      {row.review === 'incomplete' && <span className="prospect-row__muted">{reasonIncomplete(row)}</span>}
     </div>
   }
   switch (row.review) {
