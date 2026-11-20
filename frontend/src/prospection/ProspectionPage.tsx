@@ -57,7 +57,6 @@ export function ProspectionPage() {
   return (
     <div className="prospection prospection--overview">
       <PageHeader mascot="search"
-        back={{ to: '/', label: 'Accueil' }}
         title="Prospection"
         description="L’état de la base : prospects, entreprises, entrepôts."
         actions={

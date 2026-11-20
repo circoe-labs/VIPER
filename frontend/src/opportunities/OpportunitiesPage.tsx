@@ -1,4 +1,3 @@
-import { Link } from 'react-router'
 
 import { mascotSource } from '../brand/mascots'
 import './opportunities.css'
@@ -63,7 +62,7 @@ const opportunities = [
 export function OpportunitiesPage() {
   return <div className="opportunities">
     <header className="opportunities__header">
-      <div className="opportunities__intro"><img className="opportunities__mascot" src={mascotSource('idea')} alt="" /><div><Link to="/">← Accueil</Link><h1>Opportunités à explorer</h1><p>Six pistes de prospection en Normandie, classées selon le score fourni.</p></div></div>
+      <div className="opportunities__intro"><img className="opportunities__mascot" src={mascotSource('idea')} alt="" /><div><h1>Opportunités à explorer</h1><p>Six pistes de prospection en Normandie, classées selon le score fourni.</p></div></div>
     </header>
     <p className="opportunities__notice">Informations fournies le 9 novembre 2026. Les besoins sont des hypothèses ; les scores et les signaux sont repris tels que communiqués. Les liens des sources n’ont pas été fournis.</p>
     <div className="opportunities__list">

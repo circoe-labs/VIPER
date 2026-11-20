@@ -142,7 +142,6 @@ export function AgendaPage() {
   return (
     <div className="agenda">
       <PageHeader mascot="checklist"
-        back={{ to: '/', label: 'Accueil' }}
         title="Agenda"
         description="Les rendez-vous pris, ce qui a été envoyé avant, et leur suivi."
         actions={
