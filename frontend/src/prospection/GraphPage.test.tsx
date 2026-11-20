@@ -31,10 +31,12 @@ Object.defineProperty(SVGElement.prototype, 'getScreenCTM', { value: () => {
 })
 // jsdom has no DOMPoint: an identity transform is enough for the selection logic.
 class FakePoint {
-  constructor(
-    public x: number,
-    public y: number,
-  ) {}
+  x: number
+  y: number
+  constructor(x: number, y: number) {
+    this.x = x
+    this.y = y
+  }
   matrixTransform() {
     return this
   }
