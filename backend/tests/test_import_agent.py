@@ -15,7 +15,7 @@ from app.core.config import Settings
 from app.models import Company, Establishment, Prospect
 from app.models.imports import ImportRowMetadata
 from app.models.prospects import ProspectNote, ProspectSource
-from app.services import import_commit
+from app.services import import_cancel, import_commit
 from app.services.errors import MailGenerationError
 from app.services.imports import agent
 from app.services.imports.decisions import ImportDecisions, PreviewOptions
@@ -286,6 +286,18 @@ def test_a_company_known_by_its_siren_is_completed_not_recreated(db_session: Ses
     assert (result.counts["companies_linked"], result.counts["companies_created"]) == (1, 1)
     db_session.refresh(known)
     assert (known.display_name, known.legal_name) == ("Ancien nom", "ALPHA TRANSIT SAS")
+
+
+def test_cancelling_an_agent_read_import_removes_its_sites_and_notes(db_session: Session) -> None:
+    result = commit(db_session)
+
+    done = import_cancel.cancel(db_session, OPERATOR, result.batch.id)
+
+    assert (done.prospects_deleted, done.companies_deleted) == (4, 2)
+    for model in (Prospect, Company, Establishment, ProspectNote):
+        assert db_session.scalars(select(model)).all() == [], model.__name__
+    # The traces go with their people; the excluded row (a company without contact) stays.
+    assert db_session.scalars(select(ImportRowMetadata.excluded)).all() == [True]
 
 
 # --- the agent -----------------------------------------------------------------------------------

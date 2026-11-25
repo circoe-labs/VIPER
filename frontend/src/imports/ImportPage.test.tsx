@@ -285,4 +285,42 @@ describe('Excel import page', () => {
     expect(sent.map((item) => item.path)).toEqual(['/api/imports/preview', '/api/imports/analyze'])
   })
 
+
+  it('cancels a committed import after saying what will be removed and kept', async () => {
+    const calls: string[] = []
+    const found = {
+      prospects_deleted: 3,
+      prospects_kept: 1,
+      companies_deleted: 2,
+      companies_kept: 0,
+      additions_removed: 0,
+      fields_restored: 0,
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: string, init?: RequestInit) => {
+        const { pathname } = new URL(input, 'http://localhost')
+        if (pathname === '/api/imports') return json(200, [batch()])
+        if (pathname.startsWith('/api/imports/')) {
+          calls.push(`${init?.method ?? 'GET'} ${pathname.split('/').at(-1) ?? ''}`)
+          return json(200, found)
+        }
+        return json(404, { detail: 'Not Found' })
+      }),
+    )
+    renderApp('/prospection/import')
+
+    await userEvent.click(await screen.findByRole('button', { name: /^Annuler l’import de/ }))
+    const dialog = await screen.findByRole('dialog', { name: 'Annuler cet import ?' })
+    expect(await within(dialog).findByRole('list', { name: 'Ce qui sera retiré' })).toHaveTextContent('3 prospects supprimés')
+    expect(dialog).toHaveTextContent('Conservé car modifié ou utilisé depuis l’import : 1 prospect.')
+    expect(calls).toEqual(['GET cancellation'])
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Annuler l’import' }))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+    expect(calls).toContain('POST cancel')
+  })
+
 })

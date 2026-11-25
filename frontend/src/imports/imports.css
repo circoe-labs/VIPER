@@ -1227,3 +1227,8 @@ button.import-kpi:hover {
 .import-rows__line {
   white-space: nowrap;
 }
+
+.import-history__actions {
+  text-align: right;
+  white-space: nowrap;
+}

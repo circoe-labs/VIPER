@@ -11,6 +11,9 @@ Stateless review: the browser keeps the file and sends it with every request.
 - `POST /imports/commit` — multipart `file` + `decisions` JSON (cohort dates and « Fichier vérifié
   humainement » included) → the committed batch and counts: entities, cohorts, sequences and
   imported sends, « Défaillant », alerts (`import_commit`, `operational_import`).
+- `GET /imports/{id}/cancellation` — what cancelling the import would remove and keep (nothing
+  written); `POST /imports/{id}/cancel` does it (`import_cancel`). An administrator or the person
+  who imported (403 `forbidden`); 422 when the import is not committed.
 - `GET /imports`, `GET /imports/{id}` — the import history (metadata only, never file content).
 
 The multipart body is parsed inside the route, after the session/CSRF guard and a size check on
@@ -32,14 +35,22 @@ from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ValidationError
+from sqlalchemy.orm import Session
 from starlette.datastructures import UploadFile
 
-from app.api.dependencies import CurrentActor, SessionDep, SettingsDep
+from app.api.dependencies import (
+    AuthDep,
+    Authenticated,
+    CurrentActor,
+    SessionDep,
+    SettingsDep,
+)
 from app.api.errors import business_errors, refusal
 from app.core.actor import ActorType
 from app.models.enums import ImportBatchStatus
 from app.models.imports import ImportBatch
-from app.services import import_batches, import_commit
+from app.models.organizations import OrganizationRole
+from app.services import import_batches, import_cancel, import_commit
 from app.services.imports import agent
 from app.services.imports.decisions import ImportDecisions, PreviewOptions
 from app.services.imports.diagnostics import DiagnosticCode, ImportRejectedError
@@ -226,6 +237,49 @@ async def commit_import(
         code = status.HTTP_422_UNPROCESSABLE_CONTENT if failed else 500
         return JSONResponse(status_code=code, content={"detail": detail})
     return CommitOut(batch=batch_out(result.batch), counts=result.counts)
+
+
+class CancellationOut(BaseModel):
+    prospects_deleted: int
+    prospects_kept: int
+    companies_deleted: int
+    companies_kept: int
+    additions_removed: int
+    fields_restored: int
+
+
+def require_canceller(session: Session, auth: Authenticated, batch_id: uuid.UUID) -> None:
+    """Cancelling erases data: an administrator's call, or the importer's on their own import."""
+    with business_errors():
+        batch = import_batches.get_batch(session, batch_id)
+    user = auth.user
+    if user.is_superadmin or user.role is OrganizationRole.ADMIN or batch.actor_id == str(user.id):
+        return
+    raise refusal(
+        status.HTTP_403_FORBIDDEN,
+        "forbidden",
+        "Seul un administrateur ou l'auteur de l'import peut l'annuler.",
+    )
+
+
+@router.get("/{batch_id}/cancellation")
+def preview_cancellation(
+    batch_id: uuid.UUID, session: SessionDep, actor: CurrentActor, auth: AuthDep
+) -> CancellationOut:
+    require_canceller(session, auth, batch_id)
+    with business_errors():
+        result = import_cancel.preview(session, actor, batch_id)
+    return CancellationOut.model_validate(result, from_attributes=True)
+
+
+@router.post("/{batch_id}/cancel")
+def cancel_import(
+    batch_id: uuid.UUID, session: SessionDep, actor: CurrentActor, auth: AuthDep
+) -> CancellationOut:
+    require_canceller(session, auth, batch_id)
+    with business_errors():
+        result = import_cancel.cancel(session, actor, batch_id)
+    return CancellationOut.model_validate(result, from_attributes=True)
 
 
 @router.get("")

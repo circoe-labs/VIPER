@@ -4,6 +4,7 @@ import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
 import { AlertIcon } from '../ui/icons'
 import { Table } from '../ui/Table'
+import { CancelImport } from './CancelImport'
 import { formatDateTime } from './messages'
 
 // Also Home's recent imports (Task 16).
@@ -44,6 +45,9 @@ export function ImportHistory() {
                 Exclues
               </th>
               <th scope="col">Statut</th>
+              <th scope="col">
+                <span className="visually-hidden">Actions</span>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -61,6 +65,9 @@ export function ImportHistory() {
                 <td className="table__numeric">{batch.rows_skipped}</td>
                 <td>
                   <StatusBadge tone={BATCH_STATUS[batch.status].tone}>{BATCH_STATUS[batch.status].label}</StatusBadge>
+                </td>
+                <td className="import-history__actions">
+                  {batch.status === 'committed' && <CancelImport batch={batch} size="sm" />}
                 </td>
               </tr>
             ))}

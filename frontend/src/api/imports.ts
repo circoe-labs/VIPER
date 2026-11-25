@@ -388,6 +388,7 @@ export type ImportRefusal =
   | { code: 'reimport_not_acknowledged'; message: string; previous: ImportBatch[] }
   | { code: 'invalid_decisions'; message: string; errors: DecisionError[] }
   | { code: 'duplicate'; message: string; field: string; existing: { id: string; label: string; active: boolean } | null }
+  | { code: 'forbidden' | 'import_not_cancellable'; message: string }
   | { code: 'commit_failed'; message: string; batch_id: string; row: number | null; reason: string }
 
 export const importKeys = {
@@ -412,6 +413,24 @@ export function analyzeImport(file: File): Promise<{ plan: ImportPlan; model: st
 
 export function commitImport(file: File, decisions: ImportDecisions): Promise<CommitResult> {
   return apiRequest<CommitResult>('POST', '/imports/commit', { body: upload(file, 'decisions', decisions) })
+}
+
+// What cancelling an import removes and keeps (backend services/import_cancel.py).
+export interface Cancellation {
+  prospects_deleted: number
+  prospects_kept: number
+  companies_deleted: number
+  companies_kept: number
+  additions_removed: number
+  fields_restored: number
+}
+
+export function previewCancellation(id: string, signal?: AbortSignal): Promise<Cancellation> {
+  return apiGet<Cancellation>(`/imports/${id}/cancellation`, signal)
+}
+
+export function cancelImport(id: string): Promise<Cancellation> {
+  return apiRequest<Cancellation>('POST', `/imports/${id}/cancel`)
 }
 
 export function useImportHistory() {

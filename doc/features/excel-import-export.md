@@ -538,6 +538,21 @@ metadata, 0 contact tracking (weeks left without year, no referent recognised); 
 touched, every row imported or excluded, one row metadata and one source per imported row, channels imported and
 unverified, no employment verified).
 
+## Cancelling an import (`services/import_cancel.py`)
+
+A committed import can be cancelled from the history or the result screen, by an administrator or
+the person who imported. `GET /api/imports/{id}/cancellation` announces what would happen (the same
+run, rolled back); `POST /api/imports/{id}/cancel` does it and marks the batch `cancelled`.
+
+- The audit log tells what the batch wrote (`context.import_batch_id`).
+- Prospects and companies the import created are deleted, unless used since: any other audit event
+  (edit, send, later import), a link from outside their own file (appointment, mission,
+  relation…), an opposition, or — for a company — a remaining prospect.
+- Additions to existing records (e-mail, phone, note, site, sequence, tracking, alert, source) are
+  deleted unless changed since; fields the import filled get their former value back while they
+  still hold the imported one.
+- Roles, categories and cohorts created in Settings stay. Audit history stays.
+
 ## Import redesign — cohorts, sequences and human precedence (Slice S2)
 
 Sequences rework, Slice S2 (`tasks/viper_import_excel_sequences/`, decisions D3, D4, D5, D10, D11, D12; decision log

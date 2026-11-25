@@ -231,6 +231,10 @@ export function importErrorMessage(error: unknown): string {
   const ai = AGENT_ERRORS[(refusal as { code?: string } | null)?.code ?? '']
   if (ai) return ai
   switch (refusal?.code) {
+    case 'forbidden':
+      return 'Seul un administrateur ou l’auteur de l’import peut l’annuler.'
+    case 'import_not_cancellable':
+      return 'Cet import est déjà annulé.'
     case 'file_rejected':
       return refusal.diagnostic.message
     case 'file_changed':

@@ -5,6 +5,7 @@ import { viewHref } from '../database/explorerView'
 import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
 import { CheckCircleIcon } from '../ui/icons'
+import { CancelImport } from './CancelImport'
 import { plural, rowsText } from './messages'
 
 // What the committed import created, completed and skipped, with links to the traced rows in the explorer.
@@ -49,6 +50,7 @@ export function ImportResult({ result, onRestart }: { result: CommitResult; onRe
         <Link className="btn btn--secondary btn--md" to={viewHref('import_row_metadata', byBatch)}>
           Voir les lignes conservées
         </Link>
+        <CancelImport batch={batch} onCancelled={onRestart} />
         <Button variant="primary" onClick={onRestart}>
           Importer un autre fichier
         </Button>
