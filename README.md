@@ -12,7 +12,7 @@ Ce que fait la V1 :
   objectifs, les prochaines actions et les dernières modifications ;
 - **Prospection** — des compteurs qui filtrent une liste de personnes lisible, un éditeur de prospect (vérification
   explicite, adresses et téléphones, changement d’entreprise, opposition durable, « Enregistrer et suivant »), les
-  fiches **Entreprises**, l’**import Excel** avec revue (correction, exclusion, doublons) et l’**export Excel** ;
+  fiches **Entreprises**, l’**import Excel** (un **agent IA** lit les classeurs à la mise en page libre) avec revue (correction, exclusion, doublons) et l’**export Excel** ;
 - **Base de données** — un explorateur de tables (tri, filtres, modifications en attente puis enregistrées et
   tracées) et une console SQL en lecture seule garantie par PostgreSQL ;
 - **Contact** — le travail de la semaine : compteurs (premier contact, relances, revues R2, RDV pris), liste, fiche

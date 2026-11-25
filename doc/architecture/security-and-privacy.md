@@ -53,6 +53,10 @@ Implemented in Task 04 — design and rationale in [ADR-0004](../adr/0004-authen
 ### External service credentials (Contact port S5/S6)
 
 - OpenAI key: environment only (`VIPER_OPENAI_API_KEY`), never logged or returned.
+- Import agent (`POST /api/imports/analyze`): the one place where a file's content leaves VIPER — the workbook's
+  cells (truncated to 60 characters, long sheets sampled), personal data included, go to the configured OpenAI service
+  (`store: false`) when the standard reading cannot explain the file or the user asks. The answer is structure only;
+  neither the cells nor the answer are logged. The page says so next to the reading.
 - CIRCOE Toolbox OAuth token: a private JSON file (`VIPER_TOOLBOX_TOKEN_STORE_PATH`, default
   `~/.viper/toolbox-oauth.json`), **never in the database** (backups, Database Explorer and SQL console would
   expose it), refused inside the repository checkout, `0600` in a `0700` directory (Windows: the profile's ACL),

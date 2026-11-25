@@ -7,7 +7,7 @@ from datetime import date
 from sqlalchemy import Row, func, select
 from sqlalchemy.orm import Session
 
-from app.models.companies import Company
+from app.models.companies import Company, Establishment
 from app.models.contact_sequences import Cohort
 from app.models.enums import ContactabilityStatus
 from app.models.prospects import Email, Prospect
@@ -32,7 +32,9 @@ def referent_rows(
             func.split_part(User.display_name, " ", 1),
             func.coalesce(
                 func.nullif(
-                    func.btrim(func.substr(User.display_name, func.strpos(User.display_name, " ") + 1)),
+                    func.btrim(
+                        func.substr(User.display_name, func.strpos(User.display_name, " ") + 1)
+                    ),
                     "",
                 ),
                 User.display_name,
@@ -51,6 +53,19 @@ def company_rows(
             Company.id
         )
     ).all()
+
+
+def siren_rows(session: Session) -> list[tuple[uuid.UUID, str]]:
+    """(company, SIREN or SIRET) of every company and establishment that has one."""
+    companies = session.execute(
+        select(Company.id, Company.siren).where(Company.siren.is_not(None))
+    ).all()
+    sites = session.execute(
+        select(Establishment.company_id, Establishment.siret).where(
+            Establishment.siret.is_not(None)
+        )
+    ).all()
+    return [(company_id, value) for company_id, value in (*companies, *sites) if value]
 
 
 def prospect_rows(

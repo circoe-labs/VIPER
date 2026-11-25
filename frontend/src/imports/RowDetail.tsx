@@ -24,7 +24,7 @@ import {
   weekYear,
   without,
 } from './importPlan'
-import { fieldLabel, formatDay, ISSUE_LABELS, resolutionLabel } from './messages'
+import { fieldLabel, formatDay, ISSUE_LABELS, resolutionLabel, rowName } from './messages'
 import { ResolutionChoice } from './ResolutionChoice'
 import type { Decide } from './ReviewStep'
 
@@ -104,7 +104,7 @@ export function RowDetail({ review, decisions, decide, reanalyzing, onReanalyse,
         </p>
       )}
       <div className="import-detail__grid">
-        <section className="import-detail__block" aria-label={`Remarques de la ligne ${String(number)}`}>
+        <section className="import-detail__block" aria-label={`Remarques de la ${rowName(row)}`}>
           <h4 className="import-detail__title">Remarques</h4>
           {row.diagnostics.length === 0 ? (
             <p className="import-muted">Aucune remarque.</p>
@@ -122,7 +122,7 @@ export function RowDetail({ review, decisions, decide, reanalyzing, onReanalyse,
             </ul>
           )}
         </section>
-        <section className="import-detail__block" aria-label={`Import de la ligne ${String(number)}`}>
+        <section className="import-detail__block" aria-label={`Import de la ${rowName(row)}`}>
           <h4 className="import-detail__title">Ce qui sera importé — {resolutionLabel(resolution)}</h4>
           <dl className="import-facts">
             <dt>Prospect</dt>
@@ -251,10 +251,10 @@ function CorrectionForm({
     >
       <summary>
         <PencilIcon size={16} />
-        Corriger la ligne {number}
+        Corriger la {rowName(row)}
         {Object.keys(saved).length > 0 && ' (corrigée)'}
       </summary>
-      <form className="import-correction" onSubmit={apply} aria-label={`Correction de la ligne ${String(number)}`}>
+      <form className="import-correction" onSubmit={apply} aria-label={`Correction de la ${rowName(row)}`}>
         <p className="import-muted">
           La valeur corrigée est analysée comme celle du fichier (doublons et opposition compris) ; la valeur d’origine
           reste conservée. Un champ vidé est importé vide.

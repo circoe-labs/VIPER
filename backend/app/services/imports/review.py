@@ -464,6 +464,9 @@ def civility_groups(preview: ImportPreview) -> tuple[list[CivilityGroup], dict[i
 def default_company(candidates: list[CompanyCandidate]) -> CompanyDecision:
     """Link to the existing company with the same name key when exactly one is the best match;
     a likely match (e-mail domain, close spelling) or a tie is left to the user."""
+    registered = [c for c in candidates if MatchReason.SAME_SIREN in c.reasons]
+    if len(registered) == 1:
+        return CompanyLink(company_id=registered[0].company_id)
     same = [c for c in candidates if MatchReason.SAME_COMPANY_NAME in c.reasons]
     if not same or (len(same) > 1 and same[0].confidence == same[1].confidence):
         return CompanyCreate()

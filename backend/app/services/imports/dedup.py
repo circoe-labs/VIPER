@@ -42,9 +42,48 @@ def annotate_duplicates(drafts: Sequence[RowDraft], reference: ImportReferenceDa
     groups = in_file_emails(drafts)
     in_file_people(drafts)
     in_file_companies(drafts)
-    existing_people(drafts, reference)
     existing_companies(drafts, reference.companies)
+    existing_people(drafts, reference)
     return groups
+
+
+def unify_companies(drafts: Sequence[RowDraft], same: Sequence[Sequence[str]]) -> None:
+    """One `match_key` for the rows of one company: spellings the agent grouped (`same`), then
+    legal names used as names elsewhere and rows sharing a SIREN."""
+    parent: dict[str, str] = {}
+
+    def root(key: str) -> str:
+        while key in parent:
+            key = parent[key]
+        return key
+
+    def join(keys: Sequence[str]) -> None:
+        for other in keys[1:]:
+            first, second = root(keys[0]), root(other)
+            if first != second:
+                parent[second] = first
+
+    present = {draft.company.match_key for draft in drafts if draft.company is not None}
+    for names in same:
+        join([key for name in names if (key := company_key(name)) in present])
+    by_siren: dict[str, list[str]] = defaultdict(list)
+    for draft in drafts:
+        company = draft.company
+        if company is None:
+            continue
+        if company.siren is not None:
+            by_siren[company.siren].append(company.match_key)
+        # A legal name that other rows use as the company's name names the same company.
+        if company.legal_name and (legal := company_key(company.legal_name)) in present:
+            join([legal, company.match_key])
+    for keys in by_siren.values():
+        join(keys)
+    for draft in drafts:
+        if draft.company is None:
+            continue
+        key = root(draft.company.match_key)
+        if key != draft.company.match_key:
+            draft.company = draft.company.model_copy(update={"match_key": key})
 
 
 def link_rows(rows: Sequence[RowDraft], reason: MatchReason) -> None:
@@ -127,7 +166,10 @@ def existing_people(drafts: Sequence[RowDraft], reference: ImportReferenceData) 
                 same_company = (
                     draft.company is not None
                     and company_id is not None
-                    and company_keys.get(company_id) == draft.company.match_key
+                    and (
+                        company_keys.get(company_id) == draft.company.match_key
+                        or same_siren(draft, company_id)
+                    )
                 )
                 if same_company:
                     matches.setdefault(prospect_id, set()).add(MatchReason.SAME_PERSON)
@@ -155,6 +197,11 @@ def existing_people(drafts: Sequence[RowDraft], reference: ImportReferenceData) 
             draft.flag(DiagnosticCode.CONTACTABILITY_POSSIBLE_DO_NOT_CONTACT)
 
 
+def same_siren(draft: RowDraft, company_id: uuid.UUID) -> bool:
+    found = draft.company_candidates.get(company_id)
+    return found is not None and MatchReason.SAME_SIREN in found[1]
+
+
 def do_not_contact(draft: RowDraft, prospect_id: uuid.UUID) -> bool:
     return draft.contactability[prospect_id] is ContactabilityStatus.DO_NOT_CONTACT
 
@@ -162,7 +209,10 @@ def do_not_contact(draft: RowDraft, prospect_id: uuid.UUID) -> bool:
 def existing_companies(drafts: Sequence[RowDraft], companies: Sequence[ReferenceCompany]) -> None:
     by_key: dict[str, list[ReferenceCompany]] = defaultdict(list)
     by_domain: dict[str, list[ReferenceCompany]] = defaultdict(list)
+    by_siren: dict[str, list[ReferenceCompany]] = defaultdict(list)
     for company in companies:
+        for siren in company.sirens:
+            by_siren[siren].append(company)
         names = (company.display_name, company.legal_name)
         for key in sorted({company_key(name) for name in names if name}):
             by_key[key].append(company)
@@ -181,7 +231,13 @@ def existing_companies(drafts: Sequence[RowDraft], companies: Sequence[Reference
                 if other_key != key and similarity(key, other_key) >= COMPANY_SIMILARITY
                 for company in found
             ]
-        exact = by_key.get(key, [])
+        own = {key, company_key(proposal.display_name)}
+        if proposal.legal_name:
+            own.add(company_key(proposal.legal_name))
+        found = {c.id: c for name in sorted(own) for c in by_key.get(name, [])}
+        exact = list(found.values())
+        registered = by_siren.get(proposal.siren, []) if proposal.siren else []
+        add_candidates(draft, registered, MatchReason.SAME_SIREN)
         add_candidates(draft, exact, MatchReason.SAME_COMPANY_NAME)
         for company in exact:
             if fold(company.display_name) == fold(proposal.display_name):
@@ -192,7 +248,7 @@ def existing_companies(drafts: Sequence[RowDraft], companies: Sequence[Reference
                 draft, by_domain.get(proposal.email_domain, []), MatchReason.SAME_EMAIL_DOMAIN
             )
         add_candidates(draft, similar_cache[key], MatchReason.SIMILAR_COMPANY_NAME)
-        if exact:
+        if exact or registered:
             draft.flag(DiagnosticCode.COMPANY_EXISTING_MATCH, ImportField.COMPANY_NAME)
         elif draft.company_candidates:
             draft.flag(DiagnosticCode.COMPANY_LIKELY_MATCH, ImportField.COMPANY_NAME)

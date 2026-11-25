@@ -22,6 +22,7 @@ from app.services.imports.diagnostics import (
     diagnostic,
 )
 from app.services.imports.fields import FIELD_BY_HEADER, LEGACY_LAYOUT, SPECS, ImportField
+from app.services.imports.plan import ImportPlanSpec
 from app.services.imports.text import fold, single_line
 from app.services.imports.workbook import Sheet, SheetRow, Workbook
 
@@ -36,6 +37,7 @@ class MatchedBy(StrEnum):
     HEADER = "header"  # historical header or accepted alias
     POSITION = "position"  # repeated header disambiguated by its position
     OVERRIDE = "override"  # chosen by the user
+    AGENT = "agent"  # chosen by the import agent (its plan)
     NONE = "none"  # not mapped: values kept raw in legacy metadata
 
 
@@ -60,6 +62,8 @@ class ImportMapping(BaseModel):
     sheet: str | None = None
     header_row: int | None = None
     columns: dict[str, ImportField | None] = Field(default_factory=dict)
+    # The agent's reading of the whole workbook; it replaces the three fields above.
+    plan: ImportPlanSpec | None = None
 
 
 @dataclass(frozen=True, slots=True)

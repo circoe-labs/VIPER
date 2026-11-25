@@ -42,16 +42,19 @@ from app.models.enums import (
     ContactabilityStatus,
     ContactTrackingStatus,
     ImportBatchStatus,
+    NoteSourceType,
     OriginType,
 )
 from app.models.imports import ImportBatch
 from app.models.prospects import Prospect
+from app.repositories import companies as company_repository
 from app.services import (
     audit,
     cohorts,
     companies,
     import_batches,
     operational_import,
+    prospect_notes,
     prospects,
     provenance,
     taxonomies,
@@ -71,10 +74,12 @@ from app.services.imports.fields import ImportField
 from app.services.imports.models import (
     CandidateKind,
     CompanyProposal,
+    EstablishmentProposal,
     ImportPreview,
     LegacyReason,
     LegacyValue,
     PreviewRow,
+    SheetStatus,
 )
 from app.services.imports.preview import ImportFile, build_preview
 from app.services.imports.reference_loader import load_reference_data
@@ -240,11 +245,14 @@ def start(
         session,
         actor,
         filename=summary.file_name,
-        sheet_names=[summary.sheet] if summary.sheet else [],
+        sheet_names=[s.name for s in summary.sheets if s.status is SheetStatus.IMPORTED],
         file_fingerprint=summary.file_fingerprint,
         legal_basis_or_collection_context=decisions.legal_basis_or_collection_context,
         source_reference=decisions.source_reference,
     )
+
+
+COMPANY_IDENTITY_FIELDS = ("legal_name", "siren", "size_label", "website_url")
 
 
 def at_midnight(day: date | None) -> datetime | None:
@@ -259,6 +267,7 @@ class CompanyValues:
     display_name: str
     texts: dict[str, str | None]
     establishment_row: int | None  # the row whose address became the establishment
+    sirets: frozenset[str] = frozenset()
 
 
 class Committer:
@@ -307,6 +316,9 @@ class Committer:
                     self.guarded(plan.row.row_number, partial(self.prospect, plan))
             self.reconcile_operations()
             for plan in self.plan.rows:
+                if plan.imported and plan.row.prospect.linkedin_url:
+                    self.guarded(plan.row.row_number, partial(self.linkedin, plan.row))
+            for plan in self.plan.rows:
                 self.guarded(plan.row.row_number, partial(self.trace, plan, batch))
         imported = sum(1 for plan in self.plan.rows if plan.imported)
         finished = import_batches.finish_batch(
@@ -337,7 +349,12 @@ class Committer:
 
     def ref(self, row: int) -> RowRef:
         assert self.batch is not None
-        return RowRef(self.batch.id, self.preview.summary.file_name, self.sheet, row)
+        sheet, number = self.location(self.plan.row(row).row)
+        return RowRef(self.batch.id, self.preview.summary.file_name, sheet, number)
+
+    def location(self, row: PreviewRow) -> tuple[str, int]:
+        """The sheet and row of the file (agent-read rows are keyed apart from their position)."""
+        return row.source_sheet or self.sheet, row.source_row or row.row_number
 
     @property
     def recorder(self) -> AlertRecorder:
@@ -383,11 +400,29 @@ class Committer:
         site_row, site = next(
             ((number, c.establishment) for number, c in proposals if c.establishment), (None, None)
         )
+        identity: dict[str, Any] = {
+            name: next((value for _, c in proposals if (value := getattr(c, name))), None)
+            for name in COMPANY_IDENTITY_FIELDS
+        }
+        if identity["siren"] and company_repository.find_by_siren(
+            self.session, identity["siren"], exclude_id=plan.link_id
+        ):
+            identity["siren"] = None  # another company holds it: the raw SIRET stays on the row
+        if site is not None:
+            site = self.free_site(site, plan.link_id)
         created = [self.category_ids[fold(label) or label] for label in plan.category_labels]
         category_ids = [*plan.category_ids, *created]
         establishment = (
             companies.EstablishmentInput(**site.model_dump(), is_primary=True) if site else None
         )
+        # The company's other sites: those the file identifies by their own SIRET.
+        others: dict[str, companies.EstablishmentInput] = {}
+        for _, c in proposals:
+            other = c.establishment
+            if other and other.siret and (site is None or other.siret != site.siret):
+                free = self.free_site(other, plan.link_id)
+                if free.siret:
+                    others[free.siret] = companies.EstablishmentInput(**free.model_dump())
         if plan.link_id is None:
             detail = companies.create_company(
                 self.session,
@@ -397,7 +432,8 @@ class Committer:
                     email_domain=domain,
                     commercial_segment_id=plan.segment_id,
                     activity_category_ids=category_ids,
-                    establishments=[establishment] if establishment else [],
+                    establishments=[establishment, *others.values()] if establishment else [],
+                    **identity,
                     **texts,
                 ),
             )
@@ -411,6 +447,7 @@ class Committer:
                     commercial_segment_id=plan.segment_id,
                     activity_category_ids=category_ids,
                     establishment=establishment,
+                    **identity,
                     **texts,
                 ),
             )
@@ -433,6 +470,7 @@ class Committer:
             id=detail.id,
             display_name=detail.display_name,
             texts={name.value: getattr(detail, name.value) for name in COMPANY_TEXT_FIELDS},
+            sirets=frozenset(s.siret for s in detail.establishments if s.siret),
             establishment_row=site_row,
         )
         self.companies[key] = values
@@ -512,13 +550,51 @@ class Committer:
                     reason=Reason.HUMAN_CLEARED,
                 )
                 site = None
+        identity = {
+            name: getattr(wanted, name)
+            if check(name, getattr(company, name), getattr(wanted, name))
+            else None
+            for name in COMPANY_IDENTITY_FIELDS
+        }
         return companies.CompanyCompletion(
+            **identity,
             email_domain=domain,
             commercial_segment_id=segment,
             activity_category_ids=category_ids,
             establishment=site,
             **texts,
         )
+
+    def free_site(
+        self, site: EstablishmentProposal, company_id: uuid.UUID | None
+    ) -> EstablishmentProposal:
+        """The site without its SIRET when another company already holds it."""
+        if site.siret is None:
+            return site
+        holder = company_repository.find_by_siret(self.session, site.siret, exclude_ids=[])
+        if holder is None or holder.company_id == company_id:
+            return site
+        return site.model_copy(update={"siret": None})
+
+    def linkedin(self, row: PreviewRow) -> None:
+        """The profile address as a note on the person (VIPER has no dedicated field)."""
+        prospect = self.receivers[row.row_number]
+        url = row.prospect.linkedin_url
+        assert url is not None
+        notes = prospect_notes.list_notes(self.session, prospect.id)
+        if prospect.contactability_status is ContactabilityStatus.DO_NOT_CONTACT or any(
+            url in note.fact_text for note in notes
+        ):
+            return
+        prospect_notes.create_note(
+            self.session,
+            self.importer,
+            prospect.id,
+            prospect_notes.NoteInput(
+                fact_text=f"Profil LinkedIn : {url}", source_type=NoteSourceType.LINKEDIN
+            ),
+        )
+        self.counts["linkedin_notes_added"] += 1
 
     def keep_company_values(self, plan: RowPlan, values: CompanyValues) -> None:
         """Row values the company does not hold (another spelling, a conflicting text, a second
@@ -534,6 +610,8 @@ class Committer:
                 self.keep(plan.row, name)
         if proposal.establishment is not None and values.establishment_row != plan.row.row_number:
             self.keep(plan.row, ImportField.ADDRESS)
+            if row_site_dropped(proposal, values):
+                self.keep(plan.row, ImportField.SIRET)
         if plan.categories_ignored:
             self.keep(plan.row, ImportField.CATEGORY)
 
@@ -596,7 +674,7 @@ class Committer:
         self, row: PreviewRow
     ) -> tuple[list[prospects.ChannelInput], list[prospects.ChannelInput]]:
         reference = provenance.import_row_reference(
-            self.preview.summary.file_name, self.sheet, row.row_number
+            self.preview.summary.file_name, *self.location(row)
         )
         emails = [
             prospects.ChannelInput(
@@ -924,8 +1002,12 @@ class Committer:
         """Every source row is traced with the raw snapshot of its non-empty cells (D10); an
         imported row also gets its `excel_import` source and its unapplied legacy values."""
         row = plan.row
+        sheet, number = self.location(row)
         raw = {
-            cell.column: {"header": self.headers.get(cell.column), "value": cell.value}
+            cell.column: {
+                "header": cell.header if row.source_sheet else self.headers.get(cell.column),
+                "value": cell.value,
+            }
             | ({"merged": True} if cell.copied_from_merge else {})
             for cell in row.cells
         }
@@ -933,8 +1015,8 @@ class Committer:
             import_batches.record_row(
                 self.session,
                 batch,
-                sheet=self.sheet,
-                row_number=row.row_number,
+                sheet=sheet,
+                row_number=number,
                 legacy_metadata={},
                 raw_cells=raw,
                 prospect_id=opposed_match(row),
@@ -947,16 +1029,16 @@ class Committer:
             self.importer,
             prospect.id,
             batch,
-            sheet=self.sheet,
-            row_number=row.row_number,
+            sheet=sheet,
+            row_number=number,
             legal_basis_or_collection_context=self.decisions.legal_basis_or_collection_context,
         )
         legacy = {**row.legacy_metadata, **self.extra.get(row.row_number, {})}
         import_batches.record_row(
             self.session,
             batch,
-            sheet=self.sheet,
-            row_number=row.row_number,
+            sheet=sheet,
+            row_number=number,
             legacy_metadata={key: value.model_dump(mode="json") for key, value in legacy.items()},
             raw_cells=raw,
             prospect_id=prospect.id,
@@ -965,15 +1047,20 @@ class Committer:
 
     def keep(self, row: PreviewRow, target: ImportField) -> None:
         """Keep the row's raw cell of `target` (not applied by the import) in its metadata."""
-        column = self.columns.get(target)
-        if column is None or target.value in row.legacy_metadata:
+        if target.value in row.legacy_metadata:
             return
-        cell = next((c for c in row.cells if c.column == column.column), None)
+        if row.source_sheet:  # agent-read: each block has its own columns
+            cell = next((c for c in row.cells if c.field is target), None)
+            header = cell.header if cell else None
+        else:
+            column = self.columns.get(target)
+            cell = next((c for c in row.cells if column and c.column == column.column), None)
+            header = column.header if column else None
         if cell is None:
             return
         self.extra.setdefault(row.row_number, {})[target.value] = LegacyValue(
-            column=column.column,
-            header=column.header,
+            column=cell.column,
+            header=header,
             value=cell.value,
             reason=LegacyReason.NOT_MAPPED_VALUE,
         )
@@ -997,6 +1084,11 @@ def opposed_match(row: PreviewRow) -> uuid.UUID | None:
 
 def _address(line1: str | None, postal_code: str | None, city: str | None) -> str:
     return ", ".join(part for part in (line1, postal_code, city) if part)
+
+
+def row_site_dropped(proposal: CompanyProposal, values: CompanyValues) -> bool:
+    site = proposal.establishment
+    return site is not None and site.siret is not None and site.siret not in values.sirets
 
 
 def fitting(text: str | None) -> str | None:

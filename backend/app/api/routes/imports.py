@@ -5,6 +5,9 @@ Stateless review: the browser keeps the file and sends it with every request.
 - `POST /imports/preview` — multipart `file` (+ optional `options` JSON: layout mapping and cell
   corrections) → the review (preview, groups to resolve, defaults, digest) and the committed
   imports of the same file (re-import warning).
+- `POST /imports/analyze` — multipart `file`: the import agent (AI) reads the workbook and returns
+  its reading plan, to send back as `mapping.plan`. Nothing is written; the file's content goes to
+  the configured AI service. Refusals `ai_*` (503 not configured, 502/504 service).
 - `POST /imports/commit` — multipart `file` + `decisions` JSON (cohort dates and « Fichier vérifié
   humainement » included) → the committed batch and counts: entities, cohorts, sequences and
   imported sends, « Défaillant », alerts (`import_commit`, `operational_import`).
@@ -22,6 +25,7 @@ nothing was imported).
 
 import uuid
 from datetime import datetime
+from functools import partial
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
@@ -36,8 +40,10 @@ from app.core.actor import ActorType
 from app.models.enums import ImportBatchStatus
 from app.models.imports import ImportBatch
 from app.services import import_batches, import_commit
+from app.services.imports import agent
 from app.services.imports.decisions import ImportDecisions, PreviewOptions
 from app.services.imports.diagnostics import DiagnosticCode, ImportRejectedError
+from app.services.imports.plan import ImportPlanSpec
 from app.services.imports.preview import ImportFile
 from app.services.imports.review import ImportReview
 from app.services.imports.workbook import ImportLimits
@@ -80,6 +86,11 @@ class PreviewOut(BaseModel):
 class CommitOut(BaseModel):
     batch: BatchOut
     counts: dict[str, int]
+
+
+class AnalyzeOut(BaseModel):
+    plan: ImportPlanSpec
+    model: str
 
 
 def batch_out(batch: ImportBatch) -> BatchOut:
@@ -150,6 +161,28 @@ async def preview_import(
     except ImportRejectedError as error:
         raise file_refusal(error) from None
     return PreviewOut(review=review, previous_imports=[batch_out(batch) for batch in previous])
+
+
+@router.post("/analyze")
+async def analyze_import(request: Request, settings: SettingsDep) -> AnalyzeOut:
+    """The import agent's reading of an uploaded file: nothing is written."""
+    limits = ImportLimits.from_settings(settings)
+    file, _ = await read_upload(request, limits, "options", PreviewOptions, required=False)
+    try:
+        with business_errors():
+            answer = await run_in_threadpool(
+                partial(
+                    agent.analyze,
+                    file.filename,
+                    file.content,
+                    settings,
+                    limits,
+                    transport=request.app.state.openai_transport,
+                )
+            )
+    except ImportRejectedError as error:
+        raise file_refusal(error) from None
+    return AnalyzeOut(plan=answer.plan, model=answer.model)
 
 
 @router.post("/commit", response_model=CommitOut)

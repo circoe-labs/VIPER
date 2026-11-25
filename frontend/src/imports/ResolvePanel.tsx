@@ -32,6 +32,8 @@ import {
   reasonsText,
   REFERENT_STATUS_LABELS,
   rowsText,
+  rowName,
+  rowTitle,
 } from './messages'
 import { personName, ResolutionChoice } from './ResolutionChoice'
 import type { Decide } from './ReviewStep'
@@ -418,7 +420,7 @@ export function ResolvePanel({ review, decisions, issues, decide, onOpenRow }: R
             <li key={item.row_number} className="import-group import-group--row">
               <div className="import-group__value">
                 <span className="import-group__text">
-                  Ligne {item.row_number} — {personName(item)}
+                  {rowTitle(item)} — {personName(item)}
                   {item.company && ` · ${item.company.display_name}`}
                 </span>
                 <span className="import-group__meta">{ISSUE_LABELS[issues.get(item.row_number) ?? 'missing_name']}</span>
@@ -430,7 +432,7 @@ export function ResolvePanel({ review, decisions, issues, decide, onOpenRow }: R
                     onOpenRow(item.row_number)
                   }}
                 >
-                  Corriger la ligne {item.row_number}
+                  Corriger la {rowName(item)}
                 </Button>
                 <Button
                   size="sm"
@@ -438,7 +440,7 @@ export function ResolvePanel({ review, decisions, issues, decide, onOpenRow }: R
                     setResolution(item.row_number, { action: 'exclude' })
                   }}
                 >
-                  Exclure la ligne {item.row_number}
+                  Exclure la {rowName(item)}
                 </Button>
               </div>
             </li>
@@ -634,7 +636,7 @@ export function ResolvePanel({ review, decisions, issues, decide, onOpenRow }: R
           {found.inactive.map((item) => (
             <li key={item.row_number} className="import-group">
               <Checkbox
-                label={`Ligne ${String(item.row_number)} — ${personName(item)} : marquer « Inactif »`}
+                label={`${rowTitle(item)} — ${personName(item)} : marquer « Inactif »`}
                 checked={Boolean(decisions.rows[item.row_number]?.inactive)}
                 onChange={(event) => {
                   const inactive = event.target.checked

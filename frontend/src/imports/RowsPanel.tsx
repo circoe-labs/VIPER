@@ -8,7 +8,7 @@ import { ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon } from '.
 import { SearchField } from '../ui/SearchField'
 import { Table } from '../ui/Table'
 import { CATEGORY_LABELS, resolutionOf, type ReviewDecisions, type RowCategory, rowCategory, type RowIssue, sendMark } from './importPlan'
-import { codeLabel, resolutionLabel, rowsText } from './messages'
+import { codeLabel, resolutionLabel, rowName, rowsText } from './messages'
 import { personName } from './ResolutionChoice'
 import type { Decide, RowFilters, StatusFilter } from './ReviewStep'
 import { RowDetail } from './RowDetail'
@@ -42,7 +42,8 @@ interface RowsPanelProps {
 function searchable(row: PreviewRow): string {
   return foldText(
     [
-      String(row.row_number),
+      String(row.source_row ?? row.row_number),
+      row.source_sheet ?? '',
       row.prospect.first_name,
       row.prospect.last_name,
       row.company?.display_name,
@@ -154,7 +155,9 @@ export function RowsPanel(props: RowsPanelProps) {
               return (
                 <Fragment key={row.row_number}>
                   <tr className="import-row" data-excluded={resolution.action === 'exclude' || undefined}>
-                    <td className="table__numeric">{row.row_number}</td>
+                    <td className="table__numeric import-rows__line">
+                      {row.source_sheet ? `${String(row.source_row)} · ${row.source_sheet}` : row.row_number}
+                    </td>
                     <td>
                       <StatusBadge tone={CATEGORY_TONES[rowCategory(review, decisions, row)]}>{CATEGORY_LABELS[rowCategory(review, decisions, row)]}</StatusBadge>
                     </td>
@@ -189,7 +192,7 @@ export function RowsPanel(props: RowsPanelProps) {
                         icon={ChevronDownIcon}
                         aria-expanded={expanded}
                         aria-controls={`import-row-${String(row.row_number)}`}
-                        aria-label={`${expanded ? 'Fermer' : 'Détails'} de la ligne ${String(row.row_number)}`}
+                        aria-label={`${expanded ? 'Fermer' : 'Détails'} de la ${rowName(row)}`}
                         onClick={() => {
                           onOpenRow(expanded ? null : row.row_number)
                         }}

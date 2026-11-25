@@ -33,6 +33,9 @@ def load_reference_data(session: Session) -> ImportReferenceData:
     emails: dict[uuid.UUID, list[str]] = defaultdict(list)
     for prospect_id, address in import_reference.email_rows(session):
         emails[prospect_id].append(address)
+    sirens: dict[uuid.UUID, set[str]] = defaultdict(set)
+    for company_id, number in import_reference.siren_rows(session):
+        sirens[company_id].add(number[:9])
     return ImportReferenceData(
         roles=taxonomy(session, Role),
         activity_categories=taxonomy(session, ActivityCategory),
@@ -42,7 +45,13 @@ def load_reference_data(session: Session) -> ImportReferenceData:
             for id_, first, last, email, active in import_reference.referent_rows(session)
         ),
         companies=tuple(
-            ReferenceCompany(id=id_, display_name=name, legal_name=legal, email_domain=domain)
+            ReferenceCompany(
+                id=id_,
+                display_name=name,
+                legal_name=legal,
+                email_domain=domain,
+                sirens=tuple(sorted(sirens.get(id_, ()))),
+            )
             for id_, name, legal, domain in import_reference.company_rows(session)
         ),
         prospects=tuple(

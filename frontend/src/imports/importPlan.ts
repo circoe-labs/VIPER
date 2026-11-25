@@ -4,6 +4,7 @@ import type {
   CompanyDecision,
   Corrections,
   ImportDecisions,
+  ImportPlan,
   ImportReview,
   PreviewOptions,
   PreviewRow,
@@ -29,6 +30,8 @@ export interface ReviewDecisions {
   corrections: Corrections
   // Another prospect sheet than the detected one (re-runs the analysis).
   sheet: string | null
+  // The import agent's reading of the file, used instead of the standard one (re-runs the analysis).
+  plan?: ImportPlan | null
   roles: Record<string, RoleDecision>
   categories: Record<string, CategoryDecision>
   referents: Record<string, ReferentDecision>
@@ -63,8 +66,9 @@ export interface Provenance {
 export const DEFAULT_LEGAL_BASIS = 'Fichier historique Circoe — prospection B2B'
 
 export function previewOptions(decisions: ReviewDecisions): PreviewOptions {
+  const { sheet, plan = null } = decisions
   return {
-    mapping: decisions.sheet ? { sheet: decisions.sheet, header_row: null, columns: {} } : null,
+    mapping: sheet || plan ? { sheet, header_row: null, columns: {}, ...(plan && { plan }) } : null,
     corrections: decisions.corrections,
   }
 }

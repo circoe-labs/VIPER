@@ -41,6 +41,7 @@ class ReferenceCompany:
     display_name: str
     legal_name: str | None = None
     email_domain: str | None = None
+    sirens: tuple[str, ...] = ()  # the company's SIREN and those of its establishments
 
 
 @dataclass(frozen=True, slots=True)

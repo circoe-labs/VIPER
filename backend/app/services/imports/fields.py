@@ -39,6 +39,16 @@ class ImportField(StrEnum):
     CIRCOE_REFERENCES = "circoe_references"
     CLIENT_APPROACH = "client_approach"
     LEGACY_TO_CONTACT_FLAG = "legacy_to_contact_flag"
+    # Columns only the import agent designates (no historical header).
+    FULL_NAME = "full_name"
+    LEGAL_NAME = "legal_name"
+    SITE_NAME = "site_name"
+    SIRET = "siret"
+    CITY = "city"
+    POSTAL_CODE = "postal_code"
+    COMPANY_SIZE = "company_size"
+    WEBSITE = "website"
+    LINKEDIN = "linkedin"
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,7 +137,18 @@ LEGACY_LAYOUT: tuple[FieldSpec, ...] = (
     ),
 )
 
-SPECS: dict[ImportField, FieldSpec] = {spec.field: spec for spec in LEGACY_LAYOUT}
+AGENT_FIELDS: tuple[FieldSpec, ...] = (
+    FieldSpec(ImportField.FULL_NAME, "Nom et prénom", "Nom et prénom"),
+    FieldSpec(ImportField.LEGAL_NAME, "Raison sociale", "Raison sociale", max_length=255),
+    FieldSpec(ImportField.SITE_NAME, "Nom du site", "Nom du site", max_length=255),
+    FieldSpec(ImportField.SIRET, "SIRET", "SIRET"),
+    FieldSpec(ImportField.CITY, "Ville", "Ville", max_length=255),
+    FieldSpec(ImportField.POSTAL_CODE, "Code postal", "Code postal", max_length=16),
+    FieldSpec(ImportField.COMPANY_SIZE, "Taille", "Taille", max_length=100),
+    FieldSpec(ImportField.WEBSITE, "Site web", "Site web"),
+    FieldSpec(ImportField.LINKEDIN, "LinkedIn", "LinkedIn", max_length=500),
+)
+SPECS: dict[ImportField, FieldSpec] = {s.field: s for s in (*LEGACY_LAYOUT, *AGENT_FIELDS)}
 FIELD_BY_HEADER: dict[str, ImportField] = {
     fold(name): spec.field
     for spec in LEGACY_LAYOUT

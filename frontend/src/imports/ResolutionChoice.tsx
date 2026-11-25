@@ -1,6 +1,6 @@
 import type { ImportReview, PreviewRow, ProspectResolution } from '../api/imports'
 import { resolutionOf, type ReviewDecisions } from './importPlan'
-import { reasonsText } from './messages'
+import { reasonsText, rowName, rowTitle } from './messages'
 
 interface Option {
   value: string
@@ -66,7 +66,7 @@ export function ResolutionChoice({
       if (candidate.kind !== 'file_row' || !other) continue
       options.push({
         value: `row:${String(other.row_number)}`,
-        label: `Fusionner avec la ligne ${String(other.row_number)} (${personName(other)}) — ${reasonsText(candidate.reasons)}`,
+        label: `Fusionner avec la ${rowName(other)} (${personName(other)}) — ${reasonsText(candidate.reasons)}`,
         resolution: { action: 'attach_row', row: other.row_number },
       })
     }
@@ -76,7 +76,7 @@ export function ResolutionChoice({
   return (
     <fieldset className="import-resolution">
       <legend className="import-resolution__legend">
-        Ligne {row.row_number} — {personName(row)}
+        {rowTitle(row)} — {personName(row)}
         {row.company && ` · ${row.company.display_name}`}
       </legend>
       {options.map((option) => (

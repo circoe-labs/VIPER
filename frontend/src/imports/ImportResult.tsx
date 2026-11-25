@@ -21,6 +21,8 @@ export function ImportResult({ result, onRestart }: { result: CommitResult; onRe
     count('companies_linked') > 0 && plural(count('companies_linked'), 'entreprise existante', 'entreprises existantes'),
     plural(count('emails_added'), 'adresse e-mail', 'adresses e-mail'),
     plural(count('phones_added'), 'numéro de téléphone', 'numéros de téléphone'),
+    count('linkedin_notes_added') > 0 &&
+      plural(count('linkedin_notes_added'), 'profil LinkedIn ajouté en note', 'profils LinkedIn ajoutés en note'),
     count('trackings_created') > 0 && plural(count('trackings_created'), 'suivi de contact', 'suivis de contact'),
     count('roles_created') > 0 && plural(count('roles_created'), 'rôle créé', 'rôles créés'),
     count('categories_created') > 0 && plural(count('categories_created'), 'catégorie créée', 'catégories créées'),

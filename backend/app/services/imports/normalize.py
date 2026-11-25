@@ -9,6 +9,7 @@ from datetime import date, datetime
 from enum import StrEnum
 
 from app.core.cohort_codes import normalize_code
+from app.core.identifiers import siret_key_valid
 from app.models.enums import Civility, PhoneType
 from app.services.imports.diagnostics import DiagnosticCode
 from app.services.imports.text import CellValue, fold, render, single_line
@@ -47,6 +48,25 @@ def normalize_civility(value: CellValue) -> Outcome[Civility]:
     if key in MS_FORMS:
         return Outcome(Civility.MS)
     return Outcome(codes=(DiagnosticCode.CIVILITY_INVALID,), keep_raw=True)
+
+
+# --- SIRET ---------------------------------------------------------------------------------------
+
+SIRET_LENGTH = 14
+
+
+def parse_siret(value: CellValue) -> Outcome[str]:
+    """14 digits with a valid check digit. A number that lost its leading zero (13 digits) is
+    restored (flagged); anything else is kept raw."""
+    digits = "".join(render(value).split()).replace(".", "").replace("-", "")
+    if not (digits.isascii() and digits.isdigit()):
+        return Outcome(codes=(DiagnosticCode.SIRET_INVALID,), keep_raw=True)
+    if len(digits) == SIRET_LENGTH and siret_key_valid(digits):
+        return Outcome(digits)
+    padded = f"0{digits}"
+    if len(digits) == SIRET_LENGTH - 1 and siret_key_valid(padded):
+        return Outcome(padded, (DiagnosticCode.SIRET_LEADING_ZERO_RESTORED,), True)
+    return Outcome(codes=(DiagnosticCode.SIRET_INVALID,), keep_raw=True)
 
 
 # --- Person names -------------------------------------------------------------------------------

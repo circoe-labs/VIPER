@@ -62,7 +62,13 @@ const CODE_LABELS: Record<string, string> = {
   'duplicate.person_name_existing': 'Homonyme dans la base',
   'value.too_long': 'Valeur trop longue',
   'value.zero_placeholder': '« 0 » ignoré',
-  'cell.merged_value_copied': 'Cellule fusionnée',
+  'cell.merged_value_copied': 'Valeur recopiée',
+  'sheet.rows_not_read': 'Lignes non reprises',
+  'company.without_contact': 'Entreprise sans contact',
+  'company.name_fallback': 'Nom d’entreprise déduit',
+  'siret.invalid': 'SIRET invalide',
+  'siret.leading_zero_restored': 'SIRET : 0 restauré',
+  'website.invalid': 'Site web invalide',
 }
 
 export function codeLabel(code: string): string {
@@ -78,6 +84,7 @@ export const REASON_LABELS: Record<MatchReason, string> = {
   same_company_name: 'même nom d’entreprise',
   similar_company_name: 'nom d’entreprise proche',
   same_email_domain: 'même domaine e-mail',
+  same_siren: 'même SIREN',
 }
 
 export function reasonsText(reasons: MatchReason[]): string {
@@ -128,12 +135,31 @@ export function plural(count: number, one: string, many: string): string {
   return `${String(count)} ${count > 1 ? many : one}`
 }
 
+// How a row is named: its line, and its sheet when the agent read several.
+export function rowName(row: { row_number: number; source_sheet?: string | null; source_row?: number | null }): string {
+  return row.source_sheet ? `ligne ${String(row.source_row)} (${row.source_sheet})` : `ligne ${String(row.row_number)}`
+}
+
+export function rowTitle(row: Parameters<typeof rowName>[0]): string {
+  const name = rowName(row)
+  return name.charAt(0).toUpperCase() + name.slice(1)
+}
+
 export function rowsText(count: number): string {
   return plural(count, 'ligne', 'lignes')
 }
 
 // What each import field becomes (column correspondence of the sheet step, correction form).
 const FIELD_LABELS: Record<string, string> = {
+  full_name: 'Nom et prénom',
+  legal_name: 'Raison sociale',
+  site_name: 'Nom du site',
+  siret: 'SIRET',
+  city: 'Ville',
+  postal_code: 'Code postal',
+  company_size: 'Taille de l’entreprise',
+  website: 'Site web',
+  linkedin: 'LinkedIn (note sur la personne)',
   referent: 'Référent',
   planned_contact: 'À contacter (semaine ou date)',
   company_name: 'Entreprise',
@@ -187,10 +213,23 @@ export function refusalOf(error: unknown): ImportRefusal | null {
   return 'code' in error.detail ? (error.detail as ImportRefusal) : null
 }
 
+// The import agent's typed refusals (`ai_*`).
+const AGENT_ERRORS: Record<string, string> = {
+  ai_not_configured: 'L’agent d’import n’est pas configuré : saisissez la clé et le modèle IA dans Config AI › Connexions.',
+  ai_timeout: 'L’agent a mis trop de temps à lire le fichier. Réessayez.',
+  ai_rate_limited: 'L’IA est saturée ou son quota est épuisé. Réessayez plus tard.',
+  ai_auth_failed: 'La clé IA est refusée : vérifiez-la dans Config AI › Connexions.',
+  ai_upstream_error: 'Le service d’IA est injoignable. Réessayez.',
+  ai_refused: 'L’IA a refusé de lire ce fichier.',
+  ai_invalid_output: 'L’agent n’a pas réussi à lire ce fichier. Réessayez.',
+}
+
 // The message shown when an analysis or a commit fails.
 export function importErrorMessage(error: unknown): string {
   const refusal = refusalOf(error)
   if (error instanceof ApiError && error.status === 401) return 'Votre session a expiré : reconnectez-vous.'
+  const ai = AGENT_ERRORS[(refusal as { code?: string } | null)?.code ?? '']
+  if (ai) return ai
   switch (refusal?.code) {
     case 'file_rejected':
       return refusal.diagnostic.message

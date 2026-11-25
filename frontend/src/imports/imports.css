@@ -231,6 +231,24 @@
   margin-bottom: var(--space-3);
 }
 
+.import-sheet__blocks {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+  overflow-x: auto;
+}
+
+.import-sheet__blocks caption {
+  padding-bottom: var(--space-2);
+  font-weight: 600;
+  text-align: left;
+}
+
+.import-sheet__footer .import-sheet__actions {
+  flex-wrap: wrap;
+}
+
 .import-sheet__notices {
   margin-top: var(--space-3);
   font-size: var(--text-sm);
@@ -1204,4 +1222,8 @@ button.import-kpi:hover {
 
 .import-steps__step[data-state='done'] .import-steps__number svg {
   stroke-width: 2.5;
+}
+
+.import-rows__line {
+  white-space: nowrap;
 }

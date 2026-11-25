@@ -22,18 +22,17 @@ Every mutation takes the server-side actor, annotates the audit event of each ro
 (`company.*`, `establishment.*` with the company as subject) and flushes; the caller commits.
 """
 
-import re
 import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, fields, replace
 from datetime import date, datetime
 from typing import Literal
-from urllib.parse import urlsplit, urlunsplit
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.actor import ActorContext
+from app.core.identifiers import HOSTNAME, SCHEME, luhn_valid, siret_key_valid, website_address
 from app.models import CommercialSegment, Company, Establishment
 from app.models.enums import ActivityStatus, Civility, CompanyKind, ContactabilityStatus
 from app.models.taxonomies import ActivityCategory
@@ -67,12 +66,6 @@ DOMAIN_MAX_LENGTH = 253
 LIST_MAX_LIMIT = 200
 PROSPECTS_SHOWN = 100
 SIMILAR_SHOWN = 5
-# La Poste's establishments share this SIREN; their SIRETs are checked by digit sum instead.
-LA_POSTE_SIREN = "356000000"
-
-_LABEL = r"[^\W_](?:[\w-]{0,61}[^\W_])?"
-HOSTNAME = re.compile(rf"(?:{_LABEL}\.)+{_LABEL}")
-SCHEME = re.compile(r"^[a-z][a-z0-9+.-]*://", re.IGNORECASE)
 
 
 # --- values in and out -----------------------------------------------------------------------
@@ -212,20 +205,6 @@ class SimilarCompany:
 # --- identifiers and web values ----------------------------------------------------------------
 
 
-def luhn_valid(digits: str) -> bool:
-    total = 0
-    for position, char in enumerate(reversed(digits)):
-        digit = int(char) * (2 if position % 2 else 1)
-        total += digit - 9 if digit > 9 else digit
-    return total % 10 == 0
-
-
-def siret_key_valid(siret: str) -> bool:
-    if siret.startswith(LA_POSTE_SIREN):
-        return sum(int(char) for char in siret) % 5 == 0
-    return luhn_valid(siret)
-
-
 def _identifier(field: str, value: str | None, length: int, label: str) -> str | None:
     """Digits of a SIREN/SIRET with spaces removed; None when blank."""
     digits = "".join((value or "").split())
@@ -255,24 +234,9 @@ def normalize_website(value: str | None) -> str | None:
     text = (value or "").strip()
     if not text:
         return None
-    if not SCHEME.match(text):
-        text = f"https://{text}"
-    parts = urlsplit(text)
-    host = parts.hostname or ""
-    try:
-        netloc = f"{host}:{parts.port}" if parts.port else host
-    except ValueError:  # port not a number or out of range
-        netloc = ""
-    if (
-        not netloc
-        or parts.scheme.lower() not in {"http", "https"}
-        or "@" in parts.netloc
-        or not HOSTNAME.fullmatch(host)
-        or any(char.isspace() for char in text)
-    ):
+    if (address := website_address(text)) is None:
         raise InvalidFieldError("website_url", "Invalid website address.", "format")
-    path = "" if parts.path == "/" else parts.path
-    return urlunsplit((parts.scheme.lower(), netloc, path, parts.query, parts.fragment))
+    return address
 
 
 def normalize_email_domain(value: str | None) -> str | None:
@@ -756,6 +720,10 @@ class CompanyCompletion:
     circoe_references: str | None = None
     client_approach: str | None = None
     establishment: EstablishmentInput | None = None
+    legal_name: str | None = None
+    siren: str | None = None
+    size_label: str | None = None
+    website_url: str | None = None
 
 
 COMPLETED_TEXTS = (
@@ -793,6 +761,19 @@ def complete_company(
         fills["email_domain"] = domain
     if segment is not None:
         fills["commercial_segment_id"] = segment.id
+    identity = {
+        "legal_name": _line("legal_name", data.legal_name, NAME_MAX_LENGTH),
+        "siren": normalize_siren(data.siren),
+        "size_label": _line("size_label", data.size_label, SIZE_MAX_LENGTH),
+        "website_url": normalize_website(data.website_url),
+    }
+    if identity["siren"] is not None:
+        same = repository.find_by_siren(session, identity["siren"], exclude_id=company.id)
+        if same is not None:
+            raise DuplicateValueError("siren", _existing(same))
+    for name, given in identity.items():
+        if getattr(company, name) is None and given is not None:
+            fills[name] = given
     for name in COMPLETED_TEXTS:
         if getattr(company, name) is None and (text := _paragraphs(name, getattr(data, name))):
             fills[name] = text

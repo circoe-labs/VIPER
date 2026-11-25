@@ -270,4 +270,19 @@ describe('Excel import page', () => {
     })
     expect(sent.at(-1)?.part).toMatchObject({ corrections: {} })
   })
+
+  it('has the agent read a file with unknown columns, and keeps the standard reading when it fails', async () => {
+    const preview = samplePreview()
+    preview.review.preview.summary.agent_recommended = true
+    const sent = stubImports({ preview })
+    renderApp('/prospection/import')
+
+    await userEvent.upload(screen.getByLabelText('Fichier à importer'), FILE)
+
+    // The stub knows no agent: the standard reading stays, with the reason and a way to ask again.
+    expect(await screen.findByRole('button', { name: 'Faire lire par l’agent IA' })).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toBeInTheDocument()
+    expect(sent.map((item) => item.path)).toEqual(['/api/imports/preview', '/api/imports/analyze'])
+  })
+
 })

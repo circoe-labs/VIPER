@@ -296,6 +296,12 @@ table lists every code).
 | `sheet.not_found` | error | La première feuille du classeur ne ressemble pas à une liste de prospects : en-têtes attendus introuvables. |
 | `sheet.skipped` | info | Feuille « {sheet} » ignorée : seule la première feuille du classeur est importée. |
 | `sheet.merged_cells` | info | Feuille « {sheet} » : {count} plage(s) de cellules fusionnées ; la valeur d'une fusion verticale est recopiée sur chacune de ses lignes. |
+| `sheet.rows_not_read` | warning | Feuille « {sheet} » : {count} ligne(s) non reprise(s) (lignes {rows}). |
+| `company.without_contact` | info | Entreprise sans aucun contact : non importée (à créer depuis Entreprises si besoin). |
+| `company.name_fallback` | info | Pas de nom d'entreprise : la raison sociale ou le nom du site est utilisé. |
+| `siret.invalid` | warning | SIRET incomplet ou incorrect : ignoré, valeur d'origine conservée. |
+| `siret.leading_zero_restored` | warning | SIRET saisi comme un nombre : le 0 initial a été restauré, à vérifier. |
+| `website.invalid` | warning | Adresse de site web invalide : ignorée, valeur d'origine conservée. |
 | `mapping.unknown_sheet` | error | Feuille « {sheet} » introuvable. |
 | `mapping.not_first_sheet` | error | Feuille « {sheet} » : seule la première feuille du classeur peut être importée. |
 | `mapping.invalid_header_row` | error | La ligne {row} ne peut pas servir de ligne d'en-têtes (vide ou hors de la feuille). |
@@ -309,7 +315,7 @@ table lists every code).
 | `column.legacy_preserved` | info | Colonne {column} « {header} » conservée telle quelle : sa signification n'est pas confirmée. |
 | `column.missing_key` | warning | Colonne « {label} » absente du fichier. |
 | `column.missing` | info | Colonne « {label} » absente du fichier. |
-| `cell.merged_value_copied` | info | Valeur recopiée depuis une cellule fusionnée. |
+| `cell.merged_value_copied` | info | Valeur recopiée d'une ligne précédente (cellule fusionnée ou même entreprise). |
 | `value.too_long` | warning | Valeur trop longue pour « {label} » ({limit} caractères au plus) : ignorée, valeur d'origine conservée. |
 | `value.zero_placeholder` | info | Valeur « 0 » considérée comme vide ; valeur d'origine conservée. |
 | `prospect.missing_name` | error | Ni nom ni prénom : le prospect ne peut pas être créé. |
@@ -365,6 +371,33 @@ skipped, 24 columns with W by position and X unnamed, 3 duplicate-email groups, 
 unaccounted cell, determinism) and prints counts per diagnostic code only. Command in the runbook.
 
 ---
+
+## Import agent — files in any layout
+
+The historical reading above only knows the historical headers. When a titled column stays
+unexplained, or no prospect sheet is found (`summary.agent_recommended`), the page asks the
+**import agent** to read the workbook; the user can also ask for it from the sheet step.
+
+- `POST /api/imports/analyze` sends the cells (truncated to 60 characters, long sheets sampled) to
+  the configured OpenAI service (`store: false`) and returns a **reading plan**
+  (`imports/plan.py`): blocks of rows sharing a layout (any sheet, header or not), column → field,
+  company spellings that name one company, ambiguous full-name splits and short notes.
+- The plan holds **structure only**. Values are read from the cells by the deterministic engine
+  (`plan_reader`), so the agent cannot invent data. It is checked by reading the file with it;
+  rows left unread get it one second look, and what stays unread is announced
+  (`sheet.rows_not_read`).
+- The plan travels as `mapping.plan` in preview and commit: both read the file identically. Every
+  non-empty sheet it designates is imported (the first-sheet rule D10 applies to the historical
+  reading only). Rows keep their true sheet and row number (`source_sheet`, `source_row`).
+- Fields only the agent designates: full name (split), legal name, site name, SIRET (check digit
+  verified, SIREN derived, lost leading zero restored), city, postal code, size, website, LinkedIn
+  (kept as a note on the person).
+- Company values are copied down to the rows of the same company; a row naming another company or
+  SIRET starts a new one. Rows sharing a SIREN, or grouped by the agent, are one company; each
+  distinct SIRET becomes an establishment of a new company. An existing company is recognised by
+  SIREN as well as by name, and only its empty fields are filled (D11).
+- Duplicates, "Ne pas contacter", review decisions and the commit are those of the historical
+  import. A company without any contact is reported, not created.
 
 ## Import review and commit — as implemented (Task 09)
 

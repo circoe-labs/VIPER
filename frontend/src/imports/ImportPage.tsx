@@ -1,8 +1,8 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { useEffect, useReducer, useRef } from 'react'
+import { useEffect, useReducer, useRef, useState } from 'react'
 import { Link } from 'react-router'
 
-import { type CommitResult, importKeys, previewImport } from '../api/imports'
+import { analyzeImport, type CommitResult, importKeys, previewImport } from '../api/imports'
 import { refreshAfterWrite } from '../api/refresh'
 import { ExportWorkbookButton } from '../exports/ExportWorkbookButton'
 import { Button } from '../ui/Button'
@@ -12,7 +12,7 @@ import { FileDrop } from './FileDrop'
 import { ImportHistory } from './ImportHistory'
 import { ImportResult } from './ImportResult'
 import { flowReducer, INITIAL_FLOW, type Step } from './importFlow'
-import { previewOptions, type ReviewDecisions } from './importPlan'
+import { NO_DECISIONS, previewOptions, type ReviewDecisions } from './importPlan'
 import { importErrorMessage } from './messages'
 import { rememberFile } from './rememberedFile'
 import { ReviewStep } from './ReviewStep'
@@ -38,6 +38,8 @@ export function ImportPage() {
   const queryClient = useQueryClient()
   // Only the latest analysis may update the page (a slower earlier one is ignored).
   const latest = useRef(0)
+  // The import agent is reading the file (a minute or so).
+  const [agentReading, setAgentReading] = useState(false)
   const { step, file, preview } = state
 
   // Each step starts at the top of the page (after the import, the long review would leave it at the bottom).
@@ -48,6 +50,7 @@ export function ImportPage() {
   async function analyse(target: File, decisions: ReviewDecisions) {
     latest.current += 1
     const request = latest.current
+    setAgentReading(false)
     try {
       const result = await previewImport(target, previewOptions(decisions))
       if (request === latest.current) dispatch({ type: 'analyzed', preview: result })
@@ -56,10 +59,59 @@ export function ImportPage() {
     }
   }
 
+  // A new file: the standard reading, then the agent's when columns are left unexplained. If the agent fails, the
+  // standard reading stays, with the reason.
+  async function open(target: File) {
+    latest.current += 1
+    const request = latest.current
+    setAgentReading(false)
+    try {
+      const standard = await previewImport(target, previewOptions(NO_DECISIONS))
+      if (request !== latest.current) return
+      if (!standard.review.preview.summary.agent_recommended) {
+        dispatch({ type: 'analyzed', preview: standard })
+        return
+      }
+      setAgentReading(true)
+      try {
+        await readByAgent(target, request)
+      } catch (error) {
+        if (request !== latest.current) return
+        dispatch({ type: 'analyzed', preview: standard })
+        dispatch({ type: 'failed', message: importErrorMessage(error) })
+      }
+    } catch (error) {
+      if (request === latest.current) dispatch({ type: 'failed', message: importErrorMessage(error) })
+    }
+  }
+
+  // The review built on the agent's plan. Its rows differ from any earlier reading: decisions start over.
+  async function readByAgent(target: File, request: number) {
+    const { plan } = await analyzeImport(target)
+    const decisions = { ...NO_DECISIONS, plan }
+    const result = await previewImport(target, previewOptions(decisions))
+    if (request !== latest.current) return
+    dispatch({ type: 'decide', update: () => decisions })
+    dispatch({ type: 'analyzed', preview: result })
+  }
+
+  async function askAgent() {
+    if (!file) return
+    latest.current += 1
+    const request = latest.current
+    setAgentReading(true)
+    dispatch({ type: 'reanalyze' })
+    try {
+      await readByAgent(file, request)
+    } catch (error) {
+      if (request === latest.current) dispatch({ type: 'failed', message: importErrorMessage(error) })
+    }
+  }
+
   function choose(target: File) {
     void rememberFile(target)
     dispatch({ type: 'choose', file: target })
-    void analyse(target, INITIAL_FLOW.decisions)
+    void open(target)
   }
 
   // A new analysis of the same file with `decisions` (corrections, another sheet) or after a Settings change.
@@ -152,12 +204,16 @@ export function ImportPage() {
         </p>
       )}
       {(step === 'idle' || step === 'analyzing') && (
-        <FileDrop busy={step === 'analyzing'} fileName={file?.name ?? null} onFile={choose} />
+        <FileDrop busy={step === 'analyzing'} agent={agentReading} fileName={file?.name ?? null} onFile={choose} />
       )}
       {step === 'sheet' && preview && (
         <SheetStep
           preview={preview}
           busy={state.reanalyzing}
+          agentReading={state.reanalyzing && agentReading}
+          onAskAgent={() => {
+            void askAgent()
+          }}
           onConfirm={() => {
             dispatch({ type: 'confirmSheet' })
           }}

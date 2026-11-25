@@ -10,10 +10,11 @@ import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
+from app.core.identifiers import luhn_valid, website_address
 from app.models.enums import ActivityStatus, ContactabilityStatus, ContactTrackingStatus, PhoneType
 from app.services.imports.diagnostics import Diagnostic, DiagnosticCode, Severity, with_params
 from app.services.imports.fields import SPECS, STAGE_FIELDS, ImportField
-from app.services.imports.layout import ColumnMapping
+from app.services.imports.layout import ColumnMapping, MatchedBy
 from app.services.imports.matching import (
     CategoryOutcome,
     ReferentOutcome,
@@ -52,6 +53,7 @@ from app.services.imports.normalize import (
     parse_cohort,
     parse_emails,
     parse_phones,
+    parse_siret,
     read_stage,
 )
 from app.services.imports.reference import ImportReferenceData
@@ -64,7 +66,16 @@ COMPANY_TEXT_FIELDS = (
     ImportField.CIRCOE_REFERENCES,
     ImportField.CLIENT_APPROACH,
 )
-COMPANY_FIELDS = (*COMPANY_TEXT_FIELDS, ImportField.CATEGORY, ImportField.ADDRESS)
+COMPANY_FIELDS = (
+    *COMPANY_TEXT_FIELDS,
+    ImportField.CATEGORY,
+    ImportField.ADDRESS,
+    ImportField.SIRET,
+    ImportField.CITY,
+    ImportField.POSTAL_CODE,
+    ImportField.COMPANY_SIZE,
+    ImportField.WEBSITE,
+)
 # Legacy stage columns → Contact state. Post-appointment stages (quote sent, its follow-up) are
 # outside the Contact scope and converge on `appointment_obtained` (handoff 06 §2). Follow-up
 # stages are sends, not states (sequences rework D1/D7): they leave the state `neutral` and the
@@ -104,6 +115,7 @@ REASON_CONFIDENCE = {
     MatchReason.SAME_COMPANY_NAME: 0.9,
     MatchReason.SAME_EMAIL_DOMAIN: 0.7,
     MatchReason.SIMILAR_COMPANY_NAME: 0.6,
+    MatchReason.SAME_SIREN: 1.0,
 }
 # Free-mail providers: their domain says nothing about the employer.
 WEBMAIL_DOMAINS = frozenset(
@@ -137,6 +149,8 @@ class RowDraft:
         default_factory=dict
     )
     blocked: bool = False
+    source_sheet: str | None = None
+    source_row: int | None = None
 
     def flag(
         self, code: DiagnosticCode, field: ImportField | None = None, **params: object
@@ -207,6 +221,8 @@ class RowDraft:
             blocked_by_do_not_contact=self.blocked,
             diagnostics=self.diagnostics,
             cells=self.cells,
+            source_sheet=self.source_sheet,
+            source_row=self.source_row,
         )
 
 
@@ -230,6 +246,7 @@ class RowBuilder:
         self.mapped: set[str] = set()
         self.preserved: set[str] = set()
         self.activity_suggestion: ActivityStatus | None = None
+        self.agent = any(column.matched_by is MatchedBy.AGENT for column in columns)
 
     # --- bookkeeping ---
 
@@ -325,6 +342,10 @@ class RowBuilder:
         prospect = prospect.model_copy(
             update={"activity_status_suggestion": self.activity_suggestion}
         )
+        prospect = prospect.model_copy(update={"linkedin_url": self.linkedin(prospect)})
+        nobody = not (prospect.first_name or prospect.last_name or prospect.exact_job_title)
+        if self.agent and company is not None and nobody and not emails:
+            self.flag(DiagnosticCode.COMPANY_WITHOUT_CONTACT)
         if company is None:
             self.flag(DiagnosticCode.COMPANY_MISSING)
         else:
@@ -389,12 +410,19 @@ class RowBuilder:
                     preserved=column.column in self.preserved,
                     copied_from_merge=column.index in self.row.copied,
                     corrected=column.field in self.corrections,
+                    header=column.header if self.agent else None,
+                    field=column.field if self.agent else None,
                 )
             )
         return cells
 
     def company(self) -> CompanyProposal | None:
         name = self.text(ImportField.COMPANY_NAME)
+        legal_name = self.text(ImportField.LEGAL_NAME)
+        site_name = self.text(ImportField.SITE_NAME)
+        if name is None and (fallback := legal_name or site_name):
+            name = fallback
+            self.flag(DiagnosticCode.COMPANY_NAME_FALLBACK)
         if name is None:
             # Nothing to attach company-level values to: keep them raw, still diagnosed.
             for company_field in COMPANY_FIELDS:
@@ -412,15 +440,74 @@ class RowBuilder:
             for company_field in COMPANY_TEXT_FIELDS
         }
         categories = self.categories()
+        siret = self.siret()
+        establishment = self.establishment()
+        city = self.text(ImportField.CITY)
+        postal_code = self.text(ImportField.POSTAL_CODE)
+        if city or postal_code:
+            # The address column holds the street only: nothing unusual about it.
+            self.diagnostics = [
+                d for d in self.diagnostics if d.code is not DiagnosticCode.ADDRESS_UNSTRUCTURED
+            ]
+        if siret or city or postal_code:
+            site = establishment or EstablishmentProposal()
+            establishment = site.model_copy(
+                update={
+                    "name": site_name if site_name != name else None,
+                    "siret": siret,
+                    "city": site.city or city,
+                    "postal_code": site.postal_code or postal_code,
+                }
+            )
         return CompanyProposal(
             display_name=name,
             match_key=company_key(name),
+            legal_name=legal_name,
+            siren=siret[:9] if siret and luhn_valid(siret[:9]) else None,
+            size_label=self.text(ImportField.COMPANY_SIZE),
+            website_url=self.website(),
             activity_categories=list(categories.matches),
             unmatched_categories=list(categories.unmatched),
             segment_suggestion=categories.segment,
-            establishment=self.establishment(),
+            establishment=establishment,
             **texts,
         )
+
+    def siret(self) -> str | None:
+        found = self.cell(ImportField.SIRET)
+        if found is None:
+            return None
+        column, value = found
+        outcome = parse_siret(value)
+        self.settle(
+            column, value, outcome.codes, keep=outcome.keep_raw, mapped=outcome.value is not None
+        )
+        return outcome.value
+
+    def website(self) -> str | None:
+        found = self.cell(ImportField.WEBSITE)
+        if found is None:
+            return None
+        column, value = found
+        url = website_address(single_line(value) or "")
+        if url is None:
+            self.settle(column, value, (DiagnosticCode.WEBSITE_INVALID,), keep=True, mapped=False)
+            return None
+        self.mapped.add(column.column)
+        return url
+
+    def linkedin(self, prospect: ProspectProposal) -> str | None:
+        """A profile address of a named person; anything else stays raw."""
+        found = self.cell(ImportField.LINKEDIN)
+        if found is None or not (prospect.first_name or prospect.last_name):
+            return None
+        column, value = found
+        text = single_line(value) or ""
+        if "linkedin.com/" not in text.lower() or " " in text or len(text) > 500:
+            self.keep(column, value)
+            return None
+        self.mapped.add(column.column)
+        return text
 
     def categories(self) -> CategoryOutcome:
         found = self.cell(ImportField.CATEGORY)

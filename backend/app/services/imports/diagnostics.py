@@ -37,6 +37,12 @@ class DiagnosticCode(StrEnum):
     SHEET_NOT_FOUND = "sheet.not_found"
     SHEET_SKIPPED = "sheet.skipped"
     SHEET_MERGED_CELLS = "sheet.merged_cells"
+    SHEET_ROWS_NOT_READ = "sheet.rows_not_read"
+    COMPANY_WITHOUT_CONTACT = "company.without_contact"
+    COMPANY_NAME_FALLBACK = "company.name_fallback"
+    SIRET_INVALID = "siret.invalid"
+    SIRET_LEADING_ZERO_RESTORED = "siret.leading_zero_restored"
+    WEBSITE_INVALID = "website.invalid"
     MAPPING_UNKNOWN_SHEET = "mapping.unknown_sheet"
     MAPPING_NOT_FIRST_SHEET = "mapping.not_first_sheet"
     MAPPING_INVALID_HEADER_ROW = "mapping.invalid_header_row"
@@ -153,6 +159,25 @@ CATALOGUE: dict[DiagnosticCode, CodeSpec] = {
         "Feuille « {sheet} » : {count} plage(s) de cellules fusionnées ; la valeur d'une fusion"
         " verticale est recopiée sur chacune de ses lignes.",
     ),
+    DiagnosticCode.SHEET_ROWS_NOT_READ: CodeSpec(
+        WARNING, "Feuille « {sheet} » : {count} ligne(s) non reprise(s) (lignes {rows})."
+    ),
+    DiagnosticCode.COMPANY_WITHOUT_CONTACT: CodeSpec(
+        INFO,
+        "Entreprise sans aucun contact : non importée (à créer depuis Entreprises si besoin).",
+    ),
+    DiagnosticCode.COMPANY_NAME_FALLBACK: CodeSpec(
+        INFO, "Pas de nom d'entreprise : la raison sociale ou le nom du site est utilisé."
+    ),
+    DiagnosticCode.SIRET_INVALID: CodeSpec(
+        WARNING, f"SIRET incomplet ou incorrect : ignoré, {KEPT}."
+    ),
+    DiagnosticCode.SIRET_LEADING_ZERO_RESTORED: CodeSpec(
+        WARNING, "SIRET saisi comme un nombre : le 0 initial a été restauré, à vérifier."
+    ),
+    DiagnosticCode.WEBSITE_INVALID: CodeSpec(
+        WARNING, f"Adresse de site web invalide : ignorée, {KEPT}."
+    ),
     DiagnosticCode.MAPPING_UNKNOWN_SHEET: CodeSpec(ERROR, "Feuille « {sheet} » introuvable."),
     DiagnosticCode.MAPPING_NOT_FIRST_SHEET: CodeSpec(
         ERROR, "Feuille « {sheet} » : seule la première feuille du classeur peut être importée."
@@ -193,7 +218,7 @@ CATALOGUE: dict[DiagnosticCode, CodeSpec] = {
     DiagnosticCode.COLUMN_MISSING_KEY: CodeSpec(WARNING, "Colonne « {label} » absente du fichier."),
     DiagnosticCode.COLUMN_MISSING: CodeSpec(INFO, "Colonne « {label} » absente du fichier."),
     DiagnosticCode.CELL_MERGED_VALUE_COPIED: CodeSpec(
-        INFO, "Valeur recopiée depuis une cellule fusionnée."
+        INFO, "Valeur recopiée d'une ligne précédente (cellule fusionnée ou même entreprise)."
     ),
     DiagnosticCode.VALUE_TOO_LONG: CodeSpec(
         WARNING,

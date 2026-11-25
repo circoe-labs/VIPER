@@ -21,6 +21,7 @@ from app.models.enums import (
 from app.services.imports.diagnostics import Diagnostic
 from app.services.imports.fields import ImportField
 from app.services.imports.layout import ColumnMapping
+from app.services.imports.plan import ImportPlanSpec
 from app.services.imports.text import JsonScalar
 from app.services.imports.workbook import FileFormat
 
@@ -77,6 +78,9 @@ class SourceCell(Frozen):
     copied_from_merge: bool = False
     # Replaced by a user correction: `value` is the original, kept in legacy metadata.
     corrected: bool = False
+    # Agent-read rows only: each block of rows has its own headers and meanings.
+    header: str | None = None
+    field: ImportField | None = None
 
 
 class EstablishmentProposal(Frozen):
@@ -87,6 +91,8 @@ class EstablishmentProposal(Frozen):
     postal_code: str | None = None
     city: str | None = None
     country: str | None = None
+    name: str | None = None
+    siret: str | None = None
 
 
 class MatchReason(StrEnum):
@@ -96,6 +102,7 @@ class MatchReason(StrEnum):
     SAME_COMPANY_NAME = "same_company_name"  # same company key (legal forms and accents ignored)
     SIMILAR_COMPANY_NAME = "similar_company_name"
     SAME_EMAIL_DOMAIN = "same_email_domain"
+    SAME_SIREN = "same_siren"
 
 
 class CompanyCandidate(Frozen):
@@ -118,6 +125,10 @@ class CompanyProposal(Frozen):
     segment_suggestion: TaxonomyMatch | None = None
     establishment: EstablishmentProposal | None = None
     candidates: list[CompanyCandidate] = Field(default_factory=list)
+    legal_name: str | None = None
+    siren: str | None = None  # from the row's valid SIRET
+    size_label: str | None = None
+    website_url: str | None = None
 
 
 class ProspectProposal(Frozen):
@@ -129,6 +140,7 @@ class ProspectProposal(Frozen):
     role_suggestions: list[TaxonomyMatch] = Field(default_factory=list)
     # Import never sets activity: `inactive` is only suggested (e.g. `retraité`), to confirm.
     activity_status_suggestion: ActivityStatus | None = None
+    linkedin_url: str | None = None
 
 
 class EmailProposal(Frozen):
@@ -190,6 +202,9 @@ class PreviewRow(Frozen):
     blocked_by_do_not_contact: bool
     diagnostics: list[Diagnostic]
     cells: list[SourceCell]
+    # Agent-read rows: where the row is in the file (`row_number` is then only its unique key).
+    source_sheet: str | None = None
+    source_row: int | None = None
 
 
 class SheetStatus(StrEnum):
@@ -221,6 +236,9 @@ class ImportSummary(Frozen):
     counts_by_code: dict[str, int]
     duplicate_email_groups: int
     notices: list[Diagnostic]
+    # The historical reading leaves headers unexplained: the import agent should read the file.
+    agent_recommended: bool = False
+    plan: ImportPlanSpec | None = None  # the agent's reading, when it was used
 
 
 class ImportPreview(Frozen):

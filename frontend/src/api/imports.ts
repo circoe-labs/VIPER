@@ -17,6 +17,7 @@ export type MatchReason =
   | 'same_company_name'
   | 'similar_company_name'
   | 'same_email_domain'
+  | 'same_siren'
 export type Civility = 'mr' | 'ms'
 export type Contactability = 'contactable' | 'do_not_contact'
 
@@ -114,6 +115,8 @@ export interface DuplicateCandidate {
 
 export interface SourceCell {
   column: string
+  header?: string | null
+  field?: string | null
   value: JsonScalar
   mapped: boolean
   preserved: boolean
@@ -123,6 +126,9 @@ export interface SourceCell {
 
 export interface PreviewRow {
   row_number: number
+  // Rows read by the import agent: where they are in the file (`row_number` is then only their key).
+  source_sheet?: string | null
+  source_row?: number | null
   status: RowStatus
   company: CompanyProposal | null
   prospect: ProspectProposal
@@ -142,7 +148,7 @@ export interface ColumnMapping {
   index: number
   header: string | null
   field: string | null
-  matched_by: 'header' | 'position' | 'override' | 'none'
+  matched_by: 'header' | 'position' | 'override' | 'agent' | 'none'
 }
 
 export interface ImportSummary {
@@ -162,6 +168,24 @@ export interface ImportSummary {
   counts_by_code: Record<string, number>
   duplicate_email_groups: number
   notices: Diagnostic[]
+  // The standard reading leaves columns unexplained: the import agent should read the file.
+  agent_recommended?: boolean
+  plan?: ImportPlan | null
+}
+
+// The import agent's reading of a workbook (backend imports/plan.py): its structure, never its values.
+export interface ImportPlan {
+  blocks: {
+    sheet: string
+    header_row: number | null
+    first_row: number
+    last_row: number
+    columns: { column: string; field: string }[]
+    carry_down: string[]
+  }[]
+  same_companies: { names: string[] }[]
+  names: { sheet: string; row: number; first_name: string; last_name: string }[]
+  notes: string[]
 }
 
 // --- decisions (overrides of the review's defaults) ---
@@ -199,6 +223,7 @@ export interface ImportMapping {
   sheet: string | null
   header_row: number | null
   columns: Record<string, string | null>
+  plan?: ImportPlan | null
 }
 
 export interface PreviewOptions {
@@ -378,6 +403,11 @@ function upload(file: File, part: string, value: unknown): FormData {
 
 export function previewImport(file: File, options: PreviewOptions): Promise<PreviewResult> {
   return apiRequest<PreviewResult>('POST', '/imports/preview', { body: upload(file, 'options', options) })
+}
+
+// The import agent (AI) reads the workbook; nothing is written. Its plan goes back in `mapping.plan`.
+export function analyzeImport(file: File): Promise<{ plan: ImportPlan; model: string }> {
+  return apiRequest('POST', '/imports/analyze', { body: upload(file, 'options', {}) })
 }
 
 export function commitImport(file: File, decisions: ImportDecisions): Promise<CommitResult> {
