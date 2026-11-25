@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useReducer, useRef, useState } from 'react'
-import { Link } from 'react-router'
+import { Link, useNavigate } from 'react-router'
 
 import { analyzeImport, type CommitResult, importKeys, previewImport } from '../api/imports'
 import { refreshAfterWrite } from '../api/refresh'
@@ -14,7 +14,7 @@ import { ImportResult } from './ImportResult'
 import { flowReducer, INITIAL_FLOW, type Step } from './importFlow'
 import { NO_DECISIONS, previewOptions, type ReviewDecisions } from './importPlan'
 import { importErrorMessage } from './messages'
-import { rememberFile } from './rememberedFile'
+import { forgetFile, rememberFile } from './rememberedFile'
 import { ReviewStep } from './ReviewStep'
 import { SheetStep } from './SheetStep'
 import './imports.css'
@@ -36,6 +36,7 @@ function stepIndex(step: Step): number {
 export function ImportPage() {
   const [state, dispatch] = useReducer(flowReducer, INITIAL_FLOW)
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   // Only the latest analysis may update the page (a slower earlier one is ignored).
   const latest = useRef(0)
   // The import agent is reading the file (a minute or so).
@@ -100,6 +101,13 @@ export function ImportPage() {
     latest.current += 1
     setAgentReading(false)
     dispatch({ type: 'reset' })
+  }
+
+  // The import is abandoned before anything is written: the file is forgotten and the page left.
+  function abandon() {
+    latest.current += 1
+    void forgetFile()
+    void navigate('/prospection')
   }
 
   async function askAgent() {
@@ -247,6 +255,7 @@ export function ImportPage() {
           onReset={() => {
             dispatch({ type: 'reset' })
           }}
+          onCancel={abandon}
         />
       )}
       {step === 'done' && state.committed && (

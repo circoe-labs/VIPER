@@ -117,6 +117,26 @@ describe('Excel import page', () => {
     expect(screen.queryByRole('region', { name: /Rôles non reconnus/ })).not.toBeInTheDocument()
   })
 
+  it('abandons the whole import from the review, after a confirmation', async () => {
+    const sent = stubImports()
+    renderApp('/prospection/import')
+    await uploadAndConfirm()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Annuler l’import' }))
+    const dialog = screen.getByRole('dialog', { name: 'Annuler cet import ?' })
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Continuer la vérification' }))
+    expect(screen.getByRole('heading', { name: 'Vérification de l’import' })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Annuler l’import' }))
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Annuler l’import' }))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('heading', { name: 'Vérification de l’import' })).not.toBeInTheDocument()
+    })
+    expect(screen.queryByLabelText('Fichier à importer')).not.toBeInTheDocument()
+    expect(sent.map((item) => item.path)).toEqual(['/api/imports/preview'])
+  })
+
   it('summarises the commit, requires the legal basis, then shows the result', async () => {
     const sent = stubImports()
     renderApp('/prospection/import')

@@ -553,6 +553,9 @@ run, rolled back); `POST /api/imports/{id}/cancel` does it and marks the batch `
   still hold the imported one.
 - Roles, categories and cohorts created in Settings stay. Audit history stays.
 
+Before the commit there is nothing to undo: on the review screen, « Annuler l’import » (after a confirmation)
+drops the review, forgets the file kept in the browser and returns to Prospection.
+
 ## Import redesign — cohorts, sequences and human precedence (Slice S2)
 
 Sequences rework, Slice S2 (`tasks/viper_import_excel_sequences/`, decisions D3, D4, D5, D10, D11, D12; decision log

@@ -2,6 +2,7 @@ import { type ReactNode, useMemo, useState } from 'react'
 
 import type { CommitResult, PreviewResult } from '../api/imports'
 import { Button } from '../ui/Button'
+import { Modal } from '../ui/Dialog'
 import { ExportWorkbookButton } from '../exports/ExportWorkbookButton'
 import {
   AlertIcon,
@@ -45,6 +46,8 @@ interface ReviewStepProps {
   // The page's step bar, shown under the title, and « Nouvel import » (back to the file choice).
   stepper: ReactNode
   onReset: () => void
+  // « Annuler l’import », once confirmed: the whole import is abandoned (nothing is written yet).
+  onCancel: () => void
 }
 
 const KPIS: {
@@ -93,13 +96,14 @@ function remarkGroup(code: string): string {
 const SEVERITY_ORDER = { error: 0, warning: 1, info: 2 }
 
 // The review: summary with filters, what to resolve (grouped by raw value) and the row table, then the commit.
-export function ReviewStep({ file, preview, decisions, reanalyzing, decide, onReanalyse, onCommitted, stepper, onReset }: ReviewStepProps) {
+export function ReviewStep({ file, preview, decisions, reanalyzing, decide, onReanalyse, onCommitted, stepper, onReset, onCancel }: ReviewStepProps) {
   const review = preview.review
   const summary = review.preview.summary
   const [tab, setTab] = useState<'resolve' | 'rows'>('resolve')
   const [filters, setFilters] = useState<RowFilters>({ status: 'all', code: null, search: '' })
   const [openRow, setOpenRow] = useState<number | null>(null)
   const [confirming, setConfirming] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
   const [remarksOpen, setRemarksOpen] = useState(false)
   const plan = useMemo(() => commitSummary(review, decisions), [review, decisions])
   const issues = useMemo(() => rowIssues(review, decisions), [review, decisions])
@@ -173,6 +177,13 @@ export function ReviewStep({ file, preview, decisions, reanalyzing, decide, onRe
           </p>
         </div>
         <div className="import-head__actions" role="region" aria-label="Import">
+          <Button
+            onClick={() => {
+              setCancelling(true)
+            }}
+          >
+            Annuler l’import
+          </Button>
           <Button onClick={onReset}>Nouvel import</Button>
           <ExportWorkbookButton />
           <Button
@@ -360,6 +371,32 @@ export function ReviewStep({ file, preview, decisions, reanalyzing, decide, onRe
           />
         )}
       </Tabs>
+
+      {cancelling && (
+        <Modal
+          open
+          onClose={() => {
+            setCancelling(false)
+          }}
+          title="Annuler cet import ?"
+          footer={
+            <>
+              <Button
+                onClick={() => {
+                  setCancelling(false)
+                }}
+              >
+                Continuer la vérification
+              </Button>
+              <Button variant="danger" onClick={onCancel}>
+                Annuler l’import
+              </Button>
+            </>
+          }
+        >
+          <p>Rien n’a été enregistré. Le fichier et vos choix de vérification seront abandonnés.</p>
+        </Modal>
+      )}
 
       {confirming && (
         <CommitDialog
