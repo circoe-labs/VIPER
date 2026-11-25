@@ -7,13 +7,22 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import Company, ContactSequence, Email, Establishment, Prospect, ProspectSource
+from app.models import (
+    Company,
+    ContactMessage,
+    ContactSequence,
+    Email,
+    Establishment,
+    Prospect,
+    ProspectSource,
+)
 from app.models.enums import ImportBatchStatus
-from app.services import import_cancel, prospects
+from app.services import audit, import_cancel, prospects
 from app.services.errors import BusinessRuleError
 from tests.builders import OPERATOR
 from tests.import_support import seed
 from tests.test_import_commit import commit, review_of, upload
+from tests.test_operational_import import run
 
 IMPORTS = "/api/imports"
 
@@ -93,6 +102,28 @@ def test_a_prospect_used_since_is_kept_with_its_company(
     assert (done.prospects_deleted, done.prospects_kept, done.companies_kept) == (7, 1, 1)
     assert db_session.get(Prospect, hugo.id) is not None
     assert db_session.get(Company, hugo.company_id) is not None
+
+
+def test_a_sequence_added_to_an_existing_prospect_and_used_since_is_kept(
+    db_session: Session, ids: dict[str, uuid.UUID]
+) -> None:
+    row = {"week": "S37", "company": "Logistique Démo", "last_name": "Exemple", "first_name": "Luc"}
+    batch_id = run(db_session, [row]).batch.id
+    send = db_session.scalars(
+        select(ContactMessage).where(ContactMessage.prospect_id == ids["luc"])
+    ).one()
+    audit.record_event(  # something a person did on the message afterwards
+        db_session,
+        OPERATOR,
+        "contact_message.reviewed",
+        entity_type="contact_message",
+        entity_id=send.id,
+        subject=("prospect", ids["luc"]),
+    )
+
+    import_cancel.cancel(db_session, OPERATOR, batch_id)
+
+    assert db_session.get(ContactMessage, send.id) is not None
 
 
 def test_only_a_committed_import_can_be_cancelled_once(

@@ -95,6 +95,13 @@ export function ImportPage() {
     dispatch({ type: 'analyzed', preview: result })
   }
 
+  // The running analysis is abandoned: its answer, when it comes, is ignored.
+  function stopAnalysis() {
+    latest.current += 1
+    setAgentReading(false)
+    dispatch({ type: 'reset' })
+  }
+
   async function askAgent() {
     if (!file) return
     latest.current += 1
@@ -204,7 +211,7 @@ export function ImportPage() {
         </p>
       )}
       {(step === 'idle' || step === 'analyzing') && (
-        <FileDrop busy={step === 'analyzing'} agent={agentReading} fileName={file?.name ?? null} onFile={choose} />
+        <FileDrop busy={step === 'analyzing'} agent={agentReading} fileName={file?.name ?? null} onFile={choose} onCancel={stopAnalysis} />
       )}
       {step === 'sheet' && preview && (
         <SheetStep

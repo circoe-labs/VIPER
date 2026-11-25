@@ -9,10 +9,12 @@ interface FileDropProps {
   agent: boolean
   fileName: string | null
   onFile: (file: File) => void
+  // Stops waiting for the running analysis (nothing is written by an analysis).
+  onCancel: () => void
 }
 
 // Drop zone + file picker. The chosen file stays in the page's memory and is sent for analysis only.
-export function FileDrop({ busy, agent, fileName, onFile }: FileDropProps) {
+export function FileDrop({ busy, agent, fileName, onFile, onCancel }: FileDropProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const titleId = useId()
   const [over, setOver] = useState(false)
@@ -64,6 +66,7 @@ export function FileDrop({ busy, agent, fileName, onFile }: FileDropProps) {
               ? `Mise en page inhabituelle : « ${fileName ?? ''} » est décortiqué, cela peut prendre une à deux minutes…`
               : `Lecture de « ${fileName ?? ''} » : feuilles, colonnes, valeurs et doublons…`}
           </p>
+          <Button onClick={onCancel}>Annuler l’analyse</Button>
         </>
       ) : (
         <>

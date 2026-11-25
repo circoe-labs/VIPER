@@ -323,4 +323,22 @@ describe('Excel import page', () => {
     expect(calls).toContain('POST cancel')
   })
 
+
+  it('lets the person cancel a running analysis', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: string) => {
+        const { pathname } = new URL(input, 'http://localhost')
+        if (pathname === '/api/imports/preview') return new Promise<Response>(() => undefined)
+        return json(200, [])
+      }),
+    )
+    renderApp('/prospection/import')
+
+    await userEvent.upload(screen.getByLabelText('Fichier à importer'), FILE)
+    await userEvent.click(await screen.findByRole('button', { name: 'Annuler l’analyse' }))
+
+    expect(screen.getByRole('button', { name: /Choisir un fichier/ })).toBeInTheDocument()
+  })
+
 })

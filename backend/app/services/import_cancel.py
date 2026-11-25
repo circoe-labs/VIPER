@@ -30,6 +30,7 @@ from app.db.base import Base
 from app.models import (
     ActivityCategory,
     Company,
+    ContactMessage,
     ContactSequence,
     ContactTracking,
     Email,
@@ -164,7 +165,7 @@ def cancel(session: Session, actor: ActorContext, batch_id: uuid.UUID) -> Cancel
                 getattr(row, "prospect_id", None) in new_prospects
                 or getattr(row, "company_id", None) in new_companies
             )
-            if owner_new or _touched(session, batch_id, entity_id):
+            if owner_new or _touched(session, batch_id, _parts(session, row)):
                 continue  # part of a kept new record, or someone worked on it
             if model is Establishment and _linked(session, "establishments", entity_id):
                 continue
@@ -235,12 +236,17 @@ def _changed_since(
     )
 
 
-def _touched(session: Session, batch_id: uuid.UUID, entity_id: uuid.UUID) -> bool:
-    return bool(
-        session.scalar(
-            select(exists().where(AuditLogEntry.entity_id == entity_id).where(_outside(batch_id)))
-        )
-    )
+def _parts(session: Session, row: Any) -> list[uuid.UUID]:
+    """The row and what would be deleted with it: a sequence takes its messages."""
+    if not isinstance(row, ContactSequence):
+        return [row.id]
+    messages = select(ContactMessage.id).where(ContactMessage.sequence_id == row.id)
+    return [row.id, *session.scalars(messages)]
+
+
+def _touched(session: Session, batch_id: uuid.UUID, entity_ids: list[uuid.UUID]) -> bool:
+    written = exists().where(AuditLogEntry.entity_id.in_(entity_ids)).where(_outside(batch_id))
+    return bool(session.scalar(select(written)))
 
 
 def _linked(session: Session, target: str, record_id: uuid.UUID) -> bool:
