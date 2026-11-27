@@ -20,8 +20,7 @@ Member fiches are ignored.
 
 ## Override
 
-« C'est bien son adresse » (`POST /prospects/{id}/email-identity`, `…/revoke`; warehouse mails:
-`POST /warehouses/drafts/{id}/confirm-recipient`) records who and when, per (person, address), in
+« C'est bien son adresse » (`POST /prospects/{id}/email-identity`, `…/revoke`) records who and when, per (person, address), in
 `email_identity_confirmations` (migration 0064), with the audit events
 `email_identity.confirmed` / `.confirmation_removed`. Only a signed-in person may. The
 confirmation is removed when the address leaves the person (`contact_recipients`), so a changed
@@ -39,7 +38,7 @@ address is asked again, also if it later comes back.
   claiming and sends the mail back to Validé (`email_identity_doubt`). Recipients checked are
   those the message really holds: every `To`, and the copies that are the person's own addresses.
   A person may still write or edit a draft (to correct it) and declare a send already made.
-- Warehouse mails (preprogramming, validation, scheduling, recovery, dispatch): doubtful when the
+- Former warehouse mails still programmed (dispatch): doubtful when the
   address plainly names someone else than the warehouse contact, or is doubtful for every prospect
   holding it.
 - File status: a doubtful address never counts as a verified e-mail, whatever its stored status: the

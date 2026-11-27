@@ -5,7 +5,7 @@ A warehouse mail holds a free-text recipient, so an address change or removal do
 - `stop_for_removed` (called with every address change, `contact_recipients`): a mail to an
   address a person no longer actively holds loses its human validation, and a planned or
   scheduled one becomes `failed` (`recipient_changed`) — a person validates it again;
-- `refusal` is the one send check (validation, programming and the send itself); it does not rely
+- `refusal` is the send check; it does not rely
   on that having been called. In order: the blocks of `eligibility.warehouse_block`; then the audit
   log for an address nobody actively holds (someone who held it and is blocked still blocks it, and
   one removed after the mail's last human validation waits for a new one); then an address that
@@ -78,18 +78,17 @@ def stop_for_removed(
     return stopped
 
 
-def refusal(session: Session, draft: WarehouseDraft, *, deciding: bool = False) -> str | None:
+def refusal(session: Session, draft: WarehouseDraft) -> str | None:
     """Why the mail may not leave (an `eligibility.Block` value, `recipient_changed` or
-    `email_identity.CODE`), None when it may. `deciding`: a person is validating or preparing it,
-    which is the new decision a removed address asks for; a block or a doubt still refuses."""
-    code = _lifecycle_refusal(session, draft, deciding)
+    `email_identity.CODE`), None when it may."""
+    code = _lifecycle_refusal(session, draft)
     if code is not None:
         return code
     doubt = email_identity.warehouse_doubt(session, draft)
     return email_identity.CODE if doubt is not None else None
 
 
-def _lifecycle_refusal(session: Session, draft: WarehouseDraft, deciding: bool) -> str | None:
+def _lifecycle_refusal(session: Session, draft: WarehouseDraft) -> str | None:
     block = eligibility.warehouse_block(session, draft)
     if block is not None:
         return block.value
@@ -118,8 +117,6 @@ def _lifecycle_refusal(session: Session, draft: WarehouseDraft, deciding: bool) 
     blocks = set(blocked.values())
     if eligibility.Block.DO_NOT_CONTACT.value in blocks:
         return eligibility.Block.DO_NOT_CONTACT.value  # no validation ever lifts an opposition
-    if deciding:
-        return None
     if blocks and not _validated_after_blocks(session, draft, list(blocked)):
         return next(item.value for item in eligibility.Block if item.value in blocks)
     removed_at = session.scalar(

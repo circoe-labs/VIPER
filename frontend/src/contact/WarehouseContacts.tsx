@@ -27,8 +27,6 @@ function situation(draft: WarehouseDraft, now: number): { label: string; tone: S
       return draft.scheduled_at && new Date(draft.scheduled_at).getTime() < now
         ? { label: 'Heure passée, pas encore parti', tone: 'warning', problem: true }
         : { label: 'Programmé', tone: 'info', problem: false }
-    case 'planned':
-      return { label: 'Préprogrammé, à valider', tone: 'warning', problem: false }
     default:
       return null
   }
@@ -84,6 +82,7 @@ export function WarehouseContacts() {
           {draft.failure_code && <span>{sendReason(draft.failure_code)}{draft.failed_at ? ` (le ${formatShortDateTime(draft.failed_at)})` : ''}</span>}
         </li>)}</ul>
       </section>)}
+      <Link to="/prospection/warehouse-drafts">Vérifier ou retirer un mail</Link>
       <Link to="/prospection?entity=warehouse">Gérer les fiches d’entrepôt</Link>
     </div>}
   </section>

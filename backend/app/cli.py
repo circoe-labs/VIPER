@@ -27,11 +27,9 @@ counts. It uses the token file of the API (`VIPER_TOOLBOX_TOKEN_STORE_PATH`): co
 Settings page first. Exit code 1 when the Toolbox is disabled, not configured, not connected, or
 the pass was stopped by the connection (`blocked`).
 
-`warehouse-drafts-rewrite` brings the unsent, never hand-edited warehouse drafts to the current
-wording (own subject, short job title, no company picked from several). It only prints what it would
-change; `--apply` writes it. A rewritten draft loses its validation and its programming (it keeps
-its proposed date). It also counts the unsent AI messages sharing a subject, which it never changes
-(regenerate them in the Contact page).
+`warehouse-people` links the people of the warehouse listings to prospects: unambiguous matches
+are attached, clearly new people of warehouses with an owning company are created, everything else
+is listed for a person. It writes nothing unless `--apply` is given.
 
 `contact-dispatch --once` runs one pass of the scheduled sending (S7) — the pass the API's worker
 runs every `VIPER_CONTACT_DISPATCH_INTERVAL_MS` — and prints its counts; same Toolbox requirements
@@ -60,7 +58,7 @@ from app.services import (
     email_identity_listing,
     mcp_tokens,
     warehouse_discovery,
-    warehouse_draft_rewrite,
+    warehouse_people,
 )
 from app.services.audit import attributed_unit_of_work
 from app.services.auth import create_or_reset_user
@@ -181,10 +179,33 @@ def backfill_warehouses(session_factory: sessionmaker[Session], args: argparse.N
     return "\n".join(output)
 
 
-def rewrite_warehouse_drafts(session_factory: sessionmaker[Session], apply: bool) -> str:
+def link_warehouse_people(session_factory: sessionmaker[Session], apply: bool) -> str:
     with attributed_unit_of_work(session_factory, CLI_ACTOR) as session:
-        report = warehouse_draft_rewrite.rewrite(session, CLI_ACTOR, apply=apply)
-    return report.render(apply)
+        # As above: the dry run does the real work and undoes it.
+        savepoint = session.begin_nested()
+        lines = warehouse_people.backfill(session, CLI_ACTOR)
+        if not apply:
+            savepoint.rollback()
+    labels = {
+        "linked": "DÉJÀ PROSPECT",
+        "to_link": "RATTACHÉ" if apply else "À RATTACHER",
+        "to_create": "CRÉÉ" if apply else "À CRÉER",
+        "ambiguous": "À TRANCHER",
+        "no_company": "SANS SOCIÉTÉ",
+        "owner": "PROPRIÉTAIRE À VÉRIFIER",
+        "incomplete": "NOM INCOMPLET",
+        "not_a_person": "PAS UNE PERSONNE",
+    }
+    output = [
+        " | ".join(filter(None, (labels[x.status], x.warehouse, x.contact_name, x.detail or None)))
+        for x in lines
+    ]
+    counts = Counter(x.status for x in lines)
+    summary = ", ".join(f"{labels[status]} : {count}" for status, count in counts.items())
+    output.append(summary or "Aucune personne dans les entrepôts.")
+    if not apply:
+        output.append("Simulation : rien n’a été écrit. Relancer avec --apply pour écrire.")
+    return "\n".join(output)
 
 
 def create_agent_token(session_factory: sessionmaker[Session], args: argparse.Namespace) -> str:
@@ -287,11 +308,11 @@ def main(
     cleanup.add_argument(
         "--once", action="store_true", required=True, help="one pass, then exit (no loop)"
     )
-    rewrite = commands.add_parser(
-        "warehouse-drafts-rewrite",
-        help="new wording for unsent, never hand-edited warehouse drafts (dry run by default)",
+    people = commands.add_parser(
+        "warehouse-people",
+        help="link the warehouse people to prospects (dry run by default)",
     )
-    rewrite.add_argument("--apply", action="store_true", help="write the changes")
+    people.add_argument("--apply", action="store_true", help="write the links and new prospects")
     dispatch = commands.add_parser(
         "contact-dispatch", help="scheduled sending of Contact messages (one pass, or hold all)"
     )
@@ -332,8 +353,8 @@ def main(
                     session_factory, toolbox or ToolboxIntegration(settings), settings
                 )
             )
-        elif args.command == "warehouse-drafts-rewrite":
-            print(rewrite_warehouse_drafts(session_factory, args.apply))
+        elif args.command == "warehouse-people":
+            print(link_warehouse_people(session_factory, args.apply))
         elif args.command == "toolbox-cleanup":
             print(toolbox_cleanup(session_factory, toolbox or ToolboxIntegration(settings)))
         else:

@@ -13,6 +13,7 @@ import { Badge, StatusBadge, type StatusTone } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { BanIcon, BuildingIcon, ExpandIcon, PauseIcon } from '../ui/icons'
 import { ProspectOverlay } from './ProspectOverlay'
+import { ProspectWarehouseMails } from '../warehouses/WarehouseMails'
 import '../prospects/prospects.css'
 
 const VERIFICATION: Record<ChannelVerification, { tone: StatusTone; label: string }> = {
@@ -158,6 +159,7 @@ export function ProspectSheet({ prospect, compact = false }: { prospect: Prospec
           </ul>
         )}
       </EditorSection>
+      <ProspectWarehouseMails prospectId={prospect.id} />
       {overlay && (
         <ProspectOverlay
           prospectId={prospect.id}

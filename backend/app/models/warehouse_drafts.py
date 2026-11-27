@@ -37,11 +37,13 @@ class WarehouseDraft(UUIDPrimaryKeyMixin, Base):
     failure_code: Mapped[str | None] = mapped_column(String(255))
     failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    @property
-    def recovery_possible(self) -> bool:
-        """A human may reprogram only an approved send with no saved remote draft."""
-        return (
-            self.send_state == "uncertain"
-            and self.validated_at is not None
-            and self.remote_draft_id is None
-        )
+    # When it left (the dispatcher, or a person saying so).
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # The prospect this mail's person is (`services/warehouse_people`).
+    prospect_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("prospects.id", ondelete="SET NULL"), index=True
+    )
+    # The Contact step that accounts for this send (`services/warehouse_history`).
+    carried_message_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("contact_messages.id", ondelete="SET NULL"), index=True
+    )

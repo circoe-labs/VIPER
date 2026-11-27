@@ -20,7 +20,7 @@ const PAGE_SIZE = 50 // fixed by `useWarehouses` (limit=50)
 
 // Entrepôts: control bar (search, sort, filters), then the existing warehouse cards and editor/import dialogs.
 // URL: `entity=warehouse`, `q`, `page` and the entity's filters (criteria.ts).
-// Drafts have their own page: /prospection/warehouse-drafts (« Brouillons »).
+// The former warehouse mails have their own page: /prospection/warehouse-drafts.
 export function WarehousesPanel({ view, update, refine, search }: EntityPanelProps) {
   const counts = useWarehouseCounts()
   const [editing, setEditing] = useState<string | null | undefined>(undefined)
@@ -50,7 +50,7 @@ export function WarehousesPanel({ view, update, refine, search }: EntityPanelPro
         busy={warehouses.isFetching}
         actions={
           <>
-            <Link to="/prospection/warehouse-drafts" className="btn btn--ghost btn--md">Brouillons</Link>
+            <Link to="/prospection/warehouse-drafts" className="btn btn--ghost btn--md">Mails d’entrepôts</Link>
             <Button icon={UploadIcon} onClick={() => { setImporting(true) }}>Importer Excel</Button>
             <Button variant="primary" icon={PlusIcon} onClick={() => { setEditing(null) }}>Ajouter un entrepôt</Button>
           </>

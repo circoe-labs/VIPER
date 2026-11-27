@@ -1,13 +1,11 @@
 """Protected warehouse directory and its dedicated workbook import."""
 
-import logging
-import re
 import uuid
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
@@ -17,30 +15,34 @@ from app.api.errors import business_errors, refusal
 from app.api.query_types import Department, Many
 from app.api.routes.email_identity import IdentityDoubtOut
 from app.core.actor import ActorType
-from app.models import Warehouse, WarehouseDraft
+from app.models import WarehouseDraft
+from app.models.enums import Civility
 from app.repositories.list_sort import EntitySort
 from app.services import (
     audit,
-    eligibility,
     email_identity,
-    warehouse_addresses,
+    prospects,
+    warehouse_history,
     warehouse_import,
+    warehouse_people,
     warehouses,
 )
-from app.services.contact_schedule_trace import RECIPIENT_CHANGED
 from app.services.errors import InvalidFieldError
-from app.services.warehouse_draft_text import apply_category
 from app.services.warehouses import WarehouseCounts, WarehouseInput, WarehouseOut, WarehousePage
 
 router = APIRouter(prefix="/warehouses", tags=["warehouses"])
-logger = logging.getLogger(__name__)
+# A mail still « being sent » this long after its moment is settled by a person.
+STALE_SENDING = timedelta(minutes=15)
 
 
 class WarehouseDraftOut(BaseModel):
+    """A mail of the former warehouse pipeline: history, or still programmed."""
+
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
+    warehouse_id: uuid.UUID
+    prospect_id: uuid.UUID | None
     phase: int
-    prospecting_category: Literal['sme', 'other'] | None = None
     warehouse_name: str
     contact_name: str
     contact_role: str | None
@@ -55,65 +57,53 @@ class WarehouseDraftOut(BaseModel):
     human_validated: bool
     scheduled_at: datetime | None
     send_state: str | None
-    recovery_possible: bool
+    sent_at: datetime | None
     failure_code: str | None
     failed_at: datetime | None
     # The recipient looks like someone else's (`email_identity`): nothing can be sent.
     identity_doubt: IdentityDoubtOut | None = None
 
 
-def draft_out(
-    draft: WarehouseDraft, category: str | None, doubt: email_identity.Doubt | None
-) -> WarehouseDraftOut:
-    return WarehouseDraftOut.model_validate(draft).model_copy(
-        update={
-            "prospecting_category": category,
-            "identity_doubt": IdentityDoubtOut.model_validate(doubt) if doubt else None,
-        }
-    )
-
-
-@router.get("/drafts", response_model=list[WarehouseDraftOut])
-def list_drafts(session: SessionDep) -> list[WarehouseDraftOut]:
-    rows = session.execute(
-        select(WarehouseDraft, Warehouse.prospecting_category)
-        .join(Warehouse, Warehouse.id == WarehouseDraft.warehouse_id)
-        .order_by(WarehouseDraft.warehouse_name, WarehouseDraft.contact_name, WarehouseDraft.id)
-    ).tuples().all()
+def drafts_out(session: SessionDep, drafts: list[WarehouseDraft]) -> list[WarehouseDraftOut]:
     doubts = email_identity.warehouse_doubts(
-        session, [draft for draft, _ in rows if draft.send_state != "sent"]
+        session, [draft for draft in drafts if draft.send_state != "sent"]
     )
-    return [draft_out(draft, category, doubts.get(draft.id)) for draft, category in rows]
+    return [
+        WarehouseDraftOut.model_validate(draft).model_copy(
+            update={
+                "identity_doubt": IdentityDoubtOut.model_validate(doubts[draft.id])
+                if draft.id in doubts
+                else None
+            }
+        )
+        for draft in drafts
+    ]
 
 
-class WarehouseDraftEdit(BaseModel):
+@router.get("/drafts")
+def list_drafts(
+    session: SessionDep, prospect_id: uuid.UUID | None = None
+) -> list[WarehouseDraftOut]:
+    """Every warehouse mail, or one prospect's (`warehouse_history.mails_of`)."""
+    if prospect_id is not None:
+        with business_errors():
+            prospects.get_prospect(session, prospect_id)
+        return drafts_out(session, warehouse_history.mails_of(session, prospect_id))
+    rows = session.scalars(
+        select(WarehouseDraft).order_by(
+            WarehouseDraft.warehouse_name, WarehouseDraft.contact_name, WarehouseDraft.id
+        )
+    )
+    return drafts_out(session, list(rows))
+
+
+class WarehouseDraftRevision(BaseModel):
     revision: int = Field(ge=1)
-    recipient: str = Field(max_length=320)
-    subject: str = Field(min_length=1, max_length=998)
-    body: str = Field(min_length=1, max_length=30000)
 
 
-class WarehouseDraftValidation(BaseModel):
-    revision: int = Field(ge=1)
-
-
-class WarehouseDraftSchedule(WarehouseDraftValidation):
-    scheduled_at: AwareDatetime
-
-
-class WarehouseDraftBatchItem(WarehouseDraftValidation):
-    id: uuid.UUID
-
-
-class WarehouseDraftBatchSchedule(BaseModel):
-    scheduled_at: AwareDatetime
-    drafts: list[WarehouseDraftBatchItem] = Field(min_length=1, max_length=500)
-
-
-class WarehouseDraftBatchRecovery(BaseModel):
-    scheduled_at: AwareDatetime
-    confirmed_not_sent: Literal[True]
-    drafts: list[WarehouseDraftBatchItem] = Field(min_length=1, max_length=500)
+class WarehouseDraftResolution(WarehouseDraftRevision):
+    # What the person saw in the mailbox: the mail is in the sent items, or it is not.
+    sent: bool
 
 
 def locked_draft(session: SessionDep, draft_id: uuid.UUID, revision: int) -> WarehouseDraft:
@@ -123,168 +113,7 @@ def locked_draft(session: SessionDep, draft_id: uuid.UUID, revision: int) -> War
     if draft is None:
         raise HTTPException(404, "Brouillon introuvable.")
     if draft.revision != revision:
-        raise HTTPException(409, "Ce brouillon a changé. Rechargez avant de continuer.")
-    return draft
-
-
-def blocked_reason(
-    session: SessionDep, draft: WarehouseDraft, *, deciding: bool = False
-) -> tuple[str, str] | None:
-    """The one send check (`warehouse_addresses.refusal`) said to a person, as (code, why in
-    French): nothing is prepared to leave to someone, or a company, removed from prospecting, to a
-    removed address without a new validation (`deciding`: this is that validation), or to an
-    address that looks like someone else's. None when the mail may leave."""
-    code = warehouse_addresses.refusal(session, draft, deciding=deciding)
-    if code is None:
-        return None
-    if code == email_identity.CODE:
-        doubt = email_identity.warehouse_doubt(session, draft)
-        label = email_identity.LABELS[doubt.reason] if doubt else "douteuse"
-        return code, f"l’adresse est {label} : corrigez-la ou confirmez-la"
-    if code == RECIPIENT_CHANGED:
-        return code, "l’adresse du destinataire a changé, validez à nouveau le message"
-    return code, eligibility.LABELS[eligibility.Block(code)].lower()
-
-
-def refuse_blocked(session: SessionDep, draft: WarehouseDraft, *, deciding: bool = False) -> None:
-    found = blocked_reason(session, draft, deciding=deciding)
-    if found is not None:
-        raise refusal(409, found[0], f"Envoi impossible pour {draft.contact_name} : {found[1]}.")
-
-
-class SkippedDraft(BaseModel):
-    id: uuid.UUID
-    contact_name: str
-    warehouse_name: str
-    code: str
-    reason: str
-
-
-class BatchOut(BaseModel):
-    scheduled: int
-    # Blocked drafts, left exactly as they were: the others are not held back by them.
-    skipped: list[SkippedDraft]
-
-
-def split_blocked(
-    session: SessionDep, drafts: list[WarehouseDraft], *, deciding: bool = False
-) -> tuple[list[WarehouseDraft], list[SkippedDraft]]:
-    free: list[WarehouseDraft] = []
-    skipped: list[SkippedDraft] = []
-    for draft in drafts:
-        found = blocked_reason(session, draft, deciding=deciding)
-        if found is None:
-            free.append(draft)
-            continue
-        skipped.append(
-            SkippedDraft(
-                id=draft.id,
-                contact_name=draft.contact_name,
-                warehouse_name=draft.warehouse_name,
-                code=found[0],
-                reason=found[1],
-            )
-        )
-    if skipped:
-        logger.info(
-            "warehouse_draft.batch_skipped skipped=%s codes=%s",
-            len(skipped),
-            ",".join(sorted({item.code for item in skipped})),
-        )
-    return free, skipped
-
-
-@router.put("/drafts/{draft_id}", response_model=WarehouseDraftOut)
-def edit_draft(
-    draft_id: uuid.UUID, body: WarehouseDraftEdit, session: SessionDep, actor: CurrentActor
-) -> WarehouseDraft:
-    draft = locked_draft(session, draft_id, body.revision)
-    if draft.send_state in ("sending", "uncertain", "sent"):
-        raise HTTPException(409, "Retirez la programmation avant de modifier ce message.")
-    recipient = body.recipient.strip()
-    if recipient and not re.fullmatch(r"[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+", recipient):
-        raise HTTPException(422, "Renseignez une seule adresse e-mail valide.")
-    if (
-        not body.subject.strip()
-        or not body.body.strip()
-        or "\n" in body.subject
-        or "\r" in body.subject
-    ):
-        raise HTTPException(422, "L’objet et le message sont obligatoires.")
-    if draft.send_state == "scheduled" and not recipient:
-        raise HTTPException(422, "Un message programmé doit avoir un destinataire valide.")
-    warehouse = session.get(Warehouse, draft.warehouse_id)
-    new_body = apply_category(body.body.strip(), warehouse.prospecting_category if warehouse else None)
-    if (draft.recipient != (recipient or None) or draft.subject != body.subject.strip() or draft.body != new_body):
-        draft.human_validated = False
-        if draft.send_state == "scheduled":
-            draft.send_state = "planned"
-    draft.recipient = recipient or None
-    draft.subject = body.subject.strip()
-    draft.body = new_body
-    draft.validated_at = datetime.now(UTC) if draft.send_state == "scheduled" else None
-    draft.validated_by = actor.display if draft.send_state == "scheduled" else None
-    if draft.send_state not in ("planned", "scheduled"):
-        draft.send_state = None
-    draft.revision += 1
-    session.flush()
-    audit.record_event(
-        session, actor, "warehouse_draft.updated", entity_type="warehouse_draft", entity_id=draft.id
-    )
-    return draft
-
-
-@router.post("/drafts/{draft_id}/confirm-recipient", response_model=WarehouseDraftOut)
-def confirm_recipient(
-    draft_id: uuid.UUID, body: WarehouseDraftValidation, session: SessionDep, actor: CurrentActor
-) -> WarehouseDraftOut:
-    """« C'est bien son adresse » for a warehouse contact."""
-    draft = locked_draft(session, draft_id, body.revision)
-    with business_errors():
-        email_identity.confirm_warehouse(session, actor, draft)
-    warehouse = session.get(Warehouse, draft.warehouse_id)
-    return draft_out(
-        draft,
-        warehouse.prospecting_category if warehouse else None,
-        email_identity.warehouse_doubt(session, draft),
-    )
-
-
-@router.post("/drafts/{draft_id}/validate", response_model=WarehouseDraftOut)
-def validate_draft(
-    draft_id: uuid.UUID, body: WarehouseDraftValidation, session: SessionDep, actor: CurrentActor
-) -> WarehouseDraft:
-    draft = locked_draft(session, draft_id, body.revision)
-    if draft.send_state in ("sending", "uncertain", "sent"):
-        raise HTTPException(409, "Ce message ne peut pas être validé dans son état actuel.")
-    if draft.send_state not in ("planned", "scheduled"):
-        raise HTTPException(422, "Préprogrammez ce brouillon avant de le valider.")
-    if not draft.recipient or not draft.subject.strip() or not draft.body.strip():
-        raise HTTPException(422, "Choisissez un destinataire et complétez l’objet et le message.")
-    refuse_blocked(session, draft, deciding=True)
-    warehouse = session.get(Warehouse, draft.warehouse_id)
-    content = draft.body.casefold()
-    if not warehouse or warehouse.prospecting_category not in ("sme", "other"):
-        raise HTTPException(422, "Classez d’abord l’entrepôt dans une catégorie de prospection.")
-    if ("dihnamo" in content) != (warehouse.prospecting_category == "sme"):
-        raise HTTPException(422, "Vérifiez la mention DIHNAMO selon la catégorie de l’entrepôt.")
-    if draft.send_state == "planned":
-        if draft.scheduled_at is None or draft.scheduled_at <= datetime.now(UTC):
-            raise HTTPException(422, "Choisissez une date de programmation future avant validation.")
-        draft.send_state = "scheduled"
-    draft.validated_at = datetime.now(UTC)
-    draft.validated_by = actor.display
-    if actor.type == ActorType.HUMAN:
-        draft.human_validated = True
-    draft.revision += 1
-    session.flush()
-    audit.record_event(
-        session,
-        actor,
-        "warehouse_draft.validated",
-        entity_type="warehouse_draft",
-        entity_id=draft.id,
-    )
+        raise HTTPException(409, "Ce mail a changé. Rechargez avant de continuer.")
     return draft
 
 
@@ -294,193 +123,10 @@ def warehouse_dispatch_status(request: Request) -> dict[str, bool]:
     return {"active": dispatcher is not None and dispatcher.status().active}
 
 
-@router.post("/drafts/{draft_id}/schedule", response_model=WarehouseDraftOut)
-def schedule_draft(
-    draft_id: uuid.UUID, body: WarehouseDraftSchedule, session: SessionDep, actor: CurrentActor
-) -> WarehouseDraft:
-    draft = locked_draft(session, draft_id, body.revision)
-    if draft.send_state in ("scheduled", "sending", "uncertain", "sent"):
-        raise HTTPException(409, "Ce message est déjà programmé ou son envoi doit être vérifié.")
-    refuse_blocked(session, draft)
-    if not draft.human_validated:
-        raise HTTPException(422, "Validez d’abord ce message individuellement.")
-    if (
-        not draft.recipient
-        or not re.fullmatch(r"[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+", draft.recipient)
-        or not draft.subject.strip()
-        or not draft.body.strip()
-    ):
-        raise HTTPException(422, "Vérifiez le destinataire, l’objet et le message.")
-    if body.scheduled_at <= datetime.now(UTC):
-        raise HTTPException(422, "Choisissez une date et une heure futures.")
-    draft.validated_at = datetime.now(UTC)
-    draft.validated_by = actor.display
-    draft.scheduled_at = body.scheduled_at
-    draft.send_state = "scheduled"
-    draft.remote_draft_id = None
-    draft.failure_code = draft.failed_at = None
-    draft.revision += 1
-    session.flush()
-    audit.record_event(
-        session,
-        actor,
-        "warehouse_draft.scheduled",
-        entity_type="warehouse_draft",
-        entity_id=draft.id,
-    )
-    return draft
-
-
-@router.post("/drafts/plan-batch")
-def plan_draft_batch(
-    body: WarehouseDraftBatchSchedule, session: SessionDep, actor: CurrentActor
-) -> BatchOut:
-    if body.scheduled_at <= datetime.now(UTC):
-        raise HTTPException(422, "Choisissez une date et une heure futures.")
-    ids = [item.id for item in body.drafts]
-    if len(set(ids)) != len(ids):
-        raise HTTPException(422, "Un brouillon apparaît plusieurs fois.")
-    expected = {item.id: item.revision for item in body.drafts}
-    drafts = list(session.scalars(
-        select(WarehouseDraft).where(WarehouseDraft.id.in_(ids))
-        .order_by(WarehouseDraft.id).with_for_update()
-    ))
-    if len(drafts) != len(ids) or any(
-        d.revision != expected[d.id] or d.send_state not in (None, "planned", "scheduled", "failed")
-        for d in drafts
-    ):
-        raise HTTPException(409, "Un brouillon a changé ou ne peut pas être préprogrammé.")
-    drafts, skipped = split_blocked(session, drafts, deciding=True)
-    for draft in drafts:
-        draft.scheduled_at = body.scheduled_at
-        draft.send_state = "planned"
-        draft.failure_code = draft.failed_at = None
-        draft.validated_at = None
-        draft.validated_by = None
-        draft.human_validated = False
-        draft.revision += 1
-        audit.record_event(session, actor, "warehouse_draft.planned", entity_type="warehouse_draft", entity_id=draft.id)
-    return BatchOut(scheduled=len(drafts), skipped=skipped)
-
-
-@router.post("/drafts/schedule-batch")
-def schedule_draft_batch(
-    body: WarehouseDraftBatchSchedule, session: SessionDep, actor: CurrentActor
-) -> BatchOut:
-    if body.scheduled_at <= datetime.now(UTC):
-        raise HTTPException(422, "Choisissez une date et une heure futures.")
-    ids = [item.id for item in body.drafts]
-    if len(set(ids)) != len(ids):
-        raise HTTPException(422, "Un brouillon apparaît plusieurs fois.")
-    expected = {item.id: item.revision for item in body.drafts}
-    drafts = list(
-        session.scalars(
-            select(WarehouseDraft)
-            .where(WarehouseDraft.id.in_(ids))
-            .order_by(WarehouseDraft.id)
-            .with_for_update()
-        )
-    )
-    if len(drafts) != len(ids):
-        raise HTTPException(409, "Un brouillon est introuvable. Rechargez la liste.")
-    drafts, skipped = split_blocked(session, drafts)
-    for draft in drafts:
-        if draft.revision != expected[draft.id] or draft.send_state in (
-            "scheduled",
-            "sending",
-            "uncertain",
-            "sent",
-        ):
-            raise HTTPException(
-                409, "Un brouillon a changé. Rechargez la liste avant de programmer."
-            )
-        if (
-            not draft.human_validated
-            or
-            not draft.recipient
-            or not re.fullmatch(r"[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+", draft.recipient)
-            or not draft.subject.strip()
-            or not draft.body.strip()
-        ):
-            raise HTTPException(
-                422, "Un brouillon ne contient pas une adresse et un message valides."
-            )
-    for draft in drafts:
-        draft.validated_at = datetime.now(UTC)
-        draft.validated_by = actor.display
-        draft.scheduled_at = body.scheduled_at
-        draft.send_state = "scheduled"
-        draft.remote_draft_id = None
-        draft.failure_code = draft.failed_at = None
-        draft.revision += 1
-        audit.record_event(
-            session,
-            actor,
-            "warehouse_draft.scheduled",
-            entity_type="warehouse_draft",
-            entity_id=draft.id,
-        )
-    return BatchOut(scheduled=len(drafts), skipped=skipped)
-
-
-@router.post("/drafts/recover-batch")
-def recover_uncertain_draft_batch(
-    body: WarehouseDraftBatchRecovery, session: SessionDep, actor: CurrentActor
-) -> BatchOut:
-    """Reprogram approved mails only after a person confirms the mailbox check.
-
-    Unknown sends with a saved remote draft id stay locked: they need individual reconciliation.
-    """
-    if body.scheduled_at <= datetime.now(UTC):
-        raise HTTPException(422, "Choisissez une date et une heure futures.")
-    ids = [item.id for item in body.drafts]
-    if len(set(ids)) != len(ids):
-        raise HTTPException(422, "Un brouillon apparaît plusieurs fois.")
-    expected = {item.id: item.revision for item in body.drafts}
-    drafts = list(
-        session.scalars(
-            select(WarehouseDraft)
-            .where(WarehouseDraft.id.in_(ids))
-            .order_by(WarehouseDraft.id)
-            .with_for_update()
-        )
-    )
-    if len(drafts) != len(ids):
-        raise HTTPException(409, "Un brouillon est introuvable. Rechargez la liste.")
-    drafts, skipped = split_blocked(session, drafts)
-    for draft in drafts:
-        if draft.revision != expected[draft.id] or not draft.recovery_possible:
-            raise HTTPException(
-                409,
-                "Un brouillon ne peut plus être repris sans vérification. Rechargez la liste.",
-            )
-        if (
-            not draft.recipient
-            or not re.fullmatch(r"[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+", draft.recipient)
-            or not draft.subject.strip()
-            or not draft.body.strip()
-        ):
-            raise HTTPException(422, "Un brouillon ne contient pas une adresse et un message valides.")
-    for draft in drafts:
-        draft.scheduled_at = body.scheduled_at
-        draft.send_state = "scheduled"
-        draft.failure_code = draft.failed_at = None
-        draft.revision += 1
-        audit.record_event(
-            session,
-            actor,
-            "warehouse_draft.scheduled",
-            entity_type="warehouse_draft",
-            entity_id=draft.id,
-            reason="Reprogrammé après confirmation humaine de l’absence dans les envoyés et brouillons Infomaniak.",
-        )
-    return BatchOut(scheduled=len(drafts), skipped=skipped)
-
-
-@router.post("/drafts/{draft_id}/unschedule", response_model=WarehouseDraftOut)
+@router.post("/drafts/{draft_id}/unschedule")
 def unschedule_draft(
-    draft_id: uuid.UUID, body: WarehouseDraftValidation, session: SessionDep, actor: CurrentActor
-) -> WarehouseDraft:
+    draft_id: uuid.UUID, body: WarehouseDraftRevision, session: SessionDep, actor: CurrentActor
+) -> WarehouseDraftOut:
     draft = locked_draft(session, draft_id, body.revision)
     if draft.send_state not in ("scheduled", "planned"):
         raise HTTPException(409, "La programmation ne peut plus être retirée ; vérifiez son état.")
@@ -496,7 +142,192 @@ def unschedule_draft(
         entity_type="warehouse_draft",
         entity_id=draft.id,
     )
-    return draft
+    return drafts_out(session, [draft])[0]
+
+
+@router.post("/drafts/{draft_id}/resolve")
+def resolve_draft(
+    draft_id: uuid.UUID, body: WarehouseDraftResolution, session: SessionDep, actor: CurrentActor
+) -> WarehouseDraftOut:
+    """A person settles a mail whose send is unknown, after looking in the mailbox. Nothing is
+    ever sent again: a mail that did not leave is written again from Contact."""
+    draft = locked_draft(session, draft_id, body.revision)
+    now = datetime.now(UTC)
+    stale = (
+        draft.send_state == "sending"
+        and draft.scheduled_at is not None
+        and now - draft.scheduled_at > STALE_SENDING
+    )
+    if actor.type != ActorType.HUMAN:
+        raise HTTPException(403, "Une personne doit vérifier la boîte d’envoi.")
+    if draft.send_state != "uncertain" and not stale:
+        raise HTTPException(409, "L’état de cet envoi n’est pas à vérifier. Rechargez la liste.")
+    if body.sent:
+        draft.send_state = "sent"
+        draft.sent_at = draft.failed_at or draft.scheduled_at or now
+        draft.failure_code = draft.failed_at = None
+    else:
+        draft.send_state = "failed"
+        draft.failure_code = "confirmed_not_sent"
+        draft.failed_at = now
+    draft.revision += 1
+    session.flush()
+    audit.record_event(
+        session,
+        actor,
+        "warehouse_draft.resolved",
+        entity_type="warehouse_draft",
+        entity_id=draft.id,
+        reason="sent" if body.sent else "not_sent",
+    )
+    if body.sent and draft.prospect_id is not None:
+        warehouse_history.carry(session, actor, draft.prospect_id, now=now)
+    return drafts_out(session, [draft])[0]
+
+
+class CandidateOut(BaseModel):
+    prospect_id: uuid.UUID
+    first_name: str
+    last_name: str
+    company_name: str | None
+    reasons: list[str]
+    block: str | None
+
+
+class PersonStateOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    block: str | None
+    tracking: str | None
+    cohort_code: str | None
+    sequence_open: bool
+    sent_count: int
+    last_sent_at: datetime | None
+    next_scheduled_at: datetime | None
+    warehouse_pending: bool
+    warehouse_uncounted: int
+
+
+class LinkedProspectOut(BaseModel):
+    id: uuid.UUID
+    first_name: str
+    last_name: str
+    company_name: str | None
+
+
+class WarehousePersonOut(BaseModel):
+    contact_name: str
+    kind: warehouse_people.Kind
+    role: str | None
+    emails: list[str]
+    status: warehouse_people.Status
+    first_name: str
+    last_name: str
+    civility: Civility | None
+    candidates: list[CandidateOut]
+    prospect: LinkedProspectOut | None
+    state: PersonStateOut | None
+
+
+class WarehousePeopleOut(BaseModel):
+    company_id: uuid.UUID | None
+    company_name: str | None
+    people: list[WarehousePersonOut]
+
+
+def person_out(row: warehouse_people.PersonRow) -> WarehousePersonOut:
+    found = row.prospect
+    return WarehousePersonOut(
+        contact_name=row.entry.contact_name,
+        kind=row.entry.kind,
+        role=row.entry.role,
+        emails=row.entry.addresses,
+        status=row.status,
+        first_name=row.suggested.first_name,
+        last_name=row.suggested.last_name,
+        civility=row.suggested.civility,
+        candidates=[
+            CandidateOut(
+                prospect_id=c.person.id,
+                first_name=c.person.first_name,
+                last_name=c.person.last_name,
+                company_name=c.person.company_name,
+                reasons=list(c.reasons),
+                block=block,
+            )
+            for c, block in row.candidates
+        ],
+        prospect=LinkedProspectOut(
+            id=found.id,
+            first_name=found.first_name,
+            last_name=found.last_name,
+            company_name=found.company_name,
+        )
+        if found
+        else None,
+        state=PersonStateOut.model_validate(row.state) if row.state else None,
+    )
+
+
+class NewPersonIn(BaseModel):
+    first_name: str = Field(max_length=500)
+    last_name: str = Field(max_length=500)
+    civility: Civility | None = None
+    company_id: uuid.UUID
+
+
+class LinkPersonIn(BaseModel):
+    """Exactly one of `prospect_id` (an existing record) or `create`."""
+
+    contact_name: str = Field(min_length=1, max_length=500)
+    prospect_id: uuid.UUID | None = None
+    create: NewPersonIn | None = None
+    # « C’est une autre personne » for the look-alikes in the base.
+    distinct_confirmed: bool = False
+
+    @model_validator(mode="after")
+    def one_choice(self) -> LinkPersonIn:
+        if (self.prospect_id is None) == (self.create is None):
+            raise ValueError("Give either prospect_id or create.")
+        return self
+
+
+class LinkPersonOut(BaseModel):
+    prospect_id: uuid.UUID
+
+
+@router.get("/{warehouse_id}/people")
+def list_people(warehouse_id: uuid.UUID, session: SessionDep) -> WarehousePeopleOut:
+    """The listing's people: linked prospects with their Contact state, the others with the
+    records they may be."""
+    with business_errors():
+        found = warehouse_people.read(session, warehouse_id)
+    return WarehousePeopleOut(
+        company_id=found.company_id,
+        company_name=found.company_name,
+        people=[person_out(row) for row in found.people],
+    )
+
+
+@router.post("/{warehouse_id}/people")
+def link_person(
+    warehouse_id: uuid.UUID, body: LinkPersonIn, session: SessionDep, actor: CurrentActor
+) -> LinkPersonOut:
+    with business_errors():
+        if body.prospect_id is not None:
+            prospect_id = warehouse_people.link(
+                session, actor, warehouse_id, body.contact_name, body.prospect_id
+            )
+        else:
+            assert body.create is not None
+            prospect_id = warehouse_people.create(
+                session,
+                actor,
+                warehouse_id,
+                body.contact_name,
+                warehouse_people.NewPerson(**body.create.model_dump()),
+                distinct_confirmed=body.distinct_confirmed,
+            )
+    return LinkPersonOut(prospect_id=prospect_id)
 
 
 class WarehouseReplace(WarehouseInput):

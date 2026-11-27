@@ -544,21 +544,6 @@ def confirm(session: Session, actor: ActorContext, prospect_id: uuid.UUID, addre
     _record(session, actor, _key(prospect_id), value, prospect_id, ("prospect", prospect_id))
 
 
-def confirm_warehouse(session: Session, actor: ActorContext, draft: WarehouseDraft) -> None:
-    """A person says the draft's recipient is really its contact."""
-    recipient = (draft.recipient or "").strip().lower()
-    if not recipient:
-        raise InvalidFieldError("recipient", "No recipient to confirm.", "blank")
-    _record(
-        session,
-        actor,
-        _name_key(draft.contact_name),
-        recipient,
-        None,
-        ("warehouse", draft.warehouse_id),
-    )
-
-
 def revoke(session: Session, actor: ActorContext, prospect_id: uuid.UUID, address: str) -> None:
     """A person takes a confirmation back: the address is doubted again."""
     if actor.type is not ActorType.HUMAN or not actor.id:

@@ -1,9 +1,19 @@
 """Warehouse sites and their source interlocutors, independent of verified prospect records."""
 
 import uuid
+from datetime import datetime
 from typing import Any
 
-from sqlalchemy import CheckConstraint, ForeignKey, String, Text, text
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -42,3 +52,25 @@ class Warehouse(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     source_reference: Mapped[str | None] = mapped_column(Text)
     source_key: Mapped[str | None] = mapped_column(String(64), unique=True)
+
+
+class WarehousePerson(UUIDPrimaryKeyMixin, Base):
+    """A person of a warehouse listing who is a prospect (migration 0066): from then on they are
+    written to from Contact only. `contact_key` is the folded name of the listing entry
+    (`services/warehouse_history.name_key`). Written by `services/warehouse_people` only."""
+
+    __tablename__ = "warehouse_people"
+    __table_args__ = (UniqueConstraint("warehouse_id", "contact_key"),)
+
+    warehouse_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("warehouses.id", ondelete="CASCADE")
+    )
+    contact_key: Mapped[str] = mapped_column(String(500))
+    contact_name: Mapped[str] = mapped_column(String(500))
+    prospect_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("prospects.id", ondelete="CASCADE"), index=True
+    )
+    linked_by_display: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )

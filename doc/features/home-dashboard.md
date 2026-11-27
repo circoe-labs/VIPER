@@ -9,7 +9,7 @@ remain the shared shell. There are no activity feeds, charts or tables on Home.
 | Field | Definition | Destination |
 |---|---|---|
 | `prospects` | Prospect records plus contacts on warehouse records; the same person can appear in both | `/prospection?list=1` and `/warehouses` |
-| `warehouse_contacts` | Number of contacts listed on warehouse records, included in `prospects` | `/warehouses` |
+| `warehouse_contacts` | Contacts listed on warehouse records and not yet linked to a prospect, included in `prospects` | `/warehouses` |
 | `companies` | Every company ID, once, including companies without prospects | `/prospection/companies` |
 | `contacted` | Distinct prospect IDs with at least one sent ContactMessage in any sequence, using `contact_dashboard.contacted_sql()` | `/contact?section=CONTACTES` (expanded contacted list) |
 | `appointments` | Existing Prospection `has_appointment()` rule: appointment status or a recorded appointment date, one tracking per prospect | `/prospection?segment=appointments` |

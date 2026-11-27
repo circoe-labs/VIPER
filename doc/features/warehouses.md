@@ -4,8 +4,9 @@
 It is accessible in the existing authenticated sidebar. A site can be recorded before its
 legal company, postal address or SIRET is known. Missing values stay empty.
 
-The original prospect, company, verification and Contact workflows are unchanged. Source
-interlocutors in this directory do not create verified prospects or mailing sequences.
+Source interlocutors stay in the listing; to be written to, a person becomes a **prospect**
+(see *Warehouse people*). Drafting, validation, scheduling, sending and history are Contact's
+([`contact.md`](contact.md)): there is one mail pipeline.
 
 ## Stored data
 
@@ -79,58 +80,101 @@ From `backend/` (target `VIPER_DATABASE_URL`); in production, inside the API con
 
 Running it again creates nothing new. Writes are audited as « Ligne de commande ».
 
-## Warehouse mail drafts
+## Warehouse people
 
-The draft view has PME/TPE and other-company tabs. Selecting a common date preplans drafts
-across both categories without authorizing dispatch. Each draft must then be reviewed and
-validated individually; validation authorizes its scheduled dispatch and opens the next draft.
-Validation checks the recorded name, warehouse, role, civilité and the DIHNAMO rule. When a
-role or category is missing it must be completed on the warehouse record before validation.
-Changing a validated message or its relevant warehouse details returns it to planned status.
-Unknown or alternative email addresses must be resolved before validation.
+Owner: `services/warehouse_people.py`. Migration `0066` adds `warehouse_people` (listing entry ->
+prospect) and, on `warehouse_drafts`, `prospect_id`, `carried_message_id`, `sent_at` (backfilled
+from the audit log). The migration creates no prospect.
 
-Drafts can be reviewed, edited, validated and scheduled individually. Scheduling stores the
-approved revision and the requested instant; the existing Contact dispatch worker sends due
-warehouse messages through the connected Toolbox, subject to the same sending switch, recipient
-allowlist and maximum lateness. An inactive dispatcher is shown in the editor. A scheduled mail
-can be unscheduled until the worker claims it. The worker records a durable claim before contacting
-the Toolbox; a timeout, error or interrupted send is never retried automatically, and the user
-must check the mailbox before taking further action. The messages are separate from Contact
-sequences and do not change a prospect's Contact status.
-A scheduled warehouse mail that does not (certainly) leave keeps `failure_code` and `failed_at` (migration 0061,
-backfilled from the audit log), cleared by a new plan or schedule. Contact › « Prospects entrepôt » lists every mail
-waiting to leave (scheduled whatever the day, preplanned, sending, uncertain, failed), failures first, with the reason;
-the section opens by itself when one needs attention.
+An entry is an interlocutor or the owner; identical names (accents, case, order and civility aside)
+of one site are one person. Each card line shows the person's state and actions, with or without
+any backfill:
 
-The group action sets the same proposed date on all eligible drafts; it does not validate them.
-The server checks every revision under lock and commits the whole batch or none of it. Editing a
-preprogrammed draft retains its proposed date. A fresh group plan clears previous validations.
+| State | Meaning | Action |
+| --- | --- | --- |
+| linked | the prospect: block (« Ne pas contacter », departed, archived, excluded), commercial state, « Semaine de contact », e-mails sent, next scheduled send, warehouse mail pending | « Contacter » (Contact workbench), « Fiche » |
+| « Fiche trouvée » | exactly one record: same name **and** same address or company | « Contacter » → attach, then Contact |
+| « À rattacher » | any other look-alike (same address under another name, homonym elsewhere, same family name and initial in the company, several records) | « Contacter » → a person chooses, or says it is someone else |
+| « Pas encore prospect » | nobody alike | « Contacter » → confirm first / last name and company, create |
+| « Nom incomplet » | one word only | the person completes it in the same dialog |
+| « Sans nom de personne » | mailbox, team, company, several names | not contactable: name a person with « Modifier » |
 
-### Generated wording
+- **No person, no prospect.** A message is addressed to a person; none is invented from
+  « Service expédition » or a company name. A generic address (`contact@`) of a named person is
+  fine.
+- **Creation** needs a company (prefilled with the warehouse's owning company, otherwise chosen or
+  created in the dialog). It copies the function, the addresses (primary only when there is
+  exactly one; all unverified) and records the provenance. It is refused while the same person is
+  in the base (`person_exists`), or when the address is that of someone under « Ne pas contacter »;
+  other look-alikes need the explicit « autre personne » (`person_to_confirm`).
+- **Linking** never changes an opposition or a hold. An existing record only receives the listing's
+  addresses when it has none. A blocked person's programmed warehouse mails stop (`failed`).
+- Not covered: undoing a link (it disappears only with the prospect); renaming a listing entry
+  shows it unlinked again (the same record is then proposed).
 
-`services/warehouse_draft_text.py` writes each draft; the naming rules are those of `mail_generation/naming.py`
-(`contact.md`, *Subjects and naming*).
-- *Subject*: names the company (the site label before its first dash), else the town, and a topic from the kind of
-  function; the variant depends on the contact and is never one another warehouse draft already uses (the contact's name
-  is appended only once every variant is taken).
-- *Several companies* in the site label: neither the subject nor the text names one (« au sujet de votre activité »).
-- *Function*: short form (« Directeur » for a long title); a company name inside the title is dropped.
+### Backfill
 
-Existing drafts are repaired by an operator command, from `backend/`:
+From `backend/`; in production inside the API container, as for `backfill-warehouses`:
 
-    python -m app.cli warehouse-drafts-rewrite           # dry run: lists the changes, writes nothing
-    python -m app.cli warehouse-drafts-rewrite --apply
+    python -m app.cli warehouse-people            # dry run: lists every person, writes nothing
+    python -m app.cli warehouse-people --apply
 
-It replaces only text the former template generated (its five fixed subjects, the company sentence, the sentences
-holding the long title). Drafts being sent, uncertain or sent, and drafts saved by hand from the editor, are never
-touched. A changed draft loses its validation and programming (it keeps its proposed date) and is audited
-`warehouse_draft.rewritten`. Running it again changes nothing.
+`À RATTACHER` (unambiguous match) is linked; `À CRÉER` (nobody alike, full name, warehouse with an
+owning company) is created. `À TRANCHER`, `SANS SOCIÉTÉ`, `PROPRIÉTAIRE À VÉRIFIER` (an owner is
+never created in bulk: it is often a company), `NOM INCOMPLET` and `PAS UNE PERSONNE` are only
+listed, for the warehouse sheet. Review the proposed first / last name split before applying.
+Running it again creates nothing new. Warehouses imported from a workbook have no owning company:
+attach them to a building first, or handle their people from the sheet.
+
+## Former warehouse mails
+
+No warehouse mail is written, edited, validated or programmed any more (saving « À contacter » no
+longer creates a draft). `warehouse_drafts` is history, listed on « Mails d'entrepôts »
+(`/prospection/warehouse-drafts`) and on the person's Contact sheet (« Mails entrepôt »). A draft
+never sent keeps its text there, for reading.
+
+What remains possible:
+
+- **Already programmed mails** (approved by a person) are still sent by the dispatch worker, with
+  the former checks (sending switch, allowlist, lateness, eligibility, former address, identity
+  doubt), and one more: never to a prospect who already has a Contact send (or one being sent) or
+  another warehouse mail sent or unsettled (`contacted_in_contact`). « Retirer la programmation »
+  withdraws one. Changing the warehouse category or the person's function stops it
+  (`warehouse_changed`).
+- **Unknown sends** (`uncertain`, or `sending` more than 15 minutes after its moment) are settled by
+  a person after checking the mailbox: « Il est parti » records the send, « Pas parti » marks it
+  `failed`. Nothing is sent again.
+
+### Never twice (`services/warehouse_history.py`)
+
+A warehouse mail is a prospect's when linked to them, or, unlinked, when it went to one of their
+addresses under their name.
+
+- While one is programmed, being sent or unknown, nothing is programmed or leaves from Contact for
+  that person (`warehouse_send_pending`, dispatcher `send_warehouse_pending`).
+- A **sent** one counts among the three e-mails: once the person is linked and has an open
+  « Semaine de contact » (not S0), it is recorded as the first unsent step (the Contact), with its
+  subject, text, recipient and send day, source `migration`. Two sends of one day are one step; a
+  Contact send recorded the same day or later covers it. Without a week it waits (nothing can be
+  prepared meanwhile) and is recorded when a week is chosen or imported. An unsent text of that
+  step stays in its versions. An uncounted send holds Contact sends back
+  (`warehouse_send_unrecorded`).
+- A later change of week restarts the sequence like for any prospect.
+
+The Contact drafting rules apply to these people: the former per-category DIHNAMO check of
+warehouse mails no longer exists.
+
+`services/warehouse_draft_text.py` (the former wording) is only kept because migration `0045`
+imports it.
 
 ## Workbook import
 
 Authenticated, CSRF-protected endpoints:
 
 - `GET /api/warehouses`, `GET /api/warehouses/counts`, `GET /api/warehouses/{id}`
+- `GET`, `POST /api/warehouses/{id}/people` (read states; attach `prospect_id` or `create`)
+- `GET /api/warehouses/drafts[?prospect_id=]`, `GET /api/warehouses/drafts/dispatch-status`,
+  `POST /api/warehouses/drafts/{id}/unschedule`, `POST /api/warehouses/drafts/{id}/resolve`
 - `POST /api/warehouses`, `PUT /api/warehouses/{id}` (version required)
 - `POST /api/warehouses/import-preview`, `POST /api/warehouses/import` (multipart `file`)
 
@@ -152,7 +196,8 @@ are executed. Tests use synthetic records and the dedicated test/E2E databases o
 
 ## Hors prospection
 
-A mail to the address of a person out of prospecting, or for the warehouse of an archived or excluded company, is
-refused and, when already planned or scheduled, becomes `failed` with the reason
-([`prospecting-lifecycle.md`](prospecting-lifecycle.md)). A recipient that looks like someone else's is blocked the
-same way until corrected or confirmed ([`email-identity.md`](email-identity.md)).
+A programmed warehouse mail to the address of a person out of prospecting (or to its linked person),
+or for the warehouse of an archived or excluded company, becomes `failed` with the reason
+([`prospecting-lifecycle.md`](prospecting-lifecycle.md)). A recipient that looks like someone else's
+is blocked the same way ([`email-identity.md`](email-identity.md)). A linked person's Contact
+messages follow the Contact rules of their own record and company.

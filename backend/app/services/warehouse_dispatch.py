@@ -1,6 +1,7 @@
 """Dispatch explicitly scheduled warehouse mails, without retrying an uncertain send."""
 
 import logging
+import uuid
 from datetime import UTC, datetime
 
 from sqlalchemy import select
@@ -10,7 +11,7 @@ from app.core.actor import ActorContext, ActorType
 from app.core.config import allowlist_permits
 from app.db.session import unit_of_work
 from app.models import WarehouseDraft
-from app.services import audit, warehouse_addresses
+from app.services import audit, warehouse_addresses, warehouse_history
 from app.services.contact_dispatch import (
     MISSING_RECIPIENTS,
     OVERDUE,
@@ -62,6 +63,8 @@ def dispatch_warehouses(
                 refusal = RECIPIENT_NOT_ALLOWED
             elif blocked := warehouse_addresses.refusal(session, draft):
                 refusal = blocked
+            else:
+                refusal = warehouse_history.legacy_refusal(session, draft)
             if refusal is not None:
                 draft.send_state = "failed"
                 draft.failure_code = refusal
@@ -77,6 +80,7 @@ def dispatch_warehouses(
                 )
                 logger.warning("warehouse_dispatch.refused draft_id=%s code=%s", draft.id, refusal)
                 continue
+            assert draft.recipient is not None  # checked above
             draft.send_state = "sending"
             draft.revision += 1
             content = DraftInput(to=[draft.recipient], subject=draft.subject, text=draft.body)
@@ -124,6 +128,7 @@ def dispatch_warehouses(
             claimed = session.get(WarehouseDraft, draft_id, with_for_update=True)
             if claimed is not None and claimed.send_state == "sending":
                 claimed.send_state = "sent"
+                claimed.sent_at = datetime.now(UTC)
                 claimed.revision += 1
                 logger.info("warehouse_dispatch.sent draft_id=%s", claimed.id)
                 audit.record_event(
@@ -133,3 +138,20 @@ def dispatch_warehouses(
                     entity_type="warehouse_draft",
                     entity_id=claimed.id,
                 )
+        count_in_contact(factory, draft_id)
+
+
+def count_in_contact(factory: sessionmaker[Session], draft_id: uuid.UUID) -> None:
+    """Count a sent mail in its prospect's Contact sequence, in its own transaction: a failure
+    leaves it uncounted (nothing leaves from Contact meanwhile) and never un-records the send."""
+    try:
+        with unit_of_work(factory) as session:
+            prospect_id = session.scalar(
+                select(WarehouseDraft.prospect_id).where(WarehouseDraft.id == draft_id)
+            )
+            if prospect_id is not None:
+                warehouse_history.carry(session, ACTOR, prospect_id)
+    except Exception as error:
+        logger.error(
+            "warehouse_dispatch.count_failed draft_id=%s error=%s", draft_id, type(error).__name__
+        )

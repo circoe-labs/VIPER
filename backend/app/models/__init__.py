@@ -40,12 +40,12 @@ from app.models.organizations import Organization
 from app.models.person_links import PersonLink
 from app.models.prospecting_holds import ProspectingHold
 from app.models.prospects import Email, Phone, Prospect, ProspectNote, ProspectSource
-from app.models.score_assessments import ProspectScoreAssessment
 from app.models.quality_alerts import QualityAlert
+from app.models.score_assessments import ProspectScoreAssessment
 from app.models.taxonomies import ActivityCategory, CommercialSegment, Role
 from app.models.users import User, UserSession
 from app.models.warehouse_drafts import WarehouseDraft
-from app.models.warehouses import Warehouse
+from app.models.warehouses import Warehouse, WarehousePerson
 
 __all__ = [
     "ActivityCategory",
@@ -90,18 +90,19 @@ __all__ = [
     "OAuthClient",
     "OAuthToken",
     "Organization",
+    "PersonLink",
     "Phone",
     "Prospect",
-    "PersonLink",
     "ProspectNote",
-    "ProspectingHold",
     "ProspectScoreAssessment",
     "ProspectSource",
+    "ProspectingHold",
     "QualityAlert",
     "Role",
     "User",
     "UserSession",
     "Warehouse",
     "WarehouseDraft",
+    "WarehousePerson",
     "company_activity_categories",
 ]

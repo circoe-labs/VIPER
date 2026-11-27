@@ -31,6 +31,7 @@ from app.models import (
     Prospect,
     User,
     Warehouse,
+    WarehousePerson,
 )
 from app.models.contact_tracking import ContactTrackingStatusHistory
 from app.models.enums import (
@@ -121,9 +122,17 @@ def dashboard_summary(session: Session, today: date) -> HomeDashboard:
     )
     with whole_base_plan(session):
         prospects, contacted, appointments = session.execute(statement).one()
-    warehouse_contacts = session.scalar(
-        select(func.coalesce(func.sum(func.jsonb_array_length(Warehouse.contacts)), 0))
-    ) or 0
+    # An entry linked to a prospect is already counted with the prospects.
+    warehouse_contacts = max(
+        (
+            session.scalar(
+                select(func.coalesce(func.sum(func.jsonb_array_length(Warehouse.contacts)), 0))
+            )
+            or 0
+        )
+        - (session.scalar(select(func.count(WarehousePerson.id))) or 0),
+        0,
+    )
     companies = session.scalar(select(func.count(Company.id)).where(*listed(Company))) or 0
     added = weekly_additions(session, week)
     new_prospects, new_companies, new_warehouses = (
@@ -144,8 +153,23 @@ def dashboard_summary(session: Session, today: date) -> HomeDashboard:
             Warehouse.created_at >= start_of_day(start), Warehouse.created_at < start_of_day(end)
         ), 0) for start, end in pairwise(boundaries)
     ))).one()
+    linked_counts = session.execute(
+        select(
+            *(
+                func.count(WarehousePerson.id).filter(
+                    Warehouse.created_at >= start_of_day(start),
+                    Warehouse.created_at < start_of_day(end),
+                )
+                for start, end in pairwise(boundaries)
+            )
+        ).join_from(WarehousePerson, Warehouse, Warehouse.id == WarehousePerson.warehouse_id)
+    ).one()
+    new_entries = [
+        max(count - linked, 0)
+        for count, linked in zip(warehouse_counts, linked_counts, strict=True)
+    ]
     trend = [
-        dict(week=first_day, prospects=prospect_counts[i], warehouses=warehouse_counts[i])
+        dict(week=first_day, prospects=prospect_counts[i], warehouses=new_entries[i])
         for i, first_day in enumerate(weeks)
     ]
     with whole_base_plan(session):

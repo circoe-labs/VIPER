@@ -40,7 +40,13 @@ from app.core.actor import ActorContext
 from app.core.business_time import BUSINESS_TIMEZONE
 from app.models import Cohort, ContactSequence, Prospect
 from app.models.enums import ContactabilityStatus, ContactTrackingStatus
-from app.services import audit, contact_messages, contact_sequences, prospects
+from app.services import (
+    audit,
+    contact_messages,
+    contact_sequences,
+    prospects,
+    warehouse_history,
+)
 from app.services.contact_tracking import ContactTrackingInput, save_contact_tracking
 from app.services.contact_workflow import SEQUENCE_CLOSING_STATES
 from app.services.import_precedence import (
@@ -173,6 +179,8 @@ class OperationalReconciler:
                 self.session, self.importer, prospect.id, sent_at=cohort_moment(cohort.starts_on)
             )
             self.counts["sends_recorded"] += 1
+        # A warehouse mail already sent to them counts too (covered by a later recorded send).
+        warehouse_history.carry(self.session, self.importer, prospect.id)
         return cohort
 
     # --- function verified (handoff §6, R-20) ---

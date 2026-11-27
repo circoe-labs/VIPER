@@ -30,8 +30,8 @@ opposition, une exclusion, une archive ni un départ.
   possible, sauf opposition.
 - Envoi : le dispatcher revérifie sous verrou et annule au lieu d'envoyer, quel que soit le chemin qui a écrit le
   blocage.
-- Courriers entrepôt : un destinataire qui est l'adresse d'une personne bloquée, ou l'entrepôt d'une entreprise
-  archivée ou exclue, est refusé à la validation, à la programmation et à l'envoi.
+- Anciens courriers entrepôt encore programmés : un destinataire qui est l'adresse (ou la personne rattachée) d'une
+  personne bloquée, ou l'entrepôt d'une entreprise archivée ou exclue, est refusé à l'envoi.
 - Export : colonne « Prospection ». Lectures MCP : `prospecting_block`.
 
 ## Retirer (`app/services/lifecycle.py`, une personne uniquement)
@@ -67,22 +67,18 @@ autre adresse toujours active est conservé.
 
 ## Courriers entrepôt et adresses (`app/services/warehouse_addresses.py`)
 
-Le destinataire d'un courrier entrepôt est un texte libre : il n'est pas réécrit.
+Aucun courrier entrepôt n'est plus rédigé, validé ni programmé ([`warehouses.md`](warehouses.md)) ; ceux déjà
+programmés restent contrôlés. Le destinataire est un texte libre : il n'est pas réécrit.
 
-- Adresse modifiée, désactivée ou retirée d'une personne : les courriers préprogrammés ou programmés vers elle passent
-  en échec (`recipient_changed`) ; tous perdent leur validation humaine. Valider à nouveau est la nouvelle décision.
-- À la validation, à la programmation et à l'envoi, sans dépendre du point précédent, une adresse que plus personne ne
-  détient activement est relue dans le journal d'audit : un ancien détenteur bloqué la bloque toujours ; une adresse
-  retirée (ou partie avec la fiche supprimée) après la dernière validation du courrier attend une nouvelle validation.
+- Adresse modifiée, désactivée ou retirée d'une personne : les courriers programmés vers elle passent en échec
+  (`recipient_changed`) ; la suite s'écrit depuis Contact.
+- À l'envoi, sans dépendre du point précédent, une adresse que plus personne ne détient activement est relue dans le
+  journal d'audit : un ancien détenteur bloqué la bloque toujours (une opposition n'est jamais levée ; un autre
+  blocage l'est si le courrier a été validé par une personne après son début) ; une adresse retirée (ou partie avec la
+  fiche supprimée) après la dernière validation du courrier le retient.
 - L'explorateur suit les adresses une fois pour tout le lot de modifications ; l'annulation d'un import les suit aussi.
 - Un simple changement d'adresse principale, l'ancienne restant active, ne touche pas les courriers entrepôt, pas
   plus que le retrait d'une adresse qu'une autre personne prospectable détient encore activement.
-- Adresse retirée d'une fiche et détenue par personne : si son ancien détenteur est ensuite bloqué (départ, archive,
-  exclusion), une nouvelle validation humaine du courrier, faite après le début du blocage, le lève ; une opposition
-  n'est jamais levée. Une adresse restée sur la fiche, même inactive, reste bloquée avec la personne.
-- Les actions groupées (préprogrammer, programmer, reprendre) laissent de côté les courriers bloqués, sans les
-  modifier, et les nomment avec la raison (`skipped`) ; les autres passent. Un courrier en échec ou sans date se
-  préprogramme seul depuis sa carte, sans retirer les validations des autres.
 - Le contrôle d'envoi (`warehouse_addresses.refusal`) vérifie aussi l'identité de l'adresse
   ([`email-identity.md`](email-identity.md)).
 

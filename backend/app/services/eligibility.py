@@ -180,21 +180,21 @@ def open_holds(
 
 
 def warehouse_block(session: Session, draft: WarehouseDraft) -> Block | None:
-    """Why a warehouse mail may not leave: its recipient is the address of a blocked person (any
-    of their addresses, former ones included), or the warehouse's company is archived or
+    """Why a warehouse mail may not leave: its person (linked, or holder of the recipient
+    address, former ones included) is blocked, or the warehouse's company is archived or
     excluded."""
     recipient = (draft.recipient or "").strip().lower()
     found: set[Block] = set()
+    people: list[ColumnElement[bool]] = []
     if recipient:
+        people.append(exists().where(Email.prospect_id == Prospect.id, Email.address == recipient))
+    if draft.prospect_id is not None:
+        people.append(Prospect.id == draft.prospect_id)
+    if people:
         found.update(
             Block(code)
             for code in session.scalars(
-                select(block_sql())
-                .select_from(Prospect)
-                .where(
-                    exists().where(Email.prospect_id == Prospect.id, Email.address == recipient),
-                    blocked_sql(),
-                )
+                select(block_sql()).select_from(Prospect).where(or_(*people), blocked_sql())
             )
             if code
         )
@@ -209,7 +209,11 @@ def warehouse_block(session: Session, draft: WarehouseDraft) -> Block | None:
 
 
 def warehouse_recipients_of(prospect_id: uuid.UUID) -> ColumnElement[bool]:
-    """The warehouse drafts addressed to one of the person's addresses."""
-    return func.lower(func.trim(WarehouseDraft.recipient)).in_(
-        select(Email.address).where(Email.prospect_id == prospect_id)
+    """The warehouse drafts of the person: linked to them, or addressed to one of their
+    addresses."""
+    return or_(
+        WarehouseDraft.prospect_id == prospect_id,
+        func.lower(func.trim(WarehouseDraft.recipient)).in_(
+            select(Email.address).where(Email.prospect_id == prospect_id)
+        ),
     )

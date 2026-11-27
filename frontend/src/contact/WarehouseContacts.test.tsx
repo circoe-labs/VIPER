@@ -17,6 +17,7 @@ vi.mock('../api/warehouses', () => {
     draft('failed', 'Chloé Exemple', 'failed', -2 * day, 'dispatch_overdue'),
     draft('doubt', 'David Exemple', 'uncertain', -day, 'send_draft:toolbox_timeout'),
     draft('done', 'Emma Exemple', 'sent', -day),
+    draft('old', 'Fanny Exemple', 'planned', day),
   ]
   return { useWarehouseDrafts: () => ({ data, dataUpdatedAt: Date.now(), isPending: false, isError: false, refetch: vi.fn() }) }
 })
@@ -36,5 +37,7 @@ describe('Warehouse contacts', () => {
     expect(line('Chloé Exemple')).toHaveTextContent('heure dépassée')
     expect(line('David Exemple')).toHaveTextContent('envoi non confirmé : peut-être parti')
     expect(section.queryByText('Emma Exemple')).not.toBeInTheDocument()
+    // An old draft never leaves: it is history, not a send waiting.
+    expect(section.queryByText('Fanny Exemple')).not.toBeInTheDocument()
   })
 })

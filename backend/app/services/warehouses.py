@@ -1,15 +1,15 @@
-"""Audited warehouse directory. Source contacts are never silently validated or enrolled."""
+"""Audited warehouse directory. Source contacts are never silently validated or enrolled: a
+person becomes a prospect through `services/warehouse_people`."""
 
 import hashlib
 import json
-import re
 import uuid
 from collections.abc import Sequence
-from datetime import UTC, date
-from typing import Literal
+from datetime import UTC, date, datetime
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import ColumnElement, Text, cast, func, or_, select
+from sqlalchemy import ColumnElement, Text, and_, cast, func, or_, select, true
 from sqlalchemy.dialects.postgresql import JSONPATH
 from sqlalchemy.orm import Session
 
@@ -21,6 +21,7 @@ from app.repositories.list_sort import EntitySort, entity_order_by
 from app.repositories.taxonomies import matches_words
 from app.services import audit
 from app.services.companies import normalize_siret
+from app.services.contact_message_cancellation import stop_warehouse_drafts
 from app.services.errors import ConflictError, InvalidFieldError, NotFoundError
 from app.services.file_status import (
     FileStatus,
@@ -30,7 +31,9 @@ from app.services.file_status import (
     warehouse_missing,
     warehouse_status_condition,
 )
-from app.services.warehouse_draft_text import apply_category, draft_subject, draft_text
+
+# `failure_code` of a programmed mail whose listing facts changed.
+LISTING_CHANGED = "warehouse_changed"
 
 
 class WarehouseContact(BaseModel):
@@ -222,6 +225,37 @@ def get_warehouse(session: Session, warehouse_id: uuid.UUID, *, lock: bool = Fal
     return row
 
 
+def _roles(contacts: Sequence[dict[str, Any]]) -> dict[str, str | None]:
+    return {str(c.get("full_name")): c.get("role") for c in contacts}
+
+
+def _stop_changed_mails(
+    session: Session,
+    actor: ActorContext,
+    row: Warehouse,
+    previous_roles: dict[str, str | None],
+    previous_category: str | None,
+) -> None:
+    """A programmed mail was approved for the facts of the listing: when its category or the
+    person's role changes, it does not leave."""
+    roles = _roles(row.contacts)
+    changed = [name for name, role in roles.items() if previous_roles.get(name, role) != role]
+    which: ColumnElement[bool] = WarehouseDraft.contact_name.in_(changed)
+    if row.prospecting_category != previous_category:
+        which = true()
+    stop_warehouse_drafts(
+        session,
+        actor,
+        and_(
+            WarehouseDraft.warehouse_id == row.id,
+            WarehouseDraft.send_state == "scheduled",
+            which,
+        ),
+        LISTING_CHANGED,
+        datetime.now(UTC),
+    )
+
+
 def save_warehouse(
     session: Session,
     actor: ActorContext,
@@ -236,6 +270,7 @@ def save_warehouse(
     if warehouse_id and version(row) != expected_version:
         raise ConflictError("The warehouse changed since it was opened.")
     previous_category = row.prospecting_category if warehouse_id else None
+    previous_roles = _roles(row.contacts) if warehouse_id else {}
     values = data.model_dump()
     if data.establishment_id is not None and session.get(Establishment, data.establishment_id) is None:
         raise InvalidFieldError("establishment_id", "Unknown building.", "unknown")
@@ -250,78 +285,6 @@ def save_warehouse(
     audit.annotate(session, actor, row)
     session.flush()
     if warehouse_id:
-        roles = {contact.full_name: contact.role for contact in data.contacts}
-        existing_drafts = session.scalars(select(WarehouseDraft).where(
-            WarehouseDraft.warehouse_id == row.id,
-        ).with_for_update())
-        for draft in existing_drafts:
-            if (draft.contact_name in roles and draft.contact_role != roles[draft.contact_name]
-                    and draft.send_state not in ('sending', 'uncertain', 'sent')):
-                draft.contact_role = roles[draft.contact_name]
-                draft.human_validated = False
-                draft.validated_at = None
-                draft.validated_by = None
-                if draft.send_state == 'scheduled':
-                    draft.send_state = 'planned'
-                draft.revision += 1
-                audit.record_event(session, actor, 'warehouse_draft.updated',
-                                   entity_type='warehouse_draft', entity_id=draft.id,
-                                   reason='Fonction du contact mise à jour.')
-    if warehouse_id and data.prospecting_category != previous_category:
-        drafts = session.scalars(select(WarehouseDraft).where(
-            WarehouseDraft.warehouse_id == row.id,
-        ).with_for_update())
-        for draft in drafts:
-            if draft.send_state in ('sending', 'uncertain', 'sent'):
-                continue
-            new_body = apply_category(draft.body, data.prospecting_category)
-            if new_body != draft.body:
-                draft.body = new_body
-                draft.human_validated = False
-                if draft.send_state == 'scheduled':
-                    draft.send_state = 'planned'
-                    draft.validated_at = None
-                    draft.validated_by = None
-                draft.revision += 1
-                audit.record_event(
-                    session, actor, 'warehouse_draft.updated', entity_type='warehouse_draft',
-                    entity_id=draft.id, reason='Adaptation DIHNAMO à la catégorie de l’entrepôt.',
-                )
-    taken: set[str] | None = None
-    for contact in data.contacts:
-        if not contact.to_contact:
-            continue
-        existing = session.scalars(select(WarehouseDraft).where(
-            WarehouseDraft.warehouse_id == row.id,
-            WarehouseDraft.phase == 2,
-            WarehouseDraft.contact_name == contact.full_name,
-        )).all()
-        source_email = (contact.email or "").strip()
-        addresses = list(dict.fromkeys(re.findall(
-            r"[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+",
-            source_email,
-        )))
-        # Existing drafts may have been edited; never replace or duplicate them on reselection.
-        if existing:
-            continue
-        if taken is None:
-            taken = set(session.scalars(select(WarehouseDraft.subject)))
-        for recipient in addresses or [None]:
-            subject = draft_subject(contact.role, row.name, contact.full_name, taken, row.city)
-            taken.add(subject)
-            draft = WarehouseDraft(
-                warehouse_id=row.id, warehouse_name=row.name, phase=2,
-                contact_name=contact.full_name, contact_role=contact.role,
-                source_email=contact.email, recipient=recipient,
-                subject=subject,
-                body=draft_text(contact.full_name, row.name, contact.role, data.prospecting_category),
-                review_note="Simulation à relire : vérifiez le destinataire, la fonction et le texte.",
-            )
-            session.add(draft)
-            session.flush()
-            audit.record_event(
-                session, actor, "warehouse_draft.created",
-                entity_type="warehouse_draft", entity_id=draft.id,
-            )
+        _stop_changed_mails(session, actor, row, previous_roles, previous_category)
     session.refresh(row)
     return present(session, row)

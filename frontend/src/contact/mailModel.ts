@@ -324,6 +324,10 @@ export function sendErrorLabel(code: string, latenessMinutes: number): string {
     send_invalid_input: 'la Toolbox a refusé le message (champ invalide)',
     email_identity_doubt: 'une adresse destinataire semble être celle de quelqu’un d’autre',
     send_earlier_unconfirmed: 'un envoi précédent à ce prospect n’est pas confirmé',
+    send_warehouse_pending:
+      'un mail entrepôt à cette personne attend d’être envoyé ou vérifié (Contact › Prospects entrepôt)',
+    send_warehouse_unrecorded:
+      'un mail entrepôt déjà envoyé à cette personne n’est pas encore compté (« Contacter » depuis la fiche entrepôt)',
     send_draft_not_found:
       'le brouillon n’existait plus dans Infomaniak (supprimé, ou envoyé depuis le webmail : vérifiez les éléments envoyés)',
     send_invalid_response: 'la réponse de la Toolbox était illisible',

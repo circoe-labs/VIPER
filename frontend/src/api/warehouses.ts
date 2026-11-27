@@ -4,6 +4,7 @@ import { apiGet, apiRequest } from './client'
 import type { IdentityDoubt } from './emailIdentity'
 import type { FileStatus } from './fileStatus'
 import { refreshAfterWrite } from './refresh'
+import type { TrackingStatus } from './prospection'
 
 export interface WarehouseContact {
   full_name: string
@@ -47,40 +48,35 @@ export interface WarehousePreview {
 }
 export interface WarehouseImportResult { created: number; skipped: number; contacts: number }
 
+// A mail of the former warehouse pipeline: history, or still programmed. New mails are written from Contact.
 export interface WarehouseDraft {
   id: string
-  prospecting_category?: 'sme' | 'other' | null
-  phase: number
+  warehouse_id: string
+  // The prospect the contact is, once linked.
+  prospect_id: string | null
   warehouse_name: string
   contact_name: string
   contact_role: string | null
-  source_email: string | null
   recipient: string | null
   subject: string
   body: string
-  review_note: string
   revision: number
-  validated_at: string | null
-  validated_by: string | null
-  human_validated?: boolean
   scheduled_at: string | null
   send_state: 'planned' | 'scheduled' | 'sending' | 'uncertain' | 'sent' | 'failed' | null
-  recovery_possible?: boolean
+  sent_at: string | null
   // Why a scheduled mail did not (certainly) leave, and when.
   failure_code?: string | null
   failed_at?: string | null
-  // The recipient looks like someone else's: nothing can be sent until corrected or confirmed.
+  // The recipient looks like someone else's: it does not leave.
   identity_doubt?: IdentityDoubt | null
-}
-
-// A grouped action leaves out the blocked drafts (untouched) and says which and why.
-export interface WarehouseBatchResult {
-  scheduled: number
-  skipped: { id: string; contact_name: string; warehouse_name: string; code: string; reason: string }[]
 }
 
 export function useWarehouseDrafts() {
   return useQuery({ queryKey: ['warehouses', 'drafts'], queryFn: ({ signal }) => apiGet<WarehouseDraft[]>('/warehouses/drafts', signal), refetchInterval: 15000 })
+}
+
+export function useProspectWarehouseMails(prospectId: string) {
+  return useQuery({ queryKey: ['warehouses', 'drafts', prospectId], queryFn: ({ signal }) => apiGet<WarehouseDraft[]>(`/warehouses/drafts?prospect_id=${prospectId}`, signal) })
 }
 
 export function useWarehouseDispatchStatus() {
@@ -89,17 +85,69 @@ export function useWarehouseDispatchStatus() {
 
 export function useWarehouseDraftActions() {
   const client = useQueryClient()
-  const refresh = () => client.invalidateQueries({ queryKey: ['warehouses', 'drafts'] })
+  const refresh = () => refreshAfterWrite(client, [['warehouses']])
   return {
-    save: useMutation({ mutationFn: ({ id, ...body }: { id: string; revision: number; recipient: string; subject: string; body: string }) => apiRequest<WarehouseDraft>('PUT', `/warehouses/drafts/${id}`, { body }), onSuccess: refresh }),
-    validate: useMutation({ mutationFn: ({ id, revision }: { id: string; revision: number }) => apiRequest<WarehouseDraft>('POST', `/warehouses/drafts/${id}/validate`, { body: { revision } }), onSuccess: refresh }),
-    schedule: useMutation({ mutationFn: ({ id, revision, scheduled_at }: { id: string; revision: number; scheduled_at: string }) => apiRequest<WarehouseDraft>('POST', `/warehouses/drafts/${id}/schedule`, { body: { revision, scheduled_at } }), onSuccess: refresh }),
-    confirmRecipient: useMutation({ mutationFn: ({ id, revision }: { id: string; revision: number }) => apiRequest<WarehouseDraft>('POST', `/warehouses/drafts/${id}/confirm-recipient`, { body: { revision } }), onSuccess: refresh }),
-    unschedule: useMutation({ mutationFn: ({ id, revision }: { id: string; revision: number }) => apiRequest<WarehouseDraft>('POST', `/warehouses/drafts/${id}/unschedule`, { body: { revision } }), onSuccess: refresh }),
-    scheduleBatch: useMutation({ mutationFn: (body: { scheduled_at: string; drafts: { id: string; revision: number }[] }) => apiRequest<WarehouseBatchResult>('POST', '/warehouses/drafts/schedule-batch', { body }), onSuccess: refresh }),
-    planBatch: useMutation({ mutationFn: (body: { scheduled_at: string; drafts: { id: string; revision: number }[] }) => apiRequest<WarehouseBatchResult>('POST', '/warehouses/drafts/plan-batch', { body }), onSuccess: refresh }),
-    recoverBatch: useMutation({ mutationFn: (body: { scheduled_at: string; confirmed_not_sent: true; drafts: { id: string; revision: number }[] }) => apiRequest<WarehouseBatchResult>('POST', '/warehouses/drafts/recover-batch', { body }), onSuccess: refresh }),
+    unschedule: useMutation({ mutationFn: ({ id, revision }: { id: string; revision: number }) => apiRequest<WarehouseDraft>('POST', `/warehouses/drafts/${id}/unschedule`, { body: { revision } }), onSettled: refresh }),
+    resolve: useMutation({ mutationFn: ({ id, ...body }: { id: string; revision: number; sent: boolean }) => apiRequest<WarehouseDraft>('POST', `/warehouses/drafts/${id}/resolve`, { body }), onSettled: refresh }),
   }
+}
+
+export type PersonStatus = 'linked' | 'match' | 'ambiguous' | 'new' | 'incomplete' | 'not_a_person'
+export interface PersonCandidate {
+  prospect_id: string
+  first_name: string
+  last_name: string
+  company_name: string | null
+  reasons: ('same_email' | 'same_name' | 'same_company' | 'same_initial')[]
+  block: string | null
+}
+export interface PersonContactState {
+  block: string | null
+  tracking: TrackingStatus | null
+  cohort_code: string | null
+  sequence_open: boolean
+  sent_count: number
+  last_sent_at: string | null
+  next_scheduled_at: string | null
+  warehouse_pending: boolean
+  warehouse_uncounted: number
+}
+export interface WarehousePerson {
+  contact_name: string
+  kind: 'contact' | 'owner'
+  role: string | null
+  emails: string[]
+  status: PersonStatus
+  // The listing's name read as a first and a last name, to confirm.
+  first_name: string
+  last_name: string
+  civility: 'mr' | 'ms' | null
+  candidates: PersonCandidate[]
+  prospect: { id: string; first_name: string; last_name: string; company_name: string | null } | null
+  state: PersonContactState | null
+}
+export interface WarehousePeople {
+  company_id: string | null
+  company_name: string | null
+  people: WarehousePerson[]
+}
+export interface LinkPersonInput {
+  contact_name: string
+  prospect_id?: string
+  create?: { first_name: string; last_name: string; civility: 'mr' | 'ms' | null; company_id: string }
+  distinct_confirmed?: boolean
+}
+
+export function useWarehousePeople(warehouseId: string, enabled: boolean) {
+  return useQuery({ queryKey: ['warehouses', 'people', warehouseId], enabled, queryFn: ({ signal }) => apiGet<WarehousePeople>(`/warehouses/${warehouseId}/people`, signal) })
+}
+
+export function useLinkWarehousePerson(warehouseId: string) {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (body: LinkPersonInput) => apiRequest<{ prospect_id: string }>('POST', `/warehouses/${warehouseId}/people`, { body }),
+    onSettled: () => refreshAfterWrite(client, [['warehouses'], ['prospects'], ['prospection'], ['contact']]),
+  })
 }
 
 export function useWarehouseCounts() {

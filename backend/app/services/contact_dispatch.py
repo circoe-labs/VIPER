@@ -104,7 +104,7 @@ from app.core.config import Settings, allowlist_permits
 from app.core.contact_steps import MAX_FOLLOW_UPS_LIMIT
 from app.models import ContactMessage, ContactSequence, ContactTracking, Prospect
 from app.models.enums import ContactabilityStatus, ContactMessageStatus, SendSource
-from app.services import app_settings, audit, eligibility, email_identity
+from app.services import app_settings, audit, eligibility, email_identity, warehouse_history
 from app.services.audit import AuditAction, AuditContext, AuditSource
 from app.services.contact_message_cancellation import (
     DO_NOT_CONTACT_REASON,
@@ -595,6 +595,8 @@ class Dispatcher:
                 report.deferred += 1
                 return "done"
             refusal = self._recipients_refusal(session, message)
+            if code := warehouse_history.contact_refusal(session, message.prospect_id):
+                refusal = warehouse_history.DISPATCH_CODES[code]
             if blocked_by_earlier(session, message):
                 refusal = EARLIER_UNCONFIRMED
             if refusal is None:
@@ -745,6 +747,7 @@ class Dispatcher:
             if (
                 sequence.paused
                 or blocked_by_earlier(session, message)
+                or warehouse_history.contact_refusal(session, prospect_id) is not None
                 or self._recipients_refusal(session, message) is not None
                 or self._order(session, message) is not None
             ):

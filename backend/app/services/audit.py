@@ -98,6 +98,8 @@ class AuditAction(StrEnum):
     WAREHOUSE_DRAFT_SENT = "warehouse_draft.sent"
     WAREHOUSE_DRAFT_FAILED = "warehouse_draft.failed"
     WAREHOUSE_DRAFT_REWRITTEN = "warehouse_draft.rewritten"
+    WAREHOUSE_DRAFT_RESOLVED = "warehouse_draft.resolved"
+    WAREHOUSE_PERSON_LINKED = "warehouse.person_linked"
     PROSPECT_COMPANY_CHANGED = "prospect.company_changed"
     # « Changer de statut » and the archive / temporary exclusion (`app.services.lifecycle`).
     PROSPECT_DEPARTED = "prospect.departed"
@@ -271,6 +273,8 @@ AUDITED_ENTITIES: dict[type[Any], AuditedEntity] = {
 }
 ENTITY_ORDER = {model: position for position, model in enumerate(AUDITED_ENTITIES)}
 NOT_AUDITED_TABLES = {
+    "warehouse_people": "link of a listing entry to its prospect; the service writes the explicit "
+    "`warehouse.person_linked` event (ids only, no name)",
     "email_identity_confirmations": "the service writes the explicit `email_identity.*` "
     "events (ids only, no address)",
     "person_links": "relational links keep their author and dates; a link is a note about a "

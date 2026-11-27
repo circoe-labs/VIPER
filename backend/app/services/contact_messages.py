@@ -101,7 +101,14 @@ from app.models.enums import (
     ContactTrackingStatus,
     SendSource,
 )
-from app.services import app_settings, audit, contact_sequences, eligibility, email_identity
+from app.services import (
+    app_settings,
+    audit,
+    contact_sequences,
+    eligibility,
+    email_identity,
+    warehouse_history,
+)
 from app.services import contact_message_versions as versions
 from app.services.audit import AuditAction
 from app.services.contact_channels import normalize_email_address
@@ -1048,6 +1055,8 @@ def schedule(
     _require_rank(context, rank)
     require_send_moment(scheduled_at, now or datetime.now(UTC))
     _require_recipients(session, message)
+    if code := warehouse_history.contact_refusal(session, prospect_id):
+        raise _refusal(code, HTTPStatus.CONFLICT, warehouse_history.MESSAGES[code])
     doubts = _require_sent_check(session, message, sent_check_confirmed)
     _clear_other_doubts(session, actor, message, doubts)
     audit.annotate(

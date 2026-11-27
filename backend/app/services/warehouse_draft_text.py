@@ -1,4 +1,5 @@
-"""Create a reviewable warehouse message from the recorded contact and site."""
+"""The wording of the former warehouse mails. VIPER writes none any more (Contact drafts them);
+migration 0045 still imports this module."""
 
 import re
 import unicodedata

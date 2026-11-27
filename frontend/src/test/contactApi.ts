@@ -429,6 +429,7 @@ export function stubContactApi(options: ContactStubOptions = {}) {
     const url = new URL(input, 'http://localhost')
     const method = init?.method ?? 'GET'
     const body: unknown = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined
+    if (url.pathname === '/api/warehouses/drafts') return json(200, [])
     if (url.pathname === '/api/contact/overview') {
       requests.push({ method, path: url.pathname, search: url.search, body })
       if (options.dashboard === 'error') return json(500, { detail: 'boom' })

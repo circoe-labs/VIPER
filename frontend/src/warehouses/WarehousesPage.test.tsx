@@ -1,12 +1,12 @@
-import { act, screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { SHELL_API } from '../test/homeApi'
 import { renderApp, stubApi } from '../test/render'
 import type { Warehouse } from '../api/warehouses'
 
 const ROW: Warehouse = { id: '00000000-0000-7000-a000-000000000001', version: '2026-11-03T10:00:00+00:00', name: 'Entrepôt Exemple', owner_name: 'Propriétaire Test', owner_role: 'Foncière', owner_email: null, owner_linkedin: null, address: null, city: 'Lyon', postal_code: null, siret: null, notes: null, source_reference: 'synthetic.xlsx · Sites', status: 'incomplete', missing: ['company'], company_id: null, company_name: null, building_name: null, contacts: [{ full_name: 'Anne Test', role: 'Responsable', email: 'anne@exemple.test ou a.test@exemple.test', linkedin: 'https://www.linkedin.com/in/test-anne' }] }
-const API = { ...SHELL_API, 'GET /api/warehouses/counts': [200, { warehouses: 1, contacts: 1, to_contact: 0 }] } as const
+const API = { ...SHELL_API, 'GET /api/warehouses/counts': [200, { warehouses: 1, contacts: 1, to_contact: 0 }], 'GET /api/warehouses/00000000-0000-7000-a000-000000000001/people': [200, { company_id: null, company_name: null, people: [] }] } as const
 
 describe('Warehouse directory', () => {
   it('filters warehouses on several prospecting categories, applied by « Valider », and removable chips', async () => {
@@ -23,175 +23,50 @@ describe('Warehouse directory', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Retirer le filtre : Catégorie : À classer' }))
     await waitFor(() => { expect(category).toEqual(['sme']) })
   })
-  it('refreshes the recipient of an unedited open draft without losing later edits', async () => {
-    const draft = { id: 'draft-1', phase: 2, prospecting_category: 'sme', warehouse_name: 'Site', contact_name: 'Anne Test', contact_role: null, source_email: 'anne@example.test', recipient: null, subject: 'Objet', body: '', review_note: 'À vérifier', revision: 1, validated_at: null, validated_by: null, send_state: null, scheduled_at: null }
-    stubApi({ ...API, 'GET /api/warehouses': [200, { items: [ROW], total: 1 }], 'GET /api/warehouses/drafts': [200, [draft]], 'GET /api/warehouses/drafts/dispatch-status': [200, { active: false }] })
-    const { queryClient } = renderApp('/prospection/warehouse-drafts')
-    await userEvent.click(await screen.findByRole('button', { name: 'Brouillons PME/TPE (1)' }))
-    await userEvent.click(await screen.findByText('Anne Test'))
-    const recipient = screen.getByLabelText('Destinataire')
-    expect(recipient).toHaveValue('')
-    act(() => { queryClient.setQueryData(['warehouses', 'drafts'], [{ ...draft, recipient: 'anne@example.test', revision: 2 }]) })
-    await waitFor(() => expect(recipient).toHaveValue('anne@example.test'))
-    await userEvent.clear(recipient)
-    await userEvent.type(recipient, 'autre@example.test')
-    act(() => { queryClient.setQueryData(['warehouses', 'drafts'], [{ ...draft, recipient: 'anne@example.test', revision: 3 }]) })
-    expect(recipient).toHaveValue('autre@example.test')
-  })
-  it('separates drafts by warehouse category regardless of phase', async () => {
-    const base = { warehouse_name: 'Entrepôt Exemple', contact_role: null, source_email: null, recipient: null, subject: 'Objet', body: '', review_note: 'À vérifier', revision: 1, validated_at: null, validated_by: null, send_state: null, scheduled_at: null }
-    stubApi({ ...API, 'GET /api/warehouses': [200, { items: [ROW], total: 1 }], 'GET /api/warehouses/drafts': [200, [{ ...base, id: 'old', phase: 1, prospecting_category: 'sme', contact_name: 'Ancien Contact' }, { ...base, id: 'new', phase: 2, prospecting_category: 'other', contact_name: 'Nouveau Contact' }]], 'GET /api/warehouses/drafts/dispatch-status': [200, { active: false }] })
+  const MAIL = { id: 'mail-1', warehouse_id: ROW.id, prospect_id: null, warehouse_name: 'Site', contact_name: 'Anne Test', contact_role: null, recipient: 'a@example.test', subject: 'Objet ancien', body: 'Texte ancien', revision: 3, scheduled_at: null, send_state: null, sent_at: null }
+  const PERSON = { contact_name: 'Anne Test', kind: 'contact', role: 'Responsable', emails: ['anne@exemple.test'], status: 'new', first_name: 'Anne', last_name: 'Test', civility: null, candidates: [], prospect: null, state: null }
+
+  it('shows the former mails as history, with nothing to write or programme', async () => {
+    const mails = [{ ...MAIL, send_state: 'sent', sent_at: '2026-09-01T08:00:00Z' }, { ...MAIL, id: 'mail-2', contact_name: 'Bruno Test', send_state: 'scheduled', scheduled_at: '2099-05-01T10:30:00Z' }, { ...MAIL, id: 'mail-3', contact_name: 'Chloé Test', send_state: 'uncertain', scheduled_at: '2026-09-02T08:00:00Z' }]
+    const fetched = stubApi({ ...API, 'GET /api/warehouses/drafts': [200, mails], 'POST /api/warehouses/drafts/mail-3/resolve': [200, { ...mails[2], send_state: 'failed' }] })
     renderApp('/prospection/warehouse-drafts')
-    await userEvent.click(await screen.findByRole('button', { name: 'Brouillons PME/TPE (1)' }))
-    expect(await screen.findByText('Ancien Contact')).toBeVisible()
-    expect(screen.queryByText('Nouveau Contact')).not.toBeInTheDocument()
-    await userEvent.click(await screen.findByRole('button', { name: 'Brouillons Autres entreprises (1)' }))
-    expect(await screen.findByText('Nouveau Contact')).toBeVisible()
-    expect(screen.queryByText('Ancien Contact')).not.toBeInTheDocument()
+    await userEvent.click(await screen.findByRole('button', { name: /Anne Test/ }))
+    expect(screen.getByText('Texte ancien')).toBeVisible()
+    expect(screen.queryByRole('textbox', { name: 'Message' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Validé|Préprogrammer|Reprogrammer/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Retirer la programmation' })).toBeEnabled()
+    await userEvent.click(screen.getByRole('button', { name: 'Pas parti' }))
+    await waitFor(() => { expect(fetched.mock.calls.some(([url, init]) => url.includes('/mail-3/resolve') && (init?.body as string).includes('"sent":false'))).toBe(true) })
   })
-  it('navigates between drafts and keeps unsaved edits when returning', async () => {
-    const base = { prospecting_category: 'sme', warehouse_name: 'Entrepôt Exemple', contact_role: 'Responsable', source_email: 'a@example.test', recipient: 'a@example.test', subject: 'Objet', body: 'Bonjour', review_note: 'À vérifier', revision: 1, validated_at: null, validated_by: null, send_state: null, scheduled_at: null }
-    const items = [{ ...base, id: 'one', contact_name: 'Anne Test' }, { ...base, id: 'two', contact_name: 'Bruno Test' }]
-    stubApi({ ...API, 'GET /api/warehouses': [200, { items: [ROW], total: 1 }], 'GET /api/warehouses/drafts': [200, items], 'GET /api/warehouses/drafts/dispatch-status': [200, { active: true }] })
-    renderApp('/prospection/warehouse-drafts')
-    await userEvent.click(await screen.findByRole('button', { name: 'Brouillons PME/TPE (2)' }))
-    const anne = await screen.findByText('Anne Test')
-    await userEvent.click(anne)
-    const firstCard = anne.closest('details')!
-    const secondCard = screen.getByText('Bruno Test').closest('details')!
-    await userEvent.type(within(firstCard).getByLabelText('Message'), ' modifié')
-    expect(within(firstCard).getByRole('button', { name: 'Brouillon précédent' })).toBeDisabled()
-    await userEvent.click(within(firstCard).getByRole('button', { name: 'Brouillon suivant' }))
-    expect(secondCard).toHaveAttribute('open')
-    expect(within(secondCard).getByRole('button', { name: 'Brouillon suivant' })).toBeDisabled()
-    expect(within(secondCard).getByText('2 / 2')).toBeVisible()
-    await userEvent.click(within(secondCard).getByRole('button', { name: 'Brouillon précédent' }))
-    expect(firstCard).toHaveAttribute('open')
-    expect(within(firstCard).getByLabelText('Message')).toHaveValue('Bonjour modifié')
+
+  it('makes a listed person a prospect, then opens Contact', async () => {
+    const people = { company_id: 'company-1', company_name: 'Société Exemple', people: [PERSON, { ...PERSON, contact_name: 'Accueil', status: 'not_a_person' }] }
+    const row = { ...ROW, owner_name: null, contacts: [...ROW.contacts, { full_name: 'Accueil', role: null, email: null, linkedin: null }] }
+    const fetched = stubApi({ ...API, 'GET /api/warehouses': [200, { items: [row], total: 1 }], [`GET /api/warehouses/${ROW.id}/people`]: [200, people], 'GET /api/companies/company-1': [404, {}], 'GET /api/companies': [200, { items: [], total: 0 }], [`POST /api/warehouses/${ROW.id}/people`]: [409, { detail: { code: 'person_to_confirm' } }] })
+    renderApp('/prospection?entity=warehouse')
+    await userEvent.click(await screen.findByRole('button', { name: 'Détails de Entrepôt Exemple' }))
+    expect(await screen.findByText('Sans nom de personne')).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Contacter Accueil' })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Contacter Anne Test' }))
+    const dialog = within(screen.getByRole('dialog', { name: 'Contacter Anne Test' }))
+    await userEvent.click(dialog.getByRole('button', { name: 'Créer la fiche et contacter' }))
+    expect(await dialog.findByRole('alert')).toHaveTextContent('Une fiche ressemblante existe')
+    const posted = fetched.mock.calls.find(([, init]) => init?.method === 'POST')
+    expect(posted?.[1]?.body as string).toContain('"company_id":"company-1"')
   })
-  it('opens the next reviewable message only after validation succeeds', async () => {
-    const base = { prospecting_category: 'sme', warehouse_name: 'Site', contact_role: null, source_email: 'a@example.test', recipient: 'a@example.test', subject: 'Objet', body: 'Bonjour', review_note: '', revision: 1, validated_at: null, validated_by: null, send_state: 'planned', scheduled_at: '2099-05-01T10:30:00Z' }
-    const items = [{ ...base, id: 'one', contact_name: 'Anne Test' }, { ...base, id: 'sent', contact_name: 'Message envoyé', send_state: 'sent' }, { ...base, id: 'two', contact_name: 'Bruno Test' }]
-    stubApi({ ...API, 'GET /api/warehouses': [200, { items: [ROW], total: 1 }], 'GET /api/warehouses/drafts': [200, items], 'GET /api/warehouses/drafts/dispatch-status': [200, { active: true }], 'POST /api/warehouses/drafts/one/validate': [200, { ...items[0], revision: 2, validated_at: '2026-11-12T10:00:00Z' }], 'POST /api/warehouses/drafts/two/validate': [500, {}] })
-    renderApp('/prospection/warehouse-drafts')
-    await userEvent.click(await screen.findByRole('button', { name: 'Brouillons PME/TPE (3)' }))
-    const anne = await screen.findByText('Anne Test')
-    const firstCard = anne.closest('details')!
-    const nextCard = screen.getByText('Bruno Test').closest('details')!
-    const nextSummary = nextCard.querySelector('summary')!
-    const scroll = vi.fn(() => { expect(nextCard).toHaveAttribute('open') })
-    Object.defineProperty(nextSummary, 'scrollIntoView', { value: scroll, configurable: true })
-    await userEvent.click(anne)
-    await userEvent.click(within(firstCard).getByRole('button', { name: 'Valid\u00e9 et continuer' }))
-    await waitFor(() => expect(nextCard).toHaveAttribute('open'))
-    await waitFor(() => expect(scroll).toHaveBeenCalledWith({ block: 'start', behavior: 'smooth' }))
-    expect(firstCard).not.toHaveAttribute('open')
-    await userEvent.click(within(nextCard).getByRole('button', { name: 'Valid\u00e9 et continuer' }))
-    expect(await within(nextCard).findByRole('alert')).toHaveTextContent('Validation impossible')
-    expect(nextCard).toHaveAttribute('open')
+
+  it('shows a linked person’s contact state with direct actions, and blocks an opposed one', async () => {
+    const state = { block: null, tracking: 'neutral', cohort_code: 'S41', sequence_open: true, sent_count: 1, last_sent_at: '2026-09-01T08:00:00Z', next_scheduled_at: null, warehouse_pending: false, warehouse_uncounted: 0 }
+    const linked = { ...PERSON, status: 'linked', prospect: { id: 'prospect-1', first_name: 'Anne', last_name: 'Test', company_name: null }, state }
+    const people = { company_id: null, company_name: null, people: [linked] }
+    stubApi({ ...API, 'GET /api/warehouses': [200, { items: [{ ...ROW, owner_name: null }], total: 1 }], [`GET /api/warehouses/${ROW.id}/people`]: [200, people] })
+    renderApp('/prospection?entity=warehouse')
+    await userEvent.click(await screen.findByRole('button', { name: 'Détails de Entrepôt Exemple' }))
+    expect(await screen.findByText(/1 e-mail envoyé/)).toBeVisible()
+    expect(screen.getByRole('link', { name: 'Contacter Anne Test' })).toHaveAttribute('href', '/contact?prospect=prospect-1')
+    expect(screen.getByRole('link', { name: 'Fiche de Anne Test' })).toBeVisible()
   })
-  it('schedules the eligible drafts together after confirmation', async () => {
-    const draft = { id: 'draft-1', prospecting_category: 'sme', warehouse_name: 'Entrepôt Exemple', contact_name: 'Anne Test', contact_role: 'Responsable', source_email: 'a@example.test', recipient: 'a@example.test', subject: 'Prise de contact', body: 'Bonjour', review_note: 'À vérifier', revision: 1, validated_at: null, validated_by: null, send_state: null, scheduled_at: null }
-    stubApi({ ...API, 'GET /api/warehouses': [200, { items: [ROW], total: 1 }], 'GET /api/warehouses/drafts': [200, [draft]], 'GET /api/warehouses/drafts/dispatch-status': [200, { active: true }], 'POST /api/warehouses/drafts/plan-batch': [200, { scheduled: 1, skipped: [] }] })
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
-    renderApp('/prospection/warehouse-drafts')
-    await userEvent.click(await screen.findByRole('button', { name: 'Brouillons PME/TPE (1)' }))
-    await userEvent.click(await screen.findByText('Anne Test'))
-    expect(screen.queryByLabelText('Date et heure d’envoi')).not.toBeInTheDocument()
-    await userEvent.type(screen.getByLabelText('Date et heure pour tous les messages'), '2099-05-01T10:30')
-    await userEvent.click(screen.getByRole('button', { name: 'Pr\u00e9programmer tous les messages' }))
-    expect(await screen.findByText('1 messages préprogrammés. Validez chaque message pour autoriser son envoi.')).toBeVisible()
-    confirm.mockRestore()
-  })
-  it('names the drafts a grouped plan left out, and plans a failed one alone', async () => {
-    const draft = { id: 'draft-1', prospecting_category: 'sme', warehouse_name: 'Site', contact_name: 'Anne Test', contact_role: null, source_email: 'a@example.test', recipient: 'a@example.test', subject: 'Objet', body: 'Bonjour', review_note: '', revision: 3, validated_at: null, validated_by: null, send_state: 'failed', scheduled_at: null }
-    const skipped = [{ id: 'draft-1', contact_name: 'Anne Test', warehouse_name: 'Site', code: 'prospect_archived', reason: 'fiche archivée' }]
-    const fetched = stubApi({ ...API, 'GET /api/warehouses': [200, { items: [ROW], total: 1 }], 'GET /api/warehouses/drafts': [200, [draft, { ...draft, id: 'draft-2', contact_name: 'Autre', send_state: 'planned', scheduled_at: '2099-05-01T10:30:00Z' }]], 'GET /api/warehouses/drafts/dispatch-status': [200, { active: true }], 'POST /api/warehouses/drafts/plan-batch': [200, { scheduled: 0, skipped }] })
-    renderApp('/prospection/warehouse-drafts')
-    await userEvent.click(await screen.findByRole('button', { name: 'Brouillons PME/TPE (2)' }))
-    await userEvent.click(await screen.findByText('Anne Test'))
-    await userEvent.type(screen.getByLabelText('Date et heure de ce message'), '2099-05-02T09:00')
-    await userEvent.click(screen.getByRole('button', { name: 'Préprogrammer ce message' }))
-    expect(await screen.findByText('Préprogrammation impossible : fiche archivée.')).toBeVisible()
-    const [one] = fetched.mock.calls.filter(([url]) => url.endsWith('/plan-batch'))
-    expect(one?.[1]?.body).toContain('"drafts":[{"id":"draft-1","revision":3}]')
-    await userEvent.clear(screen.getByLabelText('Date et heure pour tous les messages'))
-    await userEvent.type(screen.getByLabelText('Date et heure pour tous les messages'), '2099-05-03T09:00')
-    await userEvent.click(screen.getByRole('button', { name: 'Préprogrammer tous les messages' }))
-    expect(await screen.findByRole('list', { name: 'Messages non programmés' })).toHaveTextContent('Anne Test · Site : fiche archivée')
-  })
-  it('allows editing a scheduled draft without removing its schedule', async () => {
-    const draft = { id: 'draft-1', phase: 2, prospecting_category: 'sme', warehouse_name: 'Site', contact_name: 'Anne Test', contact_role: null, source_email: 'a@example.test', recipient: 'a@example.test', subject: 'Objet', body: 'Bonjour', review_note: 'À vérifier', revision: 1, validated_at: '2026-11-12T10:00:00Z', validated_by: 'Lucie', human_validated: true, send_state: 'scheduled', scheduled_at: '2099-05-01T10:30:00Z' }
-    stubApi({ ...API, 'GET /api/warehouses': [200, { items: [ROW], total: 1 }], 'GET /api/warehouses/drafts': [200, [draft]], 'GET /api/warehouses/drafts/dispatch-status': [200, { active: true }], 'PUT /api/warehouses/drafts/draft-1': [200, { ...draft, revision: 2, body: 'Bonjour modifié' }] })
-    renderApp('/prospection/warehouse-drafts')
-    await userEvent.click(await screen.findByRole('button', { name: 'Brouillons PME/TPE (1)' }))
-    const scheduledDate = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'long', timeStyle: 'short' }).format(new Date(draft.scheduled_at))
-    expect(screen.getByText('1 message programmé').parentElement).toHaveTextContent(`pour le ${scheduledDate}`)
-    expect(screen.getByText(/1 messages des deux cat\u00e9gories disponibles/)).toBeVisible()
-    const at = new Date(draft.scheduled_at)
-    const pad = (value: number) => String(value).padStart(2, '0')
-    expect(screen.getByLabelText('Date et heure pour tous les messages')).toHaveValue(`${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(at.getHours())}:${pad(at.getMinutes())}`)
-    expect(screen.getByText('Anne Test').closest('details')).toHaveClass('warehouse-draft--confirmed')
-    await userEvent.click(await screen.findByText('Anne Test'))
-    const message = screen.getByLabelText('Message')
-    expect(message).toBeEnabled()
-    expect(screen.getByRole('button', { name: 'Valid\u00e9 et continuer' })).toBeEnabled()
-    await userEvent.type(message, ' modifié')
-    await userEvent.click(screen.getByRole('button', { name: 'Enregistrer' }))
-    expect(await screen.findByText('Une modification enregistrée remettra ce message en attente de validation.')).toBeVisible()
-  })
-  it('distinguishes human review from batch scheduling', async () => {
-    const base = { phase: 2, prospecting_category: 'sme', warehouse_name: 'Site', contact_role: null, source_email: 'a@example.test', recipient: 'a@example.test', subject: 'Objet', body: 'Bonjour', review_note: '', revision: 1, validated_at: '2026-11-12T10:00:00Z', validated_by: 'Lucie', send_state: 'scheduled', scheduled_at: '2099-05-01T10:30:00Z' }
-    const items = [{ ...base, id: 'one', contact_name: 'Jenny', human_validated: true }, { ...base, id: 'two', contact_name: 'Autre prospect', human_validated: false }]
-    stubApi({ ...API, 'GET /api/warehouses': [200, { items: [ROW], total: 1 }], 'GET /api/warehouses/drafts': [200, items], 'GET /api/warehouses/drafts/dispatch-status': [200, { active: true }] })
-    renderApp('/prospection/warehouse-drafts')
-    await userEvent.click(await screen.findByRole('button', { name: 'Brouillons PME/TPE (2)' }))
-    const reviewed = screen.getByText('Jenny').closest('details')!
-    const pending = screen.getByText('Autre prospect').closest('details')!
-    expect(reviewed).toHaveClass('warehouse-draft--confirmed')
-    expect(within(reviewed).getByText('Validé manuellement · Programmé')).toBeVisible()
-    expect(pending).not.toHaveClass('warehouse-draft--confirmed')
-    expect(within(pending).getByText('À valider · Programmé')).toBeVisible()
-  })
-  it('opens the first unreviewed message for a date and stays within that date', async () => {
-    const base = { phase: 2, prospecting_category: 'other', warehouse_name: 'Site', contact_role: null, source_email: 'a@example.test', recipient: 'a@example.test', subject: 'Objet', body: 'Bonjour', review_note: '', revision: 1, validated_at: '2026-11-12T10:00:00Z', validated_by: 'Lucie', send_state: 'scheduled' }
-    const firstDate = '2099-05-01T10:30:00Z'
-    const secondDate = '2099-05-02T10:30:00Z'
-    const items = [
-      { ...base, id: 'reviewed', contact_name: 'Déjà vérifié', human_validated: true, scheduled_at: secondDate },
-      { ...base, id: 'one', contact_name: 'Premier prospect', human_validated: false, scheduled_at: secondDate },
-      { ...base, id: 'other', contact_name: 'Autre date', human_validated: false, scheduled_at: firstDate },
-      { ...base, id: 'two', contact_name: 'Deuxième prospect', human_validated: false, scheduled_at: secondDate },
-    ]
-    stubApi({ ...API, 'GET /api/warehouses': [200, { items: [ROW], total: 1 }], 'GET /api/warehouses/drafts': [200, items], 'GET /api/warehouses/drafts/dispatch-status': [200, { active: true }], 'POST /api/warehouses/drafts/one/validate': [200, { ...items[1], revision: 2, human_validated: true }] })
-    renderApp('/prospection/warehouse-drafts')
-    await userEvent.click(await screen.findByRole('button', { name: 'Brouillons Autres entreprises (4)' }))
-    const date = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'long', timeStyle: 'short' }).format(new Date(secondDate))
-    await userEvent.click(screen.getByRole('button', { name: `Voir les messages du ${date}` }))
-    expect(screen.getByRole('heading', { name: `Brouillons du ${date} (3)` })).toBeVisible()
-    expect(screen.queryByText('Autre date')).not.toBeInTheDocument()
-    const first = screen.getByText('Premier prospect').closest('details')!
-    const second = screen.getByText('Deuxième prospect').closest('details')!
-    expect(first).toHaveAttribute('open')
-    await userEvent.click(within(first).getByRole('button', { name: 'Valid\u00e9 et continuer' }))
-    await waitFor(() => expect(second).toHaveAttribute('open'))
-    expect(screen.queryByText('Autre date')).not.toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Retour aux sous-brouillons' }))
-    expect(screen.getByText('Autre date')).toBeVisible()
-  })
-  it('shows simulated drafts for human review in their own category', async () => {
-    stubApi({ ...API, 'GET /api/warehouses': [200, { items: [ROW], total: 1 }], 'GET /api/warehouses/drafts': [200, [{ id: 'draft-1', prospecting_category: 'sme', warehouse_name: 'Entrepôt Exemple', contact_name: 'Anne Test', contact_role: 'Responsable', source_email: 'a@example.test ou b@example.test', recipient: null, subject: 'Prise de contact', body: 'Bonjour', review_note: 'Adresse à vérifier' }]] })
-    renderApp('/prospection/warehouse-drafts')
-    await userEvent.click(await screen.findByRole('button', { name: 'Brouillons PME/TPE (1)' }))
-    expect(await screen.findByRole('heading', { name: 'Brouillons à vérifier (1)' })).toBeVisible()
-    await userEvent.click(screen.getByText('Anne Test'))
-    expect(screen.getByText('Destinataire à choisir')).toBeVisible()
-    await userEvent.click(screen.getByRole('button', { name: 'b@example.test' }))
-    expect(screen.getByLabelText('Destinataire')).toHaveValue('b@example.test')
-    expect(screen.getByRole('button', { name: 'Enregistrer' })).toBeEnabled()
-    expect(screen.getByText('Bonjour')).toBeVisible()
-    expect(screen.queryByRole('button', { name: /envoyer/i })).not.toBeInTheDocument()
-  })
+
   it('places directors first, then logistics managers, and keeps the other contacts in their original order', async () => {
     const contact = (full_name: string, role: string | null) => ({ full_name, role, email: null, linkedin: null })
     const warehouse = { ...ROW, contacts: [

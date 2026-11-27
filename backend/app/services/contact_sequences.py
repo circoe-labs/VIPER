@@ -80,7 +80,7 @@ from app.models.enums import (
     SequenceEndReason,
     TrackingHistoryStatus,
 )
-from app.services import app_settings, audit, cohorts, eligibility
+from app.services import app_settings, audit, cohorts, eligibility, warehouse_history
 from app.services.audit import AuditAction
 from app.services.contact_message_cancellation import NOTHING, Cancellation, cancel_unsent_messages
 from app.services.contact_workflow import (
@@ -431,6 +431,8 @@ def change_cohort(
         session.add(sequence)
         session.flush()
         resumed = _resume_state(session, actor, prospect)
+        # A warehouse mail already sent to them is this sequence's Contact.
+        warehouse_history.carry(session, actor, prospect_id, now=moment)
     return CohortChange(sequence, changed=True, messages=cancelled, resumed_from=resumed)
 
 

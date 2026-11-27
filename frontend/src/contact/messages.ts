@@ -119,6 +119,16 @@ export function messageRefusal(error: unknown): MessageRefusal {
         'Un envoi précédent de ce prospect n’est pas encore tranché : réglez-le dans Contact › « Envois à reprendre » avant de programmer.',
         true,
       )
+    case 'warehouse_send_pending':
+      return plain(
+        'Un mail entrepôt à cette personne est programmé ou à vérifier : réglez-le dans « Mails entrepôt » avant de programmer.',
+        true,
+      )
+    case 'warehouse_send_unrecorded':
+      return plain(
+        'Un mail entrepôt déjà envoyé à cette personne n’est pas compté : utilisez « Contacter » sur la fiche de l’entrepôt.',
+        true,
+      )
     case 'dispatch_not_unconfirmed':
       return plain('L’envoi de ce message n’attend plus de décision (il vient d’être tranché ou est encore en cours) : l’affichage est actualisé.', true)
     case 'prospect_do_not_contact':

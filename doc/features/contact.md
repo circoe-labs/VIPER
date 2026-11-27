@@ -571,8 +571,7 @@ guillemets) and **no e-mail address** outside that link (VIPER sends none: a lin
 does not hold) — the last three are server guardrails beyond the reference's schema check. The
 model recorded is the one OpenAI names in its answer (snapshot), else the configured one.
 
-**Subjects and naming (v6, user feedback of 2026-11-27).** `mail_generation/naming.py` (pure, shared with the
-warehouse drafts) owns how a function and a company are written.
+**Subjects and naming (v6, user feedback of 2026-11-27).** `mail_generation/naming.py` (pure) owns how a function and a company are written.
 - *Function*: « Fonction » is the first function of the exact job title when it has at most 3 words, else its level word
   (« Directeur », « Directrice générale », « Responsable », « Chef de projet »…); a long title without a known level
   gives no « Fonction » line. The full title follows as « Intitulé complet (contexte seulement, ne pas recopier) ».
@@ -1360,3 +1359,11 @@ left or whose send is unconfirmed, beyond R2 or of a former contact week. It
 becomes `sent` (`manual`, dated at the attempt); nothing is sent and no message is created.
 The rows of that list are keyed by message: an old week's mail and the current one of the same
 step are separate.
+
+## Warehouse people
+
+People of the warehouse listings are contacted here once they are prospects
+([`warehouses.md`](warehouses.md)). Their former warehouse mails show on the sheet; a sent one
+counts as the Contact step, and a programmed or unsettled one holds Contact sends back
+(409 `warehouse_send_pending` / `warehouse_send_unrecorded`).
+
