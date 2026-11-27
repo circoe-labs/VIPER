@@ -56,6 +56,34 @@ export type ChannelVerification = 'unverified' | 'verified' | 'invalid' | 'unkno
 // "No value" of the role, referent, tracking-status and cohort filters.
 export const NONE = 'none'
 
+export const VERIFICATION_BOXES = ['validated', 'uncertain', 'todo', 'ignored'] as const
+export type VerificationBox = (typeof VERIFICATION_BOXES)[number]
+export const SEND_STAGES = ['sent', 'r1', 'r2'] as const
+export type SendStage = (typeof SEND_STAGES)[number]
+export const EMAIL_STATES = ['verified', 'unverified', 'invalid', 'missing'] as const
+export const COMPANY_KIND_FILTERS = ['sme', 'large', 'institutional', 'unclassified'] as const
+export type CompanyKindFilter = (typeof COMPANY_KIND_FILTERS)[number]
+
+// The criteria taking several values: any of one criterion's values (OR), the criteria combined with AND. Each is
+// sent as a repeated parameter of its own name; an empty list does not filter.
+export const PROSPECT_LIST_FILTERS = [
+  'services',
+  'role',
+  'activity',
+  'referent',
+  'tracking_status',
+  'cohort',
+  'company',
+  'import_batch',
+  'send_stage',
+  'email_state',
+  'company_kind',
+  'commercial_segment',
+  'activity_category',
+  'department',
+  'verification_box',
+] as const
+
 // Criteria shared by the counters and the list (the segment only narrows the list).
 export interface ProspectFilters {
   created_from?: string | null
@@ -64,19 +92,25 @@ export interface ProspectFilters {
   // The ignored (declined / do not contact) are hidden unless asked for.
   include_ignored?: boolean
   validated_only?: boolean
-  verification_box?: 'validated' | 'uncertain' | 'todo' | 'ignored' | null
-  services?: string[]
-  send_stage?: 'sent' | 'r1' | 'r2' | null
-  company_kind?: 'sme' | 'large' | 'institutional' | 'unclassified' | null
+  verification_box: VerificationBox[]
+  services: string[]
+  send_stage: SendStage[]
+  email_state: EmailState[]
+  company_kind: CompanyKindFilter[]
+  // `none` in role, referent, tracking_status, cohort, commercial_segment, activity_category: no value.
+  commercial_segment: string[]
+  activity_category: string[]
+  // French department numbers of one of the company's sites.
+  department: string[]
   q: string
-  role: string | null
-  activity: ActivityStatus | null
-  referent: string | null
-  tracking_status: TrackingStatus | typeof NONE | null
-  // The current cohort's id; `none`: no cohort (not validated).
-  cohort: string | null
-  company: string | null
-  import_batch: string | null
+  role: string[]
+  activity: ActivityStatus[]
+  referent: string[]
+  tracking_status: (TrackingStatus | typeof NONE)[]
+  // Current cohorts' ids; `none`: no cohort (not validated).
+  cohort: string[]
+  company: string[]
+  import_batch: string[]
 }
 
 export interface ProspectListCriteria extends ProspectFilters {
@@ -172,6 +206,7 @@ export const prospectionKeys = {
   // Invalidate this after any prospect write (Task 15): counters and every list page refresh.
   all: ['prospection'] as const,
   overview: ['prospection', 'overview'] as const,
+  filterOptions: ['prospection', 'filter-options'] as const,
   counters: (filters: ProspectFilters) => ['prospection', 'counters', filters] as const,
   page: (criteria: ProspectListCriteria, page: number) => ['prospection', 'page', criteria, page] as const,
 }
@@ -183,8 +218,8 @@ function filterParams(filters: ProspectFilters): URLSearchParams {
   if (filters.include_ignored) params.set('include_ignored', 'true')
   const q = filters.q.trim()
   if (q) params.set('q', q)
-  for (const code of filters.services ?? []) params.append('services', code)
-  for (const key of ['role', 'activity', 'referent', 'tracking_status', 'cohort', 'company', 'import_batch', 'send_stage', 'company_kind', 'created_from', 'created_to', 'verification_box'] as const) {
+  for (const key of PROSPECT_LIST_FILTERS) for (const value of filters[key]) params.append(key, value)
+  for (const key of ['created_from', 'created_to'] as const) {
     const value = filters[key]
     if (value) params.set(key, value)
   }
@@ -192,8 +227,22 @@ function filterParams(filters: ProspectFilters): URLSearchParams {
 }
 
 export function filtersOf(criteria: Omit<ProspectListCriteria, 'sort'>): ProspectFilters {
-  const { q, role, activity, referent, tracking_status, cohort, company, import_batch, services, send_stage, company_kind, reachable, include_ignored, validated_only, verification_box, created_from, created_to } = criteria
-  return { q, role, activity, referent, tracking_status, cohort, company, import_batch, services, send_stage, company_kind, reachable, include_ignored, validated_only, verification_box, created_from, created_to }
+  const { q, role, activity, referent, tracking_status, cohort, company, import_batch, services, send_stage, email_state, company_kind, commercial_segment, activity_category, department, reachable, include_ignored, validated_only, verification_box, created_from, created_to } = criteria
+  return { q, role, activity, referent, tracking_status, cohort, company, import_batch, services, send_stage, email_state, company_kind, commercial_segment, activity_category, department, reachable, include_ignored, validated_only, verification_box, created_from, created_to }
+}
+
+// The filter panels' choices that only the data knows: every company, and the departments present.
+export interface FilterOptions {
+  companies: { id: string; label: string }[]
+  company_departments: string[]
+  warehouse_departments: string[]
+}
+
+export function useFilterOptions() {
+  return useQuery({
+    queryKey: prospectionKeys.filterOptions,
+    queryFn: ({ signal }) => apiGet<FilterOptions>('/prospection/filter-options', signal),
+  })
 }
 
 export function useProspectionCounters(filters: ProspectFilters) {

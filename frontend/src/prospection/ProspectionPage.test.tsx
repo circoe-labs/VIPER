@@ -69,9 +69,24 @@ function list() {
   return screen.getByRole('list', { name: 'Prospects' })
 }
 
-// « Filtres » is a menu (details/summary): open it, then use its quick filters and fields.
+// « Filtres » is a menu (details/summary): open it, choose, then « Valider » applies the selection.
 async function openFilters() {
   await userEvent.click(screen.getByText('Filtres', { selector: 'summary' }))
+}
+
+async function apply() {
+  await userEvent.click(screen.getByRole('button', { name: 'Valider' }))
+}
+
+function choice(group: string, name: string) {
+  return within(screen.getByRole('group', { name: group })).getByRole('button', { name })
+}
+
+// Picks an option of a searchable multi picker (the list stays open for the next one).
+async function pick(label: string, option: string) {
+  const input = screen.getByRole('combobox', { name: label })
+  if (input.getAttribute('aria-expanded') !== 'true') await userEvent.click(input)
+  await userEvent.click(await screen.findByRole('option', { name: option }))
 }
 
 function chips() {
@@ -97,7 +112,8 @@ describe('Prospection page', () => {
     expect(router.state.location.search).toBe('?entity=warehouse')
     expect(await screen.findByRole('searchbox', { name: /Rechercher un entrepôt/ })).toBeVisible()
     await openFilters()
-    await userEvent.click(within(screen.getByRole('group', { name: 'Filtres rapides' })).getByRole('button', { name: 'À contacter' }))
+    await userEvent.click(screen.getByRole('switch', { name: 'À contacter' }))
+    await apply()
     expect(router.state.location.search).toBe('?entity=warehouse&warehouse_to_contact=true')
 
     await act(async () => { await router.navigate(-2) })
@@ -171,6 +187,7 @@ describe('Prospection page', () => {
     const quick = within(screen.getByRole('group', { name: 'Statut du prospect' }))
     expect(quick.getAllByRole('button').map((button) => button.textContent)).toEqual(['Vérifié', 'Exploitable', 'Incomplet', 'Ignoré'])
     await userEvent.click(quick.getByRole('button', { name: 'Vérifié' }))
+    await apply()
 
     expect(router.state.location.search).toBe('?review=verified')
     // Same list layout (no reachable-prospects table), same entity.
@@ -181,14 +198,63 @@ describe('Prospection page', () => {
     expect(lastParams(api.requests, PROSPECTS).get('review')).toBe('verified')
 
     // Several statuses can be chosen at once (any of them); « Tout effacer » removes every chip.
-    await userEvent.click(quick.getByRole('button', { name: 'Ignoré' }))
+    await openFilters()
+    await userEvent.click(choice('Statut du prospect', 'Ignoré'))
+    await apply()
     expect(router.state.location.search).toBe('?review=ignored&review=verified')
-    expect(lastParams(api.requests, PROSPECTS).getAll('review')).toEqual(['verified', 'ignored'])
-    await userEvent.click(quick.getByRole('button', { name: 'Vérifié' }))
+    await waitFor(() => { expect(lastParams(api.requests, PROSPECTS).getAll('review')).toEqual(['verified', 'ignored']) })
+    await userEvent.click(chips().getByRole('button', { name: 'Retirer le filtre : Vérifié' }))
     expect(router.state.location.search).toBe('?review=ignored')
     await userEvent.click(chips().getByRole('button', { name: 'Tout effacer' }))
     expect(router.state.location.search).toBe('')
     expect(chips().getByText('Aucun filtre')).toBeVisible()
+  })
+
+  it('applies a selection only on « Valider »; closing the panel drops it', async () => {
+    const api = stubProspectionApi({ prospects: people() })
+    const { router } = renderApp('/prospection')
+    await screen.findByRole('list', { name: 'Prospects' })
+    const sent = () => api.requests.filter((request) => request.path === PROSPECTS).length
+    await waitFor(() => { expect(sent()).toBe(1) })
+
+    await openFilters()
+    await userEvent.click(choice('Activité', 'Actif'))
+    await userEvent.click(choice('Activité', 'Inactif'))
+    expect(choice('Activité', 'Actif')).toHaveAttribute('aria-pressed', 'true')
+    expect(router.state.location.search).toBe('')
+    expect(sent()).toBe(1)
+    await userEvent.click(screen.getByRole('button', { name: 'Annuler' }))
+    expect(chips().getByText('Aucun filtre')).toBeVisible()
+
+    await openFilters()
+    expect(choice('Activité', 'Actif')).toHaveAttribute('aria-pressed', 'false')
+    await userEvent.click(choice('Activité', 'Actif'))
+    await userEvent.click(choice('Activité', 'Inactif'))
+    await userEvent.click(choice('Type d’entreprise', 'PME'))
+    await apply()
+
+    expect(router.state.location.search).toBe('?company_kind=sme&activity=active&activity=inactive')
+    await waitFor(() => { expect(lastParams(api.requests, PROSPECTS).getAll('activity')).toEqual(['active', 'inactive']) })
+    expect(lastParams(api.requests, '/api/prospection/prospects').get('company_kind')).toBe('sme')
+    expect(chips().getByText('Activité : Actif')).toBeVisible()
+    expect(chips().getByText('Type : PME')).toBeVisible()
+
+    // « Réinitialiser » empties the selection, applied on « Valider » like any choice.
+    await openFilters()
+    await userEvent.click(screen.getByRole('button', { name: 'Réinitialiser' }))
+    expect(router.state.location.search).not.toBe('')
+    await apply()
+    expect(router.state.location.search).toBe('')
+  })
+
+  it('refuses to apply a period ending before it starts', async () => {
+    stubProspectionApi({ prospects: people() })
+    renderApp('/prospection?created_from=2026-11-10')
+    await screen.findByRole('searchbox')
+    await openFilters()
+    await userEvent.type(screen.getByLabelText('Ajoutés jusqu’au'), '2026-11-01')
+    expect(screen.getByText('La fin précède le début.')).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Valider' })).toBeDisabled()
   })
 
   it('drops the filters of the old entity on switch: validated_only does not survive on Entreprises, q does', async () => {
@@ -200,7 +266,7 @@ describe('Prospection page', () => {
     expect(Object.fromEntries(params)).toEqual({ entity: 'company', q: 'abc', sort: 'updated', created_from: '2026-11-02' })
     expect(chips().queryByText('Emploi validé')).not.toBeInTheDocument()
     await userEvent.click(within(nav).getByRole('link', { name: /^Entrepôts/ }))
-    expect(Object.fromEntries(new URLSearchParams(router.state.location.search))).toEqual({ entity: 'warehouse', q: 'abc', sort: 'updated' })
+    expect(Object.fromEntries(new URLSearchParams(router.state.location.search))).toEqual({ entity: 'warehouse', q: 'abc', sort: 'updated', created_from: '2026-11-02' })
   })
 
   it('sorts through the sort param; companies and warehouses send it to their API', async () => {
@@ -219,7 +285,8 @@ describe('Prospection page', () => {
     expect(lastParams(api.requests, PROSPECTS).get('segment')).toBe('due')
 
     await openFilters()
-    await userEvent.click(within(screen.getByRole('group', { name: 'Statut du prospect' })).getByRole('button', { name: 'Incomplet' }))
+    await userEvent.click(choice('Statut du prospect', 'Incomplet'))
+    await apply()
 
     expect(Object.fromEntries(new URLSearchParams(router.state.location.search))).toEqual({ segment: 'due', review: 'incomplete' })
   })
@@ -255,17 +322,17 @@ describe('Prospection page', () => {
     expect(await chips().findByText('Activité : Activité inconnue')).toBeVisible()
     expect(await chips().findByText('Rôle : Responsable transport')).toBeVisible()
     await openFilters()
-    expect(screen.getByRole('combobox', { name: 'Activité' })).toHaveValue('unknown')
-    await waitFor(() => {
-      expect(screen.getByRole('combobox', { name: 'Rôle' })).toHaveValue(role.id)
-    })
+    expect(choice('Activité', 'Activité inconnue')).toHaveAttribute('aria-pressed', 'true')
+    expect(await screen.findByRole('button', { name: 'Retirer « Responsable transport »' })).toBeVisible()
 
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Activité' }), 'Actif')
+    await userEvent.click(choice('Activité', 'Actif'))
+    await apply()
 
     const params = new URLSearchParams(router.state.location.search)
-    expect(params.get('activity')).toBe('active')
+    expect(params.getAll('activity')).toEqual(['active', 'unknown'])
     expect(params.has('page')).toBe(false)
     expect(params.get('review')).toBe('incomplete')
+    expect(params.get('role')).toBe(role.id)
   })
 
   it('renders each person’s states with text and icons, never colour alone', async () => {
@@ -332,14 +399,13 @@ describe('Prospection page', () => {
     expect(within(emma).getByText('Mail invalide')).toBeInTheDocument()
   })
 
-  it('filters on the commercial state, « En séquence » covering people without any tracking', async () => {
+  it('filters on several commercial states', async () => {
     const api = stubProspectionApi({ prospects: people() })
     renderApp('/prospection?segment=all&q=')
     await screen.findByRole('list', { name: 'Prospects' })
     await openFilters()
-    const filter = screen.getByRole('combobox', { name: 'État commercial' })
-    expect(within(filter).getAllByRole('option').map((option) => option.textContent)).toEqual([
-      'Tous les états',
+    const states = within(screen.getByRole('group', { name: 'État commercial' }))
+    expect(states.getAllByRole('button').map((button) => button.textContent)).toEqual([
       'En séquence',
       'Réponse reçue',
       'RDV pris',
@@ -347,36 +413,39 @@ describe('Prospection page', () => {
       'Ignoré',
       'Défaillant',
     ])
-    await userEvent.selectOptions(filter, 'Défaillant')
+    await userEvent.click(states.getByRole('button', { name: 'Défaillant' }))
+    await userEvent.click(states.getByRole('button', { name: 'RDV pris' }))
+    await apply()
     await waitFor(() => {
-      expect(lastParams(api.requests, PROSPECTS).get('tracking_status')).toBe('disqualified')
+      expect(lastParams(api.requests, PROSPECTS).getAll('tracking_status')).toEqual(['appointment_obtained', 'disqualified'])
     })
+    // The counters follow the same criteria as the list.
+    expect(chips().getByText('État : RDV pris')).toBeVisible()
   })
 
-  it('filters on a cohort of Paramètres, or on people without any (not validated)', async () => {
+  it('filters on several cohorts of Paramètres, people without any (not validated) included', async () => {
     const s39 = cohort('S39', '2026-09-28')
     const api = stubProspectionApi({ prospects: people(), cohorts: [S0, s39] })
     renderApp('/prospection?segment=all&q=')
     await screen.findByRole('list', { name: 'Prospects' })
     await openFilters()
-    const filter = screen.getByRole('combobox', { name: 'Semaine de contact' })
+    await userEvent.click(screen.getByRole('combobox', { name: 'Semaine de contact' }))
     await waitFor(() => {
-      expect(within(filter).getAllByRole('option').map((option) => option.textContent)).toEqual([
-        'Toutes les semaines de contact',
-        'Sans semaine de contact (non validé)',
+      expect(within(screen.getByRole('listbox')).getAllByRole('option').map((option) => option.textContent)).toEqual([
+        'Sans semaine de contact',
         'S0 — hors campagne',
         'S39 — 28 sept. 2026',
       ])
     })
 
-    await userEvent.selectOptions(filter, 'S39 — 28 sept. 2026')
+    await pick('Semaine de contact', 'S39 — 28 sept. 2026')
+    await pick('Semaine de contact', 'Sans semaine de contact')
+    await apply()
     await waitFor(() => {
-      expect(lastParams(api.requests, PROSPECTS).get('cohort')).toBe(s39.id)
+      expect(lastParams(api.requests, PROSPECTS).getAll('cohort')).toEqual([s39.id, 'none'])
     })
-    await userEvent.selectOptions(filter, 'Sans semaine de contact (non validé)')
-    await waitFor(() => {
-      expect(lastParams(api.requests, PROSPECTS).get('cohort')).toBe('none')
-    })
+    expect(chips().getByText('Semaine de contact : S39')).toBeVisible()
+    expect(chips().getByText('Sans semaine de contact')).toBeVisible()
   })
 
   it('moves between people with the arrow keys and opens one with Enter in the prospect editor', async () => {

@@ -3,7 +3,7 @@
 import uuid
 from collections.abc import Collection, Sequence
 from datetime import date
-from typing import Any, Literal
+from typing import Any
 
 from sqlalchemy import ColumnElement, Row, SQLColumnExpression, and_, exists, func, or_, select
 from sqlalchemy.orm import Session
@@ -13,6 +13,7 @@ from app.models import CommercialSegment, Company, Establishment, Prospect, Role
 from app.models.companies import company_activity_categories
 from app.models.enums import CompanyKind
 from app.models.taxonomies import ActivityCategory
+from app.repositories.filter_conditions import company_conditions
 from app.repositories.list_sort import EntitySort, entity_order_by
 from app.repositories.taxonomies import matches_words
 from app.services.file_status import FileStatus, company_missing, company_status_condition
@@ -145,11 +146,15 @@ def list_companies(
     search: str | None,
     limit: int,
     offset: int,
-    company_kind: CompanyKind | Literal["unclassified"] | None = None,
+    kinds: Sequence[str] = (),
+    segments: Sequence[uuid.UUID | str] = (),
+    categories: Sequence[uuid.UUID | str] = (),
+    departments: Sequence[str] = (),
+    services: Sequence[str] = (),
     created_from: date | None = None,
     created_to: date | None = None,
     sort: EntitySort = EntitySort.NAME,
-    status: FileStatus | None = None,
+    statuses: Sequence[FileStatus] = (),
 ) -> tuple[Sequence[Row[Any]], int]:
     """`(company, segment label, prospect count, establishment count, primary city, missing to be
     usable, missing to be verified)` rows ordered
@@ -157,12 +162,15 @@ def list_companies(
     total number of matches."""
     where = [_search_condition(search)] if search else []
     where.extend(created_between(Company.created_at, created_from, created_to))
-    if company_kind == "unclassified":
-        where.append(Company.company_kind.is_(None))
-    elif company_kind is not None:
-        where.append(Company.company_kind == company_kind)
-    if status is not None:
-        where.append(company_status_condition(status))
+    where += company_conditions(
+        kinds=kinds,
+        segments=segments,
+        categories=categories,
+        departments=departments,
+        services=services,
+    )
+    if statuses:
+        where.append(or_(*(company_status_condition(status) for status in statuses)))
     usable_missing, verified_missing = company_missing()
     establishment_count = (
         select(func.count()).where(Establishment.company_id == Company.id).scalar_subquery()

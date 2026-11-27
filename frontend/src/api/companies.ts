@@ -132,9 +132,30 @@ export type ListSort = 'name' | 'created' | 'updated'
 
 export const COMPANY_PAGE_SIZE = 50
 
+// The Entreprises filters: any of one filter's values (OR), the filters combined with AND; empty = not filtered.
+export interface CompanyListFilters {
+  company_kind?: readonly string[]
+  commercial_segment?: readonly string[]
+  activity_category?: readonly string[]
+  department?: readonly string[]
+  services?: readonly string[]
+  status?: readonly FileStatus[]
+  created_from?: string | null
+  created_to?: string | null
+}
+
+// Appends each value of a filter object as a (repeated) query parameter.
+export function appendFilters(params: URLSearchParams, filters: object): URLSearchParams {
+  for (const [key, value] of Object.entries(filters) as [string, string | boolean | readonly string[] | null | undefined][]) {
+    if (Array.isArray(value)) for (const item of value as readonly string[]) params.append(key, item)
+    else if (value) params.set(key, String(value))
+  }
+  return params
+}
+
 export const companyKeys = {
   all: ['companies'] as const,
-  list: (search: string, offset: number, limit: number, kind: CompanyKindSelection = null, createdFrom: string | null = null, createdTo: string | null = null, sort: ListSort = 'name', status: FileStatus | null = null) => ['companies', 'list', search, offset, limit, kind, createdFrom, createdTo, sort, status] as const,
+  list: (search: string, offset: number, limit: number, filters: CompanyListFilters = {}, sort: ListSort = 'name') => ['companies', 'list', search, offset, limit, filters, sort] as const,
   detail: (id: string) => ['companies', 'detail', id] as const,
   similar: (name: string, domain: string, exclude: string | null) => ['companies', 'similar', name, domain, exclude] as const,
 }
@@ -144,17 +165,14 @@ function companyPath(id: string): `/${string}` {
 }
 
 // `limit` up to 200 (the API's maximum), e.g. for a company picker.
-export function useCompanies(search: string, offset = 0, limit = COMPANY_PAGE_SIZE, kind: CompanyKindSelection = null, createdFrom: string | null = null, createdTo: string | null = null, sort: ListSort = 'name', status: FileStatus | null = null) {
+export function useCompanies(search: string, offset = 0, limit = COMPANY_PAGE_SIZE, filters: CompanyListFilters = {}, sort: ListSort = 'name') {
   return useQuery({
-    queryKey: companyKeys.list(search, offset, limit, kind, createdFrom, createdTo, sort, status),
+    queryKey: companyKeys.list(search, offset, limit, filters, sort),
     queryFn: ({ signal }) => {
       const params = new URLSearchParams({ limit: String(limit), offset: String(offset) })
       if (search) params.set('q', search)
-      if (kind) params.set('company_kind', kind)
-      if (createdFrom) params.set('created_from', createdFrom)
-      if (createdTo) params.set('created_to', createdTo)
+      appendFilters(params, filters)
       if (sort !== 'name') params.set('sort', sort)
-      if (status) params.set('status', status)
       return apiGet<CompanyPage>(`/companies?${params.toString()}`, signal)
     },
     placeholderData: keepPreviousData,

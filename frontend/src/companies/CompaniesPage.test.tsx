@@ -20,31 +20,35 @@ describe('Companies (Prospection entity=company)', () => {
     ] })
     renderApp('/prospection?entity=company')
     await screen.findByRole('button', { name: 'Petit atelier' })
-    // The company types are the quick filters of the « Filtres » menu (opened on demand).
-    const categories = async () => {
-      if (!screen.queryByRole('group', { name: 'Filtres rapides' })) await userEvent.click(screen.getByText('Filtres', { selector: 'summary' }))
-      return within(screen.getByRole('group', { name: 'Filtres rapides' }))
+    // Opens « Filtres », toggles company types and applies them with « Valider ».
+    const toggle = async (...labels: string[]) => {
+      await userEvent.click(screen.getByText('Filtres', { selector: 'summary' }))
+      const types = within(screen.getByRole('group', { name: 'Type d’entreprise' }))
+      for (const label of labels) await userEvent.click(types.getByRole('button', { name: label }))
+      await userEvent.click(screen.getByRole('button', { name: 'Valider' }))
     }
-    const kinds: [string, string][] = [
-      ['Institutionnelles', 'Mairie exemple'],
-      ['PME', 'Petit atelier'],
-      ['Grosses entreprises', 'Grand groupe'],
-      ['À classer', 'Sans classement'],
-    ]
-    for (const [label, name] of kinds) {
-      await userEvent.click((await categories()).getByRole('button', { name: new RegExp(`^${label}`) }))
+    const shown = async (...names: string[]) => {
       await waitFor(() => {
-        expect(within(table()).getAllByRole('row')).toHaveLength(2)
-        expect(within(table()).getByRole('button', { name })).toBeInTheDocument()
+        expect(within(table()).getAllByRole('row')).toHaveLength(names.length + 1)
+        for (const name of names) expect(within(table()).getByRole('button', { name })).toBeInTheDocument()
       })
     }
+    await toggle('Institutionnel')
+    await shown('Mairie exemple')
+    // Several types at once: any of them.
+    await toggle('PME')
+    await shown('Mairie exemple', 'Petit atelier')
+    await toggle('PME', 'Institutionnel', 'Grande entreprise')
+    await shown('Grand groupe')
+    await toggle('Grande entreprise', 'À classer')
+    await shown('Sans classement')
     await userEvent.click(within(table()).getByRole('button', { name: 'Sans classement' }))
     const drawer = await screen.findByRole('dialog', { name: 'Sans classement' })
     await userEvent.selectOptions(within(drawer).getByRole('combobox', { name: 'Type d’entreprise' }), 'sme')
     await userEvent.click(within(drawer).getByRole('button', { name: 'Enregistrer' }))
     expect(await screen.findByText('Aucune entreprise ne correspond à ces critères.')).toBeInTheDocument()
     await userEvent.keyboard('{Escape}')
-    await userEvent.click((await categories()).getByRole('button', { name: /^PME/ }))
+    await toggle('À classer', 'PME')
     expect(await within(await screen.findByRole('table', { name: 'Liste des entreprises' })).findByRole('button', { name: 'Sans classement' })).toBeInTheDocument()
   })
 

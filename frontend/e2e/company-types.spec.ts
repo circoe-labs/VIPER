@@ -19,10 +19,14 @@ test('company classification persists and separates all its contacts in Prospect
   }
   await page.goto('/prospection/companies')
   await page.getByRole('searchbox').fill(tag)
-  // Company types are the quick filters of « Filtres » on the Entreprises view.
-  await page.getByText('Filtres', { exact: true }).click()
-  const categories = page.getByRole('group', { name: 'Filtres rapides' })
-  await categories.getByRole('button', { name: 'À classer', exact: true }).click()
+  // Toggles company types in « Filtres » and applies them with « Valider ».
+  const types = page.getByRole('group', { name: 'Type d’entreprise' })
+  const toggle = async (...labels: string[]) => {
+    await page.getByText('Filtres', { exact: true }).click()
+    for (const label of labels) await types.getByRole('button', { name: label, exact: true }).click()
+    await page.getByRole('button', { name: 'Valider', exact: true }).click()
+  }
+  await toggle('À classer')
   await page.getByRole('button', { name: tag, exact: true }).click()
   const editor = page.getByRole('dialog', { name: tag, exact: true })
   await editor.getByRole('combobox', { name: 'Type d’entreprise' }).selectOption('sme')
@@ -30,7 +34,7 @@ test('company classification persists and separates all its contacts in Prospect
   await expect(editor.getByText('Entreprise enregistrée.')).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(page.getByText('Aucune entreprise dans cette catégorie', { exact: false })).toBeVisible()
-  await categories.getByRole('button', { name: 'PME', exact: true }).click()
+  await toggle('À classer', 'PME')
   await expect(page.getByRole('button', { name: tag, exact: true })).toBeVisible()
 
   await page.goto(`/prospection?q=${tag}&company_kind=sme`)
@@ -43,15 +47,21 @@ test('company classification persists and separates all its contacts in Prospect
   await expect(list.getByRole('listitem')).toHaveCount(2)
   await page.reload()
   await expect(list.getByRole('listitem')).toHaveCount(2)
-  for (const label of ['Institutionnelles', 'Grosses entreprises', 'À classer']) {
-    await categories.getByRole('button', { name: label, exact: true }).click()
+  let current = 'PME'
+  for (const label of ['Institutionnel', 'Grande entreprise', 'À classer']) {
+    await toggle(current, label)
+    current = label
     await expect(page.getByText('Aucun prospect ne correspond à ces critères.')).toBeVisible()
   }
-  await categories.getByRole('button', { name: 'PME', exact: true }).focus()
+  // The keyboard reaches the choices and « Valider » alike: both types, any of them.
+  await page.getByText('Filtres', { exact: true }).click()
+  await types.getByRole('button', { name: 'PME', exact: true }).focus()
+  await page.keyboard.press('Enter')
+  await page.getByRole('button', { name: 'Valider', exact: true }).focus()
   await page.keyboard.press('Enter')
   await expect(list.getByRole('listitem')).toHaveCount(2)
   await page.setViewportSize({ width: 1280, height: 800 })
-  await categories.getByRole('button', { name: 'Toutes', exact: true }).click()
+  await page.getByRole('button', { name: 'Tout effacer' }).click()
   await directory.getByRole('searchbox').fill(tag)
   await expect(directory.getByRole('table', { name: 'Liste des entreprises' }).getByRole('row')).toHaveCount(2)
   await expect(directory.getByRole('table', { name: 'Liste des entreprises' }).getByRole('button', { name: tag, exact: true })).toBeVisible()

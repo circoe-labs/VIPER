@@ -1,9 +1,11 @@
 """Prospection API (`/api/prospection`, Task 14): the workspace's counters and people list.
 
 Both endpoints take the same criteria (`q`, `role`, `activity`, `referent`, `tracking_status`,
-`cohort`, `company`, `import_batch`), so each counter equals the total of the list opened with its
-segment. `role`, `referent`, `tracking_status` and `cohort` also accept `none` (no role, no
-referent, no tracking, no cohort). A row carries the derived Contact progress (cohort, sends, next
+`cohort`, `company`, `import_batch`, `company_kind`…), so each counter equals the total of the
+list opened with its segment. Every criterion but `q`, the creation dates and the switches may be
+repeated: any of its values (OR), and the criteria combine with AND. `role`, `referent`,
+`tracking_status`, `cohort`, `commercial_segment` and `activity_category` also accept `none` (no
+value). A row carries the derived Contact progress (cohort, sends, next
 step, « Relance terminée », next due date: sequences rework D1).
 Segment definitions: `app.services.prospection.segments`, doc/features/prospection-kpis.md.
 """
@@ -17,6 +19,7 @@ from pydantic import BaseModel
 
 from app.api.dependencies import SessionDep, SettingsDep
 from app.api.errors import business_errors
+from app.api.query_types import Department, Many, OrNone
 from app.core.config import Settings
 from app.models.enums import (
     ActivityStatus,
@@ -38,8 +41,6 @@ from app.services.prospection.segments import (
 )
 
 router = APIRouter(prefix="/prospection", tags=["prospection"])
-
-OrNone = Literal["none"]
 
 
 class ReviewCountOut(BaseModel):
@@ -121,20 +122,24 @@ class ProspectPageOut(BaseModel):
 
 def prospect_filters(
     q: Annotated[str | None, Query(max_length=200)] = None,
-    role: uuid.UUID | OrNone | None = None,
-    activity: ActivityStatus | None = None,
-    referent: uuid.UUID | OrNone | None = None,
-    tracking_status: ContactTrackingStatus | OrNone | None = None,
-    cohort: uuid.UUID | OrNone | None = None,
-    company: uuid.UUID | None = None,
-    import_batch: uuid.UUID | None = None,
-    services: Annotated[list[dashboard.ServiceCode] | None, Query()] = None,
-    send_stage: Literal["sent", "r1", "r2"] | None = None,
-    company_kind: Literal["sme", "large", "institutional", "unclassified"] | None = None,
+    role: Many[uuid.UUID | OrNone] = None,
+    activity: Many[ActivityStatus] = None,
+    referent: Many[uuid.UUID | OrNone] = None,
+    tracking_status: Many[ContactTrackingStatus | OrNone] = None,
+    cohort: Many[uuid.UUID | OrNone] = None,
+    company: Many[uuid.UUID] = None,
+    import_batch: Many[uuid.UUID] = None,
+    services: Many[dashboard.ServiceCode] = None,
+    send_stage: Many[Literal["sent", "r1", "r2"]] = None,
+    email_state: Many[EmailState] = None,
+    company_kind: Many[Literal["sme", "large", "institutional", "unclassified"]] = None,
+    commercial_segment: Many[uuid.UUID | OrNone] = None,
+    activity_category: Many[uuid.UUID | OrNone] = None,
+    department: Many[Department] = None,
     reachable: bool = False,
     include_ignored: bool = False,
     validated_only: bool = False,
-    verification_box: Literal["validated", "uncertain", "todo", "ignored"] | None = None,
+    verification_box: Many[query.VerificationBox] = None,
     created_from: date | None = None,
     created_to: date | None = None,
 ) -> ProspectFilters:
@@ -145,20 +150,24 @@ def prospect_filters(
             )
     return ProspectFilters(
         search=q,
-        role=role,
-        activity=activity,
-        referent=referent,
-        tracking_status=tracking_status,
-        cohort=cohort,
-        company_id=company,
-        import_batch_id=import_batch,
+        roles=tuple(role or ()),
+        activities=tuple(activity or ()),
+        referents=tuple(referent or ()),
+        tracking_statuses=tuple(tracking_status or ()),
+        cohorts=tuple(cohort or ()),
+        company_ids=tuple(company or ()),
+        import_batch_ids=tuple(import_batch or ()),
         services=tuple(services or ()),
-        send_stage=send_stage,
-        company_kind=company_kind,
+        send_stages=tuple(send_stage or ()),
+        email_states=tuple(email_state or ()),
+        company_kinds=tuple(company_kind or ()),
+        commercial_segments=tuple(commercial_segment or ()),
+        activity_categories=tuple(activity_category or ()),
+        departments=tuple(department or ()),
         reachable=reachable,
         include_ignored=include_ignored,
         validated_only=validated_only,
-        verification_box=verification_box,
+        verification_boxes=tuple(verification_box or ()),
         created_from=created_from,
         created_to=created_to,
     )
@@ -183,6 +192,23 @@ def overview(session: SessionDep, settings: SettingsDep) -> OverviewOut:
     """The whole base, not narrowed by any criterion: people held, contacted, and deleted."""
     result = query.base_overview(session, segment_context(settings))
     return OverviewOut.model_validate(result, from_attributes=True)
+
+
+class CompanyOptionOut(BaseModel):
+    id: uuid.UUID
+    label: str
+
+
+class FilterOptionsOut(BaseModel):
+    companies: list[CompanyOptionOut]
+    company_departments: list[str]
+    warehouse_departments: list[str]
+
+
+@router.get("/filter-options")
+def filter_options(session: SessionDep) -> FilterOptionsOut:
+    """The filter panels' choices that come from the data: every company, the departments."""
+    return FilterOptionsOut.model_validate(query.filter_options(session), from_attributes=True)
 
 
 @router.get("/prospects")

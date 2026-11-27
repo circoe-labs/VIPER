@@ -65,10 +65,30 @@ People-oriented readable rows/cards, not a raw table. Show: identity, Role/exact
 Segments, counters, criteria, URL and open-editor contract: [prospection-kpis.md](prospection-kpis.md). Header
 *Entreprises*, *Importer Excel*, *Exporter Excel*, *+ Ajouter un prospect* (opens the Prospect editor, Task 15); 16 counter cards
 in three groups (*Base*, *Vérification*, *Suivi de contact*) that toggle the list's segment; search, *Filtres* (role,
-activity, contact state, referent, company, import) and sort; one card per person (identity, role · exact title,
+activity, contact state, referent, company, import… — see *Filters* below) and sort; one card per person (identity, role · exact title,
 activity and verification badges, company, primary e-mail state, phone, the Contact state badge — none while neutral —
 and the next-action week badge *S41*, due, referent, do-not-contact, *Planifier* for a quick week choice). All state in the URL (`?segment=due&q=…&page=2`); opening a person sets `?prospect=<id>` and opens the
 Prospect editor over the list (Task 15).
+
+### Filters (Prospects, Entreprises, Entrepôts)
+*Filtres* edits a selection that applies only on **Valider** (*Annuler*, Esc or the button drop it; *Réinitialiser*
+empties it, applied by *Valider* too; no saved presets). Every filter takes **several values: OR within a filter,
+AND between filters**. Short lists are toggles (`ui/MultiSelect`), long ones searchable multi pickers
+(`ui/Combobox multiple`); the shared panel is `ApplyFilterMenu` (`ui/ControlBar`). Each applied value is a removable
+chip (removal is immediate). A multi-valued filter repeats its URL / API parameter (`role=a&role=b`); a former
+single-value link reads as a selection of one.
+
+| Entity | Filters (URL = API parameter unless noted) |
+|---|---|
+| Prospects (`/prospection/counters`, `/prospection/prospects`) | `review`, `tracking_status`, `activity`, `verification_box`, `email_state`, `send_stage`, `company_kind`, `services`, `role`, `company`, `cohort`, `referent`, `activity_category`, `commercial_segment`, `department`, `import_batch`, creation period, `include_ignored` |
+| Entreprises (`/companies`) | `company_kind`, `file_status` (API `status`), `services`, `activity_category`, `commercial_segment`, `department`, creation period |
+| Entrepôts (`/warehouses`) | `warehouse_category` (API `category`), `file_status` (API `status`), `warehouse_to_contact` (API `to_contact`), `department`, creation period |
+
+`department` is read from five-digit postal codes (three digits for 97x / 98x): any site of a company, the
+warehouse's own address. `activity_category` and `commercial_segment` accept `none`. The company list and the
+departments present come from `GET /prospection/filter-options` (every company: no truncated picker). The shared
+conditions are `backend/app/repositories/filter_conditions.py`. The Excel export is the whole base and the
+relations graph has its own filters: neither reads these.
 
 ### Prospect editor
 Wide drawer/modal preserving current filtered queue. Reuse same component for create/edit. Two tabs, **Profil** (a compact

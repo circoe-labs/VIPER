@@ -9,21 +9,19 @@ const ROW: Warehouse = { id: '00000000-0000-7000-a000-000000000001', version: '2
 const API = { ...SHELL_API, 'GET /api/warehouses/counts': [200, { warehouses: 1, contacts: 1, to_contact: 0 }] } as const
 
 describe('Warehouse directory', () => {
-  it('filters warehouses by prospecting category through the quick filters and chips', async () => {
-    let category = ''
-    stubApi({ ...API, 'GET /api/warehouses': (url) => { category = url.searchParams.get('category') ?? ''; return [200, { items: [ROW], total: 1 }] } })
+  it('filters warehouses on several prospecting categories, applied by « Valider », and removable chips', async () => {
+    let category: string[] = []
+    stubApi({ ...API, 'GET /api/warehouses': (url) => { category = url.searchParams.getAll('category'); return [200, { items: [ROW], total: 1 }] } })
     renderApp('/prospection?entity=warehouse')
     await userEvent.click(screen.getByText('Filtres', { selector: 'summary' }))
-    const quick = within(screen.getByRole('group', { name: 'Filtres rapides' }))
-    await userEvent.click(quick.getByRole('button', { name: 'PME/TPE' }))
-    await waitFor(() => expect(category).toBe('sme'))
-    await userEvent.click(quick.getByRole('button', { name: 'Autres' }))
-    await waitFor(() => expect(category).toBe('other'))
-    await userEvent.click(quick.getByRole('button', { name: 'À classer' }))
-    await waitFor(() => expect(category).toBe('unclassified'))
-    expect(quick.getByRole('button', { name: 'À classer' })).toHaveAttribute('aria-pressed', 'true')
+    const categories = within(screen.getByRole('group', { name: 'Catégorie' }))
+    await userEvent.click(categories.getByRole('button', { name: 'PME/TPE' }))
+    await userEvent.click(categories.getByRole('button', { name: 'À classer' }))
+    expect(category).toEqual([])
+    await userEvent.click(screen.getByRole('button', { name: 'Valider' }))
+    await waitFor(() => { expect(category).toEqual(['sme', 'unclassified']) })
     await userEvent.click(screen.getByRole('button', { name: 'Retirer le filtre : Catégorie : À classer' }))
-    await waitFor(() => expect(category).toBe(''))
+    await waitFor(() => { expect(category).toEqual(['sme']) })
   })
   it('refreshes the recipient of an unedited open draft without losing later edits', async () => {
     const draft = { id: 'draft-1', phase: 2, prospecting_category: 'sme', warehouse_name: 'Site', contact_name: 'Anne Test', contact_role: null, source_email: 'anne@example.test', recipient: null, subject: 'Objet', body: '', review_note: 'À vérifier', revision: 1, validated_at: null, validated_by: null, send_state: null, scheduled_at: null }
@@ -234,7 +232,8 @@ describe('Warehouse directory', () => {
     await waitFor(() => { expect(submitted).toMatchObject({ id: ROW.id, version: ROW.version, data: { contacts: [{ full_name: 'Anne Test', to_contact: true }] } }) })
     unsubscribe()
     await userEvent.click(screen.getByText('Filtres', { selector: 'summary' }))
-    await userEvent.click(within(screen.getByRole('group', { name: 'Filtres rapides' })).getByRole('button', { name: 'À contacter' }))
+    await userEvent.click(screen.getByRole('switch', { name: 'À contacter' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Valider' }))
     await userEvent.click(await screen.findByRole('button', { name: 'Détails de Entrepôt Exemple' }))
     expect(await screen.findByRole('checkbox', { name: 'À contacter prochainement' })).toBeChecked()
   })

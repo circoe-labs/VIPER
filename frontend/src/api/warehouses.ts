@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { ListSort } from './companies'
+import { appendFilters, type ListSort } from './companies'
 import { apiGet, apiRequest } from './client'
 import type { FileStatus } from './fileStatus'
 import { refreshAfterWrite } from './refresh'
@@ -96,11 +96,23 @@ export function useWarehouseCounts() {
   })
 }
 
-export function useWarehouses(search: string, offset: number, toContact = false, category: 'sme' | 'other' | 'unclassified' | null = null, sort: ListSort = 'name', status: FileStatus | null = null) {
+// The Entrepôts filters: any of one filter's values (OR), the filters combined with AND; empty = not filtered.
+export interface WarehouseListFilters {
+  to_contact?: boolean
+  category?: readonly ('sme' | 'other' | 'unclassified')[]
+  status?: readonly FileStatus[]
+  department?: readonly string[]
+  created_from?: string | null
+  created_to?: string | null
+}
+
+export function useWarehouses(search: string, offset: number, filters: WarehouseListFilters = {}, sort: ListSort = 'name') {
+  // A row shows its interlocutors according to « À contacter »: no rows kept from another selection of it.
+  const scope = JSON.stringify([filters.to_contact ?? false, filters.category ?? []])
   return useQuery({
-    queryKey: ['warehouses', 'list', search, offset, toContact, category, sort, status],
-    queryFn: ({ signal }) => apiGet<{ items: Warehouse[]; total: number }>(`/warehouses?${new URLSearchParams({ q: search, offset: String(offset), limit: '50', ...(toContact ? { to_contact: 'true' } : {}), ...(category ? { category } : {}), ...(sort !== 'name' ? { sort } : {}), ...(status ? { status } : {}) }).toString()}`, signal),
-    placeholderData: (previous, previousQuery) => previousQuery?.queryKey[4] === toContact && previousQuery?.queryKey[5] === category ? previous : undefined,
+    queryKey: ['warehouses', 'list', scope, search, offset, filters, sort],
+    queryFn: ({ signal }) => apiGet<{ items: Warehouse[]; total: number }>(`/warehouses?${appendFilters(new URLSearchParams({ q: search, offset: String(offset), limit: '50', ...(sort !== 'name' ? { sort } : {}) }), filters).toString()}`, signal),
+    placeholderData: (previous, previousQuery) => previousQuery?.queryKey[2] === scope ? previous : undefined,
   })
 }
 export function useWarehouse(id: string | null) {
@@ -109,7 +121,7 @@ export function useWarehouse(id: string | null) {
 }
 export function useWarehouseWrites() {
   const client = useQueryClient()
-  const refresh = () => refreshAfterWrite(client, [['warehouses']])
+  const refresh = () => refreshAfterWrite(client, [['warehouses'], ['prospection', 'filter-options']])
   const upload = (file: File) => { const body = new FormData(); body.append('file', file); return body }
   return {
     save: useMutation({ mutationFn: ({ id, data, version }: { id: string | null; data: WarehouseInput; version?: string }) =>

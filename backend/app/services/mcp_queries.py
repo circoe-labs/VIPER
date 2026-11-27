@@ -481,7 +481,7 @@ def find_prospects(
             search=(search or "").strip() or None,
             company_ids=tuple(owners),
             without_company=without_company,
-            company_kind=company_kind,
+            company_kinds=(company_kind,) if company_kind else (),
             reachable=reachable,
             include_ignored=include_ignored,
             created_from=created_from,

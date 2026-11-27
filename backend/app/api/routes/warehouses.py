@@ -2,7 +2,7 @@
 
 import re
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -12,10 +12,12 @@ from starlette.datastructures import UploadFile
 
 from app.api.dependencies import CurrentActor, SessionDep
 from app.api.errors import business_errors, refusal
+from app.api.query_types import Department, Many
 from app.core.actor import ActorType
 from app.models import Warehouse, WarehouseDraft
 from app.repositories.list_sort import EntitySort
 from app.services import audit, warehouse_import, warehouses
+from app.services.errors import InvalidFieldError
 from app.services.warehouse_draft_text import apply_category
 from app.services.warehouses import WarehouseCounts, WarehouseInput, WarehouseOut, WarehousePage
 
@@ -389,13 +391,34 @@ def list_warehouses(
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
     to_contact: bool = False,
-    category: Literal['sme', 'other', 'unclassified'] | None = None,
+    category: Many[Literal['sme', 'other', 'unclassified']] = None,
     sort: EntitySort = EntitySort.NAME,
-    status: Literal['verified', 'usable', 'incomplete'] | None = None,
+    status: Many[Literal['verified', 'usable', 'incomplete']] = None,
+    department: Many[Department] = None,
+    created_from: date | None = None,
+    created_to: date | None = None,
 ) -> WarehousePage:
     """`sort`: name (A-Z, default), created (newest first) or updated (newest first); ties by id.
-    `status`: the file status (verified / usable / incomplete), computed from the record."""
-    return warehouses.list_warehouses(session, q, limit, offset, to_contact, category, sort, status)
+    `status`: the file status (verified / usable / incomplete), computed from the record.
+    The filters may be repeated: any of one filter's values (OR), the filters combined with AND."""
+    with business_errors():
+        if created_from is not None and created_to is not None and created_to < created_from:
+            raise InvalidFieldError(
+                "created_to", "The end must not precede the start.", "before_start"
+            )
+        return warehouses.list_warehouses(
+            session,
+            q,
+            limit,
+            offset,
+            to_contact,
+            category or (),
+            sort,
+            status or (),
+            department or (),
+            created_from,
+            created_to,
+        )
 
 
 @router.post("", status_code=201)

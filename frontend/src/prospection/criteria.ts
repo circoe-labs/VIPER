@@ -2,7 +2,8 @@
 // and deep links (Home, Task 16) restore it. Parameter names are the API's; defaults are omitted.
 import { FILE_STATUSES, type FileStatus } from '../api/fileStatus'
 import {
-  type ActivityStatus,
+  COMPANY_KIND_FILTERS,
+  EMAIL_STATES,
   NONE,
   PROSPECT_SORTS,
   REVIEWS,
@@ -10,14 +11,16 @@ import {
   type ProspectSort,
   SEGMENTS,
   type Segment,
+  SEND_STAGES,
   TRACKING_STATUSES,
-  type TrackingStatus,
+  VERIFICATION_BOXES,
 } from '../api/prospection'
 import { calendarDate } from '../lib/calendarDate'
+import { SERVICES } from './services'
 
 // The entity selector (Prospects / Entreprises / Entrepôts) drives the whole page: `?entity=company|warehouse`
-// (`prospect`, the default, is omitted). `q`, `page` and `company_kind` are shared across entities; the two
-// warehouse filters below only apply to `entity=warehouse`.
+// (`prospect`, the default, is omitted). A filter with several values repeats its parameter (`role=a&role=b`; a link
+// with one value reads as a selection of one). Which filters an entity has: `ENTITY_FILTER_KEYS` below.
 export const ENTITIES = ['prospect', 'company', 'warehouse'] as const
 export type Entity = (typeof ENTITIES)[number]
 export const WAREHOUSE_CATEGORIES = ['sme', 'other', 'unclassified'] as const
@@ -37,9 +40,9 @@ export interface ProspectionView extends Omit<ProspectListCriteria, 'sort'> {
   sort: ViewSort
   entity: Entity
   // `?file_status=verified|usable|incomplete`: the file status of a company or a warehouse.
-  file_status: FileStatus | null
+  file_status: FileStatus[]
   // `?warehouse_category=sme|other|unclassified` and `?warehouse_to_contact=true` (entity=warehouse).
-  warehouse_category: WarehouseCategory | null
+  warehouse_category: WarehouseCategory[]
   warehouse_to_contact: boolean
   page: number
   // Open prospect (`?prospect=<id>`, or `new` for « Ajouter un prospect ») — the editor contract (prospectEditor.tsx).
@@ -48,44 +51,60 @@ export interface ProspectionView extends Omit<ProspectListCriteria, 'sort'> {
 
 export const DEFAULT_VIEW: ProspectionView = {
   entity: 'prospect',
-  warehouse_category: null,
+  warehouse_category: [],
   warehouse_to_contact: false,
   include_ignored: false,
-  file_status: null,
+  file_status: [],
   validated_only: false,
-  verification_box: null,
+  verification_box: [],
   created_from: null,
   created_to: null,
   services: [],
-  send_stage: null,
-  company_kind: null,
+  send_stage: [],
+  email_state: [],
+  company_kind: [],
+  commercial_segment: [],
+  activity_category: [],
+  department: [],
   segment: 'all',
   review: [],
   q: '',
-  role: null,
-  activity: null,
-  referent: null,
-  tracking_status: null,
-  cohort: null,
-  company: null,
-  import_batch: null,
+  role: [],
+  activity: [],
+  referent: [],
+  tracking_status: [],
+  cohort: [],
+  company: [],
+  import_batch: [],
   sort: 'name',
   page: 1,
   prospect: null,
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const ACTIVITIES: readonly string[] = ['active', 'unknown', 'inactive']
+export const ACTIVITIES = ['active', 'unknown', 'inactive'] as const
 
 function oneOf<T extends string>(values: readonly T[], raw: string | null): T | null {
   return raw !== null && (values as readonly string[]).includes(raw) ? (raw as T) : null
 }
 
-function id(raw: string | null, { allowNone = false } = {}): string | null {
-  if (raw === null) return null
-  if (allowNone && raw === NONE) return NONE
-  return UUID.test(raw) ? raw.toLowerCase() : null
+function id(raw: string | null): string | null {
+  return raw !== null && UUID.test(raw) ? raw.toLowerCase() : null
 }
+
+// The known values of a repeated parameter, in the order the choices are listed.
+function several<T extends string>(values: readonly T[], params: URLSearchParams, key: string): T[] {
+  const raw = params.getAll(key)
+  return values.filter((value) => raw.includes(value))
+}
+
+function severalIds(params: URLSearchParams, key: string, { allowNone = false } = {}): string[] {
+  const found = params.getAll(key).map((raw) => (allowNone && raw === NONE ? NONE : id(raw)))
+  return [...new Set(found.filter((value) => value !== null))].sort()
+}
+
+const DEPARTMENT = /^(\d{2}|9[78]\d)$/
+const SERVICE_CODES: readonly string[] = SERVICES.map((service) => service.code)
 
 // Hand-edited or stale URLs never break the page: anything malformed falls back to its default.
 export function parseView(params: URLSearchParams): ProspectionView {
@@ -93,28 +112,31 @@ export function parseView(params: URLSearchParams): ProspectionView {
   const prospect = params.get('prospect')
   return {
     entity: oneOf<Entity>(ENTITIES, params.get('entity')) ?? 'prospect',
-    warehouse_category: oneOf<WarehouseCategory>(WAREHOUSE_CATEGORIES, params.get('warehouse_category')),
+    warehouse_category: several<WarehouseCategory>(WAREHOUSE_CATEGORIES, params, 'warehouse_category'),
     warehouse_to_contact: params.get('warehouse_to_contact') === 'true',
     include_ignored: params.get('include_ignored') === 'true',
-    file_status: oneOf<FileStatus>(FILE_STATUSES, params.get('file_status')),
+    file_status: several<FileStatus>(FILE_STATUSES, params, 'file_status'),
     validated_only: params.get('validated_only') === 'true',
-    verification_box: oneOf(['validated', 'uncertain', 'todo', 'ignored'] as const, params.get('verification_box')),
+    verification_box: several(VERIFICATION_BOXES, params, 'verification_box'),
     created_from: calendarDate(params.get('created_from')),
     created_to: calendarDate(params.get('created_to')),
-    services: [...new Set(params.getAll('services').filter((code) => ['iguard', 'flexisme', 'transepteur', 'iadvice', 'emailing'].includes(code)))].sort(),
-    send_stage: oneOf(['sent', 'r1', 'r2'] as const, params.get('send_stage')),
-    company_kind: oneOf(['sme', 'large', 'institutional', 'unclassified'] as const, params.get('company_kind')),
+    services: several(SERVICE_CODES, params, 'services').sort(),
+    send_stage: several(SEND_STAGES, params, 'send_stage'),
+    email_state: several(EMAIL_STATES, params, 'email_state'),
+    company_kind: several(COMPANY_KIND_FILTERS, params, 'company_kind'),
+    commercial_segment: severalIds(params, 'commercial_segment', { allowNone: true }),
+    activity_category: severalIds(params, 'activity_category', { allowNone: true }),
+    department: [...new Set(params.getAll('department').filter((code) => DEPARTMENT.test(code)))].sort(),
     segment: oneOf<Segment>(SEGMENTS, params.get('segment')) ?? 'all',
     review: REVIEWS.filter((status) => params.getAll('review').includes(status)),
     q: params.get('q') ?? '',
-    role: id(params.get('role'), { allowNone: true }),
-    activity: oneOf(ACTIVITIES, params.get('activity')) as ActivityStatus | null,
-    referent: id(params.get('referent'), { allowNone: true }),
-    tracking_status:
-      params.get('tracking_status') === NONE ? NONE : oneOf<TrackingStatus>(TRACKING_STATUSES, params.get('tracking_status')),
-    cohort: id(params.get('cohort'), { allowNone: true }),
-    company: id(params.get('company')),
-    import_batch: id(params.get('import_batch')),
+    role: severalIds(params, 'role', { allowNone: true }),
+    activity: several(ACTIVITIES, params, 'activity'),
+    referent: severalIds(params, 'referent', { allowNone: true }),
+    tracking_status: several([...TRACKING_STATUSES, NONE], params, 'tracking_status'),
+    cohort: severalIds(params, 'cohort', { allowNone: true }),
+    company: severalIds(params, 'company'),
+    import_batch: severalIds(params, 'import_batch'),
     // `planned_contact` (a link written before the sequences rework) reads as its successor.
     sort: oneOf<ViewSort>(VIEW_SORTS, params.get('sort') === 'planned_contact' ? 'next_due' : params.get('sort')) ?? 'name',
     page: Number.isInteger(page) && page > 0 ? page : 1,
@@ -148,17 +170,14 @@ export function hasSelection(view: ProspectionView): boolean {
   return view.segment !== 'all' || view.review.length > 0
 }
 
+function narrows(view: ProspectionView, key: keyof ProspectionView): boolean {
+  const value = view[key]
+  return Array.isArray(value) ? value.length > 0 : value !== DEFAULT_VIEW[key]
+}
+
 export function hasFilters(view: ProspectionView): boolean {
-  return (
-    !!view.validated_only ||
-    !!view.verification_box ||
-    view.q.trim() !== '' ||
-    !!view.created_from || !!view.created_to ||
-    (view.services?.length ?? 0) > 0 || !!view.send_stage || !!view.company_kind ||
-    [view.role, view.activity, view.referent, view.tracking_status, view.cohort, view.company, view.import_batch].some(
-      (value) => value !== null,
-    )
-  )
+  const selection: readonly (keyof ProspectionView)[] = ['segment', 'review', 'include_ignored']
+  return view.q.trim() !== '' || ENTITY_FILTER_KEYS.prospect.some((key) => !selection.includes(key) && narrows(view, key))
 }
 
 // The sort the entity can honour: a value it does not know (« created » on prospects) falls back to the default.
@@ -169,9 +188,9 @@ export function sortFor(view: Pick<ProspectionView, 'entity' | 'sort'>): ViewSor
 // What a filter means is per entity: validated_only has no sense on Entreprises, the warehouse category none on
 // Prospects. `ENTITY_FILTER_KEYS` is the single list; q and sort are shared (sort only when the entity knows it).
 export const ENTITY_FILTER_KEYS: Record<Entity, readonly (keyof ProspectionView)[]> = {
-  prospect: ['include_ignored', 'validated_only', 'verification_box', 'review', 'segment', 'created_from', 'created_to', 'company_kind', 'role', 'activity', 'referent', 'tracking_status', 'cohort', 'company', 'import_batch', 'services', 'send_stage'],
-  company: ['company_kind', 'created_from', 'created_to', 'file_status'],
-  warehouse: ['warehouse_category', 'warehouse_to_contact', 'file_status'],
+  prospect: ['include_ignored', 'validated_only', 'verification_box', 'review', 'segment', 'created_from', 'created_to', 'company_kind', 'role', 'activity', 'referent', 'tracking_status', 'cohort', 'company', 'import_batch', 'services', 'send_stage', 'email_state', 'commercial_segment', 'activity_category', 'department'],
+  company: ['company_kind', 'created_from', 'created_to', 'file_status', 'services', 'commercial_segment', 'activity_category', 'department'],
+  warehouse: ['warehouse_category', 'warehouse_to_contact', 'file_status', 'department', 'created_from', 'created_to'],
 }
 
 // The view after switching entity: the new entity starts from scratch except what both entities share (q, a known
@@ -195,9 +214,8 @@ export function clearedFilters(entity: Entity): Partial<ProspectionView> {
   return patch
 }
 
-// Criteria narrowing the Entreprises list (type, search, creation period) and the Entrepôts list (category, to contact, search).
+// Criteria narrowing the list of the entity shown (its filters and the search).
 export function hasEntityFilters(view: ProspectionView): boolean {
-  if (view.entity === 'company') return view.company_kind !== null || view.file_status !== null || view.q.trim() !== '' || !!view.created_from || !!view.created_to
-  if (view.entity === 'warehouse') return view.warehouse_category !== null || view.warehouse_to_contact || view.file_status !== null || view.q.trim() !== ''
-  return hasFilters(view)
+  if (view.entity === 'prospect') return hasFilters(view)
+  return view.q.trim() !== '' || ENTITY_FILTER_KEYS[view.entity].some((key) => narrows(view, key))
 }

@@ -36,12 +36,14 @@ from app.models import (
     Company,
     ContactTracking,
     Email,
+    Establishment,
     Phone,
     Prospect,
     ProspectSource,
     QualityAlert,
     Role,
     User,
+    Warehouse,
 )
 from app.models.enums import (
     ActivityStatus,
@@ -54,6 +56,7 @@ from app.models.enums import (
     VerificationStatus,
 )
 from app.models.imports import ImportBatch, ImportRowMetadata
+from app.repositories.filter_conditions import NONE, any_ref, company_conditions, department_of
 from app.repositories.taxonomies import label_key
 from app.services.contact_sequences import (
     email_error_sql,
@@ -73,6 +76,7 @@ from app.services.prospection.segments import (
     join_segment_sources,
     predicate,
     primary_email,
+    reachable,
     review_counts,
     review_predicate,
     review_state,
@@ -85,8 +89,6 @@ from app.services.prospection.segments import (
 LIST_MAX_LIMIT = 200
 # Phone search needs this many digits, so a short number in a name query matches no phone.
 PHONE_SEARCH_MIN_DIGITS = 4
-# "No value" of the role, referent and tracking-status filters (no role, referent or tracking).
-NONE: Literal["none"] = "none"
 
 primary_phone = aliased(Phone, name="primary_phone")
 
@@ -104,31 +106,39 @@ class ProspectSort(StrEnum):
     FILE = "file"
 
 
+VerificationBox = Literal["validated", "uncertain", "todo", "ignored"]
+_SEND_RANKS = {"sent": 0, "r1": 1, "r2": 2}
+
+
 @dataclass(frozen=True, slots=True)
 class ProspectFilters:
     """Criteria applied to both the counters and the list (the segment only to the list)."""
 
     search: str | None = None
-    role: uuid.UUID | Literal["none"] | None = None
-    activity: ActivityStatus | None = None
-    referent: uuid.UUID | Literal["none"] | None = None
-    tracking_status: ContactTrackingStatus | Literal["none"] | None = None
+    # Every tuple is a selection: any of its values (OR); empty = not filtered.
+    roles: tuple[uuid.UUID | Literal["none"], ...] = ()
+    activities: tuple[ActivityStatus, ...] = ()
+    referents: tuple[uuid.UUID | Literal["none"], ...] = ()
+    tracking_statuses: tuple[ContactTrackingStatus | Literal["none"], ...] = ()
     # The current cohort; `none`: no cohort (not validated).
-    cohort: uuid.UUID | Literal["none"] | None = None
-    company_id: uuid.UUID | None = None
-    # Any of these employers (MCP reads: « the people of A and B together »).
+    cohorts: tuple[uuid.UUID | Literal["none"], ...] = ()
     company_ids: tuple[uuid.UUID, ...] = ()
     # People attached to no company at all.
     without_company: bool = False
-    import_batch_id: uuid.UUID | None = None
+    import_batch_ids: tuple[uuid.UUID, ...] = ()
     services: tuple[str, ...] = ()
-    send_stage: str | None = None
-    company_kind: str | None = None
+    send_stages: tuple[str, ...] = ()
+    email_states: tuple[EmailState, ...] = ()
+    # Attributes of the person's company (`repositories.filter_conditions.company_conditions`).
+    company_kinds: tuple[str, ...] = ()
+    commercial_segments: tuple[uuid.UUID | Literal["none"], ...] = ()
+    activity_categories: tuple[uuid.UUID | Literal["none"], ...] = ()
+    departments: tuple[str, ...] = ()
     reachable: bool = False
     # Internal callers (Home, exports) count everyone; the API hides the ignored unless asked.
     include_ignored: bool = True
     validated_only: bool = False
-    verification_box: Literal["validated", "uncertain", "todo", "ignored"] | None = None
+    verification_boxes: tuple[VerificationBox, ...] = ()
     created_from: date | None = None
     created_to: date | None = None
 
@@ -248,16 +258,8 @@ def search_condition(search: str) -> ColumnElement[bool]:
     return condition
 
 
-def _optional_ref(
-    column: SQLColumnExpression[uuid.UUID | None], value: uuid.UUID | str | None
-) -> list[ColumnElement[bool]]:
-    if value is None:
-        return []
-    return [column.is_(None) if value == NONE else column == value]
-
-
 def verification_box_predicate(
-    box: Literal["validated", "uncertain", "todo", "ignored"],
+    box: VerificationBox,
 ) -> ColumnElement[bool]:
     is_ignored = func.coalesce(ignored(), false())
     has_uncertainty = exists().where(
@@ -279,62 +281,97 @@ def filter_conditions(filters: ProspectFilters) -> list[ColumnElement[bool]]:
     conditions.extend(
         created_between(Prospect.created_at, filters.created_from, filters.created_to)
     )
-    if filters.verification_box:
-        conditions.append(verification_box_predicate(filters.verification_box))
+    if filters.verification_boxes:
+        conditions.append(
+            or_(*(verification_box_predicate(box) for box in filters.verification_boxes))
+        )
     if filters.validated_only:
-        from app.services.prospection.segments import verification_validated
-
         conditions.append(verification_validated())
     if filters.reachable:
-        from app.services.prospection.segments import reachable
-
         conditions.append(reachable())
-    if filters.services:
-        conditions.append(Company.proposed_services.overlap(list(filters.services)))
-    if filters.company_kind:
-        from app.services.prospection.segments import ignored
-
-        conditions.append(~func.coalesce(ignored(), False))
-    if filters.company_kind == "unclassified":
-        conditions.append(Company.company_kind.is_(None))
-    elif filters.company_kind:
-        conditions.append(Company.company_kind == filters.company_kind)
-    if filters.send_stage:
+    if filters.company_kinds:
+        # A company-type view never lists the ignored.
+        conditions.append(~func.coalesce(ignored(), false()))
+    conditions += company_conditions(
+        kinds=filters.company_kinds,
+        segments=filters.commercial_segments,
+        categories=filters.activity_categories,
+        departments=filters.departments,
+        services=filters.services,
+    )
+    if filters.send_stages:
         from app.services.prospection.dashboard import sent_stage
 
-        conditions.append(sent_stage({"sent": 0, "r1": 1, "r2": 2}[filters.send_stage]))
+        conditions.append(or_(*(sent_stage(_SEND_RANKS[stage]) for stage in filters.send_stages)))
+    if filters.email_states:
+        conditions.append(email_state().in_([state.value for state in filters.email_states]))
     search = (filters.search or "").strip()
     if search:
         conditions.append(search_condition(search))
-    conditions += _optional_ref(Prospect.role_id, filters.role)
-    if filters.activity is not None:
-        conditions.append(Prospect.activity_status == filters.activity)
-    conditions += _optional_ref(ContactTracking.referent_id, filters.referent)
-    conditions += _optional_ref(Cohort.id, filters.cohort)
-    if filters.tracking_status == NONE:
-        # Kept for old URLs: no tracking row at all.
-        conditions.append(ContactTracking.id.is_(None))
-    elif filters.tracking_status is ContactTrackingStatus.NEUTRAL:
-        # « Aucun état » for the user (Contact decision 4): neutral, or no tracking row yet.
-        conditions.append(
-            or_(ContactTracking.id.is_(None), ContactTracking.status == filters.tracking_status)
-        )
-    elif filters.tracking_status is not None:
-        conditions.append(ContactTracking.status == filters.tracking_status)
-    if filters.company_id is not None:
-        conditions.append(Prospect.company_id == filters.company_id)
+    conditions += any_ref(Prospect.role_id, filters.roles)
+    if filters.activities:
+        conditions.append(Prospect.activity_status.in_(filters.activities))
+    conditions += any_ref(ContactTracking.referent_id, filters.referents)
+    conditions += any_ref(Cohort.id, filters.cohorts)
+    if filters.tracking_statuses:
+        conditions.append(or_(*(_tracking_condition(item) for item in filters.tracking_statuses)))
     if filters.company_ids:
         conditions.append(Prospect.company_id.in_(filters.company_ids))
     if filters.without_company:
         conditions.append(Prospect.company_id.is_(None))
-    if filters.import_batch_id is not None:
+    if filters.import_batch_ids:
         conditions.append(
             exists().where(
                 ProspectSource.prospect_id == Prospect.id,
-                ProspectSource.import_batch_id == filters.import_batch_id,
+                ProspectSource.import_batch_id.in_(filters.import_batch_ids),
             )
         )
     return conditions
+
+
+def _tracking_condition(status: ContactTrackingStatus | Literal["none"]) -> ColumnElement[bool]:
+    if status == NONE:
+        # Kept for old URLs: no tracking row at all.
+        return ContactTracking.id.is_(None)
+    if status == ContactTrackingStatus.NEUTRAL:
+        # « Aucun état » for the user (Contact decision 4): neutral, or no tracking row yet.
+        return or_(ContactTracking.id.is_(None), ContactTracking.status == status)
+    return ContactTracking.status == status
+
+
+@dataclass(frozen=True, slots=True)
+class CompanyOption:
+    id: uuid.UUID
+    label: str
+
+
+@dataclass(frozen=True, slots=True)
+class FilterOptions:
+    """The choices of the filter panels that only the data itself knows."""
+
+    # Every company, by name (the picker searches among them all: no truncated list).
+    companies: list[CompanyOption]
+    company_departments: list[str]
+    warehouse_departments: list[str]
+
+
+def filter_options(session: Session) -> FilterOptions:
+    companies = session.execute(
+        select(Company.id, Company.display_name).order_by(
+            label_key(Company.display_name), Company.id
+        )
+    ).all()
+
+    def departments(column: SQLColumnExpression[str | None]) -> list[str]:
+        code = department_of(column)
+        found = session.scalars(select(code).where(code.is_not(None)).distinct()).all()
+        return sorted(value for value in found if value is not None)
+
+    return FilterOptions(
+        companies=[CompanyOption(id=id_, label=name) for id_, name in companies],
+        company_departments=departments(Establishment.postal_code),
+        warehouse_departments=departments(Warehouse.postal_code),
+    )
 
 
 def _order_by(sort: ProspectSort) -> list[SQLColumnExpression[Any]]:

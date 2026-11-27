@@ -18,8 +18,8 @@ import { ProspectionControls } from './ProspectionFilters'
 const NUMBER = new Intl.NumberFormat('fr-FR')
 const PAGE_SIZE = 50 // fixed by `useWarehouses` (limit=50)
 
-// Entrepôts: control bar (search, sort, category / à contacter filters), then the existing warehouse cards and
-// editor/import dialogs. URL: `entity=warehouse`, `warehouse_category`, `warehouse_to_contact`, `q`, `page`.
+// Entrepôts: control bar (search, sort, filters), then the existing warehouse cards and editor/import dialogs.
+// URL: `entity=warehouse`, `q`, `page` and the entity's filters (criteria.ts).
 // Drafts have their own page: /prospection/warehouse-drafts (« Brouillons »).
 export function WarehousesPanel({ view, update, refine, search }: EntityPanelProps) {
   const counts = useWarehouseCounts()
@@ -28,7 +28,14 @@ export function WarehousesPanel({ view, update, refine, search }: EntityPanelPro
   const [notice, setNotice] = useState<string | null>(null)
   const query = view.q.trim()
   const offset = (view.page - 1) * PAGE_SIZE
-  const warehouses = useWarehouses(query, offset, view.warehouse_to_contact, view.warehouse_category, sortFor(view) as ListSort, view.file_status)
+  const warehouses = useWarehouses(query, offset, {
+    to_contact: view.warehouse_to_contact,
+    category: view.warehouse_category,
+    status: view.file_status,
+    department: view.department,
+    created_from: view.created_from,
+    created_to: view.created_to,
+  }, sortFor(view) as ListSort)
   const page = warehouses.data
   const last = page ? Math.min(offset + page.items.length, page.total) : 0
   const filtered = activeFilters(view).length > 0 || query !== ''

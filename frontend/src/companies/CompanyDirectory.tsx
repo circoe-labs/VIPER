@@ -19,7 +19,7 @@ export function CompanyDirectory({ value, onChange }: { value: CompanyKindSelect
   const [offset, setOffset] = useState(0)
   const query = useDebouncedValue(search.trim(), 250)
   const counts = useCompanyCounts()
-  const companies = useCompanies(query, offset, COMPANY_PAGE_SIZE, value)
+  const companies = useCompanies(query, offset, COMPANY_PAGE_SIZE, { company_kind: value ? [value] : [] })
   const page = companies.data
   const last = page ? Math.min(offset + page.items.length, page.total) : 0
   return <section className="company-directory" aria-label="Répertoire des entreprises">

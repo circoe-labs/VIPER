@@ -112,7 +112,8 @@ test('counters narrow the list to the right people, kept in the URL; a person op
   await card(page, 'Tous').click()
   await page.getByText('Filtres', { exact: true }).click()
   // « Aucun état »: neutral with or without a tracking row (Claire and Jean planned, Léa never followed).
-  await page.getByRole('combobox', { name: 'État de contact' }).selectOption({ label: 'Aucun état' })
+  await page.getByRole('group', { name: 'État commercial' }).getByRole('button', { name: 'En séquence' }).click()
+  await page.getByRole('button', { name: 'Valider' }).click()
   await expectCount(page, 'Tous', 3)
   await expectCount(page, 'E-mail manquant', 1)
   await expect(people(page)).toContainText(`SansMail${suffix}`)

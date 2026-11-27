@@ -19,6 +19,7 @@ from sqlalchemy import select
 from app.api.dependencies import CurrentActor, SessionDep
 from app.api.errors import business_errors
 from app.api.history import HistoryCursor, HistoryLimit, HistoryPageOut
+from app.api.query_types import Department, Many, OrNone
 from app.models import Company
 from app.models.enums import (
     ActivityStatus,
@@ -237,15 +238,20 @@ def list_companies(
     q: Annotated[str | None, Query(max_length=200)] = None,
     limit: Annotated[int, Query(ge=1, le=companies.LIST_MAX_LIMIT)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
-    company_kind: CompanyKind | Literal["unclassified"] | None = None,
+    company_kind: Many[CompanyKind | Literal["unclassified"]] = None,
+    commercial_segment: Many[uuid.UUID | OrNone] = None,
+    activity_category: Many[uuid.UUID | OrNone] = None,
+    department: Many[Department] = None,
+    services: Many[ServiceCode] = None,
     created_from: date | None = None,
     created_to: date | None = None,
     sort: EntitySort = EntitySort.NAME,
-    status: Literal["verified", "usable", "incomplete"] | None = None,
+    status: Many[Literal["verified", "usable", "incomplete"]] = None,
 ) -> CompanyPageOut:
     """`sort`: name (A-Z, default), created (newest first) or updated (newest first); ties by id.
     `q` matches every word of the names, e-mail domain, website, sector, city and contact names
-    (case and accents ignored), or digits of a SIREN/SIRET."""
+    (case and accents ignored), or digits of a SIREN/SIRET.
+    The filters may be repeated: any of one filter's values (OR), the filters combined with AND."""
     with business_errors():
         if created_from is not None and created_to is not None and created_to < created_from:
             raise InvalidFieldError(
@@ -256,11 +262,15 @@ def list_companies(
             search=q,
             limit=limit,
             offset=offset,
-            company_kind=company_kind,
+            kinds=company_kind or (),
+            segments=commercial_segment or (),
+            categories=activity_category or (),
+            departments=department or (),
+            services=services or (),
             created_from=created_from,
             created_to=created_to,
             sort=sort,
-            status=status,
+            statuses=status or (),
         )
     return CompanyPageOut.model_validate(page, from_attributes=True)
 

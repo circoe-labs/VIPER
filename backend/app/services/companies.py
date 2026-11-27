@@ -26,7 +26,6 @@ import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, fields, replace
 from datetime import date, datetime
-from typing import Literal
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -493,11 +492,15 @@ def list_companies(
     search: str | None = None,
     limit: int = 50,
     offset: int = 0,
-    company_kind: CompanyKind | Literal["unclassified"] | None = None,
+    kinds: Sequence[str] = (),
+    segments: Sequence[uuid.UUID | str] = (),
+    categories: Sequence[uuid.UUID | str] = (),
+    departments: Sequence[str] = (),
+    services: Sequence[str] = (),
     created_from: date | None = None,
     created_to: date | None = None,
     sort: EntitySort = EntitySort.NAME,
-    status: FileStatus | None = None,
+    statuses: Sequence[FileStatus] = (),
 ) -> CompanyPage:
     """Ordered by `sort` (name by default); `search` matches every word in the names, e-mail
     domain, website, sector, city and contact names (case/accents ignored), or digits in a
@@ -505,11 +508,15 @@ def list_companies(
     rows, total = repository.list_companies(
         session,
         search=(search or "").strip() or None,
-        company_kind=company_kind,
+        kinds=kinds,
+        segments=segments,
+        categories=categories,
+        departments=departments,
+        services=services,
         created_from=created_from,
         created_to=created_to,
         sort=sort,
-        status=status,
+        statuses=statuses,
         limit=max(1, min(limit, LIST_MAX_LIMIT)),
         offset=max(0, offset),
     )

@@ -121,6 +121,7 @@ export function stubCompaniesApi(options: CompaniesStubOptions = {}) {
   }
 
   function handle(method: string, url: URL, body: unknown): Promise<Response> {
+    if (url.pathname === '/api/prospection/filter-options') return reply(200, { companies: [], company_departments: [], warehouse_departments: [] })
     if (url.pathname === '/api/companies/counts') return reply(200, {
       all: store.length,
       sme: store.filter((row) => row.company_kind === 'sme').length,
@@ -157,8 +158,9 @@ export function stubCompaniesApi(options: CompaniesStubOptions = {}) {
       const found = store
         .filter((row) => !q || matchesWords(text(row), q))
         .filter((row) => {
-          const kind = url.searchParams.get('company_kind')
-          return !kind || (kind === 'unclassified' ? row.company_kind === null : row.company_kind === kind)
+          // A repeated parameter: any of its values.
+          const kinds = url.searchParams.getAll('company_kind')
+          return kinds.length === 0 || kinds.includes(row.company_kind ?? 'unclassified')
         })
         .sort((a, b) => foldText(a.display_name).localeCompare(foldText(b.display_name), 'fr'))
       return reply(200, { items: found.slice(offset, offset + limit).map(listItem), total: found.length })
@@ -184,7 +186,7 @@ export function stubCompaniesApi(options: CompaniesStubOptions = {}) {
 
   const fetchMock = vi.fn((input: string, init?: RequestInit) => {
     const url = new URL(input, 'http://localhost')
-    if (!url.pathname.startsWith('/api/companies')) return settings.fetchMock(input, init)
+    if (!url.pathname.startsWith('/api/companies') && url.pathname !== '/api/prospection/filter-options') return settings.fetchMock(input, init)
     const method = init?.method ?? 'GET'
     const body: unknown = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined
     requests.push({ method, path: url.pathname, search: url.search, body })

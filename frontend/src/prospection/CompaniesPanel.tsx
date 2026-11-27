@@ -11,15 +11,24 @@ import { EntityToolbar } from './EntityToolbar'
 import { ProspectionControls } from './ProspectionFilters'
 
 const NUMBER = new Intl.NumberFormat('fr-FR')
-// Entreprises: control bar (search, sort, type / creation filters), then the existing company table and editor. State lives in the
-// URL: `entity=company`, `company_kind`, `q`, `sort`, `page`, `created_from`/`created_to`.
+// Entreprises: control bar (search, sort, filters), then the existing company table and editor. State lives in the
+// URL: `entity=company`, `q`, `sort`, `page` and the entity's filters (criteria.ts).
 export function CompaniesPanel({ view, update, refine, search }: EntityPanelProps) {
   const openEditor = useCompanyEditor()
   const counts = useCompanyCounts()
   const query = view.q.trim()
   const sort = sortFor(view) as ListSort
   const offset = (view.page - 1) * COMPANY_PAGE_SIZE
-  const companies = useCompanies(query, offset, COMPANY_PAGE_SIZE, view.company_kind, view.created_from, view.created_to, sort, view.file_status)
+  const companies = useCompanies(query, offset, COMPANY_PAGE_SIZE, {
+    company_kind: view.company_kind,
+    commercial_segment: view.commercial_segment,
+    activity_category: view.activity_category,
+    department: view.department,
+    services: view.services,
+    status: view.file_status,
+    created_from: view.created_from,
+    created_to: view.created_to,
+  }, sort)
   const page = companies.data
   const last = page ? Math.min(offset + page.items.length, page.total) : 0
   const filtered = activeFilters(view).length > 0 || query !== ''

@@ -6,8 +6,7 @@
 //  - Prospection (`prospection/criteria.ts`): `entity=company|warehouse` (prospect is the default and is spelled out only
 //    for readability), `created_from` / `created_to` (prospects and companies only), `review=incomplete|…`,
 //    `warehouse_category`, `warehouse_to_contact`.
-// The Entrepôts list has no creation-date filter (GET /warehouses takes none), so « Nouveaux entrepôts » leads to the
-// warehouse list unfiltered rather than to a list that pretends to be filtered. /missions has no filter params yet.
+// « Nouveaux entrepôts » leads to the whole warehouse list. /missions has no filter params yet.
 
 export type HomeCardId =
   | 'new_prospects'

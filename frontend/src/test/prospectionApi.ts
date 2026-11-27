@@ -108,19 +108,19 @@ export function stubProspectionApi(options: ProspectionStubOptions = {}) {
 
   function matching(params: URLSearchParams): FakeProspect[] {
     const q = params.get('q') ?? ''
-    const company = params.get('company')
-    const activity = params.get('activity')
+    // A repeated parameter: any of its values (backend OR), no value: not filtered.
+    const among = (key: string, value: string | null | undefined) => !params.getAll(key).length || params.getAll(key).includes(value ?? '')
     return prospects.filter(
       (row) =>
-        (!params.get('verification_box') || (() => {
+        (!params.has('verification_box') || (() => {
           const ignored = row.review === 'ignored'
           const validated = !ignored && row.employment_verified_at !== null
           const uncertain = !ignored && !validated && !!options.isUncertain?.(row.id)
           const box = ignored ? 'ignored' : validated ? 'validated' : uncertain ? 'uncertain' : 'todo'
-          return box === params.get('verification_box')
+          return among('verification_box', box)
         })()) &&
-        (params.get('include_ignored') === 'true' || params.get('review') === 'ignored' || params.get('verification_box') === 'ignored' || row.review !== 'ignored') &&
-        (!params.get('review') || row.review === params.get('review')) &&
+        (params.get('include_ignored') === 'true' || params.getAll('review').includes('ignored') || params.getAll('verification_box').includes('ignored') || row.review !== 'ignored') &&
+        among('review', row.review) &&
         (params.get('validated_only') !== 'true' || (row.employment_verified_at !== null && row.review !== 'ignored')) &&
         (params.get('reachable') !== 'true' || (
           row.contactability_status === 'contactable' && row.activity_status !== 'inactive' &&
@@ -128,12 +128,11 @@ export function stubProspectionApi(options: ProspectionStubOptions = {}) {
           ((!!row.primary_email && row.email_state !== 'invalid') || !!row.primary_phone)
         )) &&
         (!params.getAll('services').length || params.getAll('services').some((code) => row.proposed_services?.includes(code))) &&
-        (!params.get('company_kind') || (params.get('company_kind') === 'unclassified'
-          ? row.company_kind == null : row.company_kind === params.get('company_kind'))) &&
-        (!params.get('send_stage') || row.send_stage === params.get('send_stage')) &&
+        among('company_kind', row.company_kind ?? 'unclassified') &&
+        among('send_stage', row.send_stage) &&
         (!q || matchesWords([row.first_name, row.last_name, row.company_name, row.primary_email].join(' '), q)) &&
-        (!company || row.company_id === company) &&
-        (!activity || row.activity_status === activity),
+        among('company', row.company_id) &&
+        among('activity', row.activity_status),
     )
   }
 
@@ -155,6 +154,9 @@ export function stubProspectionApi(options: ProspectionStubOptions = {}) {
         average_quality: scored.length ? scored.reduce((sum, value) => sum + value, 0) / scored.length : null,
         scored_count: scored.length,
       })
+    }
+    if (url.pathname === '/api/prospection/filter-options') {
+      return reply(200, { companies: companies.map((company) => ({ id: company.id, label: company.display_name })), company_departments: [], warehouse_departments: [] })
     }
     if (url.pathname === '/api/prospection/overview') {
       const ignored = prospects.filter((row) => row.review === 'ignored').length
@@ -182,8 +184,7 @@ export function stubProspectionApi(options: ProspectionStubOptions = {}) {
     const segment = (url.searchParams.get('segment') ?? 'all') as Segment
     const limit = Number(url.searchParams.get('limit') ?? 50)
     const offset = Number(url.searchParams.get('offset') ?? 0)
-    const review = url.searchParams.get('review')
-    const rows = found.filter((row) => inSegment(row, segment) && (!review || row.review === review))
+    const rows = found.filter((row) => inSegment(row, segment))
     const items = rows.slice(offset, offset + limit).map(asRow)
     return reply(200, { items, total: rows.length, limit, offset })
   }

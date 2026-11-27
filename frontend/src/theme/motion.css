@@ -227,7 +227,7 @@ a:not([class]):hover {
   .activity-chip,
   .import-chip,
   .results-status__chip,
-  .status-filter__option,
+  .multi-select__option,
   .segmented__option,
   .prospect-segmented__option,
   .filters-menu__option,

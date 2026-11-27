@@ -5,16 +5,18 @@ import json
 import re
 import uuid
 from collections.abc import Sequence
-from datetime import UTC
+from datetime import UTC, date
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import Text, cast, func, select
+from sqlalchemy import ColumnElement, Text, cast, func, or_, select
 from sqlalchemy.dialects.postgresql import JSONPATH
 from sqlalchemy.orm import Session
 
 from app.core.actor import ActorContext
+from app.core.creation_period import created_between
 from app.models import Company, Establishment, Warehouse, WarehouseDraft
+from app.repositories.filter_conditions import department_of
 from app.repositories.list_sort import EntitySort, entity_order_by
 from app.repositories.taxonomies import matches_words
 from app.services import audit
@@ -161,10 +163,14 @@ def present_many(session: Session, rows: Sequence[Warehouse]) -> list[WarehouseO
 
 def list_warehouses(
     session: Session, search: str = "", limit: int = 50, offset: int = 0, to_contact: bool = False,
-    category: Literal['sme', 'other', 'unclassified'] | None = None,
+    categories: Sequence[Literal['sme', 'other', 'unclassified']] = (),
     sort: EntitySort = EntitySort.NAME,
-    status: FileStatus | None = None,
+    statuses: Sequence[FileStatus] = (),
+    departments: Sequence[str] = (),
+    created_from: date | None = None,
+    created_to: date | None = None,
 ) -> WarehousePage:
+    """Within one filter the values are alternatives (OR); the filters combine with AND."""
     text = func.concat_ws(
         " ",
         Warehouse.name,
@@ -179,12 +185,16 @@ def list_warehouses(
     conditions = matches_words(text, search.strip()) if search.strip() else []
     if to_contact:
         conditions.append(Warehouse.contacts.contains([{"to_contact": True}]))
-    if category == 'unclassified':
-        conditions.append(Warehouse.prospecting_category.is_(None))
-    elif category is not None:
-        conditions.append(Warehouse.prospecting_category == category)
-    if status is not None:
-        conditions.append(warehouse_status_condition(status))
+    if categories:
+        choices: list[ColumnElement[bool]] = [Warehouse.prospecting_category.in_(categories)]
+        if 'unclassified' in categories:
+            choices.append(Warehouse.prospecting_category.is_(None))
+        conditions.append(or_(*choices))
+    if statuses:
+        conditions.append(or_(*(warehouse_status_condition(status) for status in statuses)))
+    if departments:
+        conditions.append(department_of(Warehouse.postal_code).in_(departments))
+    conditions.extend(created_between(Warehouse.created_at, created_from, created_to))
     total = session.scalar(select(func.count()).select_from(Warehouse).where(*conditions)) or 0
     rows = session.scalars(
         select(Warehouse)

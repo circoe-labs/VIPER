@@ -557,27 +557,27 @@ def test_filters_combine(db_session: Session) -> None:
     s.flush()
 
     checks: list[tuple[ProspectFilters, Segment, set[str]]] = [
-        (ProspectFilters(role=role.id), Segment.ALL, {"a", "b"}),
-        (ProspectFilters(role=NONE), Segment.ALL, {"c", "d"}),
-        (ProspectFilters(activity=ActivityStatus.ACTIVE), Segment.ALL, {"a", "d"}),
-        (ProspectFilters(referent=referent.id), Segment.ALL, {"a"}),
-        (ProspectFilters(referent=NONE), Segment.ALL, {"b", "c", "d"}),
-        (ProspectFilters(cohort=contacted.cohort_id), Segment.ALL, {"a", "c"}),
-        (ProspectFilters(cohort=planned.cohort_id), Segment.ALL, {"b"}),
-        (ProspectFilters(cohort=NONE), Segment.ALL, {"d"}),
-        (ProspectFilters(tracking_status=NONE), Segment.ALL, {"d"}),
+        (ProspectFilters(roles=(role.id,)), Segment.ALL, {"a", "b"}),
+        (ProspectFilters(roles=(NONE,)), Segment.ALL, {"c", "d"}),
+        (ProspectFilters(activities=(ActivityStatus.ACTIVE,)), Segment.ALL, {"a", "d"}),
+        (ProspectFilters(referents=(referent.id,)), Segment.ALL, {"a"}),
+        (ProspectFilters(referents=(NONE,)), Segment.ALL, {"b", "c", "d"}),
+        (ProspectFilters(cohorts=(contacted.cohort_id,)), Segment.ALL, {"a", "c"}),
+        (ProspectFilters(cohorts=(planned.cohort_id,)), Segment.ALL, {"b"}),
+        (ProspectFilters(cohorts=(NONE,)), Segment.ALL, {"d"}),
+        (ProspectFilters(tracking_statuses=(NONE,)), Segment.ALL, {"d"}),
         # « En séquence » (no badge): neutral or no tracking row.
-        (ProspectFilters(tracking_status=S.NEUTRAL), Segment.ALL, {"a", "b", "c", "d"}),
-        (ProspectFilters(company_id=logistique.id), Segment.ALL, {"c", "d"}),
-        (ProspectFilters(import_batch_id=batch.id), Segment.ALL, {"a", "c"}),
-        (ProspectFilters(company_id=transports.id, role=role.id), Segment.DUE, {"a", "b"}),
+        (ProspectFilters(tracking_statuses=(S.NEUTRAL,)), Segment.ALL, {"a", "b", "c", "d"}),
+        (ProspectFilters(company_ids=(logistique.id,)), Segment.ALL, {"c", "d"}),
+        (ProspectFilters(import_batch_ids=(batch.id,)), Segment.ALL, {"a", "c"}),
+        (ProspectFilters(company_ids=(transports.id,), roles=(role.id,)), Segment.DUE, {"a", "b"}),
         (
-            ProspectFilters(import_batch_id=batch.id, activity=ActivityStatus.ACTIVE),
+            ProspectFilters(import_batch_ids=(batch.id,), activities=(ActivityStatus.ACTIVE,)),
             Segment.NO_RESPONSE,
             {"a"},
         ),
-        (ProspectFilters(search="filtre", company_id=logistique.id), Segment.CONTACTED, {"c"}),
-        (ProspectFilters(company_id=uuid.uuid4()), Segment.ALL, set()),
+        (ProspectFilters(search="filtre", company_ids=(logistique.id,)), Segment.CONTACTED, {"c"}),
+        (ProspectFilters(company_ids=(uuid.uuid4(),)), Segment.ALL, set()),
     ]
     for filters, segment, expected in checks:
         assert names(s, segment, filters) == expected, (filters, segment)
@@ -645,7 +645,7 @@ def test_every_counter_equals_its_list_total(db_session: Session, seed: int) -> 
     filter_sets = [
         ProspectFilters(),
         ProspectFilters(search="jean"),
-        ProspectFilters(activity=ActivityStatus.UNKNOWN, tracking_status=NONE),
+        ProspectFilters(activities=(ActivityStatus.UNKNOWN,), tracking_statuses=(NONE,)),
     ]
     for context in contexts:
         for filters in filter_sets:

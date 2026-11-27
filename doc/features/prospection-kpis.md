@@ -172,6 +172,9 @@ The `q` search keeps its `label_key`/`strpos` semantics; the trigram indexes of 
 
 ## URL contract
 
+Filters take several values (repeated parameters, OR within one filter) and apply on *Valider*: see
+[interface-spec.md](interface-spec.md#filters-prospects-entreprises-entrepôts).
+
 `/prospection?segment=due&q=…&role=…&activity=…&referent=…&tracking_status=…&company=…&import_batch=…&sort=…&page=2&prospect=…`
 — API parameter names, defaults omitted (`frontend/src/prospection/criteria.ts`; malformed values fall back to their
 default). Criteria changes **replace** the history entry (Back leaves the page; returning restores it as it was);
