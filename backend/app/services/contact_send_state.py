@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 from app.core.contact_steps import step_code, step_label
 from app.models import ContactMessage, ContactSequence
 from app.models.enums import ContactMessageStatus
+from app.services import eligibility
 from app.services.contact_dispatch import UNCONFIRMED
 from app.services.contact_schedule_trace import (
     BY_PERSON,
@@ -78,6 +79,8 @@ def message_situation(message: ContactMessage) -> SendSituation | None:
         state = "unscheduled" if message.missed_reason in BY_PERSON else "missed"
         scheduled_at = message.missed_scheduled_at
         reason, at = message.missed_reason, message.missed_at
+        if message.cancel_reason in eligibility.REVERSIBLE_CODES:
+            reason = message.cancel_reason
     return SendSituation(
         state=state,
         rank=message.rank,

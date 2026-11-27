@@ -84,6 +84,7 @@ def test_composite_primary_key_and_incoming_references(client: TestClient) -> No
         ("import_row_metadata", "company_id"),
         ("prospects", "company_id"),
         ("prospect_notes", "company_id"),
+        ("prospecting_holds", "company_id"),
         ("quality_alerts", "company_id"),
     }
     assert {ref["referenced_column"] for ref in companies["referenced_by"]} == {"id"}

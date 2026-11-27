@@ -2,11 +2,13 @@ import { type ReactNode, type RefObject, useEffect, useId, useRef, useState } fr
 
 import { COMPANY_KIND_LABELS, COMPANY_KINDS, type Company, type CompanyKind, useCompany, useCompanyMutations } from '../api/companies'
 import { HistoryTimeline } from '../history/HistoryTimeline'
+import { LifecycleSummary } from '../lifecycle/LifecycleSummary'
+import { useLifecycleMenu } from '../lifecycle/useLifecycleMenu'
 import { TaxonomyMultiSelect, TaxonomySelect } from '../settings/selectors'
 import { Button } from '../ui/Button'
 import { Drawer, Modal } from '../ui/Dialog'
 import { SelectField, TextAreaField, TextField } from '../ui/fields'
-import { AlertIcon, CheckCircleIcon, TrashIcon } from '../ui/icons'
+import { AlertIcon, ArchiveIcon, CheckCircleIcon, PauseIcon, TrashIcon } from '../ui/icons'
 import {
   type CompanyDraft,
   draftFromCompany,
@@ -64,6 +66,7 @@ export function CompanyEditor({ companyId, initialName, onClose, onSaved, onDele
   const [refusal, setRefusal] = useState<CompanyRefusal | null>(null)
   const [savedNotice, setSavedNotice] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const lifecycle = useLifecycleMenu()
   const [confirm, setConfirm] = useState<{ action: () => void; label: string } | null>(null)
 
   const dirty = forms !== null && isDirty(forms.draft, forms.baseline)
@@ -144,6 +147,9 @@ export function CompanyEditor({ companyId, initialName, onClose, onSaved, onDele
   }, [])
 
   const company = forms?.company ?? null
+  // Read from the query, not from the form: a lifecycle change refreshes it without touching what is typed.
+  const state = loaded.data?.lifecycle
+  const subject = company ? { type: 'company' as const, id: company.id, name: company.display_name } : null
   const errorCount = submitted ? Object.keys(validation.errors).length : 0
 
   return (
@@ -153,6 +159,14 @@ export function CompanyEditor({ companyId, initialName, onClose, onSaved, onDele
       title={company?.display_name ?? (companyId ? 'Entreprise' : 'Nouvelle entreprise')}
       description="Fiche de contexte des prospects : identité, classification et établissements. Chaque enregistrement est tracé dans l’historique."
       initialFocusRef={nameRef}
+      headerActions={
+        subject && (
+          <>
+            <Button size="sm" icon={PauseIcon} aria-haspopup="dialog" onClick={() => { lifecycle.open(subject, 'status') }}>Statut</Button>
+            <Button size="sm" icon={ArchiveIcon} aria-haspopup="dialog" onClick={() => { lifecycle.open(subject, 'archive') }}>Archiver</Button>
+          </>
+        )
+      }
       onClose={() => {
         guarded(onClose, 'Fermer sans enregistrer')
       }}
@@ -185,6 +199,13 @@ export function CompanyEditor({ companyId, initialName, onClose, onSaved, onDele
         )
       }
     >
+      {subject && state && state.holds.length > 0 && (
+        <section className="lifecycle-banner" aria-label="Hors prospection">
+          <LifecycleSummary state={state} />
+          <Button size="sm" onClick={() => { lifecycle.open(subject, 'status') }}>Modifier</Button>
+        </section>
+      )}
+      {lifecycle.dialog}
       {forms === null ? (
         <LoadState failed={loaded.isError} notFound={isNotFound(loaded.error)} onRetry={() => void loaded.refetch()} />
       ) : (

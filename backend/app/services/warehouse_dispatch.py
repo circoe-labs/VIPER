@@ -10,7 +10,7 @@ from app.core.actor import ActorContext, ActorType
 from app.core.config import allowlist_permits
 from app.db.session import unit_of_work
 from app.models import WarehouseDraft
-from app.services import audit
+from app.services import audit, eligibility
 from app.services.contact_dispatch import (
     MISSING_RECIPIENTS,
     OVERDUE,
@@ -60,6 +60,8 @@ def dispatch_warehouses(
                 refusal = MISSING_RECIPIENTS
             elif not allowlist_permits(config.allowlist, [draft.recipient]):
                 refusal = RECIPIENT_NOT_ALLOWED
+            elif block := eligibility.warehouse_block(session, draft):
+                refusal = block.value
             if refusal is not None:
                 draft.send_state = "failed"
                 draft.failure_code = refusal

@@ -78,6 +78,7 @@ def test_the_sequence_read_model(
         "prospect_id": str(prospect),
         "state": "neutral",
         "do_not_contact": False,
+        "block": None,
         "sequence_id": sequence_id,
         "out_of_campaign": False,
         "closed": False,

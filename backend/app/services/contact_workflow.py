@@ -178,9 +178,15 @@ class PauseReason(StrEnum):
     OUT_OF_CAMPAIGN = "out_of_campaign"  # S0
     STATE = "state"  # response, appointment, ignored, Défaillant
     DO_NOT_CONTACT = "do_not_contact"  # the durable opposition: no mail may be prepared
+    DEPARTED = "departed"  # left the role (`eligibility.Block`)
+    ARCHIVED = "archived"  # the person or the company
+    EXCLUDED = "excluded"  # the person or the company, temporarily
     SEQUENCE_CLOSED = "sequence_closed"  # closed `completed` (« Relance terminée »)
     FINISHED = "finished"  # R<max> sent (« Relance terminée »)
     EMAIL_ERROR = "email_error"  # an open « Erreur sur le mail » (D9)
+
+
+BLOCK_PAUSES = (PauseReason.DEPARTED, PauseReason.ARCHIVED, PauseReason.EXCLUDED)
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,6 +201,8 @@ class SequenceFacts:
     last_sent_at: datetime | None = None
     state: ContactTrackingStatus | None = None
     do_not_contact: bool = False
+    # Why the person is not eligible (`eligibility.Block` value), None when eligible.
+    block: str | None = None
     email_error: bool = False
 
 
@@ -242,6 +250,11 @@ def progress(facts: SequenceFacts, max_follow_ups: int) -> Progress:
         pause = PauseReason.STATE
     elif facts.do_not_contact:
         pause = PauseReason.DO_NOT_CONTACT
+    elif facts.block is not None:
+        pause = next(
+            (reason for reason in BLOCK_PAUSES if facts.block.endswith(reason.value)),
+            PauseReason.DO_NOT_CONTACT,
+        )
     elif not facts.sequence_open:
         pause = PauseReason.SEQUENCE_CLOSED
     elif finished:

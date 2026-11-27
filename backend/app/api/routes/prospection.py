@@ -113,6 +113,8 @@ class ProspectRowOut(BaseModel):
     contactability_status: ContactabilityStatus
     do_not_contact_at: datetime | None
     updated_at: datetime
+    # Why the person may not be prospected, null when they may.
+    block: str | None
     # The effective schedule, or why a scheduled mail did not leave.
     send: SendSituationOut | None = None
 
@@ -142,6 +144,7 @@ def prospect_filters(
     department: Many[Department] = None,
     reachable: bool = False,
     include_ignored: bool = False,
+    include_archived: bool = False,
     validated_only: bool = False,
     verification_box: Many[query.VerificationBox] = None,
     created_from: date | None = None,
@@ -170,6 +173,7 @@ def prospect_filters(
         departments=tuple(department or ()),
         reachable=reachable,
         include_ignored=include_ignored,
+        include_archived=include_archived,
         validated_only=validated_only,
         verification_boxes=tuple(verification_box or ()),
         created_from=created_from,

@@ -208,6 +208,9 @@ EXPOSED_TABLES: Mapping[str, TablePolicy] = {
     "person_links": TablePolicy(
         writes=read_only("Liens relationnels : gérés depuis la fiche prospect et le graphe."),
     ),
+    "prospecting_holds": TablePolicy(
+        writes=read_only("Archives et exclusions : posées et levées depuis la fiche."),
+    ),
     "prospect_notes": TablePolicy(
         columns={"prospect_id": PARENT_FIXED},
         writes=read_only("Notes : ajoutées et modifiées depuis la fiche prospect."),

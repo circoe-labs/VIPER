@@ -32,6 +32,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from app.api.dependencies import CurrentActor, SessionDep, SettingsDep
 from app.api.errors import business_errors
 from app.api.history import HistoryActorOut, HistoryCursor, HistoryLimit, HistoryPageOut
+from app.api.routes.lifecycle import LifecycleOut
 from app.models.enums import (
     ActivityStatus,
     Civility,
@@ -318,6 +319,7 @@ class ProspectOut(BaseModel):
     contactability_status: ContactabilityStatus
     do_not_contact_at: datetime | None
     do_not_contact_reason: str | None
+    lifecycle: LifecycleOut
     emails: list[EmailOut]
     phones: list[PhoneOut]
     tracking: TrackingOut | None
@@ -341,13 +343,18 @@ class ProspectSavedOut(ProspectOut):
 
     cancelled_messages: int
     in_flight_messages: int
+    # Unsent messages whose recipients followed an e-mail change; of them, those to validate again.
+    updated_recipients: int
+    unvalidated_messages: int
 
 
 def saved_out(result: EditorResult) -> ProspectSavedOut:
     return ProspectSavedOut(
         **prospect_out(result.view).model_dump(),
         cancelled_messages=result.messages.cancelled,
-        in_flight_messages=result.messages.in_flight,
+        in_flight_messages=result.messages.in_flight + result.recipients.in_flight,
+        updated_recipients=result.recipients.updated,
+        unvalidated_messages=result.recipients.unvalidated,
     )
 
 

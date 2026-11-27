@@ -3,12 +3,15 @@ import { Link } from 'react-router'
 
 import type { ChannelVerification } from '../api/prospection'
 import type { Prospect } from '../api/prospects'
+import { LifecycleBadge } from '../lifecycle/LifecycleBadge'
+import { useLifecycleMenu } from '../lifecycle/useLifecycleMenu'
 import { CohortBadge, EmailErrorBadge, LevelBadge, StateBadge } from '../prospection/ContactBadges'
 import { prospectionHref } from '../prospection/criteria'
 import { civilityLabel, formatPhone, personName, TO_VERIFY } from '../prospection/labels'
 import { EditorSection } from '../prospects/EditorSection'
 import { Badge, StatusBadge, type StatusTone } from '../ui/Badge'
-import { BanIcon, BuildingIcon, ExpandIcon } from '../ui/icons'
+import { Button } from '../ui/Button'
+import { BanIcon, BuildingIcon, ExpandIcon, PauseIcon } from '../ui/icons'
 import { ProspectOverlay } from './ProspectOverlay'
 import '../prospects/prospects.css'
 
@@ -38,6 +41,7 @@ export function ProspectSheet({ prospect, compact = false }: { prospect: Prospec
   useEffect(() => {
     headingRef.current?.focus()
   }, [])
+  const lifecycle = useLifecycleMenu()
   const civility = civilityLabel(prospect.civility)
   const contact = prospect.contact
   const inCampaign = contact.cohort !== null && !contact.cohort.out_of_campaign
@@ -98,10 +102,15 @@ export function ProspectSheet({ prospect, compact = false }: { prospect: Prospec
               Ne pas contacter
             </StatusBadge>
           )}
+          <LifecycleBadge block={prospect.lifecycle.block} departure={prospect.lifecycle.departure_reason} hideOpposition />
         </div>
         {blocked && prospect.do_not_contact_reason && (
           <p className="prospect-editor__note prospect-editor__note--danger">Motif : {prospect.do_not_contact_reason}</p>
         )}
+        <Button size="sm" variant="ghost" className="contact-sheet__open" icon={PauseIcon} aria-haspopup="dialog" onClick={() => { lifecycle.open({ type: 'prospect', id: prospect.id, name: personName(prospect) }) }}>
+          Statut
+        </Button>
+        {lifecycle.dialog}
         <Link className="btn btn--ghost btn--sm contact-sheet__open" to={prospectionHref({ prospect: prospect.id })}>
           <ExpandIcon size={16} />
           Ouvrir dans Prospection

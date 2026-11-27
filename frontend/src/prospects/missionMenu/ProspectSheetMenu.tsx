@@ -13,6 +13,7 @@ interface ActionsParams {
   // « Lier à… » / « Mission »: the sheet opens the Relations add flow / the Mission popover.
   onLink: () => void
   onMission: () => void
+  onLifecycle: (intent: 'status' | 'archive') => void
   // Leaving the sheet (graph): the editor asks first when changes are pending.
   guard: (go: () => void, label: string) => void
 }
@@ -35,7 +36,7 @@ const FEEDBACK_MS = 8000
 // The sheet's actions wired to the real operations (score evaluation, graph route, Company editor) — one instance
 // per sheet, read by the right-click menu (ProspectSheetMenu) and the header's « … » menu. It also says what happened:
 // the AI takes a few seconds, so the outcome (running / done / refused) is announced on screen.
-export function useSheetMenu({ prospectId, companyId, onLink, onMission, guard }: ActionsParams): SheetMenu {
+export function useSheetMenu({ prospectId, companyId, onLink, onMission, onLifecycle, guard }: ActionsParams): SheetMenu {
   const navigate = useNavigate()
   const openCompany = useCompanyEditor()
   const evaluate = useEvaluateScore(prospectId)
@@ -54,6 +55,7 @@ export function useSheetMenu({ prospectId, companyId, onLink, onMission, guard }
   const actions: SheetMenuActions = {
     link: onLink,
     mission: onMission,
+    lifecycle: onLifecycle,
     reassess: {
       busy: evaluate.isPending,
       run: () => {

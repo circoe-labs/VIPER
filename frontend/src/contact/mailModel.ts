@@ -6,6 +6,8 @@
 // - nothing here changes the prospect's state;
 // - the scheduled send (S7) belongs to the server's dispatcher: a claimed message is locked; a send it could not confirm
 //   is settled by a person (« Marquer envoyé » / « Remettre en Validé »), after checking the Infomaniak mailbox.
+import type { Block } from '../api/lifecycle'
+import { BLOCK_LABELS, isBlock } from '../lifecycle/model'
 import {
   type Message,
   type MessageContent,
@@ -114,6 +116,7 @@ export interface SequenceContext {
   closed: boolean
   // The step is after the sequence's last one (an old R3/R4): kept for the history, never prepared again.
   beyondLimit?: boolean
+  block?: Block | null
 }
 
 export const SEQUENCE_LIMIT_TEXT = 'Une séquence compte trois e-mails au plus (Contact, R1, R2)'
@@ -125,14 +128,18 @@ export function stepContext(sequence: MessageSequence, step: MessageStep): Seque
     state: sequence.sequence.state,
     doNotContact: sequence.sequence.do_not_contact,
     closed: sequence.sequence.closed,
+    block: sequence.sequence.block,
     beyondLimit: rank > (sequence.sequence.max_follow_ups ?? MESSAGE_STEPS.length - 1),
   }
 }
 
 // Why nothing can be prepared, validated or scheduled any more; null while the sequence is open.
-export function closedReason({ state, doNotContact, closed }: SequenceContext): string | null {
+export function closedReason({ state, doNotContact, closed, block }: SequenceContext): string | null {
   if (doNotContact) {
     return 'Prospect en opposition (« Ne pas contacter ») : aucun message ne peut être préparé, validé ni programmé.'
+  }
+  if (block) {
+    return `${BLOCK_LABELS[block]} : aucun message ne peut être préparé, validé ni programmé. Les messages validés ou programmés ont été annulés.`
   }
   if (!closed) return null
   const label = state ? TRACKING_LABELS[state] : 'close'
@@ -327,6 +334,7 @@ export function sendErrorLabel(code: string, latenessMinutes: number): string {
     send_draft_not_created: 'le brouillon Infomaniak n’a pas pu être créé avant l’envoi',
     dispatch_overdue: `l’heure prévue était dépassée de plus de ${latenessLabel(latenessMinutes)} (serveur arrêté ou Toolbox déconnectée) : il n’est pas parti en retard`,
     dispatch_internal_error: 'erreur inattendue du serveur (voir ses journaux)',
+    recipient_changed: 'l’adresse du destinataire a changé : vérifiez-la puis revalidez',
   }
   return labels[code] ?? `erreur inattendue (${code})`
 }
@@ -449,11 +457,13 @@ export function releaseAvailableAt(message: Message | null, claimTtlSeconds: num
   return at > now ? at : null
 }
 
-// `manual`, `prospect_state:<state>`, `do_not_contact` (decision 29 and the opposition) or `sequence_limit`.
+// `manual`, `prospect_state:<state>`, `do_not_contact` (decision 29 and the opposition), a lifecycle block or
+// `sequence_limit`.
 export function cancelReasonLabel(reason: string | null): string | null {
   if (reason === 'manual') return 'à la main'
   if (reason === 'sequence_limit') return 'trois e-mails au plus : Contact, R1, R2'
   if (reason === 'do_not_contact') return 'opposition « Ne pas contacter »'
+  if (isBlock(reason)) return BLOCK_LABELS[reason].toLowerCase()
   const state = reason?.startsWith('prospect_state:') ? reason.slice('prospect_state:'.length) : null
   return state && state in TRACKING_LABELS ? `passage à « ${TRACKING_LABELS[state as TrackingStatus]} »` : null
 }

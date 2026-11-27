@@ -27,6 +27,7 @@ from app.models.enums import (
     ActivityStatus,
     Civility,
     ContactabilityStatus,
+    DepartureReason,
     NoteSourceType,
     OriginType,
     PhoneType,
@@ -78,6 +79,10 @@ class Prospect(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, Base
     exact_job_title: Mapped[str | None] = mapped_column(String(255))
     activity_status: Mapped[ActivityStatus] = mapped_column(
         text_enum(ActivityStatus, "activity_status"), server_default=ActivityStatus.UNKNOWN.value
+    )
+    # Set by « Changer de statut » (`app.services.lifecycle`); read only while `inactive`.
+    departure_reason: Mapped[DepartureReason | None] = mapped_column(
+        text_enum(DepartureReason, "departure_reason")
     )
     # NULL = current employment context (company/role/title/activity) not verified.
     employment_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

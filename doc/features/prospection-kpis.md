@@ -32,7 +32,7 @@ predicate reads one row per prospect: the prospect, its company, its single cont
 and its primary e-mail (at most one, always active). Terms used below:
 
 - **business day** — today's date in Europe/Paris (`app/core/business_time.py`), also used for planned-contact weeks;
-- **actionable** — `contactability_status = contactable` **and** `activity_status ≠ inactive`: someone to contact or
+- **actionable** — since migration 0063 the one rule of [`prospecting-lifecycle.md`](prospecting-lifecycle.md) (also neither archived nor temporarily excluded, person or company); formerly: `contactability_status = contactable` **and** `activity_status ≠ inactive`: someone to contact or
   follow up now. A do-not-contact prospect is never actionable (durable opposition), nor someone known to have left
   the role (still visible under *Inactifs*);
 - **contacted** — a message of the prospect was **really sent** (any sequence, `contact_messages.status = sent`), or

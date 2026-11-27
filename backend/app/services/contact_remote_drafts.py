@@ -36,7 +36,7 @@ from app.core.actor import ActorContext
 from app.db.session import unit_of_work
 from app.models import ContactMessage, ContactMessageRemoteDraftCleanup
 from app.models.enums import ContactMessageStatus
-from app.services import audit
+from app.services import audit, eligibility
 from app.services.audit import AuditAction
 from app.services.errors import ToolboxError
 from app.services.toolbox.mcp_client import DraftInput, MailToolbox
@@ -140,6 +140,8 @@ def _snapshot(session_factory: sessionmaker[Session], message_id: uuid.UUID) -> 
             return "not_applicable"
         if message.remote_draft_id is not None:
             return "already_present"
+        if eligibility.block_of(session, message.prospect_id) is not None:
+            return "not_applicable"
         return _Snapshot(
             id=message.id,
             revision=message.revision,

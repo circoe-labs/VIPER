@@ -237,6 +237,7 @@ function ProspectFields({ draft, patch }: FieldsProps) {
         checked={draft.include_ignored ?? false}
         onChange={(event) => { patch({ include_ignored: event.target.checked }) }}
       />
+      <ArchivedSwitch draft={draft} patch={patch} />
     </>
   )
 }
@@ -251,7 +252,18 @@ function CompanyFields({ draft, patch }: FieldsProps) {
         <CompanyPickers draft={draft} patch={patch} />
       </div>
       <CreationDates draft={draft} patch={patch} />
+      <ArchivedSwitch draft={draft} patch={patch} />
     </>
+  )
+}
+
+function ArchivedSwitch({ draft, patch }: FieldsProps) {
+  return (
+    <Switch
+      label="Afficher les archivés"
+      checked={draft.include_archived ?? false}
+      onChange={(event) => { patch({ include_archived: event.target.checked }) }}
+    />
   )
 }
 

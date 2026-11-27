@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router'
 
 import { Button, IconButton } from '../../ui/Button'
 import type { Point } from '../../ui/floating'
-import { BuildingIcon, CompassIcon, LinkIcon, MailIcon, MoreIcon, TargetIcon, UsersIcon } from '../../ui/icons'
+import { ArchiveIcon, BuildingIcon, CompassIcon, LinkIcon, MailIcon, MoreIcon, PauseIcon, TargetIcon, UsersIcon } from '../../ui/icons'
 import { Menu, type MenuItem } from '../../ui/Menu'
 
 // « Contacter » reuses the Contact workbench deep link (`/contact?prospect=<id>`, contact/criteria.ts): no second flow.
@@ -51,6 +51,8 @@ export interface SheetMenuActions {
   reassess?: { run: () => void; busy?: boolean; disabledReason?: string | null }
   graph?: () => void
   company?: { open: () => void; disabledReason?: string | null }
+  // « Changer de statut » / « Archiver » (lifecycle).
+  lifecycle?: (intent: 'status' | 'archive') => void
 }
 
 interface SurfaceProps extends ActionProps {
@@ -97,7 +99,15 @@ export function menuItems(contact: () => void, disabledReason: string | null | u
       onSelect: company.open,
     })
   }
-  return [first, second].filter((items) => items.length > 0)
+  const third: MenuItem[] = []
+  const { lifecycle } = actions
+  if (lifecycle) {
+    third.push(
+      { id: 'lifecycle-status', label: 'Changer de statut…', icon: PauseIcon, onSelect: () => { lifecycle('status') } },
+      { id: 'lifecycle-archive', label: 'Archiver…', icon: ArchiveIcon, onSelect: () => { lifecycle('archive') } },
+    )
+  }
+  return [first, second, third].filter((items) => items.length > 0)
 }
 
 // Wrap the prospect sheet: right click, the context-menu key or Shift+F10 on its surface offers the sheet's actions

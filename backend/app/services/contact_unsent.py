@@ -25,8 +25,8 @@ from sqlalchemy.orm import Session
 from app.core.actor import ActorContext, ActorType
 from app.models import Cohort, ContactMessage, ContactSequence, ContactTracking, Prospect
 from app.models.companies import Company
-from app.models.enums import ContactabilityStatus, ContactMessageStatus
-from app.services import audit, contact_messages
+from app.models.enums import ContactMessageStatus
+from app.services import audit, contact_messages, eligibility
 from app.services.audit import AuditAction
 from app.services.contact_remote_drafts import detach_remote_draft
 from app.services.contact_schedule_trace import (
@@ -72,7 +72,7 @@ class UnsentOverview:
 
 def overview(session: Session) -> UnsentOverview:
     eligible = (
-        Prospect.contactability_status == ContactabilityStatus.CONTACTABLE,
+        eligibility.eligible_sql(),
         or_(
             ContactTracking.status.is_(None),
             ContactTracking.status.not_in(tuple(SEQUENCE_CLOSING_STATES)),

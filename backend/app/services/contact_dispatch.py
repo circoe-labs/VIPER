@@ -25,6 +25,8 @@ One pass (`run_pass`; never two at once in one process, `ContactDispatcher` in t
      claim stays (`send_reconcile_inconclusive`); a person can settle it (below).
 2. **Due messages** (`scheduled`, `scheduled_at <= now`, unclaimed), oldest first (lower rank
    first at the same moment). For each, under its row lock (`SKIP LOCKED`):
+   - a person who is not eligible (`app.services.eligibility`) → what could leave is cancelled
+     with the block's code;
    - closed sequence (`response_received`, `appointment_obtained`, `ignored`, `disqualified`,
      `do_not_contact`, a sequence closed by a change of cohort, S0) → the unsent messages are
      cancelled (decision 29: the prospect's, or the closed sequence's alone), nothing leaves;
@@ -98,7 +100,7 @@ from app.core.config import Settings, allowlist_permits
 from app.core.contact_steps import MAX_FOLLOW_UPS_LIMIT
 from app.models import ContactMessage, ContactSequence, ContactTracking, Prospect
 from app.models.enums import ContactabilityStatus, ContactMessageStatus, SendSource
-from app.services import app_settings, audit
+from app.services import app_settings, audit, eligibility
 from app.services.audit import AuditAction, AuditContext, AuditSource
 from app.services.contact_message_cancellation import (
     DO_NOT_CONTACT_REASON,
@@ -318,6 +320,10 @@ def _sequence(
         return _Sequence(True, state_cancel_reason(state))
     if contactability is ContactabilityStatus.DO_NOT_CONTACT:
         return _Sequence(True, DO_NOT_CONTACT_REASON)
+    # Left the role, archived, excluded (`eligibility`): what could leave is cancelled.
+    block = eligibility.block_of(session, prospect_id)
+    if block is not None:
+        return _Sequence(True, block.value)
     row = session.scalar(sequence_query)
     if row is None:
         return _Sequence(True, None)

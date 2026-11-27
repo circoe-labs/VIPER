@@ -5,6 +5,7 @@ Rules (`doc/features/prospect-editor.md`, *E-mails and phones*):
 - values are normalized with the import's rules: e-mail addresses trimmed and lowercase with a
   valid syntax; phone numbers without formatting, French numbers as `+33…`;
 - a list is the full list: an alias left out is deleted; the same value twice is refused;
+  two aliases may exchange their values in one save (the stored row follows the value);
 - exactly one active primary per kind while any alias is active — none flagged: the first active
   one; two flagged, or a primary that is inactive: refused;
 - verification is per alias and explicit: `verified_now` (the one-click « Vérifié ») sets the
@@ -20,7 +21,7 @@ then the other changes and new aliases. Each alias changes in one flush: one aud
 
 import uuid
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Any
 
@@ -31,6 +32,7 @@ from app.core.actor import ActorContext
 from app.models.enums import OriginType, PhoneType, VerificationStatus
 from app.models.prospects import Email, Phone, Prospect
 from app.services import audit
+from app.services.contact_recipients import Followed, addresses, follow_address_change
 from app.services.errors import InvalidFieldError, translated_violations, violated_constraint
 from app.services.imports.normalize import (
     EMAIL_PATTERN,
@@ -132,30 +134,70 @@ def _verification(
     )
 
 
+def _bind(
+    kind: ChannelKind,
+    owned: dict[uuid.UUID, Channel],
+    items: Sequence[ChannelItem],
+    values: Sequence[str],
+) -> list[Channel | None]:
+    """The stored row each item is written to (None: a new row). A value that already has a row
+    stays on it — so aliases that exchange or pass on their values never collide on the unique
+    index — and an edited item otherwise keeps its own row, or takes one that was freed."""
+    by_value = {getattr(row, kind.value_field): row for row in owned.values()}
+    listed = {item.id for item in items if item.id is not None}
+    rows: list[Channel | None] = [None] * len(items)
+    taken: set[uuid.UUID] = set()
+    for index, (item, value) in enumerate(zip(items, values, strict=True)):
+        row = by_value.get(value)
+        # A new item takes an existing row only when an edited alias is leaving that value.
+        if row is not None and (item.id is not None or row.id in listed):
+            rows[index] = row
+            taken.add(row.id)
+    for index, item in enumerate(items):
+        if rows[index] is not None or item.id is None:
+            continue
+        freed = [owned[item.id], *(owned[i.id] for i in items if i.id is not None)]
+        row = next((candidate for candidate in freed if candidate.id not in taken), None)
+        if row is not None:
+            rows[index] = row
+            taken.add(row.id)
+    return rows
+
+
 def _plan(
     kind: ChannelKind, owned: dict[uuid.UUID, Channel], items: Sequence[ChannelItem], now: datetime
 ) -> list[_Planned]:
     planned: list[_Planned] = []
     seen_ids: set[uuid.UUID] = set()
-    seen_values: set[str] = set()
+    values_given: list[str] = []
     primaries: list[int] = []
     for index, item in enumerate(items):
         path = f"{kind.collection}.{index}"
-        row = None
         if item.id is not None:
-            row = owned.get(item.id)
-            if row is None or item.id in seen_ids:
+            if item.id not in owned or item.id in seen_ids:
                 raise InvalidFieldError(f"{path}.id", "Not an alias of this prospect.", "unknown")
             seen_ids.add(item.id)
         value = kind.normalize(f"{path}.{kind.value_field}", item.value)
-        if value in seen_values:
+        if value in values_given:
             raise InvalidFieldError(f"{path}.{kind.value_field}", "Value given twice.", "repeated")
-        seen_values.add(value)
+        values_given.append(value)
+    rows = _bind(kind, owned, items, values_given)
+    for index, (item, value, row) in enumerate(zip(items, values_given, rows, strict=True)):
+        path = f"{kind.collection}.{index}"
         if item.is_primary and not item.is_active:
             raise InvalidFieldError(f"{path}.is_primary", "A primary alias is active.", "inactive")
         if item.is_primary:
             primaries.append(index)
         changed = row is not None and getattr(row, kind.value_field) != value
+        if (
+            row is not None
+            and row.id != item.id
+            and not changed
+            and not item.verified_now
+            and item.verification_status is VerificationStatus.UNVERIFIED
+        ):
+            # An exchange: the verification belongs to the address, which keeps it.
+            item = replace(item, verification_status=row.verification_status)
         status, verified_at = _verification(path, item, row, changed, now)
         values: dict[str, Any] = {
             kind.value_field: value,
@@ -201,9 +243,11 @@ def save_channels(
     items: Sequence[ChannelItem],
     *,
     now: datetime,
-) -> None:
+) -> Followed:
     """Replace the prospect's e-mails or phones by `items` (see the module rules). Refusals are
-    `InvalidFieldError`s with the item's path; nothing is written before every item is valid."""
+    `InvalidFieldError`s with the item's path; nothing is written before every item is valid.
+    Unsent Contact messages follow an address change (`contact_recipients`)."""
+    before = addresses(session, prospect.id) if kind is EMAILS else None
     collection: list[Channel] = getattr(prospect, kind.collection)
     owned = {row.id: row for row in collection}
     planned = _plan(kind, owned, items, now)
@@ -241,3 +285,7 @@ def save_channels(
                 collection.append(row)
             else:
                 _write(session, actor, plan.row, plan.values)
+    if before is None:
+        return Followed()
+    session.flush()
+    return follow_address_change(session, actor, prospect.id, before)

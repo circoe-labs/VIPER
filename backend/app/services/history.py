@@ -43,6 +43,8 @@ from app.models.enums import (
     CompanyKind,
     ContactabilityStatus,
     ContactTrackingStatus,
+    DepartureReason,
+    HoldKind,
     NoteSourceType,
     OriginType,
     PhoneType,
@@ -220,6 +222,15 @@ ACTIVITIES: dict[str, str] = {
     ActivityStatus.INACTIVE: "Inactif",
     ActivityStatus.UNKNOWN: "Inconnue",
 }
+DEPARTURES: dict[str, str] = {
+    DepartureReason.RETIRED: "Retraite",
+    DepartureReason.LEFT_COMPANY: "A quitté l’entreprise",
+    DepartureReason.OTHER: "Autre départ",
+}
+HOLD_KINDS: dict[str, str] = {
+    HoldKind.ARCHIVE: "Archivage",
+    HoldKind.EXCLUSION: "Exclusion temporaire",
+}
 CONTACTABILITY: dict[str, str] = {
     ContactabilityStatus.CONTACTABLE: "Contactable",
     ContactabilityStatus.DO_NOT_CONTACT: "Ne pas contacter",
@@ -356,6 +367,15 @@ FIELDS: dict[str, dict[str, Field]] = {
         ),
         "do_not_contact_at": Field("Opposition le", "Opposition modifiée", _moment),
         "do_not_contact_reason": Field("Motif d’opposition", "Opposition modifiée"),
+        "departure_reason": Field("Motif de départ", "Statut modifié", _choice(DEPARTURES)),
+    },
+    # An archive or a temporary exclusion of the person or the company (`lifecycle`).
+    "prospecting_hold": {
+        "kind": Field("type", "Prospection modifiée", _choice(HOLD_KINDS)),
+        "reason": Field("motif", "Prospection modifiée"),
+        "placed_at": Field("depuis le", "Prospection modifiée", _moment),
+        "lifted_at": Field("levée le", "Prospection modifiée", _moment),
+        "lift_reason": Field("motif de réintégration", "Prospection modifiée"),
     },
     "email": _channel_fields(
         "E-mail", "de l’e-mail", ("address", Field("Adresse e-mail", "Adresse e-mail modifiée"))
@@ -517,6 +537,9 @@ NOT_SHOWN: dict[str, frozenset[str]] = {
         {"prospect_id", "import_batch_id", "actor_type", "actor_id", "actor_display"}
     ),
     "prospect_note": frozenset({"prospect_id"}),
+    "prospecting_hold": frozenset(
+        {"prospect_id", "company_id", "placed_by_display", "lifted_by_display"}
+    ),
     "establishment": frozenset({"company_id"}),
 }
 # Child rows named by one of their fields, as it was at the time of the event.
@@ -551,6 +574,7 @@ PREFIXED = {
     "contact_message": "Message",
     "contact_sequence": "Séquence",
     "quality_alert": "Alerte",
+    "prospecting_hold": "Prospection",
 }
 # (noun, feminine) for lifecycle phrases.
 NOUNS = {
@@ -563,6 +587,7 @@ NOUNS = {
     "quality_alert": ("Alerte qualité", True),
     "prospect_source": ("Provenance", True),
     "prospect_note": ("Note", True),
+    "prospecting_hold": ("Mise à l’écart", True),
     "company": ("Entreprise", True),
     "establishment": ("Établissement", False),
 }
@@ -844,6 +869,10 @@ OPPOSITIONS: dict[str, str] = {
 }
 # The entry title: the first of these actions in the save, else the subject's default.
 TITLES: dict[str, str] = {
+    AuditAction.PROSPECT_DEPARTED: "Départ enregistré",
+    AuditAction.PROSPECT_RETURNED: "Retour en poste",
+    AuditAction.PROSPECTING_HOLD_PLACED: "Retiré de la prospection",
+    AuditAction.PROSPECTING_HOLD_LIFTED: "Réintégré dans la prospection",
     "prospect.created": "Fiche créée",
     "prospect.deleted": "Fiche supprimée",
     "company.created": "Entreprise créée",

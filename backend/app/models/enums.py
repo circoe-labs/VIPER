@@ -17,6 +17,23 @@ class ActivityStatus(StrEnum):
     UNKNOWN = "unknown"
 
 
+class DepartureReason(StrEnum):
+    """Why a person left the role (meaningful only while `activity_status` is `inactive`)."""
+
+    RETIRED = "retired"
+    LEFT_COMPANY = "left_company"
+    OTHER = "other"
+
+
+class HoldKind(StrEnum):
+    """A reversible removal from prospecting (`prospecting_holds`): `archive` puts the record
+    away, `exclusion` is a temporary exclusion with no end date. Neither is the durable
+    opposition (`ContactabilityStatus`)."""
+
+    ARCHIVE = "archive"
+    EXCLUSION = "exclusion"
+
+
 class CompanyKind(StrEnum):
     """Type d'entreprise: PME (< 250 salariés), grande entreprise (250 et plus, ETI comprises) ou
     institutionnel (secteur public, collectivités, établissements publics)."""

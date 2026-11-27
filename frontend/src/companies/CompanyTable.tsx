@@ -3,6 +3,8 @@ import { useState } from 'react'
 import { COMPANY_KIND_LABELS, type CompanyListItem, useCompanyMutations } from '../api/companies'
 import { ConfirmDelete } from '../admin/adminShared'
 import { FILE_STATUS_LABELS, FILE_STATUS_TONES, missingText } from '../api/fileStatus'
+import { LifecycleBadge } from '../lifecycle/LifecycleBadge'
+import { useLifecycleMenu } from '../lifecycle/useLifecycleMenu'
 import { StatusBadge } from '../ui/Badge'
 import { PencilIcon, TrashIcon } from '../ui/icons'
 import { useRowMenu } from '../ui/RowMenu'
@@ -24,10 +26,12 @@ export function CompanyTable({ items }: { items: CompanyListItem[] }) {
   const openEditor = useCompanyEditor()
   const { remove } = useCompanyMutations()
   const [deleting, setDeleting] = useState<CompanyListItem | null>(null)
+  const lifecycle = useLifecycleMenu()
   const rowMenu = useRowMenu<CompanyListItem>(
     (company) => `Actions de ${company.display_name}`,
     (company) => [
       { id: 'edit', label: 'Modifier', icon: PencilIcon, onSelect: () => { openEditor(company.id) } },
+      ...lifecycle.items({ type: 'company', id: company.id, name: company.display_name }),
       { id: 'delete', label: 'Supprimer', icon: TrashIcon, danger: true, onSelect: () => { setDeleting(company) } },
     ],
   )
@@ -55,6 +59,7 @@ export function CompanyTable({ items }: { items: CompanyListItem[] }) {
         </td>
         <td>
           <StatusBadge tone={FILE_STATUS_TONES[company.status]}>{FILE_STATUS_LABELS[company.status]}</StatusBadge>
+          <LifecycleBadge block={company.block} />
           {company.missing.length > 0 && <span className="companies-table__legal">Manque : {missingText(company.missing)}</span>}
         </td>
         <td>{company.company_kind ? COMPANY_KIND_LABELS[company.company_kind] : 'À classer'}</td>
@@ -67,6 +72,7 @@ export function CompanyTable({ items }: { items: CompanyListItem[] }) {
       </tr>)}</tbody>
     </Table>
     {rowMenu.menu}
+    {lifecycle.dialog}
     {deleting && <ConfirmDelete title="Supprimer cette entreprise ?" confirmLabel="Supprimer l’entreprise" pending={remove.isPending} error={remove.error} onClose={() => { remove.reset(); setDeleting(null) }} onConfirm={() => { remove.mutate(deleting.id, { onSuccess: () => { setDeleting(null) } }) }}>
       <p>« {deleting.display_name} » est supprimée avec ses établissements. Impossible tant que des prospects lui sont rattachés.</p>
     </ConfirmDelete>}

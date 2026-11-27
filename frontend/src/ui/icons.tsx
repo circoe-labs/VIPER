@@ -542,6 +542,12 @@ export const HistoryIcon = (props: IconProps) => (
   </Svg>
 )
 
+export const ArchiveIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M3.5 5h17v4h-17zM5 9v10h14V9M10 13h4" />
+  </Svg>
+)
+
 export const BookmarkIcon = (props: IconProps) => (
   <Svg {...props}>
     <path d="M6.5 3.5h11v17L12 16.5l-5.5 4z" />

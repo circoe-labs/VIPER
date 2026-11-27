@@ -38,7 +38,7 @@ from app.models.taxonomies import ActivityCategory
 from app.repositories import companies as repository
 from app.repositories import import_reference
 from app.repositories.list_sort import EntitySort
-from app.services import audit
+from app.services import audit, eligibility, lifecycle_view
 from app.services.errors import (
     DuplicateValueError,
     ExistingValue,
@@ -54,6 +54,7 @@ from app.services.imports.dedup import COMPANY_SIMILARITY
 from app.services.imports.matching import company_key, similarity
 from app.services.imports.models import MatchReason
 from app.services.imports.rows import WEBMAIL_DOMAINS
+from app.services.lifecycle_view import LifecycleState
 from app.services.taxonomies import normalize_text
 
 NAME_MAX_LENGTH = 255
@@ -139,6 +140,8 @@ class ProspectSummary:
     exact_job_title: str | None
     activity_status: ActivityStatus
     contactability_status: ContactabilityStatus
+    # Why the person may not be prospected (`eligibility.Block`), None when they may.
+    block: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,6 +167,8 @@ class CompanyDetail:
     prospects: list[ProspectSummary]
     created_at: datetime
     updated_at: datetime
+    # The company's own archive / exclusion.
+    lifecycle: LifecycleState
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,6 +189,8 @@ class CompanyListItem:
     # the next level.
     status: FileStatus = "incomplete"
     missing: list[str] = field(default_factory=list)
+    # `company_archived` / `company_excluded`, None when the company may be prospected.
+    block: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -446,8 +453,11 @@ def get_company(session: Session, company_id: uuid.UUID) -> CompanyDetail:
         company.establishments,
         key=lambda row: (not row.is_primary, (row.name or "").casefold(), str(row.id)),
     )
+    shown = repository.company_prospects(session, company.id, limit=PROSPECTS_SHOWN)
+    blocks = eligibility.blocks_of(session, [prospect.id for prospect, _ in shown])
     prospects = [
         ProspectSummary(
+            block=blocks.get(prospect.id),
             id=prospect.id,
             civility=prospect.civility,
             first_name=prospect.first_name,
@@ -457,9 +467,7 @@ def get_company(session: Session, company_id: uuid.UUID) -> CompanyDetail:
             activity_status=prospect.activity_status,
             contactability_status=prospect.contactability_status,
         )
-        for prospect, role_label in repository.company_prospects(
-            session, company.id, limit=PROSPECTS_SHOWN
-        )
+        for prospect, role_label in shown
     ]
     return CompanyDetail(
         id=company.id,
@@ -483,6 +491,7 @@ def get_company(session: Session, company_id: uuid.UUID) -> CompanyDetail:
         prospects=prospects,
         created_at=company.created_at,
         updated_at=company.updated_at,
+        lifecycle=lifecycle_view.company_state(session, company.id),
     )
 
 
@@ -501,6 +510,7 @@ def list_companies(
     created_to: date | None = None,
     sort: EntitySort = EntitySort.NAME,
     statuses: Sequence[FileStatus] = (),
+    include_archived: bool = False,
 ) -> CompanyPage:
     """Ordered by `sort` (name by default); `search` matches every word in the names, e-mail
     domain, website, sector, city and contact names (case/accents ignored), or digits in a
@@ -517,11 +527,14 @@ def list_companies(
         created_to=created_to,
         sort=sort,
         statuses=statuses,
+        include_archived=include_archived,
         limit=max(1, min(limit, LIST_MAX_LIMIT)),
         offset=max(0, offset),
     )
+    blocks = eligibility.company_blocks(session, [row[0].id for row in rows])
     items = [
         CompanyListItem(
+            block=blocks.get(company.id),
             id=company.id,
             display_name=company.display_name,
             legal_name=company.legal_name,

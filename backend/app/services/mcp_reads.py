@@ -53,6 +53,7 @@ def _company_row(company: companies.CompanyListItem) -> dict[str, Any]:
         "city": company.city,
         "establishment_count": company.establishment_count,
         "prospect_count": company.prospect_count,
+        "prospecting_block": company.block,
         "updated_at": _iso(company.updated_at),
     }
 
@@ -69,6 +70,7 @@ def _company_prospects(company: companies.CompanyDetail) -> list[dict[str, Any]]
             "exact_job_title": prospect.exact_job_title,
             "activity_status": _value(prospect.activity_status),
             "contactability_status": _value(prospect.contactability_status),
+            "prospecting_block": prospect.block,
         }
         for prospect in company.prospects
     ]
@@ -292,6 +294,8 @@ def get_prospect(session: Session, prospect_id: uuid.UUID, settings: Settings) -
         "employment_verified_at": _iso(view.employment_verified_at),
         "verification_state": _value(view.verification_state),
         "contactability_status": _value(view.contactability_status),
+        # Why the person may not be prospected (null: they may), set by a person in VIPER.
+        "prospecting_block": view.lifecycle.block,
         "do_not_contact": (
             {
                 "at": _iso(view.do_not_contact_at),

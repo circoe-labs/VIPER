@@ -26,6 +26,7 @@ export function CompaniesPanel({ view, update, refine, search }: EntityPanelProp
     department: view.department,
     services: view.services,
     status: view.file_status,
+    include_archived: view.include_archived,
     created_from: view.created_from,
     created_to: view.created_to,
   }, sort)

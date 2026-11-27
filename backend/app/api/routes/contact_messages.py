@@ -220,6 +220,8 @@ class SequenceOut(BaseModel):
     # The prospect's Contact state; null without a tracking.
     state: ContactTrackingStatus | None
     do_not_contact: bool
+    # Why nothing may be prepared besides the opposition (`eligibility.Block`).
+    block: str | None
     # The open current sequence the steps belong to; null without one (no cohort, or closed).
     sequence_id: uuid.UUID | None
     out_of_campaign: bool
@@ -441,6 +443,7 @@ def messages_out(state: Any, session: Session, prospect_id: uuid.UUID) -> Messag
             prospect_id=context.prospect_id,
             state=context.state,
             do_not_contact=context.do_not_contact,
+            block=context.block,
             sequence_id=context.sequence_id,
             out_of_campaign=context.out_of_campaign,
             closed=context.closed,

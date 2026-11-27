@@ -276,7 +276,7 @@ Refusals (`app/api/errors.py`, French copy in `frontend/src/prospects/messages.t
 
 | Status | `detail` | Example |
 |---|---|---|
-| 422 | `{code: "invalid", field, reason}` — `field` e.g. `last_name` (`blank`), `company_id` (`blank`, `unknown`), `role_id` (`unknown`), `role_label` (`length`, `both`), `employment_verification.day` (`blank`, `future`), `emails.N.address` / `phones.N.number` (`blank`, `format`, `repeated`), `emails.N.is_primary` (`multiple`, `inactive`), `emails.N.verification_status` (`verification_action`), `emails.N.id` (`unknown`), `phones.N.type` (`blank`), `emails` (`exchange`: two lines swapping values), `tracking.referent_id` (`unknown`), `tracking.appointment_time` (`without_day`), `provenance.legal_basis_or_collection_context` (`blank`), `reason` (`blank`) | *Adresse e-mail invalide (ex. prenom.nom@exemple.fr).* |
+| 422 | `{code: "invalid", field, reason}` — `field` e.g. `last_name` (`blank`), `company_id` (`blank`, `unknown`), `role_id` (`unknown`), `role_label` (`length`, `both`), `employment_verification.day` (`blank`, `future`), `emails.N.address` / `phones.N.number` (`blank`, `format`, `repeated`), `emails.N.is_primary` (`multiple`, `inactive`), `emails.N.verification_status` (`verification_action`), `emails.N.id` (`unknown`), `phones.N.type` (`blank`), `emails` (`exchange`: only a concurrent write — two lines swapping values are saved in one go), `tracking.referent_id` (`unknown`), `tracking.appointment_time` (`without_day`), `provenance.legal_basis_or_collection_context` (`blank`), `reason` (`blank`) | *Adresse e-mail invalide (ex. prenom.nom@exemple.fr).* |
 | 409 | `{code: "duplicate", field: "role_label", existing}` | *Le rôle « Dirigeant » existe déjà : choisissez-le dans la liste.* |
 | 409 | `{code: "conflict"}` | *Ce prospect a été modifié ailleurs depuis son ouverture…* |
 | 409 | `{code: "do_not_contact"}` (delete) | *Suppression impossible : ce prospect est en opposition…* |
@@ -545,3 +545,15 @@ popover follows the evaluation and the card shows the same progress); « Complè
 - **Relations card**: dense rows in an auto-fill grid (initials avatar on the graph's hue, name + company/*Membre*, relation chip,
   strength meter + number); edit (relation + strength) and delete appear on hover/focus; *Lier à* toggles an inline add row; the empty
   state is one line; every failure (save, delete) shows an alert on the row.
+
+## E-mails and the lifecycle (2026-11-27)
+
+- Two aliases may exchange their values in one save: the stored row follows the value, so the verification stays with
+  the address.
+- A change of the primary address, or an address edited, deactivated or removed, moves the unsent messages to the new
+  primary and sends validated or scheduled ones back to draft; the save says how many (`updated_recipients`,
+  `unvalidated_messages`).
+- « Modifier les e-mails » in the Prospects and Contact row menus opens the sheet on the addresses
+  (`?prospect=<id>&section=emails`).
+- Statut, archive, exclusion and departure: [`prospecting-lifecycle.md`](prospecting-lifecycle.md). The view carries
+  `lifecycle`.

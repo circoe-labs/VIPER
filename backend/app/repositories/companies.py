@@ -16,6 +16,7 @@ from app.models.taxonomies import ActivityCategory
 from app.repositories.filter_conditions import company_conditions
 from app.repositories.list_sort import EntitySort, entity_order_by
 from app.repositories.taxonomies import matches_words
+from app.services import eligibility
 from app.services.file_status import FileStatus, company_missing, company_status_condition
 
 
@@ -155,6 +156,7 @@ def list_companies(
     created_to: date | None = None,
     sort: EntitySort = EntitySort.NAME,
     statuses: Sequence[FileStatus] = (),
+    include_archived: bool = False,
 ) -> tuple[Sequence[Row[Any]], int]:
     """`(company, segment label, prospect count, establishment count, primary city, missing to be
     usable, missing to be verified)` rows ordered
@@ -169,6 +171,8 @@ def list_companies(
         departments=departments,
         services=services,
     )
+    if not include_archived:
+        where.append(~eligibility.company_archived_sql(Company.id))
     if statuses:
         where.append(or_(*(company_status_condition(status) for status in statuses)))
     usable_missing, verified_missing = company_missing()
@@ -210,7 +214,9 @@ def company_counts(session: Session) -> dict[str, int]:
                     for kind in CompanyKind
                 ),
                 func.count().filter(Company.company_kind.is_(None)).label("unclassified"),
-            ).select_from(Company)
+            )
+            .select_from(Company)
+            .where(~eligibility.company_archived_sql(Company.id))
         )
         .one()
         ._mapping

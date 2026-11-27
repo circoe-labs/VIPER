@@ -25,10 +25,11 @@ from sqlalchemy.orm import Mapper, Session
 
 from app.core.actor import ActorContext
 from app.db.base import Base
-from app.models import ActivityCategory, Company, ContactTracking, Prospect
+from app.models import ActivityCategory, Company, ContactTracking, Email, Prospect
 from app.models.enums import ContactabilityStatus, ContactTrackingStatus
-from app.services import contact_tracking, prospects
+from app.services import contact_recipients, contact_tracking, prospects
 from app.services.audit_changes import to_json
+from app.services.contact_message_cancellation import cancel_if_ineligible
 from app.services.errors import DomainError
 from app.services.explorer.changes import (
     ChangeError,
@@ -247,6 +248,8 @@ class _Writer:
     ) -> ChangeError | None:
         try:
             with self.session.begin_nested():
+                owner = self._email_owner(change, rows)
+                before = contact_recipients.addresses(self.session, owner) if owner else None
                 if isinstance(change, RowInsert):
                     inserted[change.ref.index] = self._insert(change)
                 elif isinstance(change, RowUpdate):
@@ -254,11 +257,25 @@ class _Writer:
                 else:
                     self._delete(rows[id(change)])
                 self.session.flush()
+                if owner and before:
+                    contact_recipients.follow_address_change(
+                        self.session, self.actor, owner, before
+                    )
         except (IntegrityError, DataError) as error:
             return database_error(self.table, change, error)
         except DomainError as error:
             return ChangeError(change.ref, ErrorCode.REJECTED, str(error))
         return None
+
+    def _email_owner(self, change: Change, rows: Mapping[int, object]) -> uuid.UUID | None:
+        """The prospect whose e-mail addresses this change touches (its messages follow)."""
+        if self.table.name != Email.__tablename__:
+            return None
+        if isinstance(change, RowInsert):
+            value = change.values.get("prospect_id")
+            return value if isinstance(value, uuid.UUID) else None
+        row = rows.get(id(change))
+        return row.prospect_id if isinstance(row, Email) else None
 
     def _update(self, change: RowUpdate, row: object) -> None:
         values = dict(change.values)
@@ -272,6 +289,9 @@ class _Writer:
             assert isinstance(company_id, uuid.UUID)
             prospects.change_company(self.session, self.actor, row.id, company_id)
         self._assign(row, values)
+        if isinstance(row, Prospect):
+            self.session.flush()
+            cancel_if_ineligible(self.session, self.actor, row.id)
 
     def _insert(self, change: RowInsert) -> dict[str, Any]:
         values = change.values

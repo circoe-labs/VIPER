@@ -173,6 +173,7 @@ class ContactRowOut(BaseModel):
     primary_email: str | None
     activity_status: ActivityStatus
     contactability_status: ContactabilityStatus
+    block: str | None
     tracking_status: ContactTrackingStatus
     cohort_id: uuid.UUID | None
     cohort_code: str | None

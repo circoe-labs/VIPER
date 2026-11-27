@@ -37,6 +37,12 @@ export function pauseText(place: Place, state: TrackingStatus): string | null {
       return `État « ${TRACKING_LABELS[state]} » : la séquence est hors des actions automatiques.`
     case 'do_not_contact':
       return 'Opposition « Ne pas contacter » : aucun envoi.'
+    case 'departed':
+      return 'Plus en poste : aucun envoi.'
+    case 'archived':
+      return 'Archivé (fiche ou entreprise) : aucun envoi.'
+    case 'excluded':
+      return 'Exclu temporairement (fiche ou entreprise) : aucun envoi tant qu’il n’est pas réintégré.'
     case 'sequence_closed':
       return 'Relance terminée (séquence close) : plus de relance automatique, le prospect reste contactable.'
     case 'finished':

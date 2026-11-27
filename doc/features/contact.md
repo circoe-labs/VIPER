@@ -1332,3 +1332,9 @@ emptying the setting leaves the field blank but never blocks anything (the real 
 The avatar and the name of the workbench's left card are buttons (« Voir la fiche »): they open the whole prospect sheet
 (`ProspectEditor`, the same as Prospection) in its drawer **over** the workbench (`ProspectOverlay.tsx`, a queue of one);
 Esc, the close button or a click outside closes it (it asks first when the sheet has unsaved edits).
+
+## Hors prospection (2026-11-27)
+
+A person who left the role, or who is archived or temporarily excluded (own or company), gets no message prepared,
+validated, scheduled or sent; their validated and scheduled messages are cancelled with the reason, and unsent messages
+follow a change of e-mail address. Rules: [`prospecting-lifecycle.md`](prospecting-lifecycle.md).

@@ -80,7 +80,7 @@ from app.models.enums import (
     SequenceEndReason,
     TrackingHistoryStatus,
 )
-from app.services import app_settings, audit, cohorts
+from app.services import app_settings, audit, cohorts, eligibility
 from app.services.audit import AuditAction
 from app.services.contact_message_cancellation import NOTHING, Cancellation, cancel_unsent_messages
 from app.services.contact_workflow import (
@@ -204,10 +204,15 @@ def prospect_sequence(
         is ContactabilityStatus.DO_NOT_CONTACT
     )
     email_error = has_email_error(session, prospect_id)
+    block = eligibility.block_of(session, prospect_id)
     limit = max_follow_ups if max_follow_ups is not None else app_settings.max_follow_ups(session)
     if sequence is None:
         facts = SequenceFacts(
-            has_sequence=False, state=state, do_not_contact=opposed, email_error=email_error
+            has_sequence=False,
+            state=state,
+            do_not_contact=opposed,
+            block=block,
+            email_error=email_error,
         )
         return ProspectSequence(
             prospect_id, None, None, False, progress(facts, limit), limit, email_error
@@ -222,6 +227,7 @@ def prospect_sequence(
         last_sent_at=last,
         state=state,
         do_not_contact=opposed,
+        block=block,
         email_error=email_error,
     )
     return ProspectSequence(
@@ -563,7 +569,7 @@ def due_open_sql() -> ColumnElement[bool]:
             ContactTracking.status.is_(None),
             ContactTracking.status == ContactTrackingStatus.NEUTRAL,
         ),
-        Prospect.contactability_status == ContactabilityStatus.CONTACTABLE,
+        eligibility.eligible_sql(),
         sent_count_sql() <= max_follow_ups_sql(),
         ~email_error_sql(),
     )

@@ -49,9 +49,21 @@ from app.models.enums import (
 from app.repositories import companies as company_repository
 from app.repositories import prospects as repository
 from app.repositories import taxonomies as taxonomy_repository
-from app.services import audit, contact_channels, prospects, provenance, taxonomies
+from app.services import (
+    audit,
+    contact_channels,
+    lifecycle_view,
+    prospects,
+    provenance,
+    taxonomies,
+)
 from app.services.contact_channels import EMAILS, PHONES, ChannelItem
-from app.services.contact_message_cancellation import NOTHING, Cancellation
+from app.services.contact_message_cancellation import (
+    NOTHING,
+    Cancellation,
+    cancel_if_ineligible,
+)
+from app.services.contact_recipients import Followed
 from app.services.contact_sequences import CohortRef, prospect_sequence
 from app.services.contact_tracking import ContactTrackingInput, apply_contact_tracking
 from app.services.contact_workflow import PauseReason, state_reached_at, step_code
@@ -64,6 +76,7 @@ from app.services.errors import (
     NotFoundError,
 )
 from app.services.history import HistoryActor, snapshot_actor
+from app.services.lifecycle_view import LifecycleState
 from app.services.prospect_data_quality import (
     DataQualityConfig,
     DataQualityScore,
@@ -290,6 +303,8 @@ class ProspectView:
     contactability_status: ContactabilityStatus
     do_not_contact_at: datetime | None
     do_not_contact_reason: str | None
+    # Whether the person may be prospected, why not, and the open archives / exclusions.
+    lifecycle: LifecycleState
     # Primary first, then active ones, then by creation.
     emails: list[EmailView]
     phones: list[PhoneView]
@@ -317,6 +332,8 @@ class EditorResult:
 
     view: ProspectView
     messages: Cancellation
+    # Unsent messages whose recipients followed an e-mail change, to validate again if they were.
+    recipients: Followed = field(default_factory=Followed)
 
 
 def aggregate_version(session: Session, prospect_id: uuid.UUID) -> str:
@@ -461,6 +478,7 @@ def get_view(session: Session, prospect_id: uuid.UUID, clock: EditorClock) -> Pr
         contactability_status=prospect.contactability_status,
         do_not_contact_at=prospect.do_not_contact_at,
         do_not_contact_reason=prospect.do_not_contact_reason,
+        lifecycle=lifecycle_view.prospect_state(session, prospect),
         emails=[
             EmailView(
                 id=email.id,
@@ -632,6 +650,8 @@ def _apply_fields(
         "employment_verified_at": verified_at,
     }
     changed = {name: value for name, value in values.items() if getattr(prospect, name) != value}
+    if form.activity_status is not ActivityStatus.INACTIVE and prospect.departure_reason:
+        changed["departure_reason"] = None
     if not changed:
         return
     labels = {}
@@ -677,10 +697,13 @@ def _save_details(
     prospect: Prospect,
     form: ProspectForm,
     clock: EditorClock,
-) -> Cancellation:
-    contact_channels.save_channels(session, actor, prospect, EMAILS, form.emails, now=clock.now)
+) -> tuple[Cancellation, Followed]:
+    followed = contact_channels.save_channels(
+        session, actor, prospect, EMAILS, form.emails, now=clock.now
+    )
     contact_channels.save_channels(session, actor, prospect, PHONES, form.phones, now=clock.now)
-    return _save_tracking(session, actor, prospect, form.tracking, clock.now)
+    cancelled = _save_tracking(session, actor, prospect, form.tracking, clock.now)
+    return cancelled, followed
 
 
 def _locked(session: Session, prospect_id: uuid.UUID, version: str) -> Prospect:
@@ -754,8 +777,13 @@ def update_prospect(
         prospect.employment_verified_at, form.employment_verification, clock
     )
     _apply_fields(session, actor, prospect, form, role_id, verified_at)
-    messages = _save_details(session, actor, prospect, form, clock)
-    return EditorResult(get_view(session, prospect.id, clock), messages)
+    messages, followed = _save_details(session, actor, prospect, form, clock)
+    # Left the role, or moved to an archived or excluded company: nothing may still leave.
+    blocked = cancel_if_ineligible(session, actor, prospect.id)
+    messages = Cancellation(
+        messages.cancelled + blocked.cancelled, max(messages.in_flight, blocked.in_flight)
+    )
+    return EditorResult(get_view(session, prospect.id, clock), messages, followed)
 
 
 def set_contactability(

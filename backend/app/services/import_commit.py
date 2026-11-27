@@ -60,6 +60,7 @@ from app.services import (
     taxonomies,
 )
 from app.services import import_precedence as precedence
+from app.services.contact_message_cancellation import cancel_if_ineligible
 from app.services.contact_tracking import ContactTrackingInput, save_contact_tracking
 from app.services.errors import DomainError, DuplicateValueError, InvalidInputError
 from app.services.import_precedence import AlertRecorder, Reason, RowRef
@@ -775,6 +776,8 @@ class Committer:
             self.session.flush()
         self.merge_company(plan, prospect, human, ref, existing=existing)
         self.merge_channels(plan, prospect, ref, existing=existing)
+        # A departure or a move to an archived / excluded company: nothing may still leave.
+        cancel_if_ineligible(self.session, self.importer, prospect.id)
         self.receivers[row.row_number] = prospect
 
     def merge_company(

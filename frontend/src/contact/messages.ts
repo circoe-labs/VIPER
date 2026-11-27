@@ -1,3 +1,4 @@
+import { BLOCK_LABELS } from '../lifecycle/model'
 import { ApiError } from '../api/client'
 import { toolboxErrorLabel } from '../settings/toolboxCopy'
 
@@ -114,6 +115,12 @@ export function messageRefusal(error: unknown): MessageRefusal {
       return plain('Ce prospect est en opposition (« Ne pas contacter ») : aucun message ne peut être préparé.', true)
     case 'prospect_sequence_closed':
       return plain('La séquence de ce prospect est close (réponse reçue, RDV pris ou ignoré) : action impossible.', true)
+    case 'prospect_departed':
+    case 'prospect_archived':
+    case 'company_archived':
+    case 'prospect_excluded':
+    case 'company_excluded':
+      return plain(`${BLOCK_LABELS[refusal.code]} : aucun message ne peut être préparé, validé ni programmé.`, true)
     case 'message_not_found':
       return plain('Ce message n’existe plus : l’affichage est actualisé.', true)
     case 'not_found':

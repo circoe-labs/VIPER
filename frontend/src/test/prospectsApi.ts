@@ -41,6 +41,7 @@ export function prospectDetail(fields: Partial<Prospect> = {}): Prospect {
     contactability_status: 'contactable',
     do_not_contact_at: null,
     do_not_contact_reason: null,
+    lifecycle: { block: null, departure_reason: null, holds: [] },
     emails: [],
     phones: [],
     tracking: null,

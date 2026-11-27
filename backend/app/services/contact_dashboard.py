@@ -79,7 +79,7 @@ from app.models.enums import (
     QualityAlertType,
 )
 from app.repositories.taxonomies import label_key
-from app.services import app_settings
+from app.services import app_settings, eligibility
 from app.services.contact_send_state import SendSituation, situation_of
 from app.services.contact_sequences import (
     EFFECTIVE_ALERT_SOURCES,
@@ -397,6 +397,8 @@ class ContactRow:
     messages: list[MessageState] = field(default_factory=list)
     # The effective schedule, or why a scheduled mail did not leave (`contact_send_state`).
     send: SendSituation | None = None
+    # Why the person may not be prospected (`eligibility.Block`), None when they may.
+    block: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -433,13 +435,13 @@ def contacted_sql() -> ColumnElement[bool]:
 
 
 def in_sequence() -> ColumnElement[bool]:
-    """A sequence in progress: a current sequence in a campaign cohort, state `neutral`, no
-    opposition (« Relance terminée » and a paused « Erreur sur le mail » included)."""
+    """A sequence in progress: a current sequence in a campaign cohort, state `neutral`, an
+    eligible person (« Relance terminée » and a paused « Erreur sur le mail » included)."""
     return and_(
         has_cohort_sql(),
         Cohort.code != OUT_OF_CAMPAIGN_CODE,
         _neutral(),
-        Prospect.contactability_status == ContactabilityStatus.CONTACTABLE,
+        actionable(),
     )
 
 
@@ -471,7 +473,8 @@ def _open_email_errors() -> Select[Any]:
 
 def set_aside_sql(invalid_mail: ColumnElement[bool] | None = None) -> ColumnElement[bool]:
     """« Écartés »: nothing more to prepare, whatever their cohort — a reply, a negative answer,
-    « Défaillant », « Ignoré » or the opposition, or a « Mail invalide ». A taken appointment has
+    « Défaillant », « Ignoré », the opposition or another block of `eligibility` (left the role,
+    archived, excluded), or a « Mail invalide ». A taken appointment has
     its own list (« RDV pris »). `invalid_mail`: the caller's join on the open alerts (set-based,
     for the planning); without it the alerts are looked up with `IN`."""
     if invalid_mail is None:
@@ -486,7 +489,7 @@ def set_aside_sql(invalid_mail: ColumnElement[bool] | None = None) -> ColumnElem
                 ),
                 false(),
             ),
-            Prospect.contactability_status == ContactabilityStatus.DO_NOT_CONTACT,
+            eligibility.blocked_sql(),
             invalid_mail,
         ),
     )
@@ -895,6 +898,7 @@ def _page_statement(window: PlanningWeek) -> Select[Any]:
             phone,
             func.greatest(last_send, ContactTracking.response_received_at),
             last_send,
+            eligibility.block_sql(),
             ContactSequence.id,
         )
     ).outerjoin(Role, Role.id == Prospect.role_id)
@@ -987,6 +991,7 @@ def list_contacts(
         primary_phone,
         last_contact_at,
         last_email_sent_at,
+        block,
         sequence_id,
     ) in rows:
         own = messages.get(sequence_id, []) if sequence_id else []
@@ -1010,6 +1015,7 @@ def list_contacts(
                 primary_email=email,
                 activity_status=prospect.activity_status,
                 contactability_status=prospect.contactability_status,
+                block=block,
                 tracking_status=state or S.NEUTRAL,
                 cohort_id=cohort_id,
                 cohort_code=cohort_code,

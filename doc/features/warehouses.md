@@ -149,3 +149,9 @@ names, not the person's absolute local filesystem path. The original workbook is
 Files are limited to 16 MB, archives to 32 MB expanded, worksheets to 10,000 rows / 100 columns,
 and imports to 2,000 sites. Invalid input aborts the transaction. No formulas or external links
 are executed. Tests use synthetic records and the dedicated test/E2E databases only.
+
+## Hors prospection
+
+A mail to the address of a person out of prospecting, or for the warehouse of an archived or excluded company, is
+refused and, when already planned or scheduled, becomes `failed` with the reason
+([`prospecting-lifecycle.md`](prospecting-lifecycle.md)).

@@ -24,6 +24,11 @@ const REFUSALS: Record<string, string> = {
   dispatch_in_progress: 'envoi en cours',
   prospect_sequence_closed: 'séquence close',
   prospect_do_not_contact: 'opposition « Ne pas contacter »',
+  prospect_departed: 'plus en poste',
+  prospect_archived: 'fiche archivée',
+  company_archived: 'entreprise archivée',
+  prospect_excluded: 'exclu temporairement',
+  company_excluded: 'entreprise exclue',
 }
 
 function resultText(done: string, result: RecoveryResult, items: UnsentItem[]): string {

@@ -53,6 +53,9 @@ Cross-cutting rules:
   `prospect_do_not_contact`) — refuses creating, editing, validating, scheduling, reopening and
   marking sent; unscheduling and cancelling stay possible (they only reduce what may be sent).
   « Relance terminée » does not close it: the prospect stays contactable;
+- a person who is not eligible (`app.services.eligibility`: left the role, archived, excluded —
+  409 with the block's code) gets nothing prepared, validated or scheduled either; recording a
+  send that happened stays possible;
 - a message claimed by the dispatcher (`dispatch_claim_id`) is not changed (409
   `dispatch_in_progress`) — the dispatcher resolves it (S7);
 - defaults of a new message: `From` = `VIPER_DEFAULT_OUTBOUND_EMAIL` when set, `To` = the
@@ -98,7 +101,7 @@ from app.models.enums import (
     ContactTrackingStatus,
     SendSource,
 )
-from app.services import app_settings, audit, contact_sequences
+from app.services import app_settings, audit, contact_sequences, eligibility
 from app.services import contact_message_versions as versions
 from app.services.audit import AuditAction
 from app.services.contact_channels import normalize_email_address
@@ -179,6 +182,8 @@ class SequenceContext:
     # The open current sequence the editor works on; None without one.
     sequence_id: uuid.UUID | None = None
     out_of_campaign: bool = False
+    # Why the person is not eligible (`app.services.eligibility`), the opposition aside.
+    block: eligibility.Block | None = None
     # « Max relances »: the editor opens the ranks 0 … max.
     max_follow_ups: int = DEFAULT_MAX_FOLLOW_UPS
 
@@ -186,6 +191,7 @@ class SequenceContext:
     def closed(self) -> bool:
         return (
             self.do_not_contact
+            or self.block is not None
             or self.state in SEQUENCE_CLOSING_STATES
             or self.sequence_id is None
             or self.out_of_campaign
@@ -280,12 +286,18 @@ def require_agent_draft(actor: ActorContext, message: ContactMessage | None) -> 
     )
 
 
-def _require_open(context: SequenceContext) -> None:
+def _require_open(context: SequenceContext, *, preparing: bool = True) -> None:
+    """`preparing=False`: recording a send that happened (« Marquer comme envoyé », an import)
+    prepares nothing, so a reversible block does not refuse it; the opposition still does."""
     if context.do_not_contact:
         raise _refusal(
             "prospect_do_not_contact",
             HTTPStatus.CONFLICT,
             "The prospect must not be contacted: no message is possible.",
+        )
+    if preparing and context.block is not None:
+        raise _refusal(
+            context.block.value, HTTPStatus.CONFLICT, eligibility.MESSAGES[context.block]
         )
     if context.state in SEQUENCE_CLOSING_STATES:
         raise _refusal(
@@ -353,7 +365,9 @@ def sequence_context(session: Session, prospect_id: uuid.UUID) -> SequenceContex
     tracking = prospect.contact_tracking
     sequence = contact_sequences.current_sequence(session, prospect.id)
     open_sequence = sequence if sequence is not None and sequence.is_open else None
+    block = eligibility.block_of(session, prospect.id)
     return SequenceContext(
+        block=None if block is eligibility.Block.DO_NOT_CONTACT else block,
         prospect_id=prospect.id,
         state=tracking.status if tracking else None,
         do_not_contact=prospect.contactability_status is ContactabilityStatus.DO_NOT_CONTACT,
@@ -1263,7 +1277,7 @@ def mark_sent(
     `sequence_id`), so a stale screen never records a send on a new sequence."""
     _require_human(actor)
     context = sequence_context(session, prospect_id)
-    _require_open(context)
+    _require_open(context, preparing=False)
     if sequence_id is not None and sequence_id != context.sequence_id:
         raise _refusal(
             "sequence_changed",
@@ -1341,7 +1355,7 @@ def record_imported_send(
     if sent_at.tzinfo is None:
         raise InvalidFieldError("sent_at", "A time zone is required.", "time_zone")
     context = sequence_context(session, prospect_id)
-    _require_open(context)
+    _require_open(context, preparing=False)
     assert context.sequence_id is not None  # `_require_open` checked it
     if _locked_rank(session, context, CONTACT_RANK) is not None:
         raise _message_exists()

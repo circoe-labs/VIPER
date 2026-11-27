@@ -270,7 +270,7 @@ export function AliasList({ kind, aliases, onChange, errors, fieldId, companyMov
         })}
       </div>
       <div>
-        <Button ref={addRef} icon={PlusIcon} size="sm" onClick={add}>
+        <Button ref={addRef} data-add-alias={kind} icon={PlusIcon} size="sm" onClick={add}>
           {copy.add}
         </Button>
       </div>

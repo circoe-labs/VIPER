@@ -58,6 +58,7 @@ from app.models.enums import (
 from app.models.imports import ImportBatch, ImportRowMetadata
 from app.repositories.filter_conditions import NONE, any_ref, company_conditions, department_of
 from app.repositories.taxonomies import label_key
+from app.services import eligibility
 from app.services.contact_sequences import (
     email_error_sql,
     finished_sql,
@@ -137,6 +138,8 @@ class ProspectFilters:
     reachable: bool = False
     # Internal callers (Home, exports) count everyone; the API hides the ignored unless asked.
     include_ignored: bool = True
+    # Archived people: counted by internal callers, hidden by the API unless asked.
+    include_archived: bool = True
     validated_only: bool = False
     verification_boxes: tuple[VerificationBox, ...] = ()
     created_from: date | None = None
@@ -206,6 +209,8 @@ class ProspectRow:
     contactability_status: ContactabilityStatus
     do_not_contact_at: datetime | None
     updated_at: datetime
+    # Why the person may not be prospected (`eligibility.Block`), None when they may.
+    block: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -309,6 +314,8 @@ def filter_conditions(filters: ProspectFilters) -> list[ColumnElement[bool]]:
     if search:
         conditions.append(search_condition(search))
     conditions += any_ref(Prospect.role_id, filters.roles)
+    if not filters.include_archived:
+        conditions.append(~eligibility.archived_sql())
     if filters.activities:
         conditions.append(Prospect.activity_status.in_(filters.activities))
     conditions += any_ref(ContactTracking.referent_id, filters.referents)
@@ -529,6 +536,7 @@ def _page_statement(context: SegmentContext) -> Select[Any]:
                 func.coalesce(finished_sql(), false()),
                 next_due_at_sql(),
                 email_error_sql(),
+                eligibility.block_sql(),
             )
         )
         .outerjoin(Role, Role.id == Prospect.role_id)
@@ -593,6 +601,7 @@ def list_prospects(
         finished,
         next_due,
         email_error,
+        block,
     ) in rows:
         items.append(
             ProspectRow(
@@ -635,6 +644,7 @@ def list_prospects(
                 contactability_status=prospect.contactability_status,
                 do_not_contact_at=prospect.do_not_contact_at,
                 updated_at=prospect.updated_at,
+                block=block,
             )
         )
     return ProspectPage(items=items, total=total, limit=limit, offset=offset)

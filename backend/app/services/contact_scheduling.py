@@ -19,7 +19,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import date, datetime
 
-from sqlalchemy import Date, cast, func, select
+from sqlalchemy import ColumnElement, Date, cast, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.business_time import BUSINESS_TIMEZONE
@@ -27,7 +27,7 @@ from app.core.contact_steps import step_code, step_label
 from app.models import Cohort, ContactMessage, ContactSequence, Prospect
 from app.models.companies import Company
 from app.models.enums import ContactMessageStatus
-from app.services import app_settings
+from app.services import app_settings, eligibility
 from app.services.contact_dashboard import (
     ContactCategory,
     ContactClock,
@@ -139,13 +139,20 @@ def _forgotten_state(row: ContactRow) -> str:
             return "none"
 
 
+def _workable_draft() -> ColumnElement[bool]:
+    """A draft of someone out of prospecting (`eligibility`) is kept, but is not work waiting."""
+    return or_(ContactMessage.status != M.DRAFT, eligibility.eligible_sql())
+
+
 def _message_counts(session: Session, steps: dict[int, StepOverview], totals: Totals) -> None:
     rows = session.execute(
         select(ContactMessage.rank, ContactMessage.status, func.count())
         .join(ContactSequence, ContactSequence.id == ContactMessage.sequence_id)
+        .join(Prospect, Prospect.id == ContactMessage.prospect_id)
         .where(
             ContactSequence.is_current,
             ContactMessage.status.in_([M.DRAFT, M.VALIDATED, M.SCHEDULED]),
+            _workable_draft(),
         )
         .group_by(ContactMessage.rank, ContactMessage.status)
     ).tuples()
@@ -184,6 +191,7 @@ def _prepared_messages(session: Session) -> list[PreparedMessage]:
         .where(
             ContactSequence.is_current,
             ContactMessage.status.in_([M.DRAFT, M.VALIDATED, M.SCHEDULED]),
+            _workable_draft(),
         )
         .order_by(
             ContactMessage.scheduled_at.asc().nulls_last(),

@@ -49,6 +49,7 @@ from app.models import (
     MissionSkill,
     Phone,
     Prospect,
+    ProspectingHold,
     ProspectNote,
     ProspectSource,
     QualityAlert,
@@ -98,6 +99,11 @@ class AuditAction(StrEnum):
     WAREHOUSE_DRAFT_FAILED = "warehouse_draft.failed"
     WAREHOUSE_DRAFT_REWRITTEN = "warehouse_draft.rewritten"
     PROSPECT_COMPANY_CHANGED = "prospect.company_changed"
+    # « Changer de statut » and the archive / temporary exclusion (`app.services.lifecycle`).
+    PROSPECT_DEPARTED = "prospect.departed"
+    PROSPECT_RETURNED = "prospect.returned"
+    PROSPECTING_HOLD_PLACED = "prospecting_hold.placed"
+    PROSPECTING_HOLD_LIFTED = "prospecting_hold.lifted"
     PROSPECT_DO_NOT_CONTACT_SET = "prospect.do_not_contact.set"
     PROSPECT_DO_NOT_CONTACT_CLEARED = "prospect.do_not_contact.cleared"
     CONTACT_TRACKING_STATUS_CHANGED = "contact_tracking.status_changed"
@@ -247,6 +253,9 @@ AUDITED_ENTITIES: dict[type[Any], AuditedEntity] = {
     ),
     ProspectSource: AuditedEntity("prospect_source", "prospect", "prospect_id"),
     ProspectNote: AuditedEntity("prospect_note", "prospect", "prospect_id"),
+    ProspectingHold: AuditedEntity(
+        "prospecting_hold", "prospect", "prospect_id", fallback_subject=("company", "company_id")
+    ),
     Role: AuditedEntity("role", "role"),
     CommercialSegment: AuditedEntity("commercial_segment", "commercial_segment"),
     ActivityCategory: AuditedEntity("activity_category", "activity_category"),

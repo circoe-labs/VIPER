@@ -34,6 +34,7 @@ export function company(display_name: string, fields: Partial<Company> = {}): Co
     project_type: null,
     circoe_references: null,
     client_approach: null,
+    lifecycle: { block: null, departure_reason: null, holds: [] },
     establishments: [],
     prospect_count: 0,
     prospects: [],

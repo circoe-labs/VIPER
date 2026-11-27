@@ -1,3 +1,4 @@
+import type { Block, Lifecycle } from './lifecycle'
 import type { FileStatus } from './fileStatus'
 import { keepPreviousData, type QueryKey, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
@@ -38,6 +39,7 @@ export interface ProspectSummary {
   exact_job_title: string | null
   activity_status: ActivityStatus
   contactability_status: 'contactable' | 'do_not_contact'
+  block?: Block | null
 }
 
 // Type d'entreprise (backend `CompanyKind`): PME < 250 salariés, grande entreprise (ETI comprises), institutionnel.
@@ -51,6 +53,8 @@ export const COMPANY_KIND_LABELS: Record<CompanyKind, string> = {
 }
 
 export interface Company {
+  // The company's own archive / temporary exclusion.
+  lifecycle: Lifecycle
   id: string
   display_name: string
   legal_name: string | null
@@ -110,6 +114,7 @@ export interface CompanyListItem {
   // Computed file status and what is missing for the next level (backend `file_status`).
   status: FileStatus
   missing: string[]
+  block?: Block | null
 }
 
 export interface CompanyPage {
@@ -142,6 +147,7 @@ export interface CompanyListFilters {
   status?: readonly FileStatus[]
   created_from?: string | null
   created_to?: string | null
+  include_archived?: boolean
 }
 
 // Appends each value of a filter object as a (repeated) query parameter.

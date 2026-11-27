@@ -1,0 +1,78 @@
+.lifecycle-dialog {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.lifecycle-dialog__choices {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.lifecycle-dialog__choices legend {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+  font-weight: 600;
+}
+
+.lifecycle-dialog__choice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+}
+
+.lifecycle-dialog__saving,
+.lifecycle-dialog__done,
+.lifecycle-dialog__error {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.lifecycle-dialog__saving {
+  margin-right: auto;
+}
+
+.lifecycle-dialog__done {
+  color: var(--color-success-fg);
+}
+
+.lifecycle-dialog__error {
+  color: var(--color-danger-fg);
+}
+
+.lifecycle-summary {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lifecycle-summary li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.lifecycle-summary__who {
+  color: var(--color-text-muted);
+}
+
+.lifecycle-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-warning-fg);
+  border-radius: 12px;
+}

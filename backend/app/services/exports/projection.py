@@ -13,7 +13,7 @@ import json
 import uuid
 from collections import defaultdict
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime
 from typing import Any
 
@@ -31,6 +31,7 @@ from app.models.prospects import Email, Phone, Prospect, ProspectSource
 from app.models.taxonomies import ActivityCategory, CommercialSegment, Role
 from app.models.users import User
 from app.repositories import exports as repository
+from app.services import eligibility
 from app.services.contact_sequences import (
     finished_sql,
     join_sequence_sources,
@@ -94,6 +95,8 @@ class ProspectRecord:
     contact: ContactProgressRecord = NO_PROGRESS
     # Types of the prospect's open quality alerts (any source), in the enum's order.
     open_alerts: tuple[QualityAlertType, ...] = ()
+    # Why the person may not be prospected (`eligibility.Block`), None when they may.
+    block: str | None = None
 
     @property
     def primary_email(self) -> Email | None:
@@ -194,7 +197,7 @@ def load_export_data(session: Session) -> ExportData:
         source_rows = repository.sources(session)
         batches = {row.id: row for row in repository.import_batches(session)}
         metadata = repository.row_metadata(session)
-        progress = _contact_progress(session)
+        progress, blocks = _contact_progress(session)
         alerts = _open_alerts(session)
     counts: dict[uuid.UUID, int] = defaultdict(int)
     for prospect in prospects:
@@ -210,14 +213,17 @@ def load_export_data(session: Session) -> ExportData:
         sources[source.prospect_id].append(source)
     records = sorted(
         (
-            _prospect(
-                prospect,
-                by_company,
-                roles,
-                referents,
-                sources[prospect.id],
-                progress.get(prospect.id, NO_PROGRESS),
-                alerts.get(prospect.id, ()),
+            replace(
+                _prospect(
+                    prospect,
+                    by_company,
+                    roles,
+                    referents,
+                    sources[prospect.id],
+                    progress.get(prospect.id, NO_PROGRESS),
+                    alerts.get(prospect.id, ()),
+                ),
+                block=blocks.get(prospect.id),
             )
             for prospect in prospects
         ),
@@ -305,28 +311,37 @@ def _open_alerts(session: Session) -> dict[uuid.UUID, tuple[QualityAlertType, ..
     return {key: tuple(sorted(kinds, key=order.index)) for key, kinds in found.items()}
 
 
-def _contact_progress(session: Session) -> dict[uuid.UUID, ContactProgressRecord]:
-    """Every prospect's derived Contact progress, in one statement (the Prospection SQL)."""
-    rows = session.execute(
-        join_sequence_sources(
-            select(
-                ProspectModel.id,
-                Cohort.code,
-                Cohort.starts_on,
-                sent_count_sql(),
-                func.coalesce(finished_sql(), false()),
-                next_rank_sql(),
-                next_due_at_sql(),
+def _contact_progress(
+    session: Session,
+) -> tuple[dict[uuid.UUID, ContactProgressRecord], dict[uuid.UUID, str]]:
+    """Every prospect's derived Contact progress and eligibility block, in one statement (the
+    Prospection SQL)."""
+    rows = (
+        session.execute(
+            join_sequence_sources(
+                select(
+                    ProspectModel.id,
+                    Cohort.code,
+                    Cohort.starts_on,
+                    sent_count_sql(),
+                    func.coalesce(finished_sql(), false()),
+                    next_rank_sql(),
+                    next_due_at_sql(),
+                    eligibility.block_sql(),
+                )
+                .select_from(ProspectModel)
+                .outerjoin(ContactTracking, ContactTracking.prospect_id == ProspectModel.id)
             )
-            .select_from(ProspectModel)
-            .outerjoin(ContactTracking, ContactTracking.prospect_id == ProspectModel.id)
         )
-    ).tuples()
-    return {
+        .tuples()
+        .all()
+    )
+    progress = {
         prospect_id: ContactProgressRecord(code, starts_on, sent, bool(finished), rank, due)
-        for prospect_id, code, starts_on, sent, finished, rank, due in rows
+        for prospect_id, code, starts_on, sent, finished, rank, due, _ in rows
         if code is not None
     }
+    return progress, {row[0]: row[-1] for row in rows if row[-1] is not None}
 
 
 def _prospect_order(record: ProspectRecord) -> tuple[Any, ...]:

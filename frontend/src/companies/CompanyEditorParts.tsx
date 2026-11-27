@@ -9,6 +9,7 @@ import {
   useSimilarCompanies,
 } from '../api/companies'
 import { useDebouncedValue } from '../settings/shared'
+import { LifecycleBadge } from '../lifecycle/LifecycleBadge'
 import { StatusBadge } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { Modal } from '../ui/Dialog'
@@ -109,6 +110,7 @@ export function ProspectsSection({ company }: { company: Company }) {
                     {prospect.contactability_status === 'do_not_contact' && (
                       <StatusBadge tone="danger">Ne pas contacter</StatusBadge>
                     )}
+                    <LifecycleBadge block={prospect.block} hideOpposition />
                   </span>
                 </li>
               )

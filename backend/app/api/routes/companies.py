@@ -20,6 +20,7 @@ from app.api.dependencies import CurrentActor, SessionDep
 from app.api.errors import business_errors
 from app.api.history import HistoryCursor, HistoryLimit, HistoryPageOut
 from app.api.query_types import Department, Many, OrNone
+from app.api.routes.lifecycle import LifecycleOut
 from app.models import Company
 from app.models.enums import (
     ActivityStatus,
@@ -166,6 +167,7 @@ class ProspectSummaryOut(BaseModel):
     exact_job_title: str | None
     activity_status: ActivityStatus
     contactability_status: ContactabilityStatus
+    block: str | None
 
 
 class CompanyOut(BaseModel):
@@ -189,6 +191,7 @@ class CompanyOut(BaseModel):
     prospects: list[ProspectSummaryOut]
     created_at: datetime
     updated_at: datetime
+    lifecycle: LifecycleOut
 
 
 class CompanyListItemOut(BaseModel):
@@ -206,6 +209,7 @@ class CompanyListItemOut(BaseModel):
     # verified / usable / incomplete (computed), and what is missing for the next level.
     status: Literal["verified", "usable", "incomplete"]
     missing: list[str]
+    block: str | None
 
 
 class CompanyPageOut(BaseModel):
@@ -247,6 +251,7 @@ def list_companies(
     created_to: date | None = None,
     sort: EntitySort = EntitySort.NAME,
     status: Many[Literal["verified", "usable", "incomplete"]] = None,
+    include_archived: bool = False,
 ) -> CompanyPageOut:
     """`sort`: name (A-Z, default), created (newest first) or updated (newest first); ties by id.
     `q` matches every word of the names, e-mail domain, website, sector, city and contact names
@@ -271,6 +276,7 @@ def list_companies(
             created_to=created_to,
             sort=sort,
             statuses=status or (),
+            include_archived=include_archived,
         )
     return CompanyPageOut.model_validate(page, from_attributes=True)
 

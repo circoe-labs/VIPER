@@ -167,3 +167,9 @@ its establishments. Unchanged rows get no event; a save that changes nothing wri
   establishments, a segment and categories (one created inline), SIRET/SIREN warning, save, find it by SIREN, switch the
   primary establishment and save with Ctrl+S; SIREN checksum and duplicate refusals; deletion refused for a company
   with prospects; dark/light screenshots of the list and the editor at 1440×900; no overflow at 1280 px.
+
+## Statut et archive (2026-11-27)
+
+« Statut » and « Archiver » in the drawer's header (and the list's row menu) exclude a company from prospecting or
+archive it, reversibly: [`prospecting-lifecycle.md`](prospecting-lifecycle.md). Archived companies are hidden from the
+lists unless « Afficher les archivés » (`include_archived`).

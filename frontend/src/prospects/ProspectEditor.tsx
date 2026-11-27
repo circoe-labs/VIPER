@@ -1,16 +1,19 @@
 import { useEffect, useId, useRef, useState } from 'react'
-import { useNavigate } from 'react-router'
+import { useLocation, useNavigate } from 'react-router'
 
 import { useCompany } from '../api/companies'
-import { type Prospect, useProspect, useProspectMutations } from '../api/prospects'
+import { type Prospect, type ProspectSaved, useProspect, useProspectMutations } from '../api/prospects'
 import { businessToday } from '../lib/isoWeek'
 import { useElapsed } from '../lib/useElapsed'
+import { LifecycleDialog } from '../lifecycle/LifecycleDialog'
+import { LifecycleSummary } from '../lifecycle/LifecycleSummary'
+import { BLOCK_LABELS } from '../lifecycle/model'
 import { initials } from '../prospection/graphLayout'
 import { civilityLabel, personName, selectionShortLabel } from '../prospection/labels'
 import type { ProspectEditorProps } from '../prospection/prospectEditor'
 import { Button, IconButton } from '../ui/Button'
 import { Modal } from '../ui/Dialog'
-import { AlertIcon, CheckCircleIcon, ChevronLeftIcon, ChevronRightIcon, InfoIcon, PhoneIcon, RefreshIcon, SpinnerIcon, TrashIcon, UserPlusIcon } from '../ui/icons'
+import { AlertIcon, CheckCircleIcon, ChevronLeftIcon, ChevronRightIcon, InfoIcon, PauseIcon, PhoneIcon, RefreshIcon, SpinnerIcon, TrashIcon, UserPlusIcon } from '../ui/icons'
 import { Tabs } from '../ui/Tabs'
 import { AliasList } from './AliasList'
 import { CompanySection, DeleteProspectDialog } from './ContextSections'
@@ -51,6 +54,7 @@ import { ProspectScoreCard } from './ProspectScoreCard'
 import { TrackingTab } from './TrackingTab'
 import './prospects.css'
 import './prospect-sheet.css'
+import '../lifecycle/lifecycle.css'
 
 interface Forms {
   // The prospect id, or 'new'.
@@ -66,7 +70,8 @@ interface Forms {
   editing: EditableSection[]
 }
 
-type Notice = 'saved' | 'created_next' | 'end'
+// `saved:<n>`: saved, and n unsent messages lost their validation because the recipient's address changed.
+type Notice = 'saved' | `saved:${number}` | 'created_next' | 'end'
 
 let sessions = 0
 
@@ -143,6 +148,12 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
   // Context-menu requests (« Lier à… », « Mission »): a counter each, read by the Relations card / the Mission button.
   const [linkRequest, setLinkRequest] = useState(0)
   const [missionRequest, setMissionRequest] = useState(0)
+  // « Changer de statut » / « Archiver »: the dialog open over the sheet.
+  const [lifecycle, setLifecycle] = useState<'status' | 'archive' | null>(null)
+  // `?section=emails` (a list's « Modifier les e-mails »): the sheet opens on the addresses, as inputs. Once.
+  const [emailsAsked, setEmailsAsked] = useState(false)
+  const location = useLocation()
+  const wantsEmails = new URLSearchParams(location.search).get('section') === 'emails'
 
   // Another person (Save & Next, Back/Forward): drop the previous one's form and messages — unless the form already
   // shows it (a prospect just created here).
@@ -166,6 +177,11 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
 
   const formId = useId()
   const fieldId = (path: string) => `${formId}-${path}`
+  const openEmails = wantsEmails && !emailsAsked && Boolean(forms?.prospect)
+  if (openEmails && forms) {
+    setEmailsAsked(true)
+    setForms({ ...forms, editing: [...new Set<EditableSection>([...forms.editing, 'emails', 'phones'])] })
+  }
   const formRef = useRef<HTMLFormElement>(null)
   const firstFieldRef = useRef<HTMLInputElement>(null)
   // A field to focus once the tab and section that hold it are shown (see `reveal`).
@@ -199,6 +215,11 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
     onMission: () => {
       setMissionRequest((count) => count + 1)
     },
+    onLifecycle: (intent) => {
+      guarded(() => {
+        setLifecycle(intent)
+      }, 'Continuer sans enregistrer')
+    },
   })
   const dirty = forms !== null && isDirty(forms.draft, forms.baseline, isNew)
   const errors = forms ? validate(forms.draft, { isNew, today }) : {}
@@ -229,6 +250,14 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
     const first = firstFieldRef.current ?? formRef.current?.querySelector<HTMLElement>('[data-edit-toggle]')
     first?.focus()
   }, [forms?.session])
+
+  useEffect(() => {
+    if (!emailsAsked) return
+    // After the first field's own focus: the first address, or « Ajouter un e-mail » when there is none.
+    const section = document.getElementById(fieldId('emails.0.address')) ?? formRef.current?.querySelector<HTMLElement>('[data-add-alias="emails"]')
+    section?.focus()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the section opened
+  }, [emailsAsked])
 
   useEffect(() => {
     const path = pendingFocus.current
@@ -321,7 +350,8 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
     const saved = await save()
     if (!saved) return
     setForms(loadedForms(saved, creating ? nextSession() : forms.session))
-    setNotice('saved')
+    const stale = (saved as ProspectSaved).unvalidated_messages ?? 0
+    setNotice(stale > 0 ? `saved:${String(stale)}` as Notice : 'saved')
     if (creating) onNavigate(saved.id)
   }
 
@@ -426,10 +456,13 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
     : prospect
       ? [civilityLabel(prospect.civility), personName(prospect)].filter(Boolean).join(' ')
       : ''
+  const block = prospect?.lifecycle.block ?? null
   const doNotContactReason =
     prospect?.contactability_status === 'do_not_contact'
       ? `Ne pas contacter${prospect.do_not_contact_reason ? ` : ${prospect.do_not_contact_reason}` : ''}`
-      : null
+      : block
+        ? BLOCK_LABELS[block]
+        : null
   const position = prospect ? queue.position(prospect.id) : null
   const queueText = position ? `Prospect ${String(position)} sur ${String(queue.total)} · ${selectionShortLabel(queue.criteria)}` : null
   const title = isNew ? 'Nouveau prospect' : name || 'Prospect'
@@ -446,6 +479,14 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
         void saveOnly()
       }}
     >
+      {prospect && (prospect.lifecycle.block !== null || prospect.lifecycle.holds.length > 0) && (
+        <section className="lifecycle-banner" aria-label="Hors prospection">
+          <LifecycleSummary state={prospect.lifecycle} />
+          <Button size="sm" onClick={() => { sheetMenu.actions.lifecycle?.('status') }}>
+            Modifier
+          </Button>
+        </section>
+      )}
       <Tabs
         label="Sections de la fiche"
         selected={tab}
@@ -617,6 +658,15 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
                 companyName: prospect.company?.display_name ?? null,
               }}
             />
+            <Button
+              icon={PauseIcon}
+              aria-haspopup="dialog"
+              onClick={() => {
+                sheetMenu.actions.lifecycle?.('status')
+              }}
+            >
+              Statut
+            </Button>
             <ProspectContactButton prospectId={prospect.id} disabledReason={doNotContactReason} />
             <ProspectMoreMenu prospectId={prospect.id} disabledReason={doNotContactReason} actions={sheetMenu.actions} />
           </>
@@ -722,6 +772,16 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
         </ProspectSheetMenu>
       ) : (
         sheetForm
+      )}
+      {lifecycle && prospect && (
+        <LifecycleDialog
+          subject={{ type: 'prospect', id: prospect.id, name }}
+          intent={lifecycle}
+          onChanged={() => void reload()}
+          onClose={() => {
+            setLifecycle(null)
+          }}
+        />
       )}
       {deleting && prospect && (
         <DeleteProspectDialog
@@ -852,10 +912,12 @@ function LoadState({ failed, notFound, onRetry }: { failed: boolean; notFound: b
   )
 }
 
-const NOTICES: Record<Notice, (segment: string) => string> = {
-  saved: () => 'Prospect enregistré.',
-  created_next: () => 'Prospect enregistré. Saisissez le suivant : l’entreprise est reprise.',
-  end: (segment) => `Fin de la liste « ${segment} » : aucun prospect après celui-ci.`,
+function noticeText(notice: Notice, segment: string): string {
+  if (notice === 'saved') return 'Prospect enregistré.'
+  if (notice === 'created_next') return 'Prospect enregistré. Saisissez le suivant : l’entreprise est reprise.'
+  if (notice === 'end') return `Fin de la liste « ${segment} » : aucun prospect après celui-ci.`
+  const count = Number(notice.slice('saved:'.length))
+  return `Prospect enregistré. Adresse changée : ${count > 1 ? `${String(count)} messages repassent` : '1 message repasse'} en brouillon, à revalider.`
 }
 
 interface EditorStatusProps {
@@ -917,7 +979,7 @@ function EditorStatus({ savingSince, restored, stale, dirty, notice, errorCount,
     return (
       <span className={`prospect-editor__status prospect-editor__status--${notice === 'end' ? 'info' : 'saved'}`}>
         {notice === 'end' ? <InfoIcon size={16} /> : <CheckCircleIcon size={16} />}
-        {NOTICES[notice](segment)}
+        {noticeText(notice, segment)}
       </span>
     )
   }

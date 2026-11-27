@@ -54,6 +54,7 @@ export const DEFAULT_VIEW: ProspectionView = {
   warehouse_category: [],
   warehouse_to_contact: false,
   include_ignored: false,
+  include_archived: false,
   file_status: [],
   validated_only: false,
   verification_box: [],
@@ -115,6 +116,7 @@ export function parseView(params: URLSearchParams): ProspectionView {
     warehouse_category: several<WarehouseCategory>(WAREHOUSE_CATEGORIES, params, 'warehouse_category'),
     warehouse_to_contact: params.get('warehouse_to_contact') === 'true',
     include_ignored: params.get('include_ignored') === 'true',
+    include_archived: params.get('include_archived') === 'true',
     file_status: several<FileStatus>(FILE_STATUSES, params, 'file_status'),
     validated_only: params.get('validated_only') === 'true',
     verification_box: several(VERIFICATION_BOXES, params, 'verification_box'),
@@ -176,7 +178,7 @@ function narrows(view: ProspectionView, key: keyof ProspectionView): boolean {
 }
 
 export function hasFilters(view: ProspectionView): boolean {
-  const selection: readonly (keyof ProspectionView)[] = ['segment', 'review', 'include_ignored']
+  const selection: readonly (keyof ProspectionView)[] = ['segment', 'review', 'include_ignored', 'include_archived']
   return view.q.trim() !== '' || ENTITY_FILTER_KEYS.prospect.some((key) => !selection.includes(key) && narrows(view, key))
 }
 
@@ -188,8 +190,8 @@ export function sortFor(view: Pick<ProspectionView, 'entity' | 'sort'>): ViewSor
 // What a filter means is per entity: validated_only has no sense on Entreprises, the warehouse category none on
 // Prospects. `ENTITY_FILTER_KEYS` is the single list; q and sort are shared (sort only when the entity knows it).
 export const ENTITY_FILTER_KEYS: Record<Entity, readonly (keyof ProspectionView)[]> = {
-  prospect: ['include_ignored', 'validated_only', 'verification_box', 'review', 'segment', 'created_from', 'created_to', 'company_kind', 'role', 'activity', 'referent', 'tracking_status', 'cohort', 'company', 'import_batch', 'services', 'send_stage', 'email_state', 'commercial_segment', 'activity_category', 'department'],
-  company: ['company_kind', 'created_from', 'created_to', 'file_status', 'services', 'commercial_segment', 'activity_category', 'department'],
+  prospect: ['include_ignored', 'include_archived', 'validated_only', 'verification_box', 'review', 'segment', 'created_from', 'created_to', 'company_kind', 'role', 'activity', 'referent', 'tracking_status', 'cohort', 'company', 'import_batch', 'services', 'send_stage', 'email_state', 'commercial_segment', 'activity_category', 'department'],
+  company: ['include_archived', 'company_kind', 'created_from', 'created_to', 'file_status', 'services', 'commercial_segment', 'activity_category', 'department'],
   warehouse: ['warehouse_category', 'warehouse_to_contact', 'file_status', 'department', 'created_from', 'created_to'],
 }
 

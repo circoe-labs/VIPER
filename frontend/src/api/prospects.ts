@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
+import type { Lifecycle } from './lifecycle'
 import { companyKeys } from './companies'
 import { contactKeys } from './contact'
 import { apiGet, apiRequest, SAVE_TIMEOUT_MS } from './client'
@@ -85,6 +86,9 @@ export type PauseReason =
   | 'out_of_campaign'
   | 'state'
   | 'do_not_contact'
+  | 'departed'
+  | 'archived'
+  | 'excluded'
   | 'sequence_closed'
   | 'finished'
   | 'email_error'
@@ -171,6 +175,12 @@ export interface DataQualityScore extends ProfileCompleteness {
   criteria: DataQualityCriterion[]
 }
 
+// A save's answer: how many unsent messages followed an e-mail change, and of them how many are to validate again.
+export interface ProspectSaved extends Prospect {
+  updated_recipients?: number
+  unvalidated_messages?: number
+}
+
 export interface Prospect {
   id: string
   // Opaque aggregate version, sent back with every write (409 `conflict` when stale).
@@ -188,6 +198,8 @@ export interface Prospect {
   contactability_status: 'contactable' | 'do_not_contact'
   do_not_contact_at: string | null
   do_not_contact_reason: string | null
+  // Why the person may not be prospected, and the open archives / exclusions (theirs and their company's).
+  lifecycle: Lifecycle
   // Primary first, then active ones.
   emails: EmailAlias[]
   phones: PhoneAlias[]
@@ -313,7 +325,7 @@ export function useProspectMutations() {
     }),
     update: useMutation({
       mutationFn: ({ id, version, input }: { id: string; version: string; input: ProspectInput }) =>
-        apiRequest<Prospect>('PUT', prospectPath(id), { body: { ...input, version }, timeoutMs: SAVE_TIMEOUT_MS }),
+        apiRequest<ProspectSaved>('PUT', prospectPath(id), { body: { ...input, version }, timeoutMs: SAVE_TIMEOUT_MS }),
       onSuccess: saved,
     }),
     contactability: useMutation({

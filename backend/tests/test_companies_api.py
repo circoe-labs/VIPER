@@ -139,6 +139,7 @@ def test_company_lifecycle_is_attributed_to_the_signed_in_user(
         "updated_at": None,
         "status": "incomplete",
         "missing": ["channel", "identity", "kind", "person"],
+        "block": None,
     }
 
     assert client.delete(path).status_code == 204
@@ -246,6 +247,7 @@ def test_deleting_a_company_with_prospects_answers_409_with_the_count(
         "exact_job_title": None,
         "activity_status": "unknown",
         "contactability_status": "contactable",
+        "block": None,
     }
 
 

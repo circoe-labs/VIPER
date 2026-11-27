@@ -3,6 +3,8 @@ import { Link, useNavigate } from 'react-router'
 
 import type { ContactRow } from '../api/contact'
 import { StateBadge } from '../prospection/ContactBadges'
+import { LifecycleBadge } from '../lifecycle/LifecycleBadge'
+import { useLifecycleMenu } from '../lifecycle/useLifecycleMenu'
 import { personName } from '../prospection/labels'
 import { IconButton } from '../ui/Button'
 import { ChevronDownIcon, MailIcon, MoreIcon } from '../ui/icons'
@@ -39,6 +41,7 @@ function ContactLine({ row, href, planning }: { row: ContactRow; href: string; p
   const [expanded, setExpanded] = useState(false)
   const [menu, setMenu] = useState<Point | null>(null)
   const navigate = useNavigate()
+  const lifecycle = useLifecycleMenu()
   const name = personName(row) || 'Nom non renseigné'
   const initials = [row.first_name, row.last_name].map((part) => part?.trim()[0] ?? '').join('').toUpperCase() || '?'
   const lastEmail = row.last_email_sent_at
@@ -57,7 +60,7 @@ function ContactLine({ row, href, planning }: { row: ContactRow; href: string; p
           <span title={[job, row.company_name].filter(Boolean).join(' · ')}>{[job, row.company_name].filter(Boolean).join(' · ') || 'Informations à compléter'}</span>
         </div>
         <div className="contacts-line__stage">
-          {row.tracking_status !== 'neutral' ? <StateBadge status={row.tracking_status} /> : send ? <SendBadge send={send} /> : (
+          {row.block && row.block !== 'prospect_do_not_contact' ? <LifecycleBadge block={row.block} /> : row.tracking_status !== 'neutral' ? <StateBadge status={row.tracking_status} /> : send ? <SendBadge send={send} /> : (
             <span className={`contacts-stage${row.due && row.next_step ? ' contacts-stage--due' : ''}`}>
               {row.due && row.next_step ? `À préparer : ${row.next_step === 'contact' ? 'Contact' : `Relance ${stepLabel(row.next_step)}`}` : 'Contacté'}
             </span>
@@ -79,10 +82,13 @@ function ContactLine({ row, href, planning }: { row: ContactRow; href: string; p
         {/* The effective schedule takes a line of its own, as wide as the row. */}
         {send && <div className="contacts-line__send"><SendLines send={send} /></div>}
       </div>
+      {lifecycle.dialog}
       {expanded && <ContactDetails id={row.id} name={name} openHref={href} />}
       {menu && <Menu label={`Actions de ${name}`} position={menu} alignRight sections={[{ items: [
         { id: 'follow', label: 'Ouvrir le suivi', onSelect: () => { void navigate(href, { state: FROM_LIST }) } },
         { id: 'edit', label: 'Modifier le prospect', onSelect: () => { void navigate(`/prospection?prospect=${row.id}`) } },
+        { id: 'emails', label: 'Modifier les e-mails', onSelect: () => { void navigate(`/prospection?prospect=${row.id}&section=emails`) } },
+        ...lifecycle.items({ type: 'prospect', id: row.id, name }),
         { id: 'details', label: expanded ? 'Replier les détails' : 'Afficher les détails', onSelect: () => { setExpanded(!expanded) } },
       ] }]} onClose={() => { setMenu(null) }} />}
     </li>

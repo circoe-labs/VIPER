@@ -3,9 +3,11 @@ import { Link, useNavigate } from 'react-router'
 
 import type { ProspectRow } from '../api/prospection'
 import { StatusBadge } from '../ui/Badge'
-import { AlertIcon, BanIcon, BuildingIcon, CheckCircleIcon, CopyIcon, UsersIcon } from '../ui/icons'
+import { AlertIcon, BanIcon, BuildingIcon, CheckCircleIcon, CopyIcon, MailIcon, UsersIcon } from '../ui/icons'
 import { useRowMenu } from '../ui/RowMenu'
 import { SendBadge, SendLines } from '../contact/SendStatus'
+import { LifecycleBadge } from '../lifecycle/LifecycleBadge'
+import { useLifecycleMenu } from '../lifecycle/useLifecycleMenu'
 import { CohortBadge, DueBadge, EmailErrorBadge, LevelBadge, StateBadge } from './ContactBadges'
 import {
   civilityLabel,
@@ -160,7 +162,8 @@ function Tracking({ row }: { row: ProspectRow }) {
     <>
       <span className="prospect-row__stage">
         <CohortBadge code={row.cohort_code} />
-        {inCampaign && <LevelBadge level={row.level} />}
+        {/* Someone out of prospecting has nothing « à envoyer ». */}
+        {inCampaign && !(row.block && row.sent_count === 0) && <LevelBadge level={row.level} />}
         <StateBadge status={row.tracking_status} />
         {row.email_error && <EmailErrorBadge />}
         {row.send && <SendBadge send={row.send} />}
@@ -179,10 +182,13 @@ function Tracking({ row }: { row: ProspectRow }) {
 // The name is the row's link — the whole card is clickable — and opens the prospect (prospectEditor.tsx).
 export function ProspectList({ rows, openHref }: ProspectListProps) {
   const navigate = useNavigate()
+  const lifecycle = useLifecycleMenu()
   const rowMenu = useRowMenu<ProspectRow>(
     (row) => `Actions de ${personName(row)}`,
     (row) => [
       { id: 'open', label: 'Ouvrir la fiche', icon: UsersIcon, onSelect: () => { void navigate(openHref(row.id)) } },
+      { id: 'emails', label: 'Modifier les e-mails', icon: MailIcon, onSelect: () => { void navigate(`${openHref(row.id)}&section=emails`) } },
+      ...lifecycle.items({ type: 'prospect', id: row.id, name: personName(row) }),
       {
         id: 'copy-email',
         label: 'Copier l’e-mail',
@@ -216,10 +222,11 @@ export function ProspectList({ rows, openHref }: ProspectListProps) {
                         Ne pas contacter
                       </StatusBadge>
                     )}
+                    <LifecycleBadge block={row.block} hideOpposition />
                   </span>
                   <span className="prospect-row__title">
                     {title.length > 0 ? title.join(' · ') : <span className="prospect-row__muted">Rôle non renseigné</span>}
-                    {row.activity_status === 'inactive' && <span className="prospect-row__left"> · Plus en poste</span>}
+                    {row.activity_status === 'inactive' && row.block !== 'prospect_departed' && <span className="prospect-row__left"> · Plus en poste</span>}
                   </span>
                 </div>
               </div>
@@ -243,6 +250,7 @@ export function ProspectList({ rows, openHref }: ProspectListProps) {
         })}
       </ul>
       {rowMenu.menu}
+      {lifecycle.dialog}
     </>
   )
 }

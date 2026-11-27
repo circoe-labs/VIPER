@@ -27,6 +27,8 @@ EDITED = "edited"
 CANCELLED = "cancelled"
 # Cancelled by the three-e-mail rule (R3 and beyond); also the message's `cancel_reason`.
 SEQUENCE_LIMIT = "sequence_limit"
+# The recipients changed with the person's addresses (`contact_recipients`): to validate again.
+RECIPIENT_CHANGED = "recipient_changed"
 # Taken back on purpose: nothing to recover.
 BY_PERSON = frozenset({UNSCHEDULED_BY_PERSON, EDITED, CANCELLED, SEQUENCE_LIMIT})
 

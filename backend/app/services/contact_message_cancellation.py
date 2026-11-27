@@ -1,7 +1,7 @@
 """Mechanical cancellation of a prospect's unsent Contact messages (decision 29 and the durable
 opposition).
 
-Two triggers, both inside the caller's transaction:
+Three triggers, all inside the caller's transaction:
 
 - a sequence-closing state chosen for the prospect (`response_received`, `appointment_obtained`,
   `ignored`) — `cancel_reason = prospect_state:<state>` (`contact_tracking`);
@@ -9,7 +9,15 @@ Two triggers, both inside the caller's transaction:
   (`prospects.mark_do_not_contact`). On the `ignored` path the state cancels first, so its
   reason wins and the opposition finds nothing left.
 
-`draft`/`validated`/`scheduled` messages are cancelled; `sent` and `cancelled` are untouched; a
+- the person stopped being eligible for another reason (`app.services.eligibility`: left the
+  role, archived, temporarily excluded) — `cancel_reason` = the block's code. These are
+  reversible, so only what could leave is cancelled (`validated`, `scheduled`): drafts are kept.
+
+The opposition and the blocks also stop the warehouse mails addressed to the person (planned or
+scheduled -> `failed` with the code): never sent, visible, to be prepared again by a person.
+
+Otherwise `draft`/`validated`/`scheduled` messages are cancelled; `sent` and `cancelled` are
+untouched; a
 message claimed by the dispatcher (`dispatch_claim_id`) is left to it and counted as in flight
 (S7 re-reads the state and the opposition inside its claim before sending).
 
@@ -22,13 +30,14 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import ColumnElement, select
 from sqlalchemy.orm import Session
 
 from app.core.actor import ActorContext
 from app.models.contact_messages import ContactMessage
 from app.models.enums import ContactMessageStatus, ContactTrackingStatus
-from app.services import audit
+from app.models.warehouse_drafts import WarehouseDraft
+from app.services import audit, eligibility
 from app.services.audit import AuditAction
 from app.services.contact_remote_drafts import detach_remote_draft
 from app.services.contact_schedule_trace import CANCELLED, leave_schedule
@@ -39,6 +48,8 @@ M = ContactMessageStatus
 # Not yet sent and still alive: what a person or a mechanical cancellation may cancel.
 CANCELLABLE = (M.DRAFT, M.VALIDATED, M.SCHEDULED)
 DO_NOT_CONTACT_REASON = "do_not_contact"
+# What a reversible block cancels: the messages that could leave.
+SENDABLE = (M.VALIDATED, M.SCHEDULED)
 
 
 def state_cancel_reason(state: ContactTrackingStatus) -> str:
@@ -91,9 +102,10 @@ def cancel_unsent_messages(
     it to one sequence (the dispatcher cancelling a closed sequence's message after the person
     prepared the next one)."""
     moment = now or datetime.now(UTC)
+    statuses = SENDABLE if reason in eligibility.REVERSIBLE_CODES else CANCELLABLE
     query = (
         select(ContactMessage)
-        .where(ContactMessage.prospect_id == prospect_id, ContactMessage.status.in_(CANCELLABLE))
+        .where(ContactMessage.prospect_id == prospect_id, ContactMessage.status.in_(statuses))
         .with_for_update()
         .execution_options(populate_existing=True)
     )
@@ -111,6 +123,11 @@ def cancel_unsent_messages(
         cancel_message(session, message, reason, moment)
         cancelled += 1
     session.flush()
+    if reason == DO_NOT_CONTACT_REASON or reason in eligibility.REVERSIBLE_CODES:
+        code = eligibility.Block.DO_NOT_CONTACT if reason == DO_NOT_CONTACT_REASON else reason
+        stop_warehouse_drafts(
+            session, actor, eligibility.warehouse_recipients_of(prospect_id), str(code), moment
+        )
     if rows:
         # Identifiers and counts only.
         logger.info(
@@ -121,3 +138,51 @@ def cancel_unsent_messages(
             in_flight,
         )
     return Cancellation(cancelled, in_flight)
+
+
+def cancel_if_ineligible(
+    session: Session, actor: ActorContext, prospect_id: uuid.UUID
+) -> Cancellation:
+    """After a change that may have removed the person from prospecting (departure, archive,
+    exclusion, company change): cancel what could still leave. The opposition has its own call."""
+    block = eligibility.block_of(session, prospect_id)
+    if block is None or block is eligibility.Block.DO_NOT_CONTACT:
+        return NOTHING
+    return cancel_unsent_messages(session, actor, prospect_id, block.value)
+
+
+def stop_warehouse_drafts(
+    session: Session,
+    actor: ActorContext,
+    which: ColumnElement[bool],
+    code: str,
+    moment: datetime,
+) -> int:
+    """The planned or scheduled warehouse mails matching `which` become `failed` with `code`
+    (a mail being sent or already sent is left to the dispatcher)."""
+    drafts = session.scalars(
+        select(WarehouseDraft)
+        .where(which, WarehouseDraft.send_state.in_(("planned", "scheduled")))
+        .order_by(WarehouseDraft.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).all()
+    for draft in drafts:
+        draft.send_state = "failed"
+        draft.failure_code = code
+        draft.failed_at = moment
+        draft.validated_at = None
+        draft.validated_by = None
+        draft.revision += 1
+        audit.record_event(
+            session,
+            actor,
+            "warehouse_draft.failed",
+            entity_type="warehouse_draft",
+            entity_id=draft.id,
+            reason=code,
+        )
+    if drafts:
+        session.flush()
+        logger.info("warehouse_draft.stopped code=%s count=%s", code, len(drafts))
+    return len(drafts)

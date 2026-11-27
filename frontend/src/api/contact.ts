@@ -1,3 +1,4 @@
+import type { Block } from './lifecycle'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiGet, apiRequest } from './client'
@@ -101,6 +102,7 @@ export interface ContactRow {
   company_name: string | null
   primary_email: string | null
   activity_status: ActivityStatus
+  block?: Block | null
   tracking_status: TrackingStatus
   // The campaign cohort the prospect belongs to (`S39`), null without cohort.
   cohort_code?: string | null
@@ -209,7 +211,7 @@ export interface Message {
   scheduled_at: string | null
   sent_at: string | null
   cancelled_at: string | null
-  // `manual` | `prospect_state:<state>` | `do_not_contact`
+  // `manual` | `prospect_state:<state>` | `do_not_contact` | a lifecycle block (`prospect_departed`…)
   cancel_reason: string | null
   generation_model: string | null
   generation_prompt_version: string | null
@@ -238,6 +240,8 @@ export interface MessageSequence {
     prospect_id: string
     state: TrackingStatus | null
     do_not_contact: boolean
+    // A lifecycle block besides the opposition (departed, archived, excluded).
+    block?: Block | null
     // No message may be created, edited, validated, scheduled or reopened.
     closed: boolean
     // The step to send next (`contact`, `r1`…), derived from the real sends; null when finished or without cohort.

@@ -35,6 +35,7 @@ from app.models.enums import (
     TrackingHistoryStatus,
     VerificationStatus,
 )
+from app.services import eligibility
 from app.services.contact_sequences import (
     due_open_sql,
     email_error_sql,
@@ -191,13 +192,10 @@ def stale(context: SegmentContext) -> ColumnElement[bool]:
     return Prospect.employment_verified_at < before
 
 
-def contactable() -> ColumnElement[bool]:
-    return Prospect.contactability_status == ContactabilityStatus.CONTACTABLE
-
-
 def actionable() -> ColumnElement[bool]:
-    """Someone to contact or follow up now: no opposition, and not known to have left the role."""
-    return and_(contactable(), Prospect.activity_status != ActivityStatus.INACTIVE)
+    """Someone to contact or follow up now (`app.services.eligibility`: no opposition, still in
+    the role, neither the person nor the company archived or excluded)."""
+    return eligibility.eligible_sql()
 
 
 def reachable() -> ColumnElement[bool]:

@@ -239,7 +239,7 @@ def test_levels_of_the_sequences_in_progress(
     result = dashboard(db_session, CLOCK)
 
     assert levels(result) == {
-        "contact_pending": 5,  # new, next cohort, email error, AI alert, inactive
+        "contact_pending": 4,  # new, next cohort, email error, AI alert (the departed is set aside)
         "contact_sent": 2,
         "r1_sent": 2,
         "finished": 1,
@@ -257,7 +257,7 @@ def test_categories(db_session: Session, planning: dict[str, uuid.UUID]) -> None
     counts = {item.category: item.count for item in dashboard(db_session, CLOCK).categories}
 
     assert counts == {
-        C.IN_SEQUENCE: 10,
+        C.IN_SEQUENCE: 9,
         C.EMAIL_ERROR: 1,
         C.FINISHED: 1,
         C.DISQUALIFIED: 1,
@@ -266,8 +266,8 @@ def test_categories(db_session: Session, planning: dict[str, uuid.UUID]) -> None
         C.APPOINTMENT_OBTAINED: 1,
         C.NOT_INTERESTED: 0,
         C.IGNORED: 2,
-        # Replied, « Défaillant », the two ignored and invalid mail: listed apart.
-        C.SET_ASIDE: 5,
+        # Replied, « Défaillant », the two ignored, invalid mail and the departed: listed apart.
+        C.SET_ASIDE: 6,
         C.CONTACTED: 5,
     }
     assert names(db_session, ContactFilters(category=C.EMAIL_ERROR)) == ["Hhh"]
@@ -399,7 +399,7 @@ def test_cohorts_show_where_their_sequences_stand(
     assert s37.to_send_steps == ["r1", "r2"]  # the two to send, by rank
     assert s37.appointments == 1  # the appointment counted in the five, listed apart
     s39 = cohorts["S39"]
-    assert (s39.prospects, s39.in_sequence, s39.to_send) == (7, 5, 2)
+    assert (s39.prospects, s39.in_sequence, s39.to_send) == (7, 4, 2)
     assert (cohorts["S0"].prospects, cohorts["S0"].levels) == (1, [])
     s37_only = ContactFilters(cohort=s37.id)
     assert names(db_session, s37_only) == ["Aaa", "Bbb"]
@@ -472,7 +472,7 @@ def test_pagination(db_session: Session, planning: dict[str, uuid.UUID]) -> None
     second = list_contacts(
         db_session, ContactFilters(category=C.IN_SEQUENCE), CLOCK, limit=4, offset=4
     )
-    assert (first.total, len(first.items), len(second.items)) == (10, 4, 4)
+    assert (first.total, len(first.items), len(second.items)) == (9, 4, 4)
     assert not {row.id for row in first.items} & {row.id for row in second.items}
 
 
@@ -489,7 +489,7 @@ def test_a_lower_maximum_finishes_sequences(
     # R2 is beyond the maximum: « Relance terminée », nothing due; R1 is the last one.
     assert result.max_follow_ups == 1
     assert groups(result) == {0: (2, 0), 1: (1, 0)}
-    assert levels(result) == {"contact_pending": 5, "contact_sent": 2, "finished": 3}
+    assert levels(result) == {"contact_pending": 4, "contact_sent": 2, "finished": 3}
     assert [level.level for level in result.levels] == level_keys(1)
     assert names(db_session, ContactFilters(category=C.FINISHED)) == ["Aaa", "Ccc", "Ddd"]
 

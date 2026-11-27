@@ -29,6 +29,7 @@ from app.models.enums import (
 )
 from app.models.users import User
 from app.services.contact_workflow import ALERT_TYPE_LABELS, STATE_LABELS
+from app.services.eligibility import LABELS, Block
 from app.services.exports.projection import (
     CompanyRecord,
     EmailRecord,
@@ -256,6 +257,12 @@ PROSPECT_COLUMNS: tuple[Column[P], ...] = (
     ),
     Column[P]("Date d'opposition", lambda r: r.prospect.do_not_contact_at, Kind.DATE, 14),
     Column[P]("Motif d'opposition", lambda r: r.prospect.do_not_contact_reason, width=28),
+    # Whether the person may be prospected today (`eligibility`), else why not.
+    Column[P](
+        "Prospection",
+        lambda r: LABELS[Block(r.block)] if r.block else "Prospectable",
+        width=28,
+    ),
     # Provenance summary: the oldest source (all of them in the Provenance sheet).
     Column[P](
         "Origine",
