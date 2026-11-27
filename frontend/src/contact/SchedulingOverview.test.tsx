@@ -96,7 +96,7 @@ describe('Contact › Suivi des envois programmés', () => {
     expect(region.getByRole('link', { name: 'Claire Démo' })).toHaveAttribute('href', expect.stringContaining('prospect=p1'))
     expect(region.getByText('Rien d’écrit')).toBeInTheDocument()
     expect(region.getByText('Validé, à programmer')).toBeInTheDocument()
-    expect(region.getByText('prévu le 05/10')).toBeInTheDocument()
+    expect(region.getByText('échéance le 05/10')).toBeInTheDocument()
     expect(region.queryByText(/retard/)).not.toBeInTheDocument()
     expect(region.getByText('Sans entreprise')).toBeInTheDocument()
   })
@@ -200,7 +200,7 @@ describe('Contact › Suivi des envois programmés › the tiles', () => {
 
     await user.click(region.getByRole('button', { name: /Programmés/ }))
     expect(region.getByRole('link', { name: 'Jean Exemple' })).toBeInTheDocument()
-    expect(region.getByText('Erreur d’envoi : toolbox_rejected')).toBeInTheDocument()
+    expect(region.getByText('Erreur d’envoi : erreur inattendue (toolbox_rejected)')).toBeInTheDocument()
 
     // A tile with nothing behind it does not open anything.
     expect(region.getByRole('button', { name: /Validés/ })).toBeDisabled()

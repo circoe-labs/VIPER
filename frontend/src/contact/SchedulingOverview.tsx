@@ -13,6 +13,8 @@ import { Button } from '../ui/Button'
 import { AlertIcon, CalendarIcon, ChevronDownIcon, SpinnerIcon } from '../ui/icons'
 import { CONNECTIONS_PATH } from './dispatchCopy'
 import { formatDateTime } from './labels'
+import { sendReason } from './sendReason'
+import { SendLines } from './SendStatus'
 
 const NUMBER = new Intl.NumberFormat('fr-FR')
 const FORGOTTEN_SHOWN = 50
@@ -295,8 +297,9 @@ function Forgotten({
             <span className="sched-forgotten__company">{row.company_name ?? 'Sans entreprise'}</span>
             <span className="sched-forgotten__cohort">{row.cohort_code}</span>
             <StatusBadge tone={STATE_TEXT[row.state].tone}>{STATE_TEXT[row.state].label}</StatusBadge>
+            {row.send && <SendLines send={row.send} />}
             {row.due_at && (
-              <span className="sched-forgotten__due">prévu le {shortDay(row.due_at)}</span>
+              <span className="sched-forgotten__due">échéance le {shortDay(row.due_at)}</span>
             )}
           </li>
         ))}
@@ -361,7 +364,14 @@ function Prepared({
             <span className="sched-forgotten__cohort">{row.cohort_code}</span>
             <StatusBadge tone={MESSAGE_STATE[row.status].tone}>{MESSAGE_STATE[row.status].label}</StatusBadge>
             {row.scheduled_at && <span className="sched-forgotten__due">le {formatDateTime(row.scheduled_at)}</span>}
-            {row.last_error_code && <StatusBadge tone="danger">Erreur d’envoi : {row.last_error_code}</StatusBadge>}
+            {row.missed_scheduled_at && row.status !== 'scheduled' && (
+              <StatusBadge tone="danger">
+                Non parti le {formatDateTime(row.missed_scheduled_at)} : {sendReason(row.missed_reason ?? '')}
+              </StatusBadge>
+            )}
+            {row.status === 'scheduled' && row.last_error_code && (
+              <StatusBadge tone="danger">Erreur d’envoi : {sendReason(row.last_error_code)}</StatusBadge>
+            )}
           </li>
         ))}
       </ul>

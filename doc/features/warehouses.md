@@ -97,6 +97,11 @@ can be unscheduled until the worker claims it. The worker records a durable clai
 the Toolbox; a timeout, error or interrupted send is never retried automatically, and the user
 must check the mailbox before taking further action. The messages are separate from Contact
 sequences and do not change a prospect's Contact status.
+A scheduled warehouse mail that does not (certainly) leave keeps `failure_code` and `failed_at` (migration 0061,
+backfilled from the audit log), cleared by a new plan or schedule. Contact › « Prospects entrepôt » lists every mail
+waiting to leave (scheduled whatever the day, preplanned, sending, uncertain, failed), failures first, with the reason;
+the section opens by itself when one needs attention.
+
 The group action sets the same proposed date on all eligible drafts; it does not validate them.
 The server checks every revision under lock and commits the whole batch or none of it. Editing a
 preprogrammed draft retains its proposed date. A fresh group plan clears previous validations.

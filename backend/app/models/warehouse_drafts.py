@@ -33,6 +33,9 @@ class WarehouseDraft(UUIDPrimaryKeyMixin, Base):
     scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     send_state: Mapped[str | None] = mapped_column(String(30))
     remote_draft_id: Mapped[str | None] = mapped_column(String(255))
+    # Why a scheduled mail did not (certainly) leave: a code, and when.
+    failure_code: Mapped[str | None] = mapped_column(String(255))
+    failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     @property
     def recovery_possible(self) -> bool:

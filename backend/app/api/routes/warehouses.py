@@ -45,6 +45,8 @@ class WarehouseDraftOut(BaseModel):
     scheduled_at: datetime | None
     send_state: str | None
     recovery_possible: bool
+    failure_code: str | None
+    failed_at: datetime | None
 
 
 @router.get("/drafts", response_model=list[WarehouseDraftOut])
@@ -208,6 +210,7 @@ def schedule_draft(
     draft.scheduled_at = body.scheduled_at
     draft.send_state = "scheduled"
     draft.remote_draft_id = None
+    draft.failure_code = draft.failed_at = None
     draft.revision += 1
     session.flush()
     audit.record_event(
@@ -242,6 +245,7 @@ def plan_draft_batch(
     for draft in drafts:
         draft.scheduled_at = body.scheduled_at
         draft.send_state = "planned"
+        draft.failure_code = draft.failed_at = None
         draft.validated_at = None
         draft.validated_by = None
         draft.human_validated = False
@@ -297,6 +301,7 @@ def schedule_draft_batch(
         draft.scheduled_at = body.scheduled_at
         draft.send_state = "scheduled"
         draft.remote_draft_id = None
+        draft.failure_code = draft.failed_at = None
         draft.revision += 1
         audit.record_event(
             session,
@@ -348,6 +353,7 @@ def recover_uncertain_draft_batch(
     for draft in drafts:
         draft.scheduled_at = body.scheduled_at
         draft.send_state = "scheduled"
+        draft.failure_code = draft.failed_at = None
         draft.revision += 1
         audit.record_event(
             session,
@@ -369,6 +375,7 @@ def unschedule_draft(
         raise HTTPException(409, "La programmation ne peut plus être retirée ; vérifiez son état.")
     draft.scheduled_at = None
     draft.send_state = None
+    draft.failure_code = draft.failed_at = None
     draft.revision += 1
     session.flush()
     audit.record_event(

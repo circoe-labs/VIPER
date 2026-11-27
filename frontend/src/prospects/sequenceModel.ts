@@ -55,6 +55,9 @@ export function rankOf(step: string | null): number | null {
 
 // The next step's due date has come (business day, compared as `YYYY-MM-DD`): the `due` segment's « Échu ».
 export function isDue(place: Place, today: string): boolean {
+  // A mail already scheduled for that step is not late.
+  const state = place.send?.step === place.next_step ? place.send.state : null
+  if (state === 'scheduled' || state === 'unconfirmed') return false
   return place.next_due_on !== null && place.next_due_on <= today
 }
 

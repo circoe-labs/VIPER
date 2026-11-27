@@ -54,8 +54,11 @@ export function ScheduleCohorts({ cohort, nextStep }: { cohort: string; nextStep
         parts.push(`dont ${String(result.validated)} validé${result.validated > 1 ? 's' : ''} au passage`)
       if (result.missing > 0)
         parts.push(`${String(result.missing)} prospect${result.missing > 1 ? 's' : ''} sans mail à cette étape`)
-      if (result.refused > 0)
-        parts.push(`${String(result.refused)} refusé${result.refused > 1 ? 's' : ''} (brouillon incomplet ?)`)
+      const toCheck = result.to_check ?? 0
+      if (result.refused > toCheck)
+        parts.push(`${String(result.refused - toCheck)} refusé${result.refused - toCheck > 1 ? 's' : ''} (brouillon incomplet ?)`)
+      if (toCheck > 0)
+        parts.push(`${String(toCheck)} refusé${toCheck > 1 ? 's' : ''} : peut-être déjà parti${toCheck > 1 ? 's' : ''}, voir « Envois à reprendre »`)
       if (result.remote_draft_failures > 0)
         parts.push(
           `${String(result.remote_draft_failures)} brouillon${result.remote_draft_failures > 1 ? 's' : ''} Infomaniak à recréer`,

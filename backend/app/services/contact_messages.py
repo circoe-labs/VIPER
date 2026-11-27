@@ -110,6 +110,14 @@ from app.services.contact_message_cancellation import (
     state_cancel_reason,
 )
 from app.services.contact_remote_drafts import detach_remote_draft
+from app.services.contact_schedule_trace import (
+    DRAFT_MISSING,
+    EDITED,
+    UNSCHEDULED_BY_PERSON,
+    forget_schedule_trace,
+    leave_schedule,
+    needs_sent_check,
+)
 from app.services.contact_workflow import SEQUENCE_CLOSING_STATES
 from app.services.errors import (
     ActorNotAllowedError,
@@ -506,6 +514,7 @@ def _clear_validation(session: Session, message: ContactMessage) -> None:
     message.validated_at = None
     message.validated_by_actor_id = None
     message.validated_by_display = None
+    leave_schedule(message, EDITED, datetime.now(UTC))
     message.scheduled_at = None
     # The remote draft was the validated revision's: queued for deletion (S6).
     detach_remote_draft(session, message, "edited")
@@ -903,6 +912,18 @@ def review(
     return MessageResult(message)
 
 
+def require_send_moment(scheduled_at: datetime, now: datetime) -> None:
+    """A send moment is zoned, strictly in the future and at most a year ahead."""
+    if scheduled_at.tzinfo is None:
+        raise InvalidFieldError("scheduled_at", "A time zone is required.", "time_zone")
+    if scheduled_at > now + MAX_SCHEDULE_AHEAD:
+        raise InvalidFieldError("scheduled_at", "At most one year ahead.", "too_far")
+    if scheduled_at <= now:
+        raise InvalidFieldError(
+            "scheduled_at", "The send moment must be in the future.", "not_future"
+        )
+
+
 def schedule(
     session: Session,
     actor: ActorContext,
@@ -911,26 +932,40 @@ def schedule(
     expected_revision: int,
     scheduled_at: datetime,
     *,
+    sent_check_confirmed: bool = False,
     now: datetime | None = None,
 ) -> MessageResult:
     """validated -> scheduled at an explicit, strictly future moment (never a default time, and
     unrelated to the next-action week: decision 14). A new schedule resets the dispatch
-    diagnostics of a previous one."""
+    diagnostics of a previous one.
+
+    A message whose earlier send may have left all the same (`needs_sent_check`) is refused
+    (409 `sent_check_required`) until a person says they looked in the sent items
+    (`sent_check_confirmed`)."""
     context, message = _transition_target(session, actor, prospect_id, rank, expected_revision)
     if message.status is not M.VALIDATED:
         raise _invalid_transition(message, "schedule")
     _require_open(context)
     _require_rank(context, rank)
-    if scheduled_at.tzinfo is None:
-        raise InvalidFieldError("scheduled_at", "A time zone is required.", "time_zone")
-    current = now or datetime.now(UTC)
-    if scheduled_at > current + MAX_SCHEDULE_AHEAD:
-        raise InvalidFieldError("scheduled_at", "At most one year ahead.", "too_far")
-    if scheduled_at <= current:
-        raise InvalidFieldError(
-            "scheduled_at", "The send moment must be in the future.", "not_future"
+    require_send_moment(scheduled_at, now or datetime.now(UTC))
+    checked = needs_sent_check(message)
+    if checked and not sent_check_confirmed:
+        raise _refusal(
+            "sent_check_required",
+            HTTPStatus.CONFLICT,
+            "An earlier send may have left: check the sent items, then confirm it.",
         )
-    audit.annotate(session, actor, message, AuditAction.CONTACT_MESSAGE_SCHEDULED)
+    audit.annotate(
+        session,
+        actor,
+        message,
+        AuditAction.CONTACT_MESSAGE_SCHEDULED,
+        reason="sent_items_checked" if checked else None,
+    )
+    if message.draft_check == DRAFT_MISSING:
+        # Known to be gone: a new one is created for this schedule.
+        detach_remote_draft(session, message, "replaced")
+    forget_schedule_trace(message)
     message.status = M.SCHEDULED
     message.scheduled_at = scheduled_at
     message.dispatch_attempts = 0
@@ -950,6 +985,8 @@ class CohortScheduleResult:
     refused: int
     # Prospects of the cohorts with no message at that step yet: nothing to schedule.
     missing: int
+    # Of the refused: an earlier send may have left, each is checked and rescheduled by a person.
+    to_check: int = 0
 
 
 def schedule_cohorts(
@@ -968,14 +1005,7 @@ def schedule_cohorts(
     The moment is checked once, before anything is touched."""
     _require_human(actor)
     current = now or datetime.now(UTC)
-    if scheduled_at.tzinfo is None:
-        raise InvalidFieldError("scheduled_at", "A time zone is required.", "time_zone")
-    if scheduled_at > current + MAX_SCHEDULE_AHEAD:
-        raise InvalidFieldError("scheduled_at", "At most one year ahead.", "too_far")
-    if scheduled_at <= current:
-        raise InvalidFieldError(
-            "scheduled_at", "The send moment must be in the future.", "not_future"
-        )
+    require_send_moment(scheduled_at, current)
     in_cohorts = (
         select(ContactSequence.id)
         .join(Cohort, Cohort.id == ContactSequence.cohort_id)
@@ -998,7 +1028,7 @@ def schedule_cohorts(
         or 0
     )
     scheduled: list[uuid.UUID] = []
-    validated = refused = 0
+    validated = refused = to_check = 0
     for prospect_id, revision, message_status in rows:
         try:
             with session.begin_nested():
@@ -1007,8 +1037,9 @@ def schedule_cohorts(
                 result = schedule(
                     session, actor, prospect_id, rank, revision, scheduled_at, now=current
                 )
-        except ContactMessageError, InvalidFieldError:
+        except (ContactMessageError, InvalidFieldError) as error:
             refused += 1
+            to_check += getattr(error, "code", None) == "sent_check_required"
             continue
         validated += message_status is M.DRAFT
         scheduled.append(result.message.id)
@@ -1017,6 +1048,7 @@ def schedule_cohorts(
         validated=validated,
         refused=refused,
         missing=max(sequences - existing, 0),
+        to_check=to_check,
     )
 
 
@@ -1050,6 +1082,7 @@ def unschedule(
         raise _invalid_transition(message, "unschedule")
     _require_not_claimed(message)
     audit.annotate(session, actor, message, AuditAction.CONTACT_MESSAGE_UNSCHEDULED)
+    leave_schedule(message, UNSCHEDULED_BY_PERSON, datetime.now(UTC))
     message.status = M.VALIDATED
     message.scheduled_at = None
     session.flush()
@@ -1238,6 +1271,7 @@ def mark_sent(
         return MessageResult(message, created=True)
     _require_not_claimed(message)
     audit.annotate(session, actor, message, AuditAction.CONTACT_MESSAGE_SENT)
+    forget_schedule_trace(message)
     message.status = M.SENT
     message.sent_at = moment
     message.sent_source = SendSource.MANUAL

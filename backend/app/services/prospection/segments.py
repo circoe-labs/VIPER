@@ -41,6 +41,7 @@ from app.services.contact_sequences import (
     finished_sql,
     join_sequence_sources,
     next_due_at_sql,
+    next_step_scheduled_sql,
     sent_count_sql,
 )
 
@@ -456,7 +457,8 @@ def predicate(segment: Segment, context: SegmentContext) -> ColumnElement[bool]:
         case Segment.TO_CONTACT:
             return to_contact()
         case Segment.DUE:
-            return to_send_before(context.due_before)
+            # « Échus »: a mail already scheduled is not work waiting.
+            return and_(to_send_before(context.due_before), ~next_step_scheduled_sql())
         case Segment.CONTACTED:
             return contacted()
         case Segment.NO_RESPONSE:

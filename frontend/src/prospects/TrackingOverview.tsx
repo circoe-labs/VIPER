@@ -7,6 +7,7 @@ import { formatDay, stepLabel, TRACKING_LABELS } from '../prospection/labels'
 import { InfoTip } from '../ui/InfoTip'
 import type { TrackingDraft } from './prospectForm'
 import { isDue, pauseText } from './sequenceModel'
+import { SendBadge, SendLines } from '../contact/SendStatus'
 import './tracking-tab.css'
 
 interface TrackingOverviewProps {
@@ -54,12 +55,18 @@ export function TrackingOverview({ prospect, tracking }: TrackingOverviewProps) 
         <Cell label="Prochaine action">
           {query.isPending && hint('Chargement…')}
           {query.isError && hint('Indisponible')}
-          {place &&
+          {place?.send && (
+            <span className="tracking-overview__line">
+              <SendBadge send={place.send} />
+              <SendLines send={place.send} />
+            </span>
+          )}
+          {place && !(place.send?.step === place.next_step && (place.send.state === 'scheduled' || place.send.state === 'unconfirmed')) &&
             (place.next_due_on && place.next_step ? (
               <>
                 <strong>{stepLabel(place.next_step)}</strong>
                 <span className="tracking-overview__line">
-                  le {formatDay(place.next_due_on)}
+                  {place.send ? 'échéance théorique : ' : ''}le {formatDay(place.next_due_on)}
                   {isDue(place, prospect.today) && <DueBadge />}
                 </span>
               </>

@@ -5,6 +5,7 @@ import type { ProspectRow } from '../api/prospection'
 import { StatusBadge } from '../ui/Badge'
 import { AlertIcon, BanIcon, BuildingIcon, CheckCircleIcon, CopyIcon, UsersIcon } from '../ui/icons'
 import { useRowMenu } from '../ui/RowMenu'
+import { SendBadge, SendLines } from '../contact/SendStatus'
 import { CohortBadge, DueBadge, EmailErrorBadge, LevelBadge, StateBadge } from './ContactBadges'
 import {
   civilityLabel,
@@ -142,6 +143,10 @@ function EmailLine({ row }: { row: ProspectRow }) {
 // once due, « … le 21 sept. » before.
 function nextSend(row: ProspectRow): string | null {
   if (!row.next_due_at || !row.next_step) return null
+  const state = row.send?.step === row.next_step ? row.send.state : null
+  // Scheduled: the effective date is said instead (`SendLines`). Missed: the due date is only theoretical.
+  if (state === 'scheduled' || state === 'unconfirmed') return null
+  if (state) return `Échéance théorique : ${formatDay(row.next_due_at)}`
   return `${stepLabel(row.next_step)} à envoyer ${row.due ? 'depuis le' : 'le'} ${formatDay(row.next_due_at)}`
 }
 
@@ -158,8 +163,10 @@ function Tracking({ row }: { row: ProspectRow }) {
         {inCampaign && <LevelBadge level={row.level} />}
         <StateBadge status={row.tracking_status} />
         {row.email_error && <EmailErrorBadge />}
+        {row.send && <SendBadge send={row.send} />}
         {row.due && <DueBadge />}
       </span>
+      {row.send && <SendLines send={row.send} />}
       {next && <span>{next}</span>}
       {row.response_received_at && <span>Réponse le {formatDay(row.response_received_at)}</span>}
       {row.appointment_at && <span>Rendez-vous le {formatDay(row.appointment_at)}</span>}

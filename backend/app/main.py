@@ -14,6 +14,7 @@ from app.api.router import api_router, public_router
 from app.api.security_headers import SecurityHeadersMiddleware
 from app.api.worker_wake import WakeCleanupWorkerMiddleware
 from app.core.config import Settings, get_settings
+from app.core.logs import configure_logging
 from app.db.session import create_db_engine, create_session_factory
 from app.services import member_prospects
 from app.services.explorer.sql_console import create_reader_engine
@@ -26,6 +27,7 @@ from app.services.toolbox.integration import ToolboxIntegration
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
+    configure_logging()
     settings = settings or get_settings()
     engine = create_db_engine(settings.database_url)
     # The SQL console's own engine, logged in as the read-only reader role (ADR-0011).

@@ -16,15 +16,22 @@ import logging
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.services.contact_dispatch import DispatchConfig, Dispatcher, DispatchReport
+from app.services.contact_draft_check import check_scheduled_drafts
+from app.services.errors import ToolboxError
 from app.services.toolbox.integration import ToolboxIntegration
+from app.services.toolbox.mcp_client import MailToolbox
 from app.services.warehouse_dispatch import dispatch_warehouses
 
 logger = logging.getLogger(__name__)
+
+# How often the scheduled messages' drafts are looked for, and how soon after a failed look.
+CHECK_INTERVAL = timedelta(minutes=15)
+CHECK_RETRY = timedelta(minutes=1)
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,6 +65,30 @@ class ContactDispatcher:
         self._thread: threading.Thread | None = None
         self._last_pass_at: datetime | None = None
         self._last_outcome: str | None = None
+        # The next draft check, and the connection (`connected_at`) the last one saw.
+        self._next_check: datetime | None = None
+        self._checked_connection: datetime | None = None
+
+    def _check_drafts(self, toolbox: MailToolbox) -> None:
+        """Right after a (re)connection, then every `CHECK_INTERVAL` (`contact_draft_check`)."""
+        now = self._now()
+        connection = self._integration.status().connected_at
+        due = self._next_check is None or now >= self._next_check
+        if not due and connection == self._checked_connection:
+            return
+        self._checked_connection = connection
+        try:
+            check_scheduled_drafts(self._warehouse_factory, toolbox)
+        except ToolboxError as error:
+            self._next_check = now + CHECK_RETRY
+            logger.warning("contact_dispatch.draft_check_failed code=%s", error.code)
+            return
+        self._next_check = now + CHECK_INTERVAL
+
+    def check_soon(self) -> None:
+        """Look at the drafts at the next pass (messages were just scheduled again: their drafts
+        may belong to a former connection)."""
+        self._next_check = None
 
     def run_once(self) -> DispatchReport | None:
         """One pass; None when the Toolbox is not usable or a pass is already running."""
@@ -67,6 +98,7 @@ class ContactDispatcher:
         try:
             report = self._dispatcher.run_pass(toolbox)
             dispatch_warehouses(self._warehouse_factory, self._warehouse_config, toolbox)
+            self._check_drafts(toolbox)
             self._last_outcome = "ok"
             return report
         except Exception:

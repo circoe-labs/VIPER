@@ -125,6 +125,11 @@ class AuditAction(StrEnum):
     CONTACT_MESSAGE_SENT = "contact_message.sent"
     CONTACT_MESSAGE_DISPATCH_FAILED = "contact_message.dispatch_failed"
     CONTACT_MESSAGE_DISPATCH_RELEASED = "contact_message.dispatch_released"
+    # The check of a scheduled message's Infomaniak draft before it is due
+    # (`contact_draft_check`), and a person asking for a new draft after a missing one.
+    CONTACT_MESSAGE_DRAFT_MISSING = "contact_message.draft_missing"
+    CONTACT_MESSAGE_DRAFT_CHECKED = "contact_message.draft_checked"
+    CONTACT_MESSAGE_DRAFT_REPLACED = "contact_message.draft_replaced"
     # The Toolbox connection was established / forgotten on VIPER's side (no token in the event).
     TOOLBOX_CONNECTED = "toolbox.connected"
     TOOLBOX_FORGOTTEN = "toolbox.forgotten"

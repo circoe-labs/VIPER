@@ -204,6 +204,30 @@ describe('Contact page', () => {
     await waitFor(() => { expect(lastListParams(api.requests)).toMatchObject({ category: 'to_send', rank: '0', week: '2026-W42' }) })
   })
 
+  it('says the effective schedule of a scheduled mail: never « à préparer », never late', async () => {
+    const send = { state: 'scheduled' as const, rank: 0, step: 'contact', step_label: 'Contact', scheduled_at: '2026-10-12T06:00:00Z', reason: null, at: null, draft_missing: false, needs_sent_check: false }
+    const planned = contactRow('Lena', 'Prête', { next_step: 'contact', planned_contact_at: '2026-09-20T08:00:00Z', messages: { contact: 'scheduled' }, send })
+    const missed = contactRow('Max', 'Resté', { next_step: 'contact', planned_contact_at: '2026-09-20T08:00:00Z', messages: { contact: 'validated' }, send: { ...send, state: 'missed', reason: 'send_draft_not_found', at: '2026-10-06T07:00:00Z', needs_sent_check: true } })
+    stubContactApi({ dashboard: PLANNING, rows: [planned, missed] })
+    const first = renderApp('/contact')
+    const list = await openList('Prospects à contacter')
+    const [ready, back] = within(list).getAllByRole('listitem') as [HTMLElement, HTMLElement]
+    expect(ready).toHaveTextContent('Programmé')
+    expect(ready).toHaveTextContent('Contact programmé le 12 oct. 2026')
+    expect(ready).not.toHaveTextContent(/À préparer|Échéance/)
+    expect(back).toHaveTextContent('Non parti')
+    expect(back).toHaveTextContent('Contact prévu le 12 oct. 2026')
+    expect(back).toHaveTextContent('brouillon introuvable dans Infomaniak')
+    expect(back).toHaveTextContent('Échéance Contact')
+    first.unmount()
+
+    stubContactApi({ dashboard: PLANNING, rows: [planned, missed] })
+    renderApp('/contact?view=overdue')
+    const overdue = await openList('Envois en retard')
+    expect(within(overdue).queryByText('Lena Prête')).not.toBeInTheDocument()
+    expect(within(overdue).getByText('Max Resté')).toBeInTheDocument()
+  })
+
   it('narrows « to send » to the late sends and to the follow-ups, never beyond what the rows say', async () => {
     const late = contactRow('Lena', 'Retard', { next_step: 'contact', planned_contact_at: '2026-09-20T08:00:00Z', messages: {} })
     const week = contactRow('Wim', 'Semaine', { next_step: 'r1', planned_contact_at: '2026-09-30T08:00:00Z', messages: { contact: 'sent' } })
@@ -213,7 +237,7 @@ describe('Contact page', () => {
     const overdue = await openList('Envois en retard')
     expect(within(overdue).getAllByRole('listitem')).toHaveLength(1)
     expect(within(overdue).getByText('Lena Retard')).toBeInTheDocument()
-    expect(within(overdue).getByText('Contact prévu')).toBeInTheDocument()
+    expect(within(overdue).getByText('Échéance Contact')).toBeInTheDocument()
     unmount()
 
     stubContactApi({ dashboard: PLANNING, rows: [late, week, first] })

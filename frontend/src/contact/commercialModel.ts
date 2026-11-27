@@ -90,6 +90,8 @@ export function keepRow(key: ContactViewKey, row: ContactRow, monday: string | n
   const filter = VIEW_META[key].clientFilter
   if (filter === 'follow_ups') return row.next_step !== null && row.next_step !== 'contact'
   if (filter === 'overdue') {
+    // A mail already scheduled is not late: its effective date replaces the due date.
+    if (row.next_step !== null && row.messages[row.next_step] === 'scheduled') return false
     const due = row.planned_contact_at ? parisDay(row.planned_contact_at) : null
     return due !== null && monday !== null && due < monday
   }

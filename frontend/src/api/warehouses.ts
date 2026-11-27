@@ -65,6 +65,9 @@ export interface WarehouseDraft {
   scheduled_at: string | null
   send_state: 'planned' | 'scheduled' | 'sending' | 'uncertain' | 'sent' | 'failed' | null
   recovery_possible?: boolean
+  // Why a scheduled mail did not (certainly) leave, and when.
+  failure_code?: string | null
+  failed_at?: string | null
 }
 
 export function useWarehouseDrafts() {

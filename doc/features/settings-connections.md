@@ -262,7 +262,8 @@ on its side); it does not renew the token. A failed read shows *Méthodes indisp
 API process (Toolbox connected, switch on, interval > 0); `active` = and the Toolbox is connected, so a scheduled
 message really leaves; `last_pass_at` / `last_outcome` (`ok`, `error` — the traceback is in the server log, null before
 the first pass, per process); `scheduled` = messages in « Programmé », `unconfirmed` = those whose send is unconfirmed
-(a person settles them in Contact).
+(a person settles them in Contact); `warehouse_scheduled` = warehouse mails scheduled. « Se déconnecter » says how
+many scheduled mails (both kinds) will be held back.
 
 Refusals (`{detail: {code, message}}`): 503 `toolbox_not_configured`; 502 `toolbox_unavailable` / 504
 `toolbox_timeout` (discovery, registration or token exchange); 422 `toolbox_rejected` (PKCE S256 missing, registration

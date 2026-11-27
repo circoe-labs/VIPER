@@ -11,6 +11,7 @@ import type { Point } from '../ui/floating'
 import { ContactDetails } from './ContactDetails'
 import { FROM_LIST } from './criteria'
 import { stepLabel } from './labels'
+import { SendBadge, SendLines } from './SendStatus'
 
 interface ContactListProps {
   rows: ContactRow[]
@@ -41,7 +42,10 @@ function ContactLine({ row, href, planning }: { row: ContactRow; href: string; p
   const name = personName(row) || 'Nom non renseigné'
   const initials = [row.first_name, row.last_name].map((part) => part?.trim()[0] ?? '').join('').toUpperCase() || '?'
   const lastEmail = row.last_email_sent_at
-  const planned = planning ? row.planned_contact_at : null
+  const send = row.send ?? null
+  // A scheduled mail replaces the theoretical due date: never « à préparer », never late.
+  const scheduled = send !== null && (send.state === 'scheduled' || send.state === 'unconfirmed')
+  const planned = planning && !scheduled ? row.planned_contact_at : null
   const job = row.exact_job_title ?? row.role_label
   return (
     <li className="contacts-line">
@@ -53,7 +57,7 @@ function ContactLine({ row, href, planning }: { row: ContactRow; href: string; p
           <span title={[job, row.company_name].filter(Boolean).join(' · ')}>{[job, row.company_name].filter(Boolean).join(' · ') || 'Informations à compléter'}</span>
         </div>
         <div className="contacts-line__stage">
-          {row.tracking_status !== 'neutral' ? <StateBadge status={row.tracking_status} /> : (
+          {row.tracking_status !== 'neutral' ? <StateBadge status={row.tracking_status} /> : send ? <SendBadge send={send} /> : (
             <span className={`contacts-stage${row.due && row.next_step ? ' contacts-stage--due' : ''}`}>
               {row.due && row.next_step ? `À préparer : ${row.next_step === 'contact' ? 'Contact' : `Relance ${stepLabel(row.next_step)}`}` : 'Contacté'}
             </span>
@@ -61,12 +65,13 @@ function ContactLine({ row, href, planning }: { row: ContactRow; href: string; p
         </div>
         <span className="contacts-line__channel" title="E-mail enregistré"><MailIcon size={18} /><span className="visually-hidden">E-mail</span></span>
         <div className="contacts-line__last">
+          {send && <SendLines send={send} />}
           {planned && <>
-            <span>{row.next_step ? `${row.next_step === 'contact' ? 'Contact' : `Relance ${stepLabel(row.next_step)}`} prévu` : 'Envoi prévu'}</span>
+            <span>{row.next_step ? `Échéance ${row.next_step === 'contact' ? 'Contact' : `Relance ${stepLabel(row.next_step)}`}` : 'Échéance'}</span>
             <time dateTime={planned}>{DAY.format(new Date(planned))}</time>
           </>}
-          {!planned && <span>Dernier e-mail envoyé</span>}
-          {lastEmail ? <time className={planned ? 'contacts-line__earlier' : undefined} dateTime={lastEmail}>{planned ? 'Dernier envoi : ' : ''}{DAY.format(new Date(lastEmail))}</time> : !planned && <span>Date non renseignée</span>}
+          {!planned && !send && <span>Dernier e-mail envoyé</span>}
+          {lastEmail ? <time className={planned || send ? 'contacts-line__earlier' : undefined} dateTime={lastEmail}>{planned || send ? 'Dernier envoi : ' : ''}{DAY.format(new Date(lastEmail))}</time> : !planned && !send && <span>Date non renseignée</span>}
         </div>
         <IconButton icon={MoreIcon} size="sm" label={`Actions de ${name}`} className="contacts-line__options" aria-haspopup="menu" onClick={(event) => {
           const box = event.currentTarget.getBoundingClientRect()

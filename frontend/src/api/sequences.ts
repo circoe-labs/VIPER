@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiGet, apiRequest } from './client'
+import type { SendSituation } from './unsent'
 import { contactKeys } from './contact'
 import { historyKeys } from './history'
 import { homeKeys } from './home'
@@ -37,6 +38,8 @@ export interface Place {
   pause_reason: PauseReason | null
   email_error: boolean
   max_follow_ups: number
+  // The effective schedule, or why a scheduled mail did not leave.
+  send?: SendSituation | null
 }
 
 export interface SequenceMessage {

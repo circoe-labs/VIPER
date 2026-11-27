@@ -27,6 +27,8 @@ export interface ToolboxStatus {
   // The scheduled sending (S7): `running` = the worker runs in the API process; `active` = and the Toolbox is
   // connected (a scheduled message really leaves). `unconfirmed` = sends a person may have to settle.
   dispatch: {
+    // Warehouse mails scheduled.
+    warehouse_scheduled?: number
     running: boolean
     active: boolean
     interval_seconds: number

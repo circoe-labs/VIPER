@@ -1,3 +1,4 @@
+import type { Unsent } from '../api/unsent'
 import { vi } from 'vitest'
 
 import type {
@@ -134,6 +135,8 @@ interface ContactStubOptions {
   overview?: ContactOverview
   dashboard?: ContactDashboard | 'error'
   scheduling?: Scheduling
+  // « Envois à reprendre » (`GET /api/contact/unsent`); nothing by default.
+  unsent?: Unsent
   rows?: ContactRow[]
   // Prospect details (left panel), by id.
   details?: Prospect[]
@@ -461,6 +464,15 @@ export function stubContactApi(options: ContactStubOptions = {}) {
       requests.push({ method, path: url.pathname, search: url.search, body })
       if (options.dashboard === 'error') return json(500, { detail: 'boom' })
       return json(200, options.dashboard ?? contactDashboard())
+    }
+    if (url.pathname === '/api/contact/unsent') {
+      requests.push({ method, path: url.pathname, search: url.search, body })
+      return json(200, options.unsent ?? { items: [], unverified_drafts: 0 })
+    }
+    if (method === 'POST' && url.pathname.startsWith('/api/contact/unsent/')) {
+      requests.push({ method, path: url.pathname, search: url.search, body })
+      const items = (body as { items?: { sent_check_confirmed: boolean }[] }).items ?? []
+      return json(200, { done: items.length, refused: [], remote_draft_failures: 0 })
     }
     if (url.pathname === '/api/contact/scheduling') {
       requests.push({ method, path: url.pathname, search: url.search, body })

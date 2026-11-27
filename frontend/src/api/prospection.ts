@@ -1,6 +1,7 @@
 import { keepPreviousData, type QueryClient, useQuery } from '@tanstack/react-query'
 
 import { apiGet } from './client'
+import type { SendSituation } from './unsent'
 
 // Mirrors backend/app/api/routes/prospection.py: the Prospection counters and people list (Task 14). Segment
 // definitions: backend/app/services/prospection/segments.py, doc/features/prospection-kpis.md.
@@ -179,6 +180,8 @@ export interface ProspectRow {
   level_label: string | null
   // Derived next due date (business midnight) and its calendar week; null when nothing is due.
   next_due_at: string | null
+  // The effective schedule, or why a scheduled mail did not leave.
+  send?: SendSituation | null
   next_due_week: string | null
   // In the `due` segment (« Échus »): the Contact or a follow-up to send, due no later than today.
   due: boolean

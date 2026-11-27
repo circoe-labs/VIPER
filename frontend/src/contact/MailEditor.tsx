@@ -44,6 +44,7 @@ import { RecipientsButton } from './RecipientsPopover'
 import { VersionsControl } from './MailVersions'
 import { SaveMailPopover } from './SaveMail'
 import { SchedulePopover } from './SchedulePopover'
+import { sendReason } from './sendReason'
 import { type MailField, type MessageRefusal, messageRefusal } from './messages'
 
 import './mail-editor.css'
@@ -398,7 +399,8 @@ export function MailEditor({
     setNotice(null)
     setRefusal(null)
     try {
-      const result = await mutations.schedule.mutateAsync({ step, revision: message.revision, at: iso })
+      // The confirmation the person just accepted said « vérifié » when the earlier send may have left.
+      const result = await mutations.schedule.mutateAsync({ step, revision: message.revision, at: iso, sentCheckConfirmed: message.needs_sent_check })
       onWhen({ date: '', time: '' })
       focusStatus.current = true
       setNotice({
@@ -423,7 +425,7 @@ export function MailEditor({
       if (!target) return
       const result = await mutations.act.mutateAsync({ step, action: 'validate', revision: target.revision })
       validated = true
-      const scheduled = await mutations.schedule.mutateAsync({ step, revision: result.message.revision, at: iso })
+      const scheduled = await mutations.schedule.mutateAsync({ step, revision: result.message.revision, at: iso, sentCheckConfirmed: message.needs_sent_check })
       onWhen({ date: '', time: '' })
       focusStatus.current = true
       setNotice({
@@ -626,6 +628,19 @@ export function MailEditor({
     return null
   }
 
+  // An earlier send may have left: scheduling again says so and asks the person to attest they looked.
+  function withSentCheck(asked: Confirmation | null): Confirmation | null {
+    if (!asked || !message?.needs_sent_check || (pending !== 'schedule' && pending !== 'validate-schedule')) return asked
+    return {
+      ...asked,
+      warning: [
+        'Un envoi précédent de ce mail a peut-être abouti. Vérifiez le dossier Envoyés d’Infomaniak avant de continuer.',
+        asked.warning,
+      ].filter(Boolean).join(' '),
+      confirmLabel: 'J’ai vérifié les Envoyés : programmer',
+    }
+  }
+
   function requestSchedule() {
     setScheduleProblem(null)
     if (!parsed.ok) {
@@ -732,6 +747,14 @@ export function MailEditor({
         </DispatchWarning>
       ),
     })
+  }
+  if (message?.draft_missing && dispatchNow === 'none') {
+    const text = 'Brouillon introuvable dans Infomaniak (autre compte, supprimé, ou envoyé à la main) : vérifiez les Envoyés, puis « Recréer » dans Contacts › Envois à reprendre.'
+    signals.push({ id: 'draft-missing', tone: 'warning', icon: AlertIcon, label: text, detail: <p>{text}</p> })
+  }
+  if (message?.missed_scheduled_at && (message.status === 'draft' || message.status === 'validated')) {
+    const text = `Envoi prévu le ${formatDateTime(message.missed_scheduled_at)} non effectué : ${sendReason(message.missed_reason ?? '')}.`
+    signals.push({ id: 'missed', tone: 'warning', icon: AlertIcon, label: text, detail: <p>{text}</p> })
   }
   if (dispatch) {
     signals.push({
@@ -1023,7 +1046,7 @@ export function MailEditor({
       />
 
       <ConfirmDialog
-        confirmation={confirmation()}
+        confirmation={withSentCheck(confirmation())}
         busy={busy}
         onConfirm={onConfirm}
         onClose={() => {

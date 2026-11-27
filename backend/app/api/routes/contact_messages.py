@@ -25,6 +25,9 @@ a real send (the dispatcher, S7, marks its own).
                                      `humanizer_unavailable`) when the Humanizer is enabled;
 - `POST …/messages/{step}/remote-draft` creates again the Infomaniak draft of a validated message
                                      whose creation failed (S6, « Réessayer »);
+- `GET  /contact/unsent`, `POST /contact/unsent/reschedule|recreate-drafts|check-drafts` the
+                                     scheduled mails that did not leave or lost their draft, and
+                                     their recovery by a person (`contact_unsent`);
 - `POST …/messages/{step}/mark-sent|release` a person settles a send the dispatcher could not
                                      confirm (S7): « Marquer envoyé » / « Remettre en Validé ».
 
@@ -48,6 +51,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.dependencies import CurrentActor, SessionDep, SettingsDep
 from app.api.errors import business_errors
+from app.api.routes.send_situation import SendSituationOut
 from app.core.actor import ActorContext
 from app.core.config import Settings
 from app.core.contact_steps import STEP_CODE_PATTERN, parse_step, step_code, step_label
@@ -59,12 +63,13 @@ from app.models.enums import (
     ContactTrackingStatus,
     SendSource,
 )
-from app.services import audit, humanizer
+from app.services import audit, contact_draft_check, contact_unsent, humanizer
 from app.services import contact_dispatch as dispatch
 from app.services import contact_mail_generation as generation
 from app.services import contact_messages as service
 from app.services import contact_remote_drafts as remote_drafts
 from app.services.contact_dispatch_state import DispatchReason, sending_reason
+from app.services.contact_dispatch_worker import ContactDispatcher
 from app.services.contact_messages import (
     MAX_RECIPIENTS,
     GeneratedContent,
@@ -72,6 +77,7 @@ from app.services.contact_messages import (
     MessageResult,
     require_author,
 )
+from app.services.contact_schedule_trace import DRAFT_MISSING, needs_sent_check
 from app.services.errors import InvalidFieldError
 from app.services.mail_generation.openai_client import (
     GeneratedMail,
@@ -135,6 +141,9 @@ class RevisionIn(StrictModel):
 class ScheduleIn(RevisionIn):
     # ISO 8601 with a time zone offset; strictly in the future.
     scheduled_at: AwareDatetime
+    # Required when an earlier send may have left (409 `sent_check_required`): the person looked
+    # in the sent items.
+    sent_check_confirmed: bool = False
 
 
 class MarkSentIn(StrictModel):
@@ -188,6 +197,14 @@ class MessageOut(BaseModel):
     dispatch_attempts: int
     last_error_code: str | None
     last_error_at: datetime | None
+    # A send moment that did not end in a send, why (a code) and when.
+    missed_scheduled_at: datetime | None
+    missed_reason: str | None
+    missed_at: datetime | None
+    # Scheduled, and the last check did not find its Infomaniak draft.
+    draft_missing: bool
+    # Scheduling it (again) needs `sent_check_confirmed`.
+    needs_sent_check: bool
     created_at: datetime
     updated_at: datetime
 
@@ -378,6 +395,11 @@ def message_out(message: ContactMessage) -> MessageOut:
         dispatch_attempts=message.dispatch_attempts,
         last_error_code=message.last_error_code,
         last_error_at=message.last_error_at,
+        missed_scheduled_at=message.missed_scheduled_at,
+        missed_reason=message.missed_reason,
+        missed_at=message.missed_at,
+        draft_missing=message.draft_check == DRAFT_MISSING,
+        needs_sent_check=needs_sent_check(message),
         created_at=message.created_at,
         updated_at=message.updated_at,
     )
@@ -664,6 +686,7 @@ def schedule(
             rank_of(step),
             body.expected_revision,
             body.scheduled_at,
+            sent_check_confirmed=body.sent_check_confirmed,
             now=datetime.now(UTC),
         )
     return _with_remote_draft(request, session, actor, result)
@@ -906,6 +929,8 @@ class ScheduleCohortsOut(BaseModel):
     missing: int
     # Infomaniak drafts that could not be created (the messages are scheduled anyway).
     remote_draft_failures: int
+    # Of the refused: an earlier send may have left, to check and reschedule one by one.
+    to_check: int
 
 
 class HumanizerCheckIn(StrictModel):
@@ -974,14 +999,29 @@ def schedule_cohorts(
             body.scheduled_at,
             now=datetime.now(UTC),
         )
+    failures = _create_missing_drafts(request, session, actor, result.scheduled)
+    return ScheduleCohortsOut(
+        scheduled=len(result.scheduled),
+        validated=result.validated,
+        refused=result.refused,
+        missing=result.missing,
+        remote_draft_failures=failures,
+        to_check=result.to_check,
+    )
+
+
+def _create_missing_drafts(
+    request: Request, session: Session, actor: ActorContext, message_ids: list[uuid.UUID]
+) -> int:
+    """After the schedule's commit, the Infomaniak drafts the messages lack; how many failed."""
     failures = 0
     integration: ToolboxIntegration = request.app.state.toolbox
     toolbox = integration.mail_toolbox()
-    if toolbox is not None and result.scheduled:
+    if toolbox is not None and message_ids:
         audit_binding = audit.binding(session)
         session.commit()
         session_factory: sessionmaker[Session] = request.app.state.session_factory
-        for message_id in result.scheduled:
+        for message_id in message_ids:
             sync = remote_drafts.sync_remote_draft(
                 session_factory,
                 toolbox,
@@ -991,10 +1031,137 @@ def schedule_cohorts(
             )
             if sync.status == "failed":
                 failures += 1
-    return ScheduleCohortsOut(
-        scheduled=len(result.scheduled),
-        validated=result.validated,
-        refused=result.refused,
-        missing=result.missing,
-        remote_draft_failures=failures,
+    return failures
+
+
+# --- the sends that did not leave, and their recovery by a person ---------------------------------
+
+
+class UnsentItemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    prospect_id: uuid.UUID
+    first_name: str | None
+    last_name: str | None
+    company_name: str | None
+    cohort_code: str | None
+    status: ContactMessageStatus
+    revision: int
+    kind: Literal["unconfirmed", "missed", "draft_missing"]
+    send: SendSituationOut
+
+
+class UnsentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    items: list[UnsentItemOut]
+    unverified_drafts: int
+
+
+class TargetIn(StrictModel):
+    prospect_id: uuid.UUID
+    rank: Annotated[int, Field(ge=0)]
+    expected_revision: Revision
+    # This message's own confirmation: never one flag for a whole batch.
+    sent_check_confirmed: bool = False
+
+
+Targets = Annotated[list[TargetIn], Field(min_length=1, max_length=500)]
+
+
+class RescheduleIn(StrictModel):
+    scheduled_at: AwareDatetime
+    items: Targets
+
+
+class RecreateDraftsIn(StrictModel):
+    items: Targets
+
+
+class RefusedOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    prospect_id: uuid.UUID
+    rank: int
+    code: str
+
+
+class RecoveryOut(BaseModel):
+    done: int
+    refused: list[RefusedOut]
+    # Infomaniak drafts that could not be created (tried again at the send moment).
+    remote_draft_failures: int
+
+
+class DraftCheckOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    present: int
+    missing: int
+    unverified: int
+
+
+@cohorts_router.get("/unsent")
+def unsent(session: SessionDep) -> UnsentOut:
+    """Scheduled mails that did not leave, may have left, or lost their Infomaniak draft."""
+    return UnsentOut.model_validate(contact_unsent.overview(session))
+
+
+def _recovery(
+    request: Request, session: Session, actor: ActorContext, result: contact_unsent.Recovery
+) -> RecoveryOut:
+    return RecoveryOut(
+        done=len(result.done),
+        refused=[RefusedOut.model_validate(item) for item in result.refused],
+        remote_draft_failures=_create_missing_drafts(request, session, actor, result.done),
     )
+
+
+def _targets(items: list[TargetIn]) -> list[contact_unsent.Target]:
+    return [contact_unsent.Target(**item.model_dump()) for item in items]
+
+
+@cohorts_router.post("/unsent/reschedule")
+def reschedule_unsent(
+    body: RescheduleIn, request: Request, session: SessionDep, actor: CurrentActor
+) -> RecoveryOut:
+    """Schedule the chosen messages again, at one moment; each refusal is answered by itself."""
+    with business_errors():
+        result = contact_unsent.reschedule(
+            session, actor, _targets(body.items), body.scheduled_at, now=datetime.now(UTC)
+        )
+    answer = _recovery(request, session, actor, result)
+    dispatcher: ContactDispatcher | None = request.app.state.contact_dispatcher
+    if dispatcher is not None and result.done:
+        session.commit()
+        dispatcher.check_soon()
+    return answer
+
+
+@cohorts_router.post("/unsent/recreate-drafts")
+def recreate_unsent_drafts(
+    body: RecreateDraftsIn, request: Request, session: SessionDep, actor: CurrentActor
+) -> RecoveryOut:
+    """A new Infomaniak draft for scheduled messages whose draft is missing (503 when the Toolbox
+    cannot create one: nothing is changed)."""
+    integration: ToolboxIntegration = request.app.state.toolbox
+    with business_errors():
+        integration.required_mail_toolbox()
+        result = contact_unsent.recreate_drafts(session, actor, _targets(body.items))
+    return _recovery(request, session, actor, result)
+
+
+@cohorts_router.post("/unsent/check-drafts")
+def check_unsent_drafts(
+    request: Request, session: SessionDep, actor: CurrentActor
+) -> DraftCheckOut:
+    """« Vérifier les brouillons » now, without waiting for the worker's next look."""
+    integration: ToolboxIntegration = request.app.state.toolbox
+    with business_errors():
+        toolbox = integration.required_mail_toolbox()
+    session.commit()
+    with business_errors():
+        result = contact_draft_check.check_scheduled_drafts(
+            request.app.state.session_factory, toolbox, actor
+        )
+    return DraftCheckOut.model_validate(result)

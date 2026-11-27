@@ -80,6 +80,7 @@ from app.models.enums import (
 )
 from app.repositories.taxonomies import label_key
 from app.services import app_settings
+from app.services.contact_send_state import SendSituation, situation_of
 from app.services.contact_sequences import (
     EFFECTIVE_ALERT_SOURCES,
     email_error_sql,
@@ -89,6 +90,7 @@ from app.services.contact_sequences import (
     level_key_sql,
     next_due_at_sql,
     next_rank_sql,
+    next_step_scheduled_sql,
     sent_count_sql,
 )
 from app.services.contact_workflow import IsoWeek
@@ -393,6 +395,8 @@ class ContactRow:
     last_contact_at: datetime | None = None
     last_email_sent_at: datetime | None = None
     messages: list[MessageState] = field(default_factory=list)
+    # The effective schedule, or why a scheduled mail did not leave (`contact_send_state`).
+    send: SendSituation | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -447,7 +451,8 @@ def to_send(window: PlanningWeek) -> ColumnElement[bool]:
 
 
 def overdue(window: PlanningWeek) -> ColumnElement[bool]:
-    return next_due_at_sql() < window.overdue_before
+    """Due before the current week and nothing scheduled for it."""
+    return and_(next_due_at_sql() < window.overdue_before, ~next_step_scheduled_sql())
 
 
 def _open_email_errors() -> Select[Any]:
@@ -920,27 +925,19 @@ def _order_by(sort: ContactSort) -> list[Any]:
 
 def _messages(
     session: Session, sequence_ids: list[uuid.UUID]
-) -> dict[uuid.UUID, list[MessageState]]:
+) -> dict[uuid.UUID, list[ContactMessage]]:
     """Per current sequence: its messages by rank (one statement for the page)."""
-    states: dict[uuid.UUID, list[MessageState]] = {}
+    messages: dict[uuid.UUID, list[ContactMessage]] = {}
     if not sequence_ids:
-        return states
-    rows = session.execute(
-        select(
-            ContactMessage.sequence_id,
-            ContactMessage.rank,
-            ContactMessage.status,
-            ContactMessage.sent_at,
-            ContactMessage.scheduled_at,
-        )
+        return messages
+    rows = session.scalars(
+        select(ContactMessage)
         .where(ContactMessage.sequence_id.in_(sequence_ids))
         .order_by(ContactMessage.sequence_id, ContactMessage.rank)
-    ).tuples()
-    for sequence_id, rank, status, sent_at, scheduled_at in rows:
-        states.setdefault(sequence_id, []).append(
-            MessageState(rank, step_code(rank), status, sent_at, scheduled_at)
-        )
-    return states
+    )
+    for message in rows:
+        messages.setdefault(message.sequence_id, []).append(message)
+    return messages
 
 
 def list_contacts(
@@ -992,7 +989,11 @@ def list_contacts(
         last_email_sent_at,
         sequence_id,
     ) in rows:
-        states = messages.get(sequence_id, []) if sequence_id else []
+        own = messages.get(sequence_id, []) if sequence_id else []
+        states = [
+            MessageState(m.rank, step_code(m.rank), m.status, m.sent_at, m.scheduled_at)
+            for m in own
+        ]
         next_status = next(
             (message.status for message in states if message.rank == next_rank), None
         )
@@ -1032,6 +1033,7 @@ def list_contacts(
                 last_contact_at=last_contact_at,
                 last_email_sent_at=last_email_sent_at,
                 messages=states,
+                send=situation_of(own),
             )
         )
     return ContactPage(items=items, total=total, limit=limit, offset=offset, week=window.week.label)

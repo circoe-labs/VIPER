@@ -20,6 +20,7 @@ from pydantic import BaseModel
 from app.api.dependencies import SessionDep, SettingsDep
 from app.api.errors import business_errors
 from app.api.query_types import Department, Many, OrNone
+from app.api.routes.send_situation import SendSituationOut
 from app.core.config import Settings
 from app.models.enums import (
     ActivityStatus,
@@ -29,6 +30,7 @@ from app.models.enums import (
     PhoneType,
     VerificationStatus,
 )
+from app.services.contact_send_state import send_situations
 from app.services.errors import InvalidFieldError
 from app.services.prospection import dashboard, query
 from app.services.prospection.query import ProspectFilters, ProspectSort
@@ -111,6 +113,8 @@ class ProspectRowOut(BaseModel):
     contactability_status: ContactabilityStatus
     do_not_contact_at: datetime | None
     updated_at: datetime
+    # The effective schedule, or why a scheduled mail did not leave.
+    send: SendSituationOut | None = None
 
 
 class ProspectPageOut(BaseModel):
@@ -235,7 +239,18 @@ def prospects(
     )
     result = ProspectPageOut.model_validate(page, from_attributes=True)
     details = dashboard.page_details(session, [item.id for item in page.items], settings)
-    result.items = [item.model_copy(update=details[item.id]) for item in result.items]
+    situations = send_situations(session, [item.id for item in page.items])
+    result.items = [
+        item.model_copy(
+            update={
+                **details[item.id],
+                "send": SendSituationOut.model_validate(situations[item.id])
+                if item.id in situations
+                else None,
+            }
+        )
+        for item in result.items
+    ]
     return result
 
 

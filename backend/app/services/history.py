@@ -505,6 +505,10 @@ NOT_SHOWN: dict[str, frozenset[str]] = {
             "dispatch_attempts",
             "last_error_code",
             "last_error_at",
+            "missed_scheduled_at",
+            "missed_reason",
+            "missed_at",
+            "draft_check",
         }
     ),
     "prospect_source": frozenset(
@@ -867,6 +871,9 @@ MESSAGE_TITLES: dict[str, str] = {
     AuditAction.CONTACT_MESSAGE_GENERATED: "Brouillon rédigé par l’IA",
     AuditAction.CONTACT_MESSAGE_REMOTE_DRAFT_CREATED: "Brouillon créé dans Infomaniak",
     AuditAction.CONTACT_MESSAGE_REMOTE_DRAFT_FAILED: "Brouillon Infomaniak non créé",
+    AuditAction.CONTACT_MESSAGE_DRAFT_MISSING: "Brouillon Infomaniak introuvable",
+    AuditAction.CONTACT_MESSAGE_DRAFT_CHECKED: "Brouillon Infomaniak vérifié",
+    AuditAction.CONTACT_MESSAGE_DRAFT_REPLACED: "Brouillon Infomaniak à recréer",
     "contact_message.created": "Message créé",
     "contact_message.updated": "Message modifié",
 }

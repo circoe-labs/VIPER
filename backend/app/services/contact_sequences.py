@@ -503,6 +503,20 @@ def sent_count_sql() -> ColumnElement[int]:
     return func.coalesce(SENDS.c.sent_count, 0)
 
 
+def next_step_scheduled_sql() -> ColumnElement[bool]:
+    """The message of the next step is already scheduled: the effective schedule replaces the
+    theoretical due date (such a prospect is neither overdue nor « à préparer »)."""
+    return exists(
+        select(ContactMessage.id)
+        .where(
+            ContactMessage.sequence_id == ContactSequence.id,
+            ContactMessage.rank == sent_count_sql(),
+            ContactMessage.status == ContactMessageStatus.SCHEDULED,
+        )
+        .correlate(ContactSequence, SENDS)
+    )
+
+
 def max_follow_ups_sql() -> ColumnElement[int]:
     """« Max relances » read in the statement itself (one uncorrelated subquery)."""
     stored = (

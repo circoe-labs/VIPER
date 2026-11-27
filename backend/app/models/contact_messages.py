@@ -193,6 +193,13 @@ class ContactMessage(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     dispatch_attempts: Mapped[int] = mapped_column(Integer, server_default=text("0"))
     last_error_code: Mapped[str | None] = mapped_column(String(64))
     last_error_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # A send moment that did not end in a send (`app.services.contact_schedule_trace`): the
+    # chosen moment, why it did not leave (a code) and when. Cleared by a new schedule or a send.
+    missed_scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    missed_reason: Mapped[str | None] = mapped_column(String(64))
+    missed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # The last mailbox check of a scheduled message's draft: `missing`, `unverified` or NULL.
+    draft_check: Mapped[str | None] = mapped_column(String(16))
 
     @property
     def step(self) -> str:

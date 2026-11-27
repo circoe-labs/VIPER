@@ -11,9 +11,14 @@ from app.core.config import allowlist_permits
 from app.db.session import unit_of_work
 from app.models import WarehouseDraft
 from app.services import audit
-from app.services.contact_dispatch import DispatchConfig
+from app.services.contact_dispatch import (
+    MISSING_RECIPIENTS,
+    OVERDUE,
+    RECIPIENT_NOT_ALLOWED,
+    DispatchConfig,
+)
+from app.services.errors import ToolboxError
 from app.services.toolbox.mcp_client import DraftInput, MailToolbox
-from app.services.toolbox.errors import ToolboxError
 
 ACTOR = ActorContext(type=ActorType.SYSTEM, display="VIPER")
 logger = logging.getLogger(__name__)
@@ -46,14 +51,19 @@ def dispatch_warehouses(
                 or draft.scheduled_at > now
             ):
                 continue
-            if (
-                now - draft.scheduled_at > config.max_lateness
-                or draft.validated_at is None
-                or not draft.human_validated
-                or not draft.recipient
-                or not allowlist_permits(config.allowlist, [draft.recipient])
-            ):
+            refusal = None
+            if now - draft.scheduled_at > config.max_lateness:
+                refusal = OVERDUE
+            elif draft.validated_at is None or not draft.human_validated:
+                refusal = "not_validated"
+            elif not draft.recipient:
+                refusal = MISSING_RECIPIENTS
+            elif not allowlist_permits(config.allowlist, [draft.recipient]):
+                refusal = RECIPIENT_NOT_ALLOWED
+            if refusal is not None:
                 draft.send_state = "failed"
+                draft.failure_code = refusal
+                draft.failed_at = now
                 draft.revision += 1
                 audit.record_event(
                     session,
@@ -61,7 +71,9 @@ def dispatch_warehouses(
                     "warehouse_draft.failed",
                     entity_type="warehouse_draft",
                     entity_id=draft.id,
+                    reason=refusal,
                 )
+                logger.warning("warehouse_dispatch.refused draft_id=%s code=%s", draft.id, refusal)
                 continue
             draft.send_state = "sending"
             draft.revision += 1
@@ -90,7 +102,12 @@ def dispatch_warehouses(
             with unit_of_work(factory) as session:
                 claimed = session.get(WarehouseDraft, draft_id, with_for_update=True)
                 if claimed is not None and claimed.send_state == "sending":
+                    code = f"{stage}:{error_code}" + (
+                        f":http_{upstream_status}" if upstream_status is not None else ""
+                    )
                     claimed.send_state = "uncertain"
+                    claimed.failure_code = code[:255]
+                    claimed.failed_at = datetime.now(UTC)
                     claimed.revision += 1
                     audit.record_event(
                         session,
@@ -98,8 +115,7 @@ def dispatch_warehouses(
                         "warehouse_draft.failed",
                         entity_type="warehouse_draft",
                         entity_id=claimed.id,
-                        reason=f"{stage}:{error_code}"
-                        + (f":http_{upstream_status}" if upstream_status is not None else ""),
+                        reason=code,
                     )
             continue
         with unit_of_work(factory) as session:
@@ -107,6 +123,7 @@ def dispatch_warehouses(
             if claimed is not None and claimed.send_state == "sending":
                 claimed.send_state = "sent"
                 claimed.revision += 1
+                logger.info("warehouse_dispatch.sent draft_id=%s", claimed.id)
                 audit.record_event(
                     session,
                     ACTOR,

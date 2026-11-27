@@ -204,6 +204,8 @@ function ConnectionPane({ status, flow, linked }: { status: ToolboxStatus; flow:
   const toolboxStatus = useToolboxStatus()
   const [refreshing, setRefreshing] = useState(false)
   const [forgetting, setForgetting] = useState(false)
+  // Said before disconnecting: what is scheduled will be held back.
+  const scheduledCount = status.dispatch.scheduled + (status.dispatch.warehouse_scheduled ?? 0)
   const mutations = useToolboxMutations()
   const backRef = useRef<HTMLButtonElement>(null)
   const busy = flow.returning || flow.redirecting
@@ -336,6 +338,13 @@ function ConnectionPane({ status, flow, linked }: { status: ToolboxStatus; flow:
         }
       >
         <div className="settings-dialog">
+          {scheduledCount > 0 && (
+            <p className="settings-connection__error" role="alert">
+              <AlertIcon size={16} />
+              {scheduledCount > 1 ? `${String(scheduledCount)} mails programmés ne partiront pas` : '1 mail programmé ne partira pas'} tant
+              que la Toolbox n’est pas reconnectée. Reconnectez le même compte : sinon leurs brouillons seront introuvables.
+            </p>
+          )}
           <p>
             VIPER efface son accès à la Toolbox et désactive l’intégration. Les prochains messages validés ne créeront
             plus de brouillon dans Infomaniak, l’envoi programmé s’arrête, et les brouillons déjà créés restent dans la

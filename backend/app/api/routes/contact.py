@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.api.dependencies import CurrentActor, SessionDep
 from app.api.errors import business_errors
+from app.api.routes.send_situation import SendSituationOut
 from app.core.contact_steps import level_keys
 from app.models.enums import (
     ActivityStatus,
@@ -195,6 +196,7 @@ class ContactRowOut(BaseModel):
     primary_phone: str | None = None
     last_contact_at: datetime | None = None
     last_email_sent_at: datetime | None = None
+    send: SendSituationOut | None = None
 
 
 class ContactPageOut(BaseModel):

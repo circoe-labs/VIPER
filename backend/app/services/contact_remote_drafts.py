@@ -75,6 +75,8 @@ def detach_remote_draft(session: Session, message: ContactMessage, reason: str) 
     provider, draft_id = message.remote_provider, message.remote_draft_id
     message.remote_provider = None
     message.remote_draft_id = None
+    # The check was about that draft.
+    message.draft_check = None
     if message.last_error_code and message.last_error_code.startswith(TOOLBOX_ERROR_PREFIX):
         message.last_error_code = None
         message.last_error_at = None

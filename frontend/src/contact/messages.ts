@@ -101,6 +101,11 @@ export function messageRefusal(error: unknown): MessageRefusal {
         'La Toolbox peut encore être en train d’envoyer ce message : « Remettre en Validé » n’est possible qu’après le délai de vérification. S’il est déjà dans les éléments envoyés, « Marquer envoyé ».',
         true,
       )
+    case 'sent_check_required':
+      return plain(
+        'Un envoi précédent a peut-être abouti : vérifiez les éléments envoyés d’Infomaniak, puis confirmez-le en reprogrammant.',
+        true,
+      )
     case 'dispatch_not_unconfirmed':
       return plain('L’envoi de ce message n’attend plus de décision (il vient d’être tranché ou est encore en cours) : l’affichage est actualisé.', true)
     case 'prospect_do_not_contact':

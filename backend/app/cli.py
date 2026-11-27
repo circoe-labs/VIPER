@@ -41,6 +41,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.actor import ActorContext, ActorType
 from app.core.config import Settings, get_settings
+from app.core.logs import configure_logging
 from app.db.session import create_db_engine, create_session_factory
 from app.models.enums import AgentMode, AgentProvider
 from app.services import contact_dispatch, mcp_tokens, warehouse_discovery
@@ -197,6 +198,7 @@ def main(
     session_factory: sessionmaker[Session] | None = None,
     toolbox: ToolboxIntegration | None = None,
 ) -> int:
+    configure_logging()
     parser = argparse.ArgumentParser(description="VIPER operator commands.")
     commands = parser.add_subparsers(dest="command", required=True)
     agent = commands.add_parser(

@@ -32,11 +32,13 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, StringConstraints
+from sqlalchemy import func, select
 
 from app.api.dependencies import CurrentActor, SessionDep
 from app.api.errors import business_errors
 from app.api.routes.integrations import save_and_apply
 from app.core.config import Settings
+from app.models import WarehouseDraft
 from app.services import audit
 from app.services.audit import AuditAction
 from app.services.contact_dispatch import dispatch_counts
@@ -101,6 +103,8 @@ class DispatchOut(BaseModel):
     # Messages scheduled, and those whose send is unconfirmed (a person may settle them).
     scheduled: int
     unconfirmed: int
+    # Warehouse mails scheduled (also held back by a disconnection).
+    warehouse_scheduled: int
 
 
 class ToolboxStatusOut(BaseModel):
@@ -178,6 +182,10 @@ def status_out(
             last_outcome=worker.last_outcome if worker else None,
             scheduled=pending.scheduled,
             unconfirmed=pending.unconfirmed,
+            warehouse_scheduled=session.scalar(
+                select(func.count()).where(WarehouseDraft.send_state == "scheduled")
+            )
+            or 0,
         ),
     )
 

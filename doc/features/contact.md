@@ -889,6 +889,47 @@ requires `python -m app.cli contact-dispatch --hold-scheduled` before starting t
 scheduled, unclaimed message goes back to Validé (`dispatch_held`, audited `contact_message.unscheduled` by the CLI
 actor); claimed ones are counted for a person to settle.
 
+## Effective schedule, unsent sends and their recovery
+
+The planning's `next_due_at` is **theoretical**. Where a prospect's send really stands is `send`
+(`app/services/contact_send_state.py`, one owner), carried by the planning rows, the Prospection list
+rows (`GET /api/prospection/prospects`), `place` of `GET /api/prospects/{id}/sequences` and the
+scheduling overview's forgotten list:
+`{state, rank, step, step_label, scheduled_at, reason, at, draft_missing, needs_sent_check}`, `state` being the most
+pressing of `unconfirmed`, `missed` (scheduled, did not leave), `scheduled`, `unscheduled` (taken back by a person);
+null when nothing was ever scheduled. A prospect whose **next step is scheduled** is never `overdue`, never in
+Prospection's « Échus » / Home's due list, and is not shown as « À préparer »; it stays in « à envoyer » of its week.
+
+**Trace** (`contact_messages.missed_scheduled_at`, `missed_reason`, `missed_at`;
+`services/contact_schedule_trace.py`): written whenever `scheduled_at` is taken away without a send (dispatcher back to
+Validé, release, `--hold-scheduled`: the dispatcher's code; a person: `unscheduled_by_person`, `edited`, `cancelled`).
+Kept through edits and revalidation; cleared by a new schedule or a recorded send. Migration 0061 backfills it from the
+audit log.
+
+**Sent-items check.** `missed_reason` in `send_not_confirmed`, `send_draft_not_found`, `send_probably_sent`, or
+`draft_check = missing`: the mail may have left (a draft sent by hand from Infomaniak also disappears). Every schedule
+path (editor, series, bulk) refuses 409 `sent_check_required` without `sent_check_confirmed` **on that message**;
+`schedule-cohorts` counts them in `to_check`.
+
+**Recovery** (a person only, never automatic; `services/contact_unsent.py`; Contact › « Envois à reprendre »):
+
+| Endpoint | Effect |
+|---|---|
+| `GET /api/contact/unsent` | `items` (`kind`: `missed`, `unconfirmed`, `draft_missing`) of open sequences, and `unverified_drafts` |
+| `POST /api/contact/unsent/reschedule` `{scheduled_at, items: [{prospect_id, rank, expected_revision, sent_check_confirmed}]}` | each scheduled in its savepoint; `{done, refused: [{prospect_id, rank, code}], remote_draft_failures}` |
+| `POST /api/contact/unsent/recreate-drafts` `{items}` | a missing draft is replaced, the send moment stays |
+| `POST /api/contact/unsent/check-drafts` | the draft check now: `{present, missing, unverified}` |
+
+**Draft check before due time** (`services/contact_draft_check.py`): the worker looks right after a (re)connection and
+every 15 minutes (1 minute after a failed look); one `list_drafts` call. A listed draft clears `draft_check`; absent
+from a complete list → `missing`; absent from a full page of 100 → `unverified` (an earlier `missing` stays). Nothing
+is recreated, unscheduled or sent by the check: recreating by itself could send twice a mail sent by hand. At the due
+time `send_draft` decides (a false alarm sends normally; a gone draft goes back to Validé, `send_draft_not_found`).
+Limit: with 100 drafts or more in the mailbox, absence cannot be proven. Disconnecting the Toolbox warns how many
+scheduled mails will be held back.
+
+**Logs**: `app/core/logs.py` sends every `app.*` INFO line to stderr (`docker logs`).
+
 ## Audit and privacy
 
 Each message change is one audit event on the message, in the prospect's history: `contact_message.created`,

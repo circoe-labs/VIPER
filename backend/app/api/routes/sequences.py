@@ -29,9 +29,11 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Query, status
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from sqlalchemy.orm import Session
 
 from app.api.dependencies import CurrentActor, SessionDep
 from app.api.errors import business_errors
+from app.api.routes.send_situation import SendSituationOut
 from app.core.actor import ActorType
 from app.core.business_time import business_day
 from app.models import QualityAlert
@@ -45,6 +47,7 @@ from app.models.enums import (
 )
 from app.models.quality_alerts import NOTE_MAX_LENGTH
 from app.services import contact_sequences, quality_alerts
+from app.services.contact_send_state import send_situations
 from app.services.contact_sequences import ProspectSequence
 from app.services.contact_workflow import PauseReason, step_code
 from app.services.prospection.query import iso_week
@@ -89,6 +92,8 @@ class PlaceOut(BaseModel):
     pause_reason: PauseReason | None
     email_error: bool
     max_follow_ups: int
+    # The effective schedule, or why a scheduled mail did not leave.
+    send: SendSituationOut | None = None
 
 
 class SendOut(BaseModel):
@@ -177,11 +182,13 @@ class AlertPageOut(BaseModel):
     offset: int
 
 
-def place_out(place: ProspectSequence) -> PlaceOut:
+def place_out(session: Session, prospect_id: uuid.UUID, place: ProspectSequence) -> PlaceOut:
+    situation = send_situations(session, [prospect_id]).get(prospect_id)
     progress = place.progress
     due = progress.next_due_at
     cohort = place.cohort
     return PlaceOut(
+        send=SendSituationOut.model_validate(situation) if situation else None,
         cohort=CohortRefOut.model_validate(cohort, from_attributes=True) if cohort else None,
         sequence_id=place.sequence_id,
         sequence_open=place.sequence_open,
@@ -226,7 +233,7 @@ def prospect_sequences(prospect_id: uuid.UUID, session: SessionDep) -> Sequences
     history = contact_sequences.sequence_history(session, prospect_id)
     return SequencesOut(
         prospect_id=prospect_id,
-        place=place_out(place),
+        place=place_out(session, prospect_id, place),
         sequences=[SequenceOut.model_validate(view, from_attributes=True) for view in history],
     )
 
@@ -241,7 +248,9 @@ def change_cohort(
             session, actor, prospect_id, body.cohort_id, now=datetime.now(UTC)
         )
     return CohortChangeOut(
-        place=place_out(contact_sequences.prospect_sequence(session, prospect_id)),
+        place=place_out(
+            session, prospect_id, contact_sequences.prospect_sequence(session, prospect_id)
+        ),
         changed=change.changed,
         resumed_from=change.resumed_from,
         cancelled_messages=change.messages.cancelled,

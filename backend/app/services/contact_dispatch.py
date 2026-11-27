@@ -105,6 +105,7 @@ from app.services.contact_message_cancellation import (
     state_cancel_reason,
 )
 from app.services.contact_remote_drafts import sync_remote_draft
+from app.services.contact_schedule_trace import forget_schedule_trace, leave_schedule
 from app.services.contact_sequences import SEQUENCE_CLOSED_REASON, has_email_error
 from app.services.contact_workflow import SEQUENCE_CLOSING_STATES
 from app.services.errors import ActorNotAllowedError, ContactMessageError, ToolboxError
@@ -372,8 +373,9 @@ def _back_to_validated(
     session: Session, message: ContactMessage, code: str, now: datetime, action: str
 ) -> None:
     """A scheduled message a person must review: the validation stays, the send moment and any
-    claim go, the code says why."""
+    claim go, the code says why; the moment is kept in the trace (`contact_schedule_trace`)."""
     audit.annotate(session, DISPATCH_ACTOR, message, action, reason=code)
+    leave_schedule(message, code, now)
     message.status = M.VALIDATED
     message.scheduled_at = None
     message.dispatch_claim_id = None
@@ -411,6 +413,7 @@ def _mark_sent(
     message.sent_source = source
     # The Toolbox returns no Message-ID (references/toolbox-capabilities.md).
     message.remote_message_id = None
+    forget_schedule_trace(message)
     message.last_error_code = code
     message.last_error_at = now if code else None
     session.flush()
@@ -1038,6 +1041,7 @@ def release(
     audit.annotate(
         session, actor, message, AuditAction.CONTACT_MESSAGE_DISPATCH_RELEASED, reason=RELEASED
     )
+    leave_schedule(message, RELEASED, moment)
     message.status = M.VALIDATED
     message.scheduled_at = None
     message.dispatch_claim_id = None
@@ -1117,6 +1121,7 @@ def hold_scheduled(session: Session, actor: ActorContext, now: datetime | None =
         audit.annotate(
             session, actor, message, AuditAction.CONTACT_MESSAGE_UNSCHEDULED, reason=HELD
         )
+        leave_schedule(message, HELD, moment)
         message.status = M.VALIDATED
         message.scheduled_at = None
         message.last_error_code = HELD

@@ -1,0 +1,25 @@
+/* The effective schedule (and unsent sends) said beside a prospect, wherever it is listed. */
+.send-lines { display: grid; gap: 2px; min-width: 0; font-size: var(--text-sm); overflow-wrap: anywhere; }
+.send-lines__why { color: var(--color-text-muted); }
+.send-lines--missed > span:first-child { color: var(--color-danger-fg); font-weight: 600; }
+.send-lines--unconfirmed > span:first-child { color: var(--color-warning-fg); font-weight: 600; }
+
+.unsent { display: grid; gap: var(--space-3); min-width: 0; padding: var(--space-4); border: 1px solid var(--color-danger-fg); border-radius: 10px; background: var(--color-surface); }
+.unsent__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.unsent__head h2 { display: flex; align-items: center; gap: var(--space-2); margin: 0; font-size: 16px; }
+.unsent__group { display: grid; gap: var(--space-3); min-width: 0; }
+.unsent__group h3 { display: flex; align-items: center; gap: var(--space-2); margin: 0; font-size: var(--text-sm); }
+.unsent__list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.unsent__row { display: grid; grid-template-columns: auto minmax(160px, 1fr) minmax(220px, 2fr) auto; align-items: center; gap: var(--space-3); min-width: 0; padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-surface-raised); }
+.unsent__who { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.unsent__who a { font-weight: 600; }
+.unsent__who span { color: var(--color-text-muted); font-size: var(--text-sm); }
+.unsent__flags { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); }
+.unsent__pick { width: 18px; height: 18px; }
+.unsent__actions { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-3); }
+.unsent__confirm { flex-basis: 100%; }
+.unsent__result { margin: 0; }
+@media (max-width: 720px) {
+  .unsent__row { grid-template-columns: auto minmax(0, 1fr); }
+  .unsent__row > .send-lines, .unsent__flags { grid-column: 2; justify-content: flex-start; }
+}

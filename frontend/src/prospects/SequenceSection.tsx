@@ -3,6 +3,7 @@ import { type ReactNode, useState } from 'react'
 import type { Prospect } from '../api/prospects'
 import { type Place, type Sequence, useProspectSequences, useSequenceMutations } from '../api/sequences'
 import { useProspectMutations } from '../api/prospects'
+import { SendBadge, SendLines } from '../contact/SendStatus'
 import { CohortBadge, DueBadge, EmailErrorBadge, LevelBadge, StateBadge } from '../prospection/ContactBadges'
 import { formatDay, stepLabel, TRACKING_LABELS } from '../prospection/labels'
 import { StatusBadge } from '../ui/Badge'
@@ -287,13 +288,22 @@ function SequenceBody({ prospect, place, sequences, onAction, notice, compact }:
           )}
         </Fact>
         <Fact label="Prochain envoi">
-          {place.next_due_on && place.next_step ? (
+          {place.send && (
             <span className="sequence-facts__line">
-              {stepLabel(place.next_step)} à envoyer le {formatDay(place.next_due_on)}
-              {isDue(place, prospect.today) && <DueBadge />}
+              <SendBadge send={place.send} />
+              <SendLines send={place.send} />
             </span>
+          )}
+          {place.next_due_on && place.next_step ? (
+            !(place.send?.step === place.next_step && (place.send.state === 'scheduled' || place.send.state === 'unconfirmed')) && (
+              <span className="sequence-facts__line">
+                {place.send ? 'Échéance théorique : ' : `${stepLabel(place.next_step)} à envoyer le `}
+                {formatDay(place.next_due_on)}
+                {isDue(place, prospect.today) && <DueBadge />}
+              </span>
+            )
           ) : (
-            <span className="sequence-facts__hint">{paused ?? '—'}</span>
+            !place.send && <span className="sequence-facts__hint">{paused ?? '—'}</span>
           )}
         </Fact>
         {(!compact || place.email_error) && (

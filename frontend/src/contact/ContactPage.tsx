@@ -12,6 +12,7 @@ import { CommercialList } from './CommercialList'
 import { ContactCapsules } from './ContactCapsules'
 import { ContactChart } from './ContactChart'
 import { ContactControls } from './ContactControls'
+import { UnsentSends } from './UnsentSends'
 import { WarehouseContacts } from './WarehouseContacts'
 import { activeView, buildCapsules, listPlan, readSummarySource, upcomingWeeks } from './commercialModel'
 import { bannerText } from './dispatchCopy'
@@ -117,6 +118,8 @@ export function ContactPage() {
         description="Qui contacter, qui relancer, qui a répondu."
         actions={<Link className="btn btn--primary btn--md" to="/prospection?prospect=new"><PlusIcon size={18} /> Ajouter un contact</Link>}
       />
+
+      <UnsentSends openHref={openHref} />
 
       <ContactCapsules capsules={capsules} active={key} loading={planning.isPending} error={planning.isError} onRetry={() => void planning.refetch()} />
 

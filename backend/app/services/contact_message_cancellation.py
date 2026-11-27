@@ -31,6 +31,7 @@ from app.models.enums import ContactMessageStatus, ContactTrackingStatus
 from app.services import audit
 from app.services.audit import AuditAction
 from app.services.contact_remote_drafts import detach_remote_draft
+from app.services.contact_schedule_trace import CANCELLED, leave_schedule
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +67,10 @@ def cancel_message(
     session: Session, message: ContactMessage, reason: str, moment: datetime
 ) -> None:
     """Move one unsent message to `cancelled` (the caller annotates the audit and checks the
-    status). Its remote draft (S6) is queued for deletion and detached."""
+    status). Its remote draft (S6) is queued for deletion and detached; a send moment it had
+    is kept in the trace."""
+    if message.status is M.SCHEDULED:
+        leave_schedule(message, CANCELLED, moment)
     message.status = M.CANCELLED
     message.cancelled_at = moment
     message.cancel_reason = reason

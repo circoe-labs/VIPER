@@ -5,6 +5,7 @@ import { historyKeys } from './history'
 import type { ActivityStatus, TrackingStatus } from './prospection'
 import { refreshAfterWrite } from './refresh'
 import type { ToolboxState } from './toolbox'
+import type { SendSituation } from './unsent'
 
 // Mirrors backend/app/api/routes/contact.py (the Contact dashboard and list) and contact_messages.py (the mail
 // sequence Contact / R1 / R2 of one prospect). Rules and refusal codes: doc/features/contact.md.
@@ -113,6 +114,8 @@ export interface ContactRow {
   primary_phone?: string | null
   last_contact_at?: string | null
   last_email_sent_at?: string | null
+  // The effective schedule, or why a scheduled mail did not leave (apart from `planned_contact_at`, the due date).
+  send?: SendSituation | null
 }
 
 export interface ContactPage {
@@ -216,6 +219,14 @@ export interface Message {
   // `toolbox_*`: the Infomaniak draft could not be created (S6); `send_*` / `dispatch_*`: the scheduled send (S7).
   last_error_code: string | null
   last_error_at: string | null
+  // A send moment that did not end in a send, why (a code) and when.
+  missed_scheduled_at?: string | null
+  missed_reason?: string | null
+  missed_at?: string | null
+  // Scheduled, and its Infomaniak draft was not found by the last check.
+  draft_missing?: boolean
+  // Scheduling it again needs the person's confirmation that they looked in the sent items.
+  needs_sent_check?: boolean
   created_at: string
   updated_at: string
 }
@@ -398,6 +409,7 @@ export interface ForgottenProspect {
   state: ForgottenState
   due_at: string | null
   overdue: boolean
+  send?: SendSituation | null
 }
 
 // A draft, validated or scheduled message and whose it is: what a click on a tile lists.
@@ -413,6 +425,8 @@ export interface PreparedMessage {
   status: 'draft' | 'validated' | 'scheduled'
   scheduled_at: string | null
   last_error_code: string | null
+  missed_scheduled_at?: string | null
+  missed_reason?: string | null
 }
 
 export interface Scheduling {
@@ -632,9 +646,9 @@ export function useMessageMutations(prospectId: string) {
         ]),
     }),
     schedule: useMutation({
-      mutationFn: ({ step, revision, at }: { step: MessageStep; revision: number; at: string }) =>
+      mutationFn: ({ step, revision, at, sentCheckConfirmed }: { step: MessageStep; revision: number; at: string; sentCheckConfirmed?: boolean }) =>
         apiRequest<MessageResult>('POST', path(step, 'schedule'), {
-          body: { expected_revision: revision, scheduled_at: at },
+          body: { expected_revision: revision, scheduled_at: at, ...(sentCheckConfirmed ? { sent_check_confirmed: true } : {}) },
         }),
       onSuccess: saved,
     }),
@@ -713,6 +727,8 @@ export interface ScheduleCohortsResult {
   refused: number
   missing: number
   remote_draft_failures: number
+  // Of the refused: an earlier send may have left, to check and reschedule from « Envois à reprendre ».
+  to_check?: number
 }
 
 export function useScheduleCohorts() {
