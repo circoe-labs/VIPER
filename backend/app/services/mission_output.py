@@ -32,6 +32,8 @@ ONE_ITEM_TYPES = frozenset({AgentTaskType.FIND_PROSPECTS, AgentTaskType.FIND_EMP
 OUTCOME_COMPLETED: Literal["completed"] = "completed"
 OUTCOME_NOT_FOUND = "not_found"
 OUTCOME_BLOCKED = "blocked"
+# The ways a task ends without proposing anything.
+NO_DATA_OUTCOMES = (OUTCOME_NOT_FOUND, OUTCOME_BLOCKED)
 
 # The result field that carries the items of a discovery-style task.
 LIST_FIELDS: dict[AgentTaskType, str] = {

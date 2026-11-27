@@ -108,6 +108,21 @@ def test_0065_maps_the_objectives_and_keeps_open_runs_working(
         recurring_run = _run(connection, recurring, {"result_limit": 20}, "done")
         _task(connection, recurring_run, "accepted")
 
+        # Launched three times by hand: the shortfall of the mission is created once.
+        several = _mission(connection, "Relancée", objective=goal)
+        runs = []
+        for hours in (3, 2, 1):
+            run = _run(connection, several, {"objective": goal}, "running")
+            connection.execute(
+                text(
+                    "UPDATE mission_runs SET scheduled_at = now() - make_interval(hours => :h) "
+                    "WHERE id = :id"
+                ),
+                {"h": hours, "id": run},
+            )
+            _task(connection, run, "pending")
+            runs.append(run)
+
     command.upgrade(config, "0065")
 
     with engine.connect() as connection:
@@ -123,10 +138,18 @@ def test_0065_maps_the_objectives_and_keeps_open_runs_working(
                 text("SELECT status FROM agent_tasks WHERE run_id = :run"), {"run": chained_run}
             ).scalars()
         )
+        per_run = [
+            connection.execute(
+                text("SELECT count(*) FROM agent_tasks WHERE run_id = :run"), {"run": run}
+            ).scalar_one()
+            for run in runs
+        ]
         claim = connection.execute(
             text("SELECT status, claim_id FROM agent_tasks WHERE id = :id"), {"id": held}
         ).one()
 
+    # 5 wanted, 3 open across the runs: 2 added, to the latest run only.
+    assert per_run == [1, 1, 3]
     assert missions["Chaîne"] == (5, "active")
     assert missions["Liste"] == (1, "done")  # one-off, every task finished
     assert missions["Hebdomadaire"] == (1, "active")

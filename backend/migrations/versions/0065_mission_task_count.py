@@ -8,8 +8,9 @@ Existing missions:
 - finding people at linked companies: never fewer than one task per company.
 
 Existing runs keep what they promised: each snapshot gets `items_per_task` (the old cap when the
-list form was allowed, else 1), so a task already claimed submits as it was told to. A running
-discovery run that was chaining one task at a time towards N items receives the missing tasks.
+list form was allowed, else 1), so a task already claimed submits as it was told to. A mission
+whose running discovery runs chained one task at a time towards N items receives its missing tasks
+once, in the latest of those runs.
 One-off active missions with every task finished are closed (the new rule).
 
 Revision ID: 0065
@@ -48,20 +49,15 @@ UPDATE missions m SET task_count = LEAST(500, GREATEST(1,
     END))
 """
 
-# The chain « one task after the other until N accepted items » no longer exists: a run caught in
-# it gets the tasks it still needs (items already accepted and open tasks deducted).
+# The chain « one task after the other until N accepted items » no longer exists: a mission caught
+# in it gets the tasks it still needs, once, in its most recent chaining run. N is deducted of the
+# items already accepted and of the open tasks of all its runs (a recurring mission: of its
+# chaining runs only, earlier occurrences had their own goal). A mission launched several times is
+# therefore not topped up once per run.
 TOP_UP = """
-WITH chained AS (
-    SELECT r.id AS run_id, m.agent_id,
-           LEAST(500, (COALESCE(r.config->'objective', m.objective)->>'count')::int)
-           - (SELECT COALESCE(sum(jsonb_array_length(
-                         COALESCE(res.accepted_items->'keys', '[]'::jsonb))), 0)
-                FROM agent_task_results res
-                JOIN agent_tasks t ON t.id = res.task_id
-               WHERE t.run_id = r.id AND res.status = 'accepted')
-           - (SELECT count(*) FROM agent_tasks t
-               WHERE t.run_id = r.id AND t.status IN ('pending', 'claimed', 'submitted'))
-           AS missing
+WITH chaining AS (
+    SELECT r.id AS run_id, r.mission_id, r.scheduled_at, m.agent_id, m.is_recurring,
+           LEAST(500, (COALESCE(r.config->'objective', m.objective)->>'count')::int) AS wanted
       FROM mission_runs r
       JOIN missions m ON m.id = r.mission_id
      WHERE r.status = 'running'
@@ -71,10 +67,31 @@ WITH chained AS (
                     WHERE t.run_id = r.id AND t.status IN ('pending', 'claimed', 'submitted'))
        AND NOT EXISTS (SELECT 1 FROM agent_tasks t
                         WHERE t.run_id = r.id AND t.type <> 'find_prospects')
+), latest AS (
+    SELECT DISTINCT ON (mission_id) *
+      FROM chaining
+     ORDER BY mission_id, scheduled_at DESC, run_id DESC
+), shortfall AS (
+    SELECT c.run_id, c.agent_id,
+           c.wanted
+           - (SELECT COALESCE(sum(jsonb_array_length(
+                         COALESCE(res.accepted_items->'keys', '[]'::jsonb))), 0)
+                FROM agent_task_results res
+                JOIN agent_tasks t ON t.id = res.task_id
+                JOIN mission_runs r ON r.id = t.run_id
+               WHERE r.mission_id = c.mission_id AND res.status = 'accepted'
+                 AND (NOT c.is_recurring OR r.id IN (SELECT run_id FROM chaining)))
+           - (SELECT count(*) FROM agent_tasks t
+                JOIN mission_runs r ON r.id = t.run_id
+               WHERE r.mission_id = c.mission_id
+                 AND t.status IN ('pending', 'claimed', 'submitted')
+                 AND (NOT c.is_recurring OR r.id IN (SELECT run_id FROM chaining)))
+           AS missing
+      FROM latest c
 )
 INSERT INTO agent_tasks (run_id, type, status, priority, assigned_agent_id)
 SELECT run_id, 'find_prospects', 'pending', 20, agent_id
-  FROM chained, generate_series(1, GREATEST(chained.missing, 0))
+  FROM shortfall, generate_series(1, GREATEST(shortfall.missing, 0))
 """
 
 RUN_CONFIGS = """

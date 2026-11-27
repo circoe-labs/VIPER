@@ -178,8 +178,9 @@ live strip, run list: `runs[].tasks_finished`), derived from server state only.
 count; otherwise the natural count of the old behaviour (1, one per company or record), never below
 one per linked company. Run snapshots lose `objective` / `allow_multiple` / `result_limit` and gain
 `items_per_task` (the old cap if the list form was allowed, so a held claim submits as promised) and
-`task_count`. An open discovery run that chained tasks towards N accepted items receives the missing
-tasks. Active one-off missions whose tasks are all finished are closed. Results are untouched.
+`task_count`. A mission whose open discovery runs chained tasks towards N accepted items receives its
+missing tasks once, in the latest of those runs (N minus the items accepted and the open tasks of all
+its runs; for a recurring mission, of those open runs only). Active one-off missions whose tasks are all finished are closed. Results are untouched.
 
 ## 5. What the agent receives
 

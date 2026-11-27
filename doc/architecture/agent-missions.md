@@ -287,7 +287,8 @@ Claimed agents can alternatively stage individual `viper_add_company`, `viper_up
 with identical data is idempotent; reusing it with different data is refused. Updates require the
 existing proposal capabilities and task-type scopes. Final `viper_submit_task_result` with an empty
 `result` packages all staged actions in one result and one selectable review. The actions are held
-through releases, failures and expired claims; the next claimant receives the staged actions.
+through an expired claim (the next claimant receives them); `release`, `leave_work`, `fail` and a
+`not_found` / `blocked` submission drop them, so a task is never stuck with an action it cannot submit.
 Cancellation clears them. They never write business records before human acceptance. Inside a
 mission run staging is bound by the output contract (an update names the task's own record, a
 discovery task of a mission stages one company; `wrong_target` / `too_many`, Slice 07).

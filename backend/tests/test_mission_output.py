@@ -7,6 +7,7 @@ from collections import Counter
 from time import perf_counter
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -297,6 +298,43 @@ def test_a_staged_duplicate_is_refused_while_another_can_still_be_staged(
     replaced = stage(second_token, second, "Beta")
     assert replaced["isError"] is False, replaced["structuredContent"]
     assert _submit(client, second_token, second, {})["isError"] is False
+
+
+@pytest.mark.parametrize("way", ["not_found", "release", "fail", "leave"])
+def test_a_staged_action_taken_by_a_sibling_never_traps_the_task(
+    client: TestClient, db_session: Session, way: str
+) -> None:
+    _discovery(client, 2)
+    first_token, first = _claim(client, db_session, "find_prospects")
+    second_token, second = _claim(client, db_session, "find_prospects")
+    ids = {"task_id": second["task_id"], "claim_id": second["claim_id"]}
+    staged = rpc(
+        client,
+        second_token,
+        "viper_add_company",
+        {**ids, "action_id": str(uuid.uuid4()), "company_data": _company("Alpha")},
+    )
+    assert staged["isError"] is False, staged["structuredContent"]
+    assert _submit(client, first_token, first, _companies("Alpha"))["isError"] is False
+
+    nothing = {"outcome": "not_found", "notes": "Rien d’autre.", "confidence": 0}
+    if way == "not_found":
+        done = _submit(client, second_token, second, nothing)
+    else:
+        tool, extra = {
+            "release": ("viper_release_task", ids),
+            "fail": ("viper_fail_task", {**ids, "code": "blocked", "message": "Rien."}),
+            "leave": ("viper_leave_work", {}),
+        }[way]
+        assert rpc(client, second_token, tool, extra)["isError"] is False
+        again = rpc(client, second_token, "viper_claim_task", {})["structuredContent"]
+        assert again["task_id"] == second["task_id"] and "staged_actions" not in again
+        done = _submit(client, second_token, again, nothing)
+
+    assert done["isError"] is False, done["structuredContent"]
+    task = db_session.get(AgentTask, uuid.UUID(second["task_id"]))
+    assert task is not None and task.staged_actions == []
+    assert task.status is AgentTaskStatus.ACCEPTED
 
 
 # --- finishing ----------------------------------------------------------------------------------

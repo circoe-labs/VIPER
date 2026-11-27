@@ -664,8 +664,11 @@ def test_task_actions_form_one_review_without_writes_before_acceptance(
     assert second["isError"] is False
     bad_claim = rpc(client, token, "viper_add_company", {**add_args, "claim_id": str(uuid.uuid4())})
     assert bad_claim["isError"] is True
-    released = rpc(client, token, "viper_release_task", base)
-    assert released["isError"] is False
+    # An expired lease keeps what was staged for the next claim (a release drops it).
+    held = db_session.get(AgentTask, uuid.UUID(claim["task_id"]))
+    assert held is not None
+    held.lease_expires_at = datetime.now(UTC) - timedelta(minutes=1)
+    db_session.flush()
     resumed = rpc(client, token, "viper_claim_task", {})["structuredContent"]
     assert len(resumed["staged_actions"]) == 2
     base = {"task_id": resumed["task_id"], "claim_id": resumed["claim_id"]}

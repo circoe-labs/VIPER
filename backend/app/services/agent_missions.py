@@ -514,6 +514,10 @@ def submit(
     """Store a submission as a proposal awaiting review. Never applies anything."""
     moment = _moment(now)
     task = _claimed(session, actor, task_id, claim_id, moment)
+    if raw.get("outcome") in mission_output.NO_DATA_OUTCOMES:
+        # « Nothing to propose » gives up what was staged: it may be what a sibling took since,
+        # which could otherwise be neither submitted nor replaced by this answer.
+        task.staged_actions = []
     if task.staged_actions:
         if raw:
             raise InvalidFieldError(
@@ -603,6 +607,8 @@ def fail(
     task = _claimed(session, actor, task_id, claim_id, now)
     task.failure_code = code[:64]
     task.failure_message = message
+    # Given back: the next claimant starts clean, never with an action it may be stuck with.
+    task.staged_actions = []
     # Asked before the claim is cleared: the query would flush a half-changed task.
     deposit = is_deposit_task(session, task)
     clear_claim(task)
@@ -641,6 +647,7 @@ def release_claimed(session: Session, actor: ActorContext, task: AgentTask) -> N
     not touch the agent's mission session."""
     deposit = is_deposit_task(session, task)
     clear_claim(task)
+    task.staged_actions = []
     # Handed back, a « Dépôt » job is dropped: nobody else is waiting to take it.
     task.status = AgentTaskStatus.CANCELLED if deposit else AgentTaskStatus.PENDING
     session.flush()
