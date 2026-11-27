@@ -6,15 +6,16 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
+from app.models import Email, Prospect, ProspectingHold, Warehouse, WarehouseDraft
+from app.models.enums import ActivityStatus, ContactabilityStatus, ContactMessageStatus
+from app.services import warehouse_addresses
+from app.services.contact_draft_check import check_scheduled_drafts
+from app.services.warehouse_dispatch import dispatch_warehouses
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Email, Prospect, ProspectingHold, Warehouse, WarehouseDraft
-from app.models.enums import ActivityStatus, ContactabilityStatus, ContactMessageStatus
-from app.services.contact_draft_check import check_scheduled_drafts
-from app.services.warehouse_dispatch import dispatch_warehouses
 from tests.builders import add_company, add_email, add_prospect, start_sequence
 from tests.fake_toolbox import FakeToolbox
 from tests.test_contact_dispatch import (
@@ -580,3 +581,80 @@ def test_two_explorer_changes_swapping_the_primary_keep_a_recipient(
 
     after = row(db_session, message["id"])
     assert (after.status, after.to_recipients) == (M.DRAFT, [two["address"]])
+
+
+# --- warehouse mails: grouped actions, shared and removed addresses -----------------------------
+
+
+def test_one_blocked_draft_never_holds_back_a_grouped_plan(
+    connected: TestClient, db_session: Session
+) -> None:
+    prospect = prospect_id(db_session)
+    address = ok(connected.get(f"/api/prospects/{prospect}"))["emails"][0]["address"]
+    mine = warehouse_draft(db_session, address)
+    other = warehouse_draft(db_session, "contact@example.test")
+    act(connected, "prospects", prospect, "archive")
+    db_session.expire_all()
+    items = [
+        {"id": str(d.id), "revision": db_session.get(WarehouseDraft, d.id).revision}
+        for d in (mine, other)
+    ]
+    body = {"scheduled_at": FUTURE.isoformat(), "drafts": items}
+
+    answer = ok(connected.post("/api/warehouses/drafts/plan-batch", json=body))
+
+    assert answer["scheduled"] == 1
+    (skipped,) = answer["skipped"]
+    assert (skipped["id"], skipped["code"]) == (str(mine.id), "prospect_archived")
+    assert skipped["contact_name"] and skipped["reason"]
+    db_session.expire_all()
+    assert db_session.get(WarehouseDraft, other.id).send_state == "planned"
+    assert db_session.get(WarehouseDraft, mine.id).send_state != "planned"
+
+
+def test_a_shared_address_keeps_its_mail_while_another_eligible_person_holds_it(
+    connected: TestClient, db_session: Session
+) -> None:
+    prospect, (one, two) = with_two_addresses(connected, db_session)
+    holder = add_prospect(db_session)
+    add_email(db_session, holder, two["address"])
+    draft = warehouse_draft(db_session, two["address"])
+    before = (draft.send_state, draft.human_validated, draft.revision)
+
+    save(connected, prospect, [alias(one)])
+
+    db_session.expire_all()
+    after = db_session.get(WarehouseDraft, draft.id)
+    assert (after.send_state, after.human_validated, after.revision) == before
+
+
+@pytest.mark.parametrize("block", ["depart", "oppose"])
+def test_a_new_validation_lifts_a_former_holders_block_but_never_an_opposition(
+    connected: TestClient, toolbox_app: FastAPI, fake: FakeToolbox, db_session: Session, block: str
+) -> None:
+    prospect, (one, two) = with_two_addresses(connected, db_session)
+    save(connected, prospect, [alias(one)])  # the second address is removed, by mistake
+    if block == "depart":
+        act(connected, "prospects", prospect, "depart", departure_reason="retired")
+    else:
+        version = ok(connected.get(f"/api/prospects/{prospect}"))["version"]
+        body = {"do_not_contact": True, "reason": "Asked", "version": version}
+        ok(connected.put(f"/api/prospects/{prospect}/contactability", json=body))
+    draft = warehouse_draft(db_session, two["address"])
+    warehouse = db_session.get(Warehouse, draft.warehouse_id)
+    warehouse.prospecting_category = "other"
+    draft.send_state, draft.scheduled_at = "planned", FUTURE
+    draft.validated_at, draft.human_validated = None, False
+    db_session.commit()
+    path = f"/api/warehouses/drafts/{draft.id}"
+
+    response = connected.post(f"{path}/validate", json={"revision": draft.revision})
+
+    if block == "oppose":
+        refused(response, 409, "prospect_do_not_contact")
+        return
+    ok(response)
+    db_session.expire_all()
+    found = db_session.get(WarehouseDraft, draft.id)
+    assert found.send_state == "scheduled"
+    assert warehouse_addresses.refusal(db_session, found) is None

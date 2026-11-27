@@ -3,8 +3,10 @@
   inset: 0;
   z-index: var(--z-overlay);
   display: grid;
-  /* One row bounded by the viewport, so a tall dialog scrolls its body instead of growing past the screen. */
+  /* One cell bounded by the viewport, so a tall or wide content scrolls inside the dialog instead of pushing it
+     past the screen. */
   grid-template-rows: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .dialog-layer--modal {
@@ -97,6 +99,9 @@
 
 .dialog__heading {
   display: grid;
+  /* A long name wraps: it never pushes the close button off the screen. */
+  min-width: 0;
+  overflow-wrap: anywhere;
   gap: var(--space-1);
   padding-top: var(--space-2);
 }
@@ -196,6 +201,11 @@
     flex-direction: column-reverse;
     align-items: stretch;
     gap: var(--space-3);
+  }
+
+  .dialog:not(.dialog--sheet) .dialog__header {
+    gap: var(--space-2);
+    padding-inline: var(--space-4);
   }
 
   .dialog__header-actions .btn:has(svg) {

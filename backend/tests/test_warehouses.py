@@ -237,7 +237,7 @@ def test_batch_schedule_is_atomic(client: TestClient, db_session: Session) -> No
         "/api/warehouses/drafts/plan-batch", json={"drafts": items, "scheduled_at": when}
     )
     assert response.status_code == 200, response.text
-    assert response.json() == {"scheduled": 2}
+    assert response.json() == {"scheduled": 2, "skipped": []}
     db_session.expire_all()
     assert all(db_session.get(WarehouseDraft, d.id).send_state == "planned" for d in drafts)
     assert all(not db_session.get(WarehouseDraft, d.id).human_validated for d in drafts)

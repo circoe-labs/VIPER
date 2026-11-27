@@ -75,7 +75,16 @@ Le destinataire d'un courrier entrepôt est un texte libre : il n'est pas rééc
   détient activement est relue dans le journal d'audit : un ancien détenteur bloqué la bloque toujours ; une adresse
   retirée (ou partie avec la fiche supprimée) après la dernière validation du courrier attend une nouvelle validation.
 - L'explorateur suit les adresses une fois pour tout le lot de modifications ; l'annulation d'un import les suit aussi.
-- Un simple changement d'adresse principale, l'ancienne restant active, ne touche pas les courriers entrepôt.
+- Un simple changement d'adresse principale, l'ancienne restant active, ne touche pas les courriers entrepôt, pas
+  plus que le retrait d'une adresse qu'une autre personne prospectable détient encore activement.
+- Adresse retirée d'une fiche et détenue par personne : si son ancien détenteur est ensuite bloqué (départ, archive,
+  exclusion), une nouvelle validation humaine du courrier, faite après le début du blocage, le lève ; une opposition
+  n'est jamais levée. Une adresse restée sur la fiche, même inactive, reste bloquée avec la personne.
+- Les actions groupées (préprogrammer, programmer, reprendre) laissent de côté les courriers bloqués, sans les
+  modifier, et les nomment avec la raison (`skipped`) ; les autres passent. Un courrier en échec ou sans date se
+  préprogramme seul depuis sa carte, sans retirer les validations des autres.
+- Le contrôle d'envoi (`warehouse_addresses.refusal`) vérifie aussi l'identité de l'adresse
+  ([`email-identity.md`](email-identity.md)).
 
 ## Compteurs
 

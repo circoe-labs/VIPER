@@ -73,6 +73,12 @@ export interface WarehouseDraft {
   identity_doubt?: IdentityDoubt | null
 }
 
+// A grouped action leaves out the blocked drafts (untouched) and says which and why.
+export interface WarehouseBatchResult {
+  scheduled: number
+  skipped: { id: string; contact_name: string; warehouse_name: string; code: string; reason: string }[]
+}
+
 export function useWarehouseDrafts() {
   return useQuery({ queryKey: ['warehouses', 'drafts'], queryFn: ({ signal }) => apiGet<WarehouseDraft[]>('/warehouses/drafts', signal), refetchInterval: 15000 })
 }
@@ -90,9 +96,9 @@ export function useWarehouseDraftActions() {
     schedule: useMutation({ mutationFn: ({ id, revision, scheduled_at }: { id: string; revision: number; scheduled_at: string }) => apiRequest<WarehouseDraft>('POST', `/warehouses/drafts/${id}/schedule`, { body: { revision, scheduled_at } }), onSuccess: refresh }),
     confirmRecipient: useMutation({ mutationFn: ({ id, revision }: { id: string; revision: number }) => apiRequest<WarehouseDraft>('POST', `/warehouses/drafts/${id}/confirm-recipient`, { body: { revision } }), onSuccess: refresh }),
     unschedule: useMutation({ mutationFn: ({ id, revision }: { id: string; revision: number }) => apiRequest<WarehouseDraft>('POST', `/warehouses/drafts/${id}/unschedule`, { body: { revision } }), onSuccess: refresh }),
-    scheduleBatch: useMutation({ mutationFn: (body: { scheduled_at: string; drafts: { id: string; revision: number }[] }) => apiRequest<{ scheduled: number }>('POST', '/warehouses/drafts/schedule-batch', { body }), onSuccess: refresh }),
-    planBatch: useMutation({ mutationFn: (body: { scheduled_at: string; drafts: { id: string; revision: number }[] }) => apiRequest<{ scheduled: number }>('POST', '/warehouses/drafts/plan-batch', { body }), onSuccess: refresh }),
-    recoverBatch: useMutation({ mutationFn: (body: { scheduled_at: string; confirmed_not_sent: true; drafts: { id: string; revision: number }[] }) => apiRequest<{ scheduled: number }>('POST', '/warehouses/drafts/recover-batch', { body }), onSuccess: refresh }),
+    scheduleBatch: useMutation({ mutationFn: (body: { scheduled_at: string; drafts: { id: string; revision: number }[] }) => apiRequest<WarehouseBatchResult>('POST', '/warehouses/drafts/schedule-batch', { body }), onSuccess: refresh }),
+    planBatch: useMutation({ mutationFn: (body: { scheduled_at: string; drafts: { id: string; revision: number }[] }) => apiRequest<WarehouseBatchResult>('POST', '/warehouses/drafts/plan-batch', { body }), onSuccess: refresh }),
+    recoverBatch: useMutation({ mutationFn: (body: { scheduled_at: string; confirmed_not_sent: true; drafts: { id: string; revision: number }[] }) => apiRequest<WarehouseBatchResult>('POST', '/warehouses/drafts/recover-batch', { body }), onSuccess: refresh }),
   }
 }
 

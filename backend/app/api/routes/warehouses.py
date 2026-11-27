@@ -1,5 +1,6 @@
 """Protected warehouse directory and its dedicated workbook import."""
 
+import logging
 import re
 import uuid
 from datetime import UTC, date, datetime
@@ -32,6 +33,7 @@ from app.services.warehouse_draft_text import apply_category
 from app.services.warehouses import WarehouseCounts, WarehouseInput, WarehouseOut, WarehousePage
 
 router = APIRouter(prefix="/warehouses", tags=["warehouses"])
+logger = logging.getLogger(__name__)
 
 
 class WarehouseDraftOut(BaseModel):
@@ -127,29 +129,71 @@ def locked_draft(session: SessionDep, draft_id: uuid.UUID, revision: int) -> War
     return draft
 
 
-def refuse_blocked(session: SessionDep, draft: WarehouseDraft, *, deciding: bool = False) -> None:
-    """The one send check (`warehouse_addresses.refusal`) said to a person: nothing is prepared to
-    leave to someone, or a company, removed from prospecting, to a removed address without a new
-    validation (`deciding`: this is that validation), or to an address that looks like someone
-    else's."""
+def blocked_reason(
+    session: SessionDep, draft: WarehouseDraft, *, deciding: bool = False
+) -> tuple[str, str] | None:
+    """The one send check (`warehouse_addresses.refusal`) said to a person, as (code, why in
+    French): nothing is prepared to leave to someone, or a company, removed from prospecting, to a
+    removed address without a new validation (`deciding`: this is that validation), or to an
+    address that looks like someone else's. None when the mail may leave."""
     code = warehouse_addresses.refusal(session, draft, deciding=deciding)
     if code is None:
-        return
+        return None
     if code == email_identity.CODE:
         doubt = email_identity.warehouse_doubt(session, draft)
         label = email_identity.LABELS[doubt.reason] if doubt else "douteuse"
-        raise refusal(
-            409,
-            code,
-            f"Envoi impossible pour {draft.contact_name} : l’adresse est {label}. "
-            "Corrigez-la ou confirmez-la.",
+        return code, f"l’adresse est {label} : corrigez-la ou confirmez-la"
+    if code == RECIPIENT_CHANGED:
+        return code, "l’adresse du destinataire a changé, validez à nouveau le message"
+    return code, eligibility.LABELS[eligibility.Block(code)].lower()
+
+
+def refuse_blocked(session: SessionDep, draft: WarehouseDraft, *, deciding: bool = False) -> None:
+    found = blocked_reason(session, draft, deciding=deciding)
+    if found is not None:
+        raise refusal(409, found[0], f"Envoi impossible pour {draft.contact_name} : {found[1]}.")
+
+
+class SkippedDraft(BaseModel):
+    id: uuid.UUID
+    contact_name: str
+    warehouse_name: str
+    code: str
+    reason: str
+
+
+class BatchOut(BaseModel):
+    scheduled: int
+    # Blocked drafts, left exactly as they were: the others are not held back by them.
+    skipped: list[SkippedDraft]
+
+
+def split_blocked(
+    session: SessionDep, drafts: list[WarehouseDraft], *, deciding: bool = False
+) -> tuple[list[WarehouseDraft], list[SkippedDraft]]:
+    free: list[WarehouseDraft] = []
+    skipped: list[SkippedDraft] = []
+    for draft in drafts:
+        found = blocked_reason(session, draft, deciding=deciding)
+        if found is None:
+            free.append(draft)
+            continue
+        skipped.append(
+            SkippedDraft(
+                id=draft.id,
+                contact_name=draft.contact_name,
+                warehouse_name=draft.warehouse_name,
+                code=found[0],
+                reason=found[1],
+            )
         )
-    reason = (
-        "l’adresse du destinataire a changé, validez à nouveau le message"
-        if code == RECIPIENT_CHANGED
-        else eligibility.LABELS[eligibility.Block(code)].lower()
-    )
-    raise refusal(409, code, f"Envoi impossible : {reason}.")
+    if skipped:
+        logger.info(
+            "warehouse_draft.batch_skipped skipped=%s codes=%s",
+            len(skipped),
+            ",".join(sorted({item.code for item in skipped})),
+        )
+    return free, skipped
 
 
 @router.put("/drafts/{draft_id}", response_model=WarehouseDraftOut)
@@ -288,7 +332,7 @@ def schedule_draft(
 @router.post("/drafts/plan-batch")
 def plan_draft_batch(
     body: WarehouseDraftBatchSchedule, session: SessionDep, actor: CurrentActor
-) -> dict[str, int]:
+) -> BatchOut:
     if body.scheduled_at <= datetime.now(UTC):
         raise HTTPException(422, "Choisissez une date et une heure futures.")
     ids = [item.id for item in body.drafts]
@@ -304,8 +348,7 @@ def plan_draft_batch(
         for d in drafts
     ):
         raise HTTPException(409, "Un brouillon a changé ou ne peut pas être préprogrammé.")
-    for draft in drafts:
-        refuse_blocked(session, draft, deciding=True)
+    drafts, skipped = split_blocked(session, drafts, deciding=True)
     for draft in drafts:
         draft.scheduled_at = body.scheduled_at
         draft.send_state = "planned"
@@ -315,13 +358,13 @@ def plan_draft_batch(
         draft.human_validated = False
         draft.revision += 1
         audit.record_event(session, actor, "warehouse_draft.planned", entity_type="warehouse_draft", entity_id=draft.id)
-    return {"scheduled": len(drafts)}
+    return BatchOut(scheduled=len(drafts), skipped=skipped)
 
 
 @router.post("/drafts/schedule-batch")
 def schedule_draft_batch(
     body: WarehouseDraftBatchSchedule, session: SessionDep, actor: CurrentActor
-) -> dict[str, int]:
+) -> BatchOut:
     if body.scheduled_at <= datetime.now(UTC):
         raise HTTPException(422, "Choisissez une date et une heure futures.")
     ids = [item.id for item in body.drafts]
@@ -338,8 +381,8 @@ def schedule_draft_batch(
     )
     if len(drafts) != len(ids):
         raise HTTPException(409, "Un brouillon est introuvable. Rechargez la liste.")
+    drafts, skipped = split_blocked(session, drafts)
     for draft in drafts:
-        refuse_blocked(session, draft)
         if draft.revision != expected[draft.id] or draft.send_state in (
             "scheduled",
             "sending",
@@ -375,13 +418,13 @@ def schedule_draft_batch(
             entity_type="warehouse_draft",
             entity_id=draft.id,
         )
-    return {"scheduled": len(drafts)}
+    return BatchOut(scheduled=len(drafts), skipped=skipped)
 
 
 @router.post("/drafts/recover-batch")
 def recover_uncertain_draft_batch(
     body: WarehouseDraftBatchRecovery, session: SessionDep, actor: CurrentActor
-) -> dict[str, int]:
+) -> BatchOut:
     """Reprogram approved mails only after a person confirms the mailbox check.
 
     Unknown sends with a saved remote draft id stay locked: they need individual reconciliation.
@@ -402,8 +445,8 @@ def recover_uncertain_draft_batch(
     )
     if len(drafts) != len(ids):
         raise HTTPException(409, "Un brouillon est introuvable. Rechargez la liste.")
+    drafts, skipped = split_blocked(session, drafts)
     for draft in drafts:
-        refuse_blocked(session, draft)
         if draft.revision != expected[draft.id] or not draft.recovery_possible:
             raise HTTPException(
                 409,
@@ -429,7 +472,7 @@ def recover_uncertain_draft_batch(
             entity_id=draft.id,
             reason="Reprogrammé après confirmation humaine de l’absence dans les envoyés et brouillons Infomaniak.",
         )
-    return {"scheduled": len(drafts)}
+    return BatchOut(scheduled=len(drafts), skipped=skipped)
 
 
 @router.post("/drafts/{draft_id}/unschedule", response_model=WarehouseDraftOut)

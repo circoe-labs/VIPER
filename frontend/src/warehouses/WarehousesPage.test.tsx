@@ -92,7 +92,7 @@ describe('Warehouse directory', () => {
   })
   it('schedules the eligible drafts together after confirmation', async () => {
     const draft = { id: 'draft-1', prospecting_category: 'sme', warehouse_name: 'Entrepôt Exemple', contact_name: 'Anne Test', contact_role: 'Responsable', source_email: 'a@example.test', recipient: 'a@example.test', subject: 'Prise de contact', body: 'Bonjour', review_note: 'À vérifier', revision: 1, validated_at: null, validated_by: null, send_state: null, scheduled_at: null }
-    stubApi({ ...API, 'GET /api/warehouses': [200, { items: [ROW], total: 1 }], 'GET /api/warehouses/drafts': [200, [draft]], 'GET /api/warehouses/drafts/dispatch-status': [200, { active: true }], 'POST /api/warehouses/drafts/plan-batch': [200, { scheduled: 1 }] })
+    stubApi({ ...API, 'GET /api/warehouses': [200, { items: [ROW], total: 1 }], 'GET /api/warehouses/drafts': [200, [draft]], 'GET /api/warehouses/drafts/dispatch-status': [200, { active: true }], 'POST /api/warehouses/drafts/plan-batch': [200, { scheduled: 1, skipped: [] }] })
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
     renderApp('/prospection/warehouse-drafts')
     await userEvent.click(await screen.findByRole('button', { name: 'Brouillons PME/TPE (1)' }))
@@ -102,6 +102,23 @@ describe('Warehouse directory', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Pr\u00e9programmer tous les messages' }))
     expect(await screen.findByText('1 messages préprogrammés. Validez chaque message pour autoriser son envoi.')).toBeVisible()
     confirm.mockRestore()
+  })
+  it('names the drafts a grouped plan left out, and plans a failed one alone', async () => {
+    const draft = { id: 'draft-1', prospecting_category: 'sme', warehouse_name: 'Site', contact_name: 'Anne Test', contact_role: null, source_email: 'a@example.test', recipient: 'a@example.test', subject: 'Objet', body: 'Bonjour', review_note: '', revision: 3, validated_at: null, validated_by: null, send_state: 'failed', scheduled_at: null }
+    const skipped = [{ id: 'draft-1', contact_name: 'Anne Test', warehouse_name: 'Site', code: 'prospect_archived', reason: 'fiche archivée' }]
+    const fetched = stubApi({ ...API, 'GET /api/warehouses': [200, { items: [ROW], total: 1 }], 'GET /api/warehouses/drafts': [200, [draft, { ...draft, id: 'draft-2', contact_name: 'Autre', send_state: 'planned', scheduled_at: '2099-05-01T10:30:00Z' }]], 'GET /api/warehouses/drafts/dispatch-status': [200, { active: true }], 'POST /api/warehouses/drafts/plan-batch': [200, { scheduled: 0, skipped }] })
+    renderApp('/prospection/warehouse-drafts')
+    await userEvent.click(await screen.findByRole('button', { name: 'Brouillons PME/TPE (2)' }))
+    await userEvent.click(await screen.findByText('Anne Test'))
+    await userEvent.type(screen.getByLabelText('Date et heure de ce message'), '2099-05-02T09:00')
+    await userEvent.click(screen.getByRole('button', { name: 'Préprogrammer ce message' }))
+    expect(await screen.findByText('Préprogrammation impossible : fiche archivée.')).toBeVisible()
+    const [one] = fetched.mock.calls.filter(([url]) => url.endsWith('/plan-batch'))
+    expect(one?.[1]?.body).toContain('"drafts":[{"id":"draft-1","revision":3}]')
+    await userEvent.clear(screen.getByLabelText('Date et heure pour tous les messages'))
+    await userEvent.type(screen.getByLabelText('Date et heure pour tous les messages'), '2099-05-03T09:00')
+    await userEvent.click(screen.getByRole('button', { name: 'Préprogrammer tous les messages' }))
+    expect(await screen.findByRole('list', { name: 'Messages non programmés' })).toHaveTextContent('Anne Test · Site : fiche archivée')
   })
   it('allows editing a scheduled draft without removing its schedule', async () => {
     const draft = { id: 'draft-1', phase: 2, prospecting_category: 'sme', warehouse_name: 'Site', contact_name: 'Anne Test', contact_role: null, source_email: 'a@example.test', recipient: 'a@example.test', subject: 'Objet', body: 'Bonjour', review_note: 'À vérifier', revision: 1, validated_at: '2026-11-12T10:00:00Z', validated_by: 'Lucie', human_validated: true, send_state: 'scheduled', scheduled_at: '2099-05-01T10:30:00Z' }

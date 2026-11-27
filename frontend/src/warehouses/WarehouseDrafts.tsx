@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError } from '../api/client'
-import { type WarehouseDraft, useWarehouseDispatchStatus, useWarehouseDraftActions, useWarehouseDrafts } from '../api/warehouses'
+import { type WarehouseBatchResult, type WarehouseDraft, useWarehouseDispatchStatus, useWarehouseDraftActions, useWarehouseDrafts } from '../api/warehouses'
 import { Button, IconButton } from '../ui/Button'
 import { TextAreaField, TextField } from '../ui/fields'
 import { ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon } from '../ui/icons'
@@ -18,6 +18,15 @@ function belongsToGroup(item: WarehouseDraft, group: string): boolean {
   return (item.send_state === 'planned' || item.send_state === 'scheduled') && item.scheduled_at !== null && new Date(item.scheduled_at).getTime() === new Date(group).getTime()
 }
 
+// The drafts a grouped action left out, each named with its reason.
+function Skipped({ items }: { items: WarehouseBatchResult['skipped'] }) {
+  if (items.length === 0) return null
+  return <div role="alert" className="warehouse-error">
+    <p>{items.length} message{items.length > 1 ? 's' : ''} non programmé{items.length > 1 ? 's' : ''} :</p>
+    <ul aria-label="Messages non programmés">{items.map((item) => <li key={item.id}>{item.contact_name} · {item.warehouse_name} : {item.reason}</li>)}</ul>
+  </div>
+}
+
 function DraftCard({ draft, dispatchActive, open, onToggle, onMove, onValidated, onDirtyChange, position, total }: {
   draft: WarehouseDraft; dispatchActive: boolean; open: boolean; onToggle: () => void
   onMove: (direction: -1 | 1) => void; onValidated: () => void; position: number; total: number
@@ -28,6 +37,7 @@ function DraftCard({ draft, dispatchActive, open, onToggle, onMove, onValidated,
   const [body, setBody] = useState(draft.body)
   const [baseline, setBaseline] = useState(draft)
   const [error, setError] = useState('')
+  const [planWhen, setPlanWhen] = useState('')
   const actions = useWarehouseDraftActions()
   const dirty = recipient !== (baseline.recipient ?? '') || subject !== baseline.subject || body !== baseline.body
   useEffect(() => { onDirtyChange(draft.id, dirty) }, [draft.id, dirty, onDirtyChange])
@@ -37,7 +47,7 @@ function DraftCard({ draft, dispatchActive, open, onToggle, onMove, onValidated,
     setSubject(draft.subject)
     setBody(draft.body)
   }
-  const busy = actions.save.isPending || actions.validate.isPending || actions.schedule.isPending || actions.unschedule.isPending || actions.confirmRecipient.isPending
+  const busy = actions.save.isPending || actions.validate.isPending || actions.schedule.isPending || actions.unschedule.isPending || actions.confirmRecipient.isPending || actions.planBatch.isPending
   const locked = ['sending', 'uncertain', 'sent'].includes(draft.send_state ?? '')
   const valid = Boolean(draft.validated_at) && !dirty
   const humanReviewed = draft.human_validated === true && !dirty
@@ -67,6 +77,17 @@ function DraftCard({ draft, dispatchActive, open, onToggle, onMove, onValidated,
       const reason = typeof message === 'string' ? message : ''
       setError(reason ? `Validation impossible. ${reason}` : 'Validation impossible. Vérifiez la date, l’adresse, la civilité, le nom, l’entreprise, la fonction et la mention DIHNAMO.')
     }
+  }
+  // This message alone gets a date again: the other drafts, and their validations, are not touched.
+  async function planAlone() {
+    setError('')
+    const at = new Date(planWhen)
+    if (!planWhen || !Number.isFinite(at.getTime()) || at.getTime() <= Date.now()) { setError('Choisissez une date et une heure futures.'); return }
+    try {
+      const result = await actions.planBatch.mutateAsync({ scheduled_at: at.toISOString(), drafts: [{ id: draft.id, revision: draft.revision }] })
+      const skipped = result.skipped[0]
+      if (skipped) setError(`Préprogrammation impossible : ${skipped.reason}.`)
+    } catch { setError('Préprogrammation impossible. Rechargez la liste puis réessayez.') }
   }
   async function confirmRecipient() {
     setError('')
@@ -104,6 +125,10 @@ function DraftCard({ draft, dispatchActive, open, onToggle, onMove, onValidated,
       {draft.send_state === 'failed' && <p role="alert">Envoi non effectué : vérifiez les paramètres d’envoi et l’adresse avant de reprogrammer.</p>}
       {!dispatchActive && draft.send_state !== 'sent' && <p role="status">L’envoi automatique est inactif : ce message ne partira pas tant qu’il ne sera pas activé et que la Toolbox ne sera pas connectée.</p>}
       {error && <p className="warehouse-error" role="alert">{error}</p>}
+      {(draft.send_state === null || draft.send_state === 'failed') && <div className="warehouse-draft__actions">
+        <TextField label="Date et heure de ce message" type="datetime-local" value={planWhen} onChange={(e) => { setPlanWhen(e.target.value) }} />
+        <Button disabled={!planWhen || dirty || busy} loading={actions.planBatch.isPending} onClick={() => void planAlone()}>Préprogrammer ce message</Button>
+      </div>}
       <div className="warehouse-draft__actions">
         {!locked && <Button disabled={!dirty || busy} onClick={() => void save()}>Enregistrer</Button>}
         {!locked && <Button disabled={busy || !recipient || !['planned', 'scheduled'].includes(draft.send_state ?? '')} onClick={() => void validate()}>Validé et continuer</Button>}
@@ -127,6 +152,8 @@ export function WarehouseDrafts({ category }: { category: 'sme' | 'other' | 'unc
   const [batchWhen, setBatchWhen] = useState<string | null>(null)
   const [batchError, setBatchError] = useState('')
   const [batchSuccess, setBatchSuccess] = useState('')
+  const [batchSkipped, setBatchSkipped] = useState<WarehouseBatchResult['skipped']>([])
+  const [recoverySkipped, setRecoverySkipped] = useState<WarehouseBatchResult['skipped']>([])
   const [recoveryWhen, setRecoveryWhen] = useState('')
   const [recoveryConfirmed, setRecoveryConfirmed] = useState(false)
   const [recoveryError, setRecoveryError] = useState('')
@@ -203,16 +230,19 @@ export function WarehouseDrafts({ category }: { category: 'sme' | 'other' | 'unc
   async function scheduleAll() {
     setBatchError('')
     setBatchSuccess('')
+    setBatchSkipped([])
     const at = new Date(batchDate)
     if (!batchDate || !Number.isFinite(at.getTime()) || at.getTime() <= Date.now()) { setBatchError('Choisissez une date et une heure futures.'); return }
     try {
       const result = await actions.planBatch.mutateAsync({ scheduled_at: at.toISOString(), drafts: eligible.map(({ id, revision }) => ({ id, revision })) })
+      setBatchSkipped(result.skipped)
       setBatchSuccess(`${String(result.scheduled)} messages préprogrammés. Validez chaque message pour autoriser son envoi.`)
     } catch { setBatchError('Programmation groupée impossible. Rechargez la liste et vérifiez les destinataires et les messages.') }
   }
   async function recoverAll() {
     setRecoveryError('')
     setRecoverySuccess('')
+    setRecoverySkipped([])
     const at = new Date(recoveryWhen)
     if (!recoveryConfirmed) { setRecoveryError('Confirmez d’abord la vérification de la boîte Infomaniak.'); return }
     if (!recoveryWhen || !Number.isFinite(at.getTime()) || at.getTime() <= Date.now()) { setRecoveryError('Choisissez une date et une heure futures.'); return }
@@ -223,6 +253,7 @@ export function WarehouseDrafts({ category }: { category: 'sme' | 'other' | 'unc
         confirmed_not_sent: true,
         drafts: recoveryEligible.map(({ id, revision }) => ({ id, revision })),
       })
+      setRecoverySkipped(result.skipped)
       setRecoverySuccess(`${String(result.scheduled)} messages reprogrammés. Leur validation et leur contenu sont conservés.`)
       setRecoveryConfirmed(false)
     } catch { setRecoveryError('Reprogrammation impossible. Rechargez la liste : un message a peut-être changé depuis la vérification.') }
@@ -246,6 +277,7 @@ export function WarehouseDrafts({ category }: { category: 'sme' | 'other' | 'unc
       <p className="warehouse-muted">La date est commune à tous les brouillons. Une nouvelle préprogrammation retire les validations précédentes ; chaque message doit ensuite être validé pour autoriser son envoi.</p>
       {batchError && <p role="alert" className="warehouse-error">{batchError}</p>}
       {batchSuccess && <p role="status">{batchSuccess}</p>}
+      <Skipped items={batchSkipped} />
     </div>}
     {!reviewSchedule && recoveryEligible.length > 0 && <div className="warehouse-draft__content warehouse-draft">
       <h3>Reprogrammer les envois à vérifier</h3>
@@ -257,6 +289,7 @@ export function WarehouseDrafts({ category }: { category: 'sme' | 'other' | 'unc
       {recoveryError && <p role="alert" className="warehouse-error">{recoveryError}</p>}
       {recoverySuccess && <p role="status">{recoverySuccess}</p>}
     </div>}
+    {!reviewSchedule && <Skipped items={recoverySkipped} />}
     {validationNotice && <p role="status" className="warehouse-notice">{validationNotice}</p>}
     {items.length === 0 && <p className="warehouse-muted">Aucun brouillon pour le moment.</p>}
     {items.map((draft, index) => <DraftCard draft={draft} dispatchActive={dispatch.data?.active === true} key={draft.id} open={openDraft === draft.id} onDirtyChange={onDirtyChange} onToggle={() => { setValidationNotice(''); setOpenDraft((current) => current === draft.id ? null : draft.id) }} onMove={(direction) => { setValidationNotice(''); moveDraft(index + direction) }} onValidated={() => moveAfterValidation(index)} position={index + 1} total={items.length} />)}
