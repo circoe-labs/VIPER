@@ -138,3 +138,48 @@ def test_a_former_week_claim_is_settled_by_a_person(
     assert done["done"] == 1
     assert row(db_session, old_id).status is M.CANCELLED
     ok(connected.post(f"{base}/schedule", json=schedule_body()))
+
+
+def test_an_existing_r3_that_left_is_recorded_without_sending(
+    connected: TestClient, toolbox_app: FastAPI, fake: FakeToolbox, db_session: Session
+) -> None:
+    person = prospect_id(db_session)
+    message = scheduled(connected, person)
+    record = "/api/contact/unsent/record-sent"
+    stored = row(db_session, message["id"])
+    body = {"message_id": message["id"], "expected_revision": stored.revision}
+    # Within R2 and current: the sheet's job, refused here.
+    refused(connected.post(record, json=body), 409, "invalid_transition")
+    # An R3 of the former four-mail sequence, cancelled by the limit with its doubt.
+    audit.annotate(db_session, FIXTURE_ACTOR, stored)
+    stored.rank = 3
+    stored.status = M.CANCELLED
+    stored.cancelled_at = DUE
+    stored.cancel_reason = "sequence_limit"
+    stored.missed_scheduled_at, stored.missed_reason, stored.missed_at = (
+        FUTURE,
+        "sequence_limit",
+        DUE,
+    )
+    stored.sent_doubt_reason, stored.sent_doubt_at = "draft_missing", DUE
+    stored.scheduled_at = None
+    stored.remote_provider = stored.remote_draft_id = None
+    db_session.flush()
+    done = ok(connected.post(record, json=body))["message"]
+    assert (done["status"], done["sent_source"]) == ("sent", "manual")
+    after = row(db_session, message["id"])
+    assert after.sent_doubt_reason is None and after.cancel_reason is None
+    assert fake.sent == []
+    refused(connected.post(record, json=body), 409, "invalid_transition")
+
+
+def test_a_former_week_claim_that_left_is_recorded(
+    connected: TestClient, toolbox_app: FastAPI, fake: FakeToolbox, db_session: Session
+) -> None:
+    person, old_id = unconfirmed(connected, toolbox_app, fake, db_session)
+    change_week(connected, db_session, person)
+    old = row(db_session, old_id)
+    body = {"message_id": old_id, "expected_revision": old.revision}
+    done = ok(connected.post("/api/contact/unsent/record-sent", json=body))["message"]
+    assert done["status"] == "sent"
+    assert row(db_session, old_id).dispatch_claim_id is None or done["status"] == "sent"

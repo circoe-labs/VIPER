@@ -5,16 +5,20 @@ import { type RecoveryResult, type RecoveryTarget, type UnsentItem, useRecoveryM
 import { StatusBadge } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { Checkbox, TextField } from '../ui/fields'
-import { AlertIcon, CalendarIcon, RefreshIcon, SpinnerIcon } from '../ui/icons'
+import { AlertIcon, CalendarIcon, CheckCircleIcon, RefreshIcon, SpinnerIcon } from '../ui/icons'
 import { InfoTip } from '../ui/InfoTip'
+import { ConfirmDialog } from './ConfirmDialog'
 import { FROM_LIST } from './criteria'
 import { formatDateTime, formatShortDateTime } from './labels'
 import { localDay, localZoneLabel, scheduleToIso } from './mailModel'
 import { messageRefusal } from './messages'
 import { SendBadge, SendLines } from './SendStatus'
 
-const keyOf = (item: UnsentItem) => `${item.prospect_id}:${String(item.send.rank)}`
+// By message: an old week's doubtful mail and the current one of the same step are two rows.
+const keyOf = (item: UnsentItem) => item.message_id
 const nameOf = (item: UnsentItem) => [item.first_name, item.last_name].filter(Boolean).join(' ') || 'Sans nom'
+// R2: the last step a sheet marks as sent.
+const MAX_RANK = 2
 const plural = (count: number, one: string, many: string) => `${String(count)} ${count > 1 ? many : one}`
 
 const REFUSALS: Record<string, string> = {
@@ -34,6 +38,11 @@ const REFUSALS: Record<string, string> = {
   company_excluded: 'entreprise exclue',
   email_identity_doubt: 'identité e-mail à vérifier',
 }
+
+// A mail that left although VIPER does not know it, where the sheet cannot say so: beyond R2 (the sequence stops
+// there), or still locked in a former contact week.
+const recordable = (item: UnsentItem) =>
+  (item.send.rank > MAX_RANK && (item.kind === 'doubt' || item.kind === 'unconfirmed')) || (!item.current && item.kind === 'unconfirmed')
 
 function resultText(done: string, result: RecoveryResult, items: UnsentItem[]): string {
   const parts = [done]
@@ -89,12 +98,14 @@ function Group({ title, help, items, openHref, action, mutations, onResult }: Gr
   const [date, setDate] = useState('')
   const [time, setTime] = useState('')
   const [problem, setProblem] = useState<string | null>(null)
+  // The mail being declared sent, asked once more before it is recorded.
+  const [declaring, setDeclaring] = useState<UnsentItem | null>(null)
 
   const eligible = items.filter((item) => selectable(item, action))
   const chosen = eligible.filter((item) => picked.has(keyOf(item)))
   const toCheck = chosen.filter((item) => item.send.needs_sent_check)
   const schedulable = action === 'recreate' ? chosen : chosen.filter(canReschedule)
-  const busy = mutations.reschedule.isPending || mutations.recreate.isPending || mutations.confirm.isPending
+  const busy = mutations.reschedule.isPending || mutations.recreate.isPending || mutations.confirm.isPending || mutations.recordSent.isPending
   const unconfirmed = toCheck.length > 0 && !checked
 
   // A new selection is a new question: the confirmation never carries over to messages it did not cover.
@@ -153,6 +164,13 @@ function Group({ title, help, items, openHref, action, mutations, onResult }: Gr
     })
   }
 
+  function recordSent(item: UnsentItem) {
+    void run(async () => {
+      await mutations.recordSent.mutateAsync({ message_id: item.message_id, expected_revision: item.revision })
+      return `${covered(item)} : enregistré comme envoyé.`
+    }).finally(() => { setDeclaring(null) })
+  }
+
   function confirmNotSent() {
     void run(async () => {
       const answer = await mutations.confirm.mutateAsync(
@@ -204,6 +222,11 @@ function Group({ title, help, items, openHref, action, mutations, onResult }: Gr
               {!item.current && <StatusBadge tone="neutral">Ancienne semaine de contact</StatusBadge>}
               {item.status === 'draft' && <StatusBadge tone="neutral">À revalider</StatusBadge>}
               {item.status === 'cancelled' && <StatusBadge tone="neutral">Annulé</StatusBadge>}
+              {recordable(item) && (
+                <Button size="sm" icon={CheckCircleIcon} disabled={busy} aria-label={`Marquer comme envoyé : ${covered(item)}`} onClick={() => { setDeclaring(item) }}>
+                  Marquer comme envoyé
+                </Button>
+              )}
             </span>
           </li>
         ))}
@@ -259,6 +282,19 @@ function Group({ title, help, items, openHref, action, mutations, onResult }: Gr
         </p>
       )}
       {problem && <p className="field__error" role="alert"><AlertIcon size={16} />{problem}</p>}
+      <ConfirmDialog
+        confirmation={declaring && {
+          title: 'Marquer ce mail comme envoyé ?',
+          lines: [
+            covered(declaring),
+            'Confirmez seulement après l’avoir trouvé dans les éléments envoyés d’Infomaniak. L’envoi est inscrit dans l’historique ; VIPER n’envoie rien.',
+          ],
+          confirmLabel: 'Marquer envoyé',
+        }}
+        busy={mutations.recordSent.isPending}
+        onConfirm={() => { if (declaring) recordSent(declaring) }}
+        onClose={() => { setDeclaring(null) }}
+      />
     </div>
   )
 }

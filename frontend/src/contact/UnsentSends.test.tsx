@@ -88,4 +88,27 @@ describe('Contact › Envois à reprendre', () => {
     const [confirmed] = sent(api.requests, 'POST', '/api/contact/unsent/confirm-not-sent')
     expect(confirmed?.body).toEqual({ items: [{ message_id: 'message-p2', expected_revision: 1 }] })
   })
+  it('keeps two mails of one step apart, and records an existing R3 as sent', async () => {
+    const user = userEvent.setup()
+    const old: UnsentItem = { ...item('p3', 'Double', 'send_not_confirmed', true), message_id: 'message-old', current: false, status: 'cancelled' }
+    const now: UnsentItem = { ...item('p3', 'Double', 'send_not_confirmed', true), message_id: 'message-new' }
+    const base = item('p4', 'Ancienne', 'send_not_confirmed', true)
+    const third: UnsentItem = { ...base, status: 'cancelled', send: { ...base.send, rank: 3, step: 'r3', step_label: 'R3' } }
+    const api = stubContactApi({ unsent: { items: [old, now, third], unverified_drafts: 0 } })
+    renderApp('/contact')
+    const panel = within(await screen.findByRole('region', { name: 'Envois à reprendre' }))
+    const boxes = panel.getAllByRole('checkbox', { name: /Camille Double/ })
+    const [first, second] = boxes
+    if (!first || !second) throw new Error('two rows expected')
+    await user.click(first)
+    expect(second).not.toBeChecked()
+
+    // Only the R3 offers it: the others are marked on their sheet.
+    expect(panel.getAllByRole('button', { name: /^Marquer comme envoyé/ })).toHaveLength(1)
+    await user.click(panel.getByRole('button', { name: /Marquer comme envoyé : Camille Ancienne · R3/ }))
+    await user.click(within(screen.getByRole('dialog', { name: /comme envoyé/ })).getByRole('button', { name: 'Marquer envoyé' }))
+    expect(await panel.findByText(/enregistré comme envoyé/)).toBeInTheDocument()
+    const [request] = sent(api.requests, 'POST', '/api/contact/unsent/record-sent')
+    expect(request?.body).toEqual({ message_id: 'message-p4', expected_revision: 1 })
+  })
 })

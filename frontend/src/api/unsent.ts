@@ -96,6 +96,12 @@ export function useRecoveryMutations() {
         post<Omit<RecoveryResult, 'remote_draft_failures'>>('/contact/unsent/confirm-not-sent', { items: items.slice(0, BATCH_MAX) }),
       onSettled: refresh,
     }),
+    // « Marquer comme envoyé » on an existing mail the sheet cannot mark (beyond R2, or locked in a former contact
+    // week): history only, nothing is sent.
+    recordSent: useMutation({
+      mutationFn: (item: { message_id: string; expected_revision: number }) => post<unknown>('/contact/unsent/record-sent', item),
+      onSettled: refresh,
+    }),
     check: useMutation({
       mutationFn: () => post<{ present: number; missing: number; unverified: number }>('/contact/unsent/check-drafts'),
       onSettled: refresh,

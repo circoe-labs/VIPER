@@ -1201,6 +1201,23 @@ class ConfirmNotSentOut(BaseModel):
     refused: list[RefusedOut]
 
 
+@cohorts_router.post("/unsent/record-sent")
+def record_unsettled_send(
+    body: CheckedIn, session: SessionDep, actor: CurrentActor, settings: SettingsDep
+) -> MessageResultOut:
+    """« Marquer comme envoyé » on an existing mail that may have left and that the sheet cannot
+    mark (beyond R2, or claimed in a former contact week): history only, nothing is sent."""
+    with business_errors():
+        message = dispatch.record_unsettled_send(
+            session,
+            actor,
+            body.message_id,
+            body.expected_revision,
+            claim_ttl=settings.contact_dispatch_claim_ttl,
+        )
+    return result_out(MessageResult(message))
+
+
 @cohorts_router.post("/unsent/confirm-not-sent")
 def confirm_unsent_not_sent(
     body: ConfirmNotSentIn, session: SessionDep, actor: CurrentActor, settings: SettingsDep

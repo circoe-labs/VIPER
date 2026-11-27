@@ -1353,3 +1353,10 @@ dispatcher sends back to Validé (`send_earlier_unconfirmed`) every scheduled ma
 prospect holding, in another sequence, a claimed send or a doubt nobody confirmed since, due
 or not, before it reconciles. The locked mail is listed in « Envois à reprendre »; it is
 settled by the reconciliation, or there by a person (« pas parti » after the claim's delay).
+
+**Recording a send the sheet cannot** (`POST /contact/unsent/record-sent`, « Marquer comme
+envoyé » on the row of « Envois à reprendre »): an **existing** unsent message beyond R2 that
+may have left or whose send is unconfirmed, or one still claimed in a former contact week. It
+becomes `sent` (`manual`, dated at the attempt); nothing is sent and no message is created.
+The rows of that list are keyed by message: an old week's mail and the current one of the same
+step are separate.

@@ -1172,6 +1172,68 @@ def release_former(
     _release(session, actor, message, moment)
 
 
+def record_unsettled_send(
+    session: Session,
+    actor: ActorContext,
+    message_id: uuid.UUID,
+    expected_revision: int,
+    *,
+    claim_ttl: timedelta,
+    now: datetime | None = None,
+) -> ContactMessage:
+    """« Marquer comme envoyé » on an **existing** mail that left although VIPER does not know
+    it, where no other door records it: an R3 or beyond (the sequence stops at R2) that may have
+    left or whose send is unconfirmed, or a claim of a former sequence. History only: nothing is
+    sent, no message is created. Dated at the attempt (the claim, else the missed moment)."""
+    if actor.type is not ActorType.HUMAN or not actor.id:
+        raise ActorNotAllowedError("A send is declared by a person.")
+    moment = now or datetime.now(UTC)
+    message = _locked(session, message_id, skip_locked=False)
+    if message is None:
+        raise ContactMessageError("message_not_found", HTTPStatus.NOT_FOUND, "No such message.")
+    if message.revision != expected_revision:
+        raise ContactMessageError(
+            "revision_conflict",
+            HTTPStatus.CONFLICT,
+            "The message changed since it was read: reload it before going on.",
+        )
+    claimed = message.dispatch_claim_id is not None
+    beyond = message.rank > MAX_FOLLOW_UPS_LIMIT
+    allowed = message.status is not M.SENT and (
+        (claimed and (beyond or not _is_current(session, message)))
+        or (beyond and message.sent_doubt_reason is not None)
+    )
+    if not allowed:
+        raise ContactMessageError(
+            "invalid_transition",
+            HTTPStatus.CONFLICT,
+            "Only a mail that may have left, beyond R2 or of a former contact week, is recorded "
+            "here.",
+            status=message.status.value,
+        )
+    if claimed and not is_unconfirmed(message, moment, claim_ttl):
+        raise ContactMessageError(
+            "dispatch_not_unconfirmed",
+            HTTPStatus.CONFLICT,
+            "The send is still running: wait for its outcome.",
+        )
+    attempts = (message.dispatch_claimed_at, message.missed_scheduled_at, message.sent_doubt_at)
+    sent_at = next((at for at in attempts if at is not None and at <= moment), moment)
+    _mark_sent(
+        session,
+        message,
+        moment,
+        sent_at=sent_at,
+        actor=actor,
+        source=SendSource.MANUAL,
+        code=MARKED_SENT,
+        reason="person",
+    )
+    session.flush()
+    _log("marked_sent", message, actor=actor.type.value)
+    return message
+
+
 # --- pending counts (Settings > Connexions) -------------------------------------------------------
 
 
