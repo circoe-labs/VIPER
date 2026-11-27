@@ -17,7 +17,8 @@ from app.api.query_types import Department, Many
 from app.core.actor import ActorType
 from app.models import Warehouse, WarehouseDraft
 from app.repositories.list_sort import EntitySort
-from app.services import audit, eligibility, warehouse_import, warehouses
+from app.services import audit, eligibility, warehouse_addresses, warehouse_import, warehouses
+from app.services.contact_schedule_trace import RECIPIENT_CHANGED
 from app.services.errors import InvalidFieldError
 from app.services.warehouse_draft_text import apply_category
 from app.services.warehouses import WarehouseCounts, WarehouseInput, WarehouseOut, WarehousePage
@@ -104,13 +105,18 @@ def locked_draft(session: SessionDep, draft_id: uuid.UUID, revision: int) -> War
     return draft
 
 
-def refuse_blocked(session: SessionDep, draft: WarehouseDraft) -> None:
-    """A mail to someone, or a company, removed from prospecting is not prepared to leave."""
-    block = eligibility.warehouse_block(session, draft)
-    if block is not None:
-        raise refusal(
-            409, block.value, f"Envoi impossible : {eligibility.LABELS[block].lower()}."
-        )
+def refuse_blocked(session: SessionDep, draft: WarehouseDraft, *, deciding: bool = False) -> None:
+    """A mail to someone, or a company, removed from prospecting is not prepared to leave, nor one
+    to a removed address without a new validation (`deciding`: this is that validation)."""
+    code = warehouse_addresses.refusal(session, draft, deciding=deciding)
+    if code is None:
+        return
+    reason = (
+        "l’adresse du destinataire a changé, validez à nouveau le message"
+        if code == RECIPIENT_CHANGED
+        else eligibility.LABELS[eligibility.Block(code)].lower()
+    )
+    raise refusal(409, code, f"Envoi impossible : {reason}.")
 
 
 @router.put("/drafts/{draft_id}", response_model=WarehouseDraftOut)
@@ -164,7 +170,7 @@ def validate_draft(
         raise HTTPException(422, "Préprogrammez ce brouillon avant de le valider.")
     if not draft.recipient or not draft.subject.strip() or not draft.body.strip():
         raise HTTPException(422, "Choisissez un destinataire et complétez l’objet et le message.")
-    refuse_blocked(session, draft)
+    refuse_blocked(session, draft, deciding=True)
     warehouse = session.get(Warehouse, draft.warehouse_id)
     content = draft.body.casefold()
     if not warehouse or warehouse.prospecting_category not in ("sme", "other"):
@@ -254,7 +260,7 @@ def plan_draft_batch(
     ):
         raise HTTPException(409, "Un brouillon a changé ou ne peut pas être préprogrammé.")
     for draft in drafts:
-        refuse_blocked(session, draft)
+        refuse_blocked(session, draft, deciding=True)
     for draft in drafts:
         draft.scheduled_at = body.scheduled_at
         draft.send_state = "planned"

@@ -64,3 +64,22 @@ les messages non envoyés suivent : la nouvelle principale remplace l'ancienne ;
 redevient brouillon (`recipient_changed`, créneau gardé en trace, brouillon Infomaniak supprimé, doute « peut-être
 parti » conservé ou levé si le brouillon programmé était introuvable ; l'éditeur le dit au-dessus de l'objet). Le choix d'une
 autre adresse toujours active est conservé.
+
+## Courriers entrepôt et adresses (`app/services/warehouse_addresses.py`)
+
+Le destinataire d'un courrier entrepôt est un texte libre : il n'est pas réécrit.
+
+- Adresse modifiée, désactivée ou retirée d'une personne : les courriers préprogrammés ou programmés vers elle passent
+  en échec (`recipient_changed`) ; tous perdent leur validation humaine. Valider à nouveau est la nouvelle décision.
+- À la validation, à la programmation et à l'envoi, sans dépendre du point précédent, une adresse que plus personne ne
+  détient activement est relue dans le journal d'audit : un ancien détenteur bloqué la bloque toujours ; une adresse
+  retirée (ou partie avec la fiche supprimée) après la dernière validation du courrier attend une nouvelle validation.
+- L'explorateur suit les adresses une fois pour tout le lot de modifications ; l'annulation d'un import les suit aussi.
+- Un simple changement d'adresse principale, l'ancienne restant active, ne touche pas les courriers entrepôt.
+
+## Compteurs
+
+Les compteurs d'Accueil, les cartes et les compteurs de Prospection, les métriques hebdomadaires et les lectures MCP
+correspondantes laissent de côté les fiches et entreprises archivées, comme les listes. Les chiffres de Contact (déjà
+contactés, rendez-vous) suivent les listes de Contact, qui les gardent dans « Écartés ».
+

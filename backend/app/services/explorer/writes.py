@@ -104,9 +104,13 @@ def apply_change_set(session: Session, actor: ActorContext, changes: ChangeSet) 
     writer.check_domain(changes, rows)
     if writer.errors:
         raise ChangeSetRejected(writer.errors)
+    # Read before any change: two rows exchanging the primary flag are one change of address.
+    before = writer.addresses_before(changes, rows)
     inserted = writer.apply([*changes.deletes, *changes.updates, *changes.inserts], rows)
     if writer.errors:
         raise ChangeSetRejected(writer.errors)
+    for prospect_id, held in before.items():
+        contact_recipients.follow_address_change(session, actor, prospect_id, held)
     return ApplyResult(
         updated=len(changes.updates),
         inserted=len(changes.inserts),
@@ -225,6 +229,25 @@ class _Writer:
 
     # --- application -----------------------------------------------------------------------
 
+    def addresses_before(
+        self, changes: ChangeSet, rows: Mapping[int, object]
+    ) -> dict[uuid.UUID, contact_recipients.Addresses]:
+        """The addresses of every prospect whose e-mail rows the set touches (their open
+        messages follow, `contact_recipients`)."""
+        if self.table.name != Email.__tablename__:
+            return {}
+        owners = [insert.values.get("prospect_id") for insert in changes.inserts]
+        owners += [
+            row.prospect_id
+            for change in [*changes.updates, *changes.deletes]
+            if isinstance(row := rows.get(id(change)), Email)
+        ]
+        return {
+            owner: contact_recipients.addresses(self.session, owner)
+            for owner in owners
+            if isinstance(owner, uuid.UUID)
+        }
+
     def apply(self, changes: list[Change], rows: Mapping[int, object]) -> dict[int, dict[str, Any]]:
         """Apply in order, each change in a savepoint; retry failures while others succeed."""
         inserted: dict[int, dict[str, Any]] = {}
@@ -248,8 +271,6 @@ class _Writer:
     ) -> ChangeError | None:
         try:
             with self.session.begin_nested():
-                owner = self._email_owner(change, rows)
-                before = contact_recipients.addresses(self.session, owner) if owner else None
                 if isinstance(change, RowInsert):
                     inserted[change.ref.index] = self._insert(change)
                 elif isinstance(change, RowUpdate):
@@ -257,25 +278,11 @@ class _Writer:
                 else:
                     self._delete(rows[id(change)])
                 self.session.flush()
-                if owner and before:
-                    contact_recipients.follow_address_change(
-                        self.session, self.actor, owner, before
-                    )
         except (IntegrityError, DataError) as error:
             return database_error(self.table, change, error)
         except DomainError as error:
             return ChangeError(change.ref, ErrorCode.REJECTED, str(error))
         return None
-
-    def _email_owner(self, change: Change, rows: Mapping[int, object]) -> uuid.UUID | None:
-        """The prospect whose e-mail addresses this change touches (its messages follow)."""
-        if self.table.name != Email.__tablename__:
-            return None
-        if isinstance(change, RowInsert):
-            value = change.values.get("prospect_id")
-            return value if isinstance(value, uuid.UUID) else None
-        row = rows.get(id(change))
-        return row.prospect_id if isinstance(row, Email) else None
 
     def _update(self, change: RowUpdate, row: object) -> None:
         values = dict(change.values)

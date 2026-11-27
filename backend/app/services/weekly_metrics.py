@@ -241,13 +241,18 @@ def weekly_series(session: Session, today: date, count: int = 12) -> WeeklySerie
                 select(*(
                     func.count().filter(model.created_at >= week.start, model.created_at < week.end)
                     for week in weeks
-                )).where(model.created_at >= first.start, model.created_at < last.end)
+                )).where(
+                    model.created_at >= first.start, model.created_at < last.end,
+                    *home.listed(model),
+                )
             ).one()
             for key, model in models.items()
         }
         sizes = {
             key: session.execute(
                 select(*(func.count().filter(model.created_at < week.end) for week in weeks))
+                .select_from(model)
+                .where(*home.listed(model))
             ).one()
             for key, model in models.items()
         }
@@ -301,7 +306,7 @@ def weekly_series(session: Session, today: date, count: int = 12) -> WeeklySerie
                     func.count().filter(~is_appointment, ~is_ignored, is_contacted),
                     func.count().filter(~is_appointment, ~is_ignored, ~is_contacted),
                 )
-            )
+            ).where(*home.listed(Prospect))
         ).one()
     points = [
         WeekPoint(

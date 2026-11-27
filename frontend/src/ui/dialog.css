@@ -188,6 +188,23 @@
   }
 }
 
+/* On a phone the header's actions keep their icon only (the text stays their accessible name): the close button is
+   never pushed off the screen. */
+@media (max-width: 560px) {
+  /* The record sheet: actions and close on top, the name under them on the whole width. */
+  .dialog.dialog--sheet .dialog__header {
+    flex-direction: column-reverse;
+    align-items: stretch;
+    gap: var(--space-3);
+  }
+
+  .dialog__header-actions .btn:has(svg) {
+    gap: 0;
+    padding-inline: var(--space-3);
+    font-size: 0;
+  }
+}
+
 @keyframes dialog-fade {
   from {
     opacity: 0;

@@ -40,7 +40,7 @@ from app.models.enums import (
     SequenceEndReason,
     TrackingHistoryStatus,
 )
-from app.services import audit, history, import_batches
+from app.services import audit, eligibility, history, import_batches
 from app.services.audit import AuditSource
 from app.services.contact_dashboard import ContactClock, contacted_sql, overdue, to_send
 from app.services.contact_sequences import email_error_sql, next_due_at_sql
@@ -112,7 +112,7 @@ def dashboard_summary(session: Session, today: date) -> HomeDashboard:
     monday, sunday = week.monday, week.sunday
     statement = (
         select(
-            func.count(Prospect.id),
+            func.count(Prospect.id).filter(*listed(Prospect)),
             func.count(Prospect.id).filter(contacted_sql()),
             func.count(Prospect.id).filter(has_appointment()),
         )
@@ -124,7 +124,7 @@ def dashboard_summary(session: Session, today: date) -> HomeDashboard:
     warehouse_contacts = session.scalar(
         select(func.coalesce(func.sum(func.jsonb_array_length(Warehouse.contacts)), 0))
     ) or 0
-    companies = session.scalar(select(func.count(Company.id))) or 0
+    companies = session.scalar(select(func.count(Company.id)).where(*listed(Company))) or 0
     added = weekly_additions(session, week)
     new_prospects, new_companies, new_warehouses = (
         added["prospects"], added["companies"], added["warehouses"],
@@ -135,7 +135,8 @@ def dashboard_summary(session: Session, today: date) -> HomeDashboard:
     boundaries = [*weeks, monday + timedelta(days=7)]
     prospect_counts = session.execute(select(*(
         func.count(Prospect.id).filter(
-            Prospect.created_at >= start_of_day(start), Prospect.created_at < start_of_day(end)
+            Prospect.created_at >= start_of_day(start), Prospect.created_at < start_of_day(end),
+            *listed(Prospect),
         ) for start, end in pairwise(boundaries)
     ))).one()
     warehouse_counts = session.execute(select(*(
@@ -159,13 +160,23 @@ def dashboard_summary(session: Session, today: date) -> HomeDashboard:
     )
 
 
+def listed(model: type[Any]) -> list[ColumnElement[bool]]:
+    """What the lists show, so a counter equals its list: the archived people and companies are
+    left out (a warehouse cannot be archived)."""
+    if model is Prospect:
+        return [~eligibility.archived_sql()]
+    if model is Company:
+        return [~eligibility.company_archived_sql(Company.id)]
+    return []
+
+
 def weekly_additions(session: Session, week: BusinessWeek) -> dict[str, int]:
     """Records created in `week` (by `created_at`, never by modification): prospects, companies
     and warehouses (sites; their embedded contacts have no creation date of their own)."""
     return {
         key: session.scalar(
             select(func.count(model.id)).where(
-                model.created_at >= week.start, model.created_at < week.end
+                model.created_at >= week.start, model.created_at < week.end, *listed(model)
             )
         )
         or 0
@@ -315,7 +326,9 @@ class HomeSummary:
 
 def home_summary(session: Session, context: SegmentContext) -> HomeSummary:
     counted = count_segments(session, ProspectFilters(), context)
-    companies = session.execute(select(func.count()).select_from(Company)).scalar_one()
+    companies = session.execute(
+        select(func.count()).select_from(Company).where(*listed(Company))
+    ).scalar_one()
     return HomeSummary(
         today=context.today,
         stale_threshold_days=context.stale_days,
@@ -351,7 +364,7 @@ def home_figures(session: Session, today: date) -> HomeFigures:
                     ),
                     func.count().filter(answered_at >= month),
                 )
-            )
+            ).where(*listed(Prospect))
         ).one()
     return HomeFigures(*row)
 

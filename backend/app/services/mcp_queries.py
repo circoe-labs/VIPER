@@ -32,7 +32,7 @@ from app.models.companies import company_activity_categories
 from app.models.taxonomies import CommercialSegment
 from app.repositories.list_sort import EntitySort, entity_order_by
 from app.repositories.taxonomies import label_key, matches_words
-from app.services import companies, warehouses
+from app.services import companies, eligibility, warehouses
 from app.services.errors import InvalidFieldError
 from app.services.file_status import (
     FILE_STATUSES,
@@ -524,7 +524,10 @@ def verification_overview(session: Session, context: SegmentContext) -> dict[str
             session.scalar(
                 select(func.count())
                 .select_from(Company)
-                .where(status_condition(state, usable_c, verified_c))
+                .where(
+                    status_condition(state, usable_c, verified_c),
+                    ~eligibility.company_archived_sql(Company.id),
+                )
             )
             or 0
         )

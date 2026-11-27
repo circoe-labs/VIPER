@@ -27,7 +27,7 @@ from app.core.actor import ActorContext
 from app.models.contact_messages import ContactMessage
 from app.models.enums import ContactMessageStatus
 from app.models.prospects import Email
-from app.services import audit
+from app.services import audit, warehouse_addresses
 from app.services.audit import AuditAction
 from app.services.contact_remote_drafts import detach_remote_draft
 from app.services.contact_schedule_trace import RECIPIENT_CHANGED, leave_schedule
@@ -79,6 +79,10 @@ def follow_address_change(
     """Apply the module rules after the e-mail rows changed from `before` (flushed by the
     caller)."""
     after = addresses(session, prospect_id)
+    # Warehouse mails to an address the person no longer holds wait for a new validation.
+    warehouse_addresses.stop_for_removed(
+        session, actor, before.active - after.active, datetime.now(UTC)
+    )
     stale = before.active - after.active
     if before.primary is not None and before.primary != after.primary:
         stale |= {before.primary}

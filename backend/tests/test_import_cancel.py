@@ -1,6 +1,7 @@
 """Cancelling a committed import: what it wrote goes, what was used since stays. Invented values."""
 
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -16,10 +17,10 @@ from app.models import (
     Prospect,
     ProspectSource,
 )
-from app.models.enums import ImportBatchStatus
+from app.models.enums import ContactMessageStatus, ImportBatchStatus
 from app.services import audit, import_cancel, prospects
 from app.services.errors import BusinessRuleError
-from tests.builders import OPERATOR
+from tests.builders import OPERATOR, add_prospect, bind_operator
 from tests.import_support import seed
 from tests.test_import_commit import commit, review_of, upload
 from tests.test_operational_import import run
@@ -157,3 +158,50 @@ def test_the_api_previews_then_cancels(
     assert announced.json() == done.json()
     assert client.get(f"{IMPORTS}/{batch_id}").json()["status"] == ImportBatchStatus.CANCELLED
     assert client.post(f"{IMPORTS}/{batch_id}/cancel").status_code == 409
+
+
+def test_an_address_taken_back_leaves_the_open_messages(
+    db_session: Session, ids: dict[str, uuid.UUID]
+) -> None:
+    """A mail scheduled to the imported address may not stay scheduled to it."""
+    bind_operator(db_session)
+    company = db_session.get_one(Company, ids["demo"])
+    person = add_prospect(db_session, company, first_name="Zoé", last_name="Sansadresse")
+    row = {
+        "week": "S37",
+        "company": "Logistique Démo",
+        "last_name": "Sansadresse",
+        "first_name": "Zoé",
+        "email": "zoe.importee@example.com",
+    }
+    batch_id = run(db_session, [row]).batch.id
+    assert db_session.scalars(select(Email.address).where(Email.prospect_id == person.id)).all()
+    cohort = db_session.scalars(
+        select(ContactSequence.id).where(ContactSequence.prospect_id == person.id)
+    ).one()
+    moment = datetime(2099, 1, 6, tzinfo=UTC)
+    message = ContactMessage(
+        prospect_id=person.id,
+        sequence_id=cohort,
+        rank=1,
+        status=ContactMessageStatus.SCHEDULED,
+        to_recipients=["zoe.importee@example.com"],
+        subject="Objet",
+        body_text="Texte",
+        validated_revision=1,
+        validated_at=moment,
+        validated_by_actor_id="test",
+        validated_by_display="Personne Test",
+        scheduled_at=moment,
+    )
+    db_session.add(message)
+    db_session.flush()
+
+    import_cancel.cancel(db_session, OPERATOR, batch_id)
+
+    db_session.refresh(message)
+    assert (message.status, message.to_recipients, message.scheduled_at) == (
+        ContactMessageStatus.DRAFT,
+        [],
+        None,
+    )

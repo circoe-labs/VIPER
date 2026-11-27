@@ -138,8 +138,8 @@ class ProspectFilters:
     reachable: bool = False
     # Internal callers (Home, exports) count everyone; the API hides the ignored unless asked.
     include_ignored: bool = True
-    # Archived people: counted by internal callers, hidden by the API unless asked.
-    include_archived: bool = True
+    # Archived people: left out of the lists and every counter unless asked.
+    include_archived: bool = False
     validated_only: bool = False
     verification_boxes: tuple[VerificationBox, ...] = ()
     created_from: date | None = None
@@ -475,7 +475,7 @@ def base_overview(session: Session, context: SegmentContext) -> BaseOverview:
             func.count().filter(review_predicate(Review.IGNORED, context)).label("ignored"),
             func.count().filter(verification_box_predicate("uncertain")).label("uncertain"),
         )
-    )
+    ).where(~eligibility.archived_sql())
     # One snapshot for the partition: email changes cannot move a validated employment out of it.
     with whole_base_plan(session):
         figures = session.execute(statement).one()._mapping
@@ -505,7 +505,7 @@ def count_added_since(
     to recent additions, in one aggregate query. A deleted person is gone, so it is not counted.
     """
     statement = join_segment_sources(select(*segment_counts(context))).where(
-        Prospect.created_at >= since
+        Prospect.created_at >= since, ~eligibility.archived_sql()
     )
     with whole_base_plan(session):
         row = session.execute(statement).one()._mapping

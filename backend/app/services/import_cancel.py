@@ -44,7 +44,7 @@ from app.models import (
 from app.models.audit import AuditLogEntry
 from app.models.enums import ContactabilityStatus, ImportBatchStatus
 from app.models.imports import ImportBatch
-from app.services import audit, companies
+from app.services import audit, companies, contact_recipients
 from app.services.audit import AuditAction
 from app.services.audit_changes import to_json
 from app.services.errors import BusinessRuleError, NotFoundError
@@ -135,6 +135,12 @@ def cancel(session: Session, actor: ActorContext, batch_id: uuid.UUID) -> Cancel
         list(session.scalars(select(AuditLogEntry).where(mine).order_by(AuditLogEntry.occurred_at)))
     )
     counts: Counter[str] = Counter()
+    # The addresses this cancellation may take away or restore: open messages follow them.
+    held = {
+        owner: contact_recipients.addresses(session, owner)
+        for owner in {e.subject_id for e in batch.events if e.entity_type == "email"}
+        if owner is not None
+    }
     new_prospects = set(batch.created("prospect"))
     new_companies = set(batch.created("company"))
 
@@ -208,6 +214,10 @@ def cancel(session: Session, actor: ActorContext, batch_id: uuid.UUID) -> Cancel
         companies.delete_company(session, actor, company_id)
         session.flush()
         counts["companies_deleted"] += 1
+
+    for prospect_id, before in held.items():
+        if session.get(Prospect, prospect_id) is not None:  # else its messages went with it
+            contact_recipients.follow_address_change(session, actor, prospect_id, before)
 
     audit.annotate(session, actor, record, AuditAction.IMPORT_BATCH_CANCELLED)
     record.status = ImportBatchStatus.CANCELLED

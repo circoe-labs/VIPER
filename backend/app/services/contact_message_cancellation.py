@@ -173,6 +173,8 @@ def stop_warehouse_drafts(
         draft.failed_at = moment
         draft.validated_at = None
         draft.validated_by = None
+        # Back to a person: programming it again needs a new validation.
+        draft.human_validated = False
         draft.revision += 1
         audit.record_event(
             session,

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Outlet, useLocation } from 'react-router'
 
 import { CompanyEditorProvider } from '../companies/CompanyEditorProvider'
+import { LifecycleProvider } from '../lifecycle/LifecycleProvider'
 import { readStorage, writeStorage } from '../lib/storage'
 import { AccentPicker } from '../theme/AccentPicker'
 import { ThemeSwitch } from '../theme/ThemeSwitch'
@@ -24,6 +25,7 @@ export function AppShell() {
 
   // Record editors that any page or the global search can open are mounted above the routed page.
   return (
+    <LifecycleProvider>
     <CompanyEditorProvider>
       <div className="app-shell" data-sidebar={collapsed ? 'collapsed' : 'expanded'}>
         <a className="skip-link" href="#main-content">
@@ -49,5 +51,6 @@ export function AppShell() {
         </div>
       </div>
     </CompanyEditorProvider>
+    </LifecycleProvider>
   )
 }

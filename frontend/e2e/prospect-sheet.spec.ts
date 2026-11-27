@@ -65,7 +65,7 @@ test('centered floating window; exactly three equal KPI cards in order; the « �
 
   await editor.getByRole('button', { name: 'Autres actions du prospect' }).click()
   const menu = page.getByRole('menu', { name: 'Actions du prospect' })
-  await expect(menu.getByRole('menuitem')).toHaveText(['Lier à…', 'Mission', 'Contacter', 'Réévaluer le score', 'Graph', 'Société'])
+  await expect(menu.getByRole('menuitem')).toHaveText(['Lier à…', 'Mission', 'Contacter', 'Réévaluer le score', 'Graph', 'Société', 'Changer de statut…', 'Archiver…'])
   await page.keyboard.press('Escape')
   await expect(menu).toBeHidden()
   // Esc closed the menu only: the sheet is still there; a second Esc closes it.
@@ -151,7 +151,7 @@ test('context menu lists the sheet actions; « Lier à… » opens the add form 
 
   await editor.getByRole('region', { name: 'Résumé du profil' }).click({ button: 'right', position: { x: 8, y: 8 } })
   const menu = page.getByRole('menu', { name: 'Actions du prospect' })
-  await expect(menu.getByRole('menuitem')).toHaveText(['Lier à…', 'Mission', 'Contacter', 'Réévaluer le score', 'Graph', 'Société'])
+  await expect(menu.getByRole('menuitem')).toHaveText(['Lier à…', 'Mission', 'Contacter', 'Réévaluer le score', 'Graph', 'Société', 'Changer de statut…', 'Archiver…'])
   await page.screenshot({ path: `${SCREENSHOTS}/prospect-context-menu-1440.png`, animations: 'disabled' })
   await page.keyboard.press('Escape')
   await expect(menu).toBeHidden()

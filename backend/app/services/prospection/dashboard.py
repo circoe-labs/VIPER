@@ -21,6 +21,7 @@ from app.models.enums import (
     ContactMessageStatus,
     VerificationStatus,
 )
+from app.services import eligibility
 from app.services.prospect_data_quality import DataQualityConfig, band_of
 from app.services.prospection.segments import (
     Review,
@@ -115,7 +116,7 @@ def overview(session: Session, settings: Settings, *, validated_only: bool = Fal
             func.avg(quality).label("average"),
             func.count(quality).label("scored"),
         )
-    )
+    ).where(~eligibility.archived_sql())
     if validated_only:
         statement = statement.where(verification_validated())
     with whole_base_plan(session):

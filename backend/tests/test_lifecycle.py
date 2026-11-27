@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Prospect, ProspectingHold, Warehouse, WarehouseDraft
+from app.models import Email, Prospect, ProspectingHold, Warehouse, WarehouseDraft
 from app.models.enums import ActivityStatus, ContactabilityStatus, ContactMessageStatus
 from app.services.contact_draft_check import check_scheduled_drafts
 from app.services.warehouse_dispatch import dispatch_warehouses
@@ -28,6 +28,7 @@ from tests.test_contact_dispatch import (
     toolbox_of,
 )
 from tests.test_contact_messages_api import FUTURE, messages, ok, prospect_id, refused
+from tests.test_explorer_writes import update
 
 M = ContactMessageStatus
 
@@ -289,7 +290,7 @@ def test_a_warehouse_mail_to_someone_who_left_is_stopped_and_refused(
         "prospect_departed",
     )
     # And the dispatcher checks by itself.
-    stopped.send_state = "scheduled"
+    stopped.send_state, stopped.human_validated = "scheduled", True
     stopped.scheduled_at = datetime.now(UTC)
     stopped.validated_at = datetime.now(UTC)
     db_session.commit()
@@ -445,3 +446,137 @@ def test_a_lost_draft_keeps_the_may_have_left_doubt_through_an_automatic_change(
         409,
         "sent_check_required",
     )
+
+
+# --- warehouse mails and address changes ----------------------------------------------------------
+
+
+def send_warehouses(app: FastAPI) -> None:
+    dispatch_warehouses(app.state.session_factory, config(), toolbox_of(app))
+
+
+def due_warehouse_draft(session: Session, recipient: str) -> WarehouseDraft:
+    draft = warehouse_draft(session, recipient)
+    draft.scheduled_at = datetime.now(UTC)
+    session.commit()
+    return draft
+
+
+def stored(session: Session, draft: WarehouseDraft) -> WarehouseDraft:
+    session.expire_all()
+    found = session.get(WarehouseDraft, draft.id)
+    assert found is not None
+    return found
+
+
+def renamed(client: TestClient, prospect: uuid.UUID, **changes: Any) -> str:
+    """The person's only address is changed to another one; returns the former address."""
+    (first,) = ok(client.get(f"/api/prospects/{prospect}"))["emails"]
+    new = alias(first, address="new@example.test", verification_status="unverified")
+    save(client, prospect, [new], **changes)
+    return str(first["address"])
+
+
+@pytest.mark.parametrize("then", ["nothing", "same_save_departure", "opposition", "removed"])
+def test_a_warehouse_mail_to_a_former_address_never_leaves(
+    connected: TestClient,
+    toolbox_app: FastAPI,
+    fake: FakeToolbox,
+    db_session: Session,
+    then: str,
+) -> None:
+    prospect = prospect_id(db_session)
+    (first,) = ok(connected.get(f"/api/prospects/{prospect}"))["emails"]
+    draft = due_warehouse_draft(db_session, first["address"])
+
+    if then == "removed":
+        save(connected, prospect, [])
+    elif then == "same_save_departure":
+        renamed(connected, prospect, activity_status="inactive")
+    else:
+        renamed(connected, prospect)
+    if then == "opposition":
+        version = ok(connected.get(f"/api/prospects/{prospect}"))["version"]
+        body = {"do_not_contact": True, "reason": "Asked", "version": version}
+        ok(connected.put(f"/api/prospects/{prospect}/contactability", json=body))
+    send_warehouses(toolbox_app)
+
+    after = stored(db_session, draft)
+    assert fake.sent == []
+    assert (after.send_state, after.failure_code, after.human_validated) == (
+        "failed",
+        "recipient_changed",
+        False,
+    )
+
+
+@pytest.mark.parametrize(
+    ("departed", "code"), [(False, "recipient_changed"), (True, "prospect_departed")]
+)
+def test_the_send_checks_a_removed_address_by_itself(
+    connected: TestClient,
+    toolbox_app: FastAPI,
+    fake: FakeToolbox,
+    db_session: Session,
+    departed: bool,
+    code: str,
+) -> None:
+    """Even if no path had stopped the mail (it is put back to « scheduled » by hand)."""
+    prospect = prospect_id(db_session)
+    (first,) = ok(connected.get(f"/api/prospects/{prospect}"))["emails"]
+    draft = due_warehouse_draft(db_session, first["address"])
+    renamed(connected, prospect, **({"activity_status": "inactive"} if departed else {}))
+    forced = stored(db_session, draft)
+    forced.send_state, forced.human_validated = "scheduled", True
+    forced.validated_at = forced.scheduled_at = datetime.now(UTC)
+    db_session.commit()
+
+    send_warehouses(toolbox_app)
+
+    assert fake.sent == []
+    after = stored(db_session, draft)
+    assert after.failure_code == code
+    body = {"revision": after.revision, "scheduled_at": FUTURE.isoformat()}
+    refused(connected.post(f"/api/warehouses/drafts/{draft.id}/schedule", json=body), 409, code)
+
+
+def test_a_new_validation_decides_for_a_removed_address(
+    connected: TestClient, db_session: Session
+) -> None:
+    prospect = prospect_id(db_session)
+    (first,) = ok(connected.get(f"/api/prospects/{prospect}"))["emails"]
+    draft = due_warehouse_draft(db_session, first["address"])
+    warehouse = db_session.get(Warehouse, draft.warehouse_id)
+    assert warehouse is not None
+    warehouse.prospecting_category = "other"
+    db_session.commit()
+    renamed(connected, prospect)
+    item = {"id": str(draft.id), "revision": stored(db_session, draft).revision}
+    planned = {"scheduled_at": FUTURE.isoformat(), "drafts": [item]}
+
+    ok(connected.post("/api/warehouses/drafts/plan-batch", json=planned))
+    body = {"revision": stored(db_session, draft).revision}
+    answer = ok(connected.post(f"/api/warehouses/drafts/{draft.id}/validate", json=body))
+
+    assert answer["send_state"] == "scheduled"
+
+
+# --- the other writers of e-mail rows -------------------------------------------------------------
+
+
+def test_two_explorer_changes_swapping_the_primary_keep_a_recipient(
+    connected: TestClient, db_session: Session
+) -> None:
+    prospect, (one, two) = with_two_addresses(connected, db_session)
+    message = scheduled(connected, prospect)
+    updates = []
+    for item, primary in ((one, False), (two, True)):
+        email = db_session.get(Email, uuid.UUID(item["id"]))
+        assert email is not None
+        db_session.refresh(email)
+        updates.append(update(email, is_primary=primary))
+
+    ok(connected.post("/api/explorer/tables/emails/changes", json={"updates": updates}))
+
+    after = row(db_session, message["id"])
+    assert (after.status, after.to_recipients) == (M.DRAFT, [two["address"]])
