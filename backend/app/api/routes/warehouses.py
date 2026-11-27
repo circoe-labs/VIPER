@@ -22,6 +22,7 @@ from app.services import (
     audit,
     email_identity,
     prospects,
+    warehouse_companies,
     warehouse_history,
     warehouse_import,
     warehouse_people,
@@ -228,10 +229,54 @@ class WarehousePersonOut(BaseModel):
     state: PersonStateOut | None
 
 
+class CompanyMatchOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    company_id: uuid.UUID
+    company_name: str
+    sources: list[warehouse_companies.Source]
+
+
+class CompanyProposalOut(BaseModel):
+    """A suggested owning company, for a person to confirm."""
+
+    model_config = ConfigDict(from_attributes=True)
+    warehouse_id: uuid.UUID
+    warehouse_name: str
+    city: str | None
+    people: int
+    status: warehouse_companies.Status
+    company_id: uuid.UUID | None
+    company_name: str | None
+    sources: list[warehouse_companies.Source]
+    candidates: list[CompanyMatchOut]
+
+
 class WarehousePeopleOut(BaseModel):
     company_id: uuid.UUID | None
     company_name: str | None
     people: list[WarehousePersonOut]
+    # Only while the warehouse has no company.
+    proposal: CompanyProposalOut | None = None
+
+
+class AttachCompanyIn(BaseModel):
+    """Exactly one of an existing company or the name of a new one."""
+
+    company_id: uuid.UUID | None = None
+    new_name: str | None = Field(default=None, min_length=1, max_length=255)
+
+    @model_validator(mode="after")
+    def one_choice(self) -> AttachCompanyIn:
+        if (self.company_id is None) == (self.new_name is None):
+            raise ValueError("Give either company_id or new_name.")
+        return self
+
+
+class AttachedCompanyOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    company_id: uuid.UUID
+    company_name: str
+    created: bool
 
 
 def person_out(row: warehouse_people.PersonRow) -> WarehousePersonOut:
@@ -301,11 +346,28 @@ def list_people(warehouse_id: uuid.UUID, session: SessionDep) -> WarehousePeople
     records they may be."""
     with business_errors():
         found = warehouse_people.read(session, warehouse_id)
+        proposal = (
+            warehouse_companies.propose(session, warehouses.get_warehouse(session, warehouse_id))
+            if found.company_id is None
+            else None
+        )
     return WarehousePeopleOut(
         company_id=found.company_id,
         company_name=found.company_name,
         people=[person_out(row) for row in found.people],
+        proposal=CompanyProposalOut.model_validate(proposal) if proposal else None,
     )
+
+
+@router.post("/{warehouse_id}/company")
+def attach_company(
+    warehouse_id: uuid.UUID, body: AttachCompanyIn, session: SessionDep, actor: CurrentActor
+) -> AttachedCompanyOut:
+    with business_errors():
+        attached = warehouse_companies.attach(
+            session, actor, warehouse_id, company_id=body.company_id, new_name=body.new_name
+        )
+    return AttachedCompanyOut.model_validate(attached)
 
 
 @router.post("/{warehouse_id}/people")
@@ -410,6 +472,15 @@ async def import_warehouses(
         return await run_in_threadpool(
             warehouse_import.import_workbook, session, actor, content, filename
         )
+
+
+@router.get("/company-proposals")
+def list_company_proposals(session: SessionDep) -> list[CompanyProposalOut]:
+    """The warehouses without a company that list someone, each with what could be proposed."""
+    return [
+        CompanyProposalOut.model_validate(item)
+        for item in warehouse_companies.proposals(session)
+    ]
 
 
 @router.get("/counts")

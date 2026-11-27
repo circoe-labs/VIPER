@@ -27,6 +27,18 @@
 .warehouse-link__choices input { accent-color: var(--color-accent); }
 .warehouse-contact-select { display: flex; align-items: center; gap: var(--space-2); color: var(--color-text); font-size: var(--text-sm); cursor: pointer; }
 .warehouse-contact-select input { accent-color: var(--color-accent); width: 1rem; height: 1rem; }
+.warehouse-company, .warehouse-link__company { display: grid; gap: var(--space-3); }
+.warehouse-link__company { padding: var(--space-3); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-md); }
+.warehouse-link__company h3 { font-size: var(--text-md); }
+.warehouse-company__modes, .warehouse-company__candidates { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+.warehouse-company__modes label { display: flex; align-items: center; gap: var(--space-2); cursor: pointer; }
+.warehouse-company__modes input, .warehouse-companies__site input { accent-color: var(--color-accent); }
+.warehouse-companies { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.warehouse-companies__line { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: center; gap: var(--space-3); padding: var(--space-3); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); overflow-wrap: anywhere; }
+.warehouse-companies__site { display: flex; align-items: center; gap: var(--space-3); cursor: pointer; }
+.warehouse-companies__site > span { display: grid; gap: var(--space-1); min-width: 0; }
+.warehouse-companies__editor { grid-column: 1 / -1; }
+@media (max-width: 48rem) { .warehouse-companies__line { grid-template-columns: minmax(0, 1fr); justify-items: start; } }
 .warehouse-selection-actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3); margin-top: var(--space-4); }
 .warehouse-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4); }
 .warehouse-toolbar .search-field { flex: 1; min-width: min(100%, 15rem); max-width: 42rem; }

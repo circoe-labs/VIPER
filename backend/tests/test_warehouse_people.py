@@ -23,6 +23,7 @@ from app.models import (
     WarehousePerson,
 )
 from app.models.enums import ContactabilityStatus, ContactMessageStatus, SendSource
+from app.services.warehouse_companies import looks_like_company
 from app.services.warehouse_dispatch import dispatch_warehouses
 from app.services.warehouse_people import read_name
 from tests.builders import add_cohort, add_company, add_email, add_prospect, start_sequence
@@ -477,3 +478,122 @@ def test_the_backfill_lists_first_then_writes_once(
     assert cli.main(["warehouse-people", "--apply"], factory) == 0
     assert "DÉJÀ PROSPECT : 3" in capsys.readouterr().out
     assert (count(db_session, Prospect), count(db_session, WarehousePerson)) == (3, 3)
+
+
+def proposals(client: TestClient) -> dict[str, dict[str, Any]]:
+    return {
+        p["warehouse_name"]: p for p in ok_list(client.get("/api/warehouses/company-proposals"))
+    }
+
+
+def test_a_company_is_proposed_from_domain_owner_or_name_and_never_arbitrarily(
+    client: TestClient, db_session: Session
+) -> None:
+    by_domain = add_company(db_session, "Alpha Exemple", email_domain="alpha.example")
+    by_staff = add_company(db_session, "Beta Exemple")
+    add_email(db_session, add_prospect(db_session, by_staff), "x.beta@beta.example")
+    owner = add_company(db_session, "Gamma Exemple SAS")
+    named = add_company(db_session, "Delta Exemple")
+    add_company(db_session, "Epsilon Exemple")
+    add_company(db_session, "Epsilon Exemple SARL")
+    anyone = listed("Anne Exemple")
+    for name, people, fields in (
+        ("Quai A", [listed("Anne Exemple", "anne@alpha.example")], {}),
+        ("Quai B", [listed("Anne Exemple", "anne@beta.example")], {}),
+        ("Quai C", [anyone], {"owner_name": "Gamma Exemple"}),
+        ("Delta Exemple - Rue des Tests", [anyone], {}),
+        ("Epsilon Exemple", [anyone], {}),
+        ("Delta Exemple / Zeta Exemple", [anyone], {}),
+        ("Zeta Transports - Ville Test", [listed("Anne Exemple", "anne@gmail.com")], {}),
+        ("Entrepôt nord", [anyone], {}),
+        ("Quai D", [listed("Anne", "a@alpha.example"), listed("Paul", "p@beta.example")], {}),
+        ("Sans personne", [], {}),
+    ):
+        site(db_session, *people, name=name, **fields)
+    site(db_session, anyone, name="Déjà rattaché", company=named)
+
+    found = proposals(client)
+
+    def read(name: str) -> tuple[str, str | None, list[str]]:
+        item = found[name]
+        return item["status"], item["company_id"] or item["company_name"], item["sources"]
+
+    assert read("Quai A") == ("existing", str(by_domain.id), ["domain"])
+    assert read("Quai B") == ("existing", str(by_staff.id), ["domain"])
+    assert read("Quai C") == ("existing", str(owner.id), ["owner"])
+    assert read("Delta Exemple - Rue des Tests") == ("existing", str(named.id), ["name"])
+    assert read("Zeta Transports - Ville Test") == ("new", "Zeta Transports", ["name"])
+    assert [
+        (read(n)[0], read(n)[1], len(found[n]["candidates"]))
+        for n in (
+            "Epsilon Exemple",
+            "Delta Exemple / Zeta Exemple",
+            "Entrepôt nord",
+            "Quai D",
+        )
+    ] == [
+        ("ambiguous", None, 2),
+        ("several", None, 1),
+        ("none", None, 0),
+        ("ambiguous", None, 2),
+    ]
+    assert "Sans personne" not in found and "Déjà rattaché" not in found
+
+
+@pytest.mark.parametrize(
+    ("part", "company"),
+    [("Zeta Transports", True), ("Plateforme Test", False), ("12 rue des Tests", False)],
+)
+def test_a_place_label_is_not_a_company(part: str, company: bool) -> None:
+    assert looks_like_company(part) is company
+
+
+def test_confirming_the_company_attaches_the_warehouse_once(
+    client: TestClient, db_session: Session
+) -> None:
+    first = site(db_session, listed("Anne Exemple"), name="Zeta Transports - Quai 1", city="Ville")
+    second = site(db_session, listed("Paul Exemple"), name="Zeta Transports - Quai 2")
+    companies_before = count(db_session, Company)
+    answer = ok(client.get(f"/api/warehouses/{first.id}/people"))
+    assert answer["proposal"]["company_name"] == "Zeta Transports"
+    url = f"/api/warehouses/{first.id}/company"
+
+    created = ok(client.post(url, json={"new_name": "Zeta Transports"}))
+
+    assert created["created"] is True
+    after = ok(client.get(f"/api/warehouses/{first.id}/people"))
+    assert (after["company_id"], after["proposal"]) == (created["company_id"], None)
+    shown = ok(client.get(f"/api/warehouses/{first.id}"))
+    assert (shown["company_name"], shown["building_name"]) == ("Zeta Transports", first.name)
+    # The other site now proposes the same company, and naming it again creates no second one.
+    assert proposals(client)[second.name]["company_id"] == created["company_id"]
+    again = ok(
+        client.post(
+            f"/api/warehouses/{second.id}/company", json={"new_name": "Zeta Transports SAS"}
+        )
+    )
+    assert (again["company_id"], again["created"]) == (created["company_id"], False)
+    assert count(db_session, Company) == companies_before + 1
+    assert count(db_session, Establishment) == 2
+    # Repeating is harmless; another company is refused.
+    ok(client.post(url, json={"company_id": created["company_id"]}))
+    other = add_company(db_session, "Autre Exemple")
+    db_session.flush()
+    refused(client.post(url, json={"company_id": str(other.id)}), 409, "already_attached")
+    assert count(db_session, Establishment) == 2
+
+
+def test_the_dry_run_shows_the_companies_and_attaches_none(
+    client: TestClient, db_session: Session, capsys: pytest.CaptureFixture[str]
+) -> None:
+    site(db_session, listed("Anne Exemple"), name="Zeta Transports - Quai")
+    site(db_session, listed("Paul Exemple"), name="Alpha / Beta")
+    factory = sessionmaker(bind=db_session.get_bind(), join_transaction_mode="create_savepoint")
+    before = (count(db_session, Company), count(db_session, Establishment))
+
+    for arguments in (["warehouse-people"], ["warehouse-people", "--apply"]):
+        assert cli.main(arguments, factory) == 0
+        output = capsys.readouterr().out
+        assert "Zeta Transports (nouvelle ; source : nom de l’entrepôt)" in output
+        assert "SOCIÉTÉ À CHOISIR | Alpha / Beta" in output
+    assert (count(db_session, Company), count(db_session, Establishment)) == before

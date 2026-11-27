@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router'
 
 import type { ListSort } from '../api/companies'
-import { useWarehouseCounts, useWarehouses } from '../api/warehouses'
+import { useCompanyProposals, useWarehouseCounts, useWarehouses } from '../api/warehouses'
 import { Button } from '../ui/Button'
 import { EmptyState } from '../ui/EmptyState'
 import { AlertIcon, ChevronLeftIcon, ChevronRightIcon, PlusIcon, SpinnerIcon, UploadIcon, WarehouseIcon } from '../ui/icons'
@@ -28,6 +28,7 @@ export function WarehousesPanel({ view, update, refine, search }: EntityPanelPro
   const [notice, setNotice] = useState<string | null>(null)
   const query = view.q.trim()
   const offset = (view.page - 1) * PAGE_SIZE
+  const companyless = useCompanyProposals().data?.length ?? 0
   const warehouses = useWarehouses(query, offset, {
     to_contact: view.warehouse_to_contact,
     category: view.warehouse_category,
@@ -50,6 +51,7 @@ export function WarehousesPanel({ view, update, refine, search }: EntityPanelPro
         busy={warehouses.isFetching}
         actions={
           <>
+            {companyless > 0 && <Link to="/prospection/warehouse-companies" className="btn btn--secondary btn--md">Sociétés à rattacher ({companyless})</Link>}
             <Link to="/prospection/warehouse-drafts" className="btn btn--ghost btn--md">Mails d’entrepôts</Link>
             <Button icon={UploadIcon} onClick={() => { setImporting(true) }}>Importer Excel</Button>
             <Button variant="primary" icon={PlusIcon} onClick={() => { setEditing(null) }}>Ajouter un entrepôt</Button>

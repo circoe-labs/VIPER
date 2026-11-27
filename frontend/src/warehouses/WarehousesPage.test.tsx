@@ -6,7 +6,7 @@ import { renderApp, stubApi } from '../test/render'
 import type { Warehouse } from '../api/warehouses'
 
 const ROW: Warehouse = { id: '00000000-0000-7000-a000-000000000001', version: '2026-11-03T10:00:00+00:00', name: 'Entrepôt Exemple', owner_name: 'Propriétaire Test', owner_role: 'Foncière', owner_email: null, owner_linkedin: null, address: null, city: 'Lyon', postal_code: null, siret: null, notes: null, source_reference: 'synthetic.xlsx · Sites', status: 'incomplete', missing: ['company'], company_id: null, company_name: null, building_name: null, contacts: [{ full_name: 'Anne Test', role: 'Responsable', email: 'anne@exemple.test ou a.test@exemple.test', linkedin: 'https://www.linkedin.com/in/test-anne' }] }
-const API = { ...SHELL_API, 'GET /api/warehouses/counts': [200, { warehouses: 1, contacts: 1, to_contact: 0 }], 'GET /api/warehouses/00000000-0000-7000-a000-000000000001/people': [200, { company_id: null, company_name: null, people: [] }] } as const
+const API = { ...SHELL_API, 'GET /api/warehouses/counts': [200, { warehouses: 1, contacts: 1, to_contact: 0 }], 'GET /api/warehouses/company-proposals': [200, []], 'GET /api/warehouses/00000000-0000-7000-a000-000000000001/people': [200, { company_id: null, company_name: null, people: [] }] } as const
 
 describe('Warehouse directory', () => {
   it('filters warehouses on several prospecting categories, applied by « Valider », and removable chips', async () => {
@@ -53,6 +53,35 @@ describe('Warehouse directory', () => {
     expect(await dialog.findByRole('alert')).toHaveTextContent('Une fiche ressemblante existe')
     const posted = fetched.mock.calls.find(([, init]) => init?.method === 'POST')
     expect(posted?.[1]?.body as string).toContain('"company_id":"company-1"')
+  })
+
+  const PROPOSAL = { warehouse_id: ROW.id, warehouse_name: 'Zeta Transports - Quai', city: 'Lyon', people: 2, status: 'new', company_id: null, company_name: 'Zeta Transports', sources: ['name'], candidates: [] }
+
+  it('asks to confirm the warehouse’s company before creating a person of a companyless one', async () => {
+    const people = { company_id: null, company_name: null, proposal: PROPOSAL, people: [PERSON] }
+    const fetched = stubApi({ ...API, 'GET /api/warehouses': [200, { items: [{ ...ROW, owner_name: null }], total: 1 }], [`GET /api/warehouses/${ROW.id}/people`]: [200, people], 'GET /api/companies': [200, { items: [], total: 0 }], [`POST /api/warehouses/${ROW.id}/company`]: [200, { company_id: 'company-9', company_name: 'Zeta Transports', created: true }] })
+    renderApp('/prospection?entity=warehouse')
+    await userEvent.click(await screen.findByRole('button', { name: 'Détails de Entrepôt Exemple' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Contacter Anne Test' }))
+    const dialog = within(screen.getByRole('dialog', { name: 'Contacter Anne Test' }))
+    expect(dialog.getByText('Zeta Transports · à créer · nom de l’entrepôt')).toBeVisible()
+    expect(dialog.getByRole('button', { name: 'Créer la fiche et contacter' })).toBeDisabled()
+    expect(fetched.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
+    await userEvent.click(dialog.getByRole('button', { name: 'Rattacher l’entrepôt à cette société' }))
+    await waitFor(() => { expect(fetched.mock.calls.some(([, init]) => (init?.body as string | undefined) === '{"new_name":"Zeta Transports"}')).toBe(true) })
+  })
+
+  it('attaches only the checked lines of the companyless warehouses, after review', async () => {
+    const lines = [PROPOSAL, { ...PROPOSAL, warehouse_id: 'w2', warehouse_name: 'Alpha / Beta', status: 'several', company_name: null, sources: [] }]
+    const fetched = stubApi({ ...API, 'GET /api/warehouses/company-proposals': [200, lines], [`POST /api/warehouses/${ROW.id}/company`]: [409, { detail: { code: 'company_ambiguous' } }] })
+    renderApp('/prospection/warehouse-companies')
+    expect(await screen.findByRole('checkbox', { name: 'Rattacher Alpha / Beta' })).toBeDisabled()
+    expect(screen.getByRole('checkbox', { name: 'Rattacher Zeta Transports - Quai' })).not.toBeChecked()
+    expect(screen.getByRole('button', { name: 'Rattacher la sélection (0)' })).toBeDisabled()
+    await userEvent.click(screen.getByRole('button', { name: 'Cocher les 1 lignes renseignées' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Rattacher la sélection (1)' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Plusieurs sociétés portent ce nom')
+    expect(fetched.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1)
   })
 
   it('shows a linked person’s contact state with direct actions, and blocks an opposed one', async () => {

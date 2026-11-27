@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 
 import { ApiError } from '../api/client'
-import { type LinkPersonInput, type PersonCandidate, useLinkWarehousePerson, type WarehousePeople, type WarehousePerson } from '../api/warehouses'
+import { type AttachCompanyInput, type CompanyProposal, type LinkPersonInput, type PersonCandidate, useAttachWarehouseCompany, useLinkWarehousePerson, type WarehousePeople, type WarehousePerson } from '../api/warehouses'
 import { formatShortDateTime } from '../contact/labels'
 import { BLOCK_LABELS } from '../lifecycle/model'
 import { StateBadge } from '../prospection/ContactBadges'
@@ -15,6 +15,7 @@ import { Modal } from '../ui/Dialog'
 import { SelectField, TextField } from '../ui/fields'
 import { BanIcon, MailIcon } from '../ui/icons'
 import { InfoTip } from '../ui/InfoTip'
+import { attachFailure, CompanyChoice, initialChoice, proposalText, validChoice } from './CompanyChoice'
 
 // One person of a warehouse listing in Contact terms: their prospect and where they stand, or the step that makes
 // them one (`doc/features/warehouses.md`). Writing, validating, programming and history are Contact's.
@@ -63,7 +64,7 @@ function LinkedState({ person }: { person: WarehousePerson }) {
   </>
 }
 
-export function WarehousePersonContact({ warehouseId, person, company }: { warehouseId: string; person: WarehousePerson; company: Pick<WarehousePeople, 'company_id' | 'company_name'> }) {
+export function WarehousePersonContact({ warehouseId, person, company }: { warehouseId: string; person: WarehousePerson; company: WarehouseCompany }) {
   const [dialog, setDialog] = useState(false)
   const label = `Contacter ${person.contact_name}`
   if (person.prospect) {
@@ -92,6 +93,32 @@ export function WarehousePersonContact({ warehouseId, person, company }: { wareh
 
 const NEW = 'new'
 
+type WarehouseCompany = Pick<WarehousePeople, 'company_id' | 'company_name' | 'proposal'>
+
+// A warehouse without a company: confirming one here attaches it, so its other people do not ask again.
+function AttachCompany({ warehouseId, proposal }: { warehouseId: string; proposal: CompanyProposal }) {
+  const attach = useAttachWarehouseCompany()
+  const [choice, setChoice] = useState<AttachCompanyInput | null>(() => initialChoice(proposal))
+  const [error, setError] = useState<string | null>(null)
+  async function confirm() {
+    if (!validChoice(choice)) return
+    setError(null)
+    try {
+      await attach.mutateAsync({ warehouseId, choice })
+    } catch (caught) {
+      console.error('warehouse_company.attach_failed', warehouseId, caught)
+      setError(attachFailure(caught))
+    }
+  }
+  return <section className="warehouse-link__company" aria-label="Société de l’entrepôt">
+    <h3>Société de l’entrepôt</h3>
+    <p className="warehouse-muted">{proposalText(proposal)}</p>
+    <CompanyChoice proposal={proposal} value={choice} onChange={setChoice} />
+    {error && <p className="warehouse-error" role="alert">{error}</p>}
+    <div><Button variant="primary" disabled={!validChoice(choice)} loading={attach.isPending} onClick={() => void confirm()}>Rattacher l’entrepôt à cette société</Button></div>
+  </section>
+}
+
 function failure(error: unknown): string {
   const detail = error instanceof ApiError && typeof error.detail === 'object' ? (error.detail as { code?: string } | null) : null
   switch (detail?.code) {
@@ -110,7 +137,7 @@ function failure(error: unknown): string {
   }
 }
 
-function LinkPersonDialog({ warehouseId, person, company, onClose }: { warehouseId: string; person: WarehousePerson; company: Pick<WarehousePeople, 'company_id' | 'company_name'>; onClose: () => void }) {
+function LinkPersonDialog({ warehouseId, person, company, onClose }: { warehouseId: string; person: WarehousePerson; company: WarehouseCompany; onClose: () => void }) {
   const navigate = useNavigate()
   const link = useLinkWarehousePerson(warehouseId)
   // The same person, or an opposed address: only their existing record can be chosen.
@@ -119,10 +146,13 @@ function LinkPersonDialog({ warehouseId, person, company, onClose }: { warehouse
   const [first, setFirst] = useState(person.first_name)
   const [last, setLast] = useState(person.last_name)
   const [civility, setCivility] = useState(person.civility ?? '')
-  const [companyId, setCompanyId] = useState<string | null>(company.company_id)
+  // The person's company: the warehouse's (once attached) unless another one is chosen.
+  const [chosenCompany, setCompanyId] = useState<string | null>(null)
+  const companyId = chosenCompany ?? company.company_id
   const [error, setError] = useState<string | null>(null)
-  const creating = choice === NEW
-  const ready = creating ? Boolean(first.trim() && last.trim() && companyId) : choice !== ''
+  // Attaching the company may reveal the same person: a new record is then no longer offered.
+  const creating = choice === NEW && !mustLink
+  const ready = creating ? Boolean(first.trim() && last.trim() && companyId) : choice !== '' && choice !== NEW
 
   async function submit() {
     setError(null)
@@ -149,6 +179,7 @@ function LinkPersonDialog({ warehouseId, person, company, onClose }: { warehouse
   </>}>
     <div className="warehouse-link">
       <p className="warehouse-muted">{[person.role, ...person.emails].filter(Boolean).join(' · ') || 'Aucune adresse dans la liste'}</p>
+      {!company.company_id && company.proposal && <AttachCompany warehouseId={warehouseId} proposal={company.proposal} />}
       {person.candidates.length > 0 && <fieldset className="warehouse-link__choices">
         <legend>Fiches existantes</legend>
         {person.candidates.map((c) => <label key={c.prospect_id}>
@@ -158,7 +189,7 @@ function LinkPersonDialog({ warehouseId, person, company, onClose }: { warehouse
         </label>)}
         {!mustLink && <label><input type="radio" name="person" checked={creating} onChange={() => { setChoice(NEW) }} /><span>Créer une nouvelle fiche (une autre personne)</span></label>}
       </fieldset>}
-      {creating && <div className="warehouse-form__grid">
+      {creating && (company.company_id || !company.proposal) && <div className="warehouse-form__grid">
         <TextField label="Prénom" required value={first} onChange={(e) => { setFirst(e.target.value) }} />
         <TextField label="Nom" required value={last} onChange={(e) => { setLast(e.target.value) }} />
         <SelectField label="Civilité" value={civility} onChange={(e) => { setCivility(e.target.value) }}>
@@ -166,8 +197,7 @@ function LinkPersonDialog({ warehouseId, person, company, onClose }: { warehouse
           <option value="mr">M.</option>
           <option value="ms">Mme</option>
         </SelectField>
-        <CompanyPicker id="warehouse-person-company" value={companyId} selectedLabel={companyId === company.company_id ? company.company_name : null} onChange={setCompanyId}
-          warning={companyId ? undefined : 'Cet entrepôt n’a pas de société : choisissez celle de la personne.'} />
+        <CompanyPicker id="warehouse-person-company" value={companyId} selectedLabel={companyId === company.company_id ? company.company_name : null} onChange={setCompanyId} />
       </div>}
       {error && <p className="warehouse-error" role="alert">{error}</p>}
     </div>

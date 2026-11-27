@@ -8,14 +8,14 @@ No prospect is created here: people are linked one by one from the warehouse she
 operator with `python -m app.cli warehouse-people` (dry run by default).
 
 Revision ID: 0066
-Revises: 0064
+Revises: 0065
 """
 
 import sqlalchemy as sa
 from alembic import op
 
 revision = "0066"
-down_revision = "0064"
+down_revision = "0065"
 branch_labels = None
 depends_on = None
 

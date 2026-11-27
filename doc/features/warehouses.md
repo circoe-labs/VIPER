@@ -102,8 +102,8 @@ any backfill:
 - **No person, no prospect.** A message is addressed to a person; none is invented from
   « Service expédition » or a company name. A generic address (`contact@`) of a named person is
   fine.
-- **Creation** needs a company (prefilled with the warehouse's owning company, otherwise chosen or
-  created in the dialog). It copies the function, the addresses (primary only when there is
+- **Creation** needs a company, prefilled with the warehouse's owning company (see *Owning
+  company*). It copies the function, the addresses (primary only when there is
   exactly one; all unverified) and records the provenance. It is refused while the same person is
   in the base (`person_exists`), or when the address is that of someone under « Ne pas contacter »;
   other look-alikes need the explicit « autre personne » (`person_to_confirm`).
@@ -111,6 +111,30 @@ any backfill:
   addresses when it has none. A blocked person's programmed warehouse mails stop (`failed`).
 - Not covered: undoing a link (it disappears only with the prospect); renaming a listing entry
   shows it unlinked again (the same record is then proposed).
+
+### Owning company
+
+Owner: `services/warehouse_companies.py`. Most imported warehouses have no company. VIPER only
+**proposes**; a person confirms.
+
+| Proposal | When |
+| --- | --- |
+| existing company | exactly one company found by the domain of the listing's addresses (its own domain or its prospects'; never a webmail), the written owner, or the company part of the warehouse name |
+| new company | nothing found or alike, and the name holds one company part (`naming.organisations`) that is not a site or street label |
+| none (« à choisir ») | several companies in the name, several companies found, only a close spelling, or nothing to go on; the look-alikes are listed |
+
+- On « Contacter » of a companyless warehouse, the dialog asks for the company first (prefilled,
+  editable: existing or new). Confirming attaches the warehouse, so its other people are not asked
+  again; the same-person comparison then runs with that company.
+- « Sociétés à rattacher (n) » (`/prospection/warehouse-companies`) lists every companyless
+  warehouse with people: one line each with the proposal and its source, editable; only the lines a
+  person checks are attached, one by one (a failed line says why, the others pass).
+- Attaching (`POST /api/warehouses/{id}/company`, a signed-in person) links the matching building of
+  the company or adds one with the warehouse's address (kind « Entrepôt »). A new name equal to one
+  existing company uses it (several: `company_ambiguous`); a warehouse already attached elsewhere
+  (`already_attached`) or a SIRET held by another company (`siret_other_company`) is refused.
+- The directory shows the owning company on each card.
+- The backfill's dry run lists the proposals; the command attaches none.
 
 ### Backfill
 
@@ -124,7 +148,7 @@ owning company) is created. `À TRANCHER`, `SANS SOCIÉTÉ`, `PROPRIÉTAIRE À V
 never created in bulk: it is often a company), `NOM INCOMPLET` and `PAS UNE PERSONNE` are only
 listed, for the warehouse sheet. Review the proposed first / last name split before applying.
 Running it again creates nothing new. Warehouses imported from a workbook have no owning company:
-attach them to a building first, or handle their people from the sheet.
+confirm them first on « Sociétés à rattacher », then run the command.
 
 ## Former warehouse mails
 
@@ -172,6 +196,7 @@ imports it.
 Authenticated, CSRF-protected endpoints:
 
 - `GET /api/warehouses`, `GET /api/warehouses/counts`, `GET /api/warehouses/{id}`
+- `GET /api/warehouses/company-proposals`, `POST /api/warehouses/{id}/company`
 - `GET`, `POST /api/warehouses/{id}/people` (read states; attach `prospect_id` or `create`)
 - `GET /api/warehouses/drafts[?prospect_id=]`, `GET /api/warehouses/drafts/dispatch-status`,
   `POST /api/warehouses/drafts/{id}/unschedule`, `POST /api/warehouses/drafts/{id}/resolve`

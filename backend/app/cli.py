@@ -29,7 +29,8 @@ the pass was stopped by the connection (`blocked`).
 
 `warehouse-people` links the people of the warehouse listings to prospects: unambiguous matches
 are attached, clearly new people of warehouses with an owning company are created, everything else
-is listed for a person. It writes nothing unless `--apply` is given.
+is listed for a person. It writes nothing unless `--apply` is given. It first lists the company
+proposed for each warehouse without one; a person confirms those on screen, never this command.
 
 `contact-dispatch --once` runs one pass of the scheduled sending (S7) — the pass the API's worker
 runs every `VIPER_CONTACT_DISPATCH_INTERVAL_MS` — and prints its counts; same Toolbox requirements
@@ -57,6 +58,7 @@ from app.services import (
     contact_dispatch,
     email_identity_listing,
     mcp_tokens,
+    warehouse_companies,
     warehouse_discovery,
     warehouse_people,
 )
@@ -179,8 +181,34 @@ def backfill_warehouses(session_factory: sessionmaker[Session], args: argparse.N
     return "\n".join(output)
 
 
+def _company_line(item: warehouse_companies.Proposal) -> str:
+    sources = {
+        "domain": "domaine e-mail",
+        "owner": "propriétaire indiqué",
+        "name": "nom de l’entrepôt",
+        "similar_name": "nom proche",
+    }
+    if item.status in ("existing", "new"):
+        kind = "existante" if item.status == "existing" else "nouvelle"
+        found = ", ".join(sources[s] for s in item.sources)
+        detail = f"{item.company_name} ({kind} ; source : {found})"
+        label = "SOCIÉTÉ PROPOSÉE"
+    else:
+        label = "SOCIÉTÉ À CHOISIR"
+        reason = {
+            "ambiguous": "plusieurs sociétés ressemblantes",
+            "several": "plusieurs sociétés dans le nom",
+            "none": "aucun indice",
+        }[item.status]
+        found = ", ".join(m.company_name for m in item.candidates)
+        detail = reason + (f" : {found}" if found else "")
+    return f"{label} | {item.warehouse_name} | {item.people} personne(s) | {detail}"
+
+
 def link_warehouse_people(session_factory: sessionmaker[Session], apply: bool) -> str:
     with attributed_unit_of_work(session_factory, CLI_ACTOR) as session:
+        # Suggested companies are only listed: a person confirms each one on screen.
+        companies = [_company_line(item) for item in warehouse_companies.proposals(session)]
         # As above: the dry run does the real work and undoes it.
         savepoint = session.begin_nested()
         lines = warehouse_people.backfill(session, CLI_ACTOR)
@@ -203,6 +231,14 @@ def link_warehouse_people(session_factory: sessionmaker[Session], apply: bool) -
     counts = Counter(x.status for x in lines)
     summary = ", ".join(f"{labels[status]} : {count}" for status, count in counts.items())
     output.append(summary or "Aucune personne dans les entrepôts.")
+    if companies:
+        output = [
+            *companies,
+            f"{len(companies)} entrepôt(s) sans société : à confirmer dans VIPER, Entrepôts > "
+            "« Sociétés à rattacher » (cette commande n’en rattache aucune).",
+            "",
+            *output,
+        ]
     if not apply:
         output.append("Simulation : rien n’a été écrit. Relancer avec --apply pour écrire.")
     return "\n".join(output)

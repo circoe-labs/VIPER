@@ -130,6 +130,34 @@ export interface WarehousePeople {
   company_id: string | null
   company_name: string | null
   people: WarehousePerson[]
+  // Only while the warehouse has no company.
+  proposal?: CompanyProposal | null
+}
+export type CompanySource = 'domain' | 'owner' | 'name' | 'similar_name'
+// A suggested owning company, for a person to confirm.
+export interface CompanyProposal {
+  warehouse_id: string
+  warehouse_name: string
+  city: string | null
+  people: number
+  status: 'existing' | 'new' | 'ambiguous' | 'several' | 'none'
+  company_id: string | null
+  company_name: string | null
+  sources: CompanySource[]
+  candidates: { company_id: string; company_name: string; sources: CompanySource[] }[]
+}
+export type AttachCompanyInput = { company_id: string } | { new_name: string }
+
+export function useCompanyProposals() {
+  return useQuery({ queryKey: ['warehouses', 'company-proposals'], queryFn: ({ signal }) => apiGet<CompanyProposal[]>('/warehouses/company-proposals', signal) })
+}
+
+export function useAttachWarehouseCompany() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({ warehouseId, choice }: { warehouseId: string; choice: AttachCompanyInput }) => apiRequest<{ company_id: string; company_name: string; created: boolean }>('POST', `/warehouses/${warehouseId}/company`, { body: choice }),
+    onSettled: () => refreshAfterWrite(client, [['warehouses'], ['companies'], ['prospection']]),
+  })
 }
 export interface LinkPersonInput {
   contact_name: string

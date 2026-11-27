@@ -24,6 +24,7 @@ import { AppShell } from './shell/AppShell'
 import { SignupApprovalPage } from './auth/SignupApprovalPage'
 import { SignupPage } from './auth/SignupPage'
 import { AgentHistoryPage } from './settings/AgentHistoryPage'
+import { WarehouseCompaniesPage } from './warehouses/WarehouseCompanies'
 import { WarehouseDraftsPage } from './warehouses/WarehousesPage'
 
 // Component showcase for design review; `import.meta.env.DEV` is false in production builds, so the route and
@@ -81,6 +82,7 @@ const PAGES: RouteObject[] = [
   // Entrepôts is a view of Prospection (`entity=warehouse`); the old page path keeps working with its query and hash.
   { path: '/warehouses', element: <WarehousesRedirect /> },
   { path: '/prospection/warehouse-drafts', element: <WarehouseDraftsPage /> },
+  { path: '/prospection/warehouse-companies', element: <WarehouseCompaniesPage /> },
   { path: '/contact', element: <ContactPage /> },
   { path: '/missions', element: <MissionsPage /> },
   { path: '/missions/:missionId', element: <MissionDetailPage /> },
