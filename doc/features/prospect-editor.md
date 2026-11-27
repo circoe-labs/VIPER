@@ -204,6 +204,20 @@ before saving (banner, states above).
   picker uses Enter to choose), **Échap** closes — asking first when changes are pending (*Abandonner les
   modifications ?*). Shortcuts act only in the editor, not in a dialog above it.
 
+## Nothing typed is lost, no endless wait
+
+- **Unsaved input survives a reload** (`prospects/draftStorage.ts`, `sessionStorage`: this tab only). Reopening the
+  prospect puts it back (*Saisie non enregistrée restaurée*). When the prospect changed since it was typed, and after
+  *Recharger la fiche*, it is only offered (*Restaurer ma saisie* / *Ignorer*): saving it would overwrite the newer
+  values of the fields it holds. Dropped once saved, reverted, abandoned through the confirmation, on deletion and at
+  sign-out; an expired session keeps it for the next sign-in.
+- **Deadlines** (`api/client.ts`): every read ends after 30 s without answer (not retried on its own, the screen
+  offers *Réessayer*); the editor's writes end after 30 s with *Pas de réponse après 30 s. Votre saisie est conservée :
+  réessayez.* If the server had in fact saved, the retry answers the usual conflict. Imports and AI calls keep their
+  own limits. The browser's offline state never pauses a request (`api/queryClient.ts`).
+- **Waits are visible**: loading and saving show their seconds; a loading longer than 8 s offers *Réessayer*.
+- A 503 `database_busy` says the database is busy and that nothing was saved.
+
 ## New prospect
 
 `?prospect=new`: empty form, activity *Inconnue*, one empty e-mail and phone line, and the **provenance** fields —

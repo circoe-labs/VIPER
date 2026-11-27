@@ -4,15 +4,17 @@ import { useNavigate } from 'react-router'
 import { useCompany } from '../api/companies'
 import { type Prospect, useProspect, useProspectMutations } from '../api/prospects'
 import { businessToday } from '../lib/isoWeek'
+import { useElapsed } from '../lib/useElapsed'
 import { initials } from '../prospection/graphLayout'
 import { civilityLabel, personName, selectionShortLabel } from '../prospection/labels'
 import type { ProspectEditorProps } from '../prospection/prospectEditor'
 import { Button, IconButton } from '../ui/Button'
 import { Modal } from '../ui/Dialog'
-import { AlertIcon, CheckCircleIcon, ChevronLeftIcon, ChevronRightIcon, InfoIcon, PhoneIcon, RefreshIcon, TrashIcon, UserPlusIcon } from '../ui/icons'
+import { AlertIcon, CheckCircleIcon, ChevronLeftIcon, ChevronRightIcon, InfoIcon, PhoneIcon, RefreshIcon, SpinnerIcon, TrashIcon, UserPlusIcon } from '../ui/icons'
 import { Tabs } from '../ui/Tabs'
 import { AliasList } from './AliasList'
 import { CompanySection, DeleteProspectDialog } from './ContextSections'
+import { forgetDraft, type KeptDraft, keepDraft, keptDraft } from './draftStorage'
 import { EditorSection, type SectionEdit } from './EditorSection'
 import { EmploymentSection, IdentitySection } from './EmploymentSections'
 import { type ProspectRefusal, prospectRefusal } from './messages'
@@ -99,6 +101,24 @@ function newForms(defaults: NewProspectDefaults = {}): Forms {
   return { target: 'new', prospect: null, baseline: draft, draft, session: nextSession(), editing: [] }
 }
 
+// Unsaved input kept from before (draftStorage.ts): put back in the form, or — when the prospect changed since it was
+// typed — offered to the person.
+type Recovery = 'restored' | { stale: KeptDraft } | null
+
+interface Opened {
+  forms: Forms
+  recovery: Recovery
+}
+
+// A form just opened, with the input kept for it (nothing when the server already holds the same values). `offer`:
+// never put it back unasked.
+function recovered(fresh: Forms, offer = false): Opened {
+  const kept = keptDraft(fresh.target)
+  if (!kept || !isDirty(kept.draft, fresh.baseline, fresh.prospect === null)) return { forms: fresh, recovery: null }
+  if (offer || kept.version !== (fresh.prospect?.version ?? null)) return { forms: fresh, recovery: { stale: kept } }
+  return { forms: { ...fresh, draft: kept.draft, editing: kept.editing }, recovery: 'restored' }
+}
+
 // The Prospect editor (Task 15): one wide drawer for adding and editing a person, opened by the Prospection list
 // (contract: prospection/prospectEditor.tsx). Prefilled; what needs verification is shown in warning style; one
 // atomic save; « Enregistrer et suivant » follows the list's queue. Ctrl+S saves, Ctrl+Entrée saves and moves on,
@@ -106,7 +126,9 @@ function newForms(defaults: NewProspectDefaults = {}): Forms {
 export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProps) {
   const navigate = useNavigate()
   const loaded = useProspect(target === 'new' ? null : target)
-  const [forms, setForms] = useState<Forms | null>(() => (target === 'new' ? newForms() : null))
+  const [opened] = useState<Opened | null>(() => (target === 'new' ? recovered(newForms()) : null))
+  const [forms, setForms] = useState<Forms | null>(opened?.forms ?? null)
+  const [recovery, setRecovery] = useState<Recovery>(opened?.recovery ?? null)
   const [shownTarget, setShownTarget] = useState(target)
   const [submitted, setSubmitted] = useState(false)
   const [refusal, setRefusal] = useState<ProspectRefusal | null>(null)
@@ -127,14 +149,20 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
   if (shownTarget !== target) {
     setShownTarget(target)
     if (forms?.target !== target) {
-      setForms(target === 'new' ? newForms() : null)
+      const fresh = target === 'new' ? recovered(newForms()) : null
+      setForms(fresh?.forms ?? null)
+      setRecovery(fresh?.recovery ?? null)
       setSubmitted(false)
       setRefusal(null)
       setNotice(null)
       setTab('profile')
     }
   }
-  if (forms === null && loaded.data?.id === target) setForms(loadedForms(loaded.data))
+  if (forms === null && loaded.data?.id === target) {
+    const fresh = recovered(loadedForms(loaded.data))
+    setForms(fresh.forms)
+    setRecovery(fresh.recovery)
+  }
 
   const formId = useId()
   const fieldId = (path: string) => `${formId}-${path}`
@@ -179,6 +207,20 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
   // What waits on the other tab: unsaved changes, or fields to correct (marked on the tab, never only by colour).
   const tabDirty = forms ? dirtyTabs(forms.draft, forms.baseline, isNew) : { profile: false, tracking: false }
   const tabInvalid = tabsWithErrors(shown)
+
+  // Unsaved input outlives a reload of the page. A stale one waits for the person's choice before being dropped.
+  const stale = recovery !== null && recovery !== 'restored' ? recovery.stale : null
+  useEffect(() => {
+    if (!forms) return
+    if (dirty) keepDraft(forms.target, { version: forms.prospect?.version ?? null, draft: forms.draft, editing: forms.editing })
+    else if (!stale) forgetDraft(forms.target)
+  }, [forms, dirty, stale])
+
+  const savingSince = mutations.update.isPending
+    ? mutations.update.submittedAt
+    : mutations.create.isPending
+      ? mutations.create.submittedAt
+      : null
 
   // A new form (or another person) puts the focus on its first field — or, when the identity reads as a summary, on
   // its « Modifier » button.
@@ -226,6 +268,7 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
     setForms((current) => current && { ...current, draft: { ...current.draft, ...patch } })
     setRefusal((current) => (current?.conflict ? current : null))
     setNotice(null)
+    if (stale) setRecovery(null)
   }
 
   function guarded(action: () => void, label: string) {
@@ -237,6 +280,7 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
     setForms((current) => current && { ...current, draft: current.baseline, editing: sectionsWithErrors(validate(current.baseline, { isNew, today })) })
     setSubmitted(false)
     setRefusal(null)
+    setRecovery(null)
   }
 
   // Saves the form; resolves to the saved prospect, or null when the form or the server refused it.
@@ -257,6 +301,8 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
             input: toInput(forms.draft, forms.baseline.company_id),
           })
         : await mutations.create.mutateAsync(toCreateInput(forms.draft))
+      forgetDraft(forms.target)
+      setRecovery(null)
       setSubmitted(false)
       setRefusal(null)
       return saved
@@ -322,7 +368,12 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
 
   async function reload() {
     const result = await loaded.refetch()
-    if (result.data) setForms(loadedForms(result.data))
+    if (result.data) {
+      // « Recharger la fiche » shows the server's values; what was typed stays one click away.
+      const fresh = recovered(loadedForms(result.data), true)
+      setForms(fresh.forms)
+      setRecovery(fresh.recovery)
+    }
     setSubmitted(false)
     setRefusal(null)
   }
@@ -576,12 +627,37 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
           <div className="prospect-editor__bar">
             <div className="prospect-editor__bar-status" role="status" aria-label="Enregistrement de la fiche">
               <EditorStatus
+                savingSince={savingSince}
+                restored={recovery === 'restored'}
+                stale={stale !== null}
                 dirty={dirty}
                 notice={notice}
                 errorCount={submitted ? Object.keys(errors).length : 0}
                 refusal={refusal}
                 segment={selectionShortLabel(queue.criteria)}
               />
+              {stale && (
+                <>
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      setForms((current) => current && { ...current, draft: stale.draft, editing: stale.editing })
+                      setRecovery('restored')
+                    }}
+                  >
+                    Restaurer ma saisie
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setRecovery(null)
+                    }}
+                  >
+                    Ignorer
+                  </Button>
+                </>
+              )}
               {refusal?.conflict && (
                 <Button size="sm" icon={RefreshIcon} onClick={() => void reload()}>
                   Recharger la fiche
@@ -657,7 +733,15 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
             mutations.remove.reset()
           }}
           onConfirm={() => {
-            mutations.remove.mutate({ id: prospect.id, version: prospect.version }, { onSuccess: close })
+            mutations.remove.mutate(
+              { id: prospect.id, version: prospect.version },
+              {
+                onSuccess: () => {
+                  forgetDraft(prospect.id)
+                  close()
+                },
+              },
+            )
           }}
         />
       )}
@@ -678,7 +762,16 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
               >
                 Continuer la saisie
               </Button>
-              <Button variant="danger" onClick={confirm.action}>
+              <Button
+                variant="danger"
+                onClick={() => {
+                  // Abandoned on purpose: nothing is kept, and the question does not stay over the next prospect.
+                  if (forms) forgetDraft(forms.target)
+                  revert()
+                  setConfirm(null)
+                  confirm.action()
+                }}
+              >
                 {confirm.label}
               </Button>
             </>
@@ -723,8 +816,29 @@ function isNotFound(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'status' in error && error.status === 404
 }
 
+// Seconds after which a wait shows its length, and offers to ask again.
+const SHOW_ELAPSED_AFTER = 2
+const OFFER_RETRY_AFTER = 8
+
+function Loading({ onRetry }: { onRetry: () => void }) {
+  const [startedAt] = useState(() => Date.now())
+  const seconds = useElapsed(startedAt)
+  return (
+    <div className="prospect-editor__state">
+      <SpinnerIcon size={18} className="btn__spinner" />
+      <span role="status">Chargement du prospect…</span>
+      {seconds >= SHOW_ELAPSED_AFTER && <span aria-hidden="true">{seconds} s</span>}
+      {seconds >= OFFER_RETRY_AFTER && (
+        <Button size="sm" onClick={onRetry}>
+          Réessayer
+        </Button>
+      )}
+    </div>
+  )
+}
+
 function LoadState({ failed, notFound, onRetry }: { failed: boolean; notFound: boolean; onRetry: () => void }) {
-  if (!failed) return <p className="prospect-editor__state">Chargement du prospect…</p>
+  if (!failed) return <Loading onRetry={onRetry} />
   return (
     <div className="prospect-editor__state prospect-editor__state--error" role="alert">
       <AlertIcon size={18} />
@@ -745,6 +859,10 @@ const NOTICES: Record<Notice, (segment: string) => string> = {
 }
 
 interface EditorStatusProps {
+  // When the running save was sent; null while none runs.
+  savingSince: number | null
+  restored: boolean
+  stale: boolean
   dirty: boolean
   notice: Notice | null
   errorCount: number
@@ -752,7 +870,17 @@ interface EditorStatusProps {
   segment: string
 }
 
-function EditorStatus({ dirty, notice, errorCount, refusal, segment }: EditorStatusProps) {
+function EditorStatus({ savingSince, restored, stale, dirty, notice, errorCount, refusal, segment }: EditorStatusProps) {
+  const seconds = useElapsed(savingSince)
+  if (savingSince !== null) {
+    return (
+      <span className="prospect-editor__status prospect-editor__status--info">
+        <SpinnerIcon size={16} className="btn__spinner" />
+        Enregistrement…
+        {seconds >= SHOW_ELAPSED_AFTER && <span aria-hidden="true">{seconds} s</span>}
+      </span>
+    )
+  }
   if (refusal) {
     return (
       <span className="prospect-editor__status prospect-editor__status--error">
@@ -769,11 +897,19 @@ function EditorStatus({ dirty, notice, errorCount, refusal, segment }: EditorSta
       </span>
     )
   }
+  if (stale) {
+    return (
+      <span className="prospect-editor__status prospect-editor__status--dirty">
+        <AlertIcon size={16} />
+        Saisie non enregistrée, antérieure à la dernière modification de la fiche
+      </span>
+    )
+  }
   if (dirty) {
     return (
       <span className="prospect-editor__status prospect-editor__status--dirty">
         <span className="prospect-editor__dot" aria-hidden="true" />
-        Modifications non enregistrées
+        {restored ? 'Saisie non enregistrée restaurée' : 'Modifications non enregistrées'}
       </span>
     )
   }

@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { companyKeys } from './companies'
 import { contactKeys } from './contact'
-import { apiGet, apiRequest } from './client'
+import { apiGet, apiRequest, SAVE_TIMEOUT_MS } from './client'
 import { type HistoryActor, historyKeys } from './history'
 import { homeKeys } from './home'
 import type { ProfileCompleteness, ProfileCompletenessCriterion } from './profileCompleteness'
@@ -308,29 +308,29 @@ export function useProspectMutations() {
   }
   return {
     create: useMutation({
-      mutationFn: (input: ProspectCreateInput) => apiRequest<Prospect>('POST', '/prospects', { body: input }),
+      mutationFn: (input: ProspectCreateInput) => apiRequest<Prospect>('POST', '/prospects', { body: input, timeoutMs: SAVE_TIMEOUT_MS }),
       onSuccess: saved,
     }),
     update: useMutation({
       mutationFn: ({ id, version, input }: { id: string; version: string; input: ProspectInput }) =>
-        apiRequest<Prospect>('PUT', prospectPath(id), { body: { ...input, version } }),
+        apiRequest<Prospect>('PUT', prospectPath(id), { body: { ...input, version }, timeoutMs: SAVE_TIMEOUT_MS }),
       onSuccess: saved,
     }),
     contactability: useMutation({
       mutationFn: ({ id, ...body }: { id: string; do_not_contact: boolean; reason: string; version: string }) =>
-        apiRequest<Prospect>('PUT', `${prospectPath(id)}/contactability`, { body }),
+        apiRequest<Prospect>('PUT', `${prospectPath(id)}/contactability`, { body, timeoutMs: SAVE_TIMEOUT_MS }),
       onSuccess: saved,
     }),
     // The commercial state outside the form's save (« Défaillant », « Reprendre », the Contact workbench): answers the
     // whole view, like the other writes.
     tracking: useMutation({
       mutationFn: ({ id, version, patch }: { id: string; version: string; patch: TrackingPatch }) =>
-        apiRequest<TrackingPatched>('PATCH', `${prospectPath(id)}/tracking`, { body: { ...patch, version } }),
+        apiRequest<TrackingPatched>('PATCH', `${prospectPath(id)}/tracking`, { body: { ...patch, version }, timeoutMs: SAVE_TIMEOUT_MS }),
       onSuccess: saved,
     }),
     remove: useMutation({
       mutationFn: ({ id, version }: { id: string; version: string }) =>
-        apiRequest<undefined>('DELETE', `${prospectPath(id)}?version=${encodeURIComponent(version)}`),
+        apiRequest<undefined>('DELETE', `${prospectPath(id)}?version=${encodeURIComponent(version)}`, { timeoutMs: SAVE_TIMEOUT_MS }),
       onSuccess: (_, { id }) => {
         queryClient.removeQueries({ queryKey: prospectKeys.detail(id) })
         void refreshAfterWrite(queryClient, [prospectionKeys.all, companyKeys.all])

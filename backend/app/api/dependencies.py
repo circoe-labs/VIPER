@@ -57,9 +57,15 @@ def require_session(request: Request, session: SessionDep, settings: SettingsDep
     unsafe method lacks the session's CSRF token.
     """
     token = request.cookies.get(SESSION_COOKIE)
-    record = (
-        resolve_session(session, token, SessionPolicy.from_settings(settings)) if token else None
-    )
+    record = None
+    if token:
+        policy = SessionPolicy.from_settings(settings)
+        # The last-seen stamp commits on its own, before the request's transaction reads anything.
+        # Written inside it, its row lock lasted as long as the request (an AI call: minutes), and
+        # every other request of the same session queued behind it holding a pool connection.
+        with unit_of_work(request.app.state.session_factory) as stamp:
+            resolve_session(stamp, token, policy)
+        record = resolve_session(session, token, policy)
     if token is None or record is None:
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED,

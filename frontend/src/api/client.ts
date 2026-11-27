@@ -15,6 +15,22 @@ export class ApiError extends Error {
   }
 }
 
+// No answer within the deadline. A read can simply be asked again; the outcome of a write is unknown.
+export class RequestTimeoutError extends Error {
+  readonly timeoutMs: number
+
+  constructor(request: string, timeoutMs: number) {
+    super(`${request} had no answer after ${String(timeoutMs / 1000)} s`)
+    this.name = 'RequestTimeoutError'
+    this.timeoutMs = timeoutMs
+  }
+}
+
+// Reads always carry a deadline: no screen waits forever. A write carries the one its caller gives (`timeoutMs` or a
+// `signal`): imports and AI calls last minutes.
+export const READ_TIMEOUT_MS = 30_000
+export const SAVE_TIMEOUT_MS = 30_000
+
 async function errorDetail(response: Response): Promise<unknown> {
   try {
     const body: unknown = await response.json()
@@ -50,6 +66,8 @@ export interface RequestOptions {
   // JSON-encoded, except FormData (multipart uploads) which is sent as is.
   body?: unknown
   signal?: AbortSignal
+  // Deadline of the whole answer; a GET has READ_TIMEOUT_MS when none is given.
+  timeoutMs?: number
   // The caller handles 401 itself (sign-in, session probe): no "session expired" notification.
   anonymous?: boolean
 }
@@ -57,7 +75,7 @@ export interface RequestOptions {
 export async function apiRequest<T>(
   method: HttpMethod,
   path: `/${string}`,
-  { body, signal, anonymous = false }: RequestOptions = {},
+  { body, signal, timeoutMs = method === 'GET' ? READ_TIMEOUT_MS : undefined, anonymous = false }: RequestOptions = {},
 ): Promise<T> {
   const url = `/api${path}`
   const headers: Record<string, string> = { Accept: 'application/json' }
@@ -65,14 +83,47 @@ export async function apiRequest<T>(
   // The browser sets the multipart Content-Type (with its boundary) itself.
   if (body !== undefined && !multipart) headers['Content-Type'] = 'application/json'
   if (method !== 'GET' && csrfToken) headers[CSRF_HEADER] = csrfToken
-  const response = await fetch(url, {
-    method,
-    headers,
-    body: body === undefined ? undefined : multipart ? body : JSON.stringify(body),
-    signal,
+  return withDeadline(`${method} ${url}`, timeoutMs, signal, async (deadline) => {
+    const response = await fetch(url, {
+      method,
+      headers,
+      body: body === undefined ? undefined : multipart ? body : JSON.stringify(body),
+      signal: deadline,
+    })
+    if (!response.ok) throw await failure(method, url, response, anonymous)
+    return (response.status === 204 ? undefined : await response.json()) as T
   })
-  if (!response.ok) throw await failure(method, url, response, anonymous)
-  return (response.status === 204 ? undefined : await response.json()) as T
+}
+
+// Runs `send` (the request and the reading of its body) under `timeoutMs`, keeping the caller's own cancellation. A
+// deadline that passes is logged (without the query string) and reported as RequestTimeoutError.
+async function withDeadline<T>(
+  request: string,
+  timeoutMs: number | undefined,
+  signal: AbortSignal | undefined,
+  send: (signal: AbortSignal | undefined) => Promise<T>,
+): Promise<T> {
+  if (timeoutMs === undefined) return send(signal)
+  const controller = new AbortController()
+  const cancel = () => {
+    controller.abort(signal?.reason)
+  }
+  if (signal?.aborted) cancel()
+  signal?.addEventListener('abort', cancel)
+  const expired = new RequestTimeoutError(request.split('?')[0] ?? request, timeoutMs)
+  const timer = setTimeout(() => {
+    controller.abort(expired)
+  }, timeoutMs)
+  try {
+    return await send(controller.signal)
+  } catch (error) {
+    if (controller.signal.reason !== expired) throw error
+    console.warn(expired.message)
+    throw expired
+  } finally {
+    clearTimeout(timer)
+    signal?.removeEventListener('abort', cancel)
+  }
 }
 
 async function failure(method: HttpMethod, url: string, response: Response, anonymous: boolean): Promise<ApiError> {

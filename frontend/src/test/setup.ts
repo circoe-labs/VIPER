@@ -12,6 +12,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
   window.localStorage.clear()
+  window.sessionStorage.clear()
   setCsrfToken(null)
   delete document.documentElement.dataset.theme
 })

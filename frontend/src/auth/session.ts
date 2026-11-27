@@ -1,6 +1,7 @@
 import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { ApiError, apiRequest, setCsrfToken } from '../api/client'
+import { forgetAllDrafts } from '../prospects/draftStorage'
 
 // Mirror backend `UserResponse` / `SessionResponse` (backend/app/api/routes/auth.py).
 export interface CurrentUser {
@@ -73,6 +74,8 @@ export function useSession() {
 export function signOutLocally(queryClient: QueryClient, reason: Exclude<AnonymousReason, 'initial'>): void {
   const anonymous: SessionState = { status: 'anonymous', reason }
   setCsrfToken(null)
+  // An expired session keeps the unsaved input for the next sign-in; signing out forgets it.
+  if (reason === 'signed-out') forgetAllDrafts()
   queryClient.setQueryData(SESSION_QUERY_KEY, anonymous)
   queryClient.removeQueries({ predicate: (query) => query.queryKey[0] !== SESSION_QUERY_KEY[0] })
 }

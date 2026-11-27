@@ -175,10 +175,14 @@ async def preview_import(
 
 
 @router.post("/analyze")
-async def analyze_import(request: Request, settings: SettingsDep) -> AnalyzeOut:
+async def analyze_import(
+    request: Request, session: SessionDep, settings: SettingsDep
+) -> AnalyzeOut:
     """The import agent's reading of an uploaded file: nothing is written."""
     limits = ImportLimits.from_settings(settings)
     file, _ = await read_upload(request, limits, "options", PreviewOptions, required=False)
+    # The analysis can last minutes: the authentication's transaction ends here.
+    session.commit()
     try:
         with business_errors():
             answer = await run_in_threadpool(

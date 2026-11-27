@@ -8,6 +8,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 from sqlalchemy import select
+from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
 
 from app.api.dependencies import CurrentActor, SessionDep
@@ -443,9 +444,10 @@ async def uploaded(request: Request) -> tuple[bytes, str]:
 @router.post("/import-preview")
 async def preview_import(request: Request, session: SessionDep) -> warehouse_import.ImportPreview:
     content, filename = await uploaded(request)
+    # Parsing and database work block: off the event loop, which every other request needs.
     with business_errors():
-        result = warehouse_import.preview(content, filename)
-    known = warehouse_import.existing_keys(session)
+        result = await run_in_threadpool(warehouse_import.preview, content, filename)
+    known = await run_in_threadpool(warehouse_import.existing_keys, session)
     result.existing = sum(warehouse_import.key(item.name) in known for item in result.items)
     return result
 
@@ -456,7 +458,9 @@ async def import_warehouses(
 ) -> warehouse_import.ImportResult:
     content, filename = await uploaded(request)
     with business_errors():
-        return warehouse_import.import_workbook(session, actor, content, filename)
+        return await run_in_threadpool(
+            warehouse_import.import_workbook, session, actor, content, filename
+        )
 
 
 @router.get("/counts")

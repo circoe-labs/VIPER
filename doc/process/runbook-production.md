@@ -212,6 +212,19 @@ Facts to account for:
   unique violation): treat server logs as personal data (restricted access, bounded retention).
 - Audit payloads are never written to logs; the SQL console records query hashes, never query texts (I-67).
 
+### « The application froze »
+
+Read the API log (`docker compose logs -t api`), lines carrying the route template and the pool state:
+
+- `request.still_running` (after 5 s, while it runs) and `request.slow` (when it ends). AI drafting, scoring and
+  imports are legitimately slow; many different routes slow at once is a freeze.
+- `database.busy cause=pool_exhausted` (no free connection within 10 s) or `cause=lock_timeout` (a statement waited
+  15 s for another transaction's lock): both answer 503. Then look at `pg_stat_activity` (`state`, `wait_event_type`,
+  `xact_start`) for the transaction holding the others. PostgreSQL ends a transaction left idle for 10 minutes
+  (`app/db/session.py`).
+- Nothing at all in the log while the browser waits: the requests do not reach the process (proxy, network), or its
+  event loop is blocked.
+
 ## Operational limits to know
 
 - Sign-in throttle: 5 failures per e-mail / 20 per client address per 15 minutes, in memory — reset by a restart,

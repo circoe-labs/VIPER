@@ -27,7 +27,7 @@ import json
 import logging
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
@@ -37,11 +37,12 @@ from sqlalchemy.orm import Session
 from app.core.actor import ActorContext
 from app.core.config import Settings
 from app.models.companies import Company
+from app.models.prospects import Prospect
 from app.models.score_assessments import ProspectScoreAssessment
 from app.repositories import notes as notes_repository
 from app.repositories import score_assessments as assessment_repository
 from app.services import prospect_scoring_prompt as prompts
-from app.services.errors import MailGenerationError
+from app.services.errors import MailGenerationError, NotFoundError
 from app.services.mail_generation.openai_client import (
     OpenAIMailGenerator,
     config_from_settings,
@@ -299,35 +300,53 @@ def _clock(settings: Settings) -> EditorClock:
 # --- the call ------------------------------------------------------------------------------------
 
 
-def _evaluate(
-    session: Session,
-    settings: Settings,
-    prospect_id: uuid.UUID,
-    actor: ActorContext,
-    *,
-    persist: bool,
-    transport: Any,
-) -> ScoreEvaluation:
+@dataclass(frozen=True)
+class PreparedEvaluation:
+    """What the model call needs, read from the database beforehand: the call itself (seconds to
+    minutes) uses no session, so a request ends its transaction between `prepare_evaluation` and
+    `store_evaluation`."""
+
+    prospect_id: uuid.UUID
+    config: Any
+    instructions: str
+    prompt_hash: str
+    input_text: str
+
+
+def prepare_evaluation(
+    session: Session, settings: Settings, prospect_id: uuid.UUID
+) -> PreparedEvaluation:
     view = get_view(session, prospect_id, _clock(settings))  # NotFoundError for an unknown id
     config = config_from_settings(settings)
     if config is None:
         logger.warning("prospect_scoring.not_configured prospect=%s", prospect_id)
         raise generation_error("ai_not_configured", NOT_CONFIGURED_MESSAGE)
     instructions = prompts.instructions(settings)
-    version = prompts.prompt_hash(instructions)
-    input_text = build_input(session, settings, view)
+    return PreparedEvaluation(
+        prospect_id=prospect_id,
+        config=config,
+        instructions=instructions,
+        prompt_hash=prompts.prompt_hash(instructions),
+        input_text=build_input(session, settings, view),
+    )
+
+
+def call_model(prepared: PreparedEvaluation, *, transport: Any = None) -> ScoreEvaluation:
+    """Ask the model; nothing is read or written."""
+    prospect_id = prepared.prospect_id
+    config = prepared.config
+    version = prepared.prompt_hash
     logger.info(
-        "prospect_scoring.started prospect=%s persist=%s model=%s prompt=%s input_chars=%s",
+        "prospect_scoring.started prospect=%s model=%s prompt=%s input_chars=%s",
         prospect_id,
-        persist,
         config.model,
         prompts.short_version(version),
-        len(input_text),
+        len(prepared.input_text),
     )
     started = time.monotonic()
     try:
         answer, model = OpenAIMailGenerator(config, transport=transport).structured(
-            instructions, input_text, SCHEMA_NAME, OUTPUT_JSON_SCHEMA
+            prepared.instructions, prepared.input_text, SCHEMA_NAME, OUTPUT_JSON_SCHEMA
         )
         parsed = parse_answer(answer)
     except MailGenerationError as error:
@@ -358,31 +377,13 @@ def _evaluate(
         }
         for item in parsed.criteria
     ]
-    stored: ProspectScoreAssessment | None = None
-    if persist:
-        stored = assessment_repository.add(
-            session,
-            ProspectScoreAssessment(
-                prospect_id=prospect_id,
-                score=clamp(score),
-                rationale=parsed.rationale,
-                criteria=criteria,
-                model=model,
-                prompt_hash=version,
-                duration_ms=duration_ms,
-                actor_type=actor.type.value,
-                actor_id=actor.id,
-                actor_display=actor.display,
-            ),
-        )
     logger.info(
-        "prospect_scoring.done prospect=%s score=%s clamped=%s model=%s duration_ms=%s stored=%s",
+        "prospect_scoring.done prospect=%s score=%s clamped=%s model=%s duration_ms=%s",
         prospect_id,
         score,
         score != parsed.score,
         model,
         duration_ms,
-        persist,
     )
     return ScoreEvaluation(
         score=score,
@@ -391,8 +392,36 @@ def _evaluate(
         model=model,
         prompt_version=prompts.short_version(version),
         duration_ms=duration_ms,
-        assessment=stored,
+        assessment=None,
     )
+
+
+def store_evaluation(
+    session: Session,
+    prepared: PreparedEvaluation,
+    evaluation: ScoreEvaluation,
+    actor: ActorContext,
+) -> ScoreEvaluation:
+    """Store the assessment (the displayed score becomes it)."""
+    if session.get(Prospect, prepared.prospect_id) is None:
+        raise NotFoundError("This prospect no longer exists.")
+    stored = assessment_repository.add(
+        session,
+        ProspectScoreAssessment(
+            prospect_id=prepared.prospect_id,
+            score=clamp(evaluation.score),
+            rationale=evaluation.rationale,
+            criteria=evaluation.criteria,
+            model=evaluation.model,
+            prompt_hash=prepared.prompt_hash,
+            duration_ms=evaluation.duration_ms,
+            actor_type=actor.type.value,
+            actor_id=actor.id,
+            actor_display=actor.display,
+        ),
+    )
+    logger.info("prospect_scoring.stored prospect=%s", prepared.prospect_id)
+    return replace(evaluation, assessment=stored)
 
 
 def score_prospect(
@@ -403,17 +432,6 @@ def score_prospect(
     settings: Settings,
     transport: Any = None,
 ) -> ScoreEvaluation:
-    """Evaluate and STORE the assessment (the displayed score becomes it)."""
-    return _evaluate(session, settings, prospect_id, actor, persist=True, transport=transport)
-
-
-def preview_prospect(
-    session: Session,
-    prospect_id: uuid.UUID,
-    actor: ActorContext,
-    *,
-    settings: Settings,
-    transport: Any = None,
-) -> ScoreEvaluation:
-    """The same call, nothing stored: « Tester sur un prospect » (Config AI)."""
-    return _evaluate(session, settings, prospect_id, actor, persist=False, transport=transport)
+    """The three steps in the caller's one transaction (non-HTTP callers, tests)."""
+    prepared = prepare_evaluation(session, settings, prospect_id)
+    return store_evaluation(session, prepared, call_model(prepared, transport=transport), actor)

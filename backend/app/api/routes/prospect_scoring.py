@@ -16,8 +16,9 @@ from sqlalchemy import select
 
 from app.api.dependencies import CurrentActor, SessionDep, SettingsDep
 from app.api.errors import business_errors
+from app.db.session import unit_of_work
 from app.models import Prospect
-from app.services import prospect_scoring
+from app.services import audit, prospect_scoring
 from app.services.errors import NotFoundError
 from app.services.prospect_score import ProspectScore, ScoreConfig, get_score
 
@@ -33,14 +34,20 @@ def evaluate_score(
     actor: CurrentActor,
 ) -> ProspectScore:
     with business_errors():
-        prospect_scoring.score_prospect(
-            session,
-            prospect_id,
-            actor,
-            settings=settings,
-            transport=request.app.state.openai_transport,
+        prepared = prospect_scoring.prepare_evaluation(session, settings, prospect_id)
+    audit_binding = audit.binding(session)
+    # The model call lasts seconds to minutes: no transaction (nor pool connection) is held during
+    # it. `session` is not used after this commit.
+    session.commit()
+    with business_errors():
+        evaluation = prospect_scoring.call_model(
+            prepared, transport=request.app.state.openai_transport
         )
-        return get_score(session, prospect_id, ScoreConfig.from_settings(settings))
+    with unit_of_work(request.app.state.session_factory) as write:
+        audit.bind(write, actor, audit_binding[1] if audit_binding else None)
+        with business_errors():
+            prospect_scoring.store_evaluation(write, prepared, evaluation, actor)
+            return get_score(write, prospect_id, ScoreConfig.from_settings(settings))
 
 
 class ScoringTestOut(BaseModel):
@@ -55,9 +62,7 @@ class ScoringTestOut(BaseModel):
 
 
 @router.post("/settings/integrations/scoring/test")
-def test_scoring(
-    request: Request, session: SessionDep, settings: SettingsDep, actor: CurrentActor
-) -> ScoringTestOut:
+def test_scoring(request: Request, session: SessionDep, settings: SettingsDep) -> ScoringTestOut:
     """Run the saved prompt and target on the most recently updated prospect; nothing is stored."""
     with business_errors():
         prospect = session.scalars(
@@ -65,21 +70,20 @@ def test_scoring(
         ).first()
         if prospect is None:
             raise NotFoundError("There is no prospect to test on yet.")
-        result = prospect_scoring.preview_prospect(
-            session,
-            prospect.id,
-            actor,
-            settings=settings,
-            transport=request.app.state.openai_transport,
-        )
+        prepared = prospect_scoring.prepare_evaluation(session, settings, prospect.id)
+        prospect_id = prospect.id
         name = " ".join(part for part in (prospect.first_name, prospect.last_name) if part)
-        return ScoringTestOut(
-            prospect_id=prospect.id,
-            prospect_name=name or "Prospect",
-            score=result.score,
-            rationale=result.rationale,
-            criteria=result.criteria,
-            model=result.model,
-            prompt_version=result.prompt_version,
-            duration_ms=result.duration_ms,
-        )
+    # As in `evaluate_score`: nothing is held during the model call; nothing is written after it.
+    session.commit()
+    with business_errors():
+        result = prospect_scoring.call_model(prepared, transport=request.app.state.openai_transport)
+    return ScoringTestOut(
+        prospect_id=prospect_id,
+        prospect_name=name or "Prospect",
+        score=result.score,
+        rationale=result.rationale,
+        criteria=result.criteria,
+        model=result.model,
+        prompt_version=result.prompt_version,
+        duration_ms=result.duration_ms,
+    )

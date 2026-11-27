@@ -37,6 +37,8 @@ interface DialogProps {
 
 // Open dialogs, the last opened on top (a dialog opened from inside another one opens after it).
 const openDialogs: HTMLElement[] = []
+// The page's own overflow, kept while at least one dialog stops its scrolling.
+let pageOverflow = ''
 
 // `sheet`: the big floating record window (blurred backdrop, large radius, fixed height) — the Prospect sheet.
 export type ModalProps = DialogProps & { size?: 'sm' | 'md' | 'lg' | 'xl'; sheet?: boolean }
@@ -78,10 +80,7 @@ function OpenDialog({
   useEffect(() => {
     const previouslyFocused = document.activeElement
     ;(initialFocusRef?.current ?? dialogRef.current)?.focus()
-    const { overflow } = document.body.style
-    document.body.style.overflow = 'hidden'
     return () => {
-      document.body.style.overflow = overflow
       if (previouslyFocused instanceof HTMLElement && previouslyFocused.isConnected) previouslyFocused.focus()
     }
   }, [initialFocusRef])
@@ -92,7 +91,11 @@ function OpenDialog({
   useEffect(() => {
     const dialog = dialogRef.current
     if (!dialog) return
+    // The page stops scrolling with the first dialog and scrolls again when the last one is gone, whatever the closing
+    // order (a dialog and the confirmation above it unmount together, the outer one first).
+    if (openDialogs.length === 0) pageOverflow = document.body.style.overflow
     openDialogs.push(dialog)
+    document.body.style.overflow = 'hidden'
     const isTop = () => openDialogs.at(-1) === dialog
     const observer = new MutationObserver(() => {
       const active = document.activeElement
@@ -110,6 +113,7 @@ function OpenDialog({
       observer.disconnect()
       document.removeEventListener('keydown', closeOnStrayEscape)
       openDialogs.splice(openDialogs.indexOf(dialog), 1)
+      if (openDialogs.length === 0) document.body.style.overflow = pageOverflow
     }
   }, [])
 

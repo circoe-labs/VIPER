@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 
+from app.api import request_watch
 from app.api.errors import validation_refused
 from app.api.mcp import router as mcp_router
 from app.api.oauth import router as oauth_router
@@ -86,6 +87,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(WakeCleanupWorkerMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_exception_handler(RequestValidationError, validation_refused)
+    request_watch.install(app)
     app.include_router(public_router, prefix="/api")
     app.include_router(api_router, prefix="/api")
     # Outside `/api` on purpose: a machine has no cookie and no CSRF header, so `/mcp` carries its

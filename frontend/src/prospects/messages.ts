@@ -1,3 +1,4 @@
+import { ApiError, RequestTimeoutError } from '../api/client'
 import { settingsRefusal } from '../api/settings'
 
 // French copy for Prospects API refusals (backend/app/api/routes/prospects.py, codes of app/api/errors.py).
@@ -79,6 +80,16 @@ function invalidMessage(field: string, reason: string | undefined): string {
 
 // A failed save, opposition change or deletion, as a message placed on its field when the API names one.
 export function prospectRefusal(error: unknown, indexes: AliasIndexes = { emails: [], phones: [] }): ProspectRefusal {
+  if (error instanceof RequestTimeoutError) {
+    return {
+      field: null,
+      message: `Pas de réponse après ${String(error.timeoutMs / 1000)} s. Votre saisie est conservée : réessayez.`,
+    }
+  }
+  // 503 `database_busy` (backend app/api/request_watch.py): the transaction was rolled back.
+  if (error instanceof ApiError && error.status === 503) {
+    return { field: null, message: 'La base est occupée : rien n’a été enregistré. Réessayez dans un instant.' }
+  }
   const refusal = settingsRefusal(error)
   switch (refusal?.code) {
     case 'invalid': {

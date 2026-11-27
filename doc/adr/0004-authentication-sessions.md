@@ -26,7 +26,8 @@ domain records.
   stores only its **SHA-256** (a fast hash is enough for a random 256-bit value; a database leak yields no usable
   cookie).
 - A session is live while not revoked, before `expires_at` (**absolute** limit, default 12 h after sign-in) and less
-  than the **idle** timeout (default 120 min) after `last_seen_at`. `last_seen_at` is bumped at most once a minute.
+  than the **idle** timeout (default 120 min) after `last_seen_at`. `last_seen_at` is bumped at most once a minute, in a
+  transaction of its own committed before the request's work (its row lock never lasts as long as a request).
   Both limits are settings (`VIPER_SESSION_IDLE_TIMEOUT_MINUTES`, `VIPER_SESSION_ABSOLUTE_TIMEOUT_HOURS`).
 - Sign-in always creates a new session with a fresh token (never a client-chosen one) and revokes the session of any
   cookie the browser still sent — no fixation, token rotated at every login. Logout revokes server-side. The user's

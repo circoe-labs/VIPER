@@ -7,13 +7,33 @@ from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 CONNECT_TIMEOUT_SECONDS = 5
+# One application process (runbook-production.md): at most 30 connections, well under PostgreSQL's
+# default 100.
+POOL_SIZE = 10
+POOL_MAX_OVERFLOW = 20
+# A request finding no free connection fails after this long (503 `database_busy`) instead of
+# piling up behind the others.
+POOL_TIMEOUT_SECONDS = 10
+# No statement waits longer than this for another transaction's lock: a stuck writer produces
+# errors, never a frozen application.
+LOCK_TIMEOUT_MS = 15_000
+# PostgreSQL ends a transaction left idle this long, releasing its locks. Longer than any external
+# call a request still makes inside a transaction.
+IDLE_IN_TRANSACTION_TIMEOUT_MS = 600_000
 
 
 def create_db_engine(database_url: str) -> Engine:
     return create_engine(
         database_url,
         pool_pre_ping=True,
-        connect_args={"connect_timeout": CONNECT_TIMEOUT_SECONDS},
+        pool_size=POOL_SIZE,
+        max_overflow=POOL_MAX_OVERFLOW,
+        pool_timeout=POOL_TIMEOUT_SECONDS,
+        connect_args={
+            "connect_timeout": CONNECT_TIMEOUT_SECONDS,
+            "options": f"-c lock_timeout={LOCK_TIMEOUT_MS} "
+            f"-c idle_in_transaction_session_timeout={IDLE_IN_TRANSACTION_TIMEOUT_MS}",
+        },
         # Bound values (names, e-mail addresses…) never appear in exception messages, hence in
         # tracebacks and logs.
         hide_parameters=True,
