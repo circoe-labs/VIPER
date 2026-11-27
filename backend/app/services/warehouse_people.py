@@ -26,7 +26,7 @@ from datetime import UTC, datetime
 from http import HTTPStatus
 from typing import Literal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.actor import ActorContext, ActorType
@@ -446,6 +446,14 @@ class NewPerson:
     civility: Civility | None = None
 
 
+def serialize(session: Session) -> None:
+    """One writer of warehouse records at a time, until the transaction ends: what is compared
+    for duplicates (people, companies) cannot appear meanwhile. Taken before any row lock."""
+    session.execute(
+        select(func.pg_advisory_xact_lock(func.hashtextextended("viper.warehouse_records", 0)))
+    )
+
+
 def _require_person(actor: ActorContext) -> None:
     if actor.type not in (ActorType.HUMAN, ActorType.SYSTEM):
         raise ActorNotAllowedError("A warehouse person is linked by a person or the operator.")
@@ -542,6 +550,7 @@ def link(
     """This listing entry is that prospect (a person's decision). Linking the same one again only
     counts the mails sent since; another one is refused (409 `already_linked`)."""
     _require_person(actor)
+    serialize(session)
     warehouse = _warehouse(session, warehouse_id, lock=True)
     entry = _entry(warehouse, contact_name)
     current = _linked(session, warehouse.id, entry.key)
@@ -573,6 +582,7 @@ def create(
     (409 `person_to_confirm`); an address of someone under « Ne pas contacter » is never given to
     a new record."""
     _require_person(actor)
+    serialize(session)
     warehouse = _warehouse(session, warehouse_id, lock=True)
     entry = _entry(warehouse, contact_name)
     if _linked(session, warehouse.id, entry.key) is not None:
@@ -664,6 +674,7 @@ def backfill(session: Session, actor: ActorContext) -> list[BackfillLine]:
     """Link every unambiguous match and create the clearly new people of warehouses that have an
     owning company; list everything else. An owner is linked but never created (the listing's
     owner is often a company). Running it again changes nothing."""
+    serialize(session)
     directory = Directory.load(session)
     lines: list[BackfillLine] = []
     warehouses = session.scalars(select(Warehouse).order_by(Warehouse.name, Warehouse.id)).all()

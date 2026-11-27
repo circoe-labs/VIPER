@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import { SHELL_API } from '../test/homeApi'
@@ -69,6 +69,17 @@ describe('Warehouse directory', () => {
     expect(fetched.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
     await userEvent.click(dialog.getByRole('button', { name: 'Rattacher l’entrepôt à cette société' }))
     await waitFor(() => { expect(fetched.mock.calls.some(([, init]) => (init?.body as string | undefined) === '{"new_name":"Zeta Transports"}')).toBe(true) })
+  })
+
+  it('sends one creation for a double click', async () => {
+    const people = { company_id: 'company-1', company_name: 'Société Exemple', people: [PERSON] }
+    const fetched = stubApi({ ...API, 'GET /api/warehouses': [200, { items: [{ ...ROW, owner_name: null }], total: 1 }], [`GET /api/warehouses/${ROW.id}/people`]: [200, people], 'GET /api/companies/company-1': [404, {}], 'GET /api/companies': [200, { items: [], total: 0 }], [`POST /api/warehouses/${ROW.id}/people`]: () => new Promise<Response>(() => {}) })
+    renderApp('/prospection?entity=warehouse')
+    await userEvent.click(await screen.findByRole('button', { name: 'Détails de Entrepôt Exemple' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Contacter Anne Test' }))
+    const submit = within(screen.getByRole('dialog')).getByRole('button', { name: 'Créer la fiche et contacter' })
+    act(() => { submit.click(); submit.click() })
+    await waitFor(() => { expect(fetched.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1) })
   })
 
   it('attaches only the checked lines of the companyless warehouses, after review', async () => {

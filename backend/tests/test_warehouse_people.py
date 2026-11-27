@@ -1,17 +1,22 @@
 """Warehouse people as prospects (user feedback 2026-11-27, item 6): one pipeline, no duplicate
 record, no duplicate send. Synthetic people, fake Toolbox."""
 
+import threading
 import uuid
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import func, select
+from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app import cli
+from app.core.actor import ActorContext, ActorType
+from app.db.session import create_session_factory
 from app.models import (
     Company,
     ContactMessage,
@@ -23,11 +28,15 @@ from app.models import (
     WarehousePerson,
 )
 from app.models.enums import ContactabilityStatus, ContactMessageStatus, SendSource
+from app.services import warehouse_companies, warehouse_people
+from app.services.audit import attributed_unit_of_work
+from app.services.errors import BusinessRuleError
 from app.services.warehouse_companies import looks_like_company
 from app.services.warehouse_dispatch import dispatch_warehouses
 from app.services.warehouse_people import read_name
 from tests.builders import add_cohort, add_company, add_email, add_prospect, start_sequence
 from tests.fake_toolbox import FakeToolbox
+from tests.support import reset_database
 from tests.test_contact_dispatch import DUE, Clock, config, dispatcher, row, scheduled, toolbox_of
 from tests.test_contact_messages_api import FUTURE, messages, ok, prospect_id, refused
 from tests.test_contact_remote_drafts import validated
@@ -597,3 +606,122 @@ def test_the_dry_run_shows_the_companies_and_attaches_none(
         assert "Zeta Transports (nouvelle ; source : nom de l’entrepôt)" in output
         assert "SOCIÉTÉ À CHOISIR | Alpha / Beta" in output
     assert (count(db_session, Company), count(db_session, Establishment)) == before
+
+
+def test_simultaneous_requests_create_one_person_and_one_company(
+    engine: Engine, test_database_url: str
+) -> None:
+    """Real connections, committed (the database is reset afterwards): four warehouses ask for
+    the same new company, then for the same new person, at once."""
+    factory = create_session_factory(engine)
+    pilot = ActorContext(type=ActorType.HUMAN, display="Pilote", id=str(uuid.uuid4()))
+    try:
+        with attributed_unit_of_work(factory, pilot) as session:
+            sites = [
+                site(session, listed("Zoé Simultanée", "zoe@simul.example"), name=f"Simul {i}")
+                for i in range(4)
+            ]
+            ids = [item.id for item in sites]
+
+        def at_once(write: Callable[[Session, uuid.UUID], object]) -> list[str]:
+            barrier = threading.Barrier(len(ids))
+
+            def run(warehouse_id: uuid.UUID) -> str:
+                barrier.wait()
+                try:
+                    with attributed_unit_of_work(factory, pilot) as session:
+                        write(session, warehouse_id)
+                except BusinessRuleError as error:
+                    return error.code
+                return "ok"
+
+            with ThreadPoolExecutor(len(ids)) as pool:
+                return sorted(pool.map(run, ids))
+
+        assert (
+            at_once(lambda s, w: warehouse_companies.attach(s, pilot, w, new_name="Simul Fret"))
+            == ["ok"] * 4
+        )
+        with factory() as session:
+            (company,) = session.scalars(
+                select(Company.id).where(Company.display_name == "Simul Fret")
+            )
+        person = warehouse_people.NewPerson("Zoé", "Simultanée", company)
+
+        assert at_once(
+            lambda s, w: warehouse_people.create(
+                s, pilot, w, "Zoé Simultanée", person, distinct_confirmed=True
+            )
+        ) == ["ok", "person_exists", "person_exists", "person_exists"]
+        with factory() as session:
+            found = session.scalar(select(func.count()).where(Prospect.last_name == "Simultanée"))
+        assert found == 1
+    finally:
+        reset_database(engine, test_database_url)
+
+
+@pytest.mark.parametrize("state", ["scheduled", "doubt"])
+def test_a_sent_warehouse_mail_never_overwrites_a_programmed_or_doubtful_step(
+    connected: TestClient, toolbox_app: FastAPI, fake: FakeToolbox, db_session: Session, state: str
+) -> None:
+    prospect = prospect_id(db_session)
+    message = scheduled(connected, prospect)
+    if state == "doubt":
+        found = row(db_session, message["id"])
+        ok(
+            connected.post(
+                f"{messages(prospect)}/contact/unschedule",
+                json={"expected_revision": found.revision},
+            )
+        )
+        found = row(db_session, message["id"])
+        found.sent_doubt_reason, found.sent_doubt_at = "send_outcome_unknown", datetime.now(UTC)
+        db_session.commit()
+    warehouse = site(db_session, listed("Jean Test"))
+    draft = mail(db_session, warehouse, "Jean Test", "jean.test@exemple.example", "sent")
+    db_session.commit()
+    before = row(db_session, message["id"])
+    kept = (before.status, before.subject, before.scheduled_at, before.sent_doubt_reason)
+
+    chosen = {"contact_name": "Jean Test", "prospect_id": str(prospect)}
+    ok(connected.post(path(warehouse), json=chosen))
+
+    after = row(db_session, message["id"])
+    assert (after.status, after.subject, after.scheduled_at, after.sent_doubt_reason) == kept
+    assert db_session.get_one(WarehouseDraft, draft.id).carried_message_id is None
+    assert people(connected, warehouse)[0]["state"]["warehouse_uncounted"] == 1
+    dispatcher(toolbox_app, Clock(DUE)).run_pass(toolbox_of(toolbox_app))
+    assert fake.sent == []
+
+
+@pytest.mark.parametrize("linked", [True, False])
+def test_a_programmed_mail_never_follows_a_contact_send_under_another_name(
+    connected: TestClient,
+    toolbox_app: FastAPI,
+    fake: FakeToolbox,
+    db_session: Session,
+    linked: bool,
+) -> None:
+    prospect = prospect_id(db_session)
+    ok(connected.post(f"{messages(prospect)}/mark-sent", json={"rank": 0}), 201)
+    warehouse = site(db_session, listed("Jeannot Essai"))
+    # Linked: another address, found by the listing entry. Unlinked: the person's own address.
+    address = "autre@exemple.example" if linked else "jean.test@exemple.example"
+    if linked:
+        db_session.add(
+            WarehousePerson(
+                warehouse_id=warehouse.id,
+                contact_key="essai jeannot",
+                contact_name="Jeannot Essai",
+                prospect_id=prospect,
+                linked_by_display="Pilote",
+            )
+        )
+    draft = mail(db_session, warehouse, "Jeannot Essai", address, "scheduled")
+    db_session.commit()
+
+    dispatch_warehouses(toolbox_app.state.session_factory, config(), toolbox_of(toolbox_app))
+
+    db_session.expire_all()
+    assert db_session.get_one(WarehouseDraft, draft.id).failure_code == "contacted_in_contact"
+    assert fake.sent == []

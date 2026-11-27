@@ -230,6 +230,7 @@ def attach(
     `already_attached`); a SIRET another company holds too (409 `siret_other_company`)."""
     if actor.type is not ActorType.HUMAN:
         raise ActorNotAllowedError("A warehouse's company is confirmed by a person.")
+    warehouse_people.serialize(session)
     warehouse = session.scalar(
         select(Warehouse).where(Warehouse.id == warehouse_id).with_for_update()
     )

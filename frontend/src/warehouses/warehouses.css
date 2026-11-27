@@ -23,7 +23,8 @@
 .warehouse-link { display: grid; gap: var(--space-4); }
 .warehouse-link__choices { display: grid; gap: var(--space-2); margin: 0; padding: 0; border: 0; }
 .warehouse-link__choices legend { font-weight: var(--weight-semibold); margin-bottom: var(--space-2); }
-.warehouse-link__choices label { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); cursor: pointer; }
+.warehouse-link__choices label { display: grid; grid-template-columns: auto minmax(0, 1fr); justify-items: start; align-items: center; gap: var(--space-2); cursor: pointer; }
+.warehouse-link__choices label > .badge { grid-column: 2; }
 .warehouse-link__choices input { accent-color: var(--color-accent); }
 .warehouse-contact-select { display: flex; align-items: center; gap: var(--space-2); color: var(--color-text); font-size: var(--text-sm); cursor: pointer; }
 .warehouse-contact-select input { accent-color: var(--color-accent); width: 1rem; height: 1rem; }

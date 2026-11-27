@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 
 import { ApiError } from '../api/client'
@@ -66,17 +66,34 @@ function LinkedState({ person }: { person: WarehousePerson }) {
 
 export function WarehousePersonContact({ warehouseId, person, company }: { warehouseId: string; person: WarehousePerson; company: WarehouseCompany }) {
   const [dialog, setDialog] = useState(false)
+  const [countError, setCountError] = useState<string | null>(null)
+  const navigate = useNavigate()
+  const count = useLinkWarehousePerson(warehouseId)
+  async function countAndContact(prospectId: string) {
+    setCountError(null)
+    try {
+      await count.mutateAsync({ contact_name: person.contact_name, prospect_id: prospectId })
+      void navigate(contactHref(prospectId))
+    } catch (caught) {
+      console.error('warehouse_person.count_failed', caught)
+      setCountError(failure(caught))
+    }
+  }
   const label = `Contacter ${person.contact_name}`
   if (person.prospect) {
+    const prospectId = person.prospect.id
     const blocked = person.state?.block
     return <div className="warehouse-person">
       <LinkedState person={person} />
       <span className="warehouse-person__actions">
         {blocked
           ? <Button size="sm" icon={MailIcon} disabled title={blockLabel(blocked)} aria-label={label}>Contacter</Button>
-          : <Link className="btn btn--primary btn--sm" to={contactHref(person.prospect.id)} aria-label={label}><MailIcon size={16} />Contacter</Link>}
+          : person.state?.warehouse_uncounted
+            ? <Button size="sm" variant="primary" icon={MailIcon} loading={count.isPending} aria-label={label} onClick={() => void countAndContact(prospectId)}>Contacter</Button>
+            : <Link className="btn btn--primary btn--sm" to={contactHref(prospectId)} aria-label={label}><MailIcon size={16} />Contacter</Link>}
         <Link className="btn btn--ghost btn--sm" to={prospectionHref({ prospect: person.prospect.id })} aria-label={`Fiche de ${person.contact_name}`}>Fiche</Link>
       </span>
+      {countError && <p className="warehouse-error" role="alert">{countError}</p>}
     </div>
   }
   const badge = unlinkedBadge(person)
@@ -100,14 +117,18 @@ function AttachCompany({ warehouseId, proposal }: { warehouseId: string; proposa
   const attach = useAttachWarehouseCompany()
   const [choice, setChoice] = useState<AttachCompanyInput | null>(() => initialChoice(proposal))
   const [error, setError] = useState<string | null>(null)
+  const sending = useRef(false)
   async function confirm() {
-    if (!validChoice(choice)) return
+    if (!validChoice(choice) || sending.current) return
+    sending.current = true
     setError(null)
     try {
       await attach.mutateAsync({ warehouseId, choice })
     } catch (caught) {
       console.error('warehouse_company.attach_failed', warehouseId, caught)
       setError(attachFailure(caught))
+    } finally {
+      sending.current = false
     }
   }
   return <section className="warehouse-link__company" aria-label="Société de l’entrepôt">
@@ -154,7 +175,11 @@ function LinkPersonDialog({ warehouseId, person, company, onClose }: { warehouse
   const creating = choice === NEW && !mustLink
   const ready = creating ? Boolean(first.trim() && last.trim() && companyId) : choice !== '' && choice !== NEW
 
+  // A double click arrives before the button is disabled: one request only. Kept after a success (the page leaves).
+  const sending = useRef(false)
   async function submit() {
+    if (sending.current) return
+    sending.current = true
     setError(null)
     const body: LinkPersonInput = { contact_name: person.contact_name }
     if (creating) {
@@ -168,6 +193,7 @@ function LinkPersonDialog({ warehouseId, person, company, onClose }: { warehouse
       const { prospect_id } = await link.mutateAsync(body)
       void navigate(contactHref(prospect_id))
     } catch (caught) {
+      sending.current = false
       console.error('warehouse_person.link_failed', caught)
       setError(failure(caught))
     }

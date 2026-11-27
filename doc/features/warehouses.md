@@ -112,6 +112,10 @@ any backfill:
 - Not covered: undoing a link (it disappears only with the prospect); renaming a listing entry
   shows it unlinked again (the same record is then proposed).
 
+Creating and linking people and attaching companies take one transaction-level lock
+(`warehouse_people.serialize`) and compare under it, so simultaneous requests never create a person
+or a company twice.
+
 ### Owning company
 
 Owner: `services/warehouse_companies.py`. Most imported warehouses have no company. VIPER only
@@ -161,8 +165,9 @@ What remains possible:
 
 - **Already programmed mails** (approved by a person) are still sent by the dispatch worker, with
   the former checks (sending switch, allowlist, lateness, eligibility, former address, identity
-  doubt), and one more: never to a prospect who already has a Contact send (or one being sent) or
-  another warehouse mail sent or unsettled (`contacted_in_contact`). « Retirer la programmation »
+  doubt), and one more: never to a person (linked, or holding the address, whatever the names) who
+  already has a Contact send (sent, being sent or « peut-être parti ») or another warehouse mail
+  sent or unsettled (`contacted_in_contact`). « Retirer la programmation »
   withdraws one. Changing the warehouse category or the person's function stops it
   (`warehouse_changed`).
 - **Unknown sends** (`uncertain`, or `sending` more than 15 minutes after its moment) are settled by
@@ -171,8 +176,8 @@ What remains possible:
 
 ### Never twice (`services/warehouse_history.py`)
 
-A warehouse mail is a prospect's when linked to them, or, unlinked, when it went to one of their
-addresses under their name.
+A warehouse mail is a prospect's when linked to them, or, unlinked, when it went to their own
+address (a shared mailbox only under their name) or to a listing entry they are linked to.
 
 - While one is programmed, being sent or unknown, nothing is programmed or leaves from Contact for
   that person (`warehouse_send_pending`, dispatcher `send_warehouse_pending`).
@@ -181,7 +186,9 @@ addresses under their name.
   subject, text, recipient and send day, source `migration`. Two sends of one day are one step; a
   Contact send recorded the same day or later covers it. Without a week it waits (nothing can be
   prepared meanwhile) and is recorded when a week is chosen or imported. An unsent text of that
-  step stays in its versions. An uncounted send holds Contact sends back
+  step stays in its versions. A step that is programmed, being sent or « peut-être parti » is never
+  written over: the warehouse send waits until a person settles it (unschedule then « Contacter »
+  on the warehouse card, « Marquer comme envoyé », or a new « Semaine de contact »). An uncounted send holds Contact sends back
   (`warehouse_send_unrecorded`).
 - A later change of week restarts the sequence like for any prospect.
 
