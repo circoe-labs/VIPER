@@ -369,8 +369,9 @@ TOOLS: list[dict[str, Any]] = [
             "written. Give each action a stable UUID; retrying the same action is safe. "
             "company_data follows the companies item in the task's output_schema, including "
             "confidence and public evidence. List each warehouse under establishments with kind "
-            "« entrepôt »: once accepted it becomes a warehouse record of the company. Finish "
-            "with viper_submit_task_result and result {}."
+            "« entrepôt »: once accepted it becomes a warehouse record of the company. A "
+            "company already in VIPER may be staged for its new warehouses. Finish with "
+            "viper_submit_task_result and result {}."
         ),
         "inputSchema": {
             "type": "object",

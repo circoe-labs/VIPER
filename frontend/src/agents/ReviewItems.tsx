@@ -76,12 +76,13 @@ function SiteOutcome({ plan }: { plan: unknown }) {
   return <StatusBadge tone="neutral">Établissement seul</StatusBadge>
 }
 
-function CreationSummary({ count }: { count: unknown }) {
+function CreationSummary({ count, existing }: { count: unknown; existing: boolean }) {
   if (typeof count !== 'number') return null
-  const label = count === 0 ? 'Société, sans fiche entrepôt' : `Société + ${String(count)} fiche${count > 1 ? 's' : ''} entrepôt`
+  const company = existing ? 'Entreprise existante' : 'Société'
+  const label = count === 0 ? `${company}, sans fiche entrepôt` : `${company} + ${String(count)} fiche${count > 1 ? 's' : ''} entrepôt`
   return (
     <p className="review-discovery__creation">
-      Sera créé : <StatusBadge tone={count === 0 ? 'warning' : 'success'}>{label}</StatusBadge>
+      À l’acceptation : <StatusBadge tone={count === 0 ? 'warning' : 'success'}>{label}</StatusBadge>
     </p>
   )
 }
@@ -138,7 +139,7 @@ export function DiscoveryDetails({ item, evidence = [] }: { item: ProposalItem; 
   const score = trigger?.score_delta
   return (
     <div className="review-discovery">
-      <CreationSummary count={item.store?.warehouses_to_create} />
+      <CreationSummary count={item.store?.warehouses_to_create} existing={Boolean(item.store?.existing_company_id)} />
       <CompanyFieldTable item={item} evidence={evidence} />
       {sites.length > 0 && (
         <ul className="review-discovery__sites" aria-label="Établissements">

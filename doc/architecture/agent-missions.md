@@ -319,6 +319,10 @@ available when no actions were staged. Acceptance applies the selected changes i
     `warehouses` record linked to it (`services/warehouse_discovery`; rules, duplicates and the
     backfill: `doc/features/warehouses.md`). `applied…establishments[]` gains `warehouse_id` and
     `warehouse_status`; the pending review says what will be created.
+  - *Existing company*: a company already in the base that brings a new warehouse is proposed
+    with `store.existing_company_id` and those sites only (`agent_payloads._new_warehouses_item`);
+    accepting it adds the establishment if needed and the warehouse, nothing else
+    (`applied.companies[].existing`, not listed in `created`, no signal).
   - *Provenance*: the company and its sites are audited as the deciding person's acceptance
     (`company.created`, `establishment.created`); the signal carries its source and result;
     `applied.companies[]` maps each created company to its source, each created site to the

@@ -11,6 +11,7 @@ drift. Contract: `doc/architecture/agent-missions.md` §5-§7.
 """
 
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal
 from urllib.parse import urlparse
@@ -33,7 +34,7 @@ from app.models.missions import Mission, MissionRun
 from app.models.prospects import Prospect, ProspectNote
 from app.models.taxonomies import ActivityCategory, CommercialSegment, Role
 from app.repositories.taxonomies import TaxonomyRow
-from app.services import mission_context, score_reassessment
+from app.services import mission_context, score_reassessment, warehouse_discovery
 from app.services.companies import (
     CompanyDetail,
     get_company,
@@ -342,7 +343,8 @@ class CompanyProposal(BaseModel):
 
 
 class FindProspectsResult(OutcomeFields):
-    """`find_prospects`: companies matching the mission's brief, none of them in the base yet."""
+    """`find_prospects`: companies matching the mission's brief, not in the base yet — or in it,
+    with new warehouses."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -407,7 +409,9 @@ INSTRUCTIONS: dict[AgentTaskType, str] = {
     ),
     AgentTaskType.FIND_PROSPECTS: (
         "Find companies matching this brief that are not in the base yet. Cite a public source for "
-        "each one. When the brief is about sites (a warehouse opened, a plant built or extended, "
+        "each one. Also report a company already in the base when it has a warehouse VIPER does "
+        "not know yet: VIPER proposes only that new warehouse and leaves the company as it is. "
+        "When the brief is about sites (a warehouse opened, a plant built or extended, "
         "a move), list those sites under `establishments` (name, kind, SIRET, address_line1, "
         "postal_code, city, opened_on, surface_m2, source). Every warehouse or logistics "
         "platform must be listed there with kind « entrepôt »: VIPER records it as a warehouse "
@@ -1454,6 +1458,7 @@ def _establishments_store(
     field: str,
     claimed_sirets: set[str],
     refused: list[dict[str, Any]],
+    owner: uuid.UUID | None = None,
 ) -> list[dict[str, Any]]:
     """The cleaned sites of one discovered company, deduplicated by SIRET, then by (city, name).
 
@@ -1470,7 +1475,15 @@ def _establishments_store(
         if siret is not None:
             wanted.append(siret)
     in_base = (
-        set(session.scalars(select(Establishment.siret).where(Establishment.siret.in_(wanted))))
+        set(
+            session.scalars(
+                select(Establishment.siret).where(
+                    Establishment.siret.in_(wanted),
+                    # The existing company's own sites are judged on their warehouse instead.
+                    Establishment.company_id.is_distinct_from(owner),
+                )
+            )
+        )
         if wanted
         else set()
     )
@@ -1614,6 +1627,104 @@ def _trigger_store(
     return _signal_store(trigger, source, company_name, unresolved=unresolved)
 
 
+@dataclass(slots=True)
+class _KnownCompanies:
+    """The identifiers of the companies already in the base."""
+
+    names: dict[str, set[uuid.UUID]]
+    sirens: dict[str, uuid.UUID]
+    domains: dict[str, set[uuid.UUID]]
+
+    def identify(self, session: Session, company: CompanyProposal, key: str) -> Company | None:
+        """The one existing company every identifier of the proposal agrees on, if any."""
+        siren = domain = None
+        try:
+            siren = normalize_siren(company.siren, current=None) if company.siren else None
+            domain = normalize_email_domain(company.email_domain) if company.email_domain else None
+        except InvalidFieldError:
+            return None  # intentional: the caller refuses the company for this value.
+        by_site = _site_owner(session, company.establishments, self.sirens)
+        matches = [
+            found
+            for found in (
+                {self.sirens[siren]} if siren in self.sirens else set(),
+                {by_site} if by_site else set(),
+                self.names.get(key, set()),
+                self.domains.get(domain or "", set()),
+            )
+            if found
+        ]
+        common = set.intersection(*matches) if matches else set()
+        if len(common) != 1:
+            return None
+        row = session.get(Company, common.pop())
+        if row is None or (siren and row.siren and row.siren != siren):
+            return None  # two different SIRENs are two companies, whatever the name
+        return row
+
+
+def _new_warehouses_item(
+    session: Session,
+    company: CompanyProposal,
+    known: Company,
+    index: int,
+    key: str,
+    claimed_sirets: set[str],
+    period: int | None,
+    legal_basis: str,
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    """The reviewable item adding an existing company's new warehouses, and the refusals of its
+    other sites. No item when the result brings no new warehouse or cites no source."""
+    sources = [evidence for evidence in company.evidence if evidence.source.strip()]
+    if not sources:
+        return None, []
+    field = f"companies.{index}"
+    refused: list[dict[str, Any]] = []
+    claimed = set(claimed_sirets)
+    sites: list[dict[str, Any]] = []
+    cleaned = _establishments_store(
+        session, company.establishments, field, claimed, refused, owner=known.id
+    )
+    for position, site in enumerate(cleaned):
+        plan = warehouse_discovery.plan_site(session, site, known.display_name, known.id)
+        if plan.action == "create":
+            sites.append(site)
+            continue
+        reason, message = (
+            ("not_warehouse", "Société existante : seuls ses nouveaux entrepôts sont proposés.")
+            if plan.action == "none"
+            else ("already_known", "Cet entrepôt ou cet établissement est déjà enregistré.")
+        )
+        label = f"{known.display_name} — {site['name'] or site['city'] or site['siret']}"
+        refused.append(_refusal(f"{field}.warehouses.{position}", label, reason, message))
+    if not sites:
+        return None, []
+    claimed_sirets.update(claimed)
+    trigger = (
+        _trigger_store(company.trigger, field, known.display_name, period, refused)
+        if company.trigger is not None
+        else None
+    )
+    item = {
+        "key": f"company:{index}:{key}",
+        "field": field,
+        "label": known.display_name,
+        "before": None,
+        "after": "Entreprise existante",
+        "status": "add",
+        "store": {
+            "existing_company_id": str(known.id),
+            "display_name": known.display_name,
+            "source": sources[0].source,
+            "legal_basis": legal_basis,
+            "establishments": sites,
+            "trigger": trigger,
+        },
+        **evidence_item_fields(sources[0], sources[0].source, sources[0].quote),
+    }
+    return item, refused
+
+
 def _find_prospects_proposal(
     session: Session, task: AgentTask, raw: dict[str, Any]
 ) -> dict[str, Any]:
@@ -1627,10 +1738,15 @@ def _find_prospects_proposal(
     known_sirens: set[str] = set()
     known_domains: set[str] = set()
     siren_owners: dict[str, uuid.UUID] = {}
+    base = _KnownCompanies(names={}, sirens=siren_owners, domains={})
+    completed: set[uuid.UUID] = set()  # existing companies already given new warehouses
     for company_id, display_name, siren, domain in session.execute(
         select(Company.id, Company.display_name, Company.siren, Company.email_domain)
     ):
         known_names.add(company_key(display_name))
+        base.names.setdefault(company_key(display_name), set()).add(company_id)
+        if domain:
+            base.domains.setdefault(domain, set()).add(company_id)
         if siren:
             known_sirens.add(siren)
             siren_owners[siren] = company_id
@@ -1664,6 +1780,16 @@ def _find_prospects_proposal(
                 }
             )
             continue
+        existing = base.identify(session, company, key)
+        if existing is not None and existing.id not in completed:
+            item, site_refusals = _new_warehouses_item(
+                session, company, existing, index, key, claimed_sirets, period, legal_basis
+            )
+            if item is not None:
+                completed.add(existing.id)
+                items.append(item)
+                refused.extend(site_refusals)
+                continue
         if key in known_names:
             refused.append(
                 {

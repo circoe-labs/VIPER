@@ -80,6 +80,96 @@ def find_duplicate(
     return {"id": best["id"], "name": best["display_name"], "reasons": best["reasons"]}
 
 
+def _place(city: Any, name: Any) -> tuple[str, str] | None:
+    pair = (fold(str(city or "")), fold(str(name or "")))
+    return pair if all(pair) else None
+
+
+def matching_site(
+    session: Session, company_id: uuid.UUID, site: Mapping[str, Any]
+) -> Establishment | None:
+    """The company's establishment a proposed site is: same SIRET, same city and name, or same
+    street address in the same postal code or city. Two different SIRETs are two sites."""
+    siret = site.get("siret")
+    address = fold(str(site.get("address_line1") or ""))
+    rows = session.scalars(
+        select(Establishment)
+        .where(Establishment.company_id == company_id)
+        .order_by(Establishment.id)
+    ).all()
+    for row in rows:
+        if siret and row.siret:
+            if row.siret == siret:
+                return row
+            continue
+        place = _place(site.get("city"), site.get("name"))
+        if place is not None and place == _place(row.city, row.name):
+            return row
+        if address and address == fold(row.address_line1 or ""):
+            postal = site.get("postal_code")
+            town = fold(str(site.get("city") or ""))
+            if (postal and postal == row.postal_code) or (town and town == fold(row.city or "")):
+                return row
+    return None
+
+
+@dataclass(frozen=True, slots=True)
+class SitePlan:
+    """What accepting one proposed site would do: `create` a warehouse (on `establishment` when
+    the company already has the site), nothing because it is not a warehouse (`none`), because the
+    warehouse is recorded (`duplicate`) or because another record holds the SIRET (`known_site`).
+    """
+
+    action: str
+    existing_name: str | None = None
+    establishment: Establishment | None = None
+
+
+def plan_site(
+    session: Session,
+    site: Mapping[str, Any],
+    company_name: str,
+    company_id: uuid.UUID | None = None,
+) -> SitePlan:
+    """`company_id`: the existing company the site is proposed for; None for a new company."""
+    siret = site.get("siret")
+    if siret:
+        holder = session.scalar(
+            select(Establishment.company_id).where(Establishment.siret == siret)
+        )
+        if holder is not None and holder != company_id:
+            return SitePlan("known_site")
+    if not is_warehouse_site(site.get("kind"), site.get("name")):
+        return SitePlan("none")
+    row = matching_site(session, company_id, site) if company_id else None
+    readings: list[Mapping[str, Any]] = [site]
+    if row is not None:
+        linked = _existing_for(session, row.id)
+        if linked is not None:
+            return SitePlan("duplicate", linked.name, row)
+        readings.append(_site_values(row, site))
+    for values in readings:
+        duplicate = find_duplicate(
+            session,
+            name=warehouse_name(values.get("name"), company_name, values.get("city")),
+            siret=values.get("siret"),
+            postal_code=values.get("postal_code"),
+            city=values.get("city"),
+            address=values.get("address_line1"),
+        )
+        if duplicate is not None:
+            return SitePlan("duplicate", duplicate["name"], row)
+    return SitePlan("create", establishment=row)
+
+
+def _site_values(site: Establishment, facts: Mapping[str, Any]) -> dict[str, Any]:
+    """The establishment's own values, completed by the proposed ones where it has none."""
+    return {
+        key: getattr(site, key) or facts.get(key)
+        for key in ("name", "siret", "address_line1", "postal_code", "city")
+    }
+
+
 def _source_key(establishment_id: uuid.UUID) -> str:
     return hashlib.sha256(f"agent-site:{establishment_id}".encode()).hexdigest()
 
@@ -126,18 +216,20 @@ def create_for_site(
     signal: str | None = None,
 ) -> Outcome:
     """The warehouse record of one company site, unless it is already recorded. `facts` carries
-    what the establishment has no column for (`opened_on`, `surface_m2`)."""
+    what the establishment has no column for (`opened_on`, `surface_m2`) and, for a site the
+    company already had, the proposed values that fill its blanks (the site is not modified)."""
     existing = _existing_for(session, site.id)
     if existing is not None:
         return Outcome("exists", str(existing.id), existing.name)
-    name = warehouse_name(site.name, company_name, site.city)
-    address = ", ".join(filter(None, (site.address_line1, site.address_line2))) or None
+    values = _site_values(site, facts)
+    name = warehouse_name(values["name"], company_name, values["city"])
+    address = ", ".join(filter(None, (values["address_line1"], site.address_line2))) or None
     duplicate = find_duplicate(
         session,
         name=name,
-        siret=site.siret,
-        postal_code=site.postal_code,
-        city=site.city,
+        siret=values["siret"],
+        postal_code=values["postal_code"],
+        city=values["city"],
         address=address,
     )
     if duplicate is not None:
@@ -153,9 +245,9 @@ def create_for_site(
         WarehouseInput(
             name=name,
             address=address,
-            postal_code=site.postal_code,
-            city=site.city,
-            siret=site.siret,
+            postal_code=values["postal_code"],
+            city=values["city"],
+            siret=values["siret"],
             notes=_notes(facts, signal),
             establishment_id=site.id,
         ),
@@ -178,29 +270,17 @@ def preview(session: Session, proposal: Mapping[str, Any]) -> dict[str, Any]:
             items.append(item)
             continue
         annotated = []
+        owner = store.get("existing_company_id")
         for site in store.get("establishments") or []:
-            siret = site.get("siret")
-            plan: dict[str, Any] = {"action": "none"}
-            if siret and session.scalar(
-                select(Establishment.id).where(Establishment.siret == siret)
-            ):
-                plan = {"action": "known_site"}
-            elif is_warehouse_site(site.get("kind"), site.get("name")):
-                duplicate = find_duplicate(
-                    session,
-                    name=warehouse_name(
-                        site.get("name"), str(store.get("display_name", "")), site.get("city")
-                    ),
-                    siret=siret,
-                    postal_code=site.get("postal_code"),
-                    city=site.get("city"),
-                    address=site.get("address_line1"),
-                )
-                plan = (
-                    {"action": "duplicate", "existing_name": duplicate["name"]}
-                    if duplicate
-                    else {"action": "create"}
-                )
+            found = plan_site(
+                session,
+                site,
+                str(store.get("display_name", "")),
+                uuid.UUID(str(owner)) if owner else None,
+            )
+            plan = {"action": found.action}
+            if found.existing_name:
+                plan["existing_name"] = found.existing_name
             annotated.append({**site, "warehouse": plan})
         to_create = sum(site["warehouse"]["action"] == "create" for site in annotated)
         items.append(
@@ -282,7 +362,10 @@ def backfill(
                     filter(None, (site.name, site.kind, site.postal_code, site.city))
                 )
                 warehouse = None
-                if site_id in exclude:
+                linked = _existing_for(session, site_id)
+                if linked is not None:
+                    status, warehouse = "exists", linked.name
+                elif site_id in exclude:
                     status = "excluded"
                 elif site_id not in include and not is_warehouse_site(site.kind, site.name):
                     status = "not_warehouse"

@@ -54,8 +54,16 @@ company's establishment (`establishment_id`), so the directory shows the owning 
   address and a close name) creates none, and the existing record is left unchanged.
 - *Review*: a pending result says, per company, how many warehouse records will be created and
   what happens to each site (computed on read).
-- Not covered: a company already in the base is refused by discovery, so its new sites are not
-  proposed; a company returned without any site creates no warehouse.
+- *Company already in the base*: discovery proposes it only for its **new warehouses** (review:
+  « Entreprise existante + N fiche(s) entrepôt »), after the same human acceptance. Every
+  identifier given (SIREN, site SIRET, name, e-mail domain) must agree on one company, and two
+  different SIRENs never match. Acceptance adds the warehouse record and, when the company has
+  no such establishment (same SIRET, city and name, or street address), one establishment. The
+  company, its existing establishments and its signals are not touched; the trigger sentence is
+  kept in the warehouse notes. Its other proposed sites are listed as refused, and a result with
+  only recorded warehouses stays « déjà dans la base ». A pending result refused before this
+  existed can be recomputed with « Recalculer la prévisualisation » (direct results only).
+- Not covered: a company returned without any site creates no warehouse.
 
 ### Backfill of results accepted earlier
 

@@ -99,6 +99,25 @@ describe('ReviewDialog', () => {
     expect(within(sites).getByText(/Entrepôt déjà enregistré : Dépôt Sud/)).toBeInTheDocument()
   })
 
+  it('says that an existing company only gets its new warehouse records', async () => {
+    const user = userEvent.setup()
+    const company = item({
+      key: 'company:0:exemple',
+      label: 'Société Exemple',
+      after: 'Entreprise existante',
+      store: {
+        existing_company_id: '00000000-0000-7000-a000-000000000009',
+        display_name: 'Société Exemple',
+        warehouses_to_create: 2,
+        establishments: [],
+      },
+    })
+    const base = resultView()
+    const { dialog } = await openDialog(user, resultView({ proposal: { ...base.proposal, kind: 'find_prospects', items: [company], refused: [] } }))
+
+    expect(within(dialog).getByText('Entreprise existante + 2 fiches entrepôt')).toBeInTheDocument()
+  })
+
   it('says what is missing on a result stored before the new fields existed', async () => {
     const user = userEvent.setup()
     const { dialog } = await openDialog(user, historicalResult())

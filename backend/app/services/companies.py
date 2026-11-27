@@ -714,6 +714,24 @@ def update_company(
     return get_company(session, company.id)
 
 
+def add_establishment(
+    session: Session, actor: ActorContext, company_id: uuid.UUID, data: EstablishmentInput
+) -> Establishment:
+    """One more establishment for a company (`establishment.created`), nothing else touched; it
+    is primary only when the company had none."""
+    company = _company(session, company_id)
+    item = _cleaned_establishment(
+        0, replace(data, id=None, is_primary=not company.establishments), None
+    )
+    wanted = CompanyInput(display_name=company.display_name, establishments=[item])
+    row = Establishment()
+    with translated_violations(session, _identifier_translator(session, wanted, company)):
+        _apply_establishment(row, item)
+        audit.annotate(session, actor, row)
+        company.establishments.append(row)
+    return row
+
+
 @dataclass(frozen=True, slots=True)
 class CompanyCompletion:
     """Values from another source (an import row) for an existing company: they only fill what

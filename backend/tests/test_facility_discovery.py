@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Company
+from app.models import Company, Warehouse
 from app.models.agent_missions import AgentTaskResult
 from app.models.audit import AuditLogEntry
 from app.models.companies import Establishment
@@ -234,14 +234,16 @@ def test_a_company_found_through_a_known_site_is_not_proposed_again(
 ) -> None:
     """QA scenario: « LOGY », no SIREN, cites the Honfleur site of « Logistique Y Normandie »."""
     known = add_company(db_session, display_name="Logistique Y Normandie", siren=SIREN)
-    db_session.add(
-        Establishment(
-            company_id=known.id,
-            name="Plateforme de Honfleur",
-            siret=SIRET_HONFLEUR,
-            city="Honfleur",
-        )
+    site = Establishment(
+        company_id=known.id,
+        name="Plateforme de Honfleur",
+        siret=SIRET_HONFLEUR,
+        city="Honfleur",
     )
+    db_session.add(site)
+    db_session.flush()
+    # Its warehouse is recorded: the result brings nothing new.
+    db_session.add(Warehouse(name="Plateforme de Honfleur", establishment_id=site.id))
     db_session.flush()
     by_site = _honfleur(display_name="LOGY", siren=None)
     # Same SIREN prefix, site not in the base yet: still that company.

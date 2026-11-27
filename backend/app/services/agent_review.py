@@ -453,6 +453,70 @@ def _signal_note(
     )
 
 
+def _apply_new_warehouses(
+    session: Session, actor: ActorContext, store: dict[str, Any], result_id: uuid.UUID
+) -> dict[str, Any]:
+    """The new warehouses of a company already in the base: each gets its establishment (the
+    company's own when it has the site) and its warehouse record. The company, its existing
+    establishments and its signals are not touched; what became known since the submission is
+    skipped."""
+    company = session.get(Company, uuid.UUID(str(store["existing_company_id"])))
+    if company is None:
+        raise NotFoundError("This company no longer exists: reject the result.")
+    trigger = store.get("trigger")
+    establishments: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    for site in store["establishments"]:
+        plan = warehouse_discovery.plan_site(session, site, company.display_name, company.id)
+        if plan.action != "create":
+            skipped.append(
+                {"name": site.get("name"), "siret": site.get("siret"), "reason": plan.action}
+            )
+            continue
+        row = plan.establishment or companies.add_establishment(
+            session,
+            actor,
+            company.id,
+            EstablishmentInput(
+                name=site.get("name"),
+                siret=site.get("siret"),
+                address_line1=site.get("address_line1"),
+                postal_code=site.get("postal_code"),
+                city=site.get("city"),
+                country=site.get("country"),
+                kind=site.get("kind"),
+            ),
+        )
+        record = {**site, "id": str(row.id)}
+        outcome = warehouse_discovery.create_for_site(
+            session,
+            actor,
+            row,
+            company.display_name,
+            record,
+            source=site.get("source") or store.get("source"),
+            signal=trigger["signal"] if trigger else None,
+        )
+        record["warehouse_id"] = outcome.warehouse_id
+        record["warehouse_status"] = outcome.status
+        establishments.append(record)
+    logger.info(
+        "find_prospects accepted: existing company=%s warehouses=%d skipped=%d result=%s",
+        company.id,
+        len(establishments),
+        len(skipped),
+        result_id,
+    )
+    return {
+        "company_id": str(company.id),
+        "existing": True,
+        "source": store.get("source"),
+        "establishments": establishments,
+        "skipped_establishments": skipped,
+        "signal_id": None,
+    }
+
+
 def _apply_find_prospects(
     session: Session,
     actor: ActorContext,
@@ -467,12 +531,16 @@ def _apply_find_prospects(
     signal carries `source_url`, `origin=agent` and `task_result_id`; `applied` maps every created
     id to the source, opening date and surface the agent cited (no column holds those yet).
     Proposals stored before sites and triggers existed have neither key and create the company
-    alone.
+    alone. An item naming an `existing_company_id` only adds that company's new warehouses
+    (`_apply_new_warehouses`) and is not listed in `created`.
     """
     created: list[str] = []
     applied: list[dict[str, Any]] = []
     for item in items:
         store = item["store"]
+        if store.get("existing_company_id"):
+            applied.append(_apply_new_warehouses(session, actor, store, result_id))
+            continue
         segment_id = store.get("commercial_segment_id")
         sites, skipped = _new_sites(session, store.get("establishments") or [])
         data = CompanyInput(
