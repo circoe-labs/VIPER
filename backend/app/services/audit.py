@@ -131,6 +131,8 @@ class AuditAction(StrEnum):
     CONTACT_MESSAGE_DRAFT_MISSING = "contact_message.draft_missing"
     CONTACT_MESSAGE_DRAFT_CHECKED = "contact_message.draft_checked"
     CONTACT_MESSAGE_DRAFT_REPLACED = "contact_message.draft_replaced"
+    # A person looked in the sent items for a mail that might have left (the doubt is cleared).
+    CONTACT_MESSAGE_SENT_CHECKED = "contact_message.sent_checked"
     # The Toolbox connection was established / forgotten on VIPER's side (no token in the event).
     TOOLBOX_CONNECTED = "toolbox.connected"
     TOOLBOX_FORGOTTEN = "toolbox.forgotten"

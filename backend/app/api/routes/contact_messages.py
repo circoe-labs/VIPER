@@ -25,7 +25,8 @@ a real send (the dispatcher, S7, marks its own).
                                      `humanizer_unavailable`) when the Humanizer is enabled;
 - `POST …/messages/{step}/remote-draft` creates again the Infomaniak draft of a validated message
                                      whose creation failed (S6, « Réessayer »);
-- `GET  /contact/unsent`, `POST /contact/unsent/reschedule|recreate-drafts|check-drafts` the
+- `GET  /contact/unsent`, `POST /contact/unsent/reschedule|recreate-drafts|confirm-not-sent|
+                                     check-drafts` the
                                      scheduled mails that did not leave or lost their draft, and
                                      their recovery by a person (`contact_unsent`);
 - `POST …/messages/{step}/mark-sent|release` a person settles a send the dispatcher could not
@@ -136,6 +137,11 @@ class MessageContentIn(StrictModel):
 
 class RevisionIn(StrictModel):
     expected_revision: Revision
+
+
+class DeleteIn(RevisionIn):
+    # Required when the mail may have left (409 `sent_check_required`).
+    sent_check_confirmed: bool = False
 
 
 class ScheduleIn(RevisionIn):
@@ -796,13 +802,20 @@ class DeletedOut(BaseModel):
 def delete_draft(
     prospect_id: uuid.UUID,
     step: StepPath,
-    body: RevisionIn,
+    body: DeleteIn,
     session: SessionDep,
     actor: CurrentActor,
 ) -> DeletedOut:
     """Remove a draft that was never validated (409 `invalid_transition` otherwise)."""
     with business_errors():
-        service.delete_draft(session, actor, prospect_id, rank_of(step), body.expected_revision)
+        service.delete_draft(
+            session,
+            actor,
+            prospect_id,
+            rank_of(step),
+            body.expected_revision,
+            sent_check_confirmed=body.sent_check_confirmed,
+        )
     return DeletedOut(deleted=True, step=step)
 
 
@@ -1013,13 +1026,15 @@ def schedule_cohorts(
 def _create_missing_drafts(
     request: Request, session: Session, actor: ActorContext, message_ids: list[uuid.UUID]
 ) -> int:
-    """After the schedule's commit, the Infomaniak drafts the messages lack; how many failed."""
+    """Commit the schedule, then create the Infomaniak drafts the messages lack, outside any
+    transaction or row lock; how many failed. The request's `session` ends here: the caller must
+    not use it (nor commit it) any more."""
     failures = 0
     integration: ToolboxIntegration = request.app.state.toolbox
     toolbox = integration.mail_toolbox()
-    if toolbox is not None and message_ids:
-        audit_binding = audit.binding(session)
-        session.commit()
+    audit_binding = audit.binding(session)
+    session.commit()
+    if toolbox is not None:
         session_factory: sessionmaker[Session] = request.app.state.session_factory
         for message_id in message_ids:
             sync = remote_drafts.sync_remote_draft(
@@ -1040,6 +1055,9 @@ def _create_missing_drafts(
 class UnsentItemOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
+    message_id: uuid.UUID
+    # In the prospect's open current sequence (only those can be scheduled again).
+    current: bool
     prospect_id: uuid.UUID
     first_name: str | None
     last_name: str | None
@@ -1047,7 +1065,7 @@ class UnsentItemOut(BaseModel):
     cohort_code: str | None
     status: ContactMessageStatus
     revision: int
-    kind: Literal["unconfirmed", "missed", "draft_missing"]
+    kind: Literal["unconfirmed", "missed", "doubt", "draft_missing"]
     send: SendSituationOut
 
 
@@ -1133,7 +1151,6 @@ def reschedule_unsent(
     answer = _recovery(request, session, actor, result)
     dispatcher: ContactDispatcher | None = request.app.state.contact_dispatcher
     if dispatcher is not None and result.done:
-        session.commit()
         dispatcher.check_soon()
     return answer
 
@@ -1149,6 +1166,37 @@ def recreate_unsent_drafts(
         integration.required_mail_toolbox()
         result = contact_unsent.recreate_drafts(session, actor, _targets(body.items))
     return _recovery(request, session, actor, result)
+
+
+class CheckedIn(StrictModel):
+    message_id: uuid.UUID
+    expected_revision: Revision
+
+
+class ConfirmNotSentIn(StrictModel):
+    # Each message the person looked for in the sent items.
+    items: Annotated[list[CheckedIn], Field(min_length=1, max_length=500)]
+
+
+class ConfirmNotSentOut(BaseModel):
+    done: int
+    refused: list[RefusedOut]
+
+
+@cohorts_router.post("/unsent/confirm-not-sent")
+def confirm_unsent_not_sent(
+    body: ConfirmNotSentIn, session: SessionDep, actor: CurrentActor
+) -> ConfirmNotSentOut:
+    """A person looked in the sent items and these mails did not leave: the doubt is cleared,
+    nothing is scheduled."""
+    with business_errors():
+        result = contact_unsent.confirm_not_sent(
+            session, actor, [(item.message_id, item.expected_revision) for item in body.items]
+        )
+    return ConfirmNotSentOut(
+        done=len(result.done),
+        refused=[RefusedOut.model_validate(item) for item in result.refused],
+    )
 
 
 @cohorts_router.post("/unsent/check-drafts")

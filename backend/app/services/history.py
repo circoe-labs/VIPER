@@ -509,6 +509,8 @@ NOT_SHOWN: dict[str, frozenset[str]] = {
             "missed_reason",
             "missed_at",
             "draft_check",
+            "sent_doubt_reason",
+            "sent_doubt_at",
         }
     ),
     "prospect_source": frozenset(
@@ -874,6 +876,7 @@ MESSAGE_TITLES: dict[str, str] = {
     AuditAction.CONTACT_MESSAGE_DRAFT_MISSING: "Brouillon Infomaniak introuvable",
     AuditAction.CONTACT_MESSAGE_DRAFT_CHECKED: "Brouillon Infomaniak vérifié",
     AuditAction.CONTACT_MESSAGE_DRAFT_REPLACED: "Brouillon Infomaniak à recréer",
+    AuditAction.CONTACT_MESSAGE_SENT_CHECKED: "Éléments envoyés vérifiés",
     "contact_message.created": "Message créé",
     "contact_message.updated": "Message modifié",
 }

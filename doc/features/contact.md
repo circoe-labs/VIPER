@@ -914,7 +914,7 @@ The planning's `next_due_at` is **theoretical**. Where a prospect's send really 
 rows (`GET /api/prospection/prospects`), `place` of `GET /api/prospects/{id}/sequences` and the
 scheduling overview's forgotten list:
 `{state, rank, step, step_label, scheduled_at, reason, at, draft_missing, needs_sent_check}`, `state` being the most
-pressing of `unconfirmed`, `missed` (scheduled, did not leave), `scheduled`, `unscheduled` (taken back by a person);
+pressing of `unconfirmed`, `doubt` (may have left), `missed` (scheduled, did not leave), `scheduled`, `unscheduled` (taken back by a person);
 null when nothing was ever scheduled. A prospect whose **next step is scheduled** is never `overdue`, never in
 Prospection's « Échus » / Home's due list, and is not shown as « À préparer »; it stays in « à envoyer » of its week.
 
@@ -922,21 +922,30 @@ Prospection's « Échus » / Home's due list, and is not shown as « À prépare
 `services/contact_schedule_trace.py`): written whenever `scheduled_at` is taken away without a send (dispatcher back to
 Validé, release, `--hold-scheduled`: the dispatcher's code; a person: `unscheduled_by_person`, `edited`, `cancelled`).
 Kept through edits and revalidation; cleared by a new schedule or a recorded send. Migration 0061 backfills it from the
-audit log.
+audit log (and the doubt from every event that ever took a send moment away, `updated_at` untouched).
 
-**Sent-items check.** `missed_reason` in `send_not_confirmed`, `send_draft_not_found`, `send_probably_sent`, or
-`draft_check = missing`: the mail may have left (a draft sent by hand from Infomaniak also disappears). Every schedule
-path (editor, series, bulk) refuses 409 `sent_check_required` without `sent_check_confirmed` **on that message**;
-`schedule-cohorts` counts them in `to_check`.
+**Sent-items doubt** (`sent_doubt_reason`, `sent_doubt_at`): the mail **may have left**. Raised by a send moment lost
+to `send_not_confirmed`, `send_draft_not_found` or `send_probably_sent`, and by a scheduled message whose draft the
+check does not find (`draft_missing`; a draft sent by hand from Infomaniak disappears too). It is durable: edit, AI
+redraft, restored version, unschedule, cancellation, reopening and change of contact week keep it. Only a person's word
+clears it (confirmed schedule, new draft or deletion, « Remettre en Validé », « Confirmer sans reprogrammer ») or a
+recorded send. Every schedule path (editor, series, bulk) refuses 409 `sent_check_required` without
+`sent_check_confirmed` **on that message** — for its own doubt or one of a former sequence of the prospect;
+`schedule-cohorts` counts them in `to_check`. Deleting a doubtful message needs the same confirmation.
 
-**Recovery** (a person only, never automatic; `services/contact_unsent.py`; Contact › « Envois à reprendre »):
+**Recovery** (a person only, never automatic; `services/contact_unsent.py`; Contact › « Envois à reprendre »:
+« Peut-être partis », « Mails non partis », « Brouillons introuvables »; each confirmation lists the mails it covers):
 
 | Endpoint | Effect |
 |---|---|
-| `GET /api/contact/unsent` | `items` (`kind`: `missed`, `unconfirmed`, `draft_missing`) of open sequences, and `unverified_drafts` |
+| `GET /api/contact/unsent` | `items` (`message_id`, `current`; `kind`: `unconfirmed`, `doubt`, `missed`, `draft_missing`) and `unverified_drafts`; a doubt stays listed whatever its status or sequence |
 | `POST /api/contact/unsent/reschedule` `{scheduled_at, items: [{prospect_id, rank, expected_revision, sent_check_confirmed}]}` | each scheduled in its savepoint; `{done, refused: [{prospect_id, rank, code}], remote_draft_failures}` |
 | `POST /api/contact/unsent/recreate-drafts` `{items}` | a missing draft is replaced, the send moment stays |
+| `POST /api/contact/unsent/confirm-not-sent` `{items: [{message_id, expected_revision}]}` | the person looked: the doubt goes, nothing is scheduled |
 | `POST /api/contact/unsent/check-drafts` | the draft check now: `{present, missing, unverified}` |
+
+The Infomaniak drafts of a recovery are created after the commit: no transaction or row lock is held across a Toolbox
+call.
 
 **Draft check before due time** (`services/contact_draft_check.py`): the worker looks right after a (re)connection and
 every 15 minutes (1 minute after a failed look); one `list_drafts` call. A listed draft clears `draft_check`; absent

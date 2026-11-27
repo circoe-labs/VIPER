@@ -1,23 +1,25 @@
 """The sends a person has to look at, and how they are recovered (never by themselves).
 
-`overview` lists, among the open current sequences of prospects still in the automatic actions:
+`overview` lists, for the prospects still in the automatic actions:
 
 - `unconfirmed`    scheduled and claimed, the outcome unknown (settled in the editor);
+- `doubt`          not scheduled and may have left (`sent_doubt_*`), whatever its status or
+                   sequence: it stays until a person says they looked in the sent items;
 - `missed`         scheduled, did not leave (`missed_reason`), not scheduled again yet;
 - `draft_missing`  still scheduled, but the last check did not find its Infomaniak draft.
 
 Recovery is a person's act: `reschedule` (the rules of `contact_messages.schedule`, message by
-message) and `recreate_drafts`. A message whose earlier send may have left (`needs_sent_check`)
-goes through only with the person's confirmation **on that item**: no bulk path carries one along.
+message), `recreate_drafts` and `confirm_not_sent`. A mail that may have left goes through only
+with the person's confirmation **on that item**: no bulk path carries one along.
 """
 
 import logging
 import uuid
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.actor import ActorContext, ActorType
@@ -27,7 +29,13 @@ from app.models.enums import ContactabilityStatus, ContactMessageStatus
 from app.services import audit, contact_messages
 from app.services.audit import AuditAction
 from app.services.contact_remote_drafts import detach_remote_draft
-from app.services.contact_schedule_trace import BY_PERSON, DRAFT_MISSING, DRAFT_UNVERIFIED
+from app.services.contact_schedule_trace import (
+    BY_PERSON,
+    DRAFT_MISSING,
+    DRAFT_UNVERIFIED,
+    clear_doubt,
+    covering_doubts,
+)
 from app.services.contact_send_state import SendSituation, message_situation
 from app.services.contact_workflow import SEQUENCE_CLOSING_STATES
 from app.services.errors import ActorNotAllowedError, ContactMessageError, InvalidFieldError
@@ -39,6 +47,9 @@ M = ContactMessageStatus
 
 @dataclass(frozen=True, slots=True)
 class UnsentItem:
+    message_id: uuid.UUID
+    # In the prospect's open current sequence (only those can be scheduled again).
+    current: bool
     prospect_id: uuid.UUID
     first_name: str | None
     last_name: str | None
@@ -46,7 +57,7 @@ class UnsentItem:
     cohort_code: str | None
     status: ContactMessageStatus
     revision: int
-    # `unconfirmed` | `missed` | `draft_missing`
+    # `unconfirmed` | `doubt` | `missed` | `draft_missing`
     kind: str
     send: SendSituation
 
@@ -60,32 +71,38 @@ class UnsentOverview:
 
 
 def overview(session: Session) -> UnsentOverview:
-    open_sequences = (
-        ContactSequence.is_current,
-        ContactSequence.closed_at.is_(None),
+    eligible = (
         Prospect.contactability_status == ContactabilityStatus.CONTACTABLE,
         or_(
             ContactTracking.status.is_(None),
             ContactTracking.status.not_in(tuple(SEQUENCE_CLOSING_STATES)),
         ),
     )
-
+    current = and_(ContactSequence.is_current, ContactSequence.closed_at.is_(None))
     statement = (
-        select(ContactMessage, Prospect, Company.display_name, Cohort.code)
+        select(ContactMessage, Prospect, Company.display_name, Cohort.code, current)
         .join(ContactSequence, ContactSequence.id == ContactMessage.sequence_id)
         .join(Prospect, Prospect.id == ContactMessage.prospect_id)
         .outerjoin(ContactTracking, ContactTracking.prospect_id == Prospect.id)
         .outerjoin(Company, Company.id == Prospect.company_id)
         .outerjoin(Cohort, Cohort.id == ContactSequence.cohort_id)
         .where(
-            *open_sequences,
+            *eligible,
             or_(
-                ContactMessage.status.in_((M.DRAFT, M.VALIDATED))
-                & ContactMessage.missed_reason.not_in(tuple(BY_PERSON)),
-                (ContactMessage.status == M.SCHEDULED)
-                & (
+                and_(
+                    current,
+                    ContactMessage.status.in_((M.DRAFT, M.VALIDATED)),
+                    ContactMessage.missed_reason.not_in(tuple(BY_PERSON)),
+                ),
+                and_(
+                    current,
+                    ContactMessage.status == M.SCHEDULED,
                     ContactMessage.dispatch_claim_id.is_not(None)
-                    | (ContactMessage.draft_check == DRAFT_MISSING)
+                    | (ContactMessage.draft_check == DRAFT_MISSING),
+                ),
+                and_(
+                    ContactMessage.status != M.SENT,
+                    ContactMessage.sent_doubt_reason.is_not(None),
                 ),
             ),
         )
@@ -95,14 +112,31 @@ def overview(session: Session) -> UnsentOverview:
             ContactMessage.rank,
         )
     )
+    rows = session.execute(statement).tuples().all()
+    # The sequences holding a doubt, per prospect: it covers the messages of the other ones.
+    doubtful: dict[uuid.UUID, set[uuid.UUID]] = {}
+    for message, *_ in rows:
+        if message.sent_doubt_reason is not None:
+            doubtful.setdefault(message.prospect_id, set()).add(message.sequence_id)
     items = []
-    for message, prospect, company, cohort in session.execute(statement).tuples():
+    for message, prospect, company, cohort, is_current in rows:
         send = message_situation(message)
-        # A claim still running (no recorded outcome) is not for a person yet.
-        if send is None or (send.state == "scheduled" and not send.draft_missing):
+        if send is None:
             continue
+        if message.status is M.SCHEDULED:
+            # A claim still running (no recorded outcome) is not for a person yet; a draft seen
+            # again leaves at its time.
+            if send.state == "scheduled" and not send.draft_missing:
+                continue
+            kind = "draft_missing" if send.state == "scheduled" else send.state
+        else:
+            kind = "doubt" if send.state == "doubt" else "missed"
+        if doubtful.get(prospect.id, set()) - {message.sequence_id}:
+            send = replace(send, needs_sent_check=True)
         items.append(
             UnsentItem(
+                message_id=message.id,
+                current=bool(is_current),
                 prospect_id=prospect.id,
                 first_name=prospect.first_name,
                 last_name=prospect.last_name,
@@ -110,7 +144,7 @@ def overview(session: Session) -> UnsentOverview:
                 cohort_code=cohort,
                 status=message.status,
                 revision=message.revision,
-                kind="draft_missing" if send.state == "scheduled" else send.state,
+                kind=kind,
                 send=send,
             )
         )
@@ -121,7 +155,8 @@ def overview(session: Session) -> UnsentOverview:
         .join(Prospect, Prospect.id == ContactMessage.prospect_id)
         .outerjoin(ContactTracking, ContactTracking.prospect_id == Prospect.id)
         .where(
-            *open_sequences,
+            *eligible,
+            current,
             ContactMessage.status == M.SCHEDULED,
             ContactMessage.draft_check == DRAFT_UNVERIFIED,
         )
@@ -232,6 +267,9 @@ def recreate_drafts(session: Session, actor: ActorContext, targets: Sequence[Tar
         if message is None or code is not None:
             result.refused.append(Refused(target.prospect_id, target.rank, code or "invalid"))
             continue
+        for doubt in covering_doubts(session, message):
+            if doubt.id != message.id:
+                _checked(session, actor, doubt)
         audit.annotate(
             session,
             actor,
@@ -239,11 +277,55 @@ def recreate_drafts(session: Session, actor: ActorContext, targets: Sequence[Tar
             AuditAction.CONTACT_MESSAGE_DRAFT_REPLACED,
             reason="sent_items_checked",
         )
+        clear_doubt(message)
         detach_remote_draft(session, message, "replaced")
         session.flush()
         result.done.append(message.id)
     logger.info(
         "contact_unsent.drafts_replaced replaced=%s refused=%s",
+        len(result.done),
+        len(result.refused),
+    )
+    return result
+
+
+def _checked(session: Session, actor: ActorContext, message: ContactMessage) -> None:
+    audit.annotate(
+        session,
+        actor,
+        message,
+        AuditAction.CONTACT_MESSAGE_SENT_CHECKED,
+        reason="sent_items_checked",
+    )
+    clear_doubt(message)
+
+
+def confirm_not_sent(
+    session: Session, actor: ActorContext, targets: Sequence[tuple[uuid.UUID, int]]
+) -> Recovery:
+    """The person looked in the sent items: these mails (`(message_id, revision)`) did not leave.
+    Only the doubt goes; nothing is scheduled. A scheduled message is refused (its missing draft
+    is recreated, or its unconfirmed send settled)."""
+    _require_person(actor)
+    result = Recovery()
+    for message_id, revision in targets:
+        message = session.get(ContactMessage, message_id, with_for_update=True)
+        if message is None:
+            result.refused.append(Refused(message_id, 0, "message_not_found"))
+            continue
+        code = None
+        if message.revision != revision:
+            code = "revision_conflict"
+        elif message.status in (M.SENT, M.SCHEDULED) or message.sent_doubt_reason is None:
+            code = "invalid_transition"
+        if code is not None:
+            result.refused.append(Refused(message.prospect_id, message.rank, code))
+            continue
+        _checked(session, actor, message)
+        session.flush()
+        result.done.append(message.id)
+    logger.info(
+        "contact_unsent.confirmed_not_sent confirmed=%s refused=%s",
         len(result.done),
         len(result.refused),
     )

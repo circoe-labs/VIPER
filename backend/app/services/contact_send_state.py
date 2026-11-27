@@ -5,6 +5,8 @@ The planning's due date (`next_due_at`) is theoretical: this is the effective sc
 pressing first:
 
 - `unconfirmed`  scheduled, claimed, and the send ended without a known outcome;
+- `doubt`        not scheduled, and it may have left (`sent_doubt_*`): a person checks the sent
+                 items;
 - `missed`       it was scheduled and did not leave (`missed_*`, `contact_schedule_trace`):
                  a person has to act;
 - `scheduled`    it will leave at `scheduled_at` (`draft_missing`: its Infomaniak draft was not
@@ -30,12 +32,11 @@ from app.services.contact_schedule_trace import (
     BY_PERSON,
     CANCELLED,
     DRAFT_MISSING,
-    needs_sent_check,
 )
 
 M = ContactMessageStatus
 # Most pressing first.
-STATES = ("unconfirmed", "missed", "scheduled", "unscheduled")
+STATES = ("unconfirmed", "doubt", "missed", "scheduled", "unscheduled")
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,7 +60,13 @@ def message_situation(message: ContactMessage) -> SendSituation | None:
     if message.status is M.SCHEDULED:
         unconfirmed = message.dispatch_claim_id is not None and reason in UNCONFIRMED
         state = "unconfirmed" if unconfirmed else "scheduled"
-    elif message.status is M.SENT or message.missed_reason is None:
+    elif message.status is M.SENT:
+        return None
+    elif message.sent_doubt_reason is not None:
+        state = "doubt"
+        scheduled_at = message.missed_scheduled_at
+        reason, at = message.sent_doubt_reason, message.sent_doubt_at
+    elif message.missed_reason is None:
         return None
     else:
         if message.status is M.CANCELLED and message.missed_reason != CANCELLED:
@@ -76,7 +83,8 @@ def message_situation(message: ContactMessage) -> SendSituation | None:
         reason=reason,
         at=at,
         draft_missing=message.status is M.SCHEDULED and message.draft_check == DRAFT_MISSING,
-        needs_sent_check=needs_sent_check(message),
+        # Its own doubt only: `contact_unsent` adds those inherited from former sequences.
+        needs_sent_check=message.sent_doubt_reason is not None,
     )
 
 

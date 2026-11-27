@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict
 class SendSituationOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    state: Literal["unconfirmed", "missed", "scheduled", "unscheduled"]
+    state: Literal["unconfirmed", "doubt", "missed", "scheduled", "unscheduled"]
     rank: int
     step: str
     step_label: str

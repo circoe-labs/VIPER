@@ -7,7 +7,8 @@ import { refreshAfterWrite } from './refresh'
 // Where a prospect's send really stands (backend app/services/contact_send_state.py), and the scheduled mails that did
 // not leave with their recovery by a person (app/services/contact_unsent.py).
 
-export type SendState = 'unconfirmed' | 'missed' | 'scheduled' | 'unscheduled'
+// `doubt`: not scheduled and may have left; a person checks the sent items.
+export type SendState = 'unconfirmed' | 'doubt' | 'missed' | 'scheduled' | 'unscheduled'
 
 export interface SendSituation {
   state: SendState
@@ -25,6 +26,9 @@ export interface SendSituation {
 }
 
 export interface UnsentItem {
+  message_id: string
+  // In the prospect's open current sequence: only those can be scheduled again.
+  current: boolean
   prospect_id: string
   first_name: string | null
   last_name: string | null
@@ -32,7 +36,7 @@ export interface UnsentItem {
   cohort_code: string | null
   status: MessageStatus
   revision: number
-  kind: 'unconfirmed' | 'missed' | 'draft_missing'
+  kind: 'unconfirmed' | 'doubt' | 'missed' | 'draft_missing'
   send: SendSituation
 }
 
@@ -84,6 +88,12 @@ export function useRecoveryMutations() {
     recreate: useMutation({
       mutationFn: (items: RecoveryTarget[]) =>
         post<RecoveryResult>('/contact/unsent/recreate-drafts', { items: items.slice(0, BATCH_MAX) }),
+      onSettled: refresh,
+    }),
+    // « Pas parti » : the person looked in the sent items; nothing is scheduled.
+    confirm: useMutation({
+      mutationFn: (items: { message_id: string; expected_revision: number }[]) =>
+        post<Omit<RecoveryResult, 'remote_draft_failures'>>('/contact/unsent/confirm-not-sent', { items: items.slice(0, BATCH_MAX) }),
       onSettled: refresh,
     }),
     check: useMutation({

@@ -8,7 +8,7 @@ import { Checkbox, TextField } from '../ui/fields'
 import { AlertIcon, CalendarIcon, RefreshIcon, SpinnerIcon } from '../ui/icons'
 import { InfoTip } from '../ui/InfoTip'
 import { FROM_LIST } from './criteria'
-import { formatDateTime } from './labels'
+import { formatDateTime, formatShortDateTime } from './labels'
 import { localDay, localZoneLabel, scheduleToIso } from './mailModel'
 import { messageRefusal } from './messages'
 import { SendBadge, SendLines } from './SendStatus'
@@ -43,35 +43,49 @@ function resultText(done: string, result: RecoveryResult, items: UnsentItem[]): 
   return `${parts.join(' ; ')}.`
 }
 
+// `reschedule`: mails that did not leave, given a new moment. `doubt`: mails that may have left, rescheduled or only
+// cleared once the person looked in the sent items. `recreate`: still scheduled, a new Infomaniak draft, same moment.
+type GroupAction = 'reschedule' | 'doubt' | 'recreate'
+
 interface GroupProps {
   title: string
   help: string
   items: UnsentItem[]
   openHref: (id: string) => string
-  // `reschedule` asks for a new moment; `recreate` keeps it and makes a new Infomaniak draft.
-  action: 'reschedule' | 'recreate'
+  action: GroupAction
   mutations: ReturnType<typeof useRecoveryMutations>
+  // What an action did, said by the panel: the group may be gone once its last mail is recovered.
+  onResult: (text: string | null) => void
 }
 
-// Only a validated mail that is not waiting for an outcome can be recovered from here.
-function selectable(item: UnsentItem, action: GroupProps['action']): boolean {
-  return action === 'recreate' ? item.kind === 'draft_missing' : item.kind === 'missed' && item.status === 'validated'
+const canReschedule = (item: UnsentItem) => item.current && item.status === 'validated'
+
+// A send waiting for an outcome is settled on the person's sheet, never from here.
+function selectable(item: UnsentItem, action: GroupAction): boolean {
+  if (action === 'recreate') return item.kind === 'draft_missing'
+  if (action === 'doubt') return item.kind !== 'unconfirmed'
+  return canReschedule(item)
 }
 
-function Group({ title, help, items, openHref, action, mutations }: GroupProps) {
+// What the confirmation covers, named one by one.
+function covered(item: UnsentItem): string {
+  const when = item.send.scheduled_at ? `, prévu le ${formatShortDateTime(item.send.scheduled_at)}` : ''
+  return `${nameOf(item)} · ${item.send.step_label}${when}`
+}
+
+function Group({ title, help, items, openHref, action, mutations, onResult }: GroupProps) {
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set())
   const [checked, setChecked] = useState(false)
   const [date, setDate] = useState('')
   const [time, setTime] = useState('')
   const [problem, setProblem] = useState<string | null>(null)
-  const [result, setResult] = useState<string | null>(null)
 
   const eligible = items.filter((item) => selectable(item, action))
   const chosen = eligible.filter((item) => picked.has(keyOf(item)))
   const toCheck = chosen.filter((item) => item.send.needs_sent_check)
-  const safe = eligible.filter((item) => !item.send.needs_sent_check)
-  const risky = eligible.filter((item) => item.send.needs_sent_check)
-  const busy = mutations.reschedule.isPending || mutations.recreate.isPending
+  const schedulable = action === 'recreate' ? chosen : chosen.filter(canReschedule)
+  const busy = mutations.reschedule.isPending || mutations.recreate.isPending || mutations.confirm.isPending
+  const unconfirmed = toCheck.length > 0 && !checked
 
   // A new selection is a new question: the confirmation never carries over to messages it did not cover.
   function choose(next: ReadonlySet<string>) {
@@ -86,29 +100,11 @@ function Group({ title, help, items, openHref, action, mutations }: GroupProps) 
     choose(next)
   }
 
-  async function submit() {
+  async function run(work: () => Promise<string>) {
     setProblem(null)
-    setResult(null)
-    const targets: RecoveryTarget[] = chosen.map((item) => ({
-      prospect_id: item.prospect_id,
-      rank: item.send.rank,
-      expected_revision: item.revision,
-      sent_check_confirmed: item.send.needs_sent_check && checked,
-    }))
+    onResult(null)
     try {
-      if (action === 'recreate') {
-        const answer = await mutations.recreate.mutateAsync(targets)
-        setResult(resultText(plural(answer.done, 'brouillon recréé', 'brouillons recréés'), answer, items))
-      } else {
-        const moment = scheduleToIso(date, time, new Date())
-        if (!moment.ok) {
-          setProblem(moment.error)
-          return
-        }
-        const answer = await mutations.reschedule.mutateAsync({ at: moment.iso, items: targets })
-        const done = `${plural(answer.done, 'message reprogrammé', 'messages reprogrammés')} pour le ${formatDateTime(moment.iso)}`
-        setResult(resultText(done, answer, items))
-      }
+      onResult(await work())
       choose(new Set())
     } catch (error) {
       setProblem(
@@ -119,6 +115,44 @@ function Group({ title, help, items, openHref, action, mutations }: GroupProps) 
     }
   }
 
+  const targets = (list: UnsentItem[]): RecoveryTarget[] =>
+    list.map((item) => ({
+      prospect_id: item.prospect_id,
+      rank: item.send.rank,
+      expected_revision: item.revision,
+      sent_check_confirmed: item.send.needs_sent_check && checked,
+    }))
+
+  function submit() {
+    if (action === 'recreate') {
+      void run(async () => {
+        const answer = await mutations.recreate.mutateAsync(targets(chosen))
+        return resultText(plural(answer.done, 'brouillon recréé', 'brouillons recréés'), answer, items)
+      })
+      return
+    }
+    const moment = scheduleToIso(date, time, new Date())
+    if (!moment.ok) {
+      setProblem(moment.error)
+      return
+    }
+    void run(async () => {
+      const answer = await mutations.reschedule.mutateAsync({ at: moment.iso, items: targets(schedulable) })
+      const done = `${plural(answer.done, 'message reprogrammé', 'messages reprogrammés')} pour le ${formatDateTime(moment.iso)}`
+      return resultText(done, answer, items)
+    })
+  }
+
+  function confirmNotSent() {
+    void run(async () => {
+      const answer = await mutations.confirm.mutateAsync(
+        chosen.map((item) => ({ message_id: item.message_id, expected_revision: item.revision })),
+      )
+      const done = plural(answer.done, 'mail confirmé non parti', 'mails confirmés non partis')
+      return resultText(done, { ...answer, remote_draft_failures: 0 }, items)
+    })
+  }
+
   return (
     <div className="unsent__group">
       <h3>
@@ -126,14 +160,9 @@ function Group({ title, help, items, openHref, action, mutations }: GroupProps) 
       </h3>
       {eligible.length > 0 && (
         <div className="unsent__actions">
-          {safe.length > 0 && (
-            <Button size="sm" disabled={busy} onClick={() => { choose(new Set(safe.map(keyOf))) }}>
-              Sélectionner les {safe.length} sans doute possible
-            </Button>
-          )}
-          {risky.length > 0 && (
-            <Button size="sm" disabled={busy} onClick={() => { choose(new Set([...picked, ...risky.map(keyOf)])) }}>
-              Ajouter les {risky.length} à vérifier
+          {chosen.length < eligible.length && (
+            <Button size="sm" disabled={busy} onClick={() => { choose(new Set(eligible.map(keyOf))) }}>
+              Tout sélectionner ({eligible.length})
             </Button>
           )}
           {chosen.length > 0 && (
@@ -161,9 +190,10 @@ function Group({ title, help, items, openHref, action, mutations }: GroupProps) 
             <SendLines send={item.send} />
             <span className="unsent__flags">
               <SendBadge send={item.send} />
-              {item.send.needs_sent_check && <StatusBadge tone="warning" icon={AlertIcon}>Vérifier les Envoyés</StatusBadge>}
               {item.kind === 'unconfirmed' && <StatusBadge tone="warning">À trancher sur la fiche</StatusBadge>}
+              {!item.current && <StatusBadge tone="neutral">Ancienne semaine de contact</StatusBadge>}
               {item.status === 'draft' && <StatusBadge tone="neutral">À revalider</StatusBadge>}
+              {item.status === 'cancelled' && <StatusBadge tone="neutral">Annulé</StatusBadge>}
             </span>
           </li>
         ))}
@@ -173,28 +203,44 @@ function Group({ title, help, items, openHref, action, mutations }: GroupProps) 
           {toCheck.length > 0 && (
             <div className="unsent__confirm">
               <Checkbox
-                label={`J’ai vérifié le dossier Envoyés d’Infomaniak : ${plural(toCheck.length, 'ce message à vérifier n’est pas parti', 'ces messages à vérifier ne sont pas partis')}`}
+                label={
+                  toCheck.length === 1
+                    ? 'J’ai vérifié le dossier Envoyés d’Infomaniak : le mail ci-dessous n’est pas parti'
+                    : `J’ai vérifié le dossier Envoyés d’Infomaniak : les ${String(toCheck.length)} mails ci-dessous ne sont pas partis`
+                }
                 checked={checked}
                 disabled={busy}
                 onChange={(event) => { setChecked(event.target.checked) }}
               />
+              <ul className="unsent__covered" aria-label="Mails couverts par la confirmation">
+                {toCheck.map((item) => <li key={keyOf(item)}>{covered(item)}</li>)}
+              </ul>
             </div>
           )}
-          {action === 'reschedule' && (
+          {action !== 'recreate' && schedulable.length > 0 && (
             <>
               <TextField label="Nouvelle date d’envoi" type="date" min={localDay(new Date())} value={date} disabled={busy} onChange={(event) => { setDate(event.target.value) }} />
               <TextField label={`Heure (${localZoneLabel(new Date())})`} type="time" value={time} disabled={busy} onChange={(event) => { setTime(event.target.value) }} />
             </>
           )}
-          <Button
-            variant="primary"
-            icon={action === 'recreate' ? RefreshIcon : CalendarIcon}
-            loading={busy}
-            disabled={toCheck.length > 0 && !checked}
-            onClick={() => void submit()}
-          >
-            {action === 'recreate' ? `Recréer ${plural(chosen.length, 'brouillon', 'brouillons')}` : `Reprogrammer ${plural(chosen.length, 'message', 'messages')}`}
-          </Button>
+          {schedulable.length > 0 && (
+            <Button
+              variant="primary"
+              icon={action === 'recreate' ? RefreshIcon : CalendarIcon}
+              loading={mutations.reschedule.isPending || mutations.recreate.isPending}
+              disabled={busy || unconfirmed}
+              onClick={submit}
+            >
+              {action === 'recreate'
+                ? `Recréer ${plural(schedulable.length, 'brouillon', 'brouillons')}`
+                : `Reprogrammer ${plural(schedulable.length, 'message', 'messages')}`}
+            </Button>
+          )}
+          {action === 'doubt' && (
+            <Button loading={mutations.confirm.isPending} disabled={busy || unconfirmed} onClick={confirmNotSent}>
+              Confirmer sans reprogrammer ({chosen.length})
+            </Button>
+          )}
         </div>
       )}
       {busy && (
@@ -203,7 +249,6 @@ function Group({ title, help, items, openHref, action, mutations }: GroupProps) 
         </p>
       )}
       {problem && <p className="field__error" role="alert"><AlertIcon size={16} />{problem}</p>}
-      {result && <p role="status" className="unsent__result">{result}</p>}
     </div>
   )
 }
@@ -213,6 +258,7 @@ function Group({ title, help, items, openHref, action, mutations }: GroupProps) 
 export function UnsentSends({ openHref }: { openHref: (id: string) => string }) {
   const unsent = useUnsent()
   const mutations = useRecoveryMutations()
+  const [result, setResult] = useState<string | null>(null)
   if (unsent.isError) {
     return (
       <div className="contact__state contact__state--error" role="alert">
@@ -222,8 +268,11 @@ export function UnsentSends({ openHref }: { openHref: (id: string) => string }) 
     )
   }
   const data = unsent.data
-  if (!data || (data.items.length === 0 && data.unverified_drafts === 0)) return null
-  const notSent = data.items.filter((item) => item.kind !== 'draft_missing')
+  if (!data || (data.items.length === 0 && data.unverified_drafts === 0 && result === null)) return null
+  const doubtful = data.items.filter(
+    (item) => item.kind !== 'draft_missing' && (item.kind !== 'missed' || item.send.needs_sent_check),
+  )
+  const notSent = data.items.filter((item) => item.kind === 'missed' && !item.send.needs_sent_check)
   const lost = data.items.filter((item) => item.kind === 'draft_missing')
   const check = mutations.check
   return (
@@ -257,14 +306,27 @@ export function UnsentSends({ openHref }: { openHref: (id: string) => string }) 
           </InfoTip>
         </p>
       )}
+      {result && <p role="status" className="unsent__result">{result}</p>}
+      {doubtful.length > 0 && (
+        <Group
+          title="Peut-être partis : à vérifier"
+          help="Ces mails sont peut-être déjà partis (envoi non confirmé, brouillon disparu). Contrôlez le dossier Envoyés d’Infomaniak. Pas parti : reprogrammez-le ou confirmez-le. Parti : ouvrez la fiche et « Marquer comme envoyé »."
+          items={doubtful}
+          openHref={openHref}
+          action="doubt"
+          mutations={mutations}
+          onResult={setResult}
+        />
+      )}
       {notSent.length > 0 && (
         <Group
           title="Mails non partis"
-          help="Programmés puis revenus sans envoi. Choisissez-les, puis une nouvelle date. Ceux marqués « Vérifier les Envoyés » ont peut-être été envoyés : contrôlez la boîte avant de confirmer."
+          help="Programmés puis revenus sans envoi. Choisissez-les, puis une nouvelle date."
           items={notSent}
           openHref={openHref}
           action="reschedule"
           mutations={mutations}
+          onResult={setResult}
         />
       )}
       {lost.length > 0 && (
@@ -275,6 +337,7 @@ export function UnsentSends({ openHref }: { openHref: (id: string) => string }) 
           openHref={openHref}
           action="recreate"
           mutations={mutations}
+          onResult={setResult}
         />
       )}
     </section>

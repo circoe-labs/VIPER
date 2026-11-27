@@ -75,6 +75,8 @@
 .contacts-line__stage { min-width: 0; }
 .contacts-stage { display: inline-flex; padding: 5px 8px; border-radius: 5px; background: var(--nc-contacts-contacted); color: var(--nc-contacts-contacted-text); font-size: 11px; line-height: 1.4; }
 .contacts-stage--due { background: var(--nc-contacts-info-soft); color: var(--nc-contacts-info); }
+.contacts-line__send { grid-column: 3 / -1; min-width: 0; }
+.contacts-line__send .send-lines { display: flex; flex-wrap: wrap; column-gap: var(--space-3); }
 .contacts-line__channel { color: var(--nc-contacts-muted); display: flex; }
 .contacts-line__last { display: grid; gap: 5px; font-size: 12px; }
 .contacts-line__last > span:first-child { color: var(--nc-contacts-muted); font-size: 10px; }

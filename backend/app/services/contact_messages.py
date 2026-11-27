@@ -114,9 +114,10 @@ from app.services.contact_schedule_trace import (
     DRAFT_MISSING,
     EDITED,
     UNSCHEDULED_BY_PERSON,
+    clear_doubt,
+    covering_doubts,
     forget_schedule_trace,
     leave_schedule,
-    needs_sent_check,
 )
 from app.services.contact_workflow import SEQUENCE_CLOSING_STATES
 from app.services.errors import (
@@ -924,6 +925,36 @@ def require_send_moment(scheduled_at: datetime, now: datetime) -> None:
         )
 
 
+def _require_sent_check(
+    session: Session, message: ContactMessage, confirmed: bool
+) -> list[ContactMessage]:
+    """The doubts covering `message`, refused unless the person says they looked."""
+    doubts = covering_doubts(session, message)
+    if doubts and not confirmed:
+        raise _refusal(
+            "sent_check_required",
+            HTTPStatus.CONFLICT,
+            "An earlier send may have left: check the sent items, then confirm it.",
+        )
+    return doubts
+
+
+def _clear_other_doubts(
+    session: Session, actor: ActorContext, message: ContactMessage, doubts: list[ContactMessage]
+) -> None:
+    for other in doubts:
+        if other.id == message.id:
+            continue
+        audit.annotate(
+            session,
+            actor,
+            other,
+            AuditAction.CONTACT_MESSAGE_SENT_CHECKED,
+            reason="sent_items_checked",
+        )
+        clear_doubt(other)
+
+
 def schedule(
     session: Session,
     actor: ActorContext,
@@ -939,28 +970,23 @@ def schedule(
     unrelated to the next-action week: decision 14). A new schedule resets the dispatch
     diagnostics of a previous one.
 
-    A message whose earlier send may have left all the same (`needs_sent_check`) is refused
-    (409 `sent_check_required`) until a person says they looked in the sent items
-    (`sent_check_confirmed`)."""
+    A mail that may have left all the same — this message, or one of a former sequence of the
+    prospect (`covering_doubts`) — is refused (409 `sent_check_required`) until a person says they
+    looked in the sent items (`sent_check_confirmed`)."""
     context, message = _transition_target(session, actor, prospect_id, rank, expected_revision)
     if message.status is not M.VALIDATED:
         raise _invalid_transition(message, "schedule")
     _require_open(context)
     _require_rank(context, rank)
     require_send_moment(scheduled_at, now or datetime.now(UTC))
-    checked = needs_sent_check(message)
-    if checked and not sent_check_confirmed:
-        raise _refusal(
-            "sent_check_required",
-            HTTPStatus.CONFLICT,
-            "An earlier send may have left: check the sent items, then confirm it.",
-        )
+    doubts = _require_sent_check(session, message, sent_check_confirmed)
+    _clear_other_doubts(session, actor, message, doubts)
     audit.annotate(
         session,
         actor,
         message,
         AuditAction.CONTACT_MESSAGE_SCHEDULED,
-        reason="sent_items_checked" if checked else None,
+        reason="sent_items_checked" if doubts else None,
     )
     if message.draft_check == DRAFT_MISSING:
         # Known to be gone: a new one is created for this schedule.
@@ -1120,15 +1146,34 @@ def delete_draft(
     prospect_id: uuid.UUID,
     rank: int,
     expected_revision: int,
+    *,
+    sent_check_confirmed: bool = False,
 ) -> None:
     """A person removes a message that is not planned to leave (draft, validated or cancelled): the
     row goes, its Infomaniak draft is queued for deletion, the step is empty again and can be
     written anew. A scheduled or sent message is refused (unschedule or cancel it first: its
-    history stays)."""
+    history stays). A message that may have left carries the only record of that doubt: it goes
+    only with `sent_check_confirmed` (409 `sent_check_required`)."""
     _, message = _transition_target(session, actor, prospect_id, rank, expected_revision)
     if message.status not in (M.DRAFT, M.VALIDATED, M.CANCELLED):
         raise _invalid_transition(message, "delete")
     _require_not_claimed(message)
+    if message.sent_doubt_reason is not None:
+        if not sent_check_confirmed:
+            raise _refusal(
+                "sent_check_required",
+                HTTPStatus.CONFLICT,
+                "This mail may have left: check the sent items, then confirm it.",
+            )
+        audit.annotate(
+            session,
+            actor,
+            message,
+            AuditAction.CONTACT_MESSAGE_SENT_CHECKED,
+            reason="sent_items_checked",
+        )
+        clear_doubt(message)
+        session.flush()
     detach_remote_draft(session, message, "deleted")
     _log("deleted", message, actor)
     session.delete(message)

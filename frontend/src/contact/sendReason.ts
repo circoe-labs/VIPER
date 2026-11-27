@@ -6,6 +6,7 @@ const REASONS: Record<string, string> = {
   dispatch_overdue: 'heure dépassée : serveur arrêté ou Toolbox déconnectée',
   dispatch_held: 'programmation retirée par l’exploitation du serveur',
   send_draft_not_found: 'brouillon introuvable dans Infomaniak (supprimé, ou envoyé à la main)',
+  draft_missing: 'brouillon introuvable dans Infomaniak : peut-être envoyé à la main',
   send_not_confirmed: 'envoi non confirmé : peut-être parti',
   send_outcome_unknown: 'la Toolbox n’a pas donné de réponse sûre : peut-être parti',
   send_reconcile_inconclusive: 'envoi impossible à vérifier : peut-être parti',

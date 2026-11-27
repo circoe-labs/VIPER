@@ -18,6 +18,7 @@ the due time `send_draft` stays the judge: a false alarm sends normally.
 import logging
 import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from sqlalchemy import ColumnElement, select
 from sqlalchemy.orm import Session, sessionmaker
@@ -28,7 +29,12 @@ from app.models.enums import ContactMessageStatus
 from app.services import audit
 from app.services.audit import AuditAction
 from app.services.contact_dispatch import DISPATCH_ACTOR, DISPATCH_CONTEXT, RECONCILE_LIST_LIMIT
-from app.services.contact_schedule_trace import DRAFT_MISSING, DRAFT_UNVERIFIED
+from app.services.contact_schedule_trace import (
+    DOUBT_DRAFT_MISSING,
+    DRAFT_MISSING,
+    DRAFT_UNVERIFIED,
+    mark_doubt,
+)
 from app.services.toolbox.mcp_client import MailToolbox
 
 logger = logging.getLogger(__name__)
@@ -87,7 +93,9 @@ def check_scheduled_drafts(
             else:
                 found = DRAFT_UNVERIFIED
                 result.unverified += 1
-            if found == message.draft_check:
+            if found == message.draft_check and (
+                found != DRAFT_MISSING or message.sent_doubt_reason is not None
+            ):
                 continue
             action = (
                 AuditAction.CONTACT_MESSAGE_DRAFT_MISSING
@@ -97,6 +105,8 @@ def check_scheduled_drafts(
             audit.annotate(session, actor, message, action)
             message.draft_check = found
             if found == DRAFT_MISSING:
+                # Durable: seeing the draft again, or losing it from this record, never clears it.
+                mark_doubt(message, DOUBT_DRAFT_MISSING, datetime.now(UTC))
                 logger.warning(
                     "contact_dispatch.draft_missing message=%s prospect=%s step=%s",
                     message.id,

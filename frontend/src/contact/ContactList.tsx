@@ -65,7 +65,6 @@ function ContactLine({ row, href, planning }: { row: ContactRow; href: string; p
         </div>
         <span className="contacts-line__channel" title="E-mail enregistré"><MailIcon size={18} /><span className="visually-hidden">E-mail</span></span>
         <div className="contacts-line__last">
-          {send && <SendLines send={send} />}
           {planned && <>
             <span>{row.next_step ? `Échéance ${row.next_step === 'contact' ? 'Contact' : `Relance ${stepLabel(row.next_step)}`}` : 'Échéance'}</span>
             <time dateTime={planned}>{DAY.format(new Date(planned))}</time>
@@ -77,6 +76,8 @@ function ContactLine({ row, href, planning }: { row: ContactRow; href: string; p
           const box = event.currentTarget.getBoundingClientRect()
           setMenu({ x: box.right, y: box.bottom })
         }} />
+        {/* The effective schedule takes a line of its own, as wide as the row. */}
+        {send && <div className="contacts-line__send"><SendLines send={send} /></div>}
       </div>
       {expanded && <ContactDetails id={row.id} name={name} openHref={href} />}
       {menu && <Menu label={`Actions de ${name}`} position={menu} alignRight sections={[{ items: [

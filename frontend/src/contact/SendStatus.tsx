@@ -21,6 +21,8 @@ function copyOf(send: SendSituation): Copy {
         : { badge: 'Programmé', tone: 'info', icon: ClockIcon, dated: 'programmé le' }
     case 'unconfirmed':
       return { badge: 'Envoi à vérifier', tone: 'warning', icon: AlertIcon, dated: 'programmé le' }
+    case 'doubt':
+      return { badge: 'Peut-être parti', tone: 'warning', icon: AlertIcon, dated: 'prévu le' }
     case 'missed':
       return { badge: 'Non parti', tone: 'danger', icon: AlertIcon, dated: 'prévu le' }
     case 'unscheduled':

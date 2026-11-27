@@ -102,12 +102,12 @@ def test_a_draft_gone_at_send_time_stays_visible_and_needs_the_sent_items_check(
     )
     send = planning_row(connected, prospect)["send"]
     assert (send["state"], send["reason"], send["needs_sent_check"]) == (
-        "missed",
+        "doubt",
         "send_draft_not_found",
         True,
     )
     (item,) = unsent(connected)["items"]
-    assert (item["kind"], item["send"]["step"]) == ("missed", "contact")
+    assert (item["kind"], item["send"]["step"]) == ("doubt", "contact")
 
     # No path reschedules it without the person's confirmation: editor, series, bulk.
     path = f"{messages(prospect)}/contact/schedule"

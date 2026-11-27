@@ -596,9 +596,9 @@ export function useMessageMutations(prospectId: string) {
     }),
     // A draft that was never validated is removed: the step is empty again.
     remove: useMutation({
-      mutationFn: ({ step, revision }: { step: MessageStep; revision: number }) =>
+      mutationFn: ({ step, revision, sentCheckConfirmed }: { step: MessageStep; revision: number; sentCheckConfirmed?: boolean }) =>
         apiRequest<{ deleted: boolean; step: string }>('POST', path(step, 'delete'), {
-          body: { expected_revision: revision },
+          body: { expected_revision: revision, ...(sentCheckConfirmed ? { sent_check_confirmed: true } : {}) },
         }),
       onSuccess: () =>
         refreshAfterWrite(queryClient, [

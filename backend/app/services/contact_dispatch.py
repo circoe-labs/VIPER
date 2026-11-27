@@ -105,7 +105,11 @@ from app.services.contact_message_cancellation import (
     state_cancel_reason,
 )
 from app.services.contact_remote_drafts import sync_remote_draft
-from app.services.contact_schedule_trace import forget_schedule_trace, leave_schedule
+from app.services.contact_schedule_trace import (
+    clear_doubt,
+    forget_schedule_trace,
+    leave_schedule,
+)
 from app.services.contact_sequences import SEQUENCE_CLOSED_REASON, has_email_error
 from app.services.contact_workflow import SEQUENCE_CLOSING_STATES
 from app.services.errors import ActorNotAllowedError, ContactMessageError, ToolboxError
@@ -1042,6 +1046,8 @@ def release(
         session, actor, message, AuditAction.CONTACT_MESSAGE_DISPATCH_RELEASED, reason=RELEASED
     )
     leave_schedule(message, RELEASED, moment)
+    # The person's word: they checked that it did not leave.
+    clear_doubt(message)
     message.status = M.VALIDATED
     message.scheduled_at = None
     message.dispatch_claim_id = None

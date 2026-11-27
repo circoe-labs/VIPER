@@ -383,7 +383,7 @@ export function MailEditor({
     setNotice(null)
     setRefusal(null)
     try {
-      await mutations.remove.mutateAsync({ step, revision: message.revision })
+      await mutations.remove.mutateAsync({ step, revision: message.revision, sentCheckConfirmed: message.needs_sent_check })
       onForm(undefined)
       onWhen({ date: '', time: '' })
       setRemoved(`Brouillon ${label} supprimé : l’étape est de nouveau vide.`)
@@ -628,16 +628,17 @@ export function MailEditor({
     return null
   }
 
-  // An earlier send may have left: scheduling again says so and asks the person to attest they looked.
+  // An earlier send may have left: scheduling again (or deleting the record of it) says so and asks the person to
+  // attest they looked.
   function withSentCheck(asked: Confirmation | null): Confirmation | null {
-    if (!asked || !message?.needs_sent_check || (pending !== 'schedule' && pending !== 'validate-schedule')) return asked
+    if (!asked || !message?.needs_sent_check || (pending !== 'schedule' && pending !== 'validate-schedule' && pending !== 'delete')) return asked
     return {
       ...asked,
       warning: [
         'Un envoi précédent de ce mail a peut-être abouti. Vérifiez le dossier Envoyés d’Infomaniak avant de continuer.',
         asked.warning,
       ].filter(Boolean).join(' '),
-      confirmLabel: 'J’ai vérifié les Envoyés : programmer',
+      confirmLabel: `J’ai vérifié les Envoyés : ${pending === 'delete' ? 'supprimer' : 'programmer'}`,
     }
   }
 
@@ -752,7 +753,10 @@ export function MailEditor({
     const text = 'Brouillon introuvable dans Infomaniak (autre compte, supprimé, ou envoyé à la main) : vérifiez les Envoyés, puis « Recréer » dans Contacts › Envois à reprendre.'
     signals.push({ id: 'draft-missing', tone: 'warning', icon: AlertIcon, label: text, detail: <p>{text}</p> })
   }
-  if (message?.missed_scheduled_at && (message.status === 'draft' || message.status === 'validated')) {
+  if (message && message.status !== 'sent' && message.status !== 'scheduled' && message.needs_sent_check) {
+    const text = 'Ce mail est peut-être déjà parti : vérifiez le dossier Envoyés d’Infomaniak avant de le reprogrammer, ou « Marquer comme envoyé ».'
+    signals.push({ id: 'missed', tone: 'warning', icon: AlertIcon, label: text, detail: <p>{text}</p> })
+  } else if (message?.missed_scheduled_at && (message.status === 'draft' || message.status === 'validated')) {
     const text = `Envoi prévu le ${formatDateTime(message.missed_scheduled_at)} non effectué : ${sendReason(message.missed_reason ?? '')}.`
     signals.push({ id: 'missed', tone: 'warning', icon: AlertIcon, label: text, detail: <p>{text}</p> })
   }

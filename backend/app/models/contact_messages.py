@@ -200,6 +200,10 @@ class ContactMessage(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     missed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # The last mailbox check of a scheduled message's draft: `missing`, `unverified` or NULL.
     draft_check: Mapped[str | None] = mapped_column(String(16))
+    # The mail may have left (why, since when): durable until a person says they looked in the
+    # sent items, or a send is recorded (`contact_schedule_trace`).
+    sent_doubt_reason: Mapped[str | None] = mapped_column(String(64))
+    sent_doubt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     @property
     def step(self) -> str:

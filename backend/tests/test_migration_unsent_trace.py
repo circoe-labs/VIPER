@@ -81,6 +81,12 @@ def test_0061_backfills_the_unsent_messages_and_downgrades(
         _event(connection, taken_back, "contact_message.unscheduled", None, 0)
         rescheduled = _message(connection, "scheduled", 2, sequence, prospect)
         _event(connection, rescheduled, "contact_message.dispatch_failed", "dispatch_overdue", 0)
+        # Unconfirmed, then rescheduled and taken back since: the doubt is an older event.
+        edited = _message(connection, "draft", 3, sequence, prospect)
+        _event(connection, edited, "contact_message.dispatch_failed", "send_not_confirmed", 0)
+        _event(connection, edited, "contact_message.unscheduled", None, 2)
+        stamps = text("SELECT id, updated_at FROM contact_messages")
+        before = dict(connection.execute(stamps).tuples().all())
 
     command.upgrade(config, "head")
 
@@ -91,6 +97,20 @@ def test_0061_backfills_the_unsent_messages_and_downgrades(
                 text("SELECT id, missed_reason, missed_scheduled_at FROM contact_messages")
             )
         }
+        doubts = dict(
+            connection.execute(text("SELECT id, sent_doubt_reason FROM contact_messages"))
+            .tuples()
+            .all()
+        )
+        after = dict(connection.execute(stamps).tuples().all())
+    assert after == before  # a backfill is not a change of the messages
+    assert doubts == {
+        lost: "send_draft_not_found",
+        taken_back: None,
+        rescheduled: None,
+        edited: "send_not_confirmed",
+    }
+    assert rows[edited] == ("unscheduled_by_person", MOMENT)
     assert rows[lost] == ("send_draft_not_found", MOMENT)
     assert rows[taken_back] == ("unscheduled_by_person", MOMENT)
     assert rows[rescheduled] == (None, None)
