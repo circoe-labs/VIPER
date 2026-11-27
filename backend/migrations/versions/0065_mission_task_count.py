@@ -13,7 +13,7 @@ discovery run that was chaining one task at a time towards N items receives the 
 One-off active missions with every task finished are closed (the new rule).
 
 Revision ID: 0065
-Revises: 0063
+Revises: 0064
 """
 
 import sqlalchemy as sa
@@ -21,7 +21,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision = "0065"
-down_revision = "0063"
+down_revision = "0064"
 branch_labels = None
 depends_on = None
 
