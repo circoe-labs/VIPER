@@ -1203,13 +1203,16 @@ class ConfirmNotSentOut(BaseModel):
 
 @cohorts_router.post("/unsent/confirm-not-sent")
 def confirm_unsent_not_sent(
-    body: ConfirmNotSentIn, session: SessionDep, actor: CurrentActor
+    body: ConfirmNotSentIn, session: SessionDep, actor: CurrentActor, settings: SettingsDep
 ) -> ConfirmNotSentOut:
     """A person looked in the sent items and these mails did not leave: the doubt is cleared,
     nothing is scheduled."""
     with business_errors():
         result = contact_unsent.confirm_not_sent(
-            session, actor, [(item.message_id, item.expected_revision) for item in body.items]
+            session,
+            actor,
+            [(item.message_id, item.expected_revision) for item in body.items],
+            claim_ttl=settings.contact_dispatch_claim_ttl,
         )
     return ConfirmNotSentOut(
         done=len(result.done),

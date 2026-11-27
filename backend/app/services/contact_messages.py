@@ -121,6 +121,7 @@ from app.services.contact_schedule_trace import (
     covering_doubts,
     forget_schedule_trace,
     leave_schedule,
+    unconfirmed_elsewhere,
 )
 from app.services.contact_workflow import SEQUENCE_CLOSING_STATES
 from app.services.errors import (
@@ -984,7 +985,15 @@ def require_send_moment(scheduled_at: datetime, now: datetime) -> None:
 def _require_sent_check(
     session: Session, message: ContactMessage, confirmed: bool
 ) -> list[ContactMessage]:
-    """The doubts covering `message`, refused unless the person says they looked."""
+    """The doubts covering `message`, refused unless the person says they looked. While a send
+    of a former sequence is still claimed, no confirmation is enough (409
+    `earlier_send_unconfirmed`): it may still leave."""
+    if unconfirmed_elsewhere(session, message):
+        raise _refusal(
+            "earlier_send_unconfirmed",
+            HTTPStatus.CONFLICT,
+            "An earlier send of this prospect is not settled yet: settle it first.",
+        )
     doubts = covering_doubts(session, message)
     if doubts and not confirmed:
         raise _refusal(
@@ -1025,6 +1034,9 @@ def schedule(
     """validated -> scheduled at an explicit, strictly future moment (never a default time, and
     unrelated to the next-action week: decision 14). A new schedule resets the dispatch
     diagnostics of a previous one.
+
+    Nothing is scheduled while a send of a former sequence is still unconfirmed (409
+    `earlier_send_unconfirmed`).
 
     A mail that may have left all the same — this message, or one of a former sequence of the
     prospect (`covering_doubts`) — is refused (409 `sent_check_required`) until a person says they
@@ -1124,7 +1136,10 @@ def schedule_cohorts(
                 )
         except (ContactMessageError, InvalidFieldError) as error:
             refused += 1
-            to_check += getattr(error, "code", None) == "sent_check_required"
+            to_check += getattr(error, "code", None) in (
+                "sent_check_required",
+                "earlier_send_unconfirmed",
+            )
             doubtful += getattr(error, "code", None) == email_identity.CODE
             continue
         validated += message_status is M.DRAFT

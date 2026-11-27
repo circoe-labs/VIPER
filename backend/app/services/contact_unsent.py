@@ -2,7 +2,10 @@
 
 `overview` lists, for the prospects still in the automatic actions:
 
-- `unconfirmed`    scheduled and claimed, the outcome unknown (settled in the editor);
+- `unconfirmed`    scheduled and claimed, the outcome unknown (settled in the editor); one of a
+                   former sequence is listed as long as it is claimed (it holds every new send
+                   back) and is settled here: « pas parti » once the claim's delay has passed, or
+                   « Marquer comme envoyé » (`contact_dispatch.record_unsettled_send`);
 - `doubt`          not scheduled and may have left (`sent_doubt_*`), whatever its status or
                    sequence: it stays until a person says they looked in the sent items;
 - `missed`         scheduled, did not leave (`missed_reason`), not scheduled again yet;
@@ -17,16 +20,16 @@ import logging
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, not_, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.actor import ActorContext, ActorType
 from app.models import Cohort, ContactMessage, ContactSequence, ContactTracking, Prospect
 from app.models.companies import Company
 from app.models.enums import ContactMessageStatus
-from app.services import audit, contact_messages, eligibility, email_identity
+from app.services import audit, contact_dispatch, contact_messages, eligibility, email_identity
 from app.services.audit import AuditAction
 from app.services.contact_remote_drafts import detach_remote_draft
 from app.services.contact_schedule_trace import (
@@ -35,6 +38,7 @@ from app.services.contact_schedule_trace import (
     DRAFT_UNVERIFIED,
     clear_doubt,
     covering_doubts,
+    unconfirmed_elsewhere,
 )
 from app.services.contact_send_state import SendSituation, message_situation
 from app.services.contact_workflow import SEQUENCE_CLOSING_STATES
@@ -104,6 +108,11 @@ def overview(session: Session) -> UnsentOverview:
                     ContactMessage.status != M.SENT,
                     ContactMessage.sent_doubt_reason.is_not(None),
                 ),
+                and_(
+                    not_(current),
+                    ContactMessage.status == M.SCHEDULED,
+                    ContactMessage.dispatch_claim_id.is_not(None),
+                ),
             ),
         )
         .order_by(
@@ -123,7 +132,11 @@ def overview(session: Session) -> UnsentOverview:
         send = message_situation(message)
         if send is None:
             continue
-        if message.status is M.SCHEDULED:
+        former_claim = not is_current and message.dispatch_claim_id is not None
+        if former_claim:
+            kind = "unconfirmed"
+            send = replace(send, state="unconfirmed", needs_sent_check=True)
+        elif message.status is M.SCHEDULED:
             # A claim still running (no recorded outcome) is not for a person yet; a draft seen
             # again leaves at its time.
             if send.state == "scheduled" and not send.draft_missing:
@@ -262,6 +275,8 @@ def recreate_drafts(session: Session, actor: ActorContext, targets: Sequence[Tar
             code = "dispatch_in_progress"
         elif message.status is not M.SCHEDULED or message.draft_check != DRAFT_MISSING:
             code = "invalid_transition"
+        elif unconfirmed_elsewhere(session, message):
+            code = "earlier_send_unconfirmed"
         elif not target.sent_check_confirmed:
             code = "sent_check_required"
         elif email_identity.message_doubts(
@@ -308,11 +323,17 @@ def _checked(session: Session, actor: ActorContext, message: ContactMessage) -> 
 
 
 def confirm_not_sent(
-    session: Session, actor: ActorContext, targets: Sequence[tuple[uuid.UUID, int]]
+    session: Session,
+    actor: ActorContext,
+    targets: Sequence[tuple[uuid.UUID, int]],
+    *,
+    claim_ttl: timedelta,
+    now: datetime | None = None,
 ) -> Recovery:
     """The person looked in the sent items: these mails (`(message_id, revision)`) did not leave.
     Only the doubt goes; nothing is scheduled. A scheduled message is refused (its missing draft
-    is recreated, or its unconfirmed send settled)."""
+    is recreated, or its unconfirmed send settled), except a claimed one of a former sequence,
+    released once its claim is older than the TTL (`contact_dispatch.release_former`)."""
     _require_person(actor)
     result = Recovery()
     for message_id, revision in targets:
@@ -323,6 +344,16 @@ def confirm_not_sent(
         code = None
         if message.revision != revision:
             code = "revision_conflict"
+        elif contact_dispatch.is_former_claim(session, message):
+            try:
+                contact_dispatch.release_former(
+                    session, actor, message, claim_ttl=claim_ttl, now=now
+                )
+            except ContactMessageError as error:
+                result.refused.append(Refused(message.prospect_id, message.rank, error.code))
+                continue
+            result.done.append(message.id)
+            continue
         elif message.status in (M.SENT, M.SCHEDULED) or message.sent_doubt_reason is None:
             code = "invalid_transition"
         if code is not None:

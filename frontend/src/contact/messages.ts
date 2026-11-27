@@ -114,6 +114,11 @@ export function messageRefusal(error: unknown): MessageRefusal {
         'Un envoi précédent a peut-être abouti : vérifiez les éléments envoyés d’Infomaniak, puis confirmez-le en reprogrammant.',
         true,
       )
+    case 'earlier_send_unconfirmed':
+      return plain(
+        'Un envoi précédent de ce prospect n’est pas encore tranché : réglez-le dans Contact › « Envois à reprendre » avant de programmer.',
+        true,
+      )
     case 'dispatch_not_unconfirmed':
       return plain('L’envoi de ce message n’attend plus de décision (il vient d’être tranché ou est encore en cours) : l’affichage est actualisé.', true)
     case 'prospect_do_not_contact':

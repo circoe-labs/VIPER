@@ -8,6 +8,7 @@ const REASONS: Record<string, string> = {
   send_draft_not_found: 'brouillon introuvable dans Infomaniak (supprimé, ou envoyé à la main)',
   draft_missing: 'brouillon introuvable dans Infomaniak : peut-être envoyé à la main',
   send_not_confirmed: 'envoi non confirmé : peut-être parti',
+  send_earlier_unconfirmed: 'un envoi précédent à ce prospect n’est pas confirmé : à vérifier avant de reprogrammer',
   send_outcome_unknown: 'la Toolbox n’a pas donné de réponse sûre : peut-être parti',
   send_reconcile_inconclusive: 'envoi impossible à vérifier : peut-être parti',
   send_probably_sent: 'probablement parti',

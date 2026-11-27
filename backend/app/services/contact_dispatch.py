@@ -23,6 +23,9 @@ One pass (`run_pass`; never two at once in one process, `ContactDispatcher` in t
      backoff, attempts and lateness still bound it);
    - the listing is full (100, truncated) or unreadable, or the message holds no draft id → the
      claim stays (`send_reconcile_inconclusive`); a person can settle it (below).
+   Before it, every scheduled, unclaimed message of a prospect who has, in **another** sequence,
+   a send still claimed or that may have left goes back to Validé (`send_earlier_unconfirmed`),
+   due or not: a change of contact week never lets a second mail leave unreviewed.
 2. **Due messages** (`scheduled`, `scheduled_at <= now`, unclaimed), oldest first (lower rank
    first at the same moment). For each, under its row lock (`SKIP LOCKED`):
    - a person who is not eligible (`app.services.eligibility`) → what could leave is cancelled
@@ -112,6 +115,8 @@ from app.services.contact_message_cancellation import (
 from app.services.contact_remote_drafts import sync_remote_draft
 from app.services.contact_schedule_trace import (
     SEQUENCE_LIMIT,
+    blocked_by_earlier,
+    blocked_by_earlier_sql,
     clear_doubt,
     forget_schedule_trace,
     leave_schedule,
@@ -151,6 +156,8 @@ MARKED_SENT = "send_marked_by_person"
 PROBABLY_SENT = "send_probably_sent"
 # Scheduling withdrawn by the operator (`contact-dispatch --hold-scheduled`, e.g. after a restore).
 HELD = "dispatch_held"
+# Another sequence of the prospect holds a send that is unconfirmed (`contact_schedule_trace`).
+EARLIER_UNCONFIRMED = "send_earlier_unconfirmed"
 RELEASED = "send_released_by_person"
 # A claim whose send call is over without a known outcome: a person may settle it at once.
 UNCONFIRMED = frozenset({OUTCOME_UNKNOWN, RECONCILE_INCONCLUSIVE, PROBABLY_SENT})
@@ -419,10 +426,13 @@ def _mark_sent(
     source: SendSource = SendSource.WORKER,
     code: str | None = None,
     reason: str = "confirmed",
+    sent_at: datetime | None = None,
 ) -> None:
     audit.annotate(session, actor, message, AuditAction.CONTACT_MESSAGE_SENT, reason=reason)
     message.status = M.SENT
-    message.sent_at = now
+    message.sent_at = sent_at or now
+    message.cancelled_at = None
+    message.cancel_reason = None
     # `worker` needs the current human validation (SQL CHECK): a scheduled message always has it.
     message.sent_source = source
     # The Toolbox returns no Message-ID (references/toolbox-capabilities.md).
@@ -456,6 +466,8 @@ class Dispatcher:
 
     def run_pass(self, toolbox: MailToolbox) -> DispatchReport:
         report = DispatchReport()
+        # Before the reconciliation: once it concludes « sent », nothing else would tell.
+        self._hold_behind_earlier(report)
         self._reconcile(toolbox, report)
         with audit.attributed_unit_of_work(
             self.session_factory, DISPATCH_ACTOR, DISPATCH_CONTEXT
@@ -497,6 +509,33 @@ class Dispatcher:
         if report.busy:
             logger.info("contact_dispatch.pass %s", report.summary)
         return report
+
+    def _hold_behind_earlier(self, report: DispatchReport) -> None:
+        """Scheduled mails behind an unconfirmed send of another sequence go back to Validé."""
+        now = self.now()
+        with audit.attributed_unit_of_work(
+            self.session_factory, DISPATCH_ACTOR, DISPATCH_CONTEXT
+        ) as session:
+            held = session.scalars(
+                select(ContactMessage)
+                .where(
+                    ContactMessage.status == M.SCHEDULED,
+                    ContactMessage.dispatch_claim_id.is_(None),
+                    blocked_by_earlier_sql(),
+                )
+                .with_for_update(skip_locked=True, of=ContactMessage)
+                .execution_options(populate_existing=True)
+            ).all()
+            for message in held:
+                _back_to_validated(
+                    session,
+                    message,
+                    EARLIER_UNCONFIRMED,
+                    now,
+                    AuditAction.CONTACT_MESSAGE_DISPATCH_FAILED,
+                )
+                _log("refused", message, code=EARLIER_UNCONFIRMED)
+                report.failed += 1
 
     # --- one due message ---
 
@@ -556,6 +595,8 @@ class Dispatcher:
                 report.deferred += 1
                 return "done"
             refusal = self._recipients_refusal(session, message)
+            if blocked_by_earlier(session, message):
+                refusal = EARLIER_UNCONFIRMED
             if refusal is None:
                 order = self._order(session, message)
                 if order == "wait":
@@ -703,6 +744,7 @@ class Dispatcher:
             # Recipients, allowlist, pause and rank order, checked again right before the send.
             if (
                 sequence.paused
+                or blocked_by_earlier(session, message)
                 or self._recipients_refusal(session, message) is not None
                 or self._order(session, message) is not None
             ):
@@ -1057,6 +1099,12 @@ def release(
             "after the claim's delay (or mark it sent if it is in the sent items).",
             available_at=available_at.isoformat(),
         )
+    return _release(session, actor, message, moment)
+
+
+def _release(
+    session: Session, actor: ActorContext, message: ContactMessage, moment: datetime
+) -> ContactMessage:
     audit.annotate(
         session, actor, message, AuditAction.CONTACT_MESSAGE_DISPATCH_RELEASED, reason=RELEASED
     )
@@ -1081,6 +1129,47 @@ def release(
         session.flush()
     _log("released", message, actor=actor.type.value)
     return message
+
+
+# --- former contact weeks and mails beyond R2 ---------------------------------------------------
+
+
+def _is_current(session: Session, message: ContactMessage) -> bool:
+    sequence = session.get(ContactSequence, message.sequence_id)
+    return sequence is not None and sequence.is_current and sequence.closed_at is None
+
+
+def is_former_claim(session: Session, message: ContactMessage) -> bool:
+    """Claimed in a sequence that is no longer the open one: no sheet can settle it."""
+    return (
+        message.status is M.SCHEDULED
+        and message.dispatch_claim_id is not None
+        and not _is_current(session, message)
+    )
+
+
+def release_former(
+    session: Session,
+    actor: ActorContext,
+    message: ContactMessage,
+    *,
+    claim_ttl: timedelta,
+    now: datetime | None = None,
+) -> None:
+    """« Pas parti » for a locked message that `is_former_claim`: the rules of `release` (only
+    once the claim is older than the TTL); its closed sequence then cancels it."""
+    if actor.type is not ActorType.HUMAN or not actor.id:
+        raise ActorNotAllowedError("An unconfirmed send is settled by a person.")
+    moment = now or datetime.now(UTC)
+    claimed_at = message.dispatch_claimed_at
+    if claimed_at is not None and moment - claimed_at < claim_ttl:
+        raise ContactMessageError(
+            "dispatch_release_too_early",
+            HTTPStatus.CONFLICT,
+            "The send may still be finishing on the Toolbox's side: wait for the claim's delay.",
+            available_at=(claimed_at + claim_ttl).isoformat(),
+        )
+    _release(session, actor, message, moment)
 
 
 # --- pending counts (Settings > Connexions) -------------------------------------------------------

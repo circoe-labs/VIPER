@@ -19,6 +19,8 @@ const plural = (count: number, one: string, many: string) => `${String(count)} $
 
 const REFUSALS: Record<string, string> = {
   sent_check_required: 'envoi à vérifier',
+  earlier_send_unconfirmed: 'envoi précédent non tranché',
+  dispatch_release_too_early: 'trop tôt : l’envoi est peut-être en cours',
   revision_conflict: 'message modifié entre-temps',
   invalid_transition: 'à revalider ou déjà traité',
   dispatch_in_progress: 'envoi en cours',
@@ -67,10 +69,11 @@ interface GroupProps {
 
 const canReschedule = (item: UnsentItem) => item.current && item.status === 'validated'
 
-// A send waiting for an outcome is settled on the person's sheet, never from here.
+// A send waiting for an outcome is settled on the person's sheet, never from here, except one of a former contact week
+// (no sheet shows it): « pas parti » is declared here.
 function selectable(item: UnsentItem, action: GroupAction): boolean {
   if (action === 'recreate') return item.kind === 'draft_missing'
-  if (action === 'doubt') return item.kind !== 'unconfirmed'
+  if (action === 'doubt') return item.kind !== 'unconfirmed' || !item.current
   return canReschedule(item)
 }
 
@@ -197,7 +200,7 @@ function Group({ title, help, items, openHref, action, mutations, onResult }: Gr
             <SendLines send={item.send} />
             <span className="unsent__flags">
               <SendBadge send={item.send} />
-              {item.kind === 'unconfirmed' && <StatusBadge tone="warning">À trancher sur la fiche</StatusBadge>}
+              {item.kind === 'unconfirmed' && <StatusBadge tone="warning">{item.current ? 'À trancher sur la fiche' : 'À trancher ici : bloque les nouveaux envois'}</StatusBadge>}
               {!item.current && <StatusBadge tone="neutral">Ancienne semaine de contact</StatusBadge>}
               {item.status === 'draft' && <StatusBadge tone="neutral">À revalider</StatusBadge>}
               {item.status === 'cancelled' && <StatusBadge tone="neutral">Annulé</StatusBadge>}

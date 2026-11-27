@@ -1343,3 +1343,13 @@ validated, scheduled or sent; their validated and scheduled messages are cancell
 follow a change of e-mail address. Rules: [`prospecting-lifecycle.md`](prospecting-lifecycle.md).
 A recipient whose address looks like someone else's blocks generation, validation, scheduling and dispatch
 (409 / `email_identity_doubt`): [`email-identity.md`](email-identity.md).
+
+## Change of contact week while a send is unconfirmed
+
+A claimed send of a former sequence has no recorded doubt yet, but may leave. Until it is
+settled, no message of the prospect is scheduled, by any path (single, series, recovery, new
+draft): 409 `earlier_send_unconfirmed`, which no sent-items confirmation overrides. The
+dispatcher sends back to Validé (`send_earlier_unconfirmed`) every scheduled mail of a
+prospect holding, in another sequence, a claimed send or a doubt nobody confirmed since, due
+or not, before it reconciles. The locked mail is listed in « Envois à reprendre »; it is
+settled by the reconciliation, or there by a person (« pas parti » after the claim's delay).

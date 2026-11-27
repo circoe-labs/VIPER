@@ -12,12 +12,16 @@ or a draft that is gone: perhaps sent by hand from Infomaniak). It is durable: a
 redraft, a restored version, an unschedule, a cancellation, a reopening or a change of contact
 week keeps it. Only a person who says they looked in the sent items clears it (`clear_doubt`: a
 confirmed schedule, deletion, new draft, release or « pas parti »), or a recorded send.
+
+**Unconfirmed.** A message of a former sequence still **claimed** by the dispatcher has no recorded
+doubt yet, but may leave or have left: no confirmation covers it. Nothing of the prospect is
+scheduled or sent until it is settled (`unconfirmed_elsewhere`, `blocked_by_earlier`).
 """
 
 from datetime import datetime
 
-from sqlalchemy import or_, select
-from sqlalchemy.orm import Session, object_session
+from sqlalchemy import ColumnElement, exists, or_, select
+from sqlalchemy.orm import Session, aliased, object_session
 
 from app.models.contact_messages import ContactMessage
 from app.models.enums import ContactMessageStatus
@@ -96,6 +100,40 @@ def covering_doubts(session: Session, message: ContactMessage) -> list[ContactMe
             )
         )
     )
+
+
+def unconfirmed_elsewhere(session: Session, message: ContactMessage) -> list[ContactMessage]:
+    """The prospect's messages of another sequence whose send is claimed and not settled."""
+    return list(
+        session.scalars(
+            select(ContactMessage).where(
+                ContactMessage.prospect_id == message.prospect_id,
+                ContactMessage.sequence_id != message.sequence_id,
+                ContactMessage.status != ContactMessageStatus.SENT,
+                ContactMessage.dispatch_claim_id.is_not(None),
+            )
+        )
+    )
+
+
+def blocked_by_earlier_sql() -> ColumnElement[bool]:
+    """Over `ContactMessage` rows: another sequence of the prospect holds a send that is claimed
+    or may have left, and nobody confirmed it since. A scheduled mail in that case does not leave
+    (a confirmed schedule clears the doubts it covers)."""
+    other = aliased(ContactMessage)
+    return exists().where(
+        other.prospect_id == ContactMessage.prospect_id,
+        other.sequence_id != ContactMessage.sequence_id,
+        other.status != ContactMessageStatus.SENT,
+        or_(other.dispatch_claim_id.is_not(None), other.sent_doubt_reason.is_not(None)),
+    )
+
+
+def blocked_by_earlier(session: Session, message: ContactMessage) -> bool:
+    found = session.scalar(
+        select(ContactMessage.id).where(ContactMessage.id == message.id, blocked_by_earlier_sql())
+    )
+    return found is not None
 
 
 def needs_sent_check(message: ContactMessage) -> bool:
