@@ -2,6 +2,7 @@ import type { Block } from './lifecycle'
 import { keepPreviousData, type QueryClient, useQuery } from '@tanstack/react-query'
 
 import { apiGet } from './client'
+import type { IdentityDoubt } from './emailIdentity'
 import type { SendSituation } from './unsent'
 
 // Mirrors backend/app/api/routes/prospection.py: the Prospection counters and people list (Task 14). Segment
@@ -94,6 +95,8 @@ export interface ProspectFilters {
   // The ignored (declined / do not contact) are hidden unless asked for.
   include_ignored?: boolean
   include_archived?: boolean
+  // The review queue: only the people with an address that looks like someone else's.
+  identity_doubt?: boolean
   validated_only?: boolean
   verification_box: VerificationBox[]
   services: string[]
@@ -131,6 +134,8 @@ export interface Counters {
   today: string
   // VIPER_VERIFICATION_STALE_DAYS; null = no age-based re-check configured.
   stale_threshold_days: number | null
+  // People of the whole base with an address to check (identity).
+  identity_doubts?: number
 }
 
 // The whole base, whatever the search: people held, contacted, and deleted since the start.
@@ -196,6 +201,8 @@ export interface ProspectRow {
   contactability_status: 'contactable' | 'do_not_contact'
   // Why the person may not be prospected; null when they may.
   block?: Block | null
+  // An address of the person looks like someone else's.
+  identity_doubt?: IdentityDoubt | null
   do_not_contact_at: string | null
   updated_at: string
 }
@@ -224,6 +231,7 @@ function filterParams(filters: ProspectFilters): URLSearchParams {
   if (filters.validated_only) params.set('validated_only', 'true')
   if (filters.include_ignored) params.set('include_ignored', 'true')
   if (filters.include_archived) params.set('include_archived', 'true')
+  if (filters.identity_doubt) params.set('identity_doubt', 'true')
   const q = filters.q.trim()
   if (q) params.set('q', q)
   for (const key of PROSPECT_LIST_FILTERS) for (const value of filters[key]) params.append(key, value)
@@ -235,8 +243,8 @@ function filterParams(filters: ProspectFilters): URLSearchParams {
 }
 
 export function filtersOf(criteria: Omit<ProspectListCriteria, 'sort'>): ProspectFilters {
-  const { q, role, activity, referent, tracking_status, cohort, company, import_batch, services, send_stage, email_state, company_kind, commercial_segment, activity_category, department, reachable, include_ignored, include_archived, validated_only, verification_box, created_from, created_to } = criteria
-  return { q, role, activity, referent, tracking_status, cohort, company, import_batch, services, send_stage, email_state, company_kind, commercial_segment, activity_category, department, reachable, include_ignored, include_archived, validated_only, verification_box, created_from, created_to }
+  const { q, role, activity, referent, tracking_status, cohort, company, import_batch, services, send_stage, email_state, company_kind, commercial_segment, activity_category, department, reachable, include_ignored, include_archived, identity_doubt, validated_only, verification_box, created_from, created_to } = criteria
+  return { q, role, activity, referent, tracking_status, cohort, company, import_batch, services, send_stage, email_state, company_kind, commercial_segment, activity_category, department, reachable, include_ignored, include_archived, identity_doubt, validated_only, verification_box, created_from, created_to }
 }
 
 // The filter panels' choices that only the data knows: every company, and the departments present.

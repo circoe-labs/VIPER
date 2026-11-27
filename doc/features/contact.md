@@ -1341,3 +1341,5 @@ Esc, the close button or a click outside closes it (it asks first when the sheet
 A person who left the role, or who is archived or temporarily excluded (own or company), gets no message prepared,
 validated, scheduled or sent; their validated and scheduled messages are cancelled with the reason, and unsent messages
 follow a change of e-mail address. Rules: [`prospecting-lifecycle.md`](prospecting-lifecycle.md).
+A recipient whose address looks like someone else's blocks generation, validation, scheduling and dispatch
+(409 / `email_identity_doubt`): [`email-identity.md`](email-identity.md).

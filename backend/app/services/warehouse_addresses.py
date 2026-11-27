@@ -5,10 +5,11 @@ A warehouse mail holds a free-text recipient, so an address change or removal do
 - `stop_for_removed` (called with every address change, `contact_recipients`): a mail to an
   address a person no longer actively holds loses its human validation, and a planned or
   scheduled one becomes `failed` (`recipient_changed`) — a person validates it again;
-- `refusal` (validation, programming and the send itself) does not rely on that having been
-  called. Beside the blocks of `eligibility.warehouse_block`, it reads the audit log for an address
-  nobody actively holds: someone who held it and is blocked still blocks it, and one removed after
-  the mail's last human validation waits for a new one.
+- `refusal` is the one send check (validation, programming and the send itself); it does not rely
+  on that having been called. In order: the blocks of `eligibility.warehouse_block`; then the audit
+  log for an address nobody actively holds (someone who held it and is blocked still blocks it, and
+  one removed after the mail's last human validation waits for a new one); then an address that
+  looks like someone else's (`email_identity.warehouse_doubt`).
 
 The audit log keeps e-mail addresses in clear (`app.core.audit_policy`, `personal_values`).
 """
@@ -21,7 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.core.actor import ActorContext
 from app.models import AuditLogEntry, Email, WarehouseDraft
-from app.services import audit, eligibility
+from app.services import audit, eligibility, email_identity
 from app.services.contact_message_cancellation import stop_warehouse_drafts
 from app.services.contact_schedule_trace import RECIPIENT_CHANGED
 
@@ -64,9 +65,17 @@ def stop_for_removed(
 
 
 def refusal(session: Session, draft: WarehouseDraft, *, deciding: bool = False) -> str | None:
-    """Why the mail may not leave (an `eligibility.Block` value or `recipient_changed`), None when
-    it may. `deciding`: a person is validating or preparing it, which is the new decision a
-    removed address asks for; a block still refuses."""
+    """Why the mail may not leave (an `eligibility.Block` value, `recipient_changed` or
+    `email_identity.CODE`), None when it may. `deciding`: a person is validating or preparing it,
+    which is the new decision a removed address asks for; a block or a doubt still refuses."""
+    code = _lifecycle_refusal(session, draft, deciding)
+    if code is not None:
+        return code
+    doubt = email_identity.warehouse_doubt(session, draft)
+    return email_identity.CODE if doubt is not None else None
+
+
+def _lifecycle_refusal(session: Session, draft: WarehouseDraft, deciding: bool) -> str | None:
     block = eligibility.warehouse_block(session, draft)
     if block is not None:
         return block.value

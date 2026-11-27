@@ -35,8 +35,9 @@ One pass (`run_pass`; never two at once in one process, `ContactDispatcher` in t
    - more than `max_lateness` late (VIPER stopped, Toolbox disconnected) → back to Validé
      (`dispatch_overdue`): never a late send;
    - waiting for a backoff → next pass;
-   - no recipient / a recipient outside `VIPER_INFOMANIAK_SEND_ALLOWLIST` → back to Validé
-     (`send_missing_recipients` / `send_recipient_not_allowed`);
+   - no recipient / a recipient outside `VIPER_INFOMANIAK_SEND_ALLOWLIST` / a recipient whose
+     address looks like someone else's (`app.services.email_identity`) → back to Validé
+     (`send_missing_recipients` / `send_recipient_not_allowed` / `email_identity_doubt`);
    - **rank order** (decision C-24, sequences rework): rank n (R1, R2…) leaves only once rank n-1
      of the same sequence is `sent` — it waits while that one is scheduled earlier (it leaves
      first), and goes back to Validé (`send_previous_step_pending`) when it is absent, a draft, a
@@ -100,7 +101,7 @@ from app.core.config import Settings, allowlist_permits
 from app.core.contact_steps import MAX_FOLLOW_UPS_LIMIT
 from app.models import ContactMessage, ContactSequence, ContactTracking, Prospect
 from app.models.enums import ContactabilityStatus, ContactMessageStatus, SendSource
-from app.services import app_settings, audit, eligibility
+from app.services import app_settings, audit, eligibility, email_identity
 from app.services.audit import AuditAction, AuditContext, AuditSource
 from app.services.contact_message_cancellation import (
     DO_NOT_CONTACT_REASON,
@@ -554,7 +555,7 @@ class Dispatcher:
                 # An open « Erreur sur le mail »: it waits (the lateness bounds it).
                 report.deferred += 1
                 return "done"
-            refusal = self._recipients_refusal(message)
+            refusal = self._recipients_refusal(session, message)
             if refusal is None:
                 order = self._order(session, message)
                 if order == "wait":
@@ -570,12 +571,17 @@ class Dispatcher:
                 return "done"
             return "create_draft" if message.remote_draft_id is None else "claim"
 
-    def _recipients_refusal(self, message: ContactMessage) -> str | None:
+    def _recipients_refusal(self, session: Session, message: ContactMessage) -> str | None:
         if not message.to_recipients:
             return MISSING_RECIPIENTS
         recipients = [*message.to_recipients, *message.cc_recipients, *message.bcc_recipients]
         if not allowlist_permits(self.config.allowlist, recipients):
             return RECIPIENT_NOT_ALLOWED
+        copies = [*message.cc_recipients, *message.bcc_recipients]
+        if email_identity.message_doubts(
+            session, message.prospect_id, message.to_recipients, copies
+        ):
+            return email_identity.CODE
         return None
 
     @staticmethod
@@ -697,7 +703,7 @@ class Dispatcher:
             # Recipients, allowlist, pause and rank order, checked again right before the send.
             if (
                 sequence.paused
-                or self._recipients_refusal(message) is not None
+                or self._recipients_refusal(session, message) is not None
                 or self._order(session, message) is not None
             ):
                 report.deferred += 1

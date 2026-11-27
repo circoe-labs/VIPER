@@ -16,6 +16,7 @@ import { Modal } from '../ui/Dialog'
 import { AlertIcon, CheckCircleIcon, ChevronLeftIcon, ChevronRightIcon, InfoIcon, PauseIcon, PhoneIcon, RefreshIcon, SpinnerIcon, TrashIcon, UserPlusIcon } from '../ui/icons'
 import { Tabs } from '../ui/Tabs'
 import { AliasList } from './AliasList'
+import { IdentityNotice } from '../identity/IdentityDoubt'
 import { CompanySection, DeleteProspectDialog } from './ContextSections'
 import { forgetDraft, type KeptDraft, keepDraft, keptDraft } from './draftStorage'
 import { EditorSection, type SectionEdit } from './EditorSection'
@@ -190,6 +191,11 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
   const saving = mutations.create.isPending || mutations.update.isPending || moving
 
   const prospect = forms?.prospect ?? null
+  // Read from the query when it shows this person: a confirmation removes a doubt without reopening the form.
+  const identityDoubts = (loaded.data && loaded.data.id === prospect?.id ? loaded.data : prospect)?.emails.flatMap(
+    (email) => (email.identity_doubt ? [email.identity_doubt] : []),
+  ) ?? []
+  const doubtful = new Set(identityDoubts.map((doubt) => doubt.address))
   // The score as it stands now: the query's (an evaluation writes the new score there), else the loaded prospect's.
   const liveScore = prospect ? (loaded.data?.id === prospect.id ? loaded.data.score : prospect.score) : null
   const isNew = forms !== null && prospect === null
@@ -529,6 +535,7 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
               />
             )}
             <EditorSection title="Coordonnées" icon={PhoneIcon} edit={sectionEdit('emails', 'phones')}>
+              {prospect && <IdentityNotice prospectId={prospect.id} doubts={identityDoubts} />}
               {(['emails', 'phones'] as const).map((kind) => (
                 <AliasList
                   key={kind}
@@ -544,6 +551,7 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
                   companyDomain={company.data?.email_domain ?? null}
                   today={today}
                   staleDays={prospect?.stale_threshold_days ?? null}
+                  doubtful={kind === 'emails' ? doubtful : undefined}
                   edit={sectionEdit('emails', 'phones')}
                 />
               ))}

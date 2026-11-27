@@ -14,10 +14,18 @@ from starlette.datastructures import UploadFile
 from app.api.dependencies import CurrentActor, SessionDep
 from app.api.errors import business_errors, refusal
 from app.api.query_types import Department, Many
+from app.api.routes.email_identity import IdentityDoubtOut
 from app.core.actor import ActorType
 from app.models import Warehouse, WarehouseDraft
 from app.repositories.list_sort import EntitySort
-from app.services import audit, eligibility, warehouse_addresses, warehouse_import, warehouses
+from app.services import (
+    audit,
+    eligibility,
+    email_identity,
+    warehouse_addresses,
+    warehouse_import,
+    warehouses,
+)
 from app.services.contact_schedule_trace import RECIPIENT_CHANGED
 from app.services.errors import InvalidFieldError
 from app.services.warehouse_draft_text import apply_category
@@ -48,12 +56,26 @@ class WarehouseDraftOut(BaseModel):
     recovery_possible: bool
     failure_code: str | None
     failed_at: datetime | None
+    # The recipient looks like someone else's (`email_identity`): nothing can be sent.
+    identity_doubt: IdentityDoubtOut | None = None
+
+
+def draft_out(session: SessionDep, draft: WarehouseDraft, category: str | None) -> WarehouseDraftOut:
+    doubt = None
+    if draft.send_state != "sent":
+        doubt = email_identity.warehouse_doubt(session, draft)
+    return WarehouseDraftOut.model_validate(draft).model_copy(
+        update={
+            "prospecting_category": category,
+            "identity_doubt": IdentityDoubtOut.model_validate(doubt) if doubt else None,
+        }
+    )
 
 
 @router.get("/drafts", response_model=list[WarehouseDraftOut])
 def list_drafts(session: SessionDep) -> list[WarehouseDraftOut]:
     return [
-        WarehouseDraftOut.model_validate(draft).model_copy(update={"prospecting_category": category})
+        draft_out(session, draft, category)
         for draft, category in session.execute(
             select(WarehouseDraft, Warehouse.prospecting_category)
             .join(Warehouse, Warehouse.id == WarehouseDraft.warehouse_id)
@@ -106,11 +128,22 @@ def locked_draft(session: SessionDep, draft_id: uuid.UUID, revision: int) -> War
 
 
 def refuse_blocked(session: SessionDep, draft: WarehouseDraft, *, deciding: bool = False) -> None:
-    """A mail to someone, or a company, removed from prospecting is not prepared to leave, nor one
-    to a removed address without a new validation (`deciding`: this is that validation)."""
+    """The one send check (`warehouse_addresses.refusal`) said to a person: nothing is prepared to
+    leave to someone, or a company, removed from prospecting, to a removed address without a new
+    validation (`deciding`: this is that validation), or to an address that looks like someone
+    else's."""
     code = warehouse_addresses.refusal(session, draft, deciding=deciding)
     if code is None:
         return
+    if code == email_identity.CODE:
+        doubt = email_identity.warehouse_doubt(session, draft)
+        label = email_identity.LABELS[doubt.reason] if doubt else "douteuse"
+        raise refusal(
+            409,
+            code,
+            f"Envoi impossible pour {draft.contact_name} : l’adresse est {label}. "
+            "Corrigez-la ou confirmez-la.",
+        )
     reason = (
         "l’adresse du destinataire a changé, validez à nouveau le message"
         if code == RECIPIENT_CHANGED
@@ -157,6 +190,18 @@ def edit_draft(
         session, actor, "warehouse_draft.updated", entity_type="warehouse_draft", entity_id=draft.id
     )
     return draft
+
+
+@router.post("/drafts/{draft_id}/confirm-recipient", response_model=WarehouseDraftOut)
+def confirm_recipient(
+    draft_id: uuid.UUID, body: WarehouseDraftValidation, session: SessionDep, actor: CurrentActor
+) -> WarehouseDraftOut:
+    """« C'est bien son adresse » for a warehouse contact."""
+    draft = locked_draft(session, draft_id, body.revision)
+    with business_errors():
+        email_identity.confirm_warehouse(session, actor, draft)
+    warehouse = session.get(Warehouse, draft.warehouse_id)
+    return draft_out(session, draft, warehouse.prospecting_category if warehouse else None)
 
 
 @router.post("/drafts/{draft_id}/validate", response_model=WarehouseDraftOut)

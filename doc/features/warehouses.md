@@ -154,4 +154,5 @@ are executed. Tests use synthetic records and the dedicated test/E2E databases o
 
 A mail to the address of a person out of prospecting, or for the warehouse of an archived or excluded company, is
 refused and, when already planned or scheduled, becomes `failed` with the reason
-([`prospecting-lifecycle.md`](prospecting-lifecycle.md)).
+([`prospecting-lifecycle.md`](prospecting-lifecycle.md)). A recipient that looks like someone else's is blocked the
+same way until corrected or confirmed ([`email-identity.md`](email-identity.md)).

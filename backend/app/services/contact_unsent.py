@@ -26,7 +26,7 @@ from app.core.actor import ActorContext, ActorType
 from app.models import Cohort, ContactMessage, ContactSequence, ContactTracking, Prospect
 from app.models.companies import Company
 from app.models.enums import ContactMessageStatus
-from app.services import audit, contact_messages, eligibility
+from app.services import audit, contact_messages, eligibility, email_identity
 from app.services.audit import AuditAction
 from app.services.contact_remote_drafts import detach_remote_draft
 from app.services.contact_schedule_trace import (
@@ -264,6 +264,13 @@ def recreate_drafts(session: Session, actor: ActorContext, targets: Sequence[Tar
             code = "invalid_transition"
         elif not target.sent_check_confirmed:
             code = "sent_check_required"
+        elif email_identity.message_doubts(
+            session,
+            message.prospect_id,
+            message.to_recipients,
+            [*message.cc_recipients, *message.bcc_recipients],
+        ):
+            code = email_identity.CODE
         if message is None or code is not None:
             result.refused.append(Refused(target.prospect_id, target.rank, code or "invalid"))
             continue

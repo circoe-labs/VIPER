@@ -69,11 +69,17 @@ interface AliasContext {
   companyMoved: boolean
   today: string
   staleDays: number | null
+  // The stored addresses that look like someone else's.
+  doubtful?: ReadonlySet<string>
 }
 
-export function aliasState(alias: AliasDraft, { kind, companyMoved, today, staleDays }: AliasContext): StateLabel {
+export function aliasState(alias: AliasDraft, { kind, companyMoved, today, staleDays, doubtful }: AliasContext): StateLabel {
   if (!alias.is_active) {
     return { tone: 'neutral', icon: MinusCircleIcon, text: kind === 'emails' ? 'Ancienne adresse (inactive)' : 'Ancien numéro (inactif)' }
+  }
+  // A doubtful address reads as to be checked, verified or not, until it is corrected or confirmed.
+  if (alias.stored && !valueChanged(kind, alias) && doubtful?.has(alias.stored.value) && !alias.identity_confirmed) {
+    return { tone: 'warning', icon: AlertIcon, text: 'Identité à vérifier' }
   }
   if (alias.verified_now) return { tone: 'success', icon: CheckCircleIcon, text: 'Vérifié aujourd’hui — à enregistrer' }
   const stored = alias.stored

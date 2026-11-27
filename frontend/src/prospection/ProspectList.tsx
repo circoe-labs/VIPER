@@ -6,6 +6,7 @@ import { StatusBadge } from '../ui/Badge'
 import { AlertIcon, BanIcon, BuildingIcon, CheckCircleIcon, CopyIcon, MailIcon, UsersIcon } from '../ui/icons'
 import { useRowMenu } from '../ui/RowMenu'
 import { SendBadge, SendLines } from '../contact/SendStatus'
+import { IdentityBadge } from '../identity/IdentityDoubt'
 import { LifecycleBadge } from '../lifecycle/LifecycleBadge'
 import { useLifecycleMenu } from '../lifecycle/useLifecycleMenu'
 import { CohortBadge, DueBadge, EmailErrorBadge, LevelBadge, StateBadge } from './ContactBadges'
@@ -166,6 +167,7 @@ function Tracking({ row }: { row: ProspectRow }) {
         {inCampaign && !(row.block && row.sent_count === 0) && <LevelBadge level={row.level} />}
         <StateBadge status={row.tracking_status} />
         {row.email_error && <EmailErrorBadge />}
+        {row.identity_doubt && <IdentityBadge doubt={row.identity_doubt} />}
         {row.send && <SendBadge send={row.send} />}
         {row.due && <DueBadge />}
       </span>

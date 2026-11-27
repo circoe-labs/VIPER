@@ -17,6 +17,7 @@ const REASONS: Record<string, string> = {
   cancelled: 'message annulé',
   sequence_limit: 'trois e-mails au plus (Contact, R1, R2)',
   not_validated: 'message non validé',
+  email_identity_doubt: 'adresse au nom de quelqu’un d’autre : à corriger ou confirmer',
   recipient_changed: 'adresse changée : à revalider et reprogrammer',
   prospect_do_not_contact: 'opposition « Ne pas contacter »',
   prospect_departed: 'personne partie ou à la retraite',

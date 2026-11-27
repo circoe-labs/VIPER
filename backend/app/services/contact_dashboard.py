@@ -79,7 +79,7 @@ from app.models.enums import (
     QualityAlertType,
 )
 from app.repositories.taxonomies import label_key
-from app.services import app_settings, eligibility
+from app.services import app_settings, eligibility, email_identity
 from app.services.contact_send_state import SendSituation, situation_of
 from app.services.contact_sequences import (
     EFFECTIVE_ALERT_SOURCES,
@@ -94,6 +94,7 @@ from app.services.contact_sequences import (
     sent_count_sql,
 )
 from app.services.contact_workflow import IsoWeek
+from app.services.email_identity import Doubt
 from app.services.prospection.query import (
     LIST_MAX_LIMIT,
     iso_week,
@@ -399,6 +400,8 @@ class ContactRow:
     send: SendSituation | None = None
     # Why the person may not be prospected (`eligibility.Block`), None when they may.
     block: str | None = None
+    # An address of the person looks like someone else's (`email_identity`, primary first).
+    identity_doubt: Doubt | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -969,6 +972,7 @@ def list_contacts(
         rows = session.execute(page).tuples().all()
         total = session.execute(count).scalar_one()
     messages = _messages(session, [row[-1] for row in rows if row[-1] is not None])
+    doubts = email_identity.primary_doubts(session, [row[0].id for row in rows])
     items = []
     for (
         prospect,
@@ -1016,6 +1020,7 @@ def list_contacts(
                 activity_status=prospect.activity_status,
                 contactability_status=prospect.contactability_status,
                 block=block,
+                identity_doubt=doubts.get(prospect.id),
                 tracking_status=state or S.NEUTRAL,
                 cohort_id=cohort_id,
                 cohort_code=cohort_code,

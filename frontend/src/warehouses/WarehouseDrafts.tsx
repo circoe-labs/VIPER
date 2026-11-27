@@ -4,6 +4,8 @@ import { type WarehouseDraft, useWarehouseDispatchStatus, useWarehouseDraftActio
 import { Button, IconButton } from '../ui/Button'
 import { TextAreaField, TextField } from '../ui/fields'
 import { ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon } from '../ui/icons'
+import { IdentityBadge } from '../identity/IdentityDoubt'
+import { identitySentence } from '../identity/identityCopy'
 
 function localDateTimeValue(iso: string): string {
   const date = new Date(iso)
@@ -35,7 +37,7 @@ function DraftCard({ draft, dispatchActive, open, onToggle, onMove, onValidated,
     setSubject(draft.subject)
     setBody(draft.body)
   }
-  const busy = actions.save.isPending || actions.validate.isPending || actions.schedule.isPending || actions.unschedule.isPending
+  const busy = actions.save.isPending || actions.validate.isPending || actions.schedule.isPending || actions.unschedule.isPending || actions.confirmRecipient.isPending
   const locked = ['sending', 'uncertain', 'sent'].includes(draft.send_state ?? '')
   const valid = Boolean(draft.validated_at) && !dirty
   const humanReviewed = draft.human_validated === true && !dirty
@@ -66,6 +68,11 @@ function DraftCard({ draft, dispatchActive, open, onToggle, onMove, onValidated,
       setError(reason ? `Validation impossible. ${reason}` : 'Validation impossible. Vérifiez la date, l’adresse, la civilité, le nom, l’entreprise, la fonction et la mention DIHNAMO.')
     }
   }
+  async function confirmRecipient() {
+    setError('')
+    try { await actions.confirmRecipient.mutateAsync({ id: draft.id, revision: draft.revision }) }
+    catch { setError('La confirmation n’a pas été enregistrée. Rechargez la liste puis réessayez.') }
+  }
   async function unschedule() {
     setError('')
     try { await actions.unschedule.mutateAsync({ id: draft.id, revision: draft.revision }) }
@@ -74,11 +81,16 @@ function DraftCard({ draft, dispatchActive, open, onToggle, onMove, onValidated,
   const sourceAddresses = [...new Set(draft.source_email?.match(/[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+/g) ?? [])]
   const mailto = `mailto:${encodeURIComponent(draft.recipient ?? '')}?subject=${encodeURIComponent(draft.subject)}&body=${encodeURIComponent(draft.body)}`
   return <details className={`warehouse-draft${humanReviewed ? ' warehouse-draft--confirmed' : ''}`} open={open}>
-    <summary id={`warehouse-draft-${draft.id}`} onClick={(event) => { event.preventDefault(); onToggle() }}><ChevronDownIcon className="warehouse-draft__chevron" size={18} /><span><strong>{draft.contact_name}</strong><small>{draft.warehouse_name}{draft.contact_role ? ` · ${draft.contact_role}` : ''}</small><small>{draft.recipient || 'Destinataire à choisir'}</small></span><span className="warehouse-draft__badge">{humanReviewed ? 'Validé manuellement' : 'À valider'}{draft.send_state === 'planned' ? ' · Préprogrammé' : draft.send_state === 'scheduled' ? ' · Programmé' : draft.send_state === 'sent' ? ' · Envoyé' : draft.send_state === 'sending' || draft.send_state === 'uncertain' ? ' · Envoi à vérifier' : draft.send_state === 'failed' ? ' · Envoi non effectué' : ''}</span></summary>
+    <summary id={`warehouse-draft-${draft.id}`} onClick={(event) => { event.preventDefault(); onToggle() }}><ChevronDownIcon className="warehouse-draft__chevron" size={18} /><span><strong>{draft.contact_name}</strong><small>{draft.warehouse_name}{draft.contact_role ? ` · ${draft.contact_role}` : ''}</small><small>{draft.recipient || 'Destinataire à choisir'}</small>{draft.identity_doubt && <small className="warehouse-draft__doubt">Identité e-mail à vérifier</small>}</span><span className="warehouse-draft__badge">{humanReviewed ? 'Validé manuellement' : 'À valider'}{draft.send_state === 'planned' ? ' · Préprogrammé' : draft.send_state === 'scheduled' ? ' · Programmé' : draft.send_state === 'sent' ? ' · Envoyé' : draft.send_state === 'sending' || draft.send_state === 'uncertain' ? ' · Envoi à vérifier' : draft.send_state === 'failed' ? ' · Envoi non effectué' : ''}</span></summary>
     <div className="warehouse-draft__content">
       <p><strong>Adresse source : </strong>{draft.source_email || 'Non renseignée'}</p>
       <p className="warehouse-draft__note">{draft.review_note}</p>
       <TextField label="Destinataire" type="email" value={recipient} disabled={locked} onChange={(e) => setRecipient(e.target.value)} hint="Choisissez et vérifiez une seule adresse." />
+      {draft.identity_doubt && !dirty && <div className="identity-notice__row">
+        <IdentityBadge doubt={draft.identity_doubt} />
+        <span className="identity-notice__text">{identitySentence(draft.identity_doubt)}</span>
+        <Button size="sm" loading={actions.confirmRecipient.isPending} disabled={busy} onClick={() => void confirmRecipient()}>C’est bien son adresse</Button>
+      </div>}
       {!locked && sourceAddresses.length > 1 && <div className="warehouse-draft__source-addresses" aria-label="Adresses proposées">
         <span>Choisir une adresse source :</span>
         {sourceAddresses.map((address) => <Button key={address} size="sm" variant="secondary" onClick={() => setRecipient(address)}>{address}</Button>)}

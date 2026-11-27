@@ -135,7 +135,9 @@ phone** (own status and date). Identity fields are not re-verified individually.
 - **Aliases** — *Vérifié* (one click) sends `verified_now`: status `verified`, dated now by the server. The actions menu
   (⋯) offers *Marquer « non vérifié »*, *Marquer invalide*, *Marquer « statut inconnu »*. A status `verified` without
   `verified_now` is accepted only for an alias that is verified already and unchanged; other statuses keep the last
-  verification date. Editing an address or number makes it a new value: never verified, origin *manual*.
+  verification date. Editing an address or number makes it a new value: never verified, origin *manual*. An e-mail
+  that looks like someone else's is not verified without the explicit « C'est bien son adresse »
+  ([`email-identity.md`](email-identity.md)).
 
 ### Visual feedback (never colour alone: a glyph and a text every time)
 

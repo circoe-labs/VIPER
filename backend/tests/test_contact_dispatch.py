@@ -468,7 +468,8 @@ def test_the_allowlist_refuses_other_recipients(
 
     other = prospect_id(db_session)
     allowed = scheduled(connected, other)
-    pass_ = dispatcher(toolbox_app, Clock(DUE), allowlist=("jean.test@exemple.example",))
+    # The second person's own address.
+    pass_ = dispatcher(toolbox_app, Clock(DUE), allowlist=("jean.test+1@exemple.example",))
     assert pass_.run_pass(toolbox_of(toolbox_app)).sent == 1
     assert row(db_session, allowed["id"]).status is M.SENT
 
@@ -912,7 +913,7 @@ def committed(engine: Engine) -> Iterator[tuple[sessionmaker[Session], uuid.UUID
     draft_id = f"draft-{uuid.uuid4()}"
     with audit.attributed_unit_of_work(factory, FIXTURE_ACTOR) as session:
         company = add_company(session)
-        prospect = add_prospect(session, company)
+        prospect = add_prospect(session, company, first_name="Deux", last_name="Passes")
         add_email(session, prospect, "deux.passes@exemple.example", is_primary=True)
         sequence = start_sequence(session, prospect)
         message = ContactMessage(

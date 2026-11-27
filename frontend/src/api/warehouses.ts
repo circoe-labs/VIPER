@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { appendFilters, type ListSort } from './companies'
 import { apiGet, apiRequest } from './client'
+import type { IdentityDoubt } from './emailIdentity'
 import type { FileStatus } from './fileStatus'
 import { refreshAfterWrite } from './refresh'
 
@@ -68,6 +69,8 @@ export interface WarehouseDraft {
   // Why a scheduled mail did not (certainly) leave, and when.
   failure_code?: string | null
   failed_at?: string | null
+  // The recipient looks like someone else's: nothing can be sent until corrected or confirmed.
+  identity_doubt?: IdentityDoubt | null
 }
 
 export function useWarehouseDrafts() {
@@ -85,6 +88,7 @@ export function useWarehouseDraftActions() {
     save: useMutation({ mutationFn: ({ id, ...body }: { id: string; revision: number; recipient: string; subject: string; body: string }) => apiRequest<WarehouseDraft>('PUT', `/warehouses/drafts/${id}`, { body }), onSuccess: refresh }),
     validate: useMutation({ mutationFn: ({ id, revision }: { id: string; revision: number }) => apiRequest<WarehouseDraft>('POST', `/warehouses/drafts/${id}/validate`, { body: { revision } }), onSuccess: refresh }),
     schedule: useMutation({ mutationFn: ({ id, revision, scheduled_at }: { id: string; revision: number; scheduled_at: string }) => apiRequest<WarehouseDraft>('POST', `/warehouses/drafts/${id}/schedule`, { body: { revision, scheduled_at } }), onSuccess: refresh }),
+    confirmRecipient: useMutation({ mutationFn: ({ id, revision }: { id: string; revision: number }) => apiRequest<WarehouseDraft>('POST', `/warehouses/drafts/${id}/confirm-recipient`, { body: { revision } }), onSuccess: refresh }),
     unschedule: useMutation({ mutationFn: ({ id, revision }: { id: string; revision: number }) => apiRequest<WarehouseDraft>('POST', `/warehouses/drafts/${id}/unschedule`, { body: { revision } }), onSuccess: refresh }),
     scheduleBatch: useMutation({ mutationFn: (body: { scheduled_at: string; drafts: { id: string; revision: number }[] }) => apiRequest<{ scheduled: number }>('POST', '/warehouses/drafts/schedule-batch', { body }), onSuccess: refresh }),
     planBatch: useMutation({ mutationFn: (body: { scheduled_at: string; drafts: { id: string; revision: number }[] }) => apiRequest<{ scheduled: number }>('POST', '/warehouses/drafts/plan-batch', { body }), onSuccess: refresh }),

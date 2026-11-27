@@ -20,6 +20,7 @@ from pydantic import BaseModel
 from app.api.dependencies import SessionDep, SettingsDep
 from app.api.errors import business_errors
 from app.api.query_types import Department, Many, OrNone
+from app.api.routes.email_identity import IdentityDoubtOut
 from app.api.routes.send_situation import SendSituationOut
 from app.core.config import Settings
 from app.models.enums import (
@@ -30,6 +31,7 @@ from app.models.enums import (
     PhoneType,
     VerificationStatus,
 )
+from app.services import email_identity
 from app.services.contact_send_state import send_situations
 from app.services.errors import InvalidFieldError
 from app.services.prospection import dashboard, query
@@ -58,6 +60,8 @@ class CountersOut(BaseModel):
     today: date
     # `VIPER_VERIFICATION_STALE_DAYS`; null = no age-based re-check configured.
     stale_threshold_days: int | None
+    # People of the whole base with an address that looks like someone else's (to review).
+    identity_doubts: int = 0
 
 
 class OverviewOut(BaseModel):
@@ -117,6 +121,8 @@ class ProspectRowOut(BaseModel):
     block: str | None
     # The effective schedule, or why a scheduled mail did not leave.
     send: SendSituationOut | None = None
+    # An address of the person looks like someone else's (the primary one first).
+    identity_doubt: IdentityDoubtOut | None = None
 
 
 class ProspectPageOut(BaseModel):
@@ -127,6 +133,8 @@ class ProspectPageOut(BaseModel):
 
 
 def prospect_filters(
+    session: SessionDep,
+    identity_doubt: bool = False,
     q: Annotated[str | None, Query(max_length=200)] = None,
     role: Many[uuid.UUID | OrNone] = None,
     activity: Many[ActivityStatus] = None,
@@ -156,6 +164,7 @@ def prospect_filters(
                 "created_to", "The end must not precede the start.", "before_start"
             )
     return ProspectFilters(
+        only_ids=frozenset(email_identity.doubtful_ids(session)) if identity_doubt else None,
         search=q,
         roles=tuple(role or ()),
         activities=tuple(activity or ()),
@@ -192,7 +201,9 @@ def segment_context(settings: Settings) -> SegmentContext:
 def counters(session: SessionDep, settings: SettingsDep, filters: Filters) -> CountersOut:
     """Size of every segment under the criteria (the segment itself is not a criterion here)."""
     result = query.count_segments(session, filters, segment_context(settings))
-    return CountersOut.model_validate(result, from_attributes=True)
+    counted = CountersOut.model_validate(result, from_attributes=True)
+    counted.identity_doubts = len(email_identity.doubtful_ids(session))
+    return counted
 
 
 @router.get("/overview")
@@ -244,10 +255,14 @@ def prospects(
     result = ProspectPageOut.model_validate(page, from_attributes=True)
     details = dashboard.page_details(session, [item.id for item in page.items], settings)
     situations = send_situations(session, [item.id for item in page.items])
+    doubts = email_identity.primary_doubts(session, [item.id for item in page.items])
     result.items = [
         item.model_copy(
             update={
                 **details[item.id],
+                "identity_doubt": IdentityDoubtOut.model_validate(doubts[item.id])
+                if item.id in doubts
+                else None,
                 "send": SendSituationOut.model_validate(situations[item.id])
                 if item.id in situations
                 else None,

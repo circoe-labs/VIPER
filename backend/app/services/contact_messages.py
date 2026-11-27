@@ -101,7 +101,7 @@ from app.models.enums import (
     ContactTrackingStatus,
     SendSource,
 )
-from app.services import app_settings, audit, contact_sequences, eligibility
+from app.services import app_settings, audit, contact_sequences, eligibility, email_identity
 from app.services import contact_message_versions as versions
 from app.services.audit import AuditAction
 from app.services.contact_channels import normalize_email_address
@@ -328,6 +328,33 @@ def _require_rank(context: SequenceContext, rank: int) -> None:
             f"The sequence stops at R{context.max_follow_ups} (« max relances »).",
             max_follow_ups=context.max_follow_ups,
         )
+
+
+def require_identity(
+    session: Session, prospect_id: uuid.UUID, to: Sequence[str], copies: Sequence[str] = ()
+) -> None:
+    """No mail is prepared for an address that looks like someone else's: 409
+    `email_identity_doubt` with each doubtful `recipients` (`app.services.email_identity`)."""
+    doubts = email_identity.message_doubts(session, prospect_id, to, copies)
+    if doubts:
+        raise _refusal(
+            email_identity.CODE,
+            HTTPStatus.CONFLICT,
+            email_identity.MESSAGE,
+            recipients=[
+                {"address": d.address, "reason": d.reason.value, "other_name": d.other_name}
+                for d in doubts
+            ],
+        )
+
+
+def _require_recipients(session: Session, message: ContactMessage) -> None:
+    require_identity(
+        session,
+        message.prospect_id,
+        message.to_recipients,
+        [*message.cc_recipients, *message.bcc_recipients],
+    )
 
 
 def _require_not_sent(message: ContactMessage) -> None:
@@ -735,6 +762,19 @@ def require_generation_target(
         raise _invalid_transition(message, "draft with the AI")
 
 
+def require_recipients_for_draft(
+    session: Session,
+    prospect_id: uuid.UUID,
+    message: ContactMessage | None,
+    default_from: str | None = None,
+) -> None:
+    """The recipients an AI draft would be written for: the message's, or a new one's default."""
+    if message is not None:
+        _require_recipients(session, message)
+        return
+    require_identity(session, prospect_id, message_defaults(session, prospect_id, default_from).to)
+
+
 def save_generated(
     session: Session,
     actor: ActorContext,
@@ -757,6 +797,7 @@ def save_generated(
     message = _locked_rank(session, context, rank)
     require_generation_target(context, rank, message, expected_revision)
     require_agent_draft(actor, message)
+    require_recipients_for_draft(session, prospect_id, message, default_from)
     _no_control_characters("subject", content.subject)
     generation: dict[str, object] = {
         "subject": content.subject,
@@ -874,6 +915,7 @@ def validate(
             f"Incomplete message: {', '.join(missing)}.",
             fields=missing,
         )
+    _require_recipients(session, message)
     audit.annotate(session, actor, message, AuditAction.CONTACT_MESSAGE_VALIDATED)
     message.status = M.VALIDATED
     message.validated_revision = message.revision
@@ -993,6 +1035,7 @@ def schedule(
     _require_open(context)
     _require_rank(context, rank)
     require_send_moment(scheduled_at, now or datetime.now(UTC))
+    _require_recipients(session, message)
     doubts = _require_sent_check(session, message, sent_check_confirmed)
     _clear_other_doubts(session, actor, message, doubts)
     audit.annotate(
@@ -1027,6 +1070,8 @@ class CohortScheduleResult:
     missing: int
     # Of the refused: an earlier send may have left, each is checked and rescheduled by a person.
     to_check: int = 0
+    # Of the refused: a recipient looks like someone else's (`email_identity`).
+    doubtful: int = 0
 
 
 def schedule_cohorts(
@@ -1068,7 +1113,7 @@ def schedule_cohorts(
         or 0
     )
     scheduled: list[uuid.UUID] = []
-    validated = refused = to_check = 0
+    validated = refused = to_check = doubtful = 0
     for prospect_id, revision, message_status in rows:
         try:
             with session.begin_nested():
@@ -1080,6 +1125,7 @@ def schedule_cohorts(
         except (ContactMessageError, InvalidFieldError) as error:
             refused += 1
             to_check += getattr(error, "code", None) == "sent_check_required"
+            doubtful += getattr(error, "code", None) == email_identity.CODE
             continue
         validated += message_status is M.DRAFT
         scheduled.append(result.message.id)
@@ -1089,6 +1135,7 @@ def schedule_cohorts(
         refused=refused,
         missing=max(sequences - existing, 0),
         to_check=to_check,
+        doubtful=doubtful,
     )
 
 
@@ -1107,6 +1154,7 @@ def remote_draft_target(
     _require_open(context)
     _require_rank(context, rank)
     _require_not_claimed(message)
+    _require_recipients(session, message)
     return MessageResult(message, changed=False)
 
 

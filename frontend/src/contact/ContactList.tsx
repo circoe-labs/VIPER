@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router'
 
 import type { ContactRow } from '../api/contact'
 import { StateBadge } from '../prospection/ContactBadges'
+import { IdentityBadge } from '../identity/IdentityDoubt'
 import { LifecycleBadge } from '../lifecycle/LifecycleBadge'
 import { useLifecycleMenu } from '../lifecycle/useLifecycleMenu'
 import { personName } from '../prospection/labels'
@@ -81,6 +82,7 @@ function ContactLine({ row, href, planning }: { row: ContactRow; href: string; p
         }} />
         {/* The effective schedule takes a line of its own, as wide as the row. */}
         {send && <div className="contacts-line__send"><SendLines send={send} /></div>}
+        {row.identity_doubt && <div className="contacts-line__send"><IdentityBadge doubt={row.identity_doubt} /></div>}
       </div>
       {lifecycle.dialog}
       {expanded && <ContactDetails id={row.id} name={name} openHref={href} />}

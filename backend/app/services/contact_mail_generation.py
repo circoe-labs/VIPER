@@ -55,6 +55,7 @@ from app.services.contact_messages import (
     require_agent_draft,
     require_author,
     require_generation_target,
+    require_recipients_for_draft,
     sequence_context,
 )
 from app.services.contact_sequences import current_sequence
@@ -361,6 +362,7 @@ def prepare(
     message = get_message(session, prospect_id, rank)
     require_generation_target(context, rank, message, request.expected_revision)
     require_agent_draft(actor, message)
+    require_recipients_for_draft(session, prospect_id, message)
     if _has_text(message) and not request.replace:
         raise ContactMessageError(
             "replace_confirmation_required",

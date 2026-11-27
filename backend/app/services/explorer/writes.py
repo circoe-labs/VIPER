@@ -26,8 +26,8 @@ from sqlalchemy.orm import Mapper, Session
 from app.core.actor import ActorContext
 from app.db.base import Base
 from app.models import ActivityCategory, Company, ContactTracking, Email, Prospect
-from app.models.enums import ContactabilityStatus, ContactTrackingStatus
-from app.services import contact_recipients, contact_tracking, prospects
+from app.models.enums import ContactabilityStatus, ContactTrackingStatus, VerificationStatus
+from app.services import contact_recipients, contact_tracking, email_identity, prospects
 from app.services.audit_changes import to_json
 from app.services.contact_message_cancellation import cancel_if_ineligible
 from app.services.errors import DomainError
@@ -47,6 +47,9 @@ type Change = RowUpdate | RowInsert | RowDelete
 DO_NOT_CONTACT_MESSAGE = "Ce prospect est en opposition : utilisez la fiche prospect."
 # `ignored` is terminal and implies do-not-contact (Contact decision 7): deleting its tracking
 # would let the opposition be lifted.
+DOUBTFUL_ADDRESS = (
+    "Cette adresse semble être celle de quelqu’un d’autre : vérifiez-la depuis la fiche prospect."
+)
 IGNORED_IS_TERMINAL = (
     "Ce prospect est « Ignoré » : cet état est définitif, son suivi ne peut être ni supprimé ni"
     " changé d’état."
@@ -271,6 +274,8 @@ class _Writer:
     ) -> ChangeError | None:
         try:
             with self.session.begin_nested():
+                owner = self._email_owner(change, rows)
+                former = self._former_address(change, rows)
                 if isinstance(change, RowInsert):
                     inserted[change.ref.index] = self._insert(change)
                 elif isinstance(change, RowUpdate):
@@ -278,11 +283,53 @@ class _Writer:
                 else:
                     self._delete(rows[id(change)])
                 self.session.flush()
+                if owner and not isinstance(change, RowDelete):
+                    self._settle_verification(change, rows, owner, former, inserted)
         except (IntegrityError, DataError) as error:
             return database_error(self.table, change, error)
         except DomainError as error:
             return ChangeError(change.ref, ErrorCode.REJECTED, str(error))
         return None
+
+    def _email_owner(self, change: Change, rows: Mapping[int, object]) -> uuid.UUID | None:
+        """The prospect whose e-mail addresses this change touches (its messages follow)."""
+        if self.table.name != Email.__tablename__:
+            return None
+        if isinstance(change, RowInsert):
+            value = change.values.get("prospect_id")
+            return value if isinstance(value, uuid.UUID) else None
+        row = rows.get(id(change))
+        return row.prospect_id if isinstance(row, Email) else None
+
+    def _former_address(self, change: Change, rows: Mapping[int, object]) -> str | None:
+        row = rows.get(id(change)) if not isinstance(change, RowInsert) else None
+        return row.address if isinstance(row, Email) else None
+
+    def _settle_verification(
+        self,
+        change: RowInsert | RowUpdate,
+        rows: Mapping[int, object],
+        owner: uuid.UUID,
+        former: str | None,
+        inserted: Mapping[int, Mapping[str, Any]],
+    ) -> None:
+        """A changed address was never verified; one marked verified here must not look like
+        someone else's (`app.services.email_identity`)."""
+        if isinstance(change, RowInsert):
+            key = inserted[change.ref.index]["id"]
+            row = self.session.get(Email, uuid.UUID(str(key)))
+        else:
+            found = rows.get(id(change))
+            row = found if isinstance(found, Email) else None
+        if row is None:
+            return
+        if former is not None and row.address != former:
+            row.verification_status = VerificationStatus.UNVERIFIED
+            row.last_verified_at = None
+        elif change.values.get("verification_status") == VerificationStatus.VERIFIED:
+            if email_identity.pair_doubts(self.session, {(owner, row.address)}):
+                raise DomainError(DOUBTFUL_ADDRESS)
+        self.session.flush()
 
     def _update(self, change: RowUpdate, row: object) -> None:
         values = dict(change.values)

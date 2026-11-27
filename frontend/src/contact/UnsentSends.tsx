@@ -30,6 +30,7 @@ const REFUSALS: Record<string, string> = {
   company_archived: 'entreprise archivée',
   prospect_excluded: 'exclu temporairement',
   company_excluded: 'entreprise exclue',
+  email_identity_doubt: 'identité e-mail à vérifier',
 }
 
 function resultText(done: string, result: RecoveryResult, items: UnsentItem[]): string {

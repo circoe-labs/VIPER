@@ -238,6 +238,12 @@ function ProspectFields({ draft, patch }: FieldsProps) {
         onChange={(event) => { patch({ include_ignored: event.target.checked }) }}
       />
       <ArchivedSwitch draft={draft} patch={patch} />
+      <Switch
+        label="Identité e-mail à vérifier"
+        hint="Adresses qui semblent être celles de quelqu’un d’autre : aucun mail ne part tant qu’elles ne sont pas corrigées ou confirmées."
+        checked={draft.identity_doubt ?? false}
+        onChange={(event) => { patch({ identity_doubt: event.target.checked }) }}
+      />
     </>
   )
 }

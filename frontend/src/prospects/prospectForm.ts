@@ -42,6 +42,8 @@ export interface AliasDraft {
   verification_status: ChannelVerification
   // The one-click « Vérifié », applied at the save (dated by the server).
   verified_now: boolean
+  // E-mails: the person says the address, whatever it looks like, is this prospect's.
+  identity_confirmed?: boolean
   source_reference: string
   // As loaded; null for a new alias.
   stored: StoredAlias | null
@@ -297,7 +299,11 @@ export function toInput(draft: ProspectDraft, baselineCompany: string | null): P
     },
     emails: draft.emails
       .filter((alias) => !isBlankNew(alias))
-      .map((alias): EmailInput => ({ address: alias.value.trim(), ...aliasFields('emails', alias, moved) })),
+      .map((alias): EmailInput => ({
+        address: alias.value.trim(),
+        ...aliasFields('emails', alias, moved),
+        ...(alias.identity_confirmed ? { identity_confirmed: true } : {}),
+      })),
     phones: draft.phones
       .filter((alias) => !isBlankNew(alias))
       .map((alias): PhoneInput => ({ number: alias.value.trim(), type: alias.type, ...aliasFields('phones', alias, moved) })),

@@ -18,6 +18,7 @@ from app.api.routes import (
     contact_message_versions,
     contact_messages,
     database_reset,
+    email_identity,
     explorer,
     explorer_sql,
     explorer_writes,
@@ -64,6 +65,7 @@ api_router.include_router(contact_message_versions.router)
 api_router.include_router(contact_messages.router)
 api_router.include_router(contact_messages.cohorts_router)
 api_router.include_router(database_reset.router)
+api_router.include_router(email_identity.router)
 api_router.include_router(explorer.router)
 api_router.include_router(explorer_writes.router)
 api_router.include_router(explorer_sql.router)

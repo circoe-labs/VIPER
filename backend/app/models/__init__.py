@@ -12,6 +12,7 @@ from app.models.contact_messages import (
 )
 from app.models.contact_sequences import Cohort, ContactSequence
 from app.models.contact_tracking import ContactTracking, ContactTrackingStatusHistory
+from app.models.email_identity import EmailIdentityConfirmation
 from app.models.imports import ImportBatch, ImportRowMetadata
 from app.models.mcp import McpCall, McpToken
 from app.models.mission_categories import (
@@ -64,6 +65,7 @@ __all__ = [
     "ContactTracking",
     "ContactTrackingStatusHistory",
     "Email",
+    "EmailIdentityConfirmation",
     "Establishment",
     "ImportBatch",
     "ImportRowMetadata",

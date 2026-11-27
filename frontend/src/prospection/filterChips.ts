@@ -65,6 +65,7 @@ export function activeFilters(view: ProspectionView, names: FilterNames = NO_NAM
   if (view.entity === 'prospect') {
     if (view.include_ignored) add('include_ignored', 'Ignorés inclus', { include_ignored: false })
     if (view.include_archived) add('include_archived', 'Archivés inclus', { include_archived: false })
+    if (view.identity_doubt) add('identity_doubt', 'Identité e-mail à vérifier', { identity_doubt: false })
     if (view.validated_only) add('validated_only', 'Emploi validé', { validated_only: false })
     each('verification_box', view.verification_box, (box) => BOX_LABELS[box])
     each('review', view.review, (status) => REVIEW_INFO[status].label)

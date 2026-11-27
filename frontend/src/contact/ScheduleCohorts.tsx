@@ -55,8 +55,12 @@ export function ScheduleCohorts({ cohort, nextStep }: { cohort: string; nextStep
       if (result.missing > 0)
         parts.push(`${String(result.missing)} prospect${result.missing > 1 ? 's' : ''} sans mail à cette étape`)
       const toCheck = result.to_check ?? 0
-      if (result.refused > toCheck)
-        parts.push(`${String(result.refused - toCheck)} refusé${result.refused - toCheck > 1 ? 's' : ''} (brouillon incomplet ?)`)
+      const doubtful = result.doubtful ?? 0
+      const incomplete = result.refused - toCheck - doubtful
+      if (incomplete > 0)
+        parts.push(`${String(incomplete)} refusé${incomplete > 1 ? 's' : ''} (brouillon incomplet ?)`)
+      if (doubtful > 0)
+        parts.push(`${String(doubtful)} refusé${doubtful > 1 ? 's' : ''} : identité e-mail à vérifier`)
       if (toCheck > 0)
         parts.push(`${String(toCheck)} refusé${toCheck > 1 ? 's' : ''} : peut-être déjà parti${toCheck > 1 ? 's' : ''}, voir « Envois à reprendre »`)
       if (result.remote_draft_failures > 0)

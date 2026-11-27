@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.api.dependencies import CurrentActor, SessionDep
 from app.api.errors import business_errors
+from app.api.routes.email_identity import IdentityDoubtOut
 from app.api.routes.send_situation import SendSituationOut
 from app.core.contact_steps import MAX_FOLLOW_UPS_LIMIT, level_keys
 from app.models.enums import (
@@ -198,6 +199,7 @@ class ContactRowOut(BaseModel):
     last_contact_at: datetime | None = None
     last_email_sent_at: datetime | None = None
     send: SendSituationOut | None = None
+    identity_doubt: IdentityDoubtOut | None = None
 
 
 class ContactPageOut(BaseModel):

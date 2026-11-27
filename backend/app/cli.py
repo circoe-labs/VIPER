@@ -12,6 +12,10 @@ up in shell history or process listings.
 password `VIPER_SQL_READER_PASSWORD`) and resets its grants to the explorer's exposed tables. Run it
 after every migration. Target database of both: `VIPER_DATABASE_URL`.
 
+`email-identity` lists (read only) the active e-mail addresses that look like someone else's
+(`app.services.email_identity`), with their verification status and the reason: generation,
+validation, scheduling and sending are blocked for them until corrected or confirmed on the sheet.
+
 `backfill-warehouses` lists the warehouses missing from accepted discovery results (companies
 accepted before VIPER created the warehouse records of their sites). It writes nothing unless
 `--apply` is given; `--include` / `--exclude <establishment id>` (repeatable) force or leave out
@@ -53,6 +57,7 @@ from app.db.session import create_db_engine, create_session_factory
 from app.models.enums import AgentMode, AgentProvider
 from app.services import (
     contact_dispatch,
+    email_identity_listing,
     mcp_tokens,
     warehouse_discovery,
     warehouse_draft_rewrite,
@@ -297,6 +302,10 @@ def main(
         action="store_true",
         help="put every scheduled, unclaimed message back to Validé (after a restore)",
     )
+    commands.add_parser(
+        "email-identity",
+        help="list the addresses that look like someone else's (read only)",
+    )
     args = parser.parse_args(argv)
 
     # The integration settings saved from Paramètres > Connexions (S8) apply here too.
@@ -310,6 +319,9 @@ def main(
             print(create_agent_token(session_factory, args))
         elif args.command == "backfill-warehouses":
             print(backfill_warehouses(session_factory, args))
+        elif args.command == "email-identity":
+            with session_factory() as session:
+                print(email_identity_listing.listing(session))
         elif args.command == "provision-sql-reader":
             print(provision_reader(session_factory, settings))
         elif args.command == "contact-dispatch" and args.hold_scheduled:

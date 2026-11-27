@@ -322,6 +322,7 @@ export function sendErrorLabel(code: string, latenessMinutes: number): string {
     send_rejected: 'la Toolbox a refusé l’envoi',
     send_outbound_blocked: 'un destinataire n’est pas autorisé par la liste d’envoi de la Toolbox',
     send_invalid_input: 'la Toolbox a refusé le message (champ invalide)',
+    email_identity_doubt: 'une adresse destinataire semble être celle de quelqu’un d’autre',
     send_draft_not_found:
       'le brouillon n’existait plus dans Infomaniak (supprimé, ou envoyé depuis le webmail : vérifiez les éléments envoyés)',
     send_invalid_response: 'la réponse de la Toolbox était illisible',

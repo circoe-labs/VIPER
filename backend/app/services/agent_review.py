@@ -349,7 +349,15 @@ def _apply_find_employees(
             else:
                 role_label = resolution.label
         emails = (
-            [ChannelItem(value=str(store["email"]), is_primary=True, verified_now=True)]
+            [
+                ChannelItem(
+                    value=str(store["email"]),
+                    is_primary=True,
+                    verified_now=True,
+                    # An address naming someone else is created unverified, to be checked.
+                    doubt_unverifies=True,
+                )
+            ]
             if store.get("email")
             else []
         )

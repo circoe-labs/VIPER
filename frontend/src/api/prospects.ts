@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
+import type { IdentityDoubt } from './emailIdentity'
 import type { Lifecycle } from './lifecycle'
 import { companyKeys } from './companies'
 import { contactKeys } from './contact'
@@ -52,6 +53,11 @@ interface AliasFields {
 
 export interface EmailAlias extends AliasFields {
   address: string
+  // The address looks like someone else's, whatever its status: to check before any send.
+  identity_doubt?: IdentityDoubt | null
+  // Who said it is this person's, and when.
+  identity_confirmed_by?: string | null
+  identity_confirmed_at?: string | null
 }
 
 export interface PhoneAlias extends AliasFields {
@@ -230,6 +236,8 @@ interface AliasInput {
 
 export interface EmailInput extends AliasInput {
   address: string
+  // « C'est bien son adresse »: required to verify an address that looks like someone else's.
+  identity_confirmed?: boolean
 }
 
 export interface PhoneInput extends AliasInput {

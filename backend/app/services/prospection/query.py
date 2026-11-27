@@ -141,6 +141,8 @@ class ProspectFilters:
     # Archived people: left out of the lists and every counter unless asked.
     include_archived: bool = False
     validated_only: bool = False
+    # Only these people (the e-mail identity review queue); None = not narrowed.
+    only_ids: frozenset[uuid.UUID] | None = None
     verification_boxes: tuple[VerificationBox, ...] = ()
     created_from: date | None = None
     created_to: date | None = None
@@ -294,6 +296,8 @@ def filter_conditions(filters: ProspectFilters) -> list[ColumnElement[bool]]:
         conditions.append(verification_validated())
     if filters.reachable:
         conditions.append(reachable())
+    if filters.only_ids is not None:
+        conditions.append(Prospect.id.in_(filters.only_ids))
     if filters.company_kinds:
         # A company-type view never lists the ignored.
         conditions.append(~func.coalesce(ignored(), false()))

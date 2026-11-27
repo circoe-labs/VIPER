@@ -54,6 +54,8 @@ def test_an_editor_save_reads_back_as_one_entry_by_the_signed_in_user(
         email.pop("last_verified_at", None)
         email.pop("origin_type", None)
         email.pop("imported_unverified", None)
+        for name in ("identity_doubt", "identity_confirmed_by", "identity_confirmed_at"):
+            email.pop(name, None)
     body = body_of(
         view,
         company_id=str(other.id),

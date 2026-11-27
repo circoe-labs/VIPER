@@ -12,7 +12,11 @@ Rules (`doc/features/prospect-editor.md`, *E-mails and phones*):
   status `verified` dated now; `verified` without it is accepted only for an alias already verified
   whose value did not change (after the company-change rule, which the caller applies first);
   other statuses keep the last verification date; a changed value was never verified
-  (`last_verified_at` cleared) and was typed by the user (`origin_type = manual`, like new ones).
+  (`last_verified_at` cleared) and was typed by the user (`origin_type = manual`, like new ones);
+- an e-mail address that looks like someone else's (`app.services.email_identity`) is not
+  verified without the person's explicit `identity_confirmed` (field error `identity_doubt`);
+  where no person looks at that address (`doubt_unverifies`: accepting an agent's proposal) it is
+  saved unverified instead.
 
 Writes happen in two flushes so the database's partial unique indexes never see a transient clash:
 first deletions and aliases losing the primary flag (freeing their value and the primary slot),
@@ -31,7 +35,7 @@ from sqlalchemy.orm import Session
 from app.core.actor import ActorContext
 from app.models.enums import OriginType, PhoneType, VerificationStatus
 from app.models.prospects import Email, Phone, Prospect
-from app.services import audit
+from app.services import audit, email_identity
 from app.services.contact_recipients import Followed, addresses, follow_address_change
 from app.services.errors import InvalidFieldError, translated_violations, violated_constraint
 from app.services.imports.normalize import (
@@ -79,6 +83,10 @@ class ChannelItem:
     verified_now: bool = False
     source_reference: str | None = None
     phone_type: PhoneType | None = None  # phones only
+    # E-mails only: the person says this address, whatever it looks like, is the prospect's.
+    identity_confirmed: bool = False
+    # E-mails only: a doubtful address is saved unverified instead of refusing `verified_now`.
+    doubt_unverifies: bool = False
 
 
 type Channel = Email | Phone
@@ -235,6 +243,35 @@ def _write(session: Session, actor: ActorContext, row: Channel, values: dict[str
             setattr(row, name, value)
 
 
+def _check_identity(
+    session: Session,
+    prospect: Prospect,
+    items: Sequence[ChannelItem],
+    planned: Sequence[_Planned],
+) -> None:
+    """An address being verified now must not look like someone else's (module rules). Called
+    before anything is written."""
+    checked = [
+        (index, item, plan)
+        for index, (item, plan) in enumerate(zip(items, planned, strict=True))
+        if item.verified_now and not item.identity_confirmed
+    ]
+    if not checked:
+        return
+    doubts = email_identity.pair_doubts(
+        session, {(prospect.id, plan.values["address"]) for _, _, plan in checked}
+    )
+    for index, item, plan in checked:
+        if (prospect.id, plan.values["address"]) not in doubts:
+            continue
+        if not item.doubt_unverifies:
+            raise InvalidFieldError(
+                f"emails.{index}.verified_now", email_identity.MESSAGE, "identity_doubt"
+            )
+        plan.values["verification_status"] = VerificationStatus.UNVERIFIED
+        plan.values["last_verified_at"] = None
+
+
 def save_channels(
     session: Session,
     actor: ActorContext,
@@ -251,6 +288,8 @@ def save_channels(
     collection: list[Channel] = getattr(prospect, kind.collection)
     owned = {row.id: row for row in collection}
     planned = _plan(kind, owned, items, now)
+    if kind is EMAILS:
+        _check_identity(session, prospect, items, planned)
     kept = {plan.row.id for plan in planned if plan.row is not None}
     losing_primary = [
         plan
@@ -288,4 +327,8 @@ def save_channels(
     if before is None:
         return Followed()
     session.flush()
-    return follow_address_change(session, actor, prospect.id, before)
+    followed = follow_address_change(session, actor, prospect.id, before)
+    for item, plan in zip(items, planned, strict=True):
+        if item.identity_confirmed:
+            email_identity.confirm(session, actor, prospect.id, plan.values["address"])
+    return followed

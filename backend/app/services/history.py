@@ -873,6 +873,8 @@ TITLES: dict[str, str] = {
     AuditAction.PROSPECT_RETURNED: "Retour en poste",
     AuditAction.PROSPECTING_HOLD_PLACED: "Retiré de la prospection",
     AuditAction.PROSPECTING_HOLD_LIFTED: "Réintégré dans la prospection",
+    AuditAction.EMAIL_IDENTITY_CONFIRMED: "Adresse confirmée comme la sienne",
+    AuditAction.EMAIL_IDENTITY_CONFIRMATION_REMOVED: "Confirmation d’adresse retirée",
     "prospect.created": "Fiche créée",
     "prospect.deleted": "Fiche supprimée",
     "company.created": "Entreprise créée",

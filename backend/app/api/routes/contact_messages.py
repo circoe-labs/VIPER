@@ -52,6 +52,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.dependencies import CurrentActor, SessionDep, SettingsDep
 from app.api.errors import business_errors
+from app.api.routes.email_identity import IdentityDoubtOut
 from app.api.routes.send_situation import SendSituationOut
 from app.core.actor import ActorContext
 from app.core.config import Settings
@@ -64,7 +65,7 @@ from app.models.enums import (
     ContactTrackingStatus,
     SendSource,
 )
-from app.services import audit, contact_draft_check, contact_unsent, humanizer
+from app.services import audit, contact_draft_check, contact_unsent, email_identity, humanizer
 from app.services import contact_dispatch as dispatch
 from app.services import contact_mail_generation as generation
 from app.services import contact_messages as service
@@ -282,6 +283,9 @@ class MessagesOut(BaseModel):
     sequence: SequenceOut
     defaults: DefaultsOut
     steps: list[StepOut]
+    # The recipients (of any step, or of a new message) that look like someone else's: they block
+    # generation, validation, scheduling and sending until corrected or confirmed.
+    identity_doubts: list[IdentityDoubtOut]
 
 
 class GenerationOptionsIn(StrictModel):
@@ -438,7 +442,15 @@ def messages_out(state: Any, session: Session, prospect_id: uuid.UUID) -> Messag
     reason = sending_reason(state)
     context = read.context
     progress = read.place.progress
+    written = [item.message for item in read.messages if item.message is not None]
+    doubts = email_identity.message_doubts(
+        session,
+        prospect_id,
+        [*read.defaults.to, *(a for m in written for a in m.to_recipients)],
+        [a for m in written for a in (*m.cc_recipients, *m.bcc_recipients)],
+    )
     return MessagesOut(
+        identity_doubts=[IdentityDoubtOut.model_validate(doubt) for doubt in doubts],
         sequence=SequenceOut(
             prospect_id=context.prospect_id,
             state=context.state,
@@ -947,6 +959,8 @@ class ScheduleCohortsOut(BaseModel):
     remote_draft_failures: int
     # Of the refused: an earlier send may have left, to check and reschedule one by one.
     to_check: int
+    # Of the refused: a recipient looks like someone else's.
+    doubtful: int
 
 
 class HumanizerCheckIn(StrictModel):
@@ -1023,6 +1037,7 @@ def schedule_cohorts(
         missing=result.missing,
         remote_draft_failures=failures,
         to_check=result.to_check,
+        doubtful=result.doubtful,
     )
 
 

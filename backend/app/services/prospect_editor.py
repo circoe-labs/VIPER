@@ -52,6 +52,7 @@ from app.repositories import taxonomies as taxonomy_repository
 from app.services import (
     audit,
     contact_channels,
+    email_identity,
     lifecycle_view,
     prospects,
     provenance,
@@ -67,6 +68,7 @@ from app.services.contact_recipients import Followed
 from app.services.contact_sequences import CohortRef, prospect_sequence
 from app.services.contact_tracking import ContactTrackingInput, apply_contact_tracking
 from app.services.contact_workflow import PauseReason, state_reached_at, step_code
+from app.services.email_identity import Doubt
 from app.services.errors import (
     ActorNotAllowedError,
     ConflictError,
@@ -219,6 +221,11 @@ class EmailView:
     source_reference: str | None
     # Imported and never verified (nor known invalid): the "to verify" warning treatment.
     imported_unverified: bool
+    # The address looks like someone else's, whatever its status (`email_identity`): to check.
+    identity_doubt: Doubt | None
+    # Who said it is this person's, and when.
+    identity_confirmed_by: str | None
+    identity_confirmed_at: datetime | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -462,6 +469,8 @@ def get_view(session: Session, prospect_id: uuid.UUID, clock: EditorClock) -> Pr
         for source, filename in repository.sources_with_batches(session, prospect.id)
     ]
     imported = any(source.source_type is ProspectSourceType.EXCEL_IMPORT for source in sources)
+    doubts = email_identity.base_doubts(session, [prospect.id])
+    confirmed = email_identity.confirmations_of(session, prospect.id)
     return ProspectView(
         id=prospect.id,
         version=aggregate_version(session, prospect.id),
@@ -490,6 +499,15 @@ def get_view(session: Session, prospect_id: uuid.UUID, clock: EditorClock) -> Pr
                 origin_type=email.origin_type,
                 source_reference=email.source_reference,
                 imported_unverified=_imported_unverified(email),
+                identity_doubt=doubts.get((prospect.id, email.address)),
+                identity_confirmed_by=(
+                    confirmed[email.address].confirmed_by_display
+                    if email.address in confirmed
+                    else None
+                ),
+                identity_confirmed_at=(
+                    confirmed[email.address].confirmed_at if email.address in confirmed else None
+                ),
             )
             for email in sorted(prospect.emails, key=_channel_order)
         ],

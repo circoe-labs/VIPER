@@ -3,6 +3,7 @@ import { type ReactNode, useEffect, useRef, useState } from 'react'
 import type { Message, MessageSequence, MessageStatus, MessageStep, MessageVersion, SavedMailNote, useMessageMutations } from '../api/contact'
 import { Button } from '../ui/Button'
 import { AlertIcon, CheckCircleIcon, InfoIcon, LockIcon, MailIcon, MinusCircleIcon, RefreshIcon, SpinnerIcon } from '../ui/icons'
+import { IdentityNotice } from '../identity/IdentityDoubt'
 import { toolboxErrorLabel } from '../settings/toolboxCopy'
 import { AdvancedSettings } from './AdvancedSettings'
 import { AiProgress, generatedSignal } from './AiDraft'
@@ -35,6 +36,7 @@ import {
   type MailActions,
   type MailForm,
   orderWarning,
+  parseRecipients,
   remoteDraftLine,
   scheduleToIso,
   statusLine,
@@ -208,6 +210,11 @@ export function MailEditor({
   const status = message?.status ?? null
   const fieldId = (field: string) => `contact-mail-${step}-${field}`
 
+  // This step's recipients that look like someone else's: nothing is prepared for them until corrected or confirmed.
+  const shownRecipients = [form.to, form.cc, form.bcc].flatMap((field) => parseRecipients(field).map((address) => address.toLowerCase()))
+  const identityDoubts =
+    status === 'sent' ? [] : (sequence.identity_doubts ?? []).filter((doubt) => shownRecipients.includes(doubt.address))
+
   // Arriving on the step to send next with nothing written: the AI prepares the draft at once (once per prospect and
   // step); the person only reads it and edits it by hand if needed.
   const autoKey = `${sequence.sequence.prospect_id}:${step}`
@@ -217,6 +224,7 @@ export function MailEditor({
     sequence.sequence.next_step === step &&
     !hasText(message) &&
     !textEdited &&
+    identityDoubts.length === 0 &&
     !busy
   useEffect(() => {
     if (!wantsDraft || autoDrafted.has(autoKey)) return
@@ -868,6 +876,7 @@ export function MailEditor({
         </p>
       )}
       <Notice text={shownNotice?.text ?? null} tone={shownNotice?.warning ? 'warning' : 'success'} quiet />
+      <IdentityNotice prospectId={sequence.sequence.prospect_id} doubts={identityDoubts} />
 
       {/* Always mounted, so the sentence is announced when it appears. */}
       <div role="status">

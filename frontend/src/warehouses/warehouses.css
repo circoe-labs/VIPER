@@ -111,3 +111,8 @@
 .warehouse-card__owner svg { flex: none; color: var(--color-accent-fg); }
 .warehouse-card__owner-label { color: var(--color-text-muted); font-weight: var(--weight-regular); }
 .warehouse-card__identity > .warehouse-card__owner--missing { color: var(--color-warning-fg); }
+
+.warehouse-draft__doubt {
+  color: var(--color-warning-text, #8a5a00);
+  font-weight: 600;
+}

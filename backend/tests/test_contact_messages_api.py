@@ -9,12 +9,12 @@ from typing import Any
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import text
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from app.api.session_cookie import CSRF_HEADER
 from app.core.config import Settings
-from app.models import ContactTracking
+from app.models import ContactTracking, Email
 from app.models.enums import ContactTrackingStatus
 from tests.builders import add_cohort, add_company, add_email, add_prospect, start_sequence
 from tests.test_prospects_api import PROSPECTS, body_of, load
@@ -37,7 +37,12 @@ def prospect_id(
     """A prospect with a primary e-mail, an optional state and, by default, an open sequence in
     the cohort S41 (messages belong to a sequence: rework D6)."""
     prospect = add_prospect(session, add_company(session))
-    add_email(session, prospect, "jean.test@exemple.example", is_primary=True)
+    # One address per person: the same one on two fiches is an identity doubt.
+    taken = session.scalar(
+        select(func.count()).select_from(Email).where(Email.address.like("jean.test%"))
+    )
+    suffix = f"+{taken}" if taken else ""
+    add_email(session, prospect, f"jean.test{suffix}@exemple.example", is_primary=True)
     if state is not None:
         session.add(ContactTracking(prospect_id=prospect.id, status=state))
         session.flush()
@@ -461,7 +466,8 @@ def test_one_send_moment_for_whole_cohorts(
 ) -> None:
     def prospect_in(code: str) -> uuid.UUID:
         prospect = add_prospect(db_session, add_company(db_session))
-        add_email(db_session, prospect, "jean.test@exemple.example", is_primary=True)
+        address = f"jean.test+{prospect.id.hex[-12:]}@exemple.example"
+        add_email(db_session, prospect, address, is_primary=True)
         start_sequence(db_session, prospect, add_cohort(db_session, code))
         return prospect.id
 

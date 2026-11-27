@@ -2,6 +2,7 @@ import type { Block } from './lifecycle'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiGet, apiRequest } from './client'
+import type { IdentityDoubt } from './emailIdentity'
 import { historyKeys } from './history'
 import type { ActivityStatus, TrackingStatus } from './prospection'
 import { refreshAfterWrite } from './refresh'
@@ -101,6 +102,8 @@ export interface ContactRow {
   company_id: string | null
   company_name: string | null
   primary_email: string | null
+  // An address of the person looks like someone else's.
+  identity_doubt?: IdentityDoubt | null
   activity_status: ActivityStatus
   block?: Block | null
   tracking_status: TrackingStatus
@@ -236,6 +239,8 @@ export interface Message {
 }
 
 export interface MessageSequence {
+  // The recipients (of any step) that look like someone else's: nothing can be prepared or sent to them.
+  identity_doubts?: IdentityDoubt[]
   sequence: {
     prospect_id: string
     state: TrackingStatus | null
@@ -739,6 +744,8 @@ export interface ScheduleCohortsResult {
   remote_draft_failures: number
   // Of the refused: an earlier send may have left, to check and reschedule from « Envois à reprendre ».
   to_check?: number
+  // Of the refused: a recipient looks like someone else's.
+  doubtful?: number
 }
 
 export function useScheduleCohorts() {

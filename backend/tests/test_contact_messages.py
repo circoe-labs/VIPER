@@ -5,6 +5,7 @@ cancellation after a sequence-closing state (decision 29) and « Marquer comme e
 
 import uuid
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -12,7 +13,7 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.core.actor import ActorContext, ActorType
-from app.models import ContactMessage, ContactTracking, Prospect
+from app.models import ContactMessage, ContactTracking, Email, Prospect
 from app.models.enums import (
     ContactMessageStatus,
     ContactTrackingStatus,
@@ -62,7 +63,11 @@ def prospect_with(
     """A prospect with a primary e-mail, a tracking in `state` and, by default, an open sequence
     in the cohort S41."""
     prospect = add_prospect(session, add_company(session))
-    add_email(session, prospect, "jean.test@exemple.example", is_primary=True)
+    # One address per person: the same one on two fiches is an identity doubt.
+    address = f"jean.test+{prospect.id.hex[-12:]}@exemple.example"
+    if not session.scalar(select(Email.id).where(Email.address == "jean.test@exemple.example")):
+        address = "jean.test@exemple.example"
+    add_email(session, prospect, address, is_primary=True)
     if state is not None:
         session.add(ContactTracking(prospect_id=prospect.id, status=state))
         session.flush()
@@ -77,7 +82,12 @@ def code_of(error: pytest.ExceptionInfo[ContactMessageError]) -> str:
 
 
 def create(session: Session, prospect: Prospect, step: int = STEP) -> ContactMessage:
-    return service.save_message(session, OPERATOR, prospect.id, step, COMPLETE).message
+    own = session.scalar(
+        select(Email.address).where(Email.prospect_id == prospect.id, Email.is_primary)
+    )
+    # To the person's own address (another person's would be an identity doubt).
+    edit = replace(COMPLETE, to=[own]) if own else COMPLETE
+    return service.save_message(session, OPERATOR, prospect.id, step, edit).message
 
 
 def message_in(session: Session, prospect: Prospect, status: M) -> ContactMessage:

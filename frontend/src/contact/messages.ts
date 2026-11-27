@@ -102,6 +102,11 @@ export function messageRefusal(error: unknown): MessageRefusal {
         'La Toolbox peut encore être en train d’envoyer ce message : « Remettre en Validé » n’est possible qu’après le délai de vérification. S’il est déjà dans les éléments envoyés, « Marquer envoyé ».',
         true,
       )
+    case 'email_identity_doubt':
+      return plain(
+        'Un destinataire semble être quelqu’un d’autre : corrigez l’adresse, ou confirmez « C’est bien son adresse ».',
+        true,
+      )
     case 'rank_beyond_max':
       return plain('La séquence s’arrête avant cette étape (trois e-mails au plus : Contact, R1, R2) : aucun message au-delà.', true)
     case 'sent_check_required':

@@ -104,6 +104,9 @@ class AuditAction(StrEnum):
     PROSPECT_RETURNED = "prospect.returned"
     PROSPECTING_HOLD_PLACED = "prospecting_hold.placed"
     PROSPECTING_HOLD_LIFTED = "prospecting_hold.lifted"
+    # A person says an address that looked like someone else's is the prospect's (`email_identity`).
+    EMAIL_IDENTITY_CONFIRMED = "email_identity.confirmed"
+    EMAIL_IDENTITY_CONFIRMATION_REMOVED = "email_identity.confirmation_removed"
     PROSPECT_DO_NOT_CONTACT_SET = "prospect.do_not_contact.set"
     PROSPECT_DO_NOT_CONTACT_CLEARED = "prospect.do_not_contact.cleared"
     CONTACT_TRACKING_STATUS_CHANGED = "contact_tracking.status_changed"
@@ -268,6 +271,8 @@ AUDITED_ENTITIES: dict[type[Any], AuditedEntity] = {
 }
 ENTITY_ORDER = {model: position for position, model in enumerate(AUDITED_ENTITIES)}
 NOT_AUDITED_TABLES = {
+    "email_identity_confirmations": "the service writes the explicit `email_identity.*` "
+    "events (ids only, no address)",
     "person_links": "relational links keep their author and dates; a link is a note about a "
     "relationship, not a record of the base",
     "users": "login accounts hold secrets; auth.* events are recorded instead",

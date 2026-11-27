@@ -4,7 +4,7 @@ import type { ChannelVerification } from '../api/prospection'
 import type { PhoneType } from '../api/prospects'
 import { Badge, StatusBadge } from '../ui/Badge'
 import { Button, IconButton } from '../ui/Button'
-import { SelectField, TextField } from '../ui/fields'
+import { Checkbox, SelectField, TextField } from '../ui/fields'
 import { AlertIcon, CheckCircleIcon, MoreIcon, PlusIcon, TrashIcon } from '../ui/icons'
 import { Menu, type MenuItem } from '../ui/Menu'
 import type { Point } from '../ui/floating'
@@ -60,6 +60,8 @@ interface AliasListProps {
   companyDomain: string | null
   today: string
   staleDays: number | null
+  // E-mails: the stored addresses that look like someone else's.
+  doubtful?: ReadonlySet<string>
   // Shown inside another section (« Coordonnées »).
   nested?: boolean
   edit: SectionEdit
@@ -68,13 +70,13 @@ interface AliasListProps {
 // E-mail or phone aliases: add, edit, choose the primary one (radio), verify in one click, mark invalid/unknown,
 // deactivate (a former address is kept) or remove an entry error. Exactly one active primary: the first active alias
 // takes the flag when the primary one is removed or deactivated.
-export function AliasList({ kind, aliases, onChange, errors, fieldId, companyMoved, companyDomain, today, staleDays, edit, nested }: AliasListProps) {
+export function AliasList({ kind, aliases, onChange, errors, fieldId, companyMoved, companyDomain, today, staleDays, edit, nested, doubtful }: AliasListProps) {
   const copy = COPY[kind]
   const addRef = useRef<HTMLButtonElement>(null)
   const pendingFocus = useRef<string | null>(null)
   const [menu, setMenu] = useState<{ index: number; at: Point } | null>(null)
   const menuAlias = menu ? aliases[menu.index] : undefined
-  const context = { kind, companyMoved, today, staleDays }
+  const context = { kind, companyMoved, today, staleDays, doubtful }
   const shown = aliases.filter((alias) => alias.value.trim())
   const several = shown.filter((alias) => alias.is_active).length > 1
   const toVerify = aliases.filter(
@@ -104,7 +106,7 @@ export function AliasList({ kind, aliases, onChange, errors, fieldId, companyMov
   function setValue(index: number, alias: AliasDraft, value: string) {
     const type = kind === 'phones' && !alias.typeChosen ? (suggestedPhoneType(value) ?? alias.type) : alias.type
     // A new value was never verified: a pending « Vérifié » no longer applies to it.
-    update(index, { value, type, verified_now: false })
+    update(index, { value, type, verified_now: false, identity_confirmed: false })
   }
 
   function add() {
@@ -253,6 +255,23 @@ export function AliasList({ kind, aliases, onChange, errors, fieldId, companyMov
                   />
                 </span>
               </div>
+              {kind === 'emails' && (errors[`${path}.verified_now`] || alias.identity_confirmed) && (
+                <>
+                  {errors[`${path}.verified_now`] && (
+                    <p id={fieldId(`${path}.verified_now`)} className="field__error" role="alert" tabIndex={-1}>
+                      <AlertIcon size={16} />
+                      {errors[`${path}.verified_now`]}
+                    </p>
+                  )}
+                  <Checkbox
+                    label="C’est bien son adresse (confirmation enregistrée à votre nom)"
+                    checked={alias.identity_confirmed ?? false}
+                    onChange={(event) => {
+                      update(index, { identity_confirmed: event.target.checked })
+                    }}
+                  />
+                </>
+              )}
               {!alias.stored && (
                 <TextField
                   id={fieldId(`${path}.source_reference`)}

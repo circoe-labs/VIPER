@@ -29,6 +29,8 @@ const ALIAS_INVALID: Record<string, string> = {
   'is_primary.inactive': 'Une ligne inactive ne peut pas être principale.',
   'verification_status.verification_action': 'Utilisez « Vérifié » pour confirmer cette coordonnée.',
   'id.unknown': 'Cette ligne n’existe plus : rechargez la fiche.',
+  'verified_now.identity_doubt':
+    'Cette adresse semble être celle de quelqu’un d’autre : corrigez-la, ou cochez « C’est bien son adresse ».',
   'source_reference.length': 'Source trop longue (1 000 caractères au plus).',
 }
 

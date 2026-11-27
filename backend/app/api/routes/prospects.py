@@ -32,6 +32,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from app.api.dependencies import CurrentActor, SessionDep, SettingsDep
 from app.api.errors import business_errors
 from app.api.history import HistoryActorOut, HistoryCursor, HistoryLimit, HistoryPageOut
+from app.api.routes.email_identity import IdentityDoubtOut
 from app.api.routes.lifecycle import LifecycleOut
 from app.models.enums import (
     ActivityStatus,
@@ -93,6 +94,9 @@ class EmailIn(StrictModel):
     # The one-click « Vérifié »: verified, dated now.
     verified_now: bool = False
     source_reference: Line | None = None
+    # « C'est bien son adresse »: recorded with who and when; required to verify an address that
+    # looks like someone else's (field error `identity_doubt`).
+    identity_confirmed: bool = False
 
 
 class PhoneIn(StrictModel):
@@ -243,6 +247,9 @@ class EmailOut(BaseModel):
     origin_type: OriginType
     source_reference: str | None
     imported_unverified: bool
+    identity_doubt: IdentityDoubtOut | None
+    identity_confirmed_by: str | None
+    identity_confirmed_at: datetime | None
 
 
 class PhoneOut(BaseModel):
