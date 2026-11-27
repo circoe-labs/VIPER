@@ -343,6 +343,10 @@
   background: var(--color-success-fg);
 }
 
+.prospect-row__dot--doubtful {
+  background: var(--color-warning-fg);
+}
+
 .prospect-row__dot--invalid {
   background: var(--color-danger-fg);
 }

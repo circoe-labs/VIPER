@@ -137,8 +137,8 @@ export function ProspectSheet({ prospect, compact = false }: { prospect: Prospec
                 </span>
                 <span className="contact-sheet__tags">
                   {email.is_primary && <Badge>Principal</Badge>}
-                  <StatusBadge tone={VERIFICATION[email.verification_status].tone}>
-                    {VERIFICATION[email.verification_status].label}
+                  <StatusBadge tone={email.identity_doubt ? 'warning' : VERIFICATION[email.verification_status].tone}>
+                    {email.identity_doubt ? 'Identité à vérifier' : VERIFICATION[email.verification_status].label}
                   </StatusBadge>
                 </span>
               </li>

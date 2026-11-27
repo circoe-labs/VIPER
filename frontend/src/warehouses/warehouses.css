@@ -113,6 +113,6 @@
 .warehouse-card__identity > .warehouse-card__owner--missing { color: var(--color-warning-fg); }
 
 .warehouse-draft__doubt {
-  color: var(--color-warning-text, #8a5a00);
+  color: var(--color-warning-fg);
   font-weight: 600;
 }

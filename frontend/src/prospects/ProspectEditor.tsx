@@ -525,7 +525,7 @@ export function ProspectEditor({ target, queue, onNavigate }: ProspectEditorProp
             {prospect !== null && (
               <ProfileSummary
                 draft={draft}
-                prospect={prospect}
+                prospect={loaded.data?.id === prospect.id ? { ...prospect, emails: loaded.data.emails } : prospect}
                 score={liveScore}
                 labels={labels}
                 completeness={completeness}

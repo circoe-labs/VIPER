@@ -218,7 +218,7 @@ function Group({ title, help, items, openHref, action, mutations, onResult }: Gr
             <SendLines send={item.send} />
             <span className="unsent__flags">
               <SendBadge send={item.send} />
-              {item.kind === 'unconfirmed' && <StatusBadge tone="warning">{item.current ? 'À trancher sur la fiche' : 'À trancher ici : bloque les nouveaux envois'}</StatusBadge>}
+              {item.kind === 'unconfirmed' && <StatusBadge tone="warning">{item.current ? 'À trancher sur la fiche' : 'Bloque les nouveaux envois'}</StatusBadge>}
               {!item.current && <StatusBadge tone="neutral">Ancienne semaine de contact</StatusBadge>}
               {item.status === 'draft' && <StatusBadge tone="neutral">À revalider</StatusBadge>}
               {item.status === 'cancelled' && <StatusBadge tone="neutral">Annulé</StatusBadge>}

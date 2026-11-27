@@ -2,7 +2,7 @@
 // display-only: it wires values together in words and never computes a score, never repeats the person's name and never
 // invents a value (an unknown input is left out of the text, a missing one is named as missing).
 
-export type SummaryEmail = 'verified' | 'unverified' | 'invalid' | 'none'
+export type SummaryEmail = 'verified' | 'unverified' | 'invalid' | 'doubtful' | 'none'
 
 export interface SummaryInput {
   role: string | null
@@ -30,6 +30,7 @@ const EMAIL_WORDS: Record<SummaryEmail, string> = {
   verified: 'e-mail vérifié',
   unverified: 'e-mail non vérifié',
   invalid: 'e-mail invalide',
+  doubtful: 'e-mail à vérifier (identité)',
   none: 'aucun e-mail',
 }
 

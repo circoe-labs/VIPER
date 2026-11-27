@@ -71,6 +71,8 @@ export function ProfileSummary({ draft, prospect, score, labels, completeness, p
   if (email.alias) {
     const tone = aliasState(email.alias, { kind: 'emails', companyMoved, today, staleDays: prospect?.stale_threshold_days ?? null }).tone
     emailStatus = tone === 'success' ? 'verified' : tone === 'danger' ? 'invalid' : 'unverified'
+    const typed = email.alias.value.trim().toLowerCase()
+    if (prospect?.emails.some((stored) => stored.identity_doubt && stored.address === typed)) emailStatus = 'doubtful'
   }
   const lines = summarizeProspect({
     role: labels.role,

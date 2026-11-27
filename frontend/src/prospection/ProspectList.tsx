@@ -131,13 +131,14 @@ function EmailLine({ row }: { row: ProspectRow }) {
   if (!row.primary_email || row.email_state === 'missing')
     return <span className="prospect-row__muted">Pas d’e-mail principal</span>
   const state = row.email_state
+  const doubtful = row.identity_doubt?.address === row.primary_email
   return (
     <span className="prospect-row__channel">
-      <span className={`prospect-row__dot prospect-row__dot--${state}`} aria-hidden="true" />
+      <span className={`prospect-row__dot prospect-row__dot--${doubtful ? 'doubtful' : state}`} aria-hidden="true" />
       <span className="prospect-row__email" title={row.primary_email}>
         {row.primary_email}
       </span>
-      <span className="visually-hidden">{EMAIL_DOTS[state]}</span>
+      <span className="visually-hidden">{doubtful ? 'Adresse à vérifier (identité)' : EMAIL_DOTS[state]}</span>
     </span>
   )
 }
