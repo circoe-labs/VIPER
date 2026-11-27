@@ -1,17 +1,18 @@
 import type { MissionEndKind, RecurrenceUnit } from '../api/missions'
-import { Checkbox, SelectField, TextField } from '../ui/fields'
+import { SelectField, TextField } from '../ui/fields'
 import { ClockIcon, PlayIcon, RepeatIcon } from '../ui/icons'
 import { InfoTip } from '../ui/InfoTip'
 import { UNIT_LABELS } from './labels'
+import { TASK_COUNT_MAX, taskSplit } from './missionKinds'
 import type { MissionFormApi } from './useMissionForm'
 
 const UNITS: RecurrenceUnit[] = ['hours', 'days', 'weeks', 'months']
 
-// « Exécution »: one-off vs recurring (the existing recurrence fields) and the objective that says when the work is
-// done. The objective is per run: a one-off mission closes when it is met; a recurring one gets a fresh objective at
-// every interval and stays active until its recurrence ends.
+// « Exécution »: one-off vs recurring (the existing recurrence fields) and « Nombre de tâches » of each execution.
+// A search creates that many tasks, one item each; work on linked records is one task per record (read-only).
 export function MissionExecutionSection({ form }: { form: MissionFormApi }) {
-  const { recurring, objective } = form
+  const { recurring, plan, targets } = form
+  const split = !plan.fixed && Number(form.taskCount) >= plan.minimum ? taskSplit(Number(form.taskCount), targets) : []
   return (
     <section className="mission-form__section">
       <h3 className="mission-form__title">
@@ -120,57 +121,35 @@ export function MissionExecutionSection({ form }: { form: MissionFormApi }) {
       )}
       <div className="mission-form__row">
         <div className="mission-form__tipped">
-          <SelectField
-            label={recurring ? 'Objectif de chaque exécution' : 'Objectif'}
-            value={objective.kind}
+          <TextField
+            label={recurring ? 'Nombre de tâches par exécution' : 'Nombre de tâches'}
+            type="number"
+            min={plan.fixed ? undefined : plan.minimum}
+            max={TASK_COUNT_MAX}
+            readOnly={plan.fixed}
+            value={form.taskCount}
             onChange={(event) => {
-              form.setObjective(
-                event.target.value === 'accepted_items'
-                  ? { kind: 'accepted_items', count: objective.count ?? 1 }
-                  : { kind: 'tasks_accepted', count: null },
-              )
+              form.setTaskCount(event.target.value)
             }}
-          >
-            <option value="tasks_accepted">Toutes les tâches validées</option>
-            <option value="accepted_items">Un nombre d’éléments validés</option>
-          </SelectField>
+          />
           <span className="mission-form__tip">
-            <InfoTip label="Aide : objectif">
-              {recurring
-                ? 'Chaque exécution repart d’un objectif neuf ; la mission reste active jusqu’à la fin de la récurrence.'
-                : 'La mission se termine dès que son objectif est atteint.'}
+            <InfoTip label="Aide : nombre de tâches">
+              {plan.fixed
+                ? `Fixé par les données liées : une tâche par ${plan.per}.`
+                : 'Une tâche = un élément trouvé (société, entrepôt ou contact) : pour 50 prospects, 50 tâches, que les agents prennent en parallèle.'}
             </InfoTip>
           </span>
         </div>
-        {objective.kind === 'accepted_items' && (
-          <div className="mission-form__tipped">
-            <TextField
-              label="Éléments à valider"
-              type="number"
-              min={1}
-              value={objective.count ?? ''}
-              onChange={(event) => {
-                form.setObjective({ kind: 'accepted_items', count: event.target.value ? Number(event.target.value) : null })
-              }}
-            />
-            <span className="mission-form__tip">
-              <InfoTip label="Aide : éléments à valider">
-                Compté à la validation par une personne. Au-dessus de la limite par exécution, la limite est relevée d’autant.
-              </InfoTip>
-            </span>
-          </div>
-        )}
       </div>
-      <div className="mission-form__check">
-        <Checkbox
-          label="Plusieurs éléments par envoi de l’agent"
-          checked={form.allowMultiple}
-          onChange={(event) => {
-            form.setAllowMultiple(event.target.checked)
-          }}
-        />
-        <InfoTip label="Aide : plusieurs éléments">Décoché, l’agent ne propose qu’un élément à la fois.</InfoTip>
-      </div>
+      {split.length > 1 && (
+        <ul className="mission-form__split" aria-label="Répartition des tâches par société">
+          {split.map((item, index) => (
+            <li key={`${item.label}:${String(index)}`}>
+              {item.label} <strong>{item.count}</strong>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   )
 }

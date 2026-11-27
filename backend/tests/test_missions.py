@@ -60,6 +60,17 @@ def rpc(client: TestClient, token: str, name: str, arguments: dict[str, Any]) ->
     return result
 
 
+def allow_list(session: Session, mission_id: str, items: int = 20) -> None:
+    """Make the runs already started take a list per task, as a run migrated from the list mode
+    (migration 0065) or a « Dépôt » drop does."""
+    for run in session.scalars(
+        select(MissionRun).where(MissionRun.mission_id == uuid.UUID(mission_id))
+    ):
+        assert run.config is not None
+        run.config = {**run.config, "items_per_task": items}
+    session.flush()
+
+
 def create(
     client: TestClient,
     *,
@@ -435,8 +446,8 @@ def test_a_prospection_mission_finds_new_contacts(client: TestClient, db_session
         targets=[{"kind": "company", "id": str(company.id)}],
         result_kind="prospects",
         run_now=True,
-        allow_multiple=True,
     )
+    allow_list(db_session, detail["card"]["id"])
     token = mint(db_session, label="Agent contacts", scopes=["find_employees"])
 
     payload = rpc(client, token, "viper_claim_task", {})["structuredContent"]
@@ -533,8 +544,8 @@ def test_a_discovery_mission_finds_new_companies(client: TestClient, db_session:
         prompt="Trouve les commissaires au transport de matières dangereuses en Normandie.",
         result_kind="companies",
         run_now=True,
-        allow_multiple=True,
     )
+    allow_list(db_session, detail["card"]["id"])
     token = mint(db_session, label="Agent découverte", scopes=["find_prospects"])
 
     payload = rpc(client, token, "viper_claim_task", {})["structuredContent"]
@@ -614,15 +625,15 @@ def test_task_actions_form_one_review_without_writes_before_acceptance(
 ) -> None:
     existing = add_company(db_session, display_name="Société existante")
     prospect = add_prospect(db_session, existing, first_name="Marie", last_name="Dupont")
-    create(
+    detail = create(
         client,
         name="Découverte",
         kind=MissionType.PROSPECTION,
         prompt="Cherche des entreprises",
         result_kind="companies",
-        allow_multiple=True,
         run_now=True,
     )
+    allow_list(db_session, detail["card"]["id"])
     token = mint(db_session)
     claim = rpc(client, token, "viper_claim_task", {})["structuredContent"]
     base = {"task_id": claim["task_id"], "claim_id": claim["claim_id"]}
@@ -730,7 +741,6 @@ def test_a_signals_mission_stores_dated_sourced_signals(
         targets=[{"kind": "company", "id": str(company.id)}],
         result_kind="signals",
         run_now=True,
-        allow_multiple=True,
     )
     token = mint(db_session, label="Agent veille", scopes=["surveil_signals"])
 
@@ -879,7 +889,7 @@ def test_edit_a_mission_rewrites_the_rule_and_its_linked_data(
             "prompt": "Trouve le SIREN.",
             "targets": [{"kind": "company", "id": str(second.id)}],
             "result_kind": "enrichment",
-            "result_limit": 5,
+            "task_count": 5,
             "is_recurring": True,
             "interval_count": 2,
             "interval_unit": "days",
@@ -891,7 +901,8 @@ def test_edit_a_mission_rewrites_the_rule_and_its_linked_data(
     edited = response.json()
     assert edited["card"]["name"] == "Fiches Normandie"
     assert edited["prompt"] == "Trouve le SIREN."
-    assert edited["result_limit"] == 5
+    # One linked company to update: one task, whatever was typed.
+    assert edited["rule"]["task_count"] == 1
     assert [target["label"] for target in edited["targets"]] == ["Transports X"]
     assert edited["card"]["is_recurring"] is True
     assert edited["card"]["next_run_at"] is not None
@@ -919,7 +930,6 @@ def test_a_run_keeps_the_rule_it_started_under(client: TestClient, db_session: S
             "prompt": "Trouve le SIREN.",
             "targets": targets,
             "result_kind": "enrichment",
-            "result_limit": 5,
         },
     )
     assert edited.status_code == 200, edited.text
@@ -928,7 +938,7 @@ def test_a_run_keeps_the_rule_it_started_under(client: TestClient, db_session: S
     assert (
         claimed["mission"]["prompt"] == "Complète le site web et le domaine e-mail de ces sociétés."
     )
-    assert claimed["mission"]["result_limit"] == 20
+    assert claimed["mission"]["task_count"] == 1
     # The next run follows the new rule.
     missions.run_mission(db_session, FIXTURE_ACTOR, uuid.UUID(mission_id))
     run = db_session.scalars(
@@ -1001,14 +1011,29 @@ def test_edit_refuses_a_closed_or_unknown_mission(client: TestClient, db_session
 
 
 def test_a_saved_link_is_kept_once_and_reused_by_another_mission(client: TestClient) -> None:
-    first = client.post(f"{MISSIONS}/sources", json={"url": " https://www.example.com/annuaire ", "label": "Annuaire"})
+    first = client.post(
+        f"{MISSIONS}/sources",
+        json={"url": " https://www.example.com/annuaire ", "label": "Annuaire"},
+    )
     again = client.post(f"{MISSIONS}/sources", json={"url": "https://www.example.com/annuaire"})
     assert first.status_code == 201
     assert again.json()["id"] == first.json()["id"]
     source_id = first.json()["id"]
 
-    one = create(client, name="Mission A", kind=MissionType.PROSPECTION, result_kind="companies", source_ids=[source_id])
-    two = create(client, name="Mission B", kind=MissionType.PROSPECTION, result_kind="companies", source_ids=[source_id])
+    one = create(
+        client,
+        name="Mission A",
+        kind=MissionType.PROSPECTION,
+        result_kind="companies",
+        source_ids=[source_id],
+    )
+    two = create(
+        client,
+        name="Mission B",
+        kind=MissionType.PROSPECTION,
+        result_kind="companies",
+        source_ids=[source_id],
+    )
 
     assert [row["url"] for row in one["sources"]] == ["https://www.example.com/annuaire"]
     assert [row["url"] for row in two["sources"]] == ["https://www.example.com/annuaire"]
@@ -1044,7 +1069,9 @@ def test_the_agent_receives_the_mission_links(client: TestClient, db_session: Se
 
 def test_forgetting_a_link_removes_it_from_its_missions(client: TestClient) -> None:
     source = client.post(f"{MISSIONS}/sources", json={"url": "https://www.example.com/a"}).json()
-    mission = create(client, kind=MissionType.PROSPECTION, result_kind="companies", source_ids=[source["id"]])
+    mission = create(
+        client, kind=MissionType.PROSPECTION, result_kind="companies", source_ids=[source["id"]]
+    )
 
     assert client.delete(f"{MISSIONS}/sources/{source['id']}").status_code == 204
 

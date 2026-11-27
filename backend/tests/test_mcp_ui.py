@@ -132,10 +132,10 @@ def test_a_refused_creation_still_renders_the_card_with_the_server_error(
     company = add_company(db_session, display_name="2SN")
     token = assistant(db_session)
 
-    answer = call(client, token, "viper_create_mission", enrichment(company.id, result_limit=9999))
+    answer = call(client, token, "viper_create_mission", enrichment(company.id, task_count=9999))
 
     assert answer["isError"] is True
-    assert answer["structuredContent"]["field"] == "result_limit"
+    assert answer["structuredContent"]["field"] == "task_count"
     assert answer["structuredContent"]["code"] == "invalid"
     assert answer["_meta"]["openai/outputTemplate"] == URI
 

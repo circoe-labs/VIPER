@@ -128,8 +128,6 @@ export function buildProspectMission(
       ends_at: null,
       max_runs: null,
       result_kind: resultKind,
-      result_limit: 20,
-      objective: { kind: 'tasks_accepted', count: null },
       geography: null,
       period_days: null,
       exclusions: {},

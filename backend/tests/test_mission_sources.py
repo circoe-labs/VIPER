@@ -606,7 +606,6 @@ def test_a_signal_credits_the_source_of_each_accepted_signal_only(
         targets=[{"kind": "company", "id": str(company.id)}],
         result_kind="signals",
         run_now=True,
-        allow_multiple=True,
     )
     token = mint(db_session, label="Agent veille", scopes=["surveil_signals"])
     payload = rpc(client, token, "viper_claim_task", {})["structuredContent"]

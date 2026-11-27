@@ -40,7 +40,7 @@ from app.models.enums import (
 from app.models.mission_telemetry import MissionAgentLog
 from app.models.missions import Mission, MissionRun
 from app.models.prospects import Prospect
-from app.services import audit, mission_output, mission_telemetry
+from app.services import audit, mission_output, mission_siblings, mission_telemetry
 from app.services.agent_payloads import (
     build_payload,
     build_proposal,
@@ -523,19 +523,22 @@ def submit(
 
         validated = {"actions": task.staged_actions}
         proposal = agent_actions.proposal(session, task, task.staged_actions)
+        mission_siblings.check(session, task, task_rule(session, task), proposal)
     else:
         try:
-            validated = result_model(task.type).model_validate(raw).model_dump(mode="json")
+            model = result_model(task.type)
+            validated = model.model_validate(raw).model_dump(mode="json")
         except ValidationError as error:
             first = error.errors()[0]
             field = ".".join(str(part) for part in first["loc"]) or "result"
             raise InvalidFieldError(field, first["msg"], "schema") from error
-        outcome = mission_output.check_submission(task, validated, task_rule(session, task))
-        proposal = (
-            build_proposal(session, task, validated)
-            if outcome == mission_output.OUTCOME_COMPLETED
-            else mission_output.no_result_proposal(outcome, validated)
-        )
+        rule = task_rule(session, task)
+        outcome = mission_output.check_submission(task, validated, rule, model.model_json_schema())
+        if outcome == mission_output.OUTCOME_COMPLETED:
+            proposal = build_proposal(session, task, validated)
+            mission_siblings.check(session, task, rule, proposal)
+        else:
+            proposal = mission_output.no_result_proposal(outcome, validated)
     digest = hashlib.sha256(
         json.dumps(validated, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
@@ -579,6 +582,8 @@ def _close_without_data(
     result.applied = {"outcome": outcome}
     if outcome == mission_output.OUTCOME_NOT_FOUND:
         task.status = AgentTaskStatus.ACCEPTED
+        task.failure_code = outcome
+        task.failure_message = None
     else:
         task.status = AgentTaskStatus.FAILED
         task.failure_code = outcome

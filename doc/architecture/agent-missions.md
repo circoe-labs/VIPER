@@ -10,7 +10,7 @@
 > persistence (migration `0018`), lifecycle (`claim`, `heartbeat`, `submit`, `fail`, `release`,
 > lease sweep, `open_company_review`, `claim_specific`), the MCP transport and its tokens (migration
 > `0019`), the proposal and its review (`accept` applies through `companies.update_company` /
-> `prospect_editor.update_prospect`, `reject` requeues), the « Agents » page and the review card.
+> `prospect_editor.update_prospect`, `reject` requeues a task outside a mission run), the « Agents » page and the review card.
 > The `update_employee`, `find_employees` and `find_prospects` result schemas now exist and can be posted by an agent through the MCP
 > `viper_update_prospect` tool (no claim needed); missions still queue only `update_company`, since
 > their claim payload for a person is not built yet. **Not there yet:** `find_employees`,
@@ -149,7 +149,8 @@ Append-only: one row per submission.
 The result under review is read from `agent_task_results`, never pointed at by the task: keeping a
 `result_id` on both sides would make a circular foreign key for no gain.
 `UNIQUE (task_id) WHERE status = 'pending_review'` — at most one result waits
-for a person at a time; a rejection closes it before the task can be claimed again.
+for a person at a time; a rejection closes it. A rejected task of a mission run is finished (`failed` /
+`rejected`, no replacement: `missions.md` §4b); a tool-mode, thread or « Dépôt » task can be claimed again.
 
 ### 4.4 `signals` (phase 2) — `prospect_notes`, renamed and opened to companies
 
@@ -289,7 +290,7 @@ existing proposal capabilities and task-type scopes. Final `viper_submit_task_re
 through releases, failures and expired claims; the next claimant receives the staged actions.
 Cancellation clears them. They never write business records before human acceptance. Inside a
 mission run staging is bound by the output contract (an update names the task's own record, a
-discovery task stages one company unless `allow_multiple`; `wrong_target` / `too_many`, Slice 07).
+discovery task of a mission stages one company; `wrong_target` / `too_many`, Slice 07).
 The existing single-result schema remains
 available when no actions were staged. Acceptance applies the selected changes in one transaction.
 
@@ -530,8 +531,7 @@ one type at a time; the server does not shuffle.
   "known_signals": [],
   "output_schema": { "…": "JSON Schema, generated from the Pydantic model of the type" },
   "output_schema_version": 2,
-  "output_contract": { "version": 1, "envelope": "single", "max_items": 1, "omit_unchanged": true, "…": "§7.4" },
-  "objective": { "kind": "tasks_accepted", "count": null },
+  "output_contract": { "version": 2, "envelope": "single", "max_items": 1, "omit_unchanged": true, "…": "§7.4" },
   "mission": { "prompt": "…", "category": { "key": "enrichment", "name": "Enrichissement" }, "skills": [{ "name": "…", "content": "…" }], "sources": [{ "url": "https://hunter.io", "label": "Hunter", "description": null }], "…": "missions.md §5" },
   "internal_context": [{ "kind": "company", "id": "…", "label": "…", "read_only": true, "fields": {} }],
   "agent": { "identity": "ChatGPT lucie #2", "agent_id": "…" },
@@ -539,7 +539,7 @@ one type at a time; the server does not shuffle.
   "constraints": {
     "no_guessing": true,
     "quote_evidence": true,
-    "max_items": 20,
+    "max_items": 1,
     "language": "fr"
   },
   "lease": { "expires_at": "2026-10-29T15:45:00Z", "heartbeat_every_seconds": 300 },
@@ -561,31 +561,25 @@ Rules:
   shape change must stay additive (new fields optional) for an in-flight agent's result to remain
   valid. Version 2 added the optional `establishments` and `trigger` of a `find_prospects` company.
 
-### 7.4 Output contract and objective (mission tasks)
+### 7.4 Output contract (mission tasks)
 
 Each claimed task carries an **output contract** next to `output_schema` (the same schema, with the
 item list capped by the envelope). It is derived deterministically by
 `mission_output.output_contract` from the task type and the mission rule snapshotted on the run
-(`allow_multiple`, `result_limit`); nothing is stored. `output_contract.version`
+(`items_per_task`); nothing is stored. `output_contract.version`
 (`OUTPUT_CONTRACT_VERSION`) changes with the envelope, omission rules or outcome vocabulary.
 
 | Key | Meaning |
 |---|---|
-| `envelope` | `single` or `list`. A targeted task (`update_company`, `update_employee`) is always one record: one target per task. A discovery-style task (`find_prospects` → `companies`, `find_employees` → `people`, `surveil_signals` → `signals`) answers in its list field: at most **1** item when `allow_multiple=false` (the default), up to `max_items` (≤ `result_limit`) when `true` |
+| `envelope` | `single` or `list`. A targeted task (`update_company`, `update_employee`) is always one record: one target per task. A discovery-style task (`find_prospects` → `companies`, `find_employees` → `people`, `surveil_signals` → `signals`) answers in its list field: `max_items` is **1** for a `find_prospects` / `find_employees` task of a mission run (one task, one item: `missions.md` §4b), the schema's bound for signal monitoring, « Dépôt » drops and tool-mode tasks |
 | `omit_unchanged` | An absent field means « no proposed change ». `null`, `[]` or a copy of the current value is not the way to say « unchanged » (and nothing clears an existing value). VIPER also drops a value equal to the current one from the diff |
 | `outcomes` | `outcome` is `completed` (default), `not_found` or `blocked`. The last two propose **no data** (rejected with `outcome_with_data` otherwise) and need `notes` saying what was searched (`missing`). `not_found` closes the task as answered (`accepted`, nothing applied, result kept as `superseded`); `blocked` closes it `failed` with `failure_code=blocked`. Neither fabricates data nor waits for a review that would have nothing to apply |
 | `rules` | The same constraints as prose, for the model |
 
-Submission is checked against the contract before `build_proposal`: more than one item with
-`allow_multiple=false` → `too_many` (the task stays claimed, the agent may fix it). The result
-stays a proposal: normalisation, diff and review (§11) are unchanged. A run made before migration
-0049 keeps the list form (`allow_multiple` absent from its snapshot reads as `true`), as do
-tool-mode tasks.
-
-`objective` is the run's goal (`missions.md` §4b). VIPER evaluates it from accepted work; the agent
-cannot declare it fulfilled. For discovery missions one item at a time, VIPER opens the next
-`find_prospects` task of the run after each accepted non-empty result until an
-`accepted_items` objective is met.
+Submission is checked against the contract before `build_proposal`: more items than `max_items` →
+`too_many` (the task stays claimed, the agent may fix it). A one-item discovery task is also refused
+when it brings nothing new or what a sibling task already proposed (`missions.md` §4b). The result
+stays a proposal: normalisation, diff and review (§11) are unchanged.
 
 ## 8. MCP surface (agent side)
 

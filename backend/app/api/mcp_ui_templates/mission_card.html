@@ -239,9 +239,9 @@
         <span class="hint" id="h-period">Ancienneté maximale des informations recherchées.</span>
       </div>
       <div class="field">
-        <label for="f-result_limit">Maximum</label>
-        <input id="f-result_limit" name="result_limit" type="number" inputmode="numeric" min="1" max="500" aria-describedby="h-limit">
-        <span class="hint" id="h-limit">Nombre de résultats au plus par lancement.</span>
+        <label for="f-task_count">Nombre de tâches</label>
+        <input id="f-task_count" name="task_count" type="number" inputmode="numeric" min="1" max="500" placeholder="1" aria-describedby="h-tasks">
+        <span class="hint" id="h-tasks">Par lancement, un élément par tâche. Fixé par les fiches liées quand la mission les met à jour.</span>
       </div>
       <div class="field">
         <label for="f-agent_id">Agent</label>
@@ -292,13 +292,13 @@
   const STATUS_LABELS = { active: 'Active', paused: 'En pause', done: 'Terminée', cancelled: 'Annulée' };
   const FIELD_LABELS = {
     name: 'Nom', prompt: 'Consigne', type: 'Type', geography: 'Zone', period_days: 'Période',
-    result_kind: 'Résultat', result_limit: 'Maximum', is_recurring: 'Récurrence',
+    result_kind: 'Résultat', task_count: 'Nombre de tâches', is_recurring: 'Récurrence',
     interval_count: 'Récurrence', interval_unit: 'Récurrence', agent_id: 'Agent',
   };
   // Fields of `MissionIn` the card shows and edits; every other argument is passed through as is.
   const EDITED = ['name', 'prompt', 'type', 'geography', 'period_days', 'result_kind',
-    'result_limit', 'is_recurring', 'interval_count', 'interval_unit', 'agent_id'];
-  const DEFAULTS = { result_kind: 'enrichment', result_limit: 20, is_recurring: false,
+    'task_count', 'is_recurring', 'interval_count', 'interval_unit', 'agent_id'];
+  const DEFAULTS = { result_kind: 'enrichment', task_count: null, is_recurring: false,
     interval_count: 1, interval_unit: 'days', agent_id: null, geography: null, period_days: null };
 
   // A tool call that outlives this is reported, and the card is released (the late answer still
@@ -449,7 +449,7 @@
     return {
       name: card.name, prompt: detail.prompt, type: card.type,
       geography: rule.geography ?? null, period_days: rule.period_days ?? null,
-      result_kind: detail.result_kind, result_limit: detail.result_limit,
+      result_kind: detail.result_kind, task_count: rule.task_count ?? null,
       is_recurring: card.is_recurring, interval_count: card.interval_count,
       interval_unit: card.interval_unit, agent_id: rule.agent_id ?? null,
     };
@@ -646,7 +646,7 @@
       geography: geography === '' ? null : geography,
       period_days: numberOrRaw($('f-period_days').value),
       result_kind: $('f-result_kind').value,
-      result_limit: numberOrRaw($('f-result_limit').value),
+      task_count: numberOrRaw($('f-task_count').value),
       is_recurring: recurring,
       interval_count: recurring ? numberOrRaw($('f-interval_count').value) : state.values.interval_count,
       interval_unit: recurring ? $('f-interval_unit').value : state.values.interval_unit,
@@ -699,7 +699,7 @@
     $('f-prompt').value = values.prompt || '';
     $('f-geography').value = values.geography || '';
     $('f-period_days').value = values.period_days ?? '';
-    $('f-result_limit').value = values.result_limit ?? '';
+    $('f-task_count').value = values.task_count ?? '';
     $('f-is_recurring').value = values.is_recurring ? 'true' : 'false';
     $('f-interval_count').value = values.interval_count ?? 1;
     renderSelects();
@@ -735,7 +735,7 @@
       ['Zone', values.geography],
       ['Période', values.period_days ? `${values.period_days} derniers jours` : null],
       ['Résultat', RESULT_LABELS[values.result_kind] || values.result_kind],
-      ['Maximum', values.result_limit === null || values.result_limit === undefined ? null : String(values.result_limit)],
+      ['Nombre de tâches', values.task_count === null || values.task_count === undefined ? null : String(values.task_count)],
       ['Récurrence', recurrenceLabel(values)],
       ['Agent', agentLabel()],
     ];

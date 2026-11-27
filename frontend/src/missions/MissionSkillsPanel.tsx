@@ -101,16 +101,6 @@ export function MissionSkillsPanel({ form }: { form: MissionFormApi }) {
         </summary>
         <div className="mission-form__row">
           <TextField
-            label="Limite par exécution"
-            type="number"
-            min={1}
-            max={form.options?.result_limit_max ?? 500}
-            value={form.resultLimit}
-            onChange={(event) => {
-              form.setResultLimit(event.target.value)
-            }}
-          />
-          <TextField
             label="Zone géographique"
             value={form.geography}
             onChange={(event) => {

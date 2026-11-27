@@ -25,9 +25,7 @@ export function snapshotOf(form: MissionFormApi): DraftSnapshot {
     end_kind: form.endKind,
     ends_at: form.endsAt,
     max_runs: Number(form.maxRuns) || null,
-    objective: form.objective,
-    allow_multiple: form.allowMultiple,
-    result_limit: Number(form.resultLimit) || 20,
+    task_count: Number(form.taskCount) || 1,
     geography: form.geography,
     period_days: form.periodDays ? Number(form.periodDays) : null,
     exclude_known: form.excludeKnown,
@@ -101,10 +99,8 @@ export function draftFromActions(actions: readonly DraftAction[], form: MissionF
         draft.contextRefs = contextRefs
         break
       }
-      case 'set_objective':
-        if (args.kind === 'tasks_accepted' || args.kind === 'accepted_items') {
-          draft.objective = { kind: args.kind, count: num(args.count) ?? null }
-        }
+      case 'set_task_count':
+        draft.taskCount = num(args.count)
         break
       case 'set_recurrence':
         draft.recurring = bool(args.recurring)
@@ -116,9 +112,7 @@ export function draftFromActions(actions: readonly DraftAction[], form: MissionF
         draft.maxRuns = num(args.max_runs)
         break
       case 'set_options':
-        draft.allowMultiple = bool(args.allow_multiple)
         draft.excludeKnown = bool(args.exclude_known)
-        draft.resultLimit = num(args.result_limit)
         if ('geography' in args) draft.geography = str(args.geography) ?? ''
         if ('period_days' in args) draft.periodDays = num(args.period_days) ?? null
         break

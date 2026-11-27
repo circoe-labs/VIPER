@@ -9,6 +9,7 @@ import { TextAreaField, TextField } from '../ui/fields'
 import { AlertIcon, ArrowRightIcon, BoltIcon, CheckCircleIcon, DatabaseIcon } from '../ui/icons'
 import { InfoTip } from '../ui/InfoTip'
 import { MissionCategoryPicker } from './MissionCategoryPicker'
+import { MissionCompanies } from './MissionCompanies'
 import { MissionExecutionSection } from './MissionExecutionSection'
 import { MissionSkillsPanel } from './MissionSkillsPanel'
 import { MissionSourcesPanel } from './MissionSourcesPanel'
@@ -31,7 +32,7 @@ interface MissionDialogProps {
 }
 
 // « + Nouvelle mission » / « Modifier la mission »: title, type (a compact field opening a picker that applies the
-// category's defaults), consigne, execution (one-off or recurring + objective), then two panels (« Skills »,
+// category's defaults), consigne, execution (one-off or recurring + number of tasks), then two panels (« Skills »,
 // « Sources »). Explanations live in InfoTips; only what blocks saving is stated in the form. State lives in `useMissionForm`; each section is its own component.
 export function CreateMissionDialog({ open, onClose, mission, onSaved, initialDraft, assistantSlot }: MissionDialogProps) {
   const navigate = useNavigate()
@@ -61,7 +62,7 @@ export function CreateMissionDialog({ open, onClose, mission, onSaved, initialDr
     })
   }
 
-  const linked = form.targets.length + form.contextRefs.length + (form.sourceIds?.length ?? 0)
+  const linked = form.contextRefs.length + (form.sourceIds?.length ?? 0)
 
   return (
     <Modal
@@ -120,6 +121,8 @@ export function CreateMissionDialog({ open, onClose, mission, onSaved, initialDr
             </InfoTip>
           </span>
         </div>
+
+        <MissionCompanies form={form} />
 
         <MissionExecutionSection form={form} />
 

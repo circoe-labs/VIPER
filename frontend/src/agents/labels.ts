@@ -31,6 +31,15 @@ export const TASK_STATUS_TONES: Record<TaskStatus, StatusTone> = {
   cancelled: 'neutral',
 }
 
+// A mission task's badge: a finished task says how it ended (rejected, nothing found, blocked) rather than only
+// « Validée » or « Échec ».
+export function taskBadge(status: TaskStatus, failureCode?: string | null): { label: string; tone: StatusTone } {
+  if (status === 'accepted' && failureCode === 'not_found') return { label: 'Rien trouvé', tone: 'neutral' }
+  if (status === 'failed' && failureCode === 'rejected') return { label: 'Refusée', tone: 'neutral' }
+  if (status === 'failed' && failureCode === 'blocked') return { label: 'Bloquée', tone: 'danger' }
+  return { label: TASK_STATUS_LABELS[status], tone: TASK_STATUS_TONES[status] }
+}
+
 export const THREAD_STATUS_LABELS: Record<ThreadStatus, string> = {
   open: 'Ouverte',
   paused: 'En pause',

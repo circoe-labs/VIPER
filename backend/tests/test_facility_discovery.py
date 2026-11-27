@@ -23,7 +23,7 @@ from app.models.enums import AgentResultStatus, MissionType, SignalKind, SignalO
 from app.models.prospects import ProspectNote
 from app.services.agent_payloads import FindProspectsResult
 from tests.builders import add_company
-from tests.test_missions import create, mint, rpc
+from tests.test_missions import allow_list, create, mint, rpc
 
 SIREN = "732829320"
 SIRET_HONFLEUR = "73282932010008"
@@ -94,8 +94,9 @@ def _submit(
         prompt=mission["prompt"],
         result_kind="companies",
         run_now=True,
-        **{"allow_multiple": True, **(rule or {})},
+        **(rule or {}),
     )
+    allow_list(db_session, detail["card"]["id"])
     if edit_after_run is not None:
         edited = client.put(
             f"/api/missions/{detail['card']['id']}", json={**mission, **edit_after_run}
@@ -356,29 +357,21 @@ def test_a_trigger_older_than_the_mission_period_is_refused(
 def test_the_result_is_checked_against_the_rule_of_its_run(
     client: TestClient, db_session: Session
 ) -> None:
-    """An edit after the run started (period and maximum widened) does not apply to that run's
-    results: `result_limit` and `period_days` are read from the run's snapshot."""
+    """An edit after the run started (period widened) does not apply to that run's results:
+    `period_days` is read from the run's snapshot."""
     old_trigger = {**_honfleur()["trigger"], "observed_on": _recent(days=60)}
-    second = _honfleur(
-        display_name="Entrepôts Z",
-        siren=OTHER_SIREN,
-        establishments=[
-            {**_honfleur()["establishments"][0], "siret": OTHER_SIRET_ROUEN, "city": "Rouen"}
-        ],
-    )
     result_id = _submit(
         client,
         db_session,
-        [_honfleur(trigger=old_trigger), second],
-        rule={"period_days": 30, "result_limit": 1},
-        edit_after_run={"period_days": 3650, "result_limit": 50},
+        [_honfleur(trigger=old_trigger)],
+        rule={"period_days": 30},
+        edit_after_run={"period_days": 3650},
     )
 
     proposal = client.get(f"/api/agents/results/{result_id}").json()["proposal"]
 
     assert {(row["field"], row["reason"]) for row in proposal["refused"]} == {
-        ("companies.0.trigger", "too_old"),
-        ("companies.1", "limit"),
+        ("companies.0.trigger", "too_old")
     }
     assert [item["store"]["display_name"] for item in proposal["items"]] == ["Logistique Y"]
 

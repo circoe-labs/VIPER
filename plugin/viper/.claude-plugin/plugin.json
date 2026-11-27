@@ -1,6 +1,6 @@
 {
   "name": "viper",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Utiliser VIPER (prospection Circoe) depuis un agent : créer une mission, exécuter une mission, interroger la base.",
   "skills": "./skills/"
 }

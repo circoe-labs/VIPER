@@ -95,6 +95,9 @@ export interface MissionTaskRow {
   company_id: string | null
   prospect_id: string | null
   prospect_name: string | null
+  company_name?: string | null
+  // Why a finished task ended without an accepted item (`rejected`, `not_found`, `blocked`…).
+  failure_code?: string | null
   claimed_by_label: string | null
   assigned_agent_id: string | null
   result_id: string | null
@@ -111,6 +114,8 @@ export interface MissionRunRow {
   tasks_total: number
   results_count: number
   note: string | null
+  // Tasks of the run with nothing left to happen to them.
+  tasks_finished?: number
 }
 
 export interface MissionTargetRow {
@@ -165,22 +170,8 @@ export interface MissionRule {
   geography: string | null
   period_days: number | null
   exclusions: Record<string, boolean | string[]>
-  // Slice 04: one item per submission (false) or a list; the per-run goal.
-  allow_multiple?: boolean
-  objective?: MissionObjective
-}
-
-// `tasks_accepted`: every task of the run is accepted. `accepted_items`: `count` accepted items (<= result_limit).
-export interface MissionObjective {
-  kind: 'tasks_accepted' | 'accepted_items'
-  count: number | null
-}
-
-export interface ObjectiveProgress {
-  kind: string
-  target: number | null
-  current: number
-  met: boolean
+  // What one run creates: « Nombre de tâches », or one per linked record.
+  task_count?: number
 }
 
 export interface MissionDetail {
@@ -193,12 +184,10 @@ export interface MissionDetail {
   tasks: MissionTaskRow[]
   prompt: string
   result_kind: MissionResultKind
-  result_limit: number
   rule: MissionRule
   inheritance?: MissionInheritance
   // The instruction skills the mission works with (its own list when overridden, else its category's).
   skills?: SkillRef[]
-  objective_progress?: ObjectiveProgress | null
 }
 
 export interface MissionList {
@@ -216,7 +205,7 @@ export interface MissionOptions {
   result_kinds: MissionOption[]
   units: RecurrenceUnit[]
   end_kinds: MissionEndKind[]
-  result_limit_max: number
+  task_count_max: number
 }
 
 export interface AgentOption {
@@ -254,9 +243,8 @@ export interface MissionInput {
   ends_at: string | null
   max_runs: number | null
   result_kind: MissionResultKind
-  result_limit: number
-  allow_multiple?: boolean
-  objective?: MissionObjective
+  // Per run; left out = the natural count (1, one per linked company or record).
+  task_count?: number
   geography: string | null
   period_days: number | null
   exclusions: Record<string, boolean | string[]>

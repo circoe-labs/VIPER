@@ -1,37 +1,33 @@
-"""Mission objective and output contract: what « done » means, and what an agent may return.
+"""The output contract of a claimed task, and the numbers that bound a run.
 
-Two small, deterministic pieces owned by the mission, with no write path of their own:
-
-- the **objective** (`MissionObjective`): a typed, machine-evaluable goal. VIPER decides whether a
-  run (and, for a one-off, the mission) is complete from server-side task / result / review
-  state (`progress`), never from an agent claiming it is finished;
 - the **output contract** (`output_contract`): the versioned envelope a claimed task must answer
-  with, derived from the task type and the mission rule (`allow_multiple`, `result_limit`).
-  `check_submission` enforces it before the existing normalisation / review
-  (`agent_payloads.build_proposal`, `agent_review`) turns the answer into a proposal.
+  with, derived from the task type and the run's rule (`items_per_task`). `check_submission`
+  enforces it before the existing normalisation / review (`agent_payloads.build_proposal`,
+  `agent_review`) turns the answer into a proposal;
+- **one task, one item**: a discovery task (a company / warehouse, or a person at a company) of a
+  mission run brings one item, and the run holds as many tasks as the mission asks for
+  (`Mission.task_count`). Only the « Dépôt » mission takes a list (`DEPOSIT_ITEMS_PER_TASK`).
 
-`result_limit` stays a per-run **cap** on items; the objective is the goal. They are never the
-same field. Contract: `doc/architecture/agent-missions.md` §6b, `doc/architecture/missions.md` §4b.
+Contract: `doc/architecture/agent-missions.md` §6b, `doc/architecture/missions.md` §4b.
 """
 
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Mapping
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from pydantic import BaseModel, Field
 
-from app.models.agent_missions import AgentTask, AgentTaskResult
-from app.models.enums import AgentResultStatus, AgentTaskStatus, AgentTaskType
+from app.models.agent_missions import AgentTask
+from app.models.enums import AgentTaskType
 from app.services.errors import InvalidFieldError
 
 # Bumped when the envelope, the omission rules or the outcome vocabulary change.
-OUTPUT_CONTRACT_VERSION = 1
+OUTPUT_CONTRACT_VERSION = 2
 
-OBJECTIVE_TASKS_ACCEPTED: Literal["tasks_accepted"] = "tasks_accepted"
-OBJECTIVE_ACCEPTED_ITEMS = "accepted_items"
-OBJECTIVE_MAX_COUNT = 500
+# A normal mission asks one item of each discovery task; a « Dépôt » drop may bring a list.
+ITEMS_PER_TASK = 1
+DEPOSIT_ITEMS_PER_TASK = 50
+# The task types whose run holds one task per wanted item.
+ONE_ITEM_TYPES = frozenset({AgentTaskType.FIND_PROSPECTS, AgentTaskType.FIND_EMPLOYEES})
 
 OUTCOME_COMPLETED: Literal["completed"] = "completed"
 OUTCOME_NOT_FOUND = "not_found"
@@ -66,70 +62,41 @@ class OutcomeFields(BaseModel):
     )
 
 
-class MissionObjective(BaseModel):
-    """The goal of a mission run, evaluated by VIPER from accepted work."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    kind: Literal["tasks_accepted", "accepted_items"] = OBJECTIVE_TASKS_ACCEPTED
-    # `accepted_items` only: how many reviewed-and-accepted items fulfil one run.
-    count: int | None = Field(None, ge=1, le=OBJECTIVE_MAX_COUNT)
-
-
-DEFAULT_OBJECTIVE: dict[str, Any] = {"kind": OBJECTIVE_TASKS_ACCEPTED, "count": None}
-
-
-def parse_objective(raw: Mapping[str, Any] | None) -> dict[str, Any]:
-    """The effective objective (`None` = the default: every task of the run accepted).
-    Raises `InvalidFieldError` on a malformed one."""
-    if raw is None:
-        return dict(DEFAULT_OBJECTIVE)
-    try:
-        objective = MissionObjective.model_validate(dict(raw))
-    except ValidationError as error:
-        first = error.errors()[0]
-        field = ".".join(["objective", *(str(part) for part in first["loc"])])
-        raise InvalidFieldError(field, first["msg"], "invalid") from error
-    if objective.kind == OBJECTIVE_ACCEPTED_ITEMS and objective.count is None:
-        raise InvalidFieldError("objective.count", "A count is required.", "missing")
-    if objective.kind == OBJECTIVE_TASKS_ACCEPTED and objective.count is not None:
-        raise InvalidFieldError("objective.count", "Not used by this kind.", "invalid")
-    return objective.model_dump()
-
-
 # --- output contract ----------------------------------------------------------------------------
 
 
-def _list_cap(schema: dict[str, Any], field: str, allow_multiple: bool, limit: int | None) -> int:
-    declared = schema["properties"][field].get("maxItems") or OBJECTIVE_MAX_COUNT
-    if not allow_multiple:
+def items_cap(
+    task_type: AgentTaskType,
+    rule: Mapping[str, Any] | None,
+    model_schema: Mapping[str, Any],
+) -> int:
+    """The most items one submission of this task may propose. A targeted task carries one record;
+    a discovery task of a mission run carries the rule's `items_per_task`; the rest (monitoring
+    signals, a tool-mode task) is bounded by the result schema only."""
+    field = LIST_FIELDS.get(task_type)
+    if field is None:
         return 1
-    return min(declared, limit) if limit is not None else int(declared)
+    declared = int(model_schema["properties"][field]["maxItems"])
+    if rule is None or task_type not in ONE_ITEM_TYPES:
+        return declared
+    return min(declared, int(rule.get("items_per_task") or ITEMS_PER_TASK))
 
 
 def output_contract(
-    task_type: AgentTaskType,
-    model_schema: dict[str, Any],
-    *,
-    allow_multiple: bool,
-    result_limit: int | None,
+    task_type: AgentTaskType, model_schema: dict[str, Any], rule: Mapping[str, Any] | None
 ) -> dict[str, Any]:
     """The contract published with a claimed task. Deterministic: same inputs, same output.
 
-    `schema` is the task's result JSON Schema, its item list capped by the envelope; the rest says
-    how to read it. Targeted tasks (one company / person) carry a single record whatever
-    `allow_multiple` says: one target per task.
+    `schema` is the task's result JSON Schema, its item list capped; the rest says how to read it.
     """
     schema: dict[str, Any] = {**model_schema, "properties": dict(model_schema["properties"])}
     field = LIST_FIELDS.get(task_type)
-    max_items = 1
+    max_items = items_cap(task_type, rule, model_schema)
     if field is not None:
-        max_items = _list_cap(schema, field, allow_multiple, result_limit)
         schema["properties"][field] = {**schema["properties"][field], "maxItems": max_items}
     return {
         "version": OUTPUT_CONTRACT_VERSION,
-        "envelope": "list" if field is not None and allow_multiple else "single",
-        "allow_multiple": allow_multiple,
+        "envelope": "list" if max_items > 1 else "single",
         "items_field": field,
         "max_items": max_items,
         "one_target_per_task": field is None,
@@ -156,7 +123,10 @@ def output_contract(
 
 
 def check_submission(
-    task: AgentTask, validated: Mapping[str, Any], rule: Mapping[str, Any] | None
+    task: AgentTask,
+    validated: Mapping[str, Any],
+    rule: Mapping[str, Any] | None,
+    model_schema: Mapping[str, Any],
 ) -> str:
     """Enforce the contract on a result already valid against its model. Returns the outcome.
     Raises `InvalidFieldError` (the agent may fix it: the task stays claimed)."""
@@ -177,11 +147,11 @@ def check_submission(
         if not str(validated.get("notes") or "").strip():
             raise InvalidFieldError("notes", f"Say what you searched ({outcome}).", "missing")
         return outcome
-    # A legacy rule (a run made before migration 0049) kept the list form.
-    allow_multiple = bool(rule.get("allow_multiple", True)) if rule is not None else True
-    if field is not None and not allow_multiple and count > 1:
+    if field is not None and count > (cap := items_cap(task.type, rule, model_schema)):
         raise InvalidFieldError(
-            field, "This mission returns one item at a time (allow_multiple=false).", "too_many"
+            field,
+            f"This task takes at most {cap} item(s): leave the others to the run's other tasks.",
+            "too_many",
         )
     return outcome
 
@@ -197,71 +167,3 @@ def no_result_proposal(outcome: str, validated: Mapping[str, Any]) -> dict[str, 
         "confidence": validated.get("confidence"),
         "notes": validated.get("notes"),
     }
-
-
-# --- progress -----------------------------------------------------------------------------------
-
-
-@dataclass(frozen=True, slots=True)
-class Progress:
-    """Where a run stands against its objective, from server-side state only."""
-
-    kind: str
-    target: int | None
-    current: int
-    met: bool
-    tasks_total: int
-    tasks_accepted: int
-    items_accepted: int
-    last_accepted_items: int
-
-    def as_dict(self) -> dict[str, Any]:
-        return {
-            "kind": self.kind,
-            "target": self.target,
-            "current": self.current,
-            "met": self.met,
-        }
-
-
-def progress(
-    session: Session, tasks: Sequence[AgentTask], objective: Mapping[str, Any] | None
-) -> Progress:
-    """Evaluate `objective` over a run's `tasks` (cancelled ones do not count)."""
-    spec = parse_objective(objective)
-    live = [task for task in tasks if task.status is not AgentTaskStatus.CANCELLED]
-    accepted = [task for task in live if task.status is AgentTaskStatus.ACCEPTED]
-    counts: dict[Any, int] = {}
-    last_items = 0
-    if live:
-        rows = session.execute(
-            select(
-                AgentTaskResult.task_id, AgentTaskResult.accepted_items, AgentTaskResult.decided_at
-            )
-            .where(
-                AgentTaskResult.task_id.in_([task.id for task in live]),
-                AgentTaskResult.status == AgentResultStatus.ACCEPTED,
-            )
-            .order_by(AgentTaskResult.decided_at)
-        ).all()
-        for task_id, accepted_items, _ in rows:
-            keys = (accepted_items or {}).get("keys", [])
-            counts[task_id] = counts.get(task_id, 0) + len(keys)
-            last_items = len(keys)
-    items = sum(counts.values())
-    if spec["kind"] == OBJECTIVE_ACCEPTED_ITEMS:
-        target: int | None = int(spec["count"])
-        current, met = items, items >= int(spec["count"])
-    else:
-        target = len(live) or None
-        current, met = len(accepted), bool(live) and len(accepted) == len(live)
-    return Progress(
-        kind=spec["kind"],
-        target=target,
-        current=current,
-        met=met,
-        tasks_total=len(live),
-        tasks_accepted=len(accepted),
-        items_accepted=items,
-        last_accepted_items=last_items,
-    )

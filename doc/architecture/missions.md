@@ -80,9 +80,8 @@ Missions page), then drop the contract, its hooks in `agent_payloads` / `agent_r
 | `agent_id` / `agent_label` | `NULL` = « Automatique »: any agent with the scope may claim; the label is snapshotted |
 | `is_recurring`, `interval_count`, `interval_unit` | ponctuelle, or every N hours/days/weeks/months |
 | `starts_at`, `end_kind`, `ends_at`, `max_runs` | now or a date; never / at a date / after N runs |
-| `result_kind`, `result_limit` | what is expected, and the **cap** per run (never the goal: see `objective`) |
-| `allow_multiple` | `false` (default): one item per submission; `true`: the list envelope (`agent-missions.md` §7.4). Missions that predate migration 0049 are `true` |
-| `objective` | machine-evaluable goal, §4b. `NULL` = `tasks_accepted` |
+| `result_kind` | what is expected |
+| `task_count` | « Nombre de tâches » of each run, 1 to 500 (default 1), §4b. Replaced the objective, the result limit and the list switch (migration 0065) |
 | `geography`, `period_days`, `exclusions` | advanced filters, passed to the agent in the payload |
 | `next_run_at`, `last_run_at` | derived scheduling state |
 
@@ -110,16 +109,16 @@ an agent: agents connect and claim the tasks of active missions. A run is create
 becomes active (at creation, or « Activer » before its first run) unless its start is in the
 future, then by the scheduler at its start date and at each recurrence (`run_due`, one-offs
 included). « Désactiver » (`paused`, shown « Inactive ») hides its tasks from the agents. A run
-creates a `mission_runs` row and one task per target:
+creates a `mission_runs` row and its tasks (§4b says how many):
 
 - enrichment / verification, company target → `update_company` (public fields, SIREN/website/
   domain/segment/categories);
 - enrichment / verification, prospect target → `update_employee` (identity, role, title, e-mails,
   phones, activity);
-- **prospection** with company targets → `find_employees` (people to discover, deduped against the
-  base, created as `future_agent` after review);
-- **prospection** without targets, expected result « Sociétés » → one `find_prospects` task: new
-  companies matching the brief, deduped by name/SIREN/domain, created after review — with the sites
+- **prospection** with company targets → `find_employees`, `task_count` tasks spread over the
+  companies, one person each (deduped against the base, created as `future_agent` after review);
+- no target (« Découvrir des sociétés ») → `task_count` `find_prospects` tasks, one new
+  company each, matching the brief, deduped by name/SIREN/domain, created after review — with the sites
   the brief is about (deduped by SIRET, then city + name) and the dated trigger that brought each
   one in (a company signal such as `facility_opening`), all three in the acceptance's single
   transaction (`agent-missions.md` §5.5).
@@ -136,40 +135,51 @@ the worker starts it on its next pass; a future start waits. After each run, `ne
 by the interval, and an exhausted recurrence (`ends_at` or `max_runs`) closes the mission.
 
 **A run keeps its rule.** When a run starts, `mission_runs.config` (migration 0027) stores the
-payload's `mission` block (§5: name, type, prompt, result kind and limit, geography, period,
-exclusions; `agent_payloads.mission_rule`). Its tasks are claimed with that block, and their results
-are checked against its `result_limit` / `period_days`, so « Modifier la mission » only changes the
+payload's `mission` block (§5: name, type, prompt, result kind, task count, items per task,
+geography, period, exclusions; `agent_payloads.mission_rule`). Its tasks are claimed with that
+block, and their results are checked against its `items_per_task` / `period_days`, so « Modifier la mission » only changes the
 next runs (HANDOFF §15, PM decision 4); a task already made keeps its subject and its consigne. A
 run made before 0027 (`config` NULL) reads the live mission.
 
-## 4b. Objective and completion
+## 4b. Number of tasks and completion
 
-`objective` is `{kind, count}`:
+A person chooses two things: « Une fois / Récurrente » and **« Nombre de tâches »** (per run when
+recurring). `missions._plan_run` derives the tasks of a run:
 
-| `kind` | Fulfilled when | Use |
-|---|---|---|
-| `tasks_accepted` (default, `count` null) | every non-cancelled task of the run is `accepted` (a person accepted it, or the agent answered `not_found`) | targeted work: « all these companies are done » |
-| `accepted_items` + `count` (1 ≤ count ≤ `result_limit`) | the items a person accepted across the run's tasks reach `count` | discovery, prospection, signals: « 5 new companies » |
+| Linked data | Tasks of a run |
+|---|---|
+| none (discovery of companies / warehouses) | `task_count` `find_prospects` tasks, one item each |
+| companies, prospection | `task_count` `find_employees` tasks, one person each, dealt to the companies one at a time in label order (50 over 3 = 17 / 17 / 16); at least one per company (`task_count`, `range`) |
+| companies, signals | one `surveil_signals` task per company (monitoring: a task may report several signals) |
+| records to update, verify, reassess | one task per record |
 
-Progress is derived from server state (task status, accepted result items), never from an agent's
-claim: a submitted-but-unreviewed result counts for nothing. `result_limit` and the objective are
-different concepts: the limit caps what a run may *propose*; the objective says when the work is
-*done*. That is why a count above `result_limit` is refused (`objective.count`, `range`).
+In the last two rows the count follows the records: the stored `task_count` is that number, a value
+sent is ignored, and the form shows it read-only. Left out, `task_count` is 1 (or one per linked
+company); on « Modifier » it keeps its value, raised if new companies need it. One request such as
+« find 50 prospects at X » is one mission with 50 tasks.
 
-- Each run snapshots the objective (and `allow_multiple`) in `mission_runs.config`; editing the
-  mission changes only the next runs, and history is not rewritten. `mission_runs.objective_met_at`
-  stamps when that run's objective was first fulfilled.
-- **One-off**: when its run's objective is fulfilled, the mission becomes `done`
-  (`reason: objective fulfilled`). A run that ends with the objective unmet (a task `failed`, no
-  more accepted items) is `done` with the note « Objectif non atteint (n/N) » and the mission stays
-  `active`: it never finishes by default.
-- **Recurring**: each run gets a fresh objective instance from the current rule. Fulfilling it
-  stamps the run and nothing else: the mission keeps its `next_run_at` and closes only by the
-  existing end rule (`ends_at` / `max_runs`).
-- Settling happens when a result is accepted (`agent_review.accept`) and on every
-  `refresh_run` (scheduler pass, mission card). `GET /api/missions/{id}` answers
-  `objective_progress` (latest run: `kind`, `target`, `current`, `met`) and `rule.objective` /
-  `rule.allow_multiple`.
+**One task, one item** (`mission_output.items_cap`, `items_per_task` in the run's rule): 1 for a
+discovery task of a mission, 50 for a « Dépôt » drop (and the old cap for runs migrated from the
+list mode). **Never twice** (`mission_siblings`): the claim payload lists what the other tasks of
+the mission proposed (`known_values.already_proposed`, `refused_by_reviewer`) and, for companies,
+the base's names (bounded: 500 / 300 entries). A submission that proposes nothing new
+(`already_known`, `empty`, …) or an item another task has pending or accepted
+(`duplicate_sibling`) is refused while the task stays claimed; the run row is locked during that
+check so two simultaneous submissions cannot both pass. Staged actions are checked when staged.
+
+**Finishing.** A task is finished when accepted, rejected (`failed` / `rejected`: no replacement
+task), `not_found` (`accepted` / `not_found`) or `blocked` (`failed` / `blocked`). `fail` and
+`release` give a task back to the queue: not finished. A run is `done` when no task is open; a
+**one-off** mission then closes (`done`, `reason: all tasks finished`); a **recurring** one keeps
+its `next_run_at` and closes only by its end rule. Progress is « x / N » finished tasks (card,
+live strip, run list: `runs[].tasks_finished`), derived from server state only.
+
+**Migration 0065** (down revision 0063). `task_count`: an `accepted_items` objective gives its
+count; otherwise the natural count of the old behaviour (1, one per company or record), never below
+one per linked company. Run snapshots lose `objective` / `allow_multiple` / `result_limit` and gain
+`items_per_task` (the old cap if the list form was allowed, so a held claim submits as promised) and
+`task_count`. An open discovery run that chained tasks towards N accepted items receives the missing
+tasks. Active one-off missions whose tasks are all finished are closed. Results are untouched.
 
 ## 5. What the agent receives
 
@@ -180,14 +190,13 @@ different concepts: the limit caps what a run may *propose*; the objective says 
   "mission": {
     "id": "…", "name": "Nouveaux entrepôts — Normandie",
     "type": "enrichment", "prompt": "Complète ces fiches…",
-    "result_kind": "enrichment", "result_limit": 20,
-    "allow_multiple": false, "objective": {"kind": "tasks_accepted", "count": null},
+    "result_kind": "enrichment", "task_count": 2, "items_per_task": 1,
     "geography": "Normandie", "period_days": 30, "exclusions": {"known_companies": true}
   }
 }
 ```
 
-The payload also carries `output_contract` and `objective` (`agent-missions.md` §7.4).
+The payload also carries `output_contract` (`agent-missions.md` §7.4).
 
 **Convergence (Slice 07).** One claim now carries everything the mission configures:
 
@@ -198,7 +207,7 @@ The payload also carries `output_contract` and `objective` (`agent-missions.md` 
 | `mission.skills` | `[{name, content}]`, `mission_categories.effective_skills` (instruction text only) | yes |
 | `mission.sources` | `[{url, label, description}]`, `mission_sources.effective_sources` (external research sources) | yes |
 | `internal_context` | `mission_context.resolve`: allowlisted, bounded, read-only VIPER records; **not** the target, **not** evidence | no: read at each claim, so it is current |
-| `output_contract`, `objective` | Slice 04 | yes (`allow_multiple`, objective) |
+| `output_contract` | task type + the run's rule | yes (`items_per_task`) |
 | `agent` | `{identity, agent_id}`: the numbered label VIPER gives the token (`viper_whoami` has the rest) | n/a |
 | `lifecycle` | how to finish / give back / stop (`viper_submit_task_result`, `viper_release_task`, `viper_leave_work`) and the independent safety nets | n/a |
 
@@ -217,7 +226,7 @@ the independent fallbacks; `max_concurrent` limits tasks held at once, never the
 **Staging inside a mission.** `viper_add_company` / `viper_update_company` / `viper_update_prospect`
 with a `claim_id` only *stage* proposals (review applies them), but in a mission run they obey the
 same contract as `result`: an update must name the task's own record (`wrong_target` otherwise) and
-a `find_prospects` task stages at most one company unless `allow_multiple` (then `result_limit`).
+a `find_prospects` task stages at most `items_per_task` companies (one, except for the « Dépôt »).
 Tool-mode tasks (no run) are not constrained. Staged proposals still carry no per-item evidence for
 source counters (§7d).
 
@@ -243,7 +252,7 @@ review shows it as such.
 | Route | Purpose |
 |---|---|
 | `GET /api/missions` | cards: name, type, status, agent, recurrence, targets, last/next run, pending results, and `live_agents[]` (`{agent_id, agent_label, owner_name}`): the agents with an `active` session on the mission now (`mission_supervision.live_sessions`, the same definition as the overview), most recently seen first, owner = the OAuth approver else the account of the token's `owner_email` (null when unknown; the user model has no picture, the UI draws the initials). Filled for the whole page in a fixed number of statements (no N+1); the detail's card answers `[]`. The list refreshes every 15 s while the tab is visible |
-| `POST /api/missions` | (also `allow_multiple`, `objective{kind,count}`, §4b) create: active, its first run and tasks created at once unless it starts later (`run_now` is kept for the MCP tool) |
+| `POST /api/missions` | (`task_count`, §4b) create: active, its first run and tasks created at once unless it starts later (`run_now` is kept for the MCP tool) |
 | `GET /api/missions/{id}` | detail: targets, runs, tasks, consigne, expected result |
 | `PATCH /api/missions/{id}` | « Désactiver » / « Activer » (the switch on the card, the button on the page; `paused` / `active`) / close. Activating a mission that never ran creates its first run. Pause hides the mission's pending tasks from the agents' queue and claims (a claimed task may finish); resume offers them again. Cancel, in the same transaction, sets every open task (pending, claimed, submitted) to `cancelled` (`agent_task.cancelled`, reason `mission_cancelled`), rejects a result still waiting for review, and sets every `scheduled` / `running` run to `cancelled`; a worker still holding a task is refused with `task_cancelled` |
 | `PUT /api/missions/{id}` | « Modifier la mission » (page de la mission, or the list's right-click / « … » menu): the whole rule, linked data included, is rewritten (`mission.updated` with the changed fields); runs already made and their tasks stay as they are (each run keeps its rule, §4), the next run follows the new rule; a done or cancelled mission is refused (409). The detail answers the rest of the rule (`rule`: agent, start, end, geography, period, exclusions) to prefill the form |
@@ -481,8 +490,10 @@ follow category defaults, and Slice 07 puts `mission_context.resolve` and the ef
   value once overridden; an `Hérité` / `Personnalisé` note with a reset button shows which. An empty consigne field means
   « use the category's general prompt » (shown as the placeholder). Internal context records (`context_refs`, read-only,
   searched through `/missions/context-candidates`) are a separate section from the linked data (`targets`). Execution:
-  *Une fois / Récurrente* with the existing recurrence fields, `objective` (`tasks_accepted` | `accepted_items` + count
-  <= `result_limit`) and `allow_multiple`.
+  « Sociétés où chercher » (company targets, shown for « Trouver des contacts »), then *Une fois / Récurrente* with the
+  existing recurrence fields, and « Nombre de tâches » (read-only when the linked
+  records fix it; the split per company is shown under it). The detail page filters and pages the task list (20 per
+  page). Over MCP, a mission's detail lists at most 60 tasks (open ones first) plus `task_counts` / `tasks_omitted`.
 - **Visual identity.** Mission cards and the detail header take icon and colour from `card.category`
   (`missions/categoryVisual.ts`), not from the id; status keeps its own semantic chip.
 - **Mission-creator prompt.** Paramètres › *Assistant de mission* (`/settings/mission-creator`) edits
@@ -527,8 +538,8 @@ creator prompt therefore applies to the next turn, with no category change.
 
 **Tools** (closed list, `TOOLS`). Draft: `set_name`, `set_category` (+ `result_kind`), `set_prompt`
 (`null` = follow category), `set_skills`, `set_sources` (`null` = follow category), `add_/remove_context_record`
-(read-only context), `add_/remove_target` (the subject to process), `set_objective`, `set_recurrence`,
-`set_options` (`allow_multiple`, `result_limit`, `geography`, `period_days`, `exclude_known`). Read:
+(read-only context), `add_/remove_target` (the subject to process), `set_task_count`, `set_recurrence`,
+`set_options` (`geography`, `period_days`, `exclude_known`). Read:
 `get_draft`, `search_sources` (the library), `search_context_records` (the allowlisted company/prospect
 candidate search of the form). `request_creation` only sets `finalize`. Every draft call is validated against
 the real data (unknown category/skill/source, a record that no search returned in the turn, out-of-range
@@ -565,7 +576,7 @@ fiche », « Réanalyse son score », « Cherche ses relations », « Autre » (
 maps preset -> canonical `MissionInput` posted to `POST /missions` (server validation stays authoritative):
 
 - the prospect is a real `targets: [{ kind: 'prospect', id }]` entry; the company is a read-only `context_refs` record; identity,
-  role, company and the objective are also written in the consigne (category general prompt + `Objectif` + `Contexte`);
+  role, company and the objective (consigne text) are also written in the consigne (category general prompt + `Objectif` + `Contexte`);
 - category resolved at runtime by seeded key (`enrichment` for « Complète », `other` for score and relations), `skill_ids` /
   `source_ids` follow the category, `run_now: false`: **nothing starts automatically**; the success line links to `/missions/:id`;
 - « Réanalyse son score » is **not** built by the factory and is not a mission (§1c): the tile calls

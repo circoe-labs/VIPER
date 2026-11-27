@@ -5,14 +5,21 @@ import {
   type MissionDetail,
   type MissionEndKind,
   type MissionInput,
-  type MissionObjective,
   type MissionResultKind,
   type MissionType,
   type RecurrenceUnit,
   type TargetOption,
   useMissionOptions,
 } from '../api/missions'
-import { kindOf, kindSpec, MISSION_KINDS, type MissionKindSpec, missingForRun } from './missionKinds'
+import {
+  kindOf,
+  kindSpec,
+  MISSION_KINDS,
+  type MissionKindSpec,
+  missingForRun,
+  TASK_COUNT_MAX,
+  taskPlan,
+} from './missionKinds'
 
 // A context record linked to the mission (read-only, never a target). `note` is kept so an edit does not erase it.
 export interface ContextRefDraft extends TargetOption {
@@ -39,9 +46,7 @@ export interface MissionDraft {
   endKind?: MissionEndKind
   endsAt?: string
   maxRuns?: number
-  objective?: MissionObjective
-  allowMultiple?: boolean
-  resultLimit?: number
+  taskCount?: number
   geography?: string
   periodDays?: number | null
   excludeKnown?: boolean
@@ -142,11 +147,11 @@ export function useMissionForm(mission?: MissionDetail, initial?: MissionDraft) 
   const [endKind, setEndKind] = useState<MissionEndKind>(initial?.endKind ?? rule?.end_kind ?? 'never')
   const [endsAt, setEndsAt] = useState(initial?.endsAt ?? localInput(rule?.ends_at ?? null))
   const [maxRuns, setMaxRuns] = useState(String(initial?.maxRuns ?? rule?.max_runs ?? 10))
-  const [objective, setObjective] = useState<MissionObjective>(
-    initial?.objective ?? rule?.objective ?? { kind: 'tasks_accepted', count: null },
-  )
-  const [allowMultiple, setAllowMultiple] = useState(initial?.allowMultiple ?? rule?.allow_multiple ?? false)
-  const [resultLimit, setResultLimit] = useState(String(initial?.resultLimit ?? mission?.result_limit ?? 20))
+  // What the person typed in « Nombre de tâches »; null = untouched (the natural count applies).
+  const [taskCountText, setTaskCountText] = useState<string | null>(() => {
+    const value = initial?.taskCount ?? rule?.task_count
+    return value === undefined ? null : String(value)
+  })
   const [geography, setGeography] = useState(initial?.geography ?? rule?.geography ?? '')
   const [periodDays, setPeriodDays] = useState(
     initial?.periodDays != null ? String(initial.periodDays) : rule?.period_days ? String(rule.period_days) : '',
@@ -172,10 +177,17 @@ export function useMissionForm(mission?: MissionDetail, initial?: MissionDraft) 
     (options.data?.types.find((item) => item.value === type)?.executable ?? true) &&
     (options.data?.result_kinds.find((item) => item.value === resultKind)?.executable ?? true)
 
-  const objectiveMissing =
-    objective.kind === 'accepted_items' && (!objective.count || objective.count < 1)
-      ? 'Indiquez le nombre d’éléments à valider (au moins 1).'
-      : null
+  const plan = taskPlan(type ?? 'other', targets)
+  // Untouched: one task, or one per linked company.
+  const taskCount = plan.fixed ? String(plan.count) : (taskCountText ?? String(plan.minimum))
+  const wanted = Number(taskCount)
+  const taskCountMissing = plan.fixed
+    ? null
+    : !Number.isInteger(wanted) || wanted < 1 || wanted > TASK_COUNT_MAX
+      ? `Indiquez un nombre de tâches entre 1 et ${String(TASK_COUNT_MAX)}.`
+      : wanted < plan.minimum
+        ? `Au moins une tâche par société liée (${String(plan.minimum)}).`
+        : null
   const effectivePrompt = promptOverride ?? category?.general_prompt ?? ''
   const filled = name.trim() !== '' && effectivePrompt.trim() !== ''
   // Mirrors the server: a rule that could never produce a task is not saved (it used to be, then sat paused).
@@ -184,7 +196,7 @@ export function useMissionForm(mission?: MissionDetail, initial?: MissionDraft) 
       ? 'Choisissez une catégorie.'
       : !executable
         ? 'Ce type de mission n’est pas encore exécutable : choisissez-en un autre.'
-        : (missingForRun(type, resultKind, targets) ?? objectiveMissing)
+        : (missingForRun(type, resultKind, targets) ?? taskCountMissing)
   const ready = missing === null
   const canSave = filled && ready
 
@@ -221,9 +233,7 @@ export function useMissionForm(mission?: MissionDetail, initial?: MissionDraft) 
     if (draft.endKind !== undefined) setEndKind(draft.endKind)
     if (draft.endsAt !== undefined) setEndsAt(draft.endsAt)
     if (draft.maxRuns !== undefined) setMaxRuns(String(draft.maxRuns))
-    if (draft.objective !== undefined) setObjective(draft.objective)
-    if (draft.allowMultiple !== undefined) setAllowMultiple(draft.allowMultiple)
-    if (draft.resultLimit !== undefined) setResultLimit(String(draft.resultLimit))
+    if (draft.taskCount !== undefined) setTaskCountText(String(draft.taskCount))
     if (draft.geography !== undefined) setGeography(draft.geography)
     if (draft.periodDays !== undefined) setPeriodDays(draft.periodDays === null ? '' : String(draft.periodDays))
     if (draft.excludeKnown !== undefined) setExcludeKnown(draft.excludeKnown)
@@ -249,9 +259,7 @@ export function useMissionForm(mission?: MissionDetail, initial?: MissionDraft) 
       ends_at: recurring && endKind === 'date' && endsAt ? new Date(endsAt).toISOString() : null,
       max_runs: recurring && endKind === 'after' ? Number(maxRuns) : null,
       result_kind: resultKind,
-      result_limit: Number(resultLimit),
-      allow_multiple: allowMultiple,
-      objective: objective.kind === 'accepted_items' ? objective : { kind: 'tasks_accepted', count: null },
+      task_count: Number(taskCount),
       geography: geography.trim() || null,
       period_days: periodDays ? Number(periodDays) : null,
       exclusions: { ...(rule?.exclusions ?? {}), known_companies: excludeKnown },
@@ -305,12 +313,9 @@ export function useMissionForm(mission?: MissionDetail, initial?: MissionDraft) 
     setEndsAt,
     maxRuns,
     setMaxRuns,
-    objective,
-    setObjective,
-    allowMultiple,
-    setAllowMultiple,
-    resultLimit,
-    setResultLimit,
+    plan,
+    taskCount,
+    setTaskCount: setTaskCountText,
     geography,
     setGeography,
     periodDays,

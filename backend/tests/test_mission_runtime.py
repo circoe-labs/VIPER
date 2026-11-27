@@ -2,7 +2,7 @@
 
 The claim -> work -> submit / release / leave -> review path over the real JSON-RPC `/mcp`
 endpoint: what the claim carries (category instructions, skills, external sources, resolved
-internal context, output contract, objective, identity, lifecycle), that a targeted task exposes
+internal context, output contract, identity, lifecycle), that a targeted task exposes
 only its own target, that staging stays inside the output contract, and that no exit leaves a task
 or a session stranded.
 """
@@ -105,7 +105,7 @@ def test_the_claim_carries_the_instructions_sources_context_contract_and_identit
         other.id if own == "Cible SAS" else target.id
     ) not in str(payload)
     assert payload["output_contract"]["envelope"] == "single"
-    assert payload["objective"] == {"kind": "tasks_accepted", "count": None}
+    assert payload["mission"]["task_count"] == 2
     # The identity VIPER sees, the exits, and the right wording for the two limits.
     assert payload["agent"]["identity"].startswith("Agent")
     assert "#1" in payload["agent"]["identity"]
@@ -241,9 +241,7 @@ def test_staging_inside_a_mission_stays_inside_its_output_contract(
     assert own["isError"] is False, own
 
 
-def test_a_discovery_task_stages_one_company_unless_the_mission_allows_a_list(
-    client: TestClient, db_session: Session
-) -> None:
+def test_a_discovery_task_stages_one_company(client: TestClient, db_session: Session) -> None:
     create(client, kind=MissionType.PROSPECTION, result_kind="companies", run_now=True)
     token = mint(db_session, scopes=["find_prospects"])
     payload = claim(client, token)
@@ -257,7 +255,11 @@ def test_a_discovery_task_stages_one_company_unless_the_mission_allows_a_list(
             {
                 **base,
                 "action_id": str(uuid.uuid4()),
-                "company_data": {"display_name": name, "confidence": 80},
+                "company_data": {
+                    "display_name": name,
+                    "confidence": 80,
+                    "evidence": [{"field": "display_name", "source": "https://example.test"}],
+                },
             },
         )
 

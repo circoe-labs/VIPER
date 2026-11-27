@@ -174,7 +174,7 @@ TOOLS: list[dict[str, Any]] = [
             "A mission task also opens your work session automatically (nothing to register) and "
             "its payload carries the mission rule (`mission`: instructions, category, skills, "
             "external sources), `internal_context` (read-only VIPER records, not the target), "
-            "`output_contract` and `objective`, `agent` (your numbered identity), `lifecycle` "
+            "`output_contract`, `agent` (your numbered identity), `lifecycle` "
             "(submit / release / viper_leave_work) and `telemetry` guidance: log facts (searches, "
             "sources opened, observations, verifications, progress, warnings) with "
             "viper_log_mission_activity, and put a short factual research report in the result "

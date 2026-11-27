@@ -52,11 +52,6 @@ class RecordIn(StrictModel):
     hint: str | None = Field(default=None, max_length=300)
 
 
-class ObjectiveSnapshot(StrictModel):
-    kind: Literal["tasks_accepted", "accepted_items"]
-    count: int | None = None
-
-
 class DraftSnapshot(StrictModel):
     """The form's state as the browser sees it (`frontend/src/missions/voice/draftSnapshot.ts`).
     `null` for `prompt` / `skill_ids` / `source_ids` = follows the category."""
@@ -77,9 +72,7 @@ class DraftSnapshot(StrictModel):
     end_kind: str = "never"
     ends_at: str = ""
     max_runs: int | None = None
-    objective: ObjectiveSnapshot = ObjectiveSnapshot(kind="tasks_accepted")
-    allow_multiple: bool = False
-    result_limit: int = 20
+    task_count: int = 1
     geography: str = Field(default="", max_length=200)
     period_days: int | None = None
     exclude_known: bool = False

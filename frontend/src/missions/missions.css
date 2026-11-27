@@ -130,6 +130,7 @@
 .mission-runs,
 .mission-tasks {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-2);
   margin: 0;
   padding: 0;
@@ -165,10 +166,11 @@
 
 .mission-task__main {
   display: flex;
-  flex: 1;
+  flex: 1 1 12rem;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
-  min-width: 12rem;
+  min-width: 0;
 }
 
 .mission-task__target {
@@ -241,6 +243,23 @@
   position: absolute;
   top: -2px;
   right: 0;
+}
+
+/* The spread of the tasks over the linked companies. */
+.mission-form__split {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mission-form__split li {
+  padding: var(--space-1) var(--space-2);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm, 6px);
+  font-size: var(--text-sm);
 }
 
 /* Une fois / Récurrente */

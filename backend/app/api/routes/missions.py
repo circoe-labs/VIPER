@@ -44,14 +44,6 @@ class TargetIn(StrictModel):
     id: uuid.UUID
 
 
-class ObjectiveIn(StrictModel):
-    """The machine-evaluable goal of a run: `tasks_accepted` (default: every task of the run is
-    accepted) or `accepted_items` with a `count` (at most `result_limit`, the per-run cap)."""
-
-    kind: Literal["tasks_accepted", "accepted_items"] = "tasks_accepted"
-    count: int | None = Field(default=None, ge=1, le=500)
-
-
 class ContextRefIn(StrictModel):
     """A VIPER record supplied as read-only context (never a target)."""
 
@@ -67,7 +59,10 @@ class MissionIn(StrictModel):
     category unless sent: `null` = inherit, a value = override; `source_ids` follows the same
     rule (the category's default external sources, else the mission's own list). `context_refs` are
     read-only internal records, distinct from `targets` (omitted on « Modifier » = kept). On
-    « Modifier », a field left out keeps its value and its inherited/overridden state."""
+    « Modifier », a field left out keeps its value and its inherited/overridden state.
+
+    `task_count` is « Nombre de tâches » per run: a discovery task brings exactly one item, so
+    « find 50 prospects at X » is one mission with `task_count: 50` and X in `targets`."""
 
     name: str = Field(min_length=1, max_length=200)
     type: MissionType | None = None
@@ -86,9 +81,18 @@ class MissionIn(StrictModel):
     ends_at: datetime | None = None
     max_runs: int | None = Field(default=None, ge=1, le=1000)
     result_kind: MissionResultKind = MissionResultKind.ENRICHMENT
-    result_limit: int = Field(default=20, ge=1, le=500)
-    allow_multiple: bool = False
-    objective: ObjectiveIn | None = None
+    task_count: int | None = Field(
+        default=None,
+        ge=1,
+        le=500,
+        description=(
+            "Number of tasks of each run, one item found per task (a company, a warehouse, a "
+            "person): « 50 prospects » = 50. With several linked companies the total is spread "
+            "evenly over them (at least one each). Ignored for missions that update or watch "
+            "linked records (one task per record). Left out: 1, or one per linked company; on "
+            "update, kept."
+        ),
+    )
     geography: str | None = Field(default=None, max_length=200)
     period_days: int | None = Field(default=None, ge=1, le=3650)
     exclusions: dict[str, Any] = Field(default_factory=dict)
@@ -268,7 +272,7 @@ class RunOut(BaseModel):
     tasks_total: int
     results_count: int
     note: str | None
-    objective_met_at: datetime | None = None
+    tasks_finished: int = 0
 
 
 class MissionTaskOut(BaseModel):
@@ -278,6 +282,8 @@ class MissionTaskOut(BaseModel):
     company_id: uuid.UUID | None
     prospect_id: uuid.UUID | None
     prospect_name: str | None
+    company_name: str | None = None
+    failure_code: str | None = None
     claimed_by_label: str | None
     assigned_agent_id: uuid.UUID | None
     result_id: uuid.UUID | None
@@ -293,15 +299,7 @@ class MissionRuleOut(BaseModel):
     geography: str | None
     period_days: int | None
     exclusions: dict[str, Any]
-    allow_multiple: bool
-    objective: ObjectiveIn
-
-
-class ObjectiveProgressOut(BaseModel):
-    kind: str
-    target: int | None
-    current: int
-    met: bool
+    task_count: int
 
 
 class MissionDetailOut(BaseModel):
@@ -315,12 +313,10 @@ class MissionDetailOut(BaseModel):
     tasks: list[MissionTaskOut]
     prompt: str
     result_kind: MissionResultKind
-    result_limit: int
     rule: MissionRuleOut
     inheritance: InheritanceOut
     # The instruction skills the mission works with (own list when overridden, else the category's).
     skills: list[SkillRefOut]
-    objective_progress: ObjectiveProgressOut | None = None
 
 
 class CreatorPromptOut(BaseModel):
@@ -342,7 +338,7 @@ class MissionOptionsOut(BaseModel):
     result_kinds: list[OptionOut]
     units: list[str]
     end_kinds: list[str]
-    result_limit_max: int
+    task_count_max: int
 
 
 class ProposalOut(BaseModel):
@@ -371,16 +367,30 @@ def detail_out(detail: missions.MissionDetail) -> MissionDetailOut:
         tasks=[MissionTaskOut.model_validate(row, from_attributes=True) for row in detail.tasks],
         prompt=detail.prompt,
         result_kind=detail.result_kind,
-        result_limit=detail.result_limit,
         rule=MissionRuleOut.model_validate(detail.rule, from_attributes=True),
         inheritance=InheritanceOut.model_validate(detail.inheritance, from_attributes=True),
         skills=[SkillRefOut.model_validate(row, from_attributes=True) for row in detail.skills],
-        objective_progress=(
-            ObjectiveProgressOut.model_validate(detail.objective_progress)
-            if detail.objective_progress is not None
-            else None
-        ),
     )
+
+
+AGENT_TASKS_MAX = 60
+
+
+def bounded_for_agents(detail: MissionDetailOut) -> dict[str, Any]:
+    """The detail an agent reads over MCP: a run may hold 500 tasks, so those that still need
+    something come first, the list is cut and the count per status is given instead."""
+    dumped: dict[str, Any] = detail.model_dump(mode="json")
+    tasks = dumped["tasks"]
+    counts: dict[str, int] = {}
+    for task in tasks:
+        counts[task["status"]] = counts.get(task["status"], 0) + 1
+    dumped["task_counts"] = counts
+    if len(tasks) > AGENT_TASKS_MAX:
+        order = {"submitted": 0, "claimed": 1, "pending": 2}
+        tasks = sorted(tasks, key=lambda task: order.get(task["status"], 3))
+        dumped["tasks"] = tasks[:AGENT_TASKS_MAX]
+        dumped["tasks_omitted"] = len(tasks) - AGENT_TASKS_MAX
+    return dumped
 
 
 def mission_input(body: MissionIn) -> missions.MissionInput:
@@ -420,9 +430,7 @@ def mission_input(body: MissionIn) -> missions.MissionInput:
         ends_at=ends_at,
         max_runs=body.max_runs,
         result_kind=body.result_kind,
-        result_limit=body.result_limit,
-        allow_multiple=body.allow_multiple,
-        objective=body.objective.model_dump() if body.objective is not None else None,
+        task_count=body.task_count,
         geography=body.geography,
         period_days=body.period_days,
         exclusions=body.exclusions,

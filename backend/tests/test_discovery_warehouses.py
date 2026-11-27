@@ -329,7 +329,6 @@ def test_a_staged_known_company_adds_its_warehouse_after_review(
         kind=MissionType.PROSPECTION,
         prompt="Nouveaux entrepôts autour du Havre",
         result_kind="companies",
-        allow_multiple=True,
         run_now=True,
     )
     token = mint(db_session)

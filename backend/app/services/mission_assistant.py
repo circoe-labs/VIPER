@@ -5,7 +5,7 @@ The assistant never writes anything. It reads the person's **draft** (the form's
 each turn), talks, and proposes edits through a closed list of tools:
 
 - **draft tools** (`set_name`, `set_category`, `set_prompt`, `set_skills`, `set_sources`,
-  `add_/remove_context_record`, `add_/remove_target`, `set_objective`, `set_recurrence`,
+  `add_/remove_context_record`, `add_/remove_target`, `set_task_count`, `set_recurrence`,
   `set_options`): validated here against the real catalogues (a category, skill or source that does
   not exist, a record that no search returned, an out-of-range number) and *returned* as `actions`
   for the browser to lay over the same form the person types in. Nothing reaches the database;
@@ -76,6 +76,9 @@ RULES = "\n".join(
         "de créer ou lancer la mission (« crée », « go », « c’est bon, lance »), ou répond "
         "oui à ta question « je la crée ? ». Sinon, propose et attends sa validation. "
         "Pas dans le même tour qu’une recherche de fiches.",
+        "- « Trouve-moi 50 prospects chez X » = UNE mission « Trouver des prospects chez X » : "
+        "résultat prospects, X en SUJET (add_target), set_task_count 50. Une tâche = un "
+        "élément trouvé.",
         "- Tu ne peux rien faire d’autre que modifier ce brouillon : refuse poliment le reste "
         "en une phrase.",
     ]
@@ -183,14 +186,13 @@ TOOLS: list[dict[str, Any]] = [
         ["kind", "id"],
     ),
     _tool(
-        "set_objective",
-        "Objectif mesurable de chaque exécution : tasks_accepted (toutes les tâches validées) ou "
-        "accepted_items avec count éléments validés (1 à 500).",
-        {
-            "kind": {"type": "string", "enum": ["tasks_accepted", "accepted_items"]},
-            "count": {"type": ["integer", "null"], "minimum": 1, "maximum": 500},
-        },
-        ["kind"],
+        "set_task_count",
+        "Nombre de tâches (par exécution si récurrente), 1 à 500 : une tâche = un élément trouvé "
+        "(société, entrepôt, prospect). Avec plusieurs sociétés liées, le total est réparti "
+        "entre elles. Inutile quand la mission met à jour ou surveille des fiches liées (une "
+        "tâche par fiche).",
+        {"count": {"type": "integer", "minimum": 1, "maximum": 500}},
+        ["count"],
     ),
     _tool(
         "set_recurrence",
@@ -210,12 +212,9 @@ TOOLS: list[dict[str, Any]] = [
     ),
     _tool(
         "set_options",
-        "Autres options : allow_multiple (plusieurs éléments par résultat), result_limit "
-        "(éléments par exécution, 1-500), geography, period_days (1-3650), exclude_known "
+        "Autres options : geography, period_days (1-3650), exclude_known "
         "(exclure les entreprises déjà connues). Ne donne que ce qui change.",
         {
-            "allow_multiple": {"type": "boolean"},
-            "result_limit": {"type": "integer", "minimum": 1, "maximum": 500},
             "geography": {"type": ["string", "null"]},
             "period_days": {"type": ["integer", "null"], "minimum": 1, "maximum": 3650},
             "exclude_known": {"type": "boolean"},
@@ -241,7 +240,7 @@ DRAFT_TOOLS = frozenset(
         "remove_context_record",
         "add_target",
         "remove_target",
-        "set_objective",
+        "set_task_count",
         "set_recurrence",
         "set_options",
     }
@@ -451,15 +450,17 @@ def _remove_record(
     )
 
 
-def _objective(turn: _Turn, args: dict[str, Any]) -> tuple[dict[str, Any], str]:
-    kind = args.get("kind")
-    if kind == "tasks_accepted":
-        return {"kind": kind, "count": None}, "Objectif : toutes les tâches validées"
-    if kind != "accepted_items":
-        raise ToolRefused("kind: tasks_accepted ou accepted_items.")
-    limit = int(turn.working.get("result_limit") or 20)
-    count = _int(args.get("count"), "count", 1, limit)
-    return {"kind": kind, "count": count}, f"Objectif : {count} éléments validés par exécution"
+def _task_count(turn: _Turn, args: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    count = _int(args.get("count"), "count", 1, missions.TASK_COUNT_MAX)
+    kinds = [str(item["kind"]) for item in turn.working.get("targets", [])]
+    category = turn.categories.get(str(turn.working.get("category_id")))
+    if category is not None:
+        fixed = missions.counts_by_records(category.mission_type, None, kinds)
+        if fixed is not None:
+            raise ToolRefused(f"Le nombre de tâches est fixé par les fiches liées ({fixed}).")
+        if count < kinds.count("company"):
+            raise ToolRefused(f"Au moins une tâche par société liée ({kinds.count('company')}).")
+    return {"count": count}, f"Nombre de tâches : {count}"
 
 
 def _recurrence(turn: _Turn, args: dict[str, Any]) -> tuple[dict[str, Any], str]:
@@ -495,18 +496,11 @@ def _recurrence(turn: _Turn, args: dict[str, Any]) -> tuple[dict[str, Any], str]
 def _options(turn: _Turn, args: dict[str, Any]) -> tuple[dict[str, Any], str]:
     out: dict[str, Any] = {}
     parts: list[str] = []
-    for flag, label in (
-        ("allow_multiple", "plusieurs éléments"),
-        ("exclude_known", "exclure les connues"),
-    ):
-        if flag in args:
-            if not isinstance(args[flag], bool):
-                raise ToolRefused(f"{flag}: booléen attendu.")
-            out[flag] = args[flag]
-            parts.append(f"{label} : {'oui' if args[flag] else 'non'}")
-    if "result_limit" in args:
-        out["result_limit"] = _int(args["result_limit"], "result_limit", 1, 500)
-        parts.append(f"limite {out['result_limit']} par exécution")
+    if "exclude_known" in args:
+        if not isinstance(args["exclude_known"], bool):
+            raise ToolRefused("exclude_known: booléen attendu.")
+        out["exclude_known"] = args["exclude_known"]
+        parts.append(f"exclure les connues : {'oui' if args['exclude_known'] else 'non'}")
     if "geography" in args:
         text = (str(args["geography"]) if args["geography"] is not None else "").strip()
         if len(text) > 200:
@@ -537,7 +531,7 @@ _DRAFT_HANDLERS = {
     ),
     "add_target": lambda turn, args: _add_record(turn, args, "targets", "Sujet"),
     "remove_target": lambda turn, args: _remove_record(turn, args, "targets", "Sujet"),
-    "set_objective": _objective,
+    "set_task_count": _task_count,
     "set_recurrence": _recurrence,
     "set_options": _options,
 }
@@ -561,8 +555,8 @@ def _mirror(working: dict[str, Any], tool: str, args: dict[str, Any]) -> None:
         if tool.startswith("add_"):
             refs.append({"kind": args["kind"], "id": args["id"], "label": args["label"]})
         working[field_name] = refs
-    elif tool == "set_objective":
-        working["objective"] = {"kind": args["kind"], "count": args["count"]}
+    elif tool == "set_task_count":
+        working["task_count"] = args["count"]
     else:
         working.update({key: value for key, value in args.items() if key != "labels"})
 

@@ -114,3 +114,30 @@ export function missingForRun(
   }
   return null
 }
+
+// « Nombre de tâches » (mirror of the server's `counts_by_records` / `_plan_run`): discovery (nothing linked) and
+// finding contacts at companies take the number the person asks for; work on linked records is one task per record.
+export type TaskPlan =
+  | { fixed: false; minimum: number }
+  | { fixed: true; count: number; per: 'société' | 'fiche' }
+
+export function taskPlan(type: MissionType, targets: Pick<TargetOption, 'kind'>[]): TaskPlan {
+  const companies = targets.filter((target) => target.kind === 'company').length
+  if (targets.length === 0) return { fixed: false, minimum: 1 }
+  if (type === 'signals') return { fixed: true, count: companies, per: 'société' }
+  if (type === 'prospection') return { fixed: false, minimum: Math.max(companies, 1) }
+  return { fixed: true, count: targets.length, per: 'fiche' }
+}
+
+export const TASK_COUNT_MAX = 500
+
+// The even spread of `total` tasks over the linked companies, dealt one at a time in label order as the server does.
+export function taskSplit(total: number, targets: Pick<TargetOption, 'kind' | 'label'>[]): { label: string; count: number }[] {
+  const companies = targets
+    .filter((target) => target.kind === 'company')
+    .map((target) => target.label)
+    .sort((a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' }))
+  if (companies.length === 0) return []
+  const base = Math.floor(total / companies.length)
+  return companies.map((label, index) => ({ label, count: base + (index < total % companies.length ? 1 : 0) }))
+}

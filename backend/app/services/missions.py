@@ -38,6 +38,9 @@ from app.models.enums import (
 from app.models.mcp import McpToken
 from app.models.mission_categories import MissionCategory
 from app.models.missions import (
+    TASK_COUNT_MAX as TASK_COUNT_LIMIT,
+)
+from app.models.missions import (
     Mission,
     MissionRun,
     MissionTarget,
@@ -52,7 +55,6 @@ from app.services import (
     mcp_reads,
     mission_categories,
     mission_context,
-    mission_output,
     mission_sources,
     mission_telemetry,
 )
@@ -79,8 +81,7 @@ EXECUTABLE_RESULT_KINDS = frozenset(
         MissionResultKind.SIGNALS,
     }
 )
-DEFAULT_RESULT_LIMIT = 20
-RESULT_LIMIT_MAX = 500
+TASK_COUNT_MAX = TASK_COUNT_LIMIT
 OPEN_TASK_STATUSES = (
     AgentTaskStatus.PENDING,
     AgentTaskStatus.CLAIMED,
@@ -122,11 +123,9 @@ class MissionInput:
     ends_at: datetime | None = None
     max_runs: int | None = None
     result_kind: MissionResultKind = MissionResultKind.ENRICHMENT
-    result_limit: int = DEFAULT_RESULT_LIMIT
-    # One item per submission by default; true = the list envelope (Slice 04).
-    allow_multiple: bool = False
-    # The machine-evaluable goal (`mission_output.MissionObjective` as a dict); None = default.
-    objective: dict[str, Any] | None = None
+    # « Nombre de tâches » per run. None = the natural count (1, or one per linked company);
+    # on update, None keeps the current one. Ignored for work on linked records (one per record).
+    task_count: int | None = None
     geography: str | None = None
     period_days: int | None = None
     exclusions: dict[str, Any] = field(default_factory=dict)
@@ -191,7 +190,8 @@ class RunRow:
     tasks_total: int
     results_count: int
     note: str | None
-    objective_met_at: datetime | None = None
+    # Tasks with nothing left to happen to them (accepted, rejected, nothing found, cancelled).
+    tasks_finished: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,6 +211,9 @@ class MissionTaskRow:
     company_id: uuid.UUID | None
     prospect_id: uuid.UUID | None
     prospect_name: str | None
+    company_name: str | None
+    # `rejected`, `not_found`, `blocked`…: why a finished task ended without an accepted item.
+    failure_code: str | None
     claimed_by_label: str | None
     assigned_agent_id: uuid.UUID | None
     result_id: uuid.UUID | None
@@ -229,8 +232,8 @@ class MissionRule:
     geography: str | None
     period_days: int | None
     exclusions: dict[str, Any]
-    allow_multiple: bool
-    objective: dict[str, Any]
+    # What one run creates: the mission's « Nombre de tâches », or one per linked record.
+    task_count: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -245,13 +248,10 @@ class MissionDetail:
     tasks: list[MissionTaskRow]
     prompt: str
     result_kind: MissionResultKind
-    result_limit: int
     rule: MissionRule
     inheritance: MissionInheritance
     # The instruction skills the mission works with (its own list, else its category's defaults).
     skills: list[SkillRef]
-    # The latest run's standing against its objective (None before any run).
-    objective_progress: dict[str, Any] | None
 
 
 def _now(now: datetime | None) -> datetime:
@@ -336,18 +336,27 @@ def _target_rows(session: Session, mission_id: uuid.UUID) -> list[TargetRow]:
 def _task_rows(session: Session, mission_id: uuid.UUID) -> list[MissionTaskRow]:
     runs = select(MissionRun.id).where(MissionRun.mission_id == mission_id).scalar_subquery()
     tasks = session.scalars(
-        select(AgentTask).where(AgentTask.run_id.in_(runs)).order_by(AgentTask.created_at)
+        select(AgentTask)
+        .where(AgentTask.run_id.in_(runs))
+        .order_by(AgentTask.created_at, AgentTask.id)
     ).all()
     result_ids = {
         result.task_id: result.id
         for result in session.scalars(
-            select(AgentTaskResult).where(AgentTaskResult.task_id.in_([task.id for task in tasks]))
+            select(AgentTaskResult)
+            .where(AgentTaskResult.task_id.in_([task.id for task in tasks]))
+            .order_by(AgentTaskResult.submitted_at)
         )
     }
     prospect_ids = {task.prospect_id for task in tasks if task.prospect_id is not None}
     names = {
         prospect.id: " ".join(part for part in (prospect.first_name, prospect.last_name) if part)
         for prospect in session.scalars(select(Prospect).where(Prospect.id.in_(prospect_ids)))
+    }
+    company_ids = {task.company_id for task in tasks if task.company_id is not None}
+    company_names = {
+        company.id: company.display_name
+        for company in session.scalars(select(Company).where(Company.id.in_(company_ids)))
     }
     rows = [
         MissionTaskRow(
@@ -357,6 +366,8 @@ def _task_rows(session: Session, mission_id: uuid.UUID) -> list[MissionTaskRow]:
             company_id=task.company_id,
             prospect_id=task.prospect_id,
             prospect_name=names.get(task.prospect_id) if task.prospect_id else None,
+            company_name=company_names.get(task.company_id) if task.company_id else None,
+            failure_code=task.failure_code,
             claimed_by_label=task.claimed_by_label,
             assigned_agent_id=task.assigned_agent_id,
             result_id=result_ids.get(task.id),
@@ -377,7 +388,7 @@ def _counts(session: Session, mission_id: uuid.UUID) -> tuple[int, int, int]:
     ).all()
     by_status = {status: count for status, count in tasks}
     total = sum(by_status.values())
-    done = by_status.get(AgentTaskStatus.ACCEPTED, 0)
+    done = sum(by_status.get(status, 0) for status in TERMINAL_TASK_STATUSES)
     pending = by_status.get(AgentTaskStatus.SUBMITTED, 0)
     return total, done, pending
 
@@ -440,11 +451,23 @@ def list_cards(session: Session, *, status: MissionStatus | None = None) -> list
     ]
 
 
+def _finished_by_run(session: Session, mission_id: uuid.UUID) -> dict[uuid.UUID, int]:
+    rows = session.execute(
+        select(MissionRun.id, func.count(AgentTask.id))
+        .join(AgentTask, AgentTask.run_id == MissionRun.id)
+        .where(MissionRun.mission_id == mission_id, AgentTask.status.in_(TERMINAL_TASK_STATUSES))
+        .group_by(MissionRun.id)
+    )
+    return {run_id: count for run_id, count in rows}
+
+
 def detail(session: Session, mission_id: uuid.UUID) -> MissionDetail:
     mission = session.get(Mission, mission_id)
     if mission is None:
         raise NotFoundError("Unknown mission.")
     card = _card(session, mission)
+    finished = _finished_by_run(session, mission.id)
+    targets = _target_rows(session, mission.id)
     runs = [
         RunRow(
             id=run.id,
@@ -456,7 +479,7 @@ def detail(session: Session, mission_id: uuid.UUID) -> MissionDetail:
             tasks_total=run.tasks_total,
             results_count=run.results_count,
             note=run.note,
-            objective_met_at=run.objective_met_at,
+            tasks_finished=finished.get(run.id, 0),
         )
         for run in session.scalars(
             select(MissionRun)
@@ -466,14 +489,13 @@ def detail(session: Session, mission_id: uuid.UUID) -> MissionDetail:
     ]
     return MissionDetail(
         card=card,
-        targets=_target_rows(session, mission.id),
+        targets=targets,
         sources=mission_sources.effective_source_rows(session, mission),
         context_refs=mission_context.list_refs(session, mission.id),
         runs=runs,
         tasks=_task_rows(session, mission.id),
         prompt=mission.prompt,
         result_kind=mission.result_kind,
-        result_limit=mission.result_limit,
         rule=MissionRule(
             agent_id=mission.agent_id,
             starts_at=mission.starts_at,
@@ -483,15 +505,18 @@ def detail(session: Session, mission_id: uuid.UUID) -> MissionDetail:
             geography=mission.geography,
             period_days=mission.period_days,
             exclusions=dict(mission.exclusions or {}),
-            allow_multiple=mission.allow_multiple,
-            objective=mission_output.parse_objective(mission.objective),
+            task_count=planned_count(
+                mission.type,
+                mission.task_type,
+                [target.kind for target in targets],
+                mission.task_count,
+            ),
         ),
         inheritance=mission_categories.inheritance(session, mission),
         skills=[
             SkillRef(id=skill.id, name=skill.name)
             for skill in mission_categories.effective_skills(session, mission)
         ],
-        objective_progress=_latest_progress(session, runs[0].id if runs else None),
     )
 
 
@@ -540,19 +565,61 @@ def next_occurrence(mission: Mission, after: datetime, *, runs_count: int = 0) -
     return moment
 
 
+def counts_by_records(
+    mission_type: MissionType, task_type: AgentTaskType | None, target_kinds: list[str]
+) -> int | None:
+    """The number of tasks the linked records impose (one per record to update or watch), or None
+    when « Nombre de tâches » decides: discovery (nothing linked) and finding people at the
+    linked companies."""
+    if not target_kinds:
+        return None
+    if task_type is AgentTaskType.REASSESS_SCORE:
+        return target_kinds.count("prospect")
+    if mission_type is MissionType.SIGNALS:
+        return target_kinds.count("company")
+    if mission_type is MissionType.PROSPECTION:
+        return None
+    return len(target_kinds)
+
+
+def planned_count(
+    mission_type: MissionType,
+    task_type: AgentTaskType | None,
+    target_kinds: list[str],
+    wanted: int | None,
+) -> int:
+    """The tasks one run creates. Finding people: at least one task per linked company."""
+    records = counts_by_records(mission_type, task_type, target_kinds)
+    if records is not None:
+        return records
+    return max(wanted or 1, target_kinds.count("company"))
+
+
+def _task_count(
+    mission_type: MissionType,
+    task_type: AgentTaskType | None,
+    data: MissionInput,
+    current: int | None = None,
+) -> int:
+    """The count to store. A value the person gives is refused when it cannot be honoured; one
+    left out keeps the current value (or takes the natural count)."""
+    kinds = _target_kinds(data.targets)
+    wanted = data.task_count
+    if wanted is not None and not 1 <= wanted <= TASK_COUNT_MAX:
+        raise InvalidFieldError("task_count", "Entre 1 et 500 tâches.", "range")
+    records = counts_by_records(mission_type, task_type, kinds)
+    if records is None and wanted is not None and wanted < kinds.count("company"):
+        raise InvalidFieldError(
+            "task_count",
+            f"Au moins une tâche par société liée ({kinds.count('company')}).",
+            "range",
+        )
+    count = planned_count(mission_type, task_type, kinds, wanted or current)
+    return min(max(count, 1), TASK_COUNT_MAX)
+
+
 def _validate(data: MissionInput, now: datetime) -> None:
     """Shape checks only: a type whose schema is not ready can be saved, not launched."""
-    if not 1 <= data.result_limit <= RESULT_LIMIT_MAX:
-        raise InvalidFieldError("result_limit", "Between 1 and 500.", "range")
-    objective = mission_output.parse_objective(data.objective)
-    if objective["kind"] == mission_output.OBJECTIVE_ACCEPTED_ITEMS:
-        if data.targets and data.type not in (MissionType.PROSPECTION, MissionType.SIGNALS):
-            raise InvalidFieldError(
-                "objective.kind",
-                "Counting accepted items needs a discovery, prospection or signals mission.",
-                "unsupported",
-            )
-        # A goal above `result_limit` is allowed: the run's cap is raised to the goal (`mission_rule`).
     if data.is_recurring and data.interval_count < 1:
         raise InvalidFieldError("interval_count", "At least 1.", "range")
     # The end rule is checked for every mission, one-off included: the table's constraints
@@ -563,11 +630,6 @@ def _validate(data: MissionInput, now: datetime) -> None:
         raise InvalidFieldError("max_runs", "At least 1 run.", "range")
     if data.end_kind is MissionEndKind.DATE and data.ends_at is not None and data.ends_at <= now:
         raise InvalidFieldError("ends_at", "The end must be in the future.", "range")
-
-
-def _stored_objective(raw: dict[str, Any] | None) -> dict[str, Any] | None:
-    """The objective as persisted: None stays « default » (every task accepted)."""
-    return None if raw is None else mission_output.parse_objective(raw)
 
 
 def _target_kinds(targets: tuple[TargetInput, ...]) -> list[str]:
@@ -630,6 +692,7 @@ def create(
     _validate(data, moment)
     check_runnable(mission_type, data.result_kind, _target_kinds(data.targets))
     _check_forced_task(data.task_type, data.targets)
+    task_count = _task_count(mission_type, data.task_type, data)
     token: McpToken | None = None
     if data.agent_id is not None:
         token = session.get(McpToken, data.agent_id)
@@ -659,9 +722,7 @@ def create(
         ends_at=data.ends_at,
         max_runs=data.max_runs,
         result_kind=data.result_kind,
-        result_limit=data.result_limit,
-        allow_multiple=data.allow_multiple,
-        objective=_stored_objective(data.objective),
+        task_count=task_count,
         geography=(data.geography or "").strip() or None,
         period_days=data.period_days,
         exclusions=data.exclusions,
@@ -716,9 +777,7 @@ EDITED_FIELDS = (
     "ends_at",
     "max_runs",
     "result_kind",
-    "result_limit",
-    "allow_multiple",
-    "objective",
+    "task_count",
     "geography",
     "period_days",
     "exclusions",
@@ -782,6 +841,7 @@ def update(
     category, mission_type = _update_category(session, mission, data)
     _validate(data, moment)
     check_runnable(mission_type, data.result_kind, _target_kinds(data.targets))
+    task_count = _task_count(mission_type, mission.task_type, data, current=mission.task_count)
     agent_label: str | None = None
     if data.agent_id is not None and data.agent_id == mission.agent_id:
         # Unchanged agent: keep the snapshotted label even if its token was revoked since.
@@ -816,9 +876,7 @@ def update(
     mission.ends_at = data.ends_at
     mission.max_runs = data.max_runs
     mission.result_kind = data.result_kind
-    mission.result_limit = data.result_limit
-    mission.allow_multiple = data.allow_multiple
-    mission.objective = _stored_objective(data.objective)
+    mission.task_count = task_count
     mission.geography = (data.geography or "").strip() or None
     mission.period_days = data.period_days
     mission.exclusions = data.exclusions
@@ -910,82 +968,29 @@ def _open_tasks(session: Session, mission_id: uuid.UUID) -> bool:
     return bool(count)
 
 
-def _run_objective(session: Session, run: MissionRun) -> dict[str, Any] | None:
-    """The objective a run works under: its snapshot, else the live mission's (runs made before
-    migration 0049 have none and use the default)."""
-    snapshot = (run.config or {}).get("objective")
-    if snapshot is not None:
-        return dict(snapshot)
-    if run.config is not None:
-        return None
+def _close_finished_one_off(session: Session, run: MissionRun) -> None:
+    """A one-off mission closes when all its tasks are finished (accepted, rejected, nothing
+    found, blocked). A recurring one stays scheduled: its end rule is the scheduler's."""
     mission = session.get(Mission, run.mission_id)
-    return mission.objective if mission is not None else None
-
-
-def _latest_progress(session: Session, run_id: uuid.UUID | None) -> dict[str, Any] | None:
-    run = session.get(MissionRun, run_id) if run_id is not None else None
-    if run is None:
-        return None
-    tasks = session.scalars(select(AgentTask).where(AgentTask.run_id == run.id)).all()
-    return mission_output.progress(session, tasks, _run_objective(session, run)).as_dict()
-
-
-def _continue_discovery(
-    session: Session, mission: Mission, run: MissionRun, tasks: list[AgentTask]
-) -> bool:
-    """Discovery work one item at a time: while the objective is not met and the last accepted
-    result brought something, open the next task of the same run. Bounded: each step needs a
-    non-empty accepted result, and the count is capped by `result_limit`."""
-    if not tasks or any(task.type is not AgentTaskType.FIND_PROSPECTS for task in tasks):
-        return False
-    state = mission_output.progress(session, tasks, _run_objective(session, run))
     if (
-        state.kind != mission_output.OBJECTIVE_ACCEPTED_ITEMS
-        or state.met
-        or state.last_accepted_items < 1
-        or state.items_accepted >= int((run.config or {}).get("result_limit", RESULT_LIMIT_MAX))
-        or tasks[-1].status is not AgentTaskStatus.ACCEPTED
+        mission is None
+        or mission.is_deposit
+        or mission.is_recurring
+        or mission.status is not MissionStatus.ACTIVE
+        or _open_tasks(session, mission.id)
     ):
-        return False
-    _task(
+        return
+    mission.status = MissionStatus.DONE
+    mission.next_run_at = None
+    audit.record_event(
         session,
         SCHEDULER_ACTOR,
-        mission,
-        run,
-        AgentTaskType.FIND_PROSPECTS,
-        company_id=None,
-        prospect_id=None,
+        audit.AuditAction.MISSION_STATUS_CHANGED,
+        entity_type="mission",
+        entity_id=mission.id,
+        changes={"status": {"before": "active", "after": "done"}},
+        reason="all tasks finished",
     )
-    return True
-
-
-def _settle_objective(
-    session: Session, run: MissionRun, tasks: list[AgentTask], now: datetime
-) -> None:
-    """A finished run is checked against its own objective. Fulfilled: stamp it, and close a
-    one-off mission (a recurring one stays scheduled; its end rule is the scheduler's).
-    Not fulfilled: say so on the run and leave the mission open: never « done » by default."""
-    mission = session.get(Mission, run.mission_id)
-    if mission is None or mission.is_deposit:
-        return
-    state = mission_output.progress(session, tasks, _run_objective(session, run))
-    if state.met:
-        if run.objective_met_at is None:
-            run.objective_met_at = now
-        if not mission.is_recurring and mission.status is MissionStatus.ACTIVE:
-            mission.status = MissionStatus.DONE
-            mission.next_run_at = None
-            audit.record_event(
-                session,
-                SCHEDULER_ACTOR,
-                audit.AuditAction.MISSION_STATUS_CHANGED,
-                entity_type="mission",
-                entity_id=mission.id,
-                changes={"status": {"before": "active", "after": "done"}},
-                reason="objective fulfilled",
-            )
-    elif run.note is None:
-        run.note = f"Objectif non atteint ({state.current}/{state.target})."
 
 
 def refresh_run(session: Session, run: MissionRun) -> MissionRun:
@@ -1005,15 +1010,6 @@ def refresh_run(session: Session, run: MissionRun) -> MissionRun:
         .where(AgentTaskResult.task_id.in_([task.id for task in tasks]))
     )
     run.results_count = results or 0
-    mission = session.get(Mission, run.mission_id)
-    if (
-        run.status is MissionRunStatus.RUNNING
-        and mission is not None
-        and not any(status in OPEN_TASK_STATUSES for status in statuses)
-        and _continue_discovery(session, mission, run, tasks)
-    ):
-        statuses = [*statuses, AgentTaskStatus.PENDING]
-        run.tasks_total += 1
     if any(status in OPEN_TASK_STATUSES for status in statuses):
         run.status = MissionRunStatus.RUNNING
         run.finished_at = None
@@ -1029,7 +1025,7 @@ def refresh_run(session: Session, run: MissionRun) -> MissionRun:
                 run.finished_at = max(
                     (task.updated_at for task in tasks), default=run.started_at or run.scheduled_at
                 )
-            _settle_objective(session, run, tasks, run.finished_at)
+            _close_finished_one_off(session, run)
     return run
 
 
@@ -1119,8 +1115,6 @@ def ensure_deposit(session: Session) -> Mission:
             status=MissionStatus.ACTIVE,
             is_deposit=True,
             result_kind=MissionResultKind.ENRICHMENT,
-            result_limit=50,
-            allow_multiple=True,
             created_by_type=ActorType.SYSTEM,
             created_by_display="VIPER",
         )
@@ -1179,9 +1173,7 @@ def open_deposit(
     )
     session.add(run)
     session.flush()
-    task = _task(
-        session, actor, mission, run, task_type, company_id=company_id, prospect_id=prospect_id
-    )
+    [task] = _create_tasks(session, actor, mission, run, [(task_type, company_id, prospect_id)])
     mission.last_run_at = moment
     session.flush()
     audit.record_event(
@@ -1252,6 +1244,46 @@ def check_runnable(
             )
 
 
+type TaskSpec = tuple[AgentTaskType, uuid.UUID | None, uuid.UUID | None]
+
+
+def _plan_run(
+    session: Session, mission: Mission, targets: list[TargetRow]
+) -> tuple[list[TaskSpec], list[str]]:
+    """The tasks of one run as `(type, company_id, prospect_id)`, and the linked records skipped.
+
+    Nothing linked: « Nombre de tâches » discovery tasks. Prospection on companies: as many
+    find-people tasks, dealt to the companies one at a time in the page's order (an even spread).
+    Anything else: one task per record."""
+    count = planned_count(
+        mission.type, mission.task_type, [target.kind for target in targets], mission.task_count
+    )
+    if not targets:
+        return [(AgentTaskType.FIND_PROSPECTS, None, None)] * count, []
+    reassess = mission.task_type is AgentTaskType.REASSESS_SCORE
+    company_ids = [target.id for target in targets if target.kind == "company"]
+    if not reassess and mission.type is MissionType.SIGNALS:
+        return [(AgentTaskType.SURVEIL_SIGNALS, one, None) for one in company_ids], []
+    if not reassess and mission.type is MissionType.PROSPECTION:
+        return [
+            (AgentTaskType.FIND_EMPLOYEES, company_ids[index % len(company_ids)], None)
+            for index in range(count)
+        ], []
+    specs: list[TaskSpec] = []
+    skipped: list[str] = []
+    for target in targets:
+        if not reassess and target.kind == "company":
+            specs.append((AgentTaskType.UPDATE_COMPANY, target.id, None))
+            continue
+        prospect = session.get(Prospect, target.id) if target.kind == "prospect" else None
+        if prospect is None or (not reassess and prospect.company_id is None):
+            skipped.append(target.label)
+            continue
+        task_type = AgentTaskType.REASSESS_SCORE if reassess else AgentTaskType.UPDATE_EMPLOYEE
+        specs.append((task_type, prospect.company_id, prospect.id))
+    return specs, skipped
+
+
 def run_mission(
     session: Session,
     actor: ActorContext,
@@ -1269,8 +1301,9 @@ def run_mission(
     if mission.status is not MissionStatus.ACTIVE:
         raise ConflictError("This mission is not active.")
     targets = _target_rows(session, mission.id)
-    discovery = not targets
     check_runnable(mission.type, mission.result_kind, [target.kind for target in targets])
+    specs, skipped = _plan_run(session, mission, targets)
+    created = len(specs)
     run = MissionRun(
         mission_id=mission.id,
         status=MissionRunStatus.RUNNING,
@@ -1278,93 +1311,11 @@ def run_mission(
         scheduled_at=moment,
         started_at=moment,
         # The rule this run's tasks work under: a later « Modifier » changes only the next runs.
-        config=agent_payloads.mission_rule(mission),
+        config={**agent_payloads.mission_rule(mission), "task_count": created},
     )
     session.add(run)
     session.flush()
-    created = 0
-    skipped: list[str] = []
-    if discovery:
-        _task(
-            session,
-            actor,
-            mission,
-            run,
-            AgentTaskType.FIND_PROSPECTS,
-            company_id=None,
-            prospect_id=None,
-        )
-        created = 1
-    elif mission.task_type is AgentTaskType.REASSESS_SCORE:
-        for target in targets:
-            prospect = session.get(Prospect, target.id) if target.kind == "prospect" else None
-            if prospect is None:
-                skipped.append(target.label)
-                continue
-            _task(
-                session,
-                actor,
-                mission,
-                run,
-                AgentTaskType.REASSESS_SCORE,
-                company_id=prospect.company_id,
-                prospect_id=prospect.id,
-            )
-            created += 1
-    elif mission.type is MissionType.SIGNALS:
-        company_ids = [target.id for target in targets if target.kind == "company"]
-        for company_id in company_ids:
-            _task(
-                session,
-                actor,
-                mission,
-                run,
-                AgentTaskType.SURVEIL_SIGNALS,
-                company_id=company_id,
-                prospect_id=None,
-            )
-            created += 1
-    elif mission.type is MissionType.PROSPECTION:
-        company_ids = [target.id for target in targets if target.kind == "company"]
-        for company_id in company_ids:
-            _task(
-                session,
-                actor,
-                mission,
-                run,
-                AgentTaskType.FIND_EMPLOYEES,
-                company_id=company_id,
-                prospect_id=None,
-            )
-            created += 1
-    else:
-        for target in targets:
-            if target.kind == "company":
-                _task(
-                    session,
-                    actor,
-                    mission,
-                    run,
-                    AgentTaskType.UPDATE_COMPANY,
-                    company_id=target.id,
-                    prospect_id=None,
-                )
-                created += 1
-            else:
-                prospect = session.get(Prospect, target.id)
-                if prospect is None or prospect.company_id is None:
-                    skipped.append(target.label)
-                    continue
-                _task(
-                    session,
-                    actor,
-                    mission,
-                    run,
-                    AgentTaskType.UPDATE_EMPLOYEE,
-                    company_id=prospect.company_id,
-                    prospect_id=prospect.id,
-                )
-                created += 1
+    _create_tasks(session, actor, mission, run, specs)
     run.tasks_total = created
     if created == 0:
         run.status = MissionRunStatus.FAILED
@@ -1483,38 +1434,40 @@ def run_due(session: Session, *, now: datetime | None = None, limit: int = 20) -
     return started
 
 
-def _task(
+def _create_tasks(
     session: Session,
     actor: ActorContext,
     mission: Mission,
     run: MissionRun,
-    task_type: AgentTaskType,
-    *,
-    company_id: uuid.UUID | None,
-    prospect_id: uuid.UUID | None,
-) -> AgentTask:
-    task = AgentTask(
-        thread_id=None,
-        run_id=run.id,
-        type=task_type,
-        company_id=company_id,
-        prospect_id=prospect_id,
-        status=AgentTaskStatus.PENDING,
-        priority=agent_missions.TASK_PRIORITIES.get(task_type, 50),
-        assigned_agent_id=mission.agent_id,
-    )
-    session.add(task)
+    specs: list[TaskSpec],
+) -> list[AgentTask]:
+    """Insert the run's tasks in one flush (500 stay fast), each with its audit event."""
+    tasks = [
+        AgentTask(
+            thread_id=None,
+            run_id=run.id,
+            type=task_type,
+            company_id=company_id,
+            prospect_id=prospect_id,
+            status=AgentTaskStatus.PENDING,
+            priority=agent_missions.TASK_PRIORITIES.get(task_type, 50),
+            assigned_agent_id=mission.agent_id,
+        )
+        for task_type, company_id, prospect_id in specs
+    ]
+    session.add_all(tasks)
     session.flush()
-    audit.record_event(
-        session,
-        actor,
-        audit.AuditAction.AGENT_TASK_CREATED,
-        entity_type="agent_task",
-        entity_id=task.id,
-        subject=("company", company_id) if company_id is not None else None,
-        changes={"type": {"after": task_type.value}},
-    )
-    return task
+    for task in tasks:
+        audit.record_event(
+            session,
+            actor,
+            audit.AuditAction.AGENT_TASK_CREATED,
+            entity_type="agent_task",
+            entity_id=task.id,
+            subject=("company", task.company_id) if task.company_id is not None else None,
+            changes={"type": {"after": task.type.value}},
+        )
+    return tasks
 
 
 def set_status(
@@ -1806,5 +1759,5 @@ def options() -> dict[str, Any]:
         ],
         "units": [unit.value for unit in RecurrenceUnit],
         "end_kinds": [kind.value for kind in MissionEndKind],
-        "result_limit_max": RESULT_LIMIT_MAX,
+        "task_count_max": TASK_COUNT_MAX,
     }

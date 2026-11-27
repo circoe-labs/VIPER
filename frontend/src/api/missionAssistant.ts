@@ -37,9 +37,7 @@ export interface DraftSnapshot {
   end_kind: string
   ends_at: string
   max_runs: number | null
-  objective: { kind: 'tasks_accepted' | 'accepted_items'; count: number | null }
-  allow_multiple: boolean
-  result_limit: number
+  task_count: number
   geography: string
   period_days: number | null
   exclude_known: boolean

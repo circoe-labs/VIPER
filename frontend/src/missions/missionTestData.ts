@@ -22,7 +22,7 @@ export const OPTIONS: MissionOptions = {
   ],
   units: ['hours', 'days', 'weeks', 'months'],
   end_kinds: ['never', 'date', 'after'],
-  result_limit_max: 500,
+  task_count_max: 500,
 }
 
 export function card(overrides: Partial<MissionCard> = {}): MissionCard {
@@ -85,7 +85,6 @@ export function detail(): MissionDetail {
     ],
     prompt: 'Complète ces fiches avec le site web et le domaine e-mail.',
     result_kind: 'enrichment',
-    result_limit: 20,
     rule: {
       agent_id: null,
       starts_at: '2026-10-30T07:00:00+00:00',

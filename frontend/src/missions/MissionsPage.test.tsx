@@ -34,7 +34,7 @@ describe('MissionsPage', () => {
     expect(title).not.toContainElement(toReview[0] ?? null)
     expect(within(link).getByText('1 tâche')).toBeInTheDocument()
     // 0 of 1 task accepted: a real 0 %, with a labelled bar.
-    expect(within(link).getByRole('progressbar', { name: 'Progression : 0 % des tâches validées' })).toBeInTheDocument()
+    expect(within(link).getByRole('progressbar', { name: 'Progression : 0 / 1 tâches terminées' })).toBeInTheDocument()
   })
 
   it('lists the agents working now with their person, three at most, and nothing when none is active', async () => {
@@ -232,8 +232,7 @@ describe('MissionsPage', () => {
       prompt: null,
       skill_ids: null,
       source_ids: null,
-      allow_multiple: false,
-      objective: { kind: 'tasks_accepted', count: null },
+      task_count: 1,
     })
   })
 
@@ -273,7 +272,7 @@ describe('MissionsPage', () => {
     expect(postedBody(fetchMock)).toMatchObject({ source_ids: ['source-9'] })
   })
 
-  it('links internal context apart from the targets, and sends the objective and one-item mode', async () => {
+  it('links internal context apart from the targets, and sends the number of tasks', async () => {
     const { fetchMock, user, dialog } = await openCreateWith({
       'GET /api/missions/context-candidates': [200, [{ kind: 'company', id: COMPANY, label: 'Transports X', hint: 'Rouen' }]],
     })
@@ -284,31 +283,68 @@ describe('MissionsPage', () => {
     const picker = await screen.findByRole('dialog', { name: 'Ajouter du contexte VIPER' })
     await user.click(await within(picker).findByRole('checkbox', { name: /Transports X/ }))
     await user.click(within(picker).getByRole('button', { name: /Ajouter \(1\)/ }))
-    await user.selectOptions(within(dialog).getByRole('combobox', { name: 'Objectif' }), 'Un nombre d’éléments validés')
-    await user.clear(within(dialog).getByLabelText('Éléments à valider'))
-    await user.type(within(dialog).getByLabelText('Éléments à valider'), '5')
-    await user.click(within(dialog).getByRole('checkbox', { name: /Plusieurs éléments/ }))
+    await user.clear(within(dialog).getByLabelText('Nombre de tâches'))
+    await user.type(within(dialog).getByLabelText('Nombre de tâches'), '50')
 
     await user.click(within(dialog).getByRole('button', { name: 'Créer la mission' }))
 
     expect(postedBody(fetchMock)).toMatchObject({
       targets: [],
       context_refs: [{ kind: 'company', id: COMPANY, note: null }],
-      objective: { kind: 'accepted_items', count: 5 },
-      allow_multiple: true,
+      task_count: 50,
     })
   })
 
-  it('allows an objective above the per-run limit', async () => {
+  it('offers no objective nor result limit, and refuses a number of tasks outside 1 to 500', async () => {
     const { user, dialog } = await openCreate()
     await user.type(within(dialog).getByLabelText(/Consigne/), 'Trouve des transporteurs')
     await pickCategory(user, dialog, 'Prospection')
-    await user.selectOptions(within(dialog).getByRole('combobox', { name: 'Objectif' }), 'Un nombre d’éléments validés')
-    await user.clear(within(dialog).getByLabelText('Éléments à valider'))
-    await user.type(within(dialog).getByLabelText('Éléments à valider'), '50')
+    await user.click(within(dialog).getByRole('button', { name: /Skills/ }))
+    for (const gone of [/Objectif/, /Éléments à valider/, /Plusieurs éléments/, /Limite par exécution/]) {
+      expect(within(dialog).queryByLabelText(gone)).not.toBeInTheDocument()
+    }
 
-    expect(within(dialog).queryByRole('status')).not.toBeInTheDocument()
-    expect(within(dialog).getByRole('button', { name: 'Créer la mission' })).toBeEnabled()
+    await user.clear(within(dialog).getByLabelText('Nombre de tâches'))
+    await user.type(within(dialog).getByLabelText('Nombre de tâches'), '501')
+
+    expect(within(dialog).getByRole('status')).toHaveTextContent('entre 1 et 500')
+    expect(within(dialog).getByRole('button', { name: 'Créer la mission' })).toBeDisabled()
+  })
+
+  it('links companies to search contacts in, and shows how the tasks are spread over them', async () => {
+    const { fetchMock, user, dialog } = await openCreateWith({
+      'GET /api/missions/targets': [
+        200,
+        [
+          { kind: 'company', id: COMPANY, label: 'Transports X', hint: null },
+          { kind: 'company', id: 'company-2', label: 'Dépôts Y', hint: null },
+        ],
+      ],
+    })
+    await user.type(within(dialog).getByLabelText(/Consigne/), 'Trouve des responsables logistiques')
+    await pickCategory(user, dialog, 'Prospection')
+    await user.selectOptions(within(dialog).getByRole('combobox', { name: 'Résultat attendu' }), 'Trouver des contacts')
+    await user.click(within(dialog).getByRole('button', { name: 'Ajouter des sociétés' }))
+    const picker = await screen.findByRole('dialog', { name: 'Ajouter des sociétés' })
+    await user.click(await within(picker).findByRole('checkbox', { name: /Transports X/ }))
+    await user.click(within(picker).getByRole('checkbox', { name: /Dépôts Y/ }))
+    await user.click(within(picker).getByRole('button', { name: /Ajouter \(2\)/ }))
+    await user.clear(within(dialog).getByLabelText('Nombre de tâches'))
+    await user.type(within(dialog).getByLabelText('Nombre de tâches'), '5')
+
+    const split = within(dialog).getByRole('list', { name: 'Répartition des tâches par société' })
+    expect(within(split).getAllByRole('listitem').map((item) => item.textContent)).toEqual(['Dépôts Y 3', 'Transports X 2'])
+
+    await user.click(within(dialog).getByRole('button', { name: 'Créer la mission' }))
+
+    expect(postedBody(fetchMock)).toMatchObject({
+      result_kind: 'prospects',
+      task_count: 5,
+      targets: [
+        { kind: 'company', id: COMPANY },
+        { kind: 'company', id: 'company-2' },
+      ],
+    })
   })
 
   it('does not require a linked record for a signals mission', async () => {
@@ -446,7 +482,7 @@ describe('MissionDetailPage', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Nouveaux entrepôts — Normandie' })).toBeInTheDocument()
     expect(screen.getByText(/Complète ces fiches avec le site web/)).toBeInTheDocument()
     expect(screen.getByText('Transports X')).toBeInTheDocument()
-    expect(screen.getByText(/1 tâche · 1 résultat/)).toBeInTheDocument()
+    expect(screen.getByText(/0 \/ 1 tâche terminée · 1 résultat/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Relire' })).toBeInTheDocument()
   })
 

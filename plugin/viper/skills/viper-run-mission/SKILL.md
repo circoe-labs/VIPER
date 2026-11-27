@@ -19,7 +19,9 @@ Tu **es** l'agent. VIPER ne lance aucun agent à ta place et tu ne « crées » 
 - Rien à prendre : la réponse le dit et indique pourquoi (mission en pause, aucune exécution lancée). Dis-le à l'utilisateur ; ne fabrique pas de travail.
 - La tâche ouvre automatiquement ta **session de travail** dans VIPER. Garde `task_id` et `claim_id` : ils accompagnent tous les appels suivants.
 
-La réponse contient tout : le sujet, la règle de la mission (`mission` : consignes, catégorie, skills, sources), le contexte interne en lecture seule, le contrat de sortie (`output_contract`, schéma du résultat) et `objective`.
+La réponse contient tout : le sujet, la règle de la mission (`mission` : consignes, catégorie, skills, sources), le contexte interne en lecture seule, le contrat de sortie (`output_contract`, schéma du résultat).
+
+Une tâche de recherche attend **un seul élément** (une société, un entrepôt ou un contact) : les autres tâches de l'exécution trouvent les autres, parfois en même temps. Ne propose rien de ce que listent `known_values.already_proposed` ni de ce qui est déjà en base : le dépôt est alors refusé, cherche un autre élément. Rien de nouveau après une vraie recherche : `outcome: "not_found"` avec `notes`. Une fois la tâche rendue, prends la suivante.
 
 ### Travail spontané : le « Dépôt »
 

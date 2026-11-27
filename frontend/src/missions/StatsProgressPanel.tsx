@@ -15,7 +15,7 @@ interface StatsProgressPanelProps {
 }
 
 // « Progression de la mission »: finished tasks / total tasks (`overview.tasks`). « Traitées » = accepted + failed +
-// cancelled, so the word « validées » is never used here (the list card counts accepted only, CONTRACT.md key fact 2).
+// cancelled, so the word « validées » is never used here (the list card counts the same finished tasks).
 export function StatsProgressPanel({ overview }: StatsProgressPanelProps) {
   const data = overview.data
   return (

@@ -187,7 +187,7 @@ def _list_missions(ctx: ReadContext, args: dict[str, Any]) -> dict[str, Any]:
 
 def _get_mission(ctx: ReadContext, args: dict[str, Any]) -> dict[str, Any]:
     detail = missions.detail(ctx.session, _uuid_arg(args, "mission_id"))
-    return _json(mission_routes.detail_out(detail))
+    return mission_routes.bounded_for_agents(mission_routes.detail_out(detail))
 
 
 def _pending_reviews(ctx: ReadContext, args: dict[str, Any]) -> dict[str, Any]:

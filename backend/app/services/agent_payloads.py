@@ -34,7 +34,7 @@ from app.models.missions import Mission, MissionRun
 from app.models.prospects import Prospect, ProspectNote
 from app.models.taxonomies import ActivityCategory, CommercialSegment, Role
 from app.repositories.taxonomies import TaxonomyRow
-from app.services import mission_context, score_reassessment, warehouse_discovery
+from app.services import mission_context, mission_siblings, score_reassessment, warehouse_discovery
 from app.services.companies import (
     CompanyDetail,
     get_company,
@@ -47,9 +47,11 @@ from app.services.contact_channels import normalize_email_address, normalize_pho
 from app.services.errors import InvalidFieldError
 from app.services.imports.matching import company_key
 from app.services.mission_output import (
+    DEPOSIT_ITEMS_PER_TASK,
+    ITEMS_PER_TASK,
+    ONE_ITEM_TYPES,
     OutcomeFields,
     output_contract,
-    parse_objective,
 )
 from app.services.score_reassessment import INSTRUCTION as REASSESS_SCORE_INSTRUCTION
 from app.services.score_reassessment import ScoreReassessmentResult
@@ -422,6 +424,14 @@ INSTRUCTIONS: dict[AgentTaskType, str] = {
     ),
 }
 
+# Appended for a task of a run that wants one item per task.
+ONE_ITEM_INSTRUCTION = (
+    "This task wants exactly ONE new item: the run's other tasks find the others, possibly at the "
+    "same time. Do not send anything listed in `known_values.already_proposed` or already in the "
+    "base (such a result is refused: look for another one). If a real search finds nothing new, "
+    "submit outcome not_found with notes."
+)
+
 # Sent with every mission task (`mission-telemetry.md` §6, §10, §11): sessions are automatic and the
 # agent logs facts. Never a request for reasoning: only what was done and found.
 LIFECYCLE_GUIDANCE: dict[str, Any] = {
@@ -665,6 +675,8 @@ def _existing_people(session: Session, company_id: uuid.UUID) -> list[dict[str, 
         select(Prospect)
         .where(Prospect.company_id == company_id)
         .order_by(Prospect.last_name, Prospect.first_name)
+        # Bounded for the payload; a submission is checked against every one of them.
+        .limit(mission_siblings.KNOWN_MAX)
     ).all()
     role_ids = {prospect.role_id for prospect in prospects if prospect.role_id is not None}
     roles = {
@@ -741,23 +753,18 @@ def _mission_category_ref(mission: Mission) -> dict[str, str | None] | None:
 def mission_rule(mission: Mission) -> dict[str, Any]:
     """The rule a run works under: the payload's `mission` block. Kept on each run when it starts
     (`MissionRun.config`), so « Modifier la mission » only changes the next runs."""
-    objective = parse_objective(mission.objective)
-    # A goal above the per-run cap raises the cap: the person decides how many items they want.
-    result_limit = max(mission.result_limit, int(objective["count"] or 0))
     return {
         "id": str(mission.id),
         "name": mission.name,
         "type": mission.type.value,
         "prompt": mission.prompt,
         "result_kind": mission.result_kind.value,
-        "result_limit": result_limit,
+        # The tasks of the run (a run overrides it with what it really created).
+        "task_count": mission.task_count,
+        "items_per_task": DEPOSIT_ITEMS_PER_TASK if mission.is_deposit else ITEMS_PER_TASK,
         "geography": mission.geography,
         "period_days": mission.period_days,
         "exclusions": mission.exclusions,
-        # The output envelope and the goal this run works under (Slice 04). Snapshotted with the
-        # rest: editing the mission changes only the next runs.
-        "allow_multiple": mission.allow_multiple,
-        "objective": objective,
         # Saved links the agent should read first (« Sources » on the mission form).
         "sources": _mission_source_refs(mission),
         # Where the instructions come from (Slice 07): the category the `prompt` above defaults
@@ -796,13 +803,7 @@ def build_payload(
     mission, rule = _task_mission(session, task)
     moment = now or datetime.now(UTC)
     model = result_model(task.type)
-    # A legacy rule (before migration 0049) or a tool-mode task kept the list form.
-    contract = output_contract(
-        task.type,
-        model.model_json_schema(),
-        allow_multiple=bool(rule.get("allow_multiple", True)) if rule else True,
-        result_limit=rule["result_limit"] if rule else None,
-    )
+    contract = output_contract(task.type, model.model_json_schema(), rule)
     payload: dict[str, Any] = {
         "task_id": str(task.id),
         "task": task.type.value,
@@ -822,8 +823,6 @@ def build_payload(
         "output_schema_version": SCHEMA_VERSION,
         # How to read `output_schema`: envelope, omission rule, outcomes (`mission_output`).
         "output_contract": {key: value for key, value in contract.items() if key != "schema"},
-        # The goal of this run; VIPER evaluates it from accepted work, not from what you claim.
-        "objective": rule.get("objective") if rule else None,
         "constraints": {
             "no_guessing": True,
             "quote_evidence": True,
@@ -936,7 +935,7 @@ def build_payload(
                 ),
             }
             if rule is not None:
-                payload["constraints"]["max_items"] = rule["result_limit"]
+                payload["constraints"]["max_items"] = contract["max_items"]
                 payload["search_hints"] = [
                     rule["prompt"],
                     (
@@ -960,9 +959,14 @@ def build_payload(
                 f'site:linkedin.com/company "{company.display_name}"',
             ]
             if rule is not None:
-                payload["constraints"]["max_items"] = rule["result_limit"]
+                payload["constraints"]["max_items"] = contract["max_items"]
         case _:
             raise InvalidFieldError("task", "This task type has no payload yet.", "unsupported")
+    if mission is not None and not mission.is_deposit and task.type in ONE_ITEM_TYPES:
+        # What sibling tasks and the base already hold, so this task looks for something else.
+        payload["known_values"].update(mission_siblings.known_values(session, task))
+        if contract["max_items"] == 1:
+            payload["instruction"] = f"{payload['instruction']} {ONE_ITEM_INSTRUCTION}"
     return payload
 
 
@@ -1730,7 +1734,6 @@ def _find_prospects_proposal(
 ) -> dict[str, Any]:
     result = FindProspectsResult.model_validate(raw)
     _, rule = _task_mission(session, task)
-    limit = rule["result_limit"] if rule is not None else 20
     period = rule["period_days"] if rule is not None else None
     claimed_sirets: set[str] = set()
     legal_basis = _mission_context(session, task)
@@ -1757,16 +1760,6 @@ def _find_prospects_proposal(
     for index, company in enumerate(result.companies):
         field = f"companies.{index}"
         label = company.display_name.strip()
-        if len(items) >= limit:
-            refused.append(
-                {
-                    "field": field,
-                    "label": label,
-                    "reason": "limit",
-                    "message": f"La mission est limitée à {limit} sociétés par exécution.",
-                }
-            )
-            continue
         try:
             name = _clean_text("display_name", company.display_name)
             key = company_key(name)
@@ -1976,7 +1969,6 @@ def _signals_proposal(
     result = SurveilSignalsResult.model_validate(raw)
     company = get_company(session, company_id)
     _, rule = _task_mission(session, task)
-    limit = rule["result_limit"] if rule is not None else 20
     period = rule["period_days"] if rule is not None else None
     people = session.scalars(select(Prospect).where(Prospect.company_id == company_id)).all()
     names: dict[str, uuid.UUID] = {}
@@ -1992,16 +1984,6 @@ def _signals_proposal(
     refused: list[dict[str, Any]] = []
     for index, signal in enumerate(result.signals):
         field = f"signals.{index}"
-        if len(items) >= limit:
-            refused.append(
-                {
-                    "field": field,
-                    "label": signal.signal[:80],
-                    "reason": "limit",
-                    "message": f"La mission est limitée à {limit} signaux par exécution.",
-                }
-            )
-            continue
         try:
             source = _signal_url(signal.source)
         except InvalidFieldError as error:

@@ -5,8 +5,9 @@ This is the only path from an agent's idea into the base. Acceptance runs the **
 decided, and `source=agent` keeps the proposal's origin. Nothing is applied item by item outside a
 transaction: either the accepted items are written, or none is.
 
-A rejection does not destroy the work: the result keeps `raw` and the reason, and the task returns
-to the queue for further work.
+A rejection does not destroy the work: the result keeps `raw` and the reason. The task of a mission
+run is then finished (`failed` / `rejected`): no replacement is created and the run can close. A
+task outside a run (tool mode, legacy thread) or of the « Dépôt » returns to the queue.
 """
 
 import logging
@@ -38,6 +39,7 @@ from app.models.enums import (
 from app.models.prospects import Prospect, ProspectNote
 from app.repositories.taxonomies import find_by_label
 from app.services import (
+    agent_missions,
     audit,
     companies,
     mission_sources,
@@ -723,8 +725,8 @@ def accept(
 
 
 def _settle_run(session: Session, task: AgentTask) -> None:
-    """An accepted result may fulfil its run's objective (and close a one-off mission) right
-    away instead of at the scheduler's next pass. Imported here: `missions` imports this layer."""
+    """A decision may finish the last task of a run (and close a one-off mission) right away
+    instead of at the scheduler's next pass. Imported here: `missions` imports this layer."""
     if task.run_id is None:
         return
     from app.models.missions import MissionRun
@@ -763,7 +765,7 @@ def _apply_task(
 def reject(
     session: Session, actor: ActorContext, result_id: uuid.UUID, reason: str
 ) -> AgentTaskResult:
-    """Refuse the proposal and return the task to the queue."""
+    """Refuse the proposal: a mission task is finished, any other returns to the queue."""
     if not reason.strip():
         raise InvalidFieldError("reason", "A reason is required.", "empty")
     result, task = _locked(session, result_id)
@@ -774,7 +776,8 @@ def reject(
     result.decided_by_display = actor.display
     result.decision_note = reason.strip()
     session.flush()
-    task.status = AgentTaskStatus.PENDING
+    finished = task.run_id is not None and not agent_missions.is_deposit_task(session, task)
+    task.status = AgentTaskStatus.FAILED if finished else AgentTaskStatus.PENDING
     task.failure_code = "rejected"
     task.failure_message = reason.strip()
     session.flush()
@@ -788,4 +791,5 @@ def reject(
         changes={"status": {"before": "pending_review", "after": "rejected"}},
         reason=reason.strip(),
     )
+    _settle_run(session, task)
     return result

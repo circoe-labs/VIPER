@@ -12,12 +12,13 @@ from app.models.agent_missions import AgentTask
 from app.models.companies import Company
 from app.models.enums import AgentTaskType
 from app.models.prospects import Prospect
-from app.services import agent_missions
+from app.services import agent_missions, mission_output, mission_siblings
 from app.services.agent_payloads import (
     CompanyProposal,
     CompanyUpdateResult,
     EmployeeUpdateResult,
     build_proposal,
+    result_model,
     task_rule,
 )
 from app.services.errors import ConflictError, InvalidFieldError
@@ -44,22 +45,17 @@ def _check_mission_contract(
     actions: list[dict[str, Any]],
 ) -> None:
     """Inside a mission run, staging is another way to fill the same output contract: one target
-    per task (an update names only the task's own record) and no more additions than the mission
-    returns per task (one when `allow_multiple` is false). A tool-mode task is unconstrained."""
+    per task (an update names only the task's own record) and no more additions than a task of
+    the run brings. A tool-mode task is unconstrained."""
     if task.run_id is None:
         return
     if operation == "add_company":
-        rule = task_rule(session, task)
-        allow_multiple = bool(rule.get("allow_multiple", True)) if rule else True
-        cap = (rule["result_limit"] if rule else MAX_ACTIONS) if allow_multiple else 1
-        added = sum(1 for action in actions if action["operation"] == "add_company")
-        if added >= cap:
+        cap = mission_output.items_cap(
+            task.type, task_rule(session, task), result_model(task.type).model_json_schema()
+        )
+        if sum(1 for action in actions if action["operation"] == "add_company") >= cap:
             raise InvalidFieldError(
-                "actions",
-                "This mission returns one item at a time (allow_multiple=false)."
-                if not allow_multiple
-                else f"This mission allows at most {cap} items per task.",
-                "too_many",
+                "actions", f"This task takes at most {cap} item(s).", "too_many"
             )
         return
     subject = task.company_id if operation == "update_company" else task.prospect_id
@@ -69,6 +65,26 @@ def _check_mission_contract(
             "A mission task works on its own target only: stage updates for this task's record.",
             "wrong_target",
         )
+
+
+def _without_taken(
+    session: Session, task: AgentTask, action: dict[str, Any], actions: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """The staged actions minus an addition a sibling task proposed in the meantime: a one-item
+    task would otherwise be stuck with it, unable to submit it or to stage another."""
+    if task.run_id is None or any(previous["id"] == action["id"] for previous in actions):
+        return actions
+    rule = task_rule(session, task)
+    kept = []
+    for previous in actions:
+        if previous["operation"] == "add_company":
+            try:
+                mission_siblings.check(session, task, rule, proposal(session, task, [previous]))
+            except InvalidFieldError as error:
+                logger.info("agent action dropped: task=%s reason=%s", task.id, error.reason)
+                continue
+        kept.append(previous)
+    return kept
 
 
 def stage(
@@ -101,6 +117,8 @@ def stage(
         "data": validated,
     }
     actions = list(task.staged_actions or [])
+    if operation == "add_company":
+        actions = _without_taken(session, task, action, actions)
     _check_mission_contract(session, task, operation, target_id, actions)
     for previous in actions:
         if previous["id"] == action["id"]:
@@ -133,6 +151,11 @@ def stage(
             claimed_at=task.claimed_at,
         )
         build_proposal(session, virtual, validated)
+    elif task.run_id is not None:
+        # Refused now, while the agent can still pick another one.
+        mission_siblings.check(
+            session, task, task_rule(session, task), proposal(session, task, [action])
+        )
     task.staged_actions = [*actions, action]
     session.flush()
     logger.info(

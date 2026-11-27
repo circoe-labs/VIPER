@@ -84,7 +84,8 @@ export function reviewQueueTotal(items: MissionCard[], standaloneProposals: numb
   return items.reduce((sum, card) => sum + card.results_pending, standaloneProposals)
 }
 
-// Share of the mission's tasks that were accepted (« X % validées »), 0-100. `null` when the mission has no task:
+// Share of the mission's tasks that are finished (accepted, rejected, nothing found…), 0-100, for the card's bar next
+// to « x / N terminées ». `null` when the mission has no task:
 // never 0 % for « nothing to do yet ».
 export function progressPercent(card: Pick<MissionCard, 'tasks_done' | 'tasks_total'>): number | null {
   if (card.tasks_total <= 0) return null

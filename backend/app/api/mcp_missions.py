@@ -124,7 +124,7 @@ def _without_defaults(node: Any) -> Any:
 
 def _update_schema() -> dict[str, Any]:
     # No `default`: a field left out keeps the mission's current value, so a host that fills in
-    # advertised defaults would silently reset the rule (result_limit, is_recurring, end_kind…).
+    # advertised defaults would silently reset the rule (task_count, is_recurring, end_kind…).
     properties = {
         key: _without_defaults(value)
         for key, value in _MISSION_SCHEMA["properties"].items()
@@ -169,8 +169,7 @@ def _status(args: dict[str, Any]) -> MissionStatus:
 
 def _detail(ctx: MissionContext, mission_id: uuid.UUID) -> dict[str, Any]:
     detail = mission_routes.detail_out(missions.detail(ctx.session, mission_id))
-    dumped: dict[str, Any] = detail.model_dump(mode="json")
-    return dumped
+    return mission_routes.bounded_for_agents(detail)
 
 
 def _current_rule(session: Session, mission_id: uuid.UUID) -> dict[str, Any]:
@@ -242,6 +241,9 @@ def _update(ctx: MissionContext, args: dict[str, Any]) -> dict[str, Any]:
         rule.pop("type")
     elif "type" in changes and "category_id" not in changes:
         rule.pop("category_id")
+    if "task_count" not in changes:
+        # Left out = kept: the service raises it if the new targets need more.
+        rule.pop("task_count")
     body = _mission_in({**rule, **changes})
     missions.update(ctx.session, ctx.actor, mission_id, mission_routes.mission_input(body))
     return _detail(ctx, mission_id)
@@ -362,7 +364,7 @@ TOOLS: tuple[MissionTool, ...] = (
         name="viper_mission_options",
         description=(
             "What a mission may be: its types and expected results (and which ones can run "
-            "today), recurrence units, end kinds, the result limit, the agents that may be "
+            "today), recurrence units, end kinds, the maximum task count, the agents that may be "
             "assigned, and the library to build one from: `categories` (each with its general "
             "prompt and default skills / sources), `skills` and `sources` (ids for `skill_ids` / "
             "`source_ids`; narrow the sources with `source_search`). Pass `target_kind` (and "
@@ -388,7 +390,10 @@ TOOLS: tuple[MissionTool, ...] = (
             "Create a mission: VIPER derives the agent tasks of each run from it. Discovery "
             "(prospection → companies) needs no target; enrichment, verification, signals and "
             "prospection → prospects work on linked companies or people (`targets`, ids from "
-            "viper_search or viper_mission_options). `run_now: true` also launches a first run. "
+            "viper_search or viper_mission_options). `task_count` is the number of tasks of each "
+            "run, one item per task: « find 50 prospects at X » is ONE mission (« Trouver des "
+            "prospects chez X ») with result_kind prospects, X in `targets` and task_count 50, "
+            "never 50 missions. `run_now: true` also launches a first run. "
             "Returns the mission as viper_get_mission does."
         ),
         input_schema=_MISSION_SCHEMA,

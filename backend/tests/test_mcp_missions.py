@@ -71,7 +71,9 @@ def refused(answer: dict[str, Any], code: str) -> dict[str, Any]:
 def missions_count(session: Session) -> int:
     # The permanent Dépôt is not a mission anyone created.
     return (
-        session.scalar(select(func.count()).select_from(Mission).where(Mission.is_deposit.is_(False)))
+        session.scalar(
+            select(func.count()).select_from(Mission).where(Mission.is_deposit.is_(False))
+        )
         or 0
     )
 
@@ -214,14 +216,14 @@ def test_update_changes_only_what_is_sent_and_keeps_the_tasks_already_made(
             {
                 "mission_id": mission_id,
                 "prompt": "Trouve aussi le numéro du standard.",
-                "result_limit": 5,
+                "geography": "Normandie",
                 "targets": [{"kind": "company", "id": str(other.id)}],
             },
         )
     )
 
     assert updated["prompt"] == "Trouve aussi le numéro du standard."
-    assert updated["result_limit"] == 5
+    assert updated["rule"]["geography"] == "Normandie"
     assert updated["card"]["name"] == "Compléter 2SN"
     assert [target["label"] for target in updated["targets"]] == ["Nordis"]
     # The task of the run already made keeps its subject and the rule it was created under.
@@ -274,9 +276,10 @@ def test_the_update_schema_advertises_no_default(client: TestClient, db_session:
     assert set(schema["properties"]) == set(MissionIn.model_fields) - {"run_now"} | {"mission_id"}
     assert schema["properties"]["end_kind"]["enum"] == ["never", "date", "after"]
     # The create schema keeps its defaults: there, a field left out does take them.
-    assert (
-        listed["viper_create_mission"]["inputSchema"]["properties"]["result_limit"]["default"] == 20
-    )
+    created = listed["viper_create_mission"]["inputSchema"]["properties"]
+    assert created["end_kind"]["default"] == "never"
+    assert created["task_count"]["anyOf"][0]["maximum"] == 500
+    assert not {"result_limit", "allow_multiple", "objective"} & set(created)
 
 
 def last_call(session: Session, tool: str) -> McpCall:

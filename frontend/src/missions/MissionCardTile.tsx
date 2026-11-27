@@ -47,10 +47,13 @@ function Progress({ card }: { card: MissionCard }) {
         className="mlist-progress__bar"
         value={percent}
         max={100}
-        aria-label={`Progression : ${String(percent)} % des tâches validées`}
+        aria-label={`Progression : ${String(card.tasks_done)} / ${String(card.tasks_total)} tâches terminées`}
       />
       <span className="mlist-progress__figure">
-        <strong>{String(percent)} %</strong> validées
+        <strong>
+          {String(card.tasks_done)} / {String(card.tasks_total)}
+        </strong>{' '}
+        terminées
       </span>
     </div>
   )

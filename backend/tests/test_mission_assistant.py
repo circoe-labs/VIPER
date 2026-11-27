@@ -185,13 +185,13 @@ def test_draft_tools_return_validated_actions_and_apply_nothing(
         lambda _: [
             call("set_name", {"name": "Veille Normandie"}, "a"),
             call("set_category", {"category_id": signals}, "b"),
-            call("set_objective", {"kind": "accepted_items", "count": 5}, "c"),
+            call("set_task_count", {"count": 5}, "c"),
             call(
                 "set_recurrence",
                 {"recurring": True, "interval_count": 1, "interval_unit": "weeks"},
                 "d",
             ),
-            call("set_options", {"allow_multiple": True, "geography": "Normandie"}, "e"),
+            call("set_options", {"geography": "Normandie"}, "e"),
         ],
         lambda request: say("C’est noté."),
     )
@@ -202,11 +202,11 @@ def test_draft_tools_return_validated_actions_and_apply_nothing(
     assert [action["tool"] for action in body["actions"]] == [
         "set_name",
         "set_category",
-        "set_objective",
+        "set_task_count",
         "set_recurrence",
         "set_options",
     ]
-    assert body["actions"][2]["args"] == {"kind": "accepted_items", "count": 5}
+    assert body["actions"][2]["args"] == {"count": 5}
     assert all(action["summary"] for action in body["actions"])
     # Every call was acknowledged to the model.
     assert outputs(model.requests[1]) == [{"ok": True}] * 5
@@ -223,7 +223,7 @@ def test_invalid_calls_are_refused_to_the_model_and_never_returned(
         lambda _: [
             call("set_category", {"category_id": "00000000-0000-0000-0000-000000000000"}, "a"),
             call("set_skills", {"skill_ids": ["not-a-uuid"]}, "b"),
-            call("set_objective", {"kind": "accepted_items", "count": 999}, "c"),
+            call("set_task_count", {"count": 999}, "c"),
             call("set_recurrence", {"recurring": True, "starts_at": "demain"}, "d"),
             call(
                 "add_context_record",
@@ -476,3 +476,32 @@ def test_stt_settings_come_from_the_environment(
     assert settings.stt_base_url == "http://127.0.0.1:8000/v1"
     monkeypatch.setenv("VIPER_STT_BASE_URL", " ")
     assert Settings(runtime_settings_path=tmp_path / "r.json").stt_base_url is None
+
+
+def test_the_task_count_follows_the_linked_records(
+    app: FastAPI, client: TestClient, db_session: Session
+) -> None:
+    company = add_company(db_session, "Acme Logistique")
+    db_session.flush()
+    prospection = category_id(client, "prospection")
+    enrichment = category_id(client, "enrichment")
+
+    def search(_: Request) -> list[dict[str, Any]]:
+        return [call("search_context_records", {"kind": "company", "query": "Acme"}, "s")]
+
+    def fill(_: Request) -> list[dict[str, Any]]:
+        return [
+            call("set_category", {"category_id": prospection, "result_kind": "prospects"}, "a"),
+            call("add_target", {"kind": "company", "id": str(company.id)}, "b"),
+            call("set_task_count", {"count": 50}, "c"),
+            call("set_category", {"category_id": enrichment}, "d"),
+            call("set_task_count", {"count": 50}, "e"),
+        ]
+
+    model = enable(app, client, search, fill, lambda _: say("C’est noté."))
+    body = turn(client, "Trouve-moi 50 prospects chez Acme").json()
+
+    assert [a["args"] for a in body["actions"] if a["tool"] == "set_task_count"] == [{"count": 50}]
+    # On records to complete, one task per record: the model is told so.
+    assert "fixé par les fiches liées (1)" in outputs(model.requests[2])[-1]["error"]
+    assert "50 prospects chez X" in model.requests[0]["instructions"]

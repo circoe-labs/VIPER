@@ -51,7 +51,7 @@ PROMPT_MAX_LENGTH = 5000
 GEOGRAPHY_MAX_LENGTH = 200
 AGENT_LABEL_MAX_LENGTH = 255
 ACTOR_ID_MAX_LENGTH = 128
-RESULT_LIMIT_MAX = 500
+TASK_COUNT_MAX = 500
 PERIOD_DAYS_MAX = 3650
 INTERVAL_MAX = 1000
 MAX_RUNS_MAX = 1000
@@ -74,7 +74,7 @@ class Mission(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, Base)
             f"btrim(prompt) <> '' AND char_length(prompt) <= {PROMPT_MAX_LENGTH}",
             name="prompt_valid",
         ),
-        CheckConstraint(f"result_limit BETWEEN 1 AND {RESULT_LIMIT_MAX}", name="limit_range"),
+        CheckConstraint(f"task_count BETWEEN 1 AND {TASK_COUNT_MAX}", name="task_count_range"),
         CheckConstraint(
             f"period_days IS NULL OR period_days BETWEEN 1 AND {PERIOD_DAYS_MAX}",
             name="period_range",
@@ -125,14 +125,9 @@ class Mission(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, Base)
     result_kind: Mapped[MissionResultKind] = mapped_column(
         text_enum(MissionResultKind, "result_kind")
     )
-    # The cap on items one run may propose (a ceiling, never the goal: see `objective`).
-    result_limit: Mapped[int] = mapped_column(SmallInteger, server_default="20")
-    # One item per submission (false, the default) or a list envelope (true). Missions that
-    # existed before migration 0049 keep the list form they always had.
-    allow_multiple: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
-    # The machine-evaluable goal (`mission_output.MissionObjective`); NULL = « every task of the
-    # run is accepted ». Each run snapshots it in `MissionRun.config`.
-    objective: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    # « Nombre de tâches » of each run: for discovery work, one task per wanted item; work on
+    # linked records creates one task per record (the stored value is then that number).
+    task_count: Mapped[int] = mapped_column(SmallInteger, server_default="1")
     geography: Mapped[str | None] = mapped_column(String(GEOGRAPHY_MAX_LENGTH))
     period_days: Mapped[int | None] = mapped_column(SmallInteger)
     # Free-form advanced exclusions: {"known_companies": true, "domains": ["…"]}.
@@ -151,9 +146,7 @@ class Mission(UUIDPrimaryKeyMixin, OrganizationOwnedMixin, TimestampMixin, Base)
     # Which category-derived fields a person set explicitly (`prompt`, `skills`; see
     # `INHERITABLE_FIELDS`). A field not listed follows its category; never inferred by comparing
     # texts.
-    overridden_fields: Mapped[list[str]] = mapped_column(
-        JSONB, server_default=text("'[]'::jsonb")
-    )
+    overridden_fields: Mapped[list[str]] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     # The links this mission reads (read-only view; written through `MissionSourceLink`).
     sources: Mapped[list[MissionSource]] = relationship(
         secondary="mission_source_links",
@@ -276,6 +269,3 @@ class MissionRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # The rule this run works under (the payload's mission block, `agent_payloads.mission_rule`),
     # so modifying the mission changes only the next runs. NULL before migration 0027: live rule.
     config: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
-    # When this run's own objective was first fulfilled (NULL: not yet / never). Progress itself is
-    # derived from the run's tasks and results, never self-asserted by an agent.
-    objective_met_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

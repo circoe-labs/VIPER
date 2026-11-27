@@ -19,11 +19,14 @@ export function TargetPicker({
   onClose,
   onAdd,
   mode = 'target',
+  companiesOnly = false,
 }: {
   open: boolean
   onClose: () => void
   onAdd: (targets: TargetOption[]) => void
   mode?: 'target' | 'context'
+  // Companies to search contacts in: no other kind is offered.
+  companiesOnly?: boolean
 }) {
   const [kind, setKind] = useState<'company' | 'prospect' | 'warehouse'>('company')
   const [search, setSearch] = useState('')
@@ -52,9 +55,11 @@ export function TargetPicker({
     <Modal
       open={open}
       onClose={close}
-      title={mode === 'context' ? 'Ajouter du contexte VIPER' : 'Ajouter des données'}
+      title={mode === 'context' ? 'Ajouter du contexte VIPER' : companiesOnly ? 'Ajouter des sociétés' : 'Ajouter des données'}
       description={
-        mode === 'context'
+        companiesOnly
+          ? 'Les sociétés où les agents cherchent des contacts.'
+          : mode === 'context'
           ? 'Choisissez des sociétés, prospects ou entrepôts VIPER qui aident l’agent à comprendre le sujet. Elles sont lues en lecture seule : l’agent ne les traite pas et ne les modifie pas.'
           : 'Choisissez des sociétés ou des prospects déjà dans VIPER. La mission gardera leur référence, pas une copie.'
       }
@@ -78,7 +83,7 @@ export function TargetPicker({
     >
       <div className="mission-picker">
         <div className="mission-picker__tabs" role="group" aria-label="Type de donnée">
-          {((mode === 'context' ? ['company', 'prospect', 'warehouse'] : ['company', 'prospect']) as ('company' | 'prospect' | 'warehouse')[]).map((value) => (
+          {(mode === 'context' ? (['company', 'prospect', 'warehouse'] as const) : companiesOnly ? [] : (['company', 'prospect'] as const)).map((value) => (
             <Button
               key={value}
               size="sm"

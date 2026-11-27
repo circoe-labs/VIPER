@@ -303,7 +303,12 @@ def overview(session: Session, mission: Mission) -> Overview:
         failed = session.scalar(
             select(func.count())
             .select_from(AgentTask)
-            .where(AgentTask.run_id == run.id, AgentTask.status == AgentTaskStatus.FAILED)
+            .where(
+                AgentTask.run_id == run.id,
+                AgentTask.status == AgentTaskStatus.FAILED,
+                # A person refusing a proposal is not a failure to report.
+                AgentTask.failure_code.is_distinct_from("rejected"),
+            )
         )
         if failed:
             warnings.append(
